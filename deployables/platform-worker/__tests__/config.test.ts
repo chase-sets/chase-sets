@@ -49,6 +49,12 @@ const envNames = [
   "WORKER_JOB_MAX_CONCURRENT_RUNNERS",
   "WORKER_DISPATCH_MAX_CONCURRENT_RUNNERS",
   "WORKER_SCHEDULED_MAX_CONCURRENT_RUNNERS",
+  "WORKER_PROJECTION_WAKE_SCHEDULER_ENABLED",
+  "WORKER_PROJECTION_WAKE_RELAY_ENABLED",
+  "WORKER_WAKE_HOT_LANE_RUNNER_COUNT",
+  "WORKER_WAKE_STANDARD_LANE_RUNNER_COUNT",
+  "WORKER_WAKE_BULK_LANE_RUNNER_COUNT",
+  "WORKER_WAKE_DISABLED_PROJECTIONS",
   "SOURCE_OBSERVATION_BULK_JOB_LANE_COUNT",
   "SOURCE_OBSERVATION_BULK_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS",
   "SOURCE_OBSERVATION_BULK_JOB_MAX_ACTIVE_CLAIMS_PER_JOB",
@@ -292,6 +298,68 @@ describe("platform worker config", () => {
       googleShoppingDiagnosticsIntervalMs: 7_200_000,
       googleShoppingDiagnosticsBatchSize: 150,
     });
+  });
+
+  it("defaults projection wake controls to fully enabled", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+
+    const config = loadConfig();
+
+    expect(config.projectionWakeScheduler).toMatchObject({
+      enabled: true,
+      hotLaneRunnerCount: 1,
+      standardLaneRunnerCount: 1,
+      bulkLaneRunnerCount: 1,
+    });
+    expect(config.projectionWakeRelay.enabled).toBe(true);
+    expect(config.projectionWakeDisabledProjections).toEqual([]);
+  });
+
+  it("disables a single wake priority lane with a zero runner count", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.WORKER_WAKE_HOT_LANE_RUNNER_COUNT = "0";
+
+    const config = loadConfig();
+
+    expect(config.projectionWakeScheduler).toMatchObject({
+      enabled: true,
+      hotLaneRunnerCount: 0,
+      standardLaneRunnerCount: 1,
+      bulkLaneRunnerCount: 1,
+    });
+  });
+
+  it("keeps lane runner counts at their defaults for empty or invalid values", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.WORKER_WAKE_HOT_LANE_RUNNER_COUNT = " ";
+    process.env.WORKER_WAKE_STANDARD_LANE_RUNNER_COUNT = "zero";
+    process.env.WORKER_WAKE_BULK_LANE_RUNNER_COUNT = "-2";
+
+    expect(loadConfig().projectionWakeScheduler).toMatchObject({
+      hotLaneRunnerCount: 1,
+      standardLaneRunnerCount: 1,
+      bulkLaneRunnerCount: 1,
+    });
+  });
+
+  it("parses, trims, dedupes, and sorts disabled wake projection keys", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.WORKER_WAKE_DISABLED_PROJECTIONS =
+      " marketplace:marketplace-offer-projection , checkout:checkout.cart-projection ,checkout:checkout.cart-projection,";
+
+    expect(loadConfig().projectionWakeDisabledProjections).toEqual([
+      "checkout:checkout.cart-projection",
+      "marketplace:marketplace-offer-projection",
+    ]);
+  });
+
+  it("rejects malformed disabled wake projection keys instead of ignoring them", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.WORKER_WAKE_DISABLED_PROJECTIONS = "checkout-cart-projection";
+
+    expect(() => loadConfig()).toThrow(
+      "WORKER_WAKE_DISABLED_PROJECTIONS entries must use the form <target-context>:<projection-name>, got 'checkout-cart-projection'.",
+    );
   });
 
   it("loads Twilio mobile messaging configuration when enabled", () => {

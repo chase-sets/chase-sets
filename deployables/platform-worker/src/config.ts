@@ -45,6 +45,7 @@ export type PlatformWorkerConfig = Readonly<{
   leaseRenewIntervalMs: number;
   projectionWakeScheduler: PlatformWorkerProjectionWakeSchedulerConfig;
   projectionWakeRelay: PlatformWorkerProjectionWakeRelayConfig;
+  projectionWakeDisabledProjections: readonly string[];
   paymentReconciliationIntervalMs: number | null;
   sellerFundsReleaseIntervalMs: number | null;
   payoutReconciliationIntervalMs: number | null;
@@ -368,9 +369,11 @@ export function loadConfig(): PlatformWorkerConfig {
       enabled: getBooleanEnv("WORKER_PROJECTION_WAKE_SCHEDULER_ENABLED", true),
       maxConcurrentRunners: getPositiveNumberEnv("WORKER_WAKE_MAX_CONCURRENT_RUNNERS", 2),
       pollIntervalMs: getPositiveNumberEnv("WORKER_WAKE_POLL_INTERVAL_MS", 1_000),
-      hotLaneRunnerCount: getPositiveNumberEnv("WORKER_WAKE_HOT_LANE_RUNNER_COUNT", 1),
-      standardLaneRunnerCount: getPositiveNumberEnv("WORKER_WAKE_STANDARD_LANE_RUNNER_COUNT", 1),
-      bulkLaneRunnerCount: getPositiveNumberEnv("WORKER_WAKE_BULK_LANE_RUNNER_COUNT", 1),
+      // Lane runner counts accept zero so an operator can kill one priority
+      // lane on this worker without disabling the whole wake scheduler.
+      hotLaneRunnerCount: getNonNegativeNumberEnv("WORKER_WAKE_HOT_LANE_RUNNER_COUNT", 1),
+      standardLaneRunnerCount: getNonNegativeNumberEnv("WORKER_WAKE_STANDARD_LANE_RUNNER_COUNT", 1),
+      bulkLaneRunnerCount: getNonNegativeNumberEnv("WORKER_WAKE_BULK_LANE_RUNNER_COUNT", 1),
       maxClaimsPerRun: getPositiveNumberEnv("WORKER_WAKE_MAX_CLAIMS_PER_RUN", 10),
       claimTtlMs: getPositiveNumberEnv("WORKER_WAKE_CLAIM_TTL_MS", 120_000),
       retryBackoffBaseMs: getPositiveNumberEnv("WORKER_WAKE_RETRY_BACKOFF_BASE_MS", 1_000),
@@ -392,6 +395,7 @@ export function loadConfig(): PlatformWorkerConfig {
       failureBackoffMs: getPositiveNumberEnv("WORKER_WAKE_RELAY_FAILURE_BACKOFF_MS", 5_000),
       failureBackoffMaxMs: getPositiveNumberEnv("WORKER_WAKE_RELAY_FAILURE_BACKOFF_MAX_MS", 60_000),
     },
+    projectionWakeDisabledProjections: getProjectionKeyListEnv("WORKER_WAKE_DISABLED_PROJECTIONS"),
     paymentReconciliationIntervalMs: getOptionalPositiveNumberEnv("PAYMENT_RECONCILIATION_INTERVAL_MS", 300_000),
     sellerFundsReleaseIntervalMs: getOptionalPositiveNumberEnv("SELLER_FUNDS_RELEASE_INTERVAL_MS", 300_000),
     payoutReconciliationIntervalMs: getOptionalPositiveNumberEnv("PAYOUT_RECONCILIATION_INTERVAL_MS", 300_000),
@@ -621,4 +625,43 @@ function getOptionalPositiveNumberEnv(name: string, defaultValue: number) {
 
 function getPositiveNumberEnv(name: string, defaultValue: number) {
   return getOptionalPositiveNumberEnv(name, defaultValue) ?? defaultValue;
+}
+
+function getNonNegativeNumberEnv(name: string, defaultValue: number) {
+  // Empty/whitespace values fall back to the default so an unset Terraform
+  // interpolation can never silently zero out a lane.
+  const raw = getOptionalEnv(name);
+  if (raw === null) {
+    return defaultValue;
+  }
+
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : defaultValue;
+}
+
+/**
+ * Comma-separated `<target-context>:<projection-name>` keys (matching the
+ * registry's affectedProjectionNames format, e.g.
+ * `checkout:checkout.cart-projection`). Malformed entries fail config load
+ * instead of being ignored, because an operator silently failing to disable a
+ * projection group is the dangerous direction for a kill switch.
+ */
+function getProjectionKeyListEnv(name: string): readonly string[] {
+  const raw = getOptionalEnv(name);
+  if (!raw) {
+    return [];
+  }
+
+  const keys = raw
+    .split(",")
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+  for (const key of keys) {
+    const separatorIndex = key.indexOf(":");
+    if (separatorIndex <= 0 || separatorIndex >= key.length - 1) {
+      throw new Error(`${name} entries must use the form <target-context>:<projection-name>, got '${key}'.`);
+    }
+  }
+
+  return [...new Set(keys)].sort((left, right) => left.localeCompare(right));
 }

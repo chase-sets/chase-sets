@@ -194,12 +194,33 @@ const scheduledJobRunners = [
     observer: createProjectionWakeSchedulerLogObserver(),
   }),
 ];
+// Projection-group-level wake kill switch (WORKER_WAKE_DISABLED_PROJECTIONS):
+// disabled `<target-context>:<projection-name>` keys are removed from the wake
+// scheduler's hosted groups and marked disabled in the relay interest index,
+// so the relay fans out no new wake intents for them and this worker never
+// wake-runs them. Fallback polling (`projections` runner group) is untouched.
+const projectionWakeDisabledProjectionKeys = new Set(config.projectionWakeDisabledProjections);
+const projectionWakeSchedulerProjectionGroups = runtime.projectionGroups.filter(
+  (group) => !projectionWakeDisabledProjectionKeys.has(`${group.targetContextName}:${group.projectionName}`),
+);
+if (projectionWakeDisabledProjectionKeys.size > 0) {
+  const hostedProjectionKeys = new Set(
+    runtime.projectionGroups.map((group) => `${group.targetContextName}:${group.projectionName}`),
+  );
+  logger.warn("Projection wake handling disabled for configured projection groups.", {
+    type: "projection-wake.controls.projections_disabled",
+    disabledProjectionKeys: config.projectionWakeDisabledProjections,
+    unknownDisabledProjectionKeys: config.projectionWakeDisabledProjections.filter(
+      (projectionKey) => !hostedProjectionKeys.has(projectionKey),
+    ),
+  });
+}
 const projectionWakeRunners = config.projectionWakeScheduler.enabled
   ? createProjectionWakeSchedulerRunners({
       workerId: config.workerId,
       controlPlane,
       workSignalStore,
-      projectionGroups: runtime.projectionGroups,
+      projectionGroups: projectionWakeSchedulerProjectionGroups,
       lanes: [
         { lane: "hot", runnerCount: config.projectionWakeScheduler.hotLaneRunnerCount },
         { lane: "standard", runnerCount: config.projectionWakeScheduler.standardLaneRunnerCount },
@@ -295,6 +316,15 @@ const projectionWakeRelaySources: ProjectionWakeRelaySourceRuntime[] = config.pr
   : [];
 const projectionWakeRelayInterestIndex = buildProjectionInterestIndex({
   projectionGroups: runtime.projectionGroups,
+  projectionOverrides: config.projectionWakeDisabledProjections.map((projectionKey) => {
+    const separatorIndex = projectionKey.indexOf(":");
+    return {
+      targetContextName: projectionKey.slice(0, separatorIndex),
+      projectionName: projectionKey.slice(separatorIndex + 1),
+      disabled: true,
+      optOutReason: "Disabled by WORKER_WAKE_DISABLED_PROJECTIONS.",
+    };
+  }),
 });
 const projectionWakeRelayAbortController = new AbortController();
 let projectionWakeRelayIdleLogged = false;
@@ -420,6 +450,16 @@ app.get("/internal/workers/status", async (c) => {
     capacity: runnerCapacity,
     loops: loopStatuses,
     durableWorkflows,
+    projectionWakeControls: {
+      schedulerEnabled: config.projectionWakeScheduler.enabled,
+      relayEnabled: config.projectionWakeRelay.enabled,
+      laneRunnerCounts: {
+        hot: config.projectionWakeScheduler.hotLaneRunnerCount,
+        standard: config.projectionWakeScheduler.standardLaneRunnerCount,
+        bulk: config.projectionWakeScheduler.bulkLaneRunnerCount,
+      },
+      disabledProjectionKeys: config.projectionWakeDisabledProjections,
+    },
     projectionWakeIntents: await workSignalStore.summarizeProjectionWakeIntents(),
     projectionWakeRelay: projectionWakeRelaySupervisor
       ? {
