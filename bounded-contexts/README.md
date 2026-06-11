@@ -29,6 +29,8 @@ Structure, public export, deployable composition, and shared-ID rules live in [B
 | [Pricing](./pricing/README.md) | Own fair-value estimation and repricing intelligence. |
 | [Insights](./insights/README.md) | Own cross-context reporting, analytics, and forecasting views. |
 | [Tax](./tax/README.md) | Own provider-agnostic sales tax quote contracts and local quote behavior. |
+| [Support](./support/README.md) | Own structured marketplace support requests with guided, auditable resolution steps. |
+| [Platform Operations](./platform-operations/README.md) | Own internal operator workflows for cross-context platform runtime health. |
 
 Implemented contexts are the directories that contain both `package.json` and `context.json`.
 
