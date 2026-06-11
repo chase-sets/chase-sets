@@ -16,8 +16,12 @@ This list tracks the cleanup work from the full test-suite review.
 - [ ] Split oversized test files by responsibility:
   - [ ] `infrastructure/platform-runtime/realtime.test.ts`
   - [ ] `bounded-contexts/ordering/features/orders/api/runtime.test.ts`
-  - [ ] `bounded-contexts/discovery/tests/item-detail-commerce-panel.test.tsx`
-- [ ] Consolidate the design-system test catalog into focused behavior/accessibility tests.
+  - [x] `bounded-contexts/discovery/tests/item-detail-commerce-panel.test.tsx`
+  - [x] `bounded-contexts/checkout/routes/checkout-routes.test.ts`
+  - [x] `infrastructure/bounded-context-runtime/index.test.ts`
+  - [x] `bounded-contexts/catalog/features/source-observations/api/runtime.test.ts`
+  - [x] `bounded-contexts/catalog/features/source-observations/api/route.test.ts`
+- [x] Consolidate the design-system test catalog into focused behavior/accessibility tests (merged the parity twin into the catalog suites and removed three duplicated component assertions).
 - [ ] Replace source-string tests with exported policies, metadata, or runtime behavior tests.
   - [x] Converted the marketplace service-worker cache/exclusion coverage to assert exported policy helpers.
   - [x] Removed the platform API dependency on the deleted manual marketplace parity matrix.
