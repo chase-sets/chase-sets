@@ -76,7 +76,7 @@
     "check:no-legacy-forms": "node ./scripts/check-no-legacy-forms.mjs --final",
     "design-system:legacy-inventory": "node ./scripts/design-system-legacy-inventory.mjs",
     "design-system:legacy-evidence": "node ./scripts/design-system-legacy-evidence.mjs",
-    "typecheck": "pnpm run check:no-any && tsc -p ./tsconfig.json --noEmit && node ./scripts/run-workspaces.mjs typecheck",
+    "typecheck": "node ./scripts/verify-typecheck.mjs",
     "test": "pnpm run test:fast",
     "test:fast": "pnpm run verify:test",
     "test:db": "pnpm run verify:test-db",
