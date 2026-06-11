@@ -1,6 +1,6 @@
 # Catalog Control Plane Clean Contract Handoff
 
-This handoff closes the Stage 0 cleanup gate for the Catalog Control Plane UX rebuild. First-slice implementation must target clean launch contracts, not a migration, reskin, route shuffle, redirect, support-only variant, or hidden flag around the current two-page Catalog integrations surface.
+This handoff closes the Stage 0 cleanup gate for the Catalog Control Plane UX rebuild. First-slice implementation must target clean launch contracts, not a migration, reskin, route shuffle, redirect, support-only variant, or hidden flag around retired admin structure.
 
 ## Stage 0 Evidence
 
@@ -27,7 +27,7 @@ This handoff closes the Stage 0 cleanup gate for the Catalog Control Plane UX re
 - Stage 3 hardening issues can proceed when their upstream Stage 1 or Stage 2 contracts exist; they no longer wait on generic phase-0 cleanup.
 - #1061 remains blocked by first-slice completion because production rollout and signoff must verify the accepted rebuilt MVP slice, not just cleanup.
 - P2 support-workspace issues remain follow-up work after the first slice unless #1087 promotes one because it directly blocks the primary import-to-promotion path.
-- #1090 owns complete deletion of the current two-page Catalog integrations pages, modules, route/API/client/read-model behavior, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, and operator instructions after the rebuilt workbench is accepted.
+- #1090 owns complete deletion of retired admin pages, modules, route/client/read-model behavior, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, and operator instructions after the rebuilt workbench is accepted.
 
 The operational stage board for applying these rules is [Catalog Control Plane First-Slice Stage Board](./catalog-control-plane-first-slice-stage-board.md).
 
@@ -38,7 +38,7 @@ New implementation work must not:
 - revive provider compatibility routes, scripted import endpoints, or legacy provider selectors;
 - add raw profile JSON patching as a normal operator workflow;
 - silently choose a different active profile when Source Observation profile metadata is missing;
-- retain old two-page UI modules as support-only, internal, hidden, redirect-only, or migration-only surfaces;
+- retain retired UI modules as support-only, internal, hidden, redirect-only, or migration-only surfaces;
 - describe retired behavior as usable in documentation, tests, runbooks, fixtures, screenshots, release notes, or operator instructions.
 
 Any exception is launch-blocking until it is either rebuilt as a clean launch contract or completely deleted.

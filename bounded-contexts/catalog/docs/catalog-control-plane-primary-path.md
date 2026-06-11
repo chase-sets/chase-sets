@@ -1,6 +1,6 @@
 # Catalog Control Plane Primary Path
 
-The rebuilt Catalog Control Plane starts with the operator job that matters most: pull provider data, review Source Observations, and promote eligible sources into Catalog Items or Catalog-owned references. Supporting workflows exist to explain, unblock, govern, recover, or verify that path. They must not bury it behind implementation-oriented modules or preserve the current two-page Catalog integrations layout as the target architecture.
+The rebuilt Catalog Control Plane starts with the operator job that matters most: pull provider data, review Source Observations, and promote eligible sources into Catalog Items or Catalog-owned references. Supporting workflows exist to explain, unblock, govern, recover, or verify that path. They must not bury it behind implementation-oriented modules or preserve retired admin structure as the target architecture.
 
 This framing is the Stage 1 product contract for #1049. It complements the rebuilt route/workspace contract in [Catalog Control Plane Information Architecture](./catalog-control-plane-information-architecture.md), the first-slice sequencing in [Catalog Control Plane First-Slice Stage Board](./catalog-control-plane-first-slice-stage-board.md), and the clean-launch rules in [Catalog Control Plane Clean Contract Handoff](./catalog-control-plane-clean-contract-handoff.md).
 Operator-facing labels, blocked-state explanations, next steps, provider transport copy, resilience copy, and glossary terms are owned by [Catalog Control Plane Operator Copy](./catalog-control-plane-operator-copy.md).
@@ -89,9 +89,9 @@ Happy-path acceptance for #1056 should prove provider/scope selection, durable i
 
 Do not use this framing to:
 
-- migrate the current two-page Catalog integrations surface one-to-one;
+- migrate retired admin structure one-to-one;
 - make health, profiles, validation, lifecycle, controls, observability, or audit equal peers that hide the primary path;
-- preserve old page modules as support-only, internal, hidden, redirect-only, or migration-only destinations;
+- preserve retired modules as support-only, internal, hidden, redirect-only, or migration-only destinations;
 - reintroduce raw profile JSON patching, legacy provider selectors, scripted import endpoints, transitional profile mode, or silent active-profile fallback;
 - describe retired behavior as usable in documentation, tests, fixtures, screenshots, runbooks, release notes, or operator instructions.
 

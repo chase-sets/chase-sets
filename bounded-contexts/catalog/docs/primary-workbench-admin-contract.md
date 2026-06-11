@@ -1,6 +1,6 @@
 # Catalog Primary Workbench Admin Contract
 
-Issue #1060 defines the authoritative admin API and read-model contract for the rebuilt Catalog Control Plane primary workbench. The primary workbench is not a migration of the current Catalog integrations pages. It is a clean-launch workflow centered on pulling provider data, reviewing Source Observations, and promoting eligible observations into Catalog Items or Catalog-owned references.
+Issue #1060 defines the authoritative admin API and read-model contract for the rebuilt Catalog Control Plane primary workbench. The primary workbench is not a migration of retired admin pages. It is a clean-launch workflow centered on pulling provider data, reviewing Source Observations, and promoting eligible observations into Catalog Items or Catalog-owned references.
 
 The authoritative TypeScript surface lives in:
 
@@ -78,13 +78,13 @@ The workbench contract pins command routes under the Source Observations admin A
 | `start-reapply` | `POST` | `/api/catalog/source-observations/admin/reapply-jobs` | `catalog.manage` | Requires idempotency and fails closed for missing current active profile, stale replay, replay reuse, or security blockers. |
 | `start-replay` | `POST` | `/api/catalog/source-observations/admin/replay-jobs` | `catalog.manage` | Requires idempotency and fails closed for missing profile, stale replay, replay reuse, or security blockers. |
 
-Admin page routes may wrap these API routes, but no implementation may preserve the current two-page Catalog integrations module structure, hidden compatibility redirects, support-only legacy routes, or raw JSON escape hatches.
+Admin page routes may wrap these API routes, but no implementation may preserve retired admin module structure, hidden compatibility redirects, support-only legacy routes, or raw JSON escape hatches.
 
 ## Admin Route Command Bridge
 
 The rebuilt `/catalog/integrations` route may expose native form submits for the default workbench as a progressive-enhancement bridge while the clean admin API route patterns above are completed. That bridge must keep the primary-workbench command names (`start-provider-import`, `retry-import-job`, `resume-import-job`, `cancel-import-job`, `preview-promotion`, `execute-promotion`, `reject-source-observations`, `defer-source-observations`, `start-reapply`, `start-replay`) in the UI payload, preserve provider/unit/scope/profile/filter/selection/job/preview context, and redirect back to the rebuilt workbench with sanitized success or fail-closed feedback. Promotion execution must re-check the live preview against a context-bound preview checkpoint before enqueueing work; profile, provider unit, import scope, filters, and selected observation ids are part of that checkpoint, and mutating commands clear the checkpoint after enqueueing. Selected-observation previews must count the exact selected IDs instead of broadening to the current filter scope.
 
-The bridge may translate to existing lower-level Source Observation API client methods as an implementation detail, but it must not expose the old two-page route structure, legacy provider selectors, raw JSON payloads, compatibility redirects, aliases, or support-only legacy paths. Provider import lifecycle commands call launch-ready retry/resume/cancel durable job APIs and require the row job id. Retry requeues the same job while pruning failed outcomes, resume requeues only queued or stale running jobs, and cancel records operator status `cancelled`. `defer-source-observations` enqueues a durable bulk review job that records the operator reason and keeps each observation in `observed` or `changed` review state. `start-reapply` uses `current-active-profile` mode and snapshots the active provider profile at enqueue. `start-replay` uses `original-source-profile` mode and fails closed when original Source Observation profile evidence is missing or retired. If a command has no launch-ready backend route, the bridge must fail closed with `unsupported-command` instead of rendering a working-looking no-op.
+The bridge may translate to existing lower-level Source Observation API client methods as an implementation detail, but it must not expose retired route structure, legacy provider selectors, raw JSON payloads, compatibility redirects, aliases, or support-only legacy paths. Provider import lifecycle commands call launch-ready retry/resume/cancel durable job APIs and require the row job id. Retry requeues the same job while pruning failed outcomes, resume requeues only queued or stale running jobs, and cancel records operator status `cancelled`. `defer-source-observations` enqueues a durable bulk review job that records the operator reason and keeps each observation in `observed` or `changed` review state. `start-reapply` uses `current-active-profile` mode and snapshots the active provider profile at enqueue. `start-replay` uses `original-source-profile` mode and fails closed when original Source Observation profile evidence is missing or retired. If a command has no launch-ready backend route, the bridge must fail closed with `unsupported-command` instead of rendering a working-looking no-op.
 
 The import operations workbench scopes durable job rows to the selected provider and ingestion unit, sorts exact import-scope matches first, and keeps overlapping active jobs visible as blockers. Each job row carries `unitKey`, normalized `importScope`, `profileSnapshot`, `scopeMatchesRoute`, consistency policy names, failure groups, retry/resume/cancel availability, and links back to filtered Source Observation review and audit evidence. The start-provider-import action must be blocked when selected-context active jobs create duplicate-submit or overlap risk.
 
@@ -115,7 +115,7 @@ The contract supports only the `current` UI/API pairing. `old-ui-new-api` and `n
 Forbidden fallback examples include:
 
 - legacy provider selector;
-- current two-page module coupling;
+- retired module coupling;
 - raw JSON broad patch;
 - silent active-profile fallback;
 - raw provider payload fallback;
@@ -129,7 +129,7 @@ These are not temporary launch aids. They are prohibited implementation outcomes
 
 For this control plane rebuild, "retire", "remove", "deprecate", and "cleanup" mean complete removal, not soft deprecation. Retired behavior must be deleted from runtime code, API routes, UI modules, product patterns, read-model contracts, clients, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, operator instructions, route aliases, feature flags, hidden flags, fallback branches, redirects, compatibility aliases, compatibility shims, migration shims, and support-only routes.
 
-Forbidden outcomes include compatibility shims, legacy support paths, migration of the current two-page surface, raw JSON escape hatches, support-only preserved routes, documentation-only deprecation, hidden flag fallbacks, or documentation that teaches operators how to use retired behavior.
+Forbidden outcomes include compatibility shims, legacy support paths, migration of retired admin behavior, raw JSON escape hatches, support-only preserved routes, documentation-only deprecation, hidden flag fallbacks, or documentation that teaches operators how to use retired behavior.
 
 ## Downstream Issue Handoff
 

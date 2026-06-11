@@ -369,7 +369,7 @@ export const catalogProviderTransportFirstSliceBudgets = [
 export const catalogProviderTransportRetiredSurfaceRule = {
   policy: catalogPrimaryWorkbenchRetirementPolicy,
   appliesTo: [
-    "current two-page Catalog integrations pages",
+    "retired Catalog admin page modules",
     "legacy provider selectors",
     "raw JSON authoring and broad patch escape hatches",
     "support-only route variants",

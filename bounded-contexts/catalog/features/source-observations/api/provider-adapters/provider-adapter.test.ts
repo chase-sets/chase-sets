@@ -740,7 +740,7 @@ describe("ProviderAdapterRegistry", () => {
       new URL("../runtime.ts", import.meta.url),
       new URL("../route.ts", import.meta.url),
       new URL("../route-helpers.ts", import.meta.url),
-      new URL("../../ui/integration-management-page.tsx", import.meta.url),
+      new URL("../../ui/primary-workbench-page.tsx", import.meta.url),
       new URL("../provider-integration-profiles.ts", import.meta.url),
     ];
 

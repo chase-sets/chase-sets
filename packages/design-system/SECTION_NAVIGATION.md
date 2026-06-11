@@ -6,7 +6,7 @@
 
 Use section navigation for admin control planes, operational workbenches, and configuration areas where operators need to move between cohesive screens that share context.
 
-Do not use it to preserve a god page. If one page contains unrelated jobs, decompose the work into screens with clear responsibilities, put the primary job first, and make supporting jobs subordinate through group order and return context.
+Do not use it to preserve an unfocused all-in-one page. If one page contains unrelated jobs, decompose the work into screens with clear responsibilities, put the primary job first, and make supporting jobs subordinate through group order and return context.
 
 ## Desktop Pattern
 
@@ -49,7 +49,7 @@ Use `count` for actionable quantities such as pending observations, failed jobs,
 
 The Catalog Control Plane uses `SectionNavigation` to keep provider import, Source Observation review, and promotion as the first and default workflow. Health, profile authoring, validation, lifecycle, governance, and audit screens are supporting detours that must preserve return context back to the primary path.
 
-Retiring the current catalog integrations or source-observations surfaces means complete deletion of old code, patterns, tests, fixtures, screenshots, docs, runbooks, release notes, operator instructions, aliases, flags, fallbacks, redirects, support-only routes, and compatibility shims.
+Retiring Catalog control-plane surfaces means complete deletion of code, patterns, tests, fixtures, screenshots, docs, runbooks, release notes, operator instructions, aliases, flags, fallbacks, redirects, support-only routes, and compatibility shims.
 
 ## Example
 

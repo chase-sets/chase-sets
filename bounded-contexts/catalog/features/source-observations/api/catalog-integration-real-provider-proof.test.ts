@@ -156,7 +156,7 @@ describe("Catalog real-provider proof", () => {
     expect(serialized).not.toContain("https://api.tcgdex.net/v2/en/cards/swsh3-136");
     expect(serialized).not.toContain("https://assets.tcgdex.net/en/swsh/swsh3/136");
     expect(serialized).not.toContain("sourcePayload");
-    expect(serialized).not.toMatch(/raw JSON broad patch|support-only legacy route|compatibility redirect/i);
+    expect(serialized).not.toMatch(/raw JSON broad patch|support-only route|compatibility redirect/i);
   });
 
   it("fails closed when proof evidence tries to retain retired or unsafe surfaces", async () => {

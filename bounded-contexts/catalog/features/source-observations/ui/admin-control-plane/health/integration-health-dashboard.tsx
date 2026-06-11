@@ -61,15 +61,15 @@ export function CatalogIntegrationProfileHealthPanel({
       />
       <Inline gap={3} align="center">
         <Stack gap={1}>
-          <h2>{t("catalog.features.sourceObservations.ui.integrations.profile.review.title")}</h2>
-          <p>{t("catalog.features.sourceObservations.ui.integrations.profile.review.description")}</p>
+          <h2>{t("catalog.features.sourceObservations.ui.adminControlPlane.profileReview.title")}</h2>
+          <p>{t("catalog.features.sourceObservations.ui.adminControlPlane.profileReview.description")}</p>
         </Stack>
         <Button tone="secondary" leadingIcon="refreshCcw" onClick={onRefresh}>
-          {t("catalog.features.sourceObservations.ui.integrations.profile.review.refresh")}
+          {t("catalog.features.sourceObservations.ui.adminControlPlane.profileReview.refresh")}
         </Button>
       </Inline>
       <Select
-        label={t("catalog.features.sourceObservations.ui.integrationManagementPage.profile.workspace")}
+        label={t("catalog.features.sourceObservations.ui.adminControlPlane.profile.workspace")}
         value={selectedProfileId}
         onValueChange={onSelectedProfileChange}
         items={
@@ -77,9 +77,7 @@ export function CatalogIntegrationProfileHealthPanel({
             ? profileWorkspaceItems
             : [
                 {
-                  label: t(
-                    "catalog.features.sourceObservations.ui.integrationManagementPage.no.provider.profiles.available",
-                  ),
+                  label: t("catalog.features.sourceObservations.ui.adminControlPlane.no.provider.profiles.available"),
                   value: emptyProfileWorkspaceValue,
                 },
               ]
@@ -90,7 +88,7 @@ export function CatalogIntegrationProfileHealthPanel({
         rows={profiles}
         columns={columns}
         getRowId={getProfileRowId}
-        emptyTitle={t("catalog.features.sourceObservations.ui.integrations.profile.review.none.found")}
+        emptyTitle={t("catalog.features.sourceObservations.ui.adminControlPlane.profileReview.none.found")}
       />
     </Stack>
   );
@@ -121,38 +119,38 @@ function CatalogIntegrationControlPlaneReadinessPanel({
     <Stack gap={3}>
       <Inline gap={3} align="center">
         <Stack gap={1}>
-          <h2>{t("catalog.features.sourceObservations.ui.integrationManagementPage.first.slice.readiness")}</h2>
+          <h2>{t("catalog.features.sourceObservations.ui.adminControlPlane.first.slice.readiness")}</h2>
           <p>
             {t(
-              "catalog.features.sourceObservations.ui.integrationManagementPage.reference.ingestion.unit.health.fixture.validation.dry.run.facts.and.diagnostics",
+              "catalog.features.sourceObservations.ui.adminControlPlane.reference.ingestion.unit.health.fixture.validation.dry.run.facts.and.diagnostics",
             )}
           </p>
         </Stack>
         <Button tone="secondary" leadingIcon="refreshCcw" loading={loading} onClick={onRefresh}>
-          {t("catalog.features.sourceObservations.ui.integrationManagementPage.refresh.readiness")}
+          {t("catalog.features.sourceObservations.ui.adminControlPlane.refresh.readiness")}
         </Button>
       </Inline>
       {error ? (
         <OperationalStatusBanner
           tone="danger"
-          title={t("catalog.features.sourceObservations.ui.integrationManagementPage.readiness.unavailable")}
+          title={t("catalog.features.sourceObservations.ui.adminControlPlane.readiness.unavailable")}
           description={error}
         />
       ) : null}
       <TaskSummary
-        title={t("catalog.features.sourceObservations.ui.integrationManagementPage.control.plane.proof")}
+        title={t("catalog.features.sourceObservations.ui.adminControlPlane.control.plane.proof")}
         items={[
           {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.ready.units"),
+            label: t("catalog.features.sourceObservations.ui.adminControlPlane.ready.units"),
             value: `${readyUnits}/${units.length}`,
           },
           {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.generated"),
+            label: t("catalog.features.sourceObservations.ui.adminControlPlane.generated"),
             value: readiness
               ? formatDateTime(readiness.generatedAt)
               : loading
-                ? t("catalog.features.sourceObservations.ui.integrationManagementPage.loading")
-                : t("catalog.features.sourceObservations.ui.integrationManagementPage.not.loaded"),
+                ? t("catalog.features.sourceObservations.ui.adminControlPlane.loading")
+                : t("catalog.features.sourceObservations.ui.adminControlPlane.not.loaded"),
           },
         ]}
       />
@@ -169,9 +167,9 @@ function CatalogIntegrationControlPlaneReadinessPanel({
       ) : !loading ? (
         <OperationalStatusBanner
           tone="warning"
-          title={t("catalog.features.sourceObservations.ui.integrationManagementPage.no.ingestion.units.reported")}
+          title={t("catalog.features.sourceObservations.ui.adminControlPlane.no.ingestion.units.reported")}
           description={t(
-            "catalog.features.sourceObservations.ui.integrationManagementPage.the.catalog.integration.control.plane.did.not.return.any.ingestion.unit.readiness.records",
+            "catalog.features.sourceObservations.ui.adminControlPlane.the.catalog.integration.control.plane.did.not.return.any.ingestion.unit.readiness.records",
           )}
         />
       ) : null}
@@ -195,37 +193,37 @@ function CatalogIntegrationRolloutControlsPanel({
   return (
     <Stack gap={2}>
       <Inline gap={2} align="center" wrap>
-        <h3>{t("catalog.features.sourceObservations.ui.integrationManagementPage.rollout.controls")}</h3>
+        <h3>{t("catalog.features.sourceObservations.ui.adminControlPlane.rollout.controls")}</h3>
         {activeControls.length > 0 ? (
           <StatusPill tone={blockedControls > 0 ? "danger" : "warning"}>
             {blockedControls > 0
-              ? t("catalog.features.sourceObservations.ui.integrationManagementPage.blocked")
-              : t("catalog.features.sourceObservations.ui.integrationManagementPage.degraded")}
+              ? t("catalog.features.sourceObservations.ui.adminControlPlane.blocked")
+              : t("catalog.features.sourceObservations.ui.adminControlPlane.degraded")}
           </StatusPill>
         ) : null}
       </Inline>
       <TaskSummary
-        title={t("catalog.features.sourceObservations.ui.integrationManagementPage.rollout.control.summary")}
+        title={t("catalog.features.sourceObservations.ui.adminControlPlane.rollout.control.summary")}
         items={[
           {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.active.controls"),
+            label: t("catalog.features.sourceObservations.ui.adminControlPlane.active.controls"),
             value: overview
               ? `${activeControls.length}/${controls.length}`
               : loading
-                ? t("catalog.features.sourceObservations.ui.integrationManagementPage.loading")
-                : t("catalog.features.sourceObservations.ui.integrationManagementPage.not.loaded"),
+                ? t("catalog.features.sourceObservations.ui.adminControlPlane.loading")
+                : t("catalog.features.sourceObservations.ui.adminControlPlane.not.loaded"),
           },
           {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.blocked.controls"),
+            label: t("catalog.features.sourceObservations.ui.adminControlPlane.blocked.controls"),
             value: String(blockedControls),
           },
           {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.generated"),
+            label: t("catalog.features.sourceObservations.ui.adminControlPlane.generated"),
             value: overview
               ? formatDateTime(overview.readiness.rolloutControls.generatedAt)
               : loading
-                ? t("catalog.features.sourceObservations.ui.integrationManagementPage.loading")
-                : t("catalog.features.sourceObservations.ui.integrationManagementPage.not.loaded"),
+                ? t("catalog.features.sourceObservations.ui.adminControlPlane.loading")
+                : t("catalog.features.sourceObservations.ui.adminControlPlane.not.loaded"),
           },
         ]}
       />
@@ -241,7 +239,7 @@ function CatalogIntegrationRolloutControlBanner({ control }: Readonly<{ control:
     <OperationalStatusBanner
       tone={control.status === "blocked" ? "danger" : "warning"}
       title={control.controlId}
-      description={t("catalog.features.sourceObservations.ui.integrationManagementPage.rollout.control.description", {
+      description={t("catalog.features.sourceObservations.ui.adminControlPlane.rollout.control.description", {
         message: control.message,
         metricKey: control.metricKey,
         ownerIssue: String(control.ownerIssue),
@@ -273,72 +271,70 @@ function CatalogIntegrationControlPlaneUnitPanel({
         title={unit.unitKey}
         items={[
           {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.provider"),
+            label: t("catalog.features.sourceObservations.ui.adminControlPlane.provider"),
             value: unit.providerKey,
           },
           {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.credential"),
+            label: t("catalog.features.sourceObservations.ui.adminControlPlane.credential"),
             value: `${unit.credentialReadiness} / ${unit.credentialReadinessState}`,
           },
           {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.profile.version"),
-            value:
-              unit.profileVersion || t("catalog.features.sourceObservations.ui.integrationManagementPage.not.assigned"),
+            label: t("catalog.features.sourceObservations.ui.adminControlPlane.profile.version"),
+            value: unit.profileVersion || t("catalog.features.sourceObservations.ui.adminControlPlane.not.assigned"),
           },
           {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.transport"),
+            label: t("catalog.features.sourceObservations.ui.adminControlPlane.transport"),
             value: unit.transportReadiness,
           },
           {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.fixtures"),
+            label: t("catalog.features.sourceObservations.ui.adminControlPlane.fixtures"),
             value: unit.fixtureValidationStatus,
           },
           {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.facts"),
+            label: t("catalog.features.sourceObservations.ui.adminControlPlane.facts"),
             value: formatCount(unit.observationFacts),
           },
           {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.diagnostics"),
+            label: t("catalog.features.sourceObservations.ui.adminControlPlane.diagnostics"),
             value: `${unit.diagnosticCounts.error} error / ${unit.diagnosticCounts.warning} warning / ${unit.diagnosticCounts.info} info`,
           },
           {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.recent.jobs"),
+            label: t("catalog.features.sourceObservations.ui.adminControlPlane.recent.jobs"),
             value: recentJobs.length
               ? formatCount(recentJobs.length)
-              : t("catalog.features.sourceObservations.ui.integrationManagementPage.none"),
+              : t("catalog.features.sourceObservations.ui.adminControlPlane.none"),
           },
           {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.latest.job"),
+            label: t("catalog.features.sourceObservations.ui.adminControlPlane.latest.job"),
             value: latestJob
               ? formatRecentJob(latestJob)
-              : t("catalog.features.sourceObservations.ui.integrationManagementPage.none"),
+              : t("catalog.features.sourceObservations.ui.adminControlPlane.none"),
           },
         ]}
       />
       {firstEvidence ? (
         <TaskSummary
-          title={t("catalog.features.sourceObservations.ui.integrationManagementPage.dry.run.source.observation.fact")}
+          title={t("catalog.features.sourceObservations.ui.adminControlPlane.dry.run.source.observation.fact")}
           items={[
             {
-              label: t("catalog.features.sourceObservations.ui.integrationManagementPage.external.key"),
+              label: t("catalog.features.sourceObservations.ui.adminControlPlane.external.key"),
               value: firstEvidence.externalKey,
             },
             {
-              label: t("catalog.features.sourceObservations.ui.integrationManagementPage.source.hash"),
-              value:
-                firstEvidence.sourceHash ?? t("catalog.features.sourceObservations.ui.integrationManagementPage.none"),
+              label: t("catalog.features.sourceObservations.ui.adminControlPlane.source.hash"),
+              value: firstEvidence.sourceHash ?? t("catalog.features.sourceObservations.ui.adminControlPlane.none"),
             },
             {
-              label: t("catalog.features.sourceObservations.ui.integrationManagementPage.name"),
+              label: t("catalog.features.sourceObservations.ui.adminControlPlane.name"),
               value:
                 firstEvidence.normalizedFacts.name ??
-                t("catalog.features.sourceObservations.ui.integrationManagementPage.none"),
+                t("catalog.features.sourceObservations.ui.adminControlPlane.none"),
             },
             {
-              label: t("catalog.features.sourceObservations.ui.integrationManagementPage.expansion"),
+              label: t("catalog.features.sourceObservations.ui.adminControlPlane.expansion"),
               value:
                 firstEvidence.normalizedFacts.expansionName ??
-                t("catalog.features.sourceObservations.ui.integrationManagementPage.none"),
+                t("catalog.features.sourceObservations.ui.adminControlPlane.none"),
             },
           ]}
         />
@@ -366,24 +362,24 @@ function CatalogIntegrationProviderReadinessPanel({
     <Stack gap={3}>
       <Inline gap={3} align="center">
         <Stack gap={1}>
-          <h2>{t("catalog.features.sourceObservations.ui.integrationManagementPage.adapter.readiness")}</h2>
-          <p>{t("catalog.features.sourceObservations.ui.integrationManagementPage.adapter.readiness.description")}</p>
+          <h2>{t("catalog.features.sourceObservations.ui.adminControlPlane.adapter.readiness")}</h2>
+          <p>{t("catalog.features.sourceObservations.ui.adminControlPlane.adapter.readiness.description")}</p>
         </Stack>
       </Inline>
       <TaskSummary
-        title={t("catalog.features.sourceObservations.ui.integrationManagementPage.provider.adapters")}
+        title={t("catalog.features.sourceObservations.ui.adminControlPlane.provider.adapters")}
         items={[
           {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.ready.providers"),
+            label: t("catalog.features.sourceObservations.ui.adminControlPlane.ready.providers"),
             value: `${readyProviders}/${providers.length}`,
           },
           {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.generated"),
+            label: t("catalog.features.sourceObservations.ui.adminControlPlane.generated"),
             value: overview
               ? formatDateTime(overview.providerReadiness.generatedAt)
               : loading
-                ? t("catalog.features.sourceObservations.ui.integrationManagementPage.loading")
-                : t("catalog.features.sourceObservations.ui.integrationManagementPage.not.loaded"),
+                ? t("catalog.features.sourceObservations.ui.adminControlPlane.loading")
+                : t("catalog.features.sourceObservations.ui.adminControlPlane.not.loaded"),
           },
         ]}
       />
@@ -396,9 +392,9 @@ function CatalogIntegrationProviderReadinessPanel({
       ) : !loading ? (
         <OperationalStatusBanner
           tone="warning"
-          title={t("catalog.features.sourceObservations.ui.integrationManagementPage.no.provider.readiness.reported")}
+          title={t("catalog.features.sourceObservations.ui.adminControlPlane.no.provider.readiness.reported")}
           description={t(
-            "catalog.features.sourceObservations.ui.integrationManagementPage.no.provider.readiness.reported.description",
+            "catalog.features.sourceObservations.ui.adminControlPlane.no.provider.readiness.reported.description",
           )}
         />
       ) : null}
@@ -422,27 +418,27 @@ function CatalogIntegrationProviderReadinessCard({
         title={provider.adapterKey}
         items={[
           {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.credential"),
+            label: t("catalog.features.sourceObservations.ui.adminControlPlane.credential"),
             value: `${provider.credentialRequirement} / ${provider.credentialReadiness}`,
           },
           {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.api.reachability"),
+            label: t("catalog.features.sourceObservations.ui.adminControlPlane.api.reachability"),
             value: provider.apiReachability.status,
           },
           {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.option.query.health"),
+            label: t("catalog.features.sourceObservations.ui.adminControlPlane.option.query.health"),
             value: provider.optionQueryHealth.status,
           },
           {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.rate.limit.cooldown"),
+            label: t("catalog.features.sourceObservations.ui.adminControlPlane.rate.limit.cooldown"),
             value: provider.rateLimitStatus.status,
           },
           {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.payload.acquisition"),
+            label: t("catalog.features.sourceObservations.ui.adminControlPlane.payload.acquisition"),
             value: provider.payloadAcquisition.status,
           },
           {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.affected.units"),
+            label: t("catalog.features.sourceObservations.ui.adminControlPlane.affected.units"),
             value: String(provider.unitKeys.length),
           },
         ]}
@@ -468,7 +464,7 @@ function CatalogIntegrationAuditLifecyclePanel({
   const columns: DataColumn<CatalogIntegrationAuditLifecycleEntry>[] = [
     {
       key: "eventName",
-      header: t("catalog.features.sourceObservations.ui.integrationManagementPage.audit.event"),
+      header: t("catalog.features.sourceObservations.ui.adminControlPlane.audit.event"),
       cell: (row) => (
         <Inline gap={2} align="center" wrap>
           <StatusPill tone={auditCategoryTone(row.category)}>{row.category}</StatusPill>
@@ -478,27 +474,27 @@ function CatalogIntegrationAuditLifecyclePanel({
     },
     {
       key: "providerKey",
-      header: t("catalog.features.sourceObservations.ui.integrationManagementPage.provider"),
+      header: t("catalog.features.sourceObservations.ui.adminControlPlane.provider"),
       cell: (row) => row.providerKey,
     },
     {
       key: "unitKey",
-      header: t("catalog.features.sourceObservations.ui.integrationManagementPage.unit"),
-      cell: (row) => row.unitKey ?? t("catalog.features.sourceObservations.ui.integrationManagementPage.none"),
+      header: t("catalog.features.sourceObservations.ui.adminControlPlane.unit"),
+      cell: (row) => row.unitKey ?? t("catalog.features.sourceObservations.ui.adminControlPlane.none"),
     },
     {
       key: "profileVersion",
-      header: t("catalog.features.sourceObservations.ui.integrationManagementPage.profile.version"),
-      cell: (row) => row.profileVersion ?? t("catalog.features.sourceObservations.ui.integrationManagementPage.none"),
+      header: t("catalog.features.sourceObservations.ui.adminControlPlane.profile.version"),
+      cell: (row) => row.profileVersion ?? t("catalog.features.sourceObservations.ui.adminControlPlane.none"),
     },
     {
       key: "occurredAt",
-      header: t("catalog.features.sourceObservations.ui.integrationManagementPage.occurred"),
+      header: t("catalog.features.sourceObservations.ui.adminControlPlane.occurred"),
       cell: (row) => formatDateTime(row.occurredAt),
     },
     {
       key: "summary",
-      header: t("catalog.features.sourceObservations.ui.integrationManagementPage.summary"),
+      header: t("catalog.features.sourceObservations.ui.adminControlPlane.summary"),
       cell: (row) => row.summary,
     },
   ];
@@ -507,22 +503,22 @@ function CatalogIntegrationAuditLifecyclePanel({
     <Stack gap={3}>
       <Inline gap={3} align="center">
         <Stack gap={1}>
-          <h2>{t("catalog.features.sourceObservations.ui.integrationManagementPage.audit.lifecycle")}</h2>
-          <p>{t("catalog.features.sourceObservations.ui.integrationManagementPage.audit.lifecycle.description")}</p>
+          <h2>{t("catalog.features.sourceObservations.ui.adminControlPlane.audit.lifecycle")}</h2>
+          <p>{t("catalog.features.sourceObservations.ui.adminControlPlane.audit.lifecycle.description")}</p>
         </Stack>
       </Inline>
       {lifecycle ? (
         <OperationalStatusBanner
           tone={lifecycle.projectionStatus === "partial" ? "warning" : "danger"}
-          title={t("catalog.features.sourceObservations.ui.integrationManagementPage.audit.lifecycle.partial")}
+          title={t("catalog.features.sourceObservations.ui.adminControlPlane.audit.lifecycle.partial")}
           description={lifecycle.statusMessage}
         />
       ) : loading ? null : (
         <OperationalStatusBanner
           tone="warning"
-          title={t("catalog.features.sourceObservations.ui.integrationManagementPage.audit.lifecycle.unavailable")}
+          title={t("catalog.features.sourceObservations.ui.adminControlPlane.audit.lifecycle.unavailable")}
           description={t(
-            "catalog.features.sourceObservations.ui.integrationManagementPage.audit.lifecycle.unavailable.description",
+            "catalog.features.sourceObservations.ui.adminControlPlane.audit.lifecycle.unavailable.description",
           )}
         />
       )}
@@ -530,7 +526,7 @@ function CatalogIntegrationAuditLifecyclePanel({
         rows={rows}
         columns={columns}
         getRowId={(row) => row.eventId}
-        emptyTitle={t("catalog.features.sourceObservations.ui.integrationManagementPage.no.audit.lifecycle.entries")}
+        emptyTitle={t("catalog.features.sourceObservations.ui.adminControlPlane.no.audit.lifecycle.entries")}
       />
     </Stack>
   );
@@ -542,7 +538,7 @@ function formatCount(value: number) {
 
 function formatDateTime(value: string | null | undefined) {
   if (!value) {
-    return t("catalog.features.sourceObservations.ui.integrationManagementPage.never");
+    return t("catalog.features.sourceObservations.ui.adminControlPlane.never");
   }
 
   return new Intl.DateTimeFormat(undefined, {

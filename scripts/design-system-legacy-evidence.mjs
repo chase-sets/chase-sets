@@ -55,14 +55,14 @@ const surfaceChecks = [
   {
     id: "catalog-authoring-controls",
     owner: "Catalog",
-    file: "bounded-contexts/catalog/features/source-observations/ui/integration-management-page.tsx",
+    file: "bounded-contexts/catalog/features/source-observations/ui/primary-workbench-page.tsx",
     visualEvidence: [
-      "Dense source-observation editors use design-system subheadings, validation messages, tables, and form controls.",
+      "The rebuilt Catalog primary workbench uses grouped section navigation, dense tables, bulk actions, and evidence drawers.",
     ],
     accessibilityEvidence: [
-      "Diagnostics render through shared validation primitives and provider controls keep explicit labels.",
+      "Workflow navigation, command actions, and evidence drawers expose accessible names and preserve primary-path context.",
     ],
-    mustInclude: ["Subheading", "ValidationMessageList", "DataTable", "CheckboxGroup", "aria-label"],
+    mustInclude: ["SectionNavigation", "BulkActionSurface", "DataTable", "SideSheet", "aria-label"],
     mustNotInclude: ['<input type="checkbox"', 'className="text-sm text-danger"'],
   },
   {

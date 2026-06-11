@@ -24,11 +24,11 @@ export function ProfileSectionRegistrySummary({
         editable={Boolean(editableSection)}
       />
     ) : editableSection ? (
-      t("catalog.features.sourceObservations.ui.integrationManagementPage.profile.section.registry.editable", {
+      t("catalog.features.sourceObservations.ui.adminControlPlane.profile.section.registry.editable", {
         area: areaLabel(module.area),
       })
     ) : (
-      t("catalog.features.sourceObservations.ui.integrationManagementPage.profile.section.registry.framework.ready", {
+      t("catalog.features.sourceObservations.ui.adminControlPlane.profile.section.registry.framework.ready", {
         area: areaLabel(module.area),
       })
     ),
@@ -36,7 +36,7 @@ export function ProfileSectionRegistrySummary({
 
   return (
     <TaskSummary
-      title={t("catalog.features.sourceObservations.ui.integrationManagementPage.profile.section.registry")}
+      title={t("catalog.features.sourceObservations.ui.adminControlPlane.profile.section.registry")}
       items={items}
     />
   );
@@ -48,10 +48,10 @@ function ProfileSectionStateValue({
   editable,
 }: Readonly<{ state: CatalogProviderProfileSectionSaveState; fallbackArea: string; editable: boolean }>) {
   const fallbackText = editable
-    ? t("catalog.features.sourceObservations.ui.integrationManagementPage.profile.section.registry.editable", {
+    ? t("catalog.features.sourceObservations.ui.adminControlPlane.profile.section.registry.editable", {
         area: fallbackArea,
       })
-    : t("catalog.features.sourceObservations.ui.integrationManagementPage.profile.section.registry.framework.ready", {
+    : t("catalog.features.sourceObservations.ui.adminControlPlane.profile.section.registry.framework.ready", {
         area: fallbackArea,
       });
   const needsOperatorAttention = state.dirty || state.stale || state.status === "blocked" || state.status === "error";
@@ -70,7 +70,7 @@ function ProfileSectionStateValue({
       {state.canSave && state.onSave ? (
         <Inline gap={2}>
           <Button size="sm" tone="secondary" leadingIcon="check" onClick={state.onSave} loading={state.saving}>
-            {t("catalog.features.sourceObservations.ui.integrationManagementPage.save.section")}
+            {t("catalog.features.sourceObservations.ui.adminControlPlane.save.section")}
           </Button>
         </Inline>
       ) : null}
@@ -117,12 +117,12 @@ function sectionStatusTone(status: CatalogProviderProfileSectionSaveStatus) {
 function areaLabel(area: CatalogProviderProfileSectionArea): string {
   switch (area) {
     case "identity":
-      return t("catalog.features.sourceObservations.ui.integrationManagementPage.profile.section.area.identity");
+      return t("catalog.features.sourceObservations.ui.adminControlPlane.profile.section.area.identity");
     case "transport":
-      return t("catalog.features.sourceObservations.ui.integrationManagementPage.profile.section.area.transport");
+      return t("catalog.features.sourceObservations.ui.adminControlPlane.profile.section.area.transport");
     case "mapping":
-      return t("catalog.features.sourceObservations.ui.integrationManagementPage.profile.section.area.mapping");
+      return t("catalog.features.sourceObservations.ui.adminControlPlane.profile.section.area.mapping");
     case "governance":
-      return t("catalog.features.sourceObservations.ui.integrationManagementPage.profile.section.area.governance");
+      return t("catalog.features.sourceObservations.ui.adminControlPlane.profile.section.area.governance");
   }
 }

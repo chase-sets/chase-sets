@@ -44,9 +44,7 @@ export function CatalogIntegrationModuleShell({
       primary={
         <Stack gap={4}>
           <SegmentedControl
-            aria-label={t(
-              "catalog.features.sourceObservations.ui.integrationManagementPage.catalog.integration.module.area",
-            )}
+            aria-label={t("catalog.features.sourceObservations.ui.adminControlPlane.catalog.integration.module.area")}
             value={area}
             onValueChange={onAreaChange}
             items={CATALOG_INTEGRATION_MODULE_AREAS}
@@ -67,85 +65,85 @@ export function CatalogIntegrationModuleShell({
             }
           />
           <TaskSummary
-            title={t("catalog.features.sourceObservations.ui.integrationManagementPage.selected.profile")}
+            title={t("catalog.features.sourceObservations.ui.adminControlPlane.selected.profile")}
             items={
               selectedProfile
                 ? [
                     {
-                      label: t("catalog.features.sourceObservations.ui.integrationManagementPage.provider"),
+                      label: t("catalog.features.sourceObservations.ui.adminControlPlane.provider"),
                       value: selectedProfile.displayName,
                     },
                     {
-                      label: t("catalog.features.sourceObservations.ui.integrationManagementPage.version"),
+                      label: t("catalog.features.sourceObservations.ui.adminControlPlane.version"),
                       value: selectedProfile.profileVersion,
                     },
                     {
-                      label: t("catalog.features.sourceObservations.ui.integrationManagementPage.lifecycle"),
+                      label: t("catalog.features.sourceObservations.ui.adminControlPlane.lifecycle"),
                       value: selectedProfile.active ? "active" : selectedProfile.lifecycle,
                     },
                     {
-                      label: t("catalog.features.sourceObservations.ui.integrationManagementPage.validation"),
+                      label: t("catalog.features.sourceObservations.ui.adminControlPlane.validation"),
                       value: selectedProfile.validation.status,
                     },
                     {
-                      label: t("catalog.features.sourceObservations.ui.integrationManagementPage.mapping"),
+                      label: t("catalog.features.sourceObservations.ui.adminControlPlane.mapping"),
                       value: selectedProfile.mappingOutputKind,
                     },
                     {
-                      label: t("catalog.features.sourceObservations.ui.integrationManagementPage.fixture.flows"),
+                      label: t("catalog.features.sourceObservations.ui.adminControlPlane.fixture.flows"),
                       value: String(selectedProfile.fixtures.coveredFlows.length),
                     },
                   ]
                 : [
                     {
-                      label: t("catalog.features.sourceObservations.ui.integrationManagementPage.profile"),
+                      label: t("catalog.features.sourceObservations.ui.adminControlPlane.profile"),
                       value: "No profile selected",
                     },
                   ]
             }
           />
           <TaskSummary
-            title={t("catalog.features.sourceObservations.ui.integrationManagementPage.module.map")}
+            title={t("catalog.features.sourceObservations.ui.adminControlPlane.module.map")}
             items={[
               {
-                label: t("catalog.features.sourceObservations.ui.integrationManagementPage.current.area"),
+                label: t("catalog.features.sourceObservations.ui.adminControlPlane.current.area"),
                 value: moduleAreaLabel(area),
               },
               {
-                label: t("catalog.features.sourceObservations.ui.integrationManagementPage.authoring"),
+                label: t("catalog.features.sourceObservations.ui.adminControlPlane.authoring"),
                 value: "Profile basics, options, connector, mappings, references, and plans",
               },
               {
-                label: t("catalog.features.sourceObservations.ui.integrationManagementPage.validation"),
+                label: t("catalog.features.sourceObservations.ui.adminControlPlane.validation"),
                 value: "Fixture dry-runs, diagnostics, readiness, and semantic comparison",
               },
               {
-                label: t("catalog.features.sourceObservations.ui.integrationManagementPage.operations"),
+                label: t("catalog.features.sourceObservations.ui.adminControlPlane.operations"),
                 value: "Import, promote all, reapply, job status, and failure groups",
               },
               {
-                label: t("catalog.features.sourceObservations.ui.integrationManagementPage.audit"),
+                label: t("catalog.features.sourceObservations.ui.adminControlPlane.audit"),
                 value: "Migration evidence, authoring metadata, rollback, and retirement",
               },
             ]}
           />
           <TaskSummary
-            title={t("catalog.features.sourceObservations.ui.integrationManagementPage.operations")}
+            title={t("catalog.features.sourceObservations.ui.adminControlPlane.operations")}
             items={[
               {
-                label: t("catalog.features.sourceObservations.ui.integrationManagementPage.scopes"),
+                label: t("catalog.features.sourceObservations.ui.adminControlPlane.scopes"),
                 value: formatCount(summary.scopes),
               },
               {
-                label: t("catalog.features.sourceObservations.ui.integrationManagementPage.needs.review"),
+                label: t("catalog.features.sourceObservations.ui.adminControlPlane.needs.review"),
                 value: formatCount(summary.observed + summary.changed),
               },
               {
-                label: t("catalog.features.sourceObservations.ui.integrationManagementPage.promoted"),
+                label: t("catalog.features.sourceObservations.ui.adminControlPlane.promoted"),
                 value: formatCount(summary.promoted),
               },
               {
-                label: t("catalog.features.sourceObservations.ui.integrationManagementPage.active.jobs"),
+                label: t("catalog.features.sourceObservations.ui.adminControlPlane.active.jobs"),
                 value: formatCount(activeJobCount),
               },
             ]}

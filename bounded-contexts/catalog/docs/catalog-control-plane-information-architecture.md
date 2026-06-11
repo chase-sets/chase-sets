@@ -2,7 +2,7 @@
 
 This note is the Stage 1 IA contract for #1031. It defines how the rebuilt Catalog Control Plane is organized before #1048 and #1046 implement the grouped navigation and dense-workbench primitives.
 
-The IA starts from the primary operator job: pull provider data, review Source Observations, and promote eligible sources into Catalog Items or Catalog-owned references. Supporting workspaces exist to unblock, govern, recover, or verify that job. They are not equal peers that bury the default workflow, and they are not a one-to-one migration of the current `/catalog/integrations` and `/catalog/source-observations` pages.
+The IA starts from the primary operator job: pull provider data, review Source Observations, and promote eligible sources into Catalog Items or Catalog-owned references. Supporting workspaces exist to unblock, govern, recover, or verify that job. They are not equal peers that bury the default workflow, and they are not a cleanup of retired admin patterns.
 
 The authoritative TypeScript manifest is `bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/information-architecture.ts`. The grouped navigation application contract lives in [Catalog Control Plane Section Navigation](./catalog-control-plane-section-navigation.md).
 
@@ -47,20 +47,15 @@ Every detour must include a context-preserving return link. Required durable con
 
 ## Route And Screen Boundaries
 
-The rebuilt control plane may retain familiar URLs only when those URLs are backed by rebuilt contracts:
+The rebuilt control plane has one primary admin entry point backed by the Import to promotion workbench. Supporting workspaces are screen-level detours inside that rebuilt experience, and each detour must preserve return context to the primary job.
 
-| Current concept | Disposition | Target |
-| --- | --- | --- |
-| `/catalog/integrations` two-page god page | Rebuild as clean contract | Import to promotion workbench. The URL may remain, but old page code, module structure, route/API/client/read-model behavior, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, and operator instructions must be deleted. |
-| `/catalog/source-observations` list/import page | Rebuild as clean contract | Import to promotion workbench or a focused Source Observation review deep link. The old second-page workflow must not remain. |
-| Health, authoring, validation, operations, and audit segmented modules | Delete | Do not migrate these areas into grouped navigation one-to-one. |
-| Import and job operations module | Fold into primary path | Import and job state are steps in the default workbench. |
-| Source Observation review workflow module | Fold into primary path | Review stays connected to import scope and promotion preview. |
-| Promote and reapply workflow module | Fold into primary path | Promotion preview and recovery stay connected to the primary path. |
-| Provider profile review module | Supporting detour | Profile authoring exists to unblock import/review/promotion and must preserve return context. |
-| Rollback and retirement module | Supporting detour | Lifecycle actions are rebuilt around impact evidence and complete removal semantics. |
+Launch screen boundaries:
 
-Retire, remove, deprecate, and cleanup mean complete deletion of old code, product patterns, routes, APIs, read-model contracts, clients, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, and operator instructions. No hidden flag, feature flag, fallback branch, compatibility redirect, alias, shim, migration shim, or support-only route may preserve a retired screen or pattern.
+- Import setup, durable job progress, Source Observation review, promotion preview, promotion execution, and common recovery branches stay in the primary workbench.
+- Health triage, profile authoring, validation readiness, adapter readiness, lifecycle recovery, governance controls, and audit evidence are detours only when they unblock, govern, recover, or verify the primary job.
+- No screen may recreate retired admin patterns, tabbed module splits, raw JSON fallbacks, provider-specific UI branches, or compatibility paths.
+
+Retire, remove, deprecate, and cleanup mean complete deletion of retired code, product patterns, routes, APIs, read-model contracts, clients, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, and operator instructions. No hidden flag, feature flag, fallback branch, compatibility redirect, alias, shim, migration shim, or support-only route may preserve a retired screen or pattern.
 
 ## Test Contract
 
@@ -70,7 +65,7 @@ The IA manifest is covered by `information-architecture.test.ts`. The tests prov
 - Navigation groups have stable accessible names and keyboard traversal order.
 - Every supporting workspace preserves return context to the primary path.
 - #1031 workflow coverage exists without making support workflows equal peers.
-- Current two-page/god-page module concepts are deleted, rebuilt, or folded into the primary path rather than migrated one-to-one.
+- Release rules prove one rebuilt primary workbench, context-preserving support detours, and complete removal of retired artifacts.
 
 ## Downstream Use
 
@@ -78,7 +73,7 @@ The IA manifest is covered by `information-architecture.test.ts`. The tests prov
 - #1046 implements dense-workbench primitives that can render the workspace responsibilities and evidence states.
 - #1057 owns route, deep-link, and context preservation details.
 - #1056 owns the cohesive default import-to-promotion workbench.
-- #1090 owns complete deletion of the current pages, old supporting artifacts, route/API/client/read-model behavior, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, and operator instructions after the rebuilt first slice is accepted.
+- #1090 owns complete deletion of retired admin pages, supporting artifacts, route/client/read-model behavior, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, and operator instructions after the rebuilt first slice is accepted.
 
 ## Related References
 

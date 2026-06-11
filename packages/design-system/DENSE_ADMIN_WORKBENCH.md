@@ -1,6 +1,6 @@
 # Dense Admin Workbench Pattern
 
-Dense admin workbenches are for operator surfaces that need one primary workflow, supporting detours, high-density facts, and safe command surfaces in the same product area. They are not landing pages, god pages, or migrated legacy page collections.
+Dense admin workbenches are for operator surfaces that need one primary workflow, supporting detours, high-density facts, and safe command surfaces in the same product area. They are not landing pages, unfocused all-in-one pages, or migrated legacy page collections.
 
 The canonical proof artifact is `DenseAdminWorkbenchProof` from `@chase-sets/design-system`. It composes existing primitives rather than introducing a parallel admin UI layer:
 
@@ -33,7 +33,7 @@ Use separate screens or modules when the operator intent changes:
 - Govern and recover: durable jobs, retries, kill switches, lifecycle recovery, and rollback readiness.
 - Verify release evidence: audit proof, instrumentation, privacy/security review, smoke evidence, and launch signoff.
 
-Do not rebuild a page by preserving the current two-page Catalog integrations split. A dense workbench can show many facts, but every visible region must either advance the primary import-to-promotion path or explain why that path cannot proceed.
+Do not rebuild a page by preserving retired product structure. A dense workbench can show many facts, but every visible region must either advance the primary import-to-promotion path or explain why that path cannot proceed.
 
 ## Mobile Translation
 
@@ -57,7 +57,7 @@ Every command surface must show what will happen and why it may be blocked:
 
 Retire, remove, deprecate, and cleanup mean complete removal. When an owning issue retires behavior, remove all related code, product patterns, tests, fixtures, screenshots, docs, runbooks, release notes, operator instructions, aliases, flags, fallbacks, redirects, support-only routes, and compatibility shims.
 
-For the Catalog control plane rebuild, the old integrations surface may be referenced only as a removed historical concept in planning or proof docs. It must not remain as a usable route, hidden fallback, support-only screen, redirect, fixture, screenshot, or operator instruction.
+For the Catalog control plane rebuild, retired artifacts must not remain as usable routes, hidden fallbacks, support-only screens, redirects, fixtures, screenshots, docs, or operator instructions.
 
 ## Visual QA Evidence
 

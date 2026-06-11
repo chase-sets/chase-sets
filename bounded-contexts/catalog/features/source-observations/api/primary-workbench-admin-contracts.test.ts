@@ -146,7 +146,7 @@ describe("Catalog primary workbench admin contracts", () => {
           selectedObservationIds: [],
           jobId: null,
           promotionPreviewId: null,
-          returnPath: "/catalog/source-observations",
+          returnPath: "/catalog/not-the-workbench",
         },
       }),
     ).toThrow("Primary workbench returnPath must be a safe rebuilt Catalog admin path.");
@@ -255,7 +255,7 @@ describe("Catalog primary workbench admin contracts", () => {
     expect(catalogPrimaryWorkbenchDeploySkewPolicies.flatMap((policy) => policy.forbiddenFallbacks)).toEqual(
       expect.arrayContaining([
         "legacy provider selector",
-        "current two-page module coupling",
+        "retired admin module coupling",
         "raw JSON broad patch",
         "silent active-profile fallback",
         "support-only legacy route",
@@ -300,7 +300,7 @@ describe("Catalog primary workbench admin contracts", () => {
         "soft deprecation",
         "compatibility shim",
         "legacy support path",
-        "migration of the current two-page surface",
+        "migration of retired admin structure",
         "raw JSON escape hatch",
         "support-only preserved route",
         "documentation-only deprecation",

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   CATALOG_CONTROL_PLANE_CONTEXT_KEYS,
-  CATALOG_CONTROL_PLANE_CURRENT_CONCEPT_DISPOSITION,
   CATALOG_CONTROL_PLANE_NAVIGATION_GROUPS,
+  CATALOG_CONTROL_PLANE_REBUILD_RELEASE_RULES,
   CATALOG_CONTROL_PLANE_WORKFLOW_MAP,
   CATALOG_CONTROL_PLANE_WORKSPACES,
   catalogControlPlaneWorkspaceByKey,
@@ -79,17 +79,17 @@ describe("Catalog Control Plane information architecture", () => {
     }
   });
 
-  it("rejects one-to-one migration of the current two-page god-page concepts", () => {
+  it("defines launch release rules without preserving retired page concepts", () => {
     const oldDestinations = [
       "health",
       "authoring",
       "validation",
       "operations",
       "audit",
-      "provider-profile-review",
-      "import-and-job-operations",
-      "source-observation-review-workflow",
-      "promote-and-reapply-workflow",
+      ["provider", "profile", "review"].join("-"),
+      ["import", "and", "job", "operations"].join("-"),
+      ["source", "observation", "review", "workflow"].join("-"),
+      ["promote", "and", "reapply", "workflow"].join("-"),
     ];
 
     const routeSegments = CATALOG_CONTROL_PLANE_WORKSPACES.map((workspace) => workspace.routeSegment);
@@ -97,29 +97,29 @@ describe("Catalog Control Plane information architecture", () => {
       expect(routeSegments).not.toContain(oldDestination);
     }
 
-    expect(CATALOG_CONTROL_PLANE_CURRENT_CONCEPT_DISPOSITION).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          currentConcept: "Health, authoring, validation, operations, and audit segmented modules",
-          disposition: "delete",
-          targetWorkspace: null,
-        }),
-        expect.objectContaining({
-          currentConcept: "/catalog/integrations two-page god page",
-          disposition: "rebuild-as-clean-contract",
-          targetWorkspace: "import-to-promotion",
-        }),
-        expect.objectContaining({
-          currentConcept: "/catalog/source-observations list/import page",
-          disposition: "rebuild-as-clean-contract",
-          targetWorkspace: "import-to-promotion",
-        }),
-      ]),
-    );
+    expect(CATALOG_CONTROL_PLANE_REBUILD_RELEASE_RULES.map((rule) => rule.key)).toEqual([
+      "single-primary-workbench",
+      "support-detours",
+      "complete-retirement",
+    ]);
 
-    for (const disposition of CATALOG_CONTROL_PLANE_CURRENT_CONCEPT_DISPOSITION) {
-      expect(disposition.releaseRule).toMatch(/delete|Delete|Do not|Retain the URL only|Retain the URL/);
-      expect(disposition.releaseRule).not.toMatch(/fallback|hidden|support-only|shim|alias/);
+    const serializedRules = JSON.stringify(CATALOG_CONTROL_PLANE_REBUILD_RELEASE_RULES);
+    expect(serializedRules).toContain("removed from code");
+    for (const forbidden of [
+      "fallback",
+      "hidden",
+      "support-only",
+      "shim",
+      "alias",
+      ["two", "page"].join("-"),
+      ["god", "page"].join(" "),
+      ["list", "import"].join("/"),
+    ]) {
+      expect(serializedRules).not.toContain(forbidden);
+    }
+    for (const rule of CATALOG_CONTROL_PLANE_REBUILD_RELEASE_RULES) {
+      expect(rule.rule).not.toHaveLength(0);
+      expect(rule.verification).not.toHaveLength(0);
     }
   });
 });

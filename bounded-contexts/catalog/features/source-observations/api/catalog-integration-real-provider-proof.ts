@@ -266,7 +266,7 @@ export function assertCatalogRealProviderProofPacketIsLaunchSafe(packet: Catalog
   if (/\bsourcePayload\b|\brawPayload\b|\bproviderPayload\b/i.test(evidenceForLeakScan)) {
     throw new Error("Real-provider proof evidence must not retain raw provider payload fields.");
   }
-  if (/current two-page surface|support-only legacy route|compatibility redirect/i.test(evidenceForLeakScan)) {
+  if (/retired admin structure|support-only route|compatibility redirect/i.test(evidenceForLeakScan)) {
     throw new Error("Real-provider proof evidence must not retain retired control-plane patterns.");
   }
   for (const optionQuery of packet.optionQueries) {

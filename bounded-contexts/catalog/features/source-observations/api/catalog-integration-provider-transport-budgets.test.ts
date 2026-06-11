@@ -85,7 +85,7 @@ describe("Catalog provider transport budgets", () => {
       }
     }
 
-    expect(JSON.stringify(selected.coverage)).not.toMatch(/raw-json|two-page|compatibility redirect/i);
+    expect(JSON.stringify(selected.coverage)).not.toMatch(/raw-json|retired admin page module|compatibility redirect/i);
     expect(selectedCoverage.get("provider-transport-degraded-condition")).toMatchObject({
       status: "covered-by-test",
       ownerIssue: "#1062",
@@ -151,7 +151,7 @@ describe("Catalog provider transport budgets", () => {
         "soft deprecation",
         "compatibility shim",
         "legacy support path",
-        "migration of the current two-page surface",
+        "migration of retired admin structure",
         "raw JSON escape hatch",
       ]),
     );
@@ -164,7 +164,7 @@ describe("Catalog provider transport budgets", () => {
     expect(catalogProviderTransportRetiredSurfaceRule.ownerIssue).toBe("#1090");
   });
 
-  it("promotes durable docs for #1062 evidence without preserving the current god page", () => {
+  it("promotes durable docs for #1062 evidence without preserving retired all-in-one admin pages", () => {
     const doc = readFileSync(
       new URL("../../../docs/catalog-integration-provider-transport-budgets.md", import.meta.url),
       "utf8",

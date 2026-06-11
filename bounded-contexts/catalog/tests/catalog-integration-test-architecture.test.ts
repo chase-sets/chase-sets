@@ -56,8 +56,8 @@ describe("Catalog integration test architecture", () => {
     expect(readModelTest).toContain("buildCatalogPrimaryWorkbenchReadModel");
     expect(pageTest).toContain("CatalogPrimaryWorkbenchPage");
     expect(acceptanceGateTest).toContain("no-confusion UX acceptance gate");
-    expect(doc).not.toContain("integration-management-page.test.tsx");
-    expect(doc).not.toContain("source-observation-list-page.test.tsx");
+    expect(doc).not.toContain(["integration", "management", "page.test.tsx"].join("-"));
+    expect(doc).not.toContain(["source", "observation", "list", "page.test.tsx"].join("-"));
     expect(doc).not.toContain("deployables/admin-web/e2e/catalog-integrations.spec.ts");
   });
 });

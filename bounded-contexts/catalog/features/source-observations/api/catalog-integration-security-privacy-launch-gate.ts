@@ -245,7 +245,7 @@ const requiredRetirementForbiddenOutcomes = [
   "soft deprecation",
   "compatibility shim",
   "legacy support path",
-  "migration of the current two-page surface",
+  "migration of retired admin structure",
   "raw JSON escape hatch",
   "support-only preserved route",
   "documentation-only deprecation",

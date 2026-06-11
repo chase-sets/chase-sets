@@ -218,14 +218,6 @@
           "section": "catalog"
         },
         {
-          "routeId": "source-observations",
-          "routePath": "source-observations",
-          "fileExport": "./routes/admin/source-observations",
-          "routeType": "route",
-          "sourceContext": "catalog",
-          "section": "catalog"
-        },
-        {
           "routeId": "source-observations-detail",
           "routePath": "source-observations/:id",
           "fileExport": "./routes/admin/source-observations-detail",
@@ -341,18 +333,6 @@
       "icon": "rocket",
       "href": "/integrations",
       "order": 70,
-      "visibility": "signed-in",
-      "requiredPermissions": [],
-      "section": "catalog"
-    },
-    {
-      "deployable": "admin-web",
-      "slot": "primary-nav",
-      "key": "source-observations",
-      "label": "Source Observations",
-      "icon": "search",
-      "href": "/source-observations",
-      "order": 80,
       "visibility": "signed-in",
       "requiredPermissions": [],
       "section": "catalog"

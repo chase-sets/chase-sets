@@ -38,7 +38,7 @@ export function SourceObservationDetailPage({
       breadcrumbs={[
         {
           label: t("catalog.features.sourceObservations.ui.detail.source.observations"),
-          href: "/source-observations",
+          href: "/catalog/integrations?section=workbench",
         },
         { label: data?.normalized.name ?? id },
       ]}

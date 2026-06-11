@@ -135,11 +135,11 @@ export function CatalogIntegrationAreaWorkbench({
     return (
       <OperationalStatusBanner
         tone="warning"
-        title={t("catalog.features.sourceObservations.ui.integrationManagementPage.value.workbench", {
+        title={t("catalog.features.sourceObservations.ui.adminControlPlane.value.workbench", {
           value: String(moduleAreaLabel(area)),
         })}
         description={t(
-          "catalog.features.sourceObservations.ui.integrationManagementPage.select.a.provider.profile.version.to.use.this",
+          "catalog.features.sourceObservations.ui.adminControlPlane.select.a.provider.profile.version.to.use.this",
         )}
       />
     );
@@ -193,29 +193,29 @@ export function CatalogIntegrationAreaWorkbench({
     area === "authoring"
       ? [
           {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.editable.sections"),
+            label: t("catalog.features.sourceObservations.ui.adminControlPlane.editable.sections"),
             value: authoringModel ? String(authoringModel.editableSections.length) : "Loading",
           },
           {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.fixture.flows"),
+            label: t("catalog.features.sourceObservations.ui.adminControlPlane.fixture.flows"),
             value: selectedProfile.fixtures.coveredFlows.join(", ") || "None",
           },
           {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.mapping.output"),
+            label: t("catalog.features.sourceObservations.ui.adminControlPlane.mapping.output"),
             value: selectedProfile.mappingOutputKind,
           },
         ]
       : [
           {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.lifecycle"),
+            label: t("catalog.features.sourceObservations.ui.adminControlPlane.lifecycle"),
             value: selectedProfile.lifecycle,
           },
           {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.reference.count"),
+            label: t("catalog.features.sourceObservations.ui.adminControlPlane.reference.count"),
             value: String(selectedProfile.referenceCount),
           },
           {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.migration.evidence"),
+            label: t("catalog.features.sourceObservations.ui.adminControlPlane.migration.evidence"),
             value: selectedProfile.migrationEvidence ? "Recorded" : "Not recorded",
           },
         ];
@@ -223,14 +223,14 @@ export function CatalogIntegrationAreaWorkbench({
   return (
     <Stack gap={3}>
       <TaskSummary
-        title={t("catalog.features.sourceObservations.ui.integrationManagementPage.value.workbench.2", {
+        title={t("catalog.features.sourceObservations.ui.adminControlPlane.value.workbench.2", {
           value: String(moduleAreaLabel(area)),
         })}
         items={areaItems}
       />
       {loading ? (
         <Text size="sm" tone="secondary">
-          {t("catalog.features.sourceObservations.ui.integrationManagementPage.loading.selected.profile.context")}
+          {t("catalog.features.sourceObservations.ui.adminControlPlane.loading.selected.profile.context")}
         </Text>
       ) : null}
       {error ? (
@@ -246,7 +246,7 @@ export function CatalogIntegrationAreaWorkbench({
             disabled={!canManageCatalog}
             onClick={() => onEditProfile(selectedProfile)}
           >
-            {t("catalog.features.sourceObservations.ui.integrationManagementPage.edit.selected.profile")}
+            {t("catalog.features.sourceObservations.ui.adminControlPlane.edit.selected.profile")}
           </Button>
         ) : null}
         {area === "audit" ? (
@@ -258,7 +258,7 @@ export function CatalogIntegrationAreaWorkbench({
               disabled={!canManageCatalog}
               onClick={() => onMigrationEvidence(selectedProfile)}
             >
-              {t("catalog.features.sourceObservations.ui.integrationManagementPage.evidence")}
+              {t("catalog.features.sourceObservations.ui.adminControlPlane.evidence")}
             </Button>
             <Button
               size="sm"
@@ -267,7 +267,7 @@ export function CatalogIntegrationAreaWorkbench({
               disabled={!canManageCatalog}
               onClick={() => onActivate(selectedProfile)}
             >
-              {t("catalog.features.sourceObservations.ui.integrationManagementPage.activate")}
+              {t("catalog.features.sourceObservations.ui.adminControlPlane.activate")}
             </Button>
           </>
         ) : null}
@@ -331,26 +331,26 @@ function CatalogIntegrationOperationsWorkbench({
   return (
     <Stack gap={4}>
       <TaskSummary
-        title={t("catalog.features.sourceObservations.ui.integrationManagementPage.operations.workbench")}
+        title={t("catalog.features.sourceObservations.ui.adminControlPlane.operations.workbench")}
         items={[
           {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.profile"),
+            label: t("catalog.features.sourceObservations.ui.adminControlPlane.profile"),
             value: `${selectedProfile.displayName} ${selectedProfile.profileVersion}`,
           },
           {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.ingestion.units"),
+            label: t("catalog.features.sourceObservations.ui.adminControlPlane.ingestion.units"),
             value: unitKeys.length > 0 ? unitKeys.join(", ") : "Not reported",
           },
           {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.adapter.readiness"),
+            label: t("catalog.features.sourceObservations.ui.adminControlPlane.adapter.readiness"),
             value: providerReadiness ? providerReadiness.readiness : "Not reported",
           },
           {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.reference.count"),
+            label: t("catalog.features.sourceObservations.ui.adminControlPlane.reference.count"),
             value: String(selectedProfile.referenceCount),
           },
           {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.current.review.scope"),
+            label: t("catalog.features.sourceObservations.ui.adminControlPlane.current.review.scope"),
             value: formatPromotionScope(reviewScope),
           },
         ]}
@@ -414,7 +414,7 @@ function ImportJobOperationsWorkflow({
 
   return (
     <WorkflowModule
-      title={t("catalog.features.sourceObservations.ui.integrationManagementPage.import.and.job.operations")}
+      title={t("catalog.features.sourceObservations.ui.adminControlPlane.import.and.job.operations")}
       status={
         <StatusPill tone={providerReadiness?.readiness === "ready" ? "success" : "warning"}>
           {providerReadiness?.readiness ?? "unreported"}
@@ -422,7 +422,7 @@ function ImportJobOperationsWorkflow({
       }
       actions={
         <Button size="sm" leadingIcon="plus" disabled={!canManageCatalog} onClick={onImport}>
-          {t("catalog.features.sourceObservations.ui.integrationManagementPage.pull.provider.data")}
+          {t("catalog.features.sourceObservations.ui.adminControlPlane.pull.provider.data")}
         </Button>
       }
     >
@@ -431,22 +431,22 @@ function ImportJobOperationsWorkflow({
         variant="plain"
         items={[
           {
-            key: t("catalog.features.sourceObservations.ui.integrationManagementPage.provider"),
+            key: t("catalog.features.sourceObservations.ui.adminControlPlane.provider"),
             value: profile.providerKey,
           },
           {
-            key: t("catalog.features.sourceObservations.ui.integrationManagementPage.transport"),
+            key: t("catalog.features.sourceObservations.ui.adminControlPlane.transport"),
             value:
               providerReadiness?.payloadAcquisition.message ??
               providerReadiness?.payloadAcquisition.status ??
               "Not reported",
           },
           {
-            key: t("catalog.features.sourceObservations.ui.integrationManagementPage.credential"),
+            key: t("catalog.features.sourceObservations.ui.adminControlPlane.credential"),
             value: providerReadiness?.credentialReadiness ?? "Not reported",
           },
           {
-            key: t("catalog.features.sourceObservations.ui.integrationManagementPage.active.jobs"),
+            key: t("catalog.features.sourceObservations.ui.adminControlPlane.active.jobs"),
             value: String(activeJobs.length),
           },
         ]}
@@ -458,7 +458,7 @@ function ImportJobOperationsWorkflow({
       ) : null}
       {loading ? (
         <Text size="sm" tone="secondary">
-          {t("catalog.features.sourceObservations.ui.integrationManagementPage.loading.active.jobs")}
+          {t("catalog.features.sourceObservations.ui.adminControlPlane.loading.active.jobs")}
         </Text>
       ) : null}
       {jobs.length > 0 ? (
@@ -466,7 +466,7 @@ function ImportJobOperationsWorkflow({
           rows={[...jobs]}
           columns={operationsJobColumns}
           getRowId={(row) => row.jobId}
-          emptyTitle={t("catalog.features.sourceObservations.ui.integrationManagementPage.no.active.integration.jobs")}
+          emptyTitle={t("catalog.features.sourceObservations.ui.adminControlPlane.no.active.integration.jobs")}
           density="compact"
         />
       ) : (
@@ -474,7 +474,7 @@ function ImportJobOperationsWorkflow({
           rows={[...latestUnitJobs]}
           columns={recentUnitJobColumns}
           getRowId={(row) => `${row.unitKey}-${row.createdAt}-${row.action}`}
-          emptyTitle={t("catalog.features.sourceObservations.ui.integrationManagementPage.no.active.integration.jobs")}
+          emptyTitle={t("catalog.features.sourceObservations.ui.adminControlPlane.no.active.integration.jobs")}
           density="compact"
         />
       )}
@@ -490,41 +490,41 @@ function SourceObservationReviewWorkflow({
 
   return (
     <WorkflowModule
-      title={t("catalog.features.sourceObservations.ui.integrationManagementPage.source.observation.review.workflow")}
+      title={t("catalog.features.sourceObservations.ui.adminControlPlane.source.observation.review.workflow")}
       status={
         <StatusPill tone={reviewable > 0 ? "warning" : "success"}>
           {reviewable > 0
-            ? t("catalog.features.sourceObservations.ui.integrationManagementPage.needs.review")
-            : t("catalog.features.sourceObservations.ui.integrationManagementPage.clear")}
+            ? t("catalog.features.sourceObservations.ui.adminControlPlane.needs.review")
+            : t("catalog.features.sourceObservations.ui.adminControlPlane.clear")}
         </StatusPill>
       }
       actions={
         <LinkButton href={reviewHref} size="sm" tone="secondary">
-          {t("catalog.features.sourceObservations.ui.integrationManagementPage.review.matching.observations")}
+          {t("catalog.features.sourceObservations.ui.adminControlPlane.review.matching.observations")}
         </LinkButton>
       }
     >
       <StatGrid columns={{ base: 2, md: 4 }}>
         <Stat
-          label={t("catalog.features.sourceObservations.ui.integrationManagementPage.scopes")}
+          label={t("catalog.features.sourceObservations.ui.adminControlPlane.scopes")}
           value={formatCount(summary.scopes)}
         />
         <Stat
-          label={t("catalog.features.sourceObservations.ui.integrationManagementPage.observed")}
+          label={t("catalog.features.sourceObservations.ui.adminControlPlane.observed")}
           value={formatCount(summary.observed)}
         />
         <Stat
-          label={t("catalog.features.sourceObservations.ui.integrationManagementPage.changed")}
+          label={t("catalog.features.sourceObservations.ui.adminControlPlane.changed")}
           value={formatCount(summary.changed)}
         />
         <Stat
-          label={t("catalog.features.sourceObservations.ui.integrationManagementPage.promoted")}
+          label={t("catalog.features.sourceObservations.ui.adminControlPlane.promoted")}
           value={formatCount(summary.promoted)}
         />
       </StatGrid>
       <Text size="sm" tone="secondary">
         {t(
-          "catalog.features.sourceObservations.ui.integrationManagementPage.review.source.observations.by.provider.unit.profile.scope.status.provenance.facts.condition.certification.evidence.and.diagnostics",
+          "catalog.features.sourceObservations.ui.adminControlPlane.review.source.observations.by.provider.unit.profile.scope.status.provenance.facts.condition.certification.evidence.and.diagnostics",
         )}
       </Text>
     </WorkflowModule>
@@ -548,12 +548,12 @@ function PromotionReapplyWorkflow({
 
   return (
     <WorkflowModule
-      title={t("catalog.features.sourceObservations.ui.integrationManagementPage.promote.reapply.workflow")}
+      title={t("catalog.features.sourceObservations.ui.adminControlPlane.promote.reapply.workflow")}
       status={
         <StatusPill tone={summary.promoted > 0 ? "info" : "warning"}>
           {summary.promoted > 0
-            ? t("catalog.features.sourceObservations.ui.integrationManagementPage.promoted")
-            : t("catalog.features.sourceObservations.ui.integrationManagementPage.no.promoted.observations")}
+            ? t("catalog.features.sourceObservations.ui.adminControlPlane.promoted")
+            : t("catalog.features.sourceObservations.ui.adminControlPlane.no.promoted.observations")}
         </StatusPill>
       }
       actions={
@@ -564,7 +564,7 @@ function PromotionReapplyWorkflow({
             disabled={!canManageCatalog || reviewable === 0}
             onClick={onPromoteMatching}
           >
-            {t("catalog.features.sourceObservations.ui.integrationManagementPage.promote.matching")}
+            {t("catalog.features.sourceObservations.ui.adminControlPlane.promote.matching")}
           </Button>
           <Button
             size="sm"
@@ -573,7 +573,7 @@ function PromotionReapplyWorkflow({
             disabled={!canManageCatalog || summary.promoted === 0}
             onClick={onReapply}
           >
-            {t("catalog.features.sourceObservations.ui.integrationManagementPage.reapply.promoted")}
+            {t("catalog.features.sourceObservations.ui.adminControlPlane.reapply.promoted")}
           </Button>
         </>
       }
@@ -583,19 +583,19 @@ function PromotionReapplyWorkflow({
         variant="plain"
         items={[
           {
-            key: t("catalog.features.sourceObservations.ui.integrationManagementPage.command.scope"),
+            key: t("catalog.features.sourceObservations.ui.adminControlPlane.command.scope"),
             value: formatPromotionScope(reviewScope),
           },
           {
-            key: t("catalog.features.sourceObservations.ui.integrationManagementPage.promotion.evidence"),
+            key: t("catalog.features.sourceObservations.ui.adminControlPlane.promotion.evidence"),
             value: t(
-              "catalog.features.sourceObservations.ui.integrationManagementPage.engine.generated.command.plans.remain.scoped.to.the.selected.catalog.ingestion.unit",
+              "catalog.features.sourceObservations.ui.adminControlPlane.engine.generated.command.plans.remain.scoped.to.the.selected.catalog.ingestion.unit",
             ),
           },
           {
-            key: t("catalog.features.sourceObservations.ui.integrationManagementPage.reapply.guardrail"),
+            key: t("catalog.features.sourceObservations.ui.adminControlPlane.reapply.guardrail"),
             value: t(
-              "catalog.features.sourceObservations.ui.integrationManagementPage.reapply.uses.the.active.profile.mapping.without.changing.provider.transport.behavior",
+              "catalog.features.sourceObservations.ui.adminControlPlane.reapply.uses.the.active.profile.mapping.without.changing.provider.transport.behavior",
             ),
           },
         ]}
@@ -627,18 +627,18 @@ function RollbackRetirementWorkflow({
 
   return (
     <WorkflowModule
-      title={t("catalog.features.sourceObservations.ui.integrationManagementPage.rollback.retirement.workflow")}
+      title={t("catalog.features.sourceObservations.ui.adminControlPlane.rollback.retirement.workflow")}
       status={
         <StatusPill tone={retireBlocked ? "warning" : "success"}>
           {retireBlocked
-            ? t("catalog.features.sourceObservations.ui.integrationManagementPage.references.remain")
-            : t("catalog.features.sourceObservations.ui.integrationManagementPage.ready")}
+            ? t("catalog.features.sourceObservations.ui.adminControlPlane.references.remain")
+            : t("catalog.features.sourceObservations.ui.adminControlPlane.ready")}
         </StatusPill>
       }
       actions={
         <>
           <Button size="sm" tone="secondary" leadingIcon="refreshCcw" disabled={!canManageCatalog} onClick={onRollback}>
-            {t("catalog.features.sourceObservations.ui.integrations.profile.review.rollback")}
+            {t("catalog.features.sourceObservations.ui.adminControlPlane.profileReview.rollback")}
           </Button>
           <Button
             size="sm"
@@ -647,7 +647,7 @@ function RollbackRetirementWorkflow({
             disabled={!canManageCatalog || retireBlocked}
             onClick={onRetire}
           >
-            {t("catalog.features.sourceObservations.ui.integrations.profile.review.retire")}
+            {t("catalog.features.sourceObservations.ui.adminControlPlane.profileReview.retire")}
           </Button>
         </>
       }
@@ -657,28 +657,26 @@ function RollbackRetirementWorkflow({
         variant="plain"
         items={[
           {
-            key: t("catalog.features.sourceObservations.ui.integrationManagementPage.affected.references"),
+            key: t("catalog.features.sourceObservations.ui.adminControlPlane.affected.references"),
             value: String(profile.referenceCount),
           },
           {
-            key: t("catalog.features.sourceObservations.ui.integrationManagementPage.affected.jobs"),
+            key: t("catalog.features.sourceObservations.ui.adminControlPlane.affected.jobs"),
             value: String(activeJobs || latestJobCount),
           },
           {
-            key: t("catalog.features.sourceObservations.ui.integrationManagementPage.rollback.implication"),
+            key: t("catalog.features.sourceObservations.ui.adminControlPlane.rollback.implication"),
             value: t(
-              "catalog.features.sourceObservations.ui.integrationManagementPage.rollback.reactivates.a.previous.profile.version.and.keeps.observation.replay.explicit",
+              "catalog.features.sourceObservations.ui.adminControlPlane.rollback.reactivates.a.previous.profile.version.and.keeps.observation.replay.explicit",
             ),
           },
           {
-            key: t("catalog.features.sourceObservations.ui.integrationManagementPage.retirement.gate"),
+            key: t("catalog.features.sourceObservations.ui.adminControlPlane.retirement.gate"),
             value: retireBlocked
               ? t(
-                  "catalog.features.sourceObservations.ui.integrationManagementPage.blocked.until.source.observation.references.are.migrated.or.archived",
+                  "catalog.features.sourceObservations.ui.adminControlPlane.blocked.until.source.observation.references.are.migrated.or.archived",
                 )
-              : t(
-                  "catalog.features.sourceObservations.ui.integrationManagementPage.no.source.observation.references.remain",
-                ),
+              : t("catalog.features.sourceObservations.ui.adminControlPlane.no.source.observation.references.remain"),
           },
         ]}
       />
@@ -689,7 +687,7 @@ function RollbackRetirementWorkflow({
 const operationsJobColumns: DataColumn<CatalogIntegrationOperationsJob>[] = [
   {
     key: "job",
-    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.job"),
+    header: t("catalog.features.sourceObservations.ui.adminControlPlane.job"),
     cell: (row) => (
       <Stack gap={1}>
         <Inline gap={2}>
@@ -704,7 +702,7 @@ const operationsJobColumns: DataColumn<CatalogIntegrationOperationsJob>[] = [
   },
   {
     key: "profile",
-    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.profile.snapshot"),
+    header: t("catalog.features.sourceObservations.ui.adminControlPlane.profile.snapshot"),
     cell: (row) =>
       row.profileSnapshot ? (
         <Stack gap={1}>
@@ -716,17 +714,17 @@ const operationsJobColumns: DataColumn<CatalogIntegrationOperationsJob>[] = [
           </Text>
         </Stack>
       ) : (
-        t("catalog.features.sourceObservations.ui.integrationManagementPage.no.snapshot")
+        t("catalog.features.sourceObservations.ui.adminControlPlane.no.snapshot")
       ),
   },
   {
     key: "scope",
-    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.scope"),
+    header: t("catalog.features.sourceObservations.ui.adminControlPlane.scope"),
     cell: (row) => formatIntegrationJobScope(row.scope),
   },
   {
     key: "progress",
-    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.progress"),
+    header: t("catalog.features.sourceObservations.ui.adminControlPlane.progress"),
     cell: (row) => (
       <ProgressBar
         value={progressPercent(row.progress)}
@@ -742,7 +740,7 @@ const recentUnitJobColumns: DataColumn<
 >[] = [
   {
     key: "job",
-    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.job"),
+    header: t("catalog.features.sourceObservations.ui.adminControlPlane.job"),
     cell: (row) => (
       <Stack gap={1}>
         <Inline gap={2}>
@@ -757,12 +755,12 @@ const recentUnitJobColumns: DataColumn<
   },
   {
     key: "unit",
-    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.unit"),
+    header: t("catalog.features.sourceObservations.ui.adminControlPlane.unit"),
     cell: (row) => row.unitKey,
   },
   {
     key: "profile",
-    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.profile"),
+    header: t("catalog.features.sourceObservations.ui.adminControlPlane.profile"),
     cell: (row) => (
       <Stack gap={1}>
         <span>
@@ -776,7 +774,7 @@ const recentUnitJobColumns: DataColumn<
   },
   {
     key: "progress",
-    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.progress"),
+    header: t("catalog.features.sourceObservations.ui.adminControlPlane.progress"),
     cell: (row) => `${row.completed}/${row.total} ${row.phase}`,
   },
 ];
@@ -811,21 +809,21 @@ function progressPercent(progress: CatalogIntegrationOperationsProgress): number
 
 function formatProgress(progress: CatalogIntegrationOperationsProgress): string {
   if (progress.phase === "queued") {
-    return t("catalog.features.sourceObservations.ui.list.bulk.progress.queued");
+    return t("catalog.features.sourceObservations.ui.adminControlPlane.bulkProgress.queued");
   }
 
   if (progress.total <= 0) {
-    return t("catalog.features.sourceObservations.ui.list.bulk.progress.preparing");
+    return t("catalog.features.sourceObservations.ui.adminControlPlane.bulkProgress.preparing");
   }
 
   if (progress.phase === "completed") {
-    return t("catalog.features.sourceObservations.ui.list.bulk.progress.completed", {
+    return t("catalog.features.sourceObservations.ui.adminControlPlane.bulkProgress.completed", {
       completed: String(progress.completed),
       total: String(progress.total),
     });
   }
 
-  return t("catalog.features.sourceObservations.ui.list.bulk.progress.processing", {
+  return t("catalog.features.sourceObservations.ui.adminControlPlane.bulkProgress.processing", {
     completed: String(progress.completed),
     total: String(progress.total),
   });
@@ -833,50 +831,58 @@ function formatProgress(progress: CatalogIntegrationOperationsProgress): string 
 
 function sourceObservationPromotionScopeHref(scope: SourceObservationPromotionScope) {
   const params = new URLSearchParams();
+  params.set("section", "source-observation-review");
 
   if (scope.provider) {
-    params.set("source", scope.provider);
+    params.set("providerKey", scope.provider);
+    params.set("filter.provider", scope.provider);
   }
 
   if (scope.language) {
-    params.set("language", scope.language);
+    params.set("filter.language", scope.language);
   }
 
   if (scope.setId) {
-    params.set("setId", scope.setId);
+    params.set("filter.setId", scope.setId);
+  }
+
+  if (scope.status) {
+    params.set("filter.status", scope.status);
+  }
+
+  if (scope.search) {
+    params.set("filter.search", scope.search);
   }
 
   const query = params.toString();
-  return query ? `/catalog/source-observations?${query}` : "/catalog/source-observations";
+  return `/catalog/integrations?${query}`;
 }
 
 function formatPromotionScope(scope: SourceObservationPromotionScope): string {
   const parts = [
     scope.search
-      ? t("catalog.features.sourceObservations.ui.list.bulk.promote.all.scope.search", {
+      ? t("catalog.features.sourceObservations.ui.adminControlPlane.scope.search", {
           search: scope.search,
         })
       : "",
     scope.language
-      ? t("catalog.features.sourceObservations.ui.list.bulk.promote.all.scope.language", {
+      ? t("catalog.features.sourceObservations.ui.adminControlPlane.scope.language", {
           language: scope.language,
         })
       : "",
     scope.provider
-      ? t("catalog.features.sourceObservations.ui.list.bulk.promote.all.scope.provider", {
+      ? t("catalog.features.sourceObservations.ui.adminControlPlane.scope.provider", {
           provider: scope.provider,
         })
       : "",
     scope.setId
-      ? t("catalog.features.sourceObservations.ui.list.bulk.promote.all.scope.expansion", {
+      ? t("catalog.features.sourceObservations.ui.adminControlPlane.scope.expansion", {
           setId: scope.setId,
         })
       : "",
   ].filter(Boolean);
 
-  return parts.length > 0
-    ? parts.join(", ")
-    : t("catalog.features.sourceObservations.ui.list.bulk.promote.all.scope.all");
+  return parts.length > 0 ? parts.join(", ") : t("catalog.features.sourceObservations.ui.adminControlPlane.scope.all");
 }
 
 function formatIntegrationJobScope(scope: SourceObservationIntegrationJobScope): string {
@@ -886,7 +892,7 @@ function formatIntegrationJobScope(scope: SourceObservationIntegrationJobScope):
 
   return parts.length > 0
     ? parts.join(", ")
-    : t("catalog.features.sourceObservations.ui.integrationManagementPage.all.provider.scopes");
+    : t("catalog.features.sourceObservations.ui.adminControlPlane.all.provider.scopes");
 }
 
 function formatCount(value: number) {
@@ -930,10 +936,8 @@ function CatalogIntegrationValidationWorkbench({
     return (
       <OperationalStatusBanner
         tone="info"
-        title={t("catalog.features.sourceObservations.ui.integrationManagementPage.loading.validation.workbench")}
-        description={t(
-          "catalog.features.sourceObservations.ui.integrationManagementPage.loading.selected.profile.context",
-        )}
+        title={t("catalog.features.sourceObservations.ui.adminControlPlane.loading.validation.workbench")}
+        description={t("catalog.features.sourceObservations.ui.adminControlPlane.loading.selected.profile.context")}
       />
     );
   }
@@ -942,7 +946,7 @@ function CatalogIntegrationValidationWorkbench({
     return (
       <OperationalStatusBanner
         tone="danger"
-        title={t("catalog.features.sourceObservations.ui.integrationManagementPage.validation.workbench.unavailable")}
+        title={t("catalog.features.sourceObservations.ui.adminControlPlane.validation.workbench.unavailable")}
         description={error}
       />
     );
@@ -952,10 +956,8 @@ function CatalogIntegrationValidationWorkbench({
     return (
       <OperationalStatusBanner
         tone="warning"
-        title={t("catalog.features.sourceObservations.ui.integrationManagementPage.validation.workbench.unavailable")}
-        description={t(
-          "catalog.features.sourceObservations.ui.integrationManagementPage.selected.profile.context.not.loaded",
-        )}
+        title={t("catalog.features.sourceObservations.ui.adminControlPlane.validation.workbench.unavailable")}
+        description={t("catalog.features.sourceObservations.ui.adminControlPlane.selected.profile.context.not.loaded")}
       />
     );
   }
@@ -969,30 +971,30 @@ function CatalogIntegrationValidationWorkbench({
   return (
     <Stack gap={4}>
       <TaskSummary
-        title={t("catalog.features.sourceObservations.ui.integrationManagementPage.validation.workbench")}
+        title={t("catalog.features.sourceObservations.ui.adminControlPlane.validation.workbench")}
         items={[
           {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.profile"),
+            label: t("catalog.features.sourceObservations.ui.adminControlPlane.profile"),
             value: `${selectedProfile.displayName} ${selectedProfile.profileVersion}`,
           },
           {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.validation"),
+            label: t("catalog.features.sourceObservations.ui.adminControlPlane.validation"),
             value: selectedProfile.validation.status,
           },
           {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.readiness"),
+            label: t("catalog.features.sourceObservations.ui.adminControlPlane.readiness"),
             value: readiness.status,
           },
           {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.blocking.checks"),
+            label: t("catalog.features.sourceObservations.ui.adminControlPlane.blocking.checks"),
             value: String(blockedChecks.length),
           },
           {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.semantic.changes"),
+            label: t("catalog.features.sourceObservations.ui.adminControlPlane.semantic.changes"),
             value: String(changedDiffs.length),
           },
           {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.fixture.flows"),
+            label: t("catalog.features.sourceObservations.ui.adminControlPlane.fixture.flows"),
             value: `${authoringModel.fixtureCases.filter((fixtureCase) => fixtureCase.samplePayloadAvailable).length}/${authoringModel.fixtureCases.length}`,
           },
         ]}
@@ -1029,14 +1031,14 @@ function CatalogIntegrationValidationWorkbench({
 function FixtureValidationWorkflow({ model }: Readonly<{ model: CatalogProviderProfileAuthoringModel }>) {
   return (
     <WorkflowModule
-      title={t("catalog.features.sourceObservations.ui.integrationManagementPage.fixture.validation.workflow")}
+      title={t("catalog.features.sourceObservations.ui.adminControlPlane.fixture.validation.workflow")}
       status={<StatusPill tone={fixtureWorkflowTone(model)}>{fixtureWorkflowLabel(model)}</StatusPill>}
     >
       <DataTable
         rows={model.fixtureCases}
         columns={fixtureValidationColumns(model)}
         getRowId={(row) => row.flow}
-        emptyTitle={t("catalog.features.sourceObservations.ui.integrationManagementPage.no.fixture.cases")}
+        emptyTitle={t("catalog.features.sourceObservations.ui.adminControlPlane.no.fixture.cases")}
         density="compact"
       />
       <DataTable
@@ -1045,7 +1047,7 @@ function FixtureValidationWorkflow({ model }: Readonly<{ model: CatalogProviderP
         )}
         columns={sectionValidationColumns}
         getRowId={(row) => row.sectionKey}
-        emptyTitle={t("catalog.features.sourceObservations.ui.integrationManagementPage.no.section.diagnostics")}
+        emptyTitle={t("catalog.features.sourceObservations.ui.adminControlPlane.no.section.diagnostics")}
         density="compact"
       />
     </WorkflowModule>
@@ -1077,18 +1079,18 @@ function DryRunEvidenceWorkflow({
 }>) {
   return (
     <WorkflowModule
-      title={t("catalog.features.sourceObservations.ui.integrationManagementPage.dry.run.evidence.workflow")}
+      title={t("catalog.features.sourceObservations.ui.adminControlPlane.dry.run.evidence.workflow")}
       status={
         <StatusPill tone={selectedFixture?.samplePayloadAvailable ? "success" : "warning"}>
           {selectedFixture?.samplePayloadAvailable
-            ? t("catalog.features.sourceObservations.ui.integrationManagementPage.sample.available")
-            : t("catalog.features.sourceObservations.ui.integrationManagementPage.sample.missing")}
+            ? t("catalog.features.sourceObservations.ui.adminControlPlane.sample.available")
+            : t("catalog.features.sourceObservations.ui.adminControlPlane.sample.missing")}
         </StatusPill>
       }
     >
       <WorkflowActionBar>
         <Select
-          label={t("catalog.features.sourceObservations.ui.integrationManagementPage.fixture.flow")}
+          label={t("catalog.features.sourceObservations.ui.adminControlPlane.fixture.flow")}
           value={dryRunFlow}
           onValueChange={onDryRunFlowChange}
           items={[...dryRunItems]}
@@ -1100,10 +1102,10 @@ function DryRunEvidenceWorkflow({
           disabled={!selectedFixture?.samplePayloadAvailable}
           onClick={onRunDryRun}
         >
-          {t("catalog.features.sourceObservations.ui.integrationManagementPage.run.selected.fixture")}
+          {t("catalog.features.sourceObservations.ui.adminControlPlane.run.selected.fixture")}
         </Button>
         <Button size="sm" tone="secondary" leadingIcon="settings" onClick={onOpenDryRunDialog}>
-          {t("catalog.features.sourceObservations.ui.integrationManagementPage.open.override.dry.run")}
+          {t("catalog.features.sourceObservations.ui.adminControlPlane.open.override.dry.run")}
         </Button>
       </WorkflowActionBar>
       <KeyValueList
@@ -1111,19 +1113,19 @@ function DryRunEvidenceWorkflow({
         variant="plain"
         items={[
           {
-            key: t("catalog.features.sourceObservations.ui.integrationManagementPage.default.flow"),
+            key: t("catalog.features.sourceObservations.ui.adminControlPlane.default.flow"),
             value: model.dryRunInputTemplate.defaultFlow ?? "None",
           },
           {
-            key: t("catalog.features.sourceObservations.ui.integrationManagementPage.fixture.payload"),
+            key: t("catalog.features.sourceObservations.ui.adminControlPlane.fixture.payload"),
             value: selectedFixture?.payloadFile ?? "None",
           },
           {
-            key: t("catalog.features.sourceObservations.ui.integrationManagementPage.expected.status"),
+            key: t("catalog.features.sourceObservations.ui.adminControlPlane.expected.status"),
             value: selectedFixture?.expectedStatus ?? "None",
           },
           {
-            key: t("catalog.features.sourceObservations.ui.integrationManagementPage.expected.observation"),
+            key: t("catalog.features.sourceObservations.ui.adminControlPlane.expected.observation"),
             value: summarizeJsonValue(selectedFixture?.expectedObservation ?? null),
           },
         ]}
@@ -1131,7 +1133,7 @@ function DryRunEvidenceWorkflow({
       {dryRunError ? (
         <OperationalStatusBanner
           tone="danger"
-          title={t("catalog.features.sourceObservations.ui.integrationManagementPage.dry.run.failed")}
+          title={t("catalog.features.sourceObservations.ui.adminControlPlane.dry.run.failed")}
           description={dryRunError}
         />
       ) : null}
@@ -1144,36 +1146,34 @@ function DryRunResultEvidence({ result }: Readonly<{ result: CatalogProviderProf
   return (
     <Stack gap={3}>
       <TaskSummary
-        title={t("catalog.features.sourceObservations.ui.integrationManagementPage.dry.run.output.evidence")}
+        title={t("catalog.features.sourceObservations.ui.adminControlPlane.dry.run.output.evidence")}
         items={[
           {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.status"),
+            label: t("catalog.features.sourceObservations.ui.adminControlPlane.status"),
             value: result.status,
           },
           {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.source.observation.facts"),
+            label: t("catalog.features.sourceObservations.ui.adminControlPlane.source.observation.facts"),
             value: result.observation ? sourceObservationFactSummary(result) : "None",
           },
           {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.diagnostics"),
+            label: t("catalog.features.sourceObservations.ui.adminControlPlane.diagnostics"),
             value: String(result.diagnostics.length),
           },
           {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.duplicate.candidates"),
+            label: t("catalog.features.sourceObservations.ui.adminControlPlane.duplicate.candidates"),
             value: duplicateCandidateSummary(result),
           },
           {
-            label: t(
-              "catalog.features.sourceObservations.ui.integrationManagementPage.condition.certification.evidence",
-            ),
+            label: t("catalog.features.sourceObservations.ui.adminControlPlane.condition.certification.evidence"),
             value: summarizeJsonValue(result.selectedOptions),
           },
           {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.promotion.plan.evidence"),
+            label: t("catalog.features.sourceObservations.ui.adminControlPlane.promotion.plan.evidence"),
             value: `${result.promotionCommandPlan.commands.length} command(s)`,
           },
           {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.audit.evidence"),
+            label: t("catalog.features.sourceObservations.ui.adminControlPlane.audit.evidence"),
             value: `${result.hashMaterial.length + result.mergeCandidateEvidence.length} evidence path(s)`,
           },
         ]}
@@ -1182,14 +1182,14 @@ function DryRunResultEvidence({ result }: Readonly<{ result: CatalogProviderProf
         rows={result.diagnosticLinks}
         columns={dryRunDiagnosticLinkColumns}
         getRowId={(row, index) => `${row.path}:${index}`}
-        emptyTitle={t("catalog.features.sourceObservations.ui.integrationManagementPage.no.diagnostic.links")}
+        emptyTitle={t("catalog.features.sourceObservations.ui.adminControlPlane.no.diagnostic.links")}
         density="compact"
       />
       <DataTable
         rows={result.promotionCommandPlan.commands}
         columns={promotionPlanEvidenceColumns}
         getRowId={(row, index) => `${row.commandName}:${index}`}
-        emptyTitle={t("catalog.features.sourceObservations.ui.integrationManagementPage.no.promotion.commands")}
+        emptyTitle={t("catalog.features.sourceObservations.ui.adminControlPlane.no.promotion.commands")}
         density="compact"
       />
     </Stack>
@@ -1203,17 +1203,17 @@ function SemanticComparisonWorkflow({
   const changedDiffs = model.semanticDiff.changes.filter((change) => change.changed);
   return (
     <WorkflowModule
-      title={t("catalog.features.sourceObservations.ui.integrationManagementPage.semantic.comparison.workflow")}
+      title={t("catalog.features.sourceObservations.ui.adminControlPlane.semantic.comparison.workflow")}
       status={
         <StatusPill tone={model.semanticDiff.mappingFingerprint.changed ? "warning" : "success"}>
           {model.semanticDiff.mappingFingerprint.changed
-            ? t("catalog.features.sourceObservations.ui.integrationManagementPage.mapping.changed")
-            : t("catalog.features.sourceObservations.ui.integrationManagementPage.mapping.unchanged")}
+            ? t("catalog.features.sourceObservations.ui.adminControlPlane.mapping.changed")
+            : t("catalog.features.sourceObservations.ui.adminControlPlane.mapping.unchanged")}
         </StatusPill>
       }
       actions={
         <Button size="sm" tone="secondary" leadingIcon="search" onClick={onCompare}>
-          {t("catalog.features.sourceObservations.ui.integrationManagementPage.compare.active")}
+          {t("catalog.features.sourceObservations.ui.adminControlPlane.compare.active")}
         </Button>
       }
     >
@@ -1222,19 +1222,19 @@ function SemanticComparisonWorkflow({
         variant="plain"
         items={[
           {
-            key: t("catalog.features.sourceObservations.ui.integrationManagementPage.candidate"),
+            key: t("catalog.features.sourceObservations.ui.adminControlPlane.candidate"),
             value: model.semanticDiff.candidateProfileVersion,
           },
           {
-            key: t("catalog.features.sourceObservations.ui.integrationManagementPage.active"),
+            key: t("catalog.features.sourceObservations.ui.adminControlPlane.active"),
             value: model.semanticDiff.activeProfileVersion ?? "None",
           },
           {
-            key: t("catalog.features.sourceObservations.ui.integrationManagementPage.candidate.fingerprint"),
+            key: t("catalog.features.sourceObservations.ui.adminControlPlane.candidate.fingerprint"),
             value: model.semanticDiff.mappingFingerprint.candidate ?? "None",
           },
           {
-            key: t("catalog.features.sourceObservations.ui.integrationManagementPage.active.fingerprint"),
+            key: t("catalog.features.sourceObservations.ui.adminControlPlane.active.fingerprint"),
             value: model.semanticDiff.mappingFingerprint.active ?? "None",
           },
         ]}
@@ -1243,14 +1243,14 @@ function SemanticComparisonWorkflow({
         rows={model.semanticDiff.sections}
         columns={semanticSectionColumns}
         getRowId={(row) => row.sectionKey}
-        emptyTitle={t("catalog.features.sourceObservations.ui.integrationManagementPage.no.semantic.sections")}
+        emptyTitle={t("catalog.features.sourceObservations.ui.adminControlPlane.no.semantic.sections")}
         density="compact"
       />
       <DataTable
         rows={changedDiffs.length > 0 ? changedDiffs : model.semanticDiff.changes}
         columns={semanticChangeColumns}
         getRowId={(row) => row.path}
-        emptyTitle={t("catalog.features.sourceObservations.ui.integrationManagementPage.no.semantic.changes")}
+        emptyTitle={t("catalog.features.sourceObservations.ui.adminControlPlane.no.semantic.changes")}
         density="compact"
       />
     </WorkflowModule>
@@ -1279,8 +1279,8 @@ function ActivationReadinessWorkflow({
     status: check.status === "blocked" ? "blocked" : "passed",
     statusLabel:
       check.status === "blocked"
-        ? t("catalog.features.sourceObservations.ui.integrationManagementPage.blocked")
-        : t("catalog.features.sourceObservations.ui.integrationManagementPage.passed"),
+        ? t("catalog.features.sourceObservations.ui.adminControlPlane.blocked")
+        : t("catalog.features.sourceObservations.ui.adminControlPlane.passed"),
     description: check.remediation || check.diagnosticText,
     meta: (
       <>
@@ -1293,12 +1293,12 @@ function ActivationReadinessWorkflow({
 
   return (
     <WorkflowModule
-      title={t("catalog.features.sourceObservations.ui.integrationManagementPage.activation.readiness.workflow")}
+      title={t("catalog.features.sourceObservations.ui.adminControlPlane.activation.readiness.workflow")}
       status={
         <StatusPill tone={readiness.status === "ready" ? "success" : "danger"}>
           {readiness.status === "ready"
-            ? t("catalog.features.sourceObservations.ui.integrationManagementPage.ready.to.activate")
-            : t("catalog.features.sourceObservations.ui.integrationManagementPage.activation.blocked")}
+            ? t("catalog.features.sourceObservations.ui.adminControlPlane.ready.to.activate")
+            : t("catalog.features.sourceObservations.ui.adminControlPlane.activation.blocked")}
         </StatusPill>
       }
       actions={
@@ -1310,7 +1310,7 @@ function ActivationReadinessWorkflow({
             disabled={!canManageCatalog}
             onClick={onMigrationEvidence}
           >
-            {t("catalog.features.sourceObservations.ui.integrationManagementPage.evidence")}
+            {t("catalog.features.sourceObservations.ui.adminControlPlane.evidence")}
           </Button>
           <Button
             size="sm"
@@ -1318,35 +1318,35 @@ function ActivationReadinessWorkflow({
             disabled={!canManageCatalog || readiness.status !== "ready"}
             onClick={onActivate}
           >
-            {t("catalog.features.sourceObservations.ui.integrationManagementPage.activate")}
+            {t("catalog.features.sourceObservations.ui.adminControlPlane.activate")}
           </Button>
         </>
       }
     >
       <WorkflowReadinessChecklist
         items={checklistItems}
-        emptyState={t("catalog.features.sourceObservations.ui.integrationManagementPage.no.readiness.checks")}
+        emptyState={t("catalog.features.sourceObservations.ui.adminControlPlane.no.readiness.checks")}
       />
       <KeyValueList
         density="compact"
         variant="plain"
         items={[
           {
-            key: t("catalog.features.sourceObservations.ui.integrationManagementPage.affected.references"),
+            key: t("catalog.features.sourceObservations.ui.adminControlPlane.affected.references"),
             value: String(readiness.referenceCount),
           },
           {
-            key: t("catalog.features.sourceObservations.ui.integrationManagementPage.migration.evidence"),
+            key: t("catalog.features.sourceObservations.ui.adminControlPlane.migration.evidence"),
             value: readiness.requiresMigrationEvidence
-              ? t("catalog.features.sourceObservations.ui.integrationManagementPage.required")
-              : t("catalog.features.sourceObservations.ui.integrationManagementPage.not.required"),
+              ? t("catalog.features.sourceObservations.ui.adminControlPlane.required")
+              : t("catalog.features.sourceObservations.ui.adminControlPlane.not.required"),
           },
           {
-            key: t("catalog.features.sourceObservations.ui.integrationManagementPage.replay.implication"),
+            key: t("catalog.features.sourceObservations.ui.adminControlPlane.replay.implication"),
             value: replayImplication(profile),
           },
           {
-            key: t("catalog.features.sourceObservations.ui.integrationManagementPage.blocking.checks"),
+            key: t("catalog.features.sourceObservations.ui.adminControlPlane.blocking.checks"),
             value: String(blockedChecks.length),
           },
         ]}
@@ -1355,14 +1355,14 @@ function ActivationReadinessWorkflow({
         rows={readiness.groups}
         columns={readinessGroupColumns}
         getRowId={(row) => row.domainConcept}
-        emptyTitle={t("catalog.features.sourceObservations.ui.integrationManagementPage.no.readiness.groups")}
+        emptyTitle={t("catalog.features.sourceObservations.ui.adminControlPlane.no.readiness.groups")}
         density="compact"
       />
       <DataTable
         rows={blockedChecks.length > 0 ? blockedChecks : readiness.checks}
         columns={activationCheckColumns}
         getRowId={(row, index) => `${row.checkKey}:${row.path}:${index}`}
-        emptyTitle={t("catalog.features.sourceObservations.ui.integrationManagementPage.no.readiness.checks")}
+        emptyTitle={t("catalog.features.sourceObservations.ui.adminControlPlane.no.readiness.checks")}
         density="compact"
       />
     </WorkflowModule>
@@ -1372,7 +1372,7 @@ function ActivationReadinessWorkflow({
 function dryRunFixtureItems(model: CatalogProviderProfileAuthoringModel): SelectItem[] {
   return model.fixtureCases.map((fixtureCase) => ({
     value: fixtureCase.flow,
-    label: `${fixtureCase.flow}${fixtureCase.samplePayloadAvailable ? "" : ` (${t("catalog.features.sourceObservations.ui.integrationManagementPage.missing.sample")})`}`,
+    label: `${fixtureCase.flow}${fixtureCase.samplePayloadAvailable ? "" : ` (${t("catalog.features.sourceObservations.ui.adminControlPlane.missing.sample")})`}`,
     disabled: !fixtureCase.samplePayloadAvailable,
   }));
 }
@@ -1383,12 +1383,12 @@ function fixtureValidationColumns(
   return [
     {
       key: "flow",
-      header: t("catalog.features.sourceObservations.ui.integrationManagementPage.fixture.flow.2"),
+      header: t("catalog.features.sourceObservations.ui.adminControlPlane.fixture.flow.2"),
       cell: (row) => row.flow,
     },
     {
       key: "status",
-      header: t("catalog.features.sourceObservations.ui.integrationManagementPage.status"),
+      header: t("catalog.features.sourceObservations.ui.adminControlPlane.status"),
       cell: (row) => {
         const blocked = model.activationReadiness.checks.some(
           (check) => check.status === "blocked" && check.flow === row.flow,
@@ -1396,29 +1396,29 @@ function fixtureValidationColumns(
         return (
           <StatusPill tone={blocked || row.expectedStatus === "blocked" ? "danger" : "success"}>
             {blocked || row.expectedStatus === "blocked"
-              ? t("catalog.features.sourceObservations.ui.integrationManagementPage.blocked")
-              : t("catalog.features.sourceObservations.ui.integrationManagementPage.ready")}
+              ? t("catalog.features.sourceObservations.ui.adminControlPlane.blocked")
+              : t("catalog.features.sourceObservations.ui.adminControlPlane.ready")}
           </StatusPill>
         );
       },
     },
     {
       key: "sample",
-      header: t("catalog.features.sourceObservations.ui.integrationManagementPage.sample"),
+      header: t("catalog.features.sourceObservations.ui.adminControlPlane.sample"),
       cell: (row) =>
         row.samplePayloadAvailable
-          ? t("catalog.features.sourceObservations.ui.integrationManagementPage.available")
-          : t("catalog.features.sourceObservations.ui.integrationManagementPage.missing"),
+          ? t("catalog.features.sourceObservations.ui.adminControlPlane.available")
+          : t("catalog.features.sourceObservations.ui.adminControlPlane.missing"),
     },
     {
       key: "expected",
-      header: t("catalog.features.sourceObservations.ui.integrationManagementPage.expected.evidence"),
+      header: t("catalog.features.sourceObservations.ui.adminControlPlane.expected.evidence"),
       cell: (row) =>
         `${row.expectedHashEvidencePaths.length} hash; ${row.expectedMergeEvidencePaths.length} merge; ${row.expectedPromotionCommands.length} command`,
     },
     {
       key: "observation",
-      header: t("catalog.features.sourceObservations.ui.integrationManagementPage.expected.observation"),
+      header: t("catalog.features.sourceObservations.ui.adminControlPlane.expected.observation"),
       cell: (row) => summarizeJsonValue(row.expectedObservation),
     },
   ];
@@ -1427,27 +1427,27 @@ function fixtureValidationColumns(
 const sectionValidationColumns: DataColumn<CatalogProviderProfileAuthoringModel["sectionSummaries"][number]>[] = [
   {
     key: "section",
-    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.section"),
+    header: t("catalog.features.sourceObservations.ui.adminControlPlane.section"),
     cell: (row) => row.domainConcept,
   },
   {
     key: "status",
-    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.status"),
+    header: t("catalog.features.sourceObservations.ui.adminControlPlane.status"),
     cell: (row) => <StatusPill tone={sectionStatusTone(row.status)}>{row.status}</StatusPill>,
   },
   {
     key: "diagnostics",
-    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.diagnostics"),
+    header: t("catalog.features.sourceObservations.ui.adminControlPlane.diagnostics"),
     cell: (row) => String(row.diagnostics.length),
   },
   {
     key: "readiness",
-    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.readiness.checks"),
+    header: t("catalog.features.sourceObservations.ui.adminControlPlane.readiness.checks"),
     cell: (row) => String(row.readinessChecks.length),
   },
   {
     key: "path",
-    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.path"),
+    header: t("catalog.features.sourceObservations.ui.adminControlPlane.path"),
     cell: (row) => row.readinessChecks[0]?.path ?? row.diagnostics[0]?.path ?? "None",
   },
 ];
@@ -1455,22 +1455,22 @@ const sectionValidationColumns: DataColumn<CatalogProviderProfileAuthoringModel[
 const dryRunDiagnosticLinkColumns: DataColumn<CatalogProviderProfileDryRunResult["diagnosticLinks"][number]>[] = [
   {
     key: "flow",
-    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.fixture.flow.2"),
+    header: t("catalog.features.sourceObservations.ui.adminControlPlane.fixture.flow.2"),
     cell: (row) => row.fixtureFlow ?? "None",
   },
   {
     key: "section",
-    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.section"),
+    header: t("catalog.features.sourceObservations.ui.adminControlPlane.section"),
     cell: (row) => row.domainConcept,
   },
   {
     key: "code",
-    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.code"),
+    header: t("catalog.features.sourceObservations.ui.adminControlPlane.code"),
     cell: (row) => row.code,
   },
   {
     key: "path",
-    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.path"),
+    header: t("catalog.features.sourceObservations.ui.adminControlPlane.path"),
     cell: (row) => row.path,
   },
 ];
@@ -1480,17 +1480,17 @@ const promotionPlanEvidenceColumns: DataColumn<
 >[] = [
   {
     key: "command",
-    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.command"),
+    header: t("catalog.features.sourceObservations.ui.adminControlPlane.command"),
     cell: (row) => row.commandName,
   },
   {
     key: "inputs",
-    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.evidence.paths"),
+    header: t("catalog.features.sourceObservations.ui.adminControlPlane.evidence.paths"),
     cell: (row) => String(row.inputs.length),
   },
   {
     key: "first",
-    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.first.path"),
+    header: t("catalog.features.sourceObservations.ui.adminControlPlane.first.path"),
     cell: (row) => row.inputs[0]?.path ?? "None",
   },
 ];
@@ -1498,17 +1498,17 @@ const promotionPlanEvidenceColumns: DataColumn<
 const semanticSectionColumns: DataColumn<CatalogProviderProfileAuthoringModel["semanticDiff"]["sections"][number]>[] = [
   {
     key: "section",
-    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.section"),
+    header: t("catalog.features.sourceObservations.ui.adminControlPlane.section"),
     cell: (row) => row.domainConcept,
   },
   {
     key: "status",
-    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.status"),
+    header: t("catalog.features.sourceObservations.ui.adminControlPlane.status"),
     cell: (row) => <StatusPill tone={sectionStatusTone(row.status)}>{row.status}</StatusPill>,
   },
   {
     key: "changes",
-    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.changes"),
+    header: t("catalog.features.sourceObservations.ui.adminControlPlane.changes"),
     cell: (row) => String(row.changes.filter((change) => change.changed).length),
   },
 ];
@@ -1516,15 +1516,15 @@ const semanticSectionColumns: DataColumn<CatalogProviderProfileAuthoringModel["s
 const semanticChangeColumns: DataColumn<CatalogProviderProfileAuthoringModel["semanticDiff"]["changes"][number]>[] = [
   {
     key: "change",
-    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.change"),
+    header: t("catalog.features.sourceObservations.ui.adminControlPlane.change"),
     cell: (row) => (
       <Stack gap={1}>
         <span>{row.label}</span>
         <Inline gap={1}>
           <StatusPill tone={row.changed ? "warning" : "success"}>
             {row.changed
-              ? t("catalog.features.sourceObservations.ui.integrationManagementPage.changed")
-              : t("catalog.features.sourceObservations.ui.integrationManagementPage.unchanged")}
+              ? t("catalog.features.sourceObservations.ui.adminControlPlane.changed")
+              : t("catalog.features.sourceObservations.ui.adminControlPlane.unchanged")}
           </StatusPill>
           <StatusPill tone={semanticSeverityTone(row.severity)}>{row.severity}</StatusPill>
         </Inline>
@@ -1533,12 +1533,12 @@ const semanticChangeColumns: DataColumn<CatalogProviderProfileAuthoringModel["se
   },
   {
     key: "section",
-    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.section"),
+    header: t("catalog.features.sourceObservations.ui.adminControlPlane.section"),
     cell: (row) => row.domainConcept,
   },
   {
     key: "impact",
-    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.activation.impact"),
+    header: t("catalog.features.sourceObservations.ui.adminControlPlane.activation.impact"),
     cell: (row) => row.activationImpact,
   },
 ];
@@ -1548,17 +1548,17 @@ const readinessGroupColumns: DataColumn<
 >[] = [
   {
     key: "group",
-    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.section"),
+    header: t("catalog.features.sourceObservations.ui.adminControlPlane.section"),
     cell: (row) => row.domainConcept,
   },
   {
     key: "status",
-    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.status"),
+    header: t("catalog.features.sourceObservations.ui.adminControlPlane.status"),
     cell: (row) => <StatusPill tone={row.status === "ready" ? "success" : "danger"}>{row.status}</StatusPill>,
   },
   {
     key: "checks",
-    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.readiness.checks"),
+    header: t("catalog.features.sourceObservations.ui.adminControlPlane.readiness.checks"),
     cell: (row) => String(row.checks.length),
   },
 ];
@@ -1568,28 +1568,28 @@ const activationCheckColumns: DataColumn<
 >[] = [
   {
     key: "status",
-    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.status"),
+    header: t("catalog.features.sourceObservations.ui.adminControlPlane.status"),
     cell: (row) => (
       <StatusPill tone={row.status === "passed" ? "success" : "danger"}>
         {row.status === "passed"
-          ? t("catalog.features.sourceObservations.ui.integrationManagementPage.passed")
-          : t("catalog.features.sourceObservations.ui.integrationManagementPage.blocked")}
+          ? t("catalog.features.sourceObservations.ui.adminControlPlane.passed")
+          : t("catalog.features.sourceObservations.ui.adminControlPlane.blocked")}
       </StatusPill>
     ),
   },
   {
     key: "section",
-    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.section"),
+    header: t("catalog.features.sourceObservations.ui.adminControlPlane.section"),
     cell: (row) => row.domainConcept,
   },
   {
     key: "path",
-    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.path"),
+    header: t("catalog.features.sourceObservations.ui.adminControlPlane.path"),
     cell: (row) => row.path,
   },
   {
     key: "remediation",
-    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.remediation"),
+    header: t("catalog.features.sourceObservations.ui.adminControlPlane.remediation"),
     cell: (row) => row.remediation || row.diagnosticText,
   },
 ];
@@ -1604,8 +1604,8 @@ function fixtureWorkflowTone(model: CatalogProviderProfileAuthoringModel): "succ
 
 function fixtureWorkflowLabel(model: CatalogProviderProfileAuthoringModel): string {
   return fixtureWorkflowTone(model) === "success"
-    ? t("catalog.features.sourceObservations.ui.integrationManagementPage.ready")
-    : t("catalog.features.sourceObservations.ui.integrationManagementPage.blocked");
+    ? t("catalog.features.sourceObservations.ui.adminControlPlane.ready")
+    : t("catalog.features.sourceObservations.ui.adminControlPlane.blocked");
 }
 
 function sectionStatusTone(status: "valid" | "warning" | "error" | "blocked"): "success" | "warning" | "danger" {
@@ -1633,7 +1633,7 @@ function sourceObservationFactSummary(result: CatalogProviderProfileDryRunResult
 function duplicateCandidateSummary(result: CatalogProviderProfileDryRunResult): string {
   const preview = result.duplicatePreventionCandidatePreview;
   if (!preview) {
-    return t("catalog.features.sourceObservations.ui.integrationManagementPage.not.evaluated");
+    return t("catalog.features.sourceObservations.ui.adminControlPlane.not.evaluated");
   }
   return `${preview.status}; ${preview.candidateCount} candidate(s)`;
 }
@@ -1643,9 +1643,9 @@ function replayImplication(profile: CatalogProviderProfileVersionReview): string
   const duplicatePrevention = isRecord(contract?.duplicatePrevention) ? contract.duplicatePrevention : null;
   const replayPolicy = typeof duplicatePrevention?.replayPolicy === "string" ? duplicatePrevention.replayPolicy : "";
   if (!replayPolicy) {
-    return t("catalog.features.sourceObservations.ui.integrationManagementPage.replay.policy.not.configured");
+    return t("catalog.features.sourceObservations.ui.adminControlPlane.replay.policy.not.configured");
   }
-  return t("catalog.features.sourceObservations.ui.integrationManagementPage.replay.uses.policy", {
+  return t("catalog.features.sourceObservations.ui.adminControlPlane.replay.uses.policy", {
     policy: replayPolicy,
   });
 }
