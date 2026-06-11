@@ -25,7 +25,7 @@ The primary workflow group must render first on desktop and first in the mobile 
 
 ## Screen Boundaries
 
-The rebuild must not migrate the current `/catalog/integrations` and `/catalog/source-observations` pages as two cleaned-up pages. It must create cohesive screens around jobs:
+The rebuild must not preserve retired admin patterns as cleaned-up pages. It must create cohesive screens around jobs:
 
 - Import to promotion workbench owns import setup, job progress, Source Observation review, promotion preview, promotion, and common recovery branches.
 - Health triage owns stale read models, provider transport failures, semantic readiness gaps, and related return links.
@@ -65,8 +65,8 @@ Retire, remove, deprecate, and cleanup mean complete deletion of the old catalog
 Do not keep:
 
 - hidden feature flags or fallback branches;
-- compatibility redirects to the old two-page model;
-- aliases, compatibility shims, or migration shims for old module names;
+- compatibility redirects to retired screens;
+- aliases, compatibility shims, or migration shims for retired module names;
 - support-only routes that still render retired surfaces;
 - documentation that tells operators how to use retired screens;
 - tests or fixtures that preserve old raw JSON or provider-specific UI branches.
@@ -79,6 +79,6 @@ The product has not launched, so preserving legacy data or interaction patterns 
 - The first item is Import to promotion.
 - Pull provider data, review Source Observations, and promote are reachable without detouring through support screens.
 - Supporting screens include context-preserving return behavior.
-- No screen maps one-to-one to the old god page modules.
+- No screen maps one-to-one to retired tabbed modules.
 - No retired code, product patterns, route/API/client/read-model behavior, documentation, tests, fixtures, seeds, screenshots, runbooks, release notes, or operator instructions remain.
 - No raw JSON fallback or provider-specific Catalog UI branch survives the rebuild.

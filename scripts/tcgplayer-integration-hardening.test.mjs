@@ -39,8 +39,8 @@ const scenarioFiles = [
   },
   {
     name: "Catalog admin review coverage",
-    file: "bounded-contexts/catalog/features/source-observations/ui/source-observation-list-page.test.tsx",
-    evidence: ["TCGplayer", "sku:987654", "product:610001"],
+    file: "bounded-contexts/catalog/features/source-observations/ui/primary-workbench-page.test.tsx",
+    evidence: ["renders Source Observation evidence rows", "Provider payload withheld", "Preview promotion"],
   },
   {
     name: "Inventory SKU and Product ID resolution",

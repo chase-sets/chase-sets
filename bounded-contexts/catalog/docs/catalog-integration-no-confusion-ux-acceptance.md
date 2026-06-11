@@ -2,7 +2,7 @@
 
 Issue #1047 owns the no-confusion acceptance gate for the rebuilt Catalog Control Plane first slice. The gate proves operators can complete the front-and-center job: choose provider/unit/scope, pull provider data, monitor import, review Source Observations, preview promotion, promote eligible sources into Catalog Items or Catalog-owned references, and verify audit/release evidence.
 
-Health, profile authoring, validation, lifecycle recovery, RBAC, rollout controls, observability, security/privacy, provider transport, and audit work are support paths. They must explain, unblock, govern, recover, or verify import-to-promotion. They must not bury the primary path or preserve the current two-page Catalog integrations implementation as a migration target.
+Health, profile authoring, validation, lifecycle recovery, RBAC, rollout controls, observability, security/privacy, provider transport, and audit work are support paths. They must explain, unblock, govern, recover, or verify import-to-promotion. They must not bury the primary path or preserve retired admin behavior as a migration target.
 
 ## Executable Gate
 
@@ -29,7 +29,7 @@ The gate rejects evidence when any workflow keeps:
 - an unexplained disabled action;
 - raw JSON fallback;
 - provider bypass;
-- a current two-page migration artifact;
+- a retired migration artifact;
 - overlapping text or actions;
 - missing entry/completion/evidence/test coverage;
 - missing section/action coverage from the primary workbench contract.
@@ -48,7 +48,7 @@ The primary workflow order is fixed for first-slice acceptance:
 
 For this milestone, retire, deprecate, remove legacy, and cleanup mean complete deletion of all code, patterns, and documentation associated with retired behavior. This includes runtime/admin/test code, route handlers, API/read-model contracts, clients, feature flags, fallback branches, redirects, aliases, compatibility shims, migration shims, fixtures, seeds, screenshots, docs, runbooks, release notes, and operator instructions.
 
-No retired behavior may remain as a hidden flag, internal support path, compatibility redirect, fallback branch, migration exception, old fixture/test/screenshot, retained pattern, or legacy documentation. If `/catalog/integrations` remains, it must be backed only by the rebuilt workbench and clean contracts. #1090 owns the complete old-surface deletion implementation; #1047 blocks acceptance when UX evidence still depends on old-page code, tests, screenshots, docs, or patterns.
+No retired behavior may remain as a hidden flag, internal support path, compatibility redirect, fallback branch, migration exception, retired fixture/test/screenshot, retained pattern, or legacy documentation. If `/catalog/integrations` remains, it must be backed only by the rebuilt workbench and clean contracts. #1090 owns the complete retired-surface deletion implementation; #1047 blocks acceptance when UX evidence still depends on retired code, tests, screenshots, docs, or patterns.
 
 ## Release Evidence
 
@@ -60,7 +60,7 @@ PR and release evidence for #1047 should name:
 - accessibility proof links;
 - real-provider, durable-job, security/privacy, provider-transport, and telemetry proof links;
 - any residual UX debt with owner issue links;
-- explicit confirmation that no old two-page implementation, raw JSON fallback, compatibility path, support-only route, flag, alias, shim, old fixture/test/screenshot, or legacy doc is preserved as launch behavior.
+- explicit confirmation that no retired implementation, raw JSON fallback, compatibility path, support-only route, flag, alias, shim, retired fixture/test/screenshot, or legacy doc is preserved as launch behavior.
 
 ## Related References
 

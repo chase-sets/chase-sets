@@ -1,6 +1,6 @@
 # Catalog Integration Security Privacy Launch Gate
 
-Issue #1064 owns the security/privacy launch gate for the rebuilt Catalog Control Plane. The gate supports the primary operator path, provider import -> Source Observation review -> promotion, and blocks release when security/privacy evidence is missing, unsafe, or framed as compatibility for the old two-page surface.
+Issue #1064 owns the security/privacy launch gate for the rebuilt Catalog Control Plane. The gate supports the primary operator path, provider import -> Source Observation review -> promotion, and blocks release when security/privacy evidence is missing, unsafe, or framed as compatibility for retired admin behavior.
 
 The authoritative executable gate lives in:
 
@@ -56,7 +56,7 @@ The gate blocks launch when:
 
 For this milestone, retire, remove, deprecate, cleanup, and legacy removal mean complete deletion. Complete deletion includes runtime code, API routes, UI modules, product patterns, read-model contracts, clients, route aliases, feature flags, hidden flags, fallback branches, redirects, compatibility aliases, compatibility shims, migration shims, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, and operator instructions.
 
-Forbidden outcomes include soft deprecation, compatibility shims, legacy support paths, one-to-one migration of the current two-page surface, raw JSON escape hatches, support-only preserved routes, documentation-only deprecation, hidden flag fallbacks, or any guidance that teaches operators to use retired behavior.
+Forbidden outcomes include soft deprecation, compatibility shims, legacy support paths, one-to-one migration of retired admin behavior, raw JSON escape hatches, support-only preserved routes, documentation-only deprecation, hidden flag fallbacks, or any guidance that teaches operators to use retired behavior.
 
 ## Related References
 

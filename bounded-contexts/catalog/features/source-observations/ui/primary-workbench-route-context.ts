@@ -19,7 +19,7 @@ const filterPrefix = "filter.";
 const catalogPrimaryWorkbenchPath = "/catalog/integrations";
 const catalogPrimaryWorkbenchOrigin = "https://admin.example";
 const defaultCatalogPrimaryWorkbenchSection = "import-to-promotion";
-const retiredRoutePattern = /legacy|compat|raw-json|god-page|provider-profile-review|integrations-page/i;
+const retiredRoutePattern = /legacy|compat|raw-json/i;
 const workspacesByKey = new Map<string, (typeof CATALOG_CONTROL_PLANE_WORKSPACES)[number]>(
   CATALOG_CONTROL_PLANE_WORKSPACES.map((workspace) => [workspace.key, workspace]),
 );

@@ -103,7 +103,7 @@ TCGdex imports still write Source Observations. Promotion remains a Catalog revi
 
 The active TCGdex profile version carries an executable mapping contract for Source Observation IDs, external keys, normalized Pokemon card facts, source hash material, merge identity, external reference evidence, duplicate-prevention evidence, reference hierarchy evidence, and promotion command-plan intent. The TCGdex ProviderAdapter is the live transport boundary for #785: it lists the `tcgdex:pokemon:single-card:source-observation-import` ingestion unit, serves language/Series/Expansion option queries, plans Expansion import scopes, fetches TCGdex JSON payloads, attaches source provenance, and emits transport diagnostics. It must not decide which provider fields are Catalog fields, which identifiers are Catalog Item references, which identifiers are Product SKU references, or how duplicate marketplace identifiers are handled.
 
-#1062 proves this profile-backed real-provider unit with a redacted proof packet keyed to `tcgdex:pokemon:single-card:source-observation-import`. The packet runs through bounded option queries, TCGdex ProviderAdapter import planning/fetch, the Catalog Integration Engine, Source Observation review summaries, and promotion-preview counts before any Catalog Item write. CI keeps deterministic adapter-response coverage for the same contract; staging/local operator proof uses live or staging TCGdex transport through `pnpm run catalog:real-provider-proof`. Neither path may add provider-specific runtime/API/Admin/promotion branches, raw payload shortcuts, compatibility redirects, support-only old routes, or current two-page control-plane patterns. The current adapter provenance does not include a payload content hash, so readiness and proof evidence document `sourceHash: null` until hash material is implemented against the governed payload and retention policy.
+#1062 proves this profile-backed real-provider unit with a redacted proof packet keyed to `tcgdex:pokemon:single-card:source-observation-import`. The packet runs through bounded option queries, TCGdex ProviderAdapter import planning/fetch, the Catalog Integration Engine, Source Observation review summaries, and promotion-preview counts before any Catalog Item write. CI keeps deterministic adapter-response coverage for the same contract; staging/local operator proof uses live or staging TCGdex transport through `pnpm run catalog:real-provider-proof`. Neither path may add provider-specific runtime/API/Admin/promotion branches, raw payload shortcuts, compatibility redirects, support-only retired routes, or retired admin patterns. The current adapter provenance does not include a payload content hash, so readiness and proof evidence document `sourceHash: null` until hash material is implemented against the governed payload and retention policy.
 
 TCGdex variant expansion, marketplace reference extraction, Pokemon Reference Record hierarchy provisioning, and Pokemon Catalog Item promotion planning use reviewed named semantic helpers referenced by the executable mapping contract and provider profile data where generic profile interpretation cannot yet express the behavior safely. These helpers are clean launch extension points only when they are deterministic, fixture-backed, free of live provider calls, and covered by profile contract evidence; they are not retained compatibility branches.
 
@@ -216,12 +216,11 @@ deleted completely. These helpers must not import price, listing, seller,
 inventory, order, or message facts into Catalog truth or hash material.
 
 The runtime dispatches TCGplayer import work through the reviewed provider
-transport and durable-job boundary. #1090 owns complete deletion of any current
-page or route pattern that treats the TCGplayer branch as old-page compatibility
-after the rebuilt workbench is accepted. Future generic executor replacement
-must remove the old branch, tests, fixtures, seeds, screenshots, documentation,
-runbooks, release notes, and operator instructions in the same cleanup, not leave
-a compatibility alias.
+transport and durable-job boundary. #1090 owns complete deletion of retired page
+or route patterns after the rebuilt workbench is accepted. Future generic
+executor replacement must remove the replaced branch, tests, fixtures, seeds,
+screenshots, documentation, runbooks, release notes, and operator instructions
+in the same cleanup, not leave a compatibility alias.
 
 ## Scrydex Scryfall-Style Proof Profile
 

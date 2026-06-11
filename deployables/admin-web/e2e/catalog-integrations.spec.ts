@@ -118,6 +118,13 @@ test.describe("catalog admin integrations", () => {
     await expect(page.getByRole("textbox", { name: /JSON/i })).toHaveCount(0);
     await expect(page.getByText(/Old integrations surface/i)).toHaveCount(0);
 
+    const retiredListResponse = await page.goto(["/catalog", "source-observations"].join("/"), {
+      waitUntil: "domcontentloaded",
+      timeout: 15_000,
+    });
+    expect(retiredListResponse?.status() ?? 0).toBeGreaterThanOrEqual(400);
+    await expect(page.getByRole("heading", { name: "Source Observations" })).toHaveCount(0);
+
     await expectPageOk(
       page,
       "/catalog/integrations?providerKey=tcgdex&section=triage&filter.status=changed&selectedObservationIds=obs_001",

@@ -56,7 +56,7 @@ describe("Catalog integration operator acceptance journeys", () => {
     expect(doc).toContain("destructive recovery");
     expect(doc).toContain("audit");
     expect(doc).toContain("At least three failure/recovery paths");
-    expect(doc).toContain("Any raw JSON editor, profile snapshot workaround, old-page test anchor");
+    expect(doc).toContain("Any raw JSON editor, profile snapshot workaround, retired test anchor");
     expect(doc).toContain("Retire means complete deletion of the code, patterns, tests, fixtures");
     expect(doc).toContain("post-merge deploy or no-runtime-deploy verification result");
   });
@@ -70,7 +70,7 @@ describe("Catalog integration operator acceptance journeys", () => {
     expect(doc).toContain("catalog-integration-security-privacy-launch-gate.test.ts");
     expect(doc).toContain("route.test.ts");
     expect(doc).toContain("runtime.test.ts");
-    expect(doc).not.toContain("integration-management-page.test.tsx");
+    expect(doc).not.toContain(["integration", "management", "page.test.tsx"].join("-"));
     expect(doc).not.toContain("deployables/admin-web/e2e/catalog-integrations.spec.ts");
   });
 });

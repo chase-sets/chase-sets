@@ -8,13 +8,10 @@ export default function CatalogProviderProfileSectionEditorPlaceholder({
   return (
     <OperationalStatusBanner
       tone="info"
-      title={t("catalog.features.sourceObservations.ui.integrationManagementPage.profile.section.editor.framework")}
-      description={t(
-        "catalog.features.sourceObservations.ui.integrationManagementPage.profile.section.editor.pending",
-        {
-          section,
-        },
-      )}
+      title={t("catalog.features.sourceObservations.ui.adminControlPlane.profile.section.editor.framework")}
+      description={t("catalog.features.sourceObservations.ui.adminControlPlane.profile.section.editor.pending", {
+        section,
+      })}
     />
   );
 }

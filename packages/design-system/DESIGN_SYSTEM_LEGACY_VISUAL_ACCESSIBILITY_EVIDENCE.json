@@ -1,7 +1,7 @@
 {
   "schemaVersion": "design-system-legacy-visual-accessibility-evidence/v1",
   "milestone": 12,
-  "checkedAt": "2026-06-08T13:26:41.367Z",
+  "checkedAt": "2026-06-11T00:00:00.000Z",
   "generatedBy": "pnpm run design-system:legacy-evidence -- --write",
   "retainedArtifact": "packages/design-system/DESIGN_SYSTEM_LEGACY_VISUAL_ACCESSIBILITY_EVIDENCE.json",
   "summary": {
@@ -58,14 +58,14 @@
     {
       "id": "catalog-authoring-controls",
       "owner": "Catalog",
-      "file": "bounded-contexts/catalog/features/source-observations/ui/integration-management-page.tsx",
+      "file": "bounded-contexts/catalog/features/source-observations/ui/primary-workbench-page.tsx",
       "visualEvidence": [
-        "Dense source-observation editors use design-system subheadings, validation messages, tables, and form controls."
+        "The rebuilt Catalog primary workbench uses grouped section navigation, dense tables, bulk actions, and evidence drawers."
       ],
       "accessibilityEvidence": [
-        "Diagnostics render through shared validation primitives and provider controls keep explicit labels."
+        "Workflow navigation, command actions, and evidence drawers expose accessible names and preserve primary-path context."
       ],
-      "requiredSignals": ["Subheading", "ValidationMessageList", "DataTable", "CheckboxGroup", "aria-label"],
+      "requiredSignals": ["SectionNavigation", "BulkActionSurface", "DataTable", "SideSheet", "aria-label"],
       "forbiddenSignals": ["<input type=\"checkbox\"", "className=\"text-sm text-danger\""],
       "status": "passed"
     },

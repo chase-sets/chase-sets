@@ -4,7 +4,7 @@ The Catalog Integration Admin Control Plane is a dense operator workspace for hi
 
 This checklist feeds the #1047 [Catalog Integration No-Confusion UX Acceptance](./catalog-integration-no-confusion-ux-acceptance.md) release gate. The gate validates this checklist alongside role/persona coverage, visual QA, resilience, telemetry, provider-transport budgets, security/privacy proof, real-provider proof, and complete retirement evidence.
 
-Operator acceptance journeys are tracked separately in [Catalog Integration Operator Acceptance Journeys](./catalog-integration-operator-acceptance-journeys.md). Use this UX checklist to prove the rebuilt workspace is operable; use the journey checklist to prove operators can complete happy-path, failure/recovery, destructive lifecycle, and audit jobs. Do not use the current two-page Catalog integrations implementation, old screenshots, old tests, or old docs as acceptance evidence.
+Operator acceptance journeys are tracked separately in [Catalog Integration Operator Acceptance Journeys](./catalog-integration-operator-acceptance-journeys.md). Use this UX checklist to prove the rebuilt workspace is operable; use the journey checklist to prove operators can complete happy-path, failure/recovery, destructive lifecycle, and audit jobs. Do not use retired admin implementation artifacts, screenshots, tests, or docs as acceptance evidence.
 
 ## Acceptance Checklist
 
@@ -39,7 +39,7 @@ Every release that changes Admin Control Plane workflow UI must record:
 - the focused unit or integration tests that cover the changed workflow states;
 - the E2E path that verifies the signed-in operator surface;
 - whether responsive/keyboard behavior was verified locally, in CI, or deferred with a follow-up issue;
-- any raw JSON editor, profile snapshot workaround, old-page test anchor, old screenshot, or legacy documentation found during verification and the removal issue that owns complete deletion;
+- any raw JSON editor, profile snapshot workaround, retired test anchor, retired screenshot, or legacy documentation found during verification and the removal issue that owns complete deletion;
 - any high-volume list, stale-state, or long-diagnostic gap discovered during review.
 
 Retire, deprecate, remove legacy, and cleanup mean complete deletion of all associated code, patterns, tests, fixtures, screenshots, docs, runbooks, release notes, and operator instructions. A retired UX pattern cannot remain as a hidden flag, compatibility route, support-only path, alias, shim, fallback, or legacy documentation.

@@ -790,7 +790,7 @@ export const catalogPrimaryWorkbenchDeploySkewPolicies = [
   deploySkew("current", true, []),
   deploySkew("old-ui-new-api", false, [
     "legacy provider selector",
-    "current two-page module coupling",
+    "retired admin module coupling",
     "raw JSON broad patch",
     "silent active-profile fallback",
   ]),
@@ -833,7 +833,7 @@ export const catalogPrimaryWorkbenchRetirementPolicy = {
     "soft deprecation",
     "compatibility shim",
     "legacy support path",
-    "migration of the current two-page surface",
+    "migration of retired admin structure",
     "raw JSON escape hatch",
     "support-only preserved route",
     "documentation-only deprecation",

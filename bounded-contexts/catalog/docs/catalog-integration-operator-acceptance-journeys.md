@@ -2,9 +2,9 @@
 
 Operator acceptance proves the Admin Control Plane supports real Catalog integration jobs from start to recovery. It is separate from the dense UX and accessibility checklist: UX checks prove the workspace is operable; these journeys prove operators can finish the work with realistic data, diagnostics, impact, and audit evidence.
 
-The #1047 [Catalog Integration No-Confusion UX Acceptance](./catalog-integration-no-confusion-ux-acceptance.md) packet is the launch gate for first-slice acceptance. It replaces old-page acceptance anchors: evidence must come from the rebuilt primary workbench contracts, rebuilt UI modules, API/read-model routes, E2E smoke for the rebuilt journey, and proof gates. Do not use the current two-page Catalog integrations implementation, its tests, its screenshots, or its docs as launch acceptance evidence.
+The #1047 [Catalog Integration No-Confusion UX Acceptance](./catalog-integration-no-confusion-ux-acceptance.md) packet is the launch gate for first-slice acceptance. Evidence must come from the rebuilt primary workbench contracts, rebuilt UI modules, API/read-model routes, E2E smoke for the rebuilt journey, and proof gates. Do not use retired admin implementation artifacts as launch acceptance evidence.
 
-Supporting proof remains required: `catalog-integration-provider-transport-budgets.test.ts` owns provider transport/performance acceptance and `catalog-integration-security-privacy-launch-gate.test.ts` owns security/privacy launch safety. #1047 links both so operator acceptance cannot pass while the primary path is confusing, unsafe, slow, or dependent on old-page behavior.
+Supporting proof remains required: `catalog-integration-provider-transport-budgets.test.ts` owns provider transport/performance acceptance and `catalog-integration-security-privacy-launch-gate.test.ts` owns security/privacy launch safety. #1047 links both so operator acceptance cannot pass while the primary path is confusing, unsafe, slow, or dependent on retired behavior.
 
 The primary-path framing for the rebuilt control plane is documented in [Catalog Control Plane Primary Path](./catalog-control-plane-primary-path.md). Implementation evidence should treat J08 through J11 and J14 as the core import-to-promotion acceptance set unless a narrower issue explicitly states why one journey is out of scope.
 
@@ -46,7 +46,7 @@ Every Admin Control Plane release must record:
 - The focused unit/API tests that cover changed journey states.
 - The signed-in operator E2E path when UI workflow behavior changed.
 - Whether keyboard/responsive checks came from the UX checklist, local E2E, CI, or a named follow-up issue.
-- Any raw JSON editor, profile snapshot workaround, old-page test anchor, old screenshot, or legacy documentation discovered during acceptance, with an owning removal issue before milestone closure. Retire means complete deletion of the code, patterns, tests, fixtures, screenshots, docs, runbooks, release notes, and operator instructions that preserve it.
+- Any raw JSON editor, profile snapshot workaround, retired test anchor, retired screenshot, or legacy documentation discovered during acceptance, with an owning removal issue before milestone closure. Retire means complete deletion of the code, patterns, tests, fixtures, screenshots, docs, runbooks, release notes, and operator instructions that preserve it.
 - Any high-volume list, stale-state, long-diagnostic, rollback, or audit gap discovered during acceptance, with a follow-up issue before milestone closure.
 
 ## Acceptance Signoff

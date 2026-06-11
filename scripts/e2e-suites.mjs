@@ -125,10 +125,6 @@ const boundedContextRouteSuiteOwnership = [
     suites: ["catalog_admin_integrations"],
   },
   {
-    pattern: /^bounded-contexts\/catalog\/routes\/admin\/source-observations/,
-    suites: ["catalog_admin_integrations"],
-  },
-  {
     pattern: /^bounded-contexts\/[^/]+\/routes\/admin\//,
     suites: [],
   },

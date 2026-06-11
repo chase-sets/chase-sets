@@ -51,11 +51,10 @@ export type CatalogControlPlaneWorkflowMapEntry = Readonly<{
   blockedBy: readonly CatalogControlPlaneWorkspaceKey[];
 }>;
 
-export type CatalogControlPlaneCurrentConceptDisposition = Readonly<{
-  currentConcept: string;
-  disposition: "delete" | "rebuild-as-clean-contract" | "fold-into-primary-path" | "supporting-detour";
-  targetWorkspace: CatalogControlPlaneWorkspaceKey | null;
-  releaseRule: string;
+export type CatalogControlPlaneRebuildReleaseRule = Readonly<{
+  key: string;
+  rule: string;
+  verification: string;
 }>;
 
 export const CATALOG_CONTROL_PLANE_CONTEXT_KEYS = [
@@ -282,59 +281,23 @@ export const CATALOG_CONTROL_PLANE_WORKFLOW_MAP = [
   },
 ] as const satisfies readonly CatalogControlPlaneWorkflowMapEntry[];
 
-export const CATALOG_CONTROL_PLANE_CURRENT_CONCEPT_DISPOSITION = [
+export const CATALOG_CONTROL_PLANE_REBUILD_RELEASE_RULES = [
   {
-    currentConcept: "/catalog/integrations two-page god page",
-    disposition: "rebuild-as-clean-contract",
-    targetWorkspace: "import-to-promotion",
-    releaseRule: "Retain the URL only if backed by the rebuilt workbench; delete the old page code and tests.",
+    key: "single-primary-workbench",
+    rule: "The launch admin experience starts on one rebuilt import-to-promotion workbench.",
+    verification: "The Catalog context contributes the Integrations route for the primary workbench.",
   },
   {
-    currentConcept: "/catalog/source-observations list/import page",
-    disposition: "rebuild-as-clean-contract",
-    targetWorkspace: "import-to-promotion",
-    releaseRule: "Retain the URL only as a focused review workspace or deep link backed by rebuilt contracts.",
+    key: "support-detours",
+    rule: "Support workspaces exist only to unblock, govern, recover, or verify the primary job.",
+    verification: "Every supporting workspace preserves return context back to the primary workbench.",
   },
   {
-    currentConcept: "Health, authoring, validation, operations, and audit segmented modules",
-    disposition: "delete",
-    targetWorkspace: null,
-    releaseRule: "Do not migrate old module areas into grouped navigation one-to-one.",
+    key: "complete-retirement",
+    rule: "Retired artifacts are removed from code, product patterns, tests, scripts, screenshots, and docs.",
+    verification: "Static guards fail when retired page artifacts, namespaces, nav entries, or file paths reappear.",
   },
-  {
-    currentConcept: "Import and job operations module",
-    disposition: "fold-into-primary-path",
-    targetWorkspace: "import-to-promotion",
-    releaseRule: "Delete the old import and job module; import and job state are steps in the default workbench.",
-  },
-  {
-    currentConcept: "Source Observation review workflow module",
-    disposition: "fold-into-primary-path",
-    targetWorkspace: "import-to-promotion",
-    releaseRule: "Delete the old review module; review stays connected to import scope and promotion preview.",
-  },
-  {
-    currentConcept: "Promote and reapply workflow module",
-    disposition: "fold-into-primary-path",
-    targetWorkspace: "import-to-promotion",
-    releaseRule:
-      "Delete the old promote/reapply module; promotion preview and recovery remain primary-path steps with lifecycle detours only when blocked.",
-  },
-  {
-    currentConcept: "Provider profile review module",
-    disposition: "supporting-detour",
-    targetWorkspace: "profile-authoring",
-    releaseRule:
-      "Delete the old provider profile review module; profile authoring exists to unblock import/review/promotion and must preserve return context.",
-  },
-  {
-    currentConcept: "Rollback and retirement module",
-    disposition: "supporting-detour",
-    targetWorkspace: "lifecycle-recovery",
-    releaseRule:
-      "Delete the old rollback/retirement module; lifecycle actions must be rebuilt around impact evidence and complete removal semantics.",
-  },
-] as const satisfies readonly CatalogControlPlaneCurrentConceptDisposition[];
+] as const satisfies readonly CatalogControlPlaneRebuildReleaseRule[];
 
 export function catalogControlPlaneWorkspaceByKey(key: CatalogControlPlaneWorkspaceKey): CatalogControlPlaneWorkspace {
   const workspace = CATALOG_CONTROL_PLANE_WORKSPACES.find((candidate) => candidate.key === key);

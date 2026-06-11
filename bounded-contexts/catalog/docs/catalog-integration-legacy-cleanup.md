@@ -88,4 +88,4 @@ SELECT COUNT(*) AS profile_section_diagnostics FROM catalog_provider_profile_ver
 - #1054 provides executable pre-launch reset evidence.
 - #793 owns schema compatibility policy.
 - #1055 owns the clean-contract handoff evidence.
-- #1090 owns complete deletion of old Catalog integrations pages, modules, route/API/client/read-model behavior, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, and operator instructions after the rebuilt workbench is accepted.
+- #1090 owns complete deletion of retired Catalog integration admin pages, modules, route/client/read-model behavior, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, and operator instructions after the rebuilt workbench is accepted.
