@@ -21,6 +21,7 @@ export type CatalogPrimaryWorkbenchSectionKey =
   | "readiness"
   | "import-jobs"
   | "source-observation-review"
+  | "conflict-resolution"
   | "promotion-preview"
   | "promotion-result"
   | "lifecycle-recovery"
@@ -182,6 +183,7 @@ export const catalogPrimaryWorkbenchRouteSections = [
   "profile-authoring",
   "validation-readiness",
   "adapter-readiness",
+  "conflict-resolution",
   "lifecycle-recovery",
   "governance-controls",
   "audit-evidence",
@@ -275,6 +277,7 @@ export type CatalogPrimaryWorkbenchDownstreamIssueKey =
   | "#1038"
   | "#1039"
   | "#1040"
+  | "#1041"
   | "#1042"
   | "#1057"
   | "#1058"
@@ -302,6 +305,7 @@ export type CatalogPrimaryWorkbenchReadModel = Readonly<{
   lifecycleRecovery: CatalogPrimaryWorkbenchLifecycleRecoveryReadModel;
   importJobs: CatalogPrimaryWorkbenchImportJobsReadModel;
   sourceObservationReview: CatalogPrimaryWorkbenchSourceObservationReviewReadModel;
+  conflictResolution: CatalogPrimaryWorkbenchConflictResolutionReadModel;
   promotionPreview: CatalogPrimaryWorkbenchPromotionPreviewReadModel;
   promotionResult: CatalogPrimaryWorkbenchPromotionResultReadModel | null;
   actions: readonly CatalogPrimaryWorkbenchActionReadModel[];
@@ -1100,6 +1104,81 @@ export type CatalogPrimaryWorkbenchSourceObservationReviewRow = Readonly<{
   }>[];
 }>;
 
+export type CatalogPrimaryWorkbenchConflictResolutionStatus = "ready" | "empty" | "blocked" | "unavailable";
+
+export type CatalogPrimaryWorkbenchConflictResolutionState = "blocks-promotion" | "requires-review" | "auto-resolved";
+
+export type CatalogPrimaryWorkbenchConflictResolutionReadModel = Readonly<{
+  status: CatalogPrimaryWorkbenchConflictResolutionStatus;
+  freshness: CatalogAdminControlPlaneFreshnessState;
+  generatedAt: string;
+  returnToPrimaryHref: string;
+  auditEvidenceUrl: string;
+  selectedObservationIds: readonly string[];
+  summary: Readonly<{
+    conflictCount: number;
+    blockingCount: number;
+    autoResolvedCount: number;
+    reviewRequiredCount: number;
+    overrideAvailableCount: number;
+    auditEventCount: number;
+  }>;
+  rows: readonly CatalogPrimaryWorkbenchConflictResolutionRow[];
+  precedenceRules: readonly Readonly<{
+    ruleId: string;
+    label: string;
+    description: string;
+    blockingBehavior: "promotion-blocking" | "review-required" | "auto-resolved";
+    sourceAuthority: string;
+    evidencePaths: readonly string[];
+  }>[];
+  overridePolicy: Readonly<{
+    supported: boolean;
+    requiredPermission: "catalog.manage";
+    state: CatalogPrimaryWorkbenchActionState;
+    blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
+    auditRequired: true;
+    reason: string;
+  }>;
+  recentAuditEvents: readonly Readonly<{
+    eventId: string;
+    occurredAt: string;
+    eventName: string;
+    providerKey: string;
+    unitKey: CatalogIntegrationUnitKey | null;
+    observationId: string | null;
+    summary: string;
+  }>[];
+}>;
+
+export type CatalogPrimaryWorkbenchConflictResolutionRow = Readonly<{
+  observationId: string;
+  displayName: string;
+  providerKey: string;
+  externalKey: string;
+  affectedFact: string;
+  factKey: string;
+  resolutionState: CatalogPrimaryWorkbenchConflictResolutionState;
+  promotionReadinessState: CatalogPrimaryWorkbenchSourceObservationReviewRow["promotionReadiness"]["state"];
+  precedenceRuleId: string;
+  candidateValues: readonly Readonly<{
+    source: string;
+    value: string;
+    role: "winner" | "loser" | "candidate";
+    evidencePath: string;
+  }>[];
+  evidencePaths: readonly string[];
+  diagnostics: readonly string[];
+  blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
+  auditTrail: readonly string[];
+  detailHref: string;
+  overrideAction: Readonly<{
+    state: CatalogPrimaryWorkbenchActionState;
+    blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
+    auditRequired: true;
+  }>;
+}>;
+
 export type CatalogPrimaryWorkbenchPromotionPreviewReadModel = Readonly<{
   previewId: string | null;
   freshness: CatalogAdminControlPlaneFreshnessState;
@@ -1233,6 +1312,25 @@ export const catalogPrimaryWorkbenchSections = [
       "profileVersion",
       "sourceObservationFilters",
       "selectedObservationIds",
+      "returnPath",
+    ],
+  }),
+  section({
+    key: "conflict-resolution",
+    defaultVisible: false,
+    queryKeys: ["source-observation-review-query", "promotion-plan-preview", "audit-evidence-timeline"],
+    commands: ["preview-promotion", "reject-source-observations", "defer-source-observations"],
+    freshnessStates: ["fresh", "stale", "partial", "unavailable"],
+    pagination: "cursor",
+    routeContextKeys: [
+      "providerKey",
+      "section",
+      "unitKey",
+      "importScope",
+      "profileVersion",
+      "sourceObservationFilters",
+      "selectedObservationIds",
+      "promotionPreviewId",
       "returnPath",
     ],
   }),
@@ -1697,6 +1795,16 @@ export const catalogPrimaryWorkbenchDownstreamContracts = [
     ],
   ),
   downstream(
+    "#1041",
+    ["conflict-resolution", "source-observation-review", "promotion-preview", "supporting-evidence"],
+    [
+      "conflictResolution.rows",
+      "conflictResolution.precedenceRules",
+      "conflictResolution.overridePolicy",
+      "conflictResolution.recentAuditEvents",
+    ],
+  ),
+  downstream(
     "#1042",
     ["lifecycle-recovery", "supporting-evidence"],
     [
@@ -1868,7 +1976,12 @@ export function validateCatalogPrimaryWorkbenchReadModelContract(
       ...row.actions.flatMap((actionEntry) => actionEntry.blockers),
     ]),
   );
+  assertPrimaryWorkbenchBlockers(
+    value.conflictResolution?.rows.flatMap((row) => [...row.blockers, ...row.overrideAction.blockers]),
+  );
+  assertPrimaryWorkbenchBlockers(value.conflictResolution?.overridePolicy.blockers);
   assertPrimaryWorkbenchBlockers(value.promotionPreview?.blockers);
+  assertPrimaryWorkbenchConflictResolution(value.conflictResolution);
   assertPrimaryWorkbenchPromotionPreview(value.promotionPreview);
   assertPrimaryWorkbenchProfileAuthoring(value.profileAuthoring);
   assertPrimaryWorkbenchValidationReadiness(value.validationReadiness);
@@ -1960,6 +2073,45 @@ function blocker(
     instrumentationDimension: "blocker_category",
     failClosed: true,
   };
+}
+
+function assertPrimaryWorkbenchConflictResolution(
+  value: CatalogPrimaryWorkbenchReadModel["conflictResolution"] | undefined,
+): void {
+  if (!value) {
+    throw new Error("Primary workbench conflict resolution contract is required.");
+  }
+  if (!["ready", "empty", "blocked", "unavailable"].includes(value.status)) {
+    throw new Error("Primary workbench conflict resolution status must be explicit.");
+  }
+  if (!isSafePrimaryWorkbenchReturnPath(value.returnToPrimaryHref)) {
+    throw new Error("Primary workbench conflict resolution return link must target the rebuilt workbench.");
+  }
+  if (!isSafePrimaryWorkbenchReturnPath(value.auditEvidenceUrl)) {
+    throw new Error("Primary workbench conflict resolution audit link must target the rebuilt workbench.");
+  }
+  if (value.rows.length > 0 && value.precedenceRules.length === 0) {
+    throw new Error("Primary workbench conflict resolution rows require precedence rule evidence.");
+  }
+  if (value.overridePolicy.supported && value.overridePolicy.state === "available") {
+    throw new Error("Primary workbench conflict overrides need a rebuilt backend command before becoming available.");
+  }
+  assertCatalogPrimaryWorkbenchActionState(value.overridePolicy.state);
+  for (const row of value.rows) {
+    if (!row.observationId || !row.affectedFact || !row.precedenceRuleId) {
+      throw new Error("Primary workbench conflict resolution rows must name observation, fact, and precedence rule.");
+    }
+    if (!["blocks-promotion", "requires-review", "auto-resolved"].includes(row.resolutionState)) {
+      throw new Error("Primary workbench conflict resolution row state must be explicit.");
+    }
+    if (row.candidateValues.length < 2) {
+      throw new Error("Primary workbench conflict resolution rows must show winning and losing candidate values.");
+    }
+    if (row.evidencePaths.length === 0 || row.diagnostics.length === 0) {
+      throw new Error("Primary workbench conflict resolution rows must expose evidence paths and diagnostics.");
+    }
+    assertCatalogPrimaryWorkbenchActionState(row.overrideAction.state);
+  }
 }
 
 function assertPrimaryWorkbenchPromotionPreview(

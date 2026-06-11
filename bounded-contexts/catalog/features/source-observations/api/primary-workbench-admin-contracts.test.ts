@@ -24,6 +24,7 @@ describe("Catalog primary workbench admin contracts", () => {
       "readiness",
       "import-jobs",
       "source-observation-review",
+      "conflict-resolution",
       "promotion-preview",
       "promotion-result",
       "lifecycle-recovery",
@@ -31,7 +32,16 @@ describe("Catalog primary workbench admin contracts", () => {
     ];
 
     expect(catalogPrimaryWorkbenchSections.map((section) => section.key)).toEqual(expectedSections);
-    expect(catalogPrimaryWorkbenchSections.slice(0, 6).every((section) => section.defaultVisible)).toBe(true);
+    expect(
+      catalogPrimaryWorkbenchSections.filter((section) => section.defaultVisible).map((section) => section.key),
+    ).toEqual([
+      "provider-scope-selection",
+      "readiness",
+      "import-jobs",
+      "source-observation-review",
+      "promotion-preview",
+      "promotion-result",
+    ]);
     expect(catalogPrimaryWorkbenchSections.at(-1)).toMatchObject({
       key: "supporting-evidence",
       defaultVisible: false,
@@ -95,10 +105,12 @@ describe("Catalog primary workbench admin contracts", () => {
       "provider-transport-stale-cache",
       "provider-transport-degraded",
       "source-projection-stale",
+      "duplicate-conflict",
       "promotion-conflict",
       "stale-promotion-preview",
       "idempotency-replay",
       "security-privacy-blocked",
+      "unsupported-command",
       "deploy-skew-unsupported-version",
       "raw-json-retired",
       "legacy-selector-retired",
@@ -419,6 +431,7 @@ describe("Catalog primary workbench admin contracts", () => {
       "#1035",
       "#1036",
       "#1037",
+      "#1041",
       "#1042",
       "#1056",
       "#1038",
@@ -920,6 +933,7 @@ describe("Catalog primary workbench admin contracts", () => {
           },
         ],
       },
+      conflictResolution: conflictResolutionFixture(),
       promotionPreview: {
         previewId: "preview_001",
         freshness: "fresh",
@@ -1022,6 +1036,97 @@ describe("Catalog primary workbench admin contracts", () => {
     expect(readModel.instrumentation.dimensions).toContain("route_context_preserved");
   });
 });
+
+function conflictResolutionFixture(): CatalogPrimaryWorkbenchReadModel["conflictResolution"] {
+  return {
+    status: "ready",
+    freshness: "fresh",
+    generatedAt: "2026-06-09T00:00:00.000Z",
+    returnToPrimaryHref: "/catalog/integrations?providerKey=tcgdex&section=workbench",
+    auditEvidenceUrl: "/catalog/integrations?providerKey=tcgdex&section=evidence",
+    selectedObservationIds: ["obs_001"],
+    summary: {
+      conflictCount: 1,
+      blockingCount: 0,
+      autoResolvedCount: 0,
+      reviewRequiredCount: 1,
+      overrideAvailableCount: 0,
+      auditEventCount: 1,
+    },
+    rows: [
+      {
+        observationId: "obs_001",
+        displayName: "Charizard",
+        providerKey: "tcgdex",
+        externalKey: "base1-4",
+        affectedFact: "pokemon-card",
+        factKey: "merge-identity",
+        resolutionState: "requires-review",
+        promotionReadinessState: "eligible",
+        precedenceRuleId: "duplicate-prevention.merge-identity.v1",
+        candidateValues: [
+          {
+            source: "Catalog candidate",
+            value: "pokemon-card",
+            role: "winner",
+            evidencePath: "sourceObservationReview.rows.normalizedFactSummaries",
+          },
+          {
+            source: "Duplicate evidence",
+            value: "pokemon / Pokemon / Base Set / Charizard / 4 / en",
+            role: "loser",
+            evidencePath: "sourceObservationReview.rows.duplicateEvidence",
+          },
+        ],
+        evidencePaths: [
+          "sourceObservationReview.rows.normalizedFactSummaries",
+          "sourceObservationReview.rows.duplicateEvidence",
+          "sourceObservationReview.rows.promotionReadiness",
+        ],
+        diagnostics: ["Duplicate evidence requires review before promotion continues."],
+        blockers: ["duplicate-conflict"],
+        auditTrail: ["Observed 2026-06-09T00:00:00.000Z"],
+        detailHref:
+          "/catalog/integrations?providerKey=tcgdex&selectedObservationIds=obs_001&section=source-observation-review",
+        overrideAction: {
+          state: "unavailable",
+          blockers: ["unsupported-command"],
+          auditRequired: true,
+        },
+      },
+    ],
+    precedenceRules: [
+      {
+        ruleId: "duplicate-prevention.merge-identity.v1",
+        label: "Duplicate prevention",
+        description: "Potential duplicate identity evidence requires operator review before promotion.",
+        blockingBehavior: "review-required",
+        sourceAuthority: "Catalog promotion policy",
+        evidencePaths: ["sourceObservationReview.rows.duplicateEvidence"],
+      },
+    ],
+    overridePolicy: {
+      supported: false,
+      requiredPermission: "catalog.manage",
+      state: "unavailable",
+      blockers: ["unsupported-command"],
+      auditRequired: true,
+      reason:
+        "Conflict overrides need a rebuilt backend command with evidence capture; compatibility override paths are retired.",
+    },
+    recentAuditEvents: [
+      {
+        eventId: "aud_conflict_001",
+        occurredAt: "2026-06-09T00:00:00.000Z",
+        eventName: "profile-section-edited",
+        providerKey: "tcgdex",
+        unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+        observationId: null,
+        summary: "Profile section edited before conflict review.",
+      },
+    ],
+  };
+}
 
 function validationReadinessFixture(): CatalogPrimaryWorkbenchReadModel["validationReadiness"] {
   return {

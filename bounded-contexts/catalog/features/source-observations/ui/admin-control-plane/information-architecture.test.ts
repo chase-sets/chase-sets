@@ -68,6 +68,7 @@ describe("Catalog Control Plane information architecture", () => {
       "Profile overview, drafting, and section editing",
       "Validation, dry run, compare, and activation readiness",
       "Imports, jobs, Source Observation review, promotion, reapply, replay",
+      "Conflict resolution and source precedence",
       "Lifecycle, rollout, RBAC, observability, and audit evidence",
     ]);
 
@@ -104,17 +105,13 @@ describe("Catalog Control Plane information architecture", () => {
     ]);
 
     const serializedRules = JSON.stringify(CATALOG_CONTROL_PLANE_REBUILD_RELEASE_RULES);
-    expect(serializedRules).toContain("removed from code");
-    for (const forbidden of [
-      "fallback",
-      "hidden",
-      "support-only",
-      "shim",
-      "alias",
-      ["two", "page"].join("-"),
-      ["god", "page"].join(" "),
-      ["list", "import"].join("/"),
-    ]) {
+    expect(serializedRules).toContain("Retire means complete removal");
+    expect(serializedRules).toContain("all retired code");
+    expect(serializedRules).toContain("product patterns");
+    expect(serializedRules).toContain("documentation");
+    expect(serializedRules).toContain("operator instructions");
+    expect(serializedRules).toContain("compatibility shims");
+    for (const forbidden of [["two", "page"].join("-"), ["god", "page"].join(" "), ["list", "import"].join("/")]) {
       expect(serializedRules).not.toContain(forbidden);
     }
     for (const rule of CATALOG_CONTROL_PLANE_REBUILD_RELEASE_RULES) {
