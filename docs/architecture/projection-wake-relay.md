@@ -64,7 +64,7 @@ The platform worker hosts the relay as a long-lived supervised session beside it
 
 ## Rollout Gate
 
-Default runtime behavior is disabled. `listSourceContextWakeRelayConfigs()` returns only source contexts whose registry entry has relay fan-out enabled. The same registry entry also controls write-side event-store wake emission, so a source context should not produce unexplained notifications or listen-only fan-out.
+`listSourceContextWakeRelayConfigs()` returns only source contexts whose registry entry has relay fan-out enabled - currently the staging-enabled checkout wave-1 hot path. The same registry entry also controls write-side event-store wake emission, so a source context should not produce unexplained notifications or listen-only fan-out; environments outside the staging ramp stay inert through the relay and emission kill switches described in the [source-context wake registry](./source-context-wake-registry.md).
 
 Production enablement still requires:
 

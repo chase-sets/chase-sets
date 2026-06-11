@@ -21,7 +21,7 @@ import {
 describe("source-context wake registry", () => {
   const inventory = loadBoundedContextInventory();
 
-  it("covers every bounded context while keeping runtime wake behavior disabled by default", () => {
+  it("covers every bounded context with only the checkout wave-1 hot path staging-enabled", () => {
     expect(() =>
       validateSourceContextWakeRegistry({
         boundedContextNames: inventory.contextNames,
@@ -29,15 +29,24 @@ describe("source-context wake registry", () => {
     ).not.toThrow();
 
     expect(sourceContextWakeRegistry.map((entry) => entry.sourceContextName)).toEqual(inventory.contextNames);
-    expect(listEventStoreWakeNotificationSourceContexts()).toEqual([]);
-    expect(listSourceContextWakeRelayConfigs()).toEqual([]);
+    expect(listEventStoreWakeNotificationSourceContexts().map((entry) => entry.sourceContextName)).toEqual([
+      "checkout",
+    ]);
+    expect(listSourceContextWakeRelayConfigs()).toMatchObject([
+      {
+        sourceContextName: "checkout",
+        rolloutState: "staging-enabled",
+        relayFanOutEnabled: true,
+        priorityLane: "hot",
+      },
+    ]);
     expect(listSourceContextWakeRelayConfigs({ includeInactive: true })).toHaveLength(inventory.contextNames.length);
 
     expect(summarizeSourceContextWakeRegistry()).toMatchObject({
       entryCount: inventory.contextNames.length,
-      activeEntryCount: 0,
-      enabledEventStoreWakeContextCount: 0,
-      enabledRelayFanOutContextCount: 0,
+      activeEntryCount: 1,
+      enabledEventStoreWakeContextCount: 1,
+      enabledRelayFanOutContextCount: 1,
     });
   });
 
@@ -70,13 +79,21 @@ describe("source-context wake registry", () => {
   });
 
   it("creates write-side and relay configs from the same source-context entry", () => {
-    expect(createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "checkout" })).toMatchObject({
+    delete process.env.PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED;
+
+    expect(createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "marketplace" })).toMatchObject({
       enabled: false,
       channel: "platform_event_store_commits",
       source: "event-core-postgres",
     });
 
-    const registry = withRegistryEntryPatch("checkout", {
+    expect(createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "checkout" })).toMatchObject({
+      enabled: true,
+      channel: "platform_event_store_commits",
+      source: "event-core-postgres",
+    });
+
+    const registry = withRegistryEntryPatch("marketplace", {
       rolloutState: "staging-enabled",
       enablement: {
         eventStoreWakeNotifications: true,
@@ -89,7 +106,7 @@ describe("source-context wake registry", () => {
     ).not.toThrow();
     expect(
       createEventStoreWakeNotificationConfigForSourceContext({
-        sourceContextName: "checkout",
+        sourceContextName: "marketplace",
         registry,
       }),
     ).toMatchObject({
@@ -102,7 +119,37 @@ describe("source-context wake registry", () => {
         relayFanOutEnabled: true,
         priorityLane: "hot",
       },
+      {
+        sourceContextName: "marketplace",
+        relayFanOutEnabled: true,
+        priorityLane: "hot",
+      },
     ]);
+  });
+
+  it("honors the deployment-level event-store wake emission kill switch", () => {
+    const previousValue = process.env.PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED;
+    try {
+      for (const disabledValue of ["false", "0", "off", "no", "typo"]) {
+        process.env.PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED = disabledValue;
+        expect(createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "checkout" })).toMatchObject(
+          {
+            enabled: false,
+          },
+        );
+      }
+
+      process.env.PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED = "true";
+      expect(createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "checkout" })).toMatchObject({
+        enabled: true,
+      });
+    } finally {
+      if (previousValue === undefined) {
+        delete process.env.PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED;
+      } else {
+        process.env.PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED = previousValue;
+      }
+    }
   });
 
   it("rejects partial enablement and production rollout without gate evidence", () => {
@@ -120,7 +167,7 @@ describe("source-context wake registry", () => {
 
     expect(() =>
       validateSourceContextWakeRegistry({
-        registry: withRegistryEntryPatch("checkout", {
+        registry: withRegistryEntryPatch("marketplace", {
           enablement: {
             eventStoreWakeNotifications: true,
             relayFanOut: true,

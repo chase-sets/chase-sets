@@ -251,6 +251,18 @@ describe("DigitalOcean platform configuration", () => {
       'local.is_staging ? "true" : "false"',
     );
     expect(occurrenceCount(platformMain, 'key   = "READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED"')).toBe(1);
+    expectTerraformAssignment(
+      platformLocals,
+      "worker_projection_wake_relay_enabled",
+      'local.is_staging ? "true" : "false"',
+    );
+    expectTerraformAssignment(
+      platformLocals,
+      "event_store_wake_notifications_enabled",
+      'local.is_staging ? "true" : "false"',
+    );
+    expect(occurrenceCount(platformMain, 'key   = "WORKER_PROJECTION_WAKE_RELAY_ENABLED"')).toBe(1);
+    expect(occurrenceCount(platformMain, 'key   = "PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED"')).toBe(6);
     expect(platformMain).toContain('check "worker_runner_capacity"');
     expect(platformMain).toContain("tonumber(local.worker_job_concurrency)");
     expect(platformMain).toContain("tonumber(local.worker_wake_concurrency)");

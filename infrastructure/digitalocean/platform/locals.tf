@@ -115,6 +115,14 @@ locals {
   # gated behind the milestone rollout-control and canary evidence issues.
   read_consistency_wake_before_wait_enabled = local.is_staging ? "true" : "false"
 
+  # The source-context wake registry is environment-global, so push rollout is
+  # environment-gated here: staging runs the full push loop for the enabled
+  # wave-1 contexts, while production and previews keep both the relay and
+  # write-side event-store wake emission killed until the production proof
+  # gates (#1243/#1244/#1237) pass.
+  worker_projection_wake_relay_enabled   = local.is_staging ? "true" : "false"
+  event_store_wake_notifications_enabled = local.is_staging ? "true" : "false"
+
   source_observation_bulk_job_lanes             = local.is_staging ? "4" : "1"
   source_observation_bulk_workflow_cap          = local.is_staging ? "4" : "1"
   source_observation_bulk_job_cap               = local.is_staging ? "2" : "1"
