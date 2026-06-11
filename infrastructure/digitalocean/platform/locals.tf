@@ -123,6 +123,107 @@ locals {
   worker_projection_wake_relay_enabled   = local.is_staging ? "true" : "false"
   event_store_wake_notifications_enabled = local.is_staging ? "true" : "false"
 
+  # --- Push-wake connection budget (#1244, #1243, #1236) ---------------------
+  # Plan-time model of worst-case DigitalOcean managed Postgres backend demand
+  # for the push-first projection wake topology. The same locals drive every
+  # environment; only scale knobs (instance counts, pool sizes, database size)
+  # and the staging-first ramp flags differ, so staging exercises the same
+  # logical query/listener/control-plane shape production runs (#1243).
+  # Ledger and assumptions: docs/architecture/push-wake-connection-budget.md.
+  #
+  # Connection semantics being modeled:
+  # - Non-production app components (API/worker/bootstrap) connect through the
+  #   managed PgBouncer transaction pools. Those are client-side connections;
+  #   the cluster backends they can occupy are capped by the server-side pool
+  #   sizes in context_database_connection_pool_sizes, not by app pool maxima.
+  # - Production app components use App Platform database bindings, which are
+  #   direct session-compatible cluster connections, so app pool maxima count
+  #   directly against cluster backends.
+  # - Relay listener URLs are direct in every environment that defines them,
+  #   because LISTEN is incompatible with transaction pooling.
+  # - DATABASE_POOL_MAX is a per-database-URL cap (one node-postgres pool per
+  #   context database), not a per-process aggregate. The budget treats it as
+  #   the per-process concurrent-backend allowance: worker runner concurrency
+  #   is held at or below the pool max by check "worker_runner_capacity", API
+  #   concurrency is bounded by in-flight requests, and the 5s pool idle
+  #   timeout reaps idle backends. The headroom asserted by
+  #   check "wake_connection_budget" absorbs bursts above that allowance.
+
+  # Production proof mode deploys the platform-* and admin-support-* component
+  # families at the same time, so production budgets both families even when a
+  # gate currently deploys only one; flipping the proof/public switches can
+  # never grow demand past this worst case. Staging and previews only ever
+  # deploy the platform-* family.
+  api_component_count    = local.is_production ? 2 : 1
+  worker_component_count = local.is_production ? 2 : 1
+
+  # Worst-case app-side pool demand (per-process pool max x component count x
+  # instances). Direct cluster backends in production; PgBouncer client-side
+  # connections in non-production.
+  api_total_pool_demand    = tonumber(local.api_database_pool_max) * local.api_component_count * local.api_instances
+  worker_total_pool_demand = tonumber(local.worker_database_pool_max) * local.worker_component_count * local.worker_instances
+
+  # Direct LISTEN connections held by the single active worker-owned relay,
+  # one per wave-1 source context. Production defines listener URL bindings
+  # while the relay stays killed; budget the relay-enabled worst case anyway
+  # so flipping WORKER_PROJECTION_WAKE_RELAY_ENABLED later cannot violate the
+  # budget. Previews define no listener URLs and budget zero.
+  relay_listener_demand = (local.is_production || local.is_staging) ? length(local.worker_listener_source_contexts) : 0
+
+  # Bootstrap PRE_DEPLOY jobs are transient (single instance, finished before
+  # replacement app containers start) but still occupy backends while running,
+  # so the budget reserves one bootstrap pool. In staging the bootstrap job
+  # itself rides the PgBouncer pool URLs (already capped by the server-side
+  # allocation below); the reservation there covers the direct admin
+  # connection used by the Terraform database-grant local-exec and ad hoc
+  # direct maintenance access.
+  bootstrap_demand = tonumber(local.bootstrap_database_pool_max)
+
+  # Server-side PgBouncer backend allocation: a DigitalOcean managed pool's
+  # "size" is the number of cluster backends that pool may hold, so the sum of
+  # configured pool sizes is the worst-case backend footprint of all pooled
+  # app traffic in non-production. Production attaches no managed pools.
+  pgbouncer_server_backend_allocation = (
+    length(local.context_database_connection_pool_sizes) > 0
+    ? sum(values(local.context_database_connection_pool_sizes))
+    : 0
+  )
+
+  # DigitalOcean managed Postgres backend connection limits by size, minus a
+  # conservative 3-connection reservation for DigitalOcean maintenance
+  # (documented totals: db-s-1vcpu-1gb=22, db-s-1vcpu-2gb=47,
+  # db-s-2vcpu-4gb=97, db-s-4vcpu-8gb=197). A database size missing from this
+  # map resolves to 0 and fails check "wake_connection_budget" until the new
+  # tier is budgeted here.
+  cluster_connection_limits = {
+    "db-s-1vcpu-1gb" = 19
+    "db-s-1vcpu-2gb" = 44
+    "db-s-2vcpu-4gb" = 94
+    "db-s-4vcpu-8gb" = 194
+  }
+  cluster_connection_limit = lookup(local.cluster_connection_limits, local.database_size, 0)
+
+  # Worst-case steady-state direct cluster backend demand. Production bindings
+  # are all direct, so every app pool counts; in non-production only the
+  # PgBouncer server-side allocation, the direct relay listeners, and the
+  # bootstrap reservation reach the cluster.
+  cluster_backend_demand = local.is_production ? (
+    local.api_total_pool_demand + local.worker_total_pool_demand + local.relay_listener_demand + local.bootstrap_demand
+    ) : (
+    local.pgbouncer_server_backend_allocation + local.relay_listener_demand + local.bootstrap_demand
+  )
+
+  # Rolling-deploy overlap envelope: App Platform starts replacement
+  # containers before stopping the old ones, so direct app backends and relay
+  # listener connections can momentarily double. The PgBouncer server-side
+  # allocation does not grow with client count, which is exactly why
+  # non-production query traffic stays on pooled URLs.
+  cluster_backend_demand_deploy_overlap = local.is_production ? (
+    2 * (local.api_total_pool_demand + local.worker_total_pool_demand) + 2 * local.relay_listener_demand + local.bootstrap_demand
+    ) : (
+    local.pgbouncer_server_backend_allocation + 2 * local.relay_listener_demand + local.bootstrap_demand
+  )
+
   source_observation_bulk_job_lanes             = local.is_staging ? "4" : "1"
   source_observation_bulk_workflow_cap          = local.is_staging ? "4" : "1"
   source_observation_bulk_job_cap               = local.is_staging ? "2" : "1"

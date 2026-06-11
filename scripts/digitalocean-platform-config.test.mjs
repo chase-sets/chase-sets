@@ -272,6 +272,61 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformMain).not.toMatch(/name\s+= "platform-worker"[\s\S]*?http_port\s+= 8080/);
   });
 
+  it("models the push-wake connection budget and listener topology parity as plan-time checks", () => {
+    expectTerraformAssignment(platformLocals, "api_component_count", "local.is_production ? 2 : 1");
+    expectTerraformAssignment(platformLocals, "worker_component_count", "local.is_production ? 2 : 1");
+    expectTerraformAssignment(
+      platformLocals,
+      "api_total_pool_demand",
+      "tonumber(local.api_database_pool_max) * local.api_component_count * local.api_instances",
+    );
+    expectTerraformAssignment(
+      platformLocals,
+      "worker_total_pool_demand",
+      "tonumber(local.worker_database_pool_max) * local.worker_component_count * local.worker_instances",
+    );
+    expectTerraformAssignment(
+      platformLocals,
+      "relay_listener_demand",
+      "(local.is_production || local.is_staging) ? length(local.worker_listener_source_contexts) : 0",
+    );
+    expectTerraformAssignment(platformLocals, "bootstrap_demand", "tonumber(local.bootstrap_database_pool_max)");
+    expect(platformLocals).toContain("pgbouncer_server_backend_allocation = (");
+    expect(platformLocals).toContain("sum(values(local.context_database_connection_pool_sizes))");
+    expect(platformLocals).toContain("cluster_connection_limits = {");
+    expectTerraformAssignment(platformLocals, '"db-s-1vcpu-1gb"', "19");
+    expectTerraformAssignment(platformLocals, '"db-s-2vcpu-4gb"', "94");
+    expectTerraformAssignment(
+      platformLocals,
+      "cluster_connection_limit",
+      "lookup(local.cluster_connection_limits, local.database_size, 0)",
+    );
+    expect(platformLocals).toContain("cluster_backend_demand = local.is_production ? (");
+    expect(platformLocals).toContain("cluster_backend_demand_deploy_overlap = local.is_production ? (");
+    expect(platformLocals).toContain(
+      "local.pgbouncer_server_backend_allocation + local.relay_listener_demand + local.bootstrap_demand",
+    );
+
+    expect(platformMain).toContain('check "wake_connection_budget"');
+    expect(platformMain).toContain("local.cluster_backend_demand <= local.cluster_connection_limit");
+    expect(platformMain).toContain("local.cluster_backend_demand_deploy_overlap <= local.cluster_connection_limit");
+    expect(platformMain).toContain(
+      'error_message = "Worst-case steady-state backend demand exceeds the budgeted DigitalOcean database tier connection limit. Reduce pool maxima, instance counts, or listener source contexts, or scale database_size, and update docs/architecture/push-wake-connection-budget.md."',
+    );
+    expect(platformMain).toContain(
+      'error_message = "Rolling-deploy overlap backend demand exceeds the budgeted DigitalOcean database tier connection limit. Reduce pool maxima, instance counts, or listener source contexts, or scale database_size before adding push-wake load."',
+    );
+
+    expect(platformMain).toContain('check "wake_listener_topology_parity"');
+    expect(platformMain).toContain(
+      "((local.is_production || local.is_staging) ? length(local.worker_listener_source_contexts) : 0)",
+    );
+    expect(platformMain).toContain("contains(keys(local.worker_listener_database_urls), context_name)");
+
+    expect(platformMain).toContain('check "worker_runner_capacity"');
+    expect(existsSync(resolve("docs/architecture/push-wake-connection-budget.md"))).toBe(true);
+  });
+
   it("provisions databases for every platform-api bounded context", () => {
     const managedContexts = terraformStringList(platformLocals, "platform_context_names");
     expect(managedContexts).toEqual(expect.arrayContaining(platformApiContextNames()));

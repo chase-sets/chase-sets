@@ -238,6 +238,56 @@ check "worker_runner_capacity" {
   }
 }
 
+# Push-wake connection budget gate (#1244/#1236): the plan-time budget in
+# locals.tf must fit the selected DigitalOcean database tier in steady state
+# and during rolling-deploy overlap. Previews are excluded by design: they are
+# fallback-first (no listener URLs, no push rollout) and intentionally
+# oversubscribe the 1GB tier with lazily opened PgBouncer backends. The
+# per-environment ledger and assumptions live in
+# docs/architecture/push-wake-connection-budget.md.
+check "wake_connection_budget" {
+  assert {
+    condition = (
+      !(local.is_production || local.is_staging) ||
+      local.cluster_backend_demand <= local.cluster_connection_limit
+    )
+    error_message = "Worst-case steady-state backend demand exceeds the budgeted DigitalOcean database tier connection limit. Reduce pool maxima, instance counts, or listener source contexts, or scale database_size, and update docs/architecture/push-wake-connection-budget.md."
+  }
+
+  assert {
+    condition = (
+      !(local.is_production || local.is_staging) ||
+      local.cluster_backend_demand_deploy_overlap <= local.cluster_connection_limit
+    )
+    error_message = "Rolling-deploy overlap backend demand exceeds the budgeted DigitalOcean database tier connection limit. Reduce pool maxima, instance counts, or listener source contexts, or scale database_size before adding push-wake load."
+  }
+}
+
+# Listener topology parity gate (#1243/#1236): staging and production must
+# expose exactly one direct/session-compatible listener URL per wave source
+# context and previews must expose none, so relay topology never differs by
+# environment shape - only by scale knobs and ramp flags.
+check "wake_listener_topology_parity" {
+  assert {
+    condition = (
+      length(local.worker_listener_database_urls) ==
+      ((local.is_production || local.is_staging) ? length(local.worker_listener_source_contexts) : 0)
+    )
+    error_message = "Listener URL topology must define exactly one listener URL per worker_listener_source_contexts entry in staging and production, and none in previews."
+  }
+
+  assert {
+    condition = (
+      !(local.is_production || local.is_staging) ||
+      alltrue([
+        for context_name in local.worker_listener_source_contexts :
+        contains(keys(local.worker_listener_database_urls), context_name)
+      ])
+    )
+    error_message = "Every worker_listener_source_contexts entry must have a matching listener URL key in staging and production so relay source enablement cannot drift between environments."
+  }
+}
+
 resource "digitalocean_app" "platform" {
   spec {
     name   = "${local.name_prefix}-platform"
