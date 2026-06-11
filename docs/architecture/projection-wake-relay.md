@@ -60,7 +60,7 @@ The platform worker hosts the relay as a long-lived supervised session beside it
 
 ## Listener URL Topology
 
-`LISTEN` requires direct or session-compatible connections. Staging context query URLs go through PgBouncer transaction pools, which cannot carry `LISTEN`, so Terraform provides the active relay with per-context direct cluster URLs for the wave-1 source contexts (`checkout`, `marketplace`, `ordering`, `payments`). Production reuses the App Platform database bindings, which are session-compatible, keeping the staging/production logical topology identical. Preview environments intentionally omit listener URLs because push rollout never targets previews. Only the active relay holds listener connections; ordinary workers and API processes keep pooled query URLs.
+`LISTEN` requires direct or session-compatible connections. Staging context query URLs go through PgBouncer transaction pools, which cannot carry `LISTEN`, so Terraform provides the active relay with per-context direct cluster URLs for the wave-1 source contexts (`checkout`, `marketplace`, `ordering`, `payments`). Production reuses the App Platform database bindings, which are session-compatible, keeping the staging/production logical topology identical. Preview environments intentionally omit listener URLs because push rollout never targets previews. Only the active relay holds listener connections; ordinary workers and API processes keep pooled query URLs. The per-environment connection ledger and the plan-time Terraform checks that keep this topology within DigitalOcean backend limits are documented in the [push-wake connection budget](./push-wake-connection-budget.md).
 
 ## Rollout Gate
 
