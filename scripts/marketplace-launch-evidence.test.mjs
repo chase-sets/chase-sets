@@ -16,6 +16,60 @@ function gate(reference, owner = "Operations") {
   };
 }
 
+function checkoutLaunchGate(overrides = {}) {
+  return {
+    ...gate("CHECKOUT-LAUNCH-2026-05-30", "Checkout"),
+    evidenceCompletedAt: "2026-05-30T10:55:00.000Z",
+    environment: "production",
+    releaseCommit: "f318fd3577b635959dabc23117f509ed45621268",
+    matrixReference: "CHECKOUT-MATRIX-2026-05-30",
+    matrixVersion: "checkout-launch-evidence-matrix/v1",
+    matrixRowCount: 24,
+    scenarioStateCount: 22,
+    launchRegisterRowCount: 18,
+    noSideEffectRowCount: 13,
+    pendingDownstreamBoundaryRowCount: 5,
+    freshStateCleanupRowCount: 24,
+    measuredPerformanceRowCount: 24,
+    visualSnapshotCount: 4,
+    mobileViewportCount: 2,
+    accessibilityScenarioCount: 12,
+    e2eScenarioCount: 12,
+    canaryArtifactCount: 3,
+    entrySourcesCovered: ["buy-now", "buy-cart-readiness", "sell-list-readiness"],
+    actorModesCovered: ["guest", "signed-in"],
+    viewportsCovered: ["desktop", "mobile"],
+    copyPolicyReference: "CHECKOUT-COPY-POLICY-2026-05-30",
+    visualTargetsReference: "CHECKOUT-VISUAL-TARGETS-2026-05-30",
+    performanceBudgetReference: "CHECKOUT-PERFORMANCE-BUDGETS-2026-05-30",
+    coverageArtifactReference: "CHECKOUT-COVERAGE-2026-05-30",
+    performanceMeasurementReference: "CHECKOUT-PERFORMANCE-MEASUREMENTS-2026-05-30",
+    noSideEffectReference: "CHECKOUT-NO-SIDE-EFFECT-2026-05-30",
+    noCompatibilityScanReference: "CHECKOUT-NO-COMPATIBILITY-SCAN-2026-05-30",
+    freshStateCleanupReference: "CHECKOUT-FRESH-STATE-CLEANUP-2026-05-30",
+    launchRegisterReference: "CHECKOUT-LAUNCH-REGISTER-2026-05-30",
+    observabilityReference: "CHECKOUT-OBSERVABILITY-2026-05-30",
+    supportReference: "CHECKOUT-SUPPORT-2026-05-30",
+    securityPolicyReference: "CHECKOUT-SECURITY-POLICY-2026-05-30",
+    stagingWorkflowRunReference: "platform-deploy-staging-26688444710",
+    productionWorkflowRunReference: "platform-deploy-production-26688444710",
+    currentMainRevalidated: true,
+    buyGuestCovered: true,
+    buySignedInCovered: true,
+    sellGuestCovered: true,
+    sellSignedInCovered: true,
+    unassignedFulfillmentOutsideCheckoutProven: true,
+    optimizationDecisionOutsideCheckoutProven: true,
+    pendingDownstreamBoundaryProven: true,
+    noCustomerCommittingSideEffectsBeforeConfirm: true,
+    freshStateCleanupPassed: true,
+    killSwitchFailClosedProven: true,
+    legacyCompatibilityAbsent: true,
+    visualMobileAccessibilityPassed: true,
+    ...overrides,
+  };
+}
+
 function validPacket(overrides = {}) {
   const packet = {
     schemaVersion: MARKETPLACE_LAUNCH_EVIDENCE_SCHEMA_VERSION,
@@ -29,6 +83,8 @@ function validPacket(overrides = {}) {
       PRODUCTION_MARKETPLACE_PROMOTION_REFERENCE: "LAUNCH-REVIEW-2026-05-30",
       PRODUCTION_MARKETPLACE_CHECKOUT_FEE_APPROVED: "true",
       PRODUCTION_MARKETPLACE_CHECKOUT_FEE_REFERENCE: "PAYMENTS-FEE-2026-05-30",
+      PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_APPROVED: "true",
+      PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_REFERENCE: "CHECKOUT-LAUNCH-2026-05-30",
       PRODUCTION_STRIPE_MONEY_OPERATIONS_APPROVED: "true",
       PRODUCTION_STRIPE_MONEY_OPERATIONS_REFERENCE: "STRIPE-MONEY-2026-05-30",
       PRODUCTION_SUPPORT_OPERATIONS_APPROVED: "true",
@@ -106,6 +162,7 @@ function validPacket(overrides = {}) {
         stateDisclosureReviewApproved: true,
         stripeLiveFeeConfigurationApproved: true,
       },
+      checkoutLaunchEvidence: checkoutLaunchGate(),
       stripeMoneyOperations: {
         ...gate("STRIPE-MONEY-2026-05-30", "Payments and Settlement"),
         proofReference: "STRIPE-MONEY-PROOF-2026-05-30",
@@ -376,6 +433,54 @@ describe("marketplace launch evidence verifier", () => {
 
     expect(result.ok).toBe(true);
     expect(result.errors).toEqual([]);
+    expect(result.summary.requiredGates).toContain("checkoutLaunchEvidence");
+  });
+
+  it("requires checkout launch evidence as a first-class approval gate", () => {
+    const { checkoutLaunchEvidence: _checkoutLaunchEvidence, ...gates } = validPacket().gates;
+    const packet = validPacket();
+    packet.gates = gates;
+    const result = validateMarketplaceLaunchEvidence(packet, { now });
+
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContain("Checkout launch evidence gate is required at gates.checkoutLaunchEvidence.");
+  });
+
+  it("fails checkout launch evidence that does not prove the full current-main matrix", () => {
+    const result = validateMarketplaceLaunchEvidence(
+      validPacket({
+        gates: {
+          checkoutLaunchEvidence: checkoutLaunchGate({
+            currentMainRevalidated: false,
+            matrixVersion: "checkout-launch-matrix/v0",
+            matrixRowCount: 23,
+            measuredPerformanceRowCount: 3,
+            visualSnapshotCount: 4.5,
+            noCompatibilityScanReference: "placeholder",
+            entrySourcesCovered: ["buy-now"],
+            actorModesCovered: ["guest"],
+            viewportsCovered: ["desktop"],
+          }),
+        },
+      }),
+      { now },
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContain("Checkout launch evidence must have currentMainRevalidated=true.");
+    expect(result.errors).toContain(
+      "Checkout launch evidence matrixVersion must be checkout-launch-evidence-matrix/v1.",
+    );
+    expect(result.errors).toContain("Checkout launch evidence matrixRowCount must be at least 24.");
+    expect(result.errors).toContain("Checkout launch evidence measuredPerformanceRowCount must be at least 24.");
+    expect(result.errors).toContain("Checkout launch evidence visualSnapshotCount must be an integer.");
+    expect(result.errors).toContain(
+      "Checkout launch evidence noCompatibilityScanReference must point to a real external evidence record, not a placeholder.",
+    );
+    expect(result.errors).toContain("Checkout launch evidence entrySourcesCovered must include buy-cart-readiness.");
+    expect(result.errors).toContain("Checkout launch evidence entrySourcesCovered must include sell-list-readiness.");
+    expect(result.errors).toContain("Checkout launch evidence actorModesCovered must include signed-in.");
+    expect(result.errors).toContain("Checkout launch evidence viewportsCovered must include mobile.");
   });
 
   it("allows proof mode only with a real reference while public promotion remains closed", () => {
@@ -734,6 +839,10 @@ describe("marketplace launch evidence verifier", () => {
             ...validPacket().gates.marketplaceCheckoutFee,
             approvalReference: "placeholder",
           },
+          checkoutLaunchEvidence: {
+            ...validPacket().gates.checkoutLaunchEvidence,
+            noSideEffectReference: "sample",
+          },
           stripeMoneyOperations: {
             ...validPacket().gates.stripeMoneyOperations,
             proofReference: "example",
@@ -776,6 +885,9 @@ describe("marketplace launch evidence verifier", () => {
       "Marketplace Checkout Fee approvalReference must point to a real external evidence record, not a placeholder.",
     );
     expect(result.errors).toContain(
+      "Checkout launch evidence noSideEffectReference must point to a real external evidence record, not a placeholder.",
+    );
+    expect(result.errors).toContain(
       "Stripe money operations proofReference must point to a real external evidence record, not a placeholder.",
     );
     expect(result.errors).toContain(
@@ -809,6 +921,10 @@ describe("marketplace launch evidence verifier", () => {
             ...validPacket().gates.marketplaceCheckoutFee,
             releaseCommit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           },
+          checkoutLaunchEvidence: {
+            ...validPacket().gates.checkoutLaunchEvidence,
+            releaseCommit: "9999999999999999999999999999999999999999",
+          },
           stripeMoneyOperations: {
             ...validPacket().gates.stripeMoneyOperations,
             releaseCommit: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
@@ -835,6 +951,9 @@ describe("marketplace launch evidence verifier", () => {
       "Marketplace Checkout Fee releaseCommit must match Marketplace promotion releaseCommit.",
     );
     expect(result.errors).toContain(
+      "Checkout launch evidence releaseCommit must match Marketplace promotion releaseCommit.",
+    );
+    expect(result.errors).toContain(
       "Stripe money operations releaseCommit must match Marketplace promotion releaseCommit.",
     );
     expect(result.errors).toContain("Support operations releaseCommit must match Marketplace promotion releaseCommit.");
@@ -857,6 +976,10 @@ describe("marketplace launch evidence verifier", () => {
           marketplaceCheckoutFee: {
             ...validPacket().gates.marketplaceCheckoutFee,
             releaseCommit: "checkout-fee",
+          },
+          checkoutLaunchEvidence: {
+            ...validPacket().gates.checkoutLaunchEvidence,
+            releaseCommit: "checkout-launch",
           },
           stripeMoneyOperations: {
             ...validPacket().gates.stripeMoneyOperations,
@@ -882,6 +1005,7 @@ describe("marketplace launch evidence verifier", () => {
     expect(result.ok).toBe(false);
     expect(result.errors).toContain("Marketplace promotion releaseCommit must be a 40-character Git commit SHA.");
     expect(result.errors).toContain("Marketplace Checkout Fee releaseCommit must be a 40-character Git commit SHA.");
+    expect(result.errors).toContain("Checkout launch evidence releaseCommit must be a 40-character Git commit SHA.");
     expect(result.errors).toContain("Stripe money operations releaseCommit must be a 40-character Git commit SHA.");
     expect(result.errors).toContain("Support operations releaseCommit must be a 40-character Git commit SHA.");
     expect(result.errors).toContain("Fulfillment postage releaseCommit must be a 40-character Git commit SHA.");

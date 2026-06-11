@@ -1090,6 +1090,8 @@ jobs:
       TF_VAR_production_marketplace_promotion_reference: ${{ vars.PRODUCTION_MARKETPLACE_PROMOTION_REFERENCE || '' }}
       TF_VAR_production_marketplace_checkout_fee_approved: ${{ vars.PRODUCTION_MARKETPLACE_CHECKOUT_FEE_APPROVED == 'true' && 'true' || 'false' }}
       TF_VAR_production_marketplace_checkout_fee_reference: ${{ vars.PRODUCTION_MARKETPLACE_CHECKOUT_FEE_REFERENCE || '' }}
+      TF_VAR_production_checkout_launch_evidence_approved: ${{ vars.PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_APPROVED == 'true' && 'true' || 'false' }}
+      TF_VAR_production_checkout_launch_evidence_reference: ${{ vars.PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_REFERENCE || '' }}
       TF_VAR_production_stripe_money_operations_approved: ${{ vars.PRODUCTION_STRIPE_MONEY_OPERATIONS_APPROVED == 'true' && 'true' || 'false' }}
       TF_VAR_production_stripe_money_operations_reference: ${{ vars.PRODUCTION_STRIPE_MONEY_OPERATIONS_REFERENCE || '' }}
       TF_VAR_production_support_operations_approved: ${{ vars.PRODUCTION_SUPPORT_OPERATIONS_APPROVED == 'true' && 'true' || 'false' }}
@@ -1291,6 +1293,11 @@ jobs:
 
             if [ "${TF_VAR_production_marketplace_checkout_fee_approved:-false}" != "true" ] || [ -z "${TF_VAR_production_marketplace_checkout_fee_reference:-}" ]; then
               echo "Production marketplace promotion requires approved Marketplace Checkout Fee evidence." >&2
+              exit 1
+            fi
+
+            if [ "${TF_VAR_production_checkout_launch_evidence_approved:-false}" != "true" ] || [ -z "${TF_VAR_production_checkout_launch_evidence_reference:-}" ]; then
+              echo "Production marketplace promotion requires approved checkout launch evidence." >&2
               exit 1
             fi
 

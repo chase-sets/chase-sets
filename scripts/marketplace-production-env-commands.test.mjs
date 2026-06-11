@@ -13,6 +13,8 @@ function productionEnvironment(overrides = {}) {
     PRODUCTION_MARKETPLACE_PROMOTION_REFERENCE: "LAUNCH-REVIEW-2026-05-30",
     PRODUCTION_MARKETPLACE_CHECKOUT_FEE_APPROVED: "true",
     PRODUCTION_MARKETPLACE_CHECKOUT_FEE_REFERENCE: "PAYMENTS-FEE-2026-05-30",
+    PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_APPROVED: "true",
+    PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_REFERENCE: "CHECKOUT-LAUNCH-2026-05-30",
     PRODUCTION_STRIPE_MONEY_OPERATIONS_APPROVED: "true",
     PRODUCTION_STRIPE_MONEY_OPERATIONS_REFERENCE: "STRIPE-MONEY-2026-05-30",
     PRODUCTION_SUPPORT_OPERATIONS_APPROVED: "true",
@@ -48,6 +50,9 @@ describe("marketplace production environment commands", () => {
     );
     expect(result.commands[1]).toBe(
       'gh variable set PRODUCTION_MARKETPLACE_LAUNCH_EVIDENCE_REFERENCE --env "production" --body "MARKETPLACE-LAUNCH-EVIDENCE-2026-05-30"',
+    );
+    expect(result.commands).toContain(
+      'gh variable set PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_REFERENCE --env "production" --body "CHECKOUT-LAUNCH-2026-05-30"',
     );
     expect(result.commands).toContain(
       'gh variable set PRODUCTION_TAX_READINESS_REFERENCE --env "production" --body "TAX-READINESS-2026-05-30"',

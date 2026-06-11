@@ -78,6 +78,7 @@ check "production_marketplace_evidence_reference_quality" {
         var.production_marketplace_launch_evidence_reference,
         var.production_marketplace_promotion_reference,
         var.production_marketplace_checkout_fee_reference,
+        var.production_checkout_launch_evidence_reference,
         var.production_stripe_money_operations_reference,
         var.production_support_operations_reference,
         var.production_fulfillment_postage_reference,
@@ -98,6 +99,17 @@ check "production_marketplace_checkout_fee_approval" {
       trimspace(var.production_marketplace_checkout_fee_reference) != ""
     )
     error_message = "Production marketplace promotion requires approved Marketplace Checkout Fee evidence before live checkout."
+  }
+}
+
+check "production_checkout_launch_evidence_readiness" {
+  assert {
+    condition = !var.production_marketplace_public_enabled || (
+      var.environment == "production" &&
+      var.production_checkout_launch_evidence_approved &&
+      trimspace(var.production_checkout_launch_evidence_reference) != ""
+    )
+    error_message = "Production marketplace promotion requires approved checkout launch evidence before public checkout."
   }
 }
 

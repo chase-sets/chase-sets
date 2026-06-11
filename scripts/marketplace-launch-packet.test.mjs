@@ -21,6 +21,60 @@ function gate(reference, owner) {
   };
 }
 
+function checkoutLaunchGate(overrides = {}) {
+  return {
+    ...gate("CHECKOUT-LAUNCH-2026-05-30", "Checkout"),
+    evidenceCompletedAt: "2026-05-30T10:55:00.000Z",
+    environment: "production",
+    releaseCommit: "f318fd3577b635959dabc23117f509ed45621268",
+    matrixReference: "CHECKOUT-MATRIX-2026-05-30",
+    matrixVersion: "checkout-launch-evidence-matrix/v1",
+    matrixRowCount: 24,
+    scenarioStateCount: 22,
+    launchRegisterRowCount: 18,
+    noSideEffectRowCount: 13,
+    pendingDownstreamBoundaryRowCount: 5,
+    freshStateCleanupRowCount: 24,
+    measuredPerformanceRowCount: 24,
+    visualSnapshotCount: 4,
+    mobileViewportCount: 2,
+    accessibilityScenarioCount: 12,
+    e2eScenarioCount: 12,
+    canaryArtifactCount: 3,
+    entrySourcesCovered: ["buy-now", "buy-cart-readiness", "sell-list-readiness"],
+    actorModesCovered: ["guest", "signed-in"],
+    viewportsCovered: ["desktop", "mobile"],
+    copyPolicyReference: "CHECKOUT-COPY-POLICY-2026-05-30",
+    visualTargetsReference: "CHECKOUT-VISUAL-TARGETS-2026-05-30",
+    performanceBudgetReference: "CHECKOUT-PERFORMANCE-BUDGETS-2026-05-30",
+    coverageArtifactReference: "CHECKOUT-COVERAGE-2026-05-30",
+    performanceMeasurementReference: "CHECKOUT-PERFORMANCE-MEASUREMENTS-2026-05-30",
+    noSideEffectReference: "CHECKOUT-NO-SIDE-EFFECT-2026-05-30",
+    noCompatibilityScanReference: "CHECKOUT-NO-COMPATIBILITY-SCAN-2026-05-30",
+    freshStateCleanupReference: "CHECKOUT-FRESH-STATE-CLEANUP-2026-05-30",
+    launchRegisterReference: "CHECKOUT-LAUNCH-REGISTER-2026-05-30",
+    observabilityReference: "CHECKOUT-OBSERVABILITY-2026-05-30",
+    supportReference: "CHECKOUT-SUPPORT-2026-05-30",
+    securityPolicyReference: "CHECKOUT-SECURITY-POLICY-2026-05-30",
+    stagingWorkflowRunReference: "platform-deploy-staging-26688444710",
+    productionWorkflowRunReference: "platform-deploy-production-26688444710",
+    currentMainRevalidated: true,
+    buyGuestCovered: true,
+    buySignedInCovered: true,
+    sellGuestCovered: true,
+    sellSignedInCovered: true,
+    unassignedFulfillmentOutsideCheckoutProven: true,
+    optimizationDecisionOutsideCheckoutProven: true,
+    pendingDownstreamBoundaryProven: true,
+    noCustomerCommittingSideEffectsBeforeConfirm: true,
+    freshStateCleanupPassed: true,
+    killSwitchFailClosedProven: true,
+    legacyCompatibilityAbsent: true,
+    visualMobileAccessibilityPassed: true,
+    ...overrides,
+  };
+}
+
 function validInputs(overrides = {}) {
   const productionEnvironment = {
     PRODUCTION_MARKETPLACE_PUBLIC_ENABLED: "false",
@@ -31,6 +85,8 @@ function validInputs(overrides = {}) {
     PRODUCTION_MARKETPLACE_PROMOTION_REFERENCE: "LAUNCH-REVIEW-2026-05-30",
     PRODUCTION_MARKETPLACE_CHECKOUT_FEE_APPROVED: "true",
     PRODUCTION_MARKETPLACE_CHECKOUT_FEE_REFERENCE: "PAYMENTS-FEE-2026-05-30",
+    PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_APPROVED: "true",
+    PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_REFERENCE: "CHECKOUT-LAUNCH-2026-05-30",
     PRODUCTION_STRIPE_MONEY_OPERATIONS_APPROVED: "true",
     PRODUCTION_STRIPE_MONEY_OPERATIONS_REFERENCE: "STRIPE-MONEY-2026-05-30",
     PRODUCTION_SUPPORT_OPERATIONS_APPROVED: "true",
@@ -121,6 +177,7 @@ function validInputs(overrides = {}) {
       stateDisclosureReviewApproved: true,
       stripeLiveFeeConfigurationApproved: true,
     },
+    checkoutLaunchEvidence: checkoutLaunchGate(),
     stripeMoneyOperations: {
       ...gate("STRIPE-MONEY-2026-05-30", "Payments and Settlement"),
       proofReference: "STRIPE-MONEY-PROOF-2026-05-30",
@@ -380,6 +437,7 @@ describe("marketplace launch packet assembly", () => {
 
     expect(packet.schemaVersion).toBe(MARKETPLACE_LAUNCH_EVIDENCE_SCHEMA_VERSION);
     expect(packet.gates.marketplacePromotion.reference).toBe("LAUNCH-REVIEW-2026-05-30");
+    expect(packet.gates.checkoutLaunchEvidence.reference).toBe("CHECKOUT-LAUNCH-2026-05-30");
     expect(packet.gates.launchSupplyMeasurements).toMatchObject({
       approved: true,
       reference: "CATALOG-MEASURES-2026-05-30",
@@ -424,6 +482,8 @@ describe("marketplace launch packet assembly", () => {
       PRODUCTION_MARKETPLACE_LAUNCH_EVIDENCE_REFERENCE: "MARKETPLACE-LAUNCH-EVIDENCE-2026-05-30",
       PRODUCTION_MARKETPLACE_PROMOTION_APPROVED: "true",
       PRODUCTION_MARKETPLACE_PROMOTION_REFERENCE: "LAUNCH-REVIEW-2026-05-30",
+      PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_APPROVED: "true",
+      PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_REFERENCE: "CHECKOUT-LAUNCH-2026-05-30",
       PRODUCTION_LAUNCH_SUPPLY_MEASUREMENTS_REFERENCE: "CATALOG-MEASURES-2026-05-30",
       TAX_PROVIDER_BACKED_QUOTES_REQUIRED: "false",
       EASYPOST_MODE: "production",
@@ -454,6 +514,7 @@ describe("marketplace launch packet assembly", () => {
         {
           marketplacePromotion: inputs.promotion.marketplacePromotion,
           marketplaceCheckoutFee: inputs.marketplaceCheckoutFee,
+          checkoutLaunchEvidence: inputs.checkoutLaunchEvidence,
           stripeMoneyOperations: inputs.stripeMoneyOperations,
           supportOperations: inputs.supportOperations,
           fulfillmentPostage: inputs.fulfillmentPostage,
@@ -473,6 +534,8 @@ describe("marketplace launch packet assembly", () => {
       PRODUCTION_MARKETPLACE_LAUNCH_EVIDENCE_REFERENCE: "MARKETPLACE-LAUNCH-EVIDENCE-2026-05-30",
       PRODUCTION_MARKETPLACE_PROOF_ENABLED: "true",
       PRODUCTION_MARKETPLACE_PROOF_REFERENCE: "PRODUCTION-PROOF-2026-05-30",
+      PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_APPROVED: "true",
+      PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_REFERENCE: "CHECKOUT-LAUNCH-2026-05-30",
       PRODUCTION_SUPPORT_OPERATIONS_REFERENCE: "SUPPORT-OPS-2026-05-30",
       EASYPOST_MODE: "production",
     });
@@ -491,6 +554,7 @@ describe("marketplace launch packet assembly", () => {
         {
           marketplacePromotion: inputs.promotion.marketplacePromotion,
           marketplaceCheckoutFee: inputs.marketplaceCheckoutFee,
+          checkoutLaunchEvidence: inputs.checkoutLaunchEvidence,
           stripeMoneyOperations: inputs.stripeMoneyOperations,
           supportOperations: inputs.supportOperations,
           fulfillmentPostage: inputs.fulfillmentPostage,
@@ -523,6 +587,7 @@ describe("marketplace launch packet assembly", () => {
         ],
         {
           MARKETPLACE_CHECKOUT_FEE_EVIDENCE: "fee.json",
+          CHECKOUT_LAUNCH_EVIDENCE: "checkout-launch.json",
           STRIPE_MONEY_OPERATIONS_EVIDENCE: "stripe.json",
           SUPPORT_OPERATIONS_EVIDENCE: "support.json",
           FULFILLMENT_POSTAGE_EVIDENCE: "postage.json",
@@ -536,6 +601,7 @@ describe("marketplace launch packet assembly", () => {
       promotionPath: "promotion.json",
       publicEnabled: "true",
       checkoutFeePath: "fee.json",
+      checkoutLaunchPath: "checkout-launch.json",
       stripeMoneyPath: "stripe.json",
       supportPath: "support.json",
       fulfillmentPostagePath: "postage.json",

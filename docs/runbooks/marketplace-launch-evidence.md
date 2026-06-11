@@ -15,7 +15,7 @@ The verifier fails closed when required approval gates are missing, references a
 When production approval variables are not set yet, assemble the first passing packet from gate outputs and an explicit desired production posture. Use `--launch-evidence-reference` for the private record or artifact that stores the passing redacted packet. Use `--public-enabled true` only for the final launch packet; keep it `false` for a pre-promotion rehearsal packet:
 
 ```powershell
-pnpm run marketplace:launch-packet -- --public-enabled true --launch-evidence-reference MARKETPLACE-LAUNCH-EVIDENCE-2026-05-30 --launch-supply-reference CATALOG-MEASURES-2026-05-30 --promotion .\secure\marketplace-promotion-evidence-2026-05-30.json --checkout-fee .\secure\marketplace-checkout-fee-evidence-2026-05-30.json --stripe-money .\secure\stripe-money-operations-evidence-2026-05-30.json --support .\secure\support-operations-evidence-2026-05-30.json --fulfillment-postage .\secure\fulfillment-postage-evidence-2026-05-30.json --transactional-email .\secure\transactional-email-evidence-2026-05-30.json --launch-supply .\secure\launch-supply-measurement-2026-05-30.json --tax-readiness .\secure\tax-readiness-evidence-2026-05-30.json > .\secure\redacted-marketplace-launch-evidence.json
+pnpm run marketplace:launch-packet -- --public-enabled true --launch-evidence-reference MARKETPLACE-LAUNCH-EVIDENCE-2026-05-30 --launch-supply-reference CATALOG-MEASURES-2026-05-30 --promotion .\secure\marketplace-promotion-evidence-2026-05-30.json --checkout-fee .\secure\marketplace-checkout-fee-evidence-2026-05-30.json --checkout-launch .\secure\checkout-launch-evidence-2026-05-30.json --stripe-money .\secure\stripe-money-operations-evidence-2026-05-30.json --support .\secure\support-operations-evidence-2026-05-30.json --fulfillment-postage .\secure\fulfillment-postage-evidence-2026-05-30.json --transactional-email .\secure\transactional-email-evidence-2026-05-30.json --launch-supply .\secure\launch-supply-measurement-2026-05-30.json --tax-readiness .\secure\tax-readiness-evidence-2026-05-30.json > .\secure\redacted-marketplace-launch-evidence.json
 ```
 
 The assembler derives `productionEnvironment` approval and reference values from the gate outputs in this mode. It still validates the complete packet before printing it.
@@ -36,7 +36,7 @@ gh variable list --env production --json name,value | pnpm run marketplace:produ
 To verify GitHub Environment drift after running the generated variable commands, assemble the packet again from the actual production environment snapshot:
 
 ```powershell
-pnpm run marketplace:launch-packet -- --production-env .\secure\production-environment-2026-05-30.json --promotion .\secure\marketplace-promotion-evidence-2026-05-30.json --checkout-fee .\secure\marketplace-checkout-fee-evidence-2026-05-30.json --stripe-money .\secure\stripe-money-operations-evidence-2026-05-30.json --support .\secure\support-operations-evidence-2026-05-30.json --fulfillment-postage .\secure\fulfillment-postage-evidence-2026-05-30.json --transactional-email .\secure\transactional-email-evidence-2026-05-30.json --launch-supply .\secure\launch-supply-measurement-2026-05-30.json --tax-readiness .\secure\tax-readiness-evidence-2026-05-30.json
+pnpm run marketplace:launch-packet -- --production-env .\secure\production-environment-2026-05-30.json --promotion .\secure\marketplace-promotion-evidence-2026-05-30.json --checkout-fee .\secure\marketplace-checkout-fee-evidence-2026-05-30.json --checkout-launch .\secure\checkout-launch-evidence-2026-05-30.json --stripe-money .\secure\stripe-money-operations-evidence-2026-05-30.json --support .\secure\support-operations-evidence-2026-05-30.json --fulfillment-postage .\secure\fulfillment-postage-evidence-2026-05-30.json --transactional-email .\secure\transactional-email-evidence-2026-05-30.json --launch-supply .\secure\launch-supply-measurement-2026-05-30.json --tax-readiness .\secure\tax-readiness-evidence-2026-05-30.json
 ```
 
 The assembler emits the exact packet consumed by `marketplace:launch-evidence` and immediately validates it. In drift-check mode, it normalizes the launch-supply measurement into `gates.launchSupplyMeasurements` using `PRODUCTION_LAUNCH_SUPPLY_MEASUREMENTS_REFERENCE` from the production environment snapshot and fails if any gate output or environment value drifts.
@@ -74,6 +74,7 @@ Create these records before enabling the production marketplace switch:
 - `06 Tax Readiness`: counsel/accounting approval, state-by-state nexus posture, collection-required jurisdiction list, provider decision, and `TAX_PROVIDER_BACKED_QUOTES_REQUIRED` value.
 - `07 Support Operations`: account issue opening, admin queue review, overdue or urgent review, evidence/response/resolution/close/cancel endpoints, refund-producing resolution visibility, settlement hold coordination, and support notifications.
 - `08 Public Presence`: launch-mode copy review for home, terms, privacy, refunds and returns, order protection, sales fee, FAQ, contact, and confirmation that no uncertified UCP/AP2/headless-checkout claims are live.
+- `09 Checkout Launch`: current-main buy-now, buy-cart readiness, and sell-list readiness proof for guest and signed-in actors; desktop and mobile snapshots; accessibility and E2E evidence; no customer-committing side effects before confirmation; unassigned fulfillment and optional fulfillment-savings optimization kept outside checkout; pending downstream handoff boundaries; kill-switch fail-closed behavior; fresh-state cleanup; and no legacy checkout compatibility adapters.
 
 Use the Google Drive document URL or stable record identifier as each gate `reference`. Staging sandbox proof, provider webhook delivery ids, provider-row queries, screenshots, and other one-time launch facts belong in this private workspace and in redacted packet inputs, not in GitHub Environment variables. The redacted packet may be kept locally under `secure/` while working; `secure/` is ignored because it can contain sensitive evidence summaries even when screenshots are excluded.
 
@@ -91,7 +92,7 @@ Use this sequence while #570, #571, #572, #596, and #597 remain open. It orders 
 8. Run `pnpm run marketplace:fulfillment-postage-evidence -- --proof .\secure\fulfillment-postage-<date>.json --reference <FULFILLMENT-POSTAGE-reference>` and keep `PRODUCTION_FULFILLMENT_POSTAGE_APPROVED` unset until it passes.
 9. Convert Public Presence from prelaunch copy to approved launch-mode copy for #597 only after Stripe money operations and Fulfillment postage can pass. Preserve approved seller-economics claims; remove future-only availability language and keep uncertified UCP/AP2/headless-checkout claims absent.
 10. Run `pnpm run marketplace:public-presence-copy-audit -- --base-url https://chasesets.com --mode launch`, then build Marketplace Promotion evidence from the final launch review record.
-11. Assemble the redacted Marketplace Launch Evidence packet for #572 from the passing gate outputs with a single release commit. The packet must include Stripe Money Operations, Fulfillment Postage, Marketplace Promotion/Public Presence, Checkout Fee, Support, Transactional Email, Launch Supply, Tax Readiness, and UCP/AP2 Marketing gates.
+11. Assemble the redacted Marketplace Launch Evidence packet for #572 from the passing gate outputs with a single release commit. The packet must include Stripe Money Operations, Fulfillment Postage, Marketplace Promotion/Public Presence, Checkout Fee, Checkout Launch, Support, Transactional Email, Launch Supply, Tax Readiness, and UCP/AP2 Marketing gates.
 12. Run `pnpm run marketplace:launch-evidence -- --file .\secure\redacted-marketplace-launch-evidence.json`, then generate production GitHub Environment commands with `pnpm run marketplace:production-env-commands -- --file .\secure\redacted-marketplace-launch-evidence.json`.
 13. Apply only the packet-derived production variables, turn proof mode off, turn public mode on, rerun `pnpm run marketplace:production-launch-readiness`, and deploy promotion only after the final readiness preflight passes.
 
@@ -118,6 +119,18 @@ pnpm run marketplace:checkout-fee-evidence -- --approval .\secure\marketplace-ch
 ```
 
 The approval JSON must include `approvalReference`, `approvalCompletedAt`, `environment: "production"`, `releaseCommit`, `feePolicyVersion: "marketplace-checkout-fee-v1"`, `feePolicyEffectiveAt`, `stripeMode: "live"`, the live policy endpoint URL `/api/marketplace/account/marketplace-checkout-fee-policy` on a production Chase Sets host, HTTP status `200`, endpoint checked-at timestamp, the live policy endpoint reference, the approved live policy snapshot (`enabledJurisdictions: ["US"]`, card/base `290` bps plus `0.30`, bank-account `50` bps plus `0.00`, platform-credit `0` bps plus `0.00`, `unsupportedMethodsDefault: "no-positive-fee"`, and stale quote handling `409 fee_quote_stale` with confirmation required), references for buyer-facing copy, fee labels, refund language, state disclosure review, and Stripe live fee configuration, plus true approval values for those five launch requirements. The command prints the fields that map into `gates.marketplaceCheckoutFee`, and the launch verifier rejects stale fee approval evidence, missing production endpoint observations, or a policy snapshot that does not match the live Payments endpoint.
+
+Build the Checkout Launch gate from the Checkout-owned composite evidence record:
+
+```powershell
+pnpm run marketplace:launch-packet -- --checkout-launch .\secure\checkout-launch-evidence-2026-05-30.json --promotion .\secure\marketplace-promotion-evidence-2026-05-30.json --checkout-fee .\secure\marketplace-checkout-fee-evidence-2026-05-30.json --stripe-money .\secure\stripe-money-operations-evidence-2026-05-30.json --support .\secure\support-operations-evidence-2026-05-30.json --fulfillment-postage .\secure\fulfillment-postage-evidence-2026-05-30.json --transactional-email .\secure\transactional-email-evidence-2026-05-30.json --launch-supply .\secure\launch-supply-measurement-2026-05-30.json --tax-readiness .\secure\tax-readiness-evidence-2026-05-30.json --public-enabled false --launch-evidence-reference MARKETPLACE-LAUNCH-EVIDENCE-2026-05-30 --launch-supply-reference CATALOG-MEASURES-2026-05-30
+```
+
+The Checkout Launch JSON maps directly to `gates.checkoutLaunchEvidence`. It must include the standard gate fields (`approved: true`, `reference`, `owner: "Checkout"`, `checkedAt`) plus `evidenceCompletedAt`, `environment: "production"`, the release commit, `matrixVersion: "checkout-launch-evidence-matrix/v1"`, and real external references for the matrix, copy policy, visual targets, performance budget, coverage artifact, performance measurement, no-side-effect proof, no-compatibility scan, fresh-state cleanup, launch register, observability, support, security policy, staging workflow run, and production workflow run. Required coverage counts are `matrixRowCount >= 24`, `scenarioStateCount >= 22`, `launchRegisterRowCount >= 18`, `noSideEffectRowCount >= 13`, `pendingDownstreamBoundaryRowCount >= 5`, `freshStateCleanupRowCount >= 24`, `measuredPerformanceRowCount >= 24`, `visualSnapshotCount >= 4`, `mobileViewportCount >= 2`, `accessibilityScenarioCount >= 8`, `e2eScenarioCount >= 8`, and `canaryArtifactCount >= 3`.
+
+Set these booleans to true only when the evidence proves them for the current release commit: `currentMainRevalidated`, `buyGuestCovered`, `buySignedInCovered`, `sellGuestCovered`, `sellSignedInCovered`, `unassignedFulfillmentOutsideCheckoutProven`, `optimizationDecisionOutsideCheckoutProven`, `pendingDownstreamBoundaryProven`, `noCustomerCommittingSideEffectsBeforeConfirm`, `freshStateCleanupPassed`, `killSwitchFailClosedProven`, `legacyCompatibilityAbsent`, and `visualMobileAccessibilityPassed`. `entrySourcesCovered` must include `buy-now`, `buy-cart-readiness`, and `sell-list-readiness`; `actorModesCovered` must include `guest` and `signed-in`; `viewportsCovered` must include `desktop` and `mobile`.
+
+Do not satisfy this gate by adding fulfillment assignment to checkout. Items without assigned fulfillment must remain in the cart, Sell List, or a conditional readiness step before checkout session creation. Checkout may display a savings optimization decision that says the customer can save by changing fulfillment before entering checkout, but the assignment and any offer rewrite must happen outside the payment form and before customer-committing side effects. The launch verifier rejects placeholder references, stale evidence, missing current-main revalidation, insufficient matrix coverage, or any packet that cannot prove legacy checkout compatibility is absent.
 
 Build the Stripe Money Operations gate from the live proof record:
 
@@ -204,6 +217,8 @@ Use `pnpm run marketplace:production-proof-topology-evidence` after enabling pro
     "PRODUCTION_MARKETPLACE_PROMOTION_REFERENCE": "LAUNCH-REVIEW-2026-05-30",
     "PRODUCTION_MARKETPLACE_CHECKOUT_FEE_APPROVED": "true",
     "PRODUCTION_MARKETPLACE_CHECKOUT_FEE_REFERENCE": "PAYMENTS-FEE-2026-05-30",
+    "PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_APPROVED": "true",
+    "PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_REFERENCE": "CHECKOUT-LAUNCH-2026-05-30",
     "PRODUCTION_STRIPE_MONEY_OPERATIONS_APPROVED": "true",
     "PRODUCTION_STRIPE_MONEY_OPERATIONS_REFERENCE": "STRIPE-MONEY-2026-05-30",
     "PRODUCTION_SUPPORT_OPERATIONS_APPROVED": "true",
@@ -519,6 +534,59 @@ Use `pnpm run marketplace:production-proof-topology-evidence` after enabling pro
       "queryReference": "launch-supply-measurement-query-2026-05-30",
       "operator": "ops@chasesets.com",
       "projectionFreshnessReference": "projection-freshness-2026-05-30"
+    },
+    "checkoutLaunchEvidence": {
+      "approved": true,
+      "reference": "CHECKOUT-LAUNCH-2026-05-30",
+      "owner": "Checkout",
+      "checkedAt": "2026-05-30T11:00:00.000Z",
+      "evidenceCompletedAt": "2026-05-30T10:45:00.000Z",
+      "environment": "production",
+      "releaseCommit": "f318fd3577b635959dabc23117f509ed45621268",
+      "matrixReference": "CHECKOUT-MATRIX-2026-05-30",
+      "matrixVersion": "checkout-launch-evidence-matrix/v1",
+      "copyPolicyReference": "CHECKOUT-COPY-POLICY-2026-05-30",
+      "visualTargetsReference": "CHECKOUT-VISUAL-TARGETS-2026-05-30",
+      "performanceBudgetReference": "CHECKOUT-PERFORMANCE-BUDGET-2026-05-30",
+      "coverageArtifactReference": "CHECKOUT-COVERAGE-2026-05-30",
+      "performanceMeasurementReference": "CHECKOUT-PERFORMANCE-2026-05-30",
+      "noSideEffectReference": "CHECKOUT-NO-SIDE-EFFECT-2026-05-30",
+      "noCompatibilityScanReference": "CHECKOUT-NO-COMPATIBILITY-2026-05-30",
+      "freshStateCleanupReference": "CHECKOUT-FRESH-STATE-2026-05-30",
+      "launchRegisterReference": "CHECKOUT-LAUNCH-REGISTER-2026-05-30",
+      "observabilityReference": "CHECKOUT-OBSERVABILITY-2026-05-30",
+      "supportReference": "CHECKOUT-SUPPORT-2026-05-30",
+      "securityPolicyReference": "CHECKOUT-SECURITY-2026-05-30",
+      "stagingWorkflowRunReference": "https://github.com/chase-sets/chase-sets/actions/runs/123456789",
+      "productionWorkflowRunReference": "https://github.com/chase-sets/chase-sets/actions/runs/123456790",
+      "matrixRowCount": 24,
+      "scenarioStateCount": 22,
+      "launchRegisterRowCount": 18,
+      "noSideEffectRowCount": 13,
+      "pendingDownstreamBoundaryRowCount": 5,
+      "freshStateCleanupRowCount": 24,
+      "measuredPerformanceRowCount": 24,
+      "visualSnapshotCount": 4,
+      "mobileViewportCount": 2,
+      "accessibilityScenarioCount": 8,
+      "e2eScenarioCount": 8,
+      "canaryArtifactCount": 3,
+      "entrySourcesCovered": ["buy-now", "buy-cart-readiness", "sell-list-readiness"],
+      "actorModesCovered": ["guest", "signed-in"],
+      "viewportsCovered": ["desktop", "mobile"],
+      "currentMainRevalidated": true,
+      "buyGuestCovered": true,
+      "buySignedInCovered": true,
+      "sellGuestCovered": true,
+      "sellSignedInCovered": true,
+      "unassignedFulfillmentOutsideCheckoutProven": true,
+      "optimizationDecisionOutsideCheckoutProven": true,
+      "pendingDownstreamBoundaryProven": true,
+      "noCustomerCommittingSideEffectsBeforeConfirm": true,
+      "freshStateCleanupPassed": true,
+      "killSwitchFailClosedProven": true,
+      "legacyCompatibilityAbsent": true,
+      "visualMobileAccessibilityPassed": true
     },
     "taxReadiness": {
       "approved": true,
