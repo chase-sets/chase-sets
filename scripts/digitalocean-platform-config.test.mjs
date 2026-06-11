@@ -251,6 +251,19 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformLocals).toContain("worker_listener_database_urls");
     expect(occurrenceCount(platformMain, "for_each = local.worker_listener_database_urls")).toBe(1);
     expect(platformMain).toContain('key   = "WORKER_LISTENER_DATABASE_URL_${upper(replace(env.key, "-", "_"))}"');
+    expect(platformLocals).toContain(
+      'context_name => "cs_${local.database_name_token}_${replace(context_name, "-", "_")}_wake_listener"',
+    );
+    expect(platformLocals).toContain("wake_listener_database_names");
+    expect(platformLocals).toContain("wake_listener_grant_contexts");
+    expect(platformLocals).toContain("worker_listener_database_urls = (local.is_production || local.is_staging) ? {");
+    expect(platformLocals).toContain("urlencode(digitalocean_database_user.wake_listeners[context_name].name)");
+    expect(platformLocals).toContain("urlencode(digitalocean_database_user.wake_listeners[context_name].password)");
+    expect(platformLocals).toContain("urlencode(local.wake_listener_database_names[context_name])");
+    // Listener URLs must never regress to the owning context users or the
+    // full-DML App Platform bindings (#1243 least privilege).
+    expect(platformLocals).not.toContain("urlencode(digitalocean_database_user.contexts[context_name].name)");
+    expect(platformLocals).not.toContain('context_name => format("$${db-%s.DATABASE_URL}", context_name)');
     expectTerraformAssignment(
       platformLocals,
       "read_consistency_wake_before_wait_enabled",
@@ -331,6 +344,100 @@ describe("DigitalOcean platform configuration", () => {
 
     expect(platformMain).toContain('check "worker_runner_capacity"');
     expect(existsSync(resolve("docs/architecture/push-wake-connection-budget.md"))).toBe(true);
+  });
+
+  it("provisions dedicated least-privilege wake-listener users with same-apply grants", () => {
+    const grantScript = readFileSync(resolve("scripts/apply-digitalocean-database-grant.mjs"), "utf8");
+
+    // Dedicated listener users exist in staging and production only.
+    expect(platformMain).toContain('resource "digitalocean_database_user" "wake_listeners"');
+    expect(platformMain).toContain("for_each   = local.wake_listener_database_users");
+    expect(platformLocals).toContain("wake_listener_database_users = (local.is_production || local.is_staging) ? {");
+
+    // Grants run inside the same terraform apply, before the app spec update
+    // restarts workers with the listener URLs.
+    expect(platformMain).toContain('resource "terraform_data" "wake_listener_database_grants"');
+    expect(platformMain).toContain("count = length(local.wake_listener_grant_contexts) > 0 ? 1 : 0");
+    expect(platformMain).toContain(
+      '"${digitalocean_database_db.contexts[context_name].id}:${digitalocean_database_user.wake_listeners[context_name].id}"',
+    );
+    expect(platformMain).toContain('kind     = "wake-listener"');
+    expect(platformMain).toContain("user     = digitalocean_database_user.wake_listeners[context_name].name");
+    const appDependsOn = platformMain.slice(
+      platformMain.lastIndexOf(
+        "depends_on",
+        platformMain.indexOf('resource "digitalocean_record" "staging_app_alias"'),
+      ),
+    );
+    expect(platformMain).toMatch(
+      /depends_on = \[\n    digitalocean_database_db\.contexts,\n    digitalocean_database_user\.contexts,\n    digitalocean_database_user\.wake_listeners,\n    terraform_data\.context_database_grants,\n    terraform_data\.wake_listener_database_grants,\n  \]/,
+    );
+    expect(appDependsOn).toContain("terraform_data.wake_listener_database_grants");
+
+    // The grant script understands the wake-listener kind and grants only
+    // CONNECT + schema USAGE + event-store SELECT for it.
+    expect(grantScript).toContain('GRANT_KINDS = Object.freeze(["owner", "wake-listener"])');
+    expect(grantScript).toContain(
+      'WAKE_LISTENER_EVENT_STORE_TABLES = Object.freeze(["event_store_events", "event_store_streams"])',
+    );
+    expect(grantScript).toContain("GRANT CONNECT ON DATABASE ${databaseIdentifier} TO ${userIdentifier}");
+    expect(grantScript).toContain("GRANT USAGE ON SCHEMA public TO ${userIdentifier}");
+    expect(grantScript).toContain("to_regclass");
+
+    // Plan-time least-privilege gate: listener URLs must embed the dedicated
+    // wake-listener users.
+    expect(platformMain).toContain('check "wake_listener_least_privilege"');
+    expect(platformMain).toContain(
+      '"//${urlencode(lookup(local.wake_listener_database_users, context_name, "missing-wake-listener-user"))}:",',
+    );
+    expect(platformMain).toContain(
+      'error_message = "Relay listener URLs must use the dedicated wake-listener database users (LISTEN + read-only event-store access), never the owning context users or App Platform bindings."',
+    );
+  });
+
+  it("waits for post-deploy projection readiness before the production canaries (warn-and-proceed)", () => {
+    const exportStep = workflowStep(platformProductionWorkflow, "Export production readiness database URLs");
+    const readinessStep = workflowStep(platformProductionWorkflow, "Production post-deploy readiness gate");
+
+    // Ordering: after the smoke check, before the Stage 1 canary and the
+    // proof-mode canary, so canaries measure steady state (#1237).
+    const smokeIndex = platformProductionWorkflow.lastIndexOf("- name: Smoke check");
+    const exportIndex = platformProductionWorkflow.indexOf("- name: Export production readiness database URLs");
+    const readinessIndex = platformProductionWorkflow.indexOf("- name: Production post-deploy readiness gate");
+    const stage1Index = platformProductionWorkflow.indexOf("- name: Stage 1 production canary");
+    const proofIndex = platformProductionWorkflow.indexOf("- name: Production proof-mode Buy Now freshness canary");
+    expect(smokeIndex).toBeLessThan(exportIndex);
+    expect(exportIndex).toBeLessThan(readinessIndex);
+    expect(readinessIndex).toBeLessThan(stage1Index);
+    expect(stage1Index).toBeLessThan(proofIndex);
+
+    // The export step derives direct production URLs from Terraform state
+    // (staging wake-drills pattern) and masks them.
+    expect(exportStep).toContain("terraform state pull");
+    expect(exportStep).toContain("digitalocean_database_cluster");
+    expect(exportStep).toContain("::add-mask::");
+    expect(exportStep).toContain("PLATFORM_CONTROL_DATABASE_URL");
+    expect(exportStep).toContain(
+      "READINESS_GATE_SOURCE_CONTEXTS: ${{ vars.PRODUCTION_READINESS_GATE_SOURCE_CONTEXTS || 'checkout' }}",
+    );
+    expect(exportStep).toContain(
+      "(vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true')",
+    );
+    expect(exportStep).toContain("continue-on-error: true");
+
+    // The gate is warn-and-proceed: it records the outcome but never fails
+    // the job — the proof canary remains the promotion gate.
+    expect(readinessStep).toContain("node ./scripts/production-readiness-gate.mjs");
+    expect(readinessStep).toContain(
+      "READINESS_GATE_BUDGET_MS: ${{ vars.PRODUCTION_READINESS_GATE_BUDGET_MS || '300000' }}",
+    );
+    expect(readinessStep).toContain("set +e");
+    expect(readinessStep).toContain('echo "outcome=${outcome}" >> "$GITHUB_OUTPUT"');
+    expect(readinessStep).toContain("warn-and-proceed");
+    expect(readinessStep).not.toContain("exit 1");
+    expect(readinessStep).not.toContain('exit "$gate_exit"');
+    expect(readinessStep).toContain("artifacts/release-health/production-readiness-gate.json");
+    expect(platformProductionWorkflow).toContain("artifacts/release-health/production-readiness-gate.json");
   });
 
   it("provisions databases for every platform-api bounded context", () => {

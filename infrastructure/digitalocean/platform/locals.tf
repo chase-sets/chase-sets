@@ -99,25 +99,48 @@ locals {
   worker_wake_standard_lane_runners = "1"
   worker_wake_bulk_lane_runners     = "1"
 
-  # Direct/session-compatible listener URLs for the worker-owned projection wake
-  # relay (wave-1 source contexts). Staging bypasses the PgBouncer transaction
-  # pools because LISTEN is incompatible with transaction pooling; production
-  # reuses the App Platform database bindings, which are session-compatible.
-  # Previews intentionally omit listener URLs: push rollout never targets
-  # preview environments and the relay falls back to catch-up-only behavior.
+  # Direct listener URLs for the worker-owned projection wake relay (wave-1
+  # source contexts). LISTEN is incompatible with PgBouncer transaction
+  # pooling, so staging and production both use direct cluster URLs built from
+  # dedicated least-privilege wake-listener users (#1243): CONNECT for LISTEN
+  # plus read-only event-store grants, never the owning context users or the
+  # full-DML App Platform bindings. Previews intentionally omit listener URLs:
+  # push rollout never targets preview environments and the relay falls back
+  # to catch-up-only behavior.
   worker_listener_source_contexts = ["checkout", "marketplace", "ordering", "payments"]
-  worker_listener_database_urls = local.is_production ? {
+  wake_listener_database_users = (local.is_production || local.is_staging) ? {
     for context_name in local.worker_listener_source_contexts :
-    context_name => format("$${db-%s.DATABASE_URL}", context_name)
-    } : local.is_staging ? {
+    context_name => "cs_${local.database_name_token}_${replace(context_name, "-", "_")}_wake_listener"
+  } : {}
+  # Wave-1 databases follow the standard context database naming (no token
+  # overrides apply); the lookup keeps this evaluable in landing-only
+  # production where the wave-1 context databases are not yet managed.
+  wake_listener_database_names = {
+    for context_name in local.worker_listener_source_contexts :
+    context_name => lookup(
+      local.context_databases,
+      context_name,
+      "chase_sets_${local.database_name_token}_${replace(context_name, "-", "_")}",
+    )
+  }
+  # Grants can only target databases Terraform manages in this configuration;
+  # landing-only production (no marketplace platform contexts) skips them and
+  # the grants resource re-runs when proof mode creates the databases because
+  # its triggers include the database/user ids.
+  wake_listener_grant_contexts = [
+    for context_name in local.worker_listener_source_contexts :
+    context_name
+    if contains(keys(local.wake_listener_database_users), context_name) && contains(keys(local.context_databases), context_name)
+  ]
+  worker_listener_database_urls = (local.is_production || local.is_staging) ? {
     for context_name in local.worker_listener_source_contexts :
     context_name => format(
       "postgresql://%s:%s@%s:%d/%s?sslmode=require",
-      urlencode(digitalocean_database_user.contexts[context_name].name),
-      urlencode(digitalocean_database_user.contexts[context_name].password),
+      urlencode(digitalocean_database_user.wake_listeners[context_name].name),
+      urlencode(digitalocean_database_user.wake_listeners[context_name].password),
       digitalocean_database_cluster.postgres.host,
       digitalocean_database_cluster.postgres.port,
-      urlencode(local.context_databases[context_name]),
+      urlencode(local.wake_listener_database_names[context_name]),
     )
   } : {}
 
@@ -175,10 +198,10 @@ locals {
   worker_total_pool_demand = tonumber(local.worker_database_pool_max) * local.worker_component_count * local.worker_instances
 
   # Direct LISTEN connections held by the single active worker-owned relay,
-  # one per wave-1 source context. Production defines listener URL bindings
-  # while the relay stays killed; budget the relay-enabled worst case anyway
-  # so flipping WORKER_PROJECTION_WAKE_RELAY_ENABLED later cannot violate the
-  # budget. Previews define no listener URLs and budget zero.
+  # one per wave-1 source context. Production defines dedicated wake-listener
+  # URLs while the relay stays killed; budget the relay-enabled worst case
+  # anyway so flipping WORKER_PROJECTION_WAKE_RELAY_ENABLED later cannot
+  # violate the budget. Previews define no listener URLs and budget zero.
   relay_listener_demand = (local.is_production || local.is_staging) ? length(local.worker_listener_source_contexts) : 0
 
   # Bootstrap PRE_DEPLOY jobs are transient (single instance, finished before
