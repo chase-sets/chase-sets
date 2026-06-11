@@ -56,15 +56,21 @@ describe("Catalog integration operator acceptance journeys", () => {
     expect(doc).toContain("destructive recovery");
     expect(doc).toContain("audit");
     expect(doc).toContain("At least three failure/recovery paths");
-    expect(doc).toContain("Any raw JSON editor or profile snapshot workaround discovered during acceptance");
+    expect(doc).toContain("Any raw JSON editor, profile snapshot workaround, old-page test anchor");
+    expect(doc).toContain("Retire means complete deletion of the code, patterns, tests, fixtures");
     expect(doc).toContain("post-merge deploy or no-runtime-deploy verification result");
   });
 
   it("anchors acceptance to existing automated operator coverage", () => {
-    expect(doc).toContain("deployables/admin-web/e2e/catalog-integrations.spec.ts");
-    expect(doc).toContain("integration-management-page.test.tsx");
-    expect(doc).toContain("provider-profile-sections.test.ts");
+    expect(doc).toContain("catalog-integration-no-confusion-ux-acceptance.test.ts");
+    expect(doc).toContain("primary-workbench-admin-contracts.test.ts");
+    expect(doc).toContain("primary-workbench-read-model.test.ts");
+    expect(doc).toContain("primary-workbench-page.test.tsx");
+    expect(doc).toContain("catalog-integration-provider-transport-budgets.test.ts");
+    expect(doc).toContain("catalog-integration-security-privacy-launch-gate.test.ts");
     expect(doc).toContain("route.test.ts");
     expect(doc).toContain("runtime.test.ts");
+    expect(doc).not.toContain("integration-management-page.test.tsx");
+    expect(doc).not.toContain("deployables/admin-web/e2e/catalog-integrations.spec.ts");
   });
 });

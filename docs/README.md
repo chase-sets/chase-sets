@@ -107,6 +107,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Catalog Integration Provider Transport Budgets](../bounded-contexts/catalog/docs/catalog-integration-provider-transport-budgets.md)
 - [Catalog Integration Real-Provider Proof](../bounded-contexts/catalog/docs/catalog-integration-real-provider-proof.md)
 - [Catalog Integration Security Privacy Launch Gate](../bounded-contexts/catalog/docs/catalog-integration-security-privacy-launch-gate.md)
+- [Catalog Integration No-Confusion UX Acceptance](../bounded-contexts/catalog/docs/catalog-integration-no-confusion-ux-acceptance.md)
 - [Catalog Integration Impact Analysis](../bounded-contexts/catalog/docs/catalog-integration-impact-analysis.md)
 - [Catalog Integration Admin Control Plane RBAC](../bounded-contexts/catalog/docs/catalog-integration-admin-control-plane-rbac.md)
 - [Catalog Integration Observability](../bounded-contexts/catalog/docs/catalog-integration-observability.md)
