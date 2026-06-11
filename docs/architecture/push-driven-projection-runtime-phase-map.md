@@ -76,7 +76,7 @@ Hard blockers for Checkout push-first rollout:
 - ADR accepted and Phase 1 topology approved.
 - Checkout source context enabled in the source-context wake registry for both event-store wake emission and relay fan-out.
 - Connection budget proves Phase 1 fits staging and production proof mode.
-- Guest Buy Now canary proves pay-ready or safe temporary recovery inside SLO.
+- Guest and account Buy Now canaries prove pay-ready readiness inside the documented write-to-checkout-ready SLO; safe temporary recovery alone no longer promotes (#1227).
 - Kill switches can disable push wakes without removing exact freshness waits.
 
 ## Phase 2: Composite Adapter Migration

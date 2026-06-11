@@ -163,6 +163,10 @@ jobs:
       deployed: ${{ steps.staging_deployed.outputs.deployed }}
       started_at: ${{ steps.staging_started.outputs.started_at }}
       completed_at: ${{ steps.staging_completed.outputs.completed_at }}
+      buy_now_canary_result: ${{ steps.buy_now_canaries.outputs.result }}
+      buy_now_canary_promotion_decision: ${{ steps.buy_now_canaries.outputs.promotion_decision }}
+      buy_now_canary_started_at: ${{ steps.buy_now_canaries.outputs.started_at }}
+      buy_now_canary_completed_at: ${{ steps.buy_now_canaries.outputs.completed_at }}
     concurrency:
       group: platform-deploy-staging
       cancel-in-progress: false
@@ -731,8 +735,8 @@ jobs:
           cd ../../..
           ADMIN_WEB_URL="https://${admin_domain}" MARKETPLACE_WEB_URL="https://${marketplace_domain}" pnpm run test:e2e:deployed
 
-      - name: Staging guest Buy Now freshness canary
-        id: guest_buy_now_canary
+      - name: Staging Buy Now freshness canaries
+        id: buy_now_canaries
         if: steps.latest_main.outputs.should_deploy != 'false'
         working-directory: infrastructure/digitalocean/platform
         env:
@@ -742,6 +746,10 @@ jobs:
           GUEST_BUY_NOW_CANARY_SEARCH_QUERY: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_SEARCH_QUERY || vars.MARKETPLACE_E2E_SEARCH_QUERY || 'charizard' }}
           GUEST_BUY_NOW_CANARY_FIXTURE_KEY: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_FIXTURE_KEY || 'staging-guest-buy-now-fixture' }}
           GUEST_BUY_NOW_CANARY_TIMEOUT_MS: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_TIMEOUT_MS || '45000' }}
+          GUEST_BUY_NOW_CANARY_READY_SLO_MS: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_READY_SLO_MS || '10000' }}
+          GUEST_BUY_NOW_CANARY_ATTEMPTS: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_ATTEMPTS || '3' }}
+          MARKETPLACE_E2E_EMAIL: ${{ vars.MARKETPLACE_E2E_EMAIL || '' }}
+          MARKETPLACE_E2E_PASSWORD: ${{ secrets.MARKETPLACE_E2E_PASSWORD || '' }}
         run: |
           set -euo pipefail
           marketplace_domain="$(terraform output -json marketplace_domains | jq -r '.[0] // empty')"
@@ -751,31 +759,88 @@ jobs:
           fi
           started_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           cd ../../..
-          canary_args=(
+          guest_out=artifacts/release-health/guest-buy-now-freshness-canary.json
+          account_out=artifacts/release-health/account-buy-now-freshness-canary.json
+          common_args=(
             --environment staging
             --base-url "https://${marketplace_domain}"
             --search-query "${GUEST_BUY_NOW_CANARY_SEARCH_QUERY}"
             --fixture-key "${GUEST_BUY_NOW_CANARY_FIXTURE_KEY}"
-            --guest-email "guest-buy-now-canary+${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}@chasesets.test"
-            --diagnostic-correlation-id "github-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
             --timeout-ms "${GUEST_BUY_NOW_CANARY_TIMEOUT_MS}"
-            --out artifacts/release-health/guest-buy-now-freshness-canary.json
+            --ready-slo-ms "${GUEST_BUY_NOW_CANARY_READY_SLO_MS}"
+            --attempts "${GUEST_BUY_NOW_CANARY_ATTEMPTS}"
           )
           if [ -n "${GUEST_BUY_NOW_CANARY_ITEM_PATH}" ]; then
-            canary_args+=(--item-path "${GUEST_BUY_NOW_CANARY_ITEM_PATH}")
+            common_args+=(--item-path "${GUEST_BUY_NOW_CANARY_ITEM_PATH}")
           fi
-          pnpm run guest-buy-now:freshness-canary -- "${canary_args[@]}"
+
+          set +e
+          pnpm run guest-buy-now:freshness-canary -- \
+            "${common_args[@]}" \
+            --flow guest \
+            --guest-email "guest-buy-now-canary+${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}@chasesets.test" \
+            --diagnostic-correlation-id "github-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-guest" \
+            --out "$guest_out"
+          guest_exit=$?
+          pnpm run guest-buy-now:freshness-canary -- \
+            "${common_args[@]}" \
+            --flow account \
+            --diagnostic-correlation-id "github-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-account" \
+            --out "$account_out"
+          account_exit=$?
+          set -e
+
           completed_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-          final_state="$(jq -r '.finalState // "unknown"' artifacts/release-health/guest-buy-now-freshness-canary.json)"
-          promotion_decision="$(jq -r '.promotionDecision // "unknown"' artifacts/release-health/guest-buy-now-freshness-canary.json)"
-          latency_ms="$(jq -r '.latencyMs // 0' artifacts/release-health/guest-buy-now-freshness-canary.json)"
+          read_field() {
+            local file="$1" field="$2" fallback="$3"
+            if [ -f "$file" ]; then
+              jq -r ".${field} // \"${fallback}\"" "$file"
+            else
+              echo "$fallback"
+            fi
+          }
+          guest_final_state="$(read_field "$guest_out" finalState unknown)"
+          guest_promotion_decision="$(read_field "$guest_out" promotionDecision abort)"
+          guest_ready_latency_ms="$(read_field "$guest_out" readyLatencyMs unknown)"
+          account_final_state="$(read_field "$account_out" finalState unknown)"
+          account_promotion_decision="$(read_field "$account_out" promotionDecision abort)"
+          account_ready_latency_ms="$(read_field "$account_out" readyLatencyMs unknown)"
+
+          result=success
+          promotion_decision=promote
+          if [ "$guest_exit" -ne 0 ] || [ "$account_exit" -ne 0 ]; then
+            result=failure
+            promotion_decision=abort
+          fi
+
           {
             echo "started_at=${started_at}"
             echo "completed_at=${completed_at}"
-            echo "final_state=${final_state}"
+            echo "result=${result}"
             echo "promotion_decision=${promotion_decision}"
-            echo "latency_ms=${latency_ms}"
+            echo "guest_final_state=${guest_final_state}"
+            echo "guest_promotion_decision=${guest_promotion_decision}"
+            echo "guest_ready_latency_ms=${guest_ready_latency_ms}"
+            echo "account_final_state=${account_final_state}"
+            echo "account_promotion_decision=${account_promotion_decision}"
+            echo "account_ready_latency_ms=${account_ready_latency_ms}"
           } >> "$GITHUB_OUTPUT"
+
+          {
+            echo "## Staging Buy Now freshness canaries"
+            echo ""
+            echo "| Flow | Final state | Promotion decision | Ready latency (ms) | Correlation id |"
+            echo "| --- | --- | --- | --- | --- |"
+            echo "| guest | ${guest_final_state} | ${guest_promotion_decision} | ${guest_ready_latency_ms} | github-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-guest |"
+            echo "| account | ${account_final_state} | ${account_promotion_decision} | ${account_ready_latency_ms} | github-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-account |"
+            echo ""
+            echo "Interpretation: docs/runbooks/guest-buy-now-freshness-canary.md. Join server-side wake segments by correlation id via the projection wake dashboard and /api/platform/projections/wake-status."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$result" != "success" ]; then
+            echo "Staging Buy Now freshness canaries aborted promotion (guest exit ${guest_exit}, account exit ${account_exit})." >&2
+            exit 1
+          fi
 
       - name: Upload staging Playwright artifacts
         if: failure()
@@ -786,13 +851,16 @@ jobs:
             artifacts/playwright/report
             artifacts/playwright/test-results
             artifacts/release-health/guest-buy-now-freshness-canary.json
+            artifacts/release-health/account-buy-now-freshness-canary.json
 
-      - name: Upload staging guest Buy Now canary evidence
+      - name: Upload staging Buy Now canary evidence
         if: always() && steps.latest_main.outputs.should_deploy != 'false'
         uses: actions/upload-artifact@v7
         with:
-          name: staging-guest-buy-now-freshness-canary
-          path: artifacts/release-health/guest-buy-now-freshness-canary.json
+          name: staging-buy-now-freshness-canaries
+          path: |
+            artifacts/release-health/guest-buy-now-freshness-canary.json
+            artifacts/release-health/account-buy-now-freshness-canary.json
           if-no-files-found: error
           retention-days: 30
 
@@ -948,10 +1016,12 @@ jobs:
           STAGING_DEPLOYED: ${{ needs.deploy-staging.outputs.deployed }}
           STAGING_STARTED_AT: ${{ needs.deploy-staging.outputs.started_at }}
           STAGING_COMPLETED_AT: ${{ needs.deploy-staging.outputs.completed_at }}
-          CANARY_RESULT: skipped
+          CANARY_RESULT: ${{ needs.deploy-staging.outputs.buy_now_canary_result || 'skipped' }}
+          CANARY_STARTED_AT: ${{ needs.deploy-staging.outputs.buy_now_canary_started_at }}
+          CANARY_COMPLETED_AT: ${{ needs.deploy-staging.outputs.buy_now_canary_completed_at }}
           CANARY_COHORT_SUBJECT_TYPE: operator
           CANARY_COHORT_SIZE: "0"
-          CANARY_PROMOTION_DECISION: skipped
+          CANARY_PROMOTION_DECISION: ${{ needs.deploy-staging.outputs.buy_now_canary_promotion_decision || 'skipped' }}
           PRODUCTION_RESULT: skipped
           PRODUCTION_COMPLETED_AT: ${{ steps.release_health_metadata.outputs.completed_at }}
           CI_RETRY_COUNT: ${{ steps.ci_metadata.outputs.ci_retry_count }}
@@ -976,7 +1046,9 @@ jobs:
           fi
 
           export STAGING_RESULT="$staging_result"
-          export CANARY_SKIPPED_REASON="$attempt_reason"
+          if [ "${CANARY_RESULT:-skipped}" = "skipped" ]; then
+            export CANARY_SKIPPED_REASON="$attempt_reason"
+          fi
           export RELEASE_ATTEMPT_RESULT="$staging_result"
           export RELEASE_ATTEMPT_PHASE="staging"
           export RELEASE_ATTEMPT_REASON="$attempt_reason"
@@ -1603,6 +1675,94 @@ jobs:
           CANARY_PROMETHEUS_QUERY_FILE: ${{ vars.CANARY_PROMETHEUS_QUERY_FILE || '' }}
         run: node ./scripts/canary-evidence.mjs
 
+      - name: Install Playwright Chromium for production proof canary
+        if: steps.latest_main.outputs.should_deploy != 'false' && vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true'
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Production proof-mode Buy Now freshness canary
+        id: proof_canary
+        if: steps.latest_main.outputs.should_deploy != 'false' && vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true'
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          GUEST_BUY_NOW_CANARY_ACCOUNT_EMAIL: ${{ secrets.PRODUCTION_PROOF_CANARY_EMAIL || '' }}
+          GUEST_BUY_NOW_CANARY_ACCOUNT_PASSWORD: ${{ secrets.PRODUCTION_PROOF_CANARY_PASSWORD || '' }}
+          GUEST_BUY_NOW_CANARY_ITEM_PATH: ${{ vars.PRODUCTION_PROOF_BUY_NOW_CANARY_ITEM_PATH || '' }}
+          GUEST_BUY_NOW_CANARY_SEARCH_QUERY: ${{ vars.PRODUCTION_PROOF_BUY_NOW_CANARY_SEARCH_QUERY || 'charizard' }}
+          GUEST_BUY_NOW_CANARY_FIXTURE_KEY: ${{ vars.PRODUCTION_PROOF_BUY_NOW_CANARY_FIXTURE_KEY || 'production-proof-buy-now-fixture' }}
+          GUEST_BUY_NOW_CANARY_TIMEOUT_MS: ${{ vars.PRODUCTION_PROOF_BUY_NOW_CANARY_TIMEOUT_MS || '45000' }}
+          GUEST_BUY_NOW_CANARY_READY_SLO_MS: ${{ vars.PRODUCTION_PROOF_BUY_NOW_CANARY_READY_SLO_MS || vars.STAGING_GUEST_BUY_NOW_CANARY_READY_SLO_MS || '10000' }}
+          GUEST_BUY_NOW_CANARY_ATTEMPTS: ${{ vars.PRODUCTION_PROOF_BUY_NOW_CANARY_ATTEMPTS || '3' }}
+          PRODUCTION_MARKETPLACE_PROOF_REFERENCE: ${{ vars.PRODUCTION_MARKETPLACE_PROOF_REFERENCE || '' }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GUEST_BUY_NOW_CANARY_ACCOUNT_EMAIL}" ] || [ -z "${GUEST_BUY_NOW_CANARY_ACCOUNT_PASSWORD}" ]; then
+            echo "Production proof mode requires PRODUCTION_PROOF_CANARY_EMAIL and PRODUCTION_PROOF_CANARY_PASSWORD operator credentials for the Buy Now readiness canary." >&2
+            exit 1
+          fi
+          marketplace_domain="$(terraform output -json marketplace_domains | jq -r '.[0] // empty')"
+          if [ -z "$marketplace_domain" ]; then
+            echo "Production proof mode was enabled but no marketplace domain was present in Terraform outputs." >&2
+            exit 1
+          fi
+          started_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          echo "started_at=${started_at}" >> "$GITHUB_OUTPUT"
+          cd ../../..
+          proof_out=artifacts/release-health/production-proof-buy-now-freshness-canary.json
+          canary_args=(
+            --flow account
+            --environment production-proof
+            --production-proof-reference "${PRODUCTION_MARKETPLACE_PROOF_REFERENCE}"
+            --base-url "https://${marketplace_domain}"
+            --search-query "${GUEST_BUY_NOW_CANARY_SEARCH_QUERY}"
+            --fixture-key "${GUEST_BUY_NOW_CANARY_FIXTURE_KEY}"
+            --timeout-ms "${GUEST_BUY_NOW_CANARY_TIMEOUT_MS}"
+            --ready-slo-ms "${GUEST_BUY_NOW_CANARY_READY_SLO_MS}"
+            --attempts "${GUEST_BUY_NOW_CANARY_ATTEMPTS}"
+            --diagnostic-correlation-id "github-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-production-proof"
+            --out "$proof_out"
+          )
+          if [ -n "${GUEST_BUY_NOW_CANARY_ITEM_PATH}" ]; then
+            canary_args+=(--item-path "${GUEST_BUY_NOW_CANARY_ITEM_PATH}")
+          fi
+
+          set +e
+          pnpm run guest-buy-now:freshness-canary -- "${canary_args[@]}"
+          canary_exit=$?
+          set -e
+
+          completed_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          if [ -f "$proof_out" ]; then
+            final_state="$(jq -r '.finalState // "unknown"' "$proof_out")"
+            promotion_decision="$(jq -r '.promotionDecision // "abort"' "$proof_out")"
+            ready_latency_ms="$(jq -r '.readyLatencyMs // "unknown"' "$proof_out")"
+          else
+            final_state=unknown
+            promotion_decision=abort
+            ready_latency_ms=unknown
+          fi
+          {
+            echo "completed_at=${completed_at}"
+            echo "final_state=${final_state}"
+            echo "promotion_decision=${promotion_decision}"
+            echo "ready_latency_ms=${ready_latency_ms}"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "## Production proof-mode Buy Now freshness canary"
+            echo ""
+            echo "| Flow | Final state | Promotion decision | Ready latency (ms) | Correlation id |"
+            echo "| --- | --- | --- | --- | --- |"
+            echo "| account (proof mode) | ${final_state} | ${promotion_decision} | ${ready_latency_ms} | github-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-production-proof |"
+            echo ""
+            echo "Interpretation: docs/runbooks/guest-buy-now-freshness-canary.md. Join server-side wake segments by correlation id via the projection wake dashboard and /api/platform/projections/wake-status."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$canary_exit" -ne 0 ]; then
+            echo "Production proof-mode Buy Now freshness canary aborted the release (exit ${canary_exit})." >&2
+            exit "$canary_exit"
+          fi
+
       - name: Mark production release
         if: steps.latest_main.outputs.should_deploy != 'false'
         run: |
@@ -1724,13 +1884,13 @@ jobs:
           STAGING_RESULT: ${{ needs.deploy-staging.result }}
           STAGING_STARTED_AT: ${{ needs.deploy-staging.outputs.started_at }}
           STAGING_COMPLETED_AT: ${{ needs.deploy-staging.outputs.completed_at }}
-          CANARY_RESULT: ${{ steps.canary_evidence.outcome == 'failure' && 'failure' || steps.stage1_canary.outcome || 'skipped' }}
+          CANARY_RESULT: ${{ steps.proof_canary.outcome == 'failure' && 'failure' || steps.canary_evidence.outcome == 'failure' && 'failure' || steps.stage1_canary.outcome || 'skipped' }}
           CANARY_STARTED_AT: ${{ steps.stage1_canary.outputs.started_at }}
-          CANARY_COMPLETED_AT: ${{ steps.stage1_canary.outputs.completed_at }}
+          CANARY_COMPLETED_AT: ${{ steps.proof_canary.outputs.completed_at || steps.stage1_canary.outputs.completed_at }}
           CANARY_SKIPPED_REASON: ${{ steps.stage1_canary.outcome == 'skipped' && 'stage-1-canary-not-run' || '' }}
           CANARY_COHORT_SUBJECT_TYPE: operator
           CANARY_COHORT_SIZE: "0"
-          CANARY_PROMOTION_DECISION: ${{ steps.canary_evidence.outcome == 'failure' && 'abort' || steps.stage1_canary.outcome == 'success' && 'promote' || steps.stage1_canary.outcome == 'failure' && 'abort' || 'skipped' }}
+          CANARY_PROMOTION_DECISION: ${{ steps.proof_canary.outcome == 'failure' && 'abort' || steps.canary_evidence.outcome == 'failure' && 'abort' || steps.stage1_canary.outcome == 'success' && 'promote' || steps.stage1_canary.outcome == 'failure' && 'abort' || 'skipped' }}
           PRODUCTION_RESULT: ${{ job.status }}
           PRODUCTION_STARTED_AT: ${{ steps.production_started.outputs.started_at }}
           PRODUCTION_COMPLETED_AT: ${{ steps.release_health_metadata.outputs.completed_at }}
@@ -1757,5 +1917,6 @@ jobs:
           path: |
             artifacts/release-health/production-release.json
             artifacts/release-health/canary-analysis.json
+            artifacts/release-health/production-proof-buy-now-freshness-canary.json
           if-no-files-found: ignore
           retention-days: 30

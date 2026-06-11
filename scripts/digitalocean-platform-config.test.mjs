@@ -677,6 +677,9 @@ describe("DigitalOcean platform configuration", () => {
       platformProductionWorkflow.indexOf("- name: Collect production canary observability evidence"),
     );
     expect(platformProductionWorkflow.indexOf("- name: Collect production canary observability evidence")).toBeLessThan(
+      platformProductionWorkflow.indexOf("- name: Production proof-mode Buy Now freshness canary"),
+    );
+    expect(platformProductionWorkflow.indexOf("- name: Production proof-mode Buy Now freshness canary")).toBeLessThan(
       platformProductionWorkflow.indexOf("- name: Mark production release"),
     );
     expect(platformProductionWorkflow).toContain("CANARY_PROMETHEUS_URL: ${{ vars.CANARY_PROMETHEUS_URL || '' }}");
@@ -688,12 +691,34 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).toContain("node ./scripts/release-health-ci-metadata.mjs");
     expect(platformProductionWorkflow).toContain("CI_RETRY_COUNT: ${{ steps.ci_metadata.outputs.ci_retry_count }}");
     expect(platformProductionWorkflow).toContain(
-      "CANARY_RESULT: ${{ steps.canary_evidence.outcome == 'failure' && 'failure' || steps.stage1_canary.outcome || 'skipped' }}",
+      "CANARY_RESULT: ${{ steps.proof_canary.outcome == 'failure' && 'failure' || steps.canary_evidence.outcome == 'failure' && 'failure' || steps.stage1_canary.outcome || 'skipped' }}",
     );
     expect(platformProductionWorkflow).toContain("CANARY_STARTED_AT: ${{ steps.stage1_canary.outputs.started_at }}");
     expect(platformProductionWorkflow).toContain(
-      "CANARY_PROMOTION_DECISION: ${{ steps.canary_evidence.outcome == 'failure' && 'abort' || steps.stage1_canary.outcome == 'success' && 'promote' || steps.stage1_canary.outcome == 'failure' && 'abort' || 'skipped' }}",
+      "CANARY_PROMOTION_DECISION: ${{ steps.proof_canary.outcome == 'failure' && 'abort' || steps.canary_evidence.outcome == 'failure' && 'abort' || steps.stage1_canary.outcome == 'success' && 'promote' || steps.stage1_canary.outcome == 'failure' && 'abort' || 'skipped' }}",
     );
+    const productionProofCanaryStep = workflowStep(
+      platformProductionWorkflow,
+      "Production proof-mode Buy Now freshness canary",
+    );
+    expect(productionProofCanaryStep).toContain(
+      "if: steps.latest_main.outputs.should_deploy != 'false' && vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true'",
+    );
+    expect(productionProofCanaryStep).toContain(
+      "GUEST_BUY_NOW_CANARY_ACCOUNT_EMAIL: ${{ secrets.PRODUCTION_PROOF_CANARY_EMAIL || '' }}",
+    );
+    expect(productionProofCanaryStep).toContain(
+      "GUEST_BUY_NOW_CANARY_ACCOUNT_PASSWORD: ${{ secrets.PRODUCTION_PROOF_CANARY_PASSWORD || '' }}",
+    );
+    expect(productionProofCanaryStep).toContain("--flow account");
+    expect(productionProofCanaryStep).toContain("--environment production-proof");
+    expect(productionProofCanaryStep).toContain(
+      '--production-proof-reference "${PRODUCTION_MARKETPLACE_PROOF_REFERENCE}"',
+    );
+    expect(productionProofCanaryStep).toContain(
+      "artifacts/release-health/production-proof-buy-now-freshness-canary.json",
+    );
+    expect(platformProductionWorkflow).toContain("Install Playwright Chromium for production proof canary");
     expect(platformProductionWorkflow).toContain("PRODUCTION_RESULT: ${{ job.status }}");
     expect(platformProductionWorkflow).toContain(
       "PRODUCTION_STARTED_AT: ${{ steps.production_started.outputs.started_at }}",
@@ -985,13 +1010,10 @@ describe("DigitalOcean platform configuration", () => {
 
   it("gates production promotion on staging marketplace critical flows", () => {
     const stagingCriticalFlowStep = workflowStep(platformProductionWorkflow, "Staging marketplace critical flows");
-    const stagingGuestBuyNowCanaryStep = workflowStep(
+    const stagingBuyNowCanariesStep = workflowStep(platformProductionWorkflow, "Staging Buy Now freshness canaries");
+    const stagingBuyNowEvidenceStep = workflowStep(
       platformProductionWorkflow,
-      "Staging guest Buy Now freshness canary",
-    );
-    const stagingGuestBuyNowEvidenceStep = workflowStep(
-      platformProductionWorkflow,
-      "Upload staging guest Buy Now canary evidence",
+      "Upload staging Buy Now canary evidence",
     );
     const stagingMoneySmokeStep = workflowStep(platformProductionWorkflow, "Staging Stripe money smoke");
     const markStagingDeployedIndex = platformProductionWorkflow.indexOf("- name: Mark staging deployed");
@@ -1013,17 +1035,39 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingCriticalFlowStep).toContain("AWS_ACCESS_KEY_ID");
     expect(stagingCriticalFlowStep).toContain("AWS_SECRET_ACCESS_KEY");
     expect(platformProductionWorkflow).toContain("staging-playwright-critical-flow-artifacts");
-    expect(stagingGuestBuyNowCanaryStep).toContain("GUEST_BUY_NOW_CANARY_SEARCH_QUERY");
-    expect(stagingGuestBuyNowCanaryStep).toContain("vars.STAGING_GUEST_BUY_NOW_CANARY_SEARCH_QUERY");
-    expect(stagingGuestBuyNowCanaryStep).toContain("vars.MARKETPLACE_E2E_SEARCH_QUERY");
-    expect(stagingGuestBuyNowCanaryStep).toContain("--search-query");
-    expect(stagingGuestBuyNowCanaryStep).toContain("GUEST_BUY_NOW_CANARY_ITEM_PATH");
-    expect(stagingGuestBuyNowCanaryStep).toContain('canary_args+=(--item-path "${GUEST_BUY_NOW_CANARY_ITEM_PATH}")');
-    expect(stagingGuestBuyNowCanaryStep).toContain("pnpm run guest-buy-now:freshness-canary");
-    expect(stagingGuestBuyNowEvidenceStep).toContain(
-      "if: always() && steps.latest_main.outputs.should_deploy != 'false'",
+    expect(stagingBuyNowCanariesStep).toContain("GUEST_BUY_NOW_CANARY_SEARCH_QUERY");
+    expect(stagingBuyNowCanariesStep).toContain("vars.STAGING_GUEST_BUY_NOW_CANARY_SEARCH_QUERY");
+    expect(stagingBuyNowCanariesStep).toContain("vars.MARKETPLACE_E2E_SEARCH_QUERY");
+    expect(stagingBuyNowCanariesStep).toContain("--search-query");
+    expect(stagingBuyNowCanariesStep).toContain("GUEST_BUY_NOW_CANARY_ITEM_PATH");
+    expect(stagingBuyNowCanariesStep).toContain('common_args+=(--item-path "${GUEST_BUY_NOW_CANARY_ITEM_PATH}")');
+    expect(stagingBuyNowCanariesStep).toContain("pnpm run guest-buy-now:freshness-canary");
+    expect(stagingBuyNowCanariesStep).toContain(
+      "GUEST_BUY_NOW_CANARY_READY_SLO_MS: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_READY_SLO_MS || '10000' }}",
     );
-    expect(stagingGuestBuyNowEvidenceStep).toContain("staging-guest-buy-now-freshness-canary");
+    expect(stagingBuyNowCanariesStep).toContain(
+      "GUEST_BUY_NOW_CANARY_ATTEMPTS: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_ATTEMPTS || '3' }}",
+    );
+    expect(stagingBuyNowCanariesStep).toContain("--ready-slo-ms");
+    expect(stagingBuyNowCanariesStep).toContain("--attempts");
+    expect(stagingBuyNowCanariesStep).toContain("--flow guest");
+    expect(stagingBuyNowCanariesStep).toContain("--flow account");
+    expect(stagingBuyNowCanariesStep).toContain("artifacts/release-health/guest-buy-now-freshness-canary.json");
+    expect(stagingBuyNowCanariesStep).toContain("artifacts/release-health/account-buy-now-freshness-canary.json");
+    expect(stagingBuyNowCanariesStep).toContain("MARKETPLACE_E2E_EMAIL: ${{ vars.MARKETPLACE_E2E_EMAIL || '' }}");
+    expect(stagingBuyNowCanariesStep).toContain(
+      "MARKETPLACE_E2E_PASSWORD: ${{ secrets.MARKETPLACE_E2E_PASSWORD || '' }}",
+    );
+    expect(stagingBuyNowEvidenceStep).toContain("if: always() && steps.latest_main.outputs.should_deploy != 'false'");
+    expect(stagingBuyNowEvidenceStep).toContain("staging-buy-now-freshness-canaries");
+    expect(stagingBuyNowEvidenceStep).toContain("artifacts/release-health/account-buy-now-freshness-canary.json");
+    expect(platformProductionWorkflow).toContain("buy_now_canary_result: ${{ steps.buy_now_canaries.outputs.result }}");
+    expect(platformProductionWorkflow).toContain(
+      "CANARY_RESULT: ${{ needs.deploy-staging.outputs.buy_now_canary_result || 'skipped' }}",
+    );
+    expect(platformProductionWorkflow).toContain(
+      "CANARY_PROMOTION_DECISION: ${{ needs.deploy-staging.outputs.buy_now_canary_promotion_decision || 'skipped' }}",
+    );
 
     expect(stagingMoneySmokeStep).toContain("AWS_ACCESS_KEY_ID");
     expect(stagingMoneySmokeStep).toContain("AWS_SECRET_ACCESS_KEY");
@@ -1051,6 +1095,9 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformPrWorkflow).toContain('STRIPE_MONEY_SMOKE_REQUIRE_DELIVERED_WEBHOOKS: "false"');
 
     expect(platformProductionWorkflow.indexOf("- name: Staging marketplace critical flows")).toBeLessThan(
+      markStagingDeployedIndex,
+    );
+    expect(platformProductionWorkflow.indexOf("- name: Staging Buy Now freshness canaries")).toBeLessThan(
       markStagingDeployedIndex,
     );
     expect(platformProductionWorkflow.indexOf("- name: Staging Stripe money smoke")).toBeLessThan(

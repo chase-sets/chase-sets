@@ -34,6 +34,7 @@ Measure only records where `type=read-after-write.freshness`, `routePaths` conta
 | --- | --- | --- |
 | API freshness wait duration, `outcome=fresh` | p95 <= 1,000 ms over a rolling 30 minute window; p99 <= 2,250 ms over the same window. | Hold rollout expansion when either threshold fails. |
 | API freshness timeout rate | <= 0.1% over a rolling 30 minute window and no more than 3 consecutive canary attempts. | Hold staging promotion for the guest checkout gate; require #1082 capacity review if sustained. |
+| Canary write-to-checkout-ready latency (guest and account Buy Now) | <= 10,000 ms per canary attempt, with at least one pay-ready attempt inside 3 attempts. Interim #1227 value pending #1237 numeric SLO/load-proof ratification; override per environment with `STAGING_GUEST_BUY_NOW_CANARY_READY_SLO_MS`. | Abort staging promotion and production proof-mode release marking when no attempt reaches pay-ready inside the budget (`checkout-ready-slo-exceeded`). |
 | Permanent not-found while receipt is fresh | 0 allowed. | Fail the canary, fail release evidence, and block milestone closure. |
 | Missing receipt for critical route | 0 in canary; <= 0.05% in aggregate telemetry. | Fail the canary; investigate redirect or forwarding regression. |
 | Missing or invalid read target context | 0 in canary; <= 0.05% in aggregate telemetry. | Fail the canary; investigate request client or shared mount drift. |
@@ -73,15 +74,17 @@ Targeted fast-path projection catch-up is not part of the current runtime. If #1
 
 ## Customer-Visible Gate
 
-For guest Buy Now, the customer-visible gate has three states:
+For guest and authenticated Buy Now, the customer-visible gate has three states:
 
 - `pass`: the checkout page reaches a payable review state.
 - `temporary`: the route renders preparing-checkout recovery while the same valid `afterWrite` receipt remains fresh.
-- `fail`: the route renders permanent checkout-session-not-found, loses the guest cookie handoff, loses the receipt, loses the target context, creates payment/order side effects before explicit confirmation, or loops beyond the token/retry budget.
+- `fail`: the route renders permanent checkout-session-not-found, loses the guest cookie or account session handoff, loses the receipt, loses the target context, creates payment/order side effects before explicit confirmation, or loops beyond the token/retry budget.
 
-Staging release evidence for the milestone must include at least one #1074 E2E or #1086 synthetic canary run that proves `pass` or `temporary` and fails on the original permanent not-found symptom. A `temporary` canary state is acceptable for deploy safety only when the API audit also shows the route remained on the exact Checkout dependency and did not degrade into missing receipt, missing target context, or target-context fallback.
+Since #1227, `temporary` is user-safe but no longer sufficient for promotion: the release gate requires the page to become pay-ready within the canary write-to-checkout-ready budget above. A run that stays `temporary` past the budget, or reaches `pass` slower than the budget, aborts promotion with `checkout-ready-slo-exceeded`. The canary also runs a negative invalid-session probe each run; recovery that masks a truly invalid checkout session as preparing-checkout aborts promotion, so projection-lag recovery cannot hide real errors.
 
-Production canary feasibility is owned by #1086. Until a production-safe variant exists, production rollout uses the staging guest Buy Now gate plus production telemetry for route errors, projection freshness timeout rate, and worker health. Do not run a production canary that can confirm payment, create orders, mutate inventory, or expose customer-visible fulfillment side effects.
+Staging release evidence for the milestone must include guest and account #1086 synthetic canary runs that prove pay-ready within the budget and fail on the original permanent not-found symptom. The API audit must also show the route remained on the exact Checkout dependency and did not degrade into missing receipt, missing target context, or target-context fallback.
+
+Production runs the same canary in proof mode only: when `PRODUCTION_MARKETPLACE_PROOF_ENABLED=true`, the authenticated flow runs against the permission-gated proof marketplace host with operator credentials and the approved proof reference, using the same logical topology, readiness budget, and negative probe as staging; the release is not marked while it fails. A public production guest browser canary remains out of scope (persistent guest checkout artifacts without a cleanup contract), so public production rollout continues to rely on the staging gate, proof-mode evidence, and production telemetry for route errors, projection freshness timeout rate, and worker health. Do not run a production canary that can confirm payment, create orders, mutate inventory, or expose customer-visible fulfillment side effects.
 
 ## Rollout Decisions
 
@@ -90,7 +93,8 @@ Use these decisions for critical freshness changes:
 | Signal | Decision |
 | --- | --- |
 | Staging canary sees permanent not-found with fresh receipt | Block promotion and treat as P1. |
-| Staging canary sees repeated temporary states but no pay-ready checkout after 3 consecutive attempts | Hold promotion; inspect `checkout.session-projection` lag and worker capacity. |
+| Canary sees repeated temporary states but no pay-ready checkout within the readiness budget across 3 attempts | Promotion aborts automatically with `checkout-ready-slo-exceeded`; inspect `checkout.session-projection` lag and worker capacity. |
+| Canary negative probe sees an invalid session rendered as preparing-checkout | Promotion aborts automatically; treat as a Checkout recovery regression that masks real errors. |
 | Timeout rate above target but route stays temporary | Hold rollout expansion; #1082 must determine whether worker capacity, deployment skew, or projection optimization is required. |
 | `outcome=fresh` but route is not-found | Treat as route/API bug, not projection lag; inspect loader authorization and read-model row content. |
 | Missing receipt or target context in canary | Treat as platform contract regression; block release evidence until fixed. |
