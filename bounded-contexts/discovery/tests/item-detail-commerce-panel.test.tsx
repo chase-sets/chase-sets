@@ -836,8 +836,11 @@ describe("item detail commerce panel", () => {
     );
 
     expect(screen.getByText("Watch")).toBeTruthy();
+    expect(screen.getByText("Get notified without starting a buy or sell workflow.")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Watch listings/ })).toBeTruthy();
+    expect(screen.getByText("Listings at or below your target.")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Watch offers/ })).toBeTruthy();
+    expect(screen.getByText("Offers at or above your target.")).toBeTruthy();
     expect(screen.getByText("Listing alert form")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: /Watch offers/ }));
@@ -990,11 +993,13 @@ describe("item detail commerce panel", () => {
     expect(await screen.findByRole("button", { name: /Watch listings/ })).toBeTruthy();
 
     expect(await screen.findByLabelText("Maximum listing price")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Set listing alert" })).toBeTruthy();
     expect(screen.queryByLabelText("Minimum offer price")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: /Watch offers/ }));
 
     expect(await screen.findByLabelText("Minimum offer price")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Set offer alert" })).toBeTruthy();
     expect(screen.queryByLabelText("Maximum listing price")).toBeNull();
   });
 
@@ -1629,7 +1634,7 @@ describe("item detail commerce panel", () => {
       within(screen.getByRole("tablist", { name: "Choose market intent" })).getByRole("tab", { name: "Watch" }),
     );
 
-    expect(await screen.findByText("Alert criteria")).toBeTruthy();
+    expect((await screen.findAllByText("Watch listings")).length).toBeGreaterThan(0);
     expect(screen.queryByText("Get notified when matching supply appears at or below your target.")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "View listing alert details" }));
     const listingAlertDialog = screen.getByRole("dialog", { name: "Listing alert" });
@@ -1643,7 +1648,7 @@ describe("item detail commerce panel", () => {
     ).toBeTruthy();
     fireEvent.click(within(listingAlertDialog).getByRole("button", { name: "Close reference detail" }));
     expect(screen.getByLabelText("Maximum listing price")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Set alert" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Set listing alert" })).toBeTruthy();
     expect(screen.queryByText("Offer details")).toBeNull();
   });
 

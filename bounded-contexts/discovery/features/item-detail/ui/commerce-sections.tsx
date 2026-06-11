@@ -264,8 +264,8 @@ export function ProductAlertCreationSection({
   const defaultActions = (
     <Button type="submit" disabled={!productId} block>
       {isListingAlert
-        ? t("discovery.routes.itemDetail.set.alert")
-        : t("discovery.routes.itemDetail.create.product.alert")}
+        ? t("discovery.routes.itemDetail.set.listing.alert")
+        : t("discovery.routes.itemDetail.set.offer.alert")}
     </Button>
   );
 
@@ -283,7 +283,9 @@ export function ProductAlertCreationSection({
             <Stack gap={3}>
               <Stack gap={1}>
                 <Text weight="semibold">
-                  {isListingAlert ? t("discovery.routes.itemDetail.alert.criteria") : "Watch for offers"}
+                  {isListingAlert
+                    ? t("discovery.routes.itemDetail.watch.listings")
+                    : t("discovery.routes.itemDetail.watch.offers")}
                 </Text>
                 <RailReferenceInfo
                   triggerLabel={t(
