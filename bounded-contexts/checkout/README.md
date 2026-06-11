@@ -48,6 +48,7 @@ This is a greenfield codebase, so local development environments should reset/bo
 - [Checkout Visual Targets](./docs/checkout-visual-targets.md): image-first Milestone #17 visual target register for buy/sell checkout, readiness, recovery, capability, and launch states.
 - [Checkout Session Projection Performance](./docs/checkout-session-projection-performance.md): guest Buy Now freshness path, session read-model indexes, projection transaction behavior, and platform evidence gates.
 - [Checkout Performance Budgets](./docs/checkout-performance-budgets.md): Milestone #17 cart/list, readiness, checkout entry, confirmation, mobile, support, and recovery performance budgets.
+- [Checkout Launch Evidence Matrix](./docs/checkout-launch-evidence-matrix.md): Milestone #17 composite evidence rows that join copy, visual, performance, coverage, launch-register, no-side-effect, and fresh-state cleanup proof.
 - [Guest Buy Now Freshness Verification](./docs/guest-buy-now-freshness-verification.md): signed-out Buy Now freshness contract, test/canary states, fixture ownership, and no-payment/no-order side-effect rules.
 
 ## Buy Cart Readiness
