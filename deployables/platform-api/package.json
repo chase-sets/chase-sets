@@ -57,7 +57,6 @@
     "@chase-sets/stripe-connect": "workspace:*",
     "@chase-sets/stripe-payments": "workspace:*",
     "@chase-sets/support": "workspace:*",
-    "@chase-sets/tax": "workspace:*",
     "@chase-sets/ucp": "workspace:*",
     "@hono/node-server": "^1.19.13",
     "hono": "^4.12.12",

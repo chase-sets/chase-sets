@@ -41,7 +41,12 @@ const exposurePosturePatterns = {
     /^scripts\/(?:stripe|marketplace-stripe|marketplace-checkout-fee)/,
     /^docs\/runbooks\/money-operations\.md$/,
   ],
-  "tax-posture": [/^bounded-contexts\/tax\//, /^scripts\/marketplace-tax/, /^docs\/runbooks\/tax/i],
+  "tax-posture": [
+    /^bounded-contexts\/ordering\/features\/tax-/,
+    /^bounded-contexts\/ordering\/docs\/(?:production-tax-readiness|tax-nexus-tracking)\.md$/,
+    /^scripts\/marketplace-tax/,
+    /^docs\/runbooks\/tax/i,
+  ],
   "postage-provider": [
     /^bounded-contexts\/fulfillment\//,
     /^scripts\/marketplace-fulfillment-postage/,

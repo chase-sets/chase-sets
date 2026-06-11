@@ -64,8 +64,8 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Checkout Fresh-State Release](./runbooks/checkout-fresh-state-release.md): Shopify-simple checkout route activation, disablement, smoke validation, and release-note template.
 - [Marketplace Launch Evidence](./runbooks/marketplace-launch-evidence.md): redacted launch evidence packet, verifier, Tax posture, provider rehearsals, and launch-supply measurement proof.
 - [Email Operations](./runbooks/email-operations.md): Amazon SES identities, sender configuration, DNS requirements, and rollout checks.
-- [Tax Production Readiness](../bounded-contexts/tax/docs/production-tax-readiness.md): Tax readiness evidence, no-provider launch posture, and provider-required collection gating.
-- [Tax Nexus Tracking](../bounded-contexts/tax/docs/tax-nexus-tracking.md): state-by-state threshold tracking for when Chase Sets must prepare registration or start collecting sales tax.
+- [Tax Production Readiness](../bounded-contexts/ordering/docs/production-tax-readiness.md): Tax readiness evidence, no-provider launch posture, and provider-required collection gating.
+- [Tax Nexus Tracking](../bounded-contexts/ordering/docs/tax-nexus-tracking.md): state-by-state threshold tracking for when Chase Sets must prepare registration or start collecting sales tax.
 - [Observability](./runbooks/observability.md): local and production OpenTelemetry/LGTM stack, dashboard access, and release telemetry evidence.
 - [Catalog Integration Operations](./runbooks/catalog-integration-operations.md): provider adapter, option query, job, promotion/reapply, and read-model lag incident workflows.
 - [Release Process Evolution](./runbooks/release-process-evolution.md): release queue, production locks, canary path, rollout controls, health metrics, and gate categories.

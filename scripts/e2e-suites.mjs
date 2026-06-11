@@ -78,7 +78,6 @@ const contextSuiteOwnership = new Map([
   ["reputation", ["marketplace_account"]],
   ["settlement", ["marketplace_account", "marketplace_seller"]],
   ["support", ["marketplace_account"]],
-  ["tax", []],
 ]);
 
 const marketplaceRouteSuiteOwnership = [

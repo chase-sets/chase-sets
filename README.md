@@ -55,13 +55,12 @@ Each context has its own `README.md` and `GLOSSARY.md` where useful. Treat those
 - `insights`: analytical projections, dashboards, metrics, and forecasting views.
 - `inventory`: account-held stock, storage, availability, and resolved product inventory.
 - `marketplace`: listings, offers, product-scoped supply, and product-scoped demand before orders exist.
-- `ordering`: commercial commitments between purchasing and selling accounts after checkout creates orders.
+- `ordering`: commercial commitments between purchasing and selling accounts after checkout creates orders, including provider-agnostic tax quotes and order tax snapshots.
 - `payments`: external charge, authorization, capture, refund, and payment processor references.
 - `pricing`: product-scoped value estimation, repricing intelligence, and liquidity modeling.
 - `public-presence`: public product pages, prelaunch policy surfaces, waitlist behavior, and internal waitlist review.
 - `reputation`: post-transaction reviews, ratings, feedback, and account review summaries.
 - `settlement`: ledger truth, balances, wallets, payouts, fees, and rebates.
-- `tax`: provider-agnostic tax quotes and order tax snapshots.
 
 ## Deployables
 

@@ -1,10 +1,10 @@
 {
   "contextName": "ordering",
   "packageName": "@chase-sets/ordering",
-  "ownedNouns": ["order", "postage-policy"],
+  "ownedNouns": ["order", "postage-policy", "tax quote", "tax nexus readiness"],
   "streamPrefix": "ordering.",
   "apiBasePath": "/api/marketplace",
-  "slices": ["orders", "postage-policies"],
+  "slices": ["orders", "postage-policies", "tax-quotes", "tax-nexus"],
   "allowedSupportDirectories": ["account-support", "request-support", "runtime-support", "seed-support", "ucp-support"],
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
   "allowedContextDependencies": ["@chase-sets/reputation"],
@@ -161,7 +161,7 @@
     {
       "portName": "taxQuoteResolver",
       "providedBy": "platform-api",
-      "purpose": "Consume the Tax-owned provider-agnostic quote resolver when creating order tax snapshots."
+      "purpose": "Consume the provider-agnostic tax quote resolver owned by the Ordering tax-quotes slice when creating order tax snapshots."
     },
     {
       "portName": "transactionalEmailOutbox",
@@ -304,6 +304,18 @@
       "purpose": "Own postage-policy behavior, active policy resolution, admin lifecycle commands, read models, and UI contracts for Ordering package-plan policy.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
       "expectedConsumers": ["Internal ordering module composition", "Ordering order creation"]
+    },
+    "tax-quotes": {
+      "classification": "slice",
+      "purpose": "Own provider-agnostic tax quote contracts, local quote behavior, and future provider integration shape used by Ordering order tax snapshots.",
+      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
+      "expectedConsumers": ["Ordering order creation", "Platform API tax quote resolver composition"]
+    },
+    "tax-nexus": {
+      "classification": "slice",
+      "purpose": "Own state-by-state sales tax nexus thresholds, collection-readiness posture, and provider-dependency tracking behind order tax quotes.",
+      "allowedWhen": "Required when marketplace launch needs to distinguish no-collection launch readiness from provider-backed tax collection readiness.",
+      "expectedConsumers": ["Tax launch readiness review", "Platform API production tax quote gating"]
     },
     "account-support": {
       "classification": "support",

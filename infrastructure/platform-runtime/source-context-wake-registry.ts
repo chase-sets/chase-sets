@@ -478,18 +478,6 @@ export const sourceContextWakeRegistry = [
     ],
     routeDependencyIds: [],
   }),
-  registryEntry({
-    sourceContextName: "tax",
-    owner: "Tax",
-    rolloutState: "not-eligible",
-    phase: "phase-3-expansion",
-    rolloutWave: "wave-4-deferred-or-not-eligible",
-    priorityLane: "bulk",
-    expectedEventVolume: "unknown",
-    wakeStoreLoadEstimate: "none",
-    affectedProjectionNames: [],
-    routeDependencyIds: [],
-  }),
 ] as const satisfies readonly SourceContextWakeRegistryEntry[];
 
 export function validateSourceContextWakeRegistry(input: ValidateSourceContextWakeRegistryInput = {}): void {

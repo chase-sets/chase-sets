@@ -1118,19 +1118,6 @@ importers:
         specifier: ^4.1.4
         version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
 
-  bounded-contexts/tax:
-    dependencies:
-      '@chase-sets/bounded-context-module':
-        specifier: workspace:*
-        version: link:../../contracts/bounded-context-module
-      '@chase-sets/event-core-postgres':
-        specifier: workspace:*
-        version: link:../../infrastructure/event-core-postgres
-    devDependencies:
-      vitest:
-        specifier: ^4.1.4
-        version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
-
   contracts/auth-context:
     dependencies:
       '@chase-sets/event-core':
@@ -1685,9 +1672,6 @@ importers:
       '@chase-sets/support':
         specifier: workspace:*
         version: link:../../bounded-contexts/support
-      '@chase-sets/tax':
-        specifier: workspace:*
-        version: link:../../bounded-contexts/tax
       '@chase-sets/ucp':
         specifier: workspace:*
         version: link:../../contracts/ucp

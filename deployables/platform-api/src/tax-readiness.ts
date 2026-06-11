@@ -1,4 +1,4 @@
-import type { TaxQuoteResolver } from "@chase-sets/tax/server";
+import type { TaxQuoteResolver } from "@chase-sets/ordering/server";
 
 export const productionTaxQuoteProviderMissingMessage =
   "TAX_PROVIDER_BACKED_QUOTES_REQUIRED=true but no production tax quote provider is configured. Compose a provider-backed TaxQuoteResolver before collecting sales tax, or set the flag false only if Tax readiness confirms no jurisdiction requires collection.";

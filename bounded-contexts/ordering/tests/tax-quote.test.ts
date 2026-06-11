@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createLocalTaxQuoteResolver } from "../features/quotes/domain/tax-quote";
+import { createLocalTaxQuoteResolver } from "../features/tax-quotes/domain/tax-quote";
 
 describe("local tax quote resolver", () => {
   it("quotes configured destination tax and rounds positive fractions up", async () => {

@@ -3,7 +3,7 @@ import {
   defaultTaxNexusThresholdPolicies,
   evaluateTaxNexusReadiness,
   type TaxNexusThresholdPolicy,
-} from "../features/nexus/domain/nexus-tracking";
+} from "../features/tax-nexus/domain/nexus-tracking";
 
 const ohioPolicy = defaultTaxNexusThresholdPolicies.find((policy) => policy.jurisdictionCode === "OH")!;
 
