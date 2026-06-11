@@ -45,6 +45,7 @@ This is a greenfield codebase, so local development environments should reset/bo
 - [Fresh-State Route Strategy](./docs/fresh-state-route-strategy.md): Shopify-simple Buy Cart, Sell List, readiness, checkout, confirmation, legacy route disposition, and kill-switch route strategy.
 - [Fresh Checkout Session Contracts](./docs/fresh-checkout-session-contracts.md): shared buy/sell snapshot, command, state-machine, recovery, idempotency, guest-merge, and fresh-state compatibility rules for Milestone #17.
 - [Checkout Session Projection Performance](./docs/checkout-session-projection-performance.md): guest Buy Now freshness path, session read-model indexes, projection transaction behavior, and platform evidence gates.
+- [Checkout Performance Budgets](./docs/checkout-performance-budgets.md): Milestone #17 cart/list, readiness, checkout entry, confirmation, mobile, support, and recovery performance budgets.
 - [Guest Buy Now Freshness Verification](./docs/guest-buy-now-freshness-verification.md): signed-out Buy Now freshness contract, test/canary states, fixture ownership, and no-payment/no-order side-effect rules.
 
 ## Buy Cart Readiness
