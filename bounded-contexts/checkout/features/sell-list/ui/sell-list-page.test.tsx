@@ -56,6 +56,7 @@ describe("checkout sell list page", () => {
               shipping_allowance_percentage_bps: 0,
               fee_quote_fingerprint: "fee_selected",
             },
+            comparison: null,
             message: null,
           },
         ]}
@@ -183,6 +184,7 @@ describe("checkout sell list page", () => {
               shipping_allowance_percentage_bps: 0,
               fee_quote_fingerprint: "registered_quote",
             },
+            comparison: null,
             message: null,
           },
         ]}
@@ -224,6 +226,7 @@ describe("checkout sell list page", () => {
               source_updated_at: "2026-04-01T00:00:00.000Z",
               resolved_at: "2026-04-28T00:00:00.000Z",
             },
+            comparison: null,
             message: null,
           },
         ]}
@@ -270,6 +273,82 @@ describe("checkout sell list page", () => {
         "After registration, Checkout refreshes seller-specific terms before any offer acceptance or sale commitment.",
       ),
     ).toBeTruthy();
+  });
+
+  it("keeps registered term deltas in Reference Info with minimal row copy", () => {
+    render(
+      <CheckoutSellListPage
+        sellListLines={[selectedOfferLine]}
+        payoutReadiness={{ status: "ready", missing_requirements: [] }}
+        registrationReturn="seller-checkout"
+        mergedLineCount={1}
+        offerReviews={[
+          {
+            lineId: "sll_offer",
+            status: "ready",
+            terms: {
+              account_type: "business",
+              basis_amount: "350.00",
+              marketplace_sales_fee_unit_amount: "38.65",
+              seller_net_unit_amount: "311.35",
+              shipping_allowance_percentage_bps: 0,
+              fee_quote_fingerprint: "registered_quote",
+              schedule_id: "terms_business",
+              agreement_id: "agreement_private",
+              resolved_at: "2026-04-28T00:00:00.000Z",
+            },
+            comparison: {
+              status: "changed",
+              changedFields: ["seller-net", "marketplace-fee", "shipping-allowance", "terms-source"],
+              standardPreview: {
+                account_type: "personal",
+                basis_amount: "350.00",
+                marketplace_sales_fee_unit_amount: "35.00",
+                seller_net_unit_amount: "315.00",
+                shipping_allowance_percentage_bps: 500,
+                source_kind: "public-standard-seller-terms",
+                source_label: "Standard seller terms",
+                schedule_label: "Personal Default",
+                source_updated_at: "2026-04-01T00:00:00.000Z",
+                resolved_at: "2026-04-28T00:00:00.000Z",
+              },
+            },
+            message: null,
+          },
+        ]}
+      />,
+    );
+
+    expect(
+      screen.getByText("Final terms changed from the standard estimate. Review payout details before continuing."),
+    ).toBeTruthy();
+    expect(screen.getAllByText("Continue to seller checkout").length).toBeGreaterThan(0);
+    expect(screen.queryByText("agreement_private")).toBeNull();
+    expect(screen.queryByText("registered_quote")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "View estimated payout details" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Estimated payout" });
+    expect(within(dialog).getByText("Standard estimate comparison")).toBeTruthy();
+    expect(within(dialog).getByText("Standard estimate")).toBeTruthy();
+    expect(within(dialog).getByText("$630.00")).toBeTruthy();
+    expect(within(dialog).getByText("Final registered payout")).toBeTruthy();
+    expect(within(dialog).getByText("$622.70")).toBeTruthy();
+    expect(within(dialog).getByText("Payout change")).toBeTruthy();
+    expect(within(dialog).getByText("-$7.30")).toBeTruthy();
+    expect(within(dialog).getByText("Sales fee change")).toBeTruthy();
+    expect(within(dialog).getByText("+$7.30")).toBeTruthy();
+    expect(within(dialog).getByText("Shipping allowance change")).toBeTruthy();
+    expect(within(dialog).getByText("-5%")).toBeTruthy();
+    expect(within(dialog).getByText("Final terms source")).toBeTruthy();
+    expect(within(dialog).getAllByText("Seller-specific terms").length).toBeGreaterThan(0);
+    expect(
+      within(dialog).getByText(
+        "Final registered payout is lower than the standard estimate. Review the difference before continuing.",
+      ),
+    ).toBeTruthy();
+    expect(within(dialog).queryByText("agreement_private")).toBeNull();
+    expect(within(dialog).queryByText("registered_quote")).toBeNull();
   });
 
   it("uses a generic buyer label instead of raw account ids", () => {
