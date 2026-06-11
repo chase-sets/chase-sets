@@ -10,6 +10,8 @@ export type {
   DiscoverySitemapUrl,
   DiscoverySearchResponse,
   DiscoveryBulkCartPreview,
+  AnonymousProductAlertIntent,
+  CreateAnonymousProductAlertIntentRequest,
   ProductAlertListResponse,
   ProductAlertPageRow,
 } from "../../client";

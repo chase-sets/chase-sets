@@ -47,4 +47,29 @@ CREATE TABLE IF NOT EXISTS discovery_product_alert_match_notifications (
   notified_at timestamptz NOT NULL,
   PRIMARY KEY (alert_id, activity_id, match_key)
 );
+
+CREATE TABLE IF NOT EXISTS discovery_anonymous_product_alert_intents (
+  intent_id text PRIMARY KEY,
+  anonymous_owner_id text NOT NULL,
+  source_path text NOT NULL,
+  market_side text NOT NULL CHECK (market_side IN ('listing', 'offer')),
+  catalog_catalog_item_id text NOT NULL,
+  product_id text NOT NULL,
+  selected_options jsonb NOT NULL DEFAULT '[]'::jsonb,
+  product_summary text NULL,
+  threshold_amount numeric(12, 2) NULL,
+  status text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'claimed', 'expired')),
+  claimed_account_id text NULL,
+  claimed_alert_id text NULL,
+  claimed_at timestamptz NULL,
+  expires_at timestamptz NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS discovery_anonymous_product_alert_intents_owner_active_idx
+  ON discovery_anonymous_product_alert_intents (anonymous_owner_id, status, expires_at);
+
+CREATE INDEX IF NOT EXISTS discovery_anonymous_product_alert_intents_expiry_idx
+  ON discovery_anonymous_product_alert_intents (status, expires_at);
 `;

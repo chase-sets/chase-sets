@@ -1,4 +1,9 @@
 export { createDiscoveryRequestApiClient } from "./support/request-support/api-client";
+export {
+  appendAnonymousProductAlertCookie,
+  ensureAnonymousProductAlertOwnerId,
+  readAnonymousProductAlertOwnerId,
+} from "./support/request-support/anonymous-product-alert";
 export type { GoogleShoppingPayloadInput } from "./support/google-shopping-support/export-row";
 export type {
   GoogleShoppingSyncMerchantClient,

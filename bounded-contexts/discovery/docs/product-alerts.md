@@ -33,3 +33,29 @@ Discovery owns Product Alert rules, but Product Alerts should not be a peer acco
 Notification settings are the account-level home for Product Alert delivery controls and compact rule management. The settings surface may show active Product Alert rows with pause, resume, delete, and view-product actions. Creating a Product Alert remains a Discovery item-detail flow because product selection, resolved options, and market-side intent are Discovery-owned behavior.
 
 The Notifications bounded context owns the notification center, notification preferences, feed read state, and delivery-policy decisions. Discovery should publish Product Alert match facts for Notifications to consume rather than directly owning the cross-context notification center.
+
+## Anonymous Watch Intents
+
+Signed-out item-detail users can save Watch criteria before registration. Discovery stores this as an anonymous Product Alert intent, keyed by the `chase_sets_anonymous_product_alerts` HttpOnly SameSite cookie.
+
+Anonymous Watch intents store only the facts needed to create the Product Alert after sign-in:
+
+- anonymous owner id and opaque intent id
+- source item path
+- market side: `listing` or `offer`
+- catalog item id, product id, and normalized selected options
+- product summary and optional threshold amount
+- active, claimed, or expired status with timestamps and claimed account metadata
+
+Anonymous Watch intents do not store account id before claim, notification recipient, notification contact method, private Marketplace Offer detail, shipping destination, or notification delivery side effects.
+
+Guardrails:
+
+- Cookie and server-side intent TTL: 30 days.
+- Active cap: 20 Watch intents per anonymous Product Alert cookie.
+- Dedupe: identical active criteria for the same anonymous owner update the existing intent.
+- Registration return URL: `/items/<slug>?market=watch&claimProductAlertIntent=<intentId>`.
+- Claim requires the matching anonymous cookie and a signed-in account with account access.
+- Same-account claim replay is idempotent; different-account replay, missing cookies, and expired intents fail to the item-detail Watch rail with recovery copy.
+
+Product Alert notifications can only begin after the anonymous intent is claimed and an account-owned Product Alert is created.

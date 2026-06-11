@@ -3,7 +3,12 @@ import type { HonoClientResource } from "@chase-sets/http/hono-client";
 import { attachResponseMetadata } from "@chase-sets/http/responses";
 import type { buildDiscoveryApi } from "./api";
 import type { CategoryListResponse, DiscoveryCategoryItem } from "./features/categories/api/contracts";
-import type { CreateProductAlertRequest, ProductAlertListResponse } from "./features/product-alerts/api/contracts";
+import type {
+  AnonymousProductAlertIntent,
+  CreateAnonymousProductAlertIntentRequest,
+  CreateProductAlertRequest,
+  ProductAlertListResponse,
+} from "./features/product-alerts/api/contracts";
 
 export type {
   DiscoveryItemDetail,
@@ -14,7 +19,12 @@ export type {
 } from "./support/client-support/contracts";
 export type { DiscoveryBulkCartPreview } from "./features/search/read-model/queries";
 export type { CategoryListResponse, DiscoveryCategoryItem } from "./features/categories/api/contracts";
-export type { CreateProductAlertRequest, ProductAlertListResponse } from "./features/product-alerts/api/contracts";
+export type {
+  AnonymousProductAlertIntent,
+  CreateAnonymousProductAlertIntentRequest,
+  CreateProductAlertRequest,
+  ProductAlertListResponse,
+} from "./features/product-alerts/api/contracts";
 export type { ProductAlertPageRow } from "./features/product-alerts/read-model/queries";
 
 import type {
@@ -52,6 +62,14 @@ export interface DiscoveryApiClientOptions {
 
 function resolveHeaders(headers?: HeadersInit | (() => HeadersInit)) {
   return typeof headers === "function" ? headers() : headers;
+}
+
+function headersToRecord(headers?: HeadersInit): Record<string, string> {
+  return headers ? Object.fromEntries(new Headers(headers).entries()) : {};
+}
+
+function joinApiPath(baseUrl: string, path: string) {
+  return `${baseUrl.replace(/\/$/, "")}/${path.replace(/^\//, "")}`;
 }
 
 async function parseJsonResponse<T>(response: Response): Promise<T> {
@@ -110,6 +128,43 @@ export function createDiscoveryApiClient({
           json: body,
           header: headers,
         }),
+      );
+    },
+    async createAnonymousProductAlertIntent(
+      anonymousOwnerId: string,
+      body: CreateAnonymousProductAlertIntentRequest,
+      options: Readonly<{ signal?: AbortSignal }> = {},
+    ): Promise<AnonymousProductAlertIntent> {
+      return parseJsonResponse(
+        await configuredFetch(joinApiPath(baseUrl, "/guest/product-alert-intents"), {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...headersToRecord(headers),
+            "x-discovery-anonymous-product-alert-id": anonymousOwnerId,
+          },
+          body: JSON.stringify(body),
+          signal: options.signal,
+        }),
+      );
+    },
+    async claimAnonymousProductAlertIntent(
+      anonymousOwnerId: string,
+      intentId: string,
+    ): Promise<AnonymousProductAlertIntent> {
+      return parseJsonResponse(
+        await configuredFetch(
+          joinApiPath(baseUrl, `/account/product-alert-intents/${encodeURIComponent(intentId)}/claim`),
+          {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              ...headersToRecord(headers),
+              "x-discovery-anonymous-product-alert-id": anonymousOwnerId,
+            },
+            body: JSON.stringify({}),
+          },
+        ),
       );
     },
     async pauseProductAlert(id: string) {

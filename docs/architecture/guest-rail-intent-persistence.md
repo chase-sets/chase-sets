@@ -126,16 +126,28 @@ Replay and dedupe:
 - Duplicate active intents for the same anonymous owner, product, side, and threshold should update the existing intent.
 - Product Alert notifications must not be emitted until after the account-owned alert is created.
 
+Implemented Watch guardrails:
+
+- The `chase_sets_anonymous_product_alerts` cookie and the server-side anonymous Product Alert intent expire after 30 days.
+- Each anonymous Product Alert cookie can hold up to 20 active Watch intents.
+- Active intents dedupe by anonymous owner, market side, catalog item, product id, normalized selected options, and threshold amount. Saving the same criteria updates source path, product summary, expiry, and updated timestamp instead of creating another record.
+- The registration return URL carries only `/items/<slug>?market=watch&claimProductAlertIntent=<intentId>`.
+- A signed-in claim must present the matching anonymous Product Alert cookie. Missing, expired, claimed-by-another-account, or stale intents return the user to the Watch rail with recovery copy instead of creating a Product Alert.
+- Same-account claim replay is idempotent. Different-account replay fails closed.
+
 ## Expiration And Limits
 
-Use the same user-facing persistence horizon as anonymous Buy Cart and Sell List unless #1192 chooses a stricter limit: 30-day cookies with server-side expiry no longer than 30 days.
+Use the same user-facing persistence horizon as anonymous Buy Cart and Sell List unless a narrower slice chooses a stricter limit: 30-day cookies with server-side expiry no longer than 30 days.
 
-At minimum, #1192 should define:
+Implemented limits:
 
-- per-cookie active intent limits for listing drafts and Watch alerts;
+- Marketplace listing draft intents use 30-day cookie/server TTL, 20 active intents per anonymous listing-draft cookie, identical-criteria dedupe, and one-time claim.
+- Discovery Watch intents use 30-day cookie/server TTL, 20 active intents per anonymous Product Alert cookie, identical-criteria dedupe, and one-time claim.
+
+Remaining shared guardrails should define:
+
 - per-IP or per-device creation throttles;
 - cleanup for expired anonymous intent records;
-- clear recovery copy when a limit, expiry, or stale product blocks claim;
 - telemetry for saved, claimed, expired, deduped, rate-limited, and stale-recovered intents.
 
 ## Privacy And Security
