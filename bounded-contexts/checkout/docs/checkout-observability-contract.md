@@ -3,6 +3,7 @@
 Milestone #17 uses this contract to turn launch-matrix `observability-event` evidence into named, redacted Checkout telemetry. It keeps customer-facing checkout simple while giving support, operations, and launch reviewers enough signal to distinguish readiness, checkout entry, confirmation, downstream handoff, recovery, and cleanup states.
 
 The executable contract lives in `bounded-contexts/checkout/features/sessions/api/checkout-observability-contract.ts`.
+The runtime recorder lives in `infrastructure/observability/index.ts` as `recordCheckoutObservabilityEvent`.
 
 ## Evidence Rules
 
@@ -28,7 +29,7 @@ Grafana provisions `infrastructure/observability/stack/grafana/dashboards/checko
 
 Starter alerts live in `infrastructure/observability/stack/grafana/provisioning/alerting/platform-api-alerts.yml` for launch/fresh-state/provider alert events and side-effect boundary violations.
 
-This dashboard is the query and alert baseline. #1114 remains open until runtime emission and staging/launch evidence prove these panels receive redacted events for launch-supported states.
+This dashboard is the query and alert baseline. `recordCheckoutObservabilityEvent` is the runtime emission primitive: it whitelists bounded launch labels, converts support references to presence, and does not accept raw checkout ids, account ids, emails, addresses, provider payloads, `afterWrite` tokens, card data, bank data, full URLs, secrets, or sensitive risk details as metric attributes. #1114 remains open until checkout route call sites and staging/launch evidence prove these panels receive redacted events for launch-supported states.
 
 ## Required Dimensions
 

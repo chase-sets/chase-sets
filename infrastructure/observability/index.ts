@@ -95,6 +95,7 @@ const ucpIdempotencyCounter = meter.createCounter("chase_sets_ucp_idempotency_to
 const publicPresenceWaitlistEventCounter = meter.createCounter("chase_sets_public_presence_waitlist_events_total");
 const itemDetailRailEventCounter = meter.createCounter("chase_sets_marketplace_item_detail_rail_events_total");
 const settlementOperationCounter = meter.createCounter("chase_sets_settlement_operations_total");
+const checkoutObservabilityEventCounter = meter.createCounter("chase_sets_checkout_observability_events_total");
 const catalogIntegrationOptionQueryCounter = meter.createCounter("chase_sets_catalog_integration_option_queries_total");
 const catalogIntegrationJobCounter = meter.createCounter("chase_sets_catalog_integration_jobs_total");
 const catalogControlPlaneEventCounter = meter.createCounter("chase_sets_catalog_control_plane_events_total");
@@ -171,6 +172,32 @@ export type ItemDetailRailAnalyticsSignal = Readonly<{
   gate?: string | null;
   viewer?: string | null;
   surface?: string | null;
+}>;
+
+export type CheckoutObservabilityEventSignal = Readonly<{
+  eventName: `checkout.${string}`;
+  telemetryClass: string;
+  alertClass: string;
+  entrySource: string;
+  actorMode: string;
+  scenarioState: string;
+  visibleState: string;
+  sideEffectStatus: string;
+  releaseHealthRequired?: boolean;
+  readinessContract?: string | null;
+  readinessSnapshotState?: string | null;
+  sourceRevisionState?: string | null;
+  freshWriteReceiptPresence?: string | null;
+  supportReferencePresent?: boolean;
+  performanceBudgetId?: string | null;
+  providerCategory?: string | null;
+  riskCategory?: string | null;
+  downstreamStatus?: string | null;
+  launchRegisterDecision?: string | null;
+  freshStateScanResult?: string | null;
+  canaryFinalState?: string | null;
+  promotionDecision?: string | null;
+  releaseRunId?: string | null;
 }>;
 
 export type CatalogIntegrationOptionQuerySignal = Readonly<{
@@ -747,6 +774,39 @@ export function recordSettlementOperationSignal(
     safe_category: event.safeCategory ?? "none",
     readiness_status: event.readinessStatus ?? "unknown",
   });
+}
+
+export function checkoutObservabilityEventAttributes(event: CheckoutObservabilityEventSignal): Attributes {
+  return {
+    context: "checkout",
+    event_name: boundedMetricLabel(event.eventName),
+    telemetry_class: boundedMetricLabel(event.telemetryClass),
+    alert_class: boundedMetricLabel(event.alertClass),
+    entry_source: boundedMetricLabel(event.entrySource),
+    actor_mode: boundedMetricLabel(event.actorMode),
+    scenario_state: boundedMetricLabel(event.scenarioState),
+    visible_state: boundedMetricLabel(event.visibleState),
+    side_effect_status: boundedMetricLabel(event.sideEffectStatus),
+    release_health_required: event.releaseHealthRequired === true ? "true" : "false",
+    readiness_contract: boundedMetricLabel(event.readinessContract),
+    readiness_snapshot_state: boundedMetricLabel(event.readinessSnapshotState),
+    source_revision_state: boundedMetricLabel(event.sourceRevisionState),
+    fresh_write_receipt_presence: boundedMetricLabel(event.freshWriteReceiptPresence),
+    support_reference_present: event.supportReferencePresent === true ? "true" : "false",
+    performance_budget_id: boundedMetricLabel(event.performanceBudgetId),
+    provider_category: boundedMetricLabel(event.providerCategory),
+    risk_category: boundedMetricLabel(event.riskCategory),
+    downstream_status: boundedMetricLabel(event.downstreamStatus),
+    launch_register_decision: boundedMetricLabel(event.launchRegisterDecision),
+    fresh_state_scan_result: boundedMetricLabel(event.freshStateScanResult),
+    canary_final_state: boundedMetricLabel(event.canaryFinalState),
+    promotion_decision: boundedMetricLabel(event.promotionDecision),
+    release_run_id: boundedMetricLabel(event.releaseRunId),
+  };
+}
+
+export function recordCheckoutObservabilityEvent(event: CheckoutObservabilityEventSignal): void {
+  checkoutObservabilityEventCounter.add(1, checkoutObservabilityEventAttributes(event));
 }
 
 export function catalogIntegrationOptionQueryAttributes(event: CatalogIntegrationOptionQuerySignal): Attributes {
