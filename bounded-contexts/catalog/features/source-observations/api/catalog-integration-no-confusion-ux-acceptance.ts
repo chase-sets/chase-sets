@@ -565,14 +565,14 @@ function buildDefaultWorkflowEvidence(evidenceBase: string): readonly CatalogNoC
       null,
       ["readiness"],
       [],
-      "Health triage explains readiness and degraded states without replacing the primary path.",
+      "Health triage explains readiness and degraded states as a focused detour with an explicit return to the primary path.",
     ),
     workflow(
       "profile-authoring-support",
       null,
       ["provider-scope-selection", "supporting-evidence"],
-      [],
-      "Profile authoring support links clean contracts without raw JSON or old page modules.",
+      ["clone-provider-profile"],
+      "Profile authoring support inspects typed profile evidence and creates draft profiles without raw JSON or old page modules.",
     ),
     workflow(
       "validation-readiness-support",

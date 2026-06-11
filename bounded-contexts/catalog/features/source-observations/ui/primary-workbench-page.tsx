@@ -35,6 +35,7 @@ import {
   CATALOG_CONTROL_PLANE_WORKSPACES,
 } from "./admin-control-plane/information-architecture";
 import { CatalogIntegrationHealthTriageDashboard } from "./admin-control-plane/health/integration-health-dashboard";
+import { CatalogIntegrationProfileAuthoringWorkspace } from "./admin-control-plane/profiles/profile-authoring-workspace";
 import {
   catalogPrimaryWorkbenchHref,
   catalogPrimaryWorkbenchSupportingHref,
@@ -80,6 +81,7 @@ export type CatalogPrimaryWorkbenchCommandFeedback = Readonly<{
     | "job-queued"
     | "job-cancelled"
     | "preview-ready"
+    | "draft-created"
     | "preview-required"
     | "job-required"
     | "reason-required"
@@ -148,6 +150,12 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
     (row) => row.promotionReadiness.state === "eligible",
   ).length;
   const selectedReviewableObservationCount = selectedObservationRows.filter(isReviewableObservationRow).length;
+  const implementedSupportWorkspace =
+    activeSection === "health-triage" ? (
+      <CatalogIntegrationHealthTriageDashboard readModel={readModel} />
+    ) : activeSection === "profile-authoring" ? (
+      <CatalogIntegrationProfileAuthoringWorkspace readModel={readModel} />
+    ) : null;
   const columns = useMemo<DataColumn<PrimaryWorkbenchStep>[]>(
     () => [
       {
@@ -496,171 +504,483 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
 
         <BulkActionSurface>
           <div className="grid min-w-0 gap-4">
-            {activeSection === "health-triage" ? (
-              <CatalogIntegrationHealthTriageDashboard readModel={readModel} />
-            ) : null}
-
-            <OperationalStatusBanner
-              tone={readModel.readiness.blockers.length > 0 ? "warning" : "success"}
-              title={
-                readModel.readiness.blockers.length > 0
-                  ? t("catalog.features.sourceObservations.ui.primaryWorkbench.banner.blocked.title")
-                  : t("catalog.features.sourceObservations.ui.primaryWorkbench.banner.ready.title")
-              }
-              description={
-                readModel.readiness.blockers.length > 0
-                  ? t("catalog.features.sourceObservations.ui.primaryWorkbench.banner.blocked.description")
-                  : t("catalog.features.sourceObservations.ui.primaryWorkbench.banner.ready.description")
-              }
-              action={
-                <LinkButton
-                  size="sm"
-                  tone="secondary"
-                  leadingIcon="externalLink"
-                  href={
-                    readModel.readiness.auditEvidenceUrl ??
-                    catalogPrimaryWorkbenchSupportingHref(readModel.routeContext, "audit-evidence")
+            {implementedSupportWorkspace ?? (
+              <>
+                <OperationalStatusBanner
+                  tone={readModel.readiness.blockers.length > 0 ? "warning" : "success"}
+                  title={
+                    readModel.readiness.blockers.length > 0
+                      ? t("catalog.features.sourceObservations.ui.primaryWorkbench.banner.blocked.title")
+                      : t("catalog.features.sourceObservations.ui.primaryWorkbench.banner.ready.title")
                   }
-                >
-                  {t("catalog.features.sourceObservations.ui.primaryWorkbench.view.supporting.evidence")}
-                </LinkButton>
-              }
-            />
-
-            <WorkflowModule
-              title={t("catalog.features.sourceObservations.ui.primaryWorkbench.module.title")}
-              description={t("catalog.features.sourceObservations.ui.primaryWorkbench.module.description")}
-              status={
-                <Badge tone="accent">
-                  {t("catalog.features.sourceObservations.ui.primaryWorkbench.default.workspace")}
-                </Badge>
-              }
-              actions={
-                <>
-                  <LinkButton
-                    size="sm"
-                    tone="secondary"
-                    leadingIcon="filter"
-                    href={catalogPrimaryWorkbenchHref(readModel.routeContext, "source-observation-review")}
-                  >
-                    {t("catalog.features.sourceObservations.ui.primaryWorkbench.save.context")}
-                  </LinkButton>
-                  <CommandFormButton
-                    readModel={readModel}
-                    intent="start-provider-import"
-                    size="sm"
-                    leadingIcon="refreshCcw"
-                  >
-                    {t("catalog.features.sourceObservations.ui.primaryWorkbench.pull.provider.data")}
-                  </CommandFormButton>
-                </>
-              }
-              headingLevel={2}
-              density="compact"
-            >
-              <FilterArea
-                sticky={false}
-                activeFilterCount={activeFilterCount(readModel)}
-                panelTitle={t("catalog.features.sourceObservations.ui.primaryWorkbench.context.preservation.title")}
-                panelDescription={t(
-                  "catalog.features.sourceObservations.ui.primaryWorkbench.context.preservation.description",
-                )}
-                actions={
-                  <LinkButton
-                    size="sm"
-                    tone="secondary"
-                    href={catalogPrimaryWorkbenchHref(
-                      {
-                        ...readModel.routeContext,
-                        sourceObservationFilters: {},
-                        selectedObservationIds: [],
-                        promotionPreviewId: null,
-                      },
-                      "import-to-promotion",
-                    )}
-                  >
-                    {t("catalog.features.sourceObservations.ui.primaryWorkbench.reset.view")}
-                  </LinkButton>
-                }
-              >
-                <Badge tone="info">
-                  {t("catalog.features.sourceObservations.ui.primaryWorkbench.context.provider", {
-                    value:
-                      readModel.routeContext.providerKey ??
-                      t("catalog.features.sourceObservations.ui.primaryWorkbench.choose.provider"),
-                  })}
-                </Badge>
-                <Badge tone="info">
-                  {t("catalog.features.sourceObservations.ui.primaryWorkbench.context.unit", {
-                    value:
-                      readModel.routeContext.unitKey ??
-                      t("catalog.features.sourceObservations.ui.primaryWorkbench.choose.unit"),
-                  })}
-                </Badge>
-                <Badge tone="neutral">
-                  {t("catalog.features.sourceObservations.ui.primaryWorkbench.context.scope", {
-                    value:
-                      readModel.routeContext.importScope ??
-                      t("catalog.features.sourceObservations.ui.primaryWorkbench.choose.scope"),
-                  })}
-                </Badge>
-                <Badge tone="neutral">
-                  {t("catalog.features.sourceObservations.ui.primaryWorkbench.context.profile", {
-                    value:
-                      readModel.routeContext.profileVersion ??
-                      t("catalog.features.sourceObservations.ui.primaryWorkbench.no.active.profile"),
-                  })}
-                </Badge>
-              </FilterArea>
-
-              {readModel.providerScope.providers.length === 0 ? (
-                <EmptyState
-                  title={t("catalog.features.sourceObservations.ui.primaryWorkbench.empty.provider.scopes.title")}
-                  description={t(
-                    "catalog.features.sourceObservations.ui.primaryWorkbench.empty.provider.scopes.description",
-                  )}
-                  actions={
-                    <Button tone="secondary">
-                      {t("catalog.features.sourceObservations.ui.primaryWorkbench.open.profile.authoring")}
-                    </Button>
+                  description={
+                    readModel.readiness.blockers.length > 0
+                      ? t("catalog.features.sourceObservations.ui.primaryWorkbench.banner.blocked.description")
+                      : t("catalog.features.sourceObservations.ui.primaryWorkbench.banner.ready.description")
                   }
-                />
-              ) : null}
-
-              <DataTable
-                rows={steps}
-                columns={columns}
-                getRowId={(step) => step.key}
-                selectedKeys={selectedKeys}
-                onSelectionChange={setSelectedKeys}
-                isRowSelectable={(step) => selectableStepKeys.has(step.key)}
-                density="compact"
-                emptyTitle={t("catalog.features.sourceObservations.ui.primaryWorkbench.empty.steps.title")}
-                emptyDescription={t("catalog.features.sourceObservations.ui.primaryWorkbench.empty.steps.description")}
-              />
-
-              {selectedCount > 0 ? (
-                <BulkActionBar
-                  count={selectedCount}
-                  formatSelectedLabel={(count) => `${count} primary step${count === 1 ? "" : "s"} selected`}
-                  primaryActions={
-                    <BulkActionPanel
-                      title={t("catalog.features.sourceObservations.ui.primaryWorkbench.preview.panel.title")}
-                      description={t(
-                        "catalog.features.sourceObservations.ui.primaryWorkbench.preview.panel.description",
-                      )}
-                      triggerLabel={t("catalog.features.sourceObservations.ui.primaryWorkbench.configure.preview")}
-                      footer={
-                        <CommandFormButton readModel={readModel} intent="preview-promotion" size="sm">
-                          {t("catalog.features.sourceObservations.ui.primaryWorkbench.queue.preview")}
-                        </CommandFormButton>
+                  action={
+                    <LinkButton
+                      size="sm"
+                      tone="secondary"
+                      leadingIcon="externalLink"
+                      href={
+                        readModel.readiness.auditEvidenceUrl ??
+                        catalogPrimaryWorkbenchSupportingHref(readModel.routeContext, "audit-evidence")
                       }
                     >
+                      {t("catalog.features.sourceObservations.ui.primaryWorkbench.view.supporting.evidence")}
+                    </LinkButton>
+                  }
+                />
+
+                <WorkflowModule
+                  title={t("catalog.features.sourceObservations.ui.primaryWorkbench.module.title")}
+                  description={t("catalog.features.sourceObservations.ui.primaryWorkbench.module.description")}
+                  status={
+                    <Badge tone="accent">
+                      {t("catalog.features.sourceObservations.ui.primaryWorkbench.default.workspace")}
+                    </Badge>
+                  }
+                  actions={
+                    <>
+                      <LinkButton
+                        size="sm"
+                        tone="secondary"
+                        leadingIcon="filter"
+                        href={catalogPrimaryWorkbenchHref(readModel.routeContext, "source-observation-review")}
+                      >
+                        {t("catalog.features.sourceObservations.ui.primaryWorkbench.save.context")}
+                      </LinkButton>
+                      <CommandFormButton
+                        readModel={readModel}
+                        intent="start-provider-import"
+                        size="sm"
+                        leadingIcon="refreshCcw"
+                      >
+                        {t("catalog.features.sourceObservations.ui.primaryWorkbench.pull.provider.data")}
+                      </CommandFormButton>
+                    </>
+                  }
+                  headingLevel={2}
+                  density="compact"
+                >
+                  <FilterArea
+                    sticky={false}
+                    activeFilterCount={activeFilterCount(readModel)}
+                    panelTitle={t("catalog.features.sourceObservations.ui.primaryWorkbench.context.preservation.title")}
+                    panelDescription={t(
+                      "catalog.features.sourceObservations.ui.primaryWorkbench.context.preservation.description",
+                    )}
+                    actions={
+                      <LinkButton
+                        size="sm"
+                        tone="secondary"
+                        href={catalogPrimaryWorkbenchHref(
+                          {
+                            ...readModel.routeContext,
+                            sourceObservationFilters: {},
+                            selectedObservationIds: [],
+                            promotionPreviewId: null,
+                          },
+                          "import-to-promotion",
+                        )}
+                      >
+                        {t("catalog.features.sourceObservations.ui.primaryWorkbench.reset.view")}
+                      </LinkButton>
+                    }
+                  >
+                    <Badge tone="info">
+                      {t("catalog.features.sourceObservations.ui.primaryWorkbench.context.provider", {
+                        value:
+                          readModel.routeContext.providerKey ??
+                          t("catalog.features.sourceObservations.ui.primaryWorkbench.choose.provider"),
+                      })}
+                    </Badge>
+                    <Badge tone="info">
+                      {t("catalog.features.sourceObservations.ui.primaryWorkbench.context.unit", {
+                        value:
+                          readModel.routeContext.unitKey ??
+                          t("catalog.features.sourceObservations.ui.primaryWorkbench.choose.unit"),
+                      })}
+                    </Badge>
+                    <Badge tone="neutral">
+                      {t("catalog.features.sourceObservations.ui.primaryWorkbench.context.scope", {
+                        value:
+                          readModel.routeContext.importScope ??
+                          t("catalog.features.sourceObservations.ui.primaryWorkbench.choose.scope"),
+                      })}
+                    </Badge>
+                    <Badge tone="neutral">
+                      {t("catalog.features.sourceObservations.ui.primaryWorkbench.context.profile", {
+                        value:
+                          readModel.routeContext.profileVersion ??
+                          t("catalog.features.sourceObservations.ui.primaryWorkbench.no.active.profile"),
+                      })}
+                    </Badge>
+                  </FilterArea>
+
+                  {readModel.providerScope.providers.length === 0 ? (
+                    <EmptyState
+                      title={t("catalog.features.sourceObservations.ui.primaryWorkbench.empty.provider.scopes.title")}
+                      description={t(
+                        "catalog.features.sourceObservations.ui.primaryWorkbench.empty.provider.scopes.description",
+                      )}
+                      actions={
+                        <Button tone="secondary">
+                          {t("catalog.features.sourceObservations.ui.primaryWorkbench.open.profile.authoring")}
+                        </Button>
+                      }
+                    />
+                  ) : null}
+
+                  <DataTable
+                    rows={steps}
+                    columns={columns}
+                    getRowId={(step) => step.key}
+                    selectedKeys={selectedKeys}
+                    onSelectionChange={setSelectedKeys}
+                    isRowSelectable={(step) => selectableStepKeys.has(step.key)}
+                    density="compact"
+                    emptyTitle={t("catalog.features.sourceObservations.ui.primaryWorkbench.empty.steps.title")}
+                    emptyDescription={t(
+                      "catalog.features.sourceObservations.ui.primaryWorkbench.empty.steps.description",
+                    )}
+                  />
+
+                  {selectedCount > 0 ? (
+                    <BulkActionBar
+                      count={selectedCount}
+                      formatSelectedLabel={(count) => `${count} primary step${count === 1 ? "" : "s"} selected`}
+                      primaryActions={
+                        <BulkActionPanel
+                          title={t("catalog.features.sourceObservations.ui.primaryWorkbench.preview.panel.title")}
+                          description={t(
+                            "catalog.features.sourceObservations.ui.primaryWorkbench.preview.panel.description",
+                          )}
+                          triggerLabel={t("catalog.features.sourceObservations.ui.primaryWorkbench.configure.preview")}
+                          footer={
+                            <CommandFormButton readModel={readModel} intent="preview-promotion" size="sm">
+                              {t("catalog.features.sourceObservations.ui.primaryWorkbench.queue.preview")}
+                            </CommandFormButton>
+                          }
+                        >
+                          <KeyValueList
+                            items={[
+                              {
+                                key: t("catalog.features.sourceObservations.ui.primaryWorkbench.eligible.observations"),
+                                value: readModel.sourceObservationReview.promotionReadyCount,
+                              },
+                              {
+                                key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.plan"),
+                                value:
+                                  readModel.promotionPreview.commandPlanHash ??
+                                  t("catalog.features.sourceObservations.ui.primaryWorkbench.review.preview.required"),
+                              },
+                              {
+                                key: t("catalog.features.sourceObservations.ui.primaryWorkbench.failure.mode"),
+                                value: t("catalog.features.sourceObservations.ui.primaryWorkbench.failure.mode.value"),
+                              },
+                            ]}
+                          />
+                        </BulkActionPanel>
+                      }
+                      secondaryActions={
+                        <Button size="sm" tone="secondary" onClick={() => setSelectedKeys(new Set())}>
+                          {t("catalog.features.sourceObservations.ui.primaryWorkbench.clear.selection")}
+                        </Button>
+                      }
+                      overflowActions={[
+                        {
+                          key: "copy-context",
+                          label: t("catalog.features.sourceObservations.ui.primaryWorkbench.copy.route.context"),
+                          icon: "copy",
+                        },
+                        {
+                          key: "audit-evidence",
+                          label: t("catalog.features.sourceObservations.ui.primaryWorkbench.open.audit.evidence"),
+                          icon: "externalLink",
+                        },
+                      ]}
+                    />
+                  ) : null}
+                </WorkflowModule>
+
+                <WorkflowModule
+                  title={t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.title")}
+                  description={t(
+                    "catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.description",
+                  )}
+                  status={
+                    <Badge tone={readModel.importJobs.activeJobCount > 0 ? "warning" : "success"}>
+                      {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.status", {
+                        count: readModel.importJobs.activeJobCount,
+                      })}
+                    </Badge>
+                  }
+                  actions={
+                    <CommandFormButton
+                      readModel={readModel}
+                      intent="start-provider-import"
+                      size="sm"
+                      leadingIcon="refreshCcw"
+                    >
+                      {t("catalog.features.sourceObservations.ui.primaryWorkbench.pull.provider.data")}
+                    </CommandFormButton>
+                  }
+                  headingLevel={2}
+                  density="compact"
+                >
+                  {readModel.importJobs.selectedScope ? (
+                    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(18rem,24rem)]">
                       <KeyValueList
                         items={[
                           {
+                            key: t("catalog.features.sourceObservations.ui.primaryWorkbench.key.provider"),
+                            value: readModel.importJobs.selectedScope.providerKey,
+                          },
+                          {
+                            key: t("catalog.features.sourceObservations.ui.primaryWorkbench.key.unit"),
+                            value:
+                              readModel.importJobs.selectedScope.unitKey ??
+                              t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected"),
+                          },
+                          {
+                            key: t("catalog.features.sourceObservations.ui.primaryWorkbench.key.scope"),
+                            value: readModel.importJobs.selectedScope.importScope,
+                          },
+                          {
+                            key: t("catalog.features.sourceObservations.ui.primaryWorkbench.key.profile"),
+                            value:
+                              readModel.importJobs.selectedScope.profileVersion ??
+                              t("catalog.features.sourceObservations.ui.primaryWorkbench.no.active.profile"),
+                          },
+                          {
+                            key: t(
+                              "catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.profile.snapshot",
+                            ),
+                            value: profileSnapshotLabel(
+                              readModel.importJobs.selectedScope.profileSnapshot,
+                              readModel.importJobs.selectedScope.profileVersion,
+                            ),
+                          },
+                        ]}
+                      />
+                      <KeyValueList
+                        items={[
+                          {
+                            key: t(
+                              "catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.expected",
+                            ),
+                            value: readModel.importJobs.selectedScope.expectedObservationVolume,
+                          },
+                          {
+                            key: t(
+                              "catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.observed",
+                            ),
+                            value: readModel.importJobs.selectedScope.observedCount,
+                          },
+                          {
+                            key: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.changed"),
+                            value: readModel.importJobs.selectedScope.changedCount,
+                          },
+                          {
+                            key: t(
+                              "catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.promoted",
+                            ),
+                            value: readModel.importJobs.selectedScope.promotedCount,
+                          },
+                          {
+                            key: t(
+                              "catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.rejected",
+                            ),
+                            value: readModel.importJobs.selectedScope.rejectedCount,
+                          },
+                        ]}
+                      />
+                      <KeyValueList
+                        items={[
+                          {
+                            key: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.adapter"),
+                            value: stateLabel(readModel.importJobs.selectedScope.readiness.adapterReadiness),
+                          },
+                          {
+                            key: t(
+                              "catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.credentials",
+                            ),
+                            value: stateLabel(readModel.importJobs.selectedScope.readiness.credentialReadiness),
+                          },
+                          {
+                            key: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.rollout"),
+                            value: readModel.importJobs.selectedScope.readiness.rolloutEnabled
+                              ? t("catalog.features.sourceObservations.ui.primaryWorkbench.ready")
+                              : t("catalog.features.sourceObservations.ui.primaryWorkbench.blocked"),
+                          },
+                          {
+                            key: t(
+                              "catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.transport",
+                            ),
+                            value:
+                              readModel.importJobs.selectedScope.readiness.providerTransport.length > 0
+                                ? catalogPrimaryWorkbenchProviderTransportSummary(
+                                    readModel.importJobs.selectedScope.readiness.providerTransport,
+                                  )
+                                : t(
+                                    "catalog.features.sourceObservations.ui.primaryWorkbench.readiness.transport.ready.description",
+                                  ),
+                          },
+                          {
+                            key: t("catalog.features.sourceObservations.ui.primaryWorkbench.table.blockers"),
+                            value:
+                              readModel.importJobs.selectedScope.readiness.blockers.length > 0
+                                ? readModel.importJobs.selectedScope.readiness.blockers.length
+                                : t("catalog.features.sourceObservations.ui.primaryWorkbench.none"),
+                          },
+                        ]}
+                      />
+                      <div className="xl:col-span-3">
+                        <BlockerList blockers={readModel.importJobs.selectedScope.readiness.blockers} compact />
+                      </div>
+                    </div>
+                  ) : (
+                    <EmptyState
+                      title={t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.empty.title")}
+                      description={t(
+                        "catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.empty.description",
+                      )}
+                    />
+                  )}
+
+                  <DataTable
+                    rows={[...readModel.importJobs.jobs]}
+                    columns={jobColumns}
+                    getRowId={(job) => job.jobId}
+                    density="compact"
+                    emptyTitle={t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.empty.title")}
+                    emptyDescription={t(
+                      "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.empty.description",
+                    )}
+                  />
+                </WorkflowModule>
+
+                <WorkflowModule
+                  title={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.title")}
+                  description={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.description")}
+                  status={
+                    <Badge tone={readModel.sourceObservationReview.rows.length > 0 ? "success" : "warning"}>
+                      {t("catalog.features.sourceObservations.ui.primaryWorkbench.review.status", {
+                        count: readModel.sourceObservationReview.pagination.total,
+                      })}
+                    </Badge>
+                  }
+                  actions={
+                    <>
+                      <LinkButton
+                        size="sm"
+                        tone="secondary"
+                        leadingIcon="filter"
+                        href={catalogPrimaryWorkbenchHref(readModel.routeContext, "source-observation-review")}
+                      >
+                        {t("catalog.features.sourceObservations.ui.primaryWorkbench.save.context")}
+                      </LinkButton>
+                      <CommandFormButton readModel={readModel} intent="preview-promotion" size="sm" leadingIcon="check">
+                        {t("catalog.features.sourceObservations.ui.primaryWorkbench.preview.promotion")}
+                      </CommandFormButton>
+                    </>
+                  }
+                  headingLevel={2}
+                  density="compact"
+                >
+                  <FilterArea
+                    sticky={false}
+                    activeFilterCount={
+                      readModel.sourceObservationReview.filters.filter((filterEntry) => filterEntry.value).length
+                    }
+                    panelTitle={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.filters.title")}
+                    panelDescription={t(
+                      "catalog.features.sourceObservations.ui.primaryWorkbench.review.filters.description",
+                    )}
+                  >
+                    {readModel.sourceObservationReview.filters.map((filterEntry) => (
+                      <Badge key={filterEntry.key} tone={filterEntry.serverApplied ? "info" : "warning"}>
+                        {filterEntry.label}:{" "}
+                        {filterEntry.value ?? t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected")}
+                      </Badge>
+                    ))}
+                  </FilterArea>
+
+                  <div className="flex min-w-0 flex-wrap gap-2">
+                    {readModel.sourceObservationReview.savedFilters.map((savedFilter) => (
+                      <Badge key={savedFilter.key} tone="neutral">
+                        {savedFilter.label}
+                        {savedFilter.count === null
+                          ? ""
+                          : t("catalog.features.sourceObservations.ui.primaryWorkbench.review.saved.count", {
+                              value: savedFilter.count,
+                            })}
+                      </Badge>
+                    ))}
+                  </div>
+
+                  <DataTable
+                    rows={[...readModel.sourceObservationReview.rows]}
+                    columns={reviewColumns}
+                    getRowId={(row) => row.observationId}
+                    selectedKeys={selectedObservationKeys}
+                    onSelectionChange={setSelectedObservationKeys}
+                    isRowSelectable={isReviewableObservationRow}
+                    density="compact"
+                    emptyTitle={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.empty.title")}
+                    emptyDescription={t(
+                      "catalog.features.sourceObservations.ui.primaryWorkbench.review.empty.description",
+                    )}
+                  />
+
+                  {selectedObservationKeys.size > 0 ? (
+                    <div className="grid gap-3 rounded-tokenMd border border-border bg-surface-2 p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="text-sm font-semibold text-foreground">
+                          {t("catalog.features.sourceObservations.ui.primaryWorkbench.review.selected", {
+                            count: selectedObservationKeys.size,
+                          })}
+                        </div>
+                        <div className="flex flex-wrap justify-end gap-2">
+                          <CommandFormButton
+                            readModel={readModel}
+                            intent="preview-promotion"
+                            size="sm"
+                            selectedObservationIds={[...selectedObservationKeys]}
+                            disabled={selectedEligibleObservationCount === 0}
+                          >
+                            {t("catalog.features.sourceObservations.ui.primaryWorkbench.preview.promotion")}
+                          </CommandFormButton>
+                          <CommandFormButton
+                            readModel={readModel}
+                            intent="defer-source-observations"
+                            size="sm"
+                            tone="secondary"
+                            selectedObservationIds={[...selectedObservationKeys]}
+                            reason={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.defer.reason")}
+                            disabled={
+                              selectedReviewableObservationCount === 0 ||
+                              !isActionAvailable(readModel, "defer-source-observations")
+                            }
+                          >
+                            {t("catalog.features.sourceObservations.ui.primaryWorkbench.review.defer")}
+                          </CommandFormButton>
+                          <Button size="sm" tone="secondary" onClick={() => setSelectedObservationKeys(new Set())}>
+                            {t("catalog.features.sourceObservations.ui.primaryWorkbench.clear.selection")}
+                          </Button>
+                        </div>
+                      </div>
+                      <KeyValueList
+                        items={[
+                          {
+                            key: t("catalog.features.sourceObservations.ui.primaryWorkbench.reviewable.observations"),
+                            value: selectedReviewableObservationCount,
+                          },
+                          {
                             key: t("catalog.features.sourceObservations.ui.primaryWorkbench.eligible.observations"),
-                            value: readModel.sourceObservationReview.promotionReadyCount,
+                            value: selectedEligibleObservationCount,
                           },
                           {
                             key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.plan"),
@@ -668,516 +988,234 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
                               readModel.promotionPreview.commandPlanHash ??
                               t("catalog.features.sourceObservations.ui.primaryWorkbench.review.preview.required"),
                           },
-                          {
-                            key: t("catalog.features.sourceObservations.ui.primaryWorkbench.failure.mode"),
-                            value: t("catalog.features.sourceObservations.ui.primaryWorkbench.failure.mode.value"),
-                          },
                         ]}
                       />
-                    </BulkActionPanel>
-                  }
-                  secondaryActions={
-                    <Button size="sm" tone="secondary" onClick={() => setSelectedKeys(new Set())}>
-                      {t("catalog.features.sourceObservations.ui.primaryWorkbench.clear.selection")}
-                    </Button>
-                  }
-                  overflowActions={[
-                    {
-                      key: "copy-context",
-                      label: t("catalog.features.sourceObservations.ui.primaryWorkbench.copy.route.context"),
-                      icon: "copy",
-                    },
-                    {
-                      key: "audit-evidence",
-                      label: t("catalog.features.sourceObservations.ui.primaryWorkbench.open.audit.evidence"),
-                      icon: "externalLink",
-                    },
-                  ]}
-                />
-              ) : null}
-            </WorkflowModule>
+                      <Form
+                        spacing="none"
+                        method="post"
+                        action={catalogPrimaryWorkbenchHref(readModel.routeContext, "import-to-promotion")}
+                        className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end"
+                        data-catalog-primary-workbench-command="reject-source-observations"
+                      >
+                        <CommandHiddenInputs
+                          readModel={readModel}
+                          intent="reject-source-observations"
+                          selectedObservationIds={[...selectedObservationKeys]}
+                        />
+                        <label className="grid min-w-0 gap-1 text-sm text-secondary">
+                          <span className="font-semibold text-foreground">
+                            {t("catalog.features.sourceObservations.ui.primaryWorkbench.review.reject.reason")}
+                          </span>
+                          <input
+                            className="min-h-10 rounded-tokenSm border border-border bg-surface px-3 py-2 text-sm text-foreground"
+                            name="reason"
+                            required
+                            disabled={
+                              selectedReviewableObservationCount === 0 ||
+                              !isActionAvailable(readModel, "reject-source-observations")
+                            }
+                          />
+                        </label>
+                        <Button
+                          type="submit"
+                          size="sm"
+                          tone="secondary"
+                          disabled={
+                            selectedReviewableObservationCount === 0 ||
+                            !isActionAvailable(readModel, "reject-source-observations")
+                          }
+                        >
+                          {t("catalog.features.sourceObservations.ui.primaryWorkbench.review.reject")}
+                        </Button>
+                      </Form>
+                    </div>
+                  ) : null}
+                </WorkflowModule>
 
-            <WorkflowModule
-              title={t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.title")}
-              description={t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.description")}
-              status={
-                <Badge tone={readModel.importJobs.activeJobCount > 0 ? "warning" : "success"}>
-                  {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.status", {
-                    count: readModel.importJobs.activeJobCount,
-                  })}
-                </Badge>
-              }
-              actions={
-                <CommandFormButton
-                  readModel={readModel}
-                  intent="start-provider-import"
-                  size="sm"
-                  leadingIcon="refreshCcw"
+                <WorkflowModule
+                  title={t("catalog.features.sourceObservations.ui.primaryWorkbench.command.plan.title")}
+                  description={t("catalog.features.sourceObservations.ui.primaryWorkbench.command.plan.description")}
+                  status={
+                    <Badge tone={readModel.promotionPreview.freshness === "stale" ? "warning" : "success"}>
+                      {stateLabel(readModel.promotionPreview.freshness)}
+                    </Badge>
+                  }
+                  actions={
+                    <CommandFormButton readModel={readModel} intent="execute-promotion" size="sm" leadingIcon="check">
+                      {t("catalog.features.sourceObservations.ui.primaryWorkbench.promote.catalog.facts")}
+                    </CommandFormButton>
+                  }
+                  headingLevel={2}
+                  density="compact"
                 >
-                  {t("catalog.features.sourceObservations.ui.primaryWorkbench.pull.provider.data")}
-                </CommandFormButton>
-              }
-              headingLevel={2}
-              density="compact"
-            >
-              {readModel.importJobs.selectedScope ? (
-                <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(18rem,24rem)]">
-                  <KeyValueList
-                    items={[
-                      {
-                        key: t("catalog.features.sourceObservations.ui.primaryWorkbench.key.provider"),
-                        value: readModel.importJobs.selectedScope.providerKey,
-                      },
-                      {
-                        key: t("catalog.features.sourceObservations.ui.primaryWorkbench.key.unit"),
-                        value:
-                          readModel.importJobs.selectedScope.unitKey ??
-                          t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected"),
-                      },
-                      {
-                        key: t("catalog.features.sourceObservations.ui.primaryWorkbench.key.scope"),
-                        value: readModel.importJobs.selectedScope.importScope,
-                      },
-                      {
-                        key: t("catalog.features.sourceObservations.ui.primaryWorkbench.key.profile"),
-                        value:
-                          readModel.importJobs.selectedScope.profileVersion ??
-                          t("catalog.features.sourceObservations.ui.primaryWorkbench.no.active.profile"),
-                      },
-                      {
-                        key: t(
-                          "catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.profile.snapshot",
-                        ),
-                        value: profileSnapshotLabel(
-                          readModel.importJobs.selectedScope.profileSnapshot,
-                          readModel.importJobs.selectedScope.profileVersion,
-                        ),
-                      },
-                    ]}
-                  />
-                  <KeyValueList
-                    items={[
-                      {
-                        key: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.expected"),
-                        value: readModel.importJobs.selectedScope.expectedObservationVolume,
-                      },
-                      {
-                        key: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.observed"),
-                        value: readModel.importJobs.selectedScope.observedCount,
-                      },
-                      {
-                        key: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.changed"),
-                        value: readModel.importJobs.selectedScope.changedCount,
-                      },
-                      {
-                        key: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.promoted"),
-                        value: readModel.importJobs.selectedScope.promotedCount,
-                      },
-                      {
-                        key: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.rejected"),
-                        value: readModel.importJobs.selectedScope.rejectedCount,
-                      },
-                    ]}
-                  />
-                  <KeyValueList
-                    items={[
-                      {
-                        key: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.adapter"),
-                        value: stateLabel(readModel.importJobs.selectedScope.readiness.adapterReadiness),
-                      },
-                      {
-                        key: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.credentials"),
-                        value: stateLabel(readModel.importJobs.selectedScope.readiness.credentialReadiness),
-                      },
-                      {
-                        key: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.rollout"),
-                        value: readModel.importJobs.selectedScope.readiness.rolloutEnabled
-                          ? t("catalog.features.sourceObservations.ui.primaryWorkbench.ready")
-                          : t("catalog.features.sourceObservations.ui.primaryWorkbench.blocked"),
-                      },
-                      {
-                        key: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.transport"),
-                        value:
-                          readModel.importJobs.selectedScope.readiness.providerTransport.length > 0
-                            ? catalogPrimaryWorkbenchProviderTransportSummary(
-                                readModel.importJobs.selectedScope.readiness.providerTransport,
-                              )
-                            : t(
-                                "catalog.features.sourceObservations.ui.primaryWorkbench.readiness.transport.ready.description",
-                              ),
-                      },
-                      {
-                        key: t("catalog.features.sourceObservations.ui.primaryWorkbench.table.blockers"),
-                        value:
-                          readModel.importJobs.selectedScope.readiness.blockers.length > 0
-                            ? readModel.importJobs.selectedScope.readiness.blockers.length
-                            : t("catalog.features.sourceObservations.ui.primaryWorkbench.none"),
-                      },
-                    ]}
-                  />
-                  <div className="xl:col-span-3">
-                    <BlockerList blockers={readModel.importJobs.selectedScope.readiness.blockers} compact />
-                  </div>
-                </div>
-              ) : (
-                <EmptyState
-                  title={t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.empty.title")}
-                  description={t(
-                    "catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.empty.description",
-                  )}
-                />
-              )}
-
-              <DataTable
-                rows={[...readModel.importJobs.jobs]}
-                columns={jobColumns}
-                getRowId={(job) => job.jobId}
-                density="compact"
-                emptyTitle={t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.empty.title")}
-                emptyDescription={t(
-                  "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.empty.description",
-                )}
-              />
-            </WorkflowModule>
-
-            <WorkflowModule
-              title={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.title")}
-              description={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.description")}
-              status={
-                <Badge tone={readModel.sourceObservationReview.rows.length > 0 ? "success" : "warning"}>
-                  {t("catalog.features.sourceObservations.ui.primaryWorkbench.review.status", {
-                    count: readModel.sourceObservationReview.pagination.total,
-                  })}
-                </Badge>
-              }
-              actions={
-                <>
-                  <LinkButton
-                    size="sm"
-                    tone="secondary"
-                    leadingIcon="filter"
-                    href={catalogPrimaryWorkbenchHref(readModel.routeContext, "source-observation-review")}
-                  >
-                    {t("catalog.features.sourceObservations.ui.primaryWorkbench.save.context")}
-                  </LinkButton>
-                  <CommandFormButton readModel={readModel} intent="preview-promotion" size="sm" leadingIcon="check">
-                    {t("catalog.features.sourceObservations.ui.primaryWorkbench.preview.promotion")}
-                  </CommandFormButton>
-                </>
-              }
-              headingLevel={2}
-              density="compact"
-            >
-              <FilterArea
-                sticky={false}
-                activeFilterCount={
-                  readModel.sourceObservationReview.filters.filter((filterEntry) => filterEntry.value).length
-                }
-                panelTitle={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.filters.title")}
-                panelDescription={t(
-                  "catalog.features.sourceObservations.ui.primaryWorkbench.review.filters.description",
-                )}
-              >
-                {readModel.sourceObservationReview.filters.map((filterEntry) => (
-                  <Badge key={filterEntry.key} tone={filterEntry.serverApplied ? "info" : "warning"}>
-                    {filterEntry.label}:{" "}
-                    {filterEntry.value ?? t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected")}
-                  </Badge>
-                ))}
-              </FilterArea>
-
-              <div className="flex min-w-0 flex-wrap gap-2">
-                {readModel.sourceObservationReview.savedFilters.map((savedFilter) => (
-                  <Badge key={savedFilter.key} tone="neutral">
-                    {savedFilter.label}
-                    {savedFilter.count === null
-                      ? ""
-                      : t("catalog.features.sourceObservations.ui.primaryWorkbench.review.saved.count", {
-                          value: savedFilter.count,
-                        })}
-                  </Badge>
-                ))}
-              </div>
-
-              <DataTable
-                rows={[...readModel.sourceObservationReview.rows]}
-                columns={reviewColumns}
-                getRowId={(row) => row.observationId}
-                selectedKeys={selectedObservationKeys}
-                onSelectionChange={setSelectedObservationKeys}
-                isRowSelectable={isReviewableObservationRow}
-                density="compact"
-                emptyTitle={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.empty.title")}
-                emptyDescription={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.empty.description")}
-              />
-
-              {selectedObservationKeys.size > 0 ? (
-                <div className="grid gap-3 rounded-tokenMd border border-border bg-surface-2 p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="text-sm font-semibold text-foreground">
-                      {t("catalog.features.sourceObservations.ui.primaryWorkbench.review.selected", {
-                        count: selectedObservationKeys.size,
-                      })}
-                    </div>
-                    <div className="flex flex-wrap justify-end gap-2">
-                      <CommandFormButton
-                        readModel={readModel}
-                        intent="preview-promotion"
-                        size="sm"
-                        selectedObservationIds={[...selectedObservationKeys]}
-                        disabled={selectedEligibleObservationCount === 0}
-                      >
-                        {t("catalog.features.sourceObservations.ui.primaryWorkbench.preview.promotion")}
-                      </CommandFormButton>
-                      <CommandFormButton
-                        readModel={readModel}
-                        intent="defer-source-observations"
-                        size="sm"
-                        tone="secondary"
-                        selectedObservationIds={[...selectedObservationKeys]}
-                        reason={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.defer.reason")}
-                        disabled={
-                          selectedReviewableObservationCount === 0 ||
-                          !isActionAvailable(readModel, "defer-source-observations")
-                        }
-                      >
-                        {t("catalog.features.sourceObservations.ui.primaryWorkbench.review.defer")}
-                      </CommandFormButton>
-                      <Button size="sm" tone="secondary" onClick={() => setSelectedObservationKeys(new Set())}>
-                        {t("catalog.features.sourceObservations.ui.primaryWorkbench.clear.selection")}
-                      </Button>
-                    </div>
-                  </div>
-                  <KeyValueList
-                    items={[
-                      {
-                        key: t("catalog.features.sourceObservations.ui.primaryWorkbench.reviewable.observations"),
-                        value: selectedReviewableObservationCount,
-                      },
-                      {
-                        key: t("catalog.features.sourceObservations.ui.primaryWorkbench.eligible.observations"),
-                        value: selectedEligibleObservationCount,
-                      },
-                      {
-                        key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.plan"),
-                        value:
-                          readModel.promotionPreview.commandPlanHash ??
-                          t("catalog.features.sourceObservations.ui.primaryWorkbench.review.preview.required"),
-                      },
-                    ]}
-                  />
-                  <Form
-                    spacing="none"
-                    method="post"
-                    action={catalogPrimaryWorkbenchHref(readModel.routeContext, "import-to-promotion")}
-                    className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end"
-                    data-catalog-primary-workbench-command="reject-source-observations"
-                  >
-                    <CommandHiddenInputs
-                      readModel={readModel}
-                      intent="reject-source-observations"
-                      selectedObservationIds={[...selectedObservationKeys]}
+                  <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
+                    <KeyValueList
+                      items={[
+                        {
+                          key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.scope"),
+                          value: readModel.promotionPreview.scope.label,
+                        },
+                        {
+                          key: t(
+                            "catalog.features.sourceObservations.ui.primaryWorkbench.command.requested.observations",
+                          ),
+                          value: readModel.promotionPreview.scope.requestedCount,
+                        },
+                        {
+                          key: t("catalog.features.sourceObservations.ui.primaryWorkbench.eligible.observations"),
+                          value: readModel.promotionPreview.scope.eligibleCount,
+                        },
+                        {
+                          key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.plan"),
+                          value:
+                            readModel.promotionPreview.commandPlanHash ??
+                            t("catalog.features.sourceObservations.ui.primaryWorkbench.review.preview.required"),
+                        },
+                        {
+                          key: t(
+                            "catalog.features.sourceObservations.ui.primaryWorkbench.command.execution.preview.fresh",
+                          ),
+                          value: readModel.promotionPreview.executionSafeguards.previewFresh
+                            ? t("catalog.features.sourceObservations.ui.primaryWorkbench.ready")
+                            : t("catalog.features.sourceObservations.ui.primaryWorkbench.review.preview.required"),
+                        },
+                      ]}
                     />
-                    <label className="grid min-w-0 gap-1 text-sm text-secondary">
-                      <span className="font-semibold text-foreground">
-                        {t("catalog.features.sourceObservations.ui.primaryWorkbench.review.reject.reason")}
-                      </span>
-                      <input
-                        className="min-h-10 rounded-tokenSm border border-border bg-surface px-3 py-2 text-sm text-foreground"
-                        name="reason"
-                        required
-                        disabled={
-                          selectedReviewableObservationCount === 0 ||
-                          !isActionAvailable(readModel, "reject-source-observations")
-                        }
-                      />
-                    </label>
-                    <Button
-                      type="submit"
-                      size="sm"
-                      tone="secondary"
-                      disabled={
-                        selectedReviewableObservationCount === 0 ||
-                        !isActionAvailable(readModel, "reject-source-observations")
-                      }
-                    >
-                      {t("catalog.features.sourceObservations.ui.primaryWorkbench.review.reject")}
-                    </Button>
-                  </Form>
+                    <KeyValueList
+                      items={[
+                        {
+                          key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.count.eligible"),
+                          value: readModel.promotionPreview.outcomeCounts.eligible,
+                        },
+                        {
+                          key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.count.blocked"),
+                          value: readModel.promotionPreview.outcomeCounts.blocked,
+                        },
+                        {
+                          key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.count.skipped"),
+                          value: readModel.promotionPreview.outcomeCounts.skipped,
+                        },
+                        {
+                          key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.count.conflicting"),
+                          value: readModel.promotionPreview.outcomeCounts.conflicting,
+                        },
+                        {
+                          key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.count.failed"),
+                          value: readModel.promotionPreview.outcomeCounts.failed,
+                        },
+                      ]}
+                    />
+                  </div>
+
+                  <KeyValueList
+                    items={[
+                      {
+                        key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.reject.key"),
+                        value: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.reject.value"),
+                      },
+                      {
+                        key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.defer.key"),
+                        value: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.defer.value"),
+                      },
+                      {
+                        key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.profile.reapply.key"),
+                        value: t(
+                          "catalog.features.sourceObservations.ui.primaryWorkbench.command.profile.reapply.value",
+                        ),
+                      },
+                      {
+                        key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.profile.replay.key"),
+                        value: t(
+                          "catalog.features.sourceObservations.ui.primaryWorkbench.command.profile.replay.value",
+                        ),
+                      },
+                      {
+                        key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.execution.stale.guard"),
+                        value: t(
+                          "catalog.features.sourceObservations.ui.primaryWorkbench.command.execution.stale.value",
+                        ),
+                      },
+                      {
+                        key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.partial.failure.key"),
+                        value: t(
+                          "catalog.features.sourceObservations.ui.primaryWorkbench.command.partial.failure.value",
+                        ),
+                      },
+                      {
+                        key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.idempotency.key"),
+                        value: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.idempotency.value"),
+                      },
+                    ]}
+                  />
+
+                  <div className="grid gap-2">
+                    <div className="text-sm font-semibold text-foreground">
+                      {t("catalog.features.sourceObservations.ui.primaryWorkbench.table.blockers")}
+                    </div>
+                    <BlockerList blockers={readModel.promotionPreview.blockers} />
+                  </div>
+                </WorkflowModule>
+
+                <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
+                  <WorkflowModule
+                    title={t("catalog.features.sourceObservations.ui.primaryWorkbench.readiness.recovery.title")}
+                    description={t(
+                      "catalog.features.sourceObservations.ui.primaryWorkbench.readiness.recovery.description",
+                    )}
+                    density="compact"
+                    status={
+                      <Badge tone={readModel.readiness.blockers.length > 0 ? "warning" : "success"}>
+                        {t("catalog.features.sourceObservations.ui.primaryWorkbench.readiness")}
+                      </Badge>
+                    }
+                  >
+                    <WorkflowReadinessChecklist items={readinessItems(readModel)} />
+                  </WorkflowModule>
+
+                  <WorkflowModule
+                    title={t("catalog.features.sourceObservations.ui.primaryWorkbench.context.preservation.title")}
+                    description={t(
+                      "catalog.features.sourceObservations.ui.primaryWorkbench.context.preservation.description",
+                    )}
+                    density="compact"
+                    status={<Badge tone="info">#1057 handoff</Badge>}
+                  >
+                    <KeyValueList
+                      items={[
+                        {
+                          key: t("catalog.features.sourceObservations.ui.primaryWorkbench.key.provider"),
+                          value:
+                            readModel.routeContext.providerKey ??
+                            t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected"),
+                        },
+                        {
+                          key: t("catalog.features.sourceObservations.ui.primaryWorkbench.key.unit"),
+                          value:
+                            readModel.routeContext.unitKey ??
+                            t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected"),
+                        },
+                        {
+                          key: t("catalog.features.sourceObservations.ui.primaryWorkbench.key.selected.observations"),
+                          value: readModel.routeContext.selectedObservationIds.length,
+                        },
+                        {
+                          key: t("catalog.features.sourceObservations.ui.primaryWorkbench.key.promotion.preview"),
+                          value:
+                            readModel.routeContext.promotionPreviewId ??
+                            t("catalog.features.sourceObservations.ui.primaryWorkbench.not.queued"),
+                        },
+                        {
+                          key: t("catalog.features.sourceObservations.ui.primaryWorkbench.key.return.path"),
+                          value:
+                            readModel.routeContext.returnPath ??
+                            t("catalog.features.sourceObservations.ui.primaryWorkbench.primary.workbench"),
+                        },
+                      ]}
+                    />
+                  </WorkflowModule>
                 </div>
-              ) : null}
-            </WorkflowModule>
-
-            <WorkflowModule
-              title={t("catalog.features.sourceObservations.ui.primaryWorkbench.command.plan.title")}
-              description={t("catalog.features.sourceObservations.ui.primaryWorkbench.command.plan.description")}
-              status={
-                <Badge tone={readModel.promotionPreview.freshness === "stale" ? "warning" : "success"}>
-                  {stateLabel(readModel.promotionPreview.freshness)}
-                </Badge>
-              }
-              actions={
-                <CommandFormButton readModel={readModel} intent="execute-promotion" size="sm" leadingIcon="check">
-                  {t("catalog.features.sourceObservations.ui.primaryWorkbench.promote.catalog.facts")}
-                </CommandFormButton>
-              }
-              headingLevel={2}
-              density="compact"
-            >
-              <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
-                <KeyValueList
-                  items={[
-                    {
-                      key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.scope"),
-                      value: readModel.promotionPreview.scope.label,
-                    },
-                    {
-                      key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.requested.observations"),
-                      value: readModel.promotionPreview.scope.requestedCount,
-                    },
-                    {
-                      key: t("catalog.features.sourceObservations.ui.primaryWorkbench.eligible.observations"),
-                      value: readModel.promotionPreview.scope.eligibleCount,
-                    },
-                    {
-                      key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.plan"),
-                      value:
-                        readModel.promotionPreview.commandPlanHash ??
-                        t("catalog.features.sourceObservations.ui.primaryWorkbench.review.preview.required"),
-                    },
-                    {
-                      key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.execution.preview.fresh"),
-                      value: readModel.promotionPreview.executionSafeguards.previewFresh
-                        ? t("catalog.features.sourceObservations.ui.primaryWorkbench.ready")
-                        : t("catalog.features.sourceObservations.ui.primaryWorkbench.review.preview.required"),
-                    },
-                  ]}
-                />
-                <KeyValueList
-                  items={[
-                    {
-                      key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.count.eligible"),
-                      value: readModel.promotionPreview.outcomeCounts.eligible,
-                    },
-                    {
-                      key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.count.blocked"),
-                      value: readModel.promotionPreview.outcomeCounts.blocked,
-                    },
-                    {
-                      key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.count.skipped"),
-                      value: readModel.promotionPreview.outcomeCounts.skipped,
-                    },
-                    {
-                      key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.count.conflicting"),
-                      value: readModel.promotionPreview.outcomeCounts.conflicting,
-                    },
-                    {
-                      key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.count.failed"),
-                      value: readModel.promotionPreview.outcomeCounts.failed,
-                    },
-                  ]}
-                />
-              </div>
-
-              <KeyValueList
-                items={[
-                  {
-                    key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.reject.key"),
-                    value: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.reject.value"),
-                  },
-                  {
-                    key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.defer.key"),
-                    value: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.defer.value"),
-                  },
-                  {
-                    key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.profile.reapply.key"),
-                    value: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.profile.reapply.value"),
-                  },
-                  {
-                    key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.profile.replay.key"),
-                    value: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.profile.replay.value"),
-                  },
-                  {
-                    key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.execution.stale.guard"),
-                    value: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.execution.stale.value"),
-                  },
-                  {
-                    key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.partial.failure.key"),
-                    value: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.partial.failure.value"),
-                  },
-                  {
-                    key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.idempotency.key"),
-                    value: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.idempotency.value"),
-                  },
-                ]}
-              />
-
-              <div className="grid gap-2">
-                <div className="text-sm font-semibold text-foreground">
-                  {t("catalog.features.sourceObservations.ui.primaryWorkbench.table.blockers")}
-                </div>
-                <BlockerList blockers={readModel.promotionPreview.blockers} />
-              </div>
-            </WorkflowModule>
-
-            <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
-              <WorkflowModule
-                title={t("catalog.features.sourceObservations.ui.primaryWorkbench.readiness.recovery.title")}
-                description={t(
-                  "catalog.features.sourceObservations.ui.primaryWorkbench.readiness.recovery.description",
-                )}
-                density="compact"
-                status={
-                  <Badge tone={readModel.readiness.blockers.length > 0 ? "warning" : "success"}>
-                    {t("catalog.features.sourceObservations.ui.primaryWorkbench.readiness")}
-                  </Badge>
-                }
-              >
-                <WorkflowReadinessChecklist items={readinessItems(readModel)} />
-              </WorkflowModule>
-
-              <WorkflowModule
-                title={t("catalog.features.sourceObservations.ui.primaryWorkbench.context.preservation.title")}
-                description={t(
-                  "catalog.features.sourceObservations.ui.primaryWorkbench.context.preservation.description",
-                )}
-                density="compact"
-                status={<Badge tone="info">#1057 handoff</Badge>}
-              >
-                <KeyValueList
-                  items={[
-                    {
-                      key: t("catalog.features.sourceObservations.ui.primaryWorkbench.key.provider"),
-                      value:
-                        readModel.routeContext.providerKey ??
-                        t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected"),
-                    },
-                    {
-                      key: t("catalog.features.sourceObservations.ui.primaryWorkbench.key.unit"),
-                      value:
-                        readModel.routeContext.unitKey ??
-                        t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected"),
-                    },
-                    {
-                      key: t("catalog.features.sourceObservations.ui.primaryWorkbench.key.selected.observations"),
-                      value: readModel.routeContext.selectedObservationIds.length,
-                    },
-                    {
-                      key: t("catalog.features.sourceObservations.ui.primaryWorkbench.key.promotion.preview"),
-                      value:
-                        readModel.routeContext.promotionPreviewId ??
-                        t("catalog.features.sourceObservations.ui.primaryWorkbench.not.queued"),
-                    },
-                    {
-                      key: t("catalog.features.sourceObservations.ui.primaryWorkbench.key.return.path"),
-                      value:
-                        readModel.routeContext.returnPath ??
-                        t("catalog.features.sourceObservations.ui.primaryWorkbench.primary.workbench"),
-                    },
-                  ]}
-                />
-              </WorkflowModule>
-            </div>
+              </>
+            )}
           </div>
         </BulkActionSurface>
       </div>
@@ -1885,6 +1923,9 @@ function commandSuccessTitle(result: CatalogPrimaryWorkbenchCommandFeedback["res
   if (result === "job-cancelled") {
     return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.cancelled.title");
   }
+  if (result === "draft-created") {
+    return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.draft.title");
+  }
 
   return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.queued.title");
 }
@@ -1896,6 +1937,9 @@ function commandFeedbackDescription(feedback: CatalogPrimaryWorkbenchCommandFeed
     }
     if (feedback.result === "job-cancelled") {
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.cancelled.description");
+    }
+    if (feedback.result === "draft-created") {
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.draft.description");
     }
 
     return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.queued.description");

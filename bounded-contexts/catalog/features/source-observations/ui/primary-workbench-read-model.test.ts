@@ -78,6 +78,120 @@ describe("Catalog primary workbench read model", () => {
     });
   });
 
+  it("builds provider profile overview and draft creation evidence from typed review records", () => {
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl: "https://admin.example/catalog/integrations?providerKey=tcgdex&section=profile-work",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: {
+        items: [
+          profileReview({
+            active: true,
+            lifecycle: "active",
+            referenceCount: 3,
+            authoringAudit: {
+              createdAt: "2026-06-08T00:00:00.000Z",
+              createdByUserId: "user_admin",
+              updatedAt: "2026-06-09T00:00:00.000Z",
+              updatedByUserId: "user_editor",
+            },
+            migrationEvidence: {
+              evidenceText: "Validated mapping change.",
+              mappingFingerprintBefore: "sha256:old",
+              mappingFingerprintAfter: "sha256:new",
+              fixtureRunId: "fixture_run_001",
+              recordedAt: "2026-06-09T00:10:00.000Z",
+            },
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+      controlPlaneOverview: null,
+      canManageCatalog: true,
+    });
+
+    expect(readModel.profileAuthoring.status).toBe("ready");
+    expect(readModel.profileAuthoring.selectedProfile).toMatchObject({
+      providerKey: "tcgdex",
+      profileKey: "tcgdex-pokemon-card",
+      profileVersion: "2026.06.04",
+      lifecycle: "active",
+      referenceCount: 3,
+      mappingFingerprint: "sha256:new",
+      validation: {
+        status: "valid",
+        diagnosticCount: 0,
+      },
+      fixtures: {
+        coveredFlows: ["normal", "changed", "replay"],
+      },
+      migrationEvidence: {
+        state: "recorded",
+        fixtureRunId: "fixture_run_001",
+      },
+    });
+    expect(readModel.profileAuthoring.cloneDraft).toMatchObject({
+      commandKey: "clone-provider-profile",
+      sourceProviderKey: "tcgdex",
+      sourceProfileVersion: "2026.06.04",
+      targetProfileVersion: "2026.06.04-draft",
+      targetLifecycle: "draft",
+      state: "available",
+      blockers: [],
+    });
+    expect(readModel.profileAuthoring.cloneDraft.immutableIdentityFacts.map((fact) => fact.key)).toEqual([
+      "provider-key",
+      "profile-key",
+      "source-contract-owner",
+      "source-contract-repository",
+      "connector-kind",
+      "supported-scopes",
+    ]);
+    expect(readModel.actions.find((action) => action.key === "clone-provider-profile")).toMatchObject({
+      state: "available",
+      blockers: [],
+    });
+  });
+
+  it("keeps profile evidence visible while denying draft creation for view-only operators", () => {
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl: "https://admin.example/catalog/integrations?providerKey=tcgdex&section=profile-work",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: null,
+      canManageCatalog: false,
+    });
+
+    expect(readModel.profileAuthoring.selectedProfile?.profileVersion).toBe("2026.06.04");
+    expect(readModel.profileAuthoring.cloneDraft).toMatchObject({
+      state: "denied",
+      blockers: ["permission-denied"],
+    });
+    expect(readModel.actions.find((action) => action.key === "clone-provider-profile")).toMatchObject({
+      state: "denied",
+      blockers: ["permission-denied"],
+    });
+  });
+
+  it("fails closed when route-selected profile version is stale", () => {
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&section=profile-work&profileVersion=missing-version",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: null,
+      canManageCatalog: true,
+    });
+
+    expect(readModel.profileAuthoring.status).toBe("stale-selection");
+    expect(readModel.profileAuthoring.selectedProfile).toBeNull();
+    expect(readModel.profileAuthoring.cloneDraft).toMatchObject({
+      state: "blocked",
+      blockers: ["profile-version-missing"],
+      targetProfileVersion: null,
+    });
+  });
+
   it("summarizes scoped durable import operations and blocks duplicate starts while active", () => {
     const readModel = buildCatalogPrimaryWorkbenchReadModel({
       requestUrl:

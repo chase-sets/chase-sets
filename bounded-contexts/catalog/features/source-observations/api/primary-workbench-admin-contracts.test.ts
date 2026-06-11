@@ -342,6 +342,13 @@ describe("Catalog primary workbench admin contracts", () => {
         "security-privacy-blocked",
       ]),
     });
+    expect(actionsByKey.get("clone-provider-profile")).toMatchObject({
+      method: "POST",
+      routePattern: "/api/catalog/source-observations/admin/provider-profiles/:providerKey/:profileVersion/clone",
+      requiredPermission: "catalog.manage",
+      idempotencyRequired: true,
+      blockerCategories: expect.arrayContaining(["permission-denied", "profile-version-missing", "raw-json-retired"]),
+    });
     expect(actionsByKey.get("select-provider-scope")).toMatchObject({
       method: "GET",
       requiredPermission: "catalog.view",
@@ -359,6 +366,7 @@ describe("Catalog primary workbench admin contracts", () => {
     const downstreamIssues = catalogPrimaryWorkbenchDownstreamContracts.map((entry) => entry.issue);
 
     expect(downstreamIssues).toEqual([
+      "#1033",
       "#1056",
       "#1038",
       "#1039",
@@ -535,6 +543,126 @@ describe("Catalog primary workbench admin contracts", () => {
               providerKey: "tcgdex",
               unitKey: "tcgdex:pokemon:single-card:source-observation-import",
               summary: "Provider import started.",
+            },
+          ],
+        },
+      },
+      profileAuthoring: {
+        status: "ready",
+        generatedAt: "2026-06-09T00:00:00.000Z",
+        selectedProfile: {
+          providerKey: "tcgdex",
+          profileKey: "tcgdex-pokemon-card",
+          profileVersion: "2026.06.04",
+          displayName: "TCGdex Pokemon cards",
+          lifecycle: "active",
+          active: true,
+          status: "planned",
+          connectorKind: "tcgdex-json",
+          capabilities: ["source-observation-import", "promotion-command-plan"],
+          supportedScopes: ["pokemon/card"],
+          languageOptions: ["en"],
+          mappingOutputKind: "provider-product",
+          hasExecutableMappingContract: true,
+          mappingFingerprint: "sha256:mapping",
+          referenceCount: 2,
+          sourceContract: {
+            owner: "chase-sets/catalog",
+            repository: "chase-sets/chase-sets",
+            commit: null,
+            documentPath: "bounded-contexts/catalog/docs/provider-integration-profiles.md",
+            fixtureSetVersion: "tcgdex-proof-v1",
+          },
+          fixtures: {
+            fixtureRoot: "bounded-contexts/catalog/features/source-observations/api/__fixtures__/tcgdex",
+            coveredFlows: ["normal", "changed", "replay"],
+            liveProviderCallsAllowed: false,
+          },
+          validation: {
+            status: "valid",
+            diagnosticCount: 0,
+            latestDiagnosticText: null,
+          },
+          migrationEvidence: {
+            state: "recorded",
+            recordedAt: "2026-06-09T00:00:00.000Z",
+            fixtureRunId: "fixture_run_001",
+            mappingFingerprintBefore: "sha256:old",
+            mappingFingerprintAfter: "sha256:mapping",
+          },
+          authoringAudit: {
+            createdAt: "2026-06-08T00:00:00.000Z",
+            createdByUserId: "user_admin",
+            createdForAccountId: null,
+            updatedAt: "2026-06-09T00:00:00.000Z",
+            updatedByUserId: "user_editor",
+            updatedForAccountId: null,
+          },
+          immutableIdentityFacts: [
+            {
+              key: "provider-key",
+              label: "Provider key",
+              value: "tcgdex",
+            },
+            {
+              key: "profile-key",
+              label: "Profile key",
+              value: "tcgdex-pokemon-card",
+            },
+          ],
+        },
+        activeProfile: {
+          providerKey: "tcgdex",
+          profileKey: "tcgdex-pokemon-card",
+          profileVersion: "2026.06.04",
+          displayName: "TCGdex Pokemon cards",
+          lifecycle: "active",
+          active: true,
+          status: "planned",
+          href: "/catalog/integrations?providerKey=tcgdex&profileVersion=2026.06.04&section=profile-work",
+        },
+        availableProfiles: [
+          {
+            providerKey: "tcgdex",
+            profileKey: "tcgdex-pokemon-card",
+            profileVersion: "2026.06.04",
+            displayName: "TCGdex Pokemon cards",
+            lifecycle: "active",
+            active: true,
+            status: "planned",
+            href: "/catalog/integrations?providerKey=tcgdex&profileVersion=2026.06.04&section=profile-work",
+          },
+        ],
+        returnToPrimaryHref:
+          "/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex%3Apokemon%3Asingle-card%3Asource-observation-import&importScope=changed&profileVersion=2026.06.04&selectedObservationIds=obs_001&jobId=job_001&promotionPreviewId=preview_001&section=workbench&filter.status=changed",
+        cloneDraft: {
+          commandKey: "clone-provider-profile",
+          sourceProviderKey: "tcgdex",
+          sourceProfileVersion: "2026.06.04",
+          targetProfileVersion: "2026.06.04-draft",
+          targetLifecycle: "draft",
+          state: "available",
+          blockers: [],
+          submitHref:
+            "/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex%3Apokemon%3Asingle-card%3Asource-observation-import&importScope=changed&profileVersion=2026.06.04&selectedObservationIds=obs_001&jobId=job_001&promotionPreviewId=preview_001&section=profile-work&returnPath=%2Fcatalog%2Fintegrations%3FproviderKey%3Dtcgdex%26unitKey%3Dtcgdex%253Apokemon%253Asingle-card%253Asource-observation-import%26importScope%3Dchanged%26profileVersion%3D2026.06.04%26selectedObservationIds%3Dobs_001%26jobId%3Djob_001%26promotionPreviewId%3Dpreview_001%26section%3Dworkbench%26filter.status%3Dchanged&filter.status=changed",
+          lifecycleRestrictions: [
+            {
+              code: "active-clone-required",
+              label: "Draft required for active profiles",
+              description: "Active profiles are cloned before edits.",
+              severity: "warning",
+            },
+          ],
+          immutableIdentityFacts: [
+            {
+              key: "provider-key",
+              label: "Provider key",
+              value: "tcgdex",
+            },
+            {
+              key: "profile-key",
+              label: "Profile key",
+              value: "tcgdex-pokemon-card",
             },
           ],
         },
