@@ -467,6 +467,7 @@ export type CatalogAdminJobOperatorStatus =
   | "retried"
   | "partial"
   | "failed"
+  | "cancelled"
   | "completed";
 export type CatalogAdminJobConsistency = Readonly<{
   schemaVersion: Extract<CatalogIntegrationWireSchemaVersion, "catalog-integration-durable-job-v1">;
@@ -687,7 +688,7 @@ export type CatalogAdminReplayReapplyImpactSummaryReadModel = Readonly<{
   activeJobSamples: readonly Readonly<{
     jobId: string;
     jobKind: "integration" | "bulk-review";
-    action: "import" | "reapply" | "promote" | "reject";
+    action: "import" | "reapply" | "promote" | "reject" | "defer";
     status: string;
     providerKey: string | null;
     profileVersion: string | null;
@@ -699,7 +700,7 @@ export type CatalogAdminImportJobProgressSummaryReadModel = Readonly<{
   generatedAt: string;
   jobs: readonly Readonly<{
     jobId: string;
-    action: "import" | "reapply" | "promote" | "reject";
+    action: "import" | "reapply" | "promote" | "reject" | "defer";
     state: CatalogAdminJobState;
     operatorStatus: CatalogAdminJobOperatorStatus;
     unitKey: CatalogIntegrationUnitKey;

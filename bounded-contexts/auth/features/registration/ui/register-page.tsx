@@ -68,6 +68,7 @@ type RegistrationPageProps = Readonly<{
   action?: string;
   errorMessage?: string | null;
   hiddenFields?: readonly { name: string; value: string }[];
+  contextMessage?: Readonly<{ title: string; description: string }> | null;
   notice?: AuthActionNotice | null;
   returnTo?: string;
 }>;
@@ -284,6 +285,10 @@ export function RegisterPage(props: RegistrationPageProps) {
           {t("auth.features.registration.ui.registerPage.create.your.personal.identity.and.owner")}
         </Text>
       </Stack>
+
+      {props.contextMessage ? (
+        <Banner title={props.contextMessage.title} description={props.contextMessage.description} tone="info" />
+      ) : null}
 
       {props.errorMessage ? (
         <Banner

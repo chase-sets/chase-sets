@@ -41,9 +41,12 @@ import {
   bootstrapPlatformControlPlane,
   createPostgresPlatformControlPlane,
 } from "@chase-sets/platform-runtime/control-plane";
+import { createWorkSignalReadConsistencyGateway } from "@chase-sets/platform-runtime/read-consistency-work-signals";
+import { createPostgresWorkSignalStore } from "@chase-sets/platform-runtime/work-signal-store";
 import { createProcessDrainState, startGracefulHttpServer } from "@chase-sets/platform-runtime/process-lifecycle";
 import {
   getObservabilityRuntime,
+  recordCatalogControlPlaneEvent,
   recordCatalogIntegrationJob,
   recordCatalogIntegrationOptionQuery,
   recordRealtimeAuthorizationRejected,
@@ -380,12 +383,20 @@ configureDefaultDurableJobStreamLimiter(
     : undefined,
 );
 const drainState = createProcessDrainState();
+const readConsistencyWorkSignalGateway = config.readConsistency?.wakeBeforeWaitEnabled
+  ? createWorkSignalReadConsistencyGateway({
+      workSignalStore: createPostgresWorkSignalStore(pools.control),
+    })
+  : undefined;
 const app = buildPlatformApiApp(runtime, {
   internalAuthSecret: config.internalAuthSecret,
   controlPlane,
   getProjectionReplay: () => refreshProjectionReplaySummary(runtime),
   readConsistencyAuditLogger: logger,
-  readConsistency: config.readConsistency,
+  readConsistency: {
+    ...config.readConsistency,
+    workSignalGateway: readConsistencyWorkSignalGateway,
+  },
   readinessChecks: [
     {
       name: "control.database",
@@ -468,6 +479,7 @@ function createSourceObservationTelemetry() {
       recordCatalogIntegrationJob({ ...event, operation: "integration-job" }),
     recordBulkReviewWorkUnit: (event: { jobKind: string; result: string }) =>
       recordCatalogIntegrationJob({ ...event, operation: "bulk-review-work-unit" }),
+    recordControlPlaneEvent: recordCatalogControlPlaneEvent,
   };
 }
 

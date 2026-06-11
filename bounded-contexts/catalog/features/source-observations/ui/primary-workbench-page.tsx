@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   Badge,
   BulkActionBar,
@@ -61,6 +61,9 @@ type SourceObservationReviewRow = CatalogPrimaryWorkbenchReadModel["sourceObserv
 type CatalogPrimaryWorkbenchSubmitIntent = Extract<
   CatalogPrimaryWorkbenchActionReadModel["key"],
   | "start-provider-import"
+  | "retry-import-job"
+  | "resume-import-job"
+  | "cancel-import-job"
   | "preview-promotion"
   | "execute-promotion"
   | "reject-source-observations"
@@ -74,8 +77,10 @@ export type CatalogPrimaryWorkbenchCommandFeedback = Readonly<{
   intent: string;
   result:
     | "job-queued"
+    | "job-cancelled"
     | "preview-ready"
     | "preview-required"
+    | "job-required"
     | "reason-required"
     | "unsupported-command"
     | "invalid-intent"
@@ -141,6 +146,7 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
   const selectedEligibleObservationCount = selectedObservationRows.filter(
     (row) => row.promotionReadiness.state === "eligible",
   ).length;
+  const selectedReviewableObservationCount = selectedObservationRows.filter(isReviewableObservationRow).length;
   const columns = useMemo<DataColumn<PrimaryWorkbenchStep>[]>(
     () => [
       {
@@ -192,9 +198,25 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
             <div className="text-sm font-semibold text-foreground">{job.summary}</div>
             <div className="text-xs text-secondary">
               {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.table.profile", {
-                profile:
-                  job.profileVersion ?? t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected"),
+                profile: profileSnapshotLabel(job.profileSnapshot, job.profileVersion),
               })}
+            </div>
+            <div className="text-xs leading-5 text-secondary">
+              {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.context.unit", {
+                unit: job.unitKey ?? t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected"),
+              })}
+            </div>
+            <div className="flex min-w-0 flex-wrap gap-1">
+              <Badge tone={job.scopeMatchesRoute ? "success" : "warning"}>
+                {job.scopeMatchesRoute
+                  ? t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.context.current.scope")
+                  : t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.context.overlapping.scope")}
+              </Badge>
+              <Badge tone="neutral">
+                {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.context.scope", {
+                  scope: job.importScope ?? t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected"),
+                })}
+              </Badge>
             </div>
           </div>
         ),
@@ -207,12 +229,49 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
           <div className="grid min-w-0 gap-1">
             <Badge tone={jobStateTone(job.state)}>{stateLabel(job.state)}</Badge>
             <div className="text-xs text-secondary">
+              {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.operator.status", {
+                status: stateLabel(job.operatorStatus),
+              })}
+            </div>
+            <div className="text-xs text-secondary">
               {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.progress.value", {
                 completed: job.completed,
                 total: job.total,
                 percent: job.progressPercent,
               })}
             </div>
+            <div className="text-xs leading-5 text-secondary">
+              {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.created", {
+                value: job.createdAt,
+              })}
+            </div>
+            <div className="text-xs leading-5 text-secondary">
+              {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.started", {
+                value:
+                  job.startedAt ?? t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.not.started"),
+              })}
+            </div>
+          </div>
+        ),
+      },
+      {
+        key: "consistency",
+        header: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.table.consistency"),
+        mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.table.consistency"),
+        cell: (job) => (
+          <div className="grid min-w-0 gap-2">
+            <div className="text-xs leading-5 text-secondary">
+              {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.profile.snapshot", {
+                profile: profileSnapshotLabel(job.profileSnapshot, job.profileVersion),
+              })}
+            </div>
+            <div className="flex min-w-0 flex-wrap gap-1.5">
+              <Badge tone="neutral">{stateLabel(job.consistency.duplicateSubmissionPolicy)}</Badge>
+              <Badge tone="neutral">{stateLabel(job.consistency.retryResumePolicy)}</Badge>
+              <Badge tone="neutral">{stateLabel(job.consistency.partialFailurePolicy)}</Badge>
+              <Badge tone="neutral">{stateLabel(job.consistency.workUnitClaimPolicy)}</Badge>
+            </div>
+            <BlockerList blockers={job.blockers} compact hideWhenEmpty />
           </div>
         ),
       },
@@ -243,6 +302,21 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
         align: "right",
         cell: (job) => (
           <div className="flex flex-wrap justify-end gap-2">
+            {job.retryAvailable ? (
+              <ImportJobLifecycleAction readModel={readModel} job={job} intent="retry-import-job">
+                {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.retry")}
+              </ImportJobLifecycleAction>
+            ) : null}
+            {job.resumeAvailable ? (
+              <ImportJobLifecycleAction readModel={readModel} job={job} intent="resume-import-job">
+                {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.resume")}
+              </ImportJobLifecycleAction>
+            ) : null}
+            {job.cancelAvailable ? (
+              <ImportJobLifecycleAction readModel={readModel} job={job} intent="cancel-import-job" tone="danger">
+                {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.cancel")}
+              </ImportJobLifecycleAction>
+            ) : null}
             <a className="text-sm font-semibold text-accent hover:underline" href={job.sourceObservationReviewHref}>
               {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.review.link")}
             </a>
@@ -253,7 +327,7 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
         ),
       },
     ],
-    [],
+    [readModel],
   );
   const reviewColumns = useMemo<DataColumn<SourceObservationReviewRow>[]>(
     () => [
@@ -642,7 +716,7 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
               density="compact"
             >
               {readModel.importJobs.selectedScope ? (
-                <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
+                <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(18rem,24rem)]">
                   <KeyValueList
                     items={[
                       {
@@ -666,8 +740,37 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
                           t("catalog.features.sourceObservations.ui.primaryWorkbench.no.active.profile"),
                       },
                       {
+                        key: t(
+                          "catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.profile.snapshot",
+                        ),
+                        value: profileSnapshotLabel(
+                          readModel.importJobs.selectedScope.profileSnapshot,
+                          readModel.importJobs.selectedScope.profileVersion,
+                        ),
+                      },
+                    ]}
+                  />
+                  <KeyValueList
+                    items={[
+                      {
                         key: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.expected"),
                         value: readModel.importJobs.selectedScope.expectedObservationVolume,
+                      },
+                      {
+                        key: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.observed"),
+                        value: readModel.importJobs.selectedScope.observedCount,
+                      },
+                      {
+                        key: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.changed"),
+                        value: readModel.importJobs.selectedScope.changedCount,
+                      },
+                      {
+                        key: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.promoted"),
+                        value: readModel.importJobs.selectedScope.promotedCount,
+                      },
+                      {
+                        key: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.rejected"),
+                        value: readModel.importJobs.selectedScope.rejectedCount,
                       },
                     ]}
                   />
@@ -700,10 +803,16 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
                       },
                       {
                         key: t("catalog.features.sourceObservations.ui.primaryWorkbench.table.blockers"),
-                        value: readModel.importJobs.selectedScope.readiness.blockers.length,
+                        value:
+                          readModel.importJobs.selectedScope.readiness.blockers.length > 0
+                            ? readModel.importJobs.selectedScope.readiness.blockers.length
+                            : t("catalog.features.sourceObservations.ui.primaryWorkbench.none"),
                       },
                     ]}
                   />
+                  <div className="xl:col-span-3">
+                    <BlockerList blockers={readModel.importJobs.selectedScope.readiness.blockers} compact />
+                  </div>
                 </div>
               ) : (
                 <EmptyState
@@ -791,7 +900,7 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
                 getRowId={(row) => row.observationId}
                 selectedKeys={selectedObservationKeys}
                 onSelectionChange={setSelectedObservationKeys}
-                isRowSelectable={(row) => row.promotionReadiness.state === "eligible"}
+                isRowSelectable={isReviewableObservationRow}
                 density="compact"
                 emptyTitle={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.empty.title")}
                 emptyDescription={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.empty.description")}
@@ -815,6 +924,20 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
                       >
                         {t("catalog.features.sourceObservations.ui.primaryWorkbench.preview.promotion")}
                       </CommandFormButton>
+                      <CommandFormButton
+                        readModel={readModel}
+                        intent="defer-source-observations"
+                        size="sm"
+                        tone="secondary"
+                        selectedObservationIds={[...selectedObservationKeys]}
+                        reason={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.defer.reason")}
+                        disabled={
+                          selectedReviewableObservationCount === 0 ||
+                          !isActionAvailable(readModel, "defer-source-observations")
+                        }
+                      >
+                        {t("catalog.features.sourceObservations.ui.primaryWorkbench.review.defer")}
+                      </CommandFormButton>
                       <Button size="sm" tone="secondary" onClick={() => setSelectedObservationKeys(new Set())}>
                         {t("catalog.features.sourceObservations.ui.primaryWorkbench.clear.selection")}
                       </Button>
@@ -822,6 +945,10 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
                   </div>
                   <KeyValueList
                     items={[
+                      {
+                        key: t("catalog.features.sourceObservations.ui.primaryWorkbench.reviewable.observations"),
+                        value: selectedReviewableObservationCount,
+                      },
                       {
                         key: t("catalog.features.sourceObservations.ui.primaryWorkbench.eligible.observations"),
                         value: selectedEligibleObservationCount,
@@ -855,7 +982,7 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
                         name="reason"
                         required
                         disabled={
-                          selectedEligibleObservationCount === 0 ||
+                          selectedReviewableObservationCount === 0 ||
                           !isActionAvailable(readModel, "reject-source-observations")
                         }
                       />
@@ -865,7 +992,7 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
                       size="sm"
                       tone="secondary"
                       disabled={
-                        selectedEligibleObservationCount === 0 ||
+                        selectedReviewableObservationCount === 0 ||
                         !isActionAvailable(readModel, "reject-source-observations")
                       }
                     >
@@ -1126,28 +1253,24 @@ function RowCommandAction({
     observation: row.displayName,
   });
 
-  if (actionEntry.key === "preview-promotion") {
+  if (
+    actionEntry.key === "preview-promotion" ||
+    actionEntry.key === "defer-source-observations" ||
+    actionEntry.key === "start-reapply" ||
+    actionEntry.key === "start-replay"
+  ) {
     return (
       <CommandFormButton
         readModel={readModel}
-        intent="preview-promotion"
+        intent={actionEntry.key}
         selectedObservationIds={[row.observationId]}
         size="sm"
-        disabled={disabled}
-        aria-label={ariaLabel}
-      >
-        {rowActionLabel(actionEntry.key)}
-      </CommandFormButton>
-    );
-  }
-  if (actionEntry.key === "start-reapply") {
-    return (
-      <CommandFormButton
-        readModel={readModel}
-        intent="start-reapply"
-        selectedObservationIds={[row.observationId]}
-        size="sm"
-        tone="secondary"
+        tone={actionEntry.key === "preview-promotion" ? "primary" : "secondary"}
+        reason={
+          actionEntry.key === "defer-source-observations"
+            ? t("catalog.features.sourceObservations.ui.primaryWorkbench.review.defer.reason")
+            : undefined
+        }
         disabled={disabled}
         aria-label={ariaLabel}
       >
@@ -1163,10 +1286,44 @@ function RowCommandAction({
   );
 }
 
+function isReviewableObservationRow(row: SourceObservationReviewRow): boolean {
+  return row.status === "observed" || row.status === "changed";
+}
+
+function ImportJobLifecycleAction({
+  readModel,
+  job,
+  intent,
+  tone = "secondary",
+  children,
+}: {
+  readModel: CatalogPrimaryWorkbenchReadModel;
+  job: ImportJobRow;
+  intent: Extract<CatalogPrimaryWorkbenchSubmitIntent, "retry-import-job" | "resume-import-job" | "cancel-import-job">;
+  tone?: ButtonProps["tone"];
+  children: ReactNode;
+}) {
+  return (
+    <Form
+      spacing="none"
+      method="post"
+      action={catalogPrimaryWorkbenchHref({ ...readModel.routeContext, jobId: job.jobId }, "import-to-promotion")}
+      className="inline-flex"
+      data-catalog-primary-workbench-command={intent}
+    >
+      <CommandHiddenInputs readModel={readModel} intent={intent} jobId={job.jobId} />
+      <Button type="submit" size="sm" tone={tone}>
+        {children}
+      </Button>
+    </Form>
+  );
+}
+
 type CommandFormButtonProps = Omit<ButtonProps, "type" | "disabled"> & {
   readModel: CatalogPrimaryWorkbenchReadModel;
   intent: CatalogPrimaryWorkbenchSubmitIntent;
   selectedObservationIds?: readonly string[];
+  reason?: string;
   disabled?: boolean;
 };
 
@@ -1174,6 +1331,7 @@ function CommandFormButton({
   readModel,
   intent,
   selectedObservationIds,
+  reason,
   disabled = false,
   children,
   ...buttonProps
@@ -1187,6 +1345,7 @@ function CommandFormButton({
       data-catalog-primary-workbench-command={intent}
     >
       <CommandHiddenInputs readModel={readModel} intent={intent} selectedObservationIds={selectedObservationIds} />
+      {reason ? <input type="hidden" name="reason" value={reason} /> : null}
       <Button type="submit" disabled={disabled || !isActionAvailable(readModel, intent)} {...buttonProps}>
         {children}
       </Button>
@@ -1198,13 +1357,16 @@ function CommandHiddenInputs({
   readModel,
   intent,
   selectedObservationIds,
+  jobId,
 }: {
   readModel: CatalogPrimaryWorkbenchReadModel;
   intent: CatalogPrimaryWorkbenchSubmitIntent;
   selectedObservationIds?: readonly string[];
+  jobId?: string | null;
 }) {
   const context = readModel.routeContext;
   const observationIds = selectedObservationIds ?? context.selectedObservationIds;
+  const jobIdValue = jobId ?? context.jobId ?? "";
 
   return (
     <>
@@ -1214,7 +1376,7 @@ function CommandHiddenInputs({
       <input type="hidden" name="importScope" value={context.importScope ?? ""} />
       <input type="hidden" name="profileVersion" value={context.profileVersion ?? ""} />
       <input type="hidden" name="selectedObservationIds" value={observationIds.join(",")} />
-      <input type="hidden" name="jobId" value={context.jobId ?? ""} />
+      <input type="hidden" name="jobId" value={jobIdValue} />
       <input type="hidden" name="promotionPreviewId" value={context.promotionPreviewId ?? ""} />
     </>
   );
@@ -1638,6 +1800,8 @@ function rowActionLabel(key: SourceObservationReviewRow["actions"][number]["key"
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.review.defer");
     case "start-reapply":
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.review.reapply");
+    case "start-replay":
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.review.replay");
   }
 }
 
@@ -1656,6 +1820,9 @@ function jobStateTone(state: ImportJobRow["state"]) {
 }
 
 function failureGroupLabel(group: ImportJobRow["failureGroups"][number]): string {
+  if (group.key === "durable-job-cancelled") {
+    return t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.failure.cancelled");
+  }
   if (group.key === "durable-job-failed") {
     return t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.failure.durable");
   }
@@ -1688,6 +1855,17 @@ function blockerTone(blocker: CatalogPrimaryWorkbenchBlockerCategory) {
   return blocker.includes("blocked") ? "danger" : "warning";
 }
 
+function profileSnapshotLabel(
+  profileSnapshot: ImportJobRow["profileSnapshot"],
+  fallbackVersion: string | null,
+): string {
+  if (profileSnapshot) {
+    return `${profileSnapshot.profileKey}@${profileSnapshot.profileVersion}`;
+  }
+
+  return fallbackVersion ?? t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected");
+}
+
 function stateLabel(state: string): string {
   return state
     .split("-")
@@ -1699,6 +1877,9 @@ function commandSuccessTitle(result: CatalogPrimaryWorkbenchCommandFeedback["res
   if (result === "preview-ready") {
     return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.preview.title");
   }
+  if (result === "job-cancelled") {
+    return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.cancelled.title");
+  }
 
   return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.queued.title");
 }
@@ -1708,6 +1889,9 @@ function commandFeedbackDescription(feedback: CatalogPrimaryWorkbenchCommandFeed
     if (feedback.result === "preview-ready") {
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.preview.description");
     }
+    if (feedback.result === "job-cancelled") {
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.cancelled.description");
+    }
 
     return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.queued.description");
   }
@@ -1715,6 +1899,8 @@ function commandFeedbackDescription(feedback: CatalogPrimaryWorkbenchCommandFeed
   switch (feedback.result) {
     case "preview-required":
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.preview.required");
+    case "job-required":
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.job.required");
     case "reason-required":
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.reason.required");
     case "unsupported-command":

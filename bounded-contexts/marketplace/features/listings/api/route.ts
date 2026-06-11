@@ -50,6 +50,11 @@ function requireListingAccess(
   return { actor, response: null };
 }
 
+function requireAnonymousListingDraftOwnerId(c: { req: { header(name: string): string | undefined } }) {
+  const ownerId = c.req.header("x-marketplace-anonymous-listing-draft-id")?.trim() ?? "";
+  return ownerId.startsWith("anon_") ? ownerId : null;
+}
+
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("marketplace.features.listings.api.route.request.failed");
 }
@@ -145,6 +150,21 @@ function parseInventorySnapshot(body: Record<string, unknown>) {
     shipFromAddress,
     totalQuantity: Number(source.totalQuantity ?? 0),
     acquisitionCostAmount: source.acquisitionCostAmount == null ? null : String(source.acquisitionCostAmount),
+  };
+}
+
+function parseAnonymousListingDraftBody(body: Record<string, unknown>) {
+  const productSummary = body.productSummary ?? body.product_summary;
+
+  return {
+    sourcePath: String(body.sourcePath ?? body.source_path ?? ""),
+    catalogItemId: String(body.catalogItemId ?? body.catalog_item_id ?? ""),
+    productId: String(body.productId ?? body.product_id ?? ""),
+    selectedOptions: parseSelectedOptions(body.selectedOptions ?? body.selected_options),
+    productSummary: productSummary === null || productSummary === undefined ? null : String(productSummary),
+    priceAmount: String(body.priceAmount ?? body.price_amount ?? ""),
+    quantityCap: Number(body.quantityCap ?? body.quantity_cap ?? 0),
+    purchaseLimits: parsePurchaseLimits(body),
   };
 }
 
@@ -376,6 +396,38 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
       total: result.total,
       count: result.items.length,
     });
+  });
+
+  app.post("/listing-draft-intents/:id/claim", async (c) => {
+    const access = requireListingAccess(c, "listings.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    const anonymousOwnerId = requireAnonymousListingDraftOwnerId(c);
+    if (!anonymousOwnerId) {
+      return c.json(
+        {
+          error: {
+            code: "anonymous_listing_draft_required",
+            message: t("marketplace.features.listings.api.route.anonymous.listing.draft.required"),
+          },
+        },
+        400,
+      );
+    }
+
+    try {
+      return c.json(
+        await services.claimAnonymousListingDraftIntent({
+          anonymousOwnerId,
+          intentId: c.req.param("id"),
+          accountId: access.actor.accountId,
+        }),
+      );
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
   });
 
   app.get("/listings/:id", async (c) => {
@@ -770,6 +822,35 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
 
 export function createPublicListingRoutes(services: MarketplaceListingServices) {
   const app = new Hono<MarketplaceApiEnv>();
+
+  app.post("/guest/listing-draft-intents", async (c) => {
+    const anonymousOwnerId = requireAnonymousListingDraftOwnerId(c);
+    if (!anonymousOwnerId) {
+      return c.json(
+        {
+          error: {
+            code: "anonymous_listing_draft_required",
+            message: t("marketplace.features.listings.api.route.anonymous.listing.draft.required"),
+          },
+        },
+        400,
+      );
+    }
+
+    const body = await c.req.json().catch(() => ({}));
+
+    try {
+      return c.json(
+        await services.createAnonymousListingDraftIntent({
+          anonymousOwnerId,
+          ...parseAnonymousListingDraftBody(body),
+        }),
+        201,
+      );
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
 
   app.post("/terms/public-standard/listing-preview", async (c) => {
     const body = await c.req.json().catch(() => ({}));

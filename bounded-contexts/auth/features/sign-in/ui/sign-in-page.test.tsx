@@ -29,6 +29,25 @@ describe("sign-in page two-step journey", () => {
     expect(screen.queryByRole("button", { name: "Send Phone Code" })).toBeNull();
   });
 
+  it("shows contextual sign-in copy when the return path needs an account gate", () => {
+    render(
+      <SignInPage
+        contextMessage={{
+          title: "Use an account to continue seller checkout",
+          description:
+            "Your Sell List is saved. An account is required before offer acceptance, listing publication, payout, or shipping label work starts.",
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Use an account to continue seller checkout")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Your Sell List is saved. An account is required before offer acceptance, listing publication, payout, or shipping label work starts.",
+      ),
+    ).toBeTruthy();
+  });
+
   it("preserves the identifier form payload after migrating to the shared Form pattern", () => {
     render(<SignInPage />);
 

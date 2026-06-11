@@ -59,6 +59,51 @@ function createServices(): MarketplaceListingServices {
       source_updated_at: "2026-04-17T00:00:00.000Z",
       resolved_at: "2026-04-17T00:00:00.000Z",
     })),
+    createAnonymousListingDraftIntent: vi.fn(
+      async (params: Parameters<MarketplaceListingServices["createAnonymousListingDraftIntent"]>[0]) => ({
+        intent_id: "ldi_1",
+        anonymous_owner_id: params.anonymousOwnerId,
+        source_path: params.sourcePath,
+        catalog_item_id: params.catalogItemId,
+        product_id: params.productId,
+        selected_options: params.selectedOptions,
+        product_summary: params.productSummary ?? null,
+        price_amount: params.priceAmount,
+        quantity_cap: params.quantityCap,
+        max_units_per_order: params.purchaseLimits?.maxUnitsPerOrder ?? null,
+        max_units_per_day: params.purchaseLimits?.maxUnitsPerDay ?? null,
+        max_units_per_customer_account: params.purchaseLimits?.maxUnitsPerCustomerAccount ?? null,
+        status: "active",
+        claimed_account_id: null,
+        claimed_at: null,
+        expires_at: "2026-05-17T00:00:00.000Z",
+        created_at: "2026-04-17T00:00:00.000Z",
+        updated_at: "2026-04-17T00:00:00.000Z",
+      }),
+    ),
+    getAnonymousListingDraftIntent: vi.fn(async () => null),
+    claimAnonymousListingDraftIntent: vi.fn(
+      async (params: Parameters<MarketplaceListingServices["claimAnonymousListingDraftIntent"]>[0]) => ({
+        intent_id: params.intentId,
+        anonymous_owner_id: params.anonymousOwnerId,
+        source_path: "/items/charizard?market=sell",
+        catalog_item_id: "cat_charizard",
+        product_id: "cat_charizard::form:raw",
+        selected_options: [{ dimensionId: "form", optionId: "raw" }],
+        product_summary: "Form: Raw",
+        price_amount: "20.00",
+        quantity_cap: 1,
+        max_units_per_order: null,
+        max_units_per_day: null,
+        max_units_per_customer_account: null,
+        status: "claimed",
+        claimed_account_id: params.accountId,
+        claimed_at: "2026-04-17T00:00:00.000Z",
+        expires_at: "2026-05-17T00:00:00.000Z",
+        created_at: "2026-04-17T00:00:00.000Z",
+        updated_at: "2026-04-17T00:00:00.000Z",
+      }),
+    ),
     publishListing: vi.fn(async () => ({ listingId: "lst_1", version: 2 })),
     listSellerListingFeeHistory: vi.fn(async () => [
       {
@@ -157,6 +202,113 @@ describe("marketplace listing routes", () => {
     expect(body).not.toHaveProperty("agreement_id");
     expect(services.previewPublicStandardListingTerms).toHaveBeenCalledWith({
       priceAmount: "20.00",
+    });
+  });
+
+  it("saves an anonymous listing draft intent without requiring a signed-in actor", async () => {
+    const services = createServices();
+    const app = buildApp({
+      actor: null,
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://marketplace.test/guest/listing-draft-intents", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-marketplace-anonymous-listing-draft-id": "anon_listing_draft",
+        },
+        body: JSON.stringify({
+          sourcePath: "/items/charizard?market=sell",
+          catalogItemId: "cat_charizard",
+          productId: "cat_charizard::form:raw",
+          selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+          productSummary: "Form: Raw",
+          priceAmount: "20.00",
+          quantityCap: 1,
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toMatchObject({
+      intent_id: "ldi_1",
+      anonymous_owner_id: "anon_listing_draft",
+      catalog_item_id: "cat_charizard",
+      price_amount: "20.00",
+      status: "active",
+    });
+    expect(services.createAnonymousListingDraftIntent).toHaveBeenCalledWith({
+      anonymousOwnerId: "anon_listing_draft",
+      sourcePath: "/items/charizard?market=sell",
+      catalogItemId: "cat_charizard",
+      productId: "cat_charizard::form:raw",
+      selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+      productSummary: "Form: Raw",
+      priceAmount: "20.00",
+      quantityCap: 1,
+      purchaseLimits: {
+        maxUnitsPerOrder: null,
+        maxUnitsPerDay: null,
+        maxUnitsPerCustomerAccount: null,
+      },
+    });
+  });
+
+  it("requires the anonymous owner header before saving a listing draft intent", async () => {
+    const services = createServices();
+    const app = buildApp({
+      actor: null,
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://marketplace.test/guest/listing-draft-intents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ priceAmount: "20.00", quantityCap: 1 }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(services.createAnonymousListingDraftIntent).not.toHaveBeenCalled();
+  });
+
+  it("claims an anonymous listing draft intent for a signed-in seller", async () => {
+    const services = createServices();
+    const app = buildApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_seller",
+        accountId: "acc_seller",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["listings.view", "listings.manage"],
+      },
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://marketplace.test/account/listing-draft-intents/ldi_1/claim", {
+        method: "POST",
+        headers: {
+          "x-marketplace-anonymous-listing-draft-id": "anon_listing_draft",
+        },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      intent_id: "ldi_1",
+      status: "claimed",
+      claimed_account_id: "acc_seller",
+    });
+    expect(services.claimAnonymousListingDraftIntent).toHaveBeenCalledWith({
+      anonymousOwnerId: "anon_listing_draft",
+      intentId: "ldi_1",
+      accountId: "acc_seller",
     });
   });
 

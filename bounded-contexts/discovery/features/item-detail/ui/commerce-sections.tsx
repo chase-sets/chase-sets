@@ -62,6 +62,8 @@ type ProductSelectionDisplayDetail = Readonly<{
   value: ReactNode;
 }>;
 
+type MarketSelectionSource = "explicit" | "implicit";
+
 function productOptionsFromSelectionDetails(selections: readonly ProductSelectionDisplayDetail[]) {
   return selections.map((selection) => ({
     dimensionLabel: selection.label,
@@ -533,6 +535,7 @@ export function CheckoutPurchaseIntentSection({
   catalogItemId,
   productId,
   selectedListing,
+  selectedListingSource = "explicit",
   itemTitle,
   selectedOptions,
   productSelectionDetails = [],
@@ -558,6 +561,7 @@ export function CheckoutPurchaseIntentSection({
     seller_average_rating?: string | null;
     seller_review_count?: number;
   } | null;
+  selectedListingSource?: MarketSelectionSource;
   itemTitle: string;
   selectedOptions: readonly { dimensionId: string; optionId: string }[];
   productSelectionDetails?: readonly ProductSelectionDisplayDetail[];
@@ -587,46 +591,66 @@ export function CheckoutPurchaseIntentSection({
   const addToCartSuccessData = isAddToCartActionData(addToCartFetcher.data) ? addToCartFetcher.data : null;
   const addToCartError = getActionErrorMessage(addToCartFetcher.data);
   const addToCartPending = addToCartFetcher.state !== "idle";
+  const addToCartUsesSelectedListing = Boolean(selectedListing && selectedListingSource === "explicit");
+  const showSelectedListingContext = Boolean(
+    selectedListing && (actionMode !== "add-to-cart" || addToCartUsesSelectedListing),
+  );
   const selectionHeading =
-    selectedListing && actionMode !== "add-to-cart"
-      ? t("discovery.features.itemDetail.ui.itemDetailPage.selected.listing")
+    selectedListing && showSelectedListingContext
+      ? selectedListingSource === "explicit"
+        ? t("discovery.features.itemDetail.ui.itemDetailPage.selected.listing")
+        : t("discovery.routes.itemDetail.best.available.listing")
       : t("discovery.routes.itemDetail.selected.product");
   const priceLabel = selectedListing
-    ? actionMode === "add-to-cart"
+    ? (actionMode === "add-to-cart" && !addToCartUsesSelectedListing) || selectedListingSource === "implicit"
       ? t("discovery.routes.itemDetail.best.available.price")
       : t("discovery.routes.itemDetail.selected.price")
     : t("discovery.routes.itemDetail.market.signal");
+  const buyListingReferenceInfo = {
+    triggerLabel: t("discovery.routes.itemDetail.referenceInfo.buyListing.trigger"),
+    ariaLabel: t("discovery.routes.itemDetail.referenceInfo.buyListing.aria"),
+    title: t("discovery.routes.itemDetail.referenceInfo.buyListing.title"),
+    summary: t("discovery.routes.itemDetail.referenceInfo.buyListing.summary"),
+    lines:
+      actionMode === "all"
+        ? [
+            t("discovery.routes.itemDetail.referenceInfo.buyListing.line1"),
+            t("discovery.routes.itemDetail.referenceInfo.buyListing.line2"),
+            t("discovery.routes.itemDetail.referenceInfo.listingCart.summary"),
+            t("discovery.routes.itemDetail.referenceInfo.listingCart.line1"),
+            t("discovery.routes.itemDetail.referenceInfo.listingCart.line2"),
+          ]
+        : [
+            t("discovery.routes.itemDetail.referenceInfo.buyListing.line1"),
+            t("discovery.routes.itemDetail.referenceInfo.buyListing.line2"),
+          ],
+  };
+  const listingCartReferenceInfo = {
+    triggerLabel: t("discovery.routes.itemDetail.referenceInfo.listingCart.trigger"),
+    ariaLabel: t("discovery.routes.itemDetail.referenceInfo.listingCart.aria"),
+    title: t("discovery.routes.itemDetail.referenceInfo.listingCart.title"),
+    summary: t("discovery.routes.itemDetail.referenceInfo.listingCart.summary"),
+    lines: [
+      t("discovery.routes.itemDetail.referenceInfo.listingCart.line1"),
+      t("discovery.routes.itemDetail.referenceInfo.listingCart.line2"),
+    ],
+  };
+  const productCartReferenceInfo = {
+    triggerLabel: t("discovery.routes.itemDetail.referenceInfo.productCart.trigger"),
+    ariaLabel: t("discovery.routes.itemDetail.referenceInfo.productCart.aria"),
+    title: t("discovery.routes.itemDetail.referenceInfo.productCart.title"),
+    summary: t("discovery.routes.itemDetail.referenceInfo.productCart.summary"),
+    lines: [
+      t("discovery.routes.itemDetail.referenceInfo.productCart.line1"),
+      t("discovery.routes.itemDetail.referenceInfo.productCart.line2"),
+    ],
+  };
   const purchaseReferenceInfo =
     selectedListing && actionMode !== "add-to-cart"
-      ? {
-          triggerLabel: t("discovery.routes.itemDetail.referenceInfo.buyListing.trigger"),
-          ariaLabel: t("discovery.routes.itemDetail.referenceInfo.buyListing.aria"),
-          title: t("discovery.routes.itemDetail.referenceInfo.buyListing.title"),
-          summary: t("discovery.routes.itemDetail.referenceInfo.buyListing.summary"),
-          lines:
-            actionMode === "all"
-              ? [
-                  t("discovery.routes.itemDetail.referenceInfo.buyListing.line1"),
-                  t("discovery.routes.itemDetail.referenceInfo.buyListing.line2"),
-                  t("discovery.routes.itemDetail.referenceInfo.productCart.summary"),
-                  t("discovery.routes.itemDetail.referenceInfo.productCart.line1"),
-                  t("discovery.routes.itemDetail.referenceInfo.productCart.line2"),
-                ]
-              : [
-                  t("discovery.routes.itemDetail.referenceInfo.buyListing.line1"),
-                  t("discovery.routes.itemDetail.referenceInfo.buyListing.line2"),
-                ],
-        }
-      : {
-          triggerLabel: t("discovery.routes.itemDetail.referenceInfo.productCart.trigger"),
-          ariaLabel: t("discovery.routes.itemDetail.referenceInfo.productCart.aria"),
-          title: t("discovery.routes.itemDetail.referenceInfo.productCart.title"),
-          summary: t("discovery.routes.itemDetail.referenceInfo.productCart.summary"),
-          lines: [
-            t("discovery.routes.itemDetail.referenceInfo.productCart.line1"),
-            t("discovery.routes.itemDetail.referenceInfo.productCart.line2"),
-          ],
-        };
+      ? buyListingReferenceInfo
+      : addToCartUsesSelectedListing
+        ? listingCartReferenceInfo
+        : productCartReferenceInfo;
   useEffect(() => {
     if (isAddToCartActionData(addToCartFetcher.data)) {
       notifyCartCountChanged(addToCartFetcher.data.quantity);
@@ -678,7 +702,9 @@ export function CheckoutPurchaseIntentSection({
     >
       {addToCartPending
         ? t("discovery.routes.itemDetail.adding.to.cart")
-        : t("discovery.routes.itemDetail.add.to.cart")}
+        : addToCartUsesSelectedListing
+          ? t("discovery.routes.itemDetail.add.listing.to.cart")
+          : t("discovery.routes.itemDetail.add.to.cart")}
     </Button>
   );
   const defaultActions =
@@ -699,6 +725,11 @@ export function CheckoutPurchaseIntentSection({
         <HiddenInput type="hidden" name="catalogItemId" value={catalogItemId} />
         <HiddenInput type="hidden" name="listingId" value="" />
         <HiddenInput type="hidden" name="lockedListingId" value={selectedListing?.listing_id ?? ""} />
+        <HiddenInput
+          type="hidden"
+          name="sellerPreferenceId"
+          value={addToCartUsesSelectedListing ? (selectedListing?.listing_id ?? "") : ""}
+        />
         <HiddenInput type="hidden" name="productId" value={productId ?? ""} />
         <HiddenInput type="hidden" name="selectedOptions" value={JSON.stringify(selectedOptions)} />
         <HiddenInput type="hidden" name="productSummary" value={productSummary ?? ""} />
@@ -804,6 +835,7 @@ export function MarketplaceOfferMatchSection({
   actions,
   actionMode = "all",
   selectedOffer,
+  selectedOfferSource = "explicit",
   productId,
   productSelectionDetails = [],
   productSummary,
@@ -830,6 +862,7 @@ export function MarketplaceOfferMatchSection({
     buyer_review_count?: number;
     acceptance_terms?: MarketplaceListingTermsPreview | null;
   } | null;
+  selectedOfferSource?: MarketSelectionSource;
   productId: string | null;
   productSelectionDetails?: readonly ProductSelectionDisplayDetail[];
   productSummary?: string | null;
@@ -855,7 +888,8 @@ export function MarketplaceOfferMatchSection({
   const termsSource = acceptanceTerms
     ? formatTermsSource(acceptanceTerms)
     : t("discovery.routes.itemDetail.standard.terms");
-  const selectedOfferBuyer = selectedOffer?.buyer_display_name ?? selectedOffer?.buyer_account_id ?? "Buyer account";
+  const selectedOfferBuyerName = selectedOffer?.buyer_display_name?.trim();
+  const selectedOfferBuyer = selectedOfferBuyerName || t("discovery.features.itemDetail.ui.itemDetailPage.buyer");
   const selectedOfferBuyerHref = selectedOffer?.buyer_slug ? `/accounts/${selectedOffer.buyer_slug}#feedback` : null;
   const selectedOfferReferenceInfo =
     actionMode === "add-to-sell-list"
@@ -924,7 +958,11 @@ export function MarketplaceOfferMatchSection({
         />
         {showSummary ? (
           <Stack gap={1}>
-            <Text weight="semibold">{t("discovery.routes.itemDetail.selected.offer.heading")}</Text>
+            <Text weight="semibold">
+              {selectedOfferSource === "explicit"
+                ? t("discovery.routes.itemDetail.selected.offer.heading")
+                : t("discovery.routes.itemDetail.best.offer.heading")}
+            </Text>
             {selectedOffer ? (
               <>
                 <Stack gap={1}>
@@ -1119,6 +1157,7 @@ export function MarketplaceSellerRegistrationSection({
   productSummary,
   productSelectionDetails = [],
   selectedOffer,
+  selectedOfferSource = "explicit",
   matchingOfferCount,
   registerHref,
 }: {
@@ -1130,10 +1169,14 @@ export function MarketplaceSellerRegistrationSection({
   selectedOffer?: {
     buyer_display_name: string | null;
     buyer_account_id: string;
+    buyer_slug?: string | null;
+    buyer_average_rating?: string | null;
+    buyer_review_count?: number;
     price_amount: string;
     quantity_requested: number;
     public_standard_terms_preview?: MarketplaceListingTermsPreview | null;
   } | null;
+  selectedOfferSource?: MarketSelectionSource;
   matchingOfferCount?: number;
   registerHref: string;
 }) {
@@ -1156,12 +1199,19 @@ export function MarketplaceSellerRegistrationSection({
     ? formatTermsSource(selectedOfferQuote)
     : t("discovery.routes.itemDetail.standard.terms");
   const selectedOfferQuoteTime = selectedOfferQuote ? new Date(selectedOfferQuote.resolved_at).toLocaleString() : null;
+  const selectedOfferBuyerName = selectedOffer?.buyer_display_name?.trim();
+  const selectedOfferBuyer = selectedOfferBuyerName || t("discovery.features.itemDetail.ui.itemDetailPage.buyer");
+  const selectedOfferBuyerHref = selectedOffer?.buyer_slug ? `/accounts/${selectedOffer.buyer_slug}#feedback` : null;
   const offerRegistrationPanel = selectedOffer ? (
     <FormPanel variant={panelVariant} glow>
       <Stack gap={3}>
         {showSummary ? (
           <Stack gap={1}>
-            <Text weight="semibold">{t("discovery.routes.itemDetail.selected.offer.heading")}</Text>
+            <Text weight="semibold">
+              {selectedOfferSource === "explicit"
+                ? t("discovery.routes.itemDetail.selected.offer.heading")
+                : t("discovery.routes.itemDetail.best.offer.heading")}
+            </Text>
             <Stack gap={1}>
               <Inline gap={2}>
                 <Text weight="semibold">
@@ -1177,11 +1227,13 @@ export function MarketplaceSellerRegistrationSection({
                   </Badge>
                 ) : null}
               </Inline>
-              <Text size="sm" tone="secondary">
-                {t("discovery.routes.itemDetail.offer.from.buyer", {
-                  buyer: selectedOffer.buyer_display_name ?? selectedOffer.buyer_account_id,
-                })}
-              </Text>
+              <AccountReputationSummary
+                accountName={selectedOfferBuyer}
+                href={selectedOfferBuyerHref}
+                averageRating={selectedOffer.buyer_average_rating}
+                reviewCount={selectedOffer.buyer_review_count ?? 0}
+                ratingLabel={t("discovery.features.itemDetail.ui.itemDetailPage.buyer.reputation")}
+              />
             </Stack>
             <KeyValueList
               density="compact"
@@ -1197,17 +1249,7 @@ export function MarketplaceSellerRegistrationSection({
                       },
                       {
                         key: t("discovery.routes.itemDetail.seller.payout"),
-                        value: t("discovery.routes.itemDetail.seller.payout.after.fee", {
-                          payout: formatMoneyAmount(sellerNetTotal),
-                          fee: formatMoneyAmount(marketplaceFeeTotal),
-                        }),
-                      },
-                      {
-                        key: t("discovery.routes.itemDetail.shipping.allowance"),
-                        value: t("discovery.routes.itemDetail.shipping.allowance.amount", {
-                          amount: formatMoneyAmount(shippingAllowanceAmount),
-                          percentage: formatAllowancePercentage(selectedOfferQuote.shipping_allowance_percentage_bps),
-                        }),
+                        value: formatMoneyAmount(sellerNetTotal),
                       },
                       {
                         key: t("discovery.routes.itemDetail.product"),
@@ -1432,6 +1474,7 @@ export function MarketplaceListingSubmissionSection({
   bestListing,
   ownListing,
   hasListingStockLocation,
+  allowDraftWithoutShipFromSetup = false,
   errorMessage,
 }: {
   formId?: string;
@@ -1452,12 +1495,13 @@ export function MarketplaceListingSubmissionSection({
   } | null;
   ownListing: DiscoveryMarketListing | null;
   hasListingStockLocation: boolean;
+  allowDraftWithoutShipFromSetup?: boolean;
   errorMessage?: string | null;
 }) {
   const listing = ownListing ?? null;
   const listPrice = listing?.price_amount ?? bestListing?.price_amount ?? "";
   const defaultQuantity = listing?.quantity_cap ?? 1;
-  const requiresShipFromSetup = !listing && !hasListingStockLocation;
+  const requiresShipFromSetup = !listing && !hasListingStockLocation && !allowDraftWithoutShipFromSetup;
   const canUseListAction = Boolean(productId && listPrice && !requiresShipFromSetup);
   const defaultActions = listing ? (
     <LinkButton href={`/account/listings/${listing.listing_id}`} block>
@@ -1474,6 +1518,7 @@ export function MarketplaceListingSubmissionSection({
       <Stack gap={3}>
         <HiddenInput type="hidden" name="productId" value={productId ?? ""} />
         <HiddenInput type="hidden" name="selectedOptions" value={JSON.stringify(selectedOptions)} />
+        <HiddenInput type="hidden" name="productSummary" value={productSummary ?? ""} />
         <HiddenInput type="hidden" name="listingId" value={listing?.listing_id ?? ""} />
         <HiddenInput type="hidden" name="priceAmount" value={listPrice} />
         <HiddenInput type="hidden" name="quantityCap" value={String(defaultQuantity)} />

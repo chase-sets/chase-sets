@@ -21,7 +21,11 @@ import {
   selectDiscoveryProductAssetUrl,
 } from "../support/client-support/product-assets";
 import {
+  appendAnonymousListingDraftCookie,
   createMarketplaceRequestApiClient,
+  ensureAnonymousListingDraftOwnerId,
+  MarketplaceApiError,
+  type OfferMatchListItem,
   type MarketplaceListingInventoryItemOption,
   type MarketplaceListingTermsPreview,
   type MarketplacePublicStandardTermsPreview,
@@ -80,10 +84,14 @@ const EMPTY_ITEM_DETAIL_RESULT = {
   hasListingStockLocation: false,
   viewerAccountId: null,
   initialMarketIntent: "buy" as const,
+  initialSelectedListingId: null,
+  initialSelectedOfferId: null,
   initialSelectedOptions: [],
   hasInitialSelectedOptionFilters: false,
   showSellerTab: true,
   canUseSellerFeatures: false,
+  canUseListingFeatures: false,
+  canUseGuestListingDraft: false,
   canSubmitOffers: false,
   registerToSellHref: "/register",
   notFound: false,
@@ -130,6 +138,11 @@ function buildRegisterToSellHref(request: Request) {
   const url = new URL(request.url);
   const returnTo = `${url.pathname}${url.search}`;
 
+  return `/register?returnTo=${encodeURIComponent(returnTo)}`;
+}
+
+function buildRegisterToClaimListingDraftHref(intentId: string) {
+  const returnTo = `/account/listings?claimListingIntent=${encodeURIComponent(intentId)}`;
   return `/register?returnTo=${encodeURIComponent(returnTo)}`;
 }
 
@@ -197,6 +210,17 @@ export function readInitialSelectedOptions(searchParams: URLSearchParams) {
     }));
 }
 
+export function readExplicitMarketSelectionId(searchParams: URLSearchParams, key: "listing" | "offer") {
+  const ids = new Set(
+    searchParams
+      .getAll(key)
+      .map((value) => value.trim())
+      .filter(Boolean),
+  );
+
+  return ids.size === 1 ? [...ids][0] : null;
+}
+
 function hasInitialSelectedOptionFilters(searchParams: URLSearchParams) {
   return [...searchParams.entries()].some(([key, value]) => key.startsWith("dimension.") && value.trim().length > 0);
 }
@@ -237,6 +261,154 @@ function parseSelectedOptions(value: FormDataEntryValue | null) {
   }
 }
 
+function parsePositiveQuantity(value: FormDataEntryValue | null) {
+  const normalized = String(value ?? "").trim();
+  const quantity = Number(normalized);
+
+  if (!/^\d+$/.test(normalized) || !Number.isSafeInteger(quantity) || quantity < 1) {
+    throw new Error(t("discovery.routes.itemDetail.validation.quantity.required"));
+  }
+
+  return quantity;
+}
+
+function normalizeMoneyAmount(
+  value: FormDataEntryValue | null,
+  options: Readonly<{
+    allowZero?: boolean;
+    optional: true;
+    invalidMessage: string;
+  }>,
+): string | null;
+function normalizeMoneyAmount(
+  value: FormDataEntryValue | null,
+  options: Readonly<{
+    allowZero?: boolean;
+    optional?: false;
+    invalidMessage: string;
+  }>,
+): string;
+function normalizeMoneyAmount(
+  value: FormDataEntryValue | null,
+  {
+    allowZero = false,
+    optional = false,
+    invalidMessage,
+  }: Readonly<{
+    allowZero?: boolean;
+    optional?: boolean;
+    invalidMessage: string;
+  }>,
+) {
+  const normalized = String(value ?? "").trim();
+
+  if (!normalized) {
+    if (optional) {
+      return null;
+    }
+    throw new Error(invalidMessage);
+  }
+
+  if (!/^\d+(\.\d{1,2})?$/.test(normalized)) {
+    throw new Error(invalidMessage);
+  }
+
+  const amount = Number.parseFloat(normalized);
+  if (!Number.isFinite(amount) || (allowZero ? amount < 0 : amount <= 0)) {
+    throw new Error(invalidMessage);
+  }
+
+  return amount.toFixed(2);
+}
+
+function getListingAvailableQuantity(listing: DiscoveryItemDetail["market_listings"][number]) {
+  const visibleQuantity = Number(listing.visible_quantity);
+  const quantityCap = Number(listing.quantity_cap);
+
+  if (Number.isFinite(visibleQuantity)) {
+    return visibleQuantity;
+  }
+
+  return Number.isFinite(quantityCap) ? quantityCap : 0;
+}
+
+function findSelectedListingForAction(item: DiscoveryItemDetail, listingId: string) {
+  const normalizedListingId = listingId.trim();
+  const listing = item.market_listings.find((candidate) => candidate.listing_id === normalizedListingId);
+
+  if (!normalizedListingId || !listing || listing.status !== "active" || getListingAvailableQuantity(listing) < 1) {
+    throw new Error(t("discovery.routes.itemDetail.validation.selected.listing.unavailable"));
+  }
+
+  return listing;
+}
+
+function assertSelectedListingQuantityAvailable(
+  listing: DiscoveryItemDetail["market_listings"][number],
+  quantity: number,
+) {
+  const availableQuantity = getListingAvailableQuantity(listing);
+  if (quantity > availableQuantity) {
+    throw new Error(
+      t("discovery.routes.itemDetail.validation.selected.listing.quantity.exceeded", {
+        availableQuantity,
+      }),
+    );
+  }
+}
+
+async function getFreshOfferMatchForAction(
+  marketplaceApi: ReturnType<typeof createMarketplaceRequestApiClient>,
+  item: DiscoveryItemDetail,
+  offerId: string,
+): Promise<OfferMatchListItem> {
+  const normalizedOfferId = offerId.trim();
+  if (!normalizedOfferId || typeof marketplaceApi.getOfferMatch !== "function") {
+    throw new Error(t("discovery.routes.itemDetail.validation.selected.offer.unavailable"));
+  }
+
+  const offer = await marketplaceApi.getOfferMatch(normalizedOfferId).catch((error: unknown) => {
+    if (error instanceof MarketplaceApiError && error.status === 404) {
+      return null;
+    }
+
+    throw error;
+  });
+  if (!offer || offer.catalog_catalog_item_id !== item.catalog_item_id || offer.status !== "submitted") {
+    throw new Error(t("discovery.routes.itemDetail.validation.selected.offer.unavailable"));
+  }
+
+  if (!offer.can_fulfill) {
+    throw new Error(
+      t("discovery.routes.itemDetail.validation.selected.offer.quantity.unavailable", {
+        requestedQuantity: offer.quantity_requested,
+        availableQuantity: offer.seller_available_quantity,
+      }),
+    );
+  }
+
+  return offer;
+}
+
+function getPublicSelectedOfferForSellList(
+  item: DiscoveryItemDetail,
+  offerId: string,
+): DiscoveryItemDetail["offer_demand_matches"][number] {
+  const normalizedOfferId = offerId.trim();
+  const offer = item.offer_demand_matches.find((candidate) => candidate.offer_id === normalizedOfferId);
+
+  if (
+    !normalizedOfferId ||
+    !offer ||
+    offer.catalog_catalog_item_id !== item.catalog_item_id ||
+    offer.status !== "submitted"
+  ) {
+    throw new Error(t("discovery.routes.itemDetail.validation.selected.offer.unavailable"));
+  }
+
+  return offer;
+}
+
 function shipFromAddressFromForm(formData: FormData) {
   const address = {
     name: String(formData.get("shipFromName") ?? "").trim(),
@@ -263,6 +435,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const url = new URL(request.url);
   const initialMarketIntent: "buy" | "sell" | "watch" =
     url.searchParams.get("market") === "sell" ? "sell" : url.searchParams.get("market") === "watch" ? "watch" : "buy";
+  const initialSelectedListingId = readExplicitMarketSelectionId(url.searchParams, "listing");
+  const initialSelectedOfferId = readExplicitMarketSelectionId(url.searchParams, "offer");
   const initialSelectedOptions = readInitialSelectedOptions(url.searchParams);
   const initialSelectedOptionFiltersPresent = hasInitialSelectedOptionFilters(url.searchParams);
 
@@ -275,11 +449,14 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       hasListingStockLocation: false,
       viewerAccountId: null,
       initialMarketIntent,
+      initialSelectedListingId,
+      initialSelectedOfferId,
       initialSelectedOptions,
       hasInitialSelectedOptionFilters: initialSelectedOptionFiltersPresent,
       showSellerTab: false,
       canUseSellerFeatures: false,
       canUseListingFeatures: false,
+      canUseGuestListingDraft: false,
       canSubmitOffers: false,
       registerToSellHref: buildRegisterToSellHref(request),
       notFound: true,
@@ -304,6 +481,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     const canSellOnItem = Boolean(
       actor?.permissions.includes("listings.view") && actor.permissions.includes("listings.manage"),
     );
+    const canUseGuestListingDraft = !canUseAccountSellList(actor);
     const canSubmitOffers = Boolean(actor);
     let accountOfferMatches: DiscoveryOfferMatchWithTerms[] = [];
     let sellerInventoryItems: DiscoverySellerInventoryItem[] = [];
@@ -359,11 +537,14 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       hasListingStockLocation,
       viewerAccountId: actor?.accountId ?? null,
       initialMarketIntent,
+      initialSelectedListingId,
+      initialSelectedOfferId,
       initialSelectedOptions,
       hasInitialSelectedOptionFilters: initialSelectedOptionFiltersPresent,
       showSellerTab: true,
       canUseSellerFeatures: canReviewAccountOfferMatches || canSellOnItem,
       canUseListingFeatures: canSellOnItem,
+      canUseGuestListingDraft,
       canSubmitOffers,
       registerToSellHref: buildRegisterToSellHref(request),
       notFound: false,
@@ -379,11 +560,14 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
         hasListingStockLocation: false,
         viewerAccountId: null,
         initialMarketIntent,
+        initialSelectedListingId,
+        initialSelectedOfferId,
         initialSelectedOptions,
         hasInitialSelectedOptionFilters: initialSelectedOptionFiltersPresent,
         showSellerTab: false,
         canUseSellerFeatures: false,
         canUseListingFeatures: false,
+        canUseGuestListingDraft: false,
         canSubmitOffers: false,
         registerToSellHref: buildRegisterToSellHref(request),
         notFound: true,
@@ -400,11 +584,14 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       hasListingStockLocation: false,
       viewerAccountId: null,
       initialMarketIntent,
+      initialSelectedListingId,
+      initialSelectedOfferId,
       initialSelectedOptions,
       hasInitialSelectedOptionFilters: initialSelectedOptionFiltersPresent,
       showSellerTab: false,
       canUseSellerFeatures: false,
       canUseListingFeatures: false,
+      canUseGuestListingDraft: false,
       canSubmitOffers: false,
       registerToSellHref: buildRegisterToSellHref(request),
       notFound: true,
@@ -435,7 +622,11 @@ export async function action({ request, params }: ActionFunctionArgs) {
         productId: String(formData.get("productId") ?? ""),
         selectedOptions: parseSelectedOptions(formData.get("selectedOptions")),
         productSummary: String(formData.get("productSummary") ?? "") || null,
-        thresholdAmount: String(formData.get("thresholdAmount") ?? "") || null,
+        thresholdAmount: normalizeMoneyAmount(formData.get("thresholdAmount"), {
+          allowZero: true,
+          optional: true,
+          invalidMessage: t("discovery.routes.itemDetail.validation.threshold.invalid"),
+        }),
       });
 
       return redirect(`/items/${item.slug || item.catalog_item_id}?productAlertCreated=1`);
@@ -443,6 +634,10 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
     if (intent === "submit-offer") {
       const item = await discoveryApi.getItemDetail(params.id!);
+      const offerPriceAmount = normalizeMoneyAmount(formData.get("priceAmount"), {
+        invalidMessage: t("discovery.routes.itemDetail.validation.price.required"),
+      });
+      const quantity = parsePositiveQuantity(formData.get("quantityRequested"));
       const query = new URLSearchParams({
         source: "offer-intent",
         catalogItemId: item.catalog_item_id,
@@ -451,8 +646,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
         itemSubtitle: item.subtitle ?? "",
         selectedOptions: String(formData.get("selectedOptions") ?? "[]"),
         productSummary: String(formData.get("productSummary") ?? ""),
-        offerPriceAmount: String(formData.get("priceAmount") ?? ""),
-        quantity: String(formData.get("quantityRequested") ?? "1"),
+        offerPriceAmount,
+        quantity: String(quantity),
       });
 
       return redirect(`/checkout/start?${query.toString()}`);
@@ -462,9 +657,19 @@ export async function action({ request, params }: ActionFunctionArgs) {
       const actor = await resolveActorFromAuthApi({ request });
       const item = await discoveryApi.getItemDetail(params.id!);
       const itemImage = selectItemImage(item, "thumbnail");
+      const quantity = parsePositiveQuantity(formData.get("quantity"));
+      const productId = String(formData.get("productId") ?? "");
+      const sellerPreferenceId = String(formData.get("sellerPreferenceId") ?? "").trim();
+      const preferredListing = sellerPreferenceId ? findSelectedListingForAction(item, sellerPreferenceId) : null;
+      if (preferredListing) {
+        if (preferredListing.product_id !== productId) {
+          throw new Error(t("discovery.routes.itemDetail.validation.selected.listing.unavailable"));
+        }
+        assertSelectedListingQuantityAvailable(preferredListing, quantity);
+      }
       const cartLine = {
         catalogItemId: item.catalog_item_id,
-        productId: String(formData.get("productId") ?? ""),
+        productId,
         itemTitle: item.title,
         itemSubtitle: item.subtitle,
         itemImageUrl: itemImage.src,
@@ -474,9 +679,10 @@ export async function action({ request, params }: ActionFunctionArgs) {
         itemImageLoadingSrcSet: imageVariantSrcSet(item.image_fallback, "thumbnail") ?? null,
         selectedOptions: parseSelectedOptions(formData.get("selectedOptions")),
         productSummary: String(formData.get("productSummary") ?? "") || null,
-        quantity: Number(formData.get("quantity") ?? 0),
+        quantity,
         fulfillmentMode: "optimize" as const,
         lockedListingId: null,
+        sellerPreferenceId: preferredListing?.listing_id ?? null,
       };
 
       if (!canUseAccountCheckoutCart(actor)) {
@@ -504,7 +710,15 @@ export async function action({ request, params }: ActionFunctionArgs) {
       const actor = await resolveActorFromAuthApi({ request });
       const item = await discoveryApi.getItemDetail(params.id!);
       const lockedListingId =
-        intent === "buy-this-listing" ? String(formData.get("lockedListingId") ?? formData.get("listingId") ?? "") : "";
+        intent === "buy-this-listing"
+          ? String(formData.get("lockedListingId") ?? formData.get("listingId") ?? "").trim()
+          : "";
+      const quantity = parsePositiveQuantity(formData.get("quantity"));
+      const lockedListing = lockedListingId ? findSelectedListingForAction(item, lockedListingId) : null;
+      if (lockedListing) {
+        assertSelectedListingQuantityAvailable(lockedListing, quantity);
+      }
+      const lockedListingAvailableQuantity = lockedListing ? getListingAvailableQuantity(lockedListing) : 0;
       const source = {
         type: "buy-now",
         listingId: lockedListingId,
@@ -514,7 +728,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
         itemSubtitle: item.subtitle,
         selectedOptions: parseSelectedOptions(formData.get("selectedOptions")),
         productSummary: String(formData.get("productSummary") ?? "") || null,
-        quantity: Number(formData.get("quantity") ?? 0),
+        quantity,
         fulfillmentMode: lockedListingId ? ("locked-listing" as const) : ("optimize" as const),
         lockedListingId: lockedListingId || null,
       } as const;
@@ -532,9 +746,14 @@ export async function action({ request, params }: ActionFunctionArgs) {
           selectedOptions: JSON.stringify(source.selectedOptions),
           productSummary: source.productSummary ?? "",
           quantity: String(source.quantity),
-          priceAmount: source.fulfillmentMode === "locked-listing" ? String(formData.get("priceAmount") ?? "") : "",
-          sellerName: source.fulfillmentMode === "locked-listing" ? String(formData.get("sellerName") ?? "") : "",
-          availability: source.fulfillmentMode === "locked-listing" ? String(formData.get("availability") ?? "") : "",
+          priceAmount: lockedListing?.price_amount ?? "",
+          sellerName: lockedListing?.seller_display_name ?? "",
+          availability: lockedListing
+            ? t("discovery.routes.itemDetail.inventory.option.label", {
+                productSummary: source.productSummary ?? source.itemTitle,
+                availableQuantity: lockedListingAvailableQuantity,
+              })
+            : "",
           fulfillment: t("discovery.routes.itemDetail.confirmed.at.checkout"),
         });
         return redirect(`/checkout/start?${query.toString()}`);
@@ -553,7 +772,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
         permission: "offers.manage",
       });
 
-      const offerId = String(formData.get("offerId") ?? "");
+      const item = await discoveryApi.getItemDetail(params.id!);
+      const offerId = String(formData.get("offerId") ?? "").trim();
+      await getFreshOfferMatchForAction(marketplaceApi, item, offerId);
       await marketplaceApi.acceptOfferMatch(offerId, {
         feeQuoteFingerprint: String(formData.get("feeQuoteFingerprint") ?? ""),
       });
@@ -561,17 +782,41 @@ export async function action({ request, params }: ActionFunctionArgs) {
     }
 
     if (intent === "add-to-sell-list") {
+      const actor = await resolveActorFromAuthApi({ request });
+
+      const item = await discoveryApi.getItemDetail(params.id!);
+      const offerId = String(formData.get("offerId") ?? "").trim();
+
+      if (!canUseAccountSellList(actor)) {
+        const offer = getPublicSelectedOfferForSellList(item, offerId);
+        const anonymousSellListId = ensureAnonymousSellListId(request);
+        await checkoutApi.addGuestSellListLine(anonymousSellListId, {
+          lineType: "selected-offer",
+          offerId,
+          buyerAccountId: null,
+          buyerDisplayName: offer.buyer_display_name,
+          offerPriceAmount: offer.price_amount,
+          catalogItemId: item.catalog_item_id,
+          productId: offer.product_id,
+          itemTitle: item.title,
+          itemSubtitle: item.subtitle,
+          selectedOptions: offer.selected_options,
+          productSummary: offer.product_summary,
+          quantity: offer.quantity_requested,
+          fallbackMode: "none",
+          minimumListingPriceAmount: null,
+        });
+        const response = redirect("/account/sell-list");
+        appendAnonymousSellListCookie(response.headers, anonymousSellListId);
+        return response;
+      }
+
       await requireActorFromAuthApi({
         request,
         permission: "offers.manage",
       });
 
-      const item = await discoveryApi.getItemDetail(params.id!);
-      const offerId = String(formData.get("offerId") ?? "");
-      const offer = item.offer_demand_matches.find((candidate) => candidate.offer_id === offerId);
-      if (!offer) {
-        throw new Error("Offer match is no longer available.");
-      }
+      const offer = await getFreshOfferMatchForAction(marketplaceApi, item, offerId);
 
       await checkoutApi.addSellListLine({
         lineType: "selected-offer",
@@ -594,6 +839,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
       const actor = await resolveActorFromAuthApi({ request });
 
       const item = await discoveryApi.getItemDetail(params.id!);
+      const quantity = parsePositiveQuantity(formData.get("quantity"));
       const sellListLine = {
         lineType: "product",
         offerId: null,
@@ -606,7 +852,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
         itemSubtitle: item.subtitle,
         selectedOptions: parseSelectedOptions(formData.get("selectedOptions")),
         productSummary: String(formData.get("productSummary") ?? "") || null,
-        quantity: Number(formData.get("quantity") ?? 0),
+        quantity,
         fallbackMode: "none",
         minimumListingPriceAmount: null,
       } as const;
@@ -646,17 +892,19 @@ export async function action({ request, params }: ActionFunctionArgs) {
     }
 
     if (intent === "list-at-price") {
-      await requireActorFromAuthApi({
-        request,
-        permission: "listings.manage",
-      });
       const item = await discoveryApi.getItemDetail(params.id!);
 
       const listingId = String(formData.get("listingId") ?? "").trim();
-      const priceAmount = String(formData.get("priceAmount") ?? "");
-      const quantityCap = Number(formData.get("quantityCap") ?? 0);
+      const priceAmount = normalizeMoneyAmount(formData.get("priceAmount"), {
+        invalidMessage: t("discovery.routes.itemDetail.validation.price.required"),
+      });
+      const quantityCap = parsePositiveQuantity(formData.get("quantityCap"));
 
       if (listingId) {
+        await requireActorFromAuthApi({
+          request,
+          permission: "listings.manage",
+        });
         const quote = await marketplaceApi.previewListingTerms({ priceAmount });
         await marketplaceApi.updateListingPrice(listingId, {
           priceAmount,
@@ -670,6 +918,31 @@ export async function action({ request, params }: ActionFunctionArgs) {
       }
 
       const inventoryItemId = String(formData.get("inventoryItemId") ?? "").trim();
+      const selectedOptions = parseSelectedOptions(formData.get("selectedOptions"));
+      const productId = String(formData.get("productId") ?? "").trim();
+      const productSummary = String(formData.get("productSummary") ?? "").trim() || null;
+      const actor = await resolveActorFromAuthApi({ request });
+
+      if (!canUseAccountSellList(actor)) {
+        const anonymousListingDraftOwnerId = ensureAnonymousListingDraftOwnerId(request);
+        const draft = await marketplaceApi.createAnonymousListingDraftIntent(anonymousListingDraftOwnerId, {
+          sourcePath: `/items/${item.slug || item.catalog_item_id}?market=sell`,
+          catalogItemId: item.catalog_item_id,
+          productId,
+          selectedOptions,
+          productSummary,
+          priceAmount,
+          quantityCap,
+        });
+        const response = redirect(buildRegisterToClaimListingDraftHref(draft.intent_id));
+        appendAnonymousListingDraftCookie(response.headers, anonymousListingDraftOwnerId, request);
+        return response;
+      }
+
+      await requireActorFromAuthApi({
+        request,
+        permission: "listings.manage",
+      });
       const listingBody = inventoryItemId
         ? {
             inventoryItemId,
@@ -683,7 +956,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
             inventorySnapshot: (
               await inventoryApi.ensureListingStock({
                 catalogItemId: item.catalog_item_id,
-                selectedOptions: parseSelectedOptions(formData.get("selectedOptions")),
+                selectedOptions,
                 quantity: quantityCap,
               })
             ).snapshot,
@@ -767,6 +1040,8 @@ function DiscoveryItemDetailRealtimeView({
       accountOfferMatches={data.accountOfferMatches}
       viewerAccountId={data.viewerAccountId}
       initialMarketIntent={data.initialMarketIntent}
+      initialSelectedListingId={data.initialSelectedListingId}
+      initialSelectedOfferId={data.initialSelectedOfferId}
       initialSelectedOptions={data.initialSelectedOptions}
       hasInitialSelectedOptionFilters={data.hasInitialSelectedOptionFilters}
       notFound={data.notFound}
@@ -797,6 +1072,7 @@ function DiscoveryItemDetailRealtimeView({
                   catalogItemId={context.itemId}
                   productId={context.selectedProductId}
                   selectedListing={context.selectedListing}
+                  selectedListingSource={context.selectedListingSource}
                   itemTitle={context.itemTitle}
                   selectedOptions={context.selectedProductOptions}
                   productSelectionDetails={context.selectedProductSelectionDetails}
@@ -858,6 +1134,7 @@ function DiscoveryItemDetailRealtimeView({
                   actions={actions}
                   actionMode={actionMode}
                   selectedOffer={context.selectedAccountOfferMatch}
+                  selectedOfferSource={context.selectedOfferSource}
                   productId={context.selectedProductId}
                   productSelectionDetails={context.selectedProductSelectionDetails}
                   productSummary={context.selectedProductSummary}
@@ -883,6 +1160,7 @@ function DiscoveryItemDetailRealtimeView({
                   bestListing={context.bestListing}
                   ownListing={ownListing}
                   hasListingStockLocation={data.hasListingStockLocation}
+                  allowDraftWithoutShipFromSetup={data.canUseGuestListingDraft}
                   errorMessage={actionErrorMessage}
                 />
               );
@@ -898,6 +1176,7 @@ function DiscoveryItemDetailRealtimeView({
                   productSummary={context.selectedProductSummary}
                   productSelectionDetails={context.selectedProductSelectionDetails}
                   selectedOffer={context.selectedOffer}
+                  selectedOfferSource={context.selectedOfferSource}
                   matchingOfferCount={context.visibleOffers.length}
                   registerHref={data.registerToSellHref}
                 />
@@ -969,7 +1248,7 @@ function DiscoveryItemDetailRealtimeView({
                     )
                   }
                   renderListing={(formId) =>
-                    data.canUseListingFeatures
+                    data.canUseListingFeatures || data.canUseGuestListingDraft
                       ? renderListingSubmission(formId, "plain", undefined, true)
                       : renderSellerRegistration("plain", true, "listing")
                   }

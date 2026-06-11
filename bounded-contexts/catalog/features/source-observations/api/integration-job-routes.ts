@@ -1,8 +1,14 @@
 import { t } from "@chase-sets/localization";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
-import type { IntegrationJobServices } from "./runtime";
-import { isIntegrationJobValidationError, parseIntegrationJobScope, streamIntegrationJobEvents } from "./route-helpers";
+import type { IntegrationJobServices, SourceObservationIntegrationJobAction } from "./runtime";
+import { isSourceObservationIntegrationJobLifecycleCommandError } from "./runtime";
+import {
+  isIntegrationJobValidationError,
+  parseIntegrationJobScope,
+  parseReapplyProfileMode,
+  streamIntegrationJobEvents,
+} from "./route-helpers";
 import {
   CatalogIntegrationRolloutControlError,
   rolloutControlErrorResponse,
@@ -23,10 +29,11 @@ export function integrationJobRoutes(services: IntegrationJobRouteServices) {
     const body = (await c.req.json().catch(() => ({}))) as {
       action?: unknown;
       scope?: unknown;
+      reapplyProfileMode?: unknown;
     };
-    const action = String(body.action ?? "");
+    const actionValue = String(body.action ?? "");
 
-    if (action !== "import" && action !== "reapply") {
+    if (actionValue !== "import" && actionValue !== "reapply") {
       return c.json(
         {
           error: {
@@ -37,14 +44,18 @@ export function integrationJobRoutes(services: IntegrationJobRouteServices) {
         400,
       );
     }
+    const action: SourceObservationIntegrationJobAction = actionValue;
+
+    const jobInput = {
+      action,
+      scope: parseIntegrationJobScope(body.scope),
+      ...(action === "reapply" ? { reapplyProfileMode: parseReapplyProfileMode(body.reapplyProfileMode) } : {}),
+      context: c.get("context"),
+    };
 
     let job;
     try {
-      job = await services.enqueueIntegrationJob({
-        action,
-        scope: parseIntegrationJobScope(body.scope),
-        context: c.get("context"),
-      });
+      job = await services.enqueueIntegrationJob(jobInput);
     } catch (error) {
       if (error instanceof CatalogIntegrationRolloutControlError) {
         return c.json(rolloutControlErrorResponse(error), 403);
@@ -78,6 +89,57 @@ export function integrationJobRoutes(services: IntegrationJobRouteServices) {
     });
 
     return c.json({ items, total: items.length, count: items.length });
+  });
+
+  app.post("/integration-jobs/:jobId/retry", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "integration-job-write");
+    if (permissionError) {
+      return permissionError;
+    }
+
+    try {
+      const job = await services.retryIntegrationJob({
+        jobId: c.req.param("jobId"),
+        context: c.get("context"),
+      });
+      return c.json(job, 202);
+    } catch (error) {
+      return integrationJobLifecycleCommandErrorResponse(c, error);
+    }
+  });
+
+  app.post("/integration-jobs/:jobId/resume", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "integration-job-write");
+    if (permissionError) {
+      return permissionError;
+    }
+
+    try {
+      const job = await services.resumeIntegrationJob({
+        jobId: c.req.param("jobId"),
+        context: c.get("context"),
+      });
+      return c.json(job, 202);
+    } catch (error) {
+      return integrationJobLifecycleCommandErrorResponse(c, error);
+    }
+  });
+
+  app.post("/integration-jobs/:jobId/cancel", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "integration-job-write");
+    if (permissionError) {
+      return permissionError;
+    }
+
+    try {
+      const job = await services.cancelIntegrationJob({
+        jobId: c.req.param("jobId"),
+        context: c.get("context"),
+      });
+      return c.json(job, 202);
+    } catch (error) {
+      return integrationJobLifecycleCommandErrorResponse(c, error);
+    }
   });
 
   app.get("/integration-jobs/:jobId", async (c) => {
@@ -126,4 +188,32 @@ export function integrationJobRoutes(services: IntegrationJobRouteServices) {
   });
 
   return app;
+}
+
+function integrationJobLifecycleCommandErrorResponse(c: Context<CatalogAuthoringEnv>, error: unknown) {
+  if (!isSourceObservationIntegrationJobLifecycleCommandError(error)) {
+    throw error;
+  }
+
+  if (error.code === "job_not_found") {
+    return c.json(
+      {
+        error: {
+          code: "not_found",
+          message: t("catalog.features.sourceObservations.api.route.integration.job.not.found"),
+        },
+      },
+      404,
+    );
+  }
+
+  return c.json(
+    {
+      error: {
+        code: error.code,
+        message: t("catalog.features.sourceObservations.api.route.integration.job.lifecycle.unsupported"),
+      },
+    },
+    409,
+  );
 }

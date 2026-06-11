@@ -45,6 +45,7 @@
     "marketplace:launch-supply-measurement": "node ./scripts/marketplace-launch-supply-measurement.mjs",
     "marketplace:checkout-fee-evidence": "node ./scripts/marketplace-checkout-fee-evidence.mjs",
     "marketplace:provider-proof-status": "node ./scripts/marketplace-provider-proof-status.mjs",
+    "catalog:real-provider-proof": "node --experimental-strip-types ./scripts/run-catalog-real-provider-proof.mjs",
     "marketplace:easypost-refund-event-replay": "node ./scripts/easypost-refund-event-replay.mjs",
     "marketplace:stripe-money-operations-evidence": "node ./scripts/marketplace-stripe-money-operations-evidence.mjs",
     "settlement:payout-account-migration-report": "node ./scripts/settlement-payout-account-migration-report.mjs",

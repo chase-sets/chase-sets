@@ -231,7 +231,8 @@ check "worker_runner_capacity" {
       tonumber(local.worker_projection_concurrency) +
       tonumber(local.worker_job_concurrency) +
       tonumber(local.worker_dispatch_concurrency) +
-      tonumber(local.worker_scheduled_concurrency)
+      tonumber(local.worker_scheduled_concurrency) +
+      tonumber(local.worker_wake_concurrency)
     ) <= tonumber(local.worker_database_pool_max)
     error_message = "Worker runner concurrency must not exceed worker_database_pool_max. Increase worker_database_pool_max or reduce WORKER_*_MAX_CONCURRENT_RUNNERS."
   }
@@ -511,6 +512,17 @@ resource "digitalocean_app" "platform" {
         }
 
         env {
+          key   = "READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED"
+          value = local.read_consistency_wake_before_wait_enabled
+          scope = "RUN_TIME"
+        }
+        env {
+          key   = "PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED"
+          value = local.event_store_wake_notifications_enabled
+          scope = "RUN_TIME"
+        }
+
+        env {
           key   = "DATABASE_POOL_MAX"
           value = local.api_database_pool_max
           scope = "RUN_TIME"
@@ -752,6 +764,12 @@ resource "digitalocean_app" "platform" {
         }
 
         env {
+          key   = "PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED"
+          value = local.event_store_wake_notifications_enabled
+          scope = "RUN_TIME"
+        }
+
+        env {
           key   = "NODE_ENV"
           value = "production"
           scope = "RUN_AND_BUILD_TIME"
@@ -951,6 +969,33 @@ resource "digitalocean_app" "platform" {
           key   = "WORKER_JOB_MAX_CONCURRENT_RUNNERS"
           value = local.worker_job_concurrency
           scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "WORKER_WAKE_MAX_CONCURRENT_RUNNERS"
+          value = local.worker_wake_concurrency
+          scope = "RUN_TIME"
+        }
+        env {
+          key   = "WORKER_PROJECTION_WAKE_RELAY_ENABLED"
+          value = local.worker_projection_wake_relay_enabled
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED"
+          value = local.event_store_wake_notifications_enabled
+          scope = "RUN_TIME"
+        }
+
+        dynamic "env" {
+          for_each = local.worker_listener_database_urls
+          content {
+            key   = "WORKER_LISTENER_DATABASE_URL_${upper(replace(env.key, "-", "_"))}"
+            value = env.value
+            type  = "SECRET"
+            scope = "RUN_TIME"
+          }
         }
 
         env {
@@ -1294,6 +1339,12 @@ resource "digitalocean_app" "platform" {
         }
 
         env {
+          key   = "PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED"
+          value = local.event_store_wake_notifications_enabled
+          scope = "RUN_TIME"
+        }
+
+        env {
           key   = "NODE_ENV"
           value = "production"
           scope = "RUN_AND_BUILD_TIME"
@@ -1421,6 +1472,11 @@ resource "digitalocean_app" "platform" {
           key   = "NODE_ENV"
           value = "production"
           scope = "RUN_AND_BUILD_TIME"
+        }
+        env {
+          key   = "PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED"
+          value = local.event_store_wake_notifications_enabled
+          scope = "RUN_TIME"
         }
 
         env {
@@ -1566,6 +1622,11 @@ resource "digitalocean_app" "platform" {
           key   = "NODE_ENV"
           value = "production"
           scope = "RUN_AND_BUILD_TIME"
+        }
+        env {
+          key   = "PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED"
+          value = local.event_store_wake_notifications_enabled
+          scope = "RUN_TIME"
         }
 
         env {

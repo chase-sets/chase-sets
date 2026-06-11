@@ -28,10 +28,10 @@ Catalog provider profiles own mapping semantics, duplicate prevention, Source Ob
 | Provider scope option-query selection | Operator can select TCGdex provider, unit, language, Series, and Expansion through bounded option queries. | #1062 |
 | Provider pagination or multi-step retrieval | Proof traverses more than one provider transport step before producing Source Observations. TCGdex must fetch Expansion metadata and then card payloads. | #1062 |
 | Image and metadata mapping | Source Observations include provider image/provenance metadata and normalized facts required for review and promotion preview. | #1062 |
-| Provider transport degraded condition | At least one degraded provider transport condition maps to the canonical `providerTransport` and blocker vocabulary. | #1062, #1065 |
+| Provider transport degraded condition | The #1062 proof packet maps at least one degraded provider transport condition to the canonical `providerTransport` and blocker vocabulary. | #1062, #1065 |
 | Source Observation profile metadata | Created observations retain provider key, unit key, source profile version, external key, source URL, source update time when available, and safe provenance. | #1062 |
-| Promotion preview counts | The selected review scope produces eligible, blocked, skipped, conflict, and failed counts before any Catalog write. | #1062 |
-| Redaction-safe evidence | Evidence excludes credentials, cookies, raw payload bodies, secret URLs, account/user identifiers, and provider-sensitive material. | #1064 |
+| Promotion preview counts | The #1062 proof packet records eligible, blocked, skipped, conflict, and failed counts before any Catalog write. | #1062 |
+| Redaction-safe evidence | The #1062 proof packet excludes credentials, cookies, raw payload bodies, full provider URLs, account/user identifiers, provider-controlled labels, and provider-sensitive material; #1064 still owns launch security/privacy signoff. | #1064 |
 
 ## Provider Transport Reliability Vocabulary
 
@@ -78,6 +78,14 @@ Provider option-query cache policy remains:
 - promotion preview counts before Catalog writes;
 - at least one degraded transport condition mapped to the canonical category and blocker;
 - screenshots or logs proving the primary import-to-promotion path is the default, not buried behind support workspaces.
+
+The durable proof command is:
+
+```powershell
+pnpm run catalog:real-provider-proof -- --environment staging --transport-mode staging-provider-proof
+```
+
+It emits a redacted `catalog-real-provider-proof/v1` packet. See [Catalog Integration Real-Provider Proof](./catalog-integration-real-provider-proof.md) for packet fields, redaction rules, live/local usage, and #1061/#1064/#1065 handoff expectations.
 
 #1064 owns redaction and privacy hardening for evidence produced by this proof. #1090 owns complete deletion of old control-plane pages, routes, module patterns, docs, tests, fixtures, screenshots, runbooks, release notes, and operator instructions after the rebuilt workbench is accepted.
 

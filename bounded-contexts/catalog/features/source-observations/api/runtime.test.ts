@@ -142,6 +142,37 @@ function tcgdexProfileVersion(input: {
   };
 }
 
+function providerProfileVersionForProvider(
+  providerKey: string,
+  profileKey: string,
+  profileVersion: string,
+): CatalogProviderIntegrationProfileVersionRecord {
+  const base = currentTcgdexProfileVersion();
+
+  return {
+    ...base,
+    providerKey,
+    profileKey,
+    profileVersion,
+    lifecycle: "active",
+    active: true,
+    profile: {
+      ...base.profile,
+      providerKey,
+      displayName: `${providerKey} Pokemon profile`,
+    },
+    executableMappingContract: base.executableMappingContract
+      ? {
+          ...base.executableMappingContract,
+          providerKey,
+          profileKey,
+          profileVersion,
+          lifecycle: "active",
+        }
+      : undefined,
+  };
+}
+
 function tcgdexProfileSnapshot(profileVersion: string): Record<string, unknown> {
   return {
     providerKey: "tcgdex",
@@ -1041,6 +1072,106 @@ describe("source observation runtime", () => {
     expect(harness.appendedEvents).toEqual([]);
   });
 
+  it("snapshots selected reapply work units from each observation provider instead of the default provider", async () => {
+    const insertedWorkUnits: Array<Readonly<{ unitId: string; payload: Record<string, unknown> }>> = [];
+    const altdexProfile = providerProfileVersionForProvider("altdex", "altdex-pokemon-tcg", "2026.06.10");
+    const altdexObservation = sourceObservationDetailRow({
+      observation_id: "obs_altdex",
+      provider_key: "altdex",
+      external_key: "product:610001",
+      source_url: "https://altdex.example/products/610001",
+      source_profile_key: "altdex-pokemon-tcg",
+      source_profile_version: "2026.06.10",
+      source_mapping_fingerprint: "altdex-fingerprint",
+      status: "promoted",
+      promoted_catalog_item_id: "cat_altdex",
+    });
+    const deps = {
+      db: {
+        query: async <T>(sql: string, values: readonly unknown[] = []) => {
+          if (sql.includes("FROM catalog_source_observations") && sql.includes("WHERE observation_id = $1")) {
+            return { rowCount: 1, rows: [altdexObservation] as T[] };
+          }
+
+          if (sql.includes("INSERT INTO catalog_source_observation_bulk_review_jobs")) {
+            const payload = JSON.parse(String(values[2])) as Record<string, unknown>;
+            return {
+              rowCount: 1,
+              rows: [
+                {
+                  job_id: values[0],
+                  job_kind: values[1],
+                  payload,
+                  event_context: JSON.parse(String(values[4])),
+                  status: "queued",
+                  progress: JSON.parse(String(values[3])),
+                  result: null,
+                  error_message: null,
+                  claim_owner_id: null,
+                  claimed_until: null,
+                  created_at: "2026-05-28T00:00:00.000Z",
+                  started_at: null,
+                  completed_at: null,
+                  updated_at: "2026-05-28T00:00:00.000Z",
+                },
+              ] as T[],
+            };
+          }
+
+          if (sql.includes("INSERT INTO catalog_source_observation_bulk_review_work_units")) {
+            const units = JSON.parse(String(values[1])) as Array<{
+              unit_id: string;
+              payload: Record<string, unknown>;
+            }>;
+            insertedWorkUnits.push(...units.map((unit) => ({ unitId: unit.unit_id, payload: unit.payload })));
+            return { rowCount: units.length, rows: [] as T[] };
+          }
+
+          if (sql.includes("INSERT INTO catalog_source_observation_bulk_review_job_events")) {
+            return { rowCount: 1, rows: [{ sequence: 1 }] as T[] };
+          }
+
+          if (sql.includes("SELECT pg_notify")) {
+            return { rowCount: 1, rows: [] as T[] };
+          }
+
+          return { rowCount: 0, rows: [] as T[] };
+        },
+      },
+      eventStore: {
+        readStream: async () => [],
+        appendToStream: async () => [],
+        readAll: async () => [],
+      },
+      checkpointStore: {
+        loadCheckpoint: async () => "0",
+        saveCheckpoint: async () => undefined,
+      },
+    } as unknown as CatalogRuntimeDeps;
+    const services = createSourceObservationRuntime(
+      deps,
+      {} as CatalogItemServices,
+      {} as ReferenceDataServices,
+      createMutableProfileVersionReader([currentTcgdexProfileVersion(), altdexProfile]),
+    );
+
+    await services.enqueueBulkReviewJob({
+      action: "reapply",
+      observationIds: ["obs_altdex"],
+      context,
+    });
+
+    expect(insertedWorkUnits).toHaveLength(1);
+    expect(insertedWorkUnits[0]?.payload).toMatchObject({
+      observationId: "obs_altdex",
+      reapplyProfileMode: "current-active-profile",
+      profileSnapshot: {
+        providerKey: "altdex",
+        profileKey: "altdex-pokemon-tcg",
+      },
+    });
+  });
+
   it("reuses an active provider integration job with the same actor action and scope", async () => {
     const harness = createIntegrationJobDedupeHarness({
       existingJob: integrationJobRow({
@@ -1428,6 +1559,127 @@ describe("source observation runtime", () => {
     });
   });
 
+  it("retries provider integration jobs by preserving successful outcomes and pruning failed outcomes", async () => {
+    const harness = createIntegrationJobDedupeHarness({
+      existingJob: {
+        ...integrationJobRow({
+          jobId: "job_retry",
+          action: "import",
+          scope: { provider: "tcgdex", language: "en", seriesId: "base" },
+          profileSnapshot: tcgdexProfileSnapshot("2026.06.03"),
+          eventContext: context,
+        }),
+        status: "completed",
+        progress: {
+          phase: "completed",
+          completed: 2,
+          total: 2,
+          currentName: null,
+          status: "failed",
+        },
+        result: {
+          requested: 2,
+          imported: 1,
+          observed: 102,
+          reapplied: 0,
+          skipped: 0,
+          failed: 1,
+          outcomes: [
+            {
+              providerKey: "tcgdex",
+              languageCode: "en",
+              expansionId: "base1",
+              status: "imported",
+              observed: 102,
+              reapplied: 0,
+              reason: null,
+            },
+            {
+              providerKey: "tcgdex",
+              languageCode: "en",
+              expansionId: "base2",
+              status: "failed",
+              observed: 0,
+              reapplied: 0,
+              reason: "Provider timeout.",
+            },
+          ],
+        },
+        completed_at: "2026-05-28T00:00:05.000Z",
+      },
+    });
+    const services = createSourceObservationRuntime(
+      harness.deps,
+      {} as CatalogItemServices,
+      {} as ReferenceDataServices,
+    );
+
+    const job = await services.retryIntegrationJob({ jobId: "job_retry", context });
+
+    expect(job).toMatchObject({
+      jobId: "job_retry",
+      status: "queued",
+      progress: {
+        phase: "queued",
+        completed: 1,
+        total: 2,
+      },
+      result: {
+        requested: 2,
+        imported: 1,
+        failed: 0,
+      },
+    });
+    expect(job.result?.outcomes).toEqual([expect.objectContaining({ expansionId: "base1", status: "imported" })]);
+    expect(harness.jobEvents[harness.jobEvents.length - 1]?.snapshot).toMatchObject({
+      jobId: "job_retry",
+      status: "queued",
+    });
+  });
+
+  it("cancels provider integration jobs as operator-cancelled failed durable jobs", async () => {
+    const harness = createIntegrationJobDedupeHarness({
+      existingJob: {
+        ...integrationJobRow({
+          jobId: "job_cancel",
+          action: "import",
+          scope: { provider: "tcgdex", language: "en", seriesId: "base" },
+          profileSnapshot: tcgdexProfileSnapshot("2026.06.03"),
+          eventContext: context,
+          progress: {
+            phase: "processing",
+            completed: 1,
+            total: 2,
+            currentName: "Base Set",
+            status: "imported",
+          },
+        }),
+        status: "running",
+        claim_owner_id: "worker-1",
+        claimed_until: "2026-05-28T00:10:00.000Z",
+      },
+    });
+    const services = createSourceObservationRuntime(
+      harness.deps,
+      {} as CatalogItemServices,
+      {} as ReferenceDataServices,
+    );
+
+    const job = await services.cancelIntegrationJob({ jobId: "job_cancel", context });
+
+    expect(job).toMatchObject({
+      jobId: "job_cancel",
+      status: "failed",
+      operatorStatus: "cancelled",
+      progress: {
+        phase: "failed",
+        completed: 1,
+        total: 2,
+      },
+      errorMessage: "Operator cancelled provider import job.",
+    });
+  });
+
   it("processes queued TCGplayer imports through the durable integration worker", async () => {
     const tcgplayerHarness = createTcgplayerImportHarness();
     const harness = createIntegrationJobClaimHandoffHarness({
@@ -1666,6 +1918,39 @@ function pokemonObservation(input: {
   };
 }
 
+function sourceObservationDetailRow(overrides: Record<string, unknown> = {}) {
+  const normalized = pokemonObservation({
+    expansionName: "Base Set",
+    seriesName: "Base",
+    name: "Selected Observation",
+  });
+
+  return {
+    observation_id: "obs_selected",
+    provider_key: "tcgdex",
+    external_key: "base1-1",
+    source_url: "https://api.tcgdex.net/v2/en/cards/base1-1",
+    language_code: "en",
+    source_record_hash: "hash-selected",
+    source_updated_at: "2026-05-20T00:00:00.000Z",
+    observed_at: "2026-05-20T00:00:00.000Z",
+    source_profile_key: "pokemon-tcg",
+    source_profile_version: "2026.06.03",
+    source_mapping_fingerprint: "fingerprint:2026.06.03",
+    normalized,
+    source_payload: { id: "base1-1" },
+    status: "promoted",
+    status_reason: null,
+    promoted_catalog_item_id: "cat_selected",
+    promoted_at: "2026-05-20T00:01:00.000Z",
+    promotion_profile_key: "pokemon-tcg",
+    promotion_profile_version: "2026.06.03",
+    promotion_plan_fingerprint: "plan-fingerprint:2026.06.03",
+    updated_at: "2026-05-20T00:01:00.000Z",
+    ...overrides,
+  };
+}
+
 function createTcgplayerImportHarness(input: { failProductIds?: ReadonlySet<number> } = {}) {
   const appendedSourceEvents: Array<{ eventType: string; payload: Record<string, unknown> }> = [];
   const productDetails = new Map<number, TcgplayerAutomationProductDetail>([
@@ -1818,6 +2103,7 @@ function tcgplayerProductDetail(input: {
 function createIntegrationJobDedupeHarness(
   input: { existingJob?: Record<string, unknown>; reapplyObservationIds?: readonly string[] } = {},
 ) {
+  let existingJob = input.existingJob ? { ...input.existingJob } : undefined;
   const insertedJobs: Record<string, unknown>[] = [];
   const insertedWorkUnits: Array<Readonly<{ unitId: string; unitKind: string; payload: Record<string, unknown> }>> = [];
   const jobEvents: Record<string, unknown>[] = [];
@@ -1835,8 +2121,8 @@ function createIntegrationJobDedupeHarness(
         ) {
           activeLookupValues = values;
           return {
-            rowCount: input.existingJob ? 1 : 0,
-            rows: (input.existingJob ? [input.existingJob] : []) as T[],
+            rowCount: existingJob ? 1 : 0,
+            rows: (existingJob ? [existingJob] : []) as T[],
           };
         }
 
@@ -1892,10 +2178,50 @@ function createIntegrationJobDedupeHarness(
         }
 
         if (
+          sql.includes("UPDATE catalog_source_observation_integration_durable_jobs") &&
+          sql.includes("completed_at = NULL") &&
+          existingJob?.job_id === values[0]
+        ) {
+          const currentJob = existingJob!;
+          existingJob = {
+            ...currentJob,
+            status: "queued",
+            progress: JSON.parse(String(values[1])),
+            result: values[2] == null ? currentJob.result : JSON.parse(String(values[2])),
+            error_message: values[3] as string | null,
+            claim_owner_id: null,
+            claimed_until: null,
+            completed_at: null,
+            updated_at: "2026-05-28T00:00:10.000Z",
+          };
+          return { rowCount: 1, rows: [existingJob] as T[] };
+        }
+
+        if (
+          sql.includes("UPDATE catalog_source_observation_integration_durable_jobs") &&
+          sql.includes("status = 'failed'") &&
+          existingJob?.job_id === values[0]
+        ) {
+          const currentJob = existingJob!;
+          existingJob = {
+            ...currentJob,
+            status: "failed",
+            progress: JSON.parse(String(values[1])),
+            error_message: String(values[2]),
+            claim_owner_id: null,
+            claimed_until: null,
+            completed_at: "2026-05-28T00:00:10.000Z",
+            updated_at: "2026-05-28T00:00:10.000Z",
+          };
+          return { rowCount: 1, rows: [existingJob] as T[] };
+        }
+
+        if (
           sql.includes("FROM catalog_source_observation_integration_durable_jobs") &&
           sql.includes("WHERE job_id = $1")
         ) {
-          const row = insertedJobs.find((job) => job.job_id === values[0]);
+          const row =
+            existingJob?.job_id === values[0] ? existingJob : insertedJobs.find((job) => job.job_id === values[0]);
           return {
             rowCount: row ? 1 : 0,
             rows: (row ? [row] : []) as T[],

@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import IntegrationsRoute, { action } from "../routes/admin/integrations";
+import IntegrationsRoute, { action, loader } from "../routes/admin/integrations";
 import { buildCatalogPrimaryWorkbenchReadModel } from "../features/source-observations/ui/primary-workbench-read-model";
 import {
+  controlPlaneOverview,
+  integrationJobSummary,
   profileReview,
   sourceObservationScope,
 } from "../features/source-observations/ui/primary-workbench-test-fixtures";
@@ -65,9 +67,220 @@ describe("Catalog integrations route", () => {
     expect(screen.queryByText("Old integrations surface")).toBeNull();
   });
 
+  it("renders the provider import operation context and durable job evidence", () => {
+    const scopes = { items: [sourceObservationScope()], total: 1, count: 1 };
+    const profileReviews = { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 };
+    const requestUrl =
+      "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1";
+    mockUseLoaderData.mockReturnValue({
+      data: scopes,
+      query: {},
+      profileReviews,
+      controlPlaneOverview: controlPlaneOverview(),
+      requestUrl,
+      readModel: buildCatalogPrimaryWorkbenchReadModel({
+        requestUrl,
+        scopes,
+        profileReviews,
+        controlPlaneOverview: controlPlaneOverview(),
+        canManageCatalog: true,
+      }),
+    });
+    mockUseRouteLoaderData.mockReturnValue({
+      actor: { permissions: ["catalog.view", "catalog.manage"] },
+    });
+
+    render(<IntegrationsRoute />);
+
+    expect(screen.getAllByText("Provider import operations").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Profile snapshot").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("tcgdex-pokemon-card@2026.06.04").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Observed observations").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Changed observations").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Current scope").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Consistency").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Snapshot: tcgdex-pokemon-card@2026.06.04").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Operator: Running").length).toBeGreaterThan(0);
+  });
+
+  it("scopes durable import jobs to the selected provider unit while keeping overlap conflicts visible", () => {
+    const scopes = {
+      items: [
+        sourceObservationScope(),
+        sourceObservationScope({ expansion_id: "jungle", series_id: "jungle", total_observations: 64 }),
+      ],
+      total: 2,
+      count: 2,
+    };
+    const profileReviews = { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 };
+    const requestUrl =
+      "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1";
+    const overview = controlPlaneOverview({
+      unitActivity: {
+        generatedAt: "2026-06-09T01:05:00.000Z",
+        units: [
+          {
+            unitKey: "tcgdex:pokemon:card:import",
+            recentJobs: [
+              integrationJobSummary({ jobId: "job_selected_scope", importScope: "en:3:base:base1" }),
+              integrationJobSummary({ jobId: "job_selected_scope", importScope: "en:3:base:base1" }),
+              integrationJobSummary({
+                jobId: "job_overlapping_scope",
+                importScope: "en:3:jungle:jungle",
+                startedAt: "2026-06-09T01:02:00.000Z",
+              }),
+            ],
+          },
+          {
+            unitKey: "scryfall:magic:card:import",
+            recentJobs: [
+              integrationJobSummary({
+                jobId: "job_other_provider",
+                unitKey: "scryfall:magic:card:import",
+                providerKey: "scryfall",
+                importScope: "en:magic:lea:lea",
+                summary: "Scryfall import",
+              }),
+            ],
+          },
+        ],
+      },
+    });
+
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl,
+      scopes,
+      profileReviews,
+      controlPlaneOverview: overview,
+      canManageCatalog: true,
+    });
+
+    expect(readModel.importJobs.jobs.map((job) => job.jobId)).toEqual(["job_selected_scope", "job_overlapping_scope"]);
+    expect(readModel.importJobs.jobs[0]?.scopeMatchesRoute).toBe(true);
+    expect(readModel.importJobs.jobs[1]?.scopeMatchesRoute).toBe(false);
+    expect(readModel.importJobs.jobs[1]?.blockers).toContain("active-job-conflict");
+    expect(readModel.importJobs.activeJobCount).toBe(2);
+    expect(readModel.importJobs.selectedScope?.readiness.blockers).toContain("active-job-conflict");
+    expect(readModel.importJobs.selectedScope?.readiness.blockers).toContain("concurrent-job");
+    expect(readModel.actions.find((actionEntry) => actionEntry.key === "start-provider-import")?.state).toBe("blocked");
+    expect(readModel.importJobs.jobs[0]?.sourceObservationReviewHref).toContain("jobId=job_selected_scope");
+    expect(readModel.importJobs.jobs[0]?.sourceObservationReviewHref).toContain("importScope=en%3A3%3Abase%3Abase1");
+  });
+
+  it("groups durable failures separately from provider transport failure categories", () => {
+    const scopes = { items: [sourceObservationScope()], total: 1, count: 1 };
+    const profileReviews = { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 };
+    const requestUrl =
+      "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1";
+    const baseOverview = controlPlaneOverview();
+    const overview = controlPlaneOverview({
+      providerReadiness: {
+        ...baseOverview.providerReadiness,
+        providers: [
+          {
+            ...baseOverview.providerReadiness.providers[0],
+            apiReachability: {
+              status: "blocked",
+              diagnosticCodes: ["provider_timeout"],
+              message: "Provider request timeout",
+            },
+            diagnostics: [
+              {
+                code: "provider_timeout",
+                severity: "error",
+                message: "Provider request timeout",
+                unitKey: "tcgdex:pokemon:card:import",
+                retryAfterSeconds: null,
+                source: "provider-adapter",
+              },
+            ],
+          },
+        ],
+      },
+      unitActivity: {
+        generatedAt: "2026-06-09T01:05:00.000Z",
+        units: [
+          {
+            unitKey: "tcgdex:pokemon:card:import",
+            recentJobs: [
+              integrationJobSummary({
+                jobId: "job_failed_provider_timeout",
+                operatorStatus: "failed",
+                phase: "failed",
+                completed: 1,
+                total: 3,
+              }),
+            ],
+          },
+        ],
+      },
+    });
+
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl,
+      scopes,
+      profileReviews,
+      controlPlaneOverview: overview,
+      canManageCatalog: true,
+    });
+
+    expect(readModel.readiness.providerTransport).toContain("timeout");
+    expect(readModel.importJobs.selectedScope?.readiness.blockers).toContain("provider-transport-timeout");
+    expect(readModel.importJobs.jobs[0]?.failureGroups.map((group) => group.key)).toEqual([
+      "durable-job-failed",
+      "provider-transport-timeout",
+    ]);
+  });
+
+  it("records primary workbench view, provider scope, and support detour telemetry from the loader", async () => {
+    const scopes = { items: [sourceObservationScope()], total: 1, count: 1 };
+    const profileReviews = { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 };
+    const recordCatalogControlPlaneEvent = vi.fn().mockResolvedValue({ status: "recorded" });
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listSourceObservationIntegrationScopes: vi.fn().mockResolvedValue(scopes),
+      listSourceObservationProviderProfiles: vi.fn().mockResolvedValue(profileReviews),
+      getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(null),
+      listSourceObservations: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      recordCatalogControlPlaneEvent,
+    });
+
+    await loader({
+      request: new Request(
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&section=adapter",
+      ),
+      params: {},
+      context: {},
+    } as Parameters<typeof loader>[0]);
+
+    expect(recordCatalogControlPlaneEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "catalog_control_plane.primary_workbench_viewed",
+        providerKey: "tcgdex",
+        unitKey: "tcgdex:pokemon:card:import",
+        scopeId: "en:3:base:base1",
+      }),
+    );
+    expect(recordCatalogControlPlaneEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "catalog_control_plane.provider_scope_selected",
+      }),
+    );
+    expect(recordCatalogControlPlaneEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "catalog_control_plane.supporting_workflow_detour_opened",
+        detourTarget: "adapter-readiness",
+        detourOutcome: "opened",
+      }),
+    );
+  });
+
   it("queues a scoped provider import from the primary workbench route action", async () => {
     const enqueueSourceObservationIntegrationJob = vi.fn().mockResolvedValue({ jobId: "job_import_123" });
-    mockCreateCatalogRequestApiClient.mockReturnValue({ enqueueSourceObservationIntegrationJob });
+    const recordCatalogControlPlaneEvent = vi.fn().mockResolvedValue({ status: "recorded" });
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      enqueueSourceObservationIntegrationJob,
+      recordCatalogControlPlaneEvent,
+    });
 
     const response = await runAction({
       _intent: "start-provider-import",
@@ -88,16 +301,27 @@ describe("Catalog integrations route", () => {
     expect(response.headers.get("Location")).toContain("jobId=job_import_123");
     expect(response.headers.get("Location")).toContain("commandStatus=success");
     expect(response.headers.get("Location")).toContain("commandResult=job-queued");
+    expect(recordCatalogControlPlaneEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "catalog_control_plane.import_started",
+        providerKey: "tcgdex",
+        unitKey: "tcgdex:pokemon:card:import",
+        scopeId: "en:3:base:base1",
+        profileRef: "tcgdex:2026.06.04",
+        jobRefState: "present",
+        promotionResult: "job-queued",
+      }),
+    );
   });
 
   it("preserves selected IDs while creating a scoped promotion preview token", async () => {
-    const previewBulkPromoteSourceObservations = vi.fn().mockResolvedValue({
+    const previewBulkPromoteSourceObservationIds = vi.fn().mockResolvedValue({
       matched: 1,
       eligible: 1,
       terminal: 0,
       scope: { provider: "tcgdex", language: "en", setId: "base1", status: "changed", search: "" },
     });
-    mockCreateCatalogRequestApiClient.mockReturnValue({ previewBulkPromoteSourceObservations });
+    mockCreateCatalogRequestApiClient.mockReturnValue({ previewBulkPromoteSourceObservationIds });
 
     const response = await runAction(
       {
@@ -106,17 +330,12 @@ describe("Catalog integrations route", () => {
         unitKey: "tcgdex:pokemon:card:import",
         importScope: "en:3:base:base1",
         profileVersion: "2026.06.04",
-        selectedObservationIds: "obs_001",
+        selectedObservationIds: " obs_001,obs_001 ",
       },
       "https://admin.example/catalog/integrations?filter.status=changed",
     );
 
-    expect(previewBulkPromoteSourceObservations).toHaveBeenCalledWith({
-      provider: "tcgdex",
-      language: "en",
-      setId: "base1",
-      status: "changed",
-    });
+    expect(previewBulkPromoteSourceObservationIds).toHaveBeenCalledWith(["obs_001"]);
     expect(response.headers.get("Location")).toContain("selectedObservationIds=obs_001");
     expect(response.headers.get("Location")).toContain(
       "promotionPreviewId=preview-tcgdex_tcgdex_pokemon_card_import_en_3_base_base1_2026.06.04_en_base1_changed_none_obs_001-1-1",
@@ -141,7 +360,7 @@ describe("Catalog integrations route", () => {
   });
 
   it("executes promotion only when the live preview token matches the submitted context", async () => {
-    const previewBulkPromoteSourceObservations = vi.fn().mockResolvedValue({
+    const previewBulkPromoteSourceObservationIds = vi.fn().mockResolvedValue({
       matched: 1,
       eligible: 1,
       terminal: 0,
@@ -150,7 +369,7 @@ describe("Catalog integrations route", () => {
     const bulkPromoteSourceObservations = vi.fn().mockResolvedValue({ jobId: "job_promote_123" });
     mockCreateCatalogRequestApiClient.mockReturnValue({
       bulkPromoteSourceObservations,
-      previewBulkPromoteSourceObservations,
+      previewBulkPromoteSourceObservationIds,
     });
 
     const response = await runAction({
@@ -164,12 +383,7 @@ describe("Catalog integrations route", () => {
         "preview-tcgdex_tcgdex_pokemon_card_import_en_3_base_base1_2026.06.04_en_base1_changed_none_obs_001-1-1",
     });
 
-    expect(previewBulkPromoteSourceObservations).toHaveBeenCalledWith({
-      provider: "tcgdex",
-      language: "en",
-      setId: "base1",
-      status: "changed",
-    });
+    expect(previewBulkPromoteSourceObservationIds).toHaveBeenCalledWith(["obs_001"]);
     expect(bulkPromoteSourceObservations).toHaveBeenCalledWith(["obs_001"]);
     expect(response.headers.get("Location")).toContain("jobId=job_promote_123");
     expect(response.headers.get("Location")).not.toContain("promotionPreviewId=");
@@ -177,7 +391,7 @@ describe("Catalog integrations route", () => {
   });
 
   it("rejects promotion execution when the stored preview belongs to a different profile context", async () => {
-    const previewBulkPromoteSourceObservations = vi.fn().mockResolvedValue({
+    const previewBulkPromoteSourceObservationIds = vi.fn().mockResolvedValue({
       matched: 1,
       eligible: 1,
       terminal: 0,
@@ -186,7 +400,7 @@ describe("Catalog integrations route", () => {
     const bulkPromoteSourceObservations = vi.fn();
     mockCreateCatalogRequestApiClient.mockReturnValue({
       bulkPromoteSourceObservations,
-      previewBulkPromoteSourceObservations,
+      previewBulkPromoteSourceObservationIds,
     });
 
     const response = await runAction({
@@ -257,20 +471,70 @@ describe("Catalog integrations route", () => {
     expect(response.headers.get("Location")).toContain("commandResult=job-queued");
   });
 
-  it("fails closed for commands without launch-ready backend paths", async () => {
-    mockCreateCatalogRequestApiClient.mockReturnValue({});
+  it("bridges provider import lifecycle commands to durable job APIs", async () => {
+    const retrySourceObservationIntegrationJob = vi.fn().mockResolvedValue({ jobId: "job_import_123" });
+    const resumeSourceObservationIntegrationJob = vi.fn().mockResolvedValue({ jobId: "job_import_123" });
+    const cancelSourceObservationIntegrationJob = vi.fn().mockResolvedValue({ jobId: "job_import_123" });
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      retrySourceObservationIntegrationJob,
+      resumeSourceObservationIntegrationJob,
+      cancelSourceObservationIntegrationJob,
+    });
+
+    const retryResponse = await runAction({ _intent: "retry-import-job", jobId: "job_import_123" });
+    const resumeResponse = await runAction({ _intent: "resume-import-job", jobId: "job_import_123" });
+    const cancelResponse = await runAction({ _intent: "cancel-import-job", jobId: "job_import_123" });
+
+    expect(retrySourceObservationIntegrationJob).toHaveBeenCalledWith("job_import_123");
+    expect(resumeSourceObservationIntegrationJob).toHaveBeenCalledWith("job_import_123");
+    expect(cancelSourceObservationIntegrationJob).toHaveBeenCalledWith("job_import_123");
+    expect(retryResponse.headers.get("Location")).toContain("commandResult=job-queued");
+    expect(resumeResponse.headers.get("Location")).toContain("commandResult=job-queued");
+    expect(cancelResponse.headers.get("Location")).toContain("commandResult=job-cancelled");
+  });
+
+  it("requires a durable import job id before lifecycle commands can run", async () => {
+    const retrySourceObservationIntegrationJob = vi.fn();
+    mockCreateCatalogRequestApiClient.mockReturnValue({ retrySourceObservationIntegrationJob });
+
+    const response = await runAction({ _intent: "retry-import-job" });
+
+    expect(retrySourceObservationIntegrationJob).not.toHaveBeenCalled();
+    expect(response.headers.get("Location")).toContain("commandStatus=error");
+    expect(response.headers.get("Location")).toContain("commandResult=job-required");
+  });
+
+  it("enqueues defer jobs and clears stale promotion previews", async () => {
+    const deferSourceObservations = vi.fn().mockResolvedValue({ jobId: "job_defer_123" });
+    mockCreateCatalogRequestApiClient.mockReturnValue({ deferSourceObservations });
 
     const deferResponse = await runAction({
       _intent: "defer-source-observations",
       selectedObservationIds: "obs_001",
+      promotionPreviewId: "preview-stale",
     });
+
+    expect(deferSourceObservations).toHaveBeenCalledWith(["obs_001"], "Deferred from the primary workbench.");
+    expect(deferResponse.headers.get("Location")).toContain("jobId=job_defer_123");
+    expect(deferResponse.headers.get("Location")).toContain("commandResult=job-queued");
+    expect(deferResponse.headers.get("Location")).not.toContain("promotionPreviewId=");
+    expect(deferResponse.headers.get("Location")).not.toContain("selectedObservationIds=obs_001");
+  });
+
+  it("enqueues original-profile replay jobs for selected Source Observations", async () => {
+    const replaySourceObservations = vi.fn().mockResolvedValue({ jobId: "job_replay_123" });
+    mockCreateCatalogRequestApiClient.mockReturnValue({ replaySourceObservations });
+
     const replayResponse = await runAction({
       _intent: "start-replay",
       selectedObservationIds: "obs_001",
+      promotionPreviewId: "preview-stale",
     });
 
-    expect(deferResponse.headers.get("Location")).toContain("commandResult=unsupported-command");
-    expect(replayResponse.headers.get("Location")).toContain("commandResult=unsupported-command");
+    expect(replaySourceObservations).toHaveBeenCalledWith(["obs_001"]);
+    expect(replayResponse.headers.get("Location")).toContain("jobId=job_replay_123");
+    expect(replayResponse.headers.get("Location")).toContain("commandResult=job-queued");
+    expect(replayResponse.headers.get("Location")).not.toContain("promotionPreviewId=");
   });
 
   it("returns sanitized feedback for invalid intents and API failures", async () => {

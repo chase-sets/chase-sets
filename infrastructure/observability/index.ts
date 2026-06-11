@@ -96,6 +96,7 @@ const publicPresenceWaitlistEventCounter = meter.createCounter("chase_sets_publi
 const settlementOperationCounter = meter.createCounter("chase_sets_settlement_operations_total");
 const catalogIntegrationOptionQueryCounter = meter.createCounter("chase_sets_catalog_integration_option_queries_total");
 const catalogIntegrationJobCounter = meter.createCounter("chase_sets_catalog_integration_jobs_total");
+const catalogControlPlaneEventCounter = meter.createCounter("chase_sets_catalog_control_plane_events_total");
 const projectionFreshnessEvaluationCounter = meter.createCounter("chase_sets_projection_freshness_evaluations_total");
 const projectionFreshnessWaitDuration = meter.createHistogram("chase_sets_projection_freshness_wait_duration_ms", {
   unit: "ms",
@@ -131,6 +132,24 @@ export type CatalogIntegrationJobSignal = Readonly<{
   jobKind: string;
   result: string;
   operation: "integration-job" | "bulk-review-work-unit";
+}>;
+
+export type CatalogControlPlaneEventSignal = Readonly<{
+  eventName: string;
+  providerKey: string;
+  unitKey: string;
+  scopeId: string;
+  profileRef: string;
+  jobRefState: string;
+  observationStatus: string;
+  observationCountBucket: string;
+  promotionResult: string;
+  promotionCountBucket: string;
+  blockerCategory: string;
+  detourTarget: string;
+  detourOutcome: string;
+  roleBucket: string;
+  readModelFreshness: string;
 }>;
 
 export type ProjectionFreshnessAuditSignal = Readonly<{
@@ -645,6 +664,31 @@ export function catalogIntegrationJobAttributes(event: CatalogIntegrationJobSign
 
 export function recordCatalogIntegrationJob(event: CatalogIntegrationJobSignal): void {
   catalogIntegrationJobCounter.add(1, catalogIntegrationJobAttributes(event));
+}
+
+export function catalogControlPlaneEventAttributes(event: CatalogControlPlaneEventSignal): Attributes {
+  return {
+    context: "catalog",
+    event: boundedMetricLabel(event.eventName),
+    provider: boundedMetricLabel(event.providerKey),
+    unit: boundedMetricLabel(event.unitKey),
+    scope: boundedMetricLabel(event.scopeId),
+    profile: boundedMetricLabel(event.profileRef),
+    job_ref: boundedMetricLabel(event.jobRefState),
+    observation_status: boundedMetricLabel(event.observationStatus),
+    observation_count: boundedMetricLabel(event.observationCountBucket),
+    promotion_result: boundedMetricLabel(event.promotionResult),
+    promotion_count: boundedMetricLabel(event.promotionCountBucket),
+    blocker_category: boundedMetricLabel(event.blockerCategory),
+    detour_target: boundedMetricLabel(event.detourTarget),
+    detour_outcome: boundedMetricLabel(event.detourOutcome),
+    role_bucket: boundedMetricLabel(event.roleBucket),
+    read_model_freshness: boundedMetricLabel(event.readModelFreshness),
+  };
+}
+
+export function recordCatalogControlPlaneEvent(event: CatalogControlPlaneEventSignal): void {
+  catalogControlPlaneEventCounter.add(1, catalogControlPlaneEventAttributes(event));
 }
 
 export function projectionFreshnessAuditMetricRecords(event: ProjectionFreshnessAuditSignal): Readonly<{

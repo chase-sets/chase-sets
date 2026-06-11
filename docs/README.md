@@ -9,6 +9,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Bounded Context Map](../bounded-contexts/README.md): strategic ownership and integration relationships.
 - [Bounded Context Structure](./architecture/bounded-context-structure.md): directory, export, deployable-composition, and typed-ID rules.
 - [Checkout Fresh-State Start Gate](./architecture/checkout-fresh-state-start-gate.md): ownership, dependency order, unresolved-fulfillment readiness, first vertical slice, and launch evidence map for the Shopify-simple checkout rebuild.
+- [Guest Rail Intent Persistence](./architecture/guest-rail-intent-persistence.md): context-owned anonymous listing draft and Watch alert intent persistence, registration return, claim, expiry, replay, and privacy contract for the simplified item-detail rail.
 - [Cookie-Backed Continuation Handoff](./architecture/cookie-backed-continuation-handoff.md): document redirect, protected-loader recovery, and regression-test rules for auth/session cookie continuations.
 - [Read-After-Write Route Author Checklist](./architecture/read-after-write-route-author-checklist.md): exact freshness dependencies, route inventory, transient recovery, cookie-backed continuation, and guardrail checks for post-write projection reads.
 - [Projection Freshness SLOs](./architecture/projection-freshness-slos.md): critical post-write read SLOs, rollout gates, and shared thresholds for guest Buy Now checkout freshness.
@@ -16,6 +17,8 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Push-Driven Projection Runtime Phase Map](./architecture/push-driven-projection-runtime-phase-map.md): phased rollout gates for the worker-owned relay, durable wake store, Checkout hot path, and platform work-signal composite.
 - [Event-Store Wake Notifications](./architecture/event-store-wake-notifications.md): after-commit source wake channel, envelope, privacy, failure, and relay expectations for push-driven projections.
 - [Source-Context Wake Registry](./architecture/source-context-wake-registry.md): platform rollout contract for source wake eligibility, event-store wake emission, relay fan-out, and production evidence gates.
+- [Projection Wake Relay](./architecture/projection-wake-relay.md): worker-owned relay runtime and fan-out core that catches up from durable event rows and maps source wakes into control-plane projection wake intents.
+- [Projection Wake-Intent Scheduler](./architecture/projection-wake-scheduler.md): worker-side consumer that claims durable wake intents by lane, runs projection groups under existing leases, and completes only on durable checkpoint advancement.
 - [Checkout Surface Audit](./architecture/checkout-surface-audit.md): Shopify-simple Buy Cart and Sell List checkout gap inventory, fresh-state cleanup targets, and sequencing recommendation.
 - [Environment Domain Names](./architecture/environment-domain-names.md): production, staging, dev, and preview hostname convention.
 - [Environment Data Profiles](./architecture/environment-data-profiles.md): bootstrap, Catalog integration, and scenario seed policy by environment.
@@ -82,6 +85,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Marketplace Design Direction](../packages/design-system/MARKETPLACE_SYSTEM.md)
 - [Dense Admin Workbench Pattern](../packages/design-system/DENSE_ADMIN_WORKBENCH.md)
 - [Progressive Disclosure](../packages/design-system/PROGRESSIVE_DISCLOSURE.md)
+- [Reference Info Popup](../packages/design-system/REFERENCE_INFO.md)
 - [Panel Interaction Patterns](../packages/design-system/PANEL_INTERACTIONS.md)
 - [Section Navigation](../packages/design-system/SECTION_NAVIGATION.md)
 - [Localization Contract](../contracts/localization/README.md)
@@ -99,6 +103,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Catalog Integration Rollout Controls](../bounded-contexts/catalog/docs/catalog-integration-rollout-controls.md)
 - [Catalog Integration Provider Option Query Controls](../bounded-contexts/catalog/docs/catalog-integration-provider-option-query-controls.md)
 - [Catalog Integration Provider Transport Budgets](../bounded-contexts/catalog/docs/catalog-integration-provider-transport-budgets.md)
+- [Catalog Integration Real-Provider Proof](../bounded-contexts/catalog/docs/catalog-integration-real-provider-proof.md)
 - [Catalog Integration Impact Analysis](../bounded-contexts/catalog/docs/catalog-integration-impact-analysis.md)
 - [Catalog Integration Admin Control Plane RBAC](../bounded-contexts/catalog/docs/catalog-integration-admin-control-plane-rbac.md)
 - [Catalog Integration Observability](../bounded-contexts/catalog/docs/catalog-integration-observability.md)

@@ -132,7 +132,7 @@ Primary issues:
 - #767 provider migration coordination
 - #785 TCGdex ProviderAdapter migration
 - #786 TCGplayer ProviderAdapter migration
-- #800 thin real-provider ingestion-unit proof
+- #1062 real-provider import-to-promotion proof
 - #806 MTGJSON and Scryfall final validation
 
 Exit criteria:
@@ -140,7 +140,7 @@ Exit criteria:
 - Current providers are behind ProviderAdapter boundaries or have reviewed extension points with removal criteria. Retired compatibility branches are launch blockers until completely deleted.
 - #785 moves TCGdex option queries and Expansion import payload acquisition behind the registered `tcgdex` ProviderAdapter. Remaining TCGdex variant expansion, external-reference extraction, Reference Record hierarchy provisioning, and promotion command planning are Catalog semantic helpers referenced by the executable profile contract; they are deterministic, fixture-backed, and reviewed extension points until generic profile interpretation can express them safely. Replacing one requires complete deletion of the old helper, tests, fixtures, docs, runbooks, and operator instructions.
 - #786 moves TCGplayer product-line, set-name, product, SKU option queries and Product/Set import payload acquisition behind the registered `tcgplayer` ProviderAdapter. The implemented profile-backed unit is `tcgplayer:pokemon:single-card:source-observation-import`; MTG single-card, MTG sealed-product, and One Piece single-card remain future split units until dedicated profile versions exist. Remaining TCGplayer product-form, barcode, selected Option, external-reference, duplicate-prevention, Reference Record hierarchy, and promotion-readiness helpers are reviewed Catalog semantic extension points with removal criteria in the provider profile docs.
-- #800 proves the target architecture with `tcgdex:pokemon:single-card:source-observation-import`: the Admin readiness path resolves a dry-run proof by `unitKey`, the proof runs the real TCGdex ProviderAdapter and Catalog Integration Engine with deterministic fixture transport, and readiness exposes normalized Source Observation evidence without adding provider-specific runtime/API/admin/promotion branches.
+- #1062 proves the target architecture with `tcgdex:pokemon:single-card:source-observation-import`: deterministic readiness tests resolve dry-run evidence by `unitKey`, while the real-provider proof packet runs through TCGdex ProviderAdapter option queries/import planning/fetch, the Catalog Integration Engine, redacted Source Observation review summaries, promotion-preview counts before writes, and canonical degraded transport mapping without adding provider-specific runtime/API/admin/promotion branches or current two-page compatibility paths.
 - #806 MTGJSON and Scryfall validation passes the no-core-change gate and includes source-conflict evidence, documented in [Catalog Integration MTGJSON And Scryfall Validation](./catalog-integration-mtgjson-scryfall-validation.md). The validation proves `mtgjson:mtg:single-card:reference-data`, `mtgjson:mtg:set:reference-data`, `scryfall:mtg:single-card:reference-data`, and `scryfall:mtg:single-card:image-evidence` through ProviderAdapter extension points and Catalog Integration Engine dry-runs without registering production runtime branches. Production enablement remains gated by provider-data governance and policy/legal signoff.
 
 ## Phase 5: Release Hardening And Production
@@ -182,7 +182,7 @@ Use this order for the first broad Catalog Integration Control Plane launch. Lat
 8. Confirm data governance and legal/policy signoff before live provider sampling, retained payloads, dry-run output retention, raw provider evidence display/export, or MTGJSON/Scryfall live enablement (#794, #803).
 9. Run the pre-launch reset or retained-data migration procedure from [Catalog Integration Data Migration Reset](./catalog-integration-data-migration-reset.md).
 10. Rebuild seeded provider profile versions, section snapshot/read-model rows, section diagnostics, fixture coverage, and integration summary projections from canonical Catalog data.
-11. Verify provider adapters and integration units in dependency order: reference proof, TCGdex, TCGplayer, thin real-provider proof, then MTGJSON/Scryfall validation (#776, #785, #786, #800, #806).
+11. Verify provider adapters and integration units in dependency order: reference proof, TCGdex, TCGplayer, #1062 real-provider proof packet, then MTGJSON/Scryfall validation (#776, #785, #786, #1062, #806).
 12. Enable rollout controls in staged mode with provider/API emergency stops, import, promotion, reapply, activation, worker, and rollback switches available (#801).
 13. Run the release verification checklist below in staging, then repeat production smoke, canary, branch, and observability evidence after production deploy.
 
@@ -236,7 +236,7 @@ Before merge queue entry for a launch PR or any provider-enablement PR, capture 
 - Rollout-control checks prove staged modes, provider/API emergency stops, activation/import/promotion/reapply/worker kill switches, Admin surfacing, rollback evidence, and default state (#801).
 - UX/accessibility checks prove dense workflow layout, responsive behavior, keyboard navigation, focus management, disabled-state explanations, and no overlapping UI text (#790).
 - E2E smoke and worker/job checks prove admin protected routes, health endpoints, provider readiness, durable job progress, projection lag handling, and worker resume behavior.
-- Final provider proof checks pass in order: reference provider, TCGdex, TCGplayer, thin real-provider proof, MTGJSON/Scryfall no-core-change validation (#776, #785, #786, #800, #806).
+- Final provider proof checks pass in order: reference provider, TCGdex, TCGplayer, #1062 real-provider proof packet, MTGJSON/Scryfall no-core-change validation (#776, #785, #786, #1062, #806).
 
 ## Rollback Plan
 
@@ -267,7 +267,7 @@ The milestone is ready to close only when:
 
 - #808 gates broad work and operationalizes #780.
 - #771, #773, #774, #775, and #805 gate #799.
-- #799 gates broad #763, #777, #778, #779, #785, #786, and #800 work.
+- #799 gates broad #763, #777, #778, #779, #785, #786, and #1062 proof work.
 - #759, #758, #781, and #795 gate Admin Control Plane UI work; #781 contributes the stable Admin query/read-model contract inventory, and #795 contributes latency, pagination, indexing, freshness, and degraded-state SLOs for that inventory.
 - #796 gates #768 diagnostics/readiness UX.
 - #794 and #803 gate live provider sampling, fixture retention, dry-run retention, diagnostics retention, raw provider evidence display/export, and MTGJSON/Scryfall sampling.

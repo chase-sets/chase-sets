@@ -1,4 +1,5 @@
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import {
   createReleaseControlsPolicyRuntime,
   type ReleaseControlsPolicyServices,
@@ -10,7 +11,12 @@ export type PlatformOperationsServices = Readonly<{
 }>;
 
 export function createPlatformOperationsServices(pool: PgTransactionalPool): PlatformOperationsServices {
-  const eventStore = createPostgresEventStore({ pool });
+  const eventStore = createPostgresEventStore({
+    pool,
+    wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({
+      sourceContextName: "platform-operations",
+    }),
+  });
 
   return {
     db: pool,

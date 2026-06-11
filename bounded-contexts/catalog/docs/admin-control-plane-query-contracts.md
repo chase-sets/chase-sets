@@ -100,6 +100,7 @@ Profile authoring read models must carry section keys and domain concepts so Adm
 
 - `state`: durable job state from the platform job row.
 - `operatorStatus`: queued, running, stale, retried, partial, failed, or completed.
+- `unitKey` and normalized `importScope`: the ingestion-unit and provider-scope context used to match rows back to the selected workbench context and to keep overlapping active imports visible.
 - `profile`: provider/profile snapshot including connector kind, connector source version, and source mapping fingerprint.
 - `reapplyProfileMode`: original-source-profile, current-active-profile, or null.
 - `consistency`: policy names for duplicate submission reuse, profile snapshot timing, retry/resume behavior, partial failures, and claim mode.

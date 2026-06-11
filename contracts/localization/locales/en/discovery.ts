@@ -62,6 +62,12 @@ export const discoveryEnglishTranslations = {
   "discovery.features.itemDetail.ui.itemDetailPage.selected.listing": "Selected listing",
   "discovery.features.itemDetail.ui.itemDetailPage.selected.listing.description":
     "Updates when you choose a different listing below.",
+  "discovery.features.itemDetail.ui.itemDetailPage.selected.listing.unavailable": "Listing unavailable",
+  "discovery.features.itemDetail.ui.itemDetailPage.selected.listing.unavailable.description":
+    "That listing is no longer available. Showing the best available listing instead.",
+  "discovery.features.itemDetail.ui.itemDetailPage.selected.offer.unavailable": "Offer unavailable",
+  "discovery.features.itemDetail.ui.itemDetailPage.selected.offer.unavailable.description":
+    "That offer is no longer available. Showing the best offer for this product instead.",
   "discovery.features.itemDetail.ui.itemDetailPage.verified.seller": "Verified account",
   "discovery.features.itemDetail.ui.itemDetailPage.price": "Price",
   "discovery.features.itemDetail.ui.itemDetailPage.availability": "Availability",
@@ -246,6 +252,7 @@ export const discoveryEnglishTranslations = {
   "discovery.routes.itemDetail.accept.offer.after.registration": "Accept offer",
   "discovery.routes.itemDetail.add.to.cart": "Add product to Buy Cart",
   "discovery.routes.itemDetail.add.to.cart.2": "Add to Buy Cart",
+  "discovery.routes.itemDetail.add.listing.to.cart": "Add listing to Buy Cart",
   "discovery.routes.itemDetail.add.to.cart.workflow.helper": "Save the selected product for Buy Cart review.",
   "discovery.routes.itemDetail.added.to.cart": "Added to buy cart",
   "discovery.routes.itemDetail.added.to.cart.description":
@@ -265,7 +272,9 @@ export const discoveryEnglishTranslations = {
   "discovery.routes.itemDetail.add.product.to.sell.list.summary": "Save the selected product for Sell List review.",
   "discovery.routes.itemDetail.available.offer.count": "{count} offers",
   "discovery.routes.itemDetail.availability": "Availability",
+  "discovery.routes.itemDetail.best.available.listing": "Best available listing",
   "discovery.routes.itemDetail.best.available.price": "Best available price",
+  "discovery.routes.itemDetail.best.offer.heading": "Best offer",
   "discovery.routes.itemDetail.browse.the.chase.sets.marketplace.with":
     "Browse the Chase Sets marketplace with server-rendered discovery results and item detail pages.",
   "discovery.routes.itemDetail.buy": "Buy",
@@ -335,7 +344,6 @@ export const discoveryEnglishTranslations = {
   "discovery.routes.itemDetail.offer.price": "Offer price",
   "discovery.routes.itemDetail.offer.shipping.destination": "Shipping destination",
   "discovery.routes.itemDetail.offer.total": "{amount} offer",
-  "discovery.routes.itemDetail.offer.from.buyer": "From {buyer}",
   "discovery.routes.itemDetail.same.buyer.shipping.allowance": "Estimated payout is shown before acceptance.",
   "discovery.routes.itemDetail.sell.alert.action.description":
     "Get notified when matching buyer demand appears at or above your target.",
@@ -371,6 +379,18 @@ export const discoveryEnglishTranslations = {
   "discovery.routes.itemDetail.quantity.requested": "Quantity requested",
   "discovery.routes.itemDetail.quantity.available.count": "{count} available",
   "discovery.routes.itemDetail.quantity.to.list": "Quantity to list",
+  "discovery.routes.itemDetail.validation.price.required": "Enter a price greater than $0.00 using dollars and cents.",
+  "discovery.routes.itemDetail.validation.quantity.required": "Enter a quantity of 1 or more.",
+  "discovery.routes.itemDetail.validation.selected.listing.quantity.exceeded":
+    "Only {availableQuantity} available from this listing. Lower the quantity or choose another listing.",
+  "discovery.routes.itemDetail.validation.selected.listing.unavailable":
+    "This listing is no longer available. Choose another listing.",
+  "discovery.routes.itemDetail.validation.selected.offer.quantity.unavailable":
+    "{requestedQuantity} requested, but only {availableQuantity} available. Choose another offer or add product to Sell List.",
+  "discovery.routes.itemDetail.validation.selected.offer.unavailable":
+    "This offer is no longer available. Choose another offer.",
+  "discovery.routes.itemDetail.validation.threshold.invalid":
+    "Enter a target price of $0.00 or more using dollars and cents.",
   "discovery.routes.itemDetail.public.standard.terms.preview.unavailable":
     "Estimated payout is temporarily unavailable. You can still continue and review current seller terms after registration.",
   "discovery.routes.itemDetail.register.to.list.inventory.buy.cards":
@@ -653,6 +673,15 @@ export const discoveryEnglishTranslations = {
     "Buy this listing keeps checkout focused on this seller's listing.",
   "discovery.routes.itemDetail.referenceInfo.buyListing.title": "Buying this listing",
   "discovery.routes.itemDetail.referenceInfo.buyListing.trigger": "Buying this listing",
+  "discovery.routes.itemDetail.referenceInfo.listingCart.aria": "View listing in Buy Cart details",
+  "discovery.routes.itemDetail.referenceInfo.listingCart.line1":
+    "The Buy Cart keeps this listing as the starting preference, but Smart Match can choose another available listing.",
+  "discovery.routes.itemDetail.referenceInfo.listingCart.line2":
+    "Lock this listing from Buy Cart review if you want exact fulfillment before checkout.",
+  "discovery.routes.itemDetail.referenceInfo.listingCart.summary":
+    "Adding a listing saves the product with this listing as the starting preference.",
+  "discovery.routes.itemDetail.referenceInfo.listingCart.title": "Listing in Buy Cart",
+  "discovery.routes.itemDetail.referenceInfo.listingCart.trigger": "Listing in Buy Cart",
   "discovery.routes.itemDetail.referenceInfo.createListing.aria": "View creating a listing details",
   "discovery.routes.itemDetail.referenceInfo.createListing.line1":
     "Guests can draft the price and quantity before registration.",

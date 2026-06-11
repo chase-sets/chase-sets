@@ -28,6 +28,8 @@ const {
   mockGetCart,
   mockGetGuestCart,
   mockUpdateCartLineQuantity,
+  mockUpdateCartLineFulfillment,
+  mockUpdateGuestCartLineFulfillment,
   mockRemoveCartLine,
   mockGetGuestSellList,
   mockGetOfferMatch,
@@ -39,6 +41,7 @@ const {
   mockPublishListing,
   mockGetPayoutReadiness,
   mockAddSellListLine,
+  mockAddGuestSellListLine,
   mockGetSellListConfirmation,
   mockConfirmSellListCheckout,
   mockRemoveGuestSellListLine,
@@ -85,6 +88,8 @@ const {
   mockGetCart: vi.fn(),
   mockGetGuestCart: vi.fn(),
   mockUpdateCartLineQuantity: vi.fn(),
+  mockUpdateCartLineFulfillment: vi.fn(),
+  mockUpdateGuestCartLineFulfillment: vi.fn(),
   mockRemoveCartLine: vi.fn(),
   mockGetGuestSellList: vi.fn(),
   mockGetOfferMatch: vi.fn(),
@@ -96,6 +101,7 @@ const {
   mockPublishListing: vi.fn(),
   mockGetPayoutReadiness: vi.fn(),
   mockAddSellListLine: vi.fn(),
+  mockAddGuestSellListLine: vi.fn(),
   mockGetSellListConfirmation: vi.fn(),
   mockConfirmSellListCheckout: vi.fn(),
   mockRemoveGuestSellListLine: vi.fn(),
@@ -588,6 +594,88 @@ describe("checkout web routes", () => {
     });
   });
 
+  it("locks preferred listing fulfillment for signed-in grouped cart lines", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["checkout.manage"] });
+    mockUpdateCartLineFulfillment
+      .mockResolvedValueOnce(checkoutCommit("45", "evt_primary_locked"))
+      .mockResolvedValueOnce(checkoutCommit("46", "evt_duplicate_locked"));
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      updateCartLineFulfillment: mockUpdateCartLineFulfillment,
+    });
+
+    const form = new URLSearchParams();
+    form.append("lineId", "cli_primary");
+    form.append("lineId", "cli_duplicate");
+    form.set("sellerPreferenceId", "lst_card_vault");
+    form.set("intent", "lock-preferred-listing");
+
+    const response = (await accountCartAction({
+      request: new Request("http://localhost/account/cart", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never)) as Response;
+
+    expect(mockUpdateCartLineFulfillment).toHaveBeenCalledWith("cli_primary", {
+      fulfillmentMode: "locked-listing",
+      lockedListingId: "lst_card_vault",
+      sellerPreferenceId: "lst_card_vault",
+      availabilityState: "available",
+    });
+    expect(mockUpdateCartLineFulfillment).toHaveBeenCalledWith("cli_duplicate", {
+      fulfillmentMode: "locked-listing",
+      lockedListingId: "lst_card_vault",
+      sellerPreferenceId: "lst_card_vault",
+      availabilityState: "available",
+    });
+    expect(response.status).toBe(302);
+    expect(readFreshWriteToken(response.headers.get("Location") ?? "")).toMatchObject({
+      commitPosition: "46",
+      sources: [{ sourceContextName: "checkout", maxGlobalPosition: "46", eventIds: ["evt_duplicate_locked"] }],
+    });
+  });
+
+  it("locks preferred listing fulfillment for guest cart lines", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(guestCheckoutActor());
+    mockUpdateGuestCartLineFulfillment.mockResolvedValue(checkoutCommit("47", "evt_guest_locked"));
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      updateGuestCartLineFulfillment: mockUpdateGuestCartLineFulfillment,
+    });
+
+    const form = new URLSearchParams();
+    form.append("lineId", "cli_guest");
+    form.set("sellerPreferenceId", "lst_card_vault");
+    form.set("intent", "lock-preferred-listing");
+
+    const response = (await accountCartAction({
+      request: new Request("http://localhost/account/cart", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          cookie: "chase_sets_anonymous_cart=anon_cart_1",
+        },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never)) as Response;
+
+    expect(mockUpdateGuestCartLineFulfillment).toHaveBeenCalledWith("anon_cart_1", "cli_guest", {
+      fulfillmentMode: "locked-listing",
+      lockedListingId: "lst_card_vault",
+      sellerPreferenceId: "lst_card_vault",
+      availabilityState: "available",
+    });
+    expect(response.status).toBe(302);
+    expect(readFreshWriteToken(response.headers.get("Location") ?? "")).toMatchObject({
+      commitPosition: "47",
+      sources: [{ sourceContextName: "checkout", maxGlobalPosition: "47", eventIds: ["evt_guest_locked"] }],
+    });
+  });
+
   it("removes every grouped cart line id from the simplified cart page", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["checkout.manage"] });
     mockRemoveCartLine
@@ -677,6 +765,62 @@ describe("checkout web routes", () => {
     });
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("/account/sell-list");
+  });
+
+  it("adds a posted selected offer snapshot to the anonymous Sell List when signed out", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    mockAddGuestSellListLine.mockResolvedValue({ status: "added" });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      getOfferMatch: mockGetOfferMatch,
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      addGuestSellListLine: mockAddGuestSellListLine,
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "add-selected-offer");
+    form.set("offerId", "off_1");
+    form.set("buyerDisplayName", "Collector123");
+    form.set("buyerAccountId", "acc_buyer_private");
+    form.set("offerPriceAmount", "40.00");
+    form.set("catalogItemId", "cat_mewtwo");
+    form.set("productId", "cat_mewtwo::raw:nm");
+    form.set("itemTitle", "Mewtwo");
+    form.set("itemSubtitle", "Black Star Promo 3");
+    form.set("selectedOptions", JSON.stringify([{ dimensionId: "form", optionId: "raw" }]));
+    form.set("productSummary", "Raw / Near Mint");
+    form.set("quantity", "2");
+
+    const response = (await accountSellListAction({
+      request: new Request("http://localhost/account/sell-list", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never)) as Response;
+
+    expect(mockGetOfferMatch).not.toHaveBeenCalled();
+    expect(mockAddGuestSellListLine).toHaveBeenCalledWith(expect.stringMatching(/^anon_/), {
+      lineType: "selected-offer",
+      offerId: "off_1",
+      buyerAccountId: null,
+      buyerDisplayName: "Collector123",
+      offerPriceAmount: "40.00",
+      catalogItemId: "cat_mewtwo",
+      productId: "cat_mewtwo::raw:nm",
+      itemTitle: "Mewtwo",
+      itemSubtitle: "Black Star Promo 3",
+      selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+      productSummary: "Raw / Near Mint",
+      quantity: 2,
+      fallbackMode: "none",
+      minimumListingPriceAmount: null,
+    });
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("/account/sell-list");
+    expect(response.headers.getSetCookie().join("; ")).toContain("chase_sets_anonymous_sell_list=anon_");
   });
 
   function expectNoSellerCommitSideEffects() {
@@ -1037,6 +1181,9 @@ describe("checkout web routes", () => {
 
     expect(result).toEqual({
       isSignedIn: false,
+      registrationReturn: null,
+      mergedLineCount: 0,
+      mergeError: null,
       sellList: { items: [{ line_id: "sll_1", quantity: 1 }], count: 1 },
       offerReviews: [],
     });
@@ -1087,6 +1234,9 @@ describe("checkout web routes", () => {
     expect(mockPreviewPublicStandardListingTerms).toHaveBeenCalledWith({ priceAmount: "380.00" });
     expect(result).toEqual({
       isSignedIn: false,
+      registrationReturn: null,
+      mergedLineCount: 0,
+      mergeError: null,
       sellList: {
         items: [
           {
@@ -1120,17 +1270,38 @@ describe("checkout web routes", () => {
     );
   });
 
-  it("merges anonymous Sell List lines after sign-in returns to Sell List review", async () => {
+  it("merges anonymous Sell List lines after registration returns to Sell List review", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
     mockMergeGuestSellListToAccount.mockResolvedValue({ mergedLineCount: 1 });
+    mockPreviewOfferAcceptanceTerms.mockResolvedValue({
+      basis_amount: "380.00",
+      marketplace_sales_fee_unit_amount: "38.00",
+      seller_net_unit_amount: "342.00",
+      shipping_allowance_percentage_bps: 0,
+      fee_quote_fingerprint: "registered_quote",
+    });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
-      getSellList: vi.fn(async () => ({ items: [], count: 0 })),
+      getSellList: vi.fn(async () => ({
+        items: [
+          {
+            line_id: "sll_1",
+            line_type: "selected-offer",
+            offer_id: "off_1",
+            item_title: "Mewtwo",
+            quantity: 1,
+          },
+        ],
+        count: 1,
+      })),
       mergeGuestSellListToAccount: mockMergeGuestSellListToAccount,
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      previewOfferAcceptanceTerms: mockPreviewOfferAcceptanceTerms,
     });
 
     const { loader: accountSellListLoader } = await import("./account-sell-list");
     const result = await accountSellListLoader({
-      request: new Request("http://localhost/account/sell-list", {
+      request: new Request("http://localhost/account/sell-list?registrationReturn=seller-checkout", {
         headers: { cookie: "chase_sets_anonymous_sell_list=anon_sell_1" },
       }),
       params: {},
@@ -1138,7 +1309,18 @@ describe("checkout web routes", () => {
     } as never);
 
     expect(result.isSignedIn).toBe(true);
+    expect(result.registrationReturn).toBe("seller-checkout");
+    expect(result.mergedLineCount).toBe(1);
+    expect(result.mergeError).toBeNull();
     expect(mockMergeGuestSellListToAccount).toHaveBeenCalledWith("anon_sell_1");
+    expect(mockPreviewOfferAcceptanceTerms).toHaveBeenCalledWith("off_1");
+    expect(result.offerReviews[0]).toEqual(
+      expect.objectContaining({
+        lineId: "sll_1",
+        status: "ready",
+        terms: expect.objectContaining({ fee_quote_fingerprint: "registered_quote" }),
+      }),
+    );
   });
 
   it("removes anonymous Sell List lines before sign-in", async () => {
@@ -1170,7 +1352,7 @@ describe("checkout web routes", () => {
     expect(response.headers.get("Location")).toBe("/account/sell-list");
   });
 
-  it("starts guest seller checkout from a valid anonymous Sell List readiness snapshot", async () => {
+  it("routes guest seller checkout through registration after Sell List readiness passes", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(null);
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       createGuestSellListReadiness: mockCreateGuestSellListReadiness,
@@ -1194,8 +1376,8 @@ describe("checkout web routes", () => {
 
     expect(mockCreateGuestSellListReadiness).toHaveBeenCalledWith("anon_sell_1");
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toMatch(
-      /^\/checkout\/sell\/session\/chk_.+readinessSnapshotId=slr_ready&readinessSourceRevision=slr_source/,
+    expect(response.headers.get("Location")).toBe(
+      "/register?returnTo=%2Faccount%2Fsell-list%3FregistrationReturn%3Dseller-checkout",
     );
     expect(mockAcceptOfferMatch).not.toHaveBeenCalled();
     expect(mockCreateListing).not.toHaveBeenCalled();

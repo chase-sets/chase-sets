@@ -74,18 +74,55 @@ locals {
   marketplace_origin            = local.marketplace_domain != null ? "https://${local.marketplace_domain}" : ""
   database_size                 = local.is_staging ? var.staging_database_size : (local.is_non_production ? var.non_production_database_size : var.database_size)
 
-  api_database_pool_max                         = "6"
-  worker_default_database_pool_max              = local.is_non_production ? 8 : 6
-  worker_database_pool_max                      = tostring(var.worker_database_pool_max > 0 ? var.worker_database_pool_max : local.worker_default_database_pool_max)
-  bootstrap_database_pool_max                   = "4"
-  database_pool_idle_timeout_ms                 = "5000"
-  database_pool_connection_timeout_ms           = "10000"
-  worker_max_concurrent_runners                 = local.is_staging ? "8" : "5"
-  worker_projection_concurrency                 = "2"
-  worker_default_job_concurrency                = local.is_staging ? 4 : 1
-  worker_job_concurrency                        = tostring(var.worker_job_concurrency > 0 ? var.worker_job_concurrency : local.worker_default_job_concurrency)
-  worker_dispatch_concurrency                   = "1"
-  worker_scheduled_concurrency                  = "1"
+  api_database_pool_max               = "6"
+  worker_default_database_pool_max    = local.is_staging ? 10 : (local.is_non_production ? 8 : 7)
+  worker_database_pool_max            = tostring(var.worker_database_pool_max > 0 ? var.worker_database_pool_max : local.worker_default_database_pool_max)
+  bootstrap_database_pool_max         = "4"
+  database_pool_idle_timeout_ms       = "5000"
+  database_pool_connection_timeout_ms = "10000"
+  worker_max_concurrent_runners       = local.is_staging ? "8" : "5"
+  worker_projection_concurrency       = "2"
+  worker_default_job_concurrency      = local.is_staging ? 4 : 1
+  worker_job_concurrency              = tostring(var.worker_job_concurrency > 0 ? var.worker_job_concurrency : local.worker_default_job_concurrency)
+  worker_dispatch_concurrency         = "1"
+  worker_scheduled_concurrency        = "1"
+  worker_wake_concurrency             = local.is_staging ? "2" : "1"
+
+  # Direct/session-compatible listener URLs for the worker-owned projection wake
+  # relay (wave-1 source contexts). Staging bypasses the PgBouncer transaction
+  # pools because LISTEN is incompatible with transaction pooling; production
+  # reuses the App Platform database bindings, which are session-compatible.
+  # Previews intentionally omit listener URLs: push rollout never targets
+  # preview environments and the relay falls back to catch-up-only behavior.
+  worker_listener_source_contexts = ["checkout", "marketplace", "ordering", "payments"]
+  worker_listener_database_urls = local.is_production ? {
+    for context_name in local.worker_listener_source_contexts :
+    context_name => format("$${db-%s.DATABASE_URL}", context_name)
+    } : local.is_staging ? {
+    for context_name in local.worker_listener_source_contexts :
+    context_name => format(
+      "postgresql://%s:%s@%s:%d/%s?sslmode=require",
+      urlencode(digitalocean_database_user.contexts[context_name].name),
+      urlencode(digitalocean_database_user.contexts[context_name].password),
+      digitalocean_database_cluster.postgres.host,
+      digitalocean_database_cluster.postgres.port,
+      urlencode(local.context_databases[context_name]),
+    )
+  } : {}
+
+  # Read-after-write wake-before-wait rides a staging-first ramp: staging
+  # proves the api-wait wake path before production enablement, which stays
+  # gated behind the milestone rollout-control and canary evidence issues.
+  read_consistency_wake_before_wait_enabled = local.is_staging ? "true" : "false"
+
+  # The source-context wake registry is environment-global, so push rollout is
+  # environment-gated here: staging runs the full push loop for the enabled
+  # wave-1 contexts, while production and previews keep both the relay and
+  # write-side event-store wake emission killed until the production proof
+  # gates (#1243/#1244/#1237) pass.
+  worker_projection_wake_relay_enabled   = local.is_staging ? "true" : "false"
+  event_store_wake_notifications_enabled = local.is_staging ? "true" : "false"
+
   source_observation_bulk_job_lanes             = local.is_staging ? "4" : "1"
   source_observation_bulk_workflow_cap          = local.is_staging ? "4" : "1"
   source_observation_bulk_job_cap               = local.is_staging ? "2" : "1"

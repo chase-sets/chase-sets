@@ -68,6 +68,7 @@ function resetConfigEnv() {
   delete process.env.READ_CONSISTENCY_POLL_INTERVAL_MS;
   delete process.env.READ_CONSISTENCY_EXACT_DEPENDENCY_MODE;
   delete process.env.READ_CONSISTENCY_ROUTE_TUNING_JSON;
+  delete process.env.READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED;
   delete process.env.NODE_ENV;
   delete process.env.DEPLOYMENT_ENVIRONMENT;
   delete process.env.PLATFORM_DATA_PROFILES;
@@ -140,6 +141,7 @@ describe("platform api config", () => {
           exactDependencyMode: "enabled",
         },
       ],
+      wakeBeforeWaitEnabled: false,
     });
   });
 
@@ -666,7 +668,15 @@ describe("platform api config", () => {
           exactDependencyMode: "enabled",
         },
       ],
+      wakeBeforeWaitEnabled: false,
     });
+  });
+
+  it("enables read consistency wake-before-wait from its environment flag", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED = "true";
+
+    expect(loadConfig().readConsistency?.wakeBeforeWaitEnabled).toBe(true);
   });
 
   it("keeps environment read consistency route tuning after critical defaults so operators can override", () => {

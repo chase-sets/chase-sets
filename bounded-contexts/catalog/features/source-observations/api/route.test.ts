@@ -14,6 +14,7 @@ import {
   createCatalogIntegrationRolloutControlPolicy,
 } from "./catalog-integration-rollout-controls";
 import { CatalogProviderOptionQueryUnavailableError } from "./provider-option-query-cache";
+import { SourceObservationIntegrationJobLifecycleCommandError } from "./runtime";
 
 const context: EventStoreContext = {
   tenantId: "tnt_test" as never,
@@ -95,6 +96,71 @@ describe("source observation routes", () => {
     expect(getCatalogIntegrationControlPlaneReadiness).toHaveBeenCalledOnce();
   });
 
+  it("allows catalog.view actors to record redaction-safe control-plane telemetry events", async () => {
+    const recordControlPlaneTelemetry = vi.fn();
+    const app = buildApp(
+      { recordControlPlaneTelemetry } as unknown as SourceObservationRouteServices,
+      undefined,
+      viewOnlyActor,
+    );
+
+    const response = await app.request("/source-observations/control-plane-events", {
+      method: "POST",
+      body: JSON.stringify({
+        eventName: "catalog_control_plane.primary_workbench_viewed",
+        providerKey: "tcgdex",
+        unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+        scopeId: "en:3:base:base1",
+        profileRef: "pokemon-tcg:2026.06.04",
+        roleBucket: "view-only",
+      }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toEqual({ status: "recorded" });
+    expect(recordControlPlaneTelemetry).toHaveBeenCalledWith({
+      eventName: "catalog_control_plane.primary_workbench_viewed",
+      providerKey: "tcgdex",
+      unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+      scopeId: "en:3:base:base1",
+      profileRef: "pokemon-tcg:2026.06.04",
+      jobRefState: null,
+      observationStatus: null,
+      observationCount: null,
+      promotionResult: null,
+      promotionCount: null,
+      blockerCategory: null,
+      detourTarget: null,
+      detourOutcome: null,
+      roleBucket: "view-only",
+      readModelFreshness: null,
+    });
+  });
+
+  it("rejects unknown control-plane telemetry events before recording metrics", async () => {
+    const recordControlPlaneTelemetry = vi.fn();
+    const app = buildApp({ recordControlPlaneTelemetry } as unknown as SourceObservationRouteServices);
+
+    const response = await app.request("/source-observations/control-plane-events", {
+      method: "POST",
+      body: JSON.stringify({
+        eventName: "catalog_control_plane.raw_json_opened",
+        providerKey: "tcgdex",
+      }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "invalid_control_plane_event",
+        message: "Unknown Catalog control plane telemetry event.",
+      },
+    });
+    expect(recordControlPlaneTelemetry).not.toHaveBeenCalled();
+  });
+
   it("requires catalog.manage for destructive control-plane actions", async () => {
     const services = {
       enqueueIntegrationJob: vi.fn(),
@@ -119,6 +185,7 @@ describe("source observation routes", () => {
       ["/source-observations/reapply", { method: "POST", body: "{}" }],
       ["/source-observations/bulk-promote", { method: "POST", body: "{}" }],
       ["/source-observations/bulk-reject", { method: "POST", body: '{"reason":"duplicate"}' }],
+      ["/source-observations/bulk-defer/jobs", { method: "POST", body: "{}" }],
       ["/source-observations/obs_1/promote", { method: "POST" }],
       ["/source-observations/obs_1/reject", { method: "POST", body: "{}" }],
     ];
@@ -418,6 +485,45 @@ describe("source observation routes", () => {
         setId: "base1",
       },
     });
+  });
+
+  it("previews selected Source Observation promotion without using the filter scope", async () => {
+    const previewPromoteObservations = vi.fn(async () => ({
+      matched: 2,
+      eligible: 1,
+      terminal: 1,
+      scope: {
+        search: "",
+        status: "",
+        provider: "",
+        language: "",
+        setId: "",
+      },
+    }));
+    const previewPromoteObservationScope = vi.fn();
+    const services = {
+      previewPromoteObservations,
+      previewPromoteObservationScope,
+    } as unknown as SourceObservationRouteServices;
+    const app = buildApp(services);
+
+    const response = await app.request("/source-observations/bulk-promote/preview", {
+      method: "POST",
+      body: JSON.stringify({
+        observationIds: [" obs_1 ", "obs_2", "obs_1", " "],
+        scope: { status: "observed", source: "tcgdex", language: "en", setId: "base1" },
+      }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      matched: 2,
+      eligible: 1,
+      terminal: 1,
+    });
+    expect(previewPromoteObservations).toHaveBeenCalledWith({ observationIds: ["obs_1", "obs_2"] });
+    expect(previewPromoteObservationScope).not.toHaveBeenCalled();
   });
 
   it("lists integration scopes using provider language and expansion filters", async () => {
@@ -1364,6 +1470,73 @@ describe("source observation routes", () => {
     expect(listActiveIntegrationJobs).toHaveBeenCalledWith({ context });
   });
 
+  it("runs provider import lifecycle commands through the current request context", async () => {
+    const retryJob = integrationJob({ status: "queued" });
+    const resumeJob = integrationJob({ status: "running" });
+    const cancelJob = integrationJobFixture({
+      status: "failed",
+      operatorStatus: "cancelled",
+      progress: {
+        phase: "failed",
+        completed: 7,
+        total: 24,
+        currentName: "Base Set",
+        status: null,
+      },
+      errorMessage: "Operator cancelled provider import job.",
+    });
+    const retryIntegrationJob = vi.fn(async () => retryJob);
+    const resumeIntegrationJob = vi.fn(async () => resumeJob);
+    const cancelIntegrationJob = vi.fn(async () => cancelJob);
+    const services = {
+      retryIntegrationJob,
+      resumeIntegrationJob,
+      cancelIntegrationJob,
+    } as unknown as SourceObservationRouteServices;
+    const app = buildApp(services);
+
+    await expect(
+      app.request("/source-observations/integration-jobs/job_import/retry", { method: "POST" }),
+    ).resolves.toMatchObject({ status: 202 });
+    await expect(
+      app.request("/source-observations/integration-jobs/job_import/resume", { method: "POST" }),
+    ).resolves.toMatchObject({ status: 202 });
+    const cancelResponse = await app.request("/source-observations/integration-jobs/job_import/cancel", {
+      method: "POST",
+    });
+
+    expect(cancelResponse.status).toBe(202);
+    await expect(cancelResponse.json()).resolves.toMatchObject({
+      jobId: "job_integration",
+      operatorStatus: "cancelled",
+    });
+    expect(retryIntegrationJob).toHaveBeenCalledWith({ jobId: "job_import", context });
+    expect(resumeIntegrationJob).toHaveBeenCalledWith({ jobId: "job_import", context });
+    expect(cancelIntegrationJob).toHaveBeenCalledWith({ jobId: "job_import", context });
+  });
+
+  it("fails closed when provider import lifecycle commands are not available for the job state", async () => {
+    const retryIntegrationJob = vi.fn(async () => {
+      throw new SourceObservationIntegrationJobLifecycleCommandError(
+        "unsupported_state",
+        "Completed provider import jobs without failed outcomes cannot be retried.",
+      );
+    });
+    const services = {
+      retryIntegrationJob,
+    } as unknown as SourceObservationRouteServices;
+    const app = buildApp(services);
+
+    const response = await app.request("/source-observations/integration-jobs/job_done/retry", { method: "POST" });
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "unsupported_state",
+      },
+    });
+  });
+
   it("streams provider integration job status events until completion", async () => {
     const completedJob = integrationJob({ status: "completed" });
     const getIntegrationJob = vi.fn(async () => completedJob);
@@ -1530,6 +1703,46 @@ describe("source observation routes", () => {
         language: "en",
         setId: "base1",
       },
+      reapplyProfileMode: "current-active-profile",
+      context,
+    });
+  });
+
+  it("passes original source profile mode for scoped replay jobs", async () => {
+    const job = integrationJobFixture({
+      jobId: "job_replay_scope",
+      action: "reapply",
+      scope: { provider: "tcgdex", language: "en", setId: "base1" },
+    });
+    const enqueueIntegrationJob = vi.fn(async () => job);
+    const services = {
+      enqueueIntegrationJob,
+    } as unknown as SourceObservationRouteServices;
+    const app = buildApp(services);
+
+    const response = await app.request("/source-observations/reapply", {
+      method: "POST",
+      body: JSON.stringify({
+        scope: { source: "tcgdex", language: "en", setId: "base1" },
+        reapplyProfileMode: "original-source-profile",
+      }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toMatchObject({
+      jobId: "job_replay_scope",
+      action: "reapply",
+      status: "queued",
+    });
+    expect(enqueueIntegrationJob).toHaveBeenCalledWith({
+      action: "reapply",
+      scope: {
+        provider: "tcgdex",
+        language: "en",
+        setId: "base1",
+      },
+      reapplyProfileMode: "original-source-profile",
       context,
     });
   });
@@ -1629,6 +1842,42 @@ describe("source observation routes", () => {
       action: "promote",
       observationIds: ["obs_1", "obs_2"],
       scope: undefined,
+      context,
+    });
+  });
+
+  it("enqueues original-profile replay jobs for explicit observation ids", async () => {
+    const job = bulkJobFixture({
+      jobId: "job_replay_ids",
+      action: "reapply",
+      observationIds: ["obs_1", "obs_2"],
+      reapplyProfileMode: "original-source-profile",
+    });
+    const enqueueBulkReviewJob = vi.fn(async () => job);
+    const services = {
+      enqueueBulkReviewJob,
+    } as unknown as SourceObservationRouteServices;
+    const app = buildApp(services);
+
+    const response = await app.request("/source-observations/reapply", {
+      method: "POST",
+      body: JSON.stringify({
+        observationIds: ["obs_1", "obs_2"],
+        reapplyProfileMode: "original-source-profile",
+      }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toMatchObject({
+      jobId: "job_replay_ids",
+      action: "reapply",
+      status: "queued",
+    });
+    expect(enqueueBulkReviewJob).toHaveBeenCalledWith({
+      action: "reapply",
+      observationIds: ["obs_1", "obs_2"],
+      reapplyProfileMode: "original-source-profile",
       context,
     });
   });
@@ -1774,6 +2023,69 @@ describe("source observation routes", () => {
       reason: "Out of scope.",
       context,
     });
+  });
+
+  it("enqueues bulk defer jobs without removing observations from review scope", async () => {
+    const job = bulkJobFixture({
+      jobId: "job_defer_scope",
+      action: "defer",
+      scope: { status: "changed", provider: "tcgdex", language: "en", setId: "base1" },
+      reason: "Needs provider evidence.",
+    });
+    const enqueueBulkReviewJob = vi.fn(async () => job);
+    const services = {
+      enqueueBulkReviewJob,
+    } as unknown as SourceObservationRouteServices;
+    const app = buildApp(services);
+
+    const response = await app.request("/source-observations/bulk-defer/jobs", {
+      method: "POST",
+      body: JSON.stringify({
+        scope: { status: "changed", source: "tcgdex", language: "en", setId: "base1" },
+        reason: " Needs provider evidence. ",
+      }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toMatchObject({
+      jobId: "job_defer_scope",
+      action: "defer",
+      status: "queued",
+    });
+    expect(enqueueBulkReviewJob).toHaveBeenCalledWith({
+      action: "defer",
+      observationIds: [],
+      scope: {
+        search: undefined,
+        status: "changed",
+        provider: "tcgdex",
+        language: "en",
+        setId: "base1",
+      },
+      reason: "Needs provider evidence.",
+      context,
+    });
+  });
+
+  it("requires explicit Source Observation ids or review scope for bulk defer jobs", async () => {
+    const enqueueBulkReviewJob = vi.fn();
+    const services = {
+      enqueueBulkReviewJob,
+    } as unknown as SourceObservationRouteServices;
+    const app = buildApp(services);
+
+    const response = await app.request("/source-observations/bulk-defer/jobs", {
+      method: "POST",
+      body: "{}",
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "Bulk deferral requires selected observations or an explicit review scope.",
+    });
+    expect(enqueueBulkReviewJob).not.toHaveBeenCalled();
   });
 
   it("streams bulk rejection job status events", async () => {
@@ -2053,7 +2365,7 @@ function baseIntegrationJob() {
 function bulkJobFixture(
   input: Record<string, unknown> & {
     jobId?: string;
-    action?: "promote" | "reject" | "reapply";
+    action?: "promote" | "reject" | "defer" | "reapply";
   },
 ) {
   return {

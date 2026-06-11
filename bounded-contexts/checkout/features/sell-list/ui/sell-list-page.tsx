@@ -30,6 +30,7 @@ import {
 import { t } from "@chase-sets/localization";
 import { useState } from "react";
 import type { CheckoutSellListLineRow } from "../read-model/queries";
+import { SELLER_CHECKOUT_REGISTER_HREF, SELLER_CHECKOUT_SIGN_IN_HREF } from "./registration-return";
 
 type SellListOfferReview = Readonly<{
   lineId: string;
@@ -166,7 +167,8 @@ function productOptionsFromSelectedOptions(selections: readonly { dimensionId: s
 }
 
 function buyerLabel(offer: { buyer_display_name: string | null; buyer_account_id: string | null }) {
-  return offer.buyer_display_name ?? offer.buyer_account_id ?? t("checkout.features.sellList.ui.sellListPage.buyer");
+  const displayName = offer.buyer_display_name?.trim();
+  return displayName || t("checkout.features.sellList.ui.sellListPage.buyer");
 }
 
 function selectedOfferReadiness(review: SellListOfferReview | undefined): LineReadiness {
@@ -563,6 +565,9 @@ export function CheckoutSellListPage({
   productOfferReviews = [],
   inventoryItems = [],
   payoutReadiness = null,
+  registrationReturn = null,
+  mergedLineCount = 0,
+  mergeError = null,
   errorMessage = null,
 }: {
   sellListLines: readonly CheckoutSellListLineRow[];
@@ -571,6 +576,9 @@ export function CheckoutSellListPage({
   productOfferReviews?: readonly SellListProductOfferReview[];
   inventoryItems?: readonly SellListInventoryItem[];
   payoutReadiness?: PayoutReadiness | null;
+  registrationReturn?: "seller-checkout" | null;
+  mergedLineCount?: number;
+  mergeError?: string | null;
   errorMessage?: string | null;
 }) {
   const selectedOfferLines = sellListLines.filter((line) => line.line_type === "selected-offer");
@@ -638,8 +646,11 @@ export function CheckoutSellListPage({
   );
   const blockedLineCount = lineReadiness.filter((readiness) => !readiness.ready).length;
   const readyLineCount = sellListLines.length - blockedLineCount;
-  const payoutIsReady = !isSignedIn || payoutReadiness?.status === "ready";
+  const payoutIsReady = isSignedIn ? payoutReadiness?.status === "ready" : true;
   const canContinue = payoutIsReady && blockedLineCount === 0 && sellListLines.length > 0;
+  const primarySellerCheckoutLabel = isSignedIn
+    ? t("checkout.features.sellList.ui.sellListPage.continue.to.seller.checkout")
+    : t("checkout.features.sellList.ui.sellListPage.create.account.to.continue");
   const readinessSummary =
     blockedLineCount > 0
       ? t("checkout.features.sellList.ui.sellListPage.readiness.needs.action", { count: blockedLineCount })
@@ -700,20 +711,44 @@ export function CheckoutSellListPage({
 
         {!isSignedIn ? (
           <Banner
-            title={t("checkout.features.sellList.ui.sellListPage.saved.for.later.title")}
-            description={t("checkout.features.sellList.ui.sellListPage.saved.for.later.description")}
+            title={t("checkout.features.sellList.ui.sellListPage.account.gate.title")}
+            description={t("checkout.features.sellList.ui.sellListPage.account.gate.description")}
             tone="info"
             actions={
               <Inline gap={2}>
-                <LinkButton href="/register?returnTo=%2Faccount%2Fsell-list">
+                <LinkButton href={SELLER_CHECKOUT_REGISTER_HREF}>
                   {t("checkout.features.sellList.ui.sellListPage.create.account")}
                 </LinkButton>
-                <LinkButton href="/sign-in?returnTo=%2Faccount%2Fsell-list" tone="secondary">
+                <LinkButton href={SELLER_CHECKOUT_SIGN_IN_HREF} tone="secondary">
                   {t("checkout.features.sellList.ui.sellListPage.sign.in")}
                 </LinkButton>
               </Inline>
             }
           />
+        ) : null}
+
+        {isSignedIn && registrationReturn === "seller-checkout" ? (
+          mergeError ? (
+            <MarketplaceNotice
+              tone="warning"
+              title={t("checkout.features.sellList.ui.sellListPage.registration.return.merge.issue.title")}
+              description={mergeError}
+            />
+          ) : mergedLineCount > 0 ? (
+            <MarketplaceNotice
+              tone="success"
+              title={t("checkout.features.sellList.ui.sellListPage.registration.return.merged.title")}
+              description={t("checkout.features.sellList.ui.sellListPage.registration.return.merged.description", {
+                count: mergedLineCount,
+              })}
+            />
+          ) : (
+            <MarketplaceNotice
+              tone="info"
+              title={t("checkout.features.sellList.ui.sellListPage.registration.return.review.title")}
+              description={t("checkout.features.sellList.ui.sellListPage.registration.return.review.description")}
+            />
+          )
         ) : null}
 
         {errorMessage ? (
@@ -801,7 +836,7 @@ export function CheckoutSellListPage({
                         leadingIcon="check"
                         disabled={!canContinue}
                       >
-                        {t("checkout.features.sellList.ui.sellListPage.continue.to.seller.checkout")}
+                        {primarySellerCheckoutLabel}
                       </Button>
                     </Form>
                     {blockedLineCount > 0 ? (
@@ -829,7 +864,7 @@ export function CheckoutSellListPage({
                     leadingIcon="check"
                     disabled={!canContinue}
                   >
-                    {t("checkout.features.sellList.ui.sellListPage.continue.to.seller.checkout")}
+                    {primarySellerCheckoutLabel}
                   </Button>
                 }
                 secondaryAction={

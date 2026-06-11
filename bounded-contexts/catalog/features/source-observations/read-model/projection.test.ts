@@ -94,6 +94,28 @@ describe("Source Observation projections", () => {
     expect(query.mock.calls[0]?.[1]?.[13]).toBe("changed");
   });
 
+  it("projects deferrals without removing the observation from review", async () => {
+    const query = vi.fn(async (_sql: string, _params?: readonly unknown[]) => ({ rows: [] }));
+    const handlers = buildSourceObservationProjectionHandlers({ query });
+
+    await handlers["catalog.source-observation.deferred"]?.({
+      streamId: "catalog.source-observation-tcgdex_en_base1_043",
+      data: {
+        reason: "Needs better provider evidence.",
+        deferredAt: "2026-05-28T14:04:30.000Z",
+        reviewStatus: "changed",
+      },
+      timing: { recordedAt: "2026-05-28T14:05:00.000Z" },
+    } as never);
+
+    expect(query).toHaveBeenCalledWith(expect.stringContaining("SET status = $2"), [
+      "tcgdex_en_base1_043",
+      "changed",
+      "Needs better provider evidence.",
+      "2026-05-28T14:05:00.000Z",
+    ]);
+  });
+
   it("rejects retired legacy source profile markers instead of projecting fallback metadata", async () => {
     const query = vi.fn(async (_sql: string, _params?: readonly unknown[]) => ({ rows: [] }));
     const handlers = buildSourceObservationProjectionHandlers({ query });

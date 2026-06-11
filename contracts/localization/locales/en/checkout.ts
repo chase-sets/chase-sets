@@ -38,6 +38,10 @@ export const checkoutEnglishTranslations = {
     "1 item needs fulfillment or availability resolved before checkout.",
   "checkout.features.cart.ui.cartPage.items": "Items",
   "checkout.features.cart.ui.cartPage.increase": "Increase",
+  "checkout.features.cart.ui.cartPage.lock.this.listing": "Lock this listing",
+  "checkout.features.cart.ui.cartPage.locked.listing": "Locked listing",
+  "checkout.features.cart.ui.cartPage.locked.listing.summary":
+    "{listing} is locked for checkout unless availability changes.",
   "checkout.features.cart.ui.cartPage.needs.fulfillment": "Needs fulfillment",
   "checkout.features.cart.ui.cartPage.needs.review": "Needs review",
   "checkout.features.cart.ui.cartPage.no.payment.until.checkout": "No payment until checkout.",
@@ -47,6 +51,9 @@ export const checkoutEnglishTranslations = {
   "checkout.features.cart.ui.cartPage.product.image.alt": "{title} product",
   "checkout.features.cart.ui.cartPage.quantity": "Quantity",
   "checkout.features.cart.ui.cartPage.price.at.checkout": "Price at checkout",
+  "checkout.features.cart.ui.cartPage.preferred.listing": "Preferred listing",
+  "checkout.features.cart.ui.cartPage.preferred.listing.summary":
+    "{listing} is the starting preference. Smart Match may choose another available listing.",
   "checkout.features.cart.ui.cartPage.ready": "Ready",
   "checkout.features.cart.ui.cartPage.remove": "Remove",
   "checkout.features.cart.ui.cartPage.resolve.before.checkout":
@@ -56,6 +63,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.cart.ui.cartPage.review.items.before.checkout":
     "Review quantities and remove anything you do not want before checkout.",
   "checkout.features.cart.ui.cartPage.shipping.and.tax": "Shipping and tax",
+  "checkout.features.cart.ui.cartPage.selected.listing": "Selected listing",
   "checkout.features.cart.ui.cartPage.keep.shopping": "Keep shopping",
   "checkout.features.cart.ui.cartPage.standard": "Standard",
   "checkout.features.cart.ui.cartPage.subtotal": "Subtotal",
@@ -295,6 +303,8 @@ export const checkoutEnglishTranslations = {
     "Sell List readiness snapshot is required.",
   "checkout.features.sellList.api.route.sell.list.review.requires.seller.account":
     "Sell List review requires a seller account.",
+  "checkout.features.sellList.api.route.anonymous.sell.list.limit.exceeded":
+    "This device has {limit} Sell List lines saved. Remove an item before adding another.",
   "checkout.features.sellList.ui.sellListPage.add.selected.offers.or.products":
     "Add selected offers or products from item pages before reviewing seller checkout.",
   "checkout.features.sellList.ui.sellListPage.browse.products": "Browse products",
@@ -363,6 +373,13 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.readiness.ready": "{count} ready",
   "checkout.features.sellList.ui.sellListPage.remaining.quantity.action": "Remaining quantity action",
   "checkout.features.sellList.ui.sellListPage.remove": "Remove",
+  "checkout.features.sellList.ui.sellListPage.registration.return.merge.issue.title": "Sell List needs review",
+  "checkout.features.sellList.ui.sellListPage.registration.return.merged.description":
+    "{count} Sell List line(s) moved to your account. Review final seller terms, payout setup, and ship-from details before continuing.",
+  "checkout.features.sellList.ui.sellListPage.registration.return.merged.title": "Sell List saved to your account",
+  "checkout.features.sellList.ui.sellListPage.registration.return.review.description":
+    "Your account is ready. Review final seller terms, payout setup, and ship-from details before continuing.",
+  "checkout.features.sellList.ui.sellListPage.registration.return.review.title": "Review final seller details",
   "checkout.features.sellList.ui.sellListPage.resolve.before.seller.checkout":
     "Resolve {count} line(s) before seller checkout starts.",
   "checkout.features.sellList.ui.sellListPage.resolve.items": "Resolve items",
@@ -370,6 +387,10 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.expected.seller.payout": "Expected seller payout",
   "checkout.features.sellList.ui.sellListPage.future.listing.gross": "Future listing gross",
   "checkout.features.sellList.ui.sellListPage.estimated.sales.fees": "Estimated sales fees",
+  "checkout.features.sellList.ui.sellListPage.account.gate.description":
+    "Your Sell List is saved on this device. Create an account before offer acceptance, listing publication, payout, or shipping label work starts.",
+  "checkout.features.sellList.ui.sellListPage.account.gate.title": "Create an account to continue seller checkout",
+  "checkout.features.sellList.ui.sellListPage.create.account.to.continue": "Create account to continue",
   "checkout.features.sellList.ui.sellListPage.simple.review.description":
     "Review cards, payout readiness, and pre-checkout sale actions before seller checkout.",
   "checkout.features.sellList.ui.sellListPage.sale.checkout.summary": "Sale checkout summary",
@@ -626,6 +647,7 @@ export const checkoutEnglishTranslations = {
     "{quantity} item(s), estimated seller payout {sellerNet}.",
   "checkout.features.sellList.ui.sellListPage.your.sell.list.is.empty": "Your Sell List is empty",
   "checkout.routes.accountCart.cart.marketplace": "Buy Cart | Marketplace",
+  "checkout.routes.accountCart.preferred.listing.missing": "Choose a preferred listing before locking this cart line.",
   "checkout.routes.accountCart.request.failed": "Request failed.",
   "checkout.routes.accountCart.review.cart.lines.adjust.quantity.and":
     "Review Buy Cart lines, adjust quantity, and start checkout.",

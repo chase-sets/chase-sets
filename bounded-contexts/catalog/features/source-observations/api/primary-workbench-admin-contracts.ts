@@ -41,7 +41,8 @@ export type CatalogPrimaryWorkbenchSourceObservationRowActionKey =
   | "preview-promotion"
   | "reject-source-observations"
   | "defer-source-observations"
-  | "start-reapply";
+  | "start-reapply"
+  | "start-replay";
 
 export type CatalogPrimaryWorkbenchActionState =
   | "available"
@@ -326,6 +327,7 @@ export type CatalogPrimaryWorkbenchImportJobsReadModel = Readonly<{
     unitKey: CatalogIntegrationUnitKey | null;
     importScope: string;
     profileVersion: string | null;
+    profileSnapshot: CatalogAdminProfileVersionPointer | null;
     expectedObservationVolume: number;
     observedCount: number;
     changedCount: number;
@@ -343,13 +345,17 @@ export type CatalogPrimaryWorkbenchImportJobsReadModel = Readonly<{
     jobId: string;
     action: Extract<CatalogPrimaryWorkbenchCommandKey, "start-provider-import" | "start-reapply" | "start-replay">;
     state: "queued" | "running" | "completed" | "failed" | "cancelled";
-    operatorStatus: "queued" | "running" | "stale" | "retried" | "partial" | "failed" | "completed";
+    operatorStatus: "queued" | "running" | "stale" | "retried" | "partial" | "failed" | "cancelled" | "completed";
     summary: string;
     completed: number;
     total: number;
     progressPercent: number;
+    unitKey: CatalogIntegrationUnitKey | null;
     providerKey: string;
+    importScope: string | null;
     profileVersion: string | null;
+    profileSnapshot: CatalogAdminProfileVersionPointer | null;
+    scopeMatchesRoute: boolean;
     createdAt: string;
     startedAt: string | null;
     consistency: CatalogAdminJobConsistency;

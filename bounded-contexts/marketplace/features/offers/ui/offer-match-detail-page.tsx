@@ -24,6 +24,7 @@ import {
   productOptionsFromSummary,
 } from "@chase-sets/design-system";
 import type { OfferMatchDetail } from "./contracts";
+import { OfferMatchSellListSnapshotFields } from "./offer-match-sell-list-snapshot-fields";
 import type { MarketplaceListingTermsPreview } from "../../listings/ui/contracts";
 
 function statusTone(status: string) {
@@ -99,7 +100,7 @@ export function MarketplaceOfferMatchDetailPage({
   const addToSellListAction = canAcceptSubmitted ? (
     <Form spacing="none" method="post" action="/account/sell-list">
       <HiddenInput type="hidden" name="intent" value="add-selected-offer" />
-      <HiddenInput type="hidden" name="offerId" value={offer.offer_id} />
+      <OfferMatchSellListSnapshotFields offer={offer} />
       <Button type="submit" tone="secondary" disabled={!offer.can_fulfill}>
         {t("marketplace.features.offers.ui.offerMatchDetailPage.add.to.sell.list")}
       </Button>

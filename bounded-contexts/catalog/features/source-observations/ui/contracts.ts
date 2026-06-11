@@ -1,5 +1,6 @@
 import type { JsonValue } from "@chase-sets/primitives/json";
 import type { SourceObservationNormalized } from "../domain/domain";
+import type { CatalogAdminProfileVersionPointer } from "../api/admin-control-plane-read-model-contracts";
 import type {
   CatalogProviderProfileBasicsUpdateCommand,
   CatalogProviderProfileCatalogFieldMappingUpdateCommand,
@@ -239,8 +240,11 @@ export interface CatalogIntegrationRecentJobSummary {
   phase: SourceObservationIntegrationJobPhase;
   completed: number;
   total: number;
+  unitKey: string | null;
   providerKey: string;
+  importScope: string | null;
   profileVersion: string | null;
+  profileSnapshot: CatalogAdminProfileVersionPointer | null;
   startedAt: string | null;
   createdAt: string;
   summary: string;
@@ -623,7 +627,7 @@ export interface SourceObservationReplayImpactSummary {
   sampleObservationIds: string[];
 }
 
-export type BulkSourceObservationPromotionStatus = "promoted" | "rejected" | "skipped" | "failed";
+export type BulkSourceObservationPromotionStatus = "promoted" | "rejected" | "deferred" | "skipped" | "failed";
 
 export interface BulkSourceObservationPromotionOutcome {
   observationId: string;
@@ -636,6 +640,7 @@ export interface BulkSourceObservationPromotionResult {
   requested: number;
   promoted: number;
   rejected?: number;
+  deferred?: number;
   skipped: number;
   failed: number;
   outcomes: BulkSourceObservationPromotionOutcome[];
@@ -673,6 +678,7 @@ export type SourceObservationIntegrationJobOperatorStatus =
   | "retried"
   | "partial"
   | "failed"
+  | "cancelled"
   | "completed";
 
 export interface SourceObservationIntegrationProfileSnapshot {

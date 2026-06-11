@@ -21,7 +21,7 @@ import type { CatalogIntegrationUnitKey } from "./integration-unit";
 export type CatalogIntegrationImpactJobSample = Readonly<{
   jobId: string;
   jobKind: "integration" | "bulk-review";
-  action: "import" | "reapply" | "promote" | "reject";
+  action: "import" | "reapply" | "promote" | "reject" | "defer";
   status: string;
   providerKey: string | null;
   profileVersion: string | null;

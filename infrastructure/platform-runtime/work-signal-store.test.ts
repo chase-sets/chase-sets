@@ -83,8 +83,8 @@ describe("work signal store", () => {
     expect(calls[0].sql).toContain(
       "WHEN platform_projection_wake_intents.state IN ('completed', 'expired') THEN 'queued'",
     );
-    expect(String(calls[0].values[1])).toContain(
-      "projection-wake:catalog:checkout:checkout-session-projection:checkout.checkout-session-projection:catalog:hot:catalog:12",
+    expect(String(calls[0].values[1])).toBe(
+      "projection-wake:catalog:checkout:checkout-session-projection:checkout.checkout-session-projection:catalog:hot",
     );
     expect(calls[0].values[6]).toBe("12");
     expect(calls[0].values[8]).toBe("hot");
@@ -135,7 +135,43 @@ describe("work signal store", () => {
     expect(calls[0].sql).toContain("claim_fencing_token = COALESCE(wake.claim_fencing_token, 0) + 1");
     expect(calls[0].sql).toContain("claimed_required_position = wake.required_position");
     expect(calls[0].sql).toContain("attempt_count = wake.attempt_count + 1");
+    expect(calls[0].sql).toContain("($4::text[] IS NULL OR target_context_name = ANY($4::text[]))");
     expect(calls[0].values[2]).toEqual(["hot"]);
+    expect(calls[0].values[3]).toBeNull();
+  });
+
+  it("claims only hosted target contexts when a target filter is provided", async () => {
+    const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
+    const store = createPostgresWorkSignalStore(
+      {
+        query: async (sql: string, values: readonly unknown[] = []) => {
+          calls.push({ sql, values });
+          return {
+            rows: [
+              wakeIntentRow({
+                state: "claimed",
+                claim_owner_id: String(values[0]),
+                claim_fencing_token: "1",
+                claimed_until: String(values[1]),
+              }),
+            ],
+            rowCount: 1,
+          };
+        },
+      },
+      { now: () => NOW },
+    );
+
+    await expect(
+      store.claimNextProjectionWakeIntent({
+        claimOwnerId: "projection-worker-a",
+        claimTtlMs: 60_000,
+        targetContextNames: ["checkout", "ordering"],
+      }),
+    ).resolves.toMatchObject({ state: "claimed" });
+
+    expect(calls[0].values[2]).toEqual(["hot", "standard", "bulk"]);
+    expect(calls[0].values[3]).toEqual(["checkout", "ordering"]);
   });
 
   it("completes and retries only the live fenced claim owner", async () => {
@@ -144,7 +180,9 @@ describe("work signal store", () => {
       {
         query: async (sql: string, values: readonly unknown[] = []) => {
           calls.push({ sql, values });
-          return { rows: [], rowCount: 1 };
+          return sql.includes("RETURNING state")
+            ? { rows: [{ state: "completed" }], rowCount: 1 }
+            : { rows: [], rowCount: 1 };
         },
       },
       { now: () => NOW },
@@ -156,7 +194,7 @@ describe("work signal store", () => {
         claimOwnerId: "projection-worker-a",
         claimFencingToken: 3n,
       }),
-    ).resolves.toBe(true);
+    ).resolves.toBe("completed");
     await expect(
       store.failProjectionWakeIntent({
         wakeIntentId: "projection-wake-2",
@@ -173,9 +211,86 @@ describe("work signal store", () => {
     expect(calls[0].sql).toContain("claim_fencing_token = $3::bigint");
     expect(calls[0].sql).toContain("claimed_until > now()");
     expect(calls[0].sql).toContain("claimed_required_position = NULL");
+    expect(calls[0].sql).toContain("RETURNING state");
     expect(calls[1].sql).toContain("state = 'failed'");
     expect(calls[1].sql).toContain("next_eligible_at = $4::timestamptz");
     expect(calls[1].values[4]).toBe(JSON.stringify({ code: "projection_conflict" }));
+  });
+
+  it("reports requeued and lost completion outcomes distinctly", async () => {
+    const requeuedStore = createPostgresWorkSignalStore(
+      {
+        query: async () => ({ rows: [{ state: "queued" }], rowCount: 1 }),
+      },
+      { now: () => NOW },
+    );
+    await expect(
+      requeuedStore.completeProjectionWakeIntent({
+        wakeIntentId: "projection-wake-1",
+        claimOwnerId: "projection-worker-a",
+        claimFencingToken: 3n,
+      }),
+    ).resolves.toBe("requeued");
+
+    const lostStore = createPostgresWorkSignalStore(
+      {
+        query: async () => ({ rows: [], rowCount: 0 }),
+      },
+      { now: () => NOW },
+    );
+    await expect(
+      lostStore.completeProjectionWakeIntent({
+        wakeIntentId: "projection-wake-1",
+        claimOwnerId: "projection-worker-b",
+        claimFencingToken: 4n,
+      }),
+    ).resolves.toBe("lost");
+  });
+
+  it("clears checkpoint readiness rows for reset checkpoints", async () => {
+    const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
+    const store = createPostgresWorkSignalStore(
+      {
+        query: async (sql: string, values: readonly unknown[] = []) => {
+          calls.push({ sql, values });
+          return { rows: [], rowCount: 2 };
+        },
+      },
+      { now: () => NOW },
+    );
+
+    await expect(
+      store.clearCheckpointReadiness({
+        checkpointKeys: ["checkout-session-pages:checkout:v1", "checkout-session-pages:marketplace:v1"],
+      }),
+    ).resolves.toBe(2);
+    expect(calls[0].sql).toContain("DELETE FROM platform_projection_checkpoint_readiness");
+    expect(calls[0].sql).toContain("checkpoint_key = ANY($1::text[])");
+
+    await expect(store.clearCheckpointReadiness({ checkpointKeys: [] })).resolves.toBe(0);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("claims nothing when an empty target filter is provided", async () => {
+    const calls: string[] = [];
+    const store = createPostgresWorkSignalStore(
+      {
+        query: async (sql: string) => {
+          calls.push(sql);
+          return { rows: [], rowCount: 0 };
+        },
+      },
+      { now: () => NOW },
+    );
+
+    await expect(
+      store.claimNextProjectionWakeIntent({
+        claimOwnerId: "projection-worker-a",
+        claimTtlMs: 60_000,
+        targetContextNames: [],
+      }),
+    ).resolves.toBeNull();
+    expect(calls).toHaveLength(0);
   });
 
   it("records checkpoint readiness and satisfies matching waiters atomically", async () => {

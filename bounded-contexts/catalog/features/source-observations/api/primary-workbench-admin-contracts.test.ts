@@ -369,6 +369,18 @@ describe("Catalog primary workbench admin contracts", () => {
   });
 
   it("accepts a redaction-safe representative primary workbench read model", () => {
+    const profileSnapshot = {
+      schemaVersion: "catalog-provider-profile-version-v1",
+      compatibilityPolicy: "provider-profile-version",
+      providerKey: "tcgdex",
+      profileKey: "tcgdex-pokemon-card",
+      profileVersion: "2026.06.04",
+      lifecycle: "active",
+      active: true,
+      connectorKind: "tcgdex-json",
+      connectorSourceVersion: null,
+      sourceMappingFingerprint: "sha256:mapping",
+    } as const;
     const readModel = {
       schemaVersion: catalogPrimaryWorkbenchContractVersion,
       generatedAt: "2026-06-09T00:00:00.000Z",
@@ -418,6 +430,7 @@ describe("Catalog primary workbench admin contracts", () => {
           unitKey: "tcgdex:pokemon:single-card:source-observation-import",
           importScope: "changed",
           profileVersion: "2026.06.04",
+          profileSnapshot,
           expectedObservationVolume: 2,
           observedCount: 2,
           changedCount: 1,
@@ -441,8 +454,12 @@ describe("Catalog primary workbench admin contracts", () => {
             completed: 1,
             total: 2,
             progressPercent: 50,
+            unitKey: "tcgdex:pokemon:single-card:source-observation-import",
             providerKey: "tcgdex",
+            importScope: "changed",
             profileVersion: "2026.06.04",
+            profileSnapshot,
+            scopeMatchesRoute: true,
             createdAt: "2026-06-09T00:00:00.000Z",
             startedAt: "2026-06-09T00:01:00.000Z",
             consistency: {

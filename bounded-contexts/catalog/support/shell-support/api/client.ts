@@ -53,11 +53,13 @@ export type CatalogBulkActionProgressOptions = Readonly<{
 
 export type CatalogBulkReviewJob<T = unknown> = Readonly<{
   jobId: string;
-  action: "promote" | "reject";
+  action: "promote" | "reject" | "defer" | "reapply";
   selectionMode: "ids" | "filter";
   observationIds: readonly string[];
   scope: Readonly<Record<string, string | undefined>>;
   reason: string | null;
+  profileSnapshot: CatalogIntegrationJob["profileSnapshot"];
+  reapplyProfileMode: "original-source-profile" | "current-active-profile" | null;
   status: "queued" | "running" | "completed" | "failed";
   progress: CatalogBulkActionProgress;
   result: T | null;
@@ -83,7 +85,7 @@ export type CatalogIntegrationJob<T = unknown> = Readonly<{
   }> | null;
   reapplyProfileMode: "original-source-profile" | "current-active-profile" | null;
   status: "queued" | "running" | "completed" | "failed";
-  operatorStatus: "queued" | "running" | "stale" | "retried" | "partial" | "failed" | "completed";
+  operatorStatus: "queued" | "running" | "stale" | "retried" | "partial" | "failed" | "cancelled" | "completed";
   consistency: Readonly<{
     duplicateSubmissionPolicy: "reuse-active-job";
     profileSnapshotPolicy: "snapshotted-at-enqueue";
@@ -1083,6 +1085,17 @@ export function createCatalogApiClient({
       );
       return parseJsonResponse<T>(response);
     },
+    async recordCatalogControlPlaneEvent<T>(event: unknown): Promise<T> {
+      const response = await configuredFetch(`${baseUrl.replace(/\/$/, "")}/source-observations/control-plane-events`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...headersToRecord(headers),
+        },
+        body: JSON.stringify(event),
+      });
+      return parseJsonResponse<T>(response);
+    },
     async listSourceObservationProviderProfiles<T>(): Promise<T> {
       const response = await configuredFetch(`${baseUrl.replace(/\/$/, "")}/source-observations/provider-profiles`, {
         method: "GET",
@@ -1273,6 +1286,13 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
+    async previewBulkPromoteSourceObservationIds<T>(observationIds: string[]): Promise<T> {
+      const response = await client["source-observations"]["bulk-promote"].preview.$post({
+        json: { observationIds },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
     async bulkPromoteSourceObservationsByScope<T>(
       scope: unknown,
       options: CatalogBulkActionProgressOptions = {},
@@ -1340,6 +1360,37 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
+    async replaySourceObservations<T>(
+      observationIds: string[],
+      options: CatalogBulkActionProgressOptions = {},
+    ): Promise<T> {
+      const body = { observationIds, reapplyProfileMode: "original-source-profile" };
+      if (options.onProgress) {
+        const job = await startBulkJob<T>({
+          baseUrl,
+          fetch: configuredFetch,
+          headers,
+          path: "/source-observations/reapply",
+          body,
+          errorMessage: "Source Observation replay failed.",
+        });
+        return streamBulkJob<T>({
+          baseUrl,
+          fetch: configuredFetch,
+          headers,
+          jobId: job.jobId,
+          onProgress: options.onProgress,
+          signal: options.signal,
+          errorMessage: "Source Observation replay failed.",
+        });
+      }
+
+      const response = await client["source-observations"].reapply.$post({
+        json: body,
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
     async reapplySourceObservationsByScope<T>(
       scope: unknown,
       options: CatalogBulkActionProgressOptions = {},
@@ -1365,6 +1416,36 @@ export function createCatalogApiClient({
 
       const response = await client["source-observations"].reapply.$post({
         json: { scope },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async replaySourceObservationsByScope<T>(
+      scope: unknown,
+      options: CatalogBulkActionProgressOptions = {},
+    ): Promise<T> {
+      if (options.onProgress) {
+        const job = await startIntegrationJob<T>({
+          baseUrl,
+          fetch: configuredFetch,
+          headers,
+          action: "reapply",
+          scope,
+          reapplyProfileMode: "original-source-profile",
+        });
+        return streamIntegrationJob<T>({
+          baseUrl,
+          fetch: configuredFetch,
+          headers,
+          jobId: job.jobId,
+          onProgress: options.onProgress,
+          signal: options.signal,
+          errorMessage: "Source Observation replay failed.",
+        });
+      }
+
+      const response = await client["source-observations"].reapply.$post({
+        json: { scope, reapplyProfileMode: "original-source-profile" },
         header: headers,
       });
       return parseJsonResponse<T>(response);
@@ -1446,6 +1527,76 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
+    async deferSourceObservations<T>(
+      observationIds: string[],
+      reason: string,
+      options: CatalogBulkActionProgressOptions = {},
+    ): Promise<T> {
+      if (options.onProgress) {
+        const job = await startBulkJob<T>({
+          baseUrl,
+          fetch: configuredFetch,
+          headers,
+          path: "/source-observations/bulk-defer/jobs",
+          body: { observationIds, reason },
+          errorMessage: "Bulk Source Observation deferral failed.",
+        });
+        return streamBulkJob<T>({
+          baseUrl,
+          fetch: configuredFetch,
+          headers,
+          jobId: job.jobId,
+          onProgress: options.onProgress,
+          signal: options.signal,
+          errorMessage: "Bulk Source Observation deferral failed.",
+        });
+      }
+
+      const response = await configuredFetch(`${baseUrl.replace(/\/$/, "")}/source-observations/bulk-defer/jobs`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...headersToRecord(headers),
+        },
+        body: JSON.stringify({ observationIds, reason }),
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async deferSourceObservationsByScope<T>(
+      scope: unknown,
+      reason: string,
+      options: CatalogBulkActionProgressOptions = {},
+    ): Promise<T> {
+      if (options.onProgress) {
+        const job = await startBulkJob<T>({
+          baseUrl,
+          fetch: configuredFetch,
+          headers,
+          path: "/source-observations/bulk-defer/jobs",
+          body: { scope, reason },
+          errorMessage: "Bulk Source Observation deferral failed.",
+        });
+        return streamBulkJob<T>({
+          baseUrl,
+          fetch: configuredFetch,
+          headers,
+          jobId: job.jobId,
+          onProgress: options.onProgress,
+          signal: options.signal,
+          errorMessage: "Bulk Source Observation deferral failed.",
+        });
+      }
+
+      const response = await configuredFetch(`${baseUrl.replace(/\/$/, "")}/source-observations/bulk-defer/jobs`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...headersToRecord(headers),
+        },
+        body: JSON.stringify({ scope, reason }),
+      });
+      return parseJsonResponse<T>(response);
+    },
     async listActiveSourceObservationBulkJobs<T>(): Promise<T> {
       const response = await configuredFetch(`${baseUrl.replace(/\/$/, "")}/source-observations/bulk-jobs/active`, {
         method: "GET",
@@ -1464,16 +1615,53 @@ export function createCatalogApiClient({
         errorMessage: "Bulk Source Observation job failed.",
       });
     },
-    async enqueueSourceObservationIntegrationJob<T>(action: "import" | "reapply", scope: unknown): Promise<T> {
+    async enqueueSourceObservationIntegrationJob<T>(
+      action: "import" | "reapply",
+      scope: unknown,
+      options: { reapplyProfileMode?: "original-source-profile" | "current-active-profile" | null } = {},
+    ): Promise<T> {
       const response = await configuredFetch(`${baseUrl.replace(/\/$/, "")}/source-observations/integration-jobs`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
           ...headersToRecord(headers),
         },
-        body: JSON.stringify({ action, scope }),
+        body: JSON.stringify({
+          action,
+          scope,
+          ...(action === "reapply" && options.reapplyProfileMode !== undefined
+            ? { reapplyProfileMode: options.reapplyProfileMode }
+            : {}),
+        }),
       });
       return parseJsonResponse<T>(response);
+    },
+    async retrySourceObservationIntegrationJob<T>(jobId: string): Promise<T> {
+      return sourceObservationIntegrationJobLifecycleCommand<T>({
+        baseUrl,
+        fetch: configuredFetch,
+        headers,
+        jobId,
+        command: "retry",
+      });
+    },
+    async resumeSourceObservationIntegrationJob<T>(jobId: string): Promise<T> {
+      return sourceObservationIntegrationJobLifecycleCommand<T>({
+        baseUrl,
+        fetch: configuredFetch,
+        headers,
+        jobId,
+        command: "resume",
+      });
+    },
+    async cancelSourceObservationIntegrationJob<T>(jobId: string): Promise<T> {
+      return sourceObservationIntegrationJobLifecycleCommand<T>({
+        baseUrl,
+        fetch: configuredFetch,
+        headers,
+        jobId,
+        command: "cancel",
+      });
     },
     async listActiveSourceObservationIntegrationJobs<T>(): Promise<T> {
       const response = await configuredFetch(
@@ -1503,6 +1691,25 @@ export function createCatalogApiClient({
 }
 
 export const api = createCatalogApiClient();
+
+async function sourceObservationIntegrationJobLifecycleCommand<T>(input: {
+  baseUrl: string;
+  fetch: typeof globalThis.fetch;
+  headers?: HeadersInit;
+  jobId: string;
+  command: "retry" | "resume" | "cancel";
+}): Promise<T> {
+  const response = await input.fetch(
+    `${input.baseUrl.replace(/\/$/, "")}/source-observations/integration-jobs/${encodeURIComponent(input.jobId)}/${
+      input.command
+    }`,
+    {
+      method: "POST",
+      headers: headersToRecord(input.headers),
+    },
+  );
+  return parseJsonResponse<T>(response);
+}
 
 async function startBulkJob<T>(input: {
   baseUrl: string;
@@ -1535,6 +1742,7 @@ async function startIntegrationJob<T>(input: {
   headers?: HeadersInit;
   action: "import" | "reapply";
   scope: unknown;
+  reapplyProfileMode?: "original-source-profile" | "current-active-profile" | null;
 }): Promise<CatalogIntegrationJob<T>> {
   const response = await input.fetch(`${input.baseUrl.replace(/\/$/, "")}/source-observations/integration-jobs`, {
     method: "POST",
@@ -1542,7 +1750,11 @@ async function startIntegrationJob<T>(input: {
       "content-type": "application/json",
       ...headersToRecord(input.headers),
     },
-    body: JSON.stringify({ action: input.action, scope: input.scope }),
+    body: JSON.stringify({
+      action: input.action,
+      scope: input.scope,
+      ...(input.reapplyProfileMode !== undefined ? { reapplyProfileMode: input.reapplyProfileMode } : {}),
+    }),
   });
 
   if (!response.ok) {

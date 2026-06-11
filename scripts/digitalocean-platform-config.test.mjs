@@ -173,10 +173,15 @@ describe("DigitalOcean platform configuration", () => {
 
   it("keeps App Platform database and runner budgets explicit by component", () => {
     expectTerraformAssignment(platformLocals, "api_database_pool_max", '"6"');
-    expectTerraformAssignment(platformLocals, "worker_default_database_pool_max", "local.is_non_production ? 8 : 6");
+    expectTerraformAssignment(
+      platformLocals,
+      "worker_default_database_pool_max",
+      "local.is_staging ? 10 : (local.is_non_production ? 8 : 7)",
+    );
     expectTerraformAssignment(platformLocals, "worker_database_pool_max", "tostring(var.worker_database_pool_max");
     expectTerraformAssignment(platformLocals, "bootstrap_database_pool_max", '"4"');
     expectTerraformAssignment(platformLocals, "worker_projection_concurrency", '"2"');
+    expectTerraformAssignment(platformLocals, "worker_wake_concurrency", 'local.is_staging ? "2" : "1"');
     expectTerraformAssignment(platformLocals, "worker_default_job_concurrency", "local.is_staging ? 4 : 1");
     expectTerraformAssignment(platformLocals, "worker_job_concurrency", "tostring(var.worker_job_concurrency");
     expectTerraformAssignment(platformLocals, "source_observation_bulk_job_lanes", 'local.is_staging ? "4" : "1"');
@@ -233,8 +238,34 @@ describe("DigitalOcean platform configuration", () => {
     ]) {
       expect(occurrenceCount(platformMain, `key   = "${key}"`)).toBe(1);
     }
+    expect(occurrenceCount(platformMain, 'key   = "WORKER_WAKE_MAX_CONCURRENT_RUNNERS"')).toBe(1);
+    expect(platformLocals).toContain(
+      'worker_listener_source_contexts = ["checkout", "marketplace", "ordering", "payments"]',
+    );
+    expect(platformLocals).toContain("worker_listener_database_urls");
+    expect(occurrenceCount(platformMain, "for_each = local.worker_listener_database_urls")).toBe(1);
+    expect(platformMain).toContain('key   = "WORKER_LISTENER_DATABASE_URL_${upper(replace(env.key, "-", "_"))}"');
+    expectTerraformAssignment(
+      platformLocals,
+      "read_consistency_wake_before_wait_enabled",
+      'local.is_staging ? "true" : "false"',
+    );
+    expect(occurrenceCount(platformMain, 'key   = "READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED"')).toBe(1);
+    expectTerraformAssignment(
+      platformLocals,
+      "worker_projection_wake_relay_enabled",
+      'local.is_staging ? "true" : "false"',
+    );
+    expectTerraformAssignment(
+      platformLocals,
+      "event_store_wake_notifications_enabled",
+      'local.is_staging ? "true" : "false"',
+    );
+    expect(occurrenceCount(platformMain, 'key   = "WORKER_PROJECTION_WAKE_RELAY_ENABLED"')).toBe(1);
+    expect(occurrenceCount(platformMain, 'key   = "PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED"')).toBe(6);
     expect(platformMain).toContain('check "worker_runner_capacity"');
     expect(platformMain).toContain("tonumber(local.worker_job_concurrency)");
+    expect(platformMain).toContain("tonumber(local.worker_wake_concurrency)");
     expect(platformMain).toContain(
       'dynamic "worker" {\n      for_each = local.marketplace_platform_enabled ? [1] : []',
     );
@@ -805,7 +836,9 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformPrWorkflow).toContain("node ./scripts/pr-release-status.mjs");
     expect(platformPrWorkflow).toContain('cat artifacts/pr-release-status.md >> "$GITHUB_STEP_SUMMARY"');
     expect(platformPrWorkflow).toContain("github.event.pull_request.head.repo.full_name == github.repository");
-    expect(platformPrWorkflow).toContain("gh pr comment");
+    expect(platformPrWorkflow).toContain(
+      'gh api --method POST "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments"',
+    );
   });
 
   it("delegates staging DNS so App Platform apex routing can coexist with mail records", () => {

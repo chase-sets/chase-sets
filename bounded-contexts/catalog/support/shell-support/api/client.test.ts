@@ -118,6 +118,83 @@ data: ${JSON.stringify(jobSnapshot({ status: "completed", result: completedResul
     );
   });
 
+  it("posts original-profile replay mode for selected Source Observations", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValueOnce(jsonResponse({ jobId: "job_replay" }));
+    const client = createCatalogApiClient({ baseUrl: "/api/catalog", fetch });
+
+    await expect(client.replaySourceObservations<{ jobId: string }>(["obs_1", "obs_2"])).resolves.toEqual({
+      jobId: "job_replay",
+    });
+
+    expect(String(fetch.mock.calls[0][0])).toBe("/api/catalog/source-observations/reapply");
+    expect(fetch.mock.calls[0][1]?.body).toBe(
+      JSON.stringify({
+        observationIds: ["obs_1", "obs_2"],
+        reapplyProfileMode: "original-source-profile",
+      }),
+    );
+  });
+
+  it("posts bulk deferral decisions with the shared operator reason", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValueOnce(jsonResponse({ jobId: "job_defer" }));
+    const client = createCatalogApiClient({ baseUrl: "/api/catalog", fetch });
+
+    await expect(
+      client.deferSourceObservations<{ jobId: string }>(["obs_1"], "Needs better provider evidence."),
+    ).resolves.toEqual({ jobId: "job_defer" });
+
+    expect(String(fetch.mock.calls[0][0])).toBe("/api/catalog/source-observations/bulk-defer/jobs");
+    expect(fetch.mock.calls[0][1]?.body).toBe(
+      JSON.stringify({
+        observationIds: ["obs_1"],
+        reason: "Needs better provider evidence.",
+      }),
+    );
+  });
+
+  it("streams scoped replay jobs with original source profile mode", async () => {
+    const completedResult = {
+      requested: 1,
+      imported: 0,
+      observed: 0,
+      reapplied: 1,
+      skipped: 0,
+      failed: 0,
+      outcomes: [],
+    };
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(jsonResponse(jobSnapshot({ status: "queued", result: null })))
+      .mockResolvedValueOnce(
+        sseResponse(
+          `id: 1
+event: status
+data: ${JSON.stringify(jobSnapshot({ status: "completed", result: completedResult }))}
+
+`,
+        ),
+      );
+    const progress = vi.fn();
+    const client = createCatalogApiClient({ baseUrl: "/api/catalog", fetch });
+
+    await expect(
+      client.replaySourceObservationsByScope<typeof completedResult>(
+        { provider: "tcgdex", language: "en", setId: "base1" },
+        { onProgress: progress },
+      ),
+    ).resolves.toEqual(completedResult);
+
+    expect(String(fetch.mock.calls[0][0])).toBe("/api/catalog/source-observations/integration-jobs");
+    expect(fetch.mock.calls[0][1]?.body).toBe(
+      JSON.stringify({
+        action: "reapply",
+        scope: { provider: "tcgdex", language: "en", setId: "base1" },
+        reapplyProfileMode: "original-source-profile",
+      }),
+    );
+    expect(progress).toHaveBeenCalled();
+  });
+
   it("updates source observation provider profile sections through the typed admin route", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValueOnce(
       new Response(JSON.stringify({ providerKey: "tcgdex", profileVersion: "2026.06.04" }), {

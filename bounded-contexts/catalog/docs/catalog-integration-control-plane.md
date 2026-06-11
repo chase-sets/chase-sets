@@ -118,7 +118,7 @@ Broad implementation must wait for Phase 0 signoff. The start-gate bundle is:
 - #805 ingestion-unit identity model
 - #799 first shippable vertical slice
 
-The selected first slice is the fixture-backed `reference-cards:pokemon:single-card:source-observation-proof` ingestion unit. It must run locally or in CI without live provider dependencies before the thin real-provider proof (#800).
+The selected first slice starts with the fixture-backed `reference-cards:pokemon:single-card:source-observation-proof` ingestion unit. It must run locally or in CI without live provider dependencies before the #1062 real-provider proof packet exercises the launch-selected TCGdex adapter.
 
 ## Admin Readiness Contract
 
@@ -136,9 +136,9 @@ The response is grouped by ingestion unit and includes:
 - Diagnostic counts by severity plus the latest diagnostic text.
 - Structured dry-run Source Observation evidence, including external key, source URL, source hash, and normalized facts.
 
-The Phase 1 reference record is `reference-cards:pokemon:single-card:source-observation-proof`. It is fixture-backed, has no live transport dependency, and runs through the ProviderAdapter registry plus the Catalog Integration Engine before the Admin UI reports it as ready. Future live provider readiness should use the same contract while keeping provider transport details on adapters and Catalog semantic readiness on ingestion units.
+The Phase 1 reference record is `reference-cards:pokemon:single-card:source-observation-proof`. It is fixture-backed, has no live transport dependency, and runs through the ProviderAdapter registry plus the Catalog Integration Engine before the Admin UI reports it as ready. Live provider proof uses the same contract while keeping provider transport details on adapters and Catalog semantic readiness on ingestion units.
 
-The Phase 4 thin real-provider proof (#800) uses `tcgdex:pokemon:single-card:source-observation-import`. The readiness path resolves dry-run proof runners from a registry keyed by `unitKey`, so adding the real-provider proof did not add another provider-specific runtime or route branch. The TCGdex proof uses the real TCGdex ProviderAdapter and Catalog Integration Engine with deterministic fixture `fetch` responses for one Expansion scope and one card payload. This keeps CI and readiness deterministic while validating the real provider payload shape, provenance, and normalized Source Observation facts. The current TCGdex adapter does not emit a payload content hash in its provenance envelope; readiness shows `sourceHash: null` for that proof until provider payload hashing is implemented against the governed hash material and retention rules in [Catalog Integration Data Governance](./catalog-integration-data-governance.md).
+Issue #1062 uses `tcgdex:pokemon:single-card:source-observation-import` for the first launch real-provider proof. Deterministic readiness tests still use fixture responses through the real TCGdex adapter so CI remains stable, but the #1062 operator proof runs `pnpm run catalog:real-provider-proof` with live or staging TCGdex transport and emits a redacted `catalog-real-provider-proof/v1` packet. The packet records provider scope option-query evidence, import plan steps, Source Observation review summaries, promotion-preview counts before writes, canonical degraded transport mapping, and #1064/#1065/#1061 handoffs without adding provider-specific runtime, route, API, Admin, promotion, raw-payload, or old two-page compatibility branches. The current TCGdex adapter does not emit a payload content hash in its provenance envelope; readiness shows `sourceHash: null` until provider payload hashing is implemented against the governed hash material and retention rules in [Catalog Integration Data Governance](./catalog-integration-data-governance.md).
 
 ## Admin Query Contract
 
@@ -168,6 +168,7 @@ The URL section key is authoritative for section update routes. Normal Admin Con
 - [Catalog Integration Fixture Lifecycle](./catalog-integration-fixture-lifecycle.md)
 - [Catalog Integration Rollout Controls](./catalog-integration-rollout-controls.md)
 - [Catalog Integration Provider Option Query Controls](./catalog-integration-provider-option-query-controls.md)
+- [Catalog Integration Real-Provider Proof](./catalog-integration-real-provider-proof.md)
 - [Catalog Integration Impact Analysis](./catalog-integration-impact-analysis.md)
 - [Catalog Integration Observability](./catalog-integration-observability.md)
 - [Catalog Control Plane Primary Path](./catalog-control-plane-primary-path.md)

@@ -13,6 +13,7 @@ import {
   type DurableJobEvent,
   type DurableJobExecutionContext,
   type DurableJobRecord,
+  type DurableJobStatus,
 } from "@chase-sets/platform-runtime/durable-job-store";
 import {
   createPostgresDurableJobWorkUnitStore,
@@ -52,6 +53,7 @@ import {
   listSourceObservationIdsForPromotion,
   listSourceObservationIntegrationScopes,
   listSourceObservations,
+  previewSourceObservationPromotionIds,
   previewSourceObservationReapplyScope,
   previewSourceObservationPromotionScope,
   summarizeSourceObservationLifecycleImpact,
@@ -142,7 +144,11 @@ import {
   queryCatalogProviderIntegrationOptionsWithCache,
   type CatalogProviderOptionQueryPage,
 } from "./provider-option-query-cache";
-import type { SourceObservationTelemetry } from "./catalog-integration-observability";
+import {
+  normalizeCatalogControlPlaneTelemetryEvent,
+  type CatalogControlPlaneTelemetryEventInput,
+  type SourceObservationTelemetry,
+} from "./catalog-integration-observability";
 import {
   planCatalogProviderPromotionCommands,
   type CatalogProviderPromotionResolvedCatalogMapping,
@@ -176,7 +182,7 @@ const staticCatalogProviderIntegrationProfileVersions: CatalogProviderIntegratio
 
 export type BulkSourceObservationPromotionOutcome = Readonly<{
   observationId: string;
-  status: "promoted" | "rejected" | "skipped" | "failed";
+  status: "promoted" | "rejected" | "deferred" | "skipped" | "failed";
   catalogItemId: CatalogItemId | null;
   reason: string | null;
 }>;
@@ -185,6 +191,7 @@ export type BulkSourceObservationPromotionResult = Readonly<{
   requested: number;
   promoted: number;
   rejected?: number;
+  deferred?: number;
   skipped: number;
   failed: number;
   outcomes: readonly BulkSourceObservationPromotionOutcome[];
@@ -224,7 +231,7 @@ type SourceObservationRecordInput = Omit<
   "type"
 >;
 
-export type SourceObservationBulkJobAction = "promote" | "reject" | "reapply";
+export type SourceObservationBulkJobAction = "promote" | "reject" | "defer" | "reapply";
 
 export type SourceObservationBulkJobStatus = "queued" | "running" | "completed" | "failed";
 
@@ -234,10 +241,14 @@ type SourceObservationBulkJobPayload = Readonly<{
   observationIds: readonly string[];
   scope: SourceObservationFilterScope;
   reason: string | null;
+  profileSnapshot?: SourceObservationIntegrationProfileSnapshot | null;
+  reapplyProfileMode?: SourceObservationReapplyProfileMode | null;
 }>;
 
 type SourceObservationBulkWorkUnitPayload = Readonly<{
   observationId: string;
+  profileSnapshot?: SourceObservationIntegrationProfileSnapshot | null;
+  reapplyProfileMode?: SourceObservationReapplyProfileMode | null;
 }>;
 
 type SourceObservationBulkWorkUnitResult = BulkSourceObservationPromotionOutcome | BulkSourceObservationReapplyOutcome;
@@ -249,6 +260,8 @@ export type SourceObservationBulkJob = Readonly<{
   observationIds: readonly string[];
   scope: SourceObservationFilterScope;
   reason: string | null;
+  profileSnapshot: SourceObservationIntegrationProfileSnapshot | null;
+  reapplyProfileMode: SourceObservationReapplyProfileMode | null;
   status: SourceObservationBulkJobStatus;
   progress: BulkSourceObservationProgress;
   result: SourceObservationBulkJobResult | null;
@@ -345,6 +358,12 @@ export type SourceObservationIntegrationJobResult = Readonly<{
   outcomes: readonly SourceObservationIntegrationJobOutcome[];
 }>;
 
+type SourceObservationIntegrationDurableJobRecord = DurableJobRecord<
+  SourceObservationIntegrationJobPayload,
+  BulkSourceObservationProgress,
+  SourceObservationIntegrationJobResult
+>;
+
 export type SourceObservationIntegrationJobOperatorStatus =
   | "queued"
   | "running"
@@ -352,7 +371,31 @@ export type SourceObservationIntegrationJobOperatorStatus =
   | "retried"
   | "partial"
   | "failed"
+  | "cancelled"
   | "completed";
+
+export type SourceObservationIntegrationJobLifecycleCommandErrorCode =
+  | "job_not_found"
+  | "unsupported_action"
+  | "unsupported_state";
+
+export class SourceObservationIntegrationJobLifecycleCommandError extends Error {
+  constructor(
+    public readonly code: SourceObservationIntegrationJobLifecycleCommandErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = "SourceObservationIntegrationJobLifecycleCommandError";
+  }
+}
+
+export function isSourceObservationIntegrationJobLifecycleCommandError(
+  error: unknown,
+): error is SourceObservationIntegrationJobLifecycleCommandError {
+  return error instanceof SourceObservationIntegrationJobLifecycleCommandError;
+}
+
+const OPERATOR_CANCELLED_INTEGRATION_IMPORT_MESSAGE = "Operator cancelled provider import job.";
 
 export type SourceObservationIntegrationJobConsistency = Readonly<{
   duplicateSubmissionPolicy: "reuse-active-job";
@@ -573,6 +616,9 @@ export type PromotionReapplyServices = Readonly<{
     context: EventStoreContext;
     onProgress?: SourceObservationProgressHandler;
   }) => Promise<BulkSourceObservationPromotionResult>;
+  previewPromoteObservations: (input: {
+    observationIds: readonly string[];
+  }) => Promise<SourceObservationPromotionPreview>;
   previewPromoteObservationScope: (input: {
     scope: SourceObservationFilterScope;
   }) => Promise<SourceObservationPromotionPreview>;
@@ -608,6 +654,18 @@ export type PromotionReapplyServices = Readonly<{
     context: EventStoreContext;
     onProgress?: SourceObservationProgressHandler;
   }) => Promise<BulkSourceObservationPromotionResult>;
+  deferObservations: (input: {
+    observationIds: readonly string[];
+    reason: string;
+    context: EventStoreContext;
+    onProgress?: SourceObservationProgressHandler;
+  }) => Promise<BulkSourceObservationPromotionResult>;
+  deferObservationScope: (input: {
+    scope: SourceObservationFilterScope;
+    reason: string;
+    context: EventStoreContext;
+    onProgress?: SourceObservationProgressHandler;
+  }) => Promise<BulkSourceObservationPromotionResult>;
 }>;
 
 export type BulkReviewJobServices = Readonly<{
@@ -616,6 +674,7 @@ export type BulkReviewJobServices = Readonly<{
     observationIds?: readonly string[];
     scope?: SourceObservationFilterScope;
     reason?: string | null;
+    reapplyProfileMode?: SourceObservationReapplyProfileMode | null;
     context: EventStoreContext;
   }) => Promise<SourceObservationBulkJob>;
   getBulkReviewJob: (jobId: string, context?: EventStoreContext | null) => Promise<SourceObservationBulkJob | null>;
@@ -641,6 +700,19 @@ export type IntegrationJobServices = Readonly<{
   enqueueIntegrationJob: (input: {
     action: SourceObservationIntegrationJobAction;
     scope: SourceObservationIntegrationJobScope;
+    reapplyProfileMode?: SourceObservationReapplyProfileMode | null;
+    context: EventStoreContext;
+  }) => Promise<SourceObservationIntegrationJob>;
+  retryIntegrationJob: (input: {
+    jobId: string;
+    context: EventStoreContext;
+  }) => Promise<SourceObservationIntegrationJob>;
+  resumeIntegrationJob: (input: {
+    jobId: string;
+    context: EventStoreContext;
+  }) => Promise<SourceObservationIntegrationJob>;
+  cancelIntegrationJob: (input: {
+    jobId: string;
     context: EventStoreContext;
   }) => Promise<SourceObservationIntegrationJob>;
   getIntegrationJob: (
@@ -679,6 +751,10 @@ export type SourceObservationReadServices = Readonly<{
   getSourceObservationDetail: (observationId: string) => ReturnType<typeof getSourceObservationDetail>;
 }>;
 
+export type ControlPlaneTelemetryServices = Readonly<{
+  recordControlPlaneTelemetry: (event: CatalogControlPlaneTelemetryEventInput) => void;
+}>;
+
 export type SourceObservationRetentionServices = Readonly<{
   pruneSourceObservationJobRetention: (input?: {
     completedBefore?: string | Date;
@@ -701,6 +777,7 @@ export type SourceObservationServices = SourceObservationCommandServices &
   BulkReviewJobServices &
   IntegrationJobServices &
   SourceObservationReadServices &
+  ControlPlaneTelemetryServices &
   SourceObservationRetentionServices &
   SourceObservationProjectorServices;
 
@@ -1399,6 +1476,86 @@ export function createSourceObservationRuntime(
     return summarizePromotionOutcomes(requestedIds.length, outcomes);
   }
 
+  async function deferObservationIds(input: {
+    observationIds: readonly string[];
+    reason: string;
+    context: EventStoreContext;
+    onProgress?: SourceObservationProgressHandler;
+    runDeferObservation?: DurableSideEffectRunner;
+  }): Promise<BulkSourceObservationPromotionResult> {
+    const requestedIds = uniqueObservationIds(input.observationIds);
+    const outcomes: BulkSourceObservationPromotionOutcome[] = [];
+    await input.onProgress?.(bulkProgress(0, requestedIds.length));
+
+    for (const observationId of requestedIds) {
+      let currentName: string | null = null;
+      const outcomeCountBefore = outcomes.length;
+      try {
+        const observation = await getSourceObservationDetail(deps.db, observationId);
+        currentName = observation?.normalized.name ?? null;
+
+        if (!observation) {
+          outcomes.push({
+            observationId,
+            status: "failed",
+            catalogItemId: null,
+            reason: "Source observation was not found.",
+          });
+          continue;
+        }
+
+        if (!isReviewableObservationStatus(observation.status)) {
+          outcomes.push({
+            observationId,
+            status: "skipped",
+            catalogItemId: observation.promoted_catalog_item_id as CatalogItemId | null,
+            reason: `Source observation is ${observation.status}.`,
+          });
+          continue;
+        }
+
+        await (input.runDeferObservation ?? runSourceObservationSideEffectImmediately)(() =>
+          commandHandler({
+            streamId: sourceObservationStreamId(observationId),
+            command: {
+              type: "DeferSourceObservation",
+              reason: input.reason,
+              deferredAt: new Date().toISOString(),
+            },
+            context: input.context,
+          }),
+        );
+        outcomes.push({
+          observationId,
+          status: "deferred",
+          catalogItemId: observation.promoted_catalog_item_id as CatalogItemId | null,
+          reason: null,
+        });
+      } catch (error) {
+        if (isDurableJobHandoffError(error)) {
+          throw error;
+        }
+        outcomes.push({
+          observationId,
+          status: "failed",
+          catalogItemId: null,
+          reason: error instanceof Error ? error.message : "Deferral failed.",
+        });
+      } finally {
+        if (outcomes.length > outcomeCountBefore) {
+          const outcome = outcomes[outcomes.length - 1];
+          await input.onProgress?.(
+            bulkProgress(outcomes.length, requestedIds.length, currentName, outcome?.status ?? null),
+          );
+        }
+      }
+    }
+
+    await input.onProgress?.(bulkProgress(requestedIds.length, requestedIds.length, null, null, "completed"));
+
+    return summarizePromotionOutcomes(requestedIds.length, outcomes);
+  }
+
   async function importTcgdexSetScope(input: {
     languageCode: string;
     setId: string;
@@ -1483,6 +1640,7 @@ export function createSourceObservationRuntime(
     observationIds?: readonly string[];
     scope?: SourceObservationFilterScope;
     reason?: string | null;
+    reapplyProfileMode?: SourceObservationReapplyProfileMode | null;
     context: EventStoreContext;
   }): Promise<SourceObservationBulkJob> {
     if (input.action === "promote") {
@@ -1494,9 +1652,25 @@ export function createSourceObservationRuntime(
     const observationIds = uniqueObservationIds(input.observationIds ?? []);
     const selectionMode = observationIds.length > 0 ? "ids" : "filter";
     const scope = selectionMode === "filter" ? normalizeBulkJobScope(input.scope ?? {}) : {};
+    const reapplyProfileMode =
+      input.action === "reapply"
+        ? (normalizeReapplyProfileMode(input.reapplyProfileMode) ?? "current-active-profile")
+        : null;
     const jobId = createId("job");
     const unitObservationIds =
       selectionMode === "ids" ? observationIds : await listSourceObservationIdsForBulkAction(input.action, scope);
+    const unitProfileSnapshots =
+      input.action === "reapply" && reapplyProfileMode === "current-active-profile" && selectionMode === "ids"
+        ? await snapshotSelectedReapplyProfiles(unitObservationIds)
+        : new Map<string, SourceObservationIntegrationProfileSnapshot | null>();
+    const profileSnapshot =
+      input.action === "reapply" && reapplyProfileMode === "current-active-profile"
+        ? selectionMode === "ids"
+          ? commonProfileSnapshot([...unitProfileSnapshots.values()])
+          : snapshotCatalogReapplyProfileVersion(
+              await requireCatalogReapplyActiveProfileVersion(profileVersions, scope.provider),
+            )
+        : null;
     const progress = bulkProgress(0, unitObservationIds.length, null, null, "queued");
     const job = await bulkReviewJobStore.enqueue({
       jobId,
@@ -1507,6 +1681,8 @@ export function createSourceObservationRuntime(
         observationIds,
         scope,
         reason: input.reason?.trim() || null,
+        profileSnapshot,
+        reapplyProfileMode,
       },
       progress,
       eventContext: input.context,
@@ -1516,11 +1692,42 @@ export function createSourceObservationRuntime(
       units: unitObservationIds.map((observationId) => ({
         unitId: observationId,
         unitKind: input.action,
-        payload: { observationId },
+        payload: {
+          observationId,
+          profileSnapshot: unitProfileSnapshots.get(observationId) ?? profileSnapshot,
+          reapplyProfileMode,
+        },
       })),
     });
 
     return toSourceObservationBulkJob(job);
+  }
+
+  async function snapshotSelectedReapplyProfiles(
+    observationIds: readonly string[],
+  ): Promise<Map<string, SourceObservationIntegrationProfileSnapshot | null>> {
+    const snapshots = new Map<string, SourceObservationIntegrationProfileSnapshot | null>();
+    const profilesByProvider = new Map<string, SourceObservationIntegrationProfileSnapshot>();
+
+    for (const observationId of observationIds) {
+      const observation = await getSourceObservationDetail(deps.db, observationId);
+      if (!observation) {
+        snapshots.set(observationId, null);
+        continue;
+      }
+
+      const providerKey = observation.provider_key.trim().toLowerCase();
+      let snapshot = profilesByProvider.get(providerKey);
+      if (!snapshot) {
+        snapshot = snapshotCatalogReapplyProfileVersion(
+          await requireCatalogReapplyActiveProfileVersion(profileVersions, providerKey),
+        );
+        profilesByProvider.set(providerKey, snapshot);
+      }
+      snapshots.set(observationId, snapshot);
+    }
+
+    return snapshots;
   }
 
   async function processNextBulkReviewJob(
@@ -1541,7 +1748,7 @@ export function createSourceObservationRuntime(
       claimTtlMs: input.claimTtlMs,
       workflowMaxActiveClaims: input.workflowMaxActiveClaims ?? 1,
       jobMaxActiveClaims: input.jobMaxActiveClaims ?? 1,
-      jobKinds: ["promote", "reject", "reapply"],
+      jobKinds: ["promote", "reject", "defer", "reapply"],
       laneName: input.laneName ?? null,
     });
     if (!claimResult.claim) {
@@ -1567,7 +1774,11 @@ export function createSourceObservationRuntime(
               observationIds: [observationId],
               context,
               runReapplyObservation: runBulkReviewSideEffect,
-              reapplyProfileMode: "current-active-profile",
+              reapplyProfileMode: requireBulkJobReapplyProfileMode(
+                claim.unit.payload.reapplyProfileMode ?? claimed.reapplyProfileMode,
+                claimed.jobId,
+              ),
+              profileSnapshot: claim.unit.payload.profileSnapshot ?? claimed.profileSnapshot,
             })
           : claimed.action === "promote"
             ? await promoteObservationIds({
@@ -1575,12 +1786,19 @@ export function createSourceObservationRuntime(
                 context,
                 runPromoteObservation: runBulkReviewSideEffect,
               })
-            : await rejectObservationIds({
-                observationIds: [observationId],
-                reason: claimed.reason ?? "Rejected during review.",
-                context,
-                runRejectObservation: runBulkReviewSideEffect,
-              });
+            : claimed.action === "defer"
+              ? await deferObservationIds({
+                  observationIds: [observationId],
+                  reason: claimed.reason ?? "Deferred during review.",
+                  context,
+                  runDeferObservation: runBulkReviewSideEffect,
+                })
+              : await rejectObservationIds({
+                  observationIds: [observationId],
+                  reason: claimed.reason ?? "Rejected during review.",
+                  context,
+                  runRejectObservation: runBulkReviewSideEffect,
+                });
       const outcome = itemResult.outcomes[0] ?? failedBulkWorkUnitOutcome(claimed.action, observationId, "No outcome.");
       const terminalState = workUnitTerminalState(outcome);
       throwIfJobRunCancelled(input);
@@ -1600,6 +1818,7 @@ export function createSourceObservationRuntime(
         }),
       );
       recordBulkReviewWorkUnitTelemetry(deps.sourceObservationTelemetry, claimed.action, terminalState);
+      recordBulkReviewControlPlaneTelemetry(deps.sourceObservationTelemetry, claimed, outcome);
       return 1;
     } catch (error) {
       if (error instanceof SourceObservationJobCancelledError || isDurableJobHandoffError(error, input)) {
@@ -1637,12 +1856,13 @@ export function createSourceObservationRuntime(
         }),
       );
       recordBulkReviewWorkUnitTelemetry(deps.sourceObservationTelemetry, claimed.action, "failed");
+      recordBulkReviewControlPlaneTelemetry(deps.sourceObservationTelemetry, claimed, outcome);
       return 1;
     }
   }
 
   async function reconcileTerminalBulkReviewJobs(): Promise<number> {
-    const activeJobs = await bulkReviewJobStore.listActive({ jobKinds: ["promote", "reject", "reapply"] });
+    const activeJobs = await bulkReviewJobStore.listActive({ jobKinds: ["promote", "reject", "defer", "reapply"] });
     let reconciled = 0;
     for (const rawJob of activeJobs) {
       const summary = await bulkReviewWorkUnitStore.summarize({ jobId: rawJob.jobId });
@@ -1842,6 +2062,7 @@ export function createSourceObservationRuntime(
   async function enqueueIntegrationJob(input: {
     action: SourceObservationIntegrationJobAction;
     scope: SourceObservationIntegrationJobScope;
+    reapplyProfileMode?: SourceObservationReapplyProfileMode | null;
     context: EventStoreContext;
   }): Promise<SourceObservationIntegrationJob> {
     const scope = normalizeIntegrationJobScope(input.scope);
@@ -1852,14 +2073,18 @@ export function createSourceObservationRuntime(
     const importProfileVersion =
       input.action === "import" ? await requireCatalogImportProfileVersion(profileVersions, scope.provider) : null;
     const reapplyProfileMode: SourceObservationReapplyProfileMode | null =
-      input.action === "reapply" ? "current-active-profile" : null;
+      input.action === "reapply"
+        ? (normalizeReapplyProfileMode(input.reapplyProfileMode) ?? "current-active-profile")
+        : null;
     const profileSnapshot =
       importProfileVersion === null
         ? reapplyProfileMode === null
           ? null
-          : snapshotCatalogReapplyProfileVersion(
-              await requireCatalogReapplyActiveProfileVersion(profileVersions, scope.provider),
-            )
+          : reapplyProfileMode === "current-active-profile"
+            ? snapshotCatalogReapplyProfileVersion(
+                await requireCatalogReapplyActiveProfileVersion(profileVersions, scope.provider),
+              )
+            : null
         : snapshotCatalogProfileVersion(importProfileVersion);
 
     const existingJob = (await integrationJobStore.listActive({ jobKinds: [input.action] }))
@@ -1868,6 +2093,7 @@ export function createSourceObservationRuntime(
       .find(
         (job) =>
           JSON.stringify(job.scope) === JSON.stringify(scope) &&
+          job.reapplyProfileMode === reapplyProfileMode &&
           integrationProfileSnapshotKey(job.profileSnapshot, job.jobId) ===
             integrationProfileSnapshotKey(profileSnapshot, "new integration job"),
       );
@@ -1901,6 +2127,146 @@ export function createSourceObservationRuntime(
     }
 
     return toSourceObservationIntegrationJob(job);
+  }
+
+  async function retryIntegrationJob(input: {
+    jobId: string;
+    context: EventStoreContext;
+  }): Promise<SourceObservationIntegrationJob> {
+    const job = await requireImportIntegrationLifecycleJob(input.jobId, input.context);
+    if (job.status === "running" && isDurableJobClaimExpired(job)) {
+      return resumeIntegrationJob(input);
+    }
+    if (job.status === "queued" || job.status === "running") {
+      return toSourceObservationIntegrationJob(job);
+    }
+
+    const operatorStatus = integrationJobOperatorStatus(job);
+    if (operatorStatus === "completed") {
+      throw new SourceObservationIntegrationJobLifecycleCommandError(
+        "unsupported_state",
+        "Completed provider import jobs without failed outcomes cannot be retried.",
+      );
+    }
+
+    const retryResult = retryableIntegrationJobResult(job.result, job.progress.total);
+    const requeued = await integrationJobStore.requeue({
+      jobId: job.jobId,
+      progress: bulkProgress(retryResult.outcomes.length, retryResult.requested, null, null, "queued"),
+      result: retryResult,
+      errorMessage: null,
+      allowedStatuses: ["failed", "completed"],
+    });
+
+    if (!requeued) {
+      const currentJob = await requireImportIntegrationLifecycleJob(input.jobId, input.context);
+      if (currentJob.status === "queued" || currentJob.status === "running") {
+        return toSourceObservationIntegrationJob(currentJob);
+      }
+      throw new SourceObservationIntegrationJobLifecycleCommandError(
+        "unsupported_state",
+        "Provider import job could not be requeued for retry.",
+      );
+    }
+
+    return toSourceObservationIntegrationJob(requeued);
+  }
+
+  async function resumeIntegrationJob(input: {
+    jobId: string;
+    context: EventStoreContext;
+  }): Promise<SourceObservationIntegrationJob> {
+    const job = await requireImportIntegrationLifecycleJob(input.jobId, input.context);
+    if (job.status === "queued") {
+      return toSourceObservationIntegrationJob(job);
+    }
+    if (job.status !== "running") {
+      throw new SourceObservationIntegrationJobLifecycleCommandError(
+        "unsupported_state",
+        "Only queued or stale running provider import jobs can be resumed.",
+      );
+    }
+    if (!isDurableJobClaimExpired(job)) {
+      return toSourceObservationIntegrationJob(job);
+    }
+
+    const requeued = await integrationJobStore.requeue({
+      jobId: job.jobId,
+      progress: {
+        ...job.progress,
+        phase: "queued",
+      },
+      result: job.result ?? undefined,
+      errorMessage: null,
+      allowedStatuses: ["running"],
+      requireExpiredClaim: true,
+    });
+
+    if (!requeued) {
+      return toSourceObservationIntegrationJob(await requireImportIntegrationLifecycleJob(input.jobId, input.context));
+    }
+
+    return toSourceObservationIntegrationJob(requeued);
+  }
+
+  async function cancelIntegrationJob(input: {
+    jobId: string;
+    context: EventStoreContext;
+  }): Promise<SourceObservationIntegrationJob> {
+    const job = await requireImportIntegrationLifecycleJob(input.jobId, input.context);
+    if (isOperatorCancelledIntegrationJob(job)) {
+      return toSourceObservationIntegrationJob(job);
+    }
+    if (job.status !== "queued" && job.status !== "running") {
+      throw new SourceObservationIntegrationJobLifecycleCommandError(
+        "unsupported_state",
+        "Only queued or running provider import jobs can be cancelled.",
+      );
+    }
+
+    const cancelled = await integrationJobStore.cancel({
+      jobId: job.jobId,
+      progress: {
+        ...job.progress,
+        phase: "failed",
+      },
+      errorMessage: OPERATOR_CANCELLED_INTEGRATION_IMPORT_MESSAGE,
+      allowedStatuses: ["queued", "running"],
+    });
+
+    if (!cancelled) {
+      const currentJob = await requireImportIntegrationLifecycleJob(input.jobId, input.context);
+      if (isOperatorCancelledIntegrationJob(currentJob)) {
+        return toSourceObservationIntegrationJob(currentJob);
+      }
+      throw new SourceObservationIntegrationJobLifecycleCommandError(
+        "unsupported_state",
+        "Provider import job could not be cancelled from its current state.",
+      );
+    }
+
+    return toSourceObservationIntegrationJob(cancelled);
+  }
+
+  async function requireImportIntegrationLifecycleJob(
+    jobId: string,
+    context: EventStoreContext,
+  ): Promise<SourceObservationIntegrationDurableJobRecord> {
+    const job = await integrationJobStore.get(jobId);
+    if (!job || !jobMatchesContext(job, context)) {
+      throw new SourceObservationIntegrationJobLifecycleCommandError(
+        "job_not_found",
+        "Provider import job was not found for the current operator context.",
+      );
+    }
+    if (job.payload.action !== "import") {
+      throw new SourceObservationIntegrationJobLifecycleCommandError(
+        "unsupported_action",
+        "Only provider import jobs support retry, resume, and cancel lifecycle commands.",
+      );
+    }
+
+    return job;
   }
 
   async function processNextIntegrationJob(
@@ -1975,6 +2341,7 @@ export function createSourceObservationRuntime(
           claimed.action,
           sourceObservationIntegrationJobTelemetryResult(turnResult.result),
         );
+        recordIntegrationJobControlPlaneTelemetry(deps.sourceObservationTelemetry, claimed, turnResult.result);
       } else {
         await requireSourceObservationJobClaim(
           integrationJobStore.releaseClaim({
@@ -2006,6 +2373,7 @@ export function createSourceObservationRuntime(
         }),
       );
       recordIntegrationJobTelemetry(deps.sourceObservationTelemetry, claimed.action, "failed");
+      recordIntegrationJobControlPlaneTelemetry(deps.sourceObservationTelemetry, claimed, null, "failed");
       return 1;
     }
   }
@@ -2197,7 +2565,10 @@ export function createSourceObservationRuntime(
     throwIfJobRunCancelled(input.context);
     const previousResult = input.job.result ?? summarizeIntegrationJobOutcomes(expansions.length, []);
     const completedExpansionIds = new Set(
-      previousResult.outcomes.map((outcome) => outcome.expansionId).filter(Boolean),
+      previousResult.outcomes
+        .filter((outcome) => outcome.status !== "failed")
+        .map((outcome) => outcome.expansionId)
+        .filter(Boolean),
     );
     const nextExpansion = expansions.find((expansion) => !completedExpansionIds.has(expansion.expansionId));
 
@@ -2510,7 +2881,12 @@ export function createSourceObservationRuntime(
     const targets = await resolveTcgplayerImportTargets(input.scope);
     throwIfJobRunCancelled(input.context);
     const previousResult = input.job.result ?? summarizeIntegrationJobOutcomes(targets.length, []);
-    const completedTargetIds = new Set(previousResult.outcomes.map((outcome) => outcome.expansionId).filter(Boolean));
+    const completedTargetIds = new Set(
+      previousResult.outcomes
+        .filter((outcome) => outcome.status !== "failed")
+        .map((outcome) => outcome.expansionId)
+        .filter(Boolean),
+    );
     const nextTarget = targets.find((target) => !completedTargetIds.has(target.targetId));
 
     if (!nextTarget) {
@@ -2906,6 +3282,8 @@ export function createSourceObservationRuntime(
       }
     },
     promoteObservations: promoteObservationIds,
+    previewPromoteObservations: async ({ observationIds }) =>
+      previewSourceObservationPromotionIds(deps.db, observationIds),
     previewPromoteObservationScope: async ({ scope }) => previewSourceObservationPromotionScope(deps.db, scope),
     promoteObservationScope: async ({ scope, context, onProgress }) => {
       const observationIds = await listSourceObservationIdsForPromotion(deps.db, scope);
@@ -2936,6 +3314,16 @@ export function createSourceObservationRuntime(
         onProgress,
       });
     },
+    deferObservations: deferObservationIds,
+    deferObservationScope: async ({ scope, reason, context, onProgress }) => {
+      const observationIds = await listSourceObservationIdsForPromotion(deps.db, scope);
+      return deferObservationIds({
+        observationIds,
+        reason,
+        context,
+        onProgress,
+      });
+    },
     rejectObservation: async ({ observationId, reason, context }) => {
       await commandHandler({
         streamId: sourceObservationStreamId(observationId),
@@ -2959,12 +3347,15 @@ export function createSourceObservationRuntime(
       (await bulkReviewJobStore.listEvents(jobId, afterSequence)).map(toSourceObservationJobEvent),
     waitForBulkReviewJobEvents: (jobId, signal) => bulkReviewJobStore.waitForEvents({ jobId, signal }),
     listActiveBulkReviewJobs: async ({ context }) =>
-      (await bulkReviewJobStore.listActive({ jobKinds: ["promote", "reject", "reapply"] }))
+      (await bulkReviewJobStore.listActive({ jobKinds: ["promote", "reject", "defer", "reapply"] }))
         .filter((job) => jobMatchesContext(job, context))
         .map(toSourceObservationBulkJob),
     processNextBulkReviewJob,
     getBulkReviewWorkUnitSummary: (input = {}) => bulkReviewWorkUnitStore.summarize({ jobId: input.jobId ?? null }),
     enqueueIntegrationJob,
+    retryIntegrationJob,
+    resumeIntegrationJob,
+    cancelIntegrationJob,
     getIntegrationJob: async (jobId, context) => {
       const job = await integrationJobStore.get(jobId);
       if (job && context && !jobMatchesContext(job, context)) {
@@ -3002,6 +3393,9 @@ export function createSourceObservationRuntime(
       return { bulkReviewJobs, integrationJobs };
     },
     getSourceObservationDetail: (observationId) => getSourceObservationDetail(deps.db, observationId),
+    recordControlPlaneTelemetry: (event) => {
+      deps.sourceObservationTelemetry?.recordControlPlaneEvent?.(normalizeCatalogControlPlaneTelemetryEvent(event));
+    },
     projectors,
   };
 }
@@ -3022,6 +3416,59 @@ function recordBulkReviewWorkUnitTelemetry(
   telemetry?.recordBulkReviewWorkUnit?.({ jobKind, result });
 }
 
+function recordIntegrationJobControlPlaneTelemetry(
+  telemetry: SourceObservationTelemetry | undefined,
+  job: ClaimedSourceObservationIntegrationJob,
+  result: SourceObservationIntegrationJobResult | null,
+  fallbackResult?: "failed",
+): void {
+  if (job.action !== "import") {
+    return;
+  }
+
+  const failed = fallbackResult === "failed" || (result?.failed ?? 0) > 0;
+  telemetry?.recordControlPlaneEvent?.(
+    normalizeCatalogControlPlaneTelemetryEvent({
+      eventName: failed ? "catalog_control_plane.import_failed" : "catalog_control_plane.import_completed",
+      providerKey: job.scope.provider ?? job.profileSnapshot?.providerKey ?? null,
+      scopeId: integrationScopeTelemetryRef(job.scope),
+      profileRef: integrationProfileTelemetryRef(job.profileSnapshot),
+      jobRefState: "present",
+      observationStatus: result ? "mixed" : "unknown",
+      observationCount: result?.observed ?? result?.imported ?? null,
+      promotionResult: failed ? "failed" : "completed",
+      blockerCategory: failed ? "provider-transport" : null,
+      roleBucket: "unknown",
+    }),
+  );
+}
+
+function recordBulkReviewControlPlaneTelemetry(
+  telemetry: SourceObservationTelemetry | undefined,
+  job: ClaimedSourceObservationBulkJob,
+  outcome: SourceObservationBulkWorkUnitResult,
+): void {
+  if (job.action !== "promote") {
+    return;
+  }
+
+  const failed = outcome.status === "failed";
+  telemetry?.recordControlPlaneEvent?.(
+    normalizeCatalogControlPlaneTelemetryEvent({
+      eventName: failed ? "catalog_control_plane.promotion_failed" : "catalog_control_plane.promotion_completed",
+      providerKey: job.scope.provider ?? null,
+      scopeId: promotionScopeTelemetryRef(job.scope),
+      jobRefState: "present",
+      observationStatus: failed ? "unknown" : "promoted",
+      observationCount: 1,
+      promotionResult: failed ? "failed" : "completed",
+      promotionCount: failed ? 0 : 1,
+      blockerCategory: failed ? "promotion-conflict" : null,
+      roleBucket: "unknown",
+    }),
+  );
+}
+
 function sourceObservationIntegrationJobTelemetryResult(
   result: SourceObservationIntegrationJobResult,
 ): "completed" | "failed" | "skipped" {
@@ -3032,6 +3479,26 @@ function sourceObservationIntegrationJobTelemetryResult(
     return "skipped";
   }
   return "completed";
+}
+
+function integrationScopeTelemetryRef(scope: SourceObservationIntegrationJobScope): string | null {
+  const segments = [scope.language, scope.productLineId, scope.seriesId, scope.setId, scope.productId].filter(
+    (segment): segment is string => Boolean(segment),
+  );
+
+  return segments.length > 0 ? segments.join(":") : null;
+}
+
+function promotionScopeTelemetryRef(scope: SourceObservationFilterScope): string | null {
+  const segments = [scope.provider, scope.language, scope.setId, scope.status].filter((segment): segment is string =>
+    Boolean(segment),
+  );
+
+  return segments.length > 0 ? segments.join(":") : null;
+}
+
+function integrationProfileTelemetryRef(profile: SourceObservationIntegrationProfileSnapshot | null): string | null {
+  return profile ? `${profile.profileKey}:${profile.profileVersion}` : null;
 }
 
 async function listProviderIntegrationOptions(
@@ -3885,6 +4352,31 @@ function integrationProfileSnapshotKey(
   return `${snapshot.providerKey}:${snapshot.profileKey}:${snapshot.profileVersion}`;
 }
 
+function commonProfileSnapshot(
+  snapshots: readonly (SourceObservationIntegrationProfileSnapshot | null)[],
+): SourceObservationIntegrationProfileSnapshot | null {
+  let common: SourceObservationIntegrationProfileSnapshot | null = null;
+
+  for (const snapshot of snapshots) {
+    if (!snapshot) {
+      continue;
+    }
+    if (!common) {
+      common = snapshot;
+      continue;
+    }
+    if (
+      snapshot.providerKey !== common.providerKey ||
+      snapshot.profileKey !== common.profileKey ||
+      snapshot.profileVersion !== common.profileVersion
+    ) {
+      return null;
+    }
+  }
+
+  return common;
+}
+
 function profileConnectorSourceVersion(
   connector: CatalogProviderIntegrationProfileVersionRecord["profile"]["connector"],
 ): string | null {
@@ -4263,6 +4755,10 @@ function isPromotableObservationStatus(status: string): boolean {
   return status === "observed" || status === "changed" || status === "promoted";
 }
 
+function isReviewableObservationStatus(status: string): boolean {
+  return status === "observed" || status === "changed";
+}
+
 function requirePromotionAssetPorts(input: {
   deps: CatalogRuntimeDeps;
   normalized: SourceObservationPokemonCardNormalized;
@@ -4611,6 +5107,16 @@ function requireIntegrationJobReapplyProfileMode(
   throw new Error(`Source Observation reapply job ${jobId} is missing reapply profile mode.`);
 }
 
+function requireBulkJobReapplyProfileMode(
+  mode: SourceObservationReapplyProfileMode | null | undefined,
+  jobId: string,
+): SourceObservationReapplyProfileMode {
+  if (mode === "current-active-profile" || mode === "original-source-profile") {
+    return mode;
+  }
+  throw new Error(`Source Observation bulk reapply job ${jobId} is missing reapply profile mode.`);
+}
+
 function isActivePromotionProfileVersion(version: CatalogProviderIntegrationProfileVersionRecord): boolean {
   return (
     version.active &&
@@ -4683,6 +5189,8 @@ function toSourceObservationBulkJob(
     observationIds: job.payload.observationIds,
     scope: normalizeBulkJobScope(job.payload.scope),
     reason: job.payload.reason,
+    profileSnapshot: job.payload.profileSnapshot ?? null,
+    reapplyProfileMode: normalizeReapplyProfileMode(job.payload.reapplyProfileMode),
     status: job.status,
     progress: job.progress,
     result: job.result,
@@ -4759,7 +5267,7 @@ function toSourceObservationIntegrationJob(
     profileSnapshot: job.payload.profileSnapshot ?? null,
     reapplyProfileMode: normalizeReapplyProfileMode(job.payload.reapplyProfileMode),
     status: job.status,
-    operatorStatus: integrationJobOperatorStatus(job.status, result),
+    operatorStatus: integrationJobOperatorStatus(job),
     consistency: {
       duplicateSubmissionPolicy: "reuse-active-job",
       profileSnapshotPolicy: "snapshotted-at-enqueue",
@@ -4778,14 +5286,46 @@ function toSourceObservationIntegrationJob(
 }
 
 function integrationJobOperatorStatus(
-  status: SourceObservationBulkJobStatus,
-  result: SourceObservationIntegrationJobResult | null,
+  job: SourceObservationIntegrationDurableJobRecord,
 ): SourceObservationIntegrationJobOperatorStatus {
-  if (status === "completed" && result && result.failed > 0) {
+  if (isOperatorCancelledIntegrationJob(job)) {
+    return "cancelled";
+  }
+  if (job.status === "running" && isDurableJobClaimExpired(job)) {
+    return "stale";
+  }
+  if (job.status === "completed" && job.result && job.result.failed > 0) {
     return "partial";
   }
 
-  return status;
+  return job.status;
+}
+
+function isOperatorCancelledIntegrationJob(job: Readonly<{ status: DurableJobStatus; errorMessage: string | null }>) {
+  return job.status === "failed" && job.errorMessage === OPERATOR_CANCELLED_INTEGRATION_IMPORT_MESSAGE;
+}
+
+function isDurableJobClaimExpired(job: Readonly<{ claimedUntil: string | null }>) {
+  if (!job.claimedUntil) {
+    return true;
+  }
+
+  const claimedUntil = Date.parse(job.claimedUntil);
+  return !Number.isFinite(claimedUntil) || claimedUntil <= Date.now();
+}
+
+function retryableIntegrationJobResult(
+  result: SourceObservationIntegrationJobResult | null,
+  requestedFallback: number,
+): SourceObservationIntegrationJobResult {
+  if (!result) {
+    return summarizeIntegrationJobOutcomes(Math.max(0, requestedFallback), []);
+  }
+
+  return summarizeIntegrationJobOutcomes(
+    result.requested,
+    result.outcomes.filter((outcome) => outcome.status !== "failed"),
+  );
 }
 
 function toSourceObservationIntegrationJobEventSnapshot(
@@ -4856,8 +5396,8 @@ function jobMatchesContext(
   );
 }
 
-function isImpactBlockingJob(status: string, action: "import" | "reapply" | "promote" | "reject"): boolean {
-  return action !== "reject" && (status === "queued" || status === "running");
+function isImpactBlockingJob(status: string, action: "import" | "reapply" | SourceObservationBulkJobAction): boolean {
+  return action !== "reject" && action !== "defer" && (status === "queued" || status === "running");
 }
 
 function impactJobProviderKey(job: SourceObservationIntegrationJob): string | null {
@@ -4937,6 +5477,7 @@ function summarizePromotionOutcomes(
     requested,
     promoted: outcomes.filter((outcome) => outcome.status === "promoted").length,
     rejected: outcomes.filter((outcome) => outcome.status === "rejected").length,
+    deferred: outcomes.filter((outcome) => outcome.status === "deferred").length,
     skipped: outcomes.filter((outcome) => outcome.status === "skipped").length,
     failed: outcomes.filter((outcome) => outcome.status === "failed").length,
     outcomes,
@@ -4968,6 +5509,7 @@ function isPromotionOutcome(
   return (
     outcome.status === "promoted" ||
     outcome.status === "rejected" ||
+    outcome.status === "deferred" ||
     outcome.status === "skipped" ||
     outcome.status === "failed"
   );

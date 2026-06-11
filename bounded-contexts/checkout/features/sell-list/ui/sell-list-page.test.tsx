@@ -165,6 +165,37 @@ describe("checkout sell list page", () => {
     expect(markup).not.toContain("Continue to seller checkout");
   });
 
+  it("shows a signed-in registration return notice after anonymous Sell List merge", () => {
+    const markup = renderToString(
+      <CheckoutSellListPage
+        sellListLines={[selectedOfferLine]}
+        payoutReadiness={{ status: "ready", missing_requirements: [] }}
+        registrationReturn="seller-checkout"
+        mergedLineCount={1}
+        offerReviews={[
+          {
+            lineId: "sll_offer",
+            status: "ready",
+            terms: {
+              basis_amount: "350.00",
+              marketplace_sales_fee_unit_amount: "35.00",
+              seller_net_unit_amount: "315.00",
+              shipping_allowance_percentage_bps: 0,
+              fee_quote_fingerprint: "registered_quote",
+            },
+            message: null,
+          },
+        ]}
+      />,
+    );
+
+    expect(markup).toContain("Sell List saved to your account");
+    expect(markup).toContain(
+      "1 Sell List line(s) moved to your account. Review final seller terms, payout setup, and ship-from details before continuing.",
+    );
+    expect(markup).toContain("Continue to seller checkout");
+  });
+
   it("shows guest selected-offer payout details through Reference Info without a fee fingerprint", () => {
     const guestSelectedOfferLine: CheckoutSellListLineRow = {
       ...selectedOfferLine,
@@ -205,6 +236,18 @@ describe("checkout sell list page", () => {
         "Estimated payout is ready using current standard seller terms. Create an account to review final terms before committing.",
       ),
     ).toBeTruthy();
+    expect(screen.getByText("Create an account to continue seller checkout")).toBeTruthy();
+    expect(screen.getAllByText("Create account to continue").length).toBeGreaterThan(0);
+    expect(
+      container.querySelector(
+        'a[href="/register?returnTo=%2Faccount%2Fsell-list%3FregistrationReturn%3Dseller-checkout"]',
+      ),
+    ).not.toBeNull();
+    expect(
+      container.querySelector(
+        'a[href="/sign-in?returnTo=%2Faccount%2Fsell-list%3FregistrationReturn%3Dseller-checkout"]',
+      ),
+    ).not.toBeNull();
     expect(container.querySelector('input[name^="offerFeeQuoteFingerprint"]')).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "View estimated payout details" }));
@@ -227,5 +270,18 @@ describe("checkout sell list page", () => {
         "After registration, Checkout refreshes seller-specific terms before any offer acceptance or sale commitment.",
       ),
     ).toBeTruthy();
+  });
+
+  it("uses a generic buyer label instead of raw account ids", () => {
+    const lineWithoutPublicBuyerName: CheckoutSellListLineRow = {
+      ...selectedOfferLine,
+      buyer_account_id: "acc_private_buyer_id",
+      buyer_display_name: null,
+    };
+
+    render(<CheckoutSellListPage sellListLines={[lineWithoutPublicBuyerName]} />);
+
+    expect(screen.getAllByText("Buyer").length).toBeGreaterThan(0);
+    expect(screen.queryByText("acc_private_buyer_id")).toBeNull();
   });
 });

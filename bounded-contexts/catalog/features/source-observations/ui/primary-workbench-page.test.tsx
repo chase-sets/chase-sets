@@ -116,10 +116,18 @@ describe("CatalogPrimaryWorkbenchPage", () => {
 
     expect(screen.getByRole("heading", { name: "Provider import operations" })).toBeTruthy();
     expect(screen.getByText("Expected observations")).toBeTruthy();
+    expect(screen.getAllByText("142").length).toBeGreaterThan(0);
     expect(screen.getAllByText("100").length).toBeGreaterThan(0);
     expect(screen.getAllByText("import job job_001 is running (7/24).").length).toBeGreaterThan(0);
     expect(screen.getAllByText("7/24 work units, 29% complete").length).toBeGreaterThan(0);
     expect(screen.getAllByRole("button", { name: /Pull provider data/i })[0]?.hasAttribute("disabled")).toBe(true);
+    expect(screen.getAllByRole("button", { name: "Cancel" }).length).toBeGreaterThan(0);
+
+    const cancelForm = document.querySelector<HTMLFormElement>(
+      'form[data-catalog-primary-workbench-command="cancel-import-job"]',
+    );
+    expect(cancelForm?.querySelector<HTMLInputElement>('input[name="_intent"]')?.value).toBe("cancel-import-job");
+    expect(cancelForm?.querySelector<HTMLInputElement>('input[name="jobId"]')?.value).toBe("job_001");
 
     const reviewLinks = screen.getAllByRole("link", { name: "Review observations" });
     expect(reviewLinks.some((link) => link.getAttribute("href")?.includes("section=source-observation-review"))).toBe(
@@ -253,10 +261,131 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     const rejectForm = document.querySelector<HTMLFormElement>(
       'form[data-catalog-primary-workbench-command="reject-source-observations"]',
     );
+    const deferForm = document.querySelector<HTMLFormElement>(
+      'form[data-catalog-primary-workbench-command="defer-source-observations"]',
+    );
 
     expect(selectedPreviewForm).toBeTruthy();
     expect(rejectForm?.querySelector<HTMLInputElement>('input[name="selectedObservationIds"]')?.value).toBe("obs_001");
     expect(rejectForm?.querySelector<HTMLInputElement>('input[name="reason"]')?.required).toBe(true);
+    expect(deferForm?.querySelector<HTMLInputElement>('input[name="selectedObservationIds"]')?.value).toBe("obs_001");
+    expect(deferForm?.querySelector<HTMLInputElement>('input[name="reason"]')?.value).toBe(
+      "Deferred from the primary workbench; observation remains in review.",
+    );
+  });
+
+  it("submits reapply and replay commands for promoted Source Observations as durable jobs", () => {
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&filter.status=promoted",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: controlPlaneOverview(),
+      reviewObservations: {
+        items: [
+          sourceObservationListItem({
+            observation_id: "obs_promoted",
+            status: "promoted",
+            promoted_catalog_item_id: "cat_001",
+            promoted_at: "2026-06-09T01:05:00.000Z",
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+      reviewPagination: { limit: 25, offset: 0 },
+      canManageCatalog: true,
+    });
+
+    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+
+    const reapplyForm = document.querySelector<HTMLFormElement>(
+      'form[data-catalog-primary-workbench-command="start-reapply"]',
+    );
+    const replayForm = document.querySelector<HTMLFormElement>(
+      'form[data-catalog-primary-workbench-command="start-replay"]',
+    );
+
+    expect(reapplyForm?.querySelector<HTMLInputElement>('input[name="_intent"]')?.value).toBe("start-reapply");
+    expect(reapplyForm?.querySelector<HTMLInputElement>('input[name="selectedObservationIds"]')?.value).toBe(
+      "obs_promoted",
+    );
+    expect(replayForm?.querySelector<HTMLInputElement>('input[name="_intent"]')?.value).toBe("start-replay");
+    expect(replayForm?.querySelector<HTMLInputElement>('input[name="selectedObservationIds"]')?.value).toBe(
+      "obs_promoted",
+    );
+  });
+
+  it("keeps replay available for promoted Source Observations when the current active profile is missing", () => {
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&filter.status=promoted",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: false, lifecycle: "retired" })], total: 1, count: 1 },
+      controlPlaneOverview: null,
+      reviewObservations: {
+        items: [
+          sourceObservationListItem({
+            observation_id: "obs_promoted",
+            status: "promoted",
+            promoted_catalog_item_id: "cat_001",
+            promoted_at: "2026-06-09T01:05:00.000Z",
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+      reviewPagination: { limit: 25, offset: 0 },
+      canManageCatalog: true,
+    });
+
+    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+
+    expect(
+      screen.getAllByRole("button", { name: /Reapply: Charizard/i }).every((button) => button.hasAttribute("disabled")),
+    ).toBe(true);
+    expect(
+      screen.getAllByRole("button", { name: /Replay: Charizard/i }).every((button) => button.hasAttribute("disabled")),
+    ).toBe(false);
+
+    const replayForm = document.querySelector<HTMLFormElement>(
+      'form[data-catalog-primary-workbench-command="start-replay"]',
+    );
+    expect(replayForm?.querySelector<HTMLInputElement>('input[name="selectedObservationIds"]')?.value).toBe(
+      "obs_promoted",
+    );
+  });
+
+  it("blocks replay for promoted Source Observations with retired original profile evidence", () => {
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&filter.status=promoted",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: null,
+      reviewObservations: {
+        items: [
+          sourceObservationListItem({
+            observation_id: "obs_promoted",
+            status: "promoted",
+            source_profile_version: "legacy",
+            promoted_catalog_item_id: "cat_001",
+            promoted_at: "2026-06-09T01:05:00.000Z",
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+      reviewPagination: { limit: 25, offset: 0 },
+      canManageCatalog: true,
+    });
+
+    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+
+    expect(
+      screen.getAllByRole("button", { name: /Replay: Charizard/i }).every((button) => button.hasAttribute("disabled")),
+    ).toBe(true);
+    expect(screen.getAllByText("Profile version missing").length).toBeGreaterThan(0);
   });
 
   it("renders explicit-row command scope and stale-preview blockers before promotion execution", () => {

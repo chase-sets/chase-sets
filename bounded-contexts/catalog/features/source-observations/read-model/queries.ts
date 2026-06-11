@@ -193,6 +193,40 @@ export async function previewSourceObservationPromotionScope(
   };
 }
 
+export async function previewSourceObservationPromotionIds(
+  db: PgQueryable,
+  observationIds: readonly string[],
+): Promise<SourceObservationPromotionPreview> {
+  const uniqueIds = [...new Set(observationIds.map((observationId) => observationId.trim()).filter(Boolean))];
+  const scope = normalizeSourceObservationFilterScope({});
+  if (uniqueIds.length === 0) {
+    return {
+      matched: 0,
+      eligible: 0,
+      terminal: 0,
+      scope,
+    };
+  }
+
+  const result = await db.query<{ matched: string | number; eligible: string | number }>(
+    `SELECT
+       COUNT(*)::integer AS matched,
+       (COUNT(*) FILTER (WHERE status IN ('observed', 'changed')))::integer AS eligible
+     FROM catalog_source_observations
+     WHERE observation_id = ANY($1)`,
+    [uniqueIds],
+  );
+  const matched = Number(result.rows[0]?.matched ?? 0);
+  const eligible = Number(result.rows[0]?.eligible ?? 0);
+
+  return {
+    matched,
+    eligible,
+    terminal: Math.max(0, matched - eligible),
+    scope,
+  };
+}
+
 export async function listSourceObservationIdsForPromotion(
   db: PgQueryable,
   params: SourceObservationFilterScope = {},

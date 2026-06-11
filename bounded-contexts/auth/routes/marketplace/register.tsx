@@ -5,6 +5,7 @@ import { Container } from "@chase-sets/design-system";
 import { marketplaceAuthHostConfig } from "../../support/route-support/host-config";
 import { marketplaceAuthHost } from "../../support/route-support/auth-host.server";
 import { RegisterPage } from "../../features/registration/ui/register-page";
+import { marketplaceAccountGateContextMessage } from "../../support/route-support/marketplace-account-gate-context";
 
 export const meta: MetaFunction = () => buildOpenGraphMeta({ title: marketplaceAuthHostConfig.titles.register! });
 
@@ -12,8 +13,10 @@ export const action = marketplaceAuthHost.createRegisterAction();
 
 export function loader({ request }: LoaderFunctionArgs) {
   const url = new URL(request.url);
+  const returnTo = marketplaceAuthHost.getReturnTo(request);
   return {
-    returnTo: marketplaceAuthHost.getReturnTo(request),
+    returnTo,
+    contextMessage: marketplaceAccountGateContextMessage(returnTo),
     socialLoginError: url.searchParams.get("socialLoginError"),
   };
 }
@@ -25,6 +28,7 @@ export default function MarketplaceRegisterRoute() {
     <Container width="narrow" paddingX={0}>
       <RegisterPage
         errorMessage={actionData && "error" in actionData ? actionData.error : data.socialLoginError}
+        contextMessage={data.contextMessage}
         notice={actionData && "status" in actionData ? actionData : null}
         returnTo={data.returnTo}
       />

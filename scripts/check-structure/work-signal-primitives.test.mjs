@@ -43,6 +43,11 @@ const approvedDirectWorkSignalPrimitiveFiles = {
     reason:
       "Owns the current realtime Postgres LISTEN wake signal; #1236/#1248 require migration or a budgeted local-listener exception.",
   },
+  "infrastructure/platform-runtime/projection-wake-relay.ts": {
+    owner: "platform-runtime",
+    reason:
+      "Owns the worker-owned source-context LISTEN runtime for #1242; this is the approved relay implementation that prevents every API/worker process from listening to every source database.",
+  },
   "infrastructure/platform-runtime/work-signal-composite.ts": {
     owner: "platform-runtime",
     reason:

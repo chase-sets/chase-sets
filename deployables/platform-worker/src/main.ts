@@ -34,6 +34,21 @@ import {
   type WorkerRunner,
   type WorkerRunnerLoop,
 } from "@chase-sets/platform-runtime/worker";
+import {
+  createProjectionWakeSchedulerRunners,
+  createWorkSignalCleanupRunner,
+  type ProjectionWakeSchedulerObserver,
+} from "@chase-sets/platform-runtime/projection-wake-scheduler";
+import {
+  runProjectionWakeRelayActiveSession,
+  startProjectionWakeRelaySupervisor,
+  type ProjectionWakeRelayRuntimeObserver,
+  type ProjectionWakeRelaySourceRuntime,
+} from "@chase-sets/platform-runtime/projection-wake-relay";
+import { buildProjectionInterestIndex } from "@chase-sets/platform-runtime/projection-interest-index";
+import { listSourceContextWakeRelayConfigs } from "@chase-sets/platform-runtime/source-context-wake-registry";
+import { createPostgresWorkSignalStore } from "@chase-sets/platform-runtime/work-signal-store";
+import { createPgPool, createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { assertRunnerCapacity, summarizeRunnerCapacity } from "@chase-sets/platform-runtime/worker-capacity";
 import {
   createPostgresTransactionalEmailOutbox,
@@ -50,6 +65,7 @@ import {
 import { createProcessDrainState, startGracefulHttpServer } from "@chase-sets/platform-runtime/process-lifecycle";
 import {
   getObservabilityRuntime,
+  recordCatalogControlPlaneEvent,
   recordCatalogIntegrationJob,
   recordCatalogIntegrationOptionQuery,
   recordSettlementOperationSignal,
@@ -71,6 +87,7 @@ const config = loadConfig();
 const pools = createPlatformWorkerPools(config);
 await bootstrapPlatformControlPlane(pools.control);
 const controlPlane = createPostgresPlatformControlPlane(pools.control);
+const workSignalStore = createPostgresWorkSignalStore(pools.control);
 
 const paymentProcessorGateway =
   config.paymentProcessor.kind === "stripe"
@@ -143,6 +160,7 @@ const projectionRunners = collectWorkerRunners(runtime, {
   projectionOperationClaimTtlMs: config.leaseTtlMs * 4,
   projectionOperationLeaseTtlMs: config.leaseTtlMs,
   projectionOperationLeaseRenewIntervalMs: config.leaseRenewIntervalMs,
+  workSignalStore,
   observer: createWorkerObserver("platform-worker"),
 });
 const bulkJobRunners = [
@@ -162,7 +180,36 @@ const transactionalEmailDispatchRunners = createTransactionalEmailDispatchRunner
   config.workerId,
   transactionalEmailGateway,
 );
-const scheduledJobRunners = createScheduledJobRunners(runtime.services, config, controlPlane);
+const scheduledJobRunners = [
+  ...createScheduledJobRunners(runtime.services, config, controlPlane),
+  createWorkSignalCleanupRunner({
+    controlPlane,
+    workSignalStore,
+    intervalMs: config.projectionWakeScheduler.cleanupIntervalMs,
+    observer: createProjectionWakeSchedulerLogObserver(),
+  }),
+];
+const projectionWakeRunners = config.projectionWakeScheduler.enabled
+  ? createProjectionWakeSchedulerRunners({
+      workerId: config.workerId,
+      controlPlane,
+      workSignalStore,
+      projectionGroups: runtime.projectionGroups,
+      lanes: [
+        { lane: "hot", runnerCount: config.projectionWakeScheduler.hotLaneRunnerCount },
+        { lane: "standard", runnerCount: config.projectionWakeScheduler.standardLaneRunnerCount },
+        { lane: "bulk", runnerCount: config.projectionWakeScheduler.bulkLaneRunnerCount },
+      ],
+      maxClaimsPerRun: config.projectionWakeScheduler.maxClaimsPerRun,
+      claimTtlMs: config.projectionWakeScheduler.claimTtlMs,
+      leaseTtlMs: config.leaseTtlMs,
+      leaseRenewIntervalMs: config.leaseRenewIntervalMs,
+      retryBackoffBaseMs: config.projectionWakeScheduler.retryBackoffBaseMs,
+      retryBackoffMaxMs: config.projectionWakeScheduler.retryBackoffMaxMs,
+      maxAttempts: config.projectionWakeScheduler.maxAttempts,
+      observer: createProjectionWakeSchedulerLogObserver(),
+    })
+  : [];
 const runnerGroups = [
   createRunnerGroup("projections", projectionRunners, config.projectionMaxConcurrentRunners),
   createRunnerGroup("jobs", bulkJobRunners, config.jobMaxConcurrentRunners),
@@ -172,6 +219,12 @@ const runnerGroups = [
     config.dispatchMaxConcurrentRunners,
   ),
   createRunnerGroup("scheduled", scheduledJobRunners, config.scheduledMaxConcurrentRunners),
+  createRunnerGroup(
+    "wakes",
+    projectionWakeRunners,
+    config.projectionWakeScheduler.maxConcurrentRunners,
+    config.projectionWakeScheduler.pollIntervalMs,
+  ),
 ].filter((group) => group.runners.length > 0);
 const runnerLoops = runnerGroups.map((group) => ({
   ...group,
@@ -182,7 +235,7 @@ const runnerLoops = runnerGroups.map((group) => ({
     maxConcurrentRunners: group.maxConcurrentRunners,
     leaseTtlMs: config.leaseTtlMs,
     leaseRenewIntervalMs: config.leaseRenewIntervalMs,
-    pollIntervalMs: config.pollIntervalMs,
+    pollIntervalMs: group.pollIntervalMs ?? config.pollIntervalMs,
     observer: createWorkerObserver("platform-worker", group.name),
     onError: (error, runner) => {
       logger.error("Platform worker runner failed.", {
@@ -195,6 +248,102 @@ const runnerLoops = runnerGroups.map((group) => ({
     },
   }),
 }));
+const projectionWakeRelayConfigs = listSourceContextWakeRelayConfigs();
+const projectionWakeRelayListenerPools = new Map<string, PgTransactionalPool>();
+const projectionWakeRelaySources: ProjectionWakeRelaySourceRuntime[] = config.projectionWakeRelay.enabled
+  ? projectionWakeRelayConfigs.flatMap((relayConfig) => {
+      const sourcePool = (pools as Readonly<Record<string, PgTransactionalPool | undefined>>)[
+        relayConfig.sourceContextName
+      ];
+      if (!sourcePool) {
+        logger.warn("Projection wake relay source context has no worker database pool.", {
+          type: "projection-wake-relay.source.missing_pool",
+          sourceContextName: relayConfig.sourceContextName,
+        });
+        return [];
+      }
+
+      const listenerDatabaseUrl =
+        config.projectionWakeRelay.listenerDatabaseUrls[
+          relayConfig.sourceContextName as keyof typeof config.projectionWakeRelay.listenerDatabaseUrls
+        ];
+      if (listenerDatabaseUrl) {
+        projectionWakeRelayListenerPools.set(
+          relayConfig.sourceContextName,
+          createPgPool(listenerDatabaseUrl, { ...config.pool, max: 1 }),
+        );
+      } else {
+        logger.warn("Projection wake relay source has no listener database URL; relying on catch-up passes only.", {
+          type: "projection-wake-relay.source.missing_listener_url",
+          sourceContextName: relayConfig.sourceContextName,
+        });
+      }
+
+      return [
+        {
+          sourceContextName: relayConfig.sourceContextName,
+          eventStore: createPostgresEventStore({ pool: sourcePool }),
+          listenerPool: projectionWakeRelayListenerPools.get(relayConfig.sourceContextName),
+        },
+      ];
+    })
+  : [];
+const projectionWakeRelayInterestIndex = buildProjectionInterestIndex({
+  projectionGroups: runtime.projectionGroups,
+});
+const projectionWakeRelayAbortController = new AbortController();
+let projectionWakeRelayIdleLogged = false;
+const projectionWakeRelayRuntimeObserver = createProjectionWakeRelayLogObserver();
+const projectionWakeRelaySupervisor = config.projectionWakeRelay.enabled
+  ? startProjectionWakeRelaySupervisor({
+      runSession: (signal) =>
+        runProjectionWakeRelayActiveSession({
+          workerId: config.workerId,
+          controlPlane,
+          projectionInterestIndex: projectionWakeRelayInterestIndex,
+          workSignalStore,
+          sources: projectionWakeRelaySources,
+          relayConfigs: projectionWakeRelayConfigs,
+          leaseTtlMs: config.leaseTtlMs,
+          leaseRenewIntervalMs: config.leaseRenewIntervalMs,
+          catchUpBatchSize: config.projectionWakeRelay.catchUpBatchSize,
+          signal,
+          observer: projectionWakeRelayRuntimeObserver,
+        }),
+      signal: projectionWakeRelayAbortController.signal,
+      standbyRetryMs: config.projectionWakeRelay.standbyRetryMs,
+      noSourcesRetryMs: config.projectionWakeRelay.noSourcesRetryMs,
+      failureBackoffMs: config.projectionWakeRelay.failureBackoffMs,
+      failureBackoffMaxMs: config.projectionWakeRelay.failureBackoffMaxMs,
+      observer: {
+        sessionEnded: (event) => {
+          // Idle no-source sessions recur on a fixed interval; log the state
+          // change once instead of repeating it forever.
+          if (event.status === "no-enabled-sources") {
+            if (projectionWakeRelayIdleLogged) {
+              return;
+            }
+            projectionWakeRelayIdleLogged = true;
+          } else {
+            projectionWakeRelayIdleLogged = false;
+          }
+          logger.info("Projection wake relay session ended.", {
+            type: "projection-wake-relay.session.ended",
+            status: event.status,
+            sessionCount: event.sessionCount,
+            retryDelayMs: event.retryDelayMs,
+            ...(event.error === undefined ? {} : { error: event.error }),
+          });
+        },
+      },
+    })
+  : null;
+void projectionWakeRelaySupervisor?.done.catch((error: unknown) => {
+  logger.error("Projection wake relay supervisor exited unexpectedly.", {
+    type: "projection-wake-relay.supervisor.failed",
+    error,
+  });
+});
 const runnerCount = runnerGroups.reduce((total, group) => total + group.runners.length, 0);
 const runnerCapacity = summarizeRunnerCapacity(config.pool.max, runnerGroupCapacityInputs(runnerGroups));
 assertRunnerCapacity(runnerCapacity, {
@@ -266,6 +415,16 @@ app.get("/internal/workers/status", async (c) => {
     capacity: runnerCapacity,
     loops: loopStatuses,
     durableWorkflows,
+    projectionWakeIntents: await workSignalStore.summarizeProjectionWakeIntents(),
+    projectionWakeRelay: projectionWakeRelaySupervisor
+      ? {
+          enabled: true,
+          ...projectionWakeRelaySupervisor.state(),
+          configuredSourceContextNames: projectionWakeRelaySources.map((source) => source.sourceContextName),
+          listenerSourceContextNames: [...projectionWakeRelayListenerPools.keys()],
+          interestIndexVersion: projectionWakeRelayInterestIndex.indexVersion,
+        }
+      : { enabled: false },
     workers: await controlPlane.listWorkerHeartbeats(),
     runners: await controlPlane.listRunnerStatuses(),
     leases: await controlPlane.listLeases(),
@@ -291,24 +450,50 @@ startGracefulHttpServer({
   },
   onDrainStart: [
     async () => {
+      projectionWakeRelayAbortController.abort();
+      if (projectionWakeRelaySupervisor) {
+        // Bound the drain wait so a wedged relay session (for example a hung
+        // lease release against an unhealthy control database) cannot stall
+        // the whole worker drain.
+        await Promise.race([
+          projectionWakeRelaySupervisor.done,
+          new Promise((resolve) => {
+            const timer = setTimeout(resolve, 30_000);
+            timer.unref?.();
+          }),
+        ]);
+      }
+    },
+    async () => {
       clearInterval(heartbeatTimer);
       await stopRunnerLoops(runnerLoops.map((runnerLoop) => runnerLoop.loop));
     },
   ],
-  onShutdown: [async () => closePlatformWorkerPools(pools), async () => observability.shutdown()],
+  onShutdown: [
+    async () => closeProjectionWakeRelayListenerPools(projectionWakeRelayListenerPools),
+    async () => closePlatformWorkerPools(pools),
+    async () => observability.shutdown(),
+  ],
 });
 
 type RunnerGroup = Readonly<{
   name: string;
   runners: readonly WorkerRunner[];
   maxConcurrentRunners: number;
+  pollIntervalMs?: number;
 }>;
 
-function createRunnerGroup(name: string, runners: readonly WorkerRunner[], maxConcurrentRunners: number): RunnerGroup {
+function createRunnerGroup(
+  name: string,
+  runners: readonly WorkerRunner[],
+  maxConcurrentRunners: number,
+  pollIntervalMs?: number,
+): RunnerGroup {
   return {
     name,
     runners,
     maxConcurrentRunners,
+    pollIntervalMs,
   };
 }
 
@@ -404,6 +589,167 @@ async function collectDurableWorkflowStatuses(services: Readonly<Record<string, 
     })),
   ]);
   return summaries.filter(Boolean);
+}
+
+async function closeProjectionWakeRelayListenerPools(listenerPools: ReadonlyMap<string, PgTransactionalPool>) {
+  await Promise.allSettled(
+    [...listenerPools.values()].map((pool) => (pool as unknown as { end: () => Promise<void> }).end()),
+  );
+}
+
+function createProjectionWakeRelayLogObserver(): ProjectionWakeRelayRuntimeObserver {
+  let idleSessionSkipLogged = false;
+
+  return {
+    sessionSkipped: (event) => {
+      // Recurs on every idle no-source session; log the state once.
+      if (idleSessionSkipLogged) {
+        return;
+      }
+      idleSessionSkipLogged = true;
+      logger.info("Projection wake relay session skipped.", {
+        type: "projection-wake-relay.session.skipped",
+        ...event,
+      });
+    },
+    leaseAcquired: (event) => {
+      idleSessionSkipLogged = false;
+      logger.info("Projection wake relay lease acquired.", {
+        type: "projection-wake-relay.lease.acquired",
+        ...event,
+      });
+    },
+    leaseMissed: (event) =>
+      logger.info("Projection wake relay lease missed; standing by.", {
+        type: "projection-wake-relay.lease.missed",
+        ...event,
+      }),
+    leaseLost: (event) =>
+      logger.warn("Projection wake relay lease lost.", {
+        type: "projection-wake-relay.lease.lost",
+        ...event,
+      }),
+    sourceCatchUpStarted: (event) =>
+      logger.info("Projection wake relay source catch-up started.", {
+        type: "projection-wake-relay.catch_up.started",
+        ...event,
+      }),
+    sourceCatchUpCompleted: (event) =>
+      logger.info("Projection wake relay source catch-up completed.", {
+        type: "projection-wake-relay.catch_up.completed",
+        ...event,
+      }),
+    sourceCatchUpFailed: (event) =>
+      logger.error("Projection wake relay source catch-up failed.", {
+        type: "projection-wake-relay.catch_up.failed",
+        ...event,
+      }),
+    cursorAdvanced: (event) =>
+      logger.info("Projection wake relay cursor advanced.", {
+        type: "projection-wake-relay.cursor.advanced",
+        ...event,
+      }),
+    listenerConnected: (event) =>
+      logger.info("Projection wake relay listener connected.", {
+        type: "projection-wake-relay.listener.connected",
+        ...event,
+      }),
+    listenerUnavailable: (event) =>
+      logger.warn("Projection wake relay listener unavailable.", {
+        type: "projection-wake-relay.listener.unavailable",
+        ...event,
+      }),
+    listenerDisconnected: (event) =>
+      logger.warn("Projection wake relay listener disconnected.", {
+        type: "projection-wake-relay.listener.disconnected",
+        ...event,
+      }),
+    notificationReceived: (event) =>
+      logger.info("Projection wake relay notification received.", {
+        type: "projection-wake-relay.notification.received",
+        ...event,
+      }),
+    notificationRejected: (event) =>
+      logger.warn("Projection wake relay notification rejected.", {
+        type: "projection-wake-relay.notification.rejected",
+        ...event,
+      }),
+    sourceSkipped: (event) =>
+      logger.info("Projection wake relay source skipped.", {
+        type: "projection-wake-relay.fan_out.source_skipped",
+        ...event,
+      }),
+    fanOutSkipped: (event) =>
+      logger.info("Projection wake relay fan-out found no interests.", {
+        type: "projection-wake-relay.fan_out.no_interests",
+        ...event,
+      }),
+    fanOutSucceeded: (event) =>
+      logger.info("Projection wake relay fan-out enqueued wake intents.", {
+        type: "projection-wake-relay.fan_out.succeeded",
+        ...event,
+      }),
+    fanOutFailed: (event) =>
+      logger.error("Projection wake relay fan-out failed.", {
+        type: "projection-wake-relay.fan_out.failed",
+        ...event,
+      }),
+  };
+}
+
+function createProjectionWakeSchedulerLogObserver(): ProjectionWakeSchedulerObserver {
+  return {
+    wakeIntentClaimed: (event) =>
+      logger.info("Projection wake intent claimed.", {
+        type: "projection-wake.intent.claimed",
+        ...event,
+      }),
+    wakeIntentCompleted: (event) =>
+      logger.info("Projection wake intent completed.", {
+        type: "projection-wake.intent.completed",
+        ...event,
+      }),
+    wakeIntentNotReady: (event) =>
+      logger.warn("Projection wake intent retried before checkpoint readiness.", {
+        type: "projection-wake.intent.not_ready",
+        ...event,
+      }),
+    wakeIntentDeferred: (event) =>
+      logger.info("Projection wake intent deferred while the projection group lease was busy.", {
+        type: "projection-wake.intent.deferred",
+        ...event,
+      }),
+    wakeIntentUnknownTarget: (event) =>
+      logger.warn("Projection wake intent targeted an unknown projection group or checkpoint.", {
+        type: "projection-wake.intent.unknown_target",
+        ...event,
+      }),
+    wakeIntentRunFailed: (event) =>
+      logger.error("Projection wake intent run failed.", {
+        type: "projection-wake.intent.run_failed",
+        ...event,
+      }),
+    wakeIntentAttemptsExhausted: (event) =>
+      logger.error("Projection wake intent exhausted its scheduler attempts.", {
+        type: "projection-wake.intent.attempts_exhausted",
+        ...event,
+      }),
+    wakeIntentClaimLost: (event) =>
+      logger.warn("Projection wake intent claim was lost before completion.", {
+        type: "projection-wake.intent.claim_lost",
+        ...event,
+      }),
+    checkpointReadinessRecordFailed: (event) =>
+      logger.warn("Projection checkpoint readiness record failed after a wake completion.", {
+        type: "projection-wake.readiness.record_failed",
+        ...event,
+      }),
+    workSignalCleanupCompleted: (event) =>
+      logger.info("Work signal cleanup completed.", {
+        type: "work-signals.cleanup.completed",
+        ...event.result,
+      }),
+  };
 }
 
 function createWorkerObserver(workerKind: string, runnerGroup?: string): WorkerRuntimeObserver {
@@ -1182,6 +1528,7 @@ function createSourceObservationTelemetry() {
       recordCatalogIntegrationJob({ ...event, operation: "integration-job" }),
     recordBulkReviewWorkUnit: (event: { jobKind: string; result: string }) =>
       recordCatalogIntegrationJob({ ...event, operation: "bulk-review-work-unit" }),
+    recordControlPlaneEvent: recordCatalogControlPlaneEvent,
   };
 }
 

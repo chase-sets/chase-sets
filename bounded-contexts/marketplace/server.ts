@@ -1,10 +1,16 @@
 export { createMarketplaceRequestApiClient, MarketplaceApiError } from "./support/request-support/api-client";
 export type {
   MarketplaceListingInventoryItemOption,
+  MarketplaceAnonymousListingDraftIntent,
   MarketplaceListingTermsPreview,
   MarketplacePublicStandardTermsPreview,
   OfferMatchListItem,
 } from "./support/request-support/api-client";
+export {
+  appendAnonymousListingDraftCookie,
+  ensureAnonymousListingDraftOwnerId,
+  readAnonymousListingDraftOwnerId,
+} from "./support/request-support/anonymous-listing-draft";
 export type { ListingPhotoStorage } from "./support/runtime-support";
 export {
   marketplaceRealtimeManifest,

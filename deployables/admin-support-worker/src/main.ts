@@ -18,6 +18,7 @@ import {
 import { createProcessDrainState, startGracefulHttpServer } from "@chase-sets/platform-runtime/process-lifecycle";
 import {
   getObservabilityRuntime,
+  recordCatalogControlPlaneEvent,
   recordCatalogIntegrationJob,
   recordCatalogIntegrationOptionQuery,
 } from "@chase-sets/observability";
@@ -385,5 +386,6 @@ function createSourceObservationTelemetry() {
       recordCatalogIntegrationJob({ ...event, operation: "integration-job" }),
     recordBulkReviewWorkUnit: (event: { jobKind: string; result: string }) =>
       recordCatalogIntegrationJob({ ...event, operation: "bulk-review-work-unit" }),
+    recordControlPlaneEvent: recordCatalogControlPlaneEvent,
   };
 }

@@ -73,7 +73,7 @@ Metric labels must stay bounded and must not include provider product ids, SKU i
 
 ## Provider Notes
 
-- TCGdex: public JSON payloads may be used for deterministic fixture-backed proof, but retained real-provider samples still require the signoff gate. The #800 proof intentionally reports `sourceHash: null` until the governed hash material and retention policy define how real-provider payload content hashes are computed and retained.
+- TCGdex: public JSON payloads may be used for deterministic fixture-backed contract tests, but retained real-provider samples still require the signoff gate. The #1062 real-provider proof packet intentionally reports `sourceHash: null` until the governed hash material and retention policy define how real-provider payload content hashes are computed and retained. The packet must redact raw payload bodies, full provider URLs, provider-controlled labels, credentials, cookies, and asset URLs.
 - TCGplayer: cookie/session auth, seller/account data, price, inventory, listing, latest sales, and marketplace account identifiers are excluded from Catalog truth and hashes. The TCGplayer automation runbook remains the transport runbook for credential handling, throttling, and diagnostic redaction. Catalog stores only redacted credential-readiness state and source-kind metadata.
 - Scrydex/Scryfall-style and MTGJSON validation: fixture-backed validation may use redacted sample payloads only after the signoff gate is satisfied for the provider and data class. Rulings, legalities, prices, seller/inventory facts, and other non-Catalog-owned fields stay outside Catalog truth unless a later owner contract changes the boundary.
 

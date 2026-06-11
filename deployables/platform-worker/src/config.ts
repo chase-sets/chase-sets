@@ -43,6 +43,8 @@ export type PlatformWorkerConfig = Readonly<{
   pollIntervalMs: number;
   leaseTtlMs: number;
   leaseRenewIntervalMs: number;
+  projectionWakeScheduler: PlatformWorkerProjectionWakeSchedulerConfig;
+  projectionWakeRelay: PlatformWorkerProjectionWakeRelayConfig;
   paymentReconciliationIntervalMs: number | null;
   sellerFundsReleaseIntervalMs: number | null;
   payoutReconciliationIntervalMs: number | null;
@@ -57,6 +59,31 @@ export type PlatformWorkerConfig = Readonly<{
   postage: PlatformWorkerPostageConfig;
   googleMerchant: PlatformWorkerGoogleMerchantConfig;
   notificationEmail: PlatformWorkerNotificationEmailConfig;
+}>;
+
+export type PlatformWorkerProjectionWakeSchedulerConfig = Readonly<{
+  enabled: boolean;
+  maxConcurrentRunners: number;
+  pollIntervalMs: number;
+  hotLaneRunnerCount: number;
+  standardLaneRunnerCount: number;
+  bulkLaneRunnerCount: number;
+  maxClaimsPerRun: number;
+  claimTtlMs: number;
+  retryBackoffBaseMs: number;
+  retryBackoffMaxMs: number;
+  maxAttempts: number;
+  cleanupIntervalMs: number;
+}>;
+
+export type PlatformWorkerProjectionWakeRelayConfig = Readonly<{
+  enabled: boolean;
+  listenerDatabaseUrls: Readonly<Partial<Record<PlatformWorkerContextName, string>>>;
+  catchUpBatchSize: number;
+  standbyRetryMs: number;
+  noSourcesRetryMs: number;
+  failureBackoffMs: number;
+  failureBackoffMaxMs: number;
 }>;
 
 export type PlatformWorkerCatalogAssetStorageConfig =
@@ -153,6 +180,10 @@ const workerContexts = getWorkerHostContextNames(workerContextRegistry, "platfor
 
 export function getContextDatabaseEnvName(contextName: PlatformWorkerContextName) {
   return `DATABASE_URL_${contextName.replaceAll("-", "_").toUpperCase()}`;
+}
+
+export function getContextListenerDatabaseEnvName(contextName: PlatformWorkerContextName) {
+  return `WORKER_LISTENER_DATABASE_URL_${contextName.replaceAll("-", "_").toUpperCase()}`;
 }
 
 export function loadConfig(): PlatformWorkerConfig {
@@ -333,6 +364,34 @@ export function loadConfig(): PlatformWorkerConfig {
     pollIntervalMs: getPositiveNumberEnv("WORKER_POLL_INTERVAL_MS", 1_000),
     leaseTtlMs: getPositiveNumberEnv("WORKER_LEASE_TTL_MS", 30_000),
     leaseRenewIntervalMs: getPositiveNumberEnv("WORKER_LEASE_RENEW_INTERVAL_MS", 10_000),
+    projectionWakeScheduler: {
+      enabled: getBooleanEnv("WORKER_PROJECTION_WAKE_SCHEDULER_ENABLED", true),
+      maxConcurrentRunners: getPositiveNumberEnv("WORKER_WAKE_MAX_CONCURRENT_RUNNERS", 2),
+      pollIntervalMs: getPositiveNumberEnv("WORKER_WAKE_POLL_INTERVAL_MS", 1_000),
+      hotLaneRunnerCount: getPositiveNumberEnv("WORKER_WAKE_HOT_LANE_RUNNER_COUNT", 1),
+      standardLaneRunnerCount: getPositiveNumberEnv("WORKER_WAKE_STANDARD_LANE_RUNNER_COUNT", 1),
+      bulkLaneRunnerCount: getPositiveNumberEnv("WORKER_WAKE_BULK_LANE_RUNNER_COUNT", 1),
+      maxClaimsPerRun: getPositiveNumberEnv("WORKER_WAKE_MAX_CLAIMS_PER_RUN", 10),
+      claimTtlMs: getPositiveNumberEnv("WORKER_WAKE_CLAIM_TTL_MS", 120_000),
+      retryBackoffBaseMs: getPositiveNumberEnv("WORKER_WAKE_RETRY_BACKOFF_BASE_MS", 1_000),
+      retryBackoffMaxMs: getPositiveNumberEnv("WORKER_WAKE_RETRY_BACKOFF_MAX_MS", 60_000),
+      maxAttempts: getPositiveNumberEnv("WORKER_WAKE_MAX_ATTEMPTS", 10),
+      cleanupIntervalMs: getPositiveNumberEnv("WORK_SIGNAL_CLEANUP_INTERVAL_MS", 60_000),
+    },
+    projectionWakeRelay: {
+      enabled: getBooleanEnv("WORKER_PROJECTION_WAKE_RELAY_ENABLED", true),
+      listenerDatabaseUrls: Object.fromEntries(
+        workerContexts.flatMap((contextName) => {
+          const listenerDatabaseUrl = getOptionalEnv(getContextListenerDatabaseEnvName(contextName));
+          return listenerDatabaseUrl ? [[contextName, listenerDatabaseUrl]] : [];
+        }),
+      ) as Readonly<Partial<Record<PlatformWorkerContextName, string>>>,
+      catchUpBatchSize: getPositiveNumberEnv("WORKER_WAKE_RELAY_CATCH_UP_BATCH_SIZE", 100),
+      standbyRetryMs: getPositiveNumberEnv("WORKER_WAKE_RELAY_STANDBY_RETRY_MS", 15_000),
+      noSourcesRetryMs: getPositiveNumberEnv("WORKER_WAKE_RELAY_NO_SOURCES_RETRY_MS", 60_000),
+      failureBackoffMs: getPositiveNumberEnv("WORKER_WAKE_RELAY_FAILURE_BACKOFF_MS", 5_000),
+      failureBackoffMaxMs: getPositiveNumberEnv("WORKER_WAKE_RELAY_FAILURE_BACKOFF_MAX_MS", 60_000),
+    },
     paymentReconciliationIntervalMs: getOptionalPositiveNumberEnv("PAYMENT_RECONCILIATION_INTERVAL_MS", 300_000),
     sellerFundsReleaseIntervalMs: getOptionalPositiveNumberEnv("SELLER_FUNDS_RELEASE_INTERVAL_MS", 300_000),
     payoutReconciliationIntervalMs: getOptionalPositiveNumberEnv("PAYOUT_RECONCILIATION_INTERVAL_MS", 300_000),

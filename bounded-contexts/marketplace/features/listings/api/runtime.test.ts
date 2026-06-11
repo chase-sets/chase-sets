@@ -124,7 +124,214 @@ const listingPhoto = {
   },
 } as const;
 
+type DraftRow = {
+  intent_id: string;
+  anonymous_owner_id: string;
+  source_path: string;
+  catalog_item_id: string;
+  product_id: string;
+  selected_options: readonly { dimensionId: string; optionId: string }[];
+  product_summary: string | null;
+  price_amount: string;
+  quantity_cap: number;
+  max_units_per_order: number | null;
+  max_units_per_day: number | null;
+  max_units_per_customer_account: number | null;
+  status: "active" | "claimed" | "expired";
+  claimed_account_id: string | null;
+  claimed_at: string | null;
+  expires_at: string;
+  created_at: string;
+  updated_at: string;
+};
+
+function createDraftIntentDb() {
+  const rows: DraftRow[] = [];
+  const now = () => new Date().toISOString();
+  const selectedOptionsMatch = (row: DraftRow, value: unknown) =>
+    JSON.stringify(row.selected_options) === String(value);
+  const isActive = (row: DraftRow) => row.status === "active" && new Date(row.expires_at).getTime() > Date.now();
+
+  const db = {
+    query: vi.fn(async (sql: string, params: readonly unknown[] = []) => {
+      if (sql.includes("SET status = 'expired'")) {
+        const ownerId = String(params[0] ?? "");
+        for (const row of rows) {
+          if (row.anonymous_owner_id === ownerId && row.status === "active" && !isActive(row)) {
+            row.status = "expired";
+            row.updated_at = now();
+          }
+        }
+        return { rows: [] };
+      }
+
+      if (sql.includes("ORDER BY updated_at DESC")) {
+        return {
+          rows: rows
+            .filter(
+              (row) =>
+                row.anonymous_owner_id === params[0] &&
+                isActive(row) &&
+                row.catalog_item_id === params[1] &&
+                row.product_id === params[2] &&
+                selectedOptionsMatch(row, params[3]) &&
+                row.price_amount === params[4] &&
+                row.quantity_cap === params[5] &&
+                row.max_units_per_order === params[6] &&
+                row.max_units_per_day === params[7] &&
+                row.max_units_per_customer_account === params[8],
+            )
+            .sort((left, right) => right.updated_at.localeCompare(left.updated_at))
+            .slice(0, 1),
+        };
+      }
+
+      if (sql.includes("SELECT count(*)::text AS count")) {
+        return {
+          rows: [
+            {
+              count: String(rows.filter((row) => row.anonymous_owner_id === params[0] && isActive(row)).length),
+            },
+          ],
+        };
+      }
+
+      if (sql.includes("INSERT INTO marketplace_anonymous_listing_draft_intents")) {
+        const row: DraftRow = {
+          intent_id: String(params[0]),
+          anonymous_owner_id: String(params[1]),
+          source_path: String(params[2]),
+          catalog_item_id: String(params[3]),
+          product_id: String(params[4]),
+          selected_options: JSON.parse(String(params[5])) as DraftRow["selected_options"],
+          product_summary: params[6] === null ? null : String(params[6]),
+          price_amount: String(params[7]),
+          quantity_cap: Number(params[8]),
+          max_units_per_order: params[9] === null ? null : Number(params[9]),
+          max_units_per_day: params[10] === null ? null : Number(params[10]),
+          max_units_per_customer_account: params[11] === null ? null : Number(params[11]),
+          status: "active",
+          claimed_account_id: null,
+          claimed_at: null,
+          expires_at: String(params[12]),
+          created_at: now(),
+          updated_at: now(),
+        };
+        rows.push(row);
+        return { rows: [row] };
+      }
+
+      if (sql.includes("SET source_path = $2")) {
+        const row = rows.find((candidate) => candidate.intent_id === params[0]);
+        if (!row) {
+          return { rows: [] };
+        }
+        row.source_path = String(params[1]);
+        row.product_summary = params[2] === null ? null : String(params[2]);
+        row.expires_at = String(params[3]);
+        row.updated_at = now();
+        return { rows: [row] };
+      }
+
+      if (sql.includes("SET status = 'claimed'")) {
+        const row = rows.find(
+          (candidate) => candidate.intent_id === params[0] && candidate.anonymous_owner_id === params[1],
+        );
+        if (!row || !isActive(row)) {
+          return { rows: [] };
+        }
+        row.status = "claimed";
+        row.claimed_account_id = String(params[2]);
+        row.claimed_at = now();
+        row.updated_at = now();
+        return { rows: [row] };
+      }
+
+      if (sql.includes("WHERE intent_id = $1") && sql.includes("anonymous_owner_id = $2")) {
+        return {
+          rows: rows.filter((row) => row.intent_id === params[0] && row.anonymous_owner_id === params[1]).slice(0, 1),
+        };
+      }
+
+      throw new Error(`Unexpected query in test: ${sql}`);
+    }),
+  };
+
+  return { db, rows };
+}
+
 describe("marketplace listing runtime", () => {
+  it("deduplicates and claims anonymous listing draft intents without creating listing events", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-17T00:00:00.000Z"));
+    const { eventStore } = createInMemoryEventStore();
+    const { db, rows } = createDraftIntentDb();
+    const services = createMarketplaceListingRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      commercialTermsResolver: {
+        resolveListingTerms: vi.fn(),
+      } as never,
+    });
+
+    try {
+      const first = await services.createAnonymousListingDraftIntent({
+        anonymousOwnerId: "anon_listing_draft",
+        sourcePath: "/items/charizard?market=sell",
+        catalogItemId: "cat_charizard",
+        productId: "cat_charizard::form:raw",
+        selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+        productSummary: "Form: Raw",
+        priceAmount: "20",
+        quantityCap: 1,
+      });
+      const second = await services.createAnonymousListingDraftIntent({
+        anonymousOwnerId: "anon_listing_draft",
+        sourcePath: "/items/charizard-base-set?market=sell",
+        catalogItemId: "cat_charizard",
+        productId: "cat_charizard::form:raw",
+        selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+        productSummary: "Form: Raw",
+        priceAmount: "20.00",
+        quantityCap: 1,
+      });
+
+      expect(second.intent_id).toBe(first.intent_id);
+      expect(rows).toHaveLength(1);
+      expect(await eventStore.readAll()).toEqual([]);
+
+      const claimed = await services.claimAnonymousListingDraftIntent({
+        anonymousOwnerId: "anon_listing_draft",
+        intentId: first.intent_id,
+        accountId: "acc_seller",
+      });
+
+      expect(claimed).toMatchObject({
+        intent_id: first.intent_id,
+        status: "claimed",
+        claimed_account_id: "acc_seller",
+        price_amount: "20.00",
+      });
+      await expect(
+        services.claimAnonymousListingDraftIntent({
+          anonymousOwnerId: "anon_listing_draft",
+          intentId: first.intent_id,
+          accountId: "acc_seller",
+        }),
+      ).resolves.toMatchObject({ status: "claimed" });
+      await expect(
+        services.claimAnonymousListingDraftIntent({
+          anonymousOwnerId: "anon_listing_draft",
+          intentId: first.intent_id,
+          accountId: "acc_other",
+        }),
+      ).rejects.toThrow("Listing draft is no longer available.");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("publishes a newly created listing before projections catch up", async () => {
     const { eventStore } = createInMemoryEventStore();
     const db = {

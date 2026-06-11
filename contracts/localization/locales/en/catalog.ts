@@ -180,7 +180,11 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.api.route.source.observation.not.found": "Source observation not found.",
   "catalog.features.sourceObservations.api.route.bulk.job.not.found": "Bulk job was not found.",
   "catalog.features.sourceObservations.api.route.integration.job.invalid.action": "Unknown integration job action.",
+  "catalog.features.sourceObservations.api.route.integration.job.lifecycle.unsupported":
+    "Integration job lifecycle command is not available for this job state.",
   "catalog.features.sourceObservations.api.route.integration.job.not.found": "Integration job was not found.",
+  "catalog.features.sourceObservations.api.route.telemetry.invalid.event":
+    "Unknown Catalog control plane telemetry event.",
   "catalog.features.sourceObservations.api.route.impact.profile.version.required":
     "Provider key and profile version are required for impact analysis.",
   "catalog.features.sourceObservations.api.route.impact.lifecycle.operation.invalid":
@@ -453,10 +457,15 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.defer.key": "Defer decision",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.defer.value": "Defer keeps observations in review",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.error.title": "Command needs attention",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.cancelled.description":
+    "The durable provider import job was cancelled for this provider and scope.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.cancelled.title": "Job cancelled",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.failed":
     "The command did not complete. Review the named blockers, then retry from this workbench.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.invalid.intent":
     "The submitted command is not part of the rebuilt primary workbench contract.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.job.required":
+    "Choose a durable import job before retrying, resuming, or cancelling it.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.preview.description":
     "Promotion preview is ready for the current provider, scope, filters, and selection checkpoint.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.preview.required":
@@ -639,11 +648,17 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.failure.mode.value":
     "Blocked, stale, denied, and unsafe actions fail closed.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.cancel": "Cancel",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.context.current.scope": "Current scope",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.context.overlapping.scope": "Overlapping scope",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.context.scope": "Scope: {scope}",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.context.unit": "Unit: {unit}",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.created": "Created {value}",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.empty.description":
     "Start a scoped provider import to create durable monitoring evidence for this context.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.empty.title":
     "No durable import jobs for this context",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.evidence.link": "Audit evidence",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.failure.cancelled": "Operator cancelled",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.failure.durable": "Durable import failed",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.failure.group": "{label} ({count})",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.failure.partial": "Partial provider data",
@@ -652,14 +667,20 @@ export const catalogEnglishTranslations = {
     "Provider transport {category}",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.progress.value":
     "{completed}/{total} work units, {percent}% complete",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.not.started": "not started",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.operator.status": "Operator: {status}",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.profile.snapshot": "Snapshot: {profile}",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.resume": "Resume",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.retry": "Retry",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.review.link": "Review observations",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.started": "Started {value}",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.table.consistency": "Consistency",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.table.failures": "Failure groups",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.table.job": "Durable job",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.table.profile": "Profile: {profile}",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.table.progress": "Progress",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.adapter": "Adapter",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.changed": "Changed observations",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.credentials": "Credentials",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.description":
     "Start the scoped provider pull, monitor durable progress, recover retryable failures, and jump straight to the affected Source Observations.",
@@ -668,6 +689,10 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.empty.title":
     "Import context is incomplete",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.expected": "Expected observations",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.observed": "Observed observations",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.profile.snapshot": "Profile snapshot",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.promoted": "Promoted observations",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.rejected": "Rejected observations",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.rollout": "Rollout",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.status": "{count} active",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.title": "Provider import operations",
@@ -738,11 +763,14 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.bulk.preview.description":
     "Selected eligible observations can be previewed before any Catalog-owned write runs.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.bulk.preview.title": "Preview selected observations",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.reviewable.observations": "Reviewable observations",
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.conflict.changed":
     "Changed normalized facts require promotion preview before Catalog writes.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.conflict.linked.catalog.item":
     "Previously linked Catalog Item {itemId} needs review.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.defer": "Defer",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.defer.reason":
+    "Deferred from the primary workbench; observation remains in review.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.description":
     "Review provider observations with provenance, redacted facts, duplicate evidence, conflicts, and command readiness before promotion.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.duplicate.catalog.reference":
@@ -790,6 +818,7 @@ export const catalogEnglishTranslations = {
     "{kind}; {imageCount} image URL(s); {externalReferenceCount} external reference(s) summarized.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.preview.required": "Preview required",
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.reapply": "Reapply",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.replay": "Replay",
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.redaction.summary":
     "Provider payload withheld; normalized facts and provenance are redaction-safe.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.reject": "Reject",
@@ -1716,6 +1745,8 @@ export const catalogEnglishTranslations = {
   "catalog.features.categories.ui.categoryListPage.root.categories": "Root Categories",
   "catalog.features.referenceData.ui.referenceRecordListPage.attribute.value": "Attribute Value",
   "catalog.features.referenceData.ui.referenceTypeListPage.attribute.key": "Attribute Key",
+  "catalog.features.sourceObservations.api.route.bulk.deferral.requires.selection.or.scope":
+    "Bulk deferral requires selected observations or an explicit review scope.",
   "catalog.features.sourceObservations.api.route.bulk.rejection.requires.reason": "Bulk rejection requires a reason.",
   "catalog.features.sourceObservations.api.route.rejection.requires.reason": "Rejection requires a reason.",
   "catalog.features.sourceObservations.ui.list.bulk.reject": "Reject selected",

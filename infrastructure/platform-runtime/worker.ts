@@ -19,6 +19,7 @@ import type { ProjectionRunContext, ProjectorRunResult } from "@chase-sets/event
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { PlatformControlPlane, PlatformLease, ProjectionOperationRecord } from "./control-plane";
+import type { PostgresWorkSignalStore } from "./work-signal-store";
 
 export type WorkerHostName = "platform-worker" | "admin-support-worker";
 
@@ -231,11 +232,22 @@ export function collectWorkerRunners(
     projectionOperationLeaseRenewIntervalMs?: number;
     projectionOperationStatementTimeoutMs?: number;
     projectionOperationCancelPollIntervalMs?: number;
+    workSignalStore?: Pick<PostgresWorkSignalStore, "recordCheckpointReady" | "clearCheckpointReadiness">;
     observer?: WorkerRuntimeObserver;
   }> = {},
 ): readonly WorkerRunner[] {
+  const onCheckpointsAdvanced = options.workSignalStore
+    ? createCheckpointReadinessRecorder(options.workSignalStore)
+    : undefined;
+  const onCheckpointsReset = options.workSignalStore
+    ? async (checkpointKeys: readonly string[]) => {
+        await options.workSignalStore?.clearCheckpointReadiness({ checkpointKeys });
+      }
+    : undefined;
   const runners = [
-    ...runtime.projectionGroups.map(createProjectionGroupWorkerRunner),
+    ...runtime.projectionGroups.map((group) =>
+      createProjectionGroupWorkerRunner(group, { onCheckpointsAdvanced, onCheckpointsReset }),
+    ),
     createSubscriptionLedgerCompactionRunner(runtime),
     createProjectionGenerationRetentionRunner(runtime),
   ];
@@ -250,6 +262,7 @@ export function collectWorkerRunners(
           leaseRenewIntervalMs: options.projectionOperationLeaseRenewIntervalMs ?? 30_000,
           statementTimeoutMs: options.projectionOperationStatementTimeoutMs ?? 30_000,
           cancelPollIntervalMs: options.projectionOperationCancelPollIntervalMs ?? 5_000,
+          onCheckpointsReset,
           observer: options.observer,
         }),
       ]
@@ -550,7 +563,56 @@ export function createProjectionGroupRunnerLeaseName(
   });
 }
 
-function createProjectionGroupWorkerRunner(group: ContextProjectionGroup): WorkerRunner {
+export class ProjectionGroupRevisionStaleError extends Error {
+  constructor(group: Pick<ContextProjectionGroup, "targetContextName" | "projectionName">) {
+    super(
+      `Projection group '${group.targetContextName}.${group.projectionName}' has a stale revision pending rebuild.`,
+    );
+    this.name = "ProjectionGroupRevisionStaleError";
+  }
+}
+
+export function createCheckpointReadinessRecorder(
+  workSignalStore: Pick<PostgresWorkSignalStore, "recordCheckpointReady">,
+): (status: ContextProjectionGroupStatus, previousStatus?: ContextProjectionGroupStatus) => Promise<void> {
+  return async (status, previousStatus) => {
+    const previousPositions = new Map(
+      (previousStatus?.subscriptions ?? []).map((subscription) => [
+        subscription.checkpointKey,
+        BigInt(subscription.lastGlobalPosition),
+      ]),
+    );
+
+    for (const subscription of status.subscriptions) {
+      const previousPosition = previousPositions.get(subscription.checkpointKey);
+      if (previousPosition !== undefined && BigInt(subscription.lastGlobalPosition) <= previousPosition) {
+        continue;
+      }
+
+      await workSignalStore.recordCheckpointReady({
+        checkpointKey: subscription.checkpointKey,
+        sourceContextName: subscription.sourceContextName,
+        targetContextName: subscription.targetContextName,
+        projectionName: subscription.projectionName,
+        readyPosition: subscription.lastGlobalPosition,
+        metadata: { recordedBy: "projection-poll" },
+      });
+    }
+  };
+}
+
+export function createProjectionGroupWorkerRunner(
+  group: ContextProjectionGroup,
+  options: Readonly<{
+    revisionStaleBehavior?: "reset" | "reject";
+    onCheckpointsAdvanced?: (
+      status: ContextProjectionGroupStatus,
+      previousStatus?: ContextProjectionGroupStatus,
+    ) => Promise<void>;
+    onCheckpointsReset?: (checkpointKeys: readonly string[]) => Promise<void>;
+  }> = {},
+): WorkerRunner {
+  const revisionStaleBehavior = options.revisionStaleBehavior ?? "reset";
   let rebuildingRevision: number | null = null;
 
   return {
@@ -562,10 +624,21 @@ function createProjectionGroupWorkerRunner(group: ContextProjectionGroup): Worke
       try {
         context?.throwIfLeaseLost?.();
         const status = await group.refreshStatus();
+        if (status.revisionStale && revisionStaleBehavior === "reject") {
+          throw new ProjectionGroupRevisionStaleError(group);
+        }
         if (status.revisionStale && rebuildingRevision !== group.projectionRevision) {
           context?.throwIfLeaseLost?.();
           await resetProjectionGroup(group, context);
           rebuildingRevision = group.projectionRevision;
+          if (options.onCheckpointsReset) {
+            try {
+              await options.onCheckpointsReset(group.subscriptionRunners.map((runner) => runner.checkpointKey));
+            } catch {
+              // Readiness clearing is best-effort; the bounded readiness TTL
+              // still reaps stale rows.
+            }
+          }
         }
 
         let processed = 0;
@@ -584,6 +657,14 @@ function createProjectionGroupWorkerRunner(group: ContextProjectionGroup): Worke
           context?.throwIfLeaseLost?.();
           await group.markRevisionSynced();
           rebuildingRevision = null;
+        }
+
+        if (processed > 0 && options.onCheckpointsAdvanced) {
+          try {
+            await options.onCheckpointsAdvanced(group.getStatus(), status);
+          } catch {
+            // Readiness recording is best-effort and must never fail the run.
+          }
         }
 
         return {
@@ -610,6 +691,7 @@ function createProjectionOperationWorkerRunner(
     leaseRenewIntervalMs: number;
     statementTimeoutMs: number;
     cancelPollIntervalMs: number;
+    onCheckpointsReset?: (checkpointKeys: readonly string[]) => Promise<void>;
     observer?: WorkerRuntimeObserver;
   }>,
 ): WorkerRunner {
@@ -730,6 +812,7 @@ async function runProjectionOperationWithRenewedClaim(
     leaseRenewIntervalMs: number;
     statementTimeoutMs: number;
     cancelPollIntervalMs: number;
+    onCheckpointsReset?: (checkpointKeys: readonly string[]) => Promise<void>;
   }>,
   operation: ProjectionOperationRecord,
   ownerId: string,
@@ -813,6 +896,7 @@ async function runProjectionOperation(
     leaseRenewIntervalMs: number;
     statementTimeoutMs: number;
     cancelPollIntervalMs: number;
+    onCheckpointsReset?: (checkpointKeys: readonly string[]) => Promise<void>;
   }>,
   operation: ProjectionOperationRecord,
   ownerId: string,
@@ -840,7 +924,10 @@ async function runProjectionOperation(
           operationKind: operation.operationKind,
         },
       },
-      (context) => rebuildContextProjectionGroup(runtime, operation.contextName, projectionName, context),
+      async (context) => {
+        await clearGroupCheckpointReadiness(runtime, operation.contextName, projectionName, options);
+        return rebuildContextProjectionGroup(runtime, operation.contextName, projectionName, context);
+      },
     );
     return;
   }
@@ -868,15 +955,17 @@ async function runProjectionOperation(
             operationKind: operation.operationKind,
           },
         },
-        (context) =>
-          rebuildAllContextProjectionGroups(
+        async (context) => {
+          await clearGroupCheckpointReadiness(runtime, group.targetContextName, group.projectionName, options);
+          return rebuildAllContextProjectionGroups(
             {
               projectionGroups: [group],
             },
             operation.contextName,
             {},
             context,
-          ),
+          );
+        },
       );
     }
     return;
@@ -909,6 +998,31 @@ async function runProjectionOperation(
   }
 
   throw new Error(`Projection operation kind '${operation.operationKind}' is not implemented.`);
+}
+
+async function clearGroupCheckpointReadiness(
+  runtime: Pick<WorkerHostRuntime, "projectionGroups">,
+  targetContextName: string,
+  projectionName: string,
+  options: Readonly<{ onCheckpointsReset?: (checkpointKeys: readonly string[]) => Promise<void> }>,
+): Promise<void> {
+  if (!options.onCheckpointsReset) {
+    return;
+  }
+
+  const group = runtime.projectionGroups.find(
+    (candidate) => candidate.targetContextName === targetContextName && candidate.projectionName === projectionName,
+  );
+  if (!group) {
+    return;
+  }
+
+  try {
+    await options.onCheckpointsReset(group.subscriptionRunners.map((runner) => runner.checkpointKey));
+  } catch {
+    // Readiness clearing is best-effort; the bounded readiness TTL still
+    // reaps stale rows.
+  }
 }
 
 function findProjectionGroupForProjectionKey(
@@ -944,20 +1058,35 @@ function requireProjectionOperationField(
   return value;
 }
 
+export type RunWithRenewedLeaseInput = Readonly<{
+  leaseName: string;
+  ownerId: string;
+  ttlMs: number;
+  renewIntervalMs: number;
+  statementTimeoutMs?: number;
+  shouldAbort?: () => Promise<boolean>;
+  abortPollIntervalMs?: number;
+  metadata?: Record<string, unknown>;
+}>;
+
 async function runWithRenewedLease<T>(
   controlPlane: PlatformControlPlane,
-  input: Readonly<{
-    leaseName: string;
-    ownerId: string;
-    ttlMs: number;
-    renewIntervalMs: number;
-    statementTimeoutMs?: number;
-    shouldAbort?: () => Promise<boolean>;
-    abortPollIntervalMs?: number;
-    metadata?: Record<string, unknown>;
-  }>,
+  input: RunWithRenewedLeaseInput,
   work: (context: ProjectionRunContext) => Promise<T>,
 ): Promise<T> {
+  const outcome = await tryRunWithRenewedLease(controlPlane, input, work);
+  if (!outcome.acquired) {
+    throw new Error(`Projection runner lease '${input.leaseName}' is already active.`);
+  }
+
+  return outcome.result;
+}
+
+export async function tryRunWithRenewedLease<T>(
+  controlPlane: PlatformControlPlane,
+  input: RunWithRenewedLeaseInput,
+  work: (context: ProjectionRunContext) => Promise<T>,
+): Promise<Readonly<{ acquired: true; result: T }> | Readonly<{ acquired: false }>> {
   const lease = await controlPlane.acquireLease({
     leaseName: input.leaseName,
     ownerId: input.ownerId,
@@ -965,7 +1094,7 @@ async function runWithRenewedLease<T>(
     metadata: input.metadata,
   });
   if (!lease) {
-    throw new Error(`Projection runner lease '${input.leaseName}' is already active.`);
+    return { acquired: false };
   }
 
   let leaseActive = true;
@@ -1018,7 +1147,7 @@ async function runWithRenewedLease<T>(
   abortPollTimer?.unref?.();
 
   try {
-    return await work({
+    const result = await work({
       ownerId: lease.ownerId,
       fencingToken: lease.fencingToken,
       operationId: typeof input.metadata?.operationId === "string" ? (input.metadata.operationId as string) : undefined,
@@ -1026,6 +1155,7 @@ async function runWithRenewedLease<T>(
       statementTimeoutMs: input.statementTimeoutMs,
       throwIfLeaseLost,
     });
+    return { acquired: true, result };
   } finally {
     clearInterval(renewalTimer);
     if (abortPollTimer) {

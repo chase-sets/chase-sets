@@ -33,6 +33,7 @@ export const TCGDEX_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY = def
 
 export const TCGDEX_REAL_PROVIDER_PROOF_SCOPE = {
   languageCode: "en",
+  seriesId: "swsh",
   setId: "swsh3",
 } as const;
 
