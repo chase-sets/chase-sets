@@ -75,12 +75,13 @@ const REQUIRED_MARKETPLACE_CHECKOUT_FEE_POLICY_VERSION = "marketplace-checkout-f
 const PRODUCTION_MARKETPLACE_HOSTS = new Set(["chasesets.com", "marketplace.chasesets.com"]);
 const MARKETPLACE_CHECKOUT_FEE_POLICY_PATH = "/api/marketplace/account/marketplace-checkout-fee-policy";
 const REQUIRED_CHECKOUT_LAUNCH_EVIDENCE_MATRIX_VERSION = "checkout-launch-evidence-matrix/v1";
-const REQUIRED_CHECKOUT_LAUNCH_MATRIX_ROW_COUNT = 24;
-const REQUIRED_CHECKOUT_LAUNCH_SCENARIO_STATE_COUNT = 22;
-const REQUIRED_CHECKOUT_LAUNCH_REGISTER_ROW_COUNT = 18;
-const REQUIRED_CHECKOUT_LAUNCH_NO_SIDE_EFFECT_ROW_COUNT = 13;
+const REQUIRED_CHECKOUT_LAUNCH_MATRIX_ROW_COUNT = 25;
+const REQUIRED_CHECKOUT_LAUNCH_SCENARIO_STATE_COUNT = 23;
+const REQUIRED_CHECKOUT_LAUNCH_REGISTER_ROW_COUNT = 19;
+const REQUIRED_CHECKOUT_LAUNCH_NO_SIDE_EFFECT_ROW_COUNT = 14;
 const REQUIRED_CHECKOUT_LAUNCH_PENDING_DOWNSTREAM_ROW_COUNT = 5;
-const REQUIRED_CHECKOUT_LAUNCH_FRESH_STATE_ROW_COUNT = 24;
+const REQUIRED_CHECKOUT_LAUNCH_FRESH_STATE_ROW_COUNT = 25;
+const REQUIRED_CHECKOUT_LAUNCH_CANARY_ARTIFACT_COUNT = 4;
 const REQUIRED_CHECKOUT_LAUNCH_ENTRY_SOURCES = ["buy-now", "buy-cart-readiness", "sell-list-readiness"];
 const REQUIRED_CHECKOUT_LAUNCH_ACTOR_MODES = ["guest", "signed-in"];
 const REQUIRED_CHECKOUT_LAUNCH_VIEWPORTS = ["desktop", "mobile"];
@@ -592,6 +593,7 @@ function validateCheckoutLaunchEvidence(gate, now, errors) {
       "buySignedInCovered",
       "sellGuestCovered",
       "sellSignedInCovered",
+      "productionProofBuyNowReadyWithinSlo",
       "unassignedFulfillmentOutsideCheckoutProven",
       "optimizationDecisionOutsideCheckoutProven",
       "pendingDownstreamBoundaryProven",
@@ -617,6 +619,7 @@ function validateCheckoutLaunchEvidence(gate, now, errors) {
       "performanceBudgetReference",
       "coverageArtifactReference",
       "performanceMeasurementReference",
+      "productionProofCanaryReference",
       "noSideEffectReference",
       "noCompatibilityScanReference",
       "freshStateCleanupReference",
@@ -639,6 +642,7 @@ function validateCheckoutLaunchEvidence(gate, now, errors) {
       "performanceBudgetReference",
       "coverageArtifactReference",
       "performanceMeasurementReference",
+      "productionProofCanaryReference",
       "noSideEffectReference",
       "noCompatibilityScanReference",
       "freshStateCleanupReference",
@@ -712,7 +716,12 @@ function validateCheckoutLaunchEvidence(gate, now, errors) {
     errors,
   );
   validateMinimumNumber("Checkout launch evidence e2eScenarioCount", gate.e2eScenarioCount, 8, errors);
-  validateMinimumNumber("Checkout launch evidence canaryArtifactCount", gate.canaryArtifactCount, 3, errors);
+  validateMinimumNumber(
+    "Checkout launch evidence canaryArtifactCount",
+    gate.canaryArtifactCount,
+    REQUIRED_CHECKOUT_LAUNCH_CANARY_ARTIFACT_COUNT,
+    errors,
+  );
 
   validateRequiredArrayMembers(
     "Checkout launch evidence entrySourcesCovered",

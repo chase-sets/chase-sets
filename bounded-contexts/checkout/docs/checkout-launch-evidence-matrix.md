@@ -9,12 +9,13 @@ The executable contract lives in `bounded-contexts/checkout/features/sessions/ap
 - Unassigned fulfillment and optional savings optimization stay before checkout in Buy Cart or Sell List readiness.
 - Checkout rows consume readiness decisions and current session facts; they do not repair allocation, seller eligibility, payout, label, provider, or old payload problems.
 - Recovery rows must show customer-safe no-side-effect proof before Payments, Ordering, Fulfillment, Settlement, Notifications, Support, Marketplace handoff, reversal, or account-history side effects can start.
+- Production proof-mode Buy Now readiness is a separate launch-governance row. Temporary recovery proves safe waiting behavior only; promotion still requires the proof canary to reach pay-ready checkout within the ready SLO, with failed `checkout-ready-slo-exceeded` artifacts attached to the projection runtime evidence trail.
 - Post-confirmation rows distinguish pending downstream handoff from committed downstream facts. Checkout may show confirmation and support-safe references, but downstream contexts own order, sale, label, payout, settlement, notification, account-history, support, and reversal completion.
 - Every row requires fresh-state cleanup proof so old routes, old payload adapters, compatibility shims, hidden repair, migration/backfill helpers, dual writes, stale fixtures, cached read models, provider sandbox leftovers, localization keys, docs, runbooks, canaries, smoke data, and browser artifacts cannot make launch flows succeed.
 
 ## Required Scenario States
 
-The matrix covers normal, loading, slow-budget, active-session stale, blocked, unassigned fulfillment, optimization available, optimization accepted, optimization declined, disabled capability, deferred capability, provider outage, risk hold, split group, pending downstream, committed downstream, notification, support, reconciliation, reversal recovery, kill switch, and fresh-state cleanup states.
+The matrix covers normal, loading, slow-budget, active-session stale, blocked, production proof readiness, unassigned fulfillment, optimization available, optimization accepted, optimization declined, disabled capability, deferred capability, provider outage, risk hold, split group, pending downstream, committed downstream, notification, support, reconciliation, reversal recovery, kill switch, and fresh-state cleanup states.
 
 ## Matrix
 
@@ -37,6 +38,7 @@ The matrix covers normal, loading, slow-budget, active-session stale, blocked, u
 | Split package summary | split-group | `split-group-summary` | `split-group-summary` | `checkout-entry-review-render` | Required | Multi-group buy checkout keeps one customer-facing confirmation action and concise groups. |
 | Checkout unavailable | kill-switch | `kill-switch-disabled-checkout` | `kill-switch-checkout-unavailable` | `checkout-entry-permanent-recovery-render` | Required | Kill switches fail closed without restoring dense checkout or old payload adapters. |
 | Temporary recovery loading | loading, slow-budget | `checkout-temporary-recovery` | `temporary-recovery-loading` | `checkout-entry-temporary-recovery-render` | Required | Slow but valid fresh-write paths show bounded recovery instead of ambiguous no-state UI. |
+| Production proof Buy Now readiness | production-proof-readiness, slow-budget | `checkout-review` | `production-proof-buy-now-readiness` | `checkout-entry-review-render` | Required | Production proof-mode Buy Now must reach pay-ready checkout within the ready SLO; temporary recovery is safety evidence only, and `checkout-ready-slo-exceeded` artifacts remain launch blockers tied to projection runtime evidence. |
 | Disabled accelerated or saved instrument | disabled-capability, deferred-capability | `accelerated-saved-instrument-fallback` | `disabled-accelerated-saved-instrument` | `payment-payout-setup-handoff` | Required | Accelerated, saved payment, and payout setup shortcuts cannot bypass readiness or final review. |
 | Promo, credit, gift card, and fee state | deferred-capability, blocked | `economics-discount-credit-promo` | `promo-credit-gift-card-state` | `totals-refresh` | Required | Discount, credit, gift-card, promo, and fee support is explicit, disabled, or deferred. |
 | Notification expectation and support reference | notification, support, pending-downstream | `notification-expectation` | `notification-support-reference` | `final-confirmation-visible-state` | Required | Notification expectation is support-safe and does not imply delivery before Notifications commits. |
@@ -50,3 +52,5 @@ The matrix covers normal, loading, slow-budget, active-session stale, blocked, u
 #1115 should use this table as the acceptance matrix seed for E2E, visual, mobile, accessibility, localization, no-side-effect, no-compatibility, and measured performance evidence.
 
 #1116 should use rows with a required launch register to attach owner, launch decision, customer-safe copy, support path, observability, expiration or follow-up, current-main no-side-effect proof, and fresh-state cleanup proof.
+
+#1227, #1228, and #1237 should be linked from the production proof Buy Now readiness evidence when projection runtime, checkout readiness freshness, or proof-mode canary behavior affects whether the pay-ready SLO passed. A temporary recovery artifact can close safe-recovery work, but it cannot satisfy this promotion row unless the same production proof run also reaches checkout review within the ready SLO.
