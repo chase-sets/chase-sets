@@ -2,6 +2,8 @@ import { t } from "@chase-sets/localization";
 import { createInMemoryRateLimiter } from "@chase-sets/http/rate-limit";
 import { Hono } from "hono";
 import type { CheckoutApiEnv } from "../../../api";
+import type { CheckoutObservabilityTelemetry } from "../../sessions/api/checkout-observability-telemetry";
+import { recordCartReadinessObservability } from "./cart-readiness-observability";
 import { parseCartReadinessDecisionInput } from "../domain/readiness";
 import type { CheckoutCartServices } from "./runtime";
 
@@ -202,7 +204,10 @@ function anonymousRailRateLimitedResponse(retryAfterSeconds: number) {
   };
 }
 
-export function createAccountCartRoutes(services: CheckoutCartServices) {
+export function createAccountCartRoutes(
+  services: CheckoutCartServices,
+  checkoutObservabilityTelemetry?: CheckoutObservabilityTelemetry,
+) {
   const app = new Hono<CheckoutApiEnv>();
 
   app.get("/cart", async (c) => {
@@ -228,6 +233,10 @@ export function createAccountCartRoutes(services: CheckoutCartServices) {
     const snapshot = await services.createReadinessSnapshot({
       accountId: access.actor.accountId,
       decisions: parseCartReadinessDecisionInput(body),
+    });
+    recordCartReadinessObservability(checkoutObservabilityTelemetry, snapshot, {
+      actor: access.actor,
+      fallbackActorMode: "signed-in",
     });
 
     return c.json({ readiness: snapshot });
@@ -435,7 +444,10 @@ function requireAnonymousCartId(c: { req: { header: (name: string) => string | u
   return ownerId;
 }
 
-export function createGuestCartRoutes(services: CheckoutCartServices) {
+export function createGuestCartRoutes(
+  services: CheckoutCartServices,
+  checkoutObservabilityTelemetry?: CheckoutObservabilityTelemetry,
+) {
   const app = new Hono<CheckoutApiEnv>();
 
   app.get("/cart", async (c) => {
@@ -466,6 +478,10 @@ export function createGuestCartRoutes(services: CheckoutCartServices) {
     const snapshot = await services.createReadinessSnapshot({
       accountId: ownerId,
       decisions: parseCartReadinessDecisionInput(body),
+    });
+    recordCartReadinessObservability(checkoutObservabilityTelemetry, snapshot, {
+      actor: null,
+      fallbackActorMode: "guest",
     });
 
     return c.json({ readiness: snapshot });

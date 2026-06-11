@@ -1,6 +1,10 @@
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import type { CheckoutApiEnv } from "../../../api";
+import type {
+  CheckoutObservabilityTelemetry,
+  CheckoutObservabilityTelemetryEvent,
+} from "../../sessions/api/checkout-observability-telemetry";
 import { createAccountCartRoutes, createGuestCartRoutes } from "./route";
 import type { CheckoutCartServices } from "./runtime";
 
@@ -8,6 +12,7 @@ function buildApp(
   options: Readonly<{
     actor: CheckoutApiEnv["Variables"]["actor"];
     services: CheckoutCartServices;
+    checkoutObservabilityTelemetry?: CheckoutObservabilityTelemetry;
   }>,
 ) {
   const app = new Hono<CheckoutApiEnv>();
@@ -29,8 +34,8 @@ function buildApp(
     await next();
   });
 
-  app.route("/account", createAccountCartRoutes(options.services));
-  app.route("/guest", createGuestCartRoutes(options.services));
+  app.route("/account", createAccountCartRoutes(options.services, options.checkoutObservabilityTelemetry));
+  app.route("/guest", createGuestCartRoutes(options.services, options.checkoutObservabilityTelemetry));
 
   return app;
 }
@@ -100,6 +105,17 @@ function cartLine(index: number) {
     locked_listing_id: null,
     seller_preference_id: null,
   };
+}
+
+function collectCheckoutObservabilityEvents() {
+  const events: CheckoutObservabilityTelemetryEvent[] = [];
+  const telemetry: CheckoutObservabilityTelemetry = {
+    recordCheckoutEvent: vi.fn((event) => {
+      events.push(event);
+    }),
+  };
+
+  return { events, telemetry };
 }
 
 describe("checkout cart routes", () => {
@@ -219,6 +235,187 @@ describe("checkout cart routes", () => {
       },
     });
   });
+
+  it("emits redacted readiness telemetry when fulfillment is unresolved before checkout", async () => {
+    const services = createServices();
+    vi.mocked(services.createReadinessSnapshot).mockResolvedValue({
+      schemaVersion: "checkout.cart-readiness.v1",
+      source: "cart",
+      sourceRevision: "cr_source_sensitive",
+      snapshotId: "cr_unassigned_sensitive",
+      status: "needs-resolution",
+      lineCount: 1,
+      includedLineIds: [],
+      unresolvedLineIds: ["cli_unassigned_sensitive"],
+      lineOutcomes: [
+        {
+          lineId: "cli_unassigned_sensitive",
+          outcome: "checkout",
+          reason: "unassigned-fulfillment",
+        },
+      ],
+      optimization: {
+        available: false,
+        decision: "none",
+        proposedLineId: null,
+        proposedListingId: null,
+        currentListingId: null,
+        savingsAmount: null,
+        currency: "USD",
+      },
+      fulfillmentGroups: [],
+      customerSafeFacts: ["Some cart items need attention before checkout."],
+    });
+    const { events, telemetry } = collectCheckoutObservabilityEvents();
+    const app = buildApp({
+      actor: {
+        sessionId: "ses_sensitive",
+        tenantId: "tnt_identity",
+        userId: "usr_1",
+        accountId: "acc_buyer_sensitive",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: [],
+      },
+      services,
+      checkoutObservabilityTelemetry: telemetry,
+    });
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/cart/readiness", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      eventName: "checkout.readiness.unassigned_fulfillment",
+      telemetryClass: "readiness",
+      alertClass: "support-alert",
+      entrySource: "buy-cart-readiness",
+      actorMode: "signed-in",
+      scenarioState: "unassigned-fulfillment",
+      visibleState: "cart-readiness-recovery-visible",
+      sideEffectStatus: "not-attempted",
+      readinessContract: "checkout.cart-readiness.v1",
+      readinessSnapshotState: "needs-resolution",
+      sourceRevisionState: "current",
+      performanceBudgetId: "buy-cart-readiness-evaluation",
+      providerCategory: "fulfillment",
+      downstreamStatus: "not-started",
+      launchRegisterDecision: "blocked",
+      releaseHealthRequired: true,
+    });
+    expect(JSON.stringify(events)).not.toContain("acc_buyer_sensitive");
+    expect(JSON.stringify(events)).not.toContain("ses_sensitive");
+    expect(JSON.stringify(events)).not.toContain("cr_unassigned_sensitive");
+    expect(JSON.stringify(events)).not.toContain("cr_source_sensitive");
+    expect(JSON.stringify(events)).not.toContain("cli_unassigned_sensitive");
+  });
+
+  it.each(["accepted", "declined"] as const)(
+    "emits redacted readiness telemetry for guest optimization %s before checkout",
+    async (decision) => {
+      const services = createServices();
+      vi.mocked(services.createReadinessSnapshot).mockResolvedValue({
+        schemaVersion: "checkout.cart-readiness.v1",
+        source: "cart",
+        sourceRevision: "cr_source_optimization",
+        snapshotId: "cr_optimization_sensitive",
+        status: "ready",
+        lineCount: 1,
+        includedLineIds: ["cli_optimized_sensitive"],
+        unresolvedLineIds: [],
+        lineOutcomes: [
+          {
+            lineId: "cli_optimized_sensitive",
+            outcome: "checkout",
+            reason: "ready",
+          },
+        ],
+        optimization: {
+          available: true,
+          decision,
+          proposedLineId: "cli_optimized_sensitive",
+          proposedListingId: "lst_lower_sensitive",
+          currentListingId: "lst_current_sensitive",
+          savingsAmount: "4.00",
+          currency: "USD",
+        },
+        fulfillmentGroups: [
+          {
+            groupId: "cfg_sensitive",
+            lineIds: ["cli_optimized_sensitive"],
+            listingIds: ["lst_current_sensitive"],
+            sellerAccountId: "acc_seller_sensitive",
+            sellerDisplayName: "Card Vault",
+            itemCount: 1,
+            packageCount: 1,
+            deliveryPromise: null,
+            shippingAmount: null,
+            supportReference: "CSG-SENSITIVE",
+            downstreamReferenceStatus: "not-started",
+          },
+        ],
+        customerSafeFacts: ["Ready for checkout.", "Save $4.00 by changing fulfillment before checkout."],
+      });
+      const { events, telemetry } = collectCheckoutObservabilityEvents();
+      const app = buildApp({
+        actor: null,
+        services,
+        checkoutObservabilityTelemetry: telemetry,
+      });
+
+      const response = await app.fetch(
+        new Request("http://checkout.test/guest/cart/readiness", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-checkout-anonymous-cart-id": "anon_cart_sensitive",
+          },
+          body: JSON.stringify({
+            optimization: {
+              decision,
+              lineId: "cli_optimized_sensitive",
+              listingId: "lst_lower_sensitive",
+            },
+          }),
+        }),
+      );
+
+      expect(response.status).toBe(200);
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        eventName: "checkout.readiness.optimization_decision",
+        telemetryClass: "readiness",
+        alertClass: "dashboard-only",
+        entrySource: "buy-cart-readiness",
+        actorMode: "guest",
+        scenarioState: `optimization-${decision}`,
+        visibleState: "cart-readiness-optimization-visible",
+        sideEffectStatus: "not-attempted",
+        readinessContract: "checkout.cart-readiness.v1",
+        readinessSnapshotState: "ready",
+        supportReferencePresent: true,
+        performanceBudgetId: "buy-cart-readiness-evaluation",
+        providerCategory: "fulfillment",
+        downstreamStatus: "not-started",
+        launchRegisterDecision: "enabled",
+        releaseHealthRequired: false,
+      });
+      expect(JSON.stringify(events)).not.toContain("anon_cart_sensitive");
+      expect(JSON.stringify(events)).not.toContain("cr_optimization_sensitive");
+      expect(JSON.stringify(events)).not.toContain("cr_source_optimization");
+      expect(JSON.stringify(events)).not.toContain("cli_optimized_sensitive");
+      expect(JSON.stringify(events)).not.toContain("lst_lower_sensitive");
+      expect(JSON.stringify(events)).not.toContain("lst_current_sensitive");
+      expect(JSON.stringify(events)).not.toContain("acc_seller_sensitive");
+      expect(JSON.stringify(events)).not.toContain("CSG-SENSITIVE");
+    },
+  );
 
   it("allows signed-in buyers without order-management permissions to use their account cart", async () => {
     const services = createServices();
