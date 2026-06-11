@@ -20,8 +20,8 @@ import { createTwilioMessagingWebhookGateway } from "@chase-sets/twilio-messagin
 import {
   createMergedRealtimeWakeSignal,
   createPostgresRealtimeStreamLimiter,
-  createPostgresRealtimeWakeSignal,
   createRealtimeOutboxPartitionMaintainer,
+  createRealtimeOutboxWakeSignal,
   createRealtimeRetentionSweeper,
   createRedisRealtimeStreamLimiter,
   type RealtimeObserver,
@@ -330,7 +330,7 @@ const realtimeObserver = {
   },
 } satisfies RealtimeObserver;
 const realtimeWakeSignal = config.realtime.wakeSignalEnabled
-  ? await createPlatformRealtimeWakeSignal([...new Set(realtimeStores.map((store) => store.db))], realtimeObserver)
+  ? createPlatformRealtimeWakeSignal([...new Set(realtimeStores.map((store) => store.db))], realtimeObserver)
   : undefined;
 const ucpObserver = {
   signedWriteRejected: (event) => {
@@ -646,34 +646,26 @@ async function createPlatformRealtimeStreamLimiter(): Promise<
   };
 }
 
-async function createPlatformRealtimeWakeSignal(
+function createPlatformRealtimeWakeSignal(
   pools: readonly { connect?: () => Promise<unknown> }[],
   observer: Pick<RealtimeObserver, "wakeNotificationReceived">,
-): Promise<RealtimeWakeSignal | undefined> {
-  const wakeSignals: RealtimeWakeSignal[] = [];
-
-  for (const pool of pools) {
-    if (typeof pool.connect !== "function") {
-      continue;
-    }
-
-    let client: unknown;
-    try {
-      client = await pool.connect();
-      wakeSignals.push(
-        await createPostgresRealtimeWakeSignal(
-          client as Parameters<typeof createPostgresRealtimeWakeSignal>[0],
-          observer,
-        ),
-      );
-    } catch (error) {
-      (client as { release?: () => void } | undefined)?.release?.();
-      logger.warn("Realtime Postgres wake signal unavailable for a context pool.", {
-        type: "realtime.wake_signal.unavailable",
-        error,
-      });
-    }
-  }
+): RealtimeWakeSignal | undefined {
+  // One composite work-signal waiter per unique realtime context pool. The
+  // waiter connects lazily and circuit-breaks reconnects, so listener
+  // failures surface here at most once per cooldown instead of at startup.
+  const wakeSignals = pools
+    .filter((pool) => typeof pool.connect === "function")
+    .map((pool) =>
+      createRealtimeOutboxWakeSignal(pool as Parameters<typeof createRealtimeOutboxWakeSignal>[0], {
+        observer,
+        onListenerUnavailable: (error) => {
+          logger.warn("Realtime Postgres wake signal unavailable for a context pool.", {
+            type: "realtime.wake_signal.unavailable",
+            error,
+          });
+        },
+      }),
+    );
 
   return createMergedRealtimeWakeSignal(wakeSignals);
 }

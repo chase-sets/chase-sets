@@ -10,6 +10,7 @@ import {
   normalizeRealtimeTopics,
   type RealtimeTopicPolicyManifest,
 } from "./realtime-topic-policy";
+import { emitPostgresWorkSignalNotification } from "./work-signal-composite";
 
 const REALTIME_OUTBOX_TABLE = "realtime_projection_outbox";
 const REALTIME_OUTBOX_TOPIC_TABLE = "realtime_projection_outbox_topics";
@@ -386,17 +387,28 @@ export async function recordRealtimeProjectionPatch(
            updated_at = EXCLUDED.updated_at`,
       [outboxId, topics, recordedAt],
     );
-    await tx.query(
-      `SELECT pg_notify(
-           $1,
-           json_build_object(
-             'context', $2::text,
-             'projection', $3::text,
-             'topics', $4::text[]
-           )::text
-         )`,
-      [REALTIME_NOTIFY_CHANNEL, patch.context, input.projectionName, topics],
-    );
+    // Wake hint only (#1248): the outbox row above is the durable replay
+    // source of truth, and SSE streams keep their polling fallback. Legacy
+    // listeners that cannot read the envelope treat it as a wake-all signal.
+    try {
+      await emitPostgresWorkSignalNotification(tx, {
+        channel: REALTIME_NOTIFY_CHANNEL,
+        envelope: {
+          kind: "realtime.outbox-wake",
+          source: "realtime-outbox",
+          payload: {
+            context: patch.context,
+            projection: input.projectionName,
+            topics: [...topics],
+          },
+        },
+      });
+    } catch {
+      // A wake hint must never abort the durable outbox write. Envelope
+      // serialization throws client-side before any SQL (size cap), so
+      // swallowing here cannot poison the transaction; SSE streams recover
+      // through their polling fallback.
+    }
   });
 }
 

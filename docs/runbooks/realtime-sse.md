@@ -44,12 +44,18 @@ current route data and continue live patching.
 
 ## Postgres Wake-Up
 
-`recordRealtimeProjectionPatch` sends `pg_notify` on
-`realtime_projection_patch` after the durable outbox write. A deployment can attach
-a dedicated Postgres client with `createPostgresRealtimeWakeSignal` and pass it to
-`createRealtimeRoutes` as `wakeSignal` to wake idle SSE loops without waiting for
-the next polling interval. Platform API wires one listener per unique realtime
-context pool and merges them into a single route wake signal.
+`recordRealtimeProjectionPatch` emits a versioned work-signal envelope
+(`realtime.outbox-wake`, payload `{ context, projection, topics }`) on
+`realtime_projection_patch` after the durable outbox write, through the
+[platform work-signal composite](../architecture/work-signal-composite.md). A
+deployment can pass a realtime context pool to `createRealtimeOutboxWakeSignal`
+and hand the result to `createRealtimeRoutes` as `wakeSignal` to wake idle SSE
+loops without waiting for the next polling interval. The listener connects
+lazily, falls back to the bounded poll timeout when `LISTEN` is unavailable, and
+circuit-breaks reconnect attempts. Platform API wires one wake signal per unique
+realtime context pool and merges them into a single route wake signal; the
+waiter also accepts pre-composite raw `{ topics }` payloads during rolling
+deploys.
 
 ## Operational Checks
 

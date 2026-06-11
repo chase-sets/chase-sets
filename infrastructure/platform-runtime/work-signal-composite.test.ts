@@ -171,6 +171,15 @@ describe("work signal composite", () => {
       kind: "projection-operation.event",
       matchedWaiterCount: 1,
       waiterCount: 1,
+      // Adapters receive the parsed notification so they can derive
+      // structural observer metadata without re-listening raw payloads.
+      notification: {
+        channel: "platform_projection_operation_events",
+        envelope: {
+          kind: "projection-operation.event",
+          payload: { operationId: "projection-operation-1", sequence: 2 },
+        },
+      },
     });
 
     await waiter.stop();
@@ -199,6 +208,76 @@ describe("work signal composite", () => {
     ).resolves.toBe("listener-unavailable");
     expect(unavailable[0]).toMatchObject({ channel: "platform_projection_operation_events" });
     expect(client.isReleased()).toBe(true);
+  });
+
+  it("circuit-breaks listener reconnect attempts during the retry cooldown", async () => {
+    const client = createNotificationClient({ failListen: true });
+    let connectCount = 0;
+    const pool = {
+      connect: async () => {
+        connectCount += 1;
+        return client;
+      },
+      query: async () => ({ rows: [], rowCount: 0 }),
+    } as unknown as PgTransactionalPool;
+    const unavailable: unknown[] = [];
+    const waiter = createPostgresWorkSignalWaiter(pool, {
+      channel: "durable_job_events",
+      listenRetryCooldownMs: 60_000,
+      observer: {
+        listenerUnavailable: (event) => unavailable.push(event),
+      },
+    });
+
+    await expect(waiter.wait({ timeoutMs: 100, matches: () => true })).resolves.toBe("listener-unavailable");
+    await expect(waiter.wait({ timeoutMs: 100, matches: () => true })).resolves.toBe("listener-unavailable");
+
+    // Cooled-down waits fall back to their bounded timeout without
+    // re-attempting LISTEN or re-reporting the failure.
+    expect(connectCount).toBe(1);
+    expect(unavailable).toHaveLength(1);
+  });
+
+  it("recovers the listener after a transient connect failure", async () => {
+    const client = createNotificationClient();
+    let connectCount = 0;
+    const pool = {
+      connect: async () => {
+        connectCount += 1;
+        if (connectCount === 1) {
+          throw new Error("connection refused");
+        }
+        return client;
+      },
+      query: async () => ({ rows: [], rowCount: 0 }),
+    } as unknown as PgTransactionalPool;
+    const waiter = createPostgresWorkSignalWaiter(pool, {
+      channel: "durable_job_events",
+    });
+
+    await expect(waiter.wait({ timeoutMs: 100, matches: () => true })).resolves.toBe("listener-unavailable");
+
+    const wait = waiter.wait({ timeoutMs: 1_000, matches: () => true });
+    await vi.waitFor(() => {
+      expect(client.queries).toContain("LISTEN durable_job_events");
+    });
+    client.emit("notification", {
+      channel: "durable_job_events",
+      payload: serializeWorkSignalEnvelope(
+        createWorkSignalEnvelope(
+          {
+            kind: "durable-job.event",
+            source: "durable-job-store",
+            payload: { jobId: "job_1", sequence: 1 },
+          },
+          { now: () => NOW },
+        ),
+      ),
+    });
+
+    await expect(wait).resolves.toBe("notified");
+    expect(connectCount).toBe(2);
+    await waiter.stop();
   });
 });
 

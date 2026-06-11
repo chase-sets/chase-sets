@@ -143,7 +143,7 @@ Pattern: guest Buy Now writes a checkout session, redirects to `/checkout/:sessi
 
 ## Honest Gaps
 
-- **Composite origins (#1248)**: durable-job, realtime, and provider-outbox dispatch do not flow through the work-signal composite yet; their health lives on their own surfaces (linked above), not in the wake store.
+- **Composite origins (#1248)**: durable-job and realtime wake notifications now ride the work-signal composite (versioned envelopes, shared waiters, bounded fallback), and the wake-status endpoint lists every origin's disposition under `origins` (see [Platform Work-Signal Composite](../architecture/work-signal-composite.md)). Their *health* still lives on their own surfaces (linked above), not in the wake store: scheduled/manual and reconciliation kinds have no emitters yet, and provider-outbox dispatch remains a documented scheduled/outbox exception with no wake signals.
 - **Live failover/recovery drills (#1234)**: the relay takeover and kill-switch behaviors described here are covered by unit/runtime tests, not yet by scheduled production drills.
 - **Topology parity / connection-budget evidence (#1243)**: parity status and budget ledgers are documented in [Push-Wake Connection Budget](../architecture/push-wake-connection-budget.md) and Terraform checks; the wake panel shows rollout state, not Terraform-level parity proofs.
 - **Interest-index route coverage**: the panel shows the index version loaded per relay cursor and the worker's live version; a per-route dependency coverage view needs the #1248 composite route metadata.

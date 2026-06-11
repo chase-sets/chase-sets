@@ -13,35 +13,16 @@ const workSignalPrimitivePatterns = [
   /\bquery\s*\(\s*(?:`|"|')\s*(?:LISTEN|UNLISTEN)\b/,
 ];
 
+// Durable-job event notifications/waits, same-job work-unit notifications,
+// realtime outbox wake emission, and the platform-api realtime SSE wake
+// signal migrated onto the composite primitives (#1248/#1238), so they no
+// longer appear here. The remaining direct users are the composite owner
+// itself plus two reviewed exceptions.
 const approvedDirectWorkSignalPrimitiveFiles = {
-  "deployables/platform-api/src/main.ts": {
-    owner: "platform-runtime",
-    reason:
-      "Wires the current realtime SSE wake signal; #1248 decides whether it migrates to the composite relay path or remains a budgeted exception.",
-  },
-  "infrastructure/platform-runtime/durable-job-store.ts": {
-    owner: "platform-runtime",
-    reason:
-      "Owns current durable job event notifications and wait hooks; #1248 keeps job tables as durable truth while sharing waiter primitives.",
-  },
-  "infrastructure/platform-runtime/durable-job-work-units.ts": {
-    owner: "platform-runtime",
-    reason:
-      "Owns current same-job work-unit progress notifications; #1248 covers migration to shared waiter/metrics primitives.",
-  },
   "infrastructure/event-core-postgres/event-store.ts": {
     owner: "event-core-postgres",
     reason:
-      "Owns the lower-level after-commit event-store wake notification emission for #1219; the worker-owned relay consumes these composite-compatible envelopes in #1242, and #1238 tracks shared primitive consolidation without introducing a package cycle.",
-  },
-  "infrastructure/platform-runtime/realtime-outbox-store.ts": {
-    owner: "platform-runtime",
-    reason: "Owns current realtime outbox notifications; #1248 reviews this path against listener budgets.",
-  },
-  "infrastructure/platform-runtime/realtime.ts": {
-    owner: "platform-runtime",
-    reason:
-      "Owns the current realtime Postgres LISTEN wake signal; #1236/#1248 require migration or a budgeted local-listener exception.",
+      "Owns the lower-level after-commit event-store wake notification emission for #1219; the worker-owned relay consumes these composite-compatible envelopes in #1242, and the emission stays direct until the envelope helpers can move to a shared package without an event-core-postgres -> platform-runtime cycle.",
   },
   "infrastructure/platform-runtime/projection-wake-relay.ts": {
     owner: "platform-runtime",

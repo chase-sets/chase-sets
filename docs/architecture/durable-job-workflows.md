@@ -4,7 +4,7 @@ Durable jobs are the platform pattern for user- or operator-triggered work that 
 
 ## Push-Driven Migration Note
 
-Milestone #19 is governed by [ADR 0010: Push-Driven Projection Runtime](../adr/0010-push-driven-projection-runtime.md) and the [Push-Driven Projection Runtime Phase Map](./push-driven-projection-runtime-phase-map.md). Durable job event notifications, waits, and SSE replay are migration candidates for the platform work-signal composite, but context-owned durable job and event tables remain the source of truth. Request paths must continue to enqueue or observe durable work instead of streaming long-running work inline.
+Milestone #19 is governed by [ADR 0010: Push-Driven Projection Runtime](../adr/0010-push-driven-projection-runtime.md) and the [Push-Driven Projection Runtime Phase Map](./push-driven-projection-runtime-phase-map.md). Durable job event notifications and waits ride the [platform work-signal composite](./work-signal-composite.md) (versioned `durable-job.event` envelopes plus shared waiters with bounded fallback), while context-owned durable job and event tables remain the source of truth and SSE replay keeps its existing contract. Request paths must continue to enqueue or observe durable work instead of streaming long-running work inline.
 
 Use this pattern when a workflow:
 
@@ -27,12 +27,10 @@ Each durable job workflow has four parts:
 
 The shared infrastructure is intentionally small:
 
-- `durable-job-store.ts` provides the Postgres claim/update/event mechanics, notification wakeups, claimed release, and terminal-row pruning.
+- `durable-job-store.ts` provides the Postgres claim/update/event mechanics, composite-backed notification wakeups, claimed release, and terminal-row pruning.
 - `durable-job-work-units.ts` provides same-job work-unit claim mechanics for workflows that need bounded parallel lanes without turning every row into a platform runner.
 - `durable-job-events.ts` provides SSE cursor parsing, keepalive, event formatting, stream limiting, and polling fallback.
-- `work-signal-composite.ts` is the supported platform surface for new notification envelopes, Postgres `pg_notify` emission, dedicated `LISTEN` waiters, payload safety checks, timeout fallback, and observer hooks.
-
-Direct durable-job and realtime notification helpers predate the composite. Treat them as compatibility adapters pending #1238/#1230 migration work, not as patterns for new job, operation, projection, or realtime wake paths.
+- `work-signal-composite.ts` is the supported platform surface for notification envelopes, Postgres `pg_notify` emission, dedicated `LISTEN` waiters, payload safety checks, timeout fallback, and observer hooks. The durable-job store and work-unit store emit and wait through it; the waiter also accepts pre-composite raw `{ jobId, sequence }` payloads for rolling-deploy compatibility.
 
 Domain payloads, progress language, result shapes, permissions, and worker composition stay in the owning bounded context. The payload is worker-private. API and SSE responses must return public job status snapshots that exclude worker payload, event context, claim owner, and claim expiration fields.
 
@@ -50,7 +48,7 @@ durableJobSchemaSql({
 
 The job table stores the latest private worker snapshot. The event table stores append-only public status snapshots with a monotonically increasing `sequence` per job. SSE clients use that sequence as the event id.
 
-State transitions and event appends must be committed atomically. The shared Postgres store wraps enqueue, claim, progress, release, requeue, cancel, complete, and fail transitions with their corresponding event append, then emits a `pg_notify` wakeup after the event row is written. Notification waits are best-effort because some deployed runtime pool URLs are PgBouncer transaction pools; if `LISTEN` is unavailable or a waiter fails, the SSE route must fall back to a short poll timeout. Listener setup failures are circuit-broken before retry so open streams do not repeatedly churn pooled transaction connections. A missed notification is acceptable because SSE replay always reloads ordered events.
+State transitions and event appends must be committed atomically. The shared Postgres store wraps enqueue, claim, progress, release, requeue, cancel, complete, and fail transitions with their corresponding event append, then emits a versioned work-signal envelope (`durable-job.event`, payload `{ jobId, sequence }`) on the store's notify channel after the event row is written. Notification waits are best-effort because some deployed runtime pool URLs are PgBouncer transaction pools; if `LISTEN` is unavailable or a waiter fails, the SSE route must fall back to a short poll timeout. Listener setup failures are circuit-broken before retry so open streams do not repeatedly churn pooled transaction connections. A missed notification is acceptable because SSE replay always reloads ordered events.
 
 Do not store large request bodies directly in a durable job payload when the job will emit many progress events. Stage bulky or sensitive inputs in context-owned storage and put only a stable staging reference in the job payload.
 

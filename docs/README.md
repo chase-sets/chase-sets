@@ -20,6 +20,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Projection Wake Relay](./architecture/projection-wake-relay.md): worker-owned relay runtime and fan-out core that catches up from durable event rows and maps source wakes into control-plane projection wake intents.
 - [Projection Wake-Intent Scheduler](./architecture/projection-wake-scheduler.md): worker-side consumer that claims durable wake intents by lane, runs projection groups under existing leases, and completes only on durable checkpoint advancement.
 - [Push-Wake Connection Budget](./architecture/push-wake-connection-budget.md): per-environment DigitalOcean connection ledger, listener/channel inventory, PgBouncer-vs-direct semantics, topology parity contract, and plan-time Terraform budget checks for push-driven projection wakes.
+- [Platform Work-Signal Composite](./architecture/work-signal-composite.md): the single supported wake-notification surface — envelope contract, emitter/waiter primitives, adapter channels, rolling-deploy compatibility, and the tracked origin disposition inventory.
 - [Checkout Surface Audit](./architecture/checkout-surface-audit.md): Shopify-simple Buy Cart and Sell List checkout gap inventory, fresh-state cleanup targets, and sequencing recommendation.
 - [Environment Domain Names](./architecture/environment-domain-names.md): production, staging, dev, and preview hostname convention.
 - [Environment Data Profiles](./architecture/environment-data-profiles.md): bootstrap, Catalog integration, and scenario seed policy by environment.

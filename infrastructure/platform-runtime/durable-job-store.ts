@@ -1,5 +1,10 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import type { PgPoolClient, PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import {
+  createPostgresWorkSignalWaiter,
+  emitPostgresWorkSignalNotification,
+  type PostgresWorkSignalNotification,
+} from "./work-signal-composite";
 
 export type DurableJobStatus = "queued" | "running" | "completed" | "failed";
 
@@ -229,7 +234,7 @@ export function createPostgresDurableJobStore<
       [job.jobId, JSON.stringify(snapshot)],
     );
     const sequence = Number(result.rows[0]?.sequence ?? 0);
-    await queryable.query(`SELECT pg_notify($1, $2)`, [notifyChannel, JSON.stringify({ jobId: job.jobId, sequence })]);
+    await emitDurableJobWorkSignal(queryable, notifyChannel, "durable-job-store", job.jobId, sequence);
     return sequence;
   }
 
@@ -886,112 +891,57 @@ async function runDurableJobWrite<T>(db: PgQueryable, work: (queryable: PgQuerya
   }
 }
 
-type DurableJobNotificationClient = PgPoolClient & {
-  on?: (event: "notification" | "error", listener: (message?: { payload?: string }) => void) => void;
-  off?: (event: "notification" | "error", listener: (message?: { payload?: string }) => void) => void;
-};
+// Durable job event notifications ride the platform work-signal composite
+// (#1248/#1238): versioned envelopes on the store's notify channel, dedicated
+// composite waiters with bounded-timeout fallback, and circuit-broken
+// listener retries. Context-owned job/event tables stay the source of truth;
+// a missed notification only means waiting out the poll timeout.
+export async function emitDurableJobWorkSignal(
+  queryable: PgQueryable,
+  channel: string,
+  source: string,
+  jobId: string,
+  sequence: number,
+): Promise<void> {
+  await emitPostgresWorkSignalNotification(queryable, {
+    channel,
+    envelope: {
+      kind: "durable-job.event",
+      source,
+      payload: { jobId, sequence },
+    },
+  });
+}
 
 function createDurableJobNotificationWaiter(
   db: PgTransactionalPool,
   channel: string,
   options: Readonly<{ retryCooldownMs?: number }> = {},
 ) {
-  let clientPromise: Promise<DurableJobNotificationClient> | null = null;
-  let disabledUntil = 0;
-  const waitersByJobId = new Map<string, Set<() => void>>();
-  const retryCooldownMs = Math.max(1_000, Math.floor(options.retryCooldownMs ?? 60_000));
-
-  const resolveJobWaiters = (jobId: string) => {
-    const waiters = waitersByJobId.get(jobId);
-    if (!waiters) {
-      return;
-    }
-
-    waitersByJobId.delete(jobId);
-    for (const resolve of waiters) {
-      resolve();
-    }
-  };
-
-  const resolveAllWaiters = () => {
-    const waiters = [...waitersByJobId.values()].flatMap((waitersForJob) => [...waitersForJob]);
-    waitersByJobId.clear();
-    for (const resolve of waiters) {
-      resolve();
-    }
-  };
-
-  const onNotification = (message?: { payload?: string }) => {
-    const jobId = notificationJobId(message?.payload);
-    if (jobId) {
-      resolveJobWaiters(jobId);
-    }
-  };
-
-  async function getClient() {
-    if (Date.now() < disabledUntil) {
-      return null;
-    }
-
-    clientPromise ??= (async () => {
-      const client = (await db.connect()) as DurableJobNotificationClient;
-      const reset = () => {
-        client.off?.("error", reset);
-        client.off?.("notification", onNotification);
-        clientPromise = null;
-        resolveAllWaiters();
-        client.release();
-      };
-      client.on?.("error", reset);
-      client.on?.("notification", onNotification);
-      try {
-        await client.query(`LISTEN ${channel}`);
-        return client;
-      } catch (error) {
-        disabledUntil = Date.now() + retryCooldownMs;
-        reset();
-        throw error;
-      }
-    })();
-
-    return clientPromise;
-  }
+  const waiter = createPostgresWorkSignalWaiter(db, {
+    channel,
+    listenRetryCooldownMs: Math.max(1_000, Math.floor(options.retryCooldownMs ?? 60_000)),
+  });
 
   return {
     wait: async (input: Readonly<{ jobId: string; signal?: AbortSignal; timeoutMs?: number }>) => {
-      const timeoutMs = Math.max(100, Math.floor(input.timeoutMs ?? 500));
-      if (input.signal?.aborted) {
-        return waitForDurableJobTimeout(timeoutMs, input.signal);
-      }
-
-      const client = await getClient();
-      if (!client) {
-        return waitForDurableJobTimeout(timeoutMs, input.signal);
-      }
-      await new Promise<void>((resolve) => {
-        let settled = false;
-        const waitersForJob = waitersByJobId.get(input.jobId) ?? new Set<() => void>();
-        waitersByJobId.set(input.jobId, waitersForJob);
-        const cleanup = () => {
-          if (settled) {
-            return;
-          }
-          settled = true;
-          clearTimeout(timer);
-          input.signal?.removeEventListener("abort", cleanup);
-          waitersForJob.delete(cleanup);
-          if (waitersForJob.size === 0) {
-            waitersByJobId.delete(input.jobId);
-          }
-          resolve();
-        };
-        const timer = setTimeout(cleanup, timeoutMs);
-
-        input.signal?.addEventListener("abort", cleanup, { once: true });
-        waitersForJob.add(cleanup);
+      await waiter.wait({
+        timeoutMs: input.timeoutMs,
+        signal: input.signal,
+        matches: (notification) => durableJobNotificationMatchesJob(notification, input.jobId),
       });
     },
   };
+}
+
+function durableJobNotificationMatchesJob(notification: PostgresWorkSignalNotification, jobId: string): boolean {
+  if (notification.envelope) {
+    return notification.envelope.kind === "durable-job.event" && notification.envelope.payload.jobId === jobId;
+  }
+
+  // Rolling-deploy compatibility: pre-composite emitters send a raw
+  // { jobId, sequence } payload.
+  return notificationJobId(notification.payload) === jobId;
 }
 
 function notificationJobId(payload: string | undefined): string | null {

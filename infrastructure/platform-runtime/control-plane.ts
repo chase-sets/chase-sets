@@ -1316,6 +1316,9 @@ async function runControlPlaneWrite<T>(db: PgTransactionalPool, work: (queryable
 function createProjectionOperationNotificationWaiter(db: PgTransactionalPool) {
   const waiter = createPostgresWorkSignalWaiter(db, {
     channel: PROJECTION_OPERATION_NOTIFY_CHANNEL,
+    // Circuit-break LISTEN redials under sustained control-DB connect
+    // failures; waits fall back to their bounded polling either way.
+    listenRetryCooldownMs: 60_000,
   });
 
   return {
