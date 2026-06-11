@@ -72,4 +72,3 @@ PR and release evidence for #1047 should name:
 - [Catalog Integration Provider Transport Budgets](./catalog-integration-provider-transport-budgets.md)
 - [Catalog Integration Real-Provider Proof](./catalog-integration-real-provider-proof.md)
 - [Catalog Integration Security Privacy Launch Gate](./catalog-integration-security-privacy-launch-gate.md)
-
