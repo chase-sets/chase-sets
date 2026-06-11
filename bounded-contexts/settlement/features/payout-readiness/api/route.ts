@@ -279,6 +279,7 @@ export function createPayoutReadinessRoutes(services: PayoutReadinessServices) {
         {
           accountId: access.actor.accountId as never,
           contactEmail: typeof body.contactEmail === "string" ? body.contactEmail : null,
+          providerReference: typeof body.providerReference === "string" ? body.providerReference : null,
         },
         context,
       );

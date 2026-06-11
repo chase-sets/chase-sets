@@ -317,7 +317,7 @@ describe("settlement payout setup routes", () => {
 
     const response = await app.request("/payout-setup/refresh", {
       method: "POST",
-      body: JSON.stringify({ contactEmail: "seller@example.test" }),
+      body: JSON.stringify({ contactEmail: "seller@example.test", providerReference: "acct_test" }),
       headers: { "Content-Type": "application/json" },
     });
 
@@ -326,6 +326,7 @@ describe("settlement payout setup routes", () => {
       expect.objectContaining({
         accountId: "acc_seller",
         contactEmail: "seller@example.test",
+        providerReference: "acct_test",
       }),
       context,
     );

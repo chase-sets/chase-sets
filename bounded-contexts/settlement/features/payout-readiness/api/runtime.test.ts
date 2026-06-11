@@ -332,4 +332,167 @@ describe("payout readiness runtime", () => {
     });
     vi.useRealTimers();
   });
+
+  it("returns fresh provider readiness from refresh without waiting for projection catch-up", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-01T18:00:00.000Z"));
+    const operationEvents: Record<string, unknown>[] = [];
+    const db = {
+      query: vi.fn(async () => ({ rows: [] })),
+    };
+    const moneyMovementGateway = {
+      providerName: "stripe",
+      ensurePayoutAccount: vi.fn(),
+      refreshPayoutReadiness: vi.fn(async () => ({
+        providerReference: "acct_embedded_smoke",
+        onboardingStatus: "complete",
+        transferCapabilityStatus: "active",
+        payoutCapabilityStatus: "active",
+        payoutDestinationStatus: "ready",
+        payoutAccountDashboard: "none",
+        lossesCollector: "application",
+        feesCollector: "application",
+        requirementsCollector: "application",
+        missingRequirements: [],
+      })),
+      createOnboardingSession: vi.fn(),
+      createAccountManagementSession: vi.fn(),
+      createPayoutSetupSession: vi.fn(),
+      createPayoutAccountManagementSession: vi.fn(),
+      retrievePlatformBalance: vi.fn(),
+      transferPlatformBalanceToConnectedAccount: vi.fn(),
+      createConnectedAccountPayout: vi.fn(),
+      retrieveConnectedAccountPayout: vi.fn(),
+      parseMoneyMovementWebhook: vi.fn(),
+    };
+    const services = createPayoutReadinessRuntime({
+      eventStore: createEventStore() as never,
+      checkpointStore: {
+        loadCheckpoint: vi.fn(async () => ZERO_GLOBAL_POSITION),
+        saveCheckpoint: vi.fn(async () => {}),
+      },
+      db: db as never,
+      moneyMovementGateway: moneyMovementGateway as never,
+      operationsRecorder: {
+        record: (event) => {
+          operationEvents.push(event);
+        },
+      },
+    });
+
+    await expect(
+      services.refreshProviderReadiness(
+        {
+          accountId: "acc_seller" as never,
+          contactEmail: "seller@example.test",
+          providerReference: "acct_embedded_smoke",
+        },
+        context,
+      ),
+    ).resolves.toMatchObject({
+      account_id: "acc_seller",
+      status: "ready",
+      provider_reference: "acct_embedded_smoke",
+      payout_account_dashboard: "none",
+      losses_collector: "application",
+      fees_collector: "application",
+      requirements_collector: "application",
+      updated_at: "2026-06-01T18:00:00.000Z",
+    });
+    expect(moneyMovementGateway.refreshPayoutReadiness).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: "acc_seller",
+        providerReference: "acct_embedded_smoke",
+      }),
+    );
+    expect(moneyMovementGateway.ensurePayoutAccount).not.toHaveBeenCalled();
+    expect(operationEvents).toContainEqual(
+      expect.objectContaining({
+        kind: "payout-readiness-refresh-succeeded",
+        accountId: "acc_seller",
+        providerReference: "acct_embedded_smoke",
+        readinessStatus: "ready",
+        payoutAccountDashboard: "none",
+      }),
+    );
+    vi.useRealTimers();
+  });
+
+  it("fails closed when a refresh returns a different provider account than the existing setup", async () => {
+    const operationEvents: Record<string, unknown>[] = [];
+    const db = {
+      query: vi.fn(async () => ({
+        rows: [
+          {
+            account_id: "acc_seller",
+            status: "pending",
+            missing_requirements: ["external_account"],
+            provider_reference: "acct_existing",
+            onboarding_status: "pending",
+            transfer_capability_status: "active",
+            payout_capability_status: "pending",
+            payout_destination_status: "missing",
+            payout_account_dashboard: "none",
+            losses_collector: "application",
+            fees_collector: "application",
+            requirements_collector: "application",
+            updated_at: "2026-06-01T16:00:00.000Z",
+          },
+        ],
+      })),
+    };
+    const eventStore = createEventStore();
+    const moneyMovementGateway = {
+      providerName: "stripe",
+      ensurePayoutAccount: vi.fn(),
+      refreshPayoutReadiness: vi.fn(async () => ({
+        providerReference: "acct_other",
+        onboardingStatus: "pending",
+        transferCapabilityStatus: "active",
+        payoutCapabilityStatus: "pending",
+        payoutDestinationStatus: "missing",
+        payoutAccountDashboard: "none",
+        lossesCollector: "application",
+        feesCollector: "application",
+        requirementsCollector: "application",
+        missingRequirements: ["external_account"],
+      })),
+      createOnboardingSession: vi.fn(),
+      createAccountManagementSession: vi.fn(),
+      createPayoutSetupSession: vi.fn(),
+      createPayoutAccountManagementSession: vi.fn(),
+      retrievePlatformBalance: vi.fn(),
+      transferPlatformBalanceToConnectedAccount: vi.fn(),
+      createConnectedAccountPayout: vi.fn(),
+      retrieveConnectedAccountPayout: vi.fn(),
+      parseMoneyMovementWebhook: vi.fn(),
+    };
+    const services = createPayoutReadinessRuntime({
+      eventStore: eventStore as never,
+      checkpointStore: {
+        loadCheckpoint: vi.fn(async () => ZERO_GLOBAL_POSITION),
+        saveCheckpoint: vi.fn(async () => {}),
+      },
+      db: db as never,
+      moneyMovementGateway: moneyMovementGateway as never,
+      operationsRecorder: {
+        record: (event) => {
+          operationEvents.push(event);
+        },
+      },
+    });
+
+    await expect(services.refreshProviderReadiness({ accountId: "acc_seller" as never }, context)).rejects.toThrow(
+      "Payout setup changed while refreshing. Please restart payout setup.",
+    );
+    expect(eventStore.appendToStream).not.toHaveBeenCalled();
+    expect(operationEvents).toContainEqual(
+      expect.objectContaining({
+        kind: "payout-readiness-refresh-failed",
+        accountId: "acc_seller",
+        providerReference: "acct_existing",
+        safeCategory: "provider_validation",
+      }),
+    );
+  });
 });

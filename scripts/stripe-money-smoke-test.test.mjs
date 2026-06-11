@@ -441,6 +441,10 @@ describe("stripe money smoke test", () => {
     expect(calls.map((call) => new URL(call.url).pathname)).not.toContain(
       "/api/settlement/payout-setup/onboarding-session",
     );
+    const refreshCall = calls.find((call) => new URL(call.url).pathname === "/api/settlement/payout-setup/refresh");
+    expect(JSON.parse(refreshCall.init.body)).toMatchObject({
+      providerReference: "acct_embedded_smoke",
+    });
     expect(JSON.stringify(result)).not.toContain("acs_embedded_smoke_secret");
   });
 

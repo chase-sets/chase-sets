@@ -9,6 +9,7 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createId, type AccountId } from "@chase-sets/primitives/typed-ids";
 import {
   normalizeCurrencyCode,
+  normalizeOptionalText,
   normalizePayoutReadinessStatus,
   SettlementDomainError,
   type PayoutReadinessStatus,
@@ -87,7 +88,7 @@ export type PayoutReadinessServices = Readonly<{
     components: readonly ["payout-account-management"];
   }>;
   refreshProviderReadiness: (
-    params: Readonly<{ accountId: AccountId; contactEmail?: string | null }>,
+    params: Readonly<{ accountId: AccountId; contactEmail?: string | null; providerReference?: string | null }>,
     context: EventStoreContext,
   ) => Promise<SettlementPayoutReadinessRow>;
   recordProviderReadinessFromWebhook: (
@@ -135,6 +136,65 @@ function readinessStatus(readiness: ProviderPayoutReadiness): PayoutReadinessSta
   }
 
   return "pending";
+}
+
+function providerReferenceRefreshError(message: string) {
+  const error = new SettlementDomainError(message) as SettlementDomainError & {
+    code: string;
+    statusCode: number;
+  };
+  error.code = "provider_reference_mismatch";
+  error.statusCode = 409;
+  return error;
+}
+
+function canonicalProviderReference(
+  readiness: ProviderPayoutReadiness,
+  expectedProviderReference?: string | null,
+): string {
+  const providerReference = normalizeOptionalText(readiness.providerReference);
+  if (!providerReference) {
+    throw providerReferenceRefreshError("Payout setup provider account could not be refreshed. Please retry setup.");
+  }
+
+  const expected = normalizeOptionalText(expectedProviderReference);
+  if (expected && providerReference !== expected) {
+    throw providerReferenceRefreshError("Payout setup changed while refreshing. Please restart payout setup.");
+  }
+
+  return providerReference;
+}
+
+function readinessWithProviderReference(
+  readiness: ProviderPayoutReadiness,
+  providerReference: string,
+): ProviderPayoutReadiness {
+  return {
+    ...readiness,
+    providerReference,
+  };
+}
+
+function payoutReadinessRowFromProviderReadiness(
+  accountId: AccountId,
+  readiness: ProviderPayoutReadiness,
+  updatedAt: string,
+): SettlementPayoutReadinessRow {
+  return {
+    account_id: accountId,
+    status: readinessStatus(readiness),
+    missing_requirements: readiness.missingRequirements,
+    provider_reference: readiness.providerReference,
+    onboarding_status: readiness.onboardingStatus,
+    transfer_capability_status: readiness.transferCapabilityStatus,
+    payout_capability_status: readiness.payoutCapabilityStatus,
+    payout_destination_status: readiness.payoutDestinationStatus,
+    payout_account_dashboard: readiness.payoutAccountDashboard,
+    losses_collector: readiness.lossesCollector,
+    fees_collector: readiness.feesCollector,
+    requirements_collector: readiness.requirementsCollector,
+    updated_at: updatedAt,
+  };
 }
 
 export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): PayoutReadinessServices {
@@ -480,12 +540,24 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
       }
     },
     async refreshProviderReadiness(params, context) {
+      let expectedProviderReference: string | null = null;
       try {
+        const requestedProviderReference = normalizeOptionalText(params.providerReference);
         const existing = await getPayoutReadiness(deps.db, params.accountId);
-        const readiness = existing.provider_reference
+        const existingProviderReference = normalizeOptionalText(existing.provider_reference);
+        expectedProviderReference = existingProviderReference ?? requestedProviderReference;
+        if (
+          existingProviderReference &&
+          requestedProviderReference &&
+          existingProviderReference !== requestedProviderReference
+        ) {
+          throw providerReferenceRefreshError("Payout setup changed while refreshing. Please restart payout setup.");
+        }
+
+        const readiness = expectedProviderReference
           ? await deps.moneyMovementGateway.refreshPayoutReadiness({
               accountId: params.accountId,
-              providerReference: existing.provider_reference,
+              providerReference: expectedProviderReference,
             })
           : await deps.moneyMovementGateway.ensurePayoutAccount({
               accountId: params.accountId,
@@ -494,21 +566,25 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
               countryCode: "US",
               idempotencyKey: `settlement:payout-account:${params.accountId}`,
             });
+        const providerReference = canonicalProviderReference(readiness, expectedProviderReference);
+        const recordedAt = new Date().toISOString();
+        const canonicalReadiness = readinessWithProviderReference(readiness, providerReference);
 
         await recordProviderReadiness(
           {
             accountId: params.accountId,
-            status: readinessStatus(readiness),
-            missingRequirements: readiness.missingRequirements,
-            providerReference: readiness.providerReference,
-            onboardingStatus: readiness.onboardingStatus,
-            transferCapabilityStatus: readiness.transferCapabilityStatus,
-            payoutCapabilityStatus: readiness.payoutCapabilityStatus,
-            payoutDestinationStatus: readiness.payoutDestinationStatus,
-            payoutAccountDashboard: readiness.payoutAccountDashboard,
-            lossesCollector: readiness.lossesCollector,
-            feesCollector: readiness.feesCollector,
-            requirementsCollector: readiness.requirementsCollector,
+            status: readinessStatus(canonicalReadiness),
+            missingRequirements: canonicalReadiness.missingRequirements,
+            providerReference: canonicalReadiness.providerReference,
+            onboardingStatus: canonicalReadiness.onboardingStatus,
+            transferCapabilityStatus: canonicalReadiness.transferCapabilityStatus,
+            payoutCapabilityStatus: canonicalReadiness.payoutCapabilityStatus,
+            payoutDestinationStatus: canonicalReadiness.payoutDestinationStatus,
+            payoutAccountDashboard: canonicalReadiness.payoutAccountDashboard,
+            lossesCollector: canonicalReadiness.lossesCollector,
+            feesCollector: canonicalReadiness.feesCollector,
+            requirementsCollector: canonicalReadiness.requirementsCollector,
+            recordedAt,
           },
           context,
         );
@@ -516,14 +592,15 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
         await recordOperation({
           kind: "payout-readiness-refresh-succeeded",
           accountId: params.accountId,
-          ...readinessOperationFields(readiness),
+          ...readinessOperationFields(canonicalReadiness),
         });
 
-        return getPayoutReadiness(deps.db, params.accountId);
+        return payoutReadinessRowFromProviderReadiness(params.accountId, canonicalReadiness, recordedAt);
       } catch (error) {
         await recordOperation({
           kind: "payout-readiness-refresh-failed",
           accountId: params.accountId,
+          providerReference: expectedProviderReference,
           safeCategory: classifySettlementProviderError(error),
         });
         throw error;
