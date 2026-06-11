@@ -12,10 +12,10 @@ import marketplaceManifest from "@chase-sets/marketplace/context";
 import notificationsManifest from "@chase-sets/notification-center/context";
 import orderingManifest from "@chase-sets/ordering/context";
 import paymentsManifest from "@chase-sets/payments/context";
+import platformOperationsManifest from "@chase-sets/platform-operations/context";
 import pricingManifest from "@chase-sets/pricing/context";
 import reputationManifest from "@chase-sets/reputation/context";
 import settlementManifest from "@chase-sets/settlement/context";
-import supportManifest from "@chase-sets/support/context";
 
 export const webContextRegistry = [
   {
@@ -69,6 +69,11 @@ export const webContextRegistry = [
     manifest: paymentsManifest as WebContextRegistry[number]["manifest"],
   },
   {
+    contextName: "platform-operations",
+    packageName: "@chase-sets/platform-operations",
+    manifest: platformOperationsManifest as WebContextRegistry[number]["manifest"],
+  },
+  {
     contextName: "pricing",
     packageName: "@chase-sets/pricing",
     manifest: pricingManifest as WebContextRegistry[number]["manifest"],
@@ -82,10 +87,5 @@ export const webContextRegistry = [
     contextName: "settlement",
     packageName: "@chase-sets/settlement",
     manifest: settlementManifest as WebContextRegistry[number]["manifest"],
-  },
-  {
-    contextName: "support",
-    packageName: "@chase-sets/support",
-    manifest: supportManifest as WebContextRegistry[number]["manifest"],
   },
 ] as const satisfies WebContextRegistry;

@@ -26,8 +26,7 @@ Structure, public export, deployable composition, and shared-ID rules live in [B
 | [Payments](./payments/README.md) | Own external money movement, charges, and refunds. |
 | [Settlement](./settlement/README.md) | Own internal ledger truth, balances, and payouts. |
 | [Pricing](./pricing/README.md) | Own fair-value estimation and repricing intelligence. |
-| [Support](./support/README.md) | Own structured marketplace support requests with guided, auditable resolution steps. |
-| [Platform Operations](./platform-operations/README.md) | Own operator workflows for platform runtime health, release controls, and cross-context insights reporting. |
+| [Platform Operations](./platform-operations/README.md) | Own operator workflows for platform runtime health, release controls, cross-context insights reporting, platform feedback, and marketplace support requests. |
 
 Implemented contexts are the directories that contain both `package.json` and `context.json`.
 

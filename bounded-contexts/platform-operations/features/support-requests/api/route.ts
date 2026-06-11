@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
-import type { SupportApiEnv } from "../../../api";
+import type { SupportApiEnv } from "./http";
 import type { SupportRequestServices } from "./runtime";
 
 function requireSupportAccess(

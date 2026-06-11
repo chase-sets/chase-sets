@@ -30,7 +30,7 @@
     "@chase-sets/pricing": "workspace:*",
     "@chase-sets/reputation": "workspace:*",
     "@chase-sets/settlement": "workspace:*",
-    "@chase-sets/support": "workspace:*"
+    "@chase-sets/platform-operations": "workspace:*"
   },
   "devDependencies": {
     "vitest": "^4.1.4"

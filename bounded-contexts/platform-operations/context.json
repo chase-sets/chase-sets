@@ -11,7 +11,8 @@
     "conversion-order-kpi",
     "dashboard-read-model",
     "platform-feedback",
-    "platform-feedback-prompt"
+    "platform-feedback-prompt",
+    "support-request"
   ],
   "streamPrefix": "platform-operations.",
   "apiBasePath": "/api/platform",
@@ -20,15 +21,64 @@
     "release-controls",
     "release-dashboard",
     "insights-dashboards",
-    "platform-feedback"
+    "platform-feedback",
+    "support-requests"
   ],
   "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support"],
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
   "allowedContextDependencies": [],
-  "seedRequirements": ["identity"],
-  "eventSubscriptions": [],
-  "projectionGroups": [],
-  "hostPorts": [],
+  "seedRequirements": ["identity", "ordering", "fulfillment", "payments", "settlement"],
+  "eventSubscriptions": [
+    {
+      "sourceContextName": "ordering",
+      "projectionName": "support-order-source-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": [
+        "ordering.order.created",
+        "ordering.order.cancelled",
+        "ordering.order.ready-for-fulfillment-recorded"
+      ],
+      "order": 70,
+      "projectionHandlerSetNames": ["support-order-source-projection"]
+    },
+    {
+      "sourceContextName": "fulfillment",
+      "projectionName": "support-shipment-source-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": [
+        "fulfillment.shipment.created",
+        "fulfillment.shipment.dispatched",
+        "fulfillment.shipment.delivered",
+        "fulfillment.shipment.returned",
+        "fulfillment.shipment.exception-raised"
+      ],
+      "order": 80,
+      "projectionHandlerSetNames": ["support-shipment-source-projection"]
+    }
+  ],
+  "projectionGroups": [
+    {
+      "projectionName": "support-order-source-projection",
+      "sourceContextNames": ["ordering"],
+      "ownedTables": ["support_order_sources"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "support-shipment-source-projection",
+      "sourceContextNames": ["fulfillment"],
+      "ownedTables": ["support_shipment_sources"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    }
+  ],
+  "hostPorts": [
+    {
+      "portName": "transactionalEmailOutbox",
+      "providedBy": "platform-worker",
+      "purpose": "Durable transactional email outbox consumed only by support request event projectors."
+    }
+  ],
   "apiDeployables": ["admin-support-api", "platform-api"],
   "apiMounts": [
     {
@@ -40,12 +90,45 @@
       "mountPath": "/api/experience",
       "kind": "additional",
       "requiresAuth": true
+    },
+    {
+      "mountPath": "/api/marketplace",
+      "kind": "additional",
+      "requiresAuth": true
     }
   ],
   "deployableContributions": [
     {
+      "deployable": "marketplace-web",
+      "routes": [
+        {
+          "routeId": "account-support",
+          "routePath": "account/support",
+          "fileExport": "./routes/marketplace/account-support",
+          "routeType": "route",
+          "sourceContext": "platform-operations"
+        }
+      ]
+    },
+    {
       "deployable": "admin-web",
       "routes": [
+        {
+          "routeId": "support-requests",
+          "routePath": "requests",
+          "fileExport": "./routes/admin/requests",
+          "routeType": "route",
+          "sourceContext": "platform-operations",
+          "section": "support"
+        },
+        {
+          "routeId": "support-requests-detail",
+          "routePath": "requests/:id",
+          "fileExport": "./routes/admin/request-detail",
+          "routeType": "route",
+          "sourceContext": "platform-operations",
+          "section": "support"
+        },
         {
           "routeId": "platform-feedback",
           "routePath": "platform-feedback",
@@ -90,6 +173,40 @@
     }
   ],
   "shellContributions": [
+    {
+      "deployable": "marketplace-web",
+      "slot": "top-nav",
+      "key": "support",
+      "label": "Support",
+      "icon": "help",
+      "href": "/account/support",
+      "order": 200,
+      "visibility": "signed-in",
+      "requiredPermissions": ["support.view"]
+    },
+    {
+      "deployable": "marketplace-web",
+      "slot": "bottom-nav",
+      "key": "support",
+      "label": "Support",
+      "icon": "help",
+      "href": "/account/support",
+      "order": 200,
+      "visibility": "signed-in",
+      "requiredPermissions": ["support.view"]
+    },
+    {
+      "deployable": "admin-web",
+      "slot": "primary-nav",
+      "key": "support-requests",
+      "label": "Support",
+      "icon": "help",
+      "href": "/requests",
+      "section": "support",
+      "order": 5,
+      "visibility": "signed-in",
+      "requiredPermissions": ["support.manage"]
+    },
     {
       "deployable": "admin-web",
       "slot": "primary-nav",
@@ -177,24 +294,34 @@
         "Marketplace contextual feedback prompts"
       ]
     },
+    "support-requests": {
+      "classification": "slice",
+      "purpose": "Own support-request workflow behavior, read models, API contracts, marketplace-facing support terminology, and operator queue UI.",
+      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
+      "expectedConsumers": [
+        "Internal platform-operations module composition",
+        "Marketplace account support route",
+        "Admin support operations route"
+      ]
+    },
     "request-support": {
       "classification": "support",
-      "purpose": "Provide request API clients shared by platform-feedback route modules and prompt UI.",
+      "purpose": "Provide request API clients shared by platform-feedback and support-requests route modules and prompt UI.",
       "allowedWhen": "Allowed only for context-local request composition.",
       "expectedConsumers": ["platform-feedback"],
-      "justification": "request-support centralizes the platform-feedback API client for route modules and browser prompt UI.",
-      "createdFor": "platform-feedback routes and contextual prompt submissions.",
+      "justification": "request-support centralizes the platform-feedback and support-request API clients for route modules and browser prompt UI.",
+      "createdFor": "platform-feedback and support-requests routes and contextual prompt submissions.",
       "sunsetWhen": "Remove when all consumers can move behavior back into feature-local modules.",
       "crossCuttingRuntimeComposition": true
     },
     "seed-support": {
       "classification": "support",
-      "purpose": "Provide deterministic platform-feedback seed identifiers.",
+      "purpose": "Provide deterministic platform-feedback and support-request seed identifiers.",
       "allowedWhen": "Allowed for bootstrap and test data.",
-      "expectedConsumers": ["platform-feedback", "Deployable composition for platform-operations"],
-      "justification": "seed-support centralizes deterministic identifiers for sample platform feedback.",
-      "createdFor": "platform-feedback bootstrap and test data flows.",
-      "sunsetWhen": "Remove when sample platform feedback is no longer seeded.",
+      "expectedConsumers": ["platform-feedback", "support-requests", "Deployable composition for platform-operations"],
+      "justification": "seed-support centralizes deterministic identifiers for sample platform feedback and support requests.",
+      "createdFor": "platform-feedback and support-requests bootstrap and test data flows.",
+      "sunsetWhen": "Remove when sample platform feedback and support requests are no longer seeded.",
       "crossCuttingRuntimeComposition": true
     },
     "runtime-support": {

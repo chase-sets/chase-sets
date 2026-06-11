@@ -4,7 +4,7 @@ import { redirect, useActionData, useLoaderData, useSearchParams } from "react-r
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { SupportRequestListPage } from "../../features/support-requests/ui/support-request-list-page";
-import { createSupportRequestRequestApiClient } from "../../support/request-support/api-client";
+import { createSupportRequestRequestApiClient } from "../../support/request-support/support-request-api-client";
 
 function formValue(formData: FormData, key: string) {
   return String(formData.get(key) ?? "");

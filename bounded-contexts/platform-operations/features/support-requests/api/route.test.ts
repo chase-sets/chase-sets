@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
-import type { SupportApiEnv } from "../../../api";
+import type { SupportApiEnv } from "./http";
 import { createAccountSupportRequestRoutes } from "./route";
 import type { SupportRequestServices } from "./runtime";
 

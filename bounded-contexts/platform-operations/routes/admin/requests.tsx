@@ -2,7 +2,7 @@ import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useSearchParams } from "react-router";
 import { SupportOperationsPage } from "../../features/support-requests/ui/support-operations-page";
-import { createSupportRequestRequestApiClient } from "../../support/request-support/api-client";
+import { createSupportRequestRequestApiClient } from "../../support/request-support/support-request-api-client";
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("support.routes.admin.operationsQueue.request.failed");

@@ -30,7 +30,7 @@
       "projectionHandlerSetNames": ["settlement-payment-input-projection"]
     },
     {
-      "sourceContextName": "support",
+      "sourceContextName": "platform-operations",
       "projectionName": "settlement-support-hold-projection",
       "subscriptionVersion": 1,
       "eventTypes": [
@@ -84,7 +84,7 @@
     },
     {
       "projectionName": "settlement-support-hold-projection",
-      "sourceContextNames": ["support"],
+      "sourceContextNames": ["platform-operations"],
       "ownedTables": ["settlement_support_holds"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"

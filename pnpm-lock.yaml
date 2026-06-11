@@ -748,6 +748,9 @@ importers:
       '@chase-sets/bounded-context-module':
         specifier: workspace:*
         version: link:../../contracts/bounded-context-module
+      '@chase-sets/communications-email':
+        specifier: workspace:*
+        version: link:../../contracts/communications-email
       '@chase-sets/design-system':
         specifier: workspace:*
         version: link:../../packages/design-system
@@ -775,6 +778,9 @@ importers:
       '@chase-sets/release-controls':
         specifier: workspace:*
         version: link:../../contracts/release-controls
+      '@chase-sets/transactional-email-outbox':
+        specifier: workspace:*
+        version: link:../../infrastructure/transactional-email-outbox
       hono:
         specifier: ^4.12.12
         version: 4.12.18
@@ -1000,61 +1006,6 @@ importers:
       hono:
         specifier: ^4.12.12
         version: 4.12.18
-    devDependencies:
-      vitest:
-        specifier: ^4.1.4
-        version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
-
-  bounded-contexts/support:
-    dependencies:
-      '@chase-sets/auth-context':
-        specifier: workspace:*
-        version: link:../../contracts/auth-context
-      '@chase-sets/bounded-context-module':
-        specifier: workspace:*
-        version: link:../../contracts/bounded-context-module
-      '@chase-sets/bounded-context-runtime':
-        specifier: workspace:*
-        version: link:../../infrastructure/bounded-context-runtime
-      '@chase-sets/communications-email':
-        specifier: workspace:*
-        version: link:../../contracts/communications-email
-      '@chase-sets/design-system':
-        specifier: workspace:*
-        version: link:../../packages/design-system
-      '@chase-sets/event-core':
-        specifier: workspace:*
-        version: link:../../contracts/event-core
-      '@chase-sets/event-core-postgres':
-        specifier: workspace:*
-        version: link:../../infrastructure/event-core-postgres
-      '@chase-sets/http':
-        specifier: workspace:*
-        version: link:../../contracts/http
-      '@chase-sets/identity':
-        specifier: workspace:*
-        version: link:../identity
-      '@chase-sets/localization':
-        specifier: workspace:*
-        version: link:../../contracts/localization
-      '@chase-sets/ordering':
-        specifier: workspace:*
-        version: link:../ordering
-      '@chase-sets/platform-runtime':
-        specifier: workspace:*
-        version: link:../../infrastructure/platform-runtime
-      '@chase-sets/primitives':
-        specifier: workspace:*
-        version: link:../../contracts/primitives
-      '@chase-sets/transactional-email-outbox':
-        specifier: workspace:*
-        version: link:../../infrastructure/transactional-email-outbox
-      hono:
-        specifier: ^4.12.12
-        version: 4.12.18
-      react-router:
-        specifier: ^7.14.0
-        version: 7.15.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
     devDependencies:
       vitest:
         specifier: ^4.1.4
@@ -1317,9 +1268,6 @@ importers:
       '@chase-sets/public-presence':
         specifier: workspace:*
         version: link:../../bounded-contexts/public-presence
-      '@chase-sets/support':
-        specifier: workspace:*
-        version: link:../../bounded-contexts/support
       '@react-router/node':
         specifier: 7.14.0
         version: 7.14.0(react-router@7.15.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(typescript@5.9.3)
@@ -1399,6 +1347,9 @@ importers:
       '@chase-sets/payments':
         specifier: workspace:*
         version: link:../../bounded-contexts/payments
+      '@chase-sets/platform-operations':
+        specifier: workspace:*
+        version: link:../../bounded-contexts/platform-operations
       '@chase-sets/platform-runtime':
         specifier: workspace:*
         version: link:../../infrastructure/platform-runtime
@@ -1411,9 +1362,6 @@ importers:
       '@chase-sets/settlement':
         specifier: workspace:*
         version: link:../../bounded-contexts/settlement
-      '@chase-sets/support':
-        specifier: workspace:*
-        version: link:../../bounded-contexts/support
       '@react-router/node':
         specifier: 7.14.0
         version: 7.14.0(react-router@7.15.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(typescript@5.9.3)
@@ -1490,6 +1438,9 @@ importers:
       '@chase-sets/payments':
         specifier: workspace:*
         version: link:../../bounded-contexts/payments
+      '@chase-sets/platform-operations':
+        specifier: workspace:*
+        version: link:../../bounded-contexts/platform-operations
       '@chase-sets/pricing':
         specifier: workspace:*
         version: link:../../bounded-contexts/pricing
@@ -1499,9 +1450,6 @@ importers:
       '@chase-sets/settlement':
         specifier: workspace:*
         version: link:../../bounded-contexts/settlement
-      '@chase-sets/support':
-        specifier: workspace:*
-        version: link:../../bounded-contexts/support
     devDependencies:
       vitest:
         specifier: ^4.1.4
@@ -1605,9 +1553,6 @@ importers:
       '@chase-sets/stripe-payments':
         specifier: workspace:*
         version: link:../../infrastructure/stripe-payments
-      '@chase-sets/support':
-        specifier: workspace:*
-        version: link:../../bounded-contexts/support
       '@chase-sets/ucp':
         specifier: workspace:*
         version: link:../../contracts/ucp
@@ -1732,9 +1677,6 @@ importers:
       '@chase-sets/stripe-payments':
         specifier: workspace:*
         version: link:../../infrastructure/stripe-payments
-      '@chase-sets/support':
-        specifier: workspace:*
-        version: link:../../bounded-contexts/support
       '@chase-sets/transactional-email-outbox':
         specifier: workspace:*
         version: link:../../infrastructure/transactional-email-outbox

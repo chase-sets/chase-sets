@@ -11,3 +11,5 @@ export type {
   PlatformFeedbackTopic,
   PlatformFeedbackWorkflow,
 } from "./features/platform-feedback/domain/common";
+export { createSupportRequestApiClient } from "./support/request-support/support-request-api-client";
+export type { SupportRequestDetail } from "./support/request-support/support-request-api-client";

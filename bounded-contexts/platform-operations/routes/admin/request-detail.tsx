@@ -2,7 +2,7 @@ import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
 import { SupportOperationsDetailPage } from "../../features/support-requests/ui/support-operations-page";
-import { createSupportRequestRequestApiClient } from "../../support/request-support/api-client";
+import { createSupportRequestRequestApiClient } from "../../support/request-support/support-request-api-client";
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const api = createSupportRequestRequestApiClient(request);

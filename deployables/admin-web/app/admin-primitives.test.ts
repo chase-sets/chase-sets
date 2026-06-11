@@ -22,9 +22,11 @@ const featureContextAdminSections = new Map([
   ["ordering", "commerce"],
   ["platform-operations", "platform"],
   ["public-presence", "growth"],
-  ["support", "support"],
 ]);
-const featureSliceAdminSections = new Map([["platform-operations/features/platform-feedback", "support"]]);
+const featureSliceAdminSections = new Map([
+  ["platform-operations/features/platform-feedback", "support"],
+  ["platform-operations/features/support-requests", "support"],
+]);
 
 function collectTsxFiles(root: string): string[] {
   return readdirSync(root).flatMap((entry) => {
@@ -207,7 +209,7 @@ describe("admin web primitive usage", () => {
   it("discovers feature UI rendered by admin routes", () => {
     expect(collectAdminRenderedFeatureUiFiles().map(relativePath)).toEqual(
       expect.arrayContaining([
-        "bounded-contexts/support/features/support-requests/ui/support-operations-page.tsx",
+        "bounded-contexts/platform-operations/features/support-requests/ui/support-operations-page.tsx",
         "bounded-contexts/platform-operations/features/platform-feedback/ui/admin-pages.tsx",
         "bounded-contexts/public-presence/features/promo-bar/ui/admin-pages.tsx",
         "bounded-contexts/platform-operations/features/projection-operations/ui/projection-operations-page.tsx",

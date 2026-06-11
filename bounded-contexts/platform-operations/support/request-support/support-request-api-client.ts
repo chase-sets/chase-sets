@@ -106,6 +106,6 @@ export function createSupportRequestApiClient(options: SupportRequestApiClientOp
 export function createSupportRequestRequestApiClient(request: Request) {
   return createSupportRequestApiClient({
     baseUrl: resolveRequestApiBaseUrl(request, "/api/marketplace"),
-    fetch: createForwardedAuthFetch(request, globalThis.fetch, { readTargetContextName: "support" }),
+    fetch: createForwardedAuthFetch(request, globalThis.fetch, { readTargetContextName: "platform-operations" }),
   });
 }
