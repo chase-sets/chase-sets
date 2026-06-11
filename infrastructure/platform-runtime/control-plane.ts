@@ -398,6 +398,7 @@ export type PlatformControlPlane = Readonly<{
   ) => Promise<boolean>;
   recordScheduledRunnerCompleted: (input: Readonly<{ runnerName: string }>) => Promise<void>;
   getProjectionWakeRelayCursor: (sourceContextName: string) => Promise<ProjectionWakeRelayCursorRecord | null>;
+  listProjectionWakeRelayCursors: () => Promise<readonly ProjectionWakeRelayCursorRecord[]>;
   advanceProjectionWakeRelayCursor: (
     input: Readonly<{
       sourceContextName: string;
@@ -995,6 +996,21 @@ export function createPostgresPlatformControlPlane(db: PgTransactionalPool): Pla
       );
 
       return result.rows[0] ? mapProjectionWakeRelayCursorRow(result.rows[0]) : null;
+    },
+    listProjectionWakeRelayCursors: async () => {
+      const result = await db.query<ProjectionWakeRelayCursorRow>(
+        `SELECT source_context_name,
+                last_fanout_position,
+                last_required_cursor,
+                owner_id,
+                fencing_token,
+                metadata,
+                updated_at
+         FROM platform_projection_wake_relay_cursors
+         ORDER BY source_context_name`,
+      );
+
+      return result.rows.map(mapProjectionWakeRelayCursorRow);
     },
     advanceProjectionWakeRelayCursor: async (input) => {
       const result = await db.query<ProjectionWakeRelayCursorRow>(

@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { ProjectionOperationsPage } from "./projection-operations-page";
 import { normalizeProjectionOperationsSnapshot } from "../read-model/contracts";
+import { normalizeWakeStatusSnapshot } from "../read-model/wake-status-contracts";
 
 const emptyFilters = {
   tab: "",
@@ -197,6 +198,140 @@ describe("ProjectionOperationsPage", () => {
     expect(screen.getByText("Review")).toBeTruthy();
     expect(screen.getAllByText("Cancel requested").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Stale workers").length).toBeGreaterThan(0);
+  });
+
+  it("renders the push-wake panel with queue, relay, checkpoint, and rollout sections", () => {
+    const data = normalizeProjectionOperationsSnapshot({ summary: { status: "ok" } });
+    const wakeStatus = normalizeWakeStatusSnapshot({
+      generatedAt: "2026-06-11T12:00:00.000Z",
+      wakeStore: {
+        available: true,
+        intentSummary: {
+          queuedCount: 2,
+          claimedCount: 1,
+          failedCount: 0,
+          expiredCount: 0,
+          staleClaimCount: 0,
+          oldestQueuedAgeMs: 42000,
+        },
+        intentBreakdown: [
+          {
+            priorityLane: "hot",
+            origin: "api-wait",
+            state: "queued",
+            intentCount: 2,
+            oldestAgeMs: 42000,
+            maxAttemptCount: 0,
+          },
+        ],
+        checkpointSignals: {
+          readinessCount: 4,
+          expiredReadinessCount: 0,
+          latestReadyAgeMs: 9000,
+          pendingWaiterCount: 1,
+          expiredPendingWaiterCount: 0,
+          satisfiedWaiterCount: 8,
+          pendingWaiterOrigins: [{ origin: "api-wait", waiterCount: 1 }],
+        },
+      },
+      relay: {
+        available: true,
+        activeLeaseName: "projection-wake-relay:active",
+        lease: {
+          ownerId: "platform-worker-1",
+          fencingToken: "12",
+          acquiredAt: "2026-06-11T11:50:00.000Z",
+          renewedAt: "2026-06-11T11:59:00.000Z",
+          expiresAt: "2026-06-11T12:01:00.000Z",
+          state: "active",
+        },
+        cursors: [
+          {
+            sourceContextName: "checkout",
+            lastFanOutPosition: "102",
+            ownerId: "platform-worker-1",
+            fencingToken: "12",
+            updatedAt: "2026-06-11T11:59:30.000Z",
+            updatedAgeMs: 30000,
+            interestIndexVersion: "v3",
+            lastAdvanceReason: "notify",
+          },
+        ],
+      },
+      schedulers: {
+        available: true,
+        wakeCapableWorkerCount: 1,
+        activeWakeCapableWorkerCount: 1,
+        workers: [
+          {
+            workerId: "platform-worker-1",
+            workerKind: "platform-worker",
+            workerState: "active",
+            heartbeatAgeMs: 5000,
+            wakeRunnerCount: 3,
+            wakeMaxConcurrentRunners: 3,
+          },
+        ],
+      },
+      rollout: {
+        eventStoreWakeEmissionEnabledOnHost: true,
+        summary: {
+          entryCount: 18,
+          activeEntryCount: 4,
+          enabledEventStoreWakeContextCount: 4,
+          enabledRelayFanOutContextCount: 4,
+        },
+        sources: [
+          {
+            sourceContextName: "checkout",
+            rolloutState: "staging-enabled",
+            phase: "phase-1-hot-path",
+            rolloutWave: "wave-1-hot-path",
+            priorityLane: "hot",
+            eventStoreWakeNotificationsEnabled: true,
+            relayFanOutEnabled: true,
+            affectedProjectionNames: ["checkout:checkout.checkout-session-projection"],
+          },
+        ],
+      },
+    });
+
+    render(<ProjectionOperationsPage data={data} filters={{ ...emptyFilters, tab: "wake" }} wakeStatus={wakeStatus} />);
+
+    expect(screen.getByRole("tab", { name: "Push wakes" })).toBeTruthy();
+    expect(screen.getByText("Wake intent queue")).toBeTruthy();
+    expect(screen.getByText("Active relay lease")).toBeTruthy();
+    expect(screen.getAllByText("platform-worker-1").length).toBeGreaterThan(0);
+    expect(screen.getByText("Checkpoint readiness")).toBeTruthy();
+    expect(screen.getByText("Rollout by source context")).toBeTruthy();
+    expect(screen.getAllByText("staging-enabled").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("api-wait").length).toBeGreaterThan(0);
+  });
+
+  it("merges wake attention items into the attention-first console", () => {
+    const data = normalizeProjectionOperationsSnapshot({ summary: { status: "ok" } });
+    const wakeStatus = normalizeWakeStatusSnapshot({
+      wakeStore: {
+        available: true,
+        intentSummary: { failedCount: 2, staleClaimCount: 1 },
+        checkpointSignals: {},
+      },
+      relay: { available: true, lease: null, cursors: [] },
+      rollout: { summary: { enabledRelayFanOutContextCount: 0 } },
+    });
+
+    render(<ProjectionOperationsPage data={data} filters={emptyFilters} wakeStatus={wakeStatus} />);
+
+    expect(screen.getAllByText("Failed wake intents").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Stale wake claims").length).toBeGreaterThan(0);
+  });
+
+  it("renders an explicit unavailable state when wake status is missing", () => {
+    const data = normalizeProjectionOperationsSnapshot({ summary: { status: "ok" } });
+
+    render(<ProjectionOperationsPage data={data} filters={{ ...emptyFilters, tab: "wake" }} wakeStatus={null} />);
+
+    expect(screen.getByText("Push-wake status unavailable")).toBeTruthy();
   });
 
   it("renders applied filter chips and rebuild confirmation dialogs", async () => {

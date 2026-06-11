@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { CHASE_SETS_INTERNAL_API_ORIGIN_ENV } from "@chase-sets/platform-runtime/http";
 import {
   cancelProjectionOperation,
+  loadWakeStatusSnapshot,
   readProjectionOperationsFilters,
   rebuildProjectionContext,
   rebuildProjectionGroup,
@@ -77,5 +78,50 @@ describe("projection operations API client", () => {
     await refreshProjectionStatus(request);
 
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe("http://platform-api:8080/api/platform/projections/refresh");
+  });
+
+  it("loads and normalizes the wake status snapshot", async () => {
+    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(
+      async () =>
+        new Response(
+          JSON.stringify({
+            generatedAt: "2026-06-11T12:00:00.000Z",
+            wakeStore: { available: true, intentSummary: { queuedCount: 2 } },
+            relay: { available: true, lease: null, cursors: [] },
+          }),
+          { status: 200 },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const request = new Request("https://admin.example.com/platform/projections", {
+      headers: { cookie: "session=abc" },
+    });
+
+    const snapshot = await loadWakeStatusSnapshot(request);
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe("https://admin.example.com/api/platform/projections/wake-status");
+    expect(snapshot).toMatchObject({
+      wakeStore: { available: true, intentSummary: { queuedCount: 2 } },
+      relay: { available: true, lease: null },
+    });
+  });
+
+  it("degrades to null when the wake status endpoint is missing or failing", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("not found", { status: 404 })),
+    );
+    const request = new Request("https://admin.example.com/platform/projections");
+
+    await expect(loadWakeStatusSnapshot(request)).resolves.toBeNull();
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("connection refused");
+      }),
+    );
+
+    await expect(loadWakeStatusSnapshot(request)).resolves.toBeNull();
   });
 });

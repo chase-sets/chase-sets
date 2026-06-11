@@ -391,6 +391,7 @@ const readConsistencyWorkSignalGateway = config.readConsistency?.wakeBeforeWaitE
 const app = buildPlatformApiApp(runtime, {
   internalAuthSecret: config.internalAuthSecret,
   controlPlane,
+  workSignalStore: createPostgresWorkSignalStore(pools.control),
   getProjectionReplay: () => refreshProjectionReplaySummary(runtime),
   readConsistencyAuditLogger: logger,
   readConsistency: {

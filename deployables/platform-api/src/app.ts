@@ -32,7 +32,10 @@ import {
 import { createApiHost, resolveApiHostMounts, type ApiHostRuntime } from "@chase-sets/platform-runtime/api";
 import type { PlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
 import { createMcpRoutes, type CreateMcpRoutesOptions } from "@chase-sets/platform-runtime/mcp";
-import { createProjectionOperationsRoutes } from "@chase-sets/platform-runtime/projection-operations-routes";
+import {
+  createProjectionOperationsRoutes,
+  type ProjectionWakeStatusWorkSignalStore,
+} from "@chase-sets/platform-runtime/projection-operations-routes";
 import {
   createUcpMcpRoutes,
   createUcpProfileRoutes,
@@ -82,6 +85,7 @@ export type BuildPlatformApiOptions = Readonly<{
   ucpAp2MandateVerifier?: UcpAp2MandateVerifier;
   internalAuthSecret?: string;
   controlPlane?: PlatformControlPlane;
+  workSignalStore?: ProjectionWakeStatusWorkSignalStore;
   readConsistencyAuditLogger?: Readonly<{
     info: (message: string, fields?: Readonly<Record<string, unknown>>) => void;
   }>;
@@ -253,6 +257,7 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
     "/api/platform/projections",
     createProjectionOperationsRoutes(runtime, {
       controlPlane: options.controlPlane,
+      workSignalStore: options.workSignalStore,
     }),
   );
   app.use("/mcp", platformActorMiddleware);

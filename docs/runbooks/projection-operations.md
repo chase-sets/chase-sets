@@ -2,6 +2,8 @@
 
 Use `/api/platform/projections` for snapshot-first projection status. The summary endpoint is intentionally cheap during incidents; load blocked stream details with `/api/platform/projections/:projectionKey/blocked-streams` only when needed.
 
+Projections are normally woken by the push-first pipeline (event-store wake notifications -> relay -> durable wake intents -> wake scheduler); the worker poll loop is the correctness fallback, not the primary trigger. If the question is "why is freshness slow" rather than "why is this projection broken", start with the console's Push wakes tab and the [Push-Wake Operations](./push-wake-operations.md) runbook.
+
 ## Admin Console
 
 Open Admin > Operations > Projection Operations.

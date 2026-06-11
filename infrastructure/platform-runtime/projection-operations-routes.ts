@@ -11,6 +11,13 @@ import type { ApiHostRuntime } from "./api";
 import type { ResolvedActor } from "./auth";
 import type { PlatformControlPlane, ProjectionOperationKind } from "./control-plane";
 import { createDurableJobEventStream } from "./durable-job-events";
+import { PROJECTION_WAKE_RELAY_ACTIVE_LEASE_NAME } from "./projection-wake-relay";
+import {
+  isEventStoreWakeNotificationEmissionEnabled,
+  listSourceContextWakeRegistryEntries,
+  summarizeSourceContextWakeRegistry,
+} from "./source-context-wake-registry";
+import type { PostgresWorkSignalStore } from "./work-signal-store";
 
 const PROJECTION_OPERATIONS_PERMISSION = "security.manage";
 const ACTIVE_WORKER_HEARTBEAT_MAX_AGE_MS = 60_000;
@@ -23,8 +30,14 @@ type ProjectionOperationsRouteEnv = {
   };
 };
 
+export type ProjectionWakeStatusWorkSignalStore = Pick<
+  PostgresWorkSignalStore,
+  "summarizeProjectionWakeIntents" | "summarizeProjectionWakeIntentBreakdown" | "summarizeCheckpointSignals"
+>;
+
 export type ProjectionOperationsRouteOptions = Readonly<{
   controlPlane?: PlatformControlPlane;
+  workSignalStore?: ProjectionWakeStatusWorkSignalStore;
 }>;
 
 export function createProjectionOperationsRoutes(
@@ -69,6 +82,31 @@ export function createProjectionOperationsRoutes(
       summary: summarizeProjectionReplayStatuses(projectionGroups),
       projectionGroups,
       projectionStatusSource: "live-refresh",
+    });
+  });
+
+  // Read-only push-wake pipeline status for the operator console. Structural
+  // fields only (ADR 0010 privacy boundary, #1235): counts, lanes, origins,
+  // states, positions, owners, and timestamps — never wake-intent metadata,
+  // error bodies, or stream identifiers.
+  app.get("/wake-status", async (c) => {
+    const actorResponse = requireProjectionOperationsActor(c.get("actor"));
+    if (actorResponse instanceof Response) {
+      return actorResponse;
+    }
+
+    const [wakeStore, relay, schedulers] = await Promise.all([
+      readWakeStoreStatus(options.workSignalStore),
+      readWakeRelayStatus(options.controlPlane),
+      readWakeSchedulerStatus(options.controlPlane),
+    ]);
+
+    return c.json({
+      generatedAt: new Date().toISOString(),
+      wakeStore,
+      relay,
+      schedulers,
+      rollout: readWakeRolloutStatus(),
     });
   });
 
@@ -270,6 +308,169 @@ export function createProjectionOperationsRoutes(
   });
 
   return app;
+}
+
+async function readWakeStoreStatus(workSignalStore: ProjectionWakeStatusWorkSignalStore | undefined) {
+  if (!workSignalStore) {
+    return { available: false } as const;
+  }
+
+  const now = Date.now();
+  const [intentSummary, intentBreakdown, checkpointSignals] = await Promise.all([
+    workSignalStore.summarizeProjectionWakeIntents(),
+    workSignalStore.summarizeProjectionWakeIntentBreakdown(),
+    workSignalStore.summarizeCheckpointSignals(),
+  ]);
+
+  return {
+    available: true,
+    intentSummary: {
+      queuedCount: intentSummary.queuedCount,
+      claimedCount: intentSummary.claimedCount,
+      failedCount: intentSummary.failedCount,
+      expiredCount: intentSummary.expiredCount,
+      staleClaimCount: intentSummary.staleClaimCount,
+      oldestQueuedAt: toIsoTimestamp(intentSummary.oldestQueuedAt),
+      oldestQueuedAgeMs: toAgeMs(intentSummary.oldestQueuedAt, now),
+      oldestClaimedAt: toIsoTimestamp(intentSummary.oldestClaimedAt),
+    },
+    intentBreakdown: intentBreakdown.map((entry) => ({
+      priorityLane: entry.priorityLane,
+      origin: entry.origin,
+      state: entry.state,
+      intentCount: entry.intentCount,
+      oldestCreatedAt: toIsoTimestamp(entry.oldestCreatedAt),
+      oldestAgeMs: toAgeMs(entry.oldestCreatedAt, now),
+      maxAttemptCount: entry.maxAttemptCount,
+    })),
+    checkpointSignals: {
+      readinessCount: checkpointSignals.readinessCount,
+      expiredReadinessCount: checkpointSignals.expiredReadinessCount,
+      latestReadyRecordedAt: toIsoTimestamp(checkpointSignals.latestReadyRecordedAt),
+      latestReadyAgeMs: toAgeMs(checkpointSignals.latestReadyRecordedAt, now),
+      pendingWaiterCount: checkpointSignals.pendingWaiterCount,
+      expiredPendingWaiterCount: checkpointSignals.expiredPendingWaiterCount,
+      satisfiedWaiterCount: checkpointSignals.satisfiedWaiterCount,
+      oldestPendingWaiterAt: toIsoTimestamp(checkpointSignals.oldestPendingWaiterAt),
+      oldestPendingWaiterAgeMs: toAgeMs(checkpointSignals.oldestPendingWaiterAt, now),
+      pendingWaiterOrigins: checkpointSignals.pendingWaiterOrigins,
+    },
+  } as const;
+}
+
+async function readWakeRelayStatus(controlPlane: PlatformControlPlane | undefined) {
+  if (!controlPlane) {
+    return { available: false } as const;
+  }
+
+  const now = Date.now();
+  const [leases, cursors] = await Promise.all([
+    controlPlane.listLeases(),
+    controlPlane.listProjectionWakeRelayCursors(),
+  ]);
+  const leaseRow = leases.find((lease) => String(lease.lease_name ?? "") === PROJECTION_WAKE_RELAY_ACTIVE_LEASE_NAME);
+  const leaseExpiresAt = leaseRow ? parseTimestamp(leaseRow.expires_at) : null;
+
+  return {
+    available: true,
+    activeLeaseName: PROJECTION_WAKE_RELAY_ACTIVE_LEASE_NAME,
+    lease: leaseRow
+      ? {
+          ownerId: String(leaseRow.owner_id ?? ""),
+          fencingToken: String(leaseRow.fencing_token ?? ""),
+          acquiredAt: formatTimestamp(leaseRow.acquired_at),
+          renewedAt: formatTimestamp(leaseRow.renewed_at),
+          expiresAt: leaseExpiresAt ? leaseExpiresAt.toISOString() : null,
+          state: leaseExpiresAt && leaseExpiresAt.getTime() > now ? "active" : "expired",
+        }
+      : null,
+    cursors: cursors.map((cursor) => ({
+      sourceContextName: cursor.sourceContextName,
+      lastFanOutPosition: cursor.lastFanOutPosition.toString(),
+      lastRequiredCursor: cursor.lastRequiredCursor,
+      ownerId: cursor.ownerId,
+      fencingToken: cursor.fencingToken,
+      updatedAt: cursor.updatedAt,
+      updatedAgeMs: toAgeMs(parseTimestamp(cursor.updatedAt), now),
+      // Structural cursor metadata only: never forward arbitrary keys.
+      interestIndexVersion: readStructuralMetadataString(cursor.metadata, "projectionInterestIndexVersion"),
+      lastAdvanceReason: readStructuralMetadataString(cursor.metadata, "reason"),
+      lastStreamCategory: readStructuralMetadataString(cursor.metadata, "streamCategory"),
+    })),
+  } as const;
+}
+
+async function readWakeSchedulerStatus(controlPlane: PlatformControlPlane | undefined) {
+  if (!controlPlane) {
+    return { available: false } as const;
+  }
+
+  const workers = classifyWorkerHeartbeats(await controlPlane.listWorkerHeartbeats());
+  const wakeWorkers = workers.flatMap((worker) => {
+    const metadata = readJsonRecord(worker.metadata);
+    const runnerGroups = metadata ? readJsonRecord(metadata.runnerGroups) : null;
+    const wakesGroup = runnerGroups ? readJsonRecord(runnerGroups.wakes) : null;
+    if (!wakesGroup) {
+      return [];
+    }
+
+    return [
+      {
+        workerId: String(worker.worker_id ?? ""),
+        workerKind: String(worker.worker_kind ?? ""),
+        workerState: String(worker.worker_state ?? "unknown"),
+        heartbeatAt: formatTimestamp(worker.heartbeat_at),
+        heartbeatAgeMs: typeof worker.heartbeat_age_ms === "number" ? worker.heartbeat_age_ms : null,
+        wakeRunnerCount: readFiniteNumber(wakesGroup.runnerCount),
+        wakeMaxConcurrentRunners: readFiniteNumber(wakesGroup.maxConcurrentRunners),
+      },
+    ];
+  });
+
+  return {
+    available: true,
+    wakeCapableWorkerCount: wakeWorkers.length,
+    activeWakeCapableWorkerCount: wakeWorkers.filter((worker) => worker.workerState === "active").length,
+    workers: wakeWorkers,
+  } as const;
+}
+
+function readWakeRolloutStatus() {
+  const summary = summarizeSourceContextWakeRegistry();
+
+  return {
+    eventStoreWakeEmissionEnabledOnHost: isEventStoreWakeNotificationEmissionEnabled(),
+    summary,
+    sources: listSourceContextWakeRegistryEntries({ includeInactive: true }).map((entry) => ({
+      sourceContextName: entry.sourceContextName,
+      rolloutState: entry.rolloutState,
+      phase: entry.phase,
+      rolloutWave: entry.rolloutWave,
+      priorityLane: entry.priorityLane,
+      eventStoreWakeNotificationsEnabled: entry.enablement.eventStoreWakeNotifications,
+      relayFanOutEnabled: entry.enablement.relayFanOut,
+      affectedProjectionNames: entry.affectedProjectionNames,
+      disabledReason: entry.disabledReason ?? null,
+      optOutReason: entry.optOutReason ?? null,
+    })),
+  } as const;
+}
+
+function readStructuralMetadataString(metadata: Record<string, unknown>, key: string): string | null {
+  const value = metadata[key];
+  return typeof value === "string" || typeof value === "number" ? String(value) : null;
+}
+
+function readFiniteNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function toIsoTimestamp(value: Date | null): string | null {
+  return value ? value.toISOString() : null;
+}
+
+function toAgeMs(value: Date | null, now: number): number | null {
+  return value ? Math.max(0, now - value.getTime()) : null;
 }
 
 function requireProjectionOperationsActor(actor: ResolvedActor | null): ResolvedActor | Response {

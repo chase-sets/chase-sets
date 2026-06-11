@@ -190,6 +190,196 @@ describe("admin-support API app", () => {
     });
   });
 
+  it("requires platform operations permission for the push-wake status endpoint", async () => {
+    const app = buildAdminSupportApiApp(createEmptyRuntime(), {
+      resolveActor: async () => ({
+        sessionId: "ses_test",
+        tenantId: "tnt_test",
+        userId: "usr_test",
+        accountId: "acc_test",
+        membershipId: "mem_test",
+        roleKey: "catalog-admin",
+        permissions: ["catalog.view"],
+      }),
+    });
+
+    const response = await app.request("/api/platform/projections/wake-status");
+
+    expect(response.status).toBe(403);
+  });
+
+  it("returns structural push-wake pipeline status for platform operators", async () => {
+    const app = buildAdminSupportApiApp(createEmptyRuntime(), {
+      resolveActor: async () => ({
+        sessionId: "ses_test",
+        tenantId: "tnt_test",
+        userId: "usr_test",
+        accountId: "acc_test",
+        membershipId: "mem_test",
+        roleKey: "platform-admin",
+        permissions: ["security.manage"],
+      }),
+      controlPlane: {
+        listLeases: async () => [
+          {
+            lease_name: "projection-wake-relay:active",
+            owner_id: "platform-worker-1",
+            fencing_token: "12",
+            acquired_at: "2026-06-10T11:50:00.000Z",
+            renewed_at: "2026-06-10T11:59:00.000Z",
+            expires_at: new Date(Date.now() + 60_000).toISOString(),
+            metadata: { sensitive: "never-forwarded" },
+          },
+        ],
+        listProjectionWakeRelayCursors: async () => [
+          {
+            sourceContextName: "checkout",
+            lastFanOutPosition: 102n,
+            lastRequiredCursor: "checkout:102",
+            ownerId: "platform-worker-1",
+            fencingToken: "12",
+            metadata: {
+              reason: "notify",
+              streamCategory: "checkout-session",
+              projectionInterestIndexVersion: "v3",
+              arbitraryKey: "never-forwarded",
+            },
+            updatedAt: "2026-06-10T11:59:30.000Z",
+          },
+        ],
+        listWorkerHeartbeats: async () => [
+          {
+            worker_id: "platform-worker-1",
+            worker_kind: "platform-worker",
+            heartbeat_at: new Date().toISOString(),
+            metadata: {
+              runnerGroups: {
+                wakes: { runnerCount: 3, maxConcurrentRunners: 3 },
+                projections: { runnerCount: 8, maxConcurrentRunners: 4 },
+              },
+            },
+          },
+          {
+            worker_id: "admin-support-worker-1",
+            worker_kind: "admin-support-worker",
+            heartbeat_at: new Date().toISOString(),
+            metadata: { runnerGroups: { projections: { runnerCount: 2, maxConcurrentRunners: 2 } } },
+          },
+        ],
+      } as unknown as NonNullable<Parameters<typeof buildAdminSupportApiApp>[1]>["controlPlane"],
+      workSignalStore: {
+        summarizeProjectionWakeIntents: async () => ({
+          queuedCount: 2,
+          claimedCount: 1,
+          failedCount: 0,
+          expiredCount: 0,
+          staleClaimCount: 0,
+          oldestQueuedAt: new Date("2026-06-10T11:58:00.000Z"),
+          oldestClaimedAt: null,
+        }),
+        summarizeProjectionWakeIntentBreakdown: async () => [
+          {
+            priorityLane: "hot",
+            origin: "api-wait",
+            state: "queued",
+            intentCount: 2,
+            oldestCreatedAt: new Date("2026-06-10T11:58:00.000Z"),
+            maxAttemptCount: 0,
+          },
+        ],
+        summarizeCheckpointSignals: async () => ({
+          readinessCount: 4,
+          expiredReadinessCount: 0,
+          latestReadyRecordedAt: new Date("2026-06-10T11:59:45.000Z"),
+          pendingWaiterCount: 1,
+          expiredPendingWaiterCount: 0,
+          satisfiedWaiterCount: 9,
+          oldestPendingWaiterAt: new Date("2026-06-10T11:59:00.000Z"),
+          pendingWaiterOrigins: [{ origin: "api-wait", waiterCount: 1 }],
+        }),
+      },
+    });
+
+    const response = await app.request("/api/platform/projections/wake-status");
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as Record<string, never>;
+    expect(body).toMatchObject({
+      wakeStore: {
+        available: true,
+        intentSummary: {
+          queuedCount: 2,
+          claimedCount: 1,
+          oldestQueuedAt: "2026-06-10T11:58:00.000Z",
+        },
+        intentBreakdown: [{ priorityLane: "hot", origin: "api-wait", state: "queued", intentCount: 2 }],
+        checkpointSignals: {
+          readinessCount: 4,
+          pendingWaiterCount: 1,
+          pendingWaiterOrigins: [{ origin: "api-wait", waiterCount: 1 }],
+        },
+      },
+      relay: {
+        available: true,
+        activeLeaseName: "projection-wake-relay:active",
+        lease: {
+          ownerId: "platform-worker-1",
+          fencingToken: "12",
+          state: "active",
+        },
+        cursors: [
+          {
+            sourceContextName: "checkout",
+            lastFanOutPosition: "102",
+            interestIndexVersion: "v3",
+            lastAdvanceReason: "notify",
+            lastStreamCategory: "checkout-session",
+          },
+        ],
+      },
+      schedulers: {
+        available: true,
+        wakeCapableWorkerCount: 1,
+        activeWakeCapableWorkerCount: 1,
+        workers: [{ workerId: "platform-worker-1", workerState: "active", wakeRunnerCount: 3 }],
+      },
+      rollout: {
+        summary: { entryCount: expect.any(Number) },
+      },
+    });
+    // Privacy posture: structural fields only — lease/cursor metadata is never
+    // forwarded wholesale.
+    expect(JSON.stringify(body)).not.toContain("never-forwarded");
+    expect(JSON.stringify(body)).not.toContain("arbitraryKey");
+  });
+
+  it("reports unavailable push-wake sections when control plane and wake store are not wired", async () => {
+    const app = buildAdminSupportApiApp(createEmptyRuntime(), {
+      resolveActor: async () => ({
+        sessionId: "ses_test",
+        tenantId: "tnt_test",
+        userId: "usr_test",
+        accountId: "acc_test",
+        membershipId: "mem_test",
+        roleKey: "platform-admin",
+        permissions: ["security.manage"],
+      }),
+    });
+
+    const response = await app.request("/api/platform/projections/wake-status");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      wakeStore: { available: false },
+      relay: { available: false },
+      schedulers: { available: false },
+      rollout: {
+        summary: { entryCount: expect.any(Number) },
+        sources: expect.any(Array),
+      },
+    });
+  });
+
   it("requires catalog manage permission for Catalog API mutations", async () => {
     const app = buildAdminSupportApiApp(createCatalogRuntime(), {
       resolveActor: async () => ({

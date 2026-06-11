@@ -173,6 +173,29 @@ export type ProjectionWakeIntentSummary = Readonly<{
   oldestClaimedAt: Date | null;
 }>;
 
+export type ProjectionWakeIntentBreakdownEntry = Readonly<{
+  priorityLane: WorkSignalPriorityLane;
+  origin: WorkSignalWakeOrigin;
+  state: ProjectionWakeIntentState;
+  intentCount: number;
+  oldestCreatedAt: Date | null;
+  maxAttemptCount: number;
+}>;
+
+export type CheckpointSignalSummary = Readonly<{
+  readinessCount: number;
+  expiredReadinessCount: number;
+  latestReadyRecordedAt: Date | null;
+  pendingWaiterCount: number;
+  expiredPendingWaiterCount: number;
+  satisfiedWaiterCount: number;
+  oldestPendingWaiterAt: Date | null;
+  pendingWaiterOrigins: readonly Readonly<{
+    origin: WorkSignalWakeOrigin;
+    waiterCount: number;
+  }>[];
+}>;
+
 export type WorkSignalCleanupResult = Readonly<{
   expiredWakeIntents: number;
   prunedWakeIntents: number;
@@ -269,6 +292,8 @@ export type PostgresWorkSignalStore = Readonly<{
   addCheckpointWaiter(input: AddCheckpointWaiterInput): Promise<CheckpointWaiterRecord>;
   cleanupExpiredWorkSignals(input?: CleanupExpiredWorkSignalsInput): Promise<WorkSignalCleanupResult>;
   summarizeProjectionWakeIntents(): Promise<ProjectionWakeIntentSummary>;
+  summarizeProjectionWakeIntentBreakdown(): Promise<readonly ProjectionWakeIntentBreakdownEntry[]>;
+  summarizeCheckpointSignals(): Promise<CheckpointSignalSummary>;
 }>;
 
 const DEFAULT_WAKE_TTL_MS = 5 * 60 * 1000;
@@ -1016,6 +1041,86 @@ export function createPostgresWorkSignalStore(
         oldestClaimedAt: toNullableDate(row.oldest_claimed_at),
       };
     },
+
+    async summarizeProjectionWakeIntentBreakdown() {
+      // Aggregated, structural-only operator summary (ADR 0010 privacy
+      // boundary): counts, lanes, origins, states, and ages — never metadata
+      // or last_error contents.
+      const result = await query<ProjectionWakeIntentBreakdownRow>(
+        db,
+        `
+        SELECT
+          priority_lane,
+          origin,
+          state,
+          COUNT(*)::integer AS intent_count,
+          MIN(created_at) AS oldest_created_at,
+          MAX(attempt_count)::integer AS max_attempt_count
+        FROM platform_projection_wake_intents
+        GROUP BY priority_lane, origin, state
+        ORDER BY priority_lane, origin, state
+        `,
+      );
+
+      return result.rows.map((row) => ({
+        priorityLane: row.priority_lane,
+        origin: row.origin,
+        state: row.state,
+        intentCount: Number(row.intent_count),
+        oldestCreatedAt: toNullableDate(row.oldest_created_at),
+        maxAttemptCount: Number(row.max_attempt_count),
+      }));
+    },
+
+    async summarizeCheckpointSignals() {
+      const readinessResult = await query<CheckpointReadinessSummaryRow>(
+        db,
+        `
+        SELECT
+          COUNT(*)::integer AS readiness_count,
+          COUNT(*) FILTER (WHERE expires_at <= now())::integer AS expired_readiness_count,
+          MAX(recorded_at) AS latest_ready_recorded_at
+        FROM platform_projection_checkpoint_readiness
+        `,
+      );
+      const waiterResult = await query<CheckpointWaiterSummaryRow>(
+        db,
+        `
+        SELECT
+          COUNT(*) FILTER (WHERE satisfied_at IS NULL)::integer AS pending_waiter_count,
+          COUNT(*) FILTER (WHERE satisfied_at IS NULL AND expires_at <= now())::integer AS expired_pending_waiter_count,
+          COUNT(*) FILTER (WHERE satisfied_at IS NOT NULL)::integer AS satisfied_waiter_count,
+          MIN(created_at) FILTER (WHERE satisfied_at IS NULL) AS oldest_pending_waiter_at
+        FROM platform_projection_checkpoint_waiters
+        `,
+      );
+      const waiterOriginResult = await query<CheckpointWaiterOriginRow>(
+        db,
+        `
+        SELECT origin, COUNT(*)::integer AS waiter_count
+        FROM platform_projection_checkpoint_waiters
+        WHERE satisfied_at IS NULL
+        GROUP BY origin
+        ORDER BY origin
+        `,
+      );
+
+      const readinessRow = requireSingleRow(readinessResult.rows);
+      const waiterRow = requireSingleRow(waiterResult.rows);
+      return {
+        readinessCount: Number(readinessRow.readiness_count),
+        expiredReadinessCount: Number(readinessRow.expired_readiness_count),
+        latestReadyRecordedAt: toNullableDate(readinessRow.latest_ready_recorded_at),
+        pendingWaiterCount: Number(waiterRow.pending_waiter_count),
+        expiredPendingWaiterCount: Number(waiterRow.expired_pending_waiter_count),
+        satisfiedWaiterCount: Number(waiterRow.satisfied_waiter_count),
+        oldestPendingWaiterAt: toNullableDate(waiterRow.oldest_pending_waiter_at),
+        pendingWaiterOrigins: waiterOriginResult.rows.map((row) => ({
+          origin: row.origin,
+          waiterCount: Number(row.waiter_count),
+        })),
+      };
+    },
   };
 }
 
@@ -1183,6 +1288,33 @@ type ProjectionWakeIntentSummaryRow = {
   stale_claim_count: number | string;
   oldest_queued_at: Date | string | null;
   oldest_claimed_at: Date | string | null;
+};
+
+type ProjectionWakeIntentBreakdownRow = {
+  priority_lane: WorkSignalPriorityLane;
+  origin: WorkSignalWakeOrigin;
+  state: ProjectionWakeIntentState;
+  intent_count: number | string;
+  oldest_created_at: Date | string | null;
+  max_attempt_count: number | string;
+};
+
+type CheckpointReadinessSummaryRow = {
+  readiness_count: number | string;
+  expired_readiness_count: number | string;
+  latest_ready_recorded_at: Date | string | null;
+};
+
+type CheckpointWaiterSummaryRow = {
+  pending_waiter_count: number | string;
+  expired_pending_waiter_count: number | string;
+  satisfied_waiter_count: number | string;
+  oldest_pending_waiter_at: Date | string | null;
+};
+
+type CheckpointWaiterOriginRow = {
+  origin: WorkSignalWakeOrigin;
+  waiter_count: number | string;
 };
 
 function mapProjectionWakeIntentRow(row: ProjectionWakeIntentRow): ProjectionWakeIntentRecord {
