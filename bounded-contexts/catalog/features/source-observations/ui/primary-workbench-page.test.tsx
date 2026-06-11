@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
+import { catalogProviderProfileEditableSectionKeys } from "../api/provider-profile-section-registry";
 import { buildCatalogPrimaryWorkbenchReadModel } from "./primary-workbench-read-model";
 import { CatalogPrimaryWorkbenchPage } from "./primary-workbench-page";
 import {
@@ -132,6 +133,12 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.getAllByText("TCGdex Pokemon cards").length).toBeGreaterThan(0);
     expect(screen.getAllByText("tcgdex-pokemon-card@2026.06.04").length).toBeGreaterThan(0);
     expect(screen.getByText("Draft required for active profiles")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Guided section workspaces" })).toBeTruthy();
+    expect(screen.getByRole("navigation", { name: "Profile section groups" })).toBeTruthy();
+    expect(screen.getByLabelText("Profile section")).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "Save section" })).toHaveLength(
+      catalogProviderProfileEditableSectionKeys.length,
+    );
     expect(screen.getByText("Immutable identity facts")).toBeTruthy();
     expect(screen.getByLabelText("Draft profile version")).toHaveProperty("value", "2026.06.04-draft");
     expect(screen.getByRole("button", { name: "Create draft" }).hasAttribute("disabled")).toBe(false);
@@ -145,6 +152,39 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(draftForm?.getAttribute("action")).toContain("section=profile-work");
     expect(screen.queryByRole("heading", { name: "Provider import operations" })).toBeNull();
     expect(screen.queryByText(/raw JSON/i)).toBeNull();
+    expect(screen.queryByText(/Profile JSON|Candidate JSON|Active JSON/i)).toBeNull();
+  });
+
+  it("renders section forms as editable typed controls for draft profiles", () => {
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&section=profile-work&profileVersion=2026.06.04-draft",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: {
+        items: [profileReview({ active: false, lifecycle: "draft", profileVersion: "2026.06.04-draft" })],
+        total: 1,
+        count: 1,
+      },
+      controlPlaneOverview: null,
+      canManageCatalog: true,
+    });
+
+    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+
+    const forms = document.querySelectorAll<HTMLFormElement>(
+      'form[data-catalog-primary-workbench-command="update-provider-profile-section"]',
+    );
+    expect(forms).toHaveLength(catalogProviderProfileEditableSectionKeys.length);
+
+    const basics = document.querySelector<HTMLElement>('[data-catalog-profile-section-workspace="basics"]');
+    expect(within(basics!).getByLabelText("Display name")).toHaveProperty("value", "TCGdex Pokemon cards");
+    expect(within(basics!).getByRole("button", { name: "Save section" }).hasAttribute("disabled")).toBe(false);
+    expect(basics?.querySelector<HTMLInputElement>('input[name="_intent"]')?.value).toBe(
+      "update-provider-profile-section",
+    );
+    expect(basics?.querySelector<HTMLInputElement>('input[name="sectionKey"]')?.value).toBe("basics");
+    expect(basics?.querySelector<HTMLInputElement>('input[name="profileVersion"]')?.value).toBe("2026.06.04-draft");
+    expect(screen.queryByRole("textbox", { name: /raw json/i })).toBeNull();
   });
 
   it("keeps profile overview inspectable but disables draft creation for view-only operators", () => {

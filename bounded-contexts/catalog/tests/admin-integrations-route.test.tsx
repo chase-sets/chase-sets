@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { CatalogApiError } from "../client";
 import IntegrationsRoute, { action, loader } from "../routes/admin/integrations";
 import { buildCatalogPrimaryWorkbenchReadModel } from "../features/source-observations/ui/primary-workbench-read-model";
 import {
@@ -416,6 +417,112 @@ describe("Catalog integrations route", () => {
     expect(response.headers.get("Location")).toContain("section=profile-work");
     expect(response.headers.get("Location")).toContain("commandStatus=error");
     expect(response.headers.get("Location")).toContain("commandResult=invalid-intent");
+  });
+
+  it("bridges guided profile section saves through the typed section PATCH API", async () => {
+    const listSourceObservationProviderProfiles = vi.fn().mockResolvedValue({
+      items: [profileReview({ active: false, lifecycle: "draft", profileVersion: "2026.06.04-draft" })],
+      total: 1,
+      count: 1,
+    });
+    const updateSourceObservationProviderProfileSection = vi.fn().mockResolvedValue({
+      providerKey: "tcgdex",
+      profileKey: "tcgdex-pokemon-card",
+      profileVersion: "2026.06.04-draft",
+    });
+    const recordCatalogControlPlaneEvent = vi.fn().mockResolvedValue({ status: "recorded" });
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listSourceObservationProviderProfiles,
+      updateSourceObservationProviderProfileSection,
+      recordCatalogControlPlaneEvent,
+    });
+
+    const response = await runAction({
+      _intent: "update-provider-profile-section",
+      providerKey: "tcgdex",
+      unitKey: "tcgdex:pokemon:card:import",
+      importScope: "en:3:base:base1",
+      profileVersion: "2026.06.04-draft",
+      sectionKey: "basics",
+      displayName: "TCGdex Pokemon cards draft",
+      lifecycle: "draft",
+      status: "planned",
+      capabilities: "source-observation-import, catalog-item-promotion",
+      supportedScopes: "pokemon/card",
+      languageOptions: "en, fr",
+      selectedObservationIds: "obs_001",
+      promotionPreviewId: "preview-stale",
+    });
+
+    expect(updateSourceObservationProviderProfileSection).toHaveBeenCalledWith(
+      "tcgdex",
+      "2026.06.04-draft",
+      "basics",
+      expect.objectContaining({
+        section: "basics",
+        displayName: "TCGdex Pokemon cards draft",
+        lifecycle: "draft",
+        status: "planned",
+        capabilities: ["source-observation-import", "catalog-item-promotion"],
+        languageOptions: ["en", "fr"],
+      }),
+    );
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toContain("section=profile-work");
+    expect(response.headers.get("Location")).toContain("profileVersion=2026.06.04-draft");
+    expect(response.headers.get("Location")).toContain("commandResult=section-saved");
+    expect(response.headers.get("Location")).toContain("commandSection=basics");
+    expect(response.headers.get("Location")).not.toContain("promotionPreviewId=");
+    expect(recordCatalogControlPlaneEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "catalog_control_plane.profile_section_saved",
+        providerKey: "tcgdex",
+        profileRef: "tcgdex:2026.06.04-draft",
+        promotionResult: "section-saved",
+        detourTarget: "profile-authoring",
+      }),
+    );
+  });
+
+  it("returns section-scoped feedback for stale and invalid section saves", async () => {
+    const listSourceObservationProviderProfiles = vi.fn().mockResolvedValue({
+      items: [profileReview({ active: false, lifecycle: "draft", profileVersion: "2026.06.04-draft" })],
+      total: 1,
+      count: 1,
+    });
+    const updateSourceObservationProviderProfileSection = vi
+      .fn()
+      .mockRejectedValueOnce(new CatalogApiError(409, { error: { code: "stale" } }))
+      .mockRejectedValueOnce(new CatalogApiError(400, { error: { code: "invalid" } }));
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listSourceObservationProviderProfiles,
+      updateSourceObservationProviderProfileSection,
+      recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+    });
+
+    const conflictResponse = await runAction({
+      _intent: "update-provider-profile-section",
+      providerKey: "tcgdex",
+      profileVersion: "2026.06.04-draft",
+      sectionKey: "source-contract",
+      sourceOwner: "chase-sets/catalog",
+      sourceDocumentPath: "bounded-contexts/catalog/docs/provider-integration-profiles.md",
+      fixtureSetVersion: "tcgdex-proof-v1",
+    });
+    const invalidResponse = await runAction({
+      _intent: "update-provider-profile-section",
+      providerKey: "tcgdex",
+      profileVersion: "2026.06.04-draft",
+      sectionKey: "source-contract",
+      sourceOwner: "chase-sets/catalog",
+      sourceDocumentPath: "",
+      fixtureSetVersion: "tcgdex-proof-v1",
+    });
+
+    expect(conflictResponse.headers.get("Location")).toContain("commandResult=section-conflict");
+    expect(conflictResponse.headers.get("Location")).toContain("commandSection=source-contract");
+    expect(invalidResponse.headers.get("Location")).toContain("commandResult=section-invalid");
+    expect(invalidResponse.headers.get("Location")).toContain("commandSection=source-contract");
   });
 
   it("fails closed when promotion execution has no fresh preview", async () => {

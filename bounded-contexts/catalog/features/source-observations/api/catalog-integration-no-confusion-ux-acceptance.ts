@@ -571,8 +571,8 @@ function buildDefaultWorkflowEvidence(evidenceBase: string): readonly CatalogNoC
       "profile-authoring-support",
       null,
       ["provider-scope-selection", "supporting-evidence"],
-      ["clone-provider-profile"],
-      "Profile authoring support inspects typed profile evidence and creates draft profiles without raw JSON or old page modules.",
+      ["clone-provider-profile", "update-provider-profile-section"],
+      "Profile authoring support inspects typed profile evidence, creates drafts, and saves guided profile sections without raw JSON or old page modules.",
     ),
     workflow(
       "validation-readiness-support",

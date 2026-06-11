@@ -15,6 +15,9 @@ export type CatalogPrimaryWorkbenchCommandTelemetryResult =
   | "job-cancelled"
   | "preview-ready"
   | "draft-created"
+  | "section-saved"
+  | "section-conflict"
+  | "section-invalid"
   | "preview-required"
   | "job-required"
   | "reason-required"
@@ -27,6 +30,7 @@ export type CatalogPrimaryWorkbenchCommandTelemetryInput = Readonly<{
   intent: string;
   status: "success" | "error";
   result: CatalogPrimaryWorkbenchCommandTelemetryResult;
+  commandSection?: string;
 }>;
 
 export type CatalogControlPlaneTelemetryApi = Readonly<{
@@ -159,6 +163,20 @@ export function commandTelemetryEvents(
       promotionResult,
       detourTarget: "profile-authoring",
       detourOutcome: "returned",
+    });
+  }
+
+  if (input.intent === "update-provider-profile-section") {
+    events.push({
+      eventName:
+        input.status === "success"
+          ? "catalog_control_plane.profile_section_saved"
+          : "catalog_control_plane.blocker_hit",
+      ...base,
+      promotionResult,
+      detourTarget: "profile-authoring",
+      detourOutcome: input.status === "success" ? "returned" : "blocked",
+      blockerCategory: input.status === "error" ? blockerCategoryForCommandResult(input.result) : null,
     });
   }
 
@@ -335,8 +353,16 @@ function blockerCategoryForCommandResult(
   if (result === "job-required") {
     return "active-job";
   }
-  if (result === "reason-required" || result === "unsupported-command" || result === "invalid-intent") {
+  if (
+    result === "reason-required" ||
+    result === "unsupported-command" ||
+    result === "invalid-intent" ||
+    result === "section-invalid"
+  ) {
     return "readiness";
+  }
+  if (result === "section-conflict") {
+    return "stale-context";
   }
   if (result === "command-failed") {
     return "unknown";
@@ -352,6 +378,9 @@ function promotionTelemetryResult(
     case "job-cancelled":
     case "preview-ready":
     case "draft-created":
+    case "section-saved":
+    case "section-conflict":
+    case "section-invalid":
     case "preview-required":
     case "reason-required":
     case "unsupported-command":
