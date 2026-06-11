@@ -236,7 +236,7 @@ describe("checkout web routes", () => {
     mockCreateCartReadiness.mockResolvedValue(readyCartReadinessResponse());
     mockCreateSellListReadiness.mockResolvedValue(readySellListReadinessResponse());
     mockCreateGuestSellListReadiness.mockResolvedValue(readySellListReadinessResponse());
-    mockPreviewOfferAcceptanceTerms.mockResolvedValue({
+    mockPreviewOfferAcceptanceTerms.mockImplementation(async (offerId: string) => ({
       account_type: "personal",
       basis_amount: "38.00",
       marketplace_sales_fee_unit_amount: "3.80",
@@ -245,8 +245,8 @@ describe("checkout web routes", () => {
       schedule_id: "terms_standard",
       agreement_id: null,
       resolved_at: "2026-06-10T00:00:00.000Z",
-      fee_quote_fingerprint: "quote_1",
-    });
+      fee_quote_fingerprint: offerId === "off_product_1" ? "quote_product_1" : "quote_1",
+    }));
   });
 
   afterEach(() => {
@@ -1877,6 +1877,7 @@ describe("checkout web routes", () => {
       confirmSellListCheckout: mockConfirmSellListCheckout,
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      previewOfferAcceptanceTerms: mockPreviewOfferAcceptanceTerms,
       acceptOfferMatch: mockAcceptOfferMatch,
       createListing: mockCreateListing,
       publishListing: mockPublishListing,
@@ -2019,10 +2020,14 @@ describe("checkout web routes", () => {
       }),
     );
     expect(mockGetSellListConfirmation).toHaveBeenCalledWith("slc_chk_sell_1");
+    expect(mockPreviewOfferAcceptanceTerms).toHaveBeenCalledWith("off_1");
     expect(mockAcceptOfferMatch).toHaveBeenCalledWith("off_1", {
       feeQuoteFingerprint: "quote_1",
       sourceActionKey: "sell-confirm:slc_chk_sell_1:sll_1:selected:off_1",
     });
+    expect(mockPreviewOfferAcceptanceTerms.mock.invocationCallOrder[0]).toBeLessThan(
+      mockAcceptOfferMatch.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER,
+    );
     expect(mockConfirmSellListCheckout).toHaveBeenCalledWith(
       expect.objectContaining({
         confirmationId: "slc_chk_sell_1",
@@ -2045,6 +2050,65 @@ describe("checkout web routes", () => {
         }),
       }),
     );
+  });
+
+  it("fails signed-in seller checkout into Sell List recovery when selected offer terms changed before handoff", async () => {
+    mockSignedInSellCheckoutState();
+    mockPreviewOfferAcceptanceTerms.mockResolvedValueOnce({
+      account_type: "personal",
+      basis_amount: "38.00",
+      marketplace_sales_fee_unit_amount: "4.20",
+      seller_net_unit_amount: "33.80",
+      shipping_allowance_percentage_bps: 0,
+      schedule_id: "terms_standard",
+      agreement_id: null,
+      resolved_at: "2026-06-10T00:02:00.000Z",
+      fee_quote_fingerprint: "quote_changed",
+    });
+
+    const result = await sellCheckoutSessionAction({
+      request: new Request("http://localhost/checkout/sell/session/chk_sell_1", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: signedInSellCheckoutForm().toString(),
+      }),
+      params: { sessionId: "chk_sell_1" },
+      context: undefined,
+    } as never);
+
+    expect(result.status).toBe("error");
+    expect(result.status === "error" ? result.recovery : null).toEqual({
+      kind: "readiness-stale",
+      detail: "Acerola's Mischief: offer terms need refresh.",
+    });
+    expect(result.status === "error" ? result.fieldErrors.form : "").toBe(
+      "Acerola's Mischief: offer terms need refresh.",
+    );
+    expect(mockPreviewOfferAcceptanceTerms).toHaveBeenCalledWith("off_1");
+    expectNoSellerCommitSideEffects();
+  });
+
+  it("fails signed-in seller checkout into Sell List recovery when current offer terms are unavailable", async () => {
+    mockSignedInSellCheckoutState();
+    mockPreviewOfferAcceptanceTerms.mockRejectedValueOnce(new Error("terms unavailable"));
+
+    const result = await sellCheckoutSessionAction({
+      request: new Request("http://localhost/checkout/sell/session/chk_sell_1", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: signedInSellCheckoutForm().toString(),
+      }),
+      params: { sessionId: "chk_sell_1" },
+      context: undefined,
+    } as never);
+
+    expect(result.status).toBe("error");
+    expect(result.status === "error" ? result.recovery : null).toEqual({
+      kind: "readiness-stale",
+      detail: "Acerola's Mischief: offer terms need refresh.",
+    });
+    expect(mockPreviewOfferAcceptanceTerms).toHaveBeenCalledWith("off_1");
+    expectNoSellerCommitSideEffects();
   });
 
   it("rejects hidden fallback listing facts on selected-offer confirmation before side effects", async () => {
@@ -2116,6 +2180,7 @@ describe("checkout web routes", () => {
       confirmSellListCheckout: mockConfirmSellListCheckout,
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      previewOfferAcceptanceTerms: mockPreviewOfferAcceptanceTerms,
       acceptOfferMatch: mockAcceptOfferMatch,
       createListing: mockCreateListing,
       publishListing: mockPublishListing,
@@ -2180,6 +2245,95 @@ describe("checkout web routes", () => {
     );
   });
 
+  it("fails signed-in seller checkout before Smart Match handoff when offer terms changed", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(signedInSellerActor());
+    mockCreateSellListReadiness.mockResolvedValue({
+      readiness: {
+        ...readySellListReadinessResponse().readiness,
+        lineCount: 2,
+        includedLineIds: ["sll_product"],
+        lineOutcomes: [{ lineId: "sll_product", outcome: "checkout", reason: "ready", action: "smart-match" }],
+      },
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellList: vi.fn(async () => ({
+        items: [
+          guestSellListLine({
+            seller_account_id: "acc_seller",
+            line_id: "sll_product",
+            line_type: "product",
+            offer_id: null,
+            offer_price_amount: null,
+            quantity: 2,
+            minimum_listing_price_amount: null,
+          }),
+        ],
+        count: 2,
+      })),
+      createSellListReadiness: mockCreateSellListReadiness,
+      getSellListConfirmation: mockGetSellListConfirmation,
+      confirmSellListCheckout: mockConfirmSellListCheckout,
+    });
+    mockPreviewOfferAcceptanceTerms.mockResolvedValueOnce({
+      account_type: "personal",
+      basis_amount: "38.00",
+      marketplace_sales_fee_unit_amount: "5.00",
+      seller_net_unit_amount: "33.00",
+      shipping_allowance_percentage_bps: 0,
+      schedule_id: "terms_standard",
+      agreement_id: null,
+      resolved_at: "2026-06-10T00:03:00.000Z",
+      fee_quote_fingerprint: "quote_product_changed",
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      previewOfferAcceptanceTerms: mockPreviewOfferAcceptanceTerms,
+      acceptOfferMatch: mockAcceptOfferMatch,
+      createListing: mockCreateListing,
+      publishListing: mockPublishListing,
+    });
+
+    const result = await sellCheckoutSessionAction({
+      request: new Request("http://localhost/checkout/sell/session/chk_sell_1", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: signedInSellCheckoutForm({
+          readinessDecisions: JSON.stringify({
+            lineActions: [{ lineId: "sll_product", action: "smart-match" }],
+            lineOutcomes: [],
+          }),
+          sellListReviewPlan: JSON.stringify({
+            version: 1,
+            lines: [
+              {
+                lineId: "sll_product",
+                lineType: "product",
+                itemTitle: "Mewtwo",
+                productId: "prod_1",
+                quantity: 2,
+                selectedOffer: null,
+                productOfferTargets: [
+                  { offerId: "off_product_1", feeQuoteFingerprint: "quote_product_1", quantity: 1 },
+                ],
+                fallbackListing: null,
+                skippedReasons: [],
+              },
+            ],
+          }),
+        }).toString(),
+      }),
+      params: { sessionId: "chk_sell_1" },
+      context: undefined,
+    } as never);
+
+    expect(result.status).toBe("error");
+    expect(result.status === "error" ? result.recovery : null).toEqual({
+      kind: "readiness-stale",
+      detail: "Acerola's Mischief: offer terms need refresh.",
+    });
+    expect(mockPreviewOfferAcceptanceTerms).toHaveBeenCalledWith("off_product_1");
+    expectNoSellerCommitSideEffects();
+  });
+
   it("records Smart Match and fallback listing handoffs with remaining Sell List quantity on publish replay", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(signedInSellerActor());
     mockCreateSellListReadiness.mockResolvedValue({
@@ -2218,6 +2372,7 @@ describe("checkout web routes", () => {
       new MockMarketplaceApiError(400, { error: { message: "Listing is already active." } }),
     );
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      previewOfferAcceptanceTerms: mockPreviewOfferAcceptanceTerms,
       acceptOfferMatch: mockAcceptOfferMatch,
       createListing: mockCreateListing,
       publishListing: mockPublishListing,
@@ -2323,6 +2478,7 @@ describe("checkout web routes", () => {
       confirmSellListCheckout: mockConfirmSellListCheckout,
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      previewOfferAcceptanceTerms: mockPreviewOfferAcceptanceTerms,
       acceptOfferMatch: mockAcceptOfferMatch,
       createListing: mockCreateListing,
       publishListing: mockPublishListing,
