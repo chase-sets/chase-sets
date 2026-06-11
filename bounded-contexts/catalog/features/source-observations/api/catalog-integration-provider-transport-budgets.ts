@@ -237,8 +237,8 @@ export const catalogProviderTransportFirstSliceProofProviders = [
       ),
       coverage(
         "provider-transport-degraded-condition",
-        "planned-proof",
-        "The real-provider proof must exercise at least one degraded transport condition against the canonical blocker vocabulary.",
+        "covered-by-test",
+        "The #1062 real-provider proof packet records a timeout condition against the canonical providerTransport and blocker vocabulary.",
         "#1062",
       ),
       coverage(
@@ -248,14 +248,14 @@ export const catalogProviderTransportFirstSliceProofProviders = [
       ),
       coverage(
         "promotion-preview-counts",
-        "planned-proof",
-        "The #1062 real-provider proof must capture promotion preview counts before any Catalog Item write.",
+        "covered-by-test",
+        "The #1062 real-provider proof packet captures promotion preview counts before any Catalog Item write.",
         "#1062",
       ),
       coverage(
         "redaction-safe-evidence",
-        "planned-proof",
-        "The #1064 hardening pass must verify evidence redaction for credentials, raw payload bodies, secret URLs, and provider-sensitive material.",
+        "covered-by-test",
+        "The #1062 proof packet is redacted by contract, with #1064 still owning launch security/privacy signoff.",
         "#1064",
       ),
     ],
