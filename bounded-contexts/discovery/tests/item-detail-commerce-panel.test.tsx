@@ -35,6 +35,22 @@ afterEach(() => {
   window.history.replaceState(null, "", "/");
 });
 
+function captureItemDetailRailAnalytics() {
+  const events: Array<Record<string, unknown>> = [];
+  const handler = (event: Event) => {
+    if (event instanceof CustomEvent && event.detail && typeof event.detail === "object") {
+      events.push(event.detail as Record<string, unknown>);
+    }
+  };
+
+  window.addEventListener("chase-sets:item-detail-rail-analytics", handler);
+
+  return {
+    events,
+    stop: () => window.removeEventListener("chase-sets:item-detail-rail-analytics", handler),
+  };
+}
+
 const baseListing: DiscoveryMarketListing = {
   listing_id: "listing_charizard",
   listing_slug: "charizard-base-set-listingcharizard",
@@ -443,7 +459,93 @@ describe("item detail commerce panel", () => {
     );
   });
 
-  it("does not invent a guest payout when the public standard terms preview is missing", () => {
+  it("tracks guest payout preview, reference info, and registration gates", async () => {
+    const analytics = captureItemDetailRailAnalytics();
+
+    render(
+      <MarketplaceSellerRegistrationSection
+        productSummary="Raw / Near Mint"
+        selectedOffer={{
+          buyer_account_id: "buyer_1",
+          buyer_display_name: "Top Loader Capital",
+          price_amount: "380.00",
+          quantity_requested: 1,
+          public_standard_terms_preview: {
+            account_type: "personal",
+            basis_amount: "380.00",
+            marketplace_sales_fee_unit_amount: "34.35",
+            seller_net_unit_amount: "345.65",
+            shipping_allowance_percentage_bps: 500,
+            source_kind: "public-standard-seller-terms",
+            source_label: "Standard seller terms",
+            resolved_at: "2026-05-05T16:36:36.000Z",
+          },
+        }}
+        matchingOfferCount={5}
+        registerHref="/register?returnTo=%2Fitems%2Fcat_charizard"
+      />,
+    );
+
+    await waitFor(() =>
+      expect(analytics.events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            event: "payout_preview_shown",
+            intent: "sell",
+            workflow: "selected_offer",
+            topic: "estimated_payout",
+            outcome: "shown",
+            surface: "guest_registration",
+          }),
+          expect.objectContaining({
+            event: "registration_gate_shown",
+            intent: "sell",
+            workflow: "selected_offer",
+            gate: "accept_offer",
+            viewer: "guest",
+          }),
+          expect.objectContaining({
+            event: "registration_gate_shown",
+            intent: "sell",
+            workflow: "create_listing",
+            gate: "create_listing",
+            viewer: "guest",
+          }),
+        ]),
+      ),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "View estimated payout details" }));
+    expect(analytics.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: "reference_info_opened",
+          topic: "estimated_payout",
+          outcome: "opened",
+        }),
+      ]),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Close reference detail" }));
+
+    fireEvent.click(screen.getByRole("link", { name: "Continue to accept offer" }));
+    expect(analytics.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: "registration_started",
+          intent: "sell",
+          workflow: "selected_offer",
+          gate: "accept_offer",
+          viewer: "guest",
+        }),
+      ]),
+    );
+
+    analytics.stop();
+  });
+
+  it("does not invent a guest payout when the public standard terms preview is missing", async () => {
+    const analytics = captureItemDetailRailAnalytics();
+
     render(
       <MarketplaceSellerRegistrationSection
         productSummary="Raw / Near Mint"
@@ -467,6 +569,21 @@ describe("item detail commerce panel", () => {
     expect(screen.getByRole("link", { name: "Continue to accept offer" }).getAttribute("href")).toBe(
       "/register?returnTo=%2Fitems%2Fcat_charizard",
     );
+    await waitFor(() =>
+      expect(analytics.events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            event: "standard_preview_unavailable",
+            intent: "sell",
+            workflow: "selected_offer",
+            topic: "estimated_payout",
+            outcome: "unavailable",
+            surface: "guest_registration",
+          }),
+        ]),
+      ),
+    );
+    analytics.stop();
   });
 
   it("uses a generic buyer label instead of raw account id when public display name is missing", () => {
@@ -1024,6 +1141,53 @@ describe("item detail commerce panel", () => {
     expect(screen.queryByText("submitted")).toBeNull();
   });
 
+  it("tracks desktop rail intent selection with implicit workflow context", async () => {
+    const analytics = captureItemDetailRailAnalytics();
+
+    render(
+      <ItemDetailPage
+        data={createItem()}
+        renderCommerce={() => ({
+          buy: <div>Buy selected product</div>,
+          offer: <div>Make an offer</div>,
+          sell: <div>Accept offer</div>,
+          watch: <div>Watch this product</div>,
+        })}
+      />,
+    );
+
+    const marketIntent = screen.getByRole("tablist", {
+      name: "Choose market intent",
+    });
+
+    fireEvent.click(within(marketIntent).getByRole("tab", { name: "Sell" }));
+    fireEvent.click(within(marketIntent).getByRole("tab", { name: "Watch product" }));
+
+    await waitFor(() =>
+      expect(analytics.events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            event: "rail_intent_selected",
+            intent: "sell",
+            workflow: "best_offer",
+            selection: "implicit",
+            viewer: "guest",
+            surface: "desktop_rail",
+          }),
+          expect.objectContaining({
+            event: "rail_intent_selected",
+            intent: "watch",
+            workflow: "watch",
+            selection: "none",
+            viewer: "guest",
+            surface: "desktop_rail",
+          }),
+        ]),
+      ),
+    );
+    analytics.stop();
+  });
+
   it("places listing and offer watches in the Watch intent", async () => {
     renderItemDetailRoute({
       item: createItem(),
@@ -1447,6 +1611,8 @@ describe("item detail commerce panel", () => {
   });
 
   it("changes the selected listing when another listing is clicked", () => {
+    const analytics = captureItemDetailRailAnalytics();
+
     window.history.replaceState(null, "", "/items/charizard-base-set?market=buy");
 
     render(
@@ -1490,6 +1656,19 @@ describe("item detail commerce panel", () => {
     const url = new URL(window.location.href);
     expect(url.searchParams.get("listing")).toBe("listing_charizard_alt");
     expect(url.searchParams.get("offer")).toBeNull();
+    expect(analytics.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: "workflow_selected",
+          intent: "buy",
+          workflow: "selected_listing",
+          selection: "explicit",
+          viewer: "guest",
+          surface: "market_book",
+        }),
+      ]),
+    );
+    analytics.stop();
   });
 
   it("restores explicit listing selection from browser history state", async () => {
@@ -1615,6 +1794,8 @@ describe("item detail commerce panel", () => {
   });
 
   it("uses accordion headers as purchase workflow selectors", () => {
+    const analytics = captureItemDetailRailAnalytics();
+
     render(
       <BuyActionCard
         formIdPrefix="buy-card"
@@ -1643,9 +1824,23 @@ describe("item detail commerce panel", () => {
     expect(buyNowHeader.getAttribute("aria-expanded")).toBe("false");
     expect(makeOfferHeader.getAttribute("aria-expanded")).toBe("true");
     expect(screen.getByText("Make offer workflow body")).toBeTruthy();
+    expect(analytics.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: "workflow_selected",
+          intent: "buy",
+          workflow: "make_offer",
+          selection: "none",
+          surface: "action_rail",
+        }),
+      ]),
+    );
+    analytics.stop();
   });
 
   it("keeps offer details in Buy and listing alerts in Watch", async () => {
+    const analytics = captureItemDetailRailAnalytics();
+
     renderItemDetailRoute({
       item: createItem(),
       accountOfferMatches: [],
@@ -1681,6 +1876,15 @@ describe("item detail commerce panel", () => {
     expect(screen.queryByText("1 listing matches this selection.")).toBeNull();
     expect(screen.queryByText("Sellers can review this offer for the selected product.")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "View making an offer details" }));
+    expect(analytics.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: "reference_info_opened",
+          topic: "make_offer",
+          outcome: "opened",
+        }),
+      ]),
+    );
     const offerDialog = screen.getByRole("dialog", { name: "Making an offer" });
     expect(
       within(offerDialog).getByText("Your offer is for the selected product and eligible sellers can review it."),
@@ -1700,6 +1904,15 @@ describe("item detail commerce panel", () => {
     expect((await screen.findAllByText("Watch listings")).length).toBeGreaterThan(0);
     expect(screen.queryByText("Get notified when matching supply appears at or below your target.")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "View listing alert details" }));
+    expect(analytics.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: "reference_info_opened",
+          topic: "listing_alert",
+          outcome: "opened",
+        }),
+      ]),
+    );
     const listingAlertDialog = screen.getByRole("dialog", { name: "Listing alert" });
     expect(
       within(listingAlertDialog).getByText("Watch listings saves the selected product and target price."),
@@ -1713,6 +1926,7 @@ describe("item detail commerce panel", () => {
     expect(screen.getByLabelText("Maximum listing price")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Set listing alert" })).toBeTruthy();
     expect(screen.queryByText("Offer details")).toBeNull();
+    analytics.stop();
   });
 
   it("renders buy now as a single final CTA when selected as a workflow", () => {
