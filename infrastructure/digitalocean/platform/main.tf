@@ -516,6 +516,11 @@ resource "digitalocean_app" "platform" {
           value = local.read_consistency_wake_before_wait_enabled
           scope = "RUN_TIME"
         }
+        env {
+          key   = "PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED"
+          value = local.event_store_wake_notifications_enabled
+          scope = "RUN_TIME"
+        }
 
         env {
           key   = "DATABASE_POOL_MAX"
@@ -759,6 +764,12 @@ resource "digitalocean_app" "platform" {
         }
 
         env {
+          key   = "PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED"
+          value = local.event_store_wake_notifications_enabled
+          scope = "RUN_TIME"
+        }
+
+        env {
           key   = "NODE_ENV"
           value = "production"
           scope = "RUN_AND_BUILD_TIME"
@@ -963,6 +974,17 @@ resource "digitalocean_app" "platform" {
         env {
           key   = "WORKER_WAKE_MAX_CONCURRENT_RUNNERS"
           value = local.worker_wake_concurrency
+          scope = "RUN_TIME"
+        }
+        env {
+          key   = "WORKER_PROJECTION_WAKE_RELAY_ENABLED"
+          value = local.worker_projection_wake_relay_enabled
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED"
+          value = local.event_store_wake_notifications_enabled
           scope = "RUN_TIME"
         }
 
@@ -1317,6 +1339,12 @@ resource "digitalocean_app" "platform" {
         }
 
         env {
+          key   = "PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED"
+          value = local.event_store_wake_notifications_enabled
+          scope = "RUN_TIME"
+        }
+
+        env {
           key   = "NODE_ENV"
           value = "production"
           scope = "RUN_AND_BUILD_TIME"
@@ -1444,6 +1472,11 @@ resource "digitalocean_app" "platform" {
           key   = "NODE_ENV"
           value = "production"
           scope = "RUN_AND_BUILD_TIME"
+        }
+        env {
+          key   = "PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED"
+          value = local.event_store_wake_notifications_enabled
+          scope = "RUN_TIME"
         }
 
         env {
@@ -1589,6 +1622,11 @@ resource "digitalocean_app" "platform" {
           key   = "NODE_ENV"
           value = "production"
           scope = "RUN_AND_BUILD_TIME"
+        }
+        env {
+          key   = "PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED"
+          value = local.event_store_wake_notifications_enabled
+          scope = "RUN_TIME"
         }
 
         env {

@@ -7,11 +7,11 @@ The source-context wake registry is the rollout source of truth for push-driven 
 - Which bounded contexts may emit event-store wake notifications after committing events.
 - Which source contexts the worker-owned relay may fan out into durable projection wake intents.
 
-The registry lives in `@chase-sets/platform-runtime/source-context-wake-registry`. It is pure configuration and validation in this slice; it does not enable runtime behavior by itself.
+The registry lives in `@chase-sets/platform-runtime/source-context-wake-registry`. Runtime code derives write-side emission and relay fan-out behavior from it.
 
-## Default Runtime State
+## Current Runtime State
 
-All registry entries are non-emitting and non-listening by default:
+`checkout` is `staging-enabled` with both runtime halves on — the wave-1 hot path runs the full push loop in staging. Every other entry remains non-emitting and non-listening:
 
 ```ts
 enablement: {
@@ -20,7 +20,16 @@ enablement: {
 }
 ```
 
-This keeps the event-store wake primitive and relay rollout safe while the remaining milestone gates land. A context can only move into `staging-enabled`, `production-proof`, or `production-enabled` when both halves are enabled together.
+A context can only move into `staging-enabled`, `production-proof`, or `production-enabled` when both halves are enabled together.
+
+## Environment Gating
+
+The registry is environment-global, so per-environment rollout is enforced by deployment kill switches, not registry state:
+
+- `WORKER_PROJECTION_WAKE_RELAY_ENABLED` — staging `true`, production and previews `false`; only the staging relay opens listener connections and fans out.
+- `PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED` — staging `true`, production and previews `false`; forces every registry-derived emission config off so non-staging environments produce no unexplained notifications while their relay is off.
+
+Production enablement flips these switches only after the production proof gates pass (#1243 topology parity, #1244 connection budgets, #1237 SLO/load proof).
 
 ## Registry Fields
 

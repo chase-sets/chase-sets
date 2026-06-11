@@ -163,7 +163,14 @@ export const sourceContextWakeRegistry = [
   registryEntry({
     sourceContextName: "checkout",
     owner: "Checkout",
-    rolloutState: "eligible",
+    // Staging-enabled wave-1 hot path: staging runs the full push loop, while
+    // production stays inert through the relay and event-store wake emission
+    // kill switches until the production proof gates pass.
+    rolloutState: "staging-enabled",
+    enablement: {
+      eventStoreWakeNotifications: true,
+      relayFanOut: true,
+    },
     phase: "phase-1-checkout-hot-path",
     rolloutWave: "wave-1-checkout-hot-path",
     priorityLane: "hot",
@@ -523,6 +530,27 @@ export function requireSourceContextWakeRegistryEntry(
   return entry;
 }
 
+export const PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED_ENV = "PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED";
+
+/**
+ * Deployment-level kill switch for write-side event-store wake emission. The
+ * registry is environment-global, so environments that must stay inert (for
+ * example production before its proof gates pass) set this to "false" to
+ * force every registry-derived emission config off without a code change.
+ *
+ * Parsing matches the worker boolean-env convention: unset keeps the default
+ * (enabled); any value outside the affirmative set disables emission, so a
+ * typo can never silently enable a production emitter.
+ */
+export function isEventStoreWakeNotificationEmissionEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  const value = env[PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED_ENV]?.trim().toLowerCase();
+  if (value === undefined || value === "") {
+    return true;
+  }
+
+  return ["1", "true", "yes", "on"].includes(value);
+}
+
 export function createEventStoreWakeNotificationConfigForSourceContext(
   input: SourceContextWakeNotificationConfigInput,
 ): PostgresEventStoreWakeNotificationConfig {
@@ -530,7 +558,7 @@ export function createEventStoreWakeNotificationConfigForSourceContext(
   validateSourceContextWakeRegistryEntry(entry);
 
   return {
-    enabled: entry.enablement.eventStoreWakeNotifications,
+    enabled: entry.enablement.eventStoreWakeNotifications && isEventStoreWakeNotificationEmissionEnabled(),
     channel: input.channel ?? DEFAULT_EVENT_STORE_WAKE_NOTIFICATION_CHANNEL,
     source: input.source ?? DEFAULT_EVENT_STORE_WAKE_NOTIFICATION_SOURCE,
     ...(input.maxPayloadBytes === undefined ? {} : { maxPayloadBytes: input.maxPayloadBytes }),

@@ -108,6 +108,7 @@ describe("projection wake relay fan-out", () => {
       notification: checkoutWakeNotification(),
       projectionInterestIndex: checkoutProjectionIndex({ eventTypes: ["CheckoutSessionCreated"] }),
       workSignalStore: store,
+      relayConfigs: [],
       observer: {
         sourceSkipped: (event) => skipped.push(event),
       },
