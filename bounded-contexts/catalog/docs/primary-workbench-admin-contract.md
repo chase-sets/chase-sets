@@ -34,6 +34,7 @@ Supporting evidence, replay, reapply, rollback impact, semantic comparison, fixt
 | `routeContext` | Provider, unit, import scope, profile version, filters, selected observations, job, preview, and return-path context that the UI must preserve. |
 | `providerScope` | Generic provider/unit/scope options with active profile pointers; no provider-specific UI branches. |
 | `readiness` | Rollout, RBAC, transport, fixture, profile, read-model, and audit evidence readiness. |
+| `healthTriage` | Support-workspace read model for readiness KPIs, ingestion-unit health, provider adapter transport, rollout controls, active jobs, read-model freshness, and audit lifecycle preview. |
 | `importJobs` | Durable job state, operator state, unit/scope context, profile snapshot, Catalog consistency policy, observation links, and job blockers. |
 | `sourceObservationReview` | Counts, cursor, selected observations, redaction marker, duplicate conflicts, and promotion-ready count. |
 | `promotionPreview` | Preview id, dispositions, command plan hash, confirmation requirement, destructive count, and blockers. |
@@ -58,6 +59,21 @@ The contract validator fails closed when the schema version, route context, depl
 | `supporting-evidence` | Expose dry-run, semantic diff, impact analysis, rollback/retirement impact, and audit evidence. | None | Hidden by default |
 
 The first six sections form the primary workbench. `supporting-evidence` may be linked from blocked/degraded states, evidence side sheets, or secondary navigation, but it must not displace the provider-data-to-promotion path.
+
+## Health Triage Support Workspace
+
+`healthTriage` is rendered only when the rebuilt route selects the Health triage support workspace, such as `section=triage` or `section=health-triage`. It is a context-preserving detour, not a second primary page. The module must include a return link to the import-to-promotion workbench and the primary workbench must remain visible below it so operators can continue the provider pull, Source Observation review, and promotion path.
+
+The health-triage read model must keep these states visually and semantically distinct:
+
+- Catalog semantic readiness, fixture validation, dry-run status, and Source Observation fact counts per ingestion unit.
+- Provider adapter transport readiness, credential readiness, reachability, option query health, rate-limit state, payload acquisition, and adapter diagnostics per provider.
+- Rollout controls and kill switches with owner, issue, metric key, affected provider/unit, and next action.
+- Active, queued, and failed durable import jobs with operator state, progress, owner metric, and recovery action.
+- Read-model freshness for integration health, provider transport, durable job progress, and audit evidence.
+- Recent audit lifecycle facts with projection status and generated timestamp.
+
+Blocked and degraded rows must name the affected provider or ingestion unit, expose the owner metric key, and give the likely next action. The dashboard must not expose raw provider payloads, inspect profile JSON, branch by provider/product category, or preserve retired support routes.
 
 ## Endpoint Shape
 
