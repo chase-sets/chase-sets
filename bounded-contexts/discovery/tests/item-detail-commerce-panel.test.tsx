@@ -766,6 +766,7 @@ describe("item detail commerce panel", () => {
       "disabled",
       true,
     );
+    expect(within(buySheet).getByRole("button", { name: "Add listing to Buy Cart" })).toBeTruthy();
     expect(within(buySheet).queryByRole("button", { name: "Add product to Buy Cart" })).toBeNull();
     expect(within(buySheet).getByRole("button", { name: "View buying this listing details" })).toBeTruthy();
     expect(within(buySheet).queryByText("Desktop buy rail")).toBeNull();
@@ -1991,7 +1992,10 @@ describe("item detail commerce panel", () => {
     expect(screen.getByText("Best available price")).toBeTruthy();
     expect(screen.queryByText("Selected listing")).toBeNull();
     expect(screen.getByRole("button", { name: "Buy best available listing" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Add listing to Buy Cart" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Add listing to Buy Cart" })).toBeTruthy();
+    expect(document.querySelector<HTMLInputElement>('input[name="sellerPreferenceId"]')?.value).toBe(
+      "listing_charizard",
+    );
   });
 
   it("keeps product Buy Cart adds product-level when a listing is selected", () => {
