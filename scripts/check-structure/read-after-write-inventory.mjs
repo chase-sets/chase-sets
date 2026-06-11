@@ -364,6 +364,68 @@ function helperCoverageForEntry(entry) {
   return { fileCoverage, routeCoverage };
 }
 
+function collectHelperUsageIndexes(helperUsages) {
+  const helpersUsedByRoute = new Map();
+  const helpersUsedByFile = new Map();
+
+  for (const usage of helperUsages) {
+    helpersUsedByFile.set(usage.file, new Set(usage.helpers));
+    for (const routeId of usage.routeIds) {
+      const helperSet = helpersUsedByRoute.get(routeId) ?? new Set();
+      for (const helperName of usage.helpers) {
+        helperSet.add(helperName);
+      }
+      helpersUsedByRoute.set(routeId, helperSet);
+    }
+  }
+
+  return { helpersUsedByFile, helpersUsedByRoute };
+}
+
+function validateHelperUseClaims(options) {
+  const { entry, entryLabel, helpersUsedByFile, helpersUsedByRoute, routesById, violations } = options;
+
+  for (const [sectionName, section] of Object.entries({
+    source: entry.source,
+    destination: entry.destination,
+    exception: entry.exception,
+  })) {
+    if (!isPlainObject(section) || !isNonEmptyStringArray(section.helperUses)) {
+      continue;
+    }
+
+    const claimedHelpers = section.helperUses.filter((helperName) => freshWriteHelperNames.has(helperName));
+    const routeIds = [section.routeId, ...(section.routeIds ?? [])]
+      .filter(isNonEmptyString)
+      .filter((routeId) => routesById.has(routeId));
+
+    for (const routeId of routeIds) {
+      const usedHelpers = helpersUsedByRoute.get(routeId) ?? new Set();
+      for (const helperName of claimedHelpers) {
+        if (!usedHelpers.has(helperName)) {
+          violations.push(
+            `${entryLabel}: ${sectionName}.helperUses claims '${helperName}' on route '${routeId}' but no production route module for that route uses it`,
+          );
+        }
+      }
+    }
+
+    for (const file of section.files ?? []) {
+      if (!isNonEmptyString(file)) {
+        continue;
+      }
+      const usedHelpers = helpersUsedByFile.get(file) ?? new Set();
+      for (const helperName of claimedHelpers) {
+        if (!usedHelpers.has(helperName)) {
+          violations.push(
+            `${entryLabel}: ${sectionName}.helperUses claims '${helperName}' for file '${file}' but the file does not use it`,
+          );
+        }
+      }
+    }
+  }
+}
+
 function validateInventoryEntry(options) {
   const {
     context,
@@ -521,6 +583,7 @@ export async function validateReadAfterWriteRouteInventory(options) {
   const { repoRoot, contextManifests, reportOutputPath = "artifacts/read-after-write-route-inventory.md" } = options;
   const indexes = collectReadAfterWriteRouteIndexes(contextManifests);
   const helperUsages = await collectFreshWriteHelperUsage({ repoRoot, contextManifests });
+  const { helpersUsedByFile, helpersUsedByRoute } = collectHelperUsageIndexes(helperUsages);
   const violations = [];
   const warnings = [];
   const entries = routeInventoryEntries(contextManifests);
@@ -572,6 +635,19 @@ export async function validateReadAfterWriteRouteInventory(options) {
     if (!validatedEntry) {
       continue;
     }
+
+    // Inverse of the helper-usage scan: recovery/wait behavior claimed by the
+    // inventory must exist in production route modules, so the inventory
+    // cannot promise loader recovery (for example loadFreshlyWrittenResource)
+    // that the route never implements.
+    validateHelperUseClaims({
+      entry: validatedEntry,
+      entryLabel,
+      helpersUsedByFile,
+      helpersUsedByRoute,
+      routesById: indexes.routesById,
+      violations,
+    });
 
     const { fileCoverage, routeCoverage } = helperCoverageForEntry(validatedEntry);
     for (const [routeId, helpers] of routeCoverage.entries()) {
