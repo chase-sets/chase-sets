@@ -100,6 +100,7 @@ Production and previews already run in this posture by default; this recipe is t
 ## Related Documents
 
 - [Source-Context Wake Registry](../architecture/source-context-wake-registry.md) — rollout states, validators, production evidence gates.
+- [Push-Wake Recovery Drills](./push-wake-recovery-drills.md) — kill-switch flip drill procedure and post-flip convergence verification.
 - [Projection Wake Relay](../architecture/projection-wake-relay.md) — relay runtime, catch-up, degraded modes.
 - [Projection Wake-Intent Scheduler](../architecture/projection-wake-scheduler.md) — lanes, retries, fallback polling guarantees.
 - [Push-Driven Projection Runtime Phase Map](../architecture/push-driven-projection-runtime-phase-map.md) — phase gates and rollout waves.

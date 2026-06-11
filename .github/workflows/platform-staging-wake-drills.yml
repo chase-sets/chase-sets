@@ -1,0 +1,237 @@
+name: Platform Staging Wake Drills
+
+# Push-wake recovery and bounded load drills against deployed staging
+# (#1234 reconciliation/recovery drills, #1237 SLO/load proof).
+# Interpretation and drill catalog: docs/runbooks/push-wake-recovery-drills.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      drill:
+        description: Drill to run. "reconciliation" audits relay cursors and projection checkpoints against event-store heads around a synthetic Buy Now write; "load" runs bounded canary load first.
+        required: true
+        default: reconciliation
+        type: choice
+        options:
+          - reconciliation
+          - load
+      confirm:
+        description: Type "run staging wake drills" to confirm running synthetic drills against staging.
+        required: true
+        type: string
+      release_ref:
+        description: Ref containing the drill tooling. Defaults to main.
+        required: false
+        default: main
+        type: string
+      skip_canary_write:
+        description: Reconciliation only - audit durable positions without generating a synthetic Buy Now write.
+        required: false
+        default: false
+        type: boolean
+      load_iterations:
+        description: Load drill iterations (hard cap 12).
+        required: false
+        default: "6"
+        type: string
+      load_concurrency:
+        description: Load drill concurrency (hard cap 4).
+        required: false
+        default: "2"
+        type: string
+      load_flow:
+        description: Load drill canary flow.
+        required: false
+        default: guest
+        type: choice
+        options:
+          - guest
+          - account
+      convergence_budget_ms:
+        description: Budget for relay cursor and checkpoint convergence (5000-600000 ms).
+        required: false
+        default: "120000"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: platform-staging-wake-drills
+  cancel-in-progress: false
+
+jobs:
+  staging-wake-drill:
+    name: Staging Wake Drill
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: staging
+    if: inputs.confirm == 'run staging wake drills'
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+    steps:
+      - name: Confirm staging wake drill
+        run: |
+          set -euo pipefail
+          echo "Staging wake drill '${{ inputs.drill }}' confirmed."
+
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release commit
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          release_ref="${{ inputs.release_ref }}"
+          git fetch origin "${release_ref}" || true
+          if git rev-parse --verify --quiet "${release_ref}^{commit}" >/dev/null; then
+            release_commit="$(git rev-parse "${release_ref}^{commit}")"
+          elif git rev-parse --verify --quiet "origin/${release_ref}^{commit}" >/dev/null; then
+            release_commit="$(git rev-parse "origin/${release_ref}^{commit}")"
+          else
+            echo "Release ref '${release_ref}' does not resolve to a commit." >&2
+            exit 1
+          fi
+
+          git merge-base --is-ancestor "$release_commit" origin/main
+          git checkout --detach "$release_commit"
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_wrapper: false
+        env:
+          NODE_OPTIONS: --no-deprecation
+
+      - name: Terraform init staging platform state
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+        run: |
+          terraform init \
+            -backend-config=bucket=chase-sets-terraform-state \
+            -backend-config=key=landing/staging.tfstate \
+            -backend-config=region=us-east-1 \
+            -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
+            -backend-config=skip_credentials_validation=true \
+            -backend-config=skip_metadata_api_check=true \
+            -backend-config=skip_region_validation=true \
+            -backend-config=skip_requesting_account_id=true \
+            -backend-config=use_path_style=true \
+            -backend-config=use_lockfile=true
+
+      - name: Export staging database URLs
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          state_path="${RUNNER_TEMP}/platform-staging.tfstate.json"
+          terraform state pull > "$state_path"
+          TERRAFORM_STATE_PATH="$state_path" node <<'NODE'
+          const fs = require("node:fs");
+          const state = JSON.parse(fs.readFileSync(process.env.TERRAFORM_STATE_PATH, "utf8"));
+          const resources = Array.isArray(state.resources) ? state.resources : [];
+          const cluster = resources.find((resource) =>
+            resource.type === "digitalocean_database_cluster" && resource.name === "postgres"
+          );
+          const databases = resources.find((resource) =>
+            resource.type === "digitalocean_database_db" && resource.name === "contexts"
+          );
+          const users = resources.find((resource) =>
+            resource.type === "digitalocean_database_user" && resource.name === "contexts"
+          );
+          const clusterAttrs = cluster?.instances?.[0]?.attributes ?? {};
+          if (!clusterAttrs.host || !clusterAttrs.port) {
+            throw new Error("Staging Terraform state does not contain a usable DigitalOcean database cluster.");
+          }
+
+          const databaseByContext = new Map(
+            (databases?.instances ?? []).map((instance) => [instance.index_key, instance.attributes ?? {}])
+          );
+          const userByContext = new Map(
+            (users?.instances ?? []).map((instance) => [instance.index_key, instance.attributes ?? {}])
+          );
+          const contextNames = [...new Set([...databaseByContext.keys(), ...userByContext.keys()])].sort();
+          if (contextNames.length === 0) {
+            throw new Error("Staging Terraform state does not contain context database users and databases.");
+          }
+
+          const lines = [];
+          for (const contextName of contextNames) {
+            const database = databaseByContext.get(contextName);
+            const user = userByContext.get(contextName);
+            if (!contextName || !database?.name || !user?.name || !user?.password) {
+              throw new Error(`Direct database state is incomplete for context '${contextName ?? "unknown"}'.`);
+            }
+
+            const url = `postgresql://${encodeURIComponent(user.name)}:${encodeURIComponent(user.password)}` +
+              `@${clusterAttrs.host}:${clusterAttrs.port}/${encodeURIComponent(database.name)}?sslmode=require`;
+            const envName = contextName === "control"
+              ? "PLATFORM_CONTROL_DATABASE_URL"
+              : `DATABASE_URL_${String(contextName).toUpperCase().replaceAll("-", "_")}`;
+            console.log(`::add-mask::${url}`);
+            lines.push(`${envName}=${url}`);
+          }
+
+          fs.appendFileSync(process.env.GITHUB_ENV, `${lines.join("\n")}\n`);
+          NODE
+
+      - name: Resolve staging drill domains
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          marketplace_domain="$(terraform output -json marketplace_domains | jq -r '.[0] // empty')"
+          admin_domain="$(terraform output -raw admin_domain)"
+          if [ -z "$marketplace_domain" ] || [ -z "$admin_domain" ]; then
+            echo "Required staging marketplace or admin domain was not present in Terraform outputs." >&2
+            exit 1
+          fi
+          {
+            echo "WAKE_DRILL_BASE_URL=https://${marketplace_domain}"
+            echo "WAKE_DRILL_ADMIN_BASE_URL=https://${admin_domain}"
+          } >> "$GITHUB_ENV"
+
+      - name: Install Playwright Chromium for canary writes
+        if: inputs.drill == 'load' || !inputs.skip_canary_write
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run staging wake drill
+        env:
+          WAKE_DRILL_CORRELATION_PREFIX: wake-drill-${{ github.run_id }}-${{ github.run_attempt }}
+          WAKE_DRILL_CONVERGENCE_BUDGET_MS: ${{ inputs.convergence_budget_ms }}
+          WAKE_DRILL_LOAD_ITERATIONS: ${{ inputs.load_iterations }}
+          WAKE_DRILL_LOAD_CONCURRENCY: ${{ inputs.load_concurrency }}
+          WAKE_DRILL_FLOW: ${{ inputs.load_flow }}
+          WAKE_DRILL_SKIP_CANARY_WRITE: ${{ inputs.skip_canary_write && 'true' || 'false' }}
+          GUEST_BUY_NOW_CANARY_ITEM_PATH: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_ITEM_PATH || '' }}
+          WAKE_DRILL_SEARCH_QUERY: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_SEARCH_QUERY || vars.MARKETPLACE_E2E_SEARCH_QUERY || 'charizard' }}
+          GUEST_BUY_NOW_CANARY_FIXTURE_KEY: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_FIXTURE_KEY || 'staging-guest-buy-now-fixture' }}
+          GUEST_BUY_NOW_CANARY_READY_SLO_MS: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_READY_SLO_MS || '10000' }}
+          MARKETPLACE_E2E_EMAIL: ${{ vars.MARKETPLACE_E2E_EMAIL || '' }}
+          MARKETPLACE_E2E_PASSWORD: ${{ secrets.MARKETPLACE_E2E_PASSWORD || '' }}
+          PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
+          PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          pnpm run wake:drills -- "${{ inputs.drill }}" \
+            --out "artifacts/wake-drills/staging-wake-drill-${{ inputs.drill }}.json"
+
+      - name: Upload wake drill evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: staging-wake-drill-${{ inputs.drill }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/wake-drills
+          if-no-files-found: error
+          retention-days: 30
