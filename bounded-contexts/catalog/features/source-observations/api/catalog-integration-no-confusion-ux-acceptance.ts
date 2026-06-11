@@ -606,9 +606,20 @@ function buildDefaultWorkflowEvidence(evidenceBase: string): readonly CatalogNoC
     workflow(
       "rbac-rollout-observability-support",
       null,
-      ["readiness", "supporting-evidence"],
-      [],
-      "RBAC, rollout, telemetry, and audit support explain why writes are denied, blocked, or degraded.",
+      ["readiness", "governance-controls", "supporting-evidence"],
+      [
+        "start-provider-import",
+        "preview-promotion",
+        "execute-promotion",
+        "reject-source-observations",
+        "defer-source-observations",
+        "rollback-provider-profile",
+        "deprecate-provider-profile",
+        "retire-provider-profile",
+        "start-reapply",
+        "start-replay",
+      ],
+      "RBAC, rollout, worker state, observability, alert/runbook links, and complete-removal evidence explain why writes are denied, blocked, or degraded.",
     ),
   ];
 }

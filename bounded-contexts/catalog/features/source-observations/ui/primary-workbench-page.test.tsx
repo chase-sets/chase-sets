@@ -123,6 +123,41 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.queryByText(/raw JSON/i)).toBeNull();
   });
 
+  it("renders governance controls with RBAC, kill switches, observability, and complete-removal evidence", () => {
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&section=controls",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: healthTriageStressOverview(),
+      canManageCatalog: true,
+    });
+
+    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+
+    expect(screen.getByRole("link", { name: /Governance controls/i }).getAttribute("aria-current")).toBe("page");
+    expect(screen.getByRole("heading", { name: "Governance controls" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Rollout and worker controls" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "RBAC action matrix" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Operational observability" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Retired compatibility removal" })).toBeTruthy();
+    expect(screen.getAllByText("Provider emergency stop").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Worker pause/resume state").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("catalog.integration.rollout.stop").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("issue #801").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("start-provider-import").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("execute-promotion").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Alert catalog.integration.jobs.failure_rate").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Runbook Projection freshness").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Payload escape hatch").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Broad patch compatibility").length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText(/documentation, runbooks, release notes, and operator instructions/i).length,
+    ).toBeGreaterThan(0);
+    expect(screen.queryByText(/holding area/i)).toBeNull();
+    expect(screen.queryByText(/raw JSON/i)).toBeNull();
+  });
+
   it("renders profile authoring overview and draft creation as a focused support workspace", () => {
     const readModel = buildCatalogPrimaryWorkbenchReadModel({
       requestUrl:

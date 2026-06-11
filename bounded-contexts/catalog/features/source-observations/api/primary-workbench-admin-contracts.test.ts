@@ -28,6 +28,7 @@ describe("Catalog primary workbench admin contracts", () => {
       "promotion-preview",
       "promotion-result",
       "lifecycle-recovery",
+      "governance-controls",
       "supporting-evidence",
     ];
 
@@ -433,6 +434,7 @@ describe("Catalog primary workbench admin contracts", () => {
       "#1037",
       "#1041",
       "#1042",
+      "#1043",
       "#1056",
       "#1038",
       "#1039",
@@ -780,6 +782,7 @@ describe("Catalog primary workbench admin contracts", () => {
       },
       validationReadiness: validationReadinessFixture(),
       lifecycleRecovery: lifecycleRecoveryFixture(),
+      governanceControls: governanceControlsFixture(),
       importJobs: {
         freshness: "fresh",
         activeJobCount: 1,
@@ -1286,6 +1289,179 @@ function validationReadinessFixture(): CatalogPrimaryWorkbenchReadModel["validat
         summary: "Activation records readiness evaluation and profile activation audit evidence.",
       },
     },
+  };
+}
+
+function governanceControlsFixture(): CatalogPrimaryWorkbenchReadModel["governanceControls"] {
+  const auditEvidenceUrl = "/catalog/integrations?providerKey=tcgdex&section=evidence";
+
+  return {
+    status: "blocked",
+    freshness: "fresh",
+    generatedAt: "2026-06-09T00:00:00.000Z",
+    returnToPrimaryHref: "/catalog/integrations?providerKey=tcgdex&section=workbench",
+    auditEvidenceUrl,
+    summary: {
+      activeRolloutStops: 1,
+      deniedCommands: 0,
+      blockedCommands: 1,
+      degradedSignals: 1,
+      alertCount: 6,
+      deletionEvidenceCount: 3,
+    },
+    rolloutMode: {
+      label: "Staged rollout stopped",
+      state: "stopped",
+      rolloutEnabled: false,
+      workerState: "paused",
+      providerEmergencyStopCount: 1,
+      importKillSwitchActive: true,
+      promotionKillSwitchActive: false,
+      reapplyKillSwitchActive: false,
+    },
+    controls: [
+      {
+        controlId: "catalog-import-launch-stop",
+        kind: "provider-emergency-stop",
+        label: "Provider emergency stop",
+        status: "blocked",
+        owner: "ops-release",
+        ownerIssue: 801,
+        metricKey: "catalog.integration.rollout.stop",
+        evidenceUrl: auditEvidenceUrl,
+        commandKeys: ["start-provider-import"],
+        blockers: ["kill-switch-active"],
+        providerKeys: ["tcgdex"],
+        unitKeys: ["tcgdex:pokemon:single-card:source-observation-import"],
+        message: "Catalog integration imports stopped by launch kill switch.",
+      },
+      {
+        controlId: "catalog-import-worker-state",
+        kind: "worker-pause",
+        label: "Worker pause/resume state",
+        status: "blocked",
+        owner: "ops-release",
+        ownerIssue: 801,
+        metricKey: "catalog.integration.worker.state",
+        evidenceUrl: auditEvidenceUrl,
+        commandKeys: ["start-provider-import", "start-reapply", "start-replay"],
+        blockers: ["kill-switch-active"],
+        providerKeys: [],
+        unitKeys: [],
+        message: "Worker claims are paused while rollout or emergency-stop controls are blocked.",
+      },
+      {
+        controlId: "catalog-retired-compatibility-removal",
+        kind: "legacy-removal",
+        label: "Retired compatibility removal",
+        status: "removed",
+        owner: "catalog-source-observations",
+        ownerIssue: 1090,
+        metricKey: "catalog.integration.retired_surfaces.removed",
+        evidenceUrl: auditEvidenceUrl,
+        commandKeys: [],
+        blockers: ["raw-json-retired", "legacy-selector-retired"],
+        providerKeys: [],
+        unitKeys: [],
+        message: "Retired compatibility surfaces are deletion evidence only.",
+      },
+    ],
+    rbacMatrix: catalogPrimaryWorkbenchActions
+      .filter((action) => action.requiredPermission === "catalog.manage" || action.confirmationRequired)
+      .map((action) => ({
+        actionKey: action.key,
+        requiredPermission: action.requiredPermission,
+        routePattern: action.routePattern,
+        state: action.key === "start-provider-import" ? "blocked" : "available",
+        blockers: action.key === "start-provider-import" ? ["kill-switch-active"] : [],
+        confirmationRequired: action.confirmationRequired,
+        destructive: action.confirmationRequired,
+        deniedCopy: `${action.requiredPermission} checked; command state is ${
+          action.key === "start-provider-import" ? "blocked" : "available"
+        }.`,
+      })),
+    observability: {
+      status: "degraded",
+      generatedAt: "2026-06-09T00:00:00.000Z",
+      signals: [
+        governanceSignalFixture("option-query-latency", "Option query latency", "ready", "ready"),
+        governanceSignalFixture("job-failure-rate", "Job failure rate", "ready", "0/1 failed (0%)"),
+        governanceSignalFixture(
+          "projection-freshness",
+          "Projection freshness",
+          "ready",
+          "integration-health-summary:fresh",
+        ),
+        governanceSignalFixture(
+          "source-observation-quarantine",
+          "Source Observation quarantine",
+          "degraded",
+          "1 quarantined or blocked source signal",
+        ),
+        governanceSignalFixture(
+          "data-quarantine",
+          "Data quarantine",
+          "ready",
+          "0 security/privacy quarantine blockers",
+        ),
+        governanceSignalFixture("conflict-spike", "Conflict spike", "ready", "0 conflicts, 0 blocking"),
+      ],
+    },
+    legacyRemovalEvidence: {
+      status: "removed",
+      requiredDisposition: "complete-removal",
+      removedSurfaces: catalogPrimaryWorkbenchRetirementPolicy.surfaces,
+      forbiddenSupportPaths: catalogPrimaryWorkbenchRetirementPolicy.forbiddenOutcomes,
+      evidence: [
+        {
+          key: "payload-escape-hatch",
+          label: "Payload escape hatch",
+          status: "removed",
+          evidenceUrl: auditEvidenceUrl,
+          detail:
+            "Complete removal verified across runtime code, UI modules, tests, fixtures, screenshots, documentation, runbooks, release notes, and operator instructions.",
+        },
+        {
+          key: "broad-patch-compatibility",
+          label: "Broad patch compatibility",
+          status: "removed",
+          evidenceUrl: auditEvidenceUrl,
+          detail:
+            "Complete removal is required before launch; no broad patch route, client, fallback branch, fixture, old test, or documentation may preserve this behavior.",
+        },
+        {
+          key: "legacy-selector-pattern",
+          label: "Legacy selector pattern",
+          status: "removed",
+          evidenceUrl: auditEvidenceUrl,
+          detail:
+            "Complete removal covers old selector UX, aliases, redirects, screenshots, runbooks, release notes, and operator instructions.",
+        },
+      ],
+      launchBlockerIfPresent: catalogPrimaryWorkbenchRetirementPolicy.forbiddenOutcomes,
+    },
+  };
+}
+
+function governanceSignalFixture(
+  key: CatalogPrimaryWorkbenchReadModel["governanceControls"]["observability"]["signals"][number]["key"],
+  label: string,
+  status: CatalogPrimaryWorkbenchReadModel["governanceControls"]["observability"]["signals"][number]["status"],
+  value: string,
+): CatalogPrimaryWorkbenchReadModel["governanceControls"]["observability"]["signals"][number] {
+  const href = "/catalog/integrations?providerKey=tcgdex&section=evidence";
+
+  return {
+    key,
+    label,
+    status,
+    value,
+    threshold: "launch threshold",
+    ownerMetricKey: `catalog.integration.${key}`,
+    evidenceUrl: href,
+    stale: false,
+    alertLinks: [{ label: `Alert catalog.integration.${key}`, href }],
+    runbookLinks: [{ label: `Runbook ${label}`, href }],
   };
 }
 

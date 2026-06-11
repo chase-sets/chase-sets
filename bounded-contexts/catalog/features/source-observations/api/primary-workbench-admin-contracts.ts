@@ -25,6 +25,7 @@ export type CatalogPrimaryWorkbenchSectionKey =
   | "promotion-preview"
   | "promotion-result"
   | "lifecycle-recovery"
+  | "governance-controls"
   | "supporting-evidence";
 
 export type CatalogPrimaryWorkbenchCommandKey =
@@ -279,6 +280,7 @@ export type CatalogPrimaryWorkbenchDownstreamIssueKey =
   | "#1040"
   | "#1041"
   | "#1042"
+  | "#1043"
   | "#1057"
   | "#1058"
   | "#1059"
@@ -303,6 +305,7 @@ export type CatalogPrimaryWorkbenchReadModel = Readonly<{
   profileAuthoring: CatalogPrimaryWorkbenchProfileAuthoringReadModel;
   validationReadiness: CatalogPrimaryWorkbenchValidationReadinessReadModel;
   lifecycleRecovery: CatalogPrimaryWorkbenchLifecycleRecoveryReadModel;
+  governanceControls: CatalogPrimaryWorkbenchGovernanceControlsReadModel;
   importJobs: CatalogPrimaryWorkbenchImportJobsReadModel;
   sourceObservationReview: CatalogPrimaryWorkbenchSourceObservationReviewReadModel;
   conflictResolution: CatalogPrimaryWorkbenchConflictResolutionReadModel;
@@ -679,6 +682,106 @@ export type CatalogPrimaryWorkbenchLifecycleOperationReadModel = Readonly<{
     summary: string;
   }>;
   nextSteps: readonly string[];
+}>;
+
+export type CatalogPrimaryWorkbenchGovernanceControlsStatus = "ready" | "degraded" | "blocked" | "unavailable";
+
+export type CatalogPrimaryWorkbenchGovernanceControlKind =
+  | "staged-rollout"
+  | "provider-emergency-stop"
+  | "import-kill-switch"
+  | "promotion-kill-switch"
+  | "reapply-kill-switch"
+  | "worker-pause"
+  | "legacy-removal";
+
+export type CatalogPrimaryWorkbenchGovernanceObservabilitySignalKey =
+  | "option-query-latency"
+  | "job-failure-rate"
+  | "projection-freshness"
+  | "source-observation-quarantine"
+  | "data-quarantine"
+  | "conflict-spike";
+
+export type CatalogPrimaryWorkbenchGovernanceControlsReadModel = Readonly<{
+  status: CatalogPrimaryWorkbenchGovernanceControlsStatus;
+  freshness: CatalogAdminControlPlaneFreshnessState;
+  generatedAt: string;
+  returnToPrimaryHref: string;
+  auditEvidenceUrl: string;
+  summary: Readonly<{
+    activeRolloutStops: number;
+    deniedCommands: number;
+    blockedCommands: number;
+    degradedSignals: number;
+    alertCount: number;
+    deletionEvidenceCount: number;
+  }>;
+  rolloutMode: Readonly<{
+    label: string;
+    state: "open" | "staged" | "stopped" | "degraded";
+    rolloutEnabled: boolean;
+    workerState: "running" | "paused" | "unknown";
+    providerEmergencyStopCount: number;
+    importKillSwitchActive: boolean;
+    promotionKillSwitchActive: boolean;
+    reapplyKillSwitchActive: boolean;
+  }>;
+  controls: readonly Readonly<{
+    controlId: string;
+    kind: CatalogPrimaryWorkbenchGovernanceControlKind;
+    label: string;
+    status: "open" | "degraded" | "blocked" | "removed";
+    owner: string;
+    ownerIssue: number | null;
+    metricKey: string;
+    evidenceUrl: string;
+    commandKeys: readonly CatalogPrimaryWorkbenchCommandKey[];
+    blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
+    providerKeys: readonly string[];
+    unitKeys: readonly string[];
+    message: string;
+  }>[];
+  rbacMatrix: readonly Readonly<{
+    actionKey: CatalogPrimaryWorkbenchCommandKey;
+    requiredPermission: CatalogPrimaryWorkbenchActionContract["requiredPermission"];
+    routePattern: string;
+    state: CatalogPrimaryWorkbenchActionState;
+    blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
+    confirmationRequired: boolean;
+    destructive: boolean;
+    deniedCopy: string;
+  }>[];
+  observability: Readonly<{
+    status: CatalogPrimaryWorkbenchGovernanceControlsStatus;
+    generatedAt: string | null;
+    signals: readonly Readonly<{
+      key: CatalogPrimaryWorkbenchGovernanceObservabilitySignalKey;
+      label: string;
+      status: "ready" | "degraded" | "blocked" | "unavailable";
+      value: string;
+      threshold: string;
+      ownerMetricKey: string;
+      evidenceUrl: string;
+      stale: boolean;
+      alertLinks: readonly Readonly<{ label: string; href: string }>[];
+      runbookLinks: readonly Readonly<{ label: string; href: string }>[];
+    }>[];
+  }>;
+  legacyRemovalEvidence: Readonly<{
+    status: "removed";
+    requiredDisposition: "complete-removal";
+    removedSurfaces: readonly string[];
+    forbiddenSupportPaths: readonly string[];
+    evidence: readonly Readonly<{
+      key: string;
+      label: string;
+      status: "removed";
+      evidenceUrl: string;
+      detail: string;
+    }>[];
+    launchBlockerIfPresent: readonly string[];
+  }>;
 }>;
 
 export type CatalogPrimaryWorkbenchHealthTriageRolloutControl = Readonly<{
@@ -1376,6 +1479,33 @@ export const catalogPrimaryWorkbenchSections = [
     routeContextKeys: ["section", "providerKey", "unitKey", "profileVersion", "jobId", "returnPath"],
   }),
   section({
+    key: "governance-controls",
+    defaultVisible: false,
+    queryKeys: [
+      "integration-health-summary",
+      "provider-transport-readiness-summary",
+      "import-job-progress-summary",
+      "source-observation-review-query",
+      "promotion-plan-preview",
+      "audit-evidence-timeline",
+    ],
+    commands: [
+      "start-provider-import",
+      "preview-promotion",
+      "execute-promotion",
+      "reject-source-observations",
+      "defer-source-observations",
+      "rollback-provider-profile",
+      "deprecate-provider-profile",
+      "retire-provider-profile",
+      "start-reapply",
+      "start-replay",
+    ],
+    freshnessStates: ["fresh", "stale", "lagging", "partial", "unavailable"],
+    pagination: "cursor",
+    routeContextKeys: ["section", "providerKey", "unitKey", "importScope", "profileVersion", "jobId", "returnPath"],
+  }),
+  section({
     key: "supporting-evidence",
     defaultVisible: false,
     queryKeys: [
@@ -1815,6 +1945,17 @@ export const catalogPrimaryWorkbenchDownstreamContracts = [
     ],
   ),
   downstream(
+    "#1043",
+    ["governance-controls", "readiness", "import-jobs", "promotion-preview", "supporting-evidence"],
+    [
+      "governanceControls.rolloutMode",
+      "governanceControls.controls",
+      "governanceControls.rbacMatrix",
+      "governanceControls.observability.signals",
+      "governanceControls.legacyRemovalEvidence",
+    ],
+  ),
+  downstream(
     "#1056",
     [
       "provider-scope-selection",
@@ -1890,8 +2031,15 @@ export const catalogPrimaryWorkbenchDownstreamContracts = [
   ),
   downstream(
     "#1059",
-    ["provider-scope-selection", "readiness", "import-jobs", "source-observation-review", "promotion-preview"],
-    ["instrumentation.dimensions", "instrumentation.redactionSafe"],
+    [
+      "provider-scope-selection",
+      "readiness",
+      "import-jobs",
+      "source-observation-review",
+      "promotion-preview",
+      "governance-controls",
+    ],
+    ["instrumentation.dimensions", "instrumentation.redactionSafe", "governanceControls.observability.signals"],
   ),
   downstream(
     "#1062",
@@ -1905,11 +2053,12 @@ export const catalogPrimaryWorkbenchDownstreamContracts = [
   ),
   downstream(
     "#1064",
-    ["readiness", "promotion-preview", "promotion-result"],
+    ["readiness", "promotion-preview", "promotion-result", "governance-controls"],
     [
       "securityPrivacy.redactionApplied",
       "securityPrivacy.unsafeEvidenceBlocked",
       "securityPrivacy.missingSecurityFieldsBlocker",
+      "governanceControls.rbacMatrix",
     ],
   ),
   downstream("#1065", ["readiness", "import-jobs"], ["readiness.providerTransport", "readiness.blockers"]),
@@ -1979,9 +2128,12 @@ export function validateCatalogPrimaryWorkbenchReadModelContract(
   assertPrimaryWorkbenchBlockers(
     value.conflictResolution?.rows.flatMap((row) => [...row.blockers, ...row.overrideAction.blockers]),
   );
+  assertPrimaryWorkbenchBlockers(value.governanceControls?.controls.flatMap((control) => control.blockers));
+  assertPrimaryWorkbenchBlockers(value.governanceControls?.rbacMatrix.flatMap((actionEntry) => actionEntry.blockers));
   assertPrimaryWorkbenchBlockers(value.conflictResolution?.overridePolicy.blockers);
   assertPrimaryWorkbenchBlockers(value.promotionPreview?.blockers);
   assertPrimaryWorkbenchConflictResolution(value.conflictResolution);
+  assertPrimaryWorkbenchGovernanceControls(value.governanceControls);
   assertPrimaryWorkbenchPromotionPreview(value.promotionPreview);
   assertPrimaryWorkbenchProfileAuthoring(value.profileAuthoring);
   assertPrimaryWorkbenchValidationReadiness(value.validationReadiness);
@@ -2111,6 +2263,125 @@ function assertPrimaryWorkbenchConflictResolution(
       throw new Error("Primary workbench conflict resolution rows must expose evidence paths and diagnostics.");
     }
     assertCatalogPrimaryWorkbenchActionState(row.overrideAction.state);
+  }
+}
+
+function assertPrimaryWorkbenchGovernanceControls(
+  value: CatalogPrimaryWorkbenchReadModel["governanceControls"] | undefined,
+): void {
+  if (!value) {
+    throw new Error("Primary workbench governance controls contract is required.");
+  }
+  if (!["ready", "degraded", "blocked", "unavailable"].includes(value.status)) {
+    throw new Error("Primary workbench governance controls status must be explicit.");
+  }
+  if (!isSafePrimaryWorkbenchReturnPath(value.returnToPrimaryHref)) {
+    throw new Error("Primary workbench governance controls return link must target the rebuilt workbench.");
+  }
+  if (!isSafePrimaryWorkbenchReturnPath(value.auditEvidenceUrl)) {
+    throw new Error("Primary workbench governance controls audit link must target the rebuilt workbench.");
+  }
+  if (value.controls.length === 0) {
+    throw new Error("Primary workbench governance controls must expose rollout, worker, and removal evidence.");
+  }
+  for (const control of value.controls) {
+    if (!control.controlId || !control.kind || !control.label || !control.owner || !control.metricKey) {
+      throw new Error("Primary workbench governance controls must name control, owner, metric, and label.");
+    }
+    if (!["open", "degraded", "blocked", "removed"].includes(control.status)) {
+      throw new Error("Primary workbench governance control status must be explicit.");
+    }
+    if (!isSafePrimaryWorkbenchReturnPath(control.evidenceUrl)) {
+      throw new Error("Primary workbench governance control evidence link must target the rebuilt workbench.");
+    }
+  }
+
+  const sensitiveActions = catalogPrimaryWorkbenchActions.filter(
+    (actionEntry) => actionEntry.requiredPermission === "catalog.manage" || actionEntry.confirmationRequired,
+  );
+  const matrixKeys = new Set(value.rbacMatrix.map((entry) => entry.actionKey));
+  for (const actionEntry of sensitiveActions) {
+    if (!matrixKeys.has(actionEntry.key)) {
+      throw new Error(`Primary workbench governance controls must cover sensitive action '${actionEntry.key}'.`);
+    }
+  }
+  for (const entry of value.rbacMatrix) {
+    assertCatalogPrimaryWorkbenchActionState(entry.state);
+    if (!entry.deniedCopy) {
+      throw new Error("Primary workbench governance RBAC matrix must provide denied-state copy.");
+    }
+    if (entry.confirmationRequired && !entry.destructive) {
+      throw new Error("Primary workbench governance destructive confirmation rows must be explicit.");
+    }
+    if (/legacy|compat|raw-json/i.test(entry.routePattern)) {
+      throw new Error("Primary workbench governance RBAC matrix must not preserve retired route patterns.");
+    }
+  }
+
+  const requiredSignals: readonly CatalogPrimaryWorkbenchGovernanceObservabilitySignalKey[] = [
+    "option-query-latency",
+    "job-failure-rate",
+    "projection-freshness",
+    "source-observation-quarantine",
+    "data-quarantine",
+    "conflict-spike",
+  ];
+  const signalKeys = new Set(value.observability.signals.map((signal) => signal.key));
+  for (const signal of requiredSignals) {
+    if (!signalKeys.has(signal)) {
+      throw new Error(`Primary workbench governance observability signal '${signal}' is required.`);
+    }
+  }
+  for (const signal of value.observability.signals) {
+    if (!["ready", "degraded", "blocked", "unavailable"].includes(signal.status)) {
+      throw new Error("Primary workbench governance observability signal status must be explicit.");
+    }
+    if (signal.alertLinks.length === 0 || signal.runbookLinks.length === 0) {
+      throw new Error("Primary workbench governance observability signals require alert and runbook links.");
+    }
+    for (const link of [...signal.alertLinks, ...signal.runbookLinks]) {
+      if (!link.label || !isSafePrimaryWorkbenchReturnPath(link.href)) {
+        throw new Error("Primary workbench governance alert and runbook links must target rebuilt evidence.");
+      }
+    }
+    if (signal.stale && signal.status === "ready") {
+      throw new Error("Primary workbench governance stale observability data must be degraded or unavailable.");
+    }
+  }
+
+  if (value.legacyRemovalEvidence.status !== "removed") {
+    throw new Error("Primary workbench governance retired compatibility evidence must be removed.");
+  }
+  if (value.legacyRemovalEvidence.requiredDisposition !== "complete-removal") {
+    throw new Error("Primary workbench governance retired compatibility evidence must require complete removal.");
+  }
+  for (const surface of [
+    "runtime code",
+    "product patterns",
+    "tests",
+    "fixtures",
+    "screenshots",
+    "documentation",
+    "runbooks",
+    "operator instructions",
+  ] as const) {
+    if (!value.legacyRemovalEvidence.removedSurfaces.includes(surface)) {
+      throw new Error(`Primary workbench governance retirement evidence must remove '${surface}'.`);
+    }
+  }
+  for (const evidence of value.legacyRemovalEvidence.evidence) {
+    if (evidence.status !== "removed" || !isSafePrimaryWorkbenchReturnPath(evidence.evidenceUrl)) {
+      throw new Error("Primary workbench governance retirement evidence rows must be removed and linked.");
+    }
+  }
+  const removalText = `${value.legacyRemovalEvidence.evidence.map((evidence) => evidence.detail).join(" ")} ${value.legacyRemovalEvidence.launchBlockerIfPresent.join(
+    " ",
+  )}`;
+  if (!/complete removal/i.test(removalText) || !/documentation/i.test(removalText)) {
+    throw new Error("Primary workbench governance retirement evidence must state complete documentation removal.");
+  }
+  if (/holding area/i.test(removalText)) {
+    throw new Error("Primary workbench governance controls must not preserve a compatibility holding area.");
   }
 }
 

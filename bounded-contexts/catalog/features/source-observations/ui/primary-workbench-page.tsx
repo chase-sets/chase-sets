@@ -35,6 +35,7 @@ import {
   CATALOG_CONTROL_PLANE_WORKSPACES,
 } from "./admin-control-plane/information-architecture";
 import { CatalogIntegrationConflictResolutionWorkspace } from "./admin-control-plane/conflicts/conflict-resolution-workspace";
+import { CatalogIntegrationGovernanceControlsWorkspace } from "./admin-control-plane/governance/governance-controls-workspace";
 import { CatalogIntegrationHealthTriageDashboard } from "./admin-control-plane/health/integration-health-dashboard";
 import { CatalogIntegrationLifecycleRecoveryWorkspace } from "./admin-control-plane/lifecycle/lifecycle-recovery-workspace";
 import { CatalogIntegrationProfileAuthoringWorkspace } from "./admin-control-plane/profiles/profile-authoring-workspace";
@@ -176,6 +177,8 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
       <CatalogIntegrationConflictResolutionWorkspace readModel={readModel} />
     ) : activeSection === "lifecycle-recovery" ? (
       <CatalogIntegrationLifecycleRecoveryWorkspace readModel={readModel} />
+    ) : activeSection === "governance-controls" ? (
+      <CatalogIntegrationGovernanceControlsWorkspace readModel={readModel} />
     ) : null;
   const columns = useMemo<DataColumn<PrimaryWorkbenchStep>[]>(
     () => [
