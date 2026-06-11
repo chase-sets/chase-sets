@@ -617,6 +617,113 @@ describe("work signal store", () => {
     expect(calls[3].sql).toContain("satisfied_at <= $1::timestamptz");
     expect(calls[4].sql).toContain("stale_claim_count");
   });
+
+  it("summarizes wake intents grouped by lane, origin, and state with structural fields only", async () => {
+    const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
+    const store = createPostgresWorkSignalStore({
+      query: async (sql: string, values: readonly unknown[] = []) => {
+        calls.push({ sql, values });
+        return {
+          rows: [
+            {
+              priority_lane: "hot",
+              origin: "api-wait",
+              state: "queued",
+              intent_count: "3",
+              oldest_created_at: "2026-06-10T11:58:00.000Z",
+              max_attempt_count: "0",
+            },
+            {
+              priority_lane: "standard",
+              origin: "relay",
+              state: "failed",
+              intent_count: 1,
+              oldest_created_at: null,
+              max_attempt_count: 4,
+            },
+          ],
+          rowCount: 2,
+        };
+      },
+    });
+
+    await expect(store.summarizeProjectionWakeIntentBreakdown()).resolves.toEqual([
+      {
+        priorityLane: "hot",
+        origin: "api-wait",
+        state: "queued",
+        intentCount: 3,
+        oldestCreatedAt: new Date("2026-06-10T11:58:00.000Z"),
+        maxAttemptCount: 0,
+      },
+      {
+        priorityLane: "standard",
+        origin: "relay",
+        state: "failed",
+        intentCount: 1,
+        oldestCreatedAt: null,
+        maxAttemptCount: 4,
+      },
+    ]);
+
+    expect(calls[0].sql).toContain("GROUP BY priority_lane, origin, state");
+    // Operator summary must stay aggregated: no metadata or error payloads.
+    expect(calls[0].sql).not.toContain("metadata");
+    expect(calls[0].sql).not.toContain("last_error");
+  });
+
+  it("summarizes checkpoint readiness and waiter health without exposing row payloads", async () => {
+    const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
+    const store = createPostgresWorkSignalStore({
+      query: async (sql: string, values: readonly unknown[] = []) => {
+        calls.push({ sql, values });
+        if (sql.includes("readiness_count")) {
+          return {
+            rows: [
+              {
+                readiness_count: "5",
+                expired_readiness_count: "1",
+                latest_ready_recorded_at: "2026-06-10T11:59:45.000Z",
+              },
+            ],
+            rowCount: 1,
+          };
+        }
+        if (sql.includes("pending_waiter_count")) {
+          return {
+            rows: [
+              {
+                pending_waiter_count: "2",
+                expired_pending_waiter_count: "1",
+                satisfied_waiter_count: "7",
+                oldest_pending_waiter_at: "2026-06-10T11:57:00.000Z",
+              },
+            ],
+            rowCount: 1,
+          };
+        }
+        return {
+          rows: [{ origin: "api-wait", waiter_count: "2" }],
+          rowCount: 1,
+        };
+      },
+    });
+
+    await expect(store.summarizeCheckpointSignals()).resolves.toEqual({
+      readinessCount: 5,
+      expiredReadinessCount: 1,
+      latestReadyRecordedAt: new Date("2026-06-10T11:59:45.000Z"),
+      pendingWaiterCount: 2,
+      expiredPendingWaiterCount: 1,
+      satisfiedWaiterCount: 7,
+      oldestPendingWaiterAt: new Date("2026-06-10T11:57:00.000Z"),
+      pendingWaiterOrigins: [{ origin: "api-wait", waiterCount: 2 }],
+    });
+
+    expect(calls.map((call) => call.sql).join("\n")).not.toContain("metadata");
+    expect(calls[2].sql).toContain("WHERE satisfied_at IS NULL");
+    expect(calls[2].sql).toContain("GROUP BY origin");
+  });
 });
 
 function wakeIntentRow(overrides: Partial<Record<string, unknown>> = {}) {

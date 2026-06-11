@@ -139,7 +139,7 @@ export type AttentionItem = Readonly<{
   detail: string;
   tone: "danger" | "warning" | "accent";
   count?: number | string;
-  targetTab: "operations" | "groups" | "subscriptions" | "blocked" | "workers" | "diagnostics";
+  targetTab: "operations" | "groups" | "subscriptions" | "blocked" | "workers" | "wake" | "diagnostics";
 }>;
 
 export function normalizeProjectionOperationsSnapshot(value: unknown): ProjectionOperationsSnapshot {
@@ -209,10 +209,6 @@ export function activeWorkerCount(data: ProjectionOperationsSnapshot) {
 
 export function staleWorkerCount(data: ProjectionOperationsSnapshot) {
   return data.workers.filter((worker) => worker.worker_state === "stale" || worker.worker_state === "expired").length;
-}
-
-export function hasAttention(data: ProjectionOperationsSnapshot) {
-  return buildAttentionItems(data).length > 0;
 }
 
 export function buildAttentionItems(data: ProjectionOperationsSnapshot): readonly AttentionItem[] {

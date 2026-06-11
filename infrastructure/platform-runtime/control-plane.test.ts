@@ -226,6 +226,62 @@ describe("platform control plane", () => {
     ]);
   });
 
+  it("lists projection wake relay cursors for operator visibility", async () => {
+    const calls: Array<{ sql: string; params: readonly unknown[] | undefined }> = [];
+    const controlPlane = createPostgresPlatformControlPlane({
+      connect: async () => {
+        throw new Error("not used");
+      },
+      query: async (sql: string, params?: readonly unknown[]) => {
+        calls.push({ sql, params });
+        return {
+          rows: [
+            {
+              source_context_name: "catalog",
+              last_fanout_position: "88",
+              last_required_cursor: "catalog:88",
+              owner_id: "worker-a",
+              fencing_token: "7",
+              metadata: { reason: "notify", projectionInterestIndexVersion: "v3" },
+              updated_at: "2026-06-10T12:00:00.000Z",
+            },
+            {
+              source_context_name: "checkout",
+              last_fanout_position: "102",
+              last_required_cursor: null,
+              owner_id: "worker-b",
+              fencing_token: "9",
+              metadata: {},
+              updated_at: "2026-06-10T12:00:30.000Z",
+            },
+          ],
+          rowCount: 2,
+        };
+      },
+    });
+
+    await expect(controlPlane.listProjectionWakeRelayCursors()).resolves.toMatchObject([
+      {
+        sourceContextName: "catalog",
+        lastFanOutPosition: 88n,
+        lastRequiredCursor: "catalog:88",
+        ownerId: "worker-a",
+        fencingToken: "7",
+        metadata: { reason: "notify", projectionInterestIndexVersion: "v3" },
+      },
+      {
+        sourceContextName: "checkout",
+        lastFanOutPosition: 102n,
+        lastRequiredCursor: null,
+        ownerId: "worker-b",
+        fencingToken: "9",
+      },
+    ]);
+
+    expect(calls[0].sql).toContain("FROM platform_projection_wake_relay_cursors");
+    expect(calls[0].sql).toContain("ORDER BY source_context_name");
+  });
+
   it("enqueues and claims projection operations with fencing", async () => {
     const calls: Array<{ sql: string; params: readonly unknown[] | undefined }> = [];
     const operationRow = {

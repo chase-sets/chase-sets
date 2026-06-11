@@ -228,6 +228,36 @@ describe("platform api app", () => {
     expect(response.status).toBe(403);
   });
 
+  it("requires platform operations permission for the public wake-status route", async () => {
+    const app = buildPlatformApiApp(
+      {
+        mountedContexts: [],
+        mountedModules: [],
+        services: {
+          auth: {},
+          identity: {},
+        },
+        projectionGroups: [],
+        subscriptionRunners: [],
+      },
+      {
+        resolveActor: vi.fn(async () => ({
+          sessionId: "sess_1",
+          tenantId: "tenant_1",
+          userId: "user_1",
+          accountId: "account_1",
+          membershipId: "member_1",
+          roleKey: "catalog-admin",
+          permissions: ["catalog.view"],
+        })),
+      },
+    );
+
+    const response = await app.request("/api/platform/projections/wake-status");
+
+    expect(response.status).toBe(403);
+  });
+
   it("mounts projection operations under the same-origin API prefix", async () => {
     const app = buildPlatformApiApp(
       {
@@ -383,6 +413,7 @@ describe("platform api app", () => {
           claimScheduledRunner: vi.fn(async () => false),
           recordScheduledRunnerCompleted: vi.fn(async () => undefined),
           getProjectionWakeRelayCursor: vi.fn(async () => null),
+          listProjectionWakeRelayCursors: vi.fn(async () => []),
           advanceProjectionWakeRelayCursor: vi.fn(async () => null),
         },
       },

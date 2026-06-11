@@ -4,6 +4,7 @@ import { t } from "@chase-sets/localization";
 import {
   cancelProjectionOperation,
   loadProjectionOperationsSnapshot,
+  loadWakeStatusSnapshot,
   readProjectionOperationsFilters,
   rebuildProjectionContext,
   rebuildProjectionGroup,
@@ -17,8 +18,14 @@ const routeKey = "platformOperations.projectionOperations";
 export const meta: MetaFunction = () => [{ title: t(`${routeKey}.metaTitle`) }];
 
 export async function loader({ request }: LoaderFunctionArgs) {
+  const [data, wakeStatus] = await Promise.all([
+    loadProjectionOperationsSnapshot(request),
+    loadWakeStatusSnapshot(request),
+  ]);
+
   return {
-    data: await loadProjectionOperationsSnapshot(request),
+    data,
+    wakeStatus,
     filters: readProjectionOperationsFilters(request),
   };
 }
@@ -53,8 +60,15 @@ export async function action({ request }: ActionFunctionArgs) {
 }
 
 export default function ProjectionOperationsRoute() {
-  const { data, filters } = useLoaderData<typeof loader>();
-  return <ProjectionOperationsPage data={data} filters={filters} actorPermissions={useAdminActorPermissions()} />;
+  const { data, filters, wakeStatus } = useLoaderData<typeof loader>();
+  return (
+    <ProjectionOperationsPage
+      data={data}
+      filters={filters}
+      wakeStatus={wakeStatus}
+      actorPermissions={useAdminActorPermissions()}
+    />
+  );
 }
 
 function useAdminActorPermissions() {

@@ -15,7 +15,10 @@ import {
   type ReadinessCheck,
 } from "@chase-sets/platform-runtime/health";
 import { createApiHost, resolveApiHostMounts, type ApiHostRuntime } from "@chase-sets/platform-runtime/api";
-import { createProjectionOperationsRoutes } from "@chase-sets/platform-runtime/projection-operations-routes";
+import {
+  createProjectionOperationsRoutes,
+  type ProjectionWakeStatusWorkSignalStore,
+} from "@chase-sets/platform-runtime/projection-operations-routes";
 import { authenticationRequiredResponse, forbiddenResponse } from "@chase-sets/http/responses";
 import { apiContextRegistry } from "./generated/api-context-registry";
 import {
@@ -39,6 +42,7 @@ export type BuildAdminSupportApiOptions = Readonly<{
   internalAuthSecret?: string;
   adminRegistrationEnabled?: boolean;
   controlPlane?: PlatformControlPlane;
+  workSignalStore?: ProjectionWakeStatusWorkSignalStore;
   isDraining?: () => boolean;
   readConsistencyAuditLogger?: Readonly<{
     info: (message: string, fields?: Readonly<Record<string, unknown>>) => void;
@@ -89,6 +93,7 @@ export function buildAdminSupportApiApp(runtime: ApiHostRuntime, options: BuildA
     "/api/platform/projections",
     createProjectionOperationsRoutes(runtime, {
       controlPlane: options.controlPlane,
+      workSignalStore: options.workSignalStore,
     }),
   );
 

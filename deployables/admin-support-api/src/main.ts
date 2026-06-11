@@ -12,6 +12,7 @@ import {
 } from "@chase-sets/platform-runtime/durable-job-events";
 import { createProcessDrainState, startGracefulHttpServer } from "@chase-sets/platform-runtime/process-lifecycle";
 import { createPostgresRealtimeStreamLimiter } from "@chase-sets/platform-runtime/realtime";
+import { createPostgresWorkSignalStore } from "@chase-sets/platform-runtime/work-signal-store";
 import {
   createFilesystemObjectStorage,
   createS3ObjectStorage,
@@ -65,6 +66,7 @@ const app = buildAdminSupportApiApp(runtime, {
   internalAuthSecret: config.internalAuthSecret,
   adminRegistrationEnabled: config.adminRegistrationEnabled,
   controlPlane,
+  workSignalStore: createPostgresWorkSignalStore(pools.control),
   getProjectionReplay: () => refreshProjectionReplaySummary(runtime),
   readConsistencyAuditLogger: logger,
   readinessChecks: runtime.mountedContexts.map((entry) => ({

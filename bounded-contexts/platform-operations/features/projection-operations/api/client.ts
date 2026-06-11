@@ -4,6 +4,7 @@ import {
   type ProjectionOperationsFilters,
   type ProjectionOperationsSnapshot,
 } from "../read-model/contracts";
+import { normalizeWakeStatusSnapshot, type WakeStatusSnapshot } from "../read-model/wake-status-contracts";
 
 export async function loadProjectionOperationsSnapshot(request: Request): Promise<ProjectionOperationsSnapshot> {
   const response = await fetch(resolveProjectionOperationsApiUrl(request), {
@@ -15,6 +16,28 @@ export async function loadProjectionOperationsSnapshot(request: Request): Promis
   }
 
   return normalizeProjectionOperationsSnapshot(await response.json());
+}
+
+export async function loadWakeStatusSnapshot(request: Request): Promise<WakeStatusSnapshot | null> {
+  const url = resolveProjectionOperationsApiUrl(request);
+  url.pathname = `${url.pathname.replace(/\/$/, "")}/wake-status`;
+
+  // The wake panel degrades instead of failing the whole console: an API host
+  // that predates the endpoint (deploy skew) or a transient error renders as
+  // an explicit unavailable state.
+  try {
+    const response = await fetch(url, {
+      headers: createForwardedAuthHeaders(request),
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    return normalizeWakeStatusSnapshot(await response.json());
+  } catch {
+    return null;
+  }
 }
 
 export function readProjectionOperationsFilters(request: Request): ProjectionOperationsFilters {

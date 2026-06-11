@@ -735,6 +735,7 @@ describe("platform worker runner loop", () => {
       claimScheduledRunner: vi.fn(async () => false),
       recordScheduledRunnerCompleted: vi.fn(async () => undefined),
       getProjectionWakeRelayCursor: vi.fn(async () => null),
+      listProjectionWakeRelayCursors: vi.fn(async () => []),
       advanceProjectionWakeRelayCursor: vi.fn(async () => null),
     };
 
