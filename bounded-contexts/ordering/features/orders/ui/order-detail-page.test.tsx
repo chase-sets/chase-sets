@@ -64,5 +64,34 @@ describe("ordering order detail page", () => {
     expect(markup).toContain("Leave account review");
     expect(markup).toContain("Pay now");
     expect(markup).toContain('value="cancel-purchase"');
+    expect(markup).toContain("Support reference");
+    expect(markup).toContain("ord_1");
+    expect(markup).not.toContain("View fulfillment");
+  });
+
+  it("shows source support references and fulfillment links for committed ordering records", () => {
+    const committedOrder = {
+      ...order,
+      status: "ready-for-fulfillment",
+      source_reference_id: "chk_buy_1",
+      ready_for_fulfillment_at: "2026-04-02T00:05:00.000Z",
+    };
+
+    const markup = renderToString(
+      <OrderingOrderDetailPage
+        role="buyer"
+        backHref="/account/purchases"
+        supportHref="/account/support?orderId=ord_1&role=buyer"
+        fulfillmentHref="/account/shipments"
+        order={committedOrder as never}
+      />,
+    );
+
+    expect(markup).toContain("Support reference");
+    expect(markup).toContain("chk_buy_1");
+    expect(markup).toContain("View fulfillment");
+    expect(markup).toContain('href="/account/shipments"');
+    expect(markup).not.toContain("Latest seller confirmation");
+    expect(markup).not.toContain("pending seller activity");
   });
 });

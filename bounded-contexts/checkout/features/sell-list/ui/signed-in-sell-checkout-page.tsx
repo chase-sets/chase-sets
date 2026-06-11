@@ -456,9 +456,14 @@ export function SignedInSellCheckoutPage({
               },
             ]}
             actions={
-              <LinkButton href="/account/sell-list">
-                {t("checkout.features.sellList.ui.signedInSellCheckoutPage.back.to.sell.list")}
-              </LinkButton>
+              <Stack gap={2} direction={{ base: "column", sm: "row" }}>
+                <LinkButton href="/account/sell-list">
+                  {t("checkout.features.sellList.ui.signedInSellCheckoutPage.view.seller.activity")}
+                </LinkButton>
+                <LinkButton href="/account/sales" tone="secondary">
+                  {t("checkout.features.sellList.ui.signedInSellCheckoutPage.view.committed.sales")}
+                </LinkButton>
+              </Stack>
             }
           />
         ) : null}
