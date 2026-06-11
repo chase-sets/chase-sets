@@ -412,79 +412,79 @@ export function createMockPool(): MockPool {
 
 export function createEventCoreMock() {
   return {
-  ZERO_GLOBAL_POSITION: "0",
-  isTransientProjectionError: () => false,
-  toTransportEvent: (storedEvent: MockStoredEvent) => ({
-    id: storedEvent.eventId,
-    type: storedEvent.eventType,
-    data: storedEvent.payload,
-    streamId: storedEvent.streamId,
-    streamVersion: storedEvent.streamVersion,
-    globalPosition: storedEvent.globalPosition,
-    tenantId: storedEvent.tenantId,
-    audit: {
-      performedByUserId: storedEvent.performedByUserId,
-      forAccountId: storedEvent.forAccountId,
-    },
-    timing: {
-      recordedAt: storedEvent.recordedAt,
-    },
-  }),
-};
+    ZERO_GLOBAL_POSITION: "0",
+    isTransientProjectionError: () => false,
+    toTransportEvent: (storedEvent: MockStoredEvent) => ({
+      id: storedEvent.eventId,
+      type: storedEvent.eventType,
+      data: storedEvent.payload,
+      streamId: storedEvent.streamId,
+      streamVersion: storedEvent.streamVersion,
+      globalPosition: storedEvent.globalPosition,
+      tenantId: storedEvent.tenantId,
+      audit: {
+        performedByUserId: storedEvent.performedByUserId,
+        forAccountId: storedEvent.forAccountId,
+      },
+      timing: {
+        recordedAt: storedEvent.recordedAt,
+      },
+    }),
+  };
 }
 
 export function createEventCorePostgresMock() {
   return {
-  withPgTransaction: async (_pool: object, work: (client: object) => Promise<unknown>) => work(_pool),
-  createPostgresEventStore: ({ pool }: { pool: object }) => ({
-    readAll: async ({
-      afterGlobalPosition,
-      limit,
-      eventTypes,
-      streamPrefixes,
-    }: {
-      afterGlobalPosition: string;
-      limit: number;
-      eventTypes?: readonly string[];
-      streamPrefixes?: readonly string[];
-    }) => {
-      getReadAllCalls(pool).push({
+    withPgTransaction: async (_pool: object, work: (client: object) => Promise<unknown>) => work(_pool),
+    createPostgresEventStore: ({ pool }: { pool: object }) => ({
+      readAll: async ({
         afterGlobalPosition,
         limit,
-        eventTypes: eventTypes ? [...eventTypes] : undefined,
-        streamPrefixes: streamPrefixes ? [...streamPrefixes] : undefined,
-      });
+        eventTypes,
+        streamPrefixes,
+      }: {
+        afterGlobalPosition: string;
+        limit: number;
+        eventTypes?: readonly string[];
+        streamPrefixes?: readonly string[];
+      }) => {
+        getReadAllCalls(pool).push({
+          afterGlobalPosition,
+          limit,
+          eventTypes: eventTypes ? [...eventTypes] : undefined,
+          streamPrefixes: streamPrefixes ? [...streamPrefixes] : undefined,
+        });
 
-      return (sourceEventsByPool.get(pool) ?? [])
-        .filter((event) => Number(event.globalPosition) > Number(afterGlobalPosition))
-        .filter((event) => !eventTypes?.length || eventTypes.includes(event.eventType))
-        .filter(
-          (event) => !streamPrefixes?.length || streamPrefixes.some((prefix) => event.streamId.startsWith(prefix)),
-        )
-        .slice(0, limit);
-    },
-    readStream: async ({
-      streamId,
-      fromVersion = 1,
-      limit = 500,
-    }: {
-      streamId: string;
-      fromVersion?: number;
-      limit?: number;
-    }) =>
-      (sourceEventsByPool.get(pool) ?? [])
-        .filter((event) => event.streamId === streamId && event.streamVersion >= fromVersion)
-        .slice(0, limit),
-  }),
-  createPostgresProjectionStore: ({ db }: { db: object }) => ({
-    listBlockedStreams: async (projectionKey: string) =>
-      [...getBlockedStreamStore(db).values()].filter(
-        (stream) => stream.projectionKey === projectionKey && stream.state !== "resolved",
-      ),
-    listPoisonEvents: async () => [],
-  }),
-  eventCorePostgresSchemaSql: "",
-};
+        return (sourceEventsByPool.get(pool) ?? [])
+          .filter((event) => Number(event.globalPosition) > Number(afterGlobalPosition))
+          .filter((event) => !eventTypes?.length || eventTypes.includes(event.eventType))
+          .filter(
+            (event) => !streamPrefixes?.length || streamPrefixes.some((prefix) => event.streamId.startsWith(prefix)),
+          )
+          .slice(0, limit);
+      },
+      readStream: async ({
+        streamId,
+        fromVersion = 1,
+        limit = 500,
+      }: {
+        streamId: string;
+        fromVersion?: number;
+        limit?: number;
+      }) =>
+        (sourceEventsByPool.get(pool) ?? [])
+          .filter((event) => event.streamId === streamId && event.streamVersion >= fromVersion)
+          .slice(0, limit),
+    }),
+    createPostgresProjectionStore: ({ db }: { db: object }) => ({
+      listBlockedStreams: async (projectionKey: string) =>
+        [...getBlockedStreamStore(db).values()].filter(
+          (stream) => stream.projectionKey === projectionKey && stream.state !== "resolved",
+        ),
+      listPoisonEvents: async () => [],
+    }),
+    eventCorePostgresSchemaSql: "",
+  };
 }
 
 export function resetMockPoolState() {
@@ -520,4 +520,3 @@ export function createStoredEvent(
     forAccountId: "acc_test",
   };
 }
-

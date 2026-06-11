@@ -72,7 +72,9 @@ export function createActiveTcgplayerProfileVersions(): {
   };
 }
 
-export function createMutableProfileVersionReader(initialVersions: readonly CatalogProviderIntegrationProfileVersionRecord[]) {
+export function createMutableProfileVersionReader(
+  initialVersions: readonly CatalogProviderIntegrationProfileVersionRecord[],
+) {
   let versions = [...initialVersions];
   return {
     listProfileVersions: async (providerKey?: string | null) => {
@@ -1532,7 +1534,12 @@ export function bulkWorkUnitSummaryRow(units: readonly { state: string; claimed_
   };
 }
 
-export function storedEvent(streamVersion: number, streamId: string, eventType: string, payload: Record<string, unknown>) {
+export function storedEvent(
+  streamVersion: number,
+  streamId: string,
+  eventType: string,
+  payload: Record<string, unknown>,
+) {
   return {
     eventId: `evt_${streamVersion}`,
     streamId,

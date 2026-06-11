@@ -23,7 +23,11 @@ import {
   resolveRealtimeRouteConfig,
   runRealtimeProjectionTransaction,
 } from "./realtime";
-import { createWorkSignalEnvelope, parseWorkSignalEnvelope, serializeWorkSignalEnvelope } from "./work-signal-composite";
+import {
+  createWorkSignalEnvelope,
+  parseWorkSignalEnvelope,
+  serializeWorkSignalEnvelope,
+} from "./work-signal-composite";
 
 describe("realtime outbox", () => {
   it("defines a durable topic index for scalable replay", () => {

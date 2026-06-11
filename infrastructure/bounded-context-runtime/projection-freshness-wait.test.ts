@@ -1,17 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  createEventCoreMock,
-  createEventCorePostgresMock,
-  resetMockPoolState,
-} from "./index-test-harness";
+import { createEventCoreMock, createEventCorePostgresMock, resetMockPoolState } from "./index-test-harness";
 
 vi.mock("@chase-sets/event-core", () => createEventCoreMock());
 vi.mock("@chase-sets/event-core-postgres", () => createEventCorePostgresMock());
 
-import {
-  ProjectionFreshnessTimeoutError,
-  waitForProjectionFreshness,
-} from "./index";
+import { ProjectionFreshnessTimeoutError, waitForProjectionFreshness } from "./index";
 
 describe("bounded context projection freshness waits", () => {
   beforeEach(() => {

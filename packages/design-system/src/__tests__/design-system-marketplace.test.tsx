@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { useState } from "react";
 import userEvent from "@testing-library/user-event";
 import { renderToString } from "react-dom/server";
-import { expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import * as designSystem from "../index";
 import {
   ActorIdentityCue,

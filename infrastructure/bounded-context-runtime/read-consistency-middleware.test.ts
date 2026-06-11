@@ -1,18 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { CHASE_SETS_READ_AFTER_WRITE_HEADER, CHASE_SETS_READ_TARGET_CONTEXT_HEADER, encodeFreshWriteReceipt } from "@chase-sets/http/responses";
 import {
-  createEventCoreMock,
-  createEventCorePostgresMock,
-  resetMockPoolState,
-} from "./index-test-harness";
+  CHASE_SETS_READ_AFTER_WRITE_HEADER,
+  CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
+  encodeFreshWriteReceipt,
+} from "@chase-sets/http/responses";
+import { createEventCoreMock, createEventCorePostgresMock, resetMockPoolState } from "./index-test-harness";
 
 vi.mock("@chase-sets/event-core", () => createEventCoreMock());
 vi.mock("@chase-sets/event-core-postgres", () => createEventCorePostgresMock());
 
-import {
-  attachReadConsistencyMiddleware,
-  waitForProjectionFreshness,
-} from "./index";
+import { attachReadConsistencyMiddleware, waitForProjectionFreshness } from "./index";
 
 describe("bounded context read consistency middleware", () => {
   beforeEach(() => {

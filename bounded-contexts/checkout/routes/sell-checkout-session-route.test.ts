@@ -24,7 +24,7 @@ import {
   mockRequireActorFromAuthApi,
   mockResolveActorFromAuthApi,
   readySellListReadinessResponse,
-} from "./checkout-route-test-harness";
+} from "../tests/support/checkout-route-test-harness";
 
 vi.mock("@chase-sets/platform-runtime/auth", async () => {
   const actual = await vi.importActual<typeof import("@chase-sets/platform-runtime/auth")>(

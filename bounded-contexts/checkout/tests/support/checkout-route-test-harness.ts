@@ -65,18 +65,16 @@ export const mockListShippingAddresses = vi.fn();
 
 export function applyCheckoutRouteMockDefaults() {
   mockGetSellListConfirmation.mockRejectedValue(new Error("not found"));
-  mockConfirmSellListCheckout.mockImplementation(
-    async (body: { confirmationId: string; handoffSummary: unknown }) => ({
-      confirmation: {
-        seller_account_id: "acc_seller",
-        confirmation_id: body.confirmationId,
-        confirmed_at: "2026-06-10T00:00:00.000Z",
-        readiness_evidence: {},
-        seller_evidence: {},
-        handoff_summary: body.handoffSummary,
-      },
-    }),
-  );
+  mockConfirmSellListCheckout.mockImplementation(async (body: { confirmationId: string; handoffSummary: unknown }) => ({
+    confirmation: {
+      seller_account_id: "acc_seller",
+      confirmation_id: body.confirmationId,
+      confirmed_at: "2026-06-10T00:00:00.000Z",
+      readiness_evidence: {},
+      seller_evidence: {},
+      handoff_summary: body.handoffSummary,
+    },
+  }));
   mockAcceptOfferMatch.mockResolvedValue({ status: "accepted" });
   mockCreateListing.mockResolvedValue({
     id: "lst_slc_chk_sell_1_sll_1",

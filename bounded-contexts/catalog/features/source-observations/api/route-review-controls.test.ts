@@ -1,12 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SourceObservationRouteServices } from "./route";
 import type { CatalogProviderIntegrationProfileVersionStore } from "./provider-integration-profile-store";
-import {
-  buildApp,
-  context,
-  profileVersion,
-  viewOnlyActor,
-} from "./route-test-harness";
+import { buildApp, context, profileVersion, viewOnlyActor } from "./route-test-harness";
 
 describe("source observation routes: review and control-plane reads", () => {
   it("requires catalog.view for control-plane reads", async () => {

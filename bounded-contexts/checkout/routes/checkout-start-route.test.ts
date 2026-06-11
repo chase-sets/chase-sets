@@ -20,7 +20,7 @@ import {
   mockRequireActorFromAuthApi,
   mockResolveActorFromAuthApi,
   mockStartGuestCheckout,
-} from "./checkout-route-test-harness";
+} from "../tests/support/checkout-route-test-harness";
 
 vi.mock("@chase-sets/platform-runtime/auth", async () => {
   const actual = await vi.importActual<typeof import("@chase-sets/platform-runtime/auth")>(
@@ -79,7 +79,12 @@ vi.mock("@chase-sets/settlement/server", () => ({
 }));
 
 import { AuthApiError } from "@chase-sets/auth/server";
-import { action as checkoutStartAction, checkoutStartBuyerProtectionItems, checkoutStartHeaderCopy, loader as checkoutStartLoader } from "./checkout-start";
+import {
+  action as checkoutStartAction,
+  checkoutStartBuyerProtectionItems,
+  checkoutStartHeaderCopy,
+  loader as checkoutStartLoader,
+} from "./checkout-start";
 
 describe("checkout web routes: checkout start", () => {
   beforeEach(() => {

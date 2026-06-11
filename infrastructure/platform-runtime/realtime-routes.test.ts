@@ -40,7 +40,6 @@ async function readSseTextUntil(
   return text;
 }
 
-
 describe("realtime topic authorization", () => {
   it("allows anonymous public marketplace topics", () => {
     expect(
