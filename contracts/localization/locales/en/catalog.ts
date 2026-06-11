@@ -492,6 +492,92 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.conflictResolution.table.state": "State",
   "catalog.features.sourceObservations.ui.conflictResolution.table.values": "Candidate values",
   "catalog.features.sourceObservations.ui.conflictResolution.title": "Conflict resolution",
+  "catalog.features.sourceObservations.ui.governanceControls.backToWorkbench": "Back to import workbench",
+  "catalog.features.sourceObservations.ui.governanceControls.banner.blockedDescription":
+    "At least one permission, rollout, kill-switch, worker, or observability control is blocking writes.",
+  "catalog.features.sourceObservations.ui.governanceControls.banner.blockedTitle": "Governance controls are blocking",
+  "catalog.features.sourceObservations.ui.governanceControls.banner.degradedDescription":
+    "Controls remain inspectable, but one or more observability signals are stale or degraded.",
+  "catalog.features.sourceObservations.ui.governanceControls.banner.degradedTitle":
+    "Governance controls need attention",
+  "catalog.features.sourceObservations.ui.governanceControls.banner.readyDescription":
+    "Rollout, RBAC, worker, observability, and removal evidence are ready for the selected context.",
+  "catalog.features.sourceObservations.ui.governanceControls.banner.readyTitle": "Governance controls are ready",
+  "catalog.features.sourceObservations.ui.governanceControls.blockers.none": "No control blockers",
+  "catalog.features.sourceObservations.ui.governanceControls.controls.description":
+    "Rollout mode, emergency stops, kill switches, worker pause state, owners, metrics, and evidence stay together.",
+  "catalog.features.sourceObservations.ui.governanceControls.controls.emptyDescription":
+    "The workspace still exposes worker state and deletion evidence when no rollout stop is active.",
+  "catalog.features.sourceObservations.ui.governanceControls.controls.emptyTitle": "No rollout controls",
+  "catalog.features.sourceObservations.ui.governanceControls.controls.title": "Rollout and worker controls",
+  "catalog.features.sourceObservations.ui.governanceControls.description":
+    "Inspect rollout mode, kill switches, RBAC, worker state, observability, alert/runbook links, and removal evidence without leaving the primary import context.",
+  "catalog.features.sourceObservations.ui.governanceControls.metric.blockedCommands": "Blocked commands",
+  "catalog.features.sourceObservations.ui.governanceControls.metric.deletionEvidence": "Deletion evidence",
+  "catalog.features.sourceObservations.ui.governanceControls.metric.deniedCommands": "Denied commands",
+  "catalog.features.sourceObservations.ui.governanceControls.metric.observability": "Degraded signals",
+  "catalog.features.sourceObservations.ui.governanceControls.metric.rolloutStops": "Rollout stops",
+  "catalog.features.sourceObservations.ui.governanceControls.observability.description":
+    "Operational signals show option query latency, job failure rate, projection freshness, quarantine counts, conflict spikes, and alert/runbook links.",
+  "catalog.features.sourceObservations.ui.governanceControls.observability.emptyDescription":
+    "Missing observability data fails closed as unavailable evidence.",
+  "catalog.features.sourceObservations.ui.governanceControls.observability.emptyTitle": "No observability signals",
+  "catalog.features.sourceObservations.ui.governanceControls.observability.title": "Operational observability",
+  "catalog.features.sourceObservations.ui.governanceControls.openEvidence": "Open evidence",
+  "catalog.features.sourceObservations.ui.governanceControls.rbac.description":
+    "Sensitive actions name view/manage permissions, destructive confirmations, current state, blockers, and denied-state copy.",
+  "catalog.features.sourceObservations.ui.governanceControls.rbac.emptyDescription":
+    "Sensitive action contracts must be present before launch.",
+  "catalog.features.sourceObservations.ui.governanceControls.rbac.emptyTitle": "No RBAC actions",
+  "catalog.features.sourceObservations.ui.governanceControls.rbac.title": "RBAC action matrix",
+  "catalog.features.sourceObservations.ui.governanceControls.readModel.alert": "Alert {value}",
+  "catalog.features.sourceObservations.ui.governanceControls.readModel.removal.broadPatch.detail":
+    "Complete removal is required before launch; no broad patch route, client, fallback branch, fixture, old test, or documentation may preserve this behavior.",
+  "catalog.features.sourceObservations.ui.governanceControls.readModel.removal.broadPatch.label":
+    "Broad patch compatibility",
+  "catalog.features.sourceObservations.ui.governanceControls.readModel.removal.label": "Retired compatibility removal",
+  "catalog.features.sourceObservations.ui.governanceControls.readModel.removal.message":
+    "Retired payload escape hatches, broad patch behavior, and legacy selectors are deletion evidence only; they are not launch controls.",
+  "catalog.features.sourceObservations.ui.governanceControls.readModel.removal.payload.detail":
+    "Complete removal verified across runtime code, UI modules, tests, fixtures, screenshots, documentation, runbooks, release notes, and operator instructions.",
+  "catalog.features.sourceObservations.ui.governanceControls.readModel.removal.payload.label": "Payload escape hatch",
+  "catalog.features.sourceObservations.ui.governanceControls.readModel.removal.selector.detail":
+    "Complete removal covers old selector UX, aliases, redirects, screenshots, runbooks, release notes, and operator instructions.",
+  "catalog.features.sourceObservations.ui.governanceControls.readModel.removal.selector.label":
+    "Legacy selector pattern",
+  "catalog.features.sourceObservations.ui.governanceControls.readModel.runbook": "Runbook {value}",
+  "catalog.features.sourceObservations.ui.governanceControls.readModel.signal.conflictSpike": "Conflict spike",
+  "catalog.features.sourceObservations.ui.governanceControls.readModel.signal.dataQuarantine": "Data quarantine",
+  "catalog.features.sourceObservations.ui.governanceControls.readModel.signal.jobFailureRate": "Job failure rate",
+  "catalog.features.sourceObservations.ui.governanceControls.readModel.signal.optionLatency": "Option query latency",
+  "catalog.features.sourceObservations.ui.governanceControls.readModel.signal.projectionFreshness":
+    "Projection freshness",
+  "catalog.features.sourceObservations.ui.governanceControls.readModel.signal.sourceQuarantine":
+    "Source Observation quarantine",
+  "catalog.features.sourceObservations.ui.governanceControls.readModel.worker.label": "Worker pause/resume state",
+  "catalog.features.sourceObservations.ui.governanceControls.readModel.worker.paused":
+    "Worker claims are paused while rollout or emergency-stop controls are blocked.",
+  "catalog.features.sourceObservations.ui.governanceControls.readModel.worker.running":
+    "Workers are accepting import, reapply, and replay work; {count} active job(s) are in scope.",
+  "catalog.features.sourceObservations.ui.governanceControls.removal.bannerDescription":
+    "Retired behavior is deletion evidence only. No hidden flag, support route, fallback branch, fixture, screenshot, documentation, runbook, release note, or operator instruction may preserve it.",
+  "catalog.features.sourceObservations.ui.governanceControls.removal.bannerTitle": "Retirement means complete removal",
+  "catalog.features.sourceObservations.ui.governanceControls.removal.description":
+    "The controls workspace can prove removed compatibility artifacts, but cannot present them as launch controls.",
+  "catalog.features.sourceObservations.ui.governanceControls.removal.title": "Retired compatibility removal",
+  "catalog.features.sourceObservations.ui.governanceControls.table.action": "Action",
+  "catalog.features.sourceObservations.ui.governanceControls.table.alertRunbook": "Alert/runbook",
+  "catalog.features.sourceObservations.ui.governanceControls.table.control": "Control",
+  "catalog.features.sourceObservations.ui.governanceControls.table.evidence": "Evidence",
+  "catalog.features.sourceObservations.ui.governanceControls.table.ownerMetric": "Owner and metric",
+  "catalog.features.sourceObservations.ui.governanceControls.table.permission": "Permission",
+  "catalog.features.sourceObservations.ui.governanceControls.table.scope": "Scope",
+  "catalog.features.sourceObservations.ui.governanceControls.table.signal": "Signal",
+  "catalog.features.sourceObservations.ui.governanceControls.table.state": "State",
+  "catalog.features.sourceObservations.ui.governanceControls.table.status": "Status",
+  "catalog.features.sourceObservations.ui.governanceControls.table.surface": "Surface",
+  "catalog.features.sourceObservations.ui.governanceControls.table.value": "Value",
+  "catalog.features.sourceObservations.ui.governanceControls.title": "Governance controls",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.execution.preview.fresh": "Preview freshness",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.execution.stale.guard": "Stale preview guard",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.execution.stale.value":
