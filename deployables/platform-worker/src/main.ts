@@ -37,6 +37,7 @@ import {
 import {
   createProjectionWakeSchedulerRunners,
   createWorkSignalCleanupRunner,
+  type ProjectionWakeIntentLifecycleEvent,
   type ProjectionWakeSchedulerObserver,
 } from "@chase-sets/platform-runtime/projection-wake-scheduler";
 import {
@@ -68,7 +69,11 @@ import {
   recordCatalogControlPlaneEvent,
   recordCatalogIntegrationJob,
   recordCatalogIntegrationOptionQuery,
+  recordProjectionWakeIntentOutcome,
+  recordProjectionWakeRelayCatchUp,
+  recordProjectionWakeRelayFanOut,
   recordSettlementOperationSignal,
+  type ProjectionWakeIntentOutcomeSignal,
 } from "@chase-sets/observability";
 import {
   loadConfig,
@@ -634,11 +639,19 @@ function createProjectionWakeRelayLogObserver(): ProjectionWakeRelayRuntimeObser
         type: "projection-wake-relay.catch_up.started",
         ...event,
       }),
-    sourceCatchUpCompleted: (event) =>
+    sourceCatchUpCompleted: (event) => {
+      recordProjectionWakeRelayCatchUp({
+        sourceContextName: event.sourceContextName,
+        reason: event.reason,
+        eventCount: event.eventCount,
+        cursorAdvanceCount: event.cursorAdvanceCount,
+        durationMs: event.durationMs,
+      });
       logger.info("Projection wake relay source catch-up completed.", {
         type: "projection-wake-relay.catch_up.completed",
         ...event,
-      }),
+      });
+    },
     sourceCatchUpFailed: (event) =>
       logger.error("Projection wake relay source catch-up failed.", {
         type: "projection-wake-relay.catch_up.failed",
@@ -674,71 +687,138 @@ function createProjectionWakeRelayLogObserver(): ProjectionWakeRelayRuntimeObser
         type: "projection-wake-relay.notification.rejected",
         ...event,
       }),
-    sourceSkipped: (event) =>
+    sourceSkipped: (event) => {
+      recordProjectionWakeRelayFanOut({
+        sourceContextName: event.sourceContextName,
+        status: "skipped",
+        reason: event.reason,
+        intentCount: 0,
+        enqueuedCount: 0,
+      });
       logger.info("Projection wake relay source skipped.", {
         type: "projection-wake-relay.fan_out.source_skipped",
         ...event,
-      }),
-    fanOutSkipped: (event) =>
+      });
+    },
+    fanOutSkipped: (event) => {
+      recordProjectionWakeRelayFanOut({
+        sourceContextName: event.sourceContextName,
+        status: "skipped",
+        reason: event.reason,
+        intentCount: 0,
+        enqueuedCount: 0,
+      });
       logger.info("Projection wake relay fan-out found no interests.", {
         type: "projection-wake-relay.fan_out.no_interests",
         ...event,
-      }),
-    fanOutSucceeded: (event) =>
+      });
+    },
+    fanOutSucceeded: (event) => {
+      recordProjectionWakeRelayFanOut({
+        sourceContextName: event.sourceContextName,
+        status: "enqueued",
+        priorityLane: event.priorityLane,
+        intentCount: event.intentCount,
+        enqueuedCount: event.enqueuedCount,
+        notificationAgeMs: event.notificationAgeMs,
+      });
       logger.info("Projection wake relay fan-out enqueued wake intents.", {
         type: "projection-wake-relay.fan_out.succeeded",
         ...event,
-      }),
-    fanOutFailed: (event) =>
+      });
+    },
+    fanOutFailed: (event) => {
+      recordProjectionWakeRelayFanOut({
+        sourceContextName: event.sourceContextName,
+        status: "failed",
+        reason: event.reason,
+        intentCount: event.intentCount,
+        enqueuedCount: event.enqueuedCount,
+      });
       logger.error("Projection wake relay fan-out failed.", {
         type: "projection-wake-relay.fan_out.failed",
         ...event,
-      }),
+      });
+    },
   };
 }
 
 function createProjectionWakeSchedulerLogObserver(): ProjectionWakeSchedulerObserver {
+  const recordIntentOutcome = (
+    event: ProjectionWakeIntentLifecycleEvent,
+    outcome: ProjectionWakeIntentOutcomeSignal["outcome"],
+    extras: Readonly<{ processingDurationMs?: number | null; requeued?: boolean }> = {},
+  ) =>
+    recordProjectionWakeIntentOutcome({
+      outcome,
+      priorityLane: event.priorityLane,
+      origin: event.origin,
+      sourceContextName: event.sourceContextName,
+      targetContextName: event.targetContextName,
+      projectionName: event.projectionName,
+      queueAgeMs: event.queueAgeMs,
+      attemptCount: event.attemptCount,
+      ...extras,
+    });
+
   return {
     wakeIntentClaimed: (event) =>
       logger.info("Projection wake intent claimed.", {
         type: "projection-wake.intent.claimed",
         ...event,
       }),
-    wakeIntentCompleted: (event) =>
+    wakeIntentCompleted: (event) => {
+      recordIntentOutcome(event, event.outcome === "ran" ? "completed" : "already-satisfied", {
+        processingDurationMs: event.processingDurationMs,
+        requeued: event.requeued,
+      });
       logger.info("Projection wake intent completed.", {
         type: "projection-wake.intent.completed",
         ...event,
-      }),
-    wakeIntentNotReady: (event) =>
+      });
+    },
+    wakeIntentNotReady: (event) => {
+      recordIntentOutcome(event, "not-ready");
       logger.warn("Projection wake intent retried before checkpoint readiness.", {
         type: "projection-wake.intent.not_ready",
         ...event,
-      }),
-    wakeIntentDeferred: (event) =>
+      });
+    },
+    wakeIntentDeferred: (event) => {
+      recordIntentOutcome(event, "deferred");
       logger.info("Projection wake intent deferred while the projection group lease was busy.", {
         type: "projection-wake.intent.deferred",
         ...event,
-      }),
-    wakeIntentUnknownTarget: (event) =>
+      });
+    },
+    wakeIntentUnknownTarget: (event) => {
+      recordIntentOutcome(event, "unknown-target");
       logger.warn("Projection wake intent targeted an unknown projection group or checkpoint.", {
         type: "projection-wake.intent.unknown_target",
         ...event,
-      }),
-    wakeIntentRunFailed: (event) =>
+      });
+    },
+    wakeIntentRunFailed: (event) => {
+      recordIntentOutcome(event, "run-failed");
       logger.error("Projection wake intent run failed.", {
         type: "projection-wake.intent.run_failed",
         ...event,
-      }),
-    wakeIntentAttemptsExhausted: (event) =>
+      });
+    },
+    wakeIntentAttemptsExhausted: (event) => {
+      recordIntentOutcome(event, "attempts-exhausted");
       logger.error("Projection wake intent exhausted its scheduler attempts.", {
         type: "projection-wake.intent.attempts_exhausted",
         ...event,
-      }),
-    wakeIntentClaimLost: (event) =>
+      });
+    },
+    wakeIntentClaimLost: (event) => {
+      recordIntentOutcome(event, "claim-lost");
       logger.warn("Projection wake intent claim was lost before completion.", {
         type: "projection-wake.intent.claim_lost",
         ...event,
-      }),
+      });
+    },
     checkpointReadinessRecordFailed: (event) =>
       logger.warn("Projection checkpoint readiness record failed after a wake completion.", {
         type: "projection-wake.readiness.record_failed",

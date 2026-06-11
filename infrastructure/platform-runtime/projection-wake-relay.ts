@@ -181,6 +181,7 @@ export type ProjectionWakeRelaySourceCatchUpCompletedEvent = Readonly<{
   eventCount: number;
   cursorAdvanceCount: number;
   lastFanOutPosition: string | null;
+  durationMs: number;
 }>;
 
 export type ProjectionWakeRelaySourceCatchUpFailedEvent = Readonly<{
@@ -242,6 +243,7 @@ export type ProjectionWakeRelayFanOutSucceededEvent = Readonly<{
   intentCount: number;
   enqueuedCount: number;
   enqueuedWakeIntentIds: readonly string[];
+  notificationAgeMs: number | null;
 }>;
 
 export type ProjectionWakeRelayFanOutFailedEvent = Readonly<{
@@ -664,6 +666,7 @@ export async function fanOutEventStoreWakeNotification(
     intentCount: result.intentCount,
     enqueuedCount: result.enqueuedCount,
     enqueuedWakeIntentIds: result.enqueuedWakeIntentIds,
+    notificationAgeMs: wakeNotificationAgeMs(notification.emittedAt),
   });
 
   return result;
@@ -906,6 +909,8 @@ async function catchUpRelaySource(
   state: ProjectionWakeRelaySourceState,
   reason: ProjectionWakeRelayCatchUpReason,
 ): Promise<ProjectionWakeRelaySourceCatchUpResult> {
+  const now = state.input.now ?? (() => new Date());
+  const startedAtMs = now().getTime();
   const cursor = await state.input.controlPlane.getProjectionWakeRelayCursor(state.source.sourceContextName);
   let afterGlobalPosition = cursorPosition(cursor);
   let eventCount = 0;
@@ -942,7 +947,7 @@ async function catchUpRelaySource(
       const notification = createCatchUpWakeNotificationEnvelope({
         source: state.source,
         events: group,
-        now: state.input.now ?? (() => new Date()),
+        now,
       });
       const fanOutResult = await fanOutEventStoreWakeNotification({
         notification,
@@ -1000,6 +1005,7 @@ async function catchUpRelaySource(
     eventCount,
     cursorAdvanceCount,
     lastFanOutPosition,
+    durationMs: Math.max(0, now().getTime() - startedAtMs),
   });
 
   return {
@@ -1060,7 +1066,10 @@ function createCatchUpWakeNotificationEnvelope(input: {
     payloadVersion: EVENT_STORE_WAKE_NOTIFICATION_PAYLOAD_VERSION,
     kind: EVENT_STORE_WAKE_NOTIFICATION_KIND,
     source: DEFAULT_EVENT_STORE_WAKE_NOTIFICATION_SOURCE,
-    emittedAt: parseIsoUtcTimestamp(input.now().toISOString()),
+    // Use the durable recording time of the newest event in the batch so the
+    // fan-out age metric measures real commit-to-fan-out latency. The
+    // synthetic envelope's own creation time would always read ~0.
+    emittedAt: lastEvent.recordedAt ?? parseIsoUtcTimestamp(input.now().toISOString()),
     ...(firstEvent.traceId ? { correlationId: firstEvent.traceId } : {}),
     payload: {
       sourceContextName: input.source.sourceContextName,
@@ -1185,6 +1194,11 @@ function eventStoreWakeNotificationContext(notification: EventStoreWakeNotificat
 
 function sourceScopedCursor(payload: EventStoreWakeNotificationPayload): string {
   return `${payload.sourceContextName}:${String(payload.lastGlobalPosition)}`;
+}
+
+function wakeNotificationAgeMs(emittedAt: IsoUtcTimestamp): number | null {
+  const ageMs = Date.now() - Date.parse(emittedAt);
+  return Number.isFinite(ageMs) && ageMs >= 0 ? ageMs : null;
 }
 
 function projectionWakeRelayMetadata(

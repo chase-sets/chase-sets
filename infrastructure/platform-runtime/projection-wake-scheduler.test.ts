@@ -73,7 +73,12 @@ describe("projection wake scheduler", () => {
     expect(claimed).toHaveLength(1);
     expect(claimed[0]).toMatchObject({ queueAgeMs: 5_000, priorityLane: "hot" });
     expect(completed).toHaveLength(1);
-    expect(completed[0]).toMatchObject({ outcome: "ran", checkpointPosition: "120", requeued: false });
+    expect(completed[0]).toMatchObject({
+      outcome: "ran",
+      checkpointPosition: "120",
+      requeued: false,
+      processingDurationMs: 0,
+    });
   });
 
   it("drains multiple projection batches inside one claim until the required position is reached", async () => {
@@ -120,7 +125,11 @@ describe("projection wake scheduler", () => {
     expect(projection.runCount()).toBe(0);
     expect(controlPlane.acquiredLeaseNames).toEqual([]);
     expect(store.completions).toHaveLength(1);
-    expect(completed[0]).toMatchObject({ outcome: "already-satisfied", checkpointPosition: "200" });
+    expect(completed[0]).toMatchObject({
+      outcome: "already-satisfied",
+      checkpointPosition: "200",
+      processingDurationMs: 0,
+    });
   });
 
   it("retries with exponential backoff when the checkpoint makes no progress", async () => {
