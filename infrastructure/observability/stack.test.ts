@@ -52,5 +52,15 @@ describe("observability stack contracts", () => {
     expect(readStackFile("grafana/provisioning/alerting/platform-api-alerts.yml")).toContain(
       "Projection freshness pending rows with projection errors",
     );
+    expect(readStackFile("grafana/dashboards/projection-wake-pipeline.json")).toContain("Projection Wake Pipeline");
+    expect(readStackFile("grafana/dashboards/projection-wake-pipeline.json")).toContain(
+      "chase_sets_projection_wake_intents_total",
+    );
+    expect(readStackFile("grafana/provisioning/alerting/platform-worker-wake-alerts.yml")).toContain(
+      "Projection wake relay fan-out failures",
+    );
+    expect(readStackFile("grafana/provisioning/alerting/platform-worker-wake-alerts.yml")).toContain(
+      "Projection wake hot lane queue age p95 above SLO",
+    );
   });
 });

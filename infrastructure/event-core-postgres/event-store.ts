@@ -84,6 +84,7 @@ export type EventStoreWakeNotificationEmittedEvent = Readonly<{
   eventCount: number;
   eventTypes: readonly string[];
   payloadBytes: number;
+  emittedAt: IsoUtcTimestamp;
   correlationId: string | null;
 }>;
 
@@ -672,6 +673,7 @@ function createEventStoreWakeNotificationObservation(
     lastGlobalPosition: envelope.payload.lastGlobalPosition,
     eventCount: envelope.payload.eventCount,
     eventTypes: envelope.payload.eventTypes,
+    emittedAt: envelope.emittedAt,
     correlationId: envelope.correlationId ?? null,
   };
 }

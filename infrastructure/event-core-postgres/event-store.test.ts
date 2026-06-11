@@ -128,6 +128,7 @@ describe("postgres event store", () => {
       channel: DEFAULT_EVENT_STORE_WAKE_NOTIFICATION_CHANNEL,
       sourceContextName: "checkout",
       lastGlobalPosition: "102",
+      emittedAt: NOW,
       correlationId: "trace_1",
     });
   });

@@ -7,6 +7,10 @@ import {
   loadObservabilityConfig,
   projectionFreshnessAuditMetricRecords,
   publicPresenceWaitlistAnalyticsAttributes,
+  recordProjectionWakeIntentOutcome,
+  recordProjectionWakeNotificationEmitted,
+  recordProjectionWakeRelayCatchUp,
+  recordProjectionWakeRelayFanOut,
   sanitizeLogFields,
 } from "./index";
 
@@ -223,6 +227,8 @@ describe("projection freshness observability", () => {
       receiptSourceCount: 1,
       receiptEventCount: 2,
       dependencies: [{ targetContextName: "checkout", projectionName: "checkout.session-projection" }],
+      wakeRequestCount: 0,
+      workSignalError: null,
       pending: [],
     });
 
@@ -246,6 +252,8 @@ describe("projection freshness observability", () => {
       },
     });
     expect(records.pending).toEqual([]);
+    expect(records.wakeRequests).toEqual([]);
+    expect(records.workSignalErrors).toEqual([]);
   });
 
   it("maps timeout pending lag without high-cardinality identifiers", () => {
@@ -266,6 +274,8 @@ describe("projection freshness observability", () => {
       receiptSourceCount: 1,
       receiptEventCount: 1,
       dependencies: [],
+      wakeRequestCount: 2,
+      workSignalError: "present",
       pending: [
         {
           targetContextName: "checkout",
@@ -305,6 +315,23 @@ describe("projection freshness observability", () => {
         },
       },
     ]);
+    expect(records.wakeRequests).toEqual([
+      {
+        wakeRequestCount: 2,
+        attributes: {
+          outcome: "timeout",
+          wait_mode: "target-context",
+        },
+      },
+    ]);
+    expect(records.workSignalErrors).toEqual([
+      {
+        attributes: {
+          outcome: "timeout",
+          wait_mode: "target-context",
+        },
+      },
+    ]);
     expect(JSON.stringify(records)).not.toContain("chk_");
     expect(JSON.stringify(records)).not.toContain("account_");
     expect(JSON.stringify(records)).not.toContain("todd.skelton");
@@ -329,6 +356,8 @@ describe("projection freshness observability", () => {
       receiptSourceCount: 0,
       receiptEventCount: 0,
       dependencies: [{ targetContextName: "checkout", projectionName: "checkout.session-projection" }],
+      wakeRequestCount: 0,
+      workSignalError: null,
       pending: [],
     });
 
@@ -362,10 +391,111 @@ describe("projection freshness observability", () => {
       receiptSourceCount: 1,
       receiptEventCount: 1,
       dependencies: [{ targetContextName: "checkout", projectionName: "checkout.session-projection" }],
+      wakeRequestCount: 0,
+      workSignalError: null,
       pending: [],
     });
 
     expect(records.evaluations[0].attributes.route_path).toBe("/account/checkout-sessions/:id");
     expect(JSON.stringify(records)).not.toContain("chk_01KTMF9TCCPKGA3J3TYMGGXQ2R");
+  });
+});
+
+describe("projection wake pipeline observability", () => {
+  it("records wake notification emissions without throwing", () => {
+    expect(() =>
+      recordProjectionWakeNotificationEmitted({
+        sourceContextName: "checkout",
+        streamCategory: "checkout.checkout-session",
+        eventCount: 2,
+        payloadBytes: 412,
+        emittedAt: "2026-06-10T12:00:00.000Z",
+      }),
+    ).not.toThrow();
+  });
+
+  it("records relay catch-up passes without throwing", () => {
+    expect(() =>
+      recordProjectionWakeRelayCatchUp({
+        sourceContextName: "checkout",
+        reason: "startup",
+        eventCount: 7,
+        cursorAdvanceCount: 2,
+        durationMs: 35,
+      }),
+    ).not.toThrow();
+    expect(() =>
+      recordProjectionWakeRelayCatchUp({
+        sourceContextName: "checkout",
+        reason: "notification",
+        eventCount: 0,
+        cursorAdvanceCount: 0,
+        durationMs: -1,
+      }),
+    ).not.toThrow();
+  });
+
+  it("records relay fan-out outcomes without throwing", () => {
+    expect(() =>
+      recordProjectionWakeRelayFanOut({
+        sourceContextName: "checkout",
+        status: "enqueued",
+        priorityLane: "hot",
+        intentCount: 3,
+        enqueuedCount: 3,
+        notificationAgeMs: 12,
+      }),
+    ).not.toThrow();
+    expect(() =>
+      recordProjectionWakeRelayFanOut({
+        sourceContextName: null,
+        status: "failed",
+        reason: "invalid-notification",
+        intentCount: 0,
+        enqueuedCount: 0,
+        notificationAgeMs: Number.NaN,
+      }),
+    ).not.toThrow();
+    expect(() =>
+      recordProjectionWakeRelayFanOut({
+        sourceContextName: "checkout",
+        status: "skipped",
+        reason: "no-interests",
+        priorityLane: "hot",
+        intentCount: 0,
+        enqueuedCount: 0,
+        notificationAgeMs: -5,
+      }),
+    ).not.toThrow();
+  });
+
+  it("records wake intent outcomes without throwing", () => {
+    expect(() =>
+      recordProjectionWakeIntentOutcome({
+        outcome: "completed",
+        priorityLane: "hot",
+        origin: "relay",
+        sourceContextName: "checkout",
+        targetContextName: "checkout",
+        projectionName: "checkout-session-pages",
+        queueAgeMs: 5_000,
+        attemptCount: 1,
+        processingDurationMs: 42,
+        requeued: false,
+      }),
+    ).not.toThrow();
+    expect(() =>
+      recordProjectionWakeIntentOutcome({
+        outcome: "attempts-exhausted",
+        priorityLane: "standard",
+        origin: "api-wait",
+        sourceContextName: "checkout",
+        targetContextName: "checkout",
+        projectionName: "checkout-session-pages",
+        queueAgeMs: -1,
+        attemptCount: 10,
+        processingDurationMs: null,
+      }),
+    ).not.toThrow();
   });
 });

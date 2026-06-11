@@ -69,6 +69,7 @@ describe("projection wake relay fan-out", () => {
       enqueuedWakeIntentIds: ["projection-wake-1"],
     });
     expect(succeeded).toHaveLength(1);
+    expect(succeeded[0].notificationAgeMs === null || succeeded[0].notificationAgeMs >= 0).toBe(true);
     expect(inputs).toHaveLength(1);
     expect(inputs[0]).toMatchObject({
       sourceContextName: "checkout",
@@ -321,6 +322,7 @@ describe("projection wake relay active runtime", () => {
       },
     ]);
     expect(completed).toMatchObject([{ reason: "startup", eventCount: 2, cursorAdvanceCount: 1 }]);
+    expect(completed[0].durationMs).toBeGreaterThanOrEqual(0);
     expect(controlPlane.released).toBe(1);
   });
 
