@@ -5,11 +5,12 @@ import { describe, expect, it } from "vitest";
 
 const contextRoot = resolve(fileURLToPath(new URL(".", import.meta.url)), "..");
 const architectureDocPath = resolve(contextRoot, "docs/catalog-integration-test-architecture.md");
-const previewTestPath = resolve(
+const readModelTestPath = resolve(contextRoot, "features/source-observations/ui/primary-workbench-read-model.test.ts");
+const pageTestPath = resolve(contextRoot, "features/source-observations/ui/primary-workbench-page.test.tsx");
+const acceptanceGateTestPath = resolve(
   contextRoot,
-  "features/source-observations/ui/integration-management-profile-previews.test.ts",
+  "features/source-observations/api/catalog-integration-no-confusion-ux-acceptance.test.ts",
 );
-const pageTestPath = resolve(contextRoot, "features/source-observations/ui/integration-management-page.test.tsx");
 
 describe("Catalog integration test architecture", () => {
   const doc = readFileSync(architectureDocPath, "utf8");
@@ -25,11 +26,12 @@ describe("Catalog integration test architecture", () => {
       "runtime-service-facets.test.ts",
       "runtime.test.ts",
       "route.test.ts",
-      "integration-management-profile-previews.test.ts",
-      "integration-management-page.test.tsx",
-      "source-observation-list-page.test.tsx",
+      "primary-workbench-read-model.test.ts",
+      "primary-workbench-page.test.tsx",
+      "primary-workbench-route-context.test.ts",
+      "primary-workbench-copy.test.ts",
       "operator-acceptance-journeys.test.ts",
-      "deployables/admin-web/e2e/catalog-integrations.spec.ts",
+      "catalog-integration-no-confusion-ux-acceptance.test.ts",
     ];
 
     for (const anchor of requiredAnchors) {
@@ -42,17 +44,20 @@ describe("Catalog integration test architecture", () => {
     expect(doc).toContain("Catalog Integration Engine tests may assert Source Observation facts");
     expect(doc).toContain("API route tests may assert request validation");
     expect(doc).toContain("Runtime facet tests may prove the aggregate runtime");
-    expect(doc).toContain("UI profile preview tests own pure form-to-preview behavior");
+    expect(doc).toContain("Primary workbench read-model/copy/route-context tests own");
     expect(doc).toContain("E2E tests cover representative happy paths and critical blocked states");
   });
 
-  it("moves pure profile-preview coverage out of the rendered page suite", () => {
-    const previewTest = readFileSync(previewTestPath, "utf8");
+  it("anchors launch acceptance to rebuilt workbench tests and rejects old page evidence anchors", () => {
+    const readModelTest = readFileSync(readModelTestPath, "utf8");
     const pageTest = readFileSync(pageTestPath, "utf8");
+    const acceptanceGateTest = readFileSync(acceptanceGateTestPath, "utf8");
 
-    expect(previewTest).toContain("builds provider option import surface preview text");
-    expect(previewTest).toContain("builds ordered promotion command previews from fixture payloads");
-    expect(pageTest).not.toContain("builds provider option import surface preview text");
-    expect(pageTest).not.toContain("builds ordered promotion command previews from fixture payloads");
+    expect(readModelTest).toContain("buildCatalogPrimaryWorkbenchReadModel");
+    expect(pageTest).toContain("CatalogPrimaryWorkbenchPage");
+    expect(acceptanceGateTest).toContain("no-confusion UX acceptance gate");
+    expect(doc).not.toContain("integration-management-page.test.tsx");
+    expect(doc).not.toContain("source-observation-list-page.test.tsx");
+    expect(doc).not.toContain("deployables/admin-web/e2e/catalog-integrations.spec.ts");
   });
 });

@@ -148,7 +148,7 @@ Those contracts keep Catalog semantic readiness grouped by ingestion unit, provi
 
 Read-model performance and freshness expectations are documented in [Admin Control Plane Read-Model SLOs](./admin-control-plane-read-model-slos.md), with the authoritative TypeScript surface in `admin-control-plane-read-model-slos.ts`. High-volume diagnostic, job, Source Observation, impact, promotion, rollback, and audit views must carry server-side pagination contracts and render `fresh`, `stale`, `lagging`, `partial`, or `unavailable` states instead of silently falling back to raw storage reads.
 
-Dense workflow UX and accessibility acceptance is documented in [Catalog Integration Admin UX And Accessibility Acceptance](./catalog-integration-admin-ux-accessibility.md). Release verification for Admin Control Plane UI changes should name the checklist rows covered by tests and any deferred keyboard, responsive, high-volume, or raw-JSON fallback gaps.
+Dense workflow UX and accessibility acceptance is documented in [Catalog Integration Admin UX And Accessibility Acceptance](./catalog-integration-admin-ux-accessibility.md). First-slice launch acceptance is enforced by [Catalog Integration No-Confusion UX Acceptance](./catalog-integration-no-confusion-ux-acceptance.md), which ties the primary import-to-promotion path, role/persona behavior, accessibility, visual QA, resilience, telemetry, provider transport, security/privacy proof, real-provider proof, and complete retirement evidence together. Release verification for Admin Control Plane UI changes should name the checklist rows covered by tests and any deferred keyboard, responsive, high-volume, or raw-JSON fallback gaps.
 
 Operator acceptance journeys are documented in [Catalog Integration Operator Acceptance Journeys](./catalog-integration-operator-acceptance-journeys.md). Release verification should name the journey IDs covered by happy-path, failure/recovery, destructive lifecycle, and audit evidence so operator acceptance remains distinct from low-level UI accessibility checks.
 
@@ -178,6 +178,7 @@ The URL section key is authoritative for section update routes. Normal Admin Con
 - [Admin Control Plane Query Contracts](./admin-control-plane-query-contracts.md)
 - [Admin Control Plane Read-Model SLOs](./admin-control-plane-read-model-slos.md)
 - [Catalog Integration Admin UX And Accessibility Acceptance](./catalog-integration-admin-ux-accessibility.md)
+- [Catalog Integration No-Confusion UX Acceptance](./catalog-integration-no-confusion-ux-acceptance.md)
 - [Catalog Integration Operator Acceptance Journeys](./catalog-integration-operator-acceptance-journeys.md)
 - [Source Observation Integration](./source-observation-integration.md)
 - [Catalog Integration New-Provider Walkthrough](./catalog-integration-new-provider-walkthrough.md)

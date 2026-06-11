@@ -51,7 +51,8 @@ The no-core-change guard covers these core paths:
 - `features/source-observations/api/runtime.ts`
 - `features/source-observations/api/route.ts`
 - `features/source-observations/api/route-helpers.ts`
-- `features/source-observations/ui/integration-management-page.tsx`
+- `features/source-observations/ui/primary-workbench-page.tsx`
+- `features/source-observations/ui/admin-control-plane/`
 - `features/source-observations/api/provider-integration-profiles.ts`
 
 The guard verifies the final MTGJSON/Scryfall validation units do not appear as runtime, route, Admin UI, profile, promotion/replay, or raw JSON authoring branches.
