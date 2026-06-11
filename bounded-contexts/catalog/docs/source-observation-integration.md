@@ -88,8 +88,8 @@ runtime import enables them. Existing TCGplayer normalization helpers for produc
 form, barcode, source hash, selected Options, duplicate-prevention evidence, and
 promotion readiness are reviewed Catalog semantic extension points until profile
 interpretation can express those decisions safely. Replacing one requires
-complete deletion of the old helper, tests, fixtures, docs, runbooks, and
-operator instructions.
+complete deletion of the old helper, tests, fixtures, seeds, documentation,
+runbooks, release notes, and operator instructions.
 
 ## Promotion
 

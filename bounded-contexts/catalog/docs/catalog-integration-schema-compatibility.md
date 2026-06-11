@@ -28,7 +28,7 @@ bounded-contexts/catalog/features/source-observations/api/catalog-integration-da
 
 ## Launch Boundary
 
-Pre-launch integration-control-plane data should be reset or rebuilt by default. Do not add compatibility adapters for old profile, payload, fixture, or job shapes unless a retained-data evidence packet proves a clean launch capability or a launch blocker with owner, reason, expiry/removal criteria, and verification. Retired compatibility paths are not retained data; they must be completely deleted from code, patterns, tests, fixtures, docs, runbooks, and operator instructions.
+Pre-launch integration-control-plane data should be reset or rebuilt by default. Do not add compatibility adapters for old profile, payload, fixture, or job shapes unless a retained-data evidence packet proves a clean launch capability or a launch blocker with owner, reason, expiry/removal criteria, and verification. Retired compatibility paths are not retained data; they must be completely deleted from code, product patterns, route/API/client/read-model behavior, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, and operator instructions.
 
 Compatibility is required for:
 
@@ -91,11 +91,11 @@ Use additive compatibility or migration only when at least one of these is true:
 - the Admin UI or an operator journey consumes the DTO as a stable contract
 - a future provider addition needs an additive semantic primitive or adapter capability
 
-Do not use this policy to keep retired code, patterns, or documentation alive. A retired compatibility path must be completely deleted from runtime code, UI, routes, API/read-model contracts, clients, feature flags, aliases, shims, fixtures, seeds, screenshots, tests, docs, runbooks, release notes, and operator instructions.
+Do not use this policy to keep retired code, patterns, or documentation alive. A retired compatibility path must be completely deleted from runtime code, UI, routes, API/read-model contracts, clients, feature flags, aliases, compatibility shims, migration shims, fixtures, seeds, screenshots, tests, documentation, runbooks, release notes, and operator instructions.
 
 The pre-launch reset mode deletes integration jobs, work units, Source Observations, learned provider option rate limits, and non-admin-authored provider profile versions, then rebuilds seeded profile versions and section projections. Active jobs block reset unless an operator records an explicit forced pre-launch wipe decision.
 
-The Stage 0 cleanup gate requires every temporary transitional static profile or broad profile patch route to be deleted or named as launch-blocking. Legacy Source Observation marker reads are not retained paths; they are reset/drop verification only. Normal Admin workflows must stay section-scoped and typed with `rawJsonBacked=false`; broad raw profile patching is not a launch workflow. #1090 owns complete deletion of current-page code, tests, fixtures, screenshots, docs, runbooks, and operator instructions after the rebuilt workbench is accepted.
+The Stage 0 cleanup gate requires every temporary transitional static profile or broad profile patch route to be deleted or named as launch-blocking. Legacy Source Observation marker reads are not retained paths; they are reset/drop verification only. Normal Admin workflows must stay section-scoped and typed with `rawJsonBacked=false`; broad raw profile patching is not a launch workflow. #1090 owns complete deletion of current-page code, route/API/client/read-model behavior, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, and operator instructions after the rebuilt workbench is accepted.
 
 ## Test Expectations
 

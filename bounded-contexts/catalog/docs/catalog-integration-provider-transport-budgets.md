@@ -4,7 +4,7 @@ This document defines the #1065 proof criteria, reliability vocabulary, and firs
 
 The primary operator path stays front and center: pull provider data, review Source Observations, and promote eligible sources into Catalog Items or Catalog-owned references. Supporting diagnostics, profile authoring, lifecycle recovery, audit, and governance flows exist to explain or unblock that path. They are not peers that can bury the import-to-promotion workflow.
 
-This rebuild is not a migration of the current two-page Catalog integrations surface. For legacy control-plane surfaces, "retire", "remove", "deprecate", and "cleanup" mean complete removal from code, product patterns, tests, fixtures, screenshots, documentation, runbooks, release notes, operator instructions, aliases, flags, fallbacks, redirects, support-only routes, and compatibility shims. Data loss is acceptable for unlaunched legacy state when it simplifies the launch contract.
+This rebuild is not a migration of the current two-page Catalog integrations surface. For legacy control-plane surfaces, "retire", "remove", "deprecate", and "cleanup" mean complete removal from code, product patterns, route/API/client/read-model behavior, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, operator instructions, aliases, flags, fallback branches, redirects, support-only routes, compatibility aliases, compatibility shims, and migration shims. Data loss is acceptable for unlaunched legacy state when it simplifies the launch contract.
 
 ## Ownership
 
@@ -87,7 +87,7 @@ pnpm run catalog:real-provider-proof -- --environment staging --transport-mode s
 
 It emits a redacted `catalog-real-provider-proof/v1` packet. See [Catalog Integration Real-Provider Proof](./catalog-integration-real-provider-proof.md) for packet fields, redaction rules, live/local usage, and #1061/#1064/#1065 handoff expectations.
 
-#1064 owns redaction and privacy hardening for evidence produced by this proof. #1090 owns complete deletion of old control-plane pages, routes, module patterns, docs, tests, fixtures, screenshots, runbooks, release notes, and operator instructions after the rebuilt workbench is accepted.
+#1064 owns redaction and privacy hardening for evidence produced by this proof. #1090 owns complete deletion of old control-plane pages, routes, module patterns, route/API/client/read-model behavior, documentation, tests, fixtures, seeds, screenshots, runbooks, release notes, and operator instructions after the rebuilt workbench is accepted.
 
 ## Forbidden Outcomes
 
@@ -98,4 +98,4 @@ The first slice must not ship:
 - compatibility redirects or hidden flags for old screens;
 - provider-specific Admin branches outside the profile/adapter contracts;
 - raw JSON broad patch or raw provider payload escape hatches;
-- tests, fixtures, screenshots, docs, runbooks, release notes, or operator instructions that tell users how to use retired behavior.
+- tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, or operator instructions that tell users how to use retired behavior.

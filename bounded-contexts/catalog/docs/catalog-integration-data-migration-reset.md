@@ -12,7 +12,7 @@ This plan defines the prelaunch reset/drop evidence contract, consumes the reten
 
 The control plane has not launched, so pre-launch integration data should be wiped and rebuilt by default. Backfill is required only for intentionally retained clean launch data, launched contracts, or deploy-skew safety. Retained compatibility paths are not accepted as clean reset completion; they are launch blockers until rebuilt as clean launch contracts or completely deleted.
 
-For legacy or compatibility cleanup, "retire" means complete removal of the code path, supporting patterns, references, and documentation. It does not mean hiding a fallback, keeping a compatibility shim, or preserving an undocumented recovery path.
+For legacy or compatibility cleanup, "retire" means complete removal of the code path, supporting product patterns, route/API/client/read-model behavior, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, and operator instructions. It does not mean hiding a fallback, keeping a compatibility shim, preserving an undocumented recovery path, or retaining documentation that explains retired behavior.
 
 Every destructive staging or production/prelaunch reset must attach one backup/snapshot/export decision before execution:
 
@@ -119,7 +119,7 @@ Post-reset evidence is not accepted while Source Observations, legacy Source Obs
 
 ## Relationship To Adjacent Issues
 
-- #1054 owns the reset/drop evidence contract, #1055 owns the cleanup handoff evidence, and #1090 owns complete removal of the old two-page admin surface after the rebuilt workbench is accepted.
+- #1054 owns the reset/drop evidence contract, #1055 owns the cleanup handoff evidence, and #1090 owns complete removal of the old two-page admin surface, route/API/client/read-model behavior, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, and operator instructions after the rebuilt workbench is accepted.
 - [Catalog Integration Data Governance](./catalog-integration-data-governance.md) owns provider payload, fixture, dry-run, diagnostic retention, redaction, and policy/legal signoff.
 - #791 owns job idempotency and deploy-skew behavior.
 - #793 owns wire schema compatibility policy and retained-data rules by surface.

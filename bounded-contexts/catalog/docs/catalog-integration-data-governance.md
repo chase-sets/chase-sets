@@ -29,7 +29,7 @@ Raw provider payload bodies are not Catalog truth. Catalog truth is normalized S
 
 ## Signoff Gate
 
-Provider-data policy/legal signoff is required before any release, fixture set, dry-run workflow, Admin view, or launch evidence does one of these things for a real provider:
+Provider-data policy/legal signoff is required before any release, fixture set, dry-run workflow, Admin view, or launch evidence does one of these things for a real provider. The #1064 [Catalog Integration Security Privacy Launch Gate](./catalog-integration-security-privacy-launch-gate.md) blocks release when this signoff or retained-data exception evidence is missing:
 
 - stores a raw provider body;
 - retains a real-provider sample;

@@ -60,13 +60,13 @@ The return target should be the Import to promotion workbench unless the operato
 
 ## Retirement Contract
 
-Retire, remove, deprecate, and cleanup mean complete deletion of the old catalog control-plane code, patterns, tests, fixtures, screenshots, docs, runbooks, release notes, and operator instructions.
+Retire, remove, deprecate, and cleanup mean complete deletion of the old catalog control-plane code, product patterns, routes, APIs, read-model contracts, clients, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, and operator instructions.
 
 Do not keep:
 
 - hidden feature flags or fallback branches;
 - compatibility redirects to the old two-page model;
-- aliases or shims for old module names;
+- aliases, compatibility shims, or migration shims for old module names;
 - support-only routes that still render retired surfaces;
 - documentation that tells operators how to use retired screens;
 - tests or fixtures that preserve old raw JSON or provider-specific UI branches.
@@ -80,5 +80,5 @@ The product has not launched, so preserving legacy data or interaction patterns 
 - Pull provider data, review Source Observations, and promote are reachable without detouring through support screens.
 - Supporting screens include context-preserving return behavior.
 - No screen maps one-to-one to the old god page modules.
-- No retired code, patterns, docs, tests, fixtures, screenshots, runbooks, release notes, or operator instructions remain.
+- No retired code, product patterns, route/API/client/read-model behavior, documentation, tests, fixtures, seeds, screenshots, runbooks, release notes, or operator instructions remain.
 - No raw JSON fallback or provider-specific Catalog UI branch survives the rebuild.

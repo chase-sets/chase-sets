@@ -6,7 +6,7 @@ Issue #1062 proves the rebuilt Catalog control plane's primary path with the lau
 2. pull provider data through the TCGdex ProviderAdapter;
 3. review redacted Source Observation evidence with profile metadata;
 4. capture promotion-preview counts before any Catalog Item write;
-5. link security/privacy (#1064), provider budget (#1065), and rollout signoff (#1061) evidence.
+5. link the [security/privacy launch gate](./catalog-integration-security-privacy-launch-gate.md) (#1064), provider budget (#1065), and rollout signoff (#1061) evidence.
 
 The proof is not a migration or reskin of the current two-page Catalog integrations surface. Health, profile authoring, validation, lifecycle, RBAC, observability, audit, and rollout controls remain supporting workflows. They explain or unblock import-to-promotion; they must not bury it.
 
@@ -52,10 +52,10 @@ The packet must include:
 - Source Observation review counts plus capped sample rows with provider key, unit key, external key, source profile version, source URL host only, source update/hash presence, and normalized fact keys;
 - promotion-preview counts for matched, eligible, blocked, skipped, conflicting, failed, and terminal rows before any Catalog write;
 - a canonical degraded transport condition mapped to `providerTransport` and blocker vocabulary;
-- #1064, #1065, and #1061 handoff fields;
+- #1064, #1065, and #1061 handoff fields, with #1064 pointing at the security/privacy launch gate;
 - explicit retired-surface booleans showing no old two-page migration, raw JSON escape hatch, compatibility route, or legacy documentation was retained.
 
-The packet must not include raw provider payload bodies, provider-controlled labels, full provider URLs, image URLs, credentials, cookies, account/user identifiers, broad JSON patches, old route instructions, compatibility redirects, support-only legacy paths, screenshots of retired surfaces, or docs that teach retired behavior.
+The packet must not include raw provider payload bodies, provider-controlled labels, full provider URLs, image URLs, credentials, cookies, account/user identifiers, broad JSON patches, old route instructions, compatibility redirects, support-only legacy paths, screenshots of retired surfaces, or documentation that teaches retired behavior.
 
 ## Promotion Safety
 
@@ -76,6 +76,6 @@ Provider error bodies stay redacted. Unknown provider transport failures fail cl
 
 ## Retirement Rule
 
-For this milestone, retire means complete removal. Retired code, product patterns, route/module contracts, API/read-model contracts, clients, tests, fixtures, screenshots, documentation, runbooks, release notes, operator instructions, feature flags, aliases, fallbacks, redirects, and compatibility shims must be deleted. A retired behavior may not remain as a hidden flag, support-only route, compatibility redirect, migration shim, stale fixture, stale screenshot, or legacy doc.
+For this milestone, retire means complete removal. Retired code, product patterns, route/module contracts, API/read-model contracts, clients, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, operator instructions, feature flags, hidden flags, aliases, fallback branches, redirects, compatibility aliases, compatibility shims, and migration shims must be deleted. A retired behavior may not remain as a hidden flag, support-only route, compatibility redirect, migration shim, stale fixture, stale screenshot, documentation-only deprecation, or legacy doc.
 
 If a URL, schema/table name, concept name, copy pattern, or doc section remains for launch, it must be backed only by rebuilt clean contracts and include evidence that the old implementation, patterns, tests, fixtures, and documentation were removed.
