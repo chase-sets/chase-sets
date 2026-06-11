@@ -13,10 +13,11 @@ This list tracks the cleanup work from the full test-suite review.
 - [x] Centralize PR dependency installation in the shared pnpm setup action with timing output.
 - [x] Move shared marketplace seed test support out of the payments bounded context.
 - [ ] Relocate deployable route behavior tests into the bounded contexts that own the behavior.
-- [ ] Split oversized test files by responsibility:
-  - [ ] `infrastructure/platform-runtime/realtime.test.ts`
-  - [ ] `bounded-contexts/ordering/features/orders/api/runtime.test.ts`
+- [x] Split oversized test files by responsibility:
+  - [x] `infrastructure/platform-runtime/realtime.test.ts`
+  - [x] `bounded-contexts/ordering/features/orders/api/runtime.test.ts`
   - [x] `bounded-contexts/discovery/tests/item-detail-commerce-panel.test.tsx`
+  - [x] `bounded-contexts/discovery/tests/item-detail-buy-now-action.test.ts`
   - [x] `bounded-contexts/checkout/routes/checkout-routes.test.ts`
   - [x] `infrastructure/bounded-context-runtime/index.test.ts`
   - [x] `bounded-contexts/catalog/features/source-observations/api/runtime.test.ts`
