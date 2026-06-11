@@ -290,6 +290,12 @@ export const discoveryEnglishTranslations = {
   "discovery.routes.itemDetail.buy.now.workflow.helper": "Check out with the selected listing.",
   "discovery.routes.itemDetail.best.available.listing.workflow.helper":
     "Check out with the current best available listing.",
+  "discovery.routes.itemDetail.mobile.buy.best.available.listing.description":
+    "Buy the current best listing, save this product to Buy Cart, or make an offer.",
+  "discovery.routes.itemDetail.mobile.buy.selected.listing.description":
+    "Buy this listing, save it to Buy Cart, or make an offer.",
+  "discovery.routes.itemDetail.mobile.buy.selected.product.description":
+    "Save this product to Buy Cart or make an offer.",
   "discovery.routes.itemDetail.buyer.protection.included": "Order protection included",
   "discovery.routes.itemDetail.confirmed.at.checkout": "Confirmed at checkout",
   "discovery.routes.itemDetail.checkout.immediately.with.best.matching.live.listing":
@@ -446,6 +452,12 @@ export const discoveryEnglishTranslations = {
   "discovery.routes.itemDetail.sell.now.2": "Accept offer",
   "discovery.routes.itemDetail.sell.on.chase.sets": "List this product",
   "discovery.routes.itemDetail.sell.on.chase.sets.2": "List this product",
+  "discovery.routes.itemDetail.mobile.sell.best.offer.description":
+    "Accept the best offer, save it to Sell List, or list this product.",
+  "discovery.routes.itemDetail.mobile.sell.selected.offer.description":
+    "Accept this offer, save it to Sell List, or list this product.",
+  "discovery.routes.itemDetail.mobile.sell.selected.product.description":
+    "Add this product to Sell List or create a listing.",
   "discovery.routes.itemDetail.seller": "Seller",
   "discovery.routes.itemDetail.set.alert.workflow.helper":
     "Get notified when matching supply appears at or below your target.",
@@ -844,6 +856,9 @@ export const discoveryEnglishTranslations = {
   "discovery.routes.itemDetail.watch.card.description": "Get notified without starting a buy or sell workflow.",
   "discovery.routes.itemDetail.watch.listings": "Watch listings",
   "discovery.routes.itemDetail.watch.listings.description": "Listings at or below your target.",
+  "discovery.routes.itemDetail.mobile.watch.description":
+    "Track listing prices or buyer offers without starting checkout.",
+  "discovery.routes.itemDetail.mobile.watch.title": "Watch this product",
   "discovery.routes.itemDetail.watch.offers": "Watch offers",
   "discovery.routes.itemDetail.watch.offers.description": "Offers at or above your target.",
   "discovery.googleShoppingOperations.account": "Account",

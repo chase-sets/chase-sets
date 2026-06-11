@@ -1306,14 +1306,42 @@ function LoadedItemDetailPage({
         : activeMobileCommerce === "watch"
           ? commerceSections?.watch
           : null);
+  const mobileBuySheetTitle = selectedListing
+    ? selectedListingSource === "explicit"
+      ? t("discovery.features.itemDetail.ui.itemDetailPage.selected.listing")
+      : t("discovery.routes.itemDetail.best.available.listing")
+    : t("discovery.routes.itemDetail.selected.product");
+  const mobileBuySheetDescription = selectedListing
+    ? selectedListingSource === "explicit"
+      ? t("discovery.routes.itemDetail.mobile.buy.selected.listing.description")
+      : t("discovery.routes.itemDetail.mobile.buy.best.available.listing.description")
+    : t("discovery.routes.itemDetail.mobile.buy.selected.product.description");
+  const mobileSellSheetTitle = selectedOffer
+    ? selectedOfferSource === "explicit"
+      ? t("discovery.routes.itemDetail.selected.offer.heading")
+      : t("discovery.routes.itemDetail.best.offer.heading")
+    : t("discovery.routes.itemDetail.selected.product");
+  const mobileSellSheetDescription = selectedOffer
+    ? selectedOfferSource === "explicit"
+      ? t("discovery.routes.itemDetail.mobile.sell.selected.offer.description")
+      : t("discovery.routes.itemDetail.mobile.sell.best.offer.description")
+    : t("discovery.routes.itemDetail.mobile.sell.selected.product.description");
   const activeMobileCommerceTitle =
     activeMobileCommerceSection?.title ??
     (activeMobileCommerce === "buy"
-      ? t("discovery.features.itemDetail.ui.itemDetailPage.buy.selected.product")
+      ? mobileBuySheetTitle
       : activeMobileCommerce === "watch"
-        ? (commerceSections?.watchLabel ?? t("discovery.features.itemDetail.ui.itemDetailPage.watch"))
-        : (commerceSections?.sellLabel ?? t("discovery.features.itemDetail.ui.itemDetailPage.sell")));
-  const activeMobileCommerceDescription = activeMobileCommerceSection?.description;
+        ? t("discovery.routes.itemDetail.mobile.watch.title")
+        : mobileSellSheetTitle);
+  const activeMobileCommerceDescription =
+    activeMobileCommerceSection?.description ??
+    (activeMobileCommerce === "buy"
+      ? mobileBuySheetDescription
+      : activeMobileCommerce === "watch"
+        ? t("discovery.routes.itemDetail.mobile.watch.description")
+        : activeMobileCommerce === "sell"
+          ? mobileSellSheetDescription
+          : undefined);
   const openMobileCommerce = (action: "buy" | "sell" | "watch", nextMarketIntent: MarketIntent) => {
     setMarketIntent(nextMarketIntent);
     setMarketBookTab(nextMarketIntent === "sell" ? "offers" : "listings");

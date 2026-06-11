@@ -597,8 +597,11 @@ describe("item detail commerce panel", () => {
 
     fireEvent.click(screen.getAllByRole("button", { name: "Buy" })[0]);
 
-    const buySheet = screen.getByRole("dialog", { name: "Buy selected product" });
+    const buySheet = screen.getByRole("dialog", { name: "Best available listing" });
     expect(buySheet).toBeTruthy();
+    expect(
+      within(buySheet).getByText("Buy the current best listing, save this product to Buy Cart, or make an offer."),
+    ).toBeTruthy();
     expect(within(buySheet).getByText("Mobile buy action")).toBeTruthy();
     expect(within(buySheet).getByRole("button", { name: "Mobile footer buy" })).toBeTruthy();
     expect(within(buySheet).queryByText("Desktop buy rail")).toBeNull();
@@ -637,7 +640,10 @@ describe("item detail commerce panel", () => {
 
     fireEvent.click(screen.getAllByRole("button", { name: "Buy" })[0]);
 
-    const buySheet = screen.getByRole("dialog", { name: "Buy selected product" });
+    const buySheet = screen.getByRole("dialog", { name: "Best available listing" });
+    expect(
+      within(buySheet).getByText("Buy the current best listing, save this product to Buy Cart, or make an offer."),
+    ).toBeTruthy();
     expect(within(buySheet).getByRole("spinbutton", { name: /Quantity/ })).toBeTruthy();
     expect(within(buySheet).getByRole("button", { name: "Buy best available listing" })).not.toHaveProperty(
       "disabled",
@@ -874,20 +880,77 @@ describe("item detail commerce panel", () => {
 
     fireEvent.click(screen.getAllByRole("button", { name: "Buy" })[0]);
 
-    expect(screen.getByRole("dialog", { name: "Buy selected product" })).toBeTruthy();
+    const buySheet = screen.getByRole("dialog", { name: "Best available listing" });
+    expect(
+      within(buySheet).getByText("Buy the current best listing, save this product to Buy Cart, or make an offer."),
+    ).toBeTruthy();
     expect(screen.getAllByText("Mobile buy action").length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
 
     fireEvent.click(screen.getAllByRole("button", { name: "Sell" })[0]);
 
-    expect(screen.getByRole("dialog", { name: "Sell" })).toBeTruthy();
+    const sellSheet = screen.getByRole("dialog", { name: "Best offer" });
+    expect(
+      within(sellSheet).getByText("Accept the best offer, save it to Sell List, or list this product."),
+    ).toBeTruthy();
     expect(screen.getAllByText("Mobile sell action").length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     fireEvent.click(screen.getAllByRole("button", { name: "Watch" })[0]);
 
-    expect(screen.getByRole("dialog", { name: "Watch" })).toBeTruthy();
+    const watchSheet = screen.getByRole("dialog", { name: "Watch this product" });
+    expect(
+      within(watchSheet).getByText("Track listing prices or buyer offers without starting checkout."),
+    ).toBeTruthy();
     expect(screen.getAllByText("Mobile watch action").length).toBeGreaterThan(0);
+  });
+
+  it("uses explicit selected listing and offer titles in mobile commerce sheets", () => {
+    render(
+      <ItemDetailPage
+        data={createItem({ market_listings: [baseListing, alternateListing] })}
+        initialSelectedListingId={alternateListing.listing_id}
+        renderCommerce={() => ({
+          buy: <div>Mobile buy action</div>,
+          offer: null,
+          mobile: {
+            buy: { content: <div>Mobile buy action</div> },
+          },
+        })}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Buy" })[0]);
+
+    const selectedListingSheet = screen.getByRole("dialog", { name: "Selected listing" });
+    expect(
+      within(selectedListingSheet).getByText("Buy this listing, save it to Buy Cart, or make an offer."),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    cleanup();
+
+    render(
+      <ItemDetailPage
+        data={createItem({ offer_demand_matches: [baseOffer, alternateOffer] })}
+        initialMarketIntent="sell"
+        initialSelectedOfferId={alternateOffer.offer_id}
+        renderCommerce={() => ({
+          buy: <div>Mobile buy action</div>,
+          offer: null,
+          sell: <div>Mobile sell action</div>,
+          mobile: {
+            sell: { content: <div>Mobile sell action</div> },
+          },
+        })}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Sell" })[0]);
+
+    const selectedOfferSheet = screen.getByRole("dialog", { name: "Selected offer" });
+    expect(
+      within(selectedOfferSheet).getByText("Accept this offer, save it to Sell List, or list this product."),
+    ).toBeTruthy();
   });
 
   it("sends incomplete mobile selections back to the option chooser", () => {
