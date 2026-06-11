@@ -1,7 +1,16 @@
 import { t } from "@chase-sets/localization";
+import { createInMemoryRateLimiter } from "@chase-sets/http/rate-limit";
 import { Hono, type Context } from "hono";
 import type { DiscoveryApiEnv } from "../../../api";
 import type { ProductAlertServices } from "./runtime";
+
+const ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
+const ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_MAX = 30;
+const anonymousProductAlertCaptureRateLimiter = createInMemoryRateLimiter({
+  keyPrefix: "discovery:anonymous-product-alert-capture",
+  max: ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_MAX,
+  windowMs: ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_WINDOW_MS,
+});
 
 function requireProductAlertAccess(c: { get(key: "actor"): DiscoveryApiEnv["Variables"]["actor"] }) {
   const actor = c.get("actor");
@@ -66,6 +75,18 @@ function errorMessage(error: unknown) {
 function requireAnonymousProductAlertOwnerId(c: Context<DiscoveryApiEnv>) {
   const value = c.req.header("x-discovery-anonymous-product-alert-id")?.trim() ?? "";
   return value.startsWith("anon_") ? value : null;
+}
+
+function anonymousRailRateLimitedResponse(retryAfterSeconds: number) {
+  return {
+    body: {
+      error: {
+        code: "anonymous_rail_rate_limited",
+        message: t("discovery.features.productAlerts.api.route.anonymous.rail.rate.limited"),
+      },
+    },
+    headers: { "Retry-After": String(retryAfterSeconds) },
+  };
 }
 
 export function createProductAlertRoutes(services: ProductAlertServices) {
@@ -213,6 +234,12 @@ export function createGuestProductAlertRoutes(services: ProductAlertServices) {
         },
         400,
       );
+    }
+
+    const rateLimit = anonymousProductAlertCaptureRateLimiter.check(c.req.raw);
+    if (rateLimit.limited) {
+      const response = anonymousRailRateLimitedResponse(rateLimit.retryAfterSeconds);
+      return c.json(response.body, 429, response.headers);
     }
 
     const body = await c.req.json().catch(() => ({}));

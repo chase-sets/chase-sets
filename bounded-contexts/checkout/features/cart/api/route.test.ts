@@ -90,6 +90,18 @@ function guestCheckoutActor(): CheckoutApiEnv["Variables"]["actor"] {
   };
 }
 
+function cartLine(index: number) {
+  return {
+    line_id: `cli_${index}`,
+    catalog_catalog_item_id: `cat_${index}`,
+    product_id: `cat_${index}::form=raw`,
+    quantity: 1,
+    fulfillment_mode: "optimize",
+    locked_listing_id: null,
+    seller_preference_id: null,
+  };
+}
+
 describe("checkout cart routes", () => {
   it("counts cart item quantities instead of raw cart lines", async () => {
     const services = createServices();
@@ -293,6 +305,169 @@ describe("checkout cart routes", () => {
         }),
       }),
     );
+  });
+
+  it("blocks a new anonymous Buy Cart line after the device line limit", async () => {
+    const services = createServices();
+    vi.mocked(services.listCartLines).mockResolvedValue(
+      Array.from({ length: 50 }, (_, index) => cartLine(index)) as never,
+    );
+    const app = buildApp({
+      actor: null,
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/guest/cart", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-checkout-anonymous-cart-id": "anon_cart_limit",
+          "x-forwarded-for": "203.0.113.101",
+        },
+        body: JSON.stringify({
+          catalogItemId: "cat_new",
+          productId: "cat_new::form=raw",
+          itemTitle: "New card",
+          selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+          quantity: 1,
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "anonymous_cart_limit_exceeded",
+      },
+    });
+    expect(services.addLine).not.toHaveBeenCalled();
+  });
+
+  it("allows an anonymous Buy Cart duplicate line at the device line limit", async () => {
+    const services = createServices();
+    vi.mocked(services.listCartLines).mockResolvedValue([
+      {
+        ...cartLine(0),
+        catalog_catalog_item_id: "cat_charizard",
+        product_id: "cat_charizard::form=raw",
+      },
+      ...Array.from({ length: 49 }, (_, index) => cartLine(index + 1)),
+    ] as never);
+    const app = buildApp({
+      actor: null,
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/guest/cart", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-checkout-anonymous-cart-id": "anon_cart_duplicate",
+          "x-forwarded-for": "203.0.113.102",
+        },
+        body: JSON.stringify({
+          catalogItemId: "cat_charizard",
+          productId: "cat_charizard::form=raw",
+          itemTitle: "Charizard",
+          selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+          quantity: 1,
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    expect(services.addLine).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: "anon_cart_duplicate",
+        productId: "cat_charizard::form=raw",
+      }),
+      expect.any(Object),
+    );
+  });
+
+  it("blocks anonymous Buy Cart bulk adds that would exceed the device line limit", async () => {
+    const services = createServices();
+    vi.mocked(services.listCartLines).mockResolvedValue(
+      Array.from({ length: 49 }, (_, index) => cartLine(index)) as never,
+    );
+    const app = buildApp({
+      actor: null,
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/guest/cart/bulk", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-checkout-anonymous-cart-id": "anon_cart_bulk_limit",
+          "x-forwarded-for": "203.0.113.103",
+        },
+        body: JSON.stringify({
+          lines: [
+            {
+              catalogItemId: "cat_new_1",
+              productId: "cat_new_1::form=raw",
+              itemTitle: "New card 1",
+              quantity: 1,
+            },
+            {
+              catalogItemId: "cat_new_2",
+              productId: "cat_new_2::form=raw",
+              itemTitle: "New card 2",
+              quantity: 1,
+            },
+          ],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "anonymous_cart_limit_exceeded",
+      },
+    });
+    expect(services.addLines).not.toHaveBeenCalled();
+  });
+
+  it("rate limits repeated anonymous Buy Cart capture requests", async () => {
+    const services = createServices();
+    const app = buildApp({
+      actor: null,
+      services,
+    });
+
+    let response = new Response(null, { status: 500 });
+    for (let index = 0; index < 31; index += 1) {
+      response = await app.fetch(
+        new Request("http://checkout.test/guest/cart", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-checkout-anonymous-cart-id": "anon_cart_rate_limited",
+            "x-forwarded-for": "203.0.113.104",
+          },
+          body: JSON.stringify({
+            catalogItemId: `cat_rate_${index}`,
+            productId: `cat_rate_${index}::form=raw`,
+            itemTitle: "Rate limited card",
+            quantity: 1,
+          }),
+        }),
+      );
+    }
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get("Retry-After")).toBeTruthy();
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "anonymous_rail_rate_limited",
+      },
+    });
+    expect(services.addLine).toHaveBeenCalledTimes(30);
   });
 
   it("creates a guest cart readiness snapshot from the anonymous cart owner", async () => {

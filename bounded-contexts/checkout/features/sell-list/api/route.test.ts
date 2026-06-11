@@ -633,6 +633,41 @@ describe("checkout sell list routes", () => {
     expect(services.addLine).not.toHaveBeenCalled();
   });
 
+  it("rate limits repeated anonymous Sell List capture requests", async () => {
+    const services = createServices();
+    const app = buildApp({ actor: null, services });
+
+    let response = new Response(null, { status: 500 });
+    for (let index = 0; index < 31; index += 1) {
+      response = await app.fetch(
+        new Request("http://checkout.test/guest/sell-list", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-checkout-anonymous-sell-list-id": "anon_sell_rate_limited",
+            "x-forwarded-for": "203.0.113.111",
+          },
+          body: JSON.stringify({
+            lineType: "product",
+            catalogItemId: `cat_rate_${index}`,
+            productId: `cat_rate_${index}::form=raw`,
+            itemTitle: "Rate limited card",
+            quantity: 1,
+          }),
+        }),
+      );
+    }
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get("Retry-After")).toBeTruthy();
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "anonymous_rail_rate_limited",
+      },
+    });
+    expect(services.addLine).toHaveBeenCalledTimes(30);
+  });
+
   it("creates a guest Sell List readiness snapshot from the anonymous owner", async () => {
     const services = createServices();
     const app = buildApp({ actor: null, services });

@@ -2,37 +2,27 @@ import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { createInMemoryRateLimiter } from "@chase-sets/http/rate-limit";
 import type { PublicPresenceServices } from "./support/runtime-support/services";
 import type { PromoBarServices } from "./features/promo-bar/api/runtime";
 import type { WaitlistServices } from "./features/waitlist/api/runtime";
 
 export type PublicPresenceApiEnv = AuthenticatedApiEnv;
 
-const rateLimitBuckets = new Map<string, { count: number; resetAt: number }>();
 const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 const RATE_LIMIT_MAX = 20;
+const waitlistSignupRateLimiter = createInMemoryRateLimiter({
+  keyPrefix: "public-presence:waitlist",
+  max: RATE_LIMIT_MAX,
+  windowMs: RATE_LIMIT_WINDOW_MS,
+});
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("publicPresence.api.request.failed");
 }
 
-function requestKey(request: Request) {
-  return (
-    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || request.headers.get("cf-connecting-ip") || "local"
-  );
-}
-
 function isRateLimited(request: Request) {
-  const now = Date.now();
-  const key = requestKey(request);
-  const current = rateLimitBuckets.get(key);
-  if (!current || current.resetAt <= now) {
-    rateLimitBuckets.set(key, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
-    return false;
-  }
-
-  current.count += 1;
-  return current.count > RATE_LIMIT_MAX;
+  return waitlistSignupRateLimiter.check(request).limited;
 }
 
 function publicEventStoreContext(): EventStoreContext {
