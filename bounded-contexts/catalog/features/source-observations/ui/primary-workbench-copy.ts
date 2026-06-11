@@ -129,6 +129,12 @@ const catalogPrimaryWorkbenchCopyLabels = {
   profileSectionInvalid: t(
     "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.profile.section.invalid",
   ),
+  profileLifecycleConflict: t(
+    "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.profile.lifecycle.conflict",
+  ),
+  profileRetirementReferences: t(
+    "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.profile.retirement.references",
+  ),
   activationReadinessBlocked: t(
     "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.activation.readiness.blocked",
   ),
@@ -454,6 +460,22 @@ export const catalogPrimaryWorkbenchBlockerCopy = {
     nextStep: "Fix the highlighted section fields and rerun validation readiness.",
     supportTarget: "profile-authoring",
     group: "profile",
+  }),
+  "profile-lifecycle-conflict": copy({
+    label: catalogPrimaryWorkbenchCopyLabels.profileLifecycleConflict,
+    reason: "The selected profile lifecycle does not match the requested recovery action.",
+    nextStep:
+      "Open lifecycle recovery and select the active, inactive, deprecated, or previous profile version required by the action.",
+    supportTarget: "lifecycle-recovery",
+    group: "profile",
+  }),
+  "profile-retirement-references": copy({
+    label: catalogPrimaryWorkbenchCopyLabels.profileRetirementReferences,
+    reason: "The selected profile still has Source Observation, promotion, or downstream profile references.",
+    nextStep:
+      "Remove active references before retirement; do not preserve compatibility routes, shims, fixtures, tests, screenshots, or documentation.",
+    supportTarget: "lifecycle-recovery",
+    group: "retirement",
   }),
   "activation-readiness-blocked": copy({
     label: catalogPrimaryWorkbenchCopyLabels.activationReadinessBlocked,

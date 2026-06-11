@@ -584,9 +584,15 @@ function buildDefaultWorkflowEvidence(evidenceBase: string): readonly CatalogNoC
     workflow(
       "lifecycle-recovery-support",
       null,
-      ["import-jobs", "promotion-result", "supporting-evidence"],
-      ["start-reapply", "start-replay"],
-      "Recovery paths handle replay/reapply/stale job behavior without legacy fallback.",
+      ["import-jobs", "promotion-result", "lifecycle-recovery", "supporting-evidence"],
+      [
+        "rollback-provider-profile",
+        "deprecate-provider-profile",
+        "retire-provider-profile",
+        "start-reapply",
+        "start-replay",
+      ],
+      "Recovery paths handle rollback, deprecation, retirement, replay, reapply, and stale job behavior without legacy fallback.",
     ),
     workflow(
       "rbac-rollout-observability-support",

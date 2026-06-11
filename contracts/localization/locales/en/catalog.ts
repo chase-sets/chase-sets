@@ -297,6 +297,8 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.cancelled.description":
     "The durable provider import job was cancelled for this provider and scope.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.cancelled.title": "Job cancelled",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.confirmation.required":
+    "Confirm the lifecycle impact and audit evidence before running this profile lifecycle action.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.draft.description":
     "The new draft profile is selected. Review lifecycle restrictions and validation evidence before activation.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.draft.title": "Draft profile created",
@@ -304,12 +306,18 @@ export const catalogEnglishTranslations = {
     "The provider profile is active. Review audit evidence before pulling provider data with the new behavior.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.activation.title":
     "Provider profile activated",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.deprecated.description":
+    "The provider profile is deprecated with lifecycle evidence visible for replay and rollback decisions.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.deprecated.title":
+    "Provider profile deprecated",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.failed":
     "The command did not complete. Review the named blockers, then retry from this workbench.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.invalid.intent":
     "The submitted command is not part of the rebuilt primary workbench contract.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.job.required":
     "Choose a durable import job before retrying, resuming, or cancelling it.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.lifecycle.conflict":
+    "The lifecycle command was blocked by active jobs, references, or profile state. Review lifecycle recovery evidence before retrying.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.preview.description":
     "Promotion preview is ready for the current provider, scope, filters, and selection checkpoint.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.preview.required":
@@ -318,6 +326,13 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.queued.description":
     "The durable job is queued with this provider, scope, profile, and review context.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.queued.title": "Command queued",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.retired.description":
+    "The provider profile is retired only after complete-removal evidence is preserved in audit history.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.retired.title": "Provider profile retired",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.rollback.description":
+    "The previous validated profile version is restored. Review affected references before pulling provider data again.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.rollback.title":
+    "Provider profile rolled back",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.reason.required":
     "Rejecting Source Observations requires an operator reason for audit evidence.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.section.conflict":
@@ -329,6 +344,70 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.section.title": "Profile section saved",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.unsupported":
     "This command has no launch-ready backend path yet, so the workbench fails closed.",
+  "catalog.features.sourceObservations.ui.lifecycleRecovery.audit.description":
+    "Lifecycle changes stay traceable without preserving retired implementation paths.",
+  "catalog.features.sourceObservations.ui.lifecycleRecovery.audit.emptyDescription":
+    "Lifecycle recovery actions will appear here after rollback, deprecation, retirement, or activation.",
+  "catalog.features.sourceObservations.ui.lifecycleRecovery.audit.emptyTitle": "No lifecycle audit events",
+  "catalog.features.sourceObservations.ui.lifecycleRecovery.audit.notRecorded": "not recorded",
+  "catalog.features.sourceObservations.ui.lifecycleRecovery.audit.title": "Recent lifecycle audit",
+  "catalog.features.sourceObservations.ui.lifecycleRecovery.backToImportWorkbench": "Back to import workbench",
+  "catalog.features.sourceObservations.ui.lifecycleRecovery.badge.active": "Active",
+  "catalog.features.sourceObservations.ui.lifecycleRecovery.banner.blockedDescription":
+    "Resolve active jobs, profile lifecycle conflicts, or profile references before running lifecycle recovery.",
+  "catalog.features.sourceObservations.ui.lifecycleRecovery.banner.blockedTitle": "Lifecycle recovery has blockers",
+  "catalog.features.sourceObservations.ui.lifecycleRecovery.banner.readyDescription":
+    "Review impact evidence, confirm the lifecycle action, and verify audit evidence before returning to provider data import.",
+  "catalog.features.sourceObservations.ui.lifecycleRecovery.banner.readyTitle": "Lifecycle actions are ready",
+  "catalog.features.sourceObservations.ui.lifecycleRecovery.banner.unavailableDescription":
+    "Lifecycle recovery needs a provider profile version before rollback, deprecation, or retirement can be evaluated.",
+  "catalog.features.sourceObservations.ui.lifecycleRecovery.banner.unavailableTitle": "Choose a profile version",
+  "catalog.features.sourceObservations.ui.lifecycleRecovery.blockers.none": "No lifecycle blockers",
+  "catalog.features.sourceObservations.ui.lifecycleRecovery.blockers.title": "Lifecycle blockers",
+  "catalog.features.sourceObservations.ui.lifecycleRecovery.confirmation.default":
+    "I confirm {action} impact and audit evidence.",
+  "catalog.features.sourceObservations.ui.lifecycleRecovery.confirmation.retire":
+    "I confirm retirement means complete removal and all impact evidence is clear.",
+  "catalog.features.sourceObservations.ui.lifecycleRecovery.description":
+    "Rollback, deprecation, and retirement decisions for provider profile behavior that can affect import-to-promotion.",
+  "catalog.features.sourceObservations.ui.lifecycleRecovery.metric.activeJobs": "Active jobs",
+  "catalog.features.sourceObservations.ui.lifecycleRecovery.metric.affectedReferences": "Affected references",
+  "catalog.features.sourceObservations.ui.lifecycleRecovery.metric.impactedCatalogItems": "Impacted Catalog Items",
+  "catalog.features.sourceObservations.ui.lifecycleRecovery.metric.lifecycleAudit": "Lifecycle audit",
+  "catalog.features.sourceObservations.ui.lifecycleRecovery.operation.activation.open": "Open activation readiness",
+  "catalog.features.sourceObservations.ui.lifecycleRecovery.operation.evidence.impactedCatalogItemIds":
+    "Impacted Catalog Item IDs",
+  "catalog.features.sourceObservations.ui.lifecycleRecovery.operation.evidence.noImpactedCatalogItems":
+    "No impacted Catalog Items reported.",
+  "catalog.features.sourceObservations.ui.lifecycleRecovery.operation.evidence.replayRollback":
+    "Replay and rollback evidence",
+  "catalog.features.sourceObservations.ui.lifecycleRecovery.operation.metric.activeJobs": "Active jobs",
+  "catalog.features.sourceObservations.ui.lifecycleRecovery.operation.metric.catalogItems": "Catalog Items",
+  "catalog.features.sourceObservations.ui.lifecycleRecovery.operation.metric.profileReferences": "Profile references",
+  "catalog.features.sourceObservations.ui.lifecycleRecovery.operation.metric.referencedObservations":
+    "Referenced observations",
+  "catalog.features.sourceObservations.ui.lifecycleRecovery.profileCandidates.description":
+    "Choose the active profile for deprecation, a previous validated profile for rollback, or an inactive unreferenced profile for retirement.",
+  "catalog.features.sourceObservations.ui.lifecycleRecovery.profileCandidates.emptyDescription":
+    "Choose a provider before running profile lifecycle recovery.",
+  "catalog.features.sourceObservations.ui.lifecycleRecovery.profileCandidates.emptyTitle": "No provider profiles",
+  "catalog.features.sourceObservations.ui.lifecycleRecovery.profileCandidates.title": "Profile candidates",
+  "catalog.features.sourceObservations.ui.lifecycleRecovery.strictRetirement.badge": "complete removal",
+  "catalog.features.sourceObservations.ui.lifecycleRecovery.strictRetirement.description":
+    "Retirement is complete removal, not soft deprecation or hidden compatibility support.",
+  "catalog.features.sourceObservations.ui.lifecycleRecovery.strictRetirement.ruleTitle":
+    "Retire means complete removal",
+  "catalog.features.sourceObservations.ui.lifecycleRecovery.strictRetirement.summary":
+    "Retire means complete removal of code, product patterns, route/API/client behavior, tests, fixtures, screenshots, documentation, runbooks, release notes, and operator instructions. Lifecycle recovery cannot preserve compatibility routes, aliases, shims, fallbacks, hidden flags, support-only paths, old tests, old fixtures, old screenshots, or legacy documentation.",
+  "catalog.features.sourceObservations.ui.lifecycleRecovery.strictRetirement.title": "Strict retirement rule",
+  "catalog.features.sourceObservations.ui.lifecycleRecovery.table.action": "Action",
+  "catalog.features.sourceObservations.ui.lifecycleRecovery.table.event": "Event",
+  "catalog.features.sourceObservations.ui.lifecycleRecovery.table.inspect": "Inspect",
+  "catalog.features.sourceObservations.ui.lifecycleRecovery.table.lifecycle": "Lifecycle",
+  "catalog.features.sourceObservations.ui.lifecycleRecovery.table.occurred": "Occurred",
+  "catalog.features.sourceObservations.ui.lifecycleRecovery.table.profile": "Profile",
+  "catalog.features.sourceObservations.ui.lifecycleRecovery.table.references": "References",
+  "catalog.features.sourceObservations.ui.lifecycleRecovery.title": "Lifecycle recovery",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.execution.preview.fresh": "Preview freshness",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.execution.stale.guard": "Stale preview guard",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.execution.stale.value":
@@ -419,6 +498,10 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.permission.denied": "Permission denied",
   "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.profile.evidence.missing":
     "Profile evidence missing",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.profile.lifecycle.conflict":
+    "Profile lifecycle conflict",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.profile.retirement.references":
+    "Profile retirement references",
   "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.profile.section.invalid":
     "Section has diagnostics",
   "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.profile.section.read.only":

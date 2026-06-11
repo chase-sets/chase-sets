@@ -16,9 +16,14 @@ export type CatalogPrimaryWorkbenchCommandTelemetryResult =
   | "preview-ready"
   | "draft-created"
   | "profile-activated"
+  | "profile-rolled-back"
+  | "profile-deprecated"
+  | "profile-retired"
   | "section-saved"
   | "section-conflict"
   | "section-invalid"
+  | "lifecycle-conflict"
+  | "confirmation-required"
   | "preview-required"
   | "job-required"
   | "reason-required"
@@ -179,6 +184,22 @@ export function commandTelemetryEvents(
     });
   }
 
+  if (
+    input.intent === "rollback-provider-profile" ||
+    input.intent === "deprecate-provider-profile" ||
+    input.intent === "retire-provider-profile"
+  ) {
+    events.push({
+      eventName:
+        input.status === "success" ? lifecycleTelemetryEventName(input.intent) : "catalog_control_plane.blocker_hit",
+      ...base,
+      promotionResult,
+      detourTarget: "lifecycle-recovery",
+      detourOutcome: input.status === "success" ? "returned" : "blocked",
+      blockerCategory: input.status === "error" ? blockerCategoryForCommandResult(input.result) : null,
+    });
+  }
+
   if (input.intent === "update-provider-profile-section") {
     const detourTarget =
       input.commandSection === "migration-evidence" && input.context.section === "validation-readiness"
@@ -245,7 +266,10 @@ export function commandTelemetryEvents(
     input.intent !== "execute-promotion" &&
     input.intent !== "start-provider-import" &&
     input.intent !== "retry-import-job" &&
-    input.intent !== "resume-import-job"
+    input.intent !== "resume-import-job" &&
+    input.intent !== "rollback-provider-profile" &&
+    input.intent !== "deprecate-provider-profile" &&
+    input.intent !== "retire-provider-profile"
   ) {
     events.push({
       eventName: "catalog_control_plane.blocker_hit",
@@ -375,12 +399,16 @@ function blockerCategoryForCommandResult(
     result === "reason-required" ||
     result === "unsupported-command" ||
     result === "invalid-intent" ||
-    result === "section-invalid"
+    result === "section-invalid" ||
+    result === "confirmation-required"
   ) {
     return "readiness";
   }
   if (result === "section-conflict") {
     return "stale-context";
+  }
+  if (result === "lifecycle-conflict") {
+    return "active-job";
   }
   if (result === "command-failed") {
     return "unknown";
@@ -397,9 +425,14 @@ function promotionTelemetryResult(
     case "preview-ready":
     case "draft-created":
     case "profile-activated":
+    case "profile-rolled-back":
+    case "profile-deprecated":
+    case "profile-retired":
     case "section-saved":
     case "section-conflict":
     case "section-invalid":
+    case "lifecycle-conflict":
+    case "confirmation-required":
     case "preview-required":
     case "reason-required":
     case "unsupported-command":
@@ -409,6 +442,24 @@ function promotionTelemetryResult(
     case "job-required":
       return "blocked";
   }
+}
+
+function lifecycleTelemetryEventName(
+  intent: string,
+): Extract<
+  CatalogControlPlaneTelemetryEventInput["eventName"],
+  | "catalog_control_plane.profile_rolled_back"
+  | "catalog_control_plane.profile_deprecated"
+  | "catalog_control_plane.profile_retired"
+> {
+  if (intent === "rollback-provider-profile") {
+    return "catalog_control_plane.profile_rolled_back";
+  }
+  if (intent === "deprecate-provider-profile") {
+    return "catalog_control_plane.profile_deprecated";
+  }
+
+  return "catalog_control_plane.profile_retired";
 }
 
 function detourTargetForSection(

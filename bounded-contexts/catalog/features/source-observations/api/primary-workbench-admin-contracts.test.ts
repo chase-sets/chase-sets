@@ -26,6 +26,7 @@ describe("Catalog primary workbench admin contracts", () => {
       "source-observation-review",
       "promotion-preview",
       "promotion-result",
+      "lifecycle-recovery",
       "supporting-evidence",
     ];
 
@@ -76,6 +77,9 @@ describe("Catalog primary workbench admin contracts", () => {
       "active-job-conflict",
       "concurrent-job",
       "missing-active-profile",
+      "profile-version-missing",
+      "profile-lifecycle-conflict",
+      "profile-retirement-references",
       "activation-readiness-blocked",
       "migration-evidence-missing",
       "reference-impact-review-required",
@@ -365,6 +369,34 @@ describe("Catalog primary workbench admin contracts", () => {
         "raw-json-retired",
       ]),
     });
+    expect(actionsByKey.get("rollback-provider-profile")).toMatchObject({
+      method: "POST",
+      routePattern: "/api/catalog/source-observations/admin/provider-profiles/:providerKey/:profileVersion/rollback",
+      requiredPermission: "catalog.manage",
+      confirmationRequired: true,
+      idempotencyRequired: true,
+      blockerCategories: expect.arrayContaining(["profile-lifecycle-conflict", "active-job-conflict"]),
+    });
+    expect(actionsByKey.get("deprecate-provider-profile")).toMatchObject({
+      method: "POST",
+      routePattern: "/api/catalog/source-observations/admin/provider-profiles/:providerKey/:profileVersion/deprecate",
+      requiredPermission: "catalog.manage",
+      confirmationRequired: true,
+      idempotencyRequired: true,
+      blockerCategories: expect.arrayContaining(["profile-lifecycle-conflict", "active-job-conflict"]),
+    });
+    expect(actionsByKey.get("retire-provider-profile")).toMatchObject({
+      method: "POST",
+      routePattern: "/api/catalog/source-observations/admin/provider-profiles/:providerKey/:profileVersion/retire",
+      requiredPermission: "catalog.manage",
+      confirmationRequired: true,
+      idempotencyRequired: true,
+      blockerCategories: expect.arrayContaining([
+        "profile-lifecycle-conflict",
+        "profile-retirement-references",
+        "active-job-conflict",
+      ]),
+    });
     expect(actionsByKey.get("select-provider-scope")).toMatchObject({
       method: "GET",
       requiredPermission: "catalog.view",
@@ -387,6 +419,7 @@ describe("Catalog primary workbench admin contracts", () => {
       "#1035",
       "#1036",
       "#1037",
+      "#1042",
       "#1056",
       "#1038",
       "#1039",
@@ -733,6 +766,7 @@ describe("Catalog primary workbench admin contracts", () => {
         },
       },
       validationReadiness: validationReadinessFixture(),
+      lifecycleRecovery: lifecycleRecoveryFixture(),
       importJobs: {
         freshness: "fresh",
         activeJobCount: 1,
@@ -1147,6 +1181,188 @@ function validationReadinessFixture(): CatalogPrimaryWorkbenchReadModel["validat
         summary: "Activation records readiness evaluation and profile activation audit evidence.",
       },
     },
+  };
+}
+
+function lifecycleRecoveryFixture(): CatalogPrimaryWorkbenchReadModel["lifecycleRecovery"] {
+  return {
+    status: "blocked",
+    freshness: "fresh",
+    generatedAt: "2026-06-09T00:00:00.000Z",
+    selectedProviderKey: "tcgdex",
+    selectedProfileVersion: "2026.06.04",
+    returnToPrimaryHref: "/catalog/integrations?providerKey=tcgdex&section=workbench",
+    auditEvidenceUrl: "/catalog/integrations?providerKey=tcgdex&section=evidence",
+    summary: {
+      activeJobs: 1,
+      affectedReferences: 2,
+      downstreamProfileReferences: 1,
+      impactedCatalogItems: 1,
+      blockers: 3,
+      recentLifecycleEvents: 1,
+    },
+    profiles: [
+      {
+        providerKey: "tcgdex",
+        profileKey: "tcgdex-pokemon-card",
+        profileVersion: "2026.06.04",
+        displayName: "TCGdex Pokemon cards",
+        lifecycle: "active",
+        active: true,
+        referenceCount: 2,
+        href: "/catalog/integrations?providerKey=tcgdex&profileVersion=2026.06.04&section=lifecycle",
+      },
+    ],
+    operations: [
+      {
+        operation: "activation",
+        label: "Activation recovery",
+        description: "Open validation readiness when activation evidence is needed.",
+        commandKey: "activate-provider-profile",
+        providerKey: "tcgdex",
+        profileVersion: "2026.06.04",
+        lifecycle: "active",
+        active: true,
+        state: "available",
+        blockers: [],
+        confirmationRequired: false,
+        allowed: true,
+        submitHref: "/catalog/integrations?providerKey=tcgdex&profileVersion=2026.06.04&section=readiness",
+        supportHref: "/catalog/integrations?providerKey=tcgdex&profileVersion=2026.06.04&section=readiness",
+        impact: lifecycleImpactFixture("activation", []),
+        auditConsequences: {
+          auditEvidenceUrl: "/catalog/integrations?providerKey=tcgdex&section=evidence",
+          eventName: "profile-activated",
+          summary: "Activation audit evidence is recorded from validation readiness.",
+        },
+        nextSteps: ["Use validation readiness to resolve activation blockers and record migration evidence."],
+      },
+      {
+        operation: "rollback",
+        label: "Rollback profile",
+        description: "Restore a previous validated profile version.",
+        commandKey: "rollback-provider-profile",
+        providerKey: "tcgdex",
+        profileVersion: "2026.06.04",
+        lifecycle: "active",
+        active: true,
+        state: "blocked",
+        blockers: ["profile-lifecycle-conflict", "active-job-conflict"],
+        confirmationRequired: true,
+        allowed: false,
+        submitHref: "/catalog/integrations?providerKey=tcgdex&profileVersion=2026.06.04&section=lifecycle",
+        supportHref: null,
+        impact: lifecycleImpactFixture("rollback", ["profile-lifecycle-active-jobs"]),
+        auditConsequences: {
+          auditEvidenceUrl: "/catalog/integrations?providerKey=tcgdex&section=evidence",
+          eventName: "profile-rolled-back",
+          summary: "Rollback records the restored profile version and affected references.",
+        },
+        nextSteps: ["Select a previous inactive validated profile version as the rollback target."],
+      },
+      {
+        operation: "deprecate",
+        label: "Deprecate profile",
+        description: "Mark the active profile out of normal use.",
+        commandKey: "deprecate-provider-profile",
+        providerKey: "tcgdex",
+        profileVersion: "2026.06.04",
+        lifecycle: "active",
+        active: true,
+        state: "blocked",
+        blockers: ["active-job-conflict"],
+        confirmationRequired: true,
+        allowed: false,
+        submitHref: "/catalog/integrations?providerKey=tcgdex&profileVersion=2026.06.04&section=lifecycle",
+        supportHref: null,
+        impact: lifecycleImpactFixture("deprecate", ["profile-lifecycle-active-jobs"]),
+        auditConsequences: {
+          auditEvidenceUrl: "/catalog/integrations?providerKey=tcgdex&section=evidence",
+          eventName: "profile-deprecated",
+          summary: "Deprecation records lifecycle intent without preserving old code paths.",
+        },
+        nextSteps: ["Let active jobs finish before changing profile lifecycle state."],
+      },
+      {
+        operation: "retire",
+        label: "Retire profile",
+        description: "Remove the profile from supported use when references are gone.",
+        commandKey: "retire-provider-profile",
+        providerKey: "tcgdex",
+        profileVersion: "2026.06.04",
+        lifecycle: "active",
+        active: true,
+        state: "blocked",
+        blockers: ["profile-lifecycle-conflict", "profile-retirement-references", "active-job-conflict"],
+        confirmationRequired: true,
+        allowed: false,
+        submitHref: "/catalog/integrations?providerKey=tcgdex&profileVersion=2026.06.04&section=lifecycle",
+        supportHref: null,
+        impact: lifecycleImpactFixture("retire", [
+          "profile-lifecycle-active-jobs",
+          "profile-retirement-referenced-observations",
+        ]),
+        auditConsequences: {
+          auditEvidenceUrl: "/catalog/integrations?providerKey=tcgdex&section=evidence",
+          eventName: "profile-retired",
+          summary: "Retirement records complete-removal evidence and cannot preserve compatibility support paths.",
+        },
+        nextSteps: [
+          "Remove active Source Observation references and downstream profile references before profile retirement.",
+          "Do not keep compatibility routes, shims, fallback branches, old tests, fixtures, screenshots, or documentation.",
+        ],
+      },
+    ],
+    recentAuditEvents: [
+      {
+        eventId: "aud_profile_001",
+        occurredAt: "2026-06-09T00:00:00.000Z",
+        eventName: "profile-activated",
+        category: "activation",
+        providerKey: "tcgdex",
+        unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+        profileVersion: "2026.06.04",
+        summary: "Profile activated after validation readiness.",
+      },
+    ],
+    strictRetirement: {
+      requiredDisposition: "complete-removal",
+      forbiddenSupportPaths: [
+        "compatibility shim",
+        "legacy support path",
+        "migration of retired admin structure",
+        "hidden flag fallback",
+      ],
+      summary:
+        "Retire means complete removal of code, product patterns, tests, fixtures, screenshots, documentation, runbooks, release notes, and operator instructions.",
+    },
+  };
+}
+
+function lifecycleImpactFixture(
+  operation: "activation" | "rollback" | "deprecate" | "retire",
+  blockerCodes: readonly string[],
+): CatalogPrimaryWorkbenchReadModel["lifecycleRecovery"]["operations"][number]["impact"] {
+  return {
+    generatedAt: "2026-06-09T00:00:00.000Z",
+    referencedObservationCount: operation === "retire" ? 2 : 1,
+    sourceProfileReferenceCount: operation === "retire" ? 1 : 0,
+    promotionProfileReferenceCount: 0,
+    impactedCatalogItemCount: 1,
+    impactedCatalogItemIds: ["cat_001"],
+    externalReferenceCount: 1,
+    sampleObservationIds: ["obs_001"],
+    impactedJobCount: blockerCodes.includes("profile-lifecycle-active-jobs") ? 1 : 0,
+    blockers: blockerCodes.map((code) => ({
+      code,
+      severity: "error",
+      diagnosticText: `${operation} lifecycle blocker`,
+      path: code === "profile-retirement-referenced-observations" ? "profileVersion.references" : "jobs.active",
+      providerKey: "tcgdex",
+      adapterKey: null,
+      unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+      source: "catalog",
+    })),
   };
 }
 

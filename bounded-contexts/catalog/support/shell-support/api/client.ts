@@ -1192,6 +1192,20 @@ export function createCatalogApiClient({
       );
       return parseJsonResponse<T>(response);
     },
+    async getSourceObservationProviderProfileLifecycleImpact<T>(
+      providerKey: string,
+      profileVersion: string,
+      operation: "activation" | "rollback" | "deprecate" | "retire",
+    ): Promise<T> {
+      const response = await configuredFetch(
+        `${baseUrl.replace(/\/$/, "")}/source-observations/provider-profiles/${encodeURIComponent(providerKey)}/${encodeURIComponent(profileVersion)}/lifecycle-impact?operation=${encodeURIComponent(operation)}`,
+        {
+          method: "GET",
+          headers: headersToRecord(headers),
+        },
+      );
+      return parseJsonResponse<T>(response);
+    },
     async rollbackSourceObservationProviderProfile<T>(providerKey: string, profileVersion: string): Promise<T> {
       const response = await configuredFetch(
         `${baseUrl.replace(/\/$/, "")}/source-observations/provider-profiles/${encodeURIComponent(providerKey)}/${encodeURIComponent(profileVersion)}/rollback`,
