@@ -574,6 +574,11 @@ export function CheckoutPurchaseIntentSection({
 }) {
   const formRef = useRef<HTMLFormElement>(null);
   const addToCartFetcher = useFetcher<ItemDetailActionData>();
+  const isProductCartWorkflow = actionMode === "add-to-cart";
+  const isListingWorkflow = Boolean(selectedListing && !isProductCartWorkflow);
+  const addToCartUsesSelectedListing = Boolean(
+    selectedListing && selectedListingSource === "explicit" && isListingWorkflow,
+  );
   const selectedListingQuantity = selectedListing
     ? parseQuantity(selectedListing.visible_quantity ?? selectedListing.quantity_cap)
     : null;
@@ -594,10 +599,7 @@ export function CheckoutPurchaseIntentSection({
   const addToCartSuccessData = isAddToCartActionData(addToCartFetcher.data) ? addToCartFetcher.data : null;
   const addToCartError = getActionErrorMessage(addToCartFetcher.data);
   const addToCartPending = addToCartFetcher.state !== "idle";
-  const addToCartUsesSelectedListing = Boolean(selectedListing && selectedListingSource === "explicit");
-  const showSelectedListingContext = Boolean(
-    selectedListing && (actionMode !== "add-to-cart" || addToCartUsesSelectedListing),
-  );
+  const showSelectedListingContext = Boolean(selectedListing && isListingWorkflow);
   const selectionHeading =
     selectedListing && showSelectedListingContext
       ? selectedListingSource === "explicit"
@@ -614,29 +616,18 @@ export function CheckoutPurchaseIntentSection({
     ariaLabel: t("discovery.routes.itemDetail.referenceInfo.buyListing.aria"),
     title: t("discovery.routes.itemDetail.referenceInfo.buyListing.title"),
     summary: t("discovery.routes.itemDetail.referenceInfo.buyListing.summary"),
-    lines:
-      actionMode === "all"
-        ? [
-            t("discovery.routes.itemDetail.referenceInfo.buyListing.line1"),
-            t("discovery.routes.itemDetail.referenceInfo.buyListing.line2"),
-            t("discovery.routes.itemDetail.referenceInfo.listingCart.summary"),
-            t("discovery.routes.itemDetail.referenceInfo.listingCart.line1"),
-            t("discovery.routes.itemDetail.referenceInfo.listingCart.line2"),
-          ]
-        : [
-            t("discovery.routes.itemDetail.referenceInfo.buyListing.line1"),
-            t("discovery.routes.itemDetail.referenceInfo.buyListing.line2"),
-          ],
-  };
-  const listingCartReferenceInfo = {
-    triggerLabel: t("discovery.routes.itemDetail.referenceInfo.listingCart.trigger"),
-    ariaLabel: t("discovery.routes.itemDetail.referenceInfo.listingCart.aria"),
-    title: t("discovery.routes.itemDetail.referenceInfo.listingCart.title"),
-    summary: t("discovery.routes.itemDetail.referenceInfo.listingCart.summary"),
-    lines: [
-      t("discovery.routes.itemDetail.referenceInfo.listingCart.line1"),
-      t("discovery.routes.itemDetail.referenceInfo.listingCart.line2"),
-    ],
+    lines: addToCartUsesSelectedListing
+      ? [
+          t("discovery.routes.itemDetail.referenceInfo.buyListing.line1"),
+          t("discovery.routes.itemDetail.referenceInfo.buyListing.line2"),
+          t("discovery.routes.itemDetail.referenceInfo.listingCart.summary"),
+          t("discovery.routes.itemDetail.referenceInfo.listingCart.line1"),
+          t("discovery.routes.itemDetail.referenceInfo.listingCart.line2"),
+        ]
+      : [
+          t("discovery.routes.itemDetail.referenceInfo.buyListing.line1"),
+          t("discovery.routes.itemDetail.referenceInfo.buyListing.line2"),
+        ],
   };
   const productCartReferenceInfo = {
     triggerLabel: t("discovery.routes.itemDetail.referenceInfo.productCart.trigger"),
@@ -646,14 +637,10 @@ export function CheckoutPurchaseIntentSection({
     lines: [
       t("discovery.routes.itemDetail.referenceInfo.productCart.line1"),
       t("discovery.routes.itemDetail.referenceInfo.productCart.line2"),
+      t("discovery.routes.itemDetail.referenceInfo.productCart.line3"),
     ],
   };
-  const purchaseReferenceInfo =
-    selectedListing && actionMode !== "add-to-cart"
-      ? buyListingReferenceInfo
-      : addToCartUsesSelectedListing
-        ? listingCartReferenceInfo
-        : productCartReferenceInfo;
+  const purchaseReferenceInfo = showSelectedListingContext ? buyListingReferenceInfo : productCartReferenceInfo;
   useEffect(() => {
     if (isAddToCartActionData(addToCartFetcher.data)) {
       notifyCartCountChanged(addToCartFetcher.data.quantity);
@@ -669,34 +656,36 @@ export function CheckoutPurchaseIntentSection({
     formData.set("intent", "add-to-cart");
     addToCartFetcher.submit(formData, { method: "post" });
   }
-  const buyNowAction = (
-    <Button
-      type="submit"
-      name="intent"
-      value={actionMode === "buy-now" && selectedListing ? "buy-this-listing" : "buy-now"}
-      tone={actionMode === "buy-now" && productId ? "primary" : "secondary"}
-      disabled={!productId || (actionMode === "buy-now" && !selectedListing)}
-      block
-    >
-      {actionMode === "all" ? t("discovery.routes.itemDetail.buy.optimized") : t("discovery.routes.itemDetail.buy.now")}
-    </Button>
-  );
-  const lockedListingAction = (
+  const buyListingAction = (
     <Button
       type="submit"
       name="intent"
       value="buy-this-listing"
-      tone="secondary"
+      tone={!isProductCartWorkflow && productId ? "primary" : "secondary"}
       disabled={!productId || !selectedListing}
       block
     >
-      {t("discovery.routes.itemDetail.buy.locked.to.this.seller")}
+      {selectedListingSource === "explicit"
+        ? t("discovery.routes.itemDetail.buy.now")
+        : t("discovery.routes.itemDetail.buy.best.available.listing")}
+    </Button>
+  );
+  const buyBestMatchAction = (
+    <Button
+      type="submit"
+      name="intent"
+      value="buy-now"
+      tone="secondary"
+      disabled={!productId || visibleListingCount === 0}
+      block
+    >
+      {t("discovery.routes.itemDetail.buy.best.match")}
     </Button>
   );
   const addToCartAction = (
     <Button
       type="button"
-      tone={actionMode === "add-to-cart" && productId ? "primary" : "secondary"}
+      tone={isProductCartWorkflow && productId ? "primary" : "secondary"}
       disabled={!productId || Boolean(addToCartPending)}
       onClick={() => {
         void handleAddToCart();
@@ -710,18 +699,17 @@ export function CheckoutPurchaseIntentSection({
           : t("discovery.routes.itemDetail.add.to.cart")}
     </Button>
   );
-  const defaultActions =
-    actionMode === "buy-now" ? (
-      buyNowAction
-    ) : actionMode === "add-to-cart" ? (
-      addToCartAction
-    ) : (
-      <>
-        {buyNowAction}
-        {lockedListingAction}
-        {addToCartAction}
-      </>
-    );
+  const defaultActions = isProductCartWorkflow ? (
+    <>
+      {addToCartAction}
+      {visibleListingCount > 0 ? buyBestMatchAction : null}
+    </>
+  ) : (
+    <>
+      {buyListingAction}
+      {addToCartUsesSelectedListing ? addToCartAction : null}
+    </>
+  );
   const form = (
     <Form spacing="none" id={formId} method="post" ref={formRef}>
       <Stack gap={3}>
@@ -755,29 +743,53 @@ export function CheckoutPurchaseIntentSection({
             <Stack gap={1}>
               <Text weight="semibold">{selectionHeading}</Text>
             </Stack>
-            <Stack gap={1}>
-              <Text size="sm" tone="secondary">
-                {priceLabel}
-              </Text>
-              <Text size="lg" weight="bold">
-                {selectedListingPrice}
-              </Text>
-              <Inline gap={2}>
-                <AccountReputationSummary
-                  accountName={selectedListingSeller}
-                  href={selectedListingSellerHref}
-                  averageRating={selectedListing?.seller_average_rating}
-                  reviewCount={selectedListing?.seller_review_count ?? 0}
-                  ratingLabel="Seller account reputation"
+            {showSelectedListingContext ? (
+              <Stack gap={1}>
+                <Text size="sm" tone="secondary">
+                  {priceLabel}
+                </Text>
+                <Text size="lg" weight="bold">
+                  {selectedListingPrice}
+                </Text>
+                <Inline gap={2}>
+                  <AccountReputationSummary
+                    accountName={selectedListingSeller}
+                    href={selectedListingSellerHref}
+                    averageRating={selectedListing?.seller_average_rating}
+                    reviewCount={selectedListing?.seller_review_count ?? 0}
+                    ratingLabel="Seller account reputation"
+                  />
+                </Inline>
+                <ProductQuantitySummary
+                  availability={selectedListingAvailability}
+                  productSelectionDetails={productSelectionDetails}
+                  productSummary={productSummary}
+                  fallback={productId ? itemTitle : t("discovery.routes.itemDetail.choose.options.to.add.this.product")}
                 />
-              </Inline>
-              <ProductQuantitySummary
-                availability={selectedListingAvailability}
-                productSelectionDetails={productSelectionDetails}
-                productSummary={productSummary}
-                fallback={productId ? itemTitle : t("discovery.routes.itemDetail.choose.options.to.add.this.product")}
-              />
-            </Stack>
+              </Stack>
+            ) : (
+              <Stack gap={1}>
+                <Text size="sm" tone="secondary">
+                  {t("discovery.routes.itemDetail.product.criteria")}
+                </Text>
+                <ProductOptions
+                  options={productOptionsFromSelectionDetails(productSelectionDetails)}
+                  emptyLabel={productSummary ?? itemTitle}
+                />
+                <Text size="sm" tone="secondary">
+                  {productId
+                    ? t("discovery.routes.itemDetail.listing.match.count", {
+                        count: visibleListingCount,
+                        listingLabel: t(
+                          visibleListingCount === 1
+                            ? "discovery.routes.itemDetail.listing.matches.singular"
+                            : "discovery.routes.itemDetail.listing.matches.plural",
+                        ),
+                      })
+                    : t("discovery.routes.itemDetail.choose.options.to.add.this.product")}
+                </Text>
+              </Stack>
+            )}
             {productId && visibleListingCount === 0 ? (
               <Text size="sm" tone="secondary">
                 {t("discovery.routes.itemDetail.add.to.cart.saves.buyer.intent")}
@@ -1697,6 +1709,8 @@ export function BuyActionCard({
   productSummary,
   productSelectionDetails,
   visibleListingCount,
+  hasSelectedListing,
+  selectedListingSource = "implicit",
   renderBuyNow,
   renderAddToCart,
   renderOffer,
@@ -1708,6 +1722,8 @@ export function BuyActionCard({
   productSummary: string | null;
   productSelectionDetails: readonly ProductSelectionDisplayDetail[];
   visibleListingCount: number;
+  hasSelectedListing?: boolean;
+  selectedListingSource?: MarketSelectionSource;
   renderBuyNow: (formId: string) => ReactNode;
   renderAddToCart: (formId: string) => ReactNode;
   renderOffer: (formId: string) => ReactNode;
@@ -1719,17 +1735,25 @@ export function BuyActionCard({
     setSelectedAction(defaultAction);
   }, [defaultAction]);
 
+  const listingWorkflowLabel =
+    hasSelectedListing && selectedListingSource === "explicit"
+      ? t("discovery.features.itemDetail.ui.itemDetailPage.selected.listing")
+      : t("discovery.routes.itemDetail.best.available.listing");
+  const listingWorkflowDescription =
+    hasSelectedListing && selectedListingSource === "explicit"
+      ? t("discovery.routes.itemDetail.selected.listing.workflow.helper")
+      : t("discovery.routes.itemDetail.best.available.listing.workflow.helper");
   const options = [
     {
       value: "buy-now",
-      label: t("discovery.routes.itemDetail.buy.now"),
-      description: t("discovery.routes.itemDetail.buy.now.workflow.helper"),
+      label: listingWorkflowLabel,
+      description: listingWorkflowDescription,
       icon: "creditCard",
       disabled: !productId || visibleListingCount === 0,
     },
     {
       value: "add-to-cart",
-      label: t("discovery.routes.itemDetail.add.to.cart"),
+      label: t("discovery.routes.itemDetail.selected.product"),
       description: t("discovery.routes.itemDetail.add.to.cart.workflow.helper"),
       icon: "cart",
       disabled: !productId,
@@ -1753,7 +1777,7 @@ export function BuyActionCard({
 
   return (
     <ItemDetailActionCard
-      title={t("discovery.routes.itemDetail.choose.action")}
+      title={t("discovery.routes.itemDetail.buy.card.title")}
       description={t("discovery.routes.itemDetail.buy.card.description")}
       productSummary={productSummary}
       productSelectionDetails={productSelectionDetails}

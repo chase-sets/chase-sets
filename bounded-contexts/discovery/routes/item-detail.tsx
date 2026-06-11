@@ -1270,6 +1270,8 @@ function DiscoveryItemDetailRealtimeView({
                   productSummary={context.selectedProductSummary}
                   productSelectionDetails={context.selectedProductSelectionDetails}
                   visibleListingCount={context.visibleListings.length}
+                  hasSelectedListing={Boolean(context.selectedListing)}
+                  selectedListingSource={context.selectedListingSource}
                   renderBuyNow={(formId) => renderBuy(formId, "plain", undefined, true, "buy-now")}
                   renderAddToCart={(formId) => renderBuy(formId, "plain", undefined, true, "add-to-cart")}
                   renderOffer={(formId) => renderOffer(formId, "plain", undefined, true)}
