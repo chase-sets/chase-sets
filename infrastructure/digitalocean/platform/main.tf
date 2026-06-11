@@ -191,6 +191,16 @@ resource "digitalocean_database_user" "contexts" {
   name       = each.value
 }
 
+# Dedicated least-privilege relay listener users (#1243): one per wave-1
+# source context in staging and production. The worker-owned wake relay uses
+# these for LISTEN only; grants below give CONNECT + schema USAGE + read-only
+# event-store SELECT, never DML on domain tables.
+resource "digitalocean_database_user" "wake_listeners" {
+  for_each   = local.wake_listener_database_users
+  cluster_id = digitalocean_database_cluster.postgres.id
+  name       = each.value
+}
+
 resource "digitalocean_database_connection_pool" "contexts" {
   for_each = local.non_production_connection_pool_contexts
 
@@ -234,6 +244,49 @@ resource "terraform_data" "context_database_grants" {
   depends_on = [
     digitalocean_database_db.contexts,
     digitalocean_database_user.contexts,
+  ]
+}
+
+# Least-privilege grants for the relay wake-listener users (#1243): CONNECT
+# (LISTEN needs nothing more), USAGE on the schema, and SELECT on the
+# event-store tables only. Runs inside the same terraform apply as the user
+# creation, and digitalocean_app.platform depends on it, so grants always land
+# before workers restart with the listener URLs.
+resource "terraform_data" "wake_listener_database_grants" {
+  count = length(local.wake_listener_grant_contexts) > 0 ? 1 : 0
+
+  triggers_replace = concat(
+    [digitalocean_database_cluster.postgres.id],
+    [
+      for context_name in sort(local.wake_listener_grant_contexts) :
+      "${digitalocean_database_db.contexts[context_name].id}:${digitalocean_database_user.wake_listeners[context_name].id}"
+    ],
+  )
+
+  provisioner "local-exec" {
+    working_dir = "${path.module}/../../.."
+    command     = "node scripts/apply-digitalocean-database-grant.mjs"
+
+    environment = {
+      DATABASE_GRANTS_JSON = jsonencode([
+        for context_name in sort(local.wake_listener_grant_contexts) : {
+          database = digitalocean_database_db.contexts[context_name].name
+          user     = digitalocean_database_user.wake_listeners[context_name].name
+          kind     = "wake-listener"
+        }
+      ])
+      PGDATABASE = digitalocean_database_db.contexts[sort(local.wake_listener_grant_contexts)[0]].name
+      PGHOST     = digitalocean_database_cluster.postgres.host
+      PGPASSWORD = digitalocean_database_cluster.postgres.password
+      PGPORT     = tostring(digitalocean_database_cluster.postgres.port)
+      PGSSLMODE  = "require"
+      PGUSER     = digitalocean_database_cluster.postgres.user
+    }
+  }
+
+  depends_on = [
+    digitalocean_database_db.contexts,
+    digitalocean_database_user.wake_listeners,
   ]
 }
 
@@ -297,6 +350,28 @@ check "wake_listener_topology_parity" {
       ])
     )
     error_message = "Every worker_listener_source_contexts entry must have a matching listener URL key in staging and production so relay source enablement cannot drift between environments."
+  }
+}
+
+# Listener least-privilege gate (#1243): relay listener URLs must embed the
+# dedicated <context>_wake_listener users (CONNECT + read-only event-store
+# grants), never the owning context users or App Platform bindings, so a
+# regression to full-DML listener credentials fails the plan.
+check "wake_listener_least_privilege" {
+  assert {
+    # lookup() keeps both operands evaluable in previews (no listener URLs):
+    # HCL logical operators do not short-circuit evaluation.
+    condition = (
+      !(local.is_production || local.is_staging) ||
+      alltrue([
+        for context_name in local.worker_listener_source_contexts :
+        strcontains(
+          lookup(local.worker_listener_database_urls, context_name, ""),
+          "//${urlencode(lookup(local.wake_listener_database_users, context_name, "missing-wake-listener-user"))}:",
+        )
+      ])
+    )
+    error_message = "Relay listener URLs must use the dedicated wake-listener database users (LISTEN + read-only event-store access), never the owning context users or App Platform bindings."
   }
 }
 
@@ -2041,7 +2116,9 @@ resource "digitalocean_app" "platform" {
   depends_on = [
     digitalocean_database_db.contexts,
     digitalocean_database_user.contexts,
+    digitalocean_database_user.wake_listeners,
     terraform_data.context_database_grants,
+    terraform_data.wake_listener_database_grants,
   ]
 }
 

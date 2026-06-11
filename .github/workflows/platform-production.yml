@@ -854,7 +854,7 @@ jobs:
             echo "Interpretation: docs/runbooks/guest-buy-now-freshness-canary.md. Join server-side wake segments by correlation id via the projection wake dashboard and /api/platform/projections/wake-status."
             if [ "$promotion_decision" = "warn" ]; then
               echo ""
-              echo "WARNING: ready SLO exceeded with a user-safe final state. Recorded as a release-health warning; promotion was not blocked (slo-mode=warn, pending #1237 ratification)."
+              echo "WARNING: ready SLO exceeded with a user-safe final state. Recorded as a release-health warning; promotion was not blocked (slo-mode=warn, ratified single-write SLO per docs/architecture/push-wake-slo-load-proof.md)."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -1660,6 +1660,110 @@ jobs:
           curl --fail --silent --show-error --head --retry 12 --retry-delay 10 --retry-all-errors \
             "${catalog_asset_public_base_url}/" >/dev/null
 
+      # Post-deploy readiness gate (#1237): derive direct production database
+      # URLs for the audited wave contexts from Terraform state (same pattern
+      # as the staging wake drills / representative-commerce-state workflows)
+      # so the readiness gate below can compare projection checkpoints against
+      # the event-store head before the canaries run.
+      - name: Export production readiness database URLs
+        if: |
+          steps.latest_main.outputs.should_deploy != 'false' &&
+          (vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true')
+        # Warn-and-proceed support step: an export failure leaves the gate
+        # without database URLs, which it reports as a config-error warning —
+        # it must never block the deploy.
+        continue-on-error: true
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          READINESS_GATE_SOURCE_CONTEXTS: ${{ vars.PRODUCTION_READINESS_GATE_SOURCE_CONTEXTS || 'checkout' }}
+        run: |
+          set -euo pipefail
+          state_path="${RUNNER_TEMP}/platform-production.tfstate.json"
+          terraform state pull > "$state_path"
+          TERRAFORM_STATE_PATH="$state_path" node <<'NODE'
+          const fs = require("node:fs");
+          const state = JSON.parse(fs.readFileSync(process.env.TERRAFORM_STATE_PATH, "utf8"));
+          const resources = Array.isArray(state.resources) ? state.resources : [];
+          const cluster = resources.find((resource) =>
+            resource.type === "digitalocean_database_cluster" && resource.name === "postgres"
+          );
+          const databases = resources.find((resource) =>
+            resource.type === "digitalocean_database_db" && resource.name === "contexts"
+          );
+          const users = resources.find((resource) =>
+            resource.type === "digitalocean_database_user" && resource.name === "contexts"
+          );
+          const clusterAttrs = cluster?.instances?.[0]?.attributes ?? {};
+          if (!clusterAttrs.host || !clusterAttrs.port) {
+            throw new Error("Production Terraform state does not contain a usable DigitalOcean database cluster.");
+          }
+
+          const databaseByContext = new Map(
+            (databases?.instances ?? []).map((instance) => [instance.index_key, instance.attributes ?? {}])
+          );
+          const userByContext = new Map(
+            (users?.instances ?? []).map((instance) => [instance.index_key, instance.attributes ?? {}])
+          );
+          const readinessContexts = String(process.env.READINESS_GATE_SOURCE_CONTEXTS ?? "checkout")
+            .split(",")
+            .map((entry) => entry.trim())
+            .filter(Boolean);
+          const contextNames = [...new Set([...readinessContexts, "control"])].sort();
+
+          const lines = [];
+          for (const contextName of contextNames) {
+            const database = databaseByContext.get(contextName);
+            const user = userByContext.get(contextName);
+            if (!contextName || !database?.name || !user?.name || !user?.password) {
+              throw new Error(`Direct database state is incomplete for context '${contextName ?? "unknown"}'.`);
+            }
+
+            const url = `postgresql://${encodeURIComponent(user.name)}:${encodeURIComponent(user.password)}` +
+              `@${clusterAttrs.host}:${clusterAttrs.port}/${encodeURIComponent(database.name)}?sslmode=require`;
+            const envName = contextName === "control"
+              ? "PLATFORM_CONTROL_DATABASE_URL"
+              : `DATABASE_URL_${String(contextName).toUpperCase().replaceAll("-", "_")}`;
+            console.log(`::add-mask::${url}`);
+            lines.push(`${envName}=${url}`);
+          }
+
+          fs.appendFileSync(process.env.GITHUB_ENV, `${lines.join("\n")}\n`);
+          NODE
+
+      # Bounded wait for steady state (#1237): poll until the audited contexts'
+      # projection checkpoints reach the event-store head or the budget expires
+      # so the canaries below measure steady-state freshness instead of
+      # post-deploy catch-up. Warn-and-proceed by design: this step never
+      # blocks promotion — the proof-mode canary remains the real gate and
+      # reports honestly either way.
+      - name: Production post-deploy readiness gate
+        timeout-minutes: 20
+        id: readiness_gate
+        if: |
+          steps.latest_main.outputs.should_deploy != 'false' &&
+          (vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true')
+        env:
+          READINESS_GATE_SOURCE_CONTEXTS: ${{ vars.PRODUCTION_READINESS_GATE_SOURCE_CONTEXTS || 'checkout' }}
+          READINESS_GATE_BUDGET_MS: ${{ vars.PRODUCTION_READINESS_GATE_BUDGET_MS || '300000' }}
+        run: |
+          set -euo pipefail
+          set +e
+          node ./scripts/production-readiness-gate.mjs \
+            --out artifacts/release-health/production-readiness-gate.json
+          gate_exit=$?
+          set -e
+          case "$gate_exit" in
+            0) outcome=ready ;;
+            1) outcome=budget-expired ;;
+            *) outcome=error ;;
+          esac
+          echo "outcome=${outcome}" >> "$GITHUB_OUTPUT"
+          if [ "$outcome" != "ready" ]; then
+            echo "::warning::Production post-deploy readiness gate outcome was '${outcome}'; proceeding (warn-and-proceed) — the canaries below measure post-deploy catch-up rather than steady state and the proof canary remains the promotion gate."
+          fi
+
       - name: Stage 1 production canary
         id: stage1_canary
         if: steps.latest_main.outputs.should_deploy != 'false'
@@ -1792,7 +1896,7 @@ jobs:
             echo "Interpretation: docs/runbooks/guest-buy-now-freshness-canary.md. Join server-side wake segments by correlation id via the projection wake dashboard and /api/platform/projections/wake-status."
             if [ "$promotion_decision" = "warn" ]; then
               echo ""
-              echo "WARNING: ready SLO exceeded with user-safe final state '${final_state}'. Recorded as a release-health warning; the release was not blocked (slo-mode=warn, pending #1237 ratification)."
+              echo "WARNING: ready SLO exceeded with user-safe final state '${final_state}'. Recorded as a release-health warning; the release was not blocked (slo-mode=warn, ratified single-write SLO per docs/architecture/push-wake-slo-load-proof.md)."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -1956,5 +2060,6 @@ jobs:
             artifacts/release-health/production-release.json
             artifacts/release-health/canary-analysis.json
             artifacts/release-health/production-proof-buy-now-freshness-canary.json
+            artifacts/release-health/production-readiness-gate.json
           if-no-files-found: ignore
           retention-days: 30

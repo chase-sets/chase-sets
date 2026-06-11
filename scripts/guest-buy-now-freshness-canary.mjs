@@ -762,7 +762,7 @@ async function main(argv, env = process.env) {
     console.log(JSON.stringify(evidence, null, 2));
     if (evidence.promotionDecision === "warn") {
       console.error(
-        `WARNING: Buy Now freshness canary exceeded the ready SLO (${evidence.readySloMs}ms) with user-safe final state '${evidence.finalState}'. Recorded as a release-health warning; the release is not blocked (slo-mode=warn, pending #1237 ratification).`,
+        `WARNING: Buy Now freshness canary exceeded the ready SLO (${evidence.readySloMs}ms) with user-safe final state '${evidence.finalState}'. Recorded as a release-health warning; the release is not blocked (slo-mode=warn, ratified single-write SLO per docs/architecture/push-wake-slo-load-proof.md).`,
       );
     }
     return evidence.promotionDecision === "abort" ? 1 : 0;
