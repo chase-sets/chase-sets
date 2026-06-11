@@ -1,0 +1,672 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  applyCheckoutRouteMockDefaults,
+  guestCheckoutActor,
+  MockCheckoutApiError,
+  mockConfirmCheckoutSession,
+  mockCreateAuthRequestApiClient,
+  mockCreateCartReadiness,
+  mockCreateCheckoutRequestApiClient,
+  mockCreateCheckoutSession,
+  mockCreateIdentityRequestApiClient,
+  mockCreateMarketplaceRequestApiClient,
+  mockCreateOrderingRequestApiClient,
+  mockCreatePaymentsRequestApiClient,
+  mockCreateSettlementRequestApiClient,
+  mockGetGuestCart,
+  MockMarketplaceApiError,
+  mockMergeGuestCartToAccount,
+  mockPreviewCheckoutStatus,
+  mockRequireActorFromAuthApi,
+  mockResolveActorFromAuthApi,
+  mockStartGuestCheckout,
+} from "../tests/support/checkout-route-test-harness";
+
+vi.mock("@chase-sets/platform-runtime/auth", async () => {
+  const actual = await vi.importActual<typeof import("@chase-sets/platform-runtime/auth")>(
+    "@chase-sets/platform-runtime/auth",
+  );
+
+  return {
+    ...actual,
+    requireActorFromAuthApi: mockRequireActorFromAuthApi,
+    resolveActorFromAuthApi: mockResolveActorFromAuthApi,
+  };
+});
+
+vi.mock("@chase-sets/auth/server", async () => {
+  const actual = await vi.importActual<typeof import("@chase-sets/auth/server")>("@chase-sets/auth/server");
+
+  return {
+    ...actual,
+    createAuthRequestApiClient: mockCreateAuthRequestApiClient,
+  };
+});
+
+vi.mock("@chase-sets/identity/server", async () => {
+  const actual = await vi.importActual<typeof import("@chase-sets/identity/server")>("@chase-sets/identity/server");
+
+  return {
+    ...actual,
+    createIdentityRequestApiClient: mockCreateIdentityRequestApiClient,
+  };
+});
+
+vi.mock("../support/request-support/api-client", () => ({
+  CheckoutApiError: MockCheckoutApiError,
+  createCheckoutRequestApiClient: mockCreateCheckoutRequestApiClient,
+}));
+
+vi.mock("@chase-sets/ordering/server", () => ({
+  createOrderingRequestApiClient: mockCreateOrderingRequestApiClient,
+}));
+
+vi.mock("@chase-sets/payments/server", () => ({
+  createPaymentsRequestApiClient: mockCreatePaymentsRequestApiClient,
+  normalizeRequestedBalanceCreditAmount: (value: unknown) => {
+    const text = String(value ?? "").trim();
+    return text ? text : null;
+  },
+}));
+
+vi.mock("@chase-sets/marketplace/server", () => ({
+  createMarketplaceRequestApiClient: mockCreateMarketplaceRequestApiClient,
+  MarketplaceApiError: MockMarketplaceApiError,
+}));
+
+vi.mock("@chase-sets/settlement/server", () => ({
+  createSettlementRequestApiClient: mockCreateSettlementRequestApiClient,
+}));
+
+import { AuthApiError } from "@chase-sets/auth/server";
+import {
+  action as checkoutStartAction,
+  checkoutStartBuyerProtectionItems,
+  checkoutStartHeaderCopy,
+  loader as checkoutStartLoader,
+} from "./checkout-start";
+
+describe("checkout web routes: checkout start", () => {
+  beforeEach(() => {
+    applyCheckoutRouteMockDefaults();
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("starts cart checkout through the canonical checkout session API", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({});
+    mockCreateCheckoutSession.mockResolvedValue({ session_id: "chk_cart" });
+    mockMergeGuestCartToAccount.mockResolvedValue({ status: "merged" });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      createCartReadiness: mockCreateCartReadiness,
+      createCheckoutSession: mockCreateCheckoutSession,
+      mergeGuestCartToAccount: mockMergeGuestCartToAccount,
+    });
+
+    const form = new URLSearchParams();
+    form.set("source", "cart");
+    form.set("readinessSnapshotId", "cr_ready");
+    form.set("readinessSourceRevision", "cr_source");
+    form.set(
+      "readinessDecisions",
+      JSON.stringify({ optimization: { decision: "declined", lineId: "cli_1", listingId: "lst_lower" } }),
+    );
+
+    const response = (await checkoutStartAction({
+      request: new Request("http://localhost/checkout/start", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          cookie: "chase_sets_anonymous_cart=anon_cart_1",
+        },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never)) as Response;
+
+    expect(mockMergeGuestCartToAccount).toHaveBeenCalledWith("anon_cart_1");
+    expect(mockCreateCartReadiness).toHaveBeenCalledWith({
+      lineOutcomes: [],
+      optimization: { decision: "declined", lineId: "cli_1", listingId: "lst_lower" },
+    });
+    expect(mockCreateCheckoutSession).toHaveBeenCalledWith({
+      source: {
+        type: "cart",
+        readinessSnapshotId: "cr_ready",
+        readinessSourceRevision: "cr_source",
+        readinessDecisions: {
+          lineOutcomes: [],
+          optimization: { decision: "declined", lineId: "cli_1", listingId: "lst_lower" },
+        },
+      },
+    });
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("/checkout/chk_cart");
+    expect(response.headers.getSetCookie().join("; ")).toContain("chase_sets_anonymous_cart=");
+  });
+
+  it("keeps signed-out buyers on the checkout start choice page with a checkout return target", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    mockGetGuestCart.mockResolvedValue({ items: [], count: 2 });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getGuestCart: mockGetGuestCart,
+    });
+
+    const result = await checkoutStartLoader({
+      request: new Request("http://localhost/checkout/start"),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result).toEqual({
+      isSignedIn: false,
+      isGuestBuyer: false,
+      source: null,
+      cartCount: 2,
+      signInPath: "/sign-in?returnTo=%2Fcheckout%2Fstart",
+    });
+  });
+
+  it("marks guest checkout actors separately from registered signed-in accounts on checkout start", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(guestCheckoutActor());
+    mockCreateCheckoutRequestApiClient.mockReturnValue({});
+
+    const result = await checkoutStartLoader({
+      request: new Request("http://localhost/checkout/start"),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result).toEqual({
+      isSignedIn: false,
+      isGuestBuyer: true,
+      source: null,
+      cartCount: 0,
+      signInPath: "/sign-in?returnTo=%2Fcheckout%2Fstart",
+    });
+  });
+
+  it("returns checkout-owned recovery instead of creating a guest account for an empty signed-out cart", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    mockGetGuestCart.mockResolvedValue({ items: [], count: 0 });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getGuestCart: mockGetGuestCart,
+      createCartReadiness: mockCreateCartReadiness,
+      createCheckoutSession: mockCreateCheckoutSession,
+      mergeGuestCartToAccount: mockMergeGuestCartToAccount,
+    });
+
+    const form = new URLSearchParams();
+    form.set("contactName", "Jane Smith");
+    form.set("email", "jane@example.com");
+    form.set("source", "cart");
+
+    const result = await checkoutStartAction({
+      request: new Request("http://localhost/checkout/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result).toEqual({
+      recovery: expect.objectContaining({
+        kind: "cart-empty",
+        title: "Your Buy Cart is empty",
+        primaryAction: expect.objectContaining({ href: "/account/cart" }),
+        secondaryAction: expect.objectContaining({ href: "/search" }),
+      }),
+    });
+    expect(mockStartGuestCheckout).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
+  });
+
+  it("returns checkout-owned recovery when guest-buyer checkout reentry starts from an empty cart", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(guestCheckoutActor());
+    mockCreateCheckoutSession.mockRejectedValue(
+      new MockCheckoutApiError(400, {
+        error: {
+          code: "cart_empty",
+          message: "Cart must contain at least one line.",
+        },
+      }),
+    );
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      createCartReadiness: mockCreateCartReadiness,
+      createCheckoutSession: mockCreateCheckoutSession,
+      mergeGuestCartToAccount: mockMergeGuestCartToAccount,
+    });
+
+    const form = new URLSearchParams();
+    form.set("source", "cart");
+
+    const result = await checkoutStartAction({
+      request: new Request("http://localhost/checkout/start", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          cookie: "chase_sets_guest_checkout=guest_token",
+        },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result).toEqual({
+      recovery: expect.objectContaining({
+        kind: "cart-empty",
+        description: "Add items to your Buy Cart before starting checkout.",
+      }),
+    });
+    expect(mockMergeGuestCartToAccount).not.toHaveBeenCalled();
+  });
+
+  it("still throws unknown checkout-start failures", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(guestCheckoutActor());
+    mockCreateCheckoutSession.mockRejectedValue(new Error("database unavailable"));
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      createCartReadiness: mockCreateCartReadiness,
+      createCheckoutSession: mockCreateCheckoutSession,
+    });
+
+    const form = new URLSearchParams();
+    form.set("source", "cart");
+
+    await expect(
+      checkoutStartAction({
+        request: new Request("http://localhost/checkout/start", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: form.toString(),
+        }),
+        params: {},
+        context: undefined,
+      } as never),
+    ).rejects.toThrow("database unavailable");
+  });
+
+  it("preserves buy-now checkout intent in the sign-in return target", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    mockCreateCheckoutRequestApiClient.mockReturnValue({});
+
+    const result = await checkoutStartLoader({
+      request: new Request(
+        "http://localhost/checkout/start?source=buy-now&listingId=lst_1&catalogItemId=cat_1&productId=prod_1&itemTitle=Charizard&quantity=1",
+      ),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result.isSignedIn).toBe(false);
+    expect(result.source).toEqual(
+      expect.objectContaining({
+        type: "buy-now",
+        listingId: "lst_1",
+        catalogItemId: "cat_1",
+      }),
+    );
+    expect(result.signInPath).toBe(
+      "/sign-in?returnTo=%2Fcheckout%2Fstart%3Fsource%3Dbuy-now%26listingId%3Dlst_1%26catalogItemId%3Dcat_1%26productId%3Dprod_1%26itemTitle%3DCharizard%26quantity%3D1",
+    );
+  });
+
+  it("shows a signed-in continuation state after sign-in returns to checkout start", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer" });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({});
+
+    const result = await checkoutStartLoader({
+      request: new Request("http://localhost/checkout/start"),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result).toEqual({
+      isSignedIn: true,
+      isGuestBuyer: false,
+      source: null,
+      cartCount: 0,
+      signInPath: "/sign-in?returnTo=%2Fcheckout%2Fstart",
+    });
+    expect(mockGetGuestCart).not.toHaveBeenCalled();
+  });
+
+  it("starts signed-in buy-now checkout from the preserved checkout start payload", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer" });
+    mockCreateCheckoutSession.mockResolvedValue({ session_id: "chk_buy_now" });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      createCheckoutSession: mockCreateCheckoutSession,
+      mergeGuestCartToAccount: mockMergeGuestCartToAccount,
+    });
+
+    const form = new URLSearchParams();
+    form.set("source", "buy-now");
+    form.set("listingId", "lst_1");
+    form.set("catalogItemId", "cat_1");
+    form.set("productId", "prod_1");
+    form.set("itemTitle", "Charizard");
+    form.set("itemSubtitle", "Base Set");
+    form.set("selectedOptions", JSON.stringify([{ dimensionId: "condition", optionId: "raw" }]));
+    form.set("productSummary", "Raw");
+    form.set("quantity", "2");
+
+    const response = (await checkoutStartAction({
+      request: new Request("http://localhost/checkout/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never)) as Response;
+
+    expect(mockMergeGuestCartToAccount).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutSession).toHaveBeenCalledWith({
+      source: {
+        type: "buy-now",
+        listingId: "lst_1",
+        catalogItemId: "cat_1",
+        productId: "prod_1",
+        itemTitle: "Charizard",
+        itemSubtitle: "Base Set",
+        selectedOptions: [{ dimensionId: "condition", optionId: "raw" }],
+        productSummary: "Raw",
+        priceAmount: null,
+        sellerName: null,
+        availability: null,
+        fulfillment: null,
+        fulfillmentMode: "optimize",
+        lockedListingId: null,
+        quantity: 2,
+      },
+    });
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("/checkout/chk_buy_now");
+  });
+
+  it("starts signed-in purchase-intent checkout from the preserved checkout start payload", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer" });
+    mockCreateCheckoutSession.mockResolvedValue({ session_id: "chk_offer" });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      createCheckoutSession: mockCreateCheckoutSession,
+      mergeGuestCartToAccount: mockMergeGuestCartToAccount,
+    });
+
+    const form = new URLSearchParams();
+    form.set("source", "offer-intent");
+    form.set("catalogItemId", "cat_1");
+    form.set("productId", "prod_1");
+    form.set("itemTitle", "Charizard");
+    form.set("itemSubtitle", "Base Set");
+    form.set("selectedOptions", JSON.stringify([{ dimensionId: "condition", optionId: "raw" }]));
+    form.set("productSummary", "Raw");
+    form.set("offerPriceAmount", "350.00");
+    form.set("quantity", "2");
+
+    const response = (await checkoutStartAction({
+      request: new Request("http://localhost/checkout/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never)) as Response;
+
+    expect(mockMergeGuestCartToAccount).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutSession).toHaveBeenCalledWith({
+      source: {
+        type: "offer-intent",
+        catalogItemId: "cat_1",
+        productId: "prod_1",
+        itemTitle: "Charizard",
+        itemSubtitle: "Base Set",
+        selectedOptions: [{ dimensionId: "condition", optionId: "raw" }],
+        productSummary: "Raw",
+        offerPriceAmount: "350.00",
+        quantity: 2,
+      },
+    });
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("/checkout/chk_offer");
+  });
+
+  it("starts signed-out cart checkout by creating a guest account and merging the anonymous cart", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    mockStartGuestCheckout.mockResolvedValue({
+      accountId: "acc_guest",
+      guestToken: "guest_token",
+      expiresAt: "2026-04-02T00:00:00.000Z",
+    });
+    mockCreateAuthRequestApiClient.mockReturnValue({
+      startGuestCheckout: mockStartGuestCheckout,
+    });
+    mockCreateCheckoutSession.mockResolvedValue({ session_id: "chk_guest" });
+    mockMergeGuestCartToAccount.mockResolvedValue({ status: "merged" });
+    mockGetGuestCart.mockResolvedValue({ items: [], count: 1 });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getGuestCart: mockGetGuestCart,
+      createCartReadiness: mockCreateCartReadiness,
+      createCheckoutSession: mockCreateCheckoutSession,
+      mergeGuestCartToAccount: mockMergeGuestCartToAccount,
+    });
+
+    const form = new URLSearchParams();
+    form.set("contactName", "Jane Smith");
+    form.set("email", "jane@example.com");
+    form.set("source", "cart");
+
+    const response = (await checkoutStartAction({
+      request: new Request("http://localhost/checkout/start", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          cookie: "chase_sets_anonymous_cart=anon_cart_1",
+        },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never)) as Response;
+
+    expect(mockStartGuestCheckout).toHaveBeenCalledWith({
+      displayName: "Jane Smith",
+      email: "jane@example.com",
+    });
+    expect(mockMergeGuestCartToAccount).toHaveBeenCalledWith("anon_cart_1");
+    expect(mockCreateCartReadiness).toHaveBeenCalledWith({});
+    expect(mockCreateCheckoutSession).toHaveBeenCalledWith({
+      source: {
+        type: "cart",
+        readinessSnapshotId: "cr_ready",
+        readinessSourceRevision: "cr_source",
+        readinessDecisions: null,
+      },
+    });
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("/checkout/chk_guest");
+    expect(response.headers.get("X-Remix-Reload-Document")).toBe("true");
+    expect(response.headers.getSetCookie().join("; ")).toContain("chase_sets_guest_checkout=guest_token");
+  });
+
+  it("marks guest checkout and cleared anonymous cart cookies secure on HTTPS handoff", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    mockStartGuestCheckout.mockResolvedValue({
+      accountId: "acc_guest",
+      guestToken: "guest_token",
+      expiresAt: "2026-04-02T00:00:00.000Z",
+    });
+    mockCreateAuthRequestApiClient.mockReturnValue({
+      startGuestCheckout: mockStartGuestCheckout,
+    });
+    mockCreateCheckoutSession.mockResolvedValue({ session_id: "chk_guest" });
+    mockMergeGuestCartToAccount.mockResolvedValue({ status: "merged" });
+    mockGetGuestCart.mockResolvedValue({ items: [], count: 1 });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getGuestCart: mockGetGuestCart,
+      createCartReadiness: mockCreateCartReadiness,
+      createCheckoutSession: mockCreateCheckoutSession,
+      mergeGuestCartToAccount: mockMergeGuestCartToAccount,
+    });
+
+    const form = new URLSearchParams();
+    form.set("contactName", "Jane Smith");
+    form.set("email", "jane@example.com");
+    form.set("source", "cart");
+
+    const response = (await checkoutStartAction({
+      request: new Request("https://staging.chasesets.com/checkout/start", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          cookie: "chase_sets_anonymous_cart=anon_cart_1",
+        },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never)) as Response;
+    const cookies = response.headers.getSetCookie();
+
+    expect(cookies.find((cookie) => cookie.startsWith("chase_sets_guest_checkout="))).toContain("Secure");
+    expect(cookies.find((cookie) => cookie.startsWith("chase_sets_anonymous_cart="))).toContain("Secure");
+  });
+
+  it("does not start payment while starting signed-out guest cart checkout", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    mockStartGuestCheckout.mockResolvedValue({
+      accountId: "acc_guest",
+      guestToken: "guest_token",
+      expiresAt: "2026-04-02T00:00:00.000Z",
+    });
+    mockCreateAuthRequestApiClient.mockReturnValue({
+      startGuestCheckout: mockStartGuestCheckout,
+    });
+    mockCreateCheckoutSession.mockResolvedValue({ session_id: "chk_guest" });
+    mockMergeGuestCartToAccount.mockResolvedValue({ status: "merged" });
+    mockGetGuestCart.mockResolvedValue({ items: [], count: 1 });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getGuestCart: mockGetGuestCart,
+      createCartReadiness: mockCreateCartReadiness,
+      createCheckoutSession: mockCreateCheckoutSession,
+      mergeGuestCartToAccount: mockMergeGuestCartToAccount,
+    });
+    mockCreatePaymentsRequestApiClient.mockReturnValue({
+      createCheckoutPayment: vi.fn(),
+      previewCheckoutStatus: mockPreviewCheckoutStatus,
+    });
+
+    const form = new URLSearchParams();
+    form.set("contactName", "Jane Smith");
+    form.set("email", "jane@example.com");
+    form.set("source", "cart");
+
+    await checkoutStartAction({
+      request: new Request("http://localhost/checkout/start", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          cookie: "chase_sets_anonymous_cart=anon_cart_1",
+        },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(mockCreatePaymentsRequestApiClient).not.toHaveBeenCalled();
+    expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
+  });
+
+  it("returns a sign-in prompt when guest checkout uses an account email", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    mockStartGuestCheckout.mockRejectedValue(
+      new AuthApiError(409, {
+        error: {
+          code: "account_sign_in_required",
+          message: "Sign in to continue checkout with this email.",
+        },
+      }),
+    );
+    mockCreateAuthRequestApiClient.mockReturnValue({
+      startGuestCheckout: mockStartGuestCheckout,
+    });
+    mockGetGuestCart.mockResolvedValue({ items: [], count: 1 });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getGuestCart: mockGetGuestCart,
+      createCheckoutSession: mockCreateCheckoutSession,
+      mergeGuestCartToAccount: mockMergeGuestCartToAccount,
+    });
+
+    const form = new URLSearchParams();
+    form.set("contactName", "Jane Smith");
+    form.set("email", "jane@example.com");
+    form.set("source", "cart");
+
+    const result = await checkoutStartAction({
+      request: new Request("http://localhost/checkout/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result).toEqual({
+      error: "Sign in to continue checkout with this email. Your Buy Cart will stay ready.",
+      signInPath: "/sign-in?returnTo=%2Fcheckout%2Fstart",
+    });
+    expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
+    expect(mockMergeGuestCartToAccount).not.toHaveBeenCalled();
+  });
+
+  it("requires registration or sign-in before starting purchase-intent checkout", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      createCheckoutSession: mockCreateCheckoutSession,
+    });
+
+    const form = new URLSearchParams();
+    form.set("source", "offer-intent");
+
+    const result = await checkoutStartAction({
+      request: new Request("http://localhost/checkout/start?source=offer-intent", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result).toEqual({
+      error: "Register or sign in to place purchase intent.",
+      signInPath: "/sign-in?returnTo=%2Fcheckout%2Fstart%3Fsource%3Doffer-intent",
+    });
+    expect(mockStartGuestCheckout).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
+  });
+
+  it("uses purchase-intent account copy instead of guest checkout copy", () => {
+    expect(checkoutStartHeaderCopy({ isSignedIn: false, isOfferIntent: true })).toEqual({
+      title: "Register to place purchase intent",
+      description:
+        "Register or sign in to place your purchase intent. Sellers review the offer before any payment is collected.",
+    });
+    expect(checkoutStartHeaderCopy({ isSignedIn: true, isOfferIntent: true })).toEqual({
+      title: "Place purchase intent",
+      description: "Confirm shipping so the seller can review your purchase intent. No payment today.",
+    });
+    expect(
+      checkoutStartBuyerProtectionItems(true)
+        .map((item) => item.description)
+        .join(" "),
+    ).not.toContain("Guest");
+  });
+});

@@ -1,14 +1,15 @@
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-const configSource = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), "../vite.config.ts"), "utf8");
+vi.mock("@react-router/dev/vite", () => ({ reactRouter: () => [] }));
+vi.mock("@tailwindcss/vite", () => ({ default: () => [] }));
 
 describe("admin web dev proxy", () => {
-  it("proxies bounded-context admin API mounts used by contributed routes", () => {
-    expect(configSource).toContain('"/api/experience"');
-    expect(configSource).toContain('"/api/marketplace"');
-    expect(configSource).toContain('"/api/commercial-terms"');
+  it("proxies bounded-context admin API mounts used by contributed routes", async () => {
+    const { default: viteConfig } = await import("../vite.config");
+    const proxyPaths = Object.keys(viteConfig.server?.proxy ?? {});
+
+    expect(proxyPaths).toEqual(
+      expect.arrayContaining(["/api/experience", "/api/marketplace", "/api/commercial-terms"]),
+    );
   });
 });

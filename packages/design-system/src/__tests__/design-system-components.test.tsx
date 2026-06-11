@@ -133,7 +133,7 @@ function DialogInteractionHarness({ title }: { title: string }) {
   );
 }
 
-describe("design system", () => {
+describe("design system components", () => {
   const marketplaceNav = [{ key: "browse", label: "Browse", icon: "search" as const }];
 
   it("resolves theme variables", () => {
@@ -199,24 +199,6 @@ describe("design system", () => {
 
     expect(screen.getByText("reduced")).toBeTruthy();
     expect(screen.getByText("user")).toBeTruthy();
-  });
-
-  it("renders tab content", () => {
-    render(
-      <ChaseRoot>
-        <Tabs
-          items={[
-            {
-              value: "one",
-              label: "One",
-              content: <div>First tab</div>,
-            },
-          ]}
-        />
-      </ChaseRoot>,
-    );
-
-    expect(screen.getByText("First tab")).toBeTruthy();
   });
 
   it("renders empty state for empty data tables", () => {
