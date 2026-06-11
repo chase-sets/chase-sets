@@ -369,9 +369,24 @@ export async function createDatabaseAudit(options) {
   const { default: pg } = await import("pg");
   const clients = new Map();
 
+  // DigitalOcean managed Postgres presents a CA outside the default chain;
+  // sslmode=require URLs use encrypted-but-unverified TLS like the other
+  // staging evidence scripts (see marketplace-provider-proof-status.mjs).
+  function resolveDrillDatabaseSsl(databaseUrl) {
+    try {
+      const url = new URL(databaseUrl);
+      if (url.searchParams.get("sslmode") === "require") {
+        return { rejectUnauthorized: false };
+      }
+    } catch {
+      return undefined;
+    }
+    return undefined;
+  }
+
   async function clientFor(url) {
     if (!clients.has(url)) {
-      const client = new pg.Client({ connectionString: url });
+      const client = new pg.Client({ connectionString: url, ssl: resolveDrillDatabaseSsl(url) });
       await client.connect();
       clients.set(url, client);
     }
