@@ -1698,8 +1698,22 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${GUEST_BUY_NOW_CANARY_ACCOUNT_EMAIL}" ] || [ -z "${GUEST_BUY_NOW_CANARY_ACCOUNT_PASSWORD}" ]; then
-            echo "Production proof mode requires PRODUCTION_PROOF_CANARY_EMAIL and PRODUCTION_PROOF_CANARY_PASSWORD operator credentials for the Buy Now readiness canary." >&2
-            exit 1
+            # Missing setup credentials must not block unrelated production
+            # deploys. Record blocked evidence instead: the push-wake
+            # production rollout gates require a passing proof canary, so a
+            # blocked result still prevents wake enablement from promoting.
+            echo "::warning title=Proof canary credentials missing::Production proof mode is enabled but PRODUCTION_PROOF_CANARY_EMAIL / PRODUCTION_PROOF_CANARY_PASSWORD secrets are not configured. The Buy Now readiness proof canary cannot run; recording canary_result=blocked-missing-credentials. Configure the operator credentials to produce passing proof evidence."
+            {
+              echo "final_state=blocked-missing-credentials"
+              echo "promotion_decision=blocked-missing-credentials"
+              echo "ready_latency_ms="
+            } >> "$GITHUB_OUTPUT"
+            {
+              echo "## Production proof-mode Buy Now freshness canary"
+              echo ""
+              echo "Blocked: proof mode is enabled but the canary operator credentials are missing, so no proof evidence was produced. Configure PRODUCTION_PROOF_CANARY_EMAIL and PRODUCTION_PROOF_CANARY_PASSWORD; the push-wake production rollout gates require a passing proof canary."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
           fi
           marketplace_domain="$(terraform output -json marketplace_domains | jq -r '.[0] // empty')"
           if [ -z "$marketplace_domain" ]; then
