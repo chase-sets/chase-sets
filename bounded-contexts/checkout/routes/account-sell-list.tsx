@@ -39,7 +39,16 @@ type SellListOfferReview = Readonly<{
   lineId: string;
   status: "ready" | "unavailable";
   terms: MarketplaceListingTermsPreview | MarketplacePublicStandardTermsPreview | null;
+  comparison: SellListOfferTermsComparison | null;
   message: string | null;
+}>;
+
+type SellListOfferTermsComparisonField = "seller-net" | "marketplace-fee" | "shipping-allowance" | "terms-source";
+
+type SellListOfferTermsComparison = Readonly<{
+  status: "same" | "changed" | "standard-preview-unavailable" | "final-unavailable";
+  standardPreview: MarketplacePublicStandardTermsPreview | null;
+  changedFields: readonly SellListOfferTermsComparisonField[];
 }>;
 
 type SellListProductOfferReview = Readonly<{
@@ -57,33 +66,105 @@ function moneyValue(value: string | null | undefined) {
   return Number.isFinite(amount) ? amount : 0;
 }
 
+function moneyCents(value: string | null | undefined) {
+  return Math.round(moneyValue(value) * 100);
+}
+
 function buyerTrustScore(offer: OfferMatchListItem) {
   const rating = Number(offer.buyer_average_rating ?? 0);
   const reviews = Number(offer.buyer_review_count ?? 0);
   return (Number.isFinite(rating) ? rating : 0) * 100 + Math.min(50, Number.isFinite(reviews) ? reviews : 0);
 }
 
+function compareRegisteredTermsWithStandard(
+  finalTerms: MarketplaceListingTermsPreview,
+  standardPreview: MarketplacePublicStandardTermsPreview | null,
+): SellListOfferTermsComparison {
+  if (!standardPreview) {
+    return {
+      status: "standard-preview-unavailable",
+      standardPreview: null,
+      changedFields: [],
+    };
+  }
+
+  const changedFields: SellListOfferTermsComparisonField[] = [];
+  if (moneyCents(finalTerms.seller_net_unit_amount) !== moneyCents(standardPreview.seller_net_unit_amount)) {
+    changedFields.push("seller-net");
+  }
+  if (
+    moneyCents(finalTerms.marketplace_sales_fee_unit_amount) !==
+    moneyCents(standardPreview.marketplace_sales_fee_unit_amount)
+  ) {
+    changedFields.push("marketplace-fee");
+  }
+  if (finalTerms.shipping_allowance_percentage_bps !== standardPreview.shipping_allowance_percentage_bps) {
+    changedFields.push("shipping-allowance");
+  }
+  if (finalTerms.account_type !== standardPreview.account_type || Boolean(finalTerms.agreement_id)) {
+    changedFields.push("terms-source");
+  }
+
+  return {
+    status: changedFields.length > 0 ? "changed" : "same",
+    standardPreview,
+    changedFields,
+  };
+}
+
 async function loadSellListOfferReviews(
   request: Request,
   lines: readonly CheckoutSellListLineRow[],
+  options: Readonly<{ includeStandardComparison?: boolean }> = {},
 ): Promise<readonly SellListOfferReview[]> {
   const marketplaceApi = createMarketplaceRequestApiClient(request);
+  const previewPublicStandardListingTerms = marketplaceApi.previewPublicStandardListingTerms?.bind(marketplaceApi);
   const selectedOfferLines = lines.filter((line) => line.line_type === "selected-offer" && line.offer_id);
+  const includeStandardComparison =
+    options.includeStandardComparison && typeof previewPublicStandardListingTerms === "function";
+  const previewByPrice = new Map<string, Promise<MarketplacePublicStandardTermsPreview | null>>();
+  const previewForPrice = (priceAmount: string | null | undefined) => {
+    if (!includeStandardComparison || !priceAmount || typeof previewPublicStandardListingTerms !== "function") {
+      return Promise.resolve(null);
+    }
+    if (!previewByPrice.has(priceAmount)) {
+      previewByPrice.set(
+        priceAmount,
+        previewPublicStandardListingTerms({ priceAmount })
+          .then((preview) => preview)
+          .catch(() => null),
+      );
+    }
+
+    return previewByPrice.get(priceAmount)!;
+  };
 
   return Promise.all(
     selectedOfferLines.map(async (line) => {
+      const standardPreviewPromise = previewForPrice(line.offer_price_amount);
       try {
+        const [terms, standardPreview] = await Promise.all([
+          marketplaceApi.previewOfferAcceptanceTerms(line.offer_id!),
+          standardPreviewPromise,
+        ]);
         return {
           lineId: line.line_id,
           status: "ready" as const,
-          terms: await marketplaceApi.previewOfferAcceptanceTerms(line.offer_id!),
+          terms,
+          comparison: options.includeStandardComparison
+            ? compareRegisteredTermsWithStandard(terms, standardPreview)
+            : null,
           message: null,
         };
       } catch (error) {
+        const standardPreview = await standardPreviewPromise;
         return {
           lineId: line.line_id,
           status: "unavailable" as const,
           terms: null,
+          comparison: options.includeStandardComparison
+            ? { status: "final-unavailable" as const, standardPreview, changedFields: [] }
+            : null,
           message: error instanceof Error ? error.message : "Offer terms are unavailable.",
         };
       }
@@ -123,6 +204,7 @@ async function loadGuestSellListOfferReviews(
         lineId: line.line_id,
         status: terms ? ("ready" as const) : ("unavailable" as const),
         terms,
+        comparison: null,
         message: terms ? null : "Public standard seller terms are temporarily unavailable.",
       };
     }),
@@ -282,7 +364,9 @@ export async function loader({ request }: LoaderFunctionArgs) {
     mergedLineCount,
     mergeError,
     sellList,
-    offerReviews: await loadSellListOfferReviews(request, sellList.items),
+    offerReviews: await loadSellListOfferReviews(request, sellList.items, {
+      includeStandardComparison: registrationReturn === "seller-checkout",
+    }),
     productOfferReviews: await loadSellListProductOfferReviews(request, sellList.items),
     inventoryItems: await loadSellListInventory(request, sellList.items),
     payoutReadiness: await loadPayoutReadiness(request),
@@ -402,8 +486,7 @@ async function buildSellListReviewPlan(
     if (line.line_type === "selected-offer") {
       const skippedReasons: string[] = [];
       const feeQuoteFingerprint = formValue(formData, `offerFeeQuoteFingerprint:${line.line_id}`);
-      const selectedOffer =
-        line.offer_id && feeQuoteFingerprint ? { offerId: line.offer_id, feeQuoteFingerprint } : null;
+      let selectedOffer: SellListReviewPlanLine["selectedOffer"] = null;
 
       if (!line.offer_id) {
         skippedReasons.push(
@@ -413,6 +496,25 @@ async function buildSellListReviewPlan(
         skippedReasons.push(
           t("checkout.routes.accountSellList.offer.terms.need.refresh.detail", { itemTitle: line.item_title }),
         );
+      } else {
+        try {
+          const currentTerms = await marketplaceApi.previewOfferAcceptanceTerms(line.offer_id);
+          if (currentTerms.fee_quote_fingerprint === feeQuoteFingerprint) {
+            selectedOffer = { offerId: line.offer_id, feeQuoteFingerprint };
+          } else {
+            skippedReasons.push(
+              t("checkout.routes.accountSellList.offer.terms.need.refresh.detail", { itemTitle: line.item_title }),
+            );
+          }
+        } catch (error) {
+          skippedReasons.push(
+            t("checkout.routes.accountSellList.offer.accept.failed.detail", {
+              itemTitle: line.item_title,
+              message:
+                error instanceof Error ? error.message : t("checkout.routes.accountSellList.offer.accept.failed"),
+            }),
+          );
+        }
       }
 
       reviewLines.push({

@@ -63,6 +63,7 @@ export type ProjectionWakeIntentCompletedEvent = ProjectionWakeIntentLifecycleEv
     outcome: "ran" | "already-satisfied";
     checkpointPosition: string;
     requeued: boolean;
+    processingDurationMs: number;
   }>;
 
 export type ProjectionWakeIntentRetryEvent = ProjectionWakeIntentLifecycleEvent &
@@ -198,6 +199,7 @@ export function createProjectionWakeSchedulerRunners(options: ProjectionWakeSche
     event: ProjectionWakeIntentLifecycleEvent,
     checkpointPosition: bigint,
     outcome: "ran" | "already-satisfied",
+    claimedAtMs: number,
   ): Promise<ProcessedWakeIntentOutcome> => {
     try {
       await options.workSignalStore.recordCheckpointReady({
@@ -237,6 +239,7 @@ export function createProjectionWakeSchedulerRunners(options: ProjectionWakeSche
       outcome,
       checkpointPosition: checkpointPosition.toString(),
       requeued: completion === "requeued",
+      processingDurationMs: Math.max(0, now().getTime() - claimedAtMs),
     });
     return outcome === "ran" ? "completed" : "already-satisfied";
   };
@@ -246,6 +249,7 @@ export function createProjectionWakeSchedulerRunners(options: ProjectionWakeSche
     laneRunnerName: string,
     context?: ProjectionRunContext,
   ): Promise<ProcessedWakeIntentOutcome> => {
+    const claimedAtMs = now().getTime();
     const event = createLifecycleEvent(options.workerId, laneRunnerName, intent, now());
     const entry = groupIndex.get(createProjectionGroupKey(intent.targetContextName, intent.projectionName));
     const subscription = entry?.subscriptionsByCheckpointKey.get(intent.checkpointKey);
@@ -262,7 +266,7 @@ export function createProjectionWakeSchedulerRunners(options: ProjectionWakeSche
     const statusBefore = await subscription.refreshStatus();
     const positionBefore = BigInt(statusBefore.lastGlobalPosition);
     if (positionBefore >= requiredPosition) {
-      return completeIntentAndRecordReadiness(intent, event, positionBefore, "already-satisfied");
+      return completeIntentAndRecordReadiness(intent, event, positionBefore, "already-satisfied", claimedAtMs);
     }
 
     let checkpointPosition = positionBefore;
@@ -349,6 +353,7 @@ export function createProjectionWakeSchedulerRunners(options: ProjectionWakeSche
         event,
         checkpointPosition,
         runOutcome.acquired ? "ran" : "already-satisfied",
+        claimedAtMs,
       );
     }
 

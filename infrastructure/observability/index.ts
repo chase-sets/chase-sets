@@ -105,6 +105,49 @@ const projectionFreshnessPendingCounter = meter.createCounter("chase_sets_projec
 const projectionFreshnessPendingLag = meter.createHistogram("chase_sets_projection_freshness_pending_lag", {
   unit: "{global_position}",
 });
+const projectionFreshnessWakeRequestCounter = meter.createCounter(
+  "chase_sets_projection_freshness_wake_requests_total",
+);
+const projectionFreshnessWorkSignalErrorCounter = meter.createCounter(
+  "chase_sets_projection_freshness_work_signal_errors_total",
+);
+const projectionWakeNotificationCounter = meter.createCounter("chase_sets_projection_wake_notifications_total");
+const projectionWakeNotificationPayloadBytes = meter.createHistogram(
+  "chase_sets_projection_wake_notification_payload_bytes",
+  {
+    unit: "By",
+  },
+);
+const projectionWakeNotificationAge = meter.createHistogram("chase_sets_projection_wake_notification_age_ms", {
+  unit: "ms",
+});
+const projectionWakeRelayCatchUpCounter = meter.createCounter("chase_sets_projection_wake_relay_catch_up_total");
+const projectionWakeRelayCatchUpDuration = meter.createHistogram(
+  "chase_sets_projection_wake_relay_catch_up_duration_ms",
+  {
+    unit: "ms",
+  },
+);
+const projectionWakeRelayCatchUpEventsCounter = meter.createCounter(
+  "chase_sets_projection_wake_relay_catch_up_events_total",
+);
+const projectionWakeRelayFanOutCounter = meter.createCounter("chase_sets_projection_wake_relay_fan_out_total");
+const projectionWakeRelayFanOutIntentsCounter = meter.createCounter(
+  "chase_sets_projection_wake_relay_fan_out_intents_total",
+);
+const projectionWakeIntentCounter = meter.createCounter("chase_sets_projection_wake_intents_total");
+const projectionWakeIntentAttemptsExhaustedCounter = meter.createCounter(
+  "chase_sets_projection_wake_intent_attempts_exhausted_total",
+);
+const projectionWakeIntentQueueAge = meter.createHistogram("chase_sets_projection_wake_intent_queue_age_ms", {
+  unit: "ms",
+});
+const projectionWakeIntentProcessingDuration = meter.createHistogram(
+  "chase_sets_projection_wake_intent_processing_ms",
+  {
+    unit: "ms",
+  },
+);
 
 export type PublicPresenceWaitlistAnalyticsSignal = Readonly<{
   event: string;
@@ -172,6 +215,8 @@ export type ProjectionFreshnessAuditSignal = Readonly<{
     targetContextName: string;
     projectionName: string;
   }>[];
+  wakeRequestCount: number;
+  workSignalError: "present" | null;
   pending: readonly Readonly<{
     targetContextName: string;
     projectionName: string;
@@ -190,6 +235,62 @@ export type ProjectionFreshnessEvaluationMetric = Readonly<{
 export type ProjectionFreshnessPendingMetric = Readonly<{
   attributes: Attributes;
   globalPositionLag: number;
+}>;
+
+export type ProjectionFreshnessWakeRequestMetric = Readonly<{
+  attributes: Attributes;
+  wakeRequestCount: number;
+}>;
+
+export type ProjectionFreshnessWorkSignalErrorMetric = Readonly<{
+  attributes: Attributes;
+}>;
+
+export type ProjectionWakeNotificationEmittedSignal = Readonly<{
+  sourceContextName: string;
+  streamCategory: string;
+  eventCount: number;
+  payloadBytes: number;
+  emittedAt?: string | null;
+}>;
+
+export type ProjectionWakeRelayCatchUpSignal = Readonly<{
+  sourceContextName: string;
+  reason: "startup" | "notification" | "reconnect";
+  eventCount: number;
+  cursorAdvanceCount: number;
+  durationMs: number;
+}>;
+
+export type ProjectionWakeRelayFanOutSignal = Readonly<{
+  sourceContextName: string | null;
+  status: "enqueued" | "skipped" | "failed";
+  reason?: string | null;
+  priorityLane?: string | null;
+  intentCount: number;
+  enqueuedCount: number;
+  notificationAgeMs?: number | null;
+}>;
+
+export type ProjectionWakeIntentOutcomeSignal = Readonly<{
+  outcome:
+    | "completed"
+    | "already-satisfied"
+    | "not-ready"
+    | "deferred"
+    | "unknown-target"
+    | "run-failed"
+    | "attempts-exhausted"
+    | "claim-lost";
+  priorityLane: string;
+  origin: string;
+  sourceContextName: string;
+  targetContextName: string;
+  projectionName: string;
+  queueAgeMs: number;
+  attemptCount: number;
+  processingDurationMs?: number | null;
+  requeued?: boolean;
 }>;
 
 let runtime: ObservabilityRuntime | null = null;
@@ -694,6 +795,8 @@ export function recordCatalogControlPlaneEvent(event: CatalogControlPlaneEventSi
 export function projectionFreshnessAuditMetricRecords(event: ProjectionFreshnessAuditSignal): Readonly<{
   evaluations: readonly ProjectionFreshnessEvaluationMetric[];
   pending: readonly ProjectionFreshnessPendingMetric[];
+  wakeRequests: readonly ProjectionFreshnessWakeRequestMetric[];
+  workSignalErrors: readonly ProjectionFreshnessWorkSignalErrorMetric[];
 }> {
   const routePaths = event.routePaths.length > 0 ? event.routePaths : ["unmatched"];
   const targetContexts =
@@ -712,6 +815,10 @@ export function projectionFreshnessAuditMetricRecords(event: ProjectionFreshness
       ? "present_valid"
       : "present_invalid"
     : "missing";
+  const workSignalAttributes = {
+    outcome: boundedMetricLabel(event.outcome),
+    wait_mode: boundedMetricLabel(event.waitMode),
+  };
 
   return {
     evaluations: routePaths.flatMap((routePath) =>
@@ -754,6 +861,11 @@ export function projectionFreshnessAuditMetricRecords(event: ProjectionFreshness
         },
       })),
     ),
+    wakeRequests:
+      event.wakeRequestCount > 0
+        ? [{ wakeRequestCount: event.wakeRequestCount, attributes: workSignalAttributes }]
+        : [],
+    workSignalErrors: event.workSignalError === "present" ? [{ attributes: workSignalAttributes }] : [],
   };
 }
 
@@ -766,6 +878,106 @@ export function recordProjectionFreshnessAudit(event: ProjectionFreshnessAuditSi
   for (const pending of records.pending) {
     projectionFreshnessPendingCounter.add(1, pending.attributes);
     projectionFreshnessPendingLag.record(pending.globalPositionLag, pending.attributes);
+  }
+  for (const wakeRequest of records.wakeRequests) {
+    projectionFreshnessWakeRequestCounter.add(wakeRequest.wakeRequestCount, wakeRequest.attributes);
+  }
+  for (const workSignalError of records.workSignalErrors) {
+    projectionFreshnessWorkSignalErrorCounter.add(1, workSignalError.attributes);
+  }
+}
+
+export function recordProjectionWakeNotificationEmitted(event: ProjectionWakeNotificationEmittedSignal): void {
+  const sourceContext = boundedMetricLabel(event.sourceContextName);
+  projectionWakeNotificationCounter.add(1, {
+    source_context: sourceContext,
+    stream_category: boundedMetricLabel(event.streamCategory),
+  });
+  projectionWakeNotificationPayloadBytes.record(event.payloadBytes, {
+    source_context: sourceContext,
+  });
+}
+
+export function recordProjectionWakeRelayCatchUp(event: ProjectionWakeRelayCatchUpSignal): void {
+  const attributes = {
+    source_context: boundedMetricLabel(event.sourceContextName),
+    reason: boundedMetricLabel(event.reason),
+  };
+  projectionWakeRelayCatchUpCounter.add(1, attributes);
+  if (Number.isFinite(event.durationMs)) {
+    projectionWakeRelayCatchUpDuration.record(Math.max(0, event.durationMs), attributes);
+  }
+  if (event.eventCount > 0) {
+    projectionWakeRelayCatchUpEventsCounter.add(event.eventCount, attributes);
+  }
+}
+
+export function recordProjectionWakeRelayFanOut(event: ProjectionWakeRelayFanOutSignal): void {
+  const sourceContext = boundedMetricLabel(event.sourceContextName);
+  const priorityLane = boundedMetricLabel(event.priorityLane);
+  projectionWakeRelayFanOutCounter.add(1, {
+    source_context: sourceContext,
+    status: boundedMetricLabel(event.status),
+    reason: boundedMetricLabel(event.reason),
+    priority_lane: priorityLane,
+  });
+  if (event.enqueuedCount > 0) {
+    projectionWakeRelayFanOutIntentsCounter.add(event.enqueuedCount, {
+      source_context: sourceContext,
+      priority_lane: priorityLane,
+    });
+  }
+  if (
+    typeof event.notificationAgeMs === "number" &&
+    Number.isFinite(event.notificationAgeMs) &&
+    event.notificationAgeMs >= 0
+  ) {
+    projectionWakeNotificationAge.record(event.notificationAgeMs, {
+      source_context: sourceContext,
+    });
+  }
+}
+
+export function recordProjectionWakeIntentOutcome(event: ProjectionWakeIntentOutcomeSignal): void {
+  const outcome = boundedMetricLabel(event.outcome);
+  const priorityLane = boundedMetricLabel(event.priorityLane);
+  const origin = boundedMetricLabel(event.origin);
+
+  // Attempts-exhausted is a supplemental alerting marker emitted alongside
+  // the same pass's retry outcome; keep it off the intent totals and the
+  // queue-age histogram so dispositions are counted exactly once.
+  if (event.outcome === "attempts-exhausted") {
+    projectionWakeIntentAttemptsExhaustedCounter.add(1, {
+      priority_lane: priorityLane,
+      origin,
+      target_context: boundedMetricLabel(event.targetContextName),
+      projection: boundedMetricLabel(event.projectionName),
+    });
+    return;
+  }
+
+  projectionWakeIntentCounter.add(1, {
+    outcome,
+    priority_lane: priorityLane,
+    origin,
+    target_context: boundedMetricLabel(event.targetContextName),
+    projection: boundedMetricLabel(event.projectionName),
+    requeued: event.requeued === true,
+  });
+  projectionWakeIntentQueueAge.record(Math.max(0, event.queueAgeMs), {
+    priority_lane: priorityLane,
+    origin,
+    outcome,
+  });
+  if (
+    typeof event.processingDurationMs === "number" &&
+    Number.isFinite(event.processingDurationMs) &&
+    event.processingDurationMs >= 0
+  ) {
+    projectionWakeIntentProcessingDuration.record(event.processingDurationMs, {
+      priority_lane: priorityLane,
+      outcome,
+    });
   }
 }
 

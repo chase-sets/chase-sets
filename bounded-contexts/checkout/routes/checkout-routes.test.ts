@@ -216,6 +216,17 @@ describe("checkout web routes", () => {
     mockCreateCartReadiness.mockResolvedValue(readyCartReadinessResponse());
     mockCreateSellListReadiness.mockResolvedValue(readySellListReadinessResponse());
     mockCreateGuestSellListReadiness.mockResolvedValue(readySellListReadinessResponse());
+    mockPreviewOfferAcceptanceTerms.mockResolvedValue({
+      account_type: "personal",
+      basis_amount: "38.00",
+      marketplace_sales_fee_unit_amount: "3.80",
+      seller_net_unit_amount: "34.20",
+      shipping_allowance_percentage_bps: 0,
+      schedule_id: "terms_standard",
+      agreement_id: null,
+      resolved_at: "2026-06-10T00:00:00.000Z",
+      fee_quote_fingerprint: "quote_1",
+    });
   });
 
   afterEach(() => {
@@ -845,6 +856,7 @@ describe("checkout web routes", () => {
       checkoutSellList: mockCheckoutSellList,
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      previewOfferAcceptanceTerms: mockPreviewOfferAcceptanceTerms,
       acceptOfferMatch: mockAcceptOfferMatch,
     });
 
@@ -877,6 +889,73 @@ describe("checkout web routes", () => {
         selectedOffer: { offerId: "off_1", feeQuoteFingerprint: "quote_1" },
       }),
     );
+    expectNoSellerCommitSideEffects();
+  });
+
+  it("rejects stale or guest-sourced selected-offer fee fingerprints before seller checkout", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
+    mockPreviewOfferAcceptanceTerms.mockResolvedValue({
+      account_type: "personal",
+      basis_amount: "38.00",
+      marketplace_sales_fee_unit_amount: "3.80",
+      seller_net_unit_amount: "34.20",
+      shipping_allowance_percentage_bps: 0,
+      schedule_id: "terms_registered",
+      agreement_id: null,
+      resolved_at: "2026-06-10T00:00:00.000Z",
+      fee_quote_fingerprint: "registered_quote",
+    });
+    mockCreateSellListReadiness.mockResolvedValueOnce({
+      readiness: {
+        ...readySellListReadinessResponse().readiness,
+        status: "blocked",
+        includedLineIds: [],
+        lineOutcomes: [{ lineId: "sll_1", outcome: "keep-in-list", reason: "stale-terms" }],
+      },
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellList: vi.fn(async () => ({
+        items: [
+          {
+            line_id: "sll_1",
+            line_type: "selected-offer",
+            offer_id: "off_1",
+            item_title: "Mewtwo",
+            quantity: 1,
+          },
+        ],
+        count: 1,
+      })),
+      startSellListExecution: mockStartSellListExecution,
+      recordSellListExecutionProgress: mockRecordSellListExecutionProgress,
+      createSellListReadiness: mockCreateSellListReadiness,
+      checkoutSellList: mockCheckoutSellList,
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      previewOfferAcceptanceTerms: mockPreviewOfferAcceptanceTerms,
+      acceptOfferMatch: mockAcceptOfferMatch,
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "review-sell-list-checkout");
+    form.set("offerFeeQuoteFingerprint:sll_1", "guest_preview_quote");
+
+    const result = (await accountSellListAction({
+      request: new Request("http://localhost/account/sell-list", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never)) as { error: string };
+
+    expect(mockPreviewOfferAcceptanceTerms).toHaveBeenCalledWith("off_1");
+    expect(mockCreateSellListReadiness).toHaveBeenCalledWith({
+      lineActions: [],
+      lineOutcomes: [{ lineId: "sll_1", outcome: "keep-in-list" }],
+    });
+    expect(result.error).toBe("Sell List readiness must be resolved before seller checkout starts.");
     expectNoSellerCommitSideEffects();
   });
 
@@ -1141,6 +1220,7 @@ describe("checkout web routes", () => {
       checkoutSellList: mockCheckoutSellList,
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      previewOfferAcceptanceTerms: mockPreviewOfferAcceptanceTerms,
       acceptOfferMatch: mockAcceptOfferMatch,
     });
 
@@ -1253,6 +1333,7 @@ describe("checkout web routes", () => {
         {
           lineId: "sll_1",
           status: "ready",
+          comparison: null,
           message: null,
           terms: expect.not.objectContaining({
             fee_quote_fingerprint: expect.anything(),
@@ -1275,11 +1356,27 @@ describe("checkout web routes", () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
     mockMergeGuestSellListToAccount.mockResolvedValue({ mergedLineCount: 1 });
     mockPreviewOfferAcceptanceTerms.mockResolvedValue({
+      account_type: "personal",
       basis_amount: "380.00",
       marketplace_sales_fee_unit_amount: "38.00",
       seller_net_unit_amount: "342.00",
       shipping_allowance_percentage_bps: 0,
+      schedule_id: "terms_registered",
+      agreement_id: null,
+      resolved_at: "2026-04-28T00:00:00.000Z",
       fee_quote_fingerprint: "registered_quote",
+    });
+    mockPreviewPublicStandardListingTerms.mockResolvedValue({
+      account_type: "personal",
+      basis_amount: "380.00",
+      marketplace_sales_fee_unit_amount: "34.35",
+      seller_net_unit_amount: "345.65",
+      shipping_allowance_percentage_bps: 500,
+      source_kind: "public-standard-seller-terms",
+      source_label: "Standard seller terms",
+      schedule_label: "Personal Default",
+      source_updated_at: "2026-04-01T00:00:00.000Z",
+      resolved_at: "2026-04-28T00:00:00.000Z",
     });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getSellList: vi.fn(async () => ({
@@ -1288,6 +1385,7 @@ describe("checkout web routes", () => {
             line_id: "sll_1",
             line_type: "selected-offer",
             offer_id: "off_1",
+            offer_price_amount: "380.00",
             item_title: "Mewtwo",
             quantity: 1,
           },
@@ -1298,6 +1396,7 @@ describe("checkout web routes", () => {
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
       previewOfferAcceptanceTerms: mockPreviewOfferAcceptanceTerms,
+      previewPublicStandardListingTerms: mockPreviewPublicStandardListingTerms,
     });
 
     const { loader: accountSellListLoader } = await import("./account-sell-list");
@@ -1315,13 +1414,139 @@ describe("checkout web routes", () => {
     expect(result.mergeError).toBeNull();
     expect(mockMergeGuestSellListToAccount).toHaveBeenCalledWith("anon_sell_1");
     expect(mockPreviewOfferAcceptanceTerms).toHaveBeenCalledWith("off_1");
+    expect(mockPreviewPublicStandardListingTerms).toHaveBeenCalledWith({ priceAmount: "380.00" });
     expect(result.offerReviews[0]).toEqual(
       expect.objectContaining({
         lineId: "sll_1",
         status: "ready",
         terms: expect.objectContaining({ fee_quote_fingerprint: "registered_quote" }),
+        comparison: expect.objectContaining({
+          status: "changed",
+          changedFields: ["seller-net", "marketplace-fee", "shipping-allowance"],
+          standardPreview: expect.objectContaining({
+            seller_net_unit_amount: "345.65",
+            source_kind: "public-standard-seller-terms",
+          }),
+        }),
       }),
     );
+  });
+
+  it("keeps final registered terms when the standard estimate comparison is unavailable", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
+    mockMergeGuestSellListToAccount.mockResolvedValue({ mergedLineCount: 1 });
+    mockPreviewOfferAcceptanceTerms.mockResolvedValue({
+      account_type: "personal",
+      basis_amount: "380.00",
+      marketplace_sales_fee_unit_amount: "38.00",
+      seller_net_unit_amount: "342.00",
+      shipping_allowance_percentage_bps: 0,
+      schedule_id: "terms_registered",
+      agreement_id: null,
+      resolved_at: "2026-04-28T00:00:00.000Z",
+      fee_quote_fingerprint: "registered_quote",
+    });
+    mockPreviewPublicStandardListingTerms.mockRejectedValue(new Error("standard terms unavailable"));
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellList: vi.fn(async () => ({
+        items: [
+          {
+            line_id: "sll_1",
+            line_type: "selected-offer",
+            offer_id: "off_1",
+            offer_price_amount: "380.00",
+            item_title: "Mewtwo",
+            quantity: 1,
+          },
+        ],
+        count: 1,
+      })),
+      mergeGuestSellListToAccount: mockMergeGuestSellListToAccount,
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      previewOfferAcceptanceTerms: mockPreviewOfferAcceptanceTerms,
+      previewPublicStandardListingTerms: mockPreviewPublicStandardListingTerms,
+    });
+
+    const { loader: accountSellListLoader } = await import("./account-sell-list");
+    const result = await accountSellListLoader({
+      request: new Request("http://localhost/account/sell-list?registrationReturn=seller-checkout", {
+        headers: { cookie: "chase_sets_anonymous_sell_list=anon_sell_1" },
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result.offerReviews[0]).toEqual(
+      expect.objectContaining({
+        status: "ready",
+        terms: expect.objectContaining({ fee_quote_fingerprint: "registered_quote" }),
+        comparison: {
+          status: "standard-preview-unavailable",
+          standardPreview: null,
+          changedFields: [],
+        },
+      }),
+    );
+  });
+
+  it("keeps selected-offer intent recoverable when final registered terms are unavailable", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
+    mockMergeGuestSellListToAccount.mockResolvedValue({ mergedLineCount: 1 });
+    mockPreviewOfferAcceptanceTerms.mockRejectedValue(new Error("Offer terms are stale."));
+    mockPreviewPublicStandardListingTerms.mockResolvedValue({
+      account_type: "personal",
+      basis_amount: "380.00",
+      marketplace_sales_fee_unit_amount: "34.35",
+      seller_net_unit_amount: "345.65",
+      shipping_allowance_percentage_bps: 500,
+      source_kind: "public-standard-seller-terms",
+      source_label: "Standard seller terms",
+      schedule_label: "Personal Default",
+      source_updated_at: "2026-04-01T00:00:00.000Z",
+      resolved_at: "2026-04-28T00:00:00.000Z",
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellList: vi.fn(async () => ({
+        items: [
+          {
+            line_id: "sll_1",
+            line_type: "selected-offer",
+            offer_id: "off_1",
+            offer_price_amount: "380.00",
+            item_title: "Mewtwo",
+            quantity: 1,
+          },
+        ],
+        count: 1,
+      })),
+      mergeGuestSellListToAccount: mockMergeGuestSellListToAccount,
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      previewOfferAcceptanceTerms: mockPreviewOfferAcceptanceTerms,
+      previewPublicStandardListingTerms: mockPreviewPublicStandardListingTerms,
+    });
+
+    const { loader: accountSellListLoader } = await import("./account-sell-list");
+    const result = await accountSellListLoader({
+      request: new Request("http://localhost/account/sell-list?registrationReturn=seller-checkout", {
+        headers: { cookie: "chase_sets_anonymous_sell_list=anon_sell_1" },
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result.offerReviews[0]).toEqual({
+      lineId: "sll_1",
+      status: "unavailable",
+      terms: null,
+      message: "Offer terms are stale.",
+      comparison: {
+        status: "final-unavailable",
+        standardPreview: expect.objectContaining({ seller_net_unit_amount: "345.65" }),
+        changedFields: [],
+      },
+    });
   });
 
   it("removes anonymous Sell List lines before sign-in", async () => {
@@ -1666,7 +1891,7 @@ describe("checkout web routes", () => {
       expect.objectContaining({
         email: "Enter a valid email address.",
         shipFromLine1: "Enter address line 1.",
-        termsAccepted: "Confirm that you reviewed the seller checkout details.",
+        termsAccepted: "Confirm that you reviewed the final seller terms and sale details.",
       }),
     );
     expectNoSellerCommitSideEffects();
@@ -1790,7 +2015,7 @@ describe("checkout web routes", () => {
       expect.objectContaining({
         email: "Enter a valid email address.",
         shipFromLine1: "Enter address line 1.",
-        termsAccepted: "Confirm that you reviewed the seller checkout details.",
+        termsAccepted: "Confirm that you reviewed the final seller terms and sale details.",
       }),
     );
     expect(mockAcceptOfferMatch).not.toHaveBeenCalled();
