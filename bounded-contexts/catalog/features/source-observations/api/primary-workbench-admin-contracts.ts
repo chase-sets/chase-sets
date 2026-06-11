@@ -30,6 +30,7 @@ export type CatalogPrimaryWorkbenchCommandKey =
   | "retry-import-job"
   | "cancel-import-job"
   | "clone-provider-profile"
+  | "activate-provider-profile"
   | "update-provider-profile-section"
   | "select-source-observations"
   | "preview-promotion"
@@ -69,6 +70,9 @@ export type CatalogPrimaryWorkbenchBlockerCategory =
   | "profile-section-read-only"
   | "profile-section-stale"
   | "profile-section-invalid"
+  | "activation-readiness-blocked"
+  | "migration-evidence-missing"
+  | "reference-impact-review-required"
   | "missing-fixture-coverage"
   | "fixture-validation-blocked"
   | "provider-credential-missing"
@@ -258,6 +262,7 @@ export type CatalogPrimaryWorkbenchDownstreamIssueKey =
   | "#1034"
   | "#1035"
   | "#1036"
+  | "#1037"
   | "#1056"
   | "#1038"
   | "#1039"
@@ -525,6 +530,39 @@ export type CatalogPrimaryWorkbenchValidationReadinessReadModel = Readonly<{
         flow: string | null;
       }>[];
     }>[];
+  }>;
+  activationDecision: Readonly<{
+    status: "ready" | "blocked" | "unavailable";
+    actionState: CatalogPrimaryWorkbenchActionState;
+    blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
+    saveEvidenceState: CatalogPrimaryWorkbenchActionState;
+    saveEvidenceBlockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
+    activationCommandKey: Extract<CatalogPrimaryWorkbenchCommandKey, "activate-provider-profile">;
+    evidenceCommandKey: Extract<CatalogPrimaryWorkbenchCommandKey, "update-provider-profile-section">;
+    workspaceHref: string;
+    providerKey: string | null;
+    profileVersion: string | null;
+    lifecycle: string | null;
+    importEligibility: "eligible" | "blocked" | "not-selected";
+    affectedReferences: Readonly<{
+      referenceCount: number;
+      requiresMigrationEvidence: boolean;
+      replayImplications: readonly string[];
+    }>;
+    migrationEvidence: Readonly<{
+      state: "recorded" | "required" | "not-required";
+      evidenceText: string;
+      fixtureRunId: string | null;
+      mappingFingerprintBefore: string | null;
+      mappingFingerprintAfter: string | null;
+      recordedAt: string | null;
+      recordedByUserId: string | null;
+    }>;
+    auditConsequences: Readonly<{
+      auditEvidenceUrl: string;
+      eventNames: readonly string[];
+      summary: string;
+    }>;
   }>;
 }>;
 
@@ -1221,6 +1259,28 @@ export const catalogPrimaryWorkbenchActions = [
     },
   ),
   action(
+    "activate-provider-profile",
+    "POST",
+    "/api/catalog/source-observations/admin/provider-profiles/:providerKey/:profileVersion/activate",
+    "catalog.manage",
+    {
+      blockerCategories: [
+        "permission-denied",
+        "authorization-denied",
+        "profile-version-missing",
+        "activation-readiness-blocked",
+        "migration-evidence-missing",
+        "reference-impact-review-required",
+        "active-job-conflict",
+        "concurrent-job",
+        "security-privacy-blocked",
+        "deploy-skew-unsupported-version",
+      ],
+      confirmationRequired: true,
+      idempotencyRequired: true,
+    },
+  ),
+  action(
     "update-provider-profile-section",
     "PATCH",
     "/api/catalog/source-observations/admin/provider-profiles/:providerKey/:profileVersion/sections/:section",
@@ -1299,6 +1359,9 @@ export const catalogPrimaryWorkbenchBlockers = [
   blocker("profile-section-read-only", ["blocked"], "catalog.primary.import.blocked"),
   blocker("profile-section-stale", ["blocked"], "catalog.primary.deploySkew.failClosed"),
   blocker("profile-section-invalid", ["blocked"], "catalog.primary.import.blocked"),
+  blocker("activation-readiness-blocked", ["blocked"], "catalog.primary.import.blocked"),
+  blocker("migration-evidence-missing", ["blocked"], "catalog.primary.import.blocked"),
+  blocker("reference-impact-review-required", ["blocked"], "catalog.primary.import.blocked"),
   blocker("missing-fixture-coverage", ["blocked"], "catalog.primary.import.blocked"),
   blocker("fixture-validation-blocked", ["blocked"], "catalog.primary.import.blocked"),
   blocker("provider-credential-missing", ["blocked"], "catalog.primary.import.blocked"),
@@ -1445,6 +1508,18 @@ export const catalogPrimaryWorkbenchDownstreamContracts = [
       "validationReadiness.dryRunEvidence.promotionCommandPreview",
       "validationReadiness.semanticCompare",
       "validationReadiness.activationReadiness",
+    ],
+  ),
+  downstream(
+    "#1037",
+    ["readiness", "supporting-evidence"],
+    [
+      "validationReadiness.activationDecision.status",
+      "validationReadiness.activationDecision.actionState",
+      "validationReadiness.activationDecision.blockers",
+      "validationReadiness.activationDecision.affectedReferences",
+      "validationReadiness.activationDecision.migrationEvidence",
+      "validationReadiness.activationDecision.auditConsequences",
     ],
   ),
   downstream(
@@ -1931,6 +2006,22 @@ function assertPrimaryWorkbenchValidationReadiness(
   }
   if (!["ready", "blocked"].includes(value.activationReadiness.status)) {
     throw new Error("Primary workbench activation readiness status must be explicit.");
+  }
+  if (!value.activationDecision || value.activationDecision.activationCommandKey !== "activate-provider-profile") {
+    throw new Error("Primary workbench activation decision must expose the rebuilt activation command.");
+  }
+  if (value.activationDecision.evidenceCommandKey !== "update-provider-profile-section") {
+    throw new Error("Primary workbench activation decision must save evidence through typed profile sections.");
+  }
+  if (!["ready", "blocked", "unavailable"].includes(value.activationDecision.status)) {
+    throw new Error("Primary workbench activation decision status must be explicit.");
+  }
+  assertCatalogPrimaryWorkbenchActionState(value.activationDecision.actionState);
+  assertCatalogPrimaryWorkbenchActionState(value.activationDecision.saveEvidenceState);
+  assertPrimaryWorkbenchBlockers(value.activationDecision.blockers);
+  assertPrimaryWorkbenchBlockers(value.activationDecision.saveEvidenceBlockers);
+  if (value.activationDecision.status === "ready" && value.activationDecision.actionState !== "available") {
+    throw new Error("Primary workbench activation decision must make ready activation actionable.");
   }
   const validationText = JSON.stringify(value);
   if (/raw\s+json/i.test(validationText)) {

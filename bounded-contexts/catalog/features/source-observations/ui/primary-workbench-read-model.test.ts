@@ -1189,7 +1189,98 @@ describe("Catalog primary workbench read model", () => {
     expect(readModel.validationReadiness.semanticCompare.unchangedSections).toEqual(
       expect.arrayContaining([expect.objectContaining({ domainConcept: "Promotion Plan" })]),
     );
+    expect(readModel.validationReadiness.activationDecision).toMatchObject({
+      status: "blocked",
+      actionState: "blocked",
+      blockers: expect.arrayContaining(["migration-evidence-missing", "reference-impact-review-required"]),
+      migrationEvidence: { state: "required" },
+      affectedReferences: {
+        referenceCount: 2,
+        requiresMigrationEvidence: true,
+      },
+    });
+    expect(readModel.actions.find((action) => action.key === "activate-provider-profile")).toMatchObject({
+      state: "blocked",
+      blockers: expect.arrayContaining(["migration-evidence-missing", "reference-impact-review-required"]),
+    });
     expect(JSON.stringify(readModel.validationReadiness)).not.toMatch(/raw\s+json/i);
+  });
+
+  it("models ready activation when migration evidence is recorded", () => {
+    const profile = profileReview({
+      executableMappingContract: tcgdexPokemonCardSourceObservationMappingContract,
+      migrationEvidence: {
+        evidenceText: "Validated fixture run and reviewed changed mapping fingerprint.",
+        fixtureRunId: "fixture_run_123",
+        mappingFingerprintBefore: "sha256:active-mapping",
+        mappingFingerprintAfter: "sha256:candidate-mapping",
+        recordedAt: "2026-06-09T02:00:00.000Z",
+        recordedByUserId: "operator_123",
+      },
+    });
+    const overview = controlPlaneOverview();
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&profileVersion=2026.06.04&section=readiness",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profile], total: 1, count: 1 },
+      profileAuthoringModel: profileAuthoringModel({ review: profile }),
+      controlPlaneOverview: {
+        ...overview,
+        unitActivity: {
+          ...overview.unitActivity,
+          units: overview.unitActivity.units.map((unit) => ({ ...unit, recentJobs: [] })),
+        },
+      },
+      canManageCatalog: true,
+    });
+
+    expect(readModel.validationReadiness.activationDecision).toMatchObject({
+      status: "ready",
+      actionState: "available",
+      blockers: [],
+      activationCommandKey: "activate-provider-profile",
+      evidenceCommandKey: "update-provider-profile-section",
+      migrationEvidence: {
+        state: "recorded",
+        fixtureRunId: "fixture_run_123",
+        recordedByUserId: "operator_123",
+      },
+      affectedReferences: {
+        referenceCount: 2,
+        requiresMigrationEvidence: true,
+      },
+    });
+    expect(readModel.validationReadiness.activationDecision.affectedReferences.replayImplications).toEqual(
+      expect.arrayContaining([expect.stringMatching(/2 existing references/)]),
+    );
+  });
+
+  it("denies activation and migration evidence writes for view-only operators", () => {
+    const profile = profileReview({
+      executableMappingContract: tcgdexPokemonCardSourceObservationMappingContract,
+      migrationEvidence: {
+        evidenceText: "Validated fixture run and reviewed changed mapping fingerprint.",
+        recordedAt: "2026-06-09T02:00:00.000Z",
+      },
+    });
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&profileVersion=2026.06.04&section=readiness",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profile], total: 1, count: 1 },
+      profileAuthoringModel: profileAuthoringModel({ review: profile }),
+      controlPlaneOverview: controlPlaneOverview(),
+      canManageCatalog: false,
+    });
+
+    expect(readModel.validationReadiness.activationDecision).toMatchObject({
+      status: "blocked",
+      actionState: "denied",
+      saveEvidenceState: "denied",
+      blockers: expect.arrayContaining(["permission-denied"]),
+      saveEvidenceBlockers: expect.arrayContaining(["permission-denied"]),
+    });
   });
 
   it("groups blocked validation readiness with exact remediation and long diagnostic paths", () => {

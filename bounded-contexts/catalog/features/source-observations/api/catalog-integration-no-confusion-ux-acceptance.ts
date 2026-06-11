@@ -578,8 +578,8 @@ function buildDefaultWorkflowEvidence(evidenceBase: string): readonly CatalogNoC
       "validation-readiness-support",
       null,
       ["readiness", "supporting-evidence"],
-      [],
-      "Validation readiness explains fixture/dry-run blockers and remediation.",
+      ["update-provider-profile-section", "activate-provider-profile"],
+      "Validation readiness explains fixture/dry-run blockers, records migration evidence, and activates provider profiles only after readiness blockers are resolved.",
     ),
     workflow(
       "lifecycle-recovery-support",

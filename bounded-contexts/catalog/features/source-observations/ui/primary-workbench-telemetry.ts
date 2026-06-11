@@ -15,6 +15,7 @@ export type CatalogPrimaryWorkbenchCommandTelemetryResult =
   | "job-cancelled"
   | "preview-ready"
   | "draft-created"
+  | "profile-activated"
   | "section-saved"
   | "section-conflict"
   | "section-invalid"
@@ -166,7 +167,24 @@ export function commandTelemetryEvents(
     });
   }
 
+  if (input.intent === "activate-provider-profile") {
+    events.push({
+      eventName:
+        input.status === "success" ? "catalog_control_plane.profile_activated" : "catalog_control_plane.blocker_hit",
+      ...base,
+      promotionResult,
+      detourTarget: "validation-readiness",
+      detourOutcome: input.status === "success" ? "returned" : "blocked",
+      blockerCategory: input.status === "error" ? blockerCategoryForCommandResult(input.result) : null,
+    });
+  }
+
   if (input.intent === "update-provider-profile-section") {
+    const detourTarget =
+      input.commandSection === "migration-evidence" && input.context.section === "validation-readiness"
+        ? "validation-readiness"
+        : "profile-authoring";
+
     events.push({
       eventName:
         input.status === "success"
@@ -174,7 +192,7 @@ export function commandTelemetryEvents(
           : "catalog_control_plane.blocker_hit",
       ...base,
       promotionResult,
-      detourTarget: "profile-authoring",
+      detourTarget,
       detourOutcome: input.status === "success" ? "returned" : "blocked",
       blockerCategory: input.status === "error" ? blockerCategoryForCommandResult(input.result) : null,
     });
@@ -378,6 +396,7 @@ function promotionTelemetryResult(
     case "job-cancelled":
     case "preview-ready":
     case "draft-created":
+    case "profile-activated":
     case "section-saved":
     case "section-conflict":
     case "section-invalid":

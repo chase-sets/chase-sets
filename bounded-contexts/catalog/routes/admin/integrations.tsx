@@ -49,6 +49,7 @@ type CatalogPrimaryWorkbenchFormIntent = Extract<
   | "resume-import-job"
   | "cancel-import-job"
   | "clone-provider-profile"
+  | "activate-provider-profile"
   | "update-provider-profile-section"
   | "preview-promotion"
   | "execute-promotion"
@@ -236,13 +237,48 @@ export async function action({ request }: ActionFunctionArgs) {
           result: "draft-created",
         });
       }
+      case "activate-provider-profile": {
+        const providerKey = stringValue(formData.get("providerKey")) ?? context.providerKey;
+        const profileVersion = stringValue(formData.get("profileVersion")) ?? context.profileVersion;
+        if (!providerKey || !profileVersion) {
+          return commandRedirectWithTelemetry(api, {
+            context: { ...context, section: "validation-readiness", selectedObservationIds },
+            intent,
+            status: "error",
+            result: "invalid-intent",
+          });
+        }
+
+        const profile = await api.activateSourceObservationProviderProfile<CatalogProviderProfileVersionReview>(
+          providerKey,
+          profileVersion,
+        );
+
+        return commandRedirectWithTelemetry(api, {
+          context: {
+            ...context,
+            section: "validation-readiness",
+            providerKey: profile.providerKey,
+            profileVersion: profile.profileVersion,
+            selectedObservationIds,
+            promotionPreviewId: null,
+          },
+          intent,
+          status: "success",
+          result: "profile-activated",
+        });
+      }
       case "update-provider-profile-section": {
         const providerKey = stringValue(formData.get("providerKey")) ?? context.providerKey;
         const profileVersion = stringValue(formData.get("profileVersion")) ?? context.profileVersion;
         const sectionKey = editableProfileSectionKey(stringValue(formData.get("sectionKey")));
+        const returnSection =
+          sectionKey === "migration-evidence" && context.section === "validation-readiness"
+            ? "validation-readiness"
+            : "profile-authoring";
         if (!providerKey || !profileVersion || !sectionKey) {
           return commandRedirectWithTelemetry(api, {
-            context: { ...context, section: "profile-authoring", selectedObservationIds },
+            context: { ...context, section: returnSection, selectedObservationIds },
             intent,
             status: "error",
             result: "invalid-intent",
@@ -267,7 +303,7 @@ export async function action({ request }: ActionFunctionArgs) {
           return commandRedirectWithTelemetry(api, {
             context: {
               ...context,
-              section: "profile-authoring",
+              section: returnSection,
               providerKey: profile.providerKey,
               profileVersion: profile.profileVersion,
               selectedObservationIds,
@@ -282,7 +318,7 @@ export async function action({ request }: ActionFunctionArgs) {
           const result = profileSectionFailureResult(error);
 
           return commandRedirectWithTelemetry(api, {
-            context: { ...context, section: "profile-authoring", providerKey, profileVersion, selectedObservationIds },
+            context: { ...context, section: returnSection, providerKey, profileVersion, selectedObservationIds },
             intent,
             status: "error",
             result,
@@ -525,9 +561,14 @@ function commandRedirect(input: {
   commandSection?: string;
 }) {
   const redirectSection =
-    input.intent === "clone-provider-profile" || input.intent === "update-provider-profile-section"
-      ? "profile-authoring"
-      : "import-to-promotion";
+    input.intent === "activate-provider-profile" ||
+    (input.intent === "update-provider-profile-section" &&
+      input.commandSection === "migration-evidence" &&
+      input.context.section === "validation-readiness")
+      ? "validation-readiness"
+      : input.intent === "clone-provider-profile" || input.intent === "update-provider-profile-section"
+        ? "profile-authoring"
+        : "import-to-promotion";
   const url = new URL(catalogPrimaryWorkbenchHref(input.context, redirectSection), "https://admin.example");
   url.searchParams.set("commandStatus", input.status);
   url.searchParams.set("commandIntent", input.intent);
@@ -558,6 +599,7 @@ function isCommandFeedbackResult(value: string | null): value is CatalogPrimaryW
     value === "job-cancelled" ||
     value === "preview-ready" ||
     value === "draft-created" ||
+    value === "profile-activated" ||
     value === "section-saved" ||
     value === "section-conflict" ||
     value === "section-invalid" ||

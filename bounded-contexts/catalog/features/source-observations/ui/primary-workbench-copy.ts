@@ -129,6 +129,15 @@ const catalogPrimaryWorkbenchCopyLabels = {
   profileSectionInvalid: t(
     "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.profile.section.invalid",
   ),
+  activationReadinessBlocked: t(
+    "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.activation.readiness.blocked",
+  ),
+  migrationEvidenceMissing: t(
+    "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.migration.evidence.missing",
+  ),
+  referenceImpactReviewRequired: t(
+    "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.reference.impact.review.required",
+  ),
   fixtureCoverageMissing: t(
     "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.fixture.coverage.missing",
   ),
@@ -445,6 +454,27 @@ export const catalogPrimaryWorkbenchBlockerCopy = {
     nextStep: "Fix the highlighted section fields and rerun validation readiness.",
     supportTarget: "profile-authoring",
     group: "profile",
+  }),
+  "activation-readiness-blocked": copy({
+    label: catalogPrimaryWorkbenchCopyLabels.activationReadinessBlocked,
+    reason: "Activation readiness has one or more fail-closed checks.",
+    nextStep: "Open validation readiness, resolve blocking checks, then retry activation.",
+    supportTarget: "validation-readiness",
+    group: "readiness",
+  }),
+  "migration-evidence-missing": copy({
+    label: catalogPrimaryWorkbenchCopyLabels.migrationEvidenceMissing,
+    reason: "This profile changes mapping behavior and needs explicit migration evidence before activation.",
+    nextStep: "Record migration evidence in validation readiness, then retry activation.",
+    supportTarget: "validation-readiness",
+    group: "profile",
+  }),
+  "reference-impact-review-required": copy({
+    label: catalogPrimaryWorkbenchCopyLabels.referenceImpactReviewRequired,
+    reason: "Existing Source Observation or catalog references can be affected by this activation.",
+    nextStep: "Review affected references and record migration evidence before activation.",
+    supportTarget: "validation-readiness",
+    group: "promotion",
   }),
   "missing-fixture-coverage": copy({
     label: catalogPrimaryWorkbenchCopyLabels.fixtureCoverageMissing,
