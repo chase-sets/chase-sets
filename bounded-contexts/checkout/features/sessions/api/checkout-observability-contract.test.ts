@@ -6,6 +6,7 @@ import {
   assertCheckoutObservabilityContractCoverage,
   checkoutObservabilityContractDocPath,
   checkoutObservabilityForbiddenFields,
+  checkoutObservabilityMetricName,
   checkoutObservabilityProfiles,
   checkoutObservabilityRequiredDimensions,
 } from "./checkout-observability-contract";
@@ -72,6 +73,9 @@ describe("Checkout observability contract", () => {
       "bounded-contexts/checkout/docs/checkout-observability-contract.md",
     );
     expect(doc).toContain("Checkout Observability Contract");
+    expect(checkoutObservabilityMetricName).toBe("chase_sets_checkout_observability_events_total");
+    expect(doc).toContain("chase_sets_checkout_observability_events_total");
+    expect(doc).toContain("checkout-launch-observability.json");
     expect(doc).toContain(
       "The executable contract lives in `bounded-contexts/checkout/features/sessions/api/checkout-observability-contract.ts`.",
     );

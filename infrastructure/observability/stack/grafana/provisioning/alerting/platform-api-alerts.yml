@@ -134,6 +134,72 @@ groups:
         for: 2m
         labels:
           severity: warning
+      - uid: checkout-launch-alert-events
+        title: Checkout launch observability alert events
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: Prometheus
+            relativeTimeRange:
+              from: 300
+              to: 0
+            model:
+              expr: sum by (event_name, alert_class, scenario_state, visible_state) (rate(chase_sets_checkout_observability_events_total{alert_class=~"launch-alert|provider-alert|fresh-state-alert"}[5m]))
+              instant: true
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              refId: C
+              type: classic_conditions
+        for: 2m
+        labels:
+          severity: warning
+          route: checkout-launch
+      - uid: checkout-side-effect-boundary-violation
+        title: Checkout side-effect boundary violation
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: Prometheus
+            relativeTimeRange:
+              from: 300
+              to: 0
+            model:
+              expr: sum by (event_name, entry_source, actor_mode, scenario_state) (rate(chase_sets_checkout_observability_events_total{side_effect_status=~"attempted-before-confirmation|forbidden|unsafe"}[5m]))
+              instant: true
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              refId: C
+              type: classic_conditions
+        for: 1m
+        labels:
+          severity: critical
+          route: checkout-launch
       - uid: projection-freshness-checkout-p95
         title: Checkout freshness p95 above SLO
         condition: C

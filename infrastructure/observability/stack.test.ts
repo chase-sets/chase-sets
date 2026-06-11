@@ -9,6 +9,14 @@ function readStackFile(path: string) {
   return readFileSync(join(root, "stack", path), "utf8");
 }
 
+function readRepoFile(path: string) {
+  return readFileSync(join(root, "..", "..", path), "utf8");
+}
+
+function extractCheckoutEventNames(contractSource: string) {
+  return [...contractSource.matchAll(/eventName: "(checkout\.[^"]+)"/g)].map((match) => match[1]);
+}
+
 describe("observability stack contracts", () => {
   it("accepts OTLP and exports all three signal pipelines", () => {
     const config = readStackFile("collector-config.yml");
@@ -40,11 +48,23 @@ describe("observability stack contracts", () => {
     expect(readStackFile("grafana/dashboards/projection-freshness.json")).toContain(
       "chase_sets_projection_freshness_evaluations_total",
     );
+    expect(readStackFile("grafana/dashboards/checkout-launch-observability.json")).toContain(
+      "Checkout Launch Observability",
+    );
+    expect(readStackFile("grafana/dashboards/checkout-launch-observability.json")).toContain(
+      "chase_sets_checkout_observability_events_total",
+    );
     expect(readStackFile("grafana/provisioning/alerting/platform-api-alerts.yml")).toContain(
       "Platform API elevated 5xx rate",
     );
     expect(readStackFile("grafana/provisioning/alerting/platform-api-alerts.yml")).toContain(
       "UCP signature verification failures",
+    );
+    expect(readStackFile("grafana/provisioning/alerting/platform-api-alerts.yml")).toContain(
+      "Checkout launch observability alert events",
+    );
+    expect(readStackFile("grafana/provisioning/alerting/platform-api-alerts.yml")).toContain(
+      "Checkout side-effect boundary violation",
     );
     expect(readStackFile("grafana/provisioning/alerting/platform-api-alerts.yml")).toContain(
       "Checkout freshness timeout rate above SLO",
@@ -62,5 +82,43 @@ describe("observability stack contracts", () => {
     expect(readStackFile("grafana/provisioning/alerting/platform-worker-wake-alerts.yml")).toContain(
       "Projection wake hot lane queue age p95 above SLO",
     );
+  });
+
+  it("keeps the Checkout launch dashboard aligned with the typed observability profiles", () => {
+    const dashboard = JSON.parse(readStackFile("grafana/dashboards/checkout-launch-observability.json")) as {
+      title: string;
+      tags: string[];
+      panels: unknown[];
+      templating: { list: readonly { query?: string }[] };
+    };
+    const dashboardSource = JSON.stringify(dashboard);
+    const contractSource = readRepoFile(
+      "bounded-contexts/checkout/features/sessions/api/checkout-observability-contract.ts",
+    );
+    const eventNames = extractCheckoutEventNames(contractSource);
+
+    expect(dashboard.title).toBe("Checkout Launch Observability");
+    expect(dashboard.tags).toEqual(expect.arrayContaining(["checkout", "launch", "observability"]));
+    expect(dashboard.panels.length).toBeGreaterThanOrEqual(6);
+    expect(new Set(eventNames).size).toBe(eventNames.length);
+    expect(eventNames.length).toBeGreaterThan(20);
+
+    for (const eventName of eventNames) {
+      expect(dashboardSource, eventName).toContain(eventName);
+    }
+
+    expect(dashboardSource).toContain("chase_sets_checkout_observability_events_total");
+    expect(dashboardSource).toContain("release_health_required");
+    expect(dashboardSource).toContain("side_effect_status");
+    expect(dashboardSource).toContain("support_reference_present");
+    expect(dashboardSource).not.toContain("raw-after-write");
+    expect(dashboardSource).not.toContain("provider-payload");
+    expect(dashboardSource).not.toContain("checkout-session-id");
+    expect(dashboardSource).not.toContain("account-id");
+    expect(dashboardSource).not.toContain("event-id");
+    expect(dashboardSource).not.toContain("full-url");
+    expect(dashboardSource).not.toContain("card-data");
+    expect(dashboardSource).not.toContain("bank-data");
+    expect(dashboardSource).not.toContain("sensitive-risk-signal");
   });
 });

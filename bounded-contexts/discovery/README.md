@@ -43,6 +43,10 @@ Discovery terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 
 Product Alert matching is documented in [Product Alerts](./docs/product-alerts.md). Discovery owns the subscription and matching behavior; Marketplace remains the source of Listing and Offer facts.
 
+## Item Detail Rail Analytics
+
+The simplified item-detail rail analytics contract is documented in [Item Detail Rail Analytics](./docs/item-detail-rail-analytics.md). Discovery owns the browser event vocabulary; the marketplace deployable owns capture and observability.
+
 ## Outgoing Integration Events
 
 - None in the current extraction

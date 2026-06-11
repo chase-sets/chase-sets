@@ -19,9 +19,58 @@ import { requireMarketplaceProofAccess } from "./proof-access.server";
 import { registerMarketplaceServiceWorker } from "./pwa/register-service-worker";
 import { ChaseRoot, Container, LinkButton, MarketplaceEmptyState, Page, Stack } from "@chase-sets/design-system";
 import { createCheckoutRequestApiClient, readAnonymousCartId } from "@chase-sets/checkout/server";
+import { itemDetailRailAnalyticsEventNames } from "@chase-sets/discovery/web";
 import { createIdentityRequestApiClient, type CurrentActorDisplay } from "@chase-sets/identity/server";
 
 type MarketplaceRootActor = Awaited<ReturnType<typeof resolveMarketplaceActor>>;
+
+export const itemDetailRailAnalyticsBridgeScript = `
+(() => {
+  const endpoint = "/analytics/item-detail-rail";
+  const allowedEvents = new Set(${JSON.stringify(itemDetailRailAnalyticsEventNames)});
+
+  function readBounded(value) {
+    if (typeof value !== "string") {
+      return null;
+    }
+    const text = value.trim();
+    return text.length > 0 && text.length <= 80 && /^[a-zA-Z0-9_.-]+$/.test(text) ? text : null;
+  }
+
+  window.addEventListener("chase-sets:item-detail-rail-analytics", (event) => {
+    const detail = event instanceof CustomEvent ? event.detail : null;
+    if (!detail || typeof detail.event !== "string" || !allowedEvents.has(detail.event)) {
+      return;
+    }
+
+    const payload = {
+      event: detail.event,
+      intent: readBounded(detail.intent),
+      workflow: readBounded(detail.workflow),
+      selection: readBounded(detail.selection),
+      topic: readBounded(detail.topic),
+      outcome: readBounded(detail.outcome),
+      gate: readBounded(detail.gate),
+      viewer: readBounded(detail.viewer),
+      surface: readBounded(detail.surface),
+    };
+    const body = JSON.stringify(payload);
+
+    if (navigator.sendBeacon) {
+      navigator.sendBeacon(endpoint, new Blob([body], { type: "application/json" }));
+      return;
+    }
+
+    fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+      credentials: "same-origin",
+      keepalive: true,
+    }).catch(() => undefined);
+  });
+})();
+`.trim();
 
 async function resolveCartCount(request: Request, actor: MarketplaceRootActor) {
   try {
@@ -100,6 +149,7 @@ export function Layout({ children }: { children: ReactNode }) {
       </head>
       <body>
         {children}
+        <script dangerouslySetInnerHTML={{ __html: itemDetailRailAnalyticsBridgeScript }} />
         <ScrollRestoration />
         <Scripts />
       </body>
@@ -158,6 +208,7 @@ export function ErrorBoundary() {
             </Page>
           </main>
         </ChaseRoot>
+        <script dangerouslySetInnerHTML={{ __html: itemDetailRailAnalyticsBridgeScript }} />
         <ScrollRestoration />
         <Scripts />
       </body>
