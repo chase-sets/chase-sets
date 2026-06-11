@@ -114,7 +114,7 @@
         "apiRoutePath": "/account/checkout-sessions/:sessionId",
         "readModelTables": ["checkout_session_pages"],
         "helperUses": ["loadFreshlyWrittenResource"],
-        "transientRecovery": "Checkout session loader converts fresh-write 404, projection_freshness_timeout, and bounded gateway/service timeouts into temporary checkout recovery UI."
+        "transientRecovery": "Checkout session loader converts fresh-write 404, projection_freshness_timeout, and bounded gateway/service timeouts into temporary checkout recovery UI that actively revalidates on a bounded schedule until the session is pay-ready or the fresh-write token expires, then degrades to manual recovery."
       }
     },
     {
@@ -154,7 +154,7 @@
         "apiRoutePath": "/account/checkout-sessions/:sessionId",
         "readModelTables": ["checkout_session_pages"],
         "helperUses": ["loadFreshlyWrittenResource"],
-        "transientRecovery": "Checkout session self-refresh uses exact checkout-session-page freshness and Checkout temporary recovery UI."
+        "transientRecovery": "Checkout session self-refresh uses exact checkout-session-page freshness and Checkout temporary recovery UI with bounded active revalidation until pay-ready or fresh-write token expiry."
       }
     },
     {

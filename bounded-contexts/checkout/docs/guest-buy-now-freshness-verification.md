@@ -18,7 +18,7 @@ Use these state names for deterministic tests and synthetic canaries.
 | State | Meaning | Expected UI/API behavior |
 | --- | --- | --- |
 | `pass` | Fresh session is readable. | Checkout session review renders and no payment/order exists before confirmation. |
-| `temporary` | The fresh receipt is valid but the read model is still catching up. | Preparing-checkout recovery renders with a refresh/retry action and `Your payment has not started.` |
+| `temporary` | The fresh receipt is valid but the read model is still catching up. | Preparing-checkout recovery renders with a refresh/retry action and `Your payment has not started.`, and actively revalidates the same fresh read on a bounded schedule until the session is pay-ready or the receipt expires, then degrades to manual recovery. |
 | `fail` | The path renders permanent not-found or drops the fresh receipt/guest cookie. | Canary/test fails immediately; this is the customer failure class from the staging incident. |
 
 ## Test Fixture Rules
