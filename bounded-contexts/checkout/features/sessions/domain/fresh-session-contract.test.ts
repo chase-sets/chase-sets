@@ -106,6 +106,27 @@ const commonSnapshot = {
     pendingFacts: [],
     retryAvailable: false,
   },
+  splitGroupHandoff: {
+    status: "ready" as const,
+    supportReference: "CS-CR_READY",
+    groups: [
+      {
+        groupId: "cfg_card_vault",
+        lineIds: ["line_1"],
+        listingIds: ["lst_1"],
+        sellerAccountId: "acc_seller" as never,
+        sellerDisplayName: "Card Vault",
+        packageCount: 1,
+        itemCount: 1,
+        deliveryPromise: "4-7 business days",
+        shippingAmount: usd("4.00"),
+        supportReference: "CSG-CARDVAULT",
+        downstreamReferenceStatus: "not-started" as const,
+        orderIds: [],
+        shipmentIds: [],
+      },
+    ],
+  },
   postConfirmation: {
     status: "not-started" as const,
     orderIds: [],
@@ -151,6 +172,7 @@ const sellSnapshot: FreshSellCheckoutSessionSnapshot = {
     sourceId: "sell_list_1",
     returnPath: "/account/sell-list",
   },
+  splitGroupHandoff: null,
   deliveryAddress: null,
   shipFromAddress: {
     status: "valid",
@@ -198,6 +220,7 @@ describe("fresh checkout session contract", () => {
       freshnessStatus: "current",
       providerStatus: "ready",
       riskStatus: "clear",
+      splitGroupCount: 1,
       postConfirmationStatus: "not-started",
       primaryAction: "confirm",
     });
@@ -208,6 +231,23 @@ describe("fresh checkout session contract", () => {
       total: usd("19.00"),
       primaryAction: "confirm",
     });
+  });
+
+  it("keeps split group handoff as summary facts before downstream records exist", () => {
+    expect(buySnapshot.splitGroupHandoff).toMatchObject({
+      status: "ready",
+      supportReference: "CS-CR_READY",
+      groups: [
+        {
+          lineIds: ["line_1"],
+          listingIds: ["lst_1"],
+          downstreamReferenceStatus: "not-started",
+          orderIds: [],
+          shipmentIds: [],
+        },
+      ],
+    });
+    expect(findCheckoutCustomerCopyLeaks(buySnapshot)).toEqual([]);
   });
 
   it("keeps unresolved fulfillment in readiness instead of confirmable checkout", () => {

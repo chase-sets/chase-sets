@@ -26,6 +26,25 @@ export type CartReadinessLine = Readonly<{
 export type CartReadinessLineOutcome = "checkout" | "save-for-later" | "removed";
 export type CartReadinessOptimizationDecision = "none" | "accepted" | "declined";
 
+export type CartReadinessMoney = Readonly<{
+  amount: string;
+  currency: "USD";
+}>;
+
+export type CartReadinessFulfillmentGroup = Readonly<{
+  groupId: string;
+  lineIds: readonly string[];
+  listingIds: readonly string[];
+  sellerAccountId: string | null;
+  sellerDisplayName: string | null;
+  itemCount: number;
+  packageCount: number;
+  deliveryPromise: string | null;
+  shippingAmount: CartReadinessMoney | null;
+  supportReference: string;
+  downstreamReferenceStatus: "not-started";
+}>;
+
 export type CartReadinessDecisionInput = Readonly<{
   lineOutcomes?: readonly Readonly<{ lineId: string; outcome: Exclude<CartReadinessLineOutcome, "checkout"> }>[];
   optimization?: Readonly<{
@@ -58,6 +77,7 @@ export type CartReadinessSnapshot = Readonly<{
     savingsAmount: string | null;
     currency: "USD";
   }>;
+  fulfillmentGroups: readonly CartReadinessFulfillmentGroup[];
   customerSafeFacts: readonly string[];
 }>;
 
@@ -143,6 +163,10 @@ function formatAmount(value: number) {
 
 function optionCanFulfill(option: CartReadinessSellerOption, quantity: number) {
   return option.available_quantity >= quantity && moneyValue(option.price_amount) !== null;
+}
+
+function groupHash(value: unknown) {
+  return stableHash(value).replace(/^cr_/, "cfg_");
 }
 
 export function selectedCartReadinessListing(line: CartReadinessLine) {
@@ -248,6 +272,93 @@ function findOptimizationProposal(lines: readonly CartReadinessLine[]) {
   return best;
 }
 
+function selectedListingForCheckout(
+  line: CartReadinessLine,
+  optimizationAccepted: boolean,
+  optimizationProposal: ReturnType<typeof findOptimizationProposal>,
+) {
+  if (optimizationAccepted && optimizationProposal?.line.line_id === line.line_id) {
+    return optimizationProposal.proposed;
+  }
+
+  if (line.fulfillment_mode === "locked-listing") {
+    return selectedCartReadinessListing(line);
+  }
+
+  return lowestCartReadinessListing(line);
+}
+
+function buildFulfillmentGroups(
+  lines: readonly CartReadinessLine[],
+  includedLineIds: readonly string[],
+  optimizationAccepted: boolean,
+  optimizationProposal: ReturnType<typeof findOptimizationProposal>,
+): readonly CartReadinessFulfillmentGroup[] {
+  const included = new Set(includedLineIds);
+  const groups = new Map<
+    string,
+    {
+      lineIds: string[];
+      listingIds: string[];
+      sellerAccountId: string | null;
+      sellerDisplayName: string | null;
+      itemCount: number;
+    }
+  >();
+
+  for (const line of lines) {
+    if (!included.has(line.line_id)) {
+      continue;
+    }
+
+    const selected = selectedListingForCheckout(line, optimizationAccepted, optimizationProposal);
+    const listingId = selected?.listing_id ?? line.locked_listing_id ?? null;
+    const sellerAccountId = selected?.seller_account_id?.trim() || null;
+    const sellerDisplayName = selected?.seller_display_name?.trim() || null;
+    const groupKey = sellerAccountId ? `seller:${sellerAccountId}` : `listing:${listingId ?? line.line_id}`;
+    const group = groups.get(groupKey) ?? {
+      lineIds: [],
+      listingIds: [],
+      sellerAccountId,
+      sellerDisplayName,
+      itemCount: 0,
+    };
+
+    group.lineIds.push(line.line_id);
+    if (listingId) {
+      group.listingIds.push(listingId);
+    }
+    group.itemCount += line.quantity;
+    groups.set(groupKey, group);
+  }
+
+  return [...groups.values()]
+    .map((group) => {
+      const lineIds = [...new Set(group.lineIds)].sort();
+      const listingIds = [...new Set(group.listingIds)].sort();
+      const groupId = groupHash({
+        lineIds,
+        listingIds,
+        sellerAccountId: group.sellerAccountId,
+      });
+
+      return {
+        groupId,
+        lineIds,
+        listingIds,
+        sellerAccountId: group.sellerAccountId,
+        sellerDisplayName: group.sellerDisplayName,
+        itemCount: group.itemCount,
+        packageCount: 1,
+        deliveryPromise: null,
+        shippingAmount: null,
+        supportReference: `CSG-${groupId.slice(4).toUpperCase()}`,
+        downstreamReferenceStatus: "not-started" as const,
+      };
+    })
+    .sort((left, right) => left.groupId.localeCompare(right.groupId));
+}
+
 function sourceRevisionFor(lines: readonly CartReadinessLine[]) {
   return stableHash(
     lines.map((line) => ({
@@ -260,6 +371,8 @@ function sourceRevisionFor(lines: readonly CartReadinessLine[]) {
       availabilityState: line.availability_state,
       sellerOptions: line.seller_options.map((option) => ({
         listingId: option.listing_id,
+        sellerAccountId: option.seller_account_id ?? null,
+        sellerDisplayName: option.seller_display_name,
         priceAmount: option.price_amount,
         availableQuantity: option.available_quantity,
       })),
@@ -315,12 +428,17 @@ export function createCartReadinessSnapshot(
   const status =
     includedLineIds.length === 0 ? "blocked" : unresolvedLineIds.length > 0 ? "needs-resolution" : ("ready" as const);
   const sourceRevision = sourceRevisionFor(sortedLines);
+  const fulfillmentGroups =
+    status === "ready"
+      ? buildFulfillmentGroups(sortedLines, includedLineIds, optimizationAccepted, optimizationProposal)
+      : [];
   const snapshotSeed = {
     sourceRevision,
     includedLineIds,
     lineOutcomes,
     optimizationDecision,
     proposedListingId: optimizationProposal?.proposed.listing_id ?? null,
+    fulfillmentGroups,
   };
 
   return {
@@ -342,6 +460,7 @@ export function createCartReadinessSnapshot(
       savingsAmount: optimizationProposal ? formatAmount(optimizationProposal.savings) : null,
       currency: "USD",
     },
+    fulfillmentGroups,
     customerSafeFacts: [
       status === "ready"
         ? "Ready for checkout."
@@ -363,6 +482,17 @@ export function applyCartReadinessToLines<TLine extends CartReadinessLine>(
   return lines
     .filter((line) => included.has(line.line_id))
     .map((line) => {
+      if (line.fulfillment_mode === "optimize") {
+        const selected = lowestCartReadinessListing(line);
+        if (selected) {
+          return {
+            ...line,
+            fulfillment_mode: "locked-listing",
+            locked_listing_id: selected.listing_id,
+          };
+        }
+      }
+
       if (
         snapshot.optimization.decision === "accepted" &&
         snapshot.optimization.proposedLineId === line.line_id &&

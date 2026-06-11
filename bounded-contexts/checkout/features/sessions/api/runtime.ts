@@ -210,6 +210,7 @@ function stateToCheckoutSessionRow(state: CheckoutSessionState): CheckoutSession
     optimization_goal: state.optimizationGoal,
     fulfillment_preview_revision: state.fulfillmentPreviewRevision,
     cart_readiness_snapshot: state.cartReadinessSnapshot,
+    split_group_handoff: state.splitGroupHandoff,
     shipping_option: state.shippingOption,
     shipping_address_id: state.shippingAddress?.shippingAddressId ?? null,
     shipping_address: state.shippingAddress,

@@ -6,7 +6,7 @@ import type {
   PaymentId,
   ShippingAddressId,
 } from "@chase-sets/primitives/typed-ids";
-import type { CartReadinessSnapshot } from "../../cart/domain/readiness";
+import type { CartReadinessFulfillmentGroup, CartReadinessSnapshot } from "../../cart/domain/readiness";
 import {
   assert,
   assertNever,
@@ -39,6 +39,12 @@ export type CheckoutSessionLine = Readonly<{
   availabilityState?: "available" | "unavailable" | "changed" | "waiting-for-supply";
 }>;
 
+export type CheckoutSplitGroupHandoff = Readonly<{
+  status: "ready";
+  groups: readonly CartReadinessFulfillmentGroup[];
+  supportReference: string;
+}>;
+
 export type CheckoutShippingAddress = Readonly<{
   shippingAddressId?: ShippingAddressId | null;
   name: string;
@@ -60,6 +66,7 @@ export type CheckoutSessionState = Readonly<{
   optimizationGoal: CheckoutOptimizationGoal;
   fulfillmentPreviewRevision: string | null;
   cartReadinessSnapshot: CartReadinessSnapshot | null;
+  splitGroupHandoff: CheckoutSplitGroupHandoff | null;
   shippingOption: ShippingOption;
   shippingAddress: CheckoutShippingAddress | null;
   lines: CheckoutSessionLine[];
@@ -77,6 +84,7 @@ export const initialCheckoutSessionState: CheckoutSessionState = {
   optimizationGoal: "lowest-total",
   fulfillmentPreviewRevision: null,
   cartReadinessSnapshot: null,
+  splitGroupHandoff: null,
   shippingOption: "standard",
   shippingAddress: null,
   lines: [],
@@ -161,6 +169,7 @@ export type CheckoutSessionStartedEvent = DomainEvent<
     optimizationGoal: CheckoutOptimizationGoal;
     fulfillmentPreviewRevision: string | null;
     cartReadinessSnapshot: CartReadinessSnapshot | null;
+    splitGroupHandoff: CheckoutSplitGroupHandoff | null;
     shippingOption: ShippingOption;
     lines: CheckoutSessionLine[];
     createdAt: string;
@@ -292,6 +301,68 @@ function normalizeCartReadinessSnapshot(
   return snapshot;
 }
 
+function sortedText(values: readonly string[]) {
+  return [...values].sort((left, right) => left.localeCompare(right));
+}
+
+function assertSameTextSet(left: readonly string[], right: readonly string[], message: string) {
+  const leftSorted = sortedText(left);
+  const rightSorted = sortedText(right);
+  assert(
+    leftSorted.length === rightSorted.length && leftSorted.every((value, index) => value === rightSorted[index]),
+    message,
+  );
+}
+
+function normalizeSplitGroupHandoff(
+  sourceType: CheckoutSourceType,
+  snapshot: CartReadinessSnapshot | null,
+  lines: readonly CheckoutSessionLine[],
+): CheckoutSplitGroupHandoff | null {
+  if (sourceType !== "cart") {
+    return null;
+  }
+
+  assert(snapshot, "Cart readiness snapshot is required.");
+  const groups = Array.isArray(snapshot.fulfillmentGroups) ? snapshot.fulfillmentGroups : [];
+  assert(groups.length > 0, "Cart readiness must include split group facts.");
+
+  const groupIds = new Set<string>();
+  const coveredLineIds: string[] = [];
+  const expectedLineIds = lines.map((line) => line.cartLineId).filter((lineId): lineId is string => Boolean(lineId));
+  assert(expectedLineIds.length === lines.length, "Cart checkout lines must keep their source line references.");
+
+  for (const group of groups) {
+    assert(group.groupId.trim(), "Cart readiness split groups must have stable ids.");
+    assert(!groupIds.has(group.groupId), "Cart readiness split groups must have unique ids.");
+    groupIds.add(group.groupId);
+    assert(group.lineIds.length > 0, "Cart readiness split groups must include checkout lines.");
+    coveredLineIds.push(...group.lineIds);
+
+    const groupLines = lines.filter((line) => line.cartLineId && group.lineIds.includes(line.cartLineId));
+    assertSameTextSet(
+      groupLines
+        .map((line) => line.lockedListingId ?? line.listingId)
+        .filter((listingId): listingId is string => Boolean(listingId)),
+      group.listingIds,
+      "Cart readiness split groups must match checkout line listings.",
+    );
+  }
+
+  assertSameTextSet(
+    coveredLineIds,
+    snapshot.includedLineIds,
+    "Cart readiness split groups must cover readiness lines.",
+  );
+  assertSameTextSet(coveredLineIds, expectedLineIds, "Cart readiness split groups must match checkout lines.");
+
+  return {
+    status: "ready",
+    groups,
+    supportReference: `CS-${snapshot.snapshotId.toUpperCase()}`,
+  };
+}
+
 function normalizeShippingAddress(address: CheckoutShippingAddress): CheckoutShippingAddress {
   return {
     shippingAddressId: normalizeOptionalText(address.shippingAddressId) as ShippingAddressId | null,
@@ -327,6 +398,7 @@ export const decideCheckoutSession: AggregateDecider<
       const lines = command.lines.map(normalizeLine);
       assert(lines.length > 0, "Checkout session must include at least one line.");
       const cartReadinessSnapshot = normalizeCartReadinessSnapshot(command.sourceType, command.cartReadinessSnapshot);
+      const splitGroupHandoff = normalizeSplitGroupHandoff(command.sourceType, cartReadinessSnapshot, lines);
       return [
         {
           type: "checkout.session.started",
@@ -337,6 +409,7 @@ export const decideCheckoutSession: AggregateDecider<
             optimizationGoal: normalizeOptimizationGoal(command.optimizationGoal),
             fulfillmentPreviewRevision: normalizeOptionalText(command.fulfillmentPreviewRevision),
             cartReadinessSnapshot,
+            splitGroupHandoff,
             shippingOption: normalizeShippingOption(command.shippingOption),
             lines,
             createdAt: normalizeRequiredText(command.createdAt, "Checkout session must record a creation timestamp."),
@@ -479,6 +552,7 @@ export const evolveCheckoutSession: AggregateEvolver<CheckoutSessionState, Check
         optimizationGoal: event.data.optimizationGoal ?? "lowest-total",
         fulfillmentPreviewRevision: event.data.fulfillmentPreviewRevision ?? null,
         cartReadinessSnapshot: event.data.cartReadinessSnapshot ?? null,
+        splitGroupHandoff: event.data.splitGroupHandoff ?? null,
         shippingOption: event.data.shippingOption,
         shippingAddress: null,
         lines: event.data.lines,

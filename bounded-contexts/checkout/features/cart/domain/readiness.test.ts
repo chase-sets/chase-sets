@@ -42,9 +42,50 @@ describe("cart readiness snapshots", () => {
       status: "ready",
       includedLineIds: ["cli_ready"],
       unresolvedLineIds: [],
+      fulfillmentGroups: [
+        expect.objectContaining({
+          lineIds: ["cli_ready"],
+          listingIds: ["lst_current"],
+          sellerAccountId: "acc_seller",
+          sellerDisplayName: "Card Vault",
+          itemCount: 1,
+          packageCount: 1,
+          downstreamReferenceStatus: "not-started",
+        }),
+      ],
     });
     expect(snapshot.snapshotId).toMatch(/^cr_/);
+    expect(snapshot.fulfillmentGroups[0]?.groupId).toMatch(/^cfg_/);
+    expect(snapshot.fulfillmentGroups[0]?.supportReference).toMatch(/^CSG-/);
     expect(cartReadinessLineHasFulfillment(readyLine)).toBe(true);
+  });
+
+  it("builds separate support-safe groups for multiple sellers before checkout", () => {
+    const secondSellerLine: CartReadinessLine = {
+      ...readyLine,
+      line_id: "cli_second",
+      locked_listing_id: "lst_second",
+      seller_options: [
+        {
+          listing_id: "lst_second",
+          seller_account_id: "acc_second_seller",
+          seller_display_name: "Second Seller",
+          price_amount: "10.00",
+          available_quantity: 2,
+          product_summary: "Raw",
+        },
+      ],
+    };
+
+    const snapshot = createCartReadinessSnapshot([readyLine, secondSellerLine]);
+
+    expect(snapshot.status).toBe("ready");
+    expect(snapshot.fulfillmentGroups).toHaveLength(2);
+    expect(snapshot.fulfillmentGroups.map((group) => group.sellerAccountId).sort()).toEqual([
+      "acc_second_seller",
+      "acc_seller",
+    ]);
+    expect(snapshot.fulfillmentGroups.flatMap((group) => group.lineIds).sort()).toEqual(["cli_ready", "cli_second"]);
   });
 
   it("blocks checkout when fulfillment is unassigned", () => {
@@ -60,6 +101,7 @@ describe("cart readiness snapshots", () => {
 
     expect(snapshot.status).toBe("needs-resolution");
     expect(snapshot.unresolvedLineIds).toEqual(["cli_unassigned"]);
+    expect(snapshot.fulfillmentGroups).toEqual([]);
     expect(snapshot.lineOutcomes).toContainEqual({
       lineId: "cli_unassigned",
       outcome: "checkout",
@@ -114,7 +156,7 @@ describe("cart readiness snapshots", () => {
     expect(applyCartReadinessToLines([readyLine, saved, removed], snapshot)).toEqual([readyLine]);
   });
 
-  it("surfaces optional savings and applies an accepted proposed allocation to checkout lines", () => {
+  it("surfaces optional savings and applies an accepted fulfillment selection to checkout lines", () => {
     const expensiveLockedLine: CartReadinessLine = {
       ...readyLine,
       line_id: "cli_optimized",
@@ -160,7 +202,34 @@ describe("cart readiness snapshots", () => {
     });
   });
 
-  it("records a declined optimization while preserving the current valid allocation", () => {
+  it("locks Smart Match lines to the readiness-selected listing before checkout starts", () => {
+    const smartMatchLine: CartReadinessLine = {
+      ...readyLine,
+      line_id: "cli_smart_match",
+      fulfillment_mode: "optimize",
+      locked_listing_id: null,
+      seller_options: [
+        { ...readyLine.seller_options[0]!, listing_id: "lst_high", price_amount: "30.00" },
+        { ...readyLine.seller_options[0]!, listing_id: "lst_low", price_amount: "20.00" },
+      ],
+    };
+
+    const snapshot = createCartReadinessSnapshot([smartMatchLine]);
+    const checkoutLines = applyCartReadinessToLines([smartMatchLine], snapshot);
+
+    expect(snapshot.fulfillmentGroups).toHaveLength(1);
+    expect(snapshot.fulfillmentGroups[0]).toMatchObject({
+      lineIds: ["cli_smart_match"],
+      listingIds: ["lst_low"],
+      sellerAccountId: "acc_seller",
+    });
+    expect(checkoutLines[0]).toMatchObject({
+      fulfillment_mode: "locked-listing",
+      locked_listing_id: "lst_low",
+    });
+  });
+
+  it("records a declined optimization while preserving the current valid fulfillment selection", () => {
     const expensiveLockedLine: CartReadinessLine = {
       ...readyLine,
       line_id: "cli_declined",
@@ -260,6 +329,31 @@ describe("cart readiness snapshots", () => {
     ).toMatchObject({
       valid: false,
       current: { status: "ready" },
+    });
+  });
+
+  it("rejects stale readiness when seller group facts change", () => {
+    const snapshot = createCartReadinessSnapshot([readyLine]);
+    const changedSellerLine: CartReadinessLine = {
+      ...readyLine,
+      seller_options: [
+        {
+          ...readyLine.seller_options[0]!,
+          seller_account_id: "acc_new_seller",
+          seller_display_name: "New Seller",
+        },
+      ],
+    };
+
+    const validation = validateCartReadinessSnapshot([changedSellerLine], {
+      snapshotId: snapshot.snapshotId,
+      sourceRevision: snapshot.sourceRevision,
+    });
+
+    expect(validation.valid).toBe(false);
+    expect(validation.current.fulfillmentGroups[0]).toMatchObject({
+      sellerAccountId: "acc_new_seller",
+      sellerDisplayName: "New Seller",
     });
   });
 });

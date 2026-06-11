@@ -136,6 +136,13 @@ function createSessionPageRow(
     optimization_goal: "lowest-total",
     fulfillment_preview_revision: null,
     cart_readiness_snapshot: cartReadinessSnapshot,
+    split_group_handoff: cartReadinessSnapshot?.fulfillmentGroups.length
+      ? {
+          status: "ready",
+          groups: cartReadinessSnapshot.fulfillmentGroups,
+          supportReference: `CS-${cartReadinessSnapshot.snapshotId.toUpperCase()}`,
+        }
+      : null,
     shipping_option: "standard",
     shipping_address_id: null,
     shipping_address: null,
@@ -150,6 +157,10 @@ function createSessionPageRow(
         selectedOptions: [],
         productSummary: null,
         quantity: 1,
+        fulfillmentMode: "locked-listing",
+        lockedListingId: "lst_1",
+        sellerPreferenceId: null,
+        availabilityState: "available",
       },
     ],
     order_ids: [],
@@ -220,6 +231,18 @@ describe("checkout session runtime", () => {
     expect(result.session.cart_readiness_snapshot).toMatchObject({
       snapshotId: readiness.snapshotId,
       status: "ready",
+    });
+    expect(result.session.split_group_handoff).toMatchObject({
+      status: "ready",
+      supportReference: `CS-${readiness.snapshotId.toUpperCase()}`,
+      groups: [
+        expect.objectContaining({
+          lineIds: ["cli_1"],
+          listingIds: ["lst_1"],
+          sellerAccountId: "acc_seller",
+          downstreamReferenceStatus: "not-started",
+        }),
+      ],
     });
     expect(db.query).not.toHaveBeenCalled();
   });
