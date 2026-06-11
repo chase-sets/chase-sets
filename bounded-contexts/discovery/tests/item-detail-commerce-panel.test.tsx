@@ -504,7 +504,7 @@ describe("item detail commerce panel", () => {
     expect(screen.queryByText("buyer_private_internal_id")).toBeNull();
   });
 
-  it("keeps list at price as a compact action when ship-from setup exists", () => {
+  it("shows listing price and quantity in the create listing workflow", () => {
     render(
       <MarketplaceListingSubmissionSection
         formId="list-at-price-form"
@@ -517,15 +517,16 @@ describe("item detail commerce panel", () => {
       />,
     );
 
-    const listAction = screen.getByRole("button", { name: "List at price" });
+    const listAction = screen.getByRole("button", { name: "Create listing" });
     expect(listAction.closest("form")?.id).toBe("list-at-price-form");
     expect(listAction).toHaveProperty("disabled", false);
+    expect(screen.getByText("List this product")).toBeTruthy();
     expect(screen.getByText("Current best listing is 399.99.")).toBeTruthy();
+    expect(screen.getByLabelText(/Listing price/)).toHaveProperty("value", "399.99");
+    expect(screen.getByLabelText(/Quantity/)).toHaveProperty("value", "1");
     expect(screen.queryByText("Listing stock is created automatically.")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "View creating a listing details" }));
     expect(screen.getByRole("dialog", { name: "Creating a listing" })).toBeTruthy();
-    expect(screen.queryByLabelText("Listing price")).toBeNull();
-    expect(screen.queryByLabelText("Quantity to list")).toBeNull();
     expect(screen.queryByLabelText("Ship-from name")).toBeNull();
   });
 
@@ -542,10 +543,12 @@ describe("item detail commerce panel", () => {
       />,
     );
 
-    const listAction = screen.getByRole("button", { name: "List at price" });
+    const listAction = screen.getByRole("button", { name: "Create listing" });
     const listForm = listAction.closest("form") as HTMLFormElement;
     expect(listForm.id).toBe("list-at-price-form");
     expect(listAction).toHaveProperty("disabled", true);
+    expect(screen.getByLabelText(/Listing price/)).toBeTruthy();
+    expect(screen.getByLabelText(/Quantity/)).toBeTruthy();
     expect(listForm.querySelector("[name='shipFromName']")).toBeNull();
 
     const shipFromName = container.querySelector("[name='shipFromName']") as HTMLInputElement | null;
@@ -726,42 +729,42 @@ describe("item detail commerce panel", () => {
         productSummary="Raw / Near Mint"
         productSelectionDetails={[]}
         hasMatchingOffer
-        canUseSellerFeatures
-        renderSellNow={() => <div>Accept offer form</div>}
-        renderAddToSellList={() => <div>Add offer to Sell List form</div>}
+        selectedOfferSource="explicit"
+        renderSelectedOffer={() => <div>Selected offer form</div>}
         renderAddProductToSellList={() => <div>Add product to Sell List form</div>}
         renderListing={() => <div>Create listing form</div>}
       />,
     );
 
     expect(screen.getByText("Sell options")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Accept offer/ })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Add offer to Sell List/ })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Add product to Sell List/ })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Create listing/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Selected offer/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Selected product/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /List this product/ })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Set alert/ })).toBeNull();
     expect(screen.queryByText(/Same-buyer offer batching/i)).toBeNull();
     expect(screen.queryByRole("button", { name: /Sell now/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Add offer to Sell List/ })).toBeNull();
     expect(container.querySelector(".modern-surface")).toBeNull();
     expect(container.querySelector('[class*="-mx-4"]')).toBeTruthy();
     expect(container.querySelector('[class*="before:absolute"]')).toBeTruthy();
     expect(screen.queryByText("Raw / Near Mint")).toBeNull();
+    expect(screen.getByText("Selected offer form")).toBeTruthy();
 
-    const addToSellListButton = screen.getByRole("button", { name: /Add offer to Sell List/ });
-    fireEvent.click(addToSellListButton);
-
-    expect(screen.getByText("Add offer to Sell List form")).toBeTruthy();
-    expect(screen.queryByText("Accept offer form")).toBeNull();
-
-    fireEvent.click(addToSellListButton);
-
-    expect(addToSellListButton.getAttribute("aria-expanded")).toBe("false");
-    expect(screen.queryByText("Add offer to Sell List form")).toBeNull();
-    expect(container.querySelector('[class*="before:absolute"]')).toBeNull();
-
-    fireEvent.click(screen.getByRole("button", { name: /Add product to Sell List/ }));
+    const selectedOfferButton = screen.getByRole("button", { name: /Selected offer/ });
+    fireEvent.click(screen.getByRole("button", { name: /Selected product/ }));
 
     expect(screen.getByText("Add product to Sell List form")).toBeTruthy();
+    expect(screen.queryByText("Selected offer form")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /Selected product/ }));
+
+    expect(screen.getByRole("button", { name: /Selected product/ }).getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByText("Add product to Sell List form")).toBeNull();
+    expect(container.querySelector('[class*="before:absolute"]')).toBeNull();
+
+    fireEvent.click(selectedOfferButton);
+
+    expect(screen.getByText("Selected offer form")).toBeTruthy();
   });
 
   it("keeps product Sell List guidance in Reference Info", () => {
@@ -799,27 +802,25 @@ describe("item detail commerce panel", () => {
         productSummary="Raw / Near Mint"
         productSelectionDetails={[]}
         hasMatchingOffer
-        canUseSellerFeatures
         canSelectListingAction={false}
-        renderSellNow={() => <div>Accept offer form</div>}
-        renderAddToSellList={() => <div>Add offer to Sell List form</div>}
+        selectedOfferSource="explicit"
+        renderSelectedOffer={() => <div>Selected offer form</div>}
         renderAddProductToSellList={() => <div>Add product to Sell List form</div>}
         renderListing={() => <div>Create listing form</div>}
       />,
     );
 
-    expect(screen.getByRole("button", { name: /Accept offer/ }).getAttribute("data-disabled")).toBeNull();
-    expect(screen.getByRole("button", { name: /Add offer to Sell List/ }).getAttribute("data-disabled")).toBeNull();
+    expect(screen.getByRole("button", { name: /Selected offer/ }).getAttribute("data-disabled")).toBeNull();
 
-    const productSellListAction = screen.getByRole("button", { name: /Add product to Sell List/ });
-    const listForSaleAction = screen.getByRole("button", { name: /Create listing/ });
+    const productSellListAction = screen.getByRole("button", { name: /Selected product/ });
+    const listForSaleAction = screen.getByRole("button", { name: /List this product/ });
 
     expect(productSellListAction.getAttribute("data-disabled")).toBe("");
     expect(listForSaleAction.getAttribute("data-disabled")).toBe("");
 
     fireEvent.click(productSellListAction);
     expect(screen.queryByText("Add product to Sell List form")).toBeNull();
-    expect(screen.getByText("Accept offer form")).toBeTruthy();
+    expect(screen.getByText("Selected offer form")).toBeTruthy();
   });
 
   it("keeps watch actions in the same compact section-list pattern", () => {
@@ -1866,6 +1867,64 @@ describe("item detail commerce panel", () => {
     expect(screen.getByText("4.2")).toBeTruthy();
     expect(screen.getByText("(5)")).toBeTruthy();
     expect(screen.queryByText("buyer_private_internal_id")).toBeNull();
+  });
+
+  it("shows a guest selected-offer payout preview without inventing seller availability", () => {
+    render(
+      <MarketplaceOfferMatchSection
+        selectedOffer={{
+          offer_id: "offer_charizard",
+          buyer_account_id: "buyer_private_internal_id",
+          buyer_display_name: "Top Loader Capital",
+          price_amount: "380.00",
+          quantity_requested: 1,
+          product_summary: "Raw / Near Mint",
+          buyer_slug: "top-loader-capital",
+          buyer_average_rating: "4.80",
+          buyer_review_count: 12,
+          acceptance_terms: {
+            account_type: "personal",
+            basis_amount: "380.00",
+            marketplace_sales_fee_unit_amount: "34.35",
+            seller_net_unit_amount: "345.65",
+            shipping_allowance_percentage_bps: 500,
+            source_kind: "public-standard-seller-terms",
+            source_label: "Standard seller terms",
+            schedule_label: "Personal Default",
+            source_updated_at: "2026-05-05T16:36:36.000Z",
+            resolved_at: "2026-05-05T16:36:36.000Z",
+          },
+        }}
+        selectedOfferSource="explicit"
+        productId="cat_charizard::"
+        productSummary="Raw / Near Mint"
+        matchingOfferCount={1}
+      />,
+    );
+
+    expect(screen.getByText("Selected offer")).toBeTruthy();
+    expect(screen.getByText("$380.00 offer")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Top Loader Capital" })).toBeTruthy();
+    expect(screen.getByText("1 requested")).toBeTruthy();
+    expect(screen.queryByText(/available/)).toBeNull();
+    expect(screen.queryByText("Can fulfill")).toBeNull();
+    expect(screen.getByText("$345.65 after $34.35 fee")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Accept offer" })).toHaveProperty("disabled", false);
+    expect(screen.getByRole("button", { name: "Add offer to Sell List" })).toHaveProperty("disabled", false);
+    expect(screen.queryByText("Estimated payout uses Standard seller terms.")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "View estimated payout details" }));
+    const payoutDialog = screen.getByRole("dialog", { name: "Estimated payout" });
+    expect(within(payoutDialog).getByText("Estimated payout uses Standard seller terms.")).toBeTruthy();
+    expect(within(payoutDialog).getByText("Marketplace sales fee")).toBeTruthy();
+    expect(within(payoutDialog).getByText("$34.35")).toBeTruthy();
+    expect(within(payoutDialog).getByText("Shipping allowance")).toBeTruthy();
+    expect(within(payoutDialog).getByText("$19.00 (5%)")).toBeTruthy();
+    expect(
+      within(payoutDialog).getByText(
+        "Create an account or sign in when you are ready to review final terms and commit.",
+      ),
+    ).toBeTruthy();
   });
 
   it("keeps offer Sell List guidance in Reference Info", () => {

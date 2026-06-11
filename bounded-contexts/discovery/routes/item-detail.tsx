@@ -1202,22 +1202,36 @@ function DiscoveryItemDetailRealtimeView({
                 actions?: ReactNode,
                 showSummary?: boolean,
                 actionMode?: "all" | "sell-now" | "add-to-sell-list",
-              ) => (
-                <MarketplaceOfferMatchSection
-                  formId={formId}
-                  panelVariant={panelVariant}
-                  showSummary={showSummary}
-                  actions={actions}
-                  actionMode={actionMode}
-                  selectedOffer={context.selectedAccountOfferMatch}
-                  selectedOfferSource={context.selectedOfferSource}
-                  productId={context.selectedProductId}
-                  productSelectionDetails={context.selectedProductSelectionDetails}
-                  productSummary={context.selectedProductSummary}
-                  matchingOfferCount={context.visibleAccountOfferMatches.length}
-                  errorMessage={actionErrorMessage}
-                />
-              );
+              ) => {
+                const selectedOfferForSellRail = data.canUseSellerFeatures
+                  ? context.selectedAccountOfferMatch
+                  : context.selectedOffer
+                    ? {
+                        ...context.selectedOffer,
+                        acceptance_terms: context.selectedOffer.public_standard_terms_preview ?? null,
+                      }
+                    : null;
+                const matchingOfferCountForSellRail = data.canUseSellerFeatures
+                  ? context.visibleAccountOfferMatches.length
+                  : context.visibleOffers.length;
+
+                return (
+                  <MarketplaceOfferMatchSection
+                    formId={formId}
+                    panelVariant={panelVariant}
+                    showSummary={showSummary}
+                    actions={actions}
+                    actionMode={actionMode}
+                    selectedOffer={selectedOfferForSellRail}
+                    selectedOfferSource={context.selectedOfferSource}
+                    productId={context.selectedProductId}
+                    productSelectionDetails={context.selectedProductSelectionDetails}
+                    productSummary={context.selectedProductSummary}
+                    matchingOfferCount={matchingOfferCountForSellRail}
+                    errorMessage={actionErrorMessage}
+                  />
+                );
+              };
               const renderListingSubmission = (
                 formId: string,
                 panelVariant: FormPanelVariant = "card",
@@ -1292,21 +1306,12 @@ function DiscoveryItemDetailRealtimeView({
                   hasMatchingOffer={
                     data.canUseSellerFeatures
                       ? Boolean(context.selectedAccountOfferMatch)
-                      : context.visibleOffers.length > 0
+                      : Boolean(context.selectedOffer)
                   }
-                  canUseSellerFeatures={data.canUseSellerFeatures}
                   canSelectListingAction={Boolean(context.selectedProductId)}
                   canSelectProductSellListAction={Boolean(context.selectedProductId)}
-                  renderSellNow={(formId) =>
-                    data.canUseSellerFeatures
-                      ? renderOfferMatch(formId, "plain", undefined, true, "sell-now")
-                      : renderSellerRegistration("plain", true, "offer")
-                  }
-                  renderAddToSellList={(formId) =>
-                    data.canUseSellerFeatures
-                      ? renderOfferMatch(formId, "plain", undefined, true, "add-to-sell-list")
-                      : renderSellerRegistration("plain", true, "offer")
-                  }
+                  selectedOfferSource={context.selectedOfferSource}
+                  renderSelectedOffer={(formId) => renderOfferMatch(formId, "plain", undefined, true)}
                   renderAddProductToSellList={(formId) =>
                     context.selectedProductId ? (
                       <ProductSellListIntentSection
