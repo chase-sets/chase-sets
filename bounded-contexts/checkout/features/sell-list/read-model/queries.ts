@@ -22,37 +22,32 @@ export type CheckoutSellListLineRow = Readonly<{
   updated_at: string;
 }>;
 
-export type CheckoutSellListReceiptRow = Readonly<{
+export type CheckoutSellListConfirmationRow = Readonly<{
   seller_account_id: string;
-  execution_id: string;
-  checked_out_at: string;
-  execution_summary: Readonly<{
+  confirmation_id: string;
+  confirmed_at: string;
+  readiness_evidence: unknown;
+  seller_evidence: unknown;
+  handoff_summary: Readonly<{
     acceptedOfferCount?: number;
-    createdListingCount?: number;
+    publishedListingCount?: number;
     skippedLineCount?: number;
     skippedReasons?: readonly string[];
     lineOutcomes?: readonly Readonly<{
       lineId: string;
       itemTitle: string;
       status: "completed" | "partial" | "skipped";
-      action: "accepted-offer" | "accepted-smart-match" | "created-listing" | "mixed" | "kept-in-sell-list";
+      action: "accepted-offer" | "accepted-smart-match" | "published-listing" | "mixed" | "kept-in-sell-list";
       quantity: number;
       remainingQuantity: number;
       detail: string;
+      references?: Readonly<{
+        offerIds?: readonly string[];
+        listingId?: string | null;
+      }>;
     }>[];
+    sideEffects?: Readonly<Record<string, string>>;
   }>;
-}>;
-
-export type CheckoutSellListExecutionRow = Readonly<{
-  seller_account_id: string;
-  execution_id: string;
-  status: "pending" | "finalized";
-  execution_plan: unknown;
-  execution_progress: unknown;
-  execution_summary: CheckoutSellListReceiptRow["execution_summary"] | null;
-  created_at: string;
-  updated_at: string;
-  finalized_at: string | null;
 }>;
 
 type SellListPageRow = Omit<CheckoutSellListLineRow, "selected_options" | "line_type" | "fallback_mode"> & {
@@ -61,10 +56,8 @@ type SellListPageRow = Omit<CheckoutSellListLineRow, "selected_options" | "line_
   fallback_mode: string;
 };
 
-type SellListReceiptPageRow = Omit<CheckoutSellListReceiptRow, "execution_summary"> & { execution_summary: unknown };
-type SellListExecutionPageRow = Omit<CheckoutSellListExecutionRow, "status" | "execution_summary"> & {
-  status: string;
-  execution_summary: unknown;
+type SellListConfirmationPageRow = Omit<CheckoutSellListConfirmationRow, "handoff_summary"> & {
+  handoff_summary: unknown;
 };
 
 function mapSellListLine(row: SellListPageRow): CheckoutSellListLineRow {
@@ -106,124 +99,63 @@ export async function listSellListLines(db: PgQueryable, sellerAccountId: string
   return result.rows.map(mapSellListLine);
 }
 
-export async function getLatestSellListReceipt(
+export async function getLatestSellListConfirmation(
   db: PgQueryable,
   sellerAccountId: string,
-): Promise<CheckoutSellListReceiptRow | null> {
-  const result = await db.query<SellListReceiptPageRow>(
+): Promise<CheckoutSellListConfirmationRow | null> {
+  const result = await db.query<SellListConfirmationPageRow>(
     `SELECT
        seller_account_id,
-       execution_id,
-       checked_out_at,
-       execution_summary
-     FROM checkout_sell_list_execution_receipt_pages
+       confirmation_id,
+       confirmed_at,
+       readiness_evidence,
+       seller_evidence,
+       handoff_summary
+     FROM checkout_sell_list_confirmation_pages
      WHERE seller_account_id = $1
-     ORDER BY checked_out_at DESC, execution_id DESC
+     ORDER BY confirmed_at DESC, confirmation_id DESC
      LIMIT 1`,
     [sellerAccountId],
   );
 
   const row = result.rows[0];
   if (row) {
-    return mapSellListReceipt(row);
+    return mapSellListConfirmation(row);
   }
 
   return null;
 }
 
-function mapSellListReceipt(row: SellListReceiptPageRow): CheckoutSellListReceiptRow {
+function mapSellListConfirmation(row: SellListConfirmationPageRow): CheckoutSellListConfirmationRow {
   return {
     ...row,
-    execution_summary:
-      typeof row.execution_summary === "object" && row.execution_summary !== null
-        ? (row.execution_summary as CheckoutSellListReceiptRow["execution_summary"])
+    handoff_summary:
+      typeof row.handoff_summary === "object" && row.handoff_summary !== null
+        ? (row.handoff_summary as CheckoutSellListConfirmationRow["handoff_summary"])
         : {},
   };
 }
 
-function mapSellListExecution(row: SellListExecutionPageRow): CheckoutSellListExecutionRow {
-  return {
-    ...row,
-    status: row.status === "finalized" ? "finalized" : "pending",
-    execution_summary:
-      typeof row.execution_summary === "object" && row.execution_summary !== null
-        ? (row.execution_summary as CheckoutSellListReceiptRow["execution_summary"])
-        : null,
-  };
-}
-
-export async function getSellListReceiptByExecutionId(
+export async function getSellListConfirmation(
   db: PgQueryable,
   sellerAccountId: string,
-  executionId: string,
-): Promise<CheckoutSellListReceiptRow | null> {
-  const result = await db.query<SellListReceiptPageRow>(
+  confirmationId: string,
+): Promise<CheckoutSellListConfirmationRow | null> {
+  const result = await db.query<SellListConfirmationPageRow>(
     `SELECT
        seller_account_id,
-       execution_id,
-       checked_out_at,
-       execution_summary
-     FROM checkout_sell_list_execution_receipt_pages
+       confirmation_id,
+       confirmed_at,
+       readiness_evidence,
+       seller_evidence,
+       handoff_summary
+     FROM checkout_sell_list_confirmation_pages
      WHERE seller_account_id = $1
-       AND execution_id = $2
+       AND confirmation_id = $2
      LIMIT 1`,
-    [sellerAccountId, executionId],
+    [sellerAccountId, confirmationId],
   );
 
   const row = result.rows[0];
-  return row ? mapSellListReceipt(row) : null;
-}
-
-export async function getSellListExecution(
-  db: PgQueryable,
-  sellerAccountId: string,
-  executionId: string,
-): Promise<CheckoutSellListExecutionRow | null> {
-  const result = await db.query<SellListExecutionPageRow>(
-    `SELECT
-       seller_account_id,
-       execution_id,
-       status,
-       execution_plan,
-       execution_progress,
-       execution_summary,
-       created_at,
-       updated_at,
-       finalized_at
-     FROM checkout_sell_list_execution_pages
-     WHERE seller_account_id = $1
-       AND execution_id = $2
-     LIMIT 1`,
-    [sellerAccountId, executionId],
-  );
-
-  const row = result.rows[0];
-  return row ? mapSellListExecution(row) : null;
-}
-
-export async function getLatestPendingSellListExecution(
-  db: PgQueryable,
-  sellerAccountId: string,
-): Promise<CheckoutSellListExecutionRow | null> {
-  const result = await db.query<SellListExecutionPageRow>(
-    `SELECT
-       seller_account_id,
-       execution_id,
-       status,
-       execution_plan,
-       execution_progress,
-       execution_summary,
-       created_at,
-       updated_at,
-       finalized_at
-     FROM checkout_sell_list_execution_pages
-     WHERE seller_account_id = $1
-       AND status = 'pending'
-     ORDER BY updated_at DESC, created_at DESC, execution_id DESC
-     LIMIT 1`,
-    [sellerAccountId],
-  );
-
-  const row = result.rows[0];
-  return row ? mapSellListExecution(row) : null;
+  return row ? mapSellListConfirmation(row) : null;
 }

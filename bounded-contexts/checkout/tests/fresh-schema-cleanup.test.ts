@@ -28,8 +28,10 @@ describe("fresh checkout read-model schemas", () => {
     expect(checkoutSessionSchemaSql).toContain("ADD COLUMN IF NOT EXISTS submitted_offer_id text NULL");
   });
 
-  it("uses only the canonical Sell List execution receipt read model", () => {
-    expect(checkoutSellListSchemaSql).toContain("checkout_sell_list_execution_receipt_pages");
+  it("uses the fresh Sell List confirmation read model without execution receipts", () => {
+    expect(checkoutSellListSchemaSql).toContain("checkout_sell_list_confirmation_pages");
+    expect(checkoutSellListSchemaSql).not.toContain("checkout_sell_list_execution_pages");
+    expect(checkoutSellListSchemaSql).not.toContain("checkout_sell_list_execution_receipt_pages");
     expect(checkoutSellListSchemaSql).not.toContain("checkout_sell_list_receipt_pages (");
   });
 });

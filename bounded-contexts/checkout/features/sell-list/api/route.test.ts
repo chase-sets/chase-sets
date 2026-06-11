@@ -1,6 +1,8 @@
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import type { CheckoutApiEnv } from "../../../api";
+import type { SellListConfirmationSummary, SellListSellerConfirmationEvidence } from "../domain/domain";
+import type { CheckoutSellListConfirmationRow } from "../read-model/queries";
 import { createAccountSellListRoutes, createGuestSellListRoutes } from "./route";
 import type { CheckoutSellListServices } from "./runtime";
 
@@ -39,41 +41,15 @@ function createServices(): CheckoutSellListServices {
   return {
     addLine: vi.fn(async () => ({ lineId: "sll_1" as never, version: 1, status: "added" })),
     removeLine: vi.fn(async () => ({ lineId: "sll_1" as never, version: 2 })),
-    checkoutSellList: vi.fn(async () => ({ sellerAccountId: "acc_seller" as never, version: 3, status: "reviewed" })),
-    startSellListExecution: vi.fn(async () => ({
-      seller_account_id: "acc_seller",
-      execution_id: "sle_1",
-      status: "pending",
-      execution_plan: { version: 1, lines: [] },
-      execution_progress: { completedActionKeys: [] },
-      execution_summary: null,
-      created_at: "2026-05-30T00:00:00.000Z",
-      updated_at: "2026-05-30T00:00:00.000Z",
-      finalized_at: null,
+    confirmSellListCheckout: vi.fn(async () => ({
+      sellerAccountId: "acc_seller" as never,
+      version: 3,
+      status: "confirmed",
+      confirmation: confirmationRow(),
+      completedLineIds: ["sll_1" as never],
     })),
-    getExecution: vi.fn(async () => ({
-      seller_account_id: "acc_seller",
-      execution_id: "sle_1",
-      status: "pending",
-      execution_plan: { version: 1, lines: [] },
-      execution_progress: { completedActionKeys: [] },
-      execution_summary: null,
-      created_at: "2026-05-30T00:00:00.000Z",
-      updated_at: "2026-05-30T00:00:00.000Z",
-      finalized_at: null,
-    })),
-    getLatestPendingExecution: vi.fn(async () => null),
-    recordSellListExecutionProgress: vi.fn(async () => ({
-      seller_account_id: "acc_seller",
-      execution_id: "sle_1",
-      status: "pending",
-      execution_plan: { version: 1, lines: [] },
-      execution_progress: { completedActionKeys: ["offer:sll_1:off_1"] },
-      execution_summary: null,
-      created_at: "2026-05-30T00:00:00.000Z",
-      updated_at: "2026-05-30T00:00:00.000Z",
-      finalized_at: null,
-    })),
+    getLatestConfirmation: vi.fn(async () => null),
+    getConfirmation: vi.fn(async () => null),
     mergeSellListIntoAccount: vi.fn(async () => ({ mergedLineCount: 1 })),
     createReadinessSnapshot: vi.fn(async () => ({
       schemaVersion: "checkout.sell-list-readiness.v1",
@@ -93,9 +69,82 @@ function createServices(): CheckoutSellListServices {
       customerSafeFacts: ["Ready for seller checkout."],
     })),
     listLines: vi.fn(async () => []),
-    getLatestReceipt: vi.fn(async () => null),
     projectors: [],
   } as unknown as CheckoutSellListServices;
+}
+
+function confirmationRow(): CheckoutSellListConfirmationRow {
+  return {
+    seller_account_id: "acc_seller",
+    confirmation_id: "slc_1",
+    confirmed_at: "2026-05-30T00:00:00.000Z",
+    readiness_evidence: {
+      schemaVersion: "checkout.sell-list-readiness.v1",
+      snapshotId: "slr_ready",
+      sourceRevision: "slr_source",
+      includedLineIds: ["sll_1"],
+    },
+    seller_evidence: sellerEvidence(),
+    handoff_summary: handoffSummary(),
+  };
+}
+
+function sellerEvidence(): SellListSellerConfirmationEvidence {
+  return {
+    shipFrom: {
+      status: "ready",
+      addressId: "adr_seller",
+      country: "US",
+      region: "KS",
+      postalCode: "67202",
+    },
+    payout: {
+      status: "ready",
+      method: "saved-payout",
+      readinessStatus: "ready",
+      lastCheckedAt: "2026-05-30T00:00:00.000Z",
+    },
+    label: {
+      status: "ready",
+      preference: "prepaid-label",
+    },
+    conditionReview: {
+      status: "accepted",
+      acceptedAt: "2026-05-30T00:00:00.000Z",
+    },
+    risk: { status: "clear" },
+    provider: { status: "ready" },
+    freshness: { status: "current" },
+  };
+}
+
+function handoffSummary(): SellListConfirmationSummary {
+  return {
+    acceptedOfferCount: 1,
+    publishedListingCount: 0,
+    skippedLineCount: 0,
+    skippedReasons: [],
+    lineOutcomes: [
+      {
+        lineId: "sll_1",
+        itemTitle: "Charizard",
+        status: "completed",
+        action: "accepted-offer",
+        quantity: 1,
+        remainingQuantity: 0,
+        detail: "Accepted reviewed offer.",
+        references: { offerIds: ["off_1"] },
+      },
+    ],
+    sideEffects: {
+      sale: "handoff-recorded",
+      label: "pending-downstream",
+      payout: "pending-downstream",
+      settlement: "pending-downstream",
+      notification: "pending-downstream",
+      accountHistory: "pending-downstream",
+    },
+  };
 }
 
 function sellerActor(): CheckoutApiEnv["Variables"]["actor"] {
@@ -138,28 +187,19 @@ describe("checkout sell list routes", () => {
     });
   });
 
-  it("returns the latest pending Sell List execution so checkout can resume sale work", async () => {
+  it("returns the latest Sell List confirmation with the list summary", async () => {
     const services = createServices();
-    vi.mocked(services.getLatestPendingExecution).mockResolvedValue({
-      seller_account_id: "acc_seller",
-      execution_id: "sle_pending",
-      status: "pending",
-      execution_plan: { version: 1, lines: [] },
-      execution_progress: { completedActionKeys: ["selected-offer:sll_1:off_1"] },
-      execution_summary: null,
-      created_at: "2026-05-30T00:00:00.000Z",
-      updated_at: "2026-05-30T00:01:00.000Z",
-      finalized_at: null,
-    });
+    vi.mocked(services.getLatestConfirmation).mockResolvedValue(confirmationRow());
     const app = buildApp({ actor: sellerActor(), services });
 
-    const response = await app.fetch(new Request("http://checkout.test/account/sell-list/executions/latest-pending"));
+    const response = await app.fetch(new Request("http://checkout.test/account/sell-list"));
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
-      execution_id: "sle_pending",
-      status: "pending",
-      execution_progress: { completedActionKeys: ["selected-offer:sll_1:off_1"] },
+      latestConfirmation: {
+        confirmation_id: "slc_1",
+        handoff_summary: { acceptedOfferCount: 1 },
+      },
     });
   });
 
@@ -311,21 +351,39 @@ describe("checkout sell list routes", () => {
     );
   });
 
-  it("records Sell List checkout review for a seller account", async () => {
+  it("looks up a Sell List confirmation by confirmation id", async () => {
+    const services = createServices();
+    vi.mocked(services.getConfirmation).mockResolvedValue(confirmationRow());
+    const app = buildApp({ actor: sellerActor(), services });
+
+    const response = await app.fetch(new Request("http://checkout.test/account/sell-list/confirmations/slc_1"));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      confirmation_id: "slc_1",
+      handoff_summary: { acceptedOfferCount: 1 },
+    });
+    expect(services.getConfirmation).toHaveBeenCalledWith("acc_seller", "slc_1");
+  });
+
+  it("records Sell List confirmation for a seller account", async () => {
     const services = createServices();
     const app = buildApp({ actor: sellerActor(), services });
 
     const response = await app.fetch(
-      new Request("http://checkout.test/account/sell-list/checkout", {
+      new Request("http://checkout.test/account/sell-list/confirm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          executionId: "sle_1",
+          confirmationId: "slc_1",
           readinessSnapshotId: "slr_ready",
           readinessSourceRevision: "slr_source",
           readinessDecisions: {
             lineActions: [{ lineId: "sll_1", action: "selected-offer" }],
           },
+          completedLineIds: ["sll_1"],
+          sellerEvidence: sellerEvidence(),
+          handoffSummary: handoffSummary(),
         }),
       }),
     );
@@ -333,33 +391,42 @@ describe("checkout sell list routes", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       id: "acc_seller",
+      confirmationId: "slc_1",
       version: 3,
-      status: "reviewed",
+      status: "confirmed",
+      completedLineIds: ["sll_1"],
+      confirmation: { confirmation_id: "slc_1" },
     });
-    expect(services.checkoutSellList).toHaveBeenCalledWith(
+    expect(services.confirmSellListCheckout).toHaveBeenCalledWith(
       expect.objectContaining({
         sellerAccountId: "acc_seller",
-        executionId: "sle_1",
+        confirmationId: "slc_1",
         readinessSnapshotId: "slr_ready",
         readinessSourceRevision: "slr_source",
         readinessDecisions: {
           lineActions: [{ lineId: "sll_1", action: "selected-offer" }],
           lineOutcomes: [],
         },
+        completedLineIds: ["sll_1"],
+        sellerEvidence: expect.objectContaining({ shipFrom: expect.objectContaining({ status: "ready" }) }),
+        handoffSummary: expect.objectContaining({
+          acceptedOfferCount: 1,
+          sideEffects: expect.objectContaining({ sale: "handoff-recorded" }),
+        }),
       }),
       expect.any(Object),
     );
   });
 
-  it("rejects Sell List checkout review without readiness evidence", async () => {
+  it("rejects Sell List confirmation without readiness, seller, and handoff evidence", async () => {
     const services = createServices();
     const app = buildApp({ actor: sellerActor(), services });
 
     const response = await app.fetch(
-      new Request("http://checkout.test/account/sell-list/checkout", {
+      new Request("http://checkout.test/account/sell-list/confirm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ executionId: "sle_1" }),
+        body: JSON.stringify({ confirmationId: "slc_1" }),
       }),
     );
 
@@ -367,13 +434,45 @@ describe("checkout sell list routes", () => {
     await expect(response.json()).resolves.toMatchObject({
       error: {
         code: "validation_failed",
-        message: "Sell List readiness snapshot is required.",
+        message: "Sell List confirmation requires current readiness, seller, and handoff evidence.",
       },
     });
-    expect(services.checkoutSellList).not.toHaveBeenCalled();
+    expect(services.confirmSellListCheckout).not.toHaveBeenCalled();
   });
 
-  it("starts a durable Sell List execution before sale side effects", async () => {
+  it("rejects Sell List confirmation when ready seller evidence is incomplete", async () => {
+    const services = createServices();
+    const app = buildApp({ actor: sellerActor(), services });
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/sell-list/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          confirmationId: "slc_1",
+          readinessSnapshotId: "slr_ready",
+          readinessSourceRevision: "slr_source",
+          completedLineIds: ["sll_1"],
+          sellerEvidence: {
+            ...sellerEvidence(),
+            shipFrom: { ...sellerEvidence().shipFrom, postalCode: "" },
+          },
+          handoffSummary: handoffSummary(),
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "validation_failed",
+        message: "Sell List confirmation requires current readiness, seller, and handoff evidence.",
+      },
+    });
+    expect(services.confirmSellListCheckout).not.toHaveBeenCalled();
+  });
+
+  it("does not expose removed Sell List legacy endpoints", async () => {
     const services = createServices();
     const app = buildApp({ actor: sellerActor(), services });
 
@@ -381,47 +480,11 @@ describe("checkout sell list routes", () => {
       new Request("http://checkout.test/account/sell-list/executions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ executionId: "sle_1", executionPlan: { version: 1, lines: [] } }),
+        body: JSON.stringify({}),
       }),
     );
 
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
-      id: "acc_seller",
-      executionId: "sle_1",
-      status: "pending",
-      executionPlan: { version: 1, lines: [] },
-    });
-    expect(services.startSellListExecution).toHaveBeenCalledWith({
-      sellerAccountId: "acc_seller",
-      executionId: "sle_1",
-      executionPlan: { version: 1, lines: [] },
-    });
-  });
-
-  it("records Sell List execution progress by action key", async () => {
-    const services = createServices();
-    const app = buildApp({ actor: sellerActor(), services });
-
-    const response = await app.fetch(
-      new Request("http://checkout.test/account/sell-list/executions/sle_1/progress", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ completedActionKey: "offer:sll_1:off_1" }),
-      }),
-    );
-
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
-      id: "acc_seller",
-      executionId: "sle_1",
-      executionProgress: { completedActionKeys: ["offer:sll_1:off_1"] },
-    });
-    expect(services.recordSellListExecutionProgress).toHaveBeenCalledWith({
-      sellerAccountId: "acc_seller",
-      executionId: "sle_1",
-      completedActionKey: "offer:sll_1:off_1",
-    });
+    expect(response.status).toBe(404);
   });
 
   it("blocks guest checkout actors from seller Sell List review", async () => {

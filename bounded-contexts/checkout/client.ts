@@ -4,19 +4,25 @@ import { attachResponseMetadata } from "@chase-sets/http/responses";
 import type { buildCheckoutApi } from "./api";
 import type { CheckoutCartLine } from "./features/cart/api/contracts";
 import type { CartReadinessDecisionInput, CartReadinessSnapshot } from "./features/cart/api/contracts";
+import type { CheckoutSellListConfirmationRow, CheckoutSellListLineRow } from "./features/sell-list/read-model/queries";
 import type {
-  CheckoutSellListExecutionRow,
-  CheckoutSellListLineRow,
-  CheckoutSellListReceiptRow,
-} from "./features/sell-list/read-model/queries";
-import type { SellListReadinessDecisionInput, SellListReadinessSnapshot } from "./features/sell-list/api/contracts";
+  SellListConfirmationSummary,
+  SellListReadinessDecisionInput,
+  SellListReadinessSnapshot,
+  SellListSellerConfirmationEvidence,
+} from "./features/sell-list/api/contracts";
 import type { CheckoutSessionRow } from "./features/sessions/read-model/queries";
 
 type CheckoutApiApp = ReturnType<typeof buildCheckoutApi>;
 const DEFAULT_BASE_URL = "/api/marketplace";
 
 export type { CartReadinessDecisionInput, CartReadinessSnapshot } from "./features/cart/api/contracts";
-export type { SellListReadinessDecisionInput, SellListReadinessSnapshot } from "./features/sell-list/api/contracts";
+export type {
+  SellListConfirmationSummary,
+  SellListReadinessDecisionInput,
+  SellListReadinessSnapshot,
+  SellListSellerConfirmationEvidence,
+} from "./features/sell-list/api/contracts";
 
 export type CheckoutSelectedOptionInput = Readonly<{
   dimensionId: string;
@@ -353,8 +359,7 @@ export function createCheckoutApiClient({
     async getSellList(): Promise<{
       items: readonly CheckoutSellListLineRow[];
       count: number;
-      latestReceipt?: CheckoutSellListReceiptRow | null;
-      latestPendingExecution?: CheckoutSellListExecutionRow | null;
+      latestConfirmation?: CheckoutSellListConfirmationRow | null;
     }> {
       return parseJsonResponse(await client.account["sell-list"].$get({ header: headers }));
     },
@@ -410,74 +415,27 @@ export function createCheckoutApiClient({
         }),
       );
     },
-    async getSellListExecutionReceipt(executionId: string): Promise<CheckoutSellListReceiptRow> {
+    async getSellListConfirmation(confirmationId: string): Promise<CheckoutSellListConfirmationRow> {
       return parseJsonResponse(
-        await client.account["sell-list"].executions[":executionId"].$get({
-          param: { executionId },
+        await client.account["sell-list"].confirmations[":confirmationId"].$get({
+          param: { confirmationId },
           header: headers,
         }),
       );
     },
-    async getLatestPendingSellListExecution(): Promise<CheckoutSellListExecutionRow> {
-      return parseJsonResponse(
-        await client.account["sell-list"].executions["latest-pending"].$get({
-          header: headers,
-        }),
-      );
-    },
-    async startSellListExecution(body: Readonly<{ executionId: string; executionPlan: unknown }>): Promise<{
-      id: string;
-      executionId: string;
-      status: CheckoutSellListExecutionRow["status"];
-      executionPlan: unknown;
-      executionProgress: unknown;
-      executionSummary: CheckoutSellListExecutionRow["execution_summary"];
-    }> {
-      return parseJsonResponse(await client.account["sell-list"].executions.$post({ json: body, header: headers }));
-    },
-    async recordSellListExecutionProgress(
-      executionId: string,
-      body: Readonly<{ completedActionKey: string }>,
-    ): Promise<{
-      id: string;
-      executionId: string;
-      status: CheckoutSellListExecutionRow["status"];
-      executionProgress: unknown;
-    }> {
-      return parseJsonResponse(
-        await client.account["sell-list"].executions[":executionId"].progress.$post({
-          param: { executionId },
-          json: body,
-          header: headers,
-        }),
-      );
-    },
-    async checkoutSellList(
+    async confirmSellListCheckout(
       body: Readonly<{
-        executionId?: string;
+        confirmationId: string;
         readinessSnapshotId: string;
         readinessSourceRevision: string;
         readinessDecisions?: SellListReadinessDecisionInput | null;
         completedLineIds?: readonly string[];
-        executionSummary?: Readonly<{
-          acceptedOfferCount: number;
-          createdListingCount: number;
-          skippedLineCount: number;
-          skippedReasons: readonly string[];
-          lineOutcomes?: readonly {
-            lineId: string;
-            itemTitle: string;
-            status: "completed" | "partial" | "skipped";
-            action: "accepted-offer" | "accepted-smart-match" | "created-listing" | "mixed" | "kept-in-sell-list";
-            quantity: number;
-            remainingQuantity: number;
-            detail: string;
-          }[];
-        }> | null;
         remainingLineQuantities?: readonly { lineId: string; quantity: number }[];
+        sellerEvidence: SellListSellerConfirmationEvidence;
+        handoffSummary: SellListConfirmationSummary;
       }>,
     ) {
-      return parseJsonResponse(await client.account["sell-list"].checkout.$post({ json: body, header: headers }));
+      return parseJsonResponse(await client.account["sell-list"].confirm.$post({ json: body, header: headers }));
     },
     async removeGuestSellListLine(anonymousSellListId: string, lineId: string) {
       return parseJsonResponse(
@@ -655,5 +613,5 @@ export function createCheckoutApiClient({
   };
 }
 
-export type { CheckoutCartLine, CheckoutSellListLineRow, CheckoutSellListReceiptRow, CheckoutSessionRow };
+export type { CheckoutCartLine, CheckoutSellListConfirmationRow, CheckoutSellListLineRow, CheckoutSessionRow };
 export const checkoutApi = createCheckoutApiClient();

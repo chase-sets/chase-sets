@@ -21,6 +21,8 @@ import {
   type CheckoutSellListCommand,
   type CheckoutSellListEvent,
   type CheckoutSellListState,
+  type SellListConfirmationSummary,
+  type SellListSellerConfirmationEvidence,
 } from "../domain/domain";
 import {
   createSellListReadinessSnapshot,
@@ -30,21 +32,69 @@ import {
 } from "../domain/readiness";
 import { buildCheckoutSellListProjectionHandlers } from "../read-model/projection";
 import {
-  getSellListExecution,
-  getSellListReceiptByExecutionId,
-  getLatestPendingSellListExecution,
-  getLatestSellListReceipt,
+  getLatestSellListConfirmation,
+  getSellListConfirmation,
   listSellListLines,
-  type CheckoutSellListExecutionRow,
+  type CheckoutSellListConfirmationRow,
 } from "../read-model/queries";
 
 function isIdempotentMergeReplay(error: unknown) {
   return (
     error instanceof Error &&
     (error.message.includes("Sell list line has already been added.") ||
-      error.message.includes("Sell list must contain at least one line.") ||
+      error.message.includes("Sell list line not found.") ||
       error.message.includes("Sell list has not been initialized."))
   );
+}
+
+function buildReadinessConfirmationEvidence(snapshot: SellListReadinessSnapshot) {
+  return {
+    schemaVersion: snapshot.schemaVersion,
+    snapshotId: snapshot.snapshotId,
+    sourceRevision: snapshot.sourceRevision,
+    includedLineIds: snapshot.includedLineIds,
+    lineOutcomes: snapshot.lineOutcomes
+      .filter((outcome) => snapshot.includedLineIds.includes(outcome.lineId))
+      .map((outcome) => ({ lineId: outcome.lineId, action: outcome.action })),
+  };
+}
+
+function assertSellerEvidenceReady(evidence: SellListSellerConfirmationEvidence) {
+  if (
+    evidence.shipFrom.status !== "ready" ||
+    evidence.payout.status !== "ready" ||
+    evidence.label.status !== "ready" ||
+    evidence.conditionReview.status !== "accepted" ||
+    evidence.risk.status !== "clear" ||
+    evidence.provider.status !== "ready" ||
+    evidence.freshness.status !== "current"
+  ) {
+    throw new CheckoutDomainError("Seller confirmation evidence must be ready before Sell List checkout can confirm.");
+  }
+  if (!evidence.shipFrom.country || !evidence.shipFrom.region || !evidence.shipFrom.postalCode) {
+    throw new CheckoutDomainError("Seller confirmation evidence must include ship-from serviceability facts.");
+  }
+  if (!evidence.payout.readinessStatus) {
+    throw new CheckoutDomainError("Seller confirmation evidence must include payout readiness facts.");
+  }
+  if (!evidence.conditionReview.acceptedAt) {
+    throw new CheckoutDomainError("Seller confirmation evidence must include condition review acceptance.");
+  }
+}
+
+function buildConfirmationRow(
+  params: Parameters<CheckoutSellListServices["confirmSellListCheckout"]>[0],
+  confirmedAt: string,
+  readinessEvidence: ReturnType<typeof buildReadinessConfirmationEvidence>,
+): CheckoutSellListConfirmationRow {
+  return {
+    seller_account_id: params.sellerAccountId,
+    confirmation_id: params.confirmationId,
+    confirmed_at: confirmedAt,
+    readiness_evidence: readinessEvidence,
+    seller_evidence: params.sellerEvidence,
+    handoff_summary: params.handoffSummary,
+  };
 }
 
 export type AddCheckoutSellListLineInput = Readonly<{
@@ -81,52 +131,45 @@ export type CheckoutSellListServices = Readonly<{
     params: Readonly<{ sellerAccountId: AccountId; lineId: SellListLineId }>,
     context: EventStoreContext,
   ) => Promise<{ lineId: SellListLineId; version: number }>;
-  checkoutSellList: (
+  confirmSellListCheckout: (
     params: Readonly<{
       sellerAccountId: AccountId;
-      executionId: string;
+      confirmationId: string;
       completedLineIds?: readonly SellListLineId[] | null;
       remainingLineQuantities?: readonly { lineId: SellListLineId; quantity: number }[] | null;
       readinessSnapshotId: string;
       readinessSourceRevision: string;
       readinessDecisions?: SellListReadinessDecisionInput | null;
-      executionSummary?: Readonly<{
+      sellerEvidence: SellListSellerConfirmationEvidence;
+      handoffSummary: Readonly<{
         acceptedOfferCount: number;
-        createdListingCount: number;
+        publishedListingCount: number;
         skippedLineCount: number;
         skippedReasons: readonly string[];
         lineOutcomes?: readonly {
           lineId: SellListLineId;
           itemTitle: string;
           status: "completed" | "partial" | "skipped";
-          action: "accepted-offer" | "accepted-smart-match" | "created-listing" | "mixed" | "kept-in-sell-list";
+          action: "accepted-offer" | "accepted-smart-match" | "published-listing" | "mixed" | "kept-in-sell-list";
           quantity: number;
           remainingQuantity: number;
           detail: string;
+          references?: Readonly<{
+            offerIds?: readonly string[];
+            listingId?: string | null;
+          }>;
         }[];
-      }> | null;
+        sideEffects: SellListConfirmationSummary["sideEffects"];
+      }>;
     }>,
     context: EventStoreContext,
   ) => Promise<{
     sellerAccountId: AccountId;
     version: number;
-    status: "reviewed";
+    status: "confirmed";
+    confirmation: CheckoutSellListConfirmationRow;
     completedLineIds: readonly SellListLineId[];
   }>;
-  startSellListExecution: (
-    params: Readonly<{
-      sellerAccountId: AccountId;
-      executionId: string;
-      executionPlan: unknown;
-    }>,
-  ) => Promise<CheckoutSellListExecutionRow>;
-  recordSellListExecutionProgress: (
-    params: Readonly<{
-      sellerAccountId: AccountId;
-      executionId: string;
-      completedActionKey: string;
-    }>,
-  ) => Promise<CheckoutSellListExecutionRow>;
   mergeSellListIntoAccount: (
     params: Readonly<{
       sourceOwnerId: string;
@@ -141,13 +184,11 @@ export type CheckoutSellListServices = Readonly<{
     }>,
   ) => Promise<SellListReadinessSnapshot>;
   listLines: (sellerAccountId: string) => ReturnType<typeof listSellListLines>;
-  getLatestReceipt: (sellerAccountId: string) => ReturnType<typeof getLatestSellListReceipt>;
-  getReceiptByExecutionId: (
+  getLatestConfirmation: (sellerAccountId: string) => ReturnType<typeof getLatestSellListConfirmation>;
+  getConfirmation: (
     sellerAccountId: string,
-    executionId: string,
-  ) => ReturnType<typeof getSellListReceiptByExecutionId>;
-  getExecution: (sellerAccountId: string, executionId: string) => ReturnType<typeof getSellListExecution>;
-  getLatestPendingExecution: (sellerAccountId: string) => ReturnType<typeof getLatestPendingSellListExecution>;
+    confirmationId: string,
+  ) => ReturnType<typeof getSellListConfirmation>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
@@ -278,7 +319,19 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
 
       return { lineId: params.lineId, version: result.version };
     },
-    checkoutSellList: async (params, context) => {
+    confirmSellListCheckout: async (params, context) => {
+      const existingConfirmation = await getSellListConfirmation(deps.db, params.sellerAccountId, params.confirmationId);
+      if (existingConfirmation) {
+        return {
+          sellerAccountId: params.sellerAccountId,
+          version: 0,
+          status: "confirmed",
+          confirmation: existingConfirmation,
+          completedLineIds: [],
+        };
+      }
+
+      assertSellerEvidenceReady(params.sellerEvidence);
       const currentLines = await listSellListLines(deps.db, params.sellerAccountId);
       const readiness = validateSellListReadinessSnapshot(currentLines, {
         snapshotId: params.readinessSnapshotId,
@@ -294,118 +347,55 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
       if (readiness.current.includedLineIds.length === 0) {
         throw new CheckoutDomainError("Sell List readiness must include at least one checkout line.");
       }
-      const completedLineIds = (params.completedLineIds ?? []).filter((lineId) =>
+      const readinessLineIds = new Set(readiness.current.includedLineIds);
+      const requestedCompletedLineIds =
+        params.completedLineIds && params.completedLineIds.length > 0
+          ? params.completedLineIds
+          : (readiness.current.includedLineIds as readonly SellListLineId[]);
+      const completedLineIds = requestedCompletedLineIds.filter((lineId) =>
         readiness.current.includedLineIds.includes(lineId),
       );
-
-      const result = await commandHandler({
-        streamId: `checkout.sell-list-${params.sellerAccountId}`,
-        command: {
-          type: "CheckoutSellList",
-          executionId: params.executionId,
-          checkedOutAt: new Date().toISOString(),
-          completedLineIds,
-          remainingLineQuantities: params.remainingLineQuantities ?? null,
-          executionSummary: params.executionSummary ?? null,
-        },
-        context,
-      });
-
-      await deps.db.query(
-        `UPDATE checkout_sell_list_execution_pages
-         SET status = 'finalized',
-             execution_summary = $3::jsonb,
-             finalized_at = now(),
-             updated_at = now()
-         WHERE seller_account_id = $1
-           AND execution_id = $2`,
-        [params.sellerAccountId, params.executionId, JSON.stringify(params.executionSummary ?? {})],
+      const remainingLineQuantities = (params.remainingLineQuantities ?? []).filter((entry) =>
+        readinessLineIds.has(entry.lineId),
       );
+      const readinessEvidence = buildReadinessConfirmationEvidence(readiness.current);
+      const confirmedAt = new Date().toISOString();
+      const confirmation = buildConfirmationRow(params, confirmedAt, readinessEvidence);
+
+      let version = 0;
+      try {
+        const result = await commandHandler({
+          streamId: `checkout.sell-list-${params.sellerAccountId}`,
+          command: {
+            type: "ConfirmSellListCheckout",
+            confirmationId: params.confirmationId,
+            confirmedAt,
+            completedLineIds,
+            remainingLineQuantities,
+            readinessEvidence,
+            sellerEvidence: params.sellerEvidence,
+            handoffSummary: params.handoffSummary,
+          },
+          context,
+        });
+        version = result.version;
+      } catch (error) {
+        if (!(error instanceof Error) || !error.message.includes("Sell List checkout is already confirmed.")) {
+          throw error;
+        }
+      }
 
       return {
         sellerAccountId: params.sellerAccountId,
-        version: result.version,
-        status: "reviewed",
+        version,
+        status: "confirmed",
+        confirmation,
         completedLineIds,
       };
     },
-    startSellListExecution: async (params) => {
-      const existingReceipt = await getSellListReceiptByExecutionId(
-        deps.db,
-        params.sellerAccountId,
-        params.executionId,
-      );
-      if (existingReceipt) {
-        return {
-          seller_account_id: params.sellerAccountId,
-          execution_id: params.executionId,
-          status: "finalized",
-          execution_plan: {},
-          execution_progress: { completedActionKeys: [] },
-          execution_summary: existingReceipt.execution_summary,
-          created_at: existingReceipt.checked_out_at,
-          updated_at: existingReceipt.checked_out_at,
-          finalized_at: existingReceipt.checked_out_at,
-        };
-      }
-
-      await deps.db.query(
-        `INSERT INTO checkout_sell_list_execution_pages (
-           seller_account_id,
-           execution_id,
-           status,
-           execution_plan,
-           created_at,
-           updated_at
-         )
-         VALUES ($1, $2, 'pending', $3::jsonb, now(), now())
-         ON CONFLICT (seller_account_id, execution_id) DO NOTHING`,
-        [params.sellerAccountId, params.executionId, JSON.stringify(params.executionPlan ?? {})],
-      );
-
-      const execution = await getSellListExecution(deps.db, params.sellerAccountId, params.executionId);
-      if (!execution) {
-        throw new CheckoutDomainError("Sell List execution could not be started.");
-      }
-
-      return execution;
-    },
-    recordSellListExecutionProgress: async (params) => {
-      const existing = await getSellListExecution(deps.db, params.sellerAccountId, params.executionId);
-      if (!existing) {
-        throw new CheckoutDomainError("Sell List execution could not be found.");
-      }
-
-      const progress =
-        typeof existing.execution_progress === "object" && existing.execution_progress !== null
-          ? (existing.execution_progress as { completedActionKeys?: unknown })
-          : {};
-      const completedActionKeys = Array.isArray(progress.completedActionKeys)
-        ? progress.completedActionKeys.map(String).filter(Boolean)
-        : [];
-      const nextCompletedActionKeys = [...new Set([...completedActionKeys, params.completedActionKey])];
-
-      await deps.db.query(
-        `UPDATE checkout_sell_list_execution_pages
-         SET execution_progress = $3::jsonb,
-             updated_at = now()
-         WHERE seller_account_id = $1
-           AND execution_id = $2`,
-        [params.sellerAccountId, params.executionId, JSON.stringify({ completedActionKeys: nextCompletedActionKeys })],
-      );
-
-      const updated = await getSellListExecution(deps.db, params.sellerAccountId, params.executionId);
-      if (!updated) {
-        throw new CheckoutDomainError("Sell List execution progress could not be recorded.");
-      }
-
-      return updated;
-    },
-    getLatestReceipt: (sellerAccountId) => getLatestSellListReceipt(deps.db, sellerAccountId),
-    getReceiptByExecutionId: (sellerAccountId, executionId) =>
-      getSellListReceiptByExecutionId(deps.db, sellerAccountId, executionId),
-    getExecution: (sellerAccountId, executionId) => getSellListExecution(deps.db, sellerAccountId, executionId),
-    getLatestPendingExecution: (sellerAccountId) => getLatestPendingSellListExecution(deps.db, sellerAccountId),
+    getLatestConfirmation: (sellerAccountId) => getLatestSellListConfirmation(deps.db, sellerAccountId),
+    getConfirmation: (sellerAccountId, confirmationId) =>
+      getSellListConfirmation(deps.db, sellerAccountId, confirmationId),
     mergeSellListIntoAccount: async (params, context) => {
       const sourceLines = await listSellListLines(deps.db, params.sourceOwnerId);
       const existingTargetLineIds = new Set(
@@ -448,19 +438,20 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
       }
 
       if (sourceLines.length > 0) {
-        try {
-          await commandHandler({
-            streamId: `checkout.sell-list-${params.sourceOwnerId}`,
-            command: {
-              type: "CheckoutSellList",
-              executionId: createId("sle"),
-              checkedOutAt: new Date().toISOString(),
-            },
-            context,
-          });
-        } catch (error) {
-          if (!isIdempotentMergeReplay(error)) {
-            throw error;
+        for (const line of sourceLines) {
+          try {
+            await commandHandler({
+              streamId: `checkout.sell-list-${params.sourceOwnerId}`,
+              command: {
+                type: "RemoveSellListLine",
+                lineId: line.line_id as SellListLineId,
+              },
+              context,
+            });
+          } catch (error) {
+            if (!isIdempotentMergeReplay(error)) {
+              throw error;
+            }
           }
         }
       }

@@ -89,16 +89,24 @@ export type SignedInSellCheckoutFormValues = Readonly<{
 
 export type SignedInSellCheckoutFieldErrors = Partial<Record<keyof SignedInSellCheckoutFormValues | "form", string>>;
 
+export type SignedInSellCheckoutSideEffectStatus =
+  | "not-attempted"
+  | "not-applicable"
+  | "handoff-recorded"
+  | "pending-downstream"
+  | "failed";
+
 export type SignedInSellCheckoutConfirmation = Readonly<{
   referenceId: string;
   sellerName: string;
   estimatedTotal: string;
   sideEffects: Readonly<{
-    label: "not-attempted";
-    payout: "not-attempted";
-    sale: "not-attempted";
-    notification: "not-attempted";
-    accountHistory: "not-attempted";
+    sale: SignedInSellCheckoutSideEffectStatus;
+    label: SignedInSellCheckoutSideEffectStatus;
+    payout: SignedInSellCheckoutSideEffectStatus;
+    settlement: SignedInSellCheckoutSideEffectStatus;
+    notification: SignedInSellCheckoutSideEffectStatus;
+    accountHistory: SignedInSellCheckoutSideEffectStatus;
   }>;
 }>;
 

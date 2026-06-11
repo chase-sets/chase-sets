@@ -55,8 +55,7 @@
       "sourceContextNames": ["checkout"],
       "ownedTables": [
         "checkout_sell_list_line_pages",
-        "checkout_sell_list_execution_pages",
-        "checkout_sell_list_execution_receipt_pages"
+        "checkout_sell_list_confirmation_pages"
       ],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
@@ -236,7 +235,7 @@
       },
       "destination": {
         "routeId": "sell-checkout-session",
-        "transientRecovery": "Guest sell checkout revalidates checkout.sell-list-readiness.v1 from the anonymous Sell List and fails closed to Sell List readiness recovery; no label, payout, sale, notification, or account-history side effects are attempted in this slice."
+        "transientRecovery": "Guest sell checkout revalidates checkout.sell-list-readiness.v1 from the anonymous Sell List and fails closed to Sell List readiness recovery; no label, payout, sale, settlement, notification, or account-history side effects are attempted in this slice."
       },
       "exception": {
         "status": "accepted",

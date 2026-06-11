@@ -43,7 +43,7 @@ Run these checks after activation and after disablement:
 - Buy checkout does not expose seller allocation or fulfillment assignment controls.
 - Signed-in Sell List can enter sell readiness or sell checkout only after seller readiness passes.
 - Guest Sell List cannot execute an anonymous payout flow.
-- Sell checkout does not expose fallback listing execution internals in the main form.
+- Sell checkout does not expose fallback listing handoff internals in the main form.
 - Buy confirmation creates or links the expected order, payment, and account-history handoff records.
 - Sell confirmation creates or links the expected sale, label, payout-readiness, and account-history handoff records.
 - Payment-owned guest handoff remains accessible only for valid guest payment recovery.
