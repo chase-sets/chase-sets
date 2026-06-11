@@ -1,557 +1,468 @@
-import { t } from "@chase-sets/localization";
 import {
-  Text,
-  Button,
+  Badge,
   DataTable,
-  Inline,
+  KeyValueList,
+  LinkButton,
+  MetricStrip,
   OperationalStatusBanner,
-  Select,
-  Stack,
-  StatusPill,
-  TaskSummary,
+  WorkflowModule,
   type DataColumn,
-  type SelectItem,
 } from "@chase-sets/design-system";
+import { t } from "@chase-sets/localization";
 import type {
-  CatalogIntegrationAuditLifecycleEntry,
-  CatalogIntegrationControlPlaneOverview,
-  CatalogIntegrationRecentJobSummary,
-  CatalogIntegrationControlPlaneUnitReadiness,
-  CatalogIntegrationProviderReadiness,
-  CatalogIntegrationRolloutControl,
-  CatalogProviderProfileVersionReview,
-} from "../../contracts";
+  CatalogPrimaryWorkbenchHealthTriageJob,
+  CatalogPrimaryWorkbenchHealthTriageProvider,
+  CatalogPrimaryWorkbenchHealthTriageReadModel,
+  CatalogPrimaryWorkbenchHealthTriageReadModelState,
+  CatalogPrimaryWorkbenchHealthTriageRolloutControl,
+  CatalogPrimaryWorkbenchHealthTriageStatus,
+  CatalogPrimaryWorkbenchHealthTriageUnit,
+  CatalogPrimaryWorkbenchReadModel,
+} from "../../../api/primary-workbench-admin-contracts";
 
-export type CatalogIntegrationProfileHealthPanelProps = Readonly<{
-  profiles: CatalogProviderProfileVersionReview[];
-  columns: DataColumn<CatalogProviderProfileVersionReview>[];
-  profileWorkspaceItems: SelectItem[];
-  selectedProfileId: string;
-  emptyProfileWorkspaceValue: string;
-  onSelectedProfileChange: (value: string) => void;
-  onRefresh: () => void;
-  getProfileRowId: (profile: CatalogProviderProfileVersionReview) => string;
-  controlPlaneOverview: CatalogIntegrationControlPlaneOverview | null;
-  controlPlaneLoading: boolean;
-  controlPlaneError: string | null;
-  onRefreshControlPlane: () => void;
-}>;
-
-export function CatalogIntegrationProfileHealthPanel({
-  profiles,
-  columns,
-  profileWorkspaceItems,
-  selectedProfileId,
-  emptyProfileWorkspaceValue,
-  onSelectedProfileChange,
-  onRefresh,
-  getProfileRowId,
-  controlPlaneOverview,
-  controlPlaneLoading,
-  controlPlaneError,
-  onRefreshControlPlane,
-}: CatalogIntegrationProfileHealthPanelProps) {
-  return (
-    <Stack gap={3}>
-      <CatalogIntegrationControlPlaneReadinessPanel
-        overview={controlPlaneOverview}
-        loading={controlPlaneLoading}
-        error={controlPlaneError}
-        onRefresh={onRefreshControlPlane}
-      />
-      <Inline gap={3} align="center">
-        <Stack gap={1}>
-          <h2>{t("catalog.features.sourceObservations.ui.adminControlPlane.profileReview.title")}</h2>
-          <p>{t("catalog.features.sourceObservations.ui.adminControlPlane.profileReview.description")}</p>
-        </Stack>
-        <Button tone="secondary" leadingIcon="refreshCcw" onClick={onRefresh}>
-          {t("catalog.features.sourceObservations.ui.adminControlPlane.profileReview.refresh")}
-        </Button>
-      </Inline>
-      <Select
-        label={t("catalog.features.sourceObservations.ui.adminControlPlane.profile.workspace")}
-        value={selectedProfileId}
-        onValueChange={onSelectedProfileChange}
-        items={
-          profileWorkspaceItems.length > 0
-            ? profileWorkspaceItems
-            : [
-                {
-                  label: t("catalog.features.sourceObservations.ui.adminControlPlane.no.provider.profiles.available"),
-                  value: emptyProfileWorkspaceValue,
-                },
-              ]
-        }
-        disabled={profileWorkspaceItems.length === 0}
-      />
-      <DataTable
-        rows={profiles}
-        columns={columns}
-        getRowId={getProfileRowId}
-        emptyTitle={t("catalog.features.sourceObservations.ui.adminControlPlane.profileReview.none.found")}
-      />
-    </Stack>
-  );
-}
-
-function CatalogIntegrationControlPlaneReadinessPanel({
-  overview,
-  loading,
-  error,
-  onRefresh,
+export function CatalogIntegrationHealthTriageDashboard({
+  readModel,
 }: Readonly<{
-  overview: CatalogIntegrationControlPlaneOverview | null;
-  loading: boolean;
-  error: string | null;
-  onRefresh: () => void;
+  readModel: CatalogPrimaryWorkbenchReadModel;
 }>) {
-  const readiness = overview?.readiness ?? null;
-  const units = readiness?.units ?? [];
-  const readyUnits = units.filter(
-    (unit) =>
-      unit.semanticReadiness === "ready" &&
-      unit.transportReadiness === "ready" &&
-      unit.fixtureValidationStatus === "ready" &&
-      unit.dryRunStatus === "completed",
-  ).length;
+  const health = readModel.healthTriage;
 
   return (
-    <Stack gap={3}>
-      <Inline gap={3} align="center">
-        <Stack gap={1}>
-          <h2>{t("catalog.features.sourceObservations.ui.adminControlPlane.first.slice.readiness")}</h2>
-          <p>
-            {t(
-              "catalog.features.sourceObservations.ui.adminControlPlane.reference.ingestion.unit.health.fixture.validation.dry.run.facts.and.diagnostics",
-            )}
-          </p>
-        </Stack>
-        <Button tone="secondary" leadingIcon="refreshCcw" loading={loading} onClick={onRefresh}>
-          {t("catalog.features.sourceObservations.ui.adminControlPlane.refresh.readiness")}
-        </Button>
-      </Inline>
-      {error ? (
+    <WorkflowModule
+      title={t("catalog.features.sourceObservations.ui.primaryWorkbench.health.title")}
+      description={t("catalog.features.sourceObservations.ui.primaryWorkbench.health.description")}
+      status={<Badge tone={statusTone(health.status)}>{statusLabel(health.status)}</Badge>}
+      actions={
+        <LinkButton size="sm" tone="secondary" leadingIcon="chevronLeft" href={health.returnToPrimaryHref}>
+          {t("catalog.features.sourceObservations.ui.primaryWorkbench.health.return.primary")}
+        </LinkButton>
+      }
+      headingLevel={2}
+      density="compact"
+    >
+      <MetricStrip
+        items={[
+          {
+            label: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.metric.ready.units"),
+            value: `${health.summary.readyUnits}/${health.summary.totalUnits}`,
+            trend: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.metric.ready.units.trend"),
+          },
+          {
+            label: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.metric.blocked.units"),
+            value: String(health.summary.blockedUnits),
+            trend: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.metric.blocked.units.trend"),
+          },
+          {
+            label: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.metric.degraded.providers"),
+            value: String(health.summary.degradedProviders),
+            trend: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.metric.degraded.providers.trend"),
+          },
+          {
+            label: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.metric.active.jobs"),
+            value: String(health.summary.activeJobs),
+            trend: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.metric.active.jobs.trend"),
+          },
+          {
+            label: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.metric.rollout.stops"),
+            value: String(health.summary.rolloutStops),
+            trend: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.metric.rollout.stops.trend"),
+          },
+          {
+            label: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.metric.audit.entries"),
+            value: String(health.summary.auditEntries),
+            trend: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.metric.audit.entries.trend"),
+          },
+        ]}
+      />
+
+      {health.status === "unavailable" ? (
         <OperationalStatusBanner
           tone="danger"
-          title={t("catalog.features.sourceObservations.ui.adminControlPlane.readiness.unavailable")}
-          description={error}
+          title={t("catalog.features.sourceObservations.ui.primaryWorkbench.health.unavailable.title")}
+          description={t("catalog.features.sourceObservations.ui.primaryWorkbench.health.unavailable.description")}
         />
       ) : null}
-      <TaskSummary
-        title={t("catalog.features.sourceObservations.ui.adminControlPlane.control.plane.proof")}
-        items={[
-          {
-            label: t("catalog.features.sourceObservations.ui.adminControlPlane.ready.units"),
-            value: `${readyUnits}/${units.length}`,
-          },
-          {
-            label: t("catalog.features.sourceObservations.ui.adminControlPlane.generated"),
-            value: readiness
-              ? formatDateTime(readiness.generatedAt)
-              : loading
-                ? t("catalog.features.sourceObservations.ui.adminControlPlane.loading")
-                : t("catalog.features.sourceObservations.ui.adminControlPlane.not.loaded"),
-          },
-        ]}
-      />
-      <CatalogIntegrationRolloutControlsPanel overview={overview} loading={loading} />
-      {units.length > 0 ? (
-        <Stack gap={2}>
-          {units.map((unit) => {
-            const recentJobs =
-              overview?.unitActivity.units.find((activity) => activity.unitKey === unit.unitKey)?.recentJobs ?? [];
 
-            return <CatalogIntegrationControlPlaneUnitPanel key={unit.unitKey} unit={unit} recentJobs={recentJobs} />;
+      <DataTable
+        rows={[...health.readModels]}
+        columns={readModelColumns}
+        getRowId={(row) => row.queryKey}
+        density="compact"
+        emptyTitle={t("catalog.features.sourceObservations.ui.primaryWorkbench.health.readModels.empty")}
+        emptyDescription={t("catalog.features.sourceObservations.ui.primaryWorkbench.health.readModels.empty.detail")}
+      />
+
+      <DataTable
+        rows={[...health.units]}
+        columns={unitColumns}
+        getRowId={(row) => row.unitKey}
+        density="compact"
+        emptyTitle={t("catalog.features.sourceObservations.ui.primaryWorkbench.health.units.empty")}
+        emptyDescription={t("catalog.features.sourceObservations.ui.primaryWorkbench.health.units.empty.detail")}
+      />
+
+      <DataTable
+        rows={[...health.providers]}
+        columns={providerColumns}
+        getRowId={(row) => row.providerKey}
+        density="compact"
+        emptyTitle={t("catalog.features.sourceObservations.ui.primaryWorkbench.health.providers.empty")}
+        emptyDescription={t("catalog.features.sourceObservations.ui.primaryWorkbench.health.providers.empty.detail")}
+      />
+
+      <CatalogIntegrationRolloutTriage controls={health.rolloutControls} />
+      <CatalogIntegrationJobTriage jobs={health.recentJobs} />
+      <CatalogIntegrationAuditTriage health={health} />
+    </WorkflowModule>
+  );
+}
+
+const readModelColumns: DataColumn<CatalogPrimaryWorkbenchHealthTriageReadModelState>[] = [
+  {
+    key: "query",
+    header: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.query"),
+    mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.query"),
+    cell: (row) => (
+      <div className="grid min-w-0 gap-1">
+        <span className="text-sm font-semibold text-foreground">{row.queryKey}</span>
+        <span className="text-xs text-secondary">{row.statusMessage}</span>
+      </div>
+    ),
+  },
+  {
+    key: "freshness",
+    header: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.freshness"),
+    mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.freshness"),
+    cell: (row) => <Badge tone={freshnessTone(row.freshness)}>{row.freshness}</Badge>,
+  },
+  {
+    key: "ownerMetric",
+    header: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.owner.metric"),
+    mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.owner.metric"),
+    cell: (row) => row.ownerMetricKey,
+  },
+  {
+    key: "generated",
+    header: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.generated"),
+    mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.generated"),
+    cell: (row) => formatDateTime(row.generatedAt),
+  },
+];
+
+const unitColumns: DataColumn<CatalogPrimaryWorkbenchHealthTriageUnit>[] = [
+  {
+    key: "unit",
+    header: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.unit"),
+    sortable: true,
+    cell: (row) => (
+      <div className="grid min-w-0 gap-1">
+        <span className="text-sm font-semibold text-foreground">{row.displayName}</span>
+        <span className="text-xs text-secondary">{row.unitKey}</span>
+        <span className="text-xs text-secondary">
+          {row.providerKey} · {row.productDomain}/{row.productForm}
+        </span>
+      </div>
+    ),
+  },
+  {
+    key: "semantic",
+    header: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.catalog.semantic"),
+    mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.catalog.semantic"),
+    cell: (row) => (
+      <div className="flex min-w-0 flex-wrap gap-1.5">
+        <Badge tone={readinessTone(row.semanticReadiness)}>{row.semanticReadiness}</Badge>
+        <Badge tone={readinessTone(row.fixtureValidationStatus)}>{row.fixtureValidationStatus}</Badge>
+        <Badge tone={row.dryRunStatus === "completed" ? "success" : "danger"}>{row.dryRunStatus}</Badge>
+      </div>
+    ),
+  },
+  {
+    key: "transport",
+    header: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.provider.transport"),
+    mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.provider.transport"),
+    cell: (row) => (
+      <div className="grid min-w-0 gap-1">
+        <div className="flex min-w-0 flex-wrap gap-1.5">
+          <Badge tone={readinessTone(row.transportReadiness)}>{row.transportReadiness}</Badge>
+          <Badge tone={readinessTone(row.credentialReadiness)}>{row.credentialReadinessState}</Badge>
+        </div>
+        <span className="text-xs text-secondary">
+          {t("catalog.features.sourceObservations.ui.primaryWorkbench.health.observation.facts", {
+            count: String(row.observationFacts),
           })}
-        </Stack>
-      ) : !loading ? (
-        <OperationalStatusBanner
-          tone="warning"
-          title={t("catalog.features.sourceObservations.ui.adminControlPlane.no.ingestion.units.reported")}
-          description={t(
-            "catalog.features.sourceObservations.ui.adminControlPlane.the.catalog.integration.control.plane.did.not.return.any.ingestion.unit.readiness.records",
-          )}
-        />
-      ) : null}
-      <CatalogIntegrationProviderReadinessPanel overview={overview} loading={loading} />
-      <CatalogIntegrationAuditLifecyclePanel overview={overview} loading={loading} />
-    </Stack>
-  );
-}
+        </span>
+      </div>
+    ),
+  },
+  {
+    key: "next",
+    header: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.next.action"),
+    mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.next.action"),
+    cell: (row) => (
+      <div className="grid min-w-0 gap-1">
+        <Badge tone={statusTone(row.status)}>{statusLabel(row.status)}</Badge>
+        <span className="text-sm text-foreground">{primaryActionLabel(row.affectedPrimaryAction)}</span>
+        <span className="text-xs text-secondary">{row.ownerMetricKey}</span>
+        <span className="text-xs leading-5 text-secondary">{row.nextAction}</span>
+      </div>
+    ),
+  },
+  {
+    key: "diagnostics",
+    header: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.diagnostics"),
+    mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.diagnostics"),
+    cell: (row) => (
+      <div className="grid min-w-0 gap-1">
+        <span className="text-sm text-foreground">
+          {t("catalog.features.sourceObservations.ui.primaryWorkbench.health.diagnostic.counts", {
+            errors: String(row.diagnosticCounts.error),
+            warnings: String(row.diagnosticCounts.warning),
+            infos: String(row.diagnosticCounts.info),
+          })}
+        </span>
+        <span className="text-xs leading-5 text-secondary">
+          {row.latestDiagnosticText ??
+            t("catalog.features.sourceObservations.ui.primaryWorkbench.health.diagnostics.none")}
+        </span>
+      </div>
+    ),
+  },
+];
 
-function CatalogIntegrationRolloutControlsPanel({
-  overview,
-  loading,
+const providerColumns: DataColumn<CatalogPrimaryWorkbenchHealthTriageProvider>[] = [
+  {
+    key: "provider",
+    header: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.provider"),
+    sortable: true,
+    cell: (row) => (
+      <div className="grid min-w-0 gap-1">
+        <span className="text-sm font-semibold text-foreground">{row.providerKey}</span>
+        <span className="text-xs text-secondary">{row.adapterKey}</span>
+        <span className="text-xs text-secondary">
+          {t("catalog.features.sourceObservations.ui.primaryWorkbench.health.affected.units", {
+            count: String(row.unitKeys.length),
+          })}
+        </span>
+      </div>
+    ),
+  },
+  {
+    key: "status",
+    header: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.status"),
+    mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.status"),
+    cell: (row) => (
+      <div className="flex min-w-0 flex-wrap gap-1.5">
+        <Badge tone={statusTone(row.status)}>{statusLabel(row.status)}</Badge>
+        <Badge tone={readinessTone(row.credentialReadiness)}>{row.credentialReadinessState}</Badge>
+      </div>
+    ),
+  },
+  {
+    key: "capabilities",
+    header: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.capabilities"),
+    mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.capabilities"),
+    cell: (row) => (
+      <KeyValueList
+        density="compact"
+        items={[
+          {
+            key: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.capability.api"),
+            value: row.apiReachability,
+          },
+          {
+            key: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.capability.options"),
+            value: row.optionQueryHealth,
+          },
+          {
+            key: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.capability.rate.limit"),
+            value: row.rateLimitStatus,
+          },
+          {
+            key: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.capability.payload"),
+            value: row.payloadAcquisition,
+          },
+        ]}
+      />
+    ),
+  },
+  {
+    key: "next",
+    header: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.next.action"),
+    mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.next.action"),
+    cell: (row) => (
+      <div className="grid min-w-0 gap-1">
+        <span className="text-xs text-secondary">{row.ownerMetricKey}</span>
+        <span className="text-sm leading-5 text-foreground">{row.nextAction}</span>
+        <span className="text-xs leading-5 text-secondary">
+          {row.latestDiagnosticText ??
+            t("catalog.features.sourceObservations.ui.primaryWorkbench.health.diagnostics.none")}
+        </span>
+      </div>
+    ),
+  },
+];
+
+function CatalogIntegrationRolloutTriage({
+  controls,
 }: Readonly<{
-  overview: CatalogIntegrationControlPlaneOverview | null;
-  loading: boolean;
+  controls: readonly CatalogPrimaryWorkbenchHealthTriageRolloutControl[];
 }>) {
-  const controls = overview?.readiness.rolloutControls.controls ?? [];
   const activeControls = controls.filter((control) => control.status !== "open");
-  const blockedControls = activeControls.filter((control) => control.status === "blocked").length;
+
+  if (activeControls.length === 0) {
+    return (
+      <OperationalStatusBanner
+        tone="success"
+        title={t("catalog.features.sourceObservations.ui.primaryWorkbench.health.rollout.clear.title")}
+        description={t("catalog.features.sourceObservations.ui.primaryWorkbench.health.rollout.clear.description")}
+      />
+    );
+  }
 
   return (
-    <Stack gap={2}>
-      <Inline gap={2} align="center" wrap>
-        <h3>{t("catalog.features.sourceObservations.ui.adminControlPlane.rollout.controls")}</h3>
-        {activeControls.length > 0 ? (
-          <StatusPill tone={blockedControls > 0 ? "danger" : "warning"}>
-            {blockedControls > 0
-              ? t("catalog.features.sourceObservations.ui.adminControlPlane.blocked")
-              : t("catalog.features.sourceObservations.ui.adminControlPlane.degraded")}
-          </StatusPill>
-        ) : null}
-      </Inline>
-      <TaskSummary
-        title={t("catalog.features.sourceObservations.ui.adminControlPlane.rollout.control.summary")}
-        items={[
-          {
-            label: t("catalog.features.sourceObservations.ui.adminControlPlane.active.controls"),
-            value: overview
-              ? `${activeControls.length}/${controls.length}`
-              : loading
-                ? t("catalog.features.sourceObservations.ui.adminControlPlane.loading")
-                : t("catalog.features.sourceObservations.ui.adminControlPlane.not.loaded"),
-          },
-          {
-            label: t("catalog.features.sourceObservations.ui.adminControlPlane.blocked.controls"),
-            value: String(blockedControls),
-          },
-          {
-            label: t("catalog.features.sourceObservations.ui.adminControlPlane.generated"),
-            value: overview
-              ? formatDateTime(overview.readiness.rolloutControls.generatedAt)
-              : loading
-                ? t("catalog.features.sourceObservations.ui.adminControlPlane.loading")
-                : t("catalog.features.sourceObservations.ui.adminControlPlane.not.loaded"),
-          },
-        ]}
-      />
+    <div className="grid gap-2">
       {activeControls.map((control) => (
-        <CatalogIntegrationRolloutControlBanner key={control.controlId} control={control} />
-      ))}
-    </Stack>
-  );
-}
-
-function CatalogIntegrationRolloutControlBanner({ control }: Readonly<{ control: CatalogIntegrationRolloutControl }>) {
-  return (
-    <OperationalStatusBanner
-      tone={control.status === "blocked" ? "danger" : "warning"}
-      title={control.controlId}
-      description={t("catalog.features.sourceObservations.ui.adminControlPlane.rollout.control.description", {
-        message: control.message,
-        metricKey: control.metricKey,
-        ownerIssue: String(control.ownerIssue),
-      })}
-    />
-  );
-}
-
-function CatalogIntegrationControlPlaneUnitPanel({
-  unit,
-  recentJobs,
-}: Readonly<{
-  unit: CatalogIntegrationControlPlaneUnitReadiness;
-  recentJobs: readonly CatalogIntegrationRecentJobSummary[];
-}>) {
-  const firstEvidence = unit.dryRunEvidence[0] ?? null;
-  const latestJob = recentJobs[0] ?? null;
-
-  return (
-    <Stack gap={2}>
-      <Inline gap={2} align="center" wrap>
-        <h3>{unit.displayName}</h3>
-        <StatusPill tone={unit.semanticReadiness === "ready" ? "success" : "danger"}>
-          {unit.semanticReadiness}
-        </StatusPill>
-        <StatusPill tone={unit.dryRunStatus === "completed" ? "success" : "danger"}>{unit.dryRunStatus}</StatusPill>
-      </Inline>
-      <TaskSummary
-        title={unit.unitKey}
-        items={[
-          {
-            label: t("catalog.features.sourceObservations.ui.adminControlPlane.provider"),
-            value: unit.providerKey,
-          },
-          {
-            label: t("catalog.features.sourceObservations.ui.adminControlPlane.credential"),
-            value: `${unit.credentialReadiness} / ${unit.credentialReadinessState}`,
-          },
-          {
-            label: t("catalog.features.sourceObservations.ui.adminControlPlane.profile.version"),
-            value: unit.profileVersion || t("catalog.features.sourceObservations.ui.adminControlPlane.not.assigned"),
-          },
-          {
-            label: t("catalog.features.sourceObservations.ui.adminControlPlane.transport"),
-            value: unit.transportReadiness,
-          },
-          {
-            label: t("catalog.features.sourceObservations.ui.adminControlPlane.fixtures"),
-            value: unit.fixtureValidationStatus,
-          },
-          {
-            label: t("catalog.features.sourceObservations.ui.adminControlPlane.facts"),
-            value: formatCount(unit.observationFacts),
-          },
-          {
-            label: t("catalog.features.sourceObservations.ui.adminControlPlane.diagnostics"),
-            value: `${unit.diagnosticCounts.error} error / ${unit.diagnosticCounts.warning} warning / ${unit.diagnosticCounts.info} info`,
-          },
-          {
-            label: t("catalog.features.sourceObservations.ui.adminControlPlane.recent.jobs"),
-            value: recentJobs.length
-              ? formatCount(recentJobs.length)
-              : t("catalog.features.sourceObservations.ui.adminControlPlane.none"),
-          },
-          {
-            label: t("catalog.features.sourceObservations.ui.adminControlPlane.latest.job"),
-            value: latestJob
-              ? formatRecentJob(latestJob)
-              : t("catalog.features.sourceObservations.ui.adminControlPlane.none"),
-          },
-        ]}
-      />
-      {firstEvidence ? (
-        <TaskSummary
-          title={t("catalog.features.sourceObservations.ui.adminControlPlane.dry.run.source.observation.fact")}
-          items={[
-            {
-              label: t("catalog.features.sourceObservations.ui.adminControlPlane.external.key"),
-              value: firstEvidence.externalKey,
-            },
-            {
-              label: t("catalog.features.sourceObservations.ui.adminControlPlane.source.hash"),
-              value: firstEvidence.sourceHash ?? t("catalog.features.sourceObservations.ui.adminControlPlane.none"),
-            },
-            {
-              label: t("catalog.features.sourceObservations.ui.adminControlPlane.name"),
-              value:
-                firstEvidence.normalizedFacts.name ??
-                t("catalog.features.sourceObservations.ui.adminControlPlane.none"),
-            },
-            {
-              label: t("catalog.features.sourceObservations.ui.adminControlPlane.expansion"),
-              value:
-                firstEvidence.normalizedFacts.expansionName ??
-                t("catalog.features.sourceObservations.ui.adminControlPlane.none"),
-            },
-          ]}
-        />
-      ) : null}
-      {unit.latestDiagnosticText ? (
-        <Text size="sm" tone="secondary">
-          {unit.latestDiagnosticText}
-        </Text>
-      ) : null}
-    </Stack>
-  );
-}
-
-function CatalogIntegrationProviderReadinessPanel({
-  overview,
-  loading,
-}: Readonly<{
-  overview: CatalogIntegrationControlPlaneOverview | null;
-  loading: boolean;
-}>) {
-  const providers = overview?.providerReadiness.providers ?? [];
-  const readyProviders = providers.filter((provider) => provider.readiness === "ready").length;
-
-  return (
-    <Stack gap={3}>
-      <Inline gap={3} align="center">
-        <Stack gap={1}>
-          <h2>{t("catalog.features.sourceObservations.ui.adminControlPlane.adapter.readiness")}</h2>
-          <p>{t("catalog.features.sourceObservations.ui.adminControlPlane.adapter.readiness.description")}</p>
-        </Stack>
-      </Inline>
-      <TaskSummary
-        title={t("catalog.features.sourceObservations.ui.adminControlPlane.provider.adapters")}
-        items={[
-          {
-            label: t("catalog.features.sourceObservations.ui.adminControlPlane.ready.providers"),
-            value: `${readyProviders}/${providers.length}`,
-          },
-          {
-            label: t("catalog.features.sourceObservations.ui.adminControlPlane.generated"),
-            value: overview
-              ? formatDateTime(overview.providerReadiness.generatedAt)
-              : loading
-                ? t("catalog.features.sourceObservations.ui.adminControlPlane.loading")
-                : t("catalog.features.sourceObservations.ui.adminControlPlane.not.loaded"),
-          },
-        ]}
-      />
-      {providers.length > 0 ? (
-        <Stack gap={2}>
-          {providers.map((provider) => (
-            <CatalogIntegrationProviderReadinessCard key={provider.providerKey} provider={provider} />
-          ))}
-        </Stack>
-      ) : !loading ? (
         <OperationalStatusBanner
-          tone="warning"
-          title={t("catalog.features.sourceObservations.ui.adminControlPlane.no.provider.readiness.reported")}
-          description={t(
-            "catalog.features.sourceObservations.ui.adminControlPlane.no.provider.readiness.reported.description",
-          )}
+          key={control.controlId}
+          tone={control.status === "blocked" ? "danger" : "warning"}
+          title={control.controlId}
+          description={t("catalog.features.sourceObservations.ui.primaryWorkbench.health.rollout.description", {
+            message: control.message,
+            ownerMetric: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.rollout.owner.metric", {
+              metric: control.metricKey,
+              owner: control.owner,
+              ownerIssue: String(control.ownerIssue),
+            }),
+            nextAction: control.nextAction,
+          })}
         />
-      ) : null}
-    </Stack>
+      ))}
+    </div>
   );
 }
 
-function CatalogIntegrationProviderReadinessCard({
-  provider,
-}: Readonly<{ provider: CatalogIntegrationProviderReadiness }>) {
-  const latestDiagnostic = provider.diagnostics.at(-1) ?? null;
-
-  return (
-    <Stack gap={2}>
-      <Inline gap={2} align="center" wrap>
-        <h3>{provider.providerKey}</h3>
-        <StatusPill tone={statusTone(provider.readiness)}>{provider.readiness}</StatusPill>
-        <StatusPill tone={statusTone(provider.credentialReadiness)}>{provider.credentialReadinessState}</StatusPill>
-      </Inline>
-      <TaskSummary
-        title={provider.adapterKey}
-        items={[
-          {
-            label: t("catalog.features.sourceObservations.ui.adminControlPlane.credential"),
-            value: `${provider.credentialRequirement} / ${provider.credentialReadiness}`,
-          },
-          {
-            label: t("catalog.features.sourceObservations.ui.adminControlPlane.api.reachability"),
-            value: provider.apiReachability.status,
-          },
-          {
-            label: t("catalog.features.sourceObservations.ui.adminControlPlane.option.query.health"),
-            value: provider.optionQueryHealth.status,
-          },
-          {
-            label: t("catalog.features.sourceObservations.ui.adminControlPlane.rate.limit.cooldown"),
-            value: provider.rateLimitStatus.status,
-          },
-          {
-            label: t("catalog.features.sourceObservations.ui.adminControlPlane.payload.acquisition"),
-            value: provider.payloadAcquisition.status,
-          },
-          {
-            label: t("catalog.features.sourceObservations.ui.adminControlPlane.affected.units"),
-            value: String(provider.unitKeys.length),
-          },
-        ]}
-      />
-      {latestDiagnostic ? (
-        <Text size="sm" tone="secondary">
-          {latestDiagnostic.message}
-        </Text>
-      ) : null}
-    </Stack>
-  );
-}
-
-function CatalogIntegrationAuditLifecyclePanel({
-  overview,
-  loading,
+function CatalogIntegrationJobTriage({
+  jobs,
 }: Readonly<{
-  overview: CatalogIntegrationControlPlaneOverview | null;
-  loading: boolean;
+  jobs: readonly CatalogPrimaryWorkbenchHealthTriageJob[];
 }>) {
-  const lifecycle = overview?.auditLifecycle ?? null;
-  const rows = lifecycle?.entries ?? [];
-  const columns: DataColumn<CatalogIntegrationAuditLifecycleEntry>[] = [
+  const columns: DataColumn<CatalogPrimaryWorkbenchHealthTriageJob>[] = [
     {
-      key: "eventName",
-      header: t("catalog.features.sourceObservations.ui.adminControlPlane.audit.event"),
+      key: "job",
+      header: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.job"),
       cell: (row) => (
-        <Inline gap={2} align="center" wrap>
-          <StatusPill tone={auditCategoryTone(row.category)}>{row.category}</StatusPill>
-          <span>{row.eventName}</span>
-        </Inline>
+        <div className="grid min-w-0 gap-1">
+          <span className="text-sm font-semibold text-foreground">{row.jobId}</span>
+          <span className="text-xs text-secondary">{row.summary}</span>
+        </div>
       ),
     },
     {
-      key: "providerKey",
-      header: t("catalog.features.sourceObservations.ui.adminControlPlane.provider"),
-      cell: (row) => row.providerKey,
+      key: "progress",
+      header: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.progress"),
+      mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.progress"),
+      cell: (row) => (
+        <div className="grid min-w-0 gap-1">
+          <Badge tone={row.phase === "failed" ? "danger" : "warning"}>{row.operatorStatus}</Badge>
+          <span className="text-xs text-secondary">{row.progressLabel}</span>
+        </div>
+      ),
     },
     {
-      key: "unitKey",
-      header: t("catalog.features.sourceObservations.ui.adminControlPlane.unit"),
-      cell: (row) => row.unitKey ?? t("catalog.features.sourceObservations.ui.adminControlPlane.none"),
-    },
-    {
-      key: "profileVersion",
-      header: t("catalog.features.sourceObservations.ui.adminControlPlane.profile.version"),
-      cell: (row) => row.profileVersion ?? t("catalog.features.sourceObservations.ui.adminControlPlane.none"),
-    },
-    {
-      key: "occurredAt",
-      header: t("catalog.features.sourceObservations.ui.adminControlPlane.occurred"),
-      cell: (row) => formatDateTime(row.occurredAt),
-    },
-    {
-      key: "summary",
-      header: t("catalog.features.sourceObservations.ui.adminControlPlane.summary"),
-      cell: (row) => row.summary,
+      key: "next",
+      header: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.next.action"),
+      mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.next.action"),
+      cell: (row) => (
+        <div className="grid min-w-0 gap-1">
+          <span className="text-xs text-secondary">{row.ownerMetricKey}</span>
+          <span className="text-sm text-foreground">{row.nextAction}</span>
+        </div>
+      ),
     },
   ];
 
   return (
-    <Stack gap={3}>
-      <Inline gap={3} align="center">
-        <Stack gap={1}>
-          <h2>{t("catalog.features.sourceObservations.ui.adminControlPlane.audit.lifecycle")}</h2>
-          <p>{t("catalog.features.sourceObservations.ui.adminControlPlane.audit.lifecycle.description")}</p>
-        </Stack>
-      </Inline>
-      {lifecycle ? (
-        <OperationalStatusBanner
-          tone={lifecycle.projectionStatus === "partial" ? "warning" : "danger"}
-          title={t("catalog.features.sourceObservations.ui.adminControlPlane.audit.lifecycle.partial")}
-          description={lifecycle.statusMessage}
-        />
-      ) : loading ? null : (
-        <OperationalStatusBanner
-          tone="warning"
-          title={t("catalog.features.sourceObservations.ui.adminControlPlane.audit.lifecycle.unavailable")}
-          description={t(
-            "catalog.features.sourceObservations.ui.adminControlPlane.audit.lifecycle.unavailable.description",
-          )}
-        />
-      )}
-      <DataTable
-        rows={rows}
-        columns={columns}
-        getRowId={(row) => row.eventId}
-        emptyTitle={t("catalog.features.sourceObservations.ui.adminControlPlane.no.audit.lifecycle.entries")}
-      />
-    </Stack>
+    <DataTable
+      rows={[...jobs]}
+      columns={columns}
+      getRowId={(row) => row.jobId}
+      density="compact"
+      emptyTitle={t("catalog.features.sourceObservations.ui.primaryWorkbench.health.jobs.empty")}
+      emptyDescription={t("catalog.features.sourceObservations.ui.primaryWorkbench.health.jobs.empty.detail")}
+    />
   );
 }
 
-function formatCount(value: number) {
-  return new Intl.NumberFormat().format(value);
+function CatalogIntegrationAuditTriage({
+  health,
+}: Readonly<{
+  health: CatalogPrimaryWorkbenchHealthTriageReadModel;
+}>) {
+  const columns: DataColumn<CatalogPrimaryWorkbenchHealthTriageReadModel["auditPreview"]["entries"][number]>[] = [
+    {
+      key: "event",
+      header: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.audit.event"),
+      cell: (row) => (
+        <div className="grid min-w-0 gap-1">
+          <span className="text-sm font-semibold text-foreground">{row.eventName}</span>
+          <span className="text-xs text-secondary">{row.summary}</span>
+        </div>
+      ),
+    },
+    {
+      key: "category",
+      header: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.audit.category"),
+      mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.audit.category"),
+      cell: (row) => <Badge tone="neutral">{row.category}</Badge>,
+    },
+    {
+      key: "scope",
+      header: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.scope"),
+      mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.scope"),
+      cell: (row) =>
+        `${row.providerKey} / ${row.unitKey ?? t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected")}`,
+    },
+    {
+      key: "occurred",
+      header: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.occurred"),
+      mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.occurred"),
+      cell: (row) => formatDateTime(row.occurredAt),
+    },
+  ];
+
+  return (
+    <div className="grid gap-2">
+      <OperationalStatusBanner
+        tone={health.auditPreview.projectionStatus === "partial" ? "warning" : "danger"}
+        title={t("catalog.features.sourceObservations.ui.primaryWorkbench.health.audit.status", {
+          status: health.auditPreview.projectionStatus,
+        })}
+        description={health.auditPreview.statusMessage}
+      />
+      <DataTable
+        rows={[...health.auditPreview.entries]}
+        columns={columns}
+        getRowId={(row) => row.eventId}
+        density="compact"
+        emptyTitle={t("catalog.features.sourceObservations.ui.primaryWorkbench.health.audit.empty")}
+        emptyDescription={t("catalog.features.sourceObservations.ui.primaryWorkbench.health.audit.empty.detail")}
+      />
+    </div>
+  );
 }
 
-function formatDateTime(value: string | null | undefined) {
-  if (!value) {
-    return t("catalog.features.sourceObservations.ui.adminControlPlane.never");
+function statusTone(status: CatalogPrimaryWorkbenchHealthTriageStatus): "success" | "danger" | "warning" | "neutral" {
+  if (status === "ready") {
+    return "success";
+  }
+  if (status === "blocked" || status === "unavailable") {
+    return "danger";
   }
 
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
+  return "warning";
 }
 
-function formatRecentJob(job: CatalogIntegrationRecentJobSummary): string {
-  return `${job.action} ${job.operatorStatus} (${formatCount(job.completed)}/${formatCount(job.total)})`;
-}
-
-function statusTone(status: string): "success" | "danger" | "warning" | "neutral" {
+function readinessTone(status: string): "success" | "danger" | "warning" | "neutral" {
   if (status === "ready" || status === "completed" || status === "not-required" || status === "configured") {
     return "success";
   }
@@ -561,20 +472,55 @@ function statusTone(status: string): "success" | "danger" | "warning" | "neutral
   if (status === "degraded" || status === "unknown") {
     return "warning";
   }
+
   return "neutral";
 }
 
-function auditCategoryTone(
-  category: CatalogIntegrationAuditLifecycleEntry["category"],
-): "success" | "danger" | "warning" | "neutral" | "info" {
-  if (category === "activation") {
+function freshnessTone(status: string): "success" | "danger" | "warning" | "neutral" {
+  if (status === "fresh") {
     return "success";
   }
-  if (category === "import-job" || category === "reapply") {
-    return "info";
+  if (status === "unavailable") {
+    return "danger";
   }
-  if (category === "profile-section") {
+  if (status === "partial" || status === "stale" || status === "lagging") {
     return "warning";
   }
+
   return "neutral";
+}
+
+function statusLabel(status: CatalogPrimaryWorkbenchHealthTriageStatus): string {
+  switch (status) {
+    case "ready":
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.health.status.ready");
+    case "degraded":
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.health.status.degraded");
+    case "blocked":
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.health.status.blocked");
+    case "unavailable":
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.health.status.unavailable");
+  }
+}
+
+function primaryActionLabel(action: CatalogPrimaryWorkbenchHealthTriageUnit["affectedPrimaryAction"]): string {
+  switch (action) {
+    case "pull-provider-data":
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.health.primaryAction.pullProviderData");
+    case "review-source-observations":
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.health.primaryAction.reviewSourceObservations");
+    case "preview-promotion":
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.health.primaryAction.previewPromotion");
+  }
+}
+
+function formatDateTime(value: string | null | undefined) {
+  if (!value) {
+    return t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected");
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
 }

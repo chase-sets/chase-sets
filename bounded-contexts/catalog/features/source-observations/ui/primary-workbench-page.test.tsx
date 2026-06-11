@@ -68,9 +68,82 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
 
     expect(screen.getByRole("link", { name: /Health triage/i }).getAttribute("aria-current")).toBe("page");
+    expect(screen.getByRole("heading", { name: "Integration health triage" })).toBeTruthy();
     expect(screen.getByRole("link", { name: /Import to promotion workbench/i }).getAttribute("href")).toContain(
       "/catalog/integrations?",
     );
+  });
+
+  it("renders dense health triage with distinct semantic, transport, rollout, job, and audit evidence", () => {
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&section=triage",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: healthTriageStressOverview(),
+      canManageCatalog: true,
+    });
+
+    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+
+    expect(screen.getByRole("heading", { name: "Integration health triage" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Back to import workbench" }).getAttribute("href")).toContain(
+      "section=workbench",
+    );
+    expect(screen.getAllByText("Catalog semantic readiness").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Provider transport readiness").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("TCGdex semantic mapping").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("TCGdex sealed import").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("catalog.integration.semantic_readiness.blocked").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("catalog.integration.provider_transport.blocked").length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText(/Resolve Catalog semantic mapping readiness before previewing promotion/i).length,
+    ).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Fix provider adapter transport or wait for retry recovery/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Provider pagination cursor failed after page 18/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Catalog integration imports stopped by launch kill switch/i).length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText(/ops-release owns catalog.integration.rollout.stop; issue #801/i).length,
+    ).toBeGreaterThan(0);
+    expect(screen.getAllByText("import job job_failed failed after provider pagination drift.").length).toBeGreaterThan(
+      0,
+    );
+    expect(screen.getAllByText(/Open the durable job evidence, resolve the failure group/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("import-job-started").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Provider import started for health triage.").length).toBeGreaterThan(0);
+    expect(screen.getByRole("heading", { name: "Provider import operations" })).toBeTruthy();
+    expect(screen.queryByText(/raw JSON/i)).toBeNull();
+  });
+
+  it("opens health triage from mobile workflow navigation without burying the primary provider pull", () => {
+    window.history.pushState(
+      {},
+      "",
+      "/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&filter.status=changed&section=workbench",
+    );
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl: window.location.href,
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: healthTriageStressOverview(),
+      canManageCatalog: true,
+    });
+
+    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+
+    expect(screen.queryByRole("heading", { name: "Integration health triage" })).toBeNull();
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Choose Catalog workflow" }), {
+      target: { value: "health-triage" },
+    });
+
+    expect(screen.getByRole("heading", { name: "Integration health triage" })).toBeTruthy();
+    expect(window.location.pathname).toBe("/catalog/integrations");
+    expect(window.location.search).toContain("section=triage");
+    expect(window.location.search).toContain("providerKey=tcgdex");
+    expect(window.location.search).toContain("unitKey=tcgdex%3Apokemon%3Acard%3Aimport");
+    expect(screen.getAllByRole("button", { name: /Pull provider data/i }).length).toBeGreaterThan(0);
+    expect(screen.getByRole("heading", { name: "Import to promotion workbench" })).toBeTruthy();
   });
 
   it("updates the browser URL from mobile workflow navigation while preserving route context", () => {
@@ -472,3 +545,170 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.queryByText(/all providers/i)).toBeNull();
   });
 });
+
+function healthTriageStressOverview() {
+  const baseOverview = controlPlaneOverview();
+  const semanticUnitKey = "tcgdex:pokemon:card:import";
+  const transportUnitKey = "tcgdex:pokemon:sealed:import";
+  const longProviderDiagnostic =
+    "Provider pagination cursor failed after page 18 while acquiring payloads; retry only after the adapter can resume without duplicating Source Observations.";
+  const baseUnit = baseOverview.readiness.units[0]!;
+  const baseJob = baseOverview.unitActivity.units[0]!.recentJobs[0]!;
+
+  return controlPlaneOverview({
+    readiness: {
+      ...baseOverview.readiness,
+      rolloutControls: {
+        generatedAt: baseOverview.generatedAt,
+        controls: [
+          {
+            controlId: "catalog-import-launch-stop",
+            owner: "ops-release",
+            ownerIssue: 801,
+            defaultState: "quarantined",
+            status: "blocked",
+            severity: "error",
+            capabilities: ["source-observation-import"],
+            providerKeys: ["tcgdex"],
+            profileKeys: ["tcgdex-pokemon-card"],
+            unitKeys: [transportUnitKey],
+            message: "Catalog integration imports stopped by launch kill switch.",
+            auditEventName: "rollout-control-denied",
+            metricKey: "catalog.integration.rollout.stop",
+          },
+        ],
+      },
+      units: [
+        {
+          ...baseUnit,
+          unitKey: semanticUnitKey,
+          displayName: "TCGdex semantic mapping",
+          semanticReadiness: "blocked",
+          fixtureValidationStatus: "blocked",
+          dryRunStatus: "blocked",
+          diagnosticCounts: { info: 0, warning: 1, error: 1 },
+          diagnostics: [
+            {
+              code: "semantic-mapping-blocked",
+              severity: "error",
+              message: "Catalog semantic mapping is missing collector number evidence.",
+              unitKey: semanticUnitKey,
+              retryAfterSeconds: null,
+              source: "catalog",
+            },
+            {
+              code: "dry-run-evidence-missing",
+              severity: "warning",
+              message: "Dry-run evidence must be completed before promotion preview.",
+              unitKey: semanticUnitKey,
+              retryAfterSeconds: null,
+              source: "catalog",
+            },
+          ],
+          latestDiagnosticText: "Catalog semantic mapping is missing collector number evidence.",
+        },
+        {
+          ...baseUnit,
+          unitKey: transportUnitKey,
+          displayName: "TCGdex sealed import",
+          productForm: "sealed",
+          transportReadiness: "blocked",
+          diagnosticCounts: { info: 0, warning: 0, error: 1 },
+          diagnostics: [
+            {
+              code: "provider-pagination-failed",
+              severity: "error",
+              message: longProviderDiagnostic,
+              unitKey: transportUnitKey,
+              retryAfterSeconds: 300,
+              source: "provider-adapter",
+            },
+          ],
+          latestDiagnosticText: longProviderDiagnostic,
+        },
+      ],
+    },
+    unitActivity: {
+      generatedAt: baseOverview.generatedAt,
+      units: [
+        {
+          unitKey: semanticUnitKey,
+          recentJobs: [
+            {
+              ...baseJob,
+              jobId: "job_failed",
+              phase: "failed",
+              operatorStatus: "failed",
+              completed: 18,
+              total: 24,
+              summary: "import job job_failed failed after provider pagination drift.",
+              unitKey: semanticUnitKey,
+              providerKey: "tcgdex",
+              importScope: "en:3:base:base1",
+            },
+            {
+              ...baseJob,
+              jobId: "job_running",
+              completed: 4,
+              total: 24,
+              summary: "import job job_running is running with launch diagnostics.",
+              unitKey: semanticUnitKey,
+              providerKey: "tcgdex",
+              importScope: "en:3:base:base1",
+            },
+          ],
+        },
+      ],
+    },
+    providerReadiness: {
+      generatedAt: baseOverview.generatedAt,
+      providers: [
+        {
+          ...baseOverview.providerReadiness.providers[0]!,
+          readiness: "degraded",
+          unitKeys: [semanticUnitKey, transportUnitKey],
+          rateLimitStatus: {
+            status: "degraded",
+            diagnosticCodes: ["provider-rate-limit"],
+            message: "Provider rate limit is cooling down.",
+          },
+          payloadAcquisition: {
+            status: "blocked",
+            diagnosticCodes: ["provider-pagination-failed"],
+            message: longProviderDiagnostic,
+          },
+          diagnostics: [
+            {
+              code: "provider-pagination-failed",
+              severity: "error",
+              message: longProviderDiagnostic,
+              unitKey: transportUnitKey,
+              retryAfterSeconds: 300,
+              source: "provider-adapter",
+            },
+          ],
+        },
+      ],
+    },
+    auditLifecycle: {
+      generatedAt: baseOverview.generatedAt,
+      projectionStatus: "partial",
+      statusMessage: "Audit lifecycle projection is partial while health triage is live.",
+      entries: [
+        {
+          eventId: "aud_health_001",
+          occurredAt: "2026-06-09T01:02:00.000Z",
+          eventName: "import-job-started",
+          category: "import-job",
+          providerKey: "tcgdex",
+          unitKey: semanticUnitKey,
+          profileVersion: "2026.06.04",
+          actorUserId: "user_admin",
+          relatedJobId: "job_running",
+          summary: "Provider import started for health triage.",
+          diagnosticCodes: ["provider-pagination-failed"],
+        },
+      ],
+    },
+  });
+}

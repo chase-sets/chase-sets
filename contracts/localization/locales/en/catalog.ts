@@ -554,6 +554,133 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.failure.mode": "Failure mode",
   "catalog.features.sourceObservations.ui.primaryWorkbench.failure.mode.value":
     "Blocked, stale, denied, and unsafe actions fail closed.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.affected.units": "{count} affected unit(s)",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.audit.empty": "No recent audit facts",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.audit.empty.detail":
+    "Audit evidence is still tracked by the projection status and owner metric.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.audit.status": "Audit lifecycle {status}",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.capability.api": "API reachability",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.capability.options": "Option query",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.capability.payload": "Payload acquisition",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.capability.rate.limit": "Rate limit",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.description":
+    "Triage Catalog semantic readiness, provider adapter transport, rollout stops, job pressure, and audit projection state without leaving the import context.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.diagnostic.counts":
+    "{errors} error(s), {warnings} warning(s), {infos} info",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.diagnostics.none":
+    "No diagnostic text reported for this row.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.job.next.active":
+    "Let the active job finish or cancel it before starting another provider pull.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.job.next.failed":
+    "Open the durable job evidence, resolve the failure group, then retry from the primary workbench.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.job.progress":
+    "{completed}/{total} work units, {percent}% complete",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.jobs.empty": "No active or failed import jobs",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.jobs.empty.detail":
+    "Completed provider pulls stay visible in audit evidence; this triage view focuses on work that can still block operators.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.metric.active.jobs": "Active jobs",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.metric.active.jobs.trend": "queued or running",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.metric.audit.entries": "Audit facts",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.metric.audit.entries.trend": "recent preview",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.metric.blocked.units": "Blocked units",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.metric.blocked.units.trend": "fail closed",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.metric.degraded.providers": "Provider adapters",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.metric.degraded.providers.trend": "not ready",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.metric.ready.units": "Ready units",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.metric.ready.units.trend": "semantic readiness",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.metric.rollout.stops": "Rollout stops",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.metric.rollout.stops.trend": "kill switches",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.observation.facts":
+    "{count} Source Observation fact(s)",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.primaryAction.previewPromotion": "Preview promotion",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.primaryAction.pullProviderData": "Pull provider data",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.primaryAction.reviewSourceObservations":
+    "Review Source Observations",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.provider.next.api":
+    "Check provider reachability, credentials, and upstream health before retrying the pull.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.provider.next.credentials":
+    "Configure or rotate provider credentials before operators pull provider data.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.provider.next.options":
+    "Refresh provider option queries and verify language, series, and set selectors before import.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.provider.next.payload":
+    "Inspect payload acquisition diagnostics and retry only after the provider can return complete records.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.provider.next.rateLimit":
+    "Wait for the rate-limit window or reduce provider pull scope before retrying.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.provider.next.ready":
+    "Provider adapter is ready; continue with the scoped provider pull.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.providers.empty": "No provider adapters reported",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.providers.empty.detail":
+    "Provider readiness is unavailable for this context; the workbench fails closed when the read model is missing.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.readModel.audit.unavailable":
+    "Audit lifecycle projection is unavailable for this context.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.readModel.jobs":
+    "Durable import job projection is fresh enough for active-job triage.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.readModel.partial":
+    "Control-plane overview is partial, so this read model is degraded.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.readModel.semantic":
+    "Catalog semantic readiness is derived from unit, fixture, dry-run, and diagnostic evidence.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.readModel.transport":
+    "Provider adapter transport readiness is derived separately from Catalog semantic readiness.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.readModels.empty": "No read-model state reported",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.readModels.empty.detail":
+    "Health triage needs explicit freshness states for semantic, transport, jobs, and audit projections.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.return.primary": "Back to import workbench",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.rollout.clear.description":
+    "No active kill switch or rollout stop applies to the selected provider and ingestion unit.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.rollout.clear.title": "Rollout controls are open",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.rollout.description":
+    "{message} {ownerMetric} {nextAction}",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.rollout.next.open":
+    "No operator action is needed for this rollout control.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.rollout.next.owner":
+    "Coordinate with issue #{ownerIssue} before restarting provider pulls.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.rollout.owner.metric":
+    "{owner} owns {metric}; issue #{ownerIssue}.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.status.blocked": "Blocked",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.status.degraded": "Degraded",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.status.ready": "Ready",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.status.unavailable": "Unavailable",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.table.audit.category": "Audit category",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.table.audit.event": "Audit event",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.table.capabilities": "Adapter capabilities",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.table.catalog.semantic": "Catalog semantic readiness",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.table.diagnostics": "Diagnostics",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.table.freshness": "Freshness",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.table.generated": "Generated",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.table.job": "Import job",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.table.next.action": "Next action",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.table.occurred": "Occurred",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.table.owner.metric": "Owner metric",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.table.progress": "Progress",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.table.provider": "Provider adapter",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.table.provider.transport":
+    "Provider transport readiness",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.table.query": "Read model",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.table.scope": "Scope",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.table.status": "Status",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.table.unit": "Ingestion unit",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.title": "Integration health triage",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.unavailable.description":
+    "The control-plane overview is missing, so operators should return to the import workbench after restoring the read-model projection.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.unavailable.title":
+    "Health read model is unavailable",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.unit.next.credentials":
+    "Configure or rotate credentials, then rerun provider readiness before pulling provider data.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.unit.next.dryRun":
+    "Run the profile dry-run and keep Catalog writes blocked until evidence is completed.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.unit.next.fixtures":
+    "Add fixture coverage for this ingestion unit before enabling provider pulls.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.unit.next.ready":
+    "Unit is ready; continue with provider pull, review, and promotion preview.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.unit.next.semantic":
+    "Resolve Catalog semantic mapping readiness before previewing promotion.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.unit.next.transport":
+    "Fix provider adapter transport or wait for retry recovery before starting another pull.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.unit.next.warning":
+    "Review the diagnostic warning, then decide whether to continue with Source Observation review.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.units.empty": "No ingestion units reported",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.units.empty.detail":
+    "Choose a provider profile and import scope before expecting unit readiness evidence.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.cancel": "Cancel",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.context.current.scope": "Current scope",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.context.overlapping.scope": "Overlapping scope",

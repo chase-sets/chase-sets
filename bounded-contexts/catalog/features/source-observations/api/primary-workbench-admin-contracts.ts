@@ -272,6 +272,7 @@ export type CatalogPrimaryWorkbenchReadModel = Readonly<{
   routeContext: CatalogPrimaryWorkbenchRouteContext;
   providerScope: CatalogPrimaryWorkbenchProviderScopeReadModel;
   readiness: CatalogPrimaryWorkbenchReadinessReadModel;
+  healthTriage: CatalogPrimaryWorkbenchHealthTriageReadModel;
   importJobs: CatalogPrimaryWorkbenchImportJobsReadModel;
   sourceObservationReview: CatalogPrimaryWorkbenchSourceObservationReviewReadModel;
   promotionPreview: CatalogPrimaryWorkbenchPromotionPreviewReadModel;
@@ -316,6 +317,122 @@ export type CatalogPrimaryWorkbenchReadinessReadModel = Readonly<{
   rolloutEnabled: boolean;
   rbacAllowed: boolean;
   auditEvidenceUrl: string | null;
+}>;
+
+export type CatalogPrimaryWorkbenchHealthTriageStatus = "ready" | "degraded" | "blocked" | "unavailable";
+
+export type CatalogPrimaryWorkbenchHealthTriageReadModel = Readonly<{
+  status: CatalogPrimaryWorkbenchHealthTriageStatus;
+  freshness: CatalogAdminControlPlaneFreshnessState;
+  generatedAt: string;
+  selectedProviderKey: string | null;
+  selectedUnitKey: CatalogIntegrationUnitKey | null;
+  returnToPrimaryHref: string;
+  summary: Readonly<{
+    readyUnits: number;
+    totalUnits: number;
+    blockedUnits: number;
+    degradedProviders: number;
+    activeJobs: number;
+    rolloutStops: number;
+    auditEntries: number;
+  }>;
+  readModels: readonly CatalogPrimaryWorkbenchHealthTriageReadModelState[];
+  units: readonly CatalogPrimaryWorkbenchHealthTriageUnit[];
+  providers: readonly CatalogPrimaryWorkbenchHealthTriageProvider[];
+  rolloutControls: readonly CatalogPrimaryWorkbenchHealthTriageRolloutControl[];
+  recentJobs: readonly CatalogPrimaryWorkbenchHealthTriageJob[];
+  auditPreview: CatalogPrimaryWorkbenchHealthTriageAuditPreview;
+}>;
+
+export type CatalogPrimaryWorkbenchHealthTriageReadModelState = Readonly<{
+  queryKey: CatalogAdminControlPlaneQueryKey;
+  freshness: CatalogAdminControlPlaneFreshnessState;
+  generatedAt: string | null;
+  statusMessage: string;
+  ownerMetricKey: string;
+}>;
+
+export type CatalogPrimaryWorkbenchHealthTriageUnit = Readonly<{
+  unitKey: CatalogIntegrationUnitKey;
+  providerKey: string;
+  displayName: string;
+  productDomain: string;
+  productForm: string;
+  ingestionPurpose: string | null;
+  profileVersion: string | null;
+  status: CatalogPrimaryWorkbenchHealthTriageStatus;
+  semanticReadiness: "ready" | "blocked";
+  credentialReadiness: "ready" | "blocked" | "not-required";
+  credentialReadinessState: string;
+  transportReadiness: "ready" | "blocked";
+  fixtureValidationStatus: "ready" | "blocked";
+  dryRunStatus: "completed" | "blocked";
+  observationFacts: number;
+  diagnosticCounts: Readonly<Record<"info" | "warning" | "error", number>>;
+  diagnosticCodes: readonly string[];
+  latestDiagnosticText: string | null;
+  affectedPrimaryAction: "pull-provider-data" | "review-source-observations" | "preview-promotion";
+  ownerMetricKey: string;
+  nextAction: string;
+}>;
+
+export type CatalogPrimaryWorkbenchHealthTriageProvider = Readonly<{
+  providerKey: string;
+  adapterKey: string;
+  status: CatalogPrimaryWorkbenchHealthTriageStatus;
+  readiness: "ready" | "blocked" | "degraded";
+  credentialReadiness: "ready" | "blocked" | "not-required";
+  credentialReadinessState: string;
+  unitKeys: readonly CatalogIntegrationUnitKey[];
+  apiReachability: string;
+  optionQueryHealth: string;
+  rateLimitStatus: string;
+  payloadAcquisition: string;
+  diagnosticCodes: readonly string[];
+  latestDiagnosticText: string | null;
+  ownerMetricKey: string;
+  nextAction: string;
+}>;
+
+export type CatalogPrimaryWorkbenchHealthTriageRolloutControl = Readonly<{
+  controlId: string;
+  status: "open" | "degraded" | "blocked";
+  severity: "info" | "warning" | "error";
+  owner: string;
+  ownerIssue: number;
+  metricKey: string;
+  message: string;
+  providerKeys: readonly string[];
+  unitKeys: readonly string[];
+  nextAction: string;
+}>;
+
+export type CatalogPrimaryWorkbenchHealthTriageJob = Readonly<{
+  jobId: string;
+  providerKey: string;
+  unitKey: CatalogIntegrationUnitKey | null;
+  operatorStatus: CatalogPrimaryWorkbenchImportJobsReadModel["jobs"][number]["operatorStatus"];
+  phase: CatalogPrimaryWorkbenchImportJobsReadModel["jobs"][number]["state"];
+  progressLabel: string;
+  summary: string;
+  ownerMetricKey: string;
+  nextAction: string;
+}>;
+
+export type CatalogPrimaryWorkbenchHealthTriageAuditPreview = Readonly<{
+  generatedAt: string | null;
+  projectionStatus: "partial" | "unavailable";
+  statusMessage: string;
+  entries: readonly Readonly<{
+    eventId: string;
+    occurredAt: string;
+    eventName: string;
+    category: string;
+    providerKey: string;
+    unitKey: CatalogIntegrationUnitKey | null;
+    summary: string;
+  }>[];
 }>;
 
 export type CatalogPrimaryWorkbenchImportJobsReadModel = Readonly<{
@@ -1004,6 +1121,7 @@ export function validateCatalogPrimaryWorkbenchReadModelContract(
   if (!value.instrumentation?.redactionSafe) {
     throw new Error("Primary workbench instrumentation must be redaction-safe.");
   }
+  assertPrimaryWorkbenchHealthTriage(value.healthTriage);
   for (const actionEntry of value.actions ?? []) {
     assertCatalogPrimaryWorkbenchActionState(actionEntry.state);
     assertPrimaryWorkbenchBlockers(actionEntry.blockers);
@@ -1153,6 +1271,28 @@ function assertPrimaryWorkbenchPromotionPreview(
   }
   if (value.profileWorkflows.replay.profileSemantics !== "original-source-profile-version") {
     throw new Error("Primary workbench replay must use original source profile version semantics.");
+  }
+}
+
+function assertPrimaryWorkbenchHealthTriage(value: CatalogPrimaryWorkbenchReadModel["healthTriage"] | undefined): void {
+  if (!value) {
+    throw new Error("Primary workbench health triage contract is required.");
+  }
+  if (!["ready", "degraded", "blocked", "unavailable"].includes(value.status)) {
+    throw new Error("Primary workbench health triage status must be explicit.");
+  }
+  if (!isSafePrimaryWorkbenchReturnPath(value.returnToPrimaryHref)) {
+    throw new Error("Primary workbench health triage return link must target the rebuilt workbench.");
+  }
+  for (const unit of value.units) {
+    if (!unit.providerKey || !unit.unitKey || !unit.ownerMetricKey || !unit.nextAction) {
+      throw new Error("Primary workbench health triage units must name provider, unit, owner metric, and next action.");
+    }
+  }
+  for (const provider of value.providers) {
+    if (!provider.providerKey || !provider.ownerMetricKey || !provider.nextAction) {
+      throw new Error("Primary workbench health triage providers must name provider, owner metric, and next action.");
+    }
   }
 }
 

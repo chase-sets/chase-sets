@@ -34,6 +34,7 @@ import {
   CATALOG_CONTROL_PLANE_NAVIGATION_GROUPS,
   CATALOG_CONTROL_PLANE_WORKSPACES,
 } from "./admin-control-plane/information-architecture";
+import { CatalogIntegrationHealthTriageDashboard } from "./admin-control-plane/health/integration-health-dashboard";
 import {
   catalogPrimaryWorkbenchHref,
   catalogPrimaryWorkbenchSupportingHref,
@@ -495,6 +496,10 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
 
         <BulkActionSurface>
           <div className="grid min-w-0 gap-4">
+            {activeSection === "health-triage" ? (
+              <CatalogIntegrationHealthTriageDashboard readModel={readModel} />
+            ) : null}
+
             <OperationalStatusBanner
               tone={readModel.readiness.blockers.length > 0 ? "warning" : "success"}
               title={
