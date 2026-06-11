@@ -752,6 +752,77 @@ describe("item detail buy now action", () => {
     expect(response.headers.getSetCookie().join("; ")).toContain("chase_sets_anonymous_sell_list=anon_sell_1");
   });
 
+  it("routes signed-out selected offer acceptance through anonymous Sell List review", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    mockCreateDiscoveryRequestApiClient.mockReturnValue({
+      getItemDetail: vi.fn().mockResolvedValue({
+        catalog_item_id: "cat_charizard",
+        title: "Charizard",
+        subtitle: "Base Set 4/102 Holo Rare",
+        offer_demand_matches: [
+          {
+            offer_id: "offer_charizard",
+            buyer_account_id: "acc_buyer_private",
+            buyer_display_name: "Top Loader Capital",
+            catalog_catalog_item_id: "cat_charizard",
+            product_id: "cat_charizard::form:raw",
+            item_title: "Charizard",
+            item_subtitle: "Base Set 4/102 Holo Rare",
+            selected_options: [{ dimensionId: "form", optionId: "raw" }],
+            product_summary: "Raw",
+            price_amount: "380.00",
+            quantity_requested: 1,
+            status: "submitted",
+            accepted_seller_account_id: null,
+            accepted_at: null,
+          },
+        ],
+      }),
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      acceptOfferMatch: mockAcceptOfferMatch,
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      addGuestSellListLine: mockAddGuestSellListLine.mockResolvedValue({ id: "sll_1" }),
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "sell-now");
+    form.set("offerId", "offer_charizard");
+
+    const response = (await action({
+      request: new Request("http://localhost/items/cat_charizard", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { id: "cat_charizard" },
+    } as never)) as Response;
+
+    expect(mockRequireActorFromAuthApi).not.toHaveBeenCalled();
+    expect(mockAcceptOfferMatch).not.toHaveBeenCalled();
+    expect(mockEnsureAnonymousSellListId).toHaveBeenCalledWith(expect.any(Request));
+    expect(mockAddGuestSellListLine).toHaveBeenCalledWith("anon_sell_1", {
+      lineType: "selected-offer",
+      offerId: "offer_charizard",
+      buyerAccountId: null,
+      buyerDisplayName: "Top Loader Capital",
+      offerPriceAmount: "380.00",
+      catalogItemId: "cat_charizard",
+      productId: "cat_charizard::form:raw",
+      itemTitle: "Charizard",
+      itemSubtitle: "Base Set 4/102 Holo Rare",
+      selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+      productSummary: "Raw",
+      fallbackMode: "none",
+      minimumListingPriceAmount: null,
+      quantity: 1,
+    });
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("/account/sell-list");
+    expect(response.headers.getSetCookie().join("; ")).toContain("chase_sets_anonymous_sell_list=anon_sell_1");
+  });
+
   it("starts signed-out buy now at guest checkout contact instead of sign-in", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(null);
     mockCreateDiscoveryRequestApiClient.mockReturnValue({
