@@ -1464,6 +1464,9 @@ importers:
       '@chase-sets/notification-center':
         specifier: workspace:*
         version: link:../../bounded-contexts/notifications
+      '@chase-sets/observability':
+        specifier: workspace:*
+        version: link:../../infrastructure/observability
       '@chase-sets/ordering':
         specifier: workspace:*
         version: link:../../bounded-contexts/ordering

@@ -1,5 +1,5 @@
 import { t } from "@chase-sets/localization";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useFetcher } from "react-router";
 import {
   HiddenInput,
@@ -38,6 +38,7 @@ import type {
   DiscoverySellerInventoryItem,
   DiscoveryAccountOfferMatch,
 } from "../../../support/client-support/contracts";
+import { trackItemDetailRailEvent } from "../../../support/ui-support/item-detail-rail-analytics";
 
 export type CommerceAccordionEdge = AccordionSectionEdge;
 
@@ -131,6 +132,12 @@ function notifyCartCountChanged(quantity: number) {
   );
 }
 
+function submittedButtonValue(event: FormEvent<HTMLFormElement>) {
+  const submitter = (event.nativeEvent as SubmitEvent).submitter;
+
+  return submitter instanceof HTMLButtonElement ? submitter.value : "";
+}
+
 export function canUseAccountCheckoutCart(actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>) {
   return Boolean(actor);
 }
@@ -204,6 +211,7 @@ function RailReferenceInfo({
   summary,
   sections,
   lines,
+  analyticsTopic,
 }: {
   triggerLabel: string;
   ariaLabel: string;
@@ -212,12 +220,24 @@ function RailReferenceInfo({
   summary?: ReactNode;
   sections?: readonly ReferenceInfoSection[];
   lines?: readonly ReactNode[];
+  analyticsTopic?: string;
 }) {
   const [open, setOpen] = useState(false);
 
   return (
     <>
-      <ReferenceInfoTrigger tone="subtle" aria-label={ariaLabel} onClick={() => setOpen(true)}>
+      <ReferenceInfoTrigger
+        tone="subtle"
+        aria-label={ariaLabel}
+        onClick={() => {
+          setOpen(true);
+          trackItemDetailRailEvent("reference_info_opened", {
+            topic: analyticsTopic ?? "reference_info",
+            outcome: "opened",
+            surface: "reference_info",
+          });
+        }}
+      >
         {triggerLabel}
       </ReferenceInfoTrigger>
       <ReferenceInfoDialog
@@ -268,10 +288,38 @@ export function ProductAlertCreationSection({
         : t("discovery.routes.itemDetail.set.offer.alert")}
     </Button>
   );
+  const watchWorkflow = isListingAlert ? "watch_listings" : "watch_offers";
+  const watchTopic = isListingAlert ? "listing_alert" : "offer_alert";
+
+  useEffect(() => {
+    if (!errorMessage) {
+      return;
+    }
+
+    trackItemDetailRailEvent("validation_failed", {
+      intent: "watch",
+      workflow: watchWorkflow,
+      topic: watchTopic,
+      outcome: "form_error",
+      surface: "action_rail",
+    });
+  }, [errorMessage, watchTopic, watchWorkflow]);
 
   return (
     <FormPanel variant={panelVariant}>
-      <Form spacing="none" id={formId} method="post">
+      <Form
+        spacing="none"
+        id={formId}
+        method="post"
+        onSubmit={() => {
+          trackItemDetailRailEvent("intent_submit_started", {
+            intent: "watch",
+            workflow: watchWorkflow,
+            topic: watchTopic,
+            surface: "action_rail",
+          });
+        }}
+      >
         <Stack gap={3}>
           <HiddenInput type="hidden" name="intent" value="create-product-alert" />
           <HiddenInput type="hidden" name="marketSide" value={marketSide} />
@@ -288,6 +336,7 @@ export function ProductAlertCreationSection({
                     : t("discovery.routes.itemDetail.watch.offers")}
                 </Text>
                 <RailReferenceInfo
+                  analyticsTopic={isListingAlert ? "listing_alert" : "offer_alert"}
                   triggerLabel={t(
                     isListingAlert
                       ? "discovery.routes.itemDetail.referenceInfo.watchListings.trigger"
@@ -380,8 +429,34 @@ export function MarketplaceOfferSubmissionSection({
       {t("discovery.routes.itemDetail.make.offer.action")}
     </Button>
   );
+  useEffect(() => {
+    if (!errorMessage) {
+      return;
+    }
+
+    trackItemDetailRailEvent("validation_failed", {
+      intent: "buy",
+      workflow: "make_offer",
+      topic: "make_offer",
+      outcome: "form_error",
+      surface: "action_rail",
+    });
+  }, [errorMessage]);
+
   const form = (
-    <Form spacing="none" id={formId} method="post">
+    <Form
+      spacing="none"
+      id={formId}
+      method="post"
+      onSubmit={() => {
+        trackItemDetailRailEvent("intent_submit_started", {
+          intent: "buy",
+          workflow: "make_offer",
+          topic: "make_offer",
+          surface: "action_rail",
+        });
+      }}
+    >
       <Stack gap={3}>
         <HiddenInput type="hidden" name="intent" value="submit-offer" />
         <HiddenInput type="hidden" name="catalogItemId" value={catalogItemId} />
@@ -393,6 +468,7 @@ export function MarketplaceOfferSubmissionSection({
             <Stack gap={1}>
               <Text weight="semibold">{t("discovery.routes.itemDetail.make.an.offer")}</Text>
               <RailReferenceInfo
+                analyticsTopic="make_offer"
                 triggerLabel={t("discovery.routes.itemDetail.referenceInfo.makeOffer.trigger")}
                 ariaLabel={t("discovery.routes.itemDetail.referenceInfo.makeOffer.aria")}
                 title={t("discovery.routes.itemDetail.referenceInfo.makeOffer.title")}
@@ -464,6 +540,18 @@ function MarketplaceOfferRegistrationSection({
   visibleListingCount: number;
   registerHref: string;
 }) {
+  const offerRegistrationGate = isAuthenticated ? "buyer_account_setup" : "buyer_registration";
+
+  useEffect(() => {
+    trackItemDetailRailEvent("registration_gate_shown", {
+      intent: "buy",
+      workflow: "make_offer",
+      gate: offerRegistrationGate,
+      viewer: isAuthenticated ? "signed_in" : "guest",
+      surface: "action_rail",
+    });
+  }, [isAuthenticated, offerRegistrationGate]);
+
   return (
     <FormPanel variant={panelVariant}>
       <Stack gap={3}>
@@ -500,6 +588,7 @@ function MarketplaceOfferRegistrationSection({
             </Text>
             {!isAuthenticated ? (
               <RailReferenceInfo
+                analyticsTopic="make_offer"
                 triggerLabel={t("discovery.routes.itemDetail.referenceInfo.makeOffer.trigger")}
                 ariaLabel={t("discovery.routes.itemDetail.referenceInfo.makeOffer.aria")}
                 title={t("discovery.routes.itemDetail.referenceInfo.makeOffer.title")}
@@ -515,7 +604,20 @@ function MarketplaceOfferRegistrationSection({
         {isAuthenticated ? (
           <Text size="sm">{t("discovery.routes.itemDetail.account.cannot.submit.product.wide.offers.yet")}</Text>
         ) : null}
-        <LinkButton href={registerHref} tone="secondary" block>
+        <LinkButton
+          href={registerHref}
+          tone="secondary"
+          block
+          onClick={() => {
+            trackItemDetailRailEvent("registration_started", {
+              intent: "buy",
+              workflow: "make_offer",
+              gate: offerRegistrationGate,
+              viewer: isAuthenticated ? "signed_in" : "guest",
+              surface: "action_rail",
+            });
+          }}
+        >
           {isAuthenticated
             ? "Complete account setup to make offer"
             : t("discovery.routes.itemDetail.sign.in.or.register.to.make.offer")}
@@ -608,6 +710,7 @@ export function CheckoutPurchaseIntentSection({
       : t("discovery.routes.itemDetail.selected.price")
     : t("discovery.routes.itemDetail.market.signal");
   const buyListingReferenceInfo = {
+    analyticsTopic: actionMode === "add-to-cart" ? "listing_buy_cart" : "listing_checkout",
     triggerLabel: t("discovery.routes.itemDetail.referenceInfo.buyListing.trigger"),
     ariaLabel: t("discovery.routes.itemDetail.referenceInfo.buyListing.aria"),
     title: t("discovery.routes.itemDetail.referenceInfo.buyListing.title"),
@@ -626,6 +729,7 @@ export function CheckoutPurchaseIntentSection({
         ],
   };
   const productCartReferenceInfo = {
+    analyticsTopic: "product_buy_cart",
     triggerLabel: t("discovery.routes.itemDetail.referenceInfo.productCart.trigger"),
     ariaLabel: t("discovery.routes.itemDetail.referenceInfo.productCart.aria"),
     title: t("discovery.routes.itemDetail.referenceInfo.productCart.title"),
@@ -637,16 +741,57 @@ export function CheckoutPurchaseIntentSection({
     ],
   };
   const purchaseReferenceInfo = showSelectedListingContext ? buyListingReferenceInfo : productCartReferenceInfo;
+  const listingCheckoutWorkflow =
+    selectedListing && selectedListingSource === "explicit" ? "selected_listing" : "best_available_listing";
+  const listingCheckoutSelection = selectedListing ? selectedListingSource : "none";
+  const cartWorkflow = addToCartUsesSelectedListing ? "listing_buy_cart" : "product_buy_cart";
+  const cartSelection = addToCartUsesSelectedListing ? "explicit" : "none";
+
   useEffect(() => {
     if (isAddToCartActionData(addToCartFetcher.data)) {
       notifyCartCountChanged(addToCartFetcher.data.quantity);
     }
   }, [addToCartFetcher.data]);
 
+  useEffect(() => {
+    if (!errorMessage) {
+      return;
+    }
+
+    trackItemDetailRailEvent("validation_failed", {
+      intent: "buy",
+      workflow: actionMode === "add-to-cart" ? cartWorkflow : listingCheckoutWorkflow,
+      selection: actionMode === "add-to-cart" ? cartSelection : listingCheckoutSelection,
+      outcome: "form_error",
+      surface: "action_rail",
+    });
+  }, [actionMode, cartSelection, cartWorkflow, errorMessage, listingCheckoutSelection, listingCheckoutWorkflow]);
+
+  function trackPurchaseIntentSubmit(event: FormEvent<HTMLFormElement>) {
+    const submittedValue = submittedButtonValue(event);
+    const isCartSubmit = submittedValue === "add-to-cart" || actionMode === "add-to-cart";
+
+    trackItemDetailRailEvent("intent_submit_started", {
+      intent: "buy",
+      workflow: isCartSubmit ? cartWorkflow : listingCheckoutWorkflow,
+      selection: isCartSubmit ? cartSelection : listingCheckoutSelection,
+      topic: isCartSubmit ? cartWorkflow : "listing_checkout",
+      surface: "action_rail",
+    });
+  }
+
   function handleAddToCart() {
     if (!formRef.current) {
       return;
     }
+
+    trackItemDetailRailEvent("intent_submit_started", {
+      intent: "buy",
+      workflow: cartWorkflow,
+      selection: cartSelection,
+      topic: cartWorkflow,
+      surface: "action_rail",
+    });
 
     const formData = new FormData(formRef.current);
     formData.set("intent", "add-to-cart");
@@ -707,7 +852,7 @@ export function CheckoutPurchaseIntentSection({
     </>
   );
   const form = (
-    <Form spacing="none" id={formId} method="post" ref={formRef}>
+    <Form spacing="none" id={formId} method="post" ref={formRef} onSubmit={trackPurchaseIntentSubmit}>
       <Stack gap={3}>
         <HiddenInput type="hidden" name="catalogItemId" value={catalogItemId} />
         <HiddenInput type="hidden" name="listingId" value="" />
@@ -909,6 +1054,7 @@ export function MarketplaceOfferMatchSection({
   const selectedOfferReferenceInfo =
     actionMode === "add-to-sell-list"
       ? {
+          analyticsTopic: "offer_sell_list",
           triggerLabel: t("discovery.routes.itemDetail.referenceInfo.offerSellList.trigger"),
           ariaLabel: t("discovery.routes.itemDetail.referenceInfo.offerSellList.aria"),
           title: t("discovery.routes.itemDetail.referenceInfo.offerSellList.title"),
@@ -919,6 +1065,7 @@ export function MarketplaceOfferMatchSection({
           ],
         }
       : {
+          analyticsTopic: actionMode === "sell-now" ? "accept_offer" : "estimated_payout",
           triggerLabel: t("discovery.routes.itemDetail.referenceInfo.estimatedPayout.trigger"),
           ariaLabel: t("discovery.routes.itemDetail.referenceInfo.estimatedPayout.aria"),
           title: t("discovery.routes.itemDetail.referenceInfo.estimatedPayout.title"),
@@ -933,6 +1080,48 @@ export function MarketplaceOfferMatchSection({
             t("discovery.routes.itemDetail.referenceInfo.offerSellList.line2"),
           ],
         };
+  const offerMatchWorkflow = selectedOfferSource === "explicit" ? "selected_offer" : "best_offer";
+  const hasAcceptanceTerms = Boolean(acceptanceTerms);
+  useEffect(() => {
+    if (!selectedOffer) {
+      return;
+    }
+
+    trackItemDetailRailEvent(hasAcceptanceTerms ? "payout_preview_shown" : "standard_preview_unavailable", {
+      intent: "sell",
+      workflow: offerMatchWorkflow,
+      selection: selectedOfferSource,
+      topic: "estimated_payout",
+      outcome: hasAcceptanceTerms ? "shown" : "unavailable",
+      surface: "action_rail",
+    });
+  }, [hasAcceptanceTerms, offerMatchWorkflow, selectedOffer, selectedOfferSource]);
+  useEffect(() => {
+    if (!errorMessage) {
+      return;
+    }
+
+    trackItemDetailRailEvent("validation_failed", {
+      intent: "sell",
+      workflow: offerMatchWorkflow,
+      selection: selectedOfferSource,
+      outcome: "form_error",
+      surface: "action_rail",
+    });
+  }, [errorMessage, offerMatchWorkflow, selectedOfferSource]);
+  function trackOfferMatchSubmit(event: FormEvent<HTMLFormElement>) {
+    const submittedValue = submittedButtonValue(event);
+    const isSellList = submittedValue === "add-to-sell-list" || actionMode === "add-to-sell-list";
+
+    trackItemDetailRailEvent("intent_submit_started", {
+      intent: "sell",
+      workflow: offerMatchWorkflow,
+      selection: selectedOfferSource,
+      topic: isSellList ? "offer_sell_list" : "accept_offer",
+      gate: isSellList ? "sell_list" : "commit",
+      surface: "action_rail",
+    });
+  }
   const sellNowAction = (
     <Button type="submit" name="intent" value="sell-now" disabled={!selectedOfferCanFulfill} block>
       {t("discovery.routes.itemDetail.sell.now")}
@@ -964,7 +1153,7 @@ export function MarketplaceOfferMatchSection({
       </>
     );
   const form = (
-    <Form spacing="none" id={formId} method="post">
+    <Form spacing="none" id={formId} method="post" onSubmit={trackOfferMatchSubmit}>
       <Stack gap={3}>
         <HiddenInput type="hidden" name="offerId" value={selectedOffer?.offer_id ?? ""} />
         <HiddenInput
@@ -1127,9 +1316,35 @@ export function ProductSellListIntentSection({
   productSummary: string | null;
   errorMessage?: string | null;
 }) {
+  useEffect(() => {
+    if (!errorMessage) {
+      return;
+    }
+
+    trackItemDetailRailEvent("validation_failed", {
+      intent: "sell",
+      workflow: "selected_product",
+      topic: "product_sell_list",
+      outcome: "form_error",
+      surface: "action_rail",
+    });
+  }, [errorMessage]);
+
   return (
     <FormPanel variant={panelVariant} glow={Boolean(productId)}>
-      <Form spacing="none" id={formId} method="post">
+      <Form
+        spacing="none"
+        id={formId}
+        method="post"
+        onSubmit={() => {
+          trackItemDetailRailEvent("intent_submit_started", {
+            intent: "sell",
+            workflow: "selected_product",
+            topic: "product_sell_list",
+            surface: "action_rail",
+          });
+        }}
+      >
         <Stack gap={3}>
           <HiddenInput type="hidden" name="intent" value="add-product-to-sell-list" />
           <HiddenInput type="hidden" name="catalogItemId" value={catalogItemId} />
@@ -1145,6 +1360,7 @@ export function ProductSellListIntentSection({
                 variant={productSelectionDetails.length === 0 ? "chips" : "inline"}
               />
               <RailReferenceInfo
+                analyticsTopic="product_sell_list"
                 triggerLabel={t("discovery.routes.itemDetail.referenceInfo.productSellList.trigger")}
                 ariaLabel={t("discovery.routes.itemDetail.referenceInfo.productSellList.aria")}
                 title={t("discovery.routes.itemDetail.referenceInfo.productSellList.title")}
@@ -1222,9 +1438,50 @@ export function MarketplaceSellerRegistrationSection({
     ? formatTermsSource(selectedOfferQuote)
     : t("discovery.routes.itemDetail.standard.terms");
   const selectedOfferQuoteTime = selectedOfferQuote ? new Date(selectedOfferQuote.resolved_at).toLocaleString() : null;
+  const hasSelectedOfferQuote = Boolean(selectedOfferQuote);
+  useEffect(() => {
+    if (!selectedOffer) {
+      return;
+    }
+
+    trackItemDetailRailEvent(hasSelectedOfferQuote ? "payout_preview_shown" : "standard_preview_unavailable", {
+      intent: "sell",
+      workflow: selectedOfferSource === "explicit" ? "selected_offer" : "best_offer",
+      selection: selectedOfferSource,
+      topic: "estimated_payout",
+      outcome: hasSelectedOfferQuote ? "shown" : "unavailable",
+      surface: "guest_registration",
+    });
+  }, [hasSelectedOfferQuote, selectedOffer, selectedOfferSource]);
   const selectedOfferBuyerName = selectedOffer?.buyer_display_name?.trim();
   const selectedOfferBuyer = selectedOfferBuyerName || t("discovery.features.itemDetail.ui.itemDetailPage.buyer");
   const selectedOfferBuyerHref = selectedOffer?.buyer_slug ? `/accounts/${selectedOffer.buyer_slug}#feedback` : null;
+  const selectedOfferWorkflow = selectedOfferSource === "explicit" ? "selected_offer" : "best_offer";
+  const showsOfferRegistrationGate = Boolean(selectedOffer && mode !== "listing");
+  const showsListingRegistrationGate =
+    mode === "listing" || mode === "combined" || (mode === "offer" && !selectedOffer);
+
+  useEffect(() => {
+    if (showsOfferRegistrationGate) {
+      trackItemDetailRailEvent("registration_gate_shown", {
+        intent: "sell",
+        workflow: selectedOfferWorkflow,
+        gate: "accept_offer",
+        viewer: "guest",
+        surface: "action_rail",
+      });
+    }
+
+    if (showsListingRegistrationGate) {
+      trackItemDetailRailEvent("registration_gate_shown", {
+        intent: "sell",
+        workflow: "create_listing",
+        gate: "create_listing",
+        viewer: "guest",
+        surface: "action_rail",
+      });
+    }
+  }, [selectedOfferWorkflow, showsListingRegistrationGate, showsOfferRegistrationGate]);
   const offerRegistrationPanel = selectedOffer ? (
     <FormPanel variant={panelVariant} glow>
       <Stack gap={3}>
@@ -1314,6 +1571,7 @@ export function MarketplaceSellerRegistrationSection({
             ) : null}
             {selectedOfferQuote ? (
               <RailReferenceInfo
+                analyticsTopic="estimated_payout"
                 triggerLabel={t("discovery.routes.itemDetail.referenceInfo.estimatedPayout.trigger")}
                 ariaLabel={t("discovery.routes.itemDetail.referenceInfo.estimatedPayout.aria")}
                 title={t("discovery.routes.itemDetail.referenceInfo.estimatedPayout.title")}
@@ -1355,7 +1613,20 @@ export function MarketplaceSellerRegistrationSection({
             ) : null}
           </Stack>
         ) : null}
-        <LinkButton href={registerHref} leadingIcon="plus" block>
+        <LinkButton
+          href={registerHref}
+          leadingIcon="plus"
+          block
+          onClick={() => {
+            trackItemDetailRailEvent("registration_started", {
+              intent: "sell",
+              workflow: selectedOfferWorkflow,
+              gate: "accept_offer",
+              viewer: "guest",
+              surface: "action_rail",
+            });
+          }}
+        >
           {t("discovery.routes.itemDetail.sign.in.or.register.to.accept.offer")}
         </LinkButton>
       </Stack>
@@ -1395,6 +1666,7 @@ export function MarketplaceSellerRegistrationSection({
               ]}
             />
             <RailReferenceInfo
+              analyticsTopic="create_listing"
               triggerLabel={t("discovery.routes.itemDetail.referenceInfo.createListing.trigger")}
               ariaLabel={t("discovery.routes.itemDetail.referenceInfo.createListing.aria")}
               title={t("discovery.routes.itemDetail.referenceInfo.createListing.title")}
@@ -1411,7 +1683,20 @@ export function MarketplaceSellerRegistrationSection({
             ) : null}
           </Stack>
         ) : null}
-        <LinkButton href={registerHref} leadingIcon="plus" block>
+        <LinkButton
+          href={registerHref}
+          leadingIcon="plus"
+          block
+          onClick={() => {
+            trackItemDetailRailEvent("registration_started", {
+              intent: "sell",
+              workflow: "create_listing",
+              gate: "create_listing",
+              viewer: "guest",
+              surface: "action_rail",
+            });
+          }}
+        >
           {selectedOffer
             ? t("discovery.routes.itemDetail.sign.in.or.register.to.list")
             : t("discovery.routes.itemDetail.register.to.sell")}
@@ -1535,9 +1820,34 @@ export function MarketplaceListingSubmissionSection({
       {t("discovery.routes.itemDetail.list.for.sale")}
     </Button>
   );
+  useEffect(() => {
+    if (!errorMessage) {
+      return;
+    }
+
+    trackItemDetailRailEvent("validation_failed", {
+      intent: "sell",
+      workflow: "create_listing",
+      topic: "create_listing",
+      outcome: "form_error",
+      surface: "action_rail",
+    });
+  }, [errorMessage]);
 
   const form = (
-    <Form spacing="none" id={formId} method="post">
+    <Form
+      spacing="none"
+      id={formId}
+      method="post"
+      onSubmit={() => {
+        trackItemDetailRailEvent("intent_submit_started", {
+          intent: "sell",
+          workflow: "create_listing",
+          topic: "create_listing",
+          surface: "action_rail",
+        });
+      }}
+    >
       <Stack gap={3}>
         <HiddenInput type="hidden" name="productId" value={productId ?? ""} />
         <HiddenInput type="hidden" name="selectedOptions" value={JSON.stringify(selectedOptions)} />
@@ -1579,6 +1889,7 @@ export function MarketplaceListingSubmissionSection({
               </Text>
             ) : null}
             <RailReferenceInfo
+              analyticsTopic="create_listing"
               triggerLabel={t("discovery.routes.itemDetail.referenceInfo.createListing.trigger")}
               ariaLabel={t("discovery.routes.itemDetail.referenceInfo.createListing.aria")}
               title={t("discovery.routes.itemDetail.referenceInfo.createListing.title")}
@@ -1805,6 +2116,27 @@ export function BuyActionCard({
         : selectedAction === "make-offer"
           ? renderOffer(`${formIdPrefix}-make-offer`)
           : null;
+  const handleSelectedActionChange = (action: BuyAction | "") => {
+    setSelectedAction(action);
+
+    if (!action) {
+      return;
+    }
+
+    trackItemDetailRailEvent("workflow_selected", {
+      intent: "buy",
+      workflow:
+        action === "buy-now"
+          ? hasSelectedListing && selectedListingSource === "explicit"
+            ? "selected_listing"
+            : "best_available_listing"
+          : action === "add-to-cart"
+            ? "selected_product"
+            : "make_offer",
+      selection: action === "buy-now" && hasSelectedListing ? selectedListingSource : "none",
+      surface: "action_rail",
+    });
+  };
 
   return (
     <ItemDetailActionCard
@@ -1814,7 +2146,7 @@ export function BuyActionCard({
       productSelectionDetails={productSelectionDetails}
       options={options}
       selectedAction={selectedAction}
-      onSelectedActionChange={setSelectedAction}
+      onSelectedActionChange={handleSelectedActionChange}
       panelVariant={panelVariant}
       accordionEdge={accordionEdge}
       glow={visibleListingCount > 0}
@@ -1902,6 +2234,27 @@ export function SellActionCard({
         : selectedAction === "list-for-sale"
           ? renderListing(`${formIdPrefix}-list-for-sale`)
           : null;
+  const handleSelectedActionChange = (action: SellAction | "") => {
+    setSelectedAction(action);
+
+    if (!action) {
+      return;
+    }
+
+    trackItemDetailRailEvent("workflow_selected", {
+      intent: "sell",
+      workflow:
+        action === "selected-offer"
+          ? selectedOfferSource === "explicit"
+            ? "selected_offer"
+            : "best_offer"
+          : action === "add-product-to-sell-list"
+            ? "selected_product"
+            : "create_listing",
+      selection: action === "selected-offer" ? selectedOfferSource : "none",
+      surface: "action_rail",
+    });
+  };
 
   return (
     <ItemDetailActionCard
@@ -1911,7 +2264,7 @@ export function SellActionCard({
       productSelectionDetails={productSelectionDetails}
       options={options}
       selectedAction={selectedAction}
-      onSelectedActionChange={setSelectedAction}
+      onSelectedActionChange={handleSelectedActionChange}
       panelVariant={panelVariant}
       accordionEdge={accordionEdge}
       glow={hasMatchingOffer}
@@ -1970,6 +2323,20 @@ export function WatchActionCard({
       : selectedAction === "watch-listings"
         ? renderListingAlert(`${formIdPrefix}-listing-alert`)
         : null;
+  const handleSelectedActionChange = (action: WatchAction | "") => {
+    setSelectedAction(action);
+
+    if (!action) {
+      return;
+    }
+
+    trackItemDetailRailEvent("workflow_selected", {
+      intent: "watch",
+      workflow: action === "watch-offers" ? "watch_offers" : "watch_listings",
+      selection: "none",
+      surface: "action_rail",
+    });
+  };
 
   return (
     <ItemDetailActionCard
@@ -1979,7 +2346,7 @@ export function WatchActionCard({
       productSelectionDetails={productSelectionDetails}
       options={options}
       selectedAction={selectedAction}
-      onSelectedActionChange={setSelectedAction}
+      onSelectedActionChange={handleSelectedActionChange}
       panelVariant={panelVariant}
       accordionEdge={accordionEdge}
       showProductSummary={false}

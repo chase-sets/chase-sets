@@ -93,6 +93,7 @@ const ucpSignedWriteRejectedCounter = meter.createCounter("chase_sets_ucp_signed
 const ucpSignatureVerificationFailedCounter = meter.createCounter("chase_sets_ucp_signature_verification_failed_total");
 const ucpIdempotencyCounter = meter.createCounter("chase_sets_ucp_idempotency_total");
 const publicPresenceWaitlistEventCounter = meter.createCounter("chase_sets_public_presence_waitlist_events_total");
+const itemDetailRailEventCounter = meter.createCounter("chase_sets_marketplace_item_detail_rail_events_total");
 const settlementOperationCounter = meter.createCounter("chase_sets_settlement_operations_total");
 const catalogIntegrationOptionQueryCounter = meter.createCounter("chase_sets_catalog_integration_option_queries_total");
 const catalogIntegrationJobCounter = meter.createCounter("chase_sets_catalog_integration_jobs_total");
@@ -158,6 +159,18 @@ export type PublicPresenceWaitlistAnalyticsSignal = Readonly<{
   interest?: string | null;
   variant?: string | null;
   status?: string | null;
+}>;
+
+export type ItemDetailRailAnalyticsSignal = Readonly<{
+  event: string;
+  intent?: string | null;
+  workflow?: string | null;
+  selection?: string | null;
+  topic?: string | null;
+  outcome?: string | null;
+  gate?: string | null;
+  viewer?: string | null;
+  surface?: string | null;
 }>;
 
 export type CatalogIntegrationOptionQuerySignal = Readonly<{
@@ -1051,6 +1064,25 @@ export function publicPresenceWaitlistAnalyticsAttributes(event: PublicPresenceW
 
 export function recordPublicPresenceWaitlistAnalytics(event: PublicPresenceWaitlistAnalyticsSignal): void {
   publicPresenceWaitlistEventCounter.add(1, publicPresenceWaitlistAnalyticsAttributes(event));
+}
+
+export function itemDetailRailAnalyticsAttributes(event: ItemDetailRailAnalyticsSignal): Attributes {
+  return {
+    context: "marketplace",
+    event: boundedMetricLabel(event.event),
+    intent: boundedMetricLabel(event.intent),
+    workflow: boundedMetricLabel(event.workflow),
+    selection: boundedMetricLabel(event.selection),
+    topic: boundedMetricLabel(event.topic),
+    outcome: boundedMetricLabel(event.outcome),
+    gate: boundedMetricLabel(event.gate),
+    viewer: boundedMetricLabel(event.viewer),
+    surface: boundedMetricLabel(event.surface),
+  };
+}
+
+export function recordItemDetailRailAnalytics(event: ItemDetailRailAnalyticsSignal): void {
+  itemDetailRailEventCounter.add(1, itemDetailRailAnalyticsAttributes(event));
 }
 
 export function sanitizeLogFields(fields: LogFields): LogFields {

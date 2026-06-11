@@ -57,6 +57,7 @@ import {
   summarizeSelections,
 } from "../domain/product-resolution";
 import { buildReferenceDetailRows, formatReferenceTypeLabel, type ReferenceDetailRow } from "./reference-detail-rows";
+import { trackItemDetailRailEvent } from "../../../support/ui-support/item-detail-rail-analytics";
 
 export type ItemDetailMarketplaceSectionContext = Readonly<{
   itemId: string;
@@ -102,6 +103,62 @@ type MarketIntent = "buy" | "sell" | "watch";
 type MarketBookTab = "listings" | "offers" | "sales" | "details";
 type MarketSelectionSource = "explicit" | "implicit";
 type ExplicitSelectionParam = "listing" | "offer";
+
+function itemDetailRailAnalyticsWorkflow({
+  intent,
+  hasListing,
+  listingSource,
+  hasOffer,
+  offerSource,
+}: {
+  intent: MarketIntent;
+  hasListing: boolean;
+  listingSource: MarketSelectionSource;
+  hasOffer: boolean;
+  offerSource: MarketSelectionSource;
+}) {
+  if (intent === "watch") {
+    return "watch";
+  }
+
+  if (intent === "sell") {
+    if (!hasOffer) {
+      return "selected_product";
+    }
+
+    return offerSource === "explicit" ? "selected_offer" : "best_offer";
+  }
+
+  if (!hasListing) {
+    return "selected_product";
+  }
+
+  return listingSource === "explicit" ? "selected_listing" : "best_available_listing";
+}
+
+function itemDetailRailAnalyticsSelection({
+  intent,
+  hasListing,
+  listingSource,
+  hasOffer,
+  offerSource,
+}: {
+  intent: MarketIntent;
+  hasListing: boolean;
+  listingSource: MarketSelectionSource;
+  hasOffer: boolean;
+  offerSource: MarketSelectionSource;
+}) {
+  if (intent === "buy" && hasListing) {
+    return listingSource;
+  }
+
+  if (intent === "sell" && hasOffer) {
+    return offerSource;
+  }
+
+  return "none";
+}
 
 function productOptionsFromSelectionDetails(selections: readonly { label: ReactNode; value: ReactNode }[]) {
   return selections.map((selection) => ({
@@ -1200,6 +1257,30 @@ function LoadedItemDetailPage({
       commerceSections.buy
     )
   ) : null;
+  const trackRailIntentSelected = (nextMarketIntent: MarketIntent, surface: string) => {
+    const hasListing = Boolean(selectedListing);
+    const hasOffer = Boolean(selectedOffer);
+
+    trackItemDetailRailEvent("rail_intent_selected", {
+      intent: nextMarketIntent,
+      workflow: itemDetailRailAnalyticsWorkflow({
+        intent: nextMarketIntent,
+        hasListing,
+        listingSource: selectedListingSource,
+        hasOffer,
+        offerSource: selectedOfferSource,
+      }),
+      selection: itemDetailRailAnalyticsSelection({
+        intent: nextMarketIntent,
+        hasListing,
+        listingSource: selectedListingSource,
+        hasOffer,
+        offerSource: selectedOfferSource,
+      }),
+      viewer: viewerAccountId ? "signed_in" : "guest",
+      surface,
+    });
+  };
   const renderMarketIntentControl = (ariaLabel: string, fullWidth = false) => (
     <SegmentedControl
       aria-label={ariaLabel}
@@ -1215,6 +1296,7 @@ function LoadedItemDetailPage({
         setMarketIntent(nextMarketIntent);
         setMarketBookTab(nextMarketIntent === "sell" ? "offers" : "listings");
         updateMarketIntentUrl(nextMarketIntent);
+        trackRailIntentSelected(nextMarketIntent, "desktop_rail");
       }}
     />
   );
@@ -1347,6 +1429,7 @@ function LoadedItemDetailPage({
     setMarketBookTab(nextMarketIntent === "sell" ? "offers" : "listings");
     updateMarketIntentUrl(nextMarketIntent);
     setActiveMobileCommerce(action);
+    trackRailIntentSelected(nextMarketIntent, "mobile_action_bar");
   };
   const mobileBuyAction = selectedProductId ? (
     <Button type="button" size="lg" onClick={() => openMobileCommerce("buy", "buy")}>
@@ -1422,6 +1505,13 @@ function LoadedItemDetailPage({
     setSelectedListingId(listing.listing_id);
     setSelectedOfferId(null);
     updateExplicitSelectionUrl({ listingId: listing.listing_id, offerId: null });
+    trackItemDetailRailEvent("workflow_selected", {
+      intent: "buy",
+      workflow: "selected_listing",
+      selection: "explicit",
+      viewer: viewerAccountId ? "signed_in" : "guest",
+      surface: "market_book",
+    });
 
     if (data.product_schema) {
       setSelections(normalizeProductSearchOptionsForSchema(data.product_schema, selectionsFromListing(listing)));
@@ -1431,6 +1521,13 @@ function LoadedItemDetailPage({
     setSelectedOfferId(offer.offer_id);
     setSelectedListingId(null);
     updateExplicitSelectionUrl({ listingId: null, offerId: offer.offer_id });
+    trackItemDetailRailEvent("workflow_selected", {
+      intent: "sell",
+      workflow: "selected_offer",
+      selection: "explicit",
+      viewer: viewerAccountId ? "signed_in" : "guest",
+      surface: "market_book",
+    });
 
     if (data.product_schema) {
       setSelections(normalizeProductSearchOptionsForSchema(data.product_schema, selectionsFromListing(offer)));

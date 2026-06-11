@@ -4,6 +4,7 @@ import {
   catalogIntegrationJobAttributes,
   catalogIntegrationOptionQueryAttributes,
   createLogger,
+  itemDetailRailAnalyticsAttributes,
   loadObservabilityConfig,
   projectionFreshnessAuditMetricRecords,
   publicPresenceWaitlistAnalyticsAttributes,
@@ -123,6 +124,35 @@ describe("public presence waitlist analytics observability", () => {
       interest: "low-sales-fees",
       variant: "landing-audit-remediation",
       status: "none",
+    });
+  });
+});
+
+describe("item detail rail analytics observability", () => {
+  it("maps rail funnel analytics to bounded metric labels", () => {
+    expect(
+      itemDetailRailAnalyticsAttributes({
+        event: "reference info opened",
+        intent: "sell",
+        workflow: "selected_offer",
+        selection: "explicit",
+        topic: "estimated_payout",
+        outcome: "shown",
+        gate: null,
+        viewer: "guest",
+        surface: "action_rail",
+      }),
+    ).toEqual({
+      context: "marketplace",
+      event: "reference_info_opened",
+      intent: "sell",
+      workflow: "selected_offer",
+      selection: "explicit",
+      topic: "estimated_payout",
+      outcome: "shown",
+      gate: "none",
+      viewer: "guest",
+      surface: "action_rail",
     });
   });
 });

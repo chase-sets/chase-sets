@@ -152,6 +152,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Notifications](../bounded-contexts/notifications/README.md)
 - [Discovery Dynamic Search Filters](../bounded-contexts/discovery/docs/dynamic-search-filters.md)
 - [Discovery Google Shopping Feed Mapping](../bounded-contexts/discovery/docs/google-shopping-feed-mapping.md)
+- [Discovery Item Detail Rail Analytics](../bounded-contexts/discovery/docs/item-detail-rail-analytics.md)
 - [Discovery Product Alerts](../bounded-contexts/discovery/docs/product-alerts.md)
 - [Ordering Self-Service Purchase Cancellation](../bounded-contexts/ordering/docs/self-service-purchase-cancellation.md)
 - [Fulfillment Purchase Cancellation Cutoff](../bounded-contexts/fulfillment/docs/purchase-cancellation-cutoff.md)

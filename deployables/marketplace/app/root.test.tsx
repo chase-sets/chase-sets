@@ -21,7 +21,11 @@ vi.mock("react-router", async () => {
   };
 });
 
-import { Layout, loader } from "./root";
+import {
+  action as itemDetailRailAnalyticsAction,
+  loader as itemDetailRailAnalyticsLoader,
+} from "./routes/item-detail-rail-analytics";
+import { Layout, itemDetailRailAnalyticsBridgeScript, loader } from "./root";
 
 function createLoaderArgs(url: string): Parameters<typeof loader>[0] {
   return {
@@ -95,6 +99,75 @@ describe("marketplace root layout", () => {
     );
 
     expect(html).toContain('name="robots" content="noindex,nofollow"');
+  });
+
+  it("installs a bounded item-detail rail analytics bridge script", () => {
+    expect(itemDetailRailAnalyticsBridgeScript).toContain("chase-sets:item-detail-rail-analytics");
+    expect(itemDetailRailAnalyticsBridgeScript).toContain("/analytics/item-detail-rail");
+    expect(itemDetailRailAnalyticsBridgeScript).toContain("reference_info_opened");
+    expect(itemDetailRailAnalyticsBridgeScript).toContain("registration_gate_shown");
+    expect(itemDetailRailAnalyticsBridgeScript).not.toContain("email");
+    expect(itemDetailRailAnalyticsBridgeScript).not.toContain("price_amount");
+  });
+
+  it("captures bounded item-detail rail analytics events", async () => {
+    vi.stubEnv("OBSERVABILITY_ENABLED", "false");
+    const response = await itemDetailRailAnalyticsAction({
+      request: new Request("https://marketplace.chasesets.com/analytics/item-detail-rail", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          event: "payout_preview_shown",
+          intent: "sell",
+          workflow: "selected_offer",
+          selection: "explicit",
+          topic: "estimated_payout",
+          outcome: "shown",
+          viewer: "guest",
+          surface: "action_rail",
+        }),
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(response.status).toBe(204);
+  });
+
+  it("rejects unsupported or unbounded rail analytics events before logging", async () => {
+    vi.stubEnv("OBSERVABILITY_ENABLED", "false");
+    const unsupported = await itemDetailRailAnalyticsAction({
+      request: new Request("https://marketplace.chasesets.com/analytics/item-detail-rail", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ event: "email_submitted", email: "seller@example.com" }),
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+    const unbounded = await itemDetailRailAnalyticsAction({
+      request: new Request("https://marketplace.chasesets.com/analytics/item-detail-rail", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          event: "reference_info_opened",
+          topic: "seller@example.com",
+          surface: "action rail",
+        }),
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(unsupported.status).toBe(400);
+    expect(unbounded.status).toBe(400);
+    expect(
+      itemDetailRailAnalyticsLoader({
+        request: new Request("https://marketplace.chasesets.com/analytics/item-detail-rail"),
+        params: {},
+        context: undefined,
+      } as never).status,
+    ).toBe(405);
   });
 
   it("redirects anonymous production proof marketplace requests to sign-in", async () => {

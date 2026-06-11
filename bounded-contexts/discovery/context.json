@@ -14,6 +14,7 @@
     "request-support",
     "runtime-support",
     "shell-support",
+    "ui-support",
     "ucp-support"
   ],
   "publicExports": [".", "./context", "./routes/*", "./server", "./web"],
@@ -570,6 +571,15 @@
       "justification": "shell-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "discovery workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
+    },
+    "ui-support": {
+      "classification": "support",
+      "purpose": "Expose browser-safe Discovery UI contracts for item-detail rail analytics without moving rail behavior out of the item-detail slice.",
+      "allowedWhen": "Allowed only for browser-safe Discovery UI contracts consumed through context web exports or item-detail UI.",
+      "expectedConsumers": ["item-detail"],
+      "justification": "The item-detail slice owns rail analytics vocabulary; the marketplace host needs the event allowlist without importing feature internals or duplicating bounded-context terms.",
+      "createdFor": "item-detail action rail analytics capture.",
+      "sunsetWhen": "Remove if rail analytics capture moves fully into deployable-owned instrumentation or an approved experimentation context."
     },
     "ucp-support": {
       "classification": "support",
