@@ -1,0 +1,12 @@
+import { defineConfig } from "vitest/config";
+
+// Single vitest configuration for every script-level test under scripts/.
+// verify:static invokes this once instead of spawning one vitest process per
+// file (issue #1327). Rule: a new check may be added to verify:static only by
+// replacing or merging into an existing step — new script tests are picked up
+// here automatically and must not become their own chain entries.
+export default defineConfig({
+  test: {
+    include: ["scripts/**/*.test.mjs"],
+  },
+});
