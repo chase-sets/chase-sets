@@ -151,6 +151,42 @@ describe("checkout session routes", () => {
     });
   });
 
+  it("returns active-session readiness validation errors from checkout reload", async () => {
+    const services = createServices({
+      getSession: vi.fn(async () => {
+        throw new CheckoutDomainError(
+          "Cart readiness changed. Review your cart before checkout.",
+          "readiness_snapshot_stale",
+        );
+      }),
+    });
+    const app = buildApp(services);
+
+    const response = await app.fetch(new Request("http://checkout.test/account/checkout-sessions/chk_1"));
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "readiness_snapshot_stale",
+        message: "Cart readiness changed. Review your cart before checkout.",
+      },
+    });
+  });
+
+  it("does not convert unexpected active-session reload failures into validation errors", async () => {
+    const services = createServices({
+      getSession: vi.fn(async () => {
+        throw new Error("database unavailable");
+      }),
+    });
+    const app = buildApp(services);
+
+    const response = await app.fetch(new Request("http://checkout.test/account/checkout-sessions/chk_1"));
+
+    expect(response.status).toBe(500);
+    await expect(response.text()).resolves.not.toContain("validation_failed");
+  });
+
   it("passes cart readiness snapshot evidence into cart checkout creation", async () => {
     const services = createServices();
     const app = buildApp(services);
@@ -451,6 +487,39 @@ describe("checkout session routes", () => {
       expect.objectContaining({ sessionId: "chk_1", paymentId: "pay_1" }),
       expect.any(Object),
     );
+  });
+
+  it("rejects stale active-session readiness before committing orders or payment", async () => {
+    const services = createServices({
+      getSession: vi.fn(async () => {
+        throw new CheckoutDomainError(
+          "Cart readiness changed. Review your cart before checkout.",
+          "readiness_snapshot_stale",
+        );
+      }),
+    });
+    const app = buildApp(services);
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shippingAddress, marketplaceCheckoutFeeQuoteFingerprint: "quote_1" }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "readiness_snapshot_stale",
+        message: "Cart readiness changed. Review your cart before checkout.",
+      },
+    });
+    expect(mockCreateCheckoutOrdersThroughOrdering).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutPaymentThroughPayments).not.toHaveBeenCalled();
+    expect(services.setShippingAddress).not.toHaveBeenCalled();
+    expect(services.recordOrdersCreated).not.toHaveBeenCalled();
+    expect(services.recordPaymentStarted).not.toHaveBeenCalled();
   });
 
   it("rejects customer deferred payment before committing orders or payment", async () => {

@@ -12,6 +12,7 @@ import type { CheckoutCartServices } from "../../cart/api/runtime";
 import type { CheckoutCartLineRow } from "../../cart/read-model/queries";
 import {
   applyCartReadinessToLines,
+  cartReadinessDecisionsFromSnapshot,
   validateCartReadinessSnapshot,
   type CartReadinessDecisionInput,
   type CartReadinessSnapshot,
@@ -611,7 +612,47 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
         context,
       );
     },
-    getSession: (sessionId, accountId) => getCheckoutSession(deps.db, sessionId, accountId),
+    getSession: async (sessionId, accountId) => {
+      const session = await getCheckoutSession(deps.db, sessionId, accountId);
+      if (!session) {
+        return null;
+      }
+
+      if (session.source_type !== "cart") {
+        return session;
+      }
+
+      if (session.payment_id || session.order_ids.length > 0 || session.submitted_offer_id) {
+        return session;
+      }
+
+      const storedReadiness = session.cart_readiness_snapshot;
+      if (!storedReadiness) {
+        throw new CheckoutDomainError(
+          "Cart readiness changed. Review your cart before checkout.",
+          "readiness_snapshot_stale",
+        );
+      }
+
+      const cartLines = await deps.cart.listCartLines(accountId);
+      const readiness = validateCartReadinessSnapshot(cartLines, {
+        snapshotId: storedReadiness.snapshotId,
+        sourceRevision: storedReadiness.sourceRevision,
+        decisions: cartReadinessDecisionsFromSnapshot(storedReadiness),
+      });
+      if (!readiness.valid) {
+        throw new CheckoutDomainError(
+          "Cart readiness changed. Review your cart before checkout.",
+          "readiness_snapshot_stale",
+        );
+      }
+
+      if (readiness.current.status !== "ready" || readiness.current.unresolvedLineIds.length > 0) {
+        throw new CheckoutDomainError("Resolve item availability before checkout starts.", "unresolved_fulfillment");
+      }
+
+      return session;
+    },
     projectors: [sessionProjector],
   };
 }

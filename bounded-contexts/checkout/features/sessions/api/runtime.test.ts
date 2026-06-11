@@ -11,6 +11,8 @@ import type {
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import { createCartReadinessSnapshot } from "../../cart/domain/readiness";
 import type { CheckoutCartLineRow } from "../../cart/read-model/queries";
+import type { CheckoutDomainError } from "../../../support/runtime-support/common";
+import type { CheckoutSessionRow } from "../read-model/queries";
 import { createCheckoutSessionRuntime } from "./runtime";
 
 const context = {
@@ -120,6 +122,42 @@ function createCartServices(lines: readonly CheckoutCartLineRow[] = [readyCartLi
     removeLine: vi.fn(async () => ({ lineId: "cli_1" as never, version: 1 })),
     checkout: vi.fn(async () => ({ version: 1 })),
     createReadinessSnapshot: vi.fn(async () => createCartReadinessSnapshot(lines)),
+  };
+}
+
+function createSessionPageRow(
+  cartReadinessSnapshot: CheckoutSessionRow["cart_readiness_snapshot"],
+  overrides: Partial<CheckoutSessionRow> = {},
+): CheckoutSessionRow {
+  return {
+    session_id: "chk_1",
+    buyer_account_id: "acc_buyer",
+    source_type: "cart",
+    optimization_goal: "lowest-total",
+    fulfillment_preview_revision: null,
+    cart_readiness_snapshot: cartReadinessSnapshot,
+    shipping_option: "standard",
+    shipping_address_id: null,
+    shipping_address: null,
+    lines: [
+      {
+        listingId: "lst_1",
+        cartLineId: "cli_1",
+        catalogItemId: "cat_1",
+        productId: "cat_1::",
+        itemTitle: "Charizard",
+        itemSubtitle: null,
+        selectedOptions: [],
+        productSummary: null,
+        quantity: 1,
+      },
+    ],
+    order_ids: [],
+    payment_id: null,
+    submitted_offer_id: null,
+    created_at: "2026-06-09T00:00:00.000Z",
+    updated_at: "2026-06-09T00:00:00.000Z",
+    ...overrides,
   };
 }
 
@@ -302,5 +340,110 @@ describe("checkout session runtime", () => {
         context,
       ),
     ).rejects.toThrow("Resolve item availability before checkout starts.");
+  });
+
+  it("returns an active cart session when the stored readiness still matches current cart facts", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const readiness = createCartReadinessSnapshot([readyCartLine]);
+    const cart = createCartServices([readyCartLine]);
+    const db = {
+      query: vi.fn(async () => ({ rows: [createSessionPageRow(readiness)] })),
+    };
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db,
+      cart: cart as never,
+    });
+
+    await expect(services.getSession("chk_1", "acc_buyer" as never)).resolves.toMatchObject({
+      session_id: "chk_1",
+      source_type: "cart",
+      cart_readiness_snapshot: expect.objectContaining({
+        snapshotId: readiness.snapshotId,
+        sourceRevision: readiness.sourceRevision,
+      }),
+    });
+    expect(cart.listCartLines).toHaveBeenCalledWith("acc_buyer");
+  });
+
+  it("does not revalidate consumed cart source facts after orders or payment have started", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const readiness = createCartReadinessSnapshot([readyCartLine]);
+    const cart = createCartServices([]);
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: {
+        query: vi.fn(async () => ({
+          rows: [createSessionPageRow(readiness, { order_ids: ["ord_1"], payment_id: "pay_1" })],
+        })),
+      },
+      cart: cart as never,
+    });
+
+    await expect(services.getSession("chk_1", "acc_buyer" as never)).resolves.toMatchObject({
+      order_ids: ["ord_1"],
+      payment_id: "pay_1",
+    });
+    expect(cart.listCartLines).not.toHaveBeenCalled();
+  });
+
+  it("rejects an active cart session when the stored readiness snapshot is missing", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query: vi.fn(async () => ({ rows: [createSessionPageRow(null)] })) },
+      cart: createCartServices([readyCartLine]) as never,
+    });
+
+    await expect(services.getSession("chk_1", "acc_buyer" as never)).rejects.toMatchObject({
+      code: "readiness_snapshot_stale",
+      message: "Cart readiness changed. Review your cart before checkout.",
+    } satisfies Partial<CheckoutDomainError>);
+  });
+
+  it("rejects an active cart session when cart facts changed after checkout started", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const readiness = createCartReadinessSnapshot([readyCartLine]);
+    const changedLine: CheckoutCartLineRow = {
+      ...readyCartLine,
+      updated_at: "2026-06-09T00:01:00.000Z",
+    };
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query: vi.fn(async () => ({ rows: [createSessionPageRow(readiness)] })) },
+      cart: createCartServices([changedLine]) as never,
+    });
+
+    await expect(services.getSession("chk_1", "acc_buyer" as never)).rejects.toMatchObject({
+      code: "readiness_snapshot_stale",
+      message: "Cart readiness changed. Review your cart before checkout.",
+    } satisfies Partial<CheckoutDomainError>);
+  });
+
+  it("rejects active-session cart readiness that is still unresolved", async () => {
+    const unresolvedLine: CheckoutCartLineRow = {
+      ...readyCartLine,
+      line_id: "cli_unresolved",
+      fulfillment_mode: "optimize",
+      locked_listing_id: null,
+      seller_options: [],
+    };
+    const { eventStore } = createInMemoryEventStore();
+    const readiness = createCartReadinessSnapshot([unresolvedLine]);
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query: vi.fn(async () => ({ rows: [createSessionPageRow(readiness)] })) },
+      cart: createCartServices([unresolvedLine]) as never,
+    });
+
+    await expect(services.getSession("chk_1", "acc_buyer" as never)).rejects.toMatchObject({
+      code: "unresolved_fulfillment",
+      message: "Resolve item availability before checkout starts.",
+    } satisfies Partial<CheckoutDomainError>);
   });
 });

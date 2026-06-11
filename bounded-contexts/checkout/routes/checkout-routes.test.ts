@@ -4098,6 +4098,47 @@ describe("checkout web routes", () => {
     expect(recoveryBody.primaryAction?.href).toBe("/search");
   });
 
+  it("returns cart recovery when active cart readiness is stale on checkout reload", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(guestCheckoutActor());
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCheckoutSession: vi.fn(async () => {
+        throw new MockCheckoutApiError(400, {
+          error: {
+            code: "readiness_snapshot_stale",
+            message: "Cart readiness changed. Review your cart before checkout.",
+          },
+        });
+      }),
+    });
+
+    let recoveryResponse: Response | null = null;
+    try {
+      await checkoutSessionLoader({
+        request: new Request("http://localhost/checkout/chk_1"),
+        params: { sessionId: "chk_1" },
+        context: undefined,
+      } as never);
+    } catch (error) {
+      recoveryResponse = error as Response;
+    }
+
+    expect(recoveryResponse?.status).toBe(400);
+    expect(recoveryResponse?.statusText).toBe("Checkout needs attention");
+    const recoveryBody = JSON.parse((await recoveryResponse?.text()) ?? "{}") as {
+      kind?: string;
+      description?: string;
+      primaryAction?: { href?: string; label?: string };
+      trustCue?: string;
+    };
+    expect(recoveryBody.kind).toBe("request-validation");
+    expect(recoveryBody.description).toContain("Review your Buy Cart or browse for another item.");
+    expect(recoveryBody.trustCue).toBe("Your payment has not started.");
+    expect(recoveryBody.primaryAction?.href).toBe("/account/cart");
+    expect(recoveryBody.primaryAction?.label).toBe("View Buy Cart");
+    expect(mockPreviewCheckoutFulfillment).not.toHaveBeenCalled();
+    expect(mockPreviewCheckoutStatus).not.toHaveBeenCalled();
+  });
+
   it("returns safe checkout recovery for expired fresh checkout handoffs", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(guestCheckoutActor());
     mockCreateCheckoutRequestApiClient.mockReturnValue({
