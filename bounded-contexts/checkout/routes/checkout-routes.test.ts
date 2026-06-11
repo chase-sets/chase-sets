@@ -942,10 +942,7 @@ describe("checkout web routes", () => {
         ],
         count: 1,
       })),
-      startSellListExecution: mockStartSellListExecution,
-      recordSellListExecutionProgress: mockRecordSellListExecutionProgress,
       createSellListReadiness: mockCreateSellListReadiness,
-      checkoutSellList: mockCheckoutSellList,
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
       previewOfferAcceptanceTerms: mockPreviewOfferAcceptanceTerms,
