@@ -346,6 +346,23 @@ describe("admin-support API app", () => {
       rollout: {
         summary: { entryCount: expect.any(Number) },
       },
+      // Push-first migration inventory (#1224): disposition by projection
+      // group, derived from the wake registry. Structural fields only.
+      migration: {
+        summary: {
+          projectionCount: expect.any(Number),
+          optOutCount: 0,
+          routeDependencyCount: expect.any(Number),
+        },
+        projections: expect.arrayContaining([
+          expect.objectContaining({
+            projectionKey: "checkout:checkout.session-projection",
+            owner: "Checkout",
+            status: "push-enabled",
+            consumesDurableWakeIntents: true,
+          }),
+        ]),
+      },
       // Composite-origin dispositions (#1248/#1238): structural inventory of
       // which wake families ride the work-signal composite versus documented
       // exceptions.
@@ -410,6 +427,10 @@ describe("admin-support API app", () => {
       rollout: {
         summary: { entryCount: expect.any(Number) },
         sources: expect.any(Array),
+      },
+      migration: {
+        summary: { projectionCount: expect.any(Number) },
+        projections: expect.any(Array),
       },
       origins: expect.any(Array),
     });

@@ -111,12 +111,38 @@ export type WakeRolloutStatus = Readonly<{
   sources: readonly WakeRolloutSource[];
 }>;
 
+export type WakeMigrationProjection = Readonly<{
+  projectionKey: string;
+  targetContextName: string;
+  projectionName: string;
+  owner: string;
+  status: string;
+  sourceContextCount: number;
+  enabledSourceContextCount: number;
+  sourceContextNames: readonly string[];
+  consumesDurableWakeIntents: boolean;
+  optOutReason: string | null;
+  optOutReviewBy: string | null;
+}>;
+
+export type WakeMigrationStatus = Readonly<{
+  summary: Readonly<{
+    projectionCount: number;
+    statusCounts: readonly Readonly<{ status: string; count: number }>[];
+    optOutCount: number;
+    routeDependencyCount: number;
+    pushEnabledRouteDependencyCount: number;
+  }>;
+  projections: readonly WakeMigrationProjection[];
+}>;
+
 export type WakeStatusSnapshot = Readonly<{
   generatedAt: string;
   wakeStore: WakeStoreStatus;
   relay: WakeRelayStatus;
   schedulers: WakeSchedulerStatus;
   rollout: WakeRolloutStatus;
+  migration: WakeMigrationStatus;
 }>;
 
 export function normalizeWakeStatusSnapshot(value: unknown): WakeStatusSnapshot {
@@ -128,6 +154,7 @@ export function normalizeWakeStatusSnapshot(value: unknown): WakeStatusSnapshot 
     relay: normalizeWakeRelayStatus(snapshot.relay),
     schedulers: normalizeWakeSchedulerStatus(snapshot.schedulers),
     rollout: normalizeWakeRolloutStatus(snapshot.rollout),
+    migration: normalizeWakeMigrationStatus(snapshot.migration),
   };
 }
 
@@ -341,6 +368,40 @@ function normalizeWakeRolloutStatus(value: unknown): WakeRolloutStatus {
         affectedProjectionNames: readArray(source.affectedProjectionNames).map(readString),
         disabledReason: readNullableString(source.disabledReason),
         optOutReason: readNullableString(source.optOutReason),
+      };
+    }),
+  };
+}
+
+function normalizeWakeMigrationStatus(value: unknown): WakeMigrationStatus {
+  const status = isRecord(value) ? value : {};
+  const summary = isRecord(status.summary) ? status.summary : {};
+
+  return {
+    summary: {
+      projectionCount: readNumber(summary.projectionCount),
+      statusCounts: readArray(summary.statusCounts).map((entry) => {
+        const row = isRecord(entry) ? entry : {};
+        return { status: readString(row.status), count: readNumber(row.count) };
+      }),
+      optOutCount: readNumber(summary.optOutCount),
+      routeDependencyCount: readNumber(summary.routeDependencyCount),
+      pushEnabledRouteDependencyCount: readNumber(summary.pushEnabledRouteDependencyCount),
+    },
+    projections: readArray(status.projections).map((entry) => {
+      const projection = isRecord(entry) ? entry : {};
+      return {
+        projectionKey: readString(projection.projectionKey),
+        targetContextName: readString(projection.targetContextName),
+        projectionName: readString(projection.projectionName),
+        owner: readString(projection.owner),
+        status: readString(projection.status),
+        sourceContextCount: readNumber(projection.sourceContextCount),
+        enabledSourceContextCount: readNumber(projection.enabledSourceContextCount),
+        sourceContextNames: readArray(projection.sourceContextNames).map(readString),
+        consumesDurableWakeIntents: projection.consumesDurableWakeIntents === true,
+        optOutReason: readNullableString(projection.optOutReason),
+        optOutReviewBy: readNullableString(projection.optOutReviewBy),
       };
     }),
   };

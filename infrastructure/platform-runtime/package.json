@@ -18,6 +18,7 @@
     "./projection-operations-routes": "./projection-operations-routes.ts",
     "./process-lifecycle": "./process-lifecycle.ts",
     "./projection-interest-index": "./projection-interest-index.ts",
+    "./projection-push-migration": "./projection-push-migration.ts",
     "./projection-wake-relay": "./projection-wake-relay.ts",
     "./projection-wake-scheduler": "./projection-wake-scheduler.ts",
     "./read-consistency-work-signals": "./read-consistency-work-signals.ts",

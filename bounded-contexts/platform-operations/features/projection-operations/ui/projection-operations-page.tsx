@@ -795,6 +795,7 @@ function WakePipelinePanel({ wakeStatus }: Readonly<{ wakeStatus: WakeStatusSnap
         <WakeCheckpointSection wakeStatus={wakeStatus} />
       </Grid>
       <WakeRolloutSection wakeStatus={wakeStatus} />
+      <WakeMigrationSection wakeStatus={wakeStatus} />
     </Stack>
   );
 }
@@ -1082,6 +1083,83 @@ function WakeRolloutSection({ wakeStatus }: Readonly<{ wakeStatus: WakeStatusSna
       </Stack>
     </PageSection>
   );
+}
+
+function WakeMigrationSection({ wakeStatus }: Readonly<{ wakeStatus: WakeStatusSnapshot }>) {
+  return (
+    <PageSection title={t(`${routeKey}.wakeMigration`)}>
+      <Stack gap={3}>
+        <Text size="sm" tone="secondary">
+          {t(`${routeKey}.wakeMigrationSummary`, {
+            projections: wakeStatus.migration.summary.projectionCount,
+            optOuts: wakeStatus.migration.summary.optOutCount,
+            pushEnabledRoutes: wakeStatus.migration.summary.pushEnabledRouteDependencyCount,
+            routes: wakeStatus.migration.summary.routeDependencyCount,
+          })}
+        </Text>
+        <DataTable
+          density="compact"
+          rows={[...wakeStatus.migration.projections]}
+          getRowId={(projection) => projection.projectionKey}
+          emptyTitle={t(`${routeKey}.wakeMigrationNoProjections`)}
+          emptyDescription={t(`${routeKey}.wakeMigrationNoProjectionsDescription`)}
+          columns={[
+            {
+              key: "projection",
+              header: t(`${routeKey}.projection`),
+              cell: (projection) => projection.projectionKey,
+            },
+            {
+              key: "owner",
+              header: t(`${routeKey}.wakeMigrationOwner`),
+              cell: (projection) => projection.owner,
+            },
+            {
+              key: "status",
+              header: t(`${routeKey}.wakeMigrationStatus`),
+              cell: (projection) => <Badge tone={migrationStatusTone(projection.status)}>{projection.status}</Badge>,
+            },
+            {
+              key: "sources",
+              header: t(`${routeKey}.wakeMigrationEnabledSources`),
+              align: "right",
+              cell: (projection) =>
+                t(`${routeKey}.wakeMigrationSourceRatio`, {
+                  enabled: projection.enabledSourceContextCount,
+                  total: projection.sourceContextCount,
+                }),
+            },
+            {
+              key: "optOut",
+              header: t(`${routeKey}.wakeMigrationOptOut`),
+              cell: (projection) =>
+                projection.optOutReason
+                  ? `${projection.optOutReason}${
+                      projection.optOutReviewBy
+                        ? ` (${t(`${routeKey}.wakeMigrationOptOutReview`, { reviewBy: projection.optOutReviewBy })})`
+                        : ""
+                    }`
+                  : t(`${routeKey}.notRecorded`),
+            },
+          ]}
+        />
+      </Stack>
+    </PageSection>
+  );
+}
+
+function migrationStatusTone(status: string) {
+  switch (status) {
+    case "push-enabled":
+      return "success" as const;
+    case "push-eligible":
+      return "accent" as const;
+    case "disabled":
+    case "opted-out":
+      return "warning" as const;
+    default:
+      return "neutral" as const;
+  }
 }
 
 function rolloutStateTone(rolloutState: string) {

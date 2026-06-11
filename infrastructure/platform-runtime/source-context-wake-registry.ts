@@ -163,9 +163,10 @@ export const sourceContextWakeRegistry = [
   registryEntry({
     sourceContextName: "checkout",
     owner: "Checkout",
-    // Staging-enabled wave-1 hot path: staging runs the full push loop, while
-    // production stays inert through the relay and event-store wake emission
-    // kill switches until the production proof gates pass.
+    // Staging-enabled wave-1 hot path (with marketplace/ordering/payments):
+    // staging runs the full push loop, while production stays inert through
+    // the relay and event-store wake emission kill switches until the
+    // production proof gates pass.
     rolloutState: "staging-enabled",
     enablement: {
       eventStoreWakeNotifications: true,
@@ -305,7 +306,15 @@ export const sourceContextWakeRegistry = [
   registryEntry({
     sourceContextName: "marketplace",
     owner: "Marketplace",
-    rolloutState: "eligible",
+    // Wave-1 remainder, staging-enabled after checkout's staging push-loop
+    // evidence (push-wake-slo-load-proof.md). Production stays inert via the
+    // environment kill switches; the wave-1 listener URLs and connection
+    // budget already cover this context (locals.tf).
+    rolloutState: "staging-enabled",
+    enablement: {
+      eventStoreWakeNotifications: true,
+      relayFanOut: true,
+    },
     phase: "phase-1-checkout-hot-path",
     rolloutWave: "wave-1-checkout-hot-path",
     priorityLane: "hot",
@@ -341,7 +350,12 @@ export const sourceContextWakeRegistry = [
   registryEntry({
     sourceContextName: "ordering",
     owner: "Ordering",
-    rolloutState: "eligible",
+    // Wave-1 remainder, staging-enabled; see the marketplace entry note.
+    rolloutState: "staging-enabled",
+    enablement: {
+      eventStoreWakeNotifications: true,
+      relayFanOut: true,
+    },
     phase: "phase-1-checkout-hot-path",
     rolloutWave: "wave-1-checkout-hot-path",
     priorityLane: "hot",
@@ -363,7 +377,12 @@ export const sourceContextWakeRegistry = [
   registryEntry({
     sourceContextName: "payments",
     owner: "Payments",
-    rolloutState: "eligible",
+    // Wave-1 remainder, staging-enabled; see the marketplace entry note.
+    rolloutState: "staging-enabled",
+    enablement: {
+      eventStoreWakeNotifications: true,
+      relayFanOut: true,
+    },
     phase: "phase-1-checkout-hot-path",
     rolloutWave: "wave-1-checkout-hot-path",
     priorityLane: "hot",

@@ -12,7 +12,7 @@ The `@chase-sets/platform-runtime/projection-wake-relay` module owns the pure fa
 
 1. Parse and validate the event-store wake notification envelope.
 2. Check the source context against the source-context wake relay config.
-3. Map the wake through the projection interest index.
+3. Map the wake through the [projection interest index](./projection-interest-index.md).
 4. Create source-scoped projection wake intent inputs.
 5. Enqueue/coalesce those intents through the durable work-signal store.
 
@@ -64,7 +64,7 @@ The platform worker hosts the relay as a long-lived supervised session beside it
 
 ## Rollout Gate
 
-`listSourceContextWakeRelayConfigs()` returns only source contexts whose registry entry has relay fan-out enabled - currently the staging-enabled checkout wave-1 hot path. The same registry entry also controls write-side event-store wake emission, so a source context should not produce unexplained notifications or listen-only fan-out; environments outside the staging ramp stay inert through the relay and emission kill switches described in the [source-context wake registry](./source-context-wake-registry.md).
+`listSourceContextWakeRelayConfigs()` returns only source contexts whose registry entry has relay fan-out enabled - currently the staging-enabled wave-1 hot path (`checkout`, `marketplace`, `ordering`, `payments`). The same registry entry also controls write-side event-store wake emission, so a source context should not produce unexplained notifications or listen-only fan-out; environments outside the staging ramp stay inert through the relay and emission kill switches described in the [source-context wake registry](./source-context-wake-registry.md).
 
 Production enablement still requires:
 

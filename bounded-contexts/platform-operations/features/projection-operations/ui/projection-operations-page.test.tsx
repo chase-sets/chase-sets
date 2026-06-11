@@ -294,6 +294,48 @@ describe("ProjectionOperationsPage", () => {
           },
         ],
       },
+      migration: {
+        summary: {
+          projectionCount: 58,
+          statusCounts: [
+            { status: "push-enabled", count: 20 },
+            { status: "push-eligible", count: 38 },
+            { status: "disabled", count: 0 },
+            { status: "opted-out", count: 0 },
+          ],
+          optOutCount: 0,
+          routeDependencyCount: 18,
+          pushEnabledRouteDependencyCount: 12,
+        },
+        projections: [
+          {
+            projectionKey: "checkout:checkout.session-projection",
+            targetContextName: "checkout",
+            projectionName: "checkout.session-projection",
+            owner: "Checkout",
+            status: "push-enabled",
+            sourceContextCount: 1,
+            enabledSourceContextCount: 1,
+            sourceContextNames: ["checkout"],
+            consumesDurableWakeIntents: true,
+            optOutReason: null,
+            optOutReviewBy: null,
+          },
+          {
+            projectionKey: "discovery:discovery-market-projection",
+            targetContextName: "discovery",
+            projectionName: "discovery-market-projection",
+            owner: "Discovery",
+            status: "push-eligible",
+            sourceContextCount: 3,
+            enabledSourceContextCount: 1,
+            sourceContextNames: ["identity", "marketplace", "reputation"],
+            consumesDurableWakeIntents: true,
+            optOutReason: null,
+            optOutReviewBy: null,
+          },
+        ],
+      },
     });
 
     render(<ProjectionOperationsPage data={data} filters={{ ...emptyFilters, tab: "wake" }} wakeStatus={wakeStatus} />);
@@ -306,6 +348,11 @@ describe("ProjectionOperationsPage", () => {
     expect(screen.getByText("Rollout by source context")).toBeTruthy();
     expect(screen.getAllByText("staging-enabled").length).toBeGreaterThan(0);
     expect(screen.getAllByText("api-wait").length).toBeGreaterThan(0);
+    expect(screen.getByText("Push-first migration by projection group")).toBeTruthy();
+    expect(screen.getAllByText("push-enabled").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("push-eligible").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("checkout:checkout.session-projection").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("discovery:discovery-market-projection").length).toBeGreaterThan(0);
   });
 
   it("merges wake attention items into the attention-first console", () => {

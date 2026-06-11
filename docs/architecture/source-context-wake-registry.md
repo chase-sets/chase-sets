@@ -11,7 +11,7 @@ The registry lives in `@chase-sets/platform-runtime/source-context-wake-registry
 
 ## Current Runtime State
 
-`checkout` is `staging-enabled` with both runtime halves on — the wave-1 hot path runs the full push loop in staging. Every other entry remains non-emitting and non-listening:
+The full wave-1 hot path — `checkout`, `marketplace`, `ordering`, `payments` — is `staging-enabled` with both runtime halves on (`checkout` since 2026-06-10; the wave-1 remainder since 2026-06-11 on the back of checkout's staging push-loop evidence in the [SLO/load proof](./push-wake-slo-load-proof.md)). Every other entry remains non-emitting and non-listening:
 
 ```ts
 enablement: {
@@ -20,7 +20,7 @@ enablement: {
 }
 ```
 
-A context can only move into `staging-enabled`, `production-proof`, or `production-enabled` when both halves are enabled together.
+A context can only move into `staging-enabled`, `production-proof`, or `production-enabled` when both halves are enabled together. The per-projection-group consequences of the registry state are reported in the [push-first migration inventory](./push-first-projection-migration.md).
 
 ## Environment Gating
 
