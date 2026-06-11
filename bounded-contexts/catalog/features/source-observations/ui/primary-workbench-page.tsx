@@ -82,6 +82,9 @@ export type CatalogPrimaryWorkbenchCommandFeedback = Readonly<{
     | "job-cancelled"
     | "preview-ready"
     | "draft-created"
+    | "section-saved"
+    | "section-conflict"
+    | "section-invalid"
     | "preview-required"
     | "job-required"
     | "reason-required"
@@ -1926,6 +1929,9 @@ function commandSuccessTitle(result: CatalogPrimaryWorkbenchCommandFeedback["res
   if (result === "draft-created") {
     return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.draft.title");
   }
+  if (result === "section-saved") {
+    return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.section.title");
+  }
 
   return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.queued.title");
 }
@@ -1941,6 +1947,9 @@ function commandFeedbackDescription(feedback: CatalogPrimaryWorkbenchCommandFeed
     if (feedback.result === "draft-created") {
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.draft.description");
     }
+    if (feedback.result === "section-saved") {
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.section.description");
+    }
 
     return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.queued.description");
   }
@@ -1952,6 +1961,10 @@ function commandFeedbackDescription(feedback: CatalogPrimaryWorkbenchCommandFeed
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.job.required");
     case "reason-required":
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.reason.required");
+    case "section-conflict":
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.section.conflict");
+    case "section-invalid":
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.section.invalid");
     case "unsupported-command":
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.unsupported");
     case "invalid-intent":

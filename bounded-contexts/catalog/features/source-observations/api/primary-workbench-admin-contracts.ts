@@ -8,6 +8,7 @@ import type {
   CatalogAdminProfileVersionPointer,
 } from "./admin-control-plane-read-model-contracts";
 import type { CatalogIntegrationUnitKey } from "./integration-unit";
+import type { CatalogProviderProfileEditableSectionKey } from "./provider-profile-section-registry";
 
 export const catalogPrimaryWorkbenchContractVersion = "catalog-primary-workbench-v1" as const;
 
@@ -29,6 +30,7 @@ export type CatalogPrimaryWorkbenchCommandKey =
   | "retry-import-job"
   | "cancel-import-job"
   | "clone-provider-profile"
+  | "update-provider-profile-section"
   | "select-source-observations"
   | "preview-promotion"
   | "execute-promotion"
@@ -64,6 +66,9 @@ export type CatalogPrimaryWorkbenchBlockerCategory =
   | "concurrent-job"
   | "missing-active-profile"
   | "profile-version-missing"
+  | "profile-section-read-only"
+  | "profile-section-stale"
+  | "profile-section-invalid"
   | "missing-fixture-coverage"
   | "fixture-validation-blocked"
   | "provider-credential-missing"
@@ -239,7 +244,7 @@ export type CatalogPrimaryWorkbenchSectionContract = Readonly<{
 
 export type CatalogPrimaryWorkbenchActionContract = Readonly<{
   key: CatalogPrimaryWorkbenchCommandKey;
-  method: "GET" | "POST";
+  method: "GET" | "POST" | "PATCH";
   routePattern: string;
   requiredPermission: "catalog.view" | "catalog.manage";
   successState: CatalogPrimaryWorkbenchActionState;
@@ -250,6 +255,7 @@ export type CatalogPrimaryWorkbenchActionContract = Readonly<{
 
 export type CatalogPrimaryWorkbenchDownstreamIssueKey =
   | "#1033"
+  | "#1034"
   | "#1056"
   | "#1038"
   | "#1039"
@@ -532,6 +538,60 @@ export type CatalogPrimaryWorkbenchProfileOverview = Readonly<{
   immutableIdentityFacts: readonly CatalogPrimaryWorkbenchProfileImmutableFact[];
 }>;
 
+export type CatalogPrimaryWorkbenchProfileSectionGroupKey =
+  | "profile-foundation"
+  | "provider-acquisition"
+  | "observation-mapping"
+  | "catalog-promotion"
+  | "evidence-lifecycle";
+
+export type CatalogPrimaryWorkbenchProfileSectionSaveOutcome =
+  | "not-submitted"
+  | "saved"
+  | "conflict"
+  | "invalid"
+  | "failed";
+
+export type CatalogPrimaryWorkbenchProfileSectionFieldControl = "text" | "textarea" | "select" | "checkbox" | "tags";
+
+export type CatalogPrimaryWorkbenchProfileSectionField = Readonly<{
+  key: string;
+  label: string;
+  value: string;
+  control: CatalogPrimaryWorkbenchProfileSectionFieldControl;
+  required: boolean;
+  disabled: boolean;
+  helpText: string | null;
+  options: readonly Readonly<{ value: string; label: string }>[];
+}>;
+
+export type CatalogPrimaryWorkbenchProfileSectionWorkspace = Readonly<{
+  sectionKey: CatalogProviderProfileEditableSectionKey;
+  displayName: string;
+  group: CatalogPrimaryWorkbenchProfileSectionGroupKey;
+  groupLabel: string;
+  description: string;
+  domainConcept: string;
+  status: "valid" | "warning" | "error" | "blocked";
+  editable: boolean;
+  actionState: CatalogPrimaryWorkbenchActionState;
+  blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
+  dirtyState: "clean";
+  staleState: "fresh" | "stale" | "conflict";
+  saveOutcome: CatalogPrimaryWorkbenchProfileSectionSaveOutcome;
+  submitHref: string;
+  commandKey: Extract<CatalogPrimaryWorkbenchCommandKey, "update-provider-profile-section">;
+  fields: readonly CatalogPrimaryWorkbenchProfileSectionField[];
+  diagnostics: readonly Readonly<{
+    path: string;
+    diagnosticText: string;
+    severity: "error" | "warning";
+  }>[];
+  semanticChangeCount: number;
+  readinessCheckCount: number;
+  anchorId: string;
+}>;
+
 export type CatalogPrimaryWorkbenchProfileCloneDraftReadModel = Readonly<{
   commandKey: Extract<CatalogPrimaryWorkbenchCommandKey, "clone-provider-profile">;
   sourceProviderKey: string | null;
@@ -552,6 +612,12 @@ export type CatalogPrimaryWorkbenchProfileAuthoringReadModel = Readonly<{
   activeProfile: CatalogPrimaryWorkbenchProfileOption | null;
   availableProfiles: readonly CatalogPrimaryWorkbenchProfileOption[];
   returnToPrimaryHref: string;
+  sectionGroups: readonly Readonly<{
+    key: CatalogPrimaryWorkbenchProfileSectionGroupKey;
+    label: string;
+    sections: readonly CatalogProviderProfileEditableSectionKey[];
+  }>[];
+  sectionWorkspaces: readonly CatalogPrimaryWorkbenchProfileSectionWorkspace[];
   cloneDraft: CatalogPrimaryWorkbenchProfileCloneDraftReadModel;
 }>;
 
@@ -950,6 +1016,26 @@ export const catalogPrimaryWorkbenchActions = [
       idempotencyRequired: true,
     },
   ),
+  action(
+    "update-provider-profile-section",
+    "PATCH",
+    "/api/catalog/source-observations/admin/provider-profiles/:providerKey/:profileVersion/sections/:section",
+    "catalog.manage",
+    {
+      blockerCategories: [
+        "permission-denied",
+        "authorization-denied",
+        "profile-version-missing",
+        "profile-section-read-only",
+        "profile-section-stale",
+        "profile-section-invalid",
+        "active-job-conflict",
+        "concurrent-job",
+        "raw-json-retired",
+      ],
+      idempotencyRequired: true,
+    },
+  ),
   action("select-source-observations", "GET", "/api/catalog/source-observations/admin/review", "catalog.view", {
     blockerCategories: ["source-projection-stale", "read-model-unavailable"],
   }),
@@ -1006,6 +1092,9 @@ export const catalogPrimaryWorkbenchBlockers = [
   blocker("concurrent-job", ["blocked"], "catalog.primary.import.blocked"),
   blocker("missing-active-profile", ["blocked"], "catalog.primary.providerScope.required"),
   blocker("profile-version-missing", ["blocked"], "catalog.primary.reapply.originalProfileMissing"),
+  blocker("profile-section-read-only", ["blocked"], "catalog.primary.import.blocked"),
+  blocker("profile-section-stale", ["blocked"], "catalog.primary.deploySkew.failClosed"),
+  blocker("profile-section-invalid", ["blocked"], "catalog.primary.import.blocked"),
   blocker("missing-fixture-coverage", ["blocked"], "catalog.primary.import.blocked"),
   blocker("fixture-validation-blocked", ["blocked"], "catalog.primary.import.blocked"),
   blocker("provider-credential-missing", ["blocked"], "catalog.primary.import.blocked"),
@@ -1118,6 +1207,17 @@ export const catalogPrimaryWorkbenchDownstreamContracts = [
       "profileAuthoring.selectedProfile",
       "profileAuthoring.availableProfiles",
       "profileAuthoring.cloneDraft",
+    ],
+  ),
+  downstream(
+    "#1034",
+    ["supporting-evidence"],
+    [
+      "profileAuthoring.sectionGroups",
+      "profileAuthoring.sectionWorkspaces",
+      "profileAuthoring.sectionWorkspaces.fields",
+      "profileAuthoring.sectionWorkspaces.diagnostics",
+      "profileAuthoring.sectionWorkspaces.saveOutcome",
     ],
   ),
   downstream(
@@ -1486,6 +1586,37 @@ function assertPrimaryWorkbenchProfileAuthoring(
       value.cloneDraft.sourceProfileVersion !== value.selectedProfile.profileVersion
     ) {
       throw new Error("Primary workbench profile draft command must preserve source provider and version context.");
+    }
+  }
+  if (value.selectedProfile && value.sectionWorkspaces.length === 0) {
+    throw new Error("Primary workbench profile authoring must expose guided section workspaces.");
+  }
+  const groupedSections = new Set(value.sectionGroups.flatMap((group) => group.sections));
+  for (const workspace of value.sectionWorkspaces) {
+    if (!groupedSections.has(workspace.sectionKey)) {
+      throw new Error(`Primary workbench profile section ${workspace.sectionKey} must belong to a navigation group.`);
+    }
+    if (workspace.commandKey !== "update-provider-profile-section") {
+      throw new Error(`Primary workbench profile section ${workspace.sectionKey} must use section-scoped saves.`);
+    }
+    if (!isSafePrimaryWorkbenchReturnPath(workspace.submitHref)) {
+      throw new Error(
+        `Primary workbench profile section ${workspace.sectionKey} submit link must stay in the rebuilt workbench.`,
+      );
+    }
+    if (workspace.fields.length === 0) {
+      throw new Error(`Primary workbench profile section ${workspace.sectionKey} must expose guided controls.`);
+    }
+    if (workspace.fields.some((field) => /json/i.test(`${field.key} ${field.label} ${field.helpText ?? ""}`))) {
+      throw new Error(`Primary workbench profile section ${workspace.sectionKey} must not expose raw JSON controls.`);
+    }
+    assertCatalogPrimaryWorkbenchActionState(workspace.actionState);
+    assertPrimaryWorkbenchBlockers(workspace.blockers);
+    if (!["fresh", "stale", "conflict"].includes(workspace.staleState)) {
+      throw new Error(`Primary workbench profile section ${workspace.sectionKey} stale state must be explicit.`);
+    }
+    if (!["not-submitted", "saved", "conflict", "invalid", "failed"].includes(workspace.saveOutcome)) {
+      throw new Error(`Primary workbench profile section ${workspace.sectionKey} save outcome must be explicit.`);
     }
   }
 }

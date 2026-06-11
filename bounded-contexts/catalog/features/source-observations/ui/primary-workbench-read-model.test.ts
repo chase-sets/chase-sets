@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { validateCatalogPrimaryWorkbenchReadModelContract } from "../api/primary-workbench-admin-contracts";
+import { catalogProviderProfileEditableSectionKeys } from "../api/provider-profile-section-registry";
 import {
   buildCatalogPrimaryWorkbenchReadModel,
   buildCatalogPrimaryWorkbenchSourceObservationReviewQuery,
@@ -150,6 +151,87 @@ describe("Catalog primary workbench read model", () => {
     expect(readModel.actions.find((action) => action.key === "clone-provider-profile")).toMatchObject({
       state: "available",
       blockers: [],
+    });
+  });
+
+  it("projects every registered profile section into guided workspaces without raw editors", () => {
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&section=profile-work&profileVersion=2026.06.04-draft",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: {
+        items: [profileReview({ active: false, lifecycle: "draft", profileVersion: "2026.06.04-draft" })],
+        total: 1,
+        count: 1,
+      },
+      controlPlaneOverview: null,
+      canManageCatalog: true,
+    });
+
+    expect(readModel.profileAuthoring.sectionGroups.map((group) => group.key)).toEqual([
+      "profile-foundation",
+      "provider-acquisition",
+      "observation-mapping",
+      "catalog-promotion",
+      "evidence-lifecycle",
+    ]);
+    expect(readModel.profileAuthoring.sectionWorkspaces.map((workspace) => workspace.sectionKey)).toEqual([
+      ...catalogProviderProfileEditableSectionKeys,
+    ]);
+    for (const workspace of readModel.profileAuthoring.sectionWorkspaces) {
+      expect(workspace.commandKey).toBe("update-provider-profile-section");
+      expect(workspace.actionState).toBe("available");
+      expect(workspace.fields.length).toBeGreaterThan(0);
+      expect(`${workspace.displayName} ${workspace.fields.map((field) => field.label).join(" ")}`).not.toMatch(
+        /raw JSON|Profile JSON|Candidate JSON|Active JSON/i,
+      );
+    }
+  });
+
+  it("marks section save outcomes, diagnostics, and stale conflicts at section scope", () => {
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&section=profile-work&profileVersion=2026.06.04-draft&commandIntent=update-provider-profile-section&commandStatus=error&commandResult=section-conflict&commandSection=source-contract",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: {
+        items: [
+          profileReview({
+            active: false,
+            lifecycle: "draft",
+            profileVersion: "2026.06.04-draft",
+            validation: {
+              status: "invalid",
+              diagnostics: [
+                {
+                  code: "source-contract-owner",
+                  path: "sourceContract.owner",
+                  diagnosticText: "Source contract owner is required.",
+                  severity: "error",
+                },
+              ],
+            },
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+      controlPlaneOverview: null,
+      canManageCatalog: true,
+    });
+
+    const sourceContract = readModel.profileAuthoring.sectionWorkspaces.find(
+      (workspace) => workspace.sectionKey === "source-contract",
+    );
+
+    expect(sourceContract).toMatchObject({
+      status: "error",
+      staleState: "conflict",
+      saveOutcome: "conflict",
+      blockers: ["profile-section-stale"],
+    });
+    expect(sourceContract?.diagnostics[0]).toMatchObject({
+      path: "sourceContract.owner",
+      diagnosticText: "Source contract owner is required.",
     });
   });
 

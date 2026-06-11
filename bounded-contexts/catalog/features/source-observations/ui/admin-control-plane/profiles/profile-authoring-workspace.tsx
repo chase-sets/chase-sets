@@ -24,6 +24,7 @@ import { getCatalogPrimaryWorkbenchBlockerCopy } from "../../primary-workbench-c
 type ProfileAuthoringReadModel = CatalogPrimaryWorkbenchReadModel["profileAuthoring"];
 type ProfileOverview = NonNullable<ProfileAuthoringReadModel["selectedProfile"]>;
 type ProfileOption = ProfileAuthoringReadModel["availableProfiles"][number];
+type ProfileSectionWorkspace = ProfileAuthoringReadModel["sectionWorkspaces"][number];
 
 export function CatalogIntegrationProfileAuthoringWorkspace({
   readModel,
@@ -151,6 +152,22 @@ export function CatalogIntegrationProfileAuthoringWorkspace({
         </div>
       </WorkflowModule>
 
+      {authoring.sectionWorkspaces.length > 0 ? (
+        <WorkflowModule
+          title={t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sections.title")}
+          description={t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sections.description")}
+          status={
+            <Badge tone="neutral">
+              {t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sections.count", {
+                count: authoring.sectionWorkspaces.length,
+              })}
+            </Badge>
+          }
+        >
+          <ProfileSectionWorkspaces readModel={readModel} authoring={authoring} />
+        </WorkflowModule>
+      ) : null}
+
       <WorkflowModule
         title={t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.draft.title")}
         description={t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.draft.description")}
@@ -227,6 +244,270 @@ export function CatalogIntegrationProfileAuthoringWorkspace({
         />
       </WorkflowModule>
     </section>
+  );
+}
+
+function ProfileSectionWorkspaces({
+  readModel,
+  authoring,
+}: {
+  readModel: CatalogPrimaryWorkbenchReadModel;
+  authoring: ProfileAuthoringReadModel;
+}) {
+  return (
+    <div className="grid gap-4 lg:grid-cols-[16rem_minmax(0,1fr)] lg:items-start">
+      <div className="grid gap-3 lg:sticky lg:top-24">
+        <label className="grid gap-1 text-sm font-semibold text-foreground lg:hidden">
+          {t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sections.mobile.label")}
+          <select
+            className="min-h-10 rounded-md border border-border-subtle bg-surface px-3 py-2 text-sm font-normal text-foreground"
+            defaultValue={authoring.sectionWorkspaces[0]?.anchorId}
+            onChange={(event) => {
+              const target = document.getElementById(event.currentTarget.value);
+              target?.focus();
+              target?.scrollIntoView({ block: "start" });
+            }}
+          >
+            {authoring.sectionWorkspaces.map((workspace) => (
+              <option key={workspace.sectionKey} value={workspace.anchorId}>
+                {workspace.displayName}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <nav
+          className="hidden gap-4 rounded-md border border-border-subtle p-3 lg:grid"
+          aria-label={t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sections.navigation")}
+        >
+          {authoring.sectionGroups.map((group) => {
+            const sections = authoring.sectionWorkspaces.filter((workspace) =>
+              group.sections.includes(workspace.sectionKey),
+            );
+            if (sections.length === 0) {
+              return null;
+            }
+
+            return (
+              <div key={group.key} className="grid gap-1">
+                <div className="text-xs font-semibold uppercase tracking-normal text-secondary">{group.label}</div>
+                {sections.map((workspace) => (
+                  <a
+                    key={workspace.sectionKey}
+                    className="flex min-w-0 items-center justify-between gap-2 rounded-md px-2 py-1.5 text-sm font-semibold text-foreground hover:bg-surface-muted"
+                    href={`#${workspace.anchorId}`}
+                  >
+                    <span className="truncate">{workspace.displayName}</span>
+                    <Badge tone={sectionStatusTone(workspace.status)}>{stateLabel(workspace.status)}</Badge>
+                  </a>
+                ))}
+              </div>
+            );
+          })}
+        </nav>
+      </div>
+
+      <div className="grid min-w-0 gap-4">
+        {authoring.sectionWorkspaces.map((workspace) => (
+          <ProfileSectionWorkspaceCard key={workspace.sectionKey} readModel={readModel} workspace={workspace} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ProfileSectionWorkspaceCard({
+  readModel,
+  workspace,
+}: {
+  readModel: CatalogPrimaryWorkbenchReadModel;
+  workspace: ProfileSectionWorkspace;
+}) {
+  const saveDisabled = !workspace.editable;
+
+  return (
+    <section
+      id={workspace.anchorId}
+      tabIndex={-1}
+      className="grid gap-4 border-t border-border-subtle pt-4 outline-none focus-visible:ring-2 focus-visible:ring-accent"
+      data-catalog-profile-section-workspace={workspace.sectionKey}
+    >
+      <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-xs font-semibold uppercase tracking-normal text-accent">{workspace.groupLabel}</div>
+          <h3 className="mt-1 text-base font-semibold text-foreground">{workspace.displayName}</h3>
+          <p className="mt-1 text-sm leading-6 text-secondary">{workspace.description}</p>
+        </div>
+        <div className="flex flex-wrap justify-end gap-1.5">
+          <Badge tone={sectionStatusTone(workspace.status)}>{stateLabel(workspace.status)}</Badge>
+          <Badge tone={actionTone(workspace.actionState)}>{stateLabel(workspace.actionState)}</Badge>
+          <Badge
+            tone={
+              workspace.saveOutcome === "saved"
+                ? "success"
+                : workspace.saveOutcome === "not-submitted"
+                  ? "neutral"
+                  : "warning"
+            }
+          >
+            {stateLabel(workspace.saveOutcome)}
+          </Badge>
+        </div>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <KeyValueList
+          items={[
+            keyValue("Domain", workspace.domainConcept),
+            keyValue("Dirty state", stateLabel(workspace.dirtyState)),
+            keyValue("Stale state", stateLabel(workspace.staleState)),
+          ]}
+        />
+        <KeyValueList
+          items={[
+            keyValue("Diagnostics", String(workspace.diagnostics.length)),
+            keyValue("Semantic changes", String(workspace.semanticChangeCount)),
+            keyValue("Readiness checks", String(workspace.readinessCheckCount)),
+          ]}
+        />
+        <ProfileBlockerList blockers={workspace.blockers} />
+      </div>
+
+      {workspace.diagnostics.length > 0 ? (
+        <EvidenceList
+          title={t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sections.diagnostics")}
+          items={workspace.diagnostics.map((diagnostic) => ({
+            key: `${diagnostic.path}:${diagnostic.diagnosticText}`,
+            label: diagnostic.path,
+            description: diagnostic.diagnosticText,
+            tone: diagnostic.severity === "error" ? "danger" : "warning",
+          }))}
+        />
+      ) : null}
+
+      <Form
+        spacing="md"
+        method="post"
+        action={workspace.submitHref}
+        data-catalog-primary-workbench-command="update-provider-profile-section"
+        className="grid min-w-0 gap-3 rounded-md border border-border-subtle p-4"
+      >
+        <ProfileSectionHiddenInputs readModel={readModel} workspace={workspace} />
+        <div className="grid gap-3 md:grid-cols-2">
+          {workspace.fields.map((fieldEntry) => (
+            <ProfileSectionFieldControl key={fieldEntry.key} field={fieldEntry} />
+          ))}
+        </div>
+        <Button type="submit" leadingIcon="check" disabled={saveDisabled}>
+          {t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sections.save")}
+        </Button>
+      </Form>
+    </section>
+  );
+}
+
+function ProfileSectionFieldControl({ field }: { field: ProfileSectionWorkspace["fields"][number] }) {
+  const labelClassName = "grid gap-1 text-sm font-semibold text-foreground";
+  const controlClassName =
+    "min-h-10 rounded-md border border-border-subtle bg-surface px-3 py-2 text-sm font-normal text-foreground disabled:bg-surface-muted disabled:text-secondary";
+
+  if (field.control === "textarea") {
+    return (
+      <label className={labelClassName}>
+        {field.label}
+        <textarea
+          className={`${controlClassName} min-h-24`}
+          name={field.key}
+          defaultValue={field.value}
+          disabled={field.disabled}
+          required={field.required}
+        />
+        {field.helpText ? <span className="text-xs font-normal leading-5 text-secondary">{field.helpText}</span> : null}
+      </label>
+    );
+  }
+
+  if (field.control === "select") {
+    return (
+      <label className={labelClassName}>
+        {field.label}
+        <select
+          className={controlClassName}
+          name={field.key}
+          defaultValue={field.value}
+          disabled={field.disabled}
+          required={field.required}
+        >
+          {field.options.length === 0 ? <option value={field.value}>{field.value || "Not selected"}</option> : null}
+          {field.options.map((optionEntry) => (
+            <option key={optionEntry.value} value={optionEntry.value}>
+              {optionEntry.label}
+            </option>
+          ))}
+        </select>
+        {field.helpText ? <span className="text-xs font-normal leading-5 text-secondary">{field.helpText}</span> : null}
+      </label>
+    );
+  }
+
+  if (field.control === "checkbox") {
+    return (
+      <label className="flex min-h-10 items-center gap-2 text-sm font-semibold text-foreground">
+        <input
+          className="h-4 w-4 rounded border-border-subtle"
+          type="checkbox"
+          name={field.key}
+          value="true"
+          defaultChecked={field.value === "true"}
+          disabled={field.disabled}
+        />
+        <span>{field.label}</span>
+        {field.helpText ? <span className="text-xs font-normal leading-5 text-secondary">{field.helpText}</span> : null}
+      </label>
+    );
+  }
+
+  return (
+    <label className={labelClassName}>
+      {field.label}
+      <input
+        className={controlClassName}
+        name={field.key}
+        defaultValue={field.value}
+        disabled={field.disabled}
+        required={field.required}
+      />
+      {field.helpText ? <span className="text-xs font-normal leading-5 text-secondary">{field.helpText}</span> : null}
+    </label>
+  );
+}
+
+function ProfileSectionHiddenInputs({
+  readModel,
+  workspace,
+}: {
+  readModel: CatalogPrimaryWorkbenchReadModel;
+  workspace: ProfileSectionWorkspace;
+}) {
+  const context = readModel.routeContext;
+  const selectedProfile = readModel.profileAuthoring.selectedProfile;
+
+  return (
+    <>
+      <input type="hidden" name="_intent" value="update-provider-profile-section" />
+      <input type="hidden" name="sectionKey" value={workspace.sectionKey} />
+      <input type="hidden" name="providerKey" value={selectedProfile?.providerKey ?? context.providerKey ?? ""} />
+      <input type="hidden" name="unitKey" value={context.unitKey ?? ""} />
+      <input type="hidden" name="importScope" value={context.importScope ?? ""} />
+      <input
+        type="hidden"
+        name="profileVersion"
+        value={selectedProfile?.profileVersion ?? context.profileVersion ?? ""}
+      />
+      <input type="hidden" name="selectedObservationIds" value={context.selectedObservationIds.join(",")} />
+      <input type="hidden" name="jobId" value={context.jobId ?? ""} />
+      <input type="hidden" name="promotionPreviewId" value={context.promotionPreviewId ?? ""} />
+    </>
   );
 }
 
@@ -569,6 +850,18 @@ function lifecycleTone(lifecycle: string) {
       return "danger";
     default:
       return "neutral";
+  }
+}
+
+function sectionStatusTone(status: ProfileSectionWorkspace["status"]) {
+  switch (status) {
+    case "valid":
+      return "success";
+    case "warning":
+      return "warning";
+    case "error":
+    case "blocked":
+      return "danger";
   }
 }
 

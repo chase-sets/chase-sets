@@ -122,6 +122,13 @@ const catalogPrimaryWorkbenchCopyLabels = {
   profileVersionMissing: t(
     "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.profile.version.missing",
   ),
+  profileSectionReadOnly: t(
+    "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.profile.section.read.only",
+  ),
+  profileSectionStale: t("catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.profile.section.stale"),
+  profileSectionInvalid: t(
+    "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.profile.section.invalid",
+  ),
   fixtureCoverageMissing: t(
     "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.fixture.coverage.missing",
   ),
@@ -416,6 +423,27 @@ export const catalogPrimaryWorkbenchBlockerCopy = {
     reason: "The command needs a specific active or source profile version.",
     nextStep: "Open lifecycle recovery with this provider and choose the correct profile version.",
     supportTarget: "lifecycle-recovery",
+    group: "profile",
+  }),
+  "profile-section-read-only": copy({
+    label: catalogPrimaryWorkbenchCopyLabels.profileSectionReadOnly,
+    reason: "This profile lifecycle is inspectable but cannot be edited in place.",
+    nextStep: "Create or select a draft or test profile before saving section changes.",
+    supportTarget: "profile-authoring",
+    group: "profile",
+  }),
+  "profile-section-stale": copy({
+    label: catalogPrimaryWorkbenchCopyLabels.profileSectionStale,
+    reason: "The selected section changed after this workspace was loaded.",
+    nextStep: "Reload the profile authoring workspace and reapply the section change.",
+    supportTarget: "profile-authoring",
+    group: "profile",
+  }),
+  "profile-section-invalid": copy({
+    label: catalogPrimaryWorkbenchCopyLabels.profileSectionInvalid,
+    reason: "The section has diagnostics that must be resolved before the save can be trusted.",
+    nextStep: "Fix the highlighted section fields and rerun validation readiness.",
+    supportTarget: "profile-authoring",
     group: "profile",
   }),
   "missing-fixture-coverage": copy({

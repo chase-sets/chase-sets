@@ -14,6 +14,10 @@ import {
   type CatalogPrimaryWorkbenchRouteContext,
 } from "../api/primary-workbench-admin-contracts";
 import { defineCatalogIntegrationUnitKey, type CatalogIntegrationUnitKey } from "../api/integration-unit";
+import {
+  catalogProviderProfileEditableSectionMetadata,
+  type CatalogProviderProfileEditableSectionKey,
+} from "../api/provider-profile-section-registry";
 import type {
   CatalogIntegrationControlPlaneOverview,
   CatalogProviderProfileVersionReview,
@@ -39,6 +43,8 @@ export type CatalogPrimaryWorkbenchInput = Readonly<{
 
 type CatalogIntegrationRecentJobReadModel =
   CatalogIntegrationControlPlaneOverview["unitActivity"]["units"][number]["recentJobs"][number];
+type ProfileSectionField =
+  CatalogPrimaryWorkbenchReadModel["profileAuthoring"]["sectionWorkspaces"][number]["fields"][number];
 
 const defaultReviewPageSize = 25;
 
@@ -95,6 +101,7 @@ export function buildCatalogPrimaryWorkbenchReadModel(
     profiles: input.profileReviews.items,
     providerKey,
     requestedProfileVersion: parsedContext.profileVersion,
+    requestUrl: input.requestUrl,
     routeContext,
     selectedProfile,
   });
@@ -297,6 +304,7 @@ function profileAuthoringFor(input: {
   profiles: readonly CatalogProviderProfileVersionReview[];
   providerKey: string | null;
   requestedProfileVersion: string | null;
+  requestUrl: string | URL;
   routeContext: CatalogPrimaryWorkbenchRouteContext;
   selectedProfile: CatalogProviderProfileVersionReview | null;
 }): CatalogPrimaryWorkbenchReadModel["profileAuthoring"] {
@@ -319,6 +327,18 @@ function profileAuthoringFor(input: {
   });
   const cloneState = actionStateForBlockers(cloneBlockers, "available");
   const submitHref = catalogPrimaryWorkbenchSupportingHref(input.routeContext, "profile-authoring");
+  const sectionGroups = profileSectionGroups();
+  const sectionWorkspaces = input.selectedProfile
+    ? profileSectionWorkspacesFor({
+        activeJobCount: input.activeJobCount,
+        canManage: input.canManage,
+        requestUrl: input.requestUrl,
+        routeContext: input.routeContext,
+        status,
+        profile: input.selectedProfile,
+        submitHref,
+      })
+    : [];
 
   return {
     status,
@@ -327,6 +347,8 @@ function profileAuthoringFor(input: {
     activeProfile,
     availableProfiles,
     returnToPrimaryHref: catalogPrimaryWorkbenchReturnPath(input.routeContext),
+    sectionGroups,
+    sectionWorkspaces,
     cloneDraft: {
       commandKey: "clone-provider-profile",
       sourceProviderKey: input.selectedProfile?.providerKey ?? null,
@@ -342,6 +364,735 @@ function profileAuthoringFor(input: {
       immutableIdentityFacts: selectedOverview?.immutableIdentityFacts ?? [],
     },
   };
+}
+
+function profileSectionGroups(): CatalogPrimaryWorkbenchReadModel["profileAuthoring"]["sectionGroups"] {
+  return [
+    {
+      key: "profile-foundation",
+      label: t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sections.group.foundation"),
+      sections: ["basics", "source-contract", "fixtures"],
+    },
+    {
+      key: "provider-acquisition",
+      label: t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sections.group.provider"),
+      sections: ["provider-options", "connector"],
+    },
+    {
+      key: "observation-mapping",
+      label: t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sections.group.mapping"),
+      sections: [
+        "catalog-field-mapping",
+        "source-observation",
+        "normalized-observation",
+        "external-references",
+        "selected-options",
+        "reference-hierarchy",
+        "duplicate-prevention",
+      ],
+    },
+    {
+      key: "catalog-promotion",
+      label: t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sections.group.promotion"),
+      sections: ["promotion-plan"],
+    },
+    {
+      key: "evidence-lifecycle",
+      label: t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sections.group.evidence"),
+      sections: ["migration-evidence", "retirement-plan"],
+    },
+  ];
+}
+
+function profileSectionWorkspacesFor(input: {
+  activeJobCount: number;
+  canManage: boolean;
+  requestUrl: string | URL;
+  routeContext: CatalogPrimaryWorkbenchRouteContext;
+  status: CatalogPrimaryWorkbenchReadModel["profileAuthoring"]["status"];
+  profile: CatalogProviderProfileVersionReview;
+  submitHref: string;
+}): CatalogPrimaryWorkbenchReadModel["profileAuthoring"]["sectionWorkspaces"] {
+  const groups = profileSectionGroups();
+  const groupBySection = new Map(groups.flatMap((group) => group.sections.map((section) => [section, group] as const)));
+  const diagnosticsBySection = profileDiagnosticsBySection(input.profile);
+
+  return catalogProviderProfileEditableSectionMetadata().map((metadata) => {
+    const group = groupBySection.get(metadata.section);
+    const saveOutcome = sectionSaveOutcomeFromUrl(input.requestUrl, metadata.section);
+    const blockers = sectionBlockersFor({
+      activeJobCount: input.activeJobCount,
+      canManage: input.canManage,
+      profile: input.profile,
+      status: input.status,
+      saveOutcome,
+    });
+    const actionState = actionStateForBlockers(blockers, input.canManage ? "available" : "denied");
+    const disabled = actionState !== "available" && actionState !== "degraded";
+    const diagnostics = diagnosticsBySection.get(metadata.section) ?? [];
+
+    return {
+      sectionKey: metadata.section,
+      displayName: metadata.displayName,
+      group: group?.key ?? "profile-foundation",
+      groupLabel:
+        group?.label ?? t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sections.group.foundation"),
+      description: profileSectionDescription(metadata.section),
+      domainConcept: profileSectionDomainConcept(metadata.section),
+      status: profileSectionStatus(input.profile, metadata.section, diagnostics),
+      editable: !disabled,
+      actionState,
+      blockers,
+      dirtyState: "clean",
+      staleState: saveOutcome === "conflict" ? "conflict" : "fresh",
+      saveOutcome,
+      submitHref: input.submitHref,
+      commandKey: "update-provider-profile-section",
+      fields: profileSectionFields(input.profile, metadata.section, disabled),
+      diagnostics,
+      semanticChangeCount: sectionChangeCount(input.profile, metadata.section),
+      readinessCheckCount: diagnostics.length,
+      anchorId: profileSectionAnchorId(metadata.section),
+    };
+  });
+}
+
+function profileSectionFields(
+  profile: CatalogProviderProfileVersionReview,
+  section: CatalogProviderProfileEditableSectionKey,
+  disabled: boolean,
+): readonly ProfileSectionField[] {
+  const profileRecord = recordValue(profile.profile);
+  const contractRecord = recordValue(profile.executableMappingContract);
+  const sourceObservation = recordValue(contractRecord?.sourceObservation);
+  const normalizedObservation = recordValue(contractRecord?.normalizedObservation);
+  const externalReferences = firstRecord(arrayValue(contractRecord?.externalReferences));
+  const selectedOptions = recordValue(contractRecord?.selectedOptions);
+  const referenceHierarchy = firstRecord(arrayValue(contractRecord?.referenceHierarchy));
+  const duplicatePrevention = recordValue(contractRecord?.duplicatePrevention);
+  const promotionCommandPlan = recordValue(contractRecord?.promotionCommandPlan);
+  const connector = recordValue(profileRecord?.connector);
+  const mappingConnector = recordValue(contractRecord?.connector);
+  const catalogFieldMapping = recordValue(profileRecord?.catalogFieldMapping);
+  const optionQueries = arrayValue(profileRecord?.optionQueries);
+  const firstOptionQuery = firstRecord(optionQueries);
+  const selectedOptionMapping = recordValue(profileRecord?.selectedOptionMapping);
+  const selectedOptionDimension = firstRecord(arrayValue(selectedOptionMapping?.dimensions));
+  const referenceHierarchyMapping = recordValue(profileRecord?.referenceHierarchyMapping);
+  const duplicatePreventionMapping = recordValue(profileRecord?.duplicatePreventionMapping);
+  const retirementPlan = recordValue(profile.retirementPlan);
+
+  switch (section) {
+    case "basics":
+      return [
+        field("displayName", "Display name", profile.displayName, "text", disabled, true),
+        field("lifecycle", "Lifecycle", profile.lifecycle, "select", disabled, true, null, [
+          option("draft", "Draft"),
+          option("test", "Test"),
+        ]),
+        field("status", "Status", profile.status, "select", disabled, true, null, [
+          option("active", "Active"),
+          option("planned", "Planned"),
+        ]),
+        field("capabilities", "Capabilities", profile.capabilities.join(", "), "tags", disabled),
+        field("supportedScopes", "Supported scopes", profile.supportedScopes.join(", "), "tags", disabled),
+        field("languageOptions", "Languages", profile.languageOptions.join(", "), "tags", disabled),
+      ];
+    case "provider-options":
+      return [
+        field("optionQueryIndex", "Option query", "0", "select", disabled || optionQueries.length === 0, true, null, [
+          ...optionQueries.map((value, index) => {
+            const record = recordValue(value);
+            return option(String(index), stringValue(record?.displayName) ?? `Option query ${index + 1}`);
+          }),
+        ]),
+        field(
+          "optionQueryDisplayName",
+          "Option label",
+          stringValue(firstOptionQuery?.displayName) ?? "",
+          "text",
+          disabled,
+        ),
+        field("optionQueryScope", "Scope", stringValue(firstOptionQuery?.scope) ?? "", "text", disabled),
+        field("optionQueryOperation", "Operation", stringValue(firstOptionQuery?.operation) ?? "", "text", disabled),
+      ];
+    case "connector":
+      return [
+        field("connectorKind", "Connector kind", profile.connectorKind, "text", disabled, true),
+        field("connectorBaseUrl", "Base URL", stringValue(connector?.baseUrl) ?? "", "text", disabled),
+        field(
+          "connectorTransportOwns",
+          "Transport responsibilities",
+          stringArrayValue(mappingConnector?.transportOwns).join(", "),
+          "tags",
+          disabled,
+        ),
+        field(
+          "connectorMappingOwns",
+          "Mapping responsibilities",
+          stringArrayValue(mappingConnector?.mappingOwns).join(", "),
+          "tags",
+          disabled,
+        ),
+      ];
+    case "catalog-field-mapping":
+      return [
+        field("blueprintKey", "Blueprint key", stringValue(catalogFieldMapping?.blueprintKey) ?? "", "text", disabled),
+        field("categoryKey", "Category key", stringValue(catalogFieldMapping?.categoryKey) ?? "", "text", disabled),
+        field(
+          "fieldKeyCount",
+          "Mapped field count",
+          String(recordKeys(catalogFieldMapping?.fieldKeys).length),
+          "text",
+          true,
+        ),
+      ];
+    case "source-contract":
+      return [
+        field("sourceOwner", "Owner", profile.sourceContract.owner, "text", disabled, true),
+        field("sourceRepository", "Repository", profile.sourceContract.repository ?? "", "text", disabled),
+        field("sourceCommit", "Commit", profile.sourceContract.commit ?? "", "text", disabled),
+        field("sourceDocumentPath", "Document path", profile.sourceContract.documentPath, "text", disabled, true),
+        field(
+          "fixtureSetVersion",
+          "Fixture set version",
+          profile.sourceContract.fixtureSetVersion,
+          "text",
+          disabled,
+          true,
+        ),
+      ];
+    case "fixtures":
+      return [
+        field("fixtureRoot", "Fixture root", profile.fixtures.fixtureRoot, "text", disabled, true),
+        field("coveredFlows", "Covered flows", profile.fixtures.coveredFlows.join(", "), "tags", disabled),
+        field(
+          "liveProviderCallsAllowed",
+          "Live provider calls",
+          String(profile.fixtures.liveProviderCallsAllowed),
+          "checkbox",
+          true,
+          false,
+          "Offline fixture validation is required for launch.",
+        ),
+      ];
+    case "source-observation":
+      return [
+        field(
+          "observationIdPath",
+          "Observation id source",
+          expressionSummary(sourceObservation?.observationId),
+          "text",
+          disabled,
+        ),
+        field(
+          "externalKeyPath",
+          "External key source",
+          expressionSummary(sourceObservation?.externalKey),
+          "text",
+          disabled,
+        ),
+        field("sourceUrlPath", "Source URL source", expressionSummary(sourceObservation?.sourceUrl), "text", disabled),
+        field(
+          "sourceUpdatedAtPath",
+          "Source updated source",
+          expressionSummary(sourceObservation?.sourceUpdatedAt),
+          "text",
+          disabled,
+        ),
+      ];
+    case "normalized-observation":
+      return [
+        field(
+          "normalizedOutputKind",
+          "Output kind",
+          stringValue(normalizedObservation?.outputKind) ?? profile.mappingOutputKind,
+          "text",
+          disabled,
+          true,
+        ),
+        field(
+          "normalizedLanguagePath",
+          "Language source",
+          expressionSummary(normalizedObservation?.languageCode),
+          "text",
+          disabled,
+        ),
+        field(
+          "normalizedFieldCount",
+          "Normalized field count",
+          String(recordKeys(normalizedObservation?.fields).length),
+          "text",
+          true,
+        ),
+        field(
+          "hashMaterialCount",
+          "Hash material count",
+          String(arrayValue(normalizedObservation?.hashMaterial).length),
+          "text",
+          true,
+        ),
+      ];
+    case "external-references":
+      return [
+        field(
+          "externalReferenceProviderKey",
+          "Reference provider",
+          stringValue(externalReferences?.providerKey) ?? "",
+          "text",
+          disabled,
+        ),
+        field(
+          "externalReferenceTarget",
+          "Reference target",
+          stringValue(externalReferences?.target) ?? "",
+          "text",
+          disabled,
+        ),
+        field(
+          "externalKeyPrefix",
+          "External key prefix",
+          stringValue(externalReferences?.externalKeyPrefix) ?? "",
+          "text",
+          disabled,
+        ),
+        field(
+          "externalReferenceCount",
+          "Reference contract count",
+          String(arrayValue(contractRecord?.externalReferences).length),
+          "text",
+          true,
+        ),
+      ];
+    case "selected-options":
+      return [
+        field(
+          "selectedOptionDimensionKey",
+          "Dimension key",
+          stringValue(selectedOptionDimension?.dimensionKey) ?? "",
+          "text",
+          disabled,
+        ),
+        field(
+          "selectedOptionSource",
+          "Option source",
+          stringValue(selectedOptions?.missingOrUnknownOptionPolicy) ??
+            stringValue(selectedOptionMapping?.source) ??
+            "",
+          "text",
+          disabled,
+        ),
+        field(
+          "selectedOptionDimensionCount",
+          "Dimension count",
+          String(arrayValue(selectedOptionMapping?.dimensions).length),
+          "text",
+          true,
+        ),
+      ];
+    case "reference-hierarchy":
+      return [
+        field(
+          "referenceHierarchyType",
+          "Reference type",
+          stringValue(referenceHierarchy?.targetTypeKey) ?? "",
+          "text",
+          disabled,
+        ),
+        field(
+          "referenceHierarchyProviderAttribute",
+          "Provider attribute",
+          stringValue(referenceHierarchy?.providerAttributeKey) ??
+            stringValue(referenceHierarchyMapping?.providerAttributeKey) ??
+            "",
+          "text",
+          disabled,
+        ),
+        field(
+          "referenceHierarchyContractCount",
+          "Hierarchy contract count",
+          String(arrayValue(contractRecord?.referenceHierarchy).length),
+          "text",
+          true,
+        ),
+      ];
+    case "duplicate-prevention":
+      return [
+        field(
+          "exactExternalCatalogItemReferencesFirst",
+          "Check external references first",
+          String(booleanValue(duplicatePrevention?.exactExternalCatalogItemReferencesFirst) ?? false),
+          "checkbox",
+          disabled,
+        ),
+        field(
+          "ambiguousCandidatePolicy",
+          "Ambiguous candidate policy",
+          stringValue(duplicatePrevention?.ambiguousCandidatePolicy) ?? "",
+          "select",
+          disabled,
+          true,
+          null,
+          [option("block-promotion", "Block promotion"), option("review-only", "Review only")],
+        ),
+        field(
+          "replayPolicy",
+          "Replay policy",
+          stringValue(duplicatePrevention?.replayPolicy) ?? "",
+          "select",
+          disabled,
+          true,
+          null,
+          [
+            option("same-profile-version", "Same profile version"),
+            option("operator-reapply-active-version", "Operator reapply active version"),
+          ],
+        ),
+        field(
+          "duplicatePreventionMappingSource",
+          "Mapping source",
+          stringValue(duplicatePreventionMapping?.source) ?? "",
+          "text",
+          disabled,
+        ),
+      ];
+    case "promotion-plan":
+      return [
+        field(
+          "promotionPlanKind",
+          "Plan kind",
+          stringValue(promotionCommandPlan?.planKind) ?? "",
+          "text",
+          disabled,
+          true,
+        ),
+        field(
+          "promotionRequiresReview",
+          "Requires review",
+          String(booleanValue(promotionCommandPlan?.requiresReview) ?? true),
+          "checkbox",
+          true,
+        ),
+        field(
+          "promotionCommandCount",
+          "Command count",
+          String(arrayValue(promotionCommandPlan?.commands).length),
+          "text",
+          true,
+        ),
+      ];
+    case "retirement-plan":
+      return [
+        field(
+          "retirementTrackingIssue",
+          "Tracking issue",
+          numberString(retirementPlan?.trackingIssue),
+          "text",
+          disabled,
+        ),
+        field("retirementReason", "Removal reason", stringValue(retirementPlan?.reason) ?? "", "textarea", disabled),
+      ];
+    case "migration-evidence":
+      return [
+        field("migrationEvidenceText", "Evidence", profile.migrationEvidence?.evidenceText ?? "", "textarea", disabled),
+        field("migrationFixtureRunId", "Fixture run", profile.migrationEvidence?.fixtureRunId ?? "", "text", disabled),
+        field(
+          "migrationFingerprintBefore",
+          "Mapping fingerprint before",
+          profile.migrationEvidence?.mappingFingerprintBefore ?? "",
+          "text",
+          disabled,
+        ),
+        field(
+          "migrationFingerprintAfter",
+          "Mapping fingerprint after",
+          profile.migrationEvidence?.mappingFingerprintAfter ?? "",
+          "text",
+          disabled,
+        ),
+        field("migrationRecordedAt", "Recorded at", profile.migrationEvidence?.recordedAt ?? "", "text", disabled),
+      ];
+  }
+}
+
+function profileSectionDescription(section: CatalogProviderProfileEditableSectionKey): string {
+  switch (section) {
+    case "basics":
+      return "Name, lifecycle, capability, scope, and language controls for the selected profile version.";
+    case "provider-options":
+      return "Provider option query metadata used before a provider pull starts.";
+    case "connector":
+      return "Connector and mapping-boundary controls that define how provider data is acquired.";
+    case "catalog-field-mapping":
+      return "Catalog blueprint, category, and field mapping targets for promoted facts.";
+    case "source-contract":
+      return "Source ownership and fixture-set contract evidence.";
+    case "fixtures":
+      return "Offline fixture coverage required before profile behavior is trusted.";
+    case "source-observation":
+      return "Source Observation identity, URL, update, and payload mapping controls.";
+    case "normalized-observation":
+      return "Normalized fact mapping, hash material, and merge evidence controls.";
+    case "external-references":
+      return "External Catalog Item and Product reference extraction controls.";
+    case "selected-options":
+      return "Selected option mapping for variants, language, condition, and certification evidence.";
+    case "reference-hierarchy":
+      return "Reference hierarchy mapping used to connect provider sets, series, and related records.";
+    case "duplicate-prevention":
+      return "Duplicate candidate and replay policy controls used before Catalog promotion.";
+    case "promotion-plan":
+      return "Catalog promotion command plan controls and command-count evidence.";
+    case "retirement-plan":
+      return "Complete removal plan evidence for profiles that will be retired.";
+    case "migration-evidence":
+      return "Evidence proving profile changes were validated before activation.";
+  }
+}
+
+function profileSectionDomainConcept(section: CatalogProviderProfileEditableSectionKey): string {
+  switch (section) {
+    case "basics":
+      return "profile identity";
+    case "provider-options":
+      return "provider option query";
+    case "connector":
+      return "connector binding";
+    case "catalog-field-mapping":
+      return "catalog field mapping";
+    case "source-contract":
+      return "source contract";
+    case "fixtures":
+      return "fixture contract";
+    case "source-observation":
+      return "source observation";
+    case "normalized-observation":
+      return "normalized observation";
+    case "external-references":
+      return "external references";
+    case "selected-options":
+      return "selected options";
+    case "reference-hierarchy":
+      return "reference hierarchy";
+    case "duplicate-prevention":
+      return "duplicate prevention";
+    case "promotion-plan":
+      return "promotion plan";
+    case "retirement-plan":
+      return "retirement plan";
+    case "migration-evidence":
+      return "migration evidence";
+  }
+}
+
+function sectionBlockersFor(input: {
+  activeJobCount: number;
+  canManage: boolean;
+  profile: CatalogProviderProfileVersionReview;
+  status: CatalogPrimaryWorkbenchReadModel["profileAuthoring"]["status"];
+  saveOutcome: CatalogPrimaryWorkbenchReadModel["profileAuthoring"]["sectionWorkspaces"][number]["saveOutcome"];
+}): readonly CatalogPrimaryWorkbenchBlockerCategory[] {
+  const blockers = new Set<CatalogPrimaryWorkbenchBlockerCategory>();
+  if (!input.canManage) {
+    blockers.add("permission-denied");
+  }
+  if (input.status !== "ready") {
+    blockers.add("profile-version-missing");
+  }
+  if (input.profile.lifecycle !== "draft" && input.profile.lifecycle !== "test") {
+    blockers.add("profile-section-read-only");
+  }
+  if (input.activeJobCount > 0) {
+    blockers.add("active-job-conflict");
+  }
+  if (input.activeJobCount > 1) {
+    blockers.add("concurrent-job");
+  }
+  if (input.saveOutcome === "conflict") {
+    blockers.add("profile-section-stale");
+  }
+
+  return [...blockers];
+}
+
+function sectionSaveOutcomeFromUrl(
+  requestUrl: string | URL,
+  section: CatalogProviderProfileEditableSectionKey,
+): CatalogPrimaryWorkbenchReadModel["profileAuthoring"]["sectionWorkspaces"][number]["saveOutcome"] {
+  const url = typeof requestUrl === "string" ? new URL(requestUrl) : requestUrl;
+  if (
+    url.searchParams.get("commandIntent") !== "update-provider-profile-section" ||
+    url.searchParams.get("commandSection") !== section
+  ) {
+    return "not-submitted";
+  }
+
+  switch (url.searchParams.get("commandResult")) {
+    case "section-saved":
+      return "saved";
+    case "section-conflict":
+      return "conflict";
+    case "section-invalid":
+      return "invalid";
+    case "command-failed":
+      return "failed";
+    default:
+      return "not-submitted";
+  }
+}
+
+function profileSectionStatus(
+  profile: CatalogProviderProfileVersionReview,
+  section: CatalogProviderProfileEditableSectionKey,
+  diagnostics: readonly { severity: "error" | "warning" }[],
+): CatalogPrimaryWorkbenchReadModel["profileAuthoring"]["sectionWorkspaces"][number]["status"] {
+  if (profile.lifecycle === "retired") {
+    return "blocked";
+  }
+  if (diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
+    return "error";
+  }
+  if (diagnostics.length > 0 || sectionChangeCount(profile, section) > 0) {
+    return "warning";
+  }
+
+  return "valid";
+}
+
+function profileDiagnosticsBySection(
+  profile: CatalogProviderProfileVersionReview,
+): Map<
+  CatalogProviderProfileEditableSectionKey,
+  readonly { path: string; diagnosticText: string; severity: "error" | "warning" }[]
+> {
+  const entries = new Map<
+    CatalogProviderProfileEditableSectionKey,
+    { path: string; diagnosticText: string; severity: "error" | "warning" }[]
+  >();
+  for (const diagnostic of profile.validation.diagnostics) {
+    const section = sectionForDiagnosticPath(diagnostic.path);
+    const current = entries.get(section) ?? [];
+    current.push({
+      path: diagnostic.path,
+      diagnosticText: diagnostic.diagnosticText,
+      severity: diagnostic.severity,
+    });
+    entries.set(section, current);
+  }
+
+  return entries;
+}
+
+function sectionForDiagnosticPath(path: string): CatalogProviderProfileEditableSectionKey {
+  const normalized = path.toLowerCase();
+  if (normalized.includes("optionquer")) return "provider-options";
+  if (normalized.includes("connector")) return "connector";
+  if (normalized.includes("catalogfieldmapping")) return "catalog-field-mapping";
+  if (normalized.includes("sourcecontract")) return "source-contract";
+  if (normalized.includes("fixture")) return "fixtures";
+  if (normalized.includes("sourceobservation")) return "source-observation";
+  if (normalized.includes("normalizedobservation")) return "normalized-observation";
+  if (normalized.includes("externalreference")) return "external-references";
+  if (normalized.includes("selectedoption")) return "selected-options";
+  if (normalized.includes("referencehierarchy")) return "reference-hierarchy";
+  if (normalized.includes("duplicateprevention") || normalized.includes("ambiguity")) return "duplicate-prevention";
+  if (normalized.includes("promotioncommandplan")) return "promotion-plan";
+  if (normalized.includes("retirementplan")) return "retirement-plan";
+  if (normalized.includes("migrationevidence")) return "migration-evidence";
+
+  return "basics";
+}
+
+function sectionChangeCount(
+  profile: CatalogProviderProfileVersionReview,
+  section: CatalogProviderProfileEditableSectionKey,
+): number {
+  if (section === "migration-evidence" && profile.migrationEvidence) return 1;
+  if (section === "retirement-plan" && profile.retirementPlan) return 1;
+  return 0;
+}
+
+function profileSectionAnchorId(section: CatalogProviderProfileEditableSectionKey): string {
+  return `profile-section-${section}`;
+}
+
+function field(
+  key: string,
+  label: string,
+  value: string,
+  control: ProfileSectionField["control"],
+  disabled: boolean,
+  required = false,
+  helpText: string | null = null,
+  options: readonly ProfileSectionField["options"][number][] = [],
+): ProfileSectionField {
+  return { key, label, value, control, required, disabled, helpText, options };
+}
+
+function option(value: string, label: string): ProfileSectionField["options"][number] {
+  return { value, label };
+}
+
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function arrayValue(value: unknown): readonly unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function firstRecord(values: readonly unknown[]): Record<string, unknown> | null {
+  for (const value of values) {
+    const record = recordValue(value);
+    if (record) {
+      return record;
+    }
+  }
+
+  return null;
+}
+
+function stringValue(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function booleanValue(value: unknown): boolean | null {
+  return typeof value === "boolean" ? value : null;
+}
+
+function stringArrayValue(value: unknown): readonly string[] {
+  return arrayValue(value).filter((entry): entry is string => typeof entry === "string");
+}
+
+function recordKeys(value: unknown): readonly string[] {
+  return Object.keys(recordValue(value) ?? {});
+}
+
+function numberString(value: unknown): string {
+  return typeof value === "number" ? String(value) : "";
+}
+
+function expressionSummary(value: unknown): string {
+  const expression = recordValue(value);
+  const selector = recordValue(expression?.selector);
+  const selectorKind = stringValue(selector?.kind);
+  if (selectorKind === "path") {
+    return stringValue(selector?.path) ?? "";
+  }
+  if (selectorKind === "template") {
+    return stringValue(selector?.template) ?? "";
+  }
+  if (selectorKind === "constant") {
+    const constantValue = selector?.value;
+    return typeof constantValue === "string" ? constantValue : constantValue === undefined ? "" : String(constantValue);
+  }
+  if (selectorKind === "named-runtime-selector") {
+    return stringValue(selector?.functionKey) ?? "";
+  }
+
+  return selectorKind ?? stringValue(expression?.owner) ?? "";
 }
 
 function profileOverviewFor(

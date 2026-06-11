@@ -316,6 +316,13 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.queued.title": "Command queued",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.reason.required":
     "Rejecting Source Observations requires an operator reason for audit evidence.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.section.conflict":
+    "This profile section changed before the save completed. Reload the profile workspace and retry the section.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.section.description":
+    "The section save used the typed provider profile command path and preserved the remaining profile data.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.section.invalid":
+    "The section command did not pass validation. Review the section diagnostics and field values.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.section.title": "Profile section saved",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.unsupported":
     "This command has no launch-ready backend path yet, so the workbench fails closed.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.execution.preview.fresh": "Preview freshness",
@@ -404,6 +411,11 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.permission.denied": "Permission denied",
   "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.profile.evidence.missing":
     "Profile evidence missing",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.profile.section.invalid":
+    "Section has diagnostics",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.profile.section.read.only":
+    "Section is read only",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.profile.section.stale": "Section changed",
   "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.profile.version.missing":
     "Profile version missing",
   "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.promotion.conflict": "Promotion conflict",
@@ -796,6 +808,19 @@ export const catalogEnglishTranslations = {
     "Test profiles can be edited through typed sections, but still need validation and activation proof.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.profile.restriction.test.title": "Test profile is editable",
   "catalog.features.sourceObservations.ui.primaryWorkbench.profile.restrictions": "Lifecycle restrictions",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sections.group.evidence": "Evidence and lifecycle",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sections.group.foundation": "Profile foundation",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sections.group.mapping": "Observation mapping",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sections.group.promotion": "Catalog promotion",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sections.group.provider": "Provider acquisition",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sections.count": "{count} section(s)",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sections.description":
+    "Registered profile sections are edited through typed controls that preserve the rest of the profile.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sections.mobile.label": "Profile section",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sections.navigation": "Profile section groups",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sections.save": "Save section",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sections.diagnostics": "Section diagnostics",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sections.title": "Guided section workspaces",
   "catalog.features.sourceObservations.ui.primaryWorkbench.profile.table.lifecycle": "Lifecycle",
   "catalog.features.sourceObservations.ui.primaryWorkbench.profile.table.profile": "Profile",
   "catalog.features.sourceObservations.ui.primaryWorkbench.profile.table.status": "Status",

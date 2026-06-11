@@ -349,6 +349,19 @@ describe("Catalog primary workbench admin contracts", () => {
       idempotencyRequired: true,
       blockerCategories: expect.arrayContaining(["permission-denied", "profile-version-missing", "raw-json-retired"]),
     });
+    expect(actionsByKey.get("update-provider-profile-section")).toMatchObject({
+      method: "PATCH",
+      routePattern:
+        "/api/catalog/source-observations/admin/provider-profiles/:providerKey/:profileVersion/sections/:section",
+      requiredPermission: "catalog.manage",
+      idempotencyRequired: true,
+      blockerCategories: expect.arrayContaining([
+        "permission-denied",
+        "profile-section-read-only",
+        "profile-section-stale",
+        "raw-json-retired",
+      ]),
+    });
     expect(actionsByKey.get("select-provider-scope")).toMatchObject({
       method: "GET",
       requiredPermission: "catalog.view",
@@ -367,6 +380,7 @@ describe("Catalog primary workbench admin contracts", () => {
 
     expect(downstreamIssues).toEqual([
       "#1033",
+      "#1034",
       "#1056",
       "#1038",
       "#1039",
@@ -635,6 +649,48 @@ describe("Catalog primary workbench admin contracts", () => {
         ],
         returnToPrimaryHref:
           "/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex%3Apokemon%3Asingle-card%3Asource-observation-import&importScope=changed&profileVersion=2026.06.04&selectedObservationIds=obs_001&jobId=job_001&promotionPreviewId=preview_001&section=workbench&filter.status=changed",
+        sectionGroups: [
+          {
+            key: "profile-foundation",
+            label: "Profile foundation",
+            sections: ["basics"],
+          },
+        ],
+        sectionWorkspaces: [
+          {
+            sectionKey: "basics",
+            displayName: "Basics",
+            group: "profile-foundation",
+            groupLabel: "Profile foundation",
+            description: "Profile identity controls.",
+            domainConcept: "profile identity",
+            status: "valid",
+            editable: false,
+            actionState: "blocked",
+            blockers: ["profile-section-read-only"],
+            dirtyState: "clean",
+            staleState: "fresh",
+            saveOutcome: "not-submitted",
+            submitHref: "/catalog/integrations?providerKey=tcgdex&profileVersion=2026.06.04&section=profile-work",
+            commandKey: "update-provider-profile-section",
+            fields: [
+              {
+                key: "displayName",
+                label: "Display name",
+                value: "TCGdex Pokemon cards",
+                control: "text",
+                required: true,
+                disabled: true,
+                helpText: null,
+                options: [],
+              },
+            ],
+            diagnostics: [],
+            semanticChangeCount: 0,
+            readinessCheckCount: 0,
+            anchorId: "profile-section-basics",
+          },
+        ],
         cloneDraft: {
           commandKey: "clone-provider-profile",
           sourceProviderKey: "tcgdex",
