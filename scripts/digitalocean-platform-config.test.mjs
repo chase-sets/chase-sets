@@ -705,11 +705,15 @@ describe("DigitalOcean platform configuration", () => {
       "if: steps.latest_main.outputs.should_deploy != 'false' && vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true'",
     );
     expect(productionProofCanaryStep).toContain(
-      "GUEST_BUY_NOW_CANARY_ACCOUNT_EMAIL: ${{ secrets.PRODUCTION_PROOF_CANARY_EMAIL || '' }}",
+      "GUEST_BUY_NOW_CANARY_ACCOUNT_EMAIL: ${{ secrets.PRODUCTION_PROOF_CANARY_EMAIL || secrets.PLATFORM_ADMIN_EMAIL || '' }}",
     );
     expect(productionProofCanaryStep).toContain(
-      "GUEST_BUY_NOW_CANARY_ACCOUNT_PASSWORD: ${{ secrets.PRODUCTION_PROOF_CANARY_PASSWORD || '' }}",
+      "GUEST_BUY_NOW_CANARY_ACCOUNT_PASSWORD: ${{ secrets.PRODUCTION_PROOF_CANARY_PASSWORD || secrets.PLATFORM_ADMIN_PASSWORD || '' }}",
     );
+    expect(productionProofCanaryStep).toContain(
+      "configure PRODUCTION_PROOF_CANARY_EMAIL/PRODUCTION_PROOF_CANARY_PASSWORD or keep PLATFORM_ADMIN_EMAIL/PLATFORM_ADMIN_PASSWORD available as the launch fallback",
+    );
+    expect(productionProofCanaryStep).not.toContain("blocked-missing-credentials");
     expect(productionProofCanaryStep).toContain("--flow account");
     expect(productionProofCanaryStep).toContain("--environment production-proof");
     expect(productionProofCanaryStep).toContain(

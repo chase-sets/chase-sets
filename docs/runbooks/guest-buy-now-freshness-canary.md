@@ -96,7 +96,7 @@ The canary measures the browser-visible segments directly and links the server-s
 A public production guest browser canary remains not feasible: it would create persistent guest checkout artifacts without a cleanup contract. The production evidence path required by #1227 is the **authenticated proof-mode canary**:
 
 - Runs only when `PRODUCTION_MARKETPLACE_PROOF_ENABLED=true` (the proof marketplace host is gated by sign-in plus `security.manage`; see [Marketplace Production Promotion](./marketplace-production-promotion.md)).
-- Requires operator credentials (`PRODUCTION_PROOF_CANARY_EMAIL`/`PRODUCTION_PROOF_CANARY_PASSWORD` secrets) and the approved proof reference (`PRODUCTION_MARKETPLACE_PROOF_REFERENCE`); the script rejects `--environment production` outright and rejects proof mode without the account flow, credentials, and reference.
+- Requires operator credentials and the approved proof reference (`PRODUCTION_MARKETPLACE_PROOF_REFERENCE`); the workflow reads dedicated `PRODUCTION_PROOF_CANARY_EMAIL`/`PRODUCTION_PROOF_CANARY_PASSWORD` secrets first and falls back to the existing required `PLATFORM_ADMIN_EMAIL`/`PLATFORM_ADMIN_PASSWORD` secret pair while launch proof accounts are being separated. The script rejects `--environment production` outright and rejects proof mode without the account flow, credentials, and reference.
 - Uses the same logical topology as staging: same script, same readiness SLO and attempt budget, same negative probe, same evidence schema — only credentials and rollout flags differ.
 - A failing proof-mode canary fails the Deploy Production job before the release is marked, so the production branch and release tag do not advance.
 
