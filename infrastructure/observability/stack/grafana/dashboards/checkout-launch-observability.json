@@ -1,0 +1,113 @@
+{
+  "title": "Checkout Launch Observability",
+  "uid": "chase-sets-checkout-launch",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "tags": ["chase-sets", "checkout", "launch", "observability"],
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "type": "custom",
+        "name": "checkout_event_name",
+        "label": "Checkout event",
+        "query": "checkout.cart.review_ready,checkout.readiness.unassigned_fulfillment,checkout.readiness.optimization_decision,checkout.buy.guest_review_rendered,checkout.buy.signed_in_review_rendered,checkout.sell_list.review_ready,checkout.sell_list.readiness_blocked,checkout.sell.guest_review_rendered,checkout.sell.signed_in_review_rendered,checkout.sell.confirmation_activity_recorded,checkout.session.active_stale_recovery,checkout.address.serviceability_failed,checkout.economics.changed_review_required,checkout.provider_or_risk.recovery_required,checkout.buy.split_group_summary_rendered,checkout.launch.kill_switch_unavailable,checkout.entry.temporary_recovery_visible,checkout.launch.production_proof_buy_now,checkout.capability.accelerated_or_saved_disabled,checkout.capability.promo_credit_gift_card_state,checkout.notification.expectation_recorded,checkout.account_history.handoff_visible,checkout.reconciliation.pending_visible,checkout.reversal_or_adjustment.status_visible,checkout.launch.fresh_state_cleanup_verified",
+        "current": {
+          "selected": false,
+          "text": "checkout.launch.production_proof_buy_now",
+          "value": "checkout.launch.production_proof_buy_now"
+        },
+        "hide": 0
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Checkout launch events by class",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum by (event_name, telemetry_class, alert_class, side_effect_status) (rate(chase_sets_checkout_observability_events_total[5m]))",
+          "legendFormat": "{{event_name}} {{telemetry_class}} {{alert_class}} {{side_effect_status}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Release-health required checkout rows",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum by (event_name, launch_register_decision, release_run_id) (increase(chase_sets_checkout_observability_events_total{release_health_required=\"true\"}[1h]))",
+          "legendFormat": "{{event_name}} {{launch_register_decision}} run={{release_run_id}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Fresh-state, provider, support, and launch alerts",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum by (event_name, alert_class, scenario_state, visible_state) (rate(chase_sets_checkout_observability_events_total{alert_class=~\"fresh-state-alert|provider-alert|support-alert|launch-alert\"}[5m]))",
+          "legendFormat": "{{alert_class}} {{event_name}} {{scenario_state}} {{visible_state}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "No-side-effect recovery proof",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum by (event_name, entry_source, actor_mode, visible_state) (rate(chase_sets_checkout_observability_events_total{side_effect_status=\"not-attempted\"}[5m]))",
+          "legendFormat": "{{event_name}} {{entry_source}} {{actor_mode}} {{visible_state}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Pending and committed downstream boundary",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum by (event_name, downstream_status, support_reference_present) (rate(chase_sets_checkout_observability_events_total{downstream_status!=\"none\"}[5m]))",
+          "legendFormat": "{{event_name}} {{downstream_status}} support={{support_reference_present}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Selected checkout event dimensions",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum by (event_name, performance_budget_id, canary_final_state, promotion_decision) (increase(chase_sets_checkout_observability_events_total{event_name=\"$checkout_event_name\"}[1h]))",
+          "legendFormat": "{{event_name}} budget={{performance_budget_id}} canary={{canary_final_state}} promotion={{promotion_decision}}"
+        }
+      ]
+    },
+    {
+      "type": "logs",
+      "title": "Checkout observability logs",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 24 },
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "Loki" },
+          "expr": "{service_name=~\"platform-api|platform-worker|admin-support-api\"} | json | eventName =~ \"checkout\\\\..*\""
+        }
+      ]
+    }
+  ]
+}

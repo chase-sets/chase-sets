@@ -4,6 +4,8 @@ import { checkoutLaunchEvidenceRows, type CheckoutLaunchScenarioState } from "./
 export const checkoutObservabilityContractDocPath =
   "bounded-contexts/checkout/docs/checkout-observability-contract.md" as const;
 
+export const checkoutObservabilityMetricName = "chase_sets_checkout_observability_events_total" as const;
+
 export type CheckoutObservabilityTelemetryClass =
   | "funnel"
   | "readiness"
