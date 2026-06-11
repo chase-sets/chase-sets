@@ -121,9 +121,11 @@ export function CatalogIntegrationGovernanceControlsWorkspace({
         title={t("catalog.features.sourceObservations.ui.governanceControls.rbac.title")}
         description={t("catalog.features.sourceObservations.ui.governanceControls.rbac.description")}
         status={
-          <Badge
-            tone={governance.summary.deniedCommands > 0 ? "danger" : "success"}
-          >{`${governance.rbacMatrix.length} actions`}</Badge>
+          <Badge tone={governance.summary.deniedCommands > 0 ? "danger" : "success"}>
+            {t("catalog.features.sourceObservations.ui.governanceControls.rbac.actionCount", {
+              count: governance.rbacMatrix.length,
+            })}
+          </Badge>
         }
         density="compact"
       >
@@ -227,7 +229,11 @@ const controlColumns: DataColumn<GovernanceControl>[] = [
       <div className="grid min-w-0 gap-1">
         <span className="text-sm text-foreground">{row.owner}</span>
         <span className="text-xs text-secondary">{row.metricKey}</span>
-        <span className="text-xs text-secondary">{row.ownerIssue ? `issue #${row.ownerIssue}` : "no issue"}</span>
+        <span className="text-xs text-secondary">
+          {row.ownerIssue
+            ? t("catalog.features.sourceObservations.ui.governanceControls.issue", { value: row.ownerIssue })
+            : t("catalog.features.sourceObservations.ui.governanceControls.noIssue")}
+        </span>
       </div>
     ),
   },
@@ -276,9 +282,11 @@ const rbacColumns: DataColumn<GovernanceRbacRow>[] = [
       <div className="flex min-w-0 flex-wrap gap-1.5">
         <Badge tone="info">{row.requiredPermission}</Badge>
         {row.confirmationRequired ? (
-          <Badge tone="warning">confirmation required</Badge>
+          <Badge tone="warning">
+            {t("catalog.features.sourceObservations.ui.governanceControls.confirmationRequired")}
+          </Badge>
         ) : (
-          <Badge tone="neutral">no confirmation</Badge>
+          <Badge tone="neutral">{t("catalog.features.sourceObservations.ui.governanceControls.noConfirmation")}</Badge>
         )}
       </div>
     ),
@@ -316,7 +324,9 @@ const observabilityColumns: DataColumn<GovernanceSignal>[] = [
     cell: (row) => (
       <div className="grid gap-1">
         <Badge tone={statusTone(row.status)}>{stateLabel(row.status)}</Badge>
-        {row.stale ? <Badge tone="warning">stale evidence</Badge> : null}
+        {row.stale ? (
+          <Badge tone="warning">{t("catalog.features.sourceObservations.ui.governanceControls.staleEvidence")}</Badge>
+        ) : null}
       </div>
     ),
   },

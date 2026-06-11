@@ -504,6 +504,7 @@ export const catalogEnglishTranslations = {
     "Rollout, RBAC, worker, observability, and removal evidence are ready for the selected context.",
   "catalog.features.sourceObservations.ui.governanceControls.banner.readyTitle": "Governance controls are ready",
   "catalog.features.sourceObservations.ui.governanceControls.blockers.none": "No control blockers",
+  "catalog.features.sourceObservations.ui.governanceControls.confirmationRequired": "confirmation required",
   "catalog.features.sourceObservations.ui.governanceControls.controls.description":
     "Rollout mode, emergency stops, kill switches, worker pause state, owners, metrics, and evidence stay together.",
   "catalog.features.sourceObservations.ui.governanceControls.controls.emptyDescription":
@@ -512,11 +513,14 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.governanceControls.controls.title": "Rollout and worker controls",
   "catalog.features.sourceObservations.ui.governanceControls.description":
     "Inspect rollout mode, kill switches, RBAC, worker state, observability, alert/runbook links, and removal evidence without leaving the primary import context.",
+  "catalog.features.sourceObservations.ui.governanceControls.issue": "issue #{value}",
   "catalog.features.sourceObservations.ui.governanceControls.metric.blockedCommands": "Blocked commands",
   "catalog.features.sourceObservations.ui.governanceControls.metric.deletionEvidence": "Deletion evidence",
   "catalog.features.sourceObservations.ui.governanceControls.metric.deniedCommands": "Denied commands",
   "catalog.features.sourceObservations.ui.governanceControls.metric.observability": "Degraded signals",
   "catalog.features.sourceObservations.ui.governanceControls.metric.rolloutStops": "Rollout stops",
+  "catalog.features.sourceObservations.ui.governanceControls.noConfirmation": "no confirmation",
+  "catalog.features.sourceObservations.ui.governanceControls.noIssue": "no issue",
   "catalog.features.sourceObservations.ui.governanceControls.observability.description":
     "Operational signals show option query latency, job failure rate, projection freshness, quarantine counts, conflict spikes, and alert/runbook links.",
   "catalog.features.sourceObservations.ui.governanceControls.observability.emptyDescription":
@@ -529,6 +533,7 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.governanceControls.rbac.emptyDescription":
     "Sensitive action contracts must be present before launch.",
   "catalog.features.sourceObservations.ui.governanceControls.rbac.emptyTitle": "No RBAC actions",
+  "catalog.features.sourceObservations.ui.governanceControls.rbac.actionCount": "{count} actions",
   "catalog.features.sourceObservations.ui.governanceControls.rbac.title": "RBAC action matrix",
   "catalog.features.sourceObservations.ui.governanceControls.readModel.alert": "Alert {value}",
   "catalog.features.sourceObservations.ui.governanceControls.readModel.removal.broadPatch.detail":
@@ -565,6 +570,7 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.governanceControls.removal.description":
     "The controls workspace can prove removed compatibility artifacts, but cannot present them as launch controls.",
   "catalog.features.sourceObservations.ui.governanceControls.removal.title": "Retired compatibility removal",
+  "catalog.features.sourceObservations.ui.governanceControls.staleEvidence": "stale evidence",
   "catalog.features.sourceObservations.ui.governanceControls.table.action": "Action",
   "catalog.features.sourceObservations.ui.governanceControls.table.alertRunbook": "Alert/runbook",
   "catalog.features.sourceObservations.ui.governanceControls.table.control": "Control",
