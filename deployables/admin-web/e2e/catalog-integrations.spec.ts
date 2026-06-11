@@ -141,12 +141,13 @@ test.describe("catalog admin integrations", () => {
     await expect(page.getByRole("navigation", { name: "Catalog control plane workflows" })).toBeVisible();
     await expect(page.getByRole("combobox", { name: "Choose Catalog workflow" })).toHaveValue("health-triage");
     await expect(page.getByRole("button", { name: /Pull provider data/i }).first()).toBeVisible();
-    await expect(
-      page
-        .getByRole("listitem")
-        .filter({ hasText: /Promote into Catalog Items/i })
-        .first(),
-    ).toBeVisible();
+    await expect(page.getByRole("button", { name: /Preview promotion/i }).first()).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Integration health triage" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Back to import workbench" })).toHaveAttribute(
+      "href",
+      /section=workbench/,
+    );
+    await expect(page.getByRole("heading", { name: "Import to promotion workbench" })).toHaveCount(0);
     await page.getByRole("combobox", { name: "Choose Catalog workflow" }).selectOption("audit-evidence");
     await expect(page).toHaveURL(/\/catalog\/integrations\?.*section=evidence/);
     await expect(page).toHaveURL(/returnPath=/);
