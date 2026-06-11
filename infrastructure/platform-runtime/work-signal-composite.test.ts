@@ -76,6 +76,33 @@ describe("work signal composite", () => {
       ),
     ).toThrow(/sensitive payload key/);
 
+    // Work signals are wake hints: row-level identity keys are rejected like
+    // the event-store and relay denylists (issue #1235).
+    expect(() =>
+      serializeWorkSignalEnvelope(
+        createWorkSignalEnvelope(
+          {
+            kind: "projection.wake-intent",
+            source: "platform-control-plane",
+            payload: { streamId: "checkout.checkout-session-cs_1" },
+          },
+          { now: () => NOW },
+        ),
+      ),
+    ).toThrow(/sensitive payload key/);
+    expect(() =>
+      serializeWorkSignalEnvelope(
+        createWorkSignalEnvelope(
+          {
+            kind: "realtime.outbox-wake",
+            source: "platform-api",
+            payload: { context: "marketplace", sessionId: "sess_1" },
+          },
+          { now: () => NOW },
+        ),
+      ),
+    ).toThrow(/sensitive payload key/);
+
     expect(() =>
       serializeWorkSignalEnvelope(
         createWorkSignalEnvelope(

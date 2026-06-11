@@ -217,6 +217,146 @@ describe("work signal store", () => {
     expect(calls[1].values[4]).toBe(JSON.stringify({ code: "projection_conflict" }));
   });
 
+  it("rejects sensitive metadata keys on every durable wake-store write path", async () => {
+    const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
+    const store = createPostgresWorkSignalStore(
+      {
+        query: async (sql: string, values: readonly unknown[] = []) => {
+          calls.push({ sql, values });
+          return { rows: [wakeIntentRow()], rowCount: 1 };
+        },
+      },
+      { now: () => NOW },
+    );
+    const target = {
+      sourceContextName: "catalog",
+      targetContextName: "checkout",
+      projectionName: "checkout-session-projection",
+      checkpointKey: "checkout.checkout-session-projection:catalog",
+    };
+
+    // ADR 0010 / #1235: wake intents, readiness rows, and waiter rows are a
+    // privacy boundary for every origin, not just relay-guarded metadata.
+    await expect(
+      store.enqueueProjectionWakeIntent({
+        ...target,
+        requiredPosition: 12,
+        origin: "operator",
+        metadata: { guestEmail: "guest@example.com" },
+      }),
+    ).rejects.toThrow(/metadata key 'metadata.guestEmail' is not allowed/);
+    await expect(
+      store.enqueueProjectionWakeIntent({
+        ...target,
+        requiredPosition: 12,
+        origin: "api-wait",
+        metadata: { request: { context: { sessionId: "sess_1" } } },
+      }),
+    ).rejects.toThrow(/metadata key 'metadata.request.context.sessionId' is not allowed/);
+    await expect(
+      store.recordCheckpointReady({
+        ...target,
+        readyPosition: 42,
+        metadata: { streamId: "checkout.checkout-session-cs_1" },
+      }),
+    ).rejects.toThrow(/metadata key 'metadata.streamId' is not allowed/);
+    await expect(
+      store.addCheckpointWaiter({
+        ...target,
+        requiredPosition: 40,
+        origin: "api-wait",
+        metadata: { entries: [{ paymentIntentId: "pi_1" }] },
+      }),
+    ).rejects.toThrow(/metadata key 'metadata.entries.0.payment/);
+    // Separator variants cannot slip past key normalization either.
+    await expect(
+      store.enqueueProjectionWakeIntent({
+        ...target,
+        requiredPosition: 12,
+        origin: "reconciliation",
+        metadata: { "guest-email": "guest@example.com" },
+      }),
+    ).rejects.toThrow(/metadata key 'metadata.guest-email' is not allowed/);
+
+    // Rejection happens before any SQL is issued, so no partial row exists.
+    expect(calls).toHaveLength(0);
+  });
+
+  it("accepts the metadata keys the relay, scheduler, and api-wait gateway write today", async () => {
+    const store = createPostgresWorkSignalStore(
+      {
+        query: async () => ({ rows: [wakeIntentRow()], rowCount: 1 }),
+      },
+      { now: () => NOW },
+    );
+
+    await expect(
+      store.enqueueProjectionWakeIntent({
+        sourceContextName: "catalog",
+        targetContextName: "checkout",
+        projectionName: "checkout-session-projection",
+        checkpointKey: "checkout.checkout-session-projection:catalog",
+        requiredPosition: 12,
+        origin: "relay",
+        metadata: {
+          // Relay catch-up fan-out metadata (projection-wake-relay.ts).
+          projectionWakeRelayCatchUpReason: "notification",
+          projectionWakeRelayLeaseName: "projection-wake-relay:active",
+          projectionWakeRelayOwnerId: "platform-worker-1",
+          projectionWakeRelayFencingToken: "7",
+          eventStoreWakeStreamCategory: "checkout.checkout-session",
+          eventStoreWakeEventTypes: ["checkout.session.created"],
+          eventStoreWakePayloadVersion: 1,
+          sourceContextWakeRolloutState: "staging-enabled",
+          // Scheduler readiness metadata (projection-wake-scheduler.ts).
+          recordedBy: "projection-wake-scheduler",
+          wakeIntentId: "projection-wake-1",
+          // api-wait gateway metadata (read-consistency-work-signals.ts).
+          requestedBy: "read-consistency",
+          mountPath: "/api/marketplace",
+          routePaths: ["/orders/:orderId"],
+        },
+      }),
+    ).resolves.toBeDefined();
+  });
+
+  it("redacts sensitive failure-detail keys instead of throwing while recording a failure", async () => {
+    const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
+    const store = createPostgresWorkSignalStore(
+      {
+        query: async (sql: string, values: readonly unknown[] = []) => {
+          calls.push({ sql, values });
+          return { rows: [], rowCount: 1 };
+        },
+      },
+      { now: () => NOW },
+    );
+
+    await expect(
+      store.failProjectionWakeIntent({
+        wakeIntentId: "projection-wake-2",
+        claimOwnerId: "projection-worker-a",
+        claimFencingToken: 4n,
+        retryAfterMs: 250,
+        error: {
+          reason: "projection-run-failed",
+          message: "handler failed",
+          guestEmail: "guest@example.com",
+          details: { streamId: "checkout.checkout-session-cs_1" },
+        },
+      }),
+    ).resolves.toBe(true);
+
+    expect(calls[0].values[4]).toBe(
+      JSON.stringify({
+        reason: "projection-run-failed",
+        message: "handler failed",
+        guestEmail: "[redacted]",
+        details: { streamId: "[redacted]" },
+      }),
+    );
+  });
+
   it("reports requeued and lost completion outcomes distinctly", async () => {
     const requeuedStore = createPostgresWorkSignalStore(
       {

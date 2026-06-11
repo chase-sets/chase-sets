@@ -278,6 +278,86 @@ const DEFAULT_CLEANUP_LIMIT = 500;
 const CURRENT_SCHEMA_VERSION = 1;
 const CURRENT_PAYLOAD_VERSION = 1;
 
+// Durable wake-store rows are an ADR 0010 privacy boundary: wake intents,
+// checkpoint readiness, and waiter rows must carry only identifiers, context,
+// cursors/positions, versions, and correlation metadata. The relay guards its
+// own metadata before enqueueing, but `api-wait`, `reconciliation`, and
+// `operator` origins reach this store directly, so the store enforces the
+// denylist for every writer (issue #1235). Keys are normalized from camelCase
+// to snake_case before matching, so composed keys such as `paymentIntentId`
+// or `guestEmailAddress` are caught too — this is a strict superset of the
+// emission-side denylists (`SENSITIVE_RELAY_METADATA_KEY_PATTERN` in
+// projection-wake-relay.ts, `SENSITIVE_WAKE_NOTIFICATION_KEY_PATTERN` in
+// event-core-postgres) for every key those writers send today.
+const SENSITIVE_WORK_SIGNAL_METADATA_KEY_PATTERN =
+  /(^|_)(email|guest_email|payment|card|pan|cvc|cvv|password|secret|private_payload|provider_payload|event_payload|raw_payload|payload_json|phone|address|tenant_id|user_id|account_id|stream_id|session_id)(_|$)/;
+const REDACTED_WORK_SIGNAL_VALUE = "[redacted]";
+
+function isSensitiveWorkSignalMetadataKey(key: string): boolean {
+  const normalized = key
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/[^a-zA-Z0-9]+/g, "_")
+    .toLowerCase();
+  return SENSITIVE_WORK_SIGNAL_METADATA_KEY_PATTERN.test(normalized);
+}
+
+export function assertSafeWorkSignalStoreMetadata(value: unknown, path: readonly string[] = ["metadata"]): void {
+  if (value === undefined || value === null) {
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) => assertSafeWorkSignalStoreMetadata(entry, [...path, String(index)]));
+    return;
+  }
+
+  if (!isJsonRecord(value)) {
+    return;
+  }
+
+  for (const [key, nested] of Object.entries(value)) {
+    const nextPath = [...path, key];
+    if (isSensitiveWorkSignalMetadataKey(key)) {
+      throw new Error(`Work signal store metadata key '${nextPath.join(".")}' is not allowed.`);
+    }
+    assertSafeWorkSignalStoreMetadata(nested, nextPath);
+  }
+}
+
+/**
+ * Failure recording must never throw on unsafe error fields (it runs inside
+ * failure paths that are already unwinding), so offending keys are redacted
+ * instead of rejected.
+ */
+export function redactSensitiveWorkSignalErrorFields(value: JsonRecord | null | undefined): JsonRecord {
+  if (!value) {
+    return {};
+  }
+
+  return redactRecord(value);
+}
+
+function redactRecord(record: JsonRecord): JsonRecord {
+  return Object.fromEntries(
+    Object.entries(record).map(([key, nested]) => [
+      key,
+      isSensitiveWorkSignalMetadataKey(key) ? REDACTED_WORK_SIGNAL_VALUE : redactValue(nested),
+    ]),
+  );
+}
+
+function redactValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(redactValue);
+  }
+
+  if (isJsonRecord(value)) {
+    return redactRecord(value);
+  }
+
+  return value;
+}
+
 const WAKE_INTENT_COLUMNS = `
   wake_intent_id,
   coalescing_key,
@@ -350,6 +430,7 @@ export function createPostgresWorkSignalStore(
 
   return {
     async enqueueProjectionWakeIntent(input) {
+      assertSafeWorkSignalStoreMetadata(input.metadata);
       const createdAt = now();
       const expiresAt = input.expiresAt ?? addMs(createdAt, defaultWakeTtlMs);
       const nextEligibleAt = input.nextEligibleAt ?? createdAt;
@@ -595,7 +676,7 @@ export function createPostgresWorkSignalStore(
           input.claimOwnerId,
           toPostgresInteger(input.claimFencingToken),
           formatTimestamp(retryAt),
-          JSON.stringify(input.error ?? {}),
+          JSON.stringify(redactSensitiveWorkSignalErrorFields(input.error)),
         ],
       );
 
@@ -603,6 +684,7 @@ export function createPostgresWorkSignalStore(
     },
 
     async recordCheckpointReady(input) {
+      assertSafeWorkSignalStoreMetadata(input.metadata);
       const recordedAt = now();
       const expiresAt = input.expiresAt ?? addMs(recordedAt, defaultReadinessTtlMs);
       const readyPosition = toPostgresInteger(input.readyPosition);
@@ -718,6 +800,7 @@ export function createPostgresWorkSignalStore(
     },
 
     async addCheckpointWaiter(input) {
+      assertSafeWorkSignalStoreMetadata(input.metadata);
       const createdAt = now();
       const expiresAt = input.expiresAt ?? addMs(createdAt, defaultWaiterTtlMs);
       const waiterId = input.waiterId ?? `projection-checkpoint-waiter-${randomUUID()}`;

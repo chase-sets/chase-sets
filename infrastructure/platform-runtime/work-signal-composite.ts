@@ -119,8 +119,11 @@ type PostgresNotificationClient = PgPoolClient &
   }>;
 
 const POSTGRES_CHANNEL_PATTERN = /^[A-Za-z_][A-Za-z0-9_]{0,62}$/;
+// Aligned with the event-store and relay wake denylists (issue #1235): work
+// signals are wake hints, so they must carry only opaque work identifiers,
+// versions, and correlation metadata — never row-level identity keys.
 const SENSITIVE_PAYLOAD_KEY_PATTERN =
-  /(^|_|\b)(email|guestEmail|payment|card|pan|cvc|cvv|password|secret|privatePayload|providerPayload|eventPayload|rawPayload|payloadJson|phone|address)(_|$|\b)/i;
+  /(^|_|\b)(email|guestEmail|payment|card|pan|cvc|cvv|password|secret|privatePayload|providerPayload|eventPayload|rawPayload|payloadJson|phone|address|tenantId|userId|accountId|streamId|sessionId)(_|$|\b)/i;
 const DEFAULT_WAIT_TIMEOUT_MS = 500;
 
 export function createWorkSignalEnvelope<TPayload extends WorkSignalPayload>(
