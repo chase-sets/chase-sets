@@ -256,6 +256,7 @@ export type CatalogPrimaryWorkbenchActionContract = Readonly<{
 export type CatalogPrimaryWorkbenchDownstreamIssueKey =
   | "#1033"
   | "#1034"
+  | "#1035"
   | "#1056"
   | "#1038"
   | "#1039"
@@ -565,6 +566,69 @@ export type CatalogPrimaryWorkbenchProfileSectionField = Readonly<{
   options: readonly Readonly<{ value: string; label: string }>[];
 }>;
 
+export type CatalogPrimaryWorkbenchProfileOptionQueryDetail = Readonly<{
+  queryKind: string;
+  aliases: readonly string[];
+  displayName: string;
+  scope: string;
+  parentScope: string | null;
+  parentRequired: boolean;
+  parentValueKind: string | null;
+  parentDiagnosticText: string | null;
+  operation: string;
+  outputMappings: readonly Readonly<{
+    key: string;
+    label: string;
+    path: string;
+  }>[];
+  cacheState: Readonly<{
+    status: "ready" | "degraded" | "blocked" | "unknown";
+    label: string;
+    description: string;
+    diagnosticCodes: readonly string[];
+    freshTtlMinutes: number;
+    staleTtlHours: number;
+    cacheOnly: boolean;
+  }>;
+}>;
+
+export type CatalogPrimaryWorkbenchProfileImportScopeControl = Readonly<{
+  scope: string;
+  label: string;
+  state: "selected" | "available" | "unavailable";
+  reason: string | null;
+  href: string | null;
+  importScope: string | null;
+  expectedObservationCount: number;
+  observedCount: number;
+  changedCount: number;
+  promotedCount: number;
+  rejectedCount: number;
+}>;
+
+export type CatalogPrimaryWorkbenchProfileMappingRow = Readonly<{
+  key: string;
+  label: string;
+  path: string;
+  summary: string;
+  owner: string | null;
+  redaction: string | null;
+  uses: readonly string[];
+  diagnostics: readonly Readonly<{
+    path: string;
+    diagnosticText: string;
+    severity: "error" | "warning";
+  }>[];
+  previewAvailable: boolean;
+  affordances: Readonly<{
+    duplicate: boolean;
+    reorder: boolean;
+    remove: boolean;
+    inlineDiagnostics: boolean;
+    longPathSafe: boolean;
+  }>;
+}>;
+
 export type CatalogPrimaryWorkbenchProfileSectionWorkspace = Readonly<{
   sectionKey: CatalogProviderProfileEditableSectionKey;
   displayName: string;
@@ -582,6 +646,9 @@ export type CatalogPrimaryWorkbenchProfileSectionWorkspace = Readonly<{
   submitHref: string;
   commandKey: Extract<CatalogPrimaryWorkbenchCommandKey, "update-provider-profile-section">;
   fields: readonly CatalogPrimaryWorkbenchProfileSectionField[];
+  optionQueries: readonly CatalogPrimaryWorkbenchProfileOptionQueryDetail[];
+  importScopeControls: readonly CatalogPrimaryWorkbenchProfileImportScopeControl[];
+  mappingRows: readonly CatalogPrimaryWorkbenchProfileMappingRow[];
   diagnostics: readonly Readonly<{
     path: string;
     diagnosticText: string;
@@ -1221,6 +1288,15 @@ export const catalogPrimaryWorkbenchDownstreamContracts = [
     ],
   ),
   downstream(
+    "#1035",
+    ["supporting-evidence"],
+    [
+      "profileAuthoring.sectionWorkspaces.optionQueries",
+      "profileAuthoring.sectionWorkspaces.importScopeControls",
+      "profileAuthoring.sectionWorkspaces.mappingRows",
+    ],
+  ),
+  downstream(
     "#1056",
     [
       "provider-scope-selection",
@@ -1609,6 +1685,56 @@ function assertPrimaryWorkbenchProfileAuthoring(
     }
     if (workspace.fields.some((field) => /json/i.test(`${field.key} ${field.label} ${field.helpText ?? ""}`))) {
       throw new Error(`Primary workbench profile section ${workspace.sectionKey} must not expose raw JSON controls.`);
+    }
+    if (!Array.isArray(workspace.optionQueries)) {
+      throw new Error(`Primary workbench profile section ${workspace.sectionKey} option-query details are required.`);
+    }
+    if (!Array.isArray(workspace.importScopeControls)) {
+      throw new Error(`Primary workbench profile section ${workspace.sectionKey} import-scope controls are required.`);
+    }
+    if (!Array.isArray(workspace.mappingRows)) {
+      throw new Error(`Primary workbench profile section ${workspace.sectionKey} mapping rows are required.`);
+    }
+    for (const optionQuery of workspace.optionQueries) {
+      if (!optionQuery.queryKind || !optionQuery.displayName || !optionQuery.scope || !optionQuery.operation) {
+        throw new Error(
+          `Primary workbench profile section ${workspace.sectionKey} option queries must expose canonical query metadata.`,
+        );
+      }
+      if (optionQuery.outputMappings.length === 0) {
+        throw new Error(
+          `Primary workbench profile section ${workspace.sectionKey} option queries must expose output mappings.`,
+        );
+      }
+      if (!optionQuery.cacheState.label || !optionQuery.cacheState.description) {
+        throw new Error(
+          `Primary workbench profile section ${workspace.sectionKey} option-query cache state must be explainable.`,
+        );
+      }
+    }
+    for (const importScope of workspace.importScopeControls) {
+      if (!importScope.scope || !importScope.label) {
+        throw new Error(
+          `Primary workbench profile section ${workspace.sectionKey} import-scope controls must name the scope.`,
+        );
+      }
+      if (importScope.state === "unavailable" && !importScope.reason) {
+        throw new Error(
+          `Primary workbench profile section ${workspace.sectionKey} unavailable import scopes need a reason.`,
+        );
+      }
+    }
+    for (const mappingRow of workspace.mappingRows) {
+      if (!mappingRow.key || !mappingRow.label || !mappingRow.path || !mappingRow.summary) {
+        throw new Error(
+          `Primary workbench profile section ${workspace.sectionKey} mapping rows must expose row metadata.`,
+        );
+      }
+      if (!mappingRow.affordances.inlineDiagnostics || !mappingRow.affordances.longPathSafe) {
+        throw new Error(
+          `Primary workbench profile section ${workspace.sectionKey} mapping rows must support diagnostics and long paths.`,
+        );
+      }
     }
     assertCatalogPrimaryWorkbenchActionState(workspace.actionState);
     assertPrimaryWorkbenchBlockers(workspace.blockers);

@@ -821,6 +821,47 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sections.save": "Save section",
   "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sections.diagnostics": "Section diagnostics",
   "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sections.title": "Guided section workspaces",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.action.selected": "Selected",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.action.unavailable": "Unavailable",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.action.useScope": "Use scope",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.affordance.duplicate": "Duplicate",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.affordance.inlineDiagnostics":
+    "Inline diagnostics",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.affordance.longPaths": "Long paths",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.affordance.preview": "Preview",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.affordance.remove": "Remove",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.affordance.reorder": "Reorder",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.cacheOnly": "Cache only",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.importScopes.description":
+    "Selectable provider pull scopes generated from the profile and current Source Observation scope rows.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.importScopes.title":
+    "Import-scope controls",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.mappingRows.description":
+    "Executable mapping rows projected from the provider profile.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.mappingRows.title":
+    "Mapping expression rows",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.optionQueries.description":
+    "Profile-authored selectors used before provider pulls.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.optionQueries.title":
+    "Provider option queries",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.cache": "Cache",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.editorMetadata":
+    "Editor metadata",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.importScope": "Import scope",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.mapping": "Mapping",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.operation": "Operation",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.output": "Output",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.ownership": "Ownership",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.query": "Query",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.scope": "Scope",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.state": "State",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.summary": "Summary",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.volume": "Volume",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.volume.changed": "{count} changed",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.volume.expected": "{count} expected",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.volume.observed": "{count} observed",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.volume.promoted": "{count} promoted",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.volume.rejected": "{count} rejected",
   "catalog.features.sourceObservations.ui.primaryWorkbench.profile.table.lifecycle": "Lifecycle",
   "catalog.features.sourceObservations.ui.primaryWorkbench.profile.table.profile": "Profile",
   "catalog.features.sourceObservations.ui.primaryWorkbench.profile.table.status": "Status",

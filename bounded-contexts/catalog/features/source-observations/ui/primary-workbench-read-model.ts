@@ -43,10 +43,15 @@ export type CatalogPrimaryWorkbenchInput = Readonly<{
 
 type CatalogIntegrationRecentJobReadModel =
   CatalogIntegrationControlPlaneOverview["unitActivity"]["units"][number]["recentJobs"][number];
-type ProfileSectionField =
-  CatalogPrimaryWorkbenchReadModel["profileAuthoring"]["sectionWorkspaces"][number]["fields"][number];
+type ProfileSectionWorkspace = CatalogPrimaryWorkbenchReadModel["profileAuthoring"]["sectionWorkspaces"][number];
+type ProfileSectionField = ProfileSectionWorkspace["fields"][number];
+type ProfileOptionQueryDetail = ProfileSectionWorkspace["optionQueries"][number];
+type ProfileImportScopeControl = ProfileSectionWorkspace["importScopeControls"][number];
+type ProfileMappingRow = ProfileSectionWorkspace["mappingRows"][number];
 
 const defaultReviewPageSize = 25;
+const providerOptionQueryFreshTtlMinutes = 15;
+const providerOptionQueryStaleTtlHours = 24;
 
 export function buildCatalogPrimaryWorkbenchReadModel(
   input: CatalogPrimaryWorkbenchInput,
@@ -97,6 +102,7 @@ export function buildCatalogPrimaryWorkbenchReadModel(
     activeJobCount,
     activeProfile,
     canManage,
+    controlPlaneOverview: input.controlPlaneOverview,
     generatedAt,
     profiles: input.profileReviews.items,
     providerKey,
@@ -104,6 +110,7 @@ export function buildCatalogPrimaryWorkbenchReadModel(
     requestUrl: input.requestUrl,
     routeContext,
     selectedProfile,
+    scopes: input.scopes.items,
   });
   const sourceObservationReview = sourceObservationReviewFor({
     canManage,
@@ -300,6 +307,7 @@ function profileAuthoringFor(input: {
   activeJobCount: number;
   activeProfile: CatalogProviderProfileVersionReview | null;
   canManage: boolean;
+  controlPlaneOverview: CatalogIntegrationControlPlaneOverview | null;
   generatedAt: string;
   profiles: readonly CatalogProviderProfileVersionReview[];
   providerKey: string | null;
@@ -307,6 +315,7 @@ function profileAuthoringFor(input: {
   requestUrl: string | URL;
   routeContext: CatalogPrimaryWorkbenchRouteContext;
   selectedProfile: CatalogProviderProfileVersionReview | null;
+  scopes: readonly SourceObservationIntegrationScope[];
 }): CatalogPrimaryWorkbenchReadModel["profileAuthoring"] {
   const status =
     input.requestedProfileVersion && !input.selectedProfile
@@ -336,6 +345,8 @@ function profileAuthoringFor(input: {
         routeContext: input.routeContext,
         status,
         profile: input.selectedProfile,
+        controlPlaneOverview: input.controlPlaneOverview,
+        scopes: input.scopes,
         submitHref,
       })
     : [];
@@ -407,10 +418,12 @@ function profileSectionGroups(): CatalogPrimaryWorkbenchReadModel["profileAuthor
 function profileSectionWorkspacesFor(input: {
   activeJobCount: number;
   canManage: boolean;
+  controlPlaneOverview: CatalogIntegrationControlPlaneOverview | null;
   requestUrl: string | URL;
   routeContext: CatalogPrimaryWorkbenchRouteContext;
   status: CatalogPrimaryWorkbenchReadModel["profileAuthoring"]["status"];
   profile: CatalogProviderProfileVersionReview;
+  scopes: readonly SourceObservationIntegrationScope[];
   submitHref: string;
 }): CatalogPrimaryWorkbenchReadModel["profileAuthoring"]["sectionWorkspaces"] {
   const groups = profileSectionGroups();
@@ -449,6 +462,14 @@ function profileSectionWorkspacesFor(input: {
       submitHref: input.submitHref,
       commandKey: "update-provider-profile-section",
       fields: profileSectionFields(input.profile, metadata.section, disabled),
+      optionQueries: profileSectionOptionQueries(input.profile, metadata.section, input.controlPlaneOverview),
+      importScopeControls: profileSectionImportScopeControls({
+        profile: input.profile,
+        routeContext: input.routeContext,
+        scopes: input.scopes,
+        section: metadata.section,
+      }),
+      mappingRows: profileSectionMappingRows(input.profile, metadata.section, diagnostics),
       diagnostics,
       semanticChangeCount: sectionChangeCount(input.profile, metadata.section),
       readinessCheckCount: diagnostics.length,
@@ -812,6 +833,584 @@ function profileSectionFields(
         ),
         field("migrationRecordedAt", "Recorded at", profile.migrationEvidence?.recordedAt ?? "", "text", disabled),
       ];
+  }
+}
+
+function profileSectionOptionQueries(
+  profile: CatalogProviderProfileVersionReview,
+  section: CatalogProviderProfileEditableSectionKey,
+  overview: CatalogIntegrationControlPlaneOverview | null,
+): readonly ProfileOptionQueryDetail[] {
+  if (section !== "provider-options") {
+    return [];
+  }
+
+  const profileRecord = recordValue(profile.profile);
+  const cacheState = optionQueryCacheState(profile, overview);
+
+  return arrayValue(profileRecord?.optionQueries)
+    .map((value): ProfileOptionQueryDetail | null => {
+      const record = recordValue(value);
+      const output = recordValue(record?.output);
+      const queryKind = stringValue(record?.queryKind);
+      const displayName = stringValue(record?.displayName);
+      const scope = stringValue(record?.scope);
+      const operation = stringValue(record?.operation);
+      if (!record || !queryKind || !displayName || !scope || !operation || !output) {
+        return null;
+      }
+      const parentValue = recordValue(record.parentValue);
+
+      return {
+        queryKind,
+        aliases: stringArrayValue(record.aliases),
+        displayName,
+        scope,
+        parentScope: stringValue(record.parentScope),
+        parentRequired: booleanValue(parentValue?.required) ?? false,
+        parentValueKind: stringValue(parentValue?.valueKind),
+        parentDiagnosticText: stringValue(parentValue?.diagnosticText),
+        operation,
+        outputMappings: optionQueryOutputMappings(output),
+        cacheState,
+      };
+    })
+    .filter((query): query is ProfileOptionQueryDetail => query !== null);
+}
+
+function optionQueryOutputMappings(output: Record<string, unknown>): ProfileOptionQueryDetail["outputMappings"] {
+  const mappings: ProfileOptionQueryDetail["outputMappings"][number][] = [];
+  addOutputMapping(mappings, "value", "Value", stringValue(output.valuePath));
+  addOutputMapping(mappings, "label", "Label", stringValue(output.labelPath));
+  const descriptionPath = optionQueryDescriptionSummary(output.description);
+  addOutputMapping(mappings, "description", "Description", descriptionPath);
+  addOutputMapping(mappings, "parent", "Parent value", stringValue(output.parentValuePath));
+  addOutputMapping(mappings, "image", "Image", stringValue(output.imageUrlPath));
+  for (const [index, path] of stringArrayValue(output.imageUrlCoalescePaths).entries()) {
+    addOutputMapping(mappings, `image-coalesce-${index + 1}`, `Image fallback ${index + 1}`, path);
+  }
+  for (const [key, path] of Object.entries(recordValue(output.metadataPaths) ?? {}).sort(([left], [right]) =>
+    left.localeCompare(right),
+  )) {
+    addOutputMapping(mappings, `metadata-${key}`, `Metadata: ${key}`, stringValue(path));
+  }
+
+  return mappings;
+}
+
+function addOutputMapping(
+  mappings: ProfileOptionQueryDetail["outputMappings"][number][],
+  key: string,
+  label: string,
+  path: string | null,
+): void {
+  if (path) {
+    mappings.push({ key, label, path });
+  }
+}
+
+function optionQueryDescriptionSummary(value: unknown): string | null {
+  const description = recordValue(value);
+  const kind = stringValue(description?.kind);
+  if (!kind) {
+    return null;
+  }
+  if (kind === "path") {
+    return stringValue(description?.path);
+  }
+
+  return kind;
+}
+
+function optionQueryCacheState(
+  profile: CatalogProviderProfileVersionReview,
+  overview: CatalogIntegrationControlPlaneOverview | null,
+): ProfileOptionQueryDetail["cacheState"] {
+  const health = overview?.providerReadiness.providers.find(
+    (provider) => provider.providerKey === profile.providerKey,
+  )?.optionQueryHealth;
+  const status = health?.status ?? "unknown";
+  const diagnosticCodes = health?.diagnosticCodes ?? [];
+  const cacheOnly =
+    diagnosticCodes.some((code) => /cache-only/i.test(code)) || /cache-only/i.test(health?.message ?? "");
+  const policy = `Fresh option-query results expire after ${providerOptionQueryFreshTtlMinutes} minutes; stale fallback expires after ${providerOptionQueryStaleTtlHours} hours.`;
+
+  return {
+    status,
+    label:
+      status === "ready"
+        ? "Option queries ready"
+        : status === "degraded"
+          ? "Option queries degraded"
+          : status === "blocked"
+            ? "Option queries blocked"
+            : "Option query health unknown",
+    description: health?.message ? `${health.message} ${policy}` : policy,
+    diagnosticCodes,
+    freshTtlMinutes: providerOptionQueryFreshTtlMinutes,
+    staleTtlHours: providerOptionQueryStaleTtlHours,
+    cacheOnly,
+  };
+}
+
+function profileSectionImportScopeControls(input: {
+  profile: CatalogProviderProfileVersionReview;
+  routeContext: CatalogPrimaryWorkbenchRouteContext;
+  scopes: readonly SourceObservationIntegrationScope[];
+  section: CatalogProviderProfileEditableSectionKey;
+}): readonly ProfileImportScopeControl[] {
+  if (input.section !== "basics") {
+    return [];
+  }
+
+  const providerRows = input.scopes.filter((scope) => scope.provider_key === input.profile.providerKey);
+
+  return input.profile.supportedScopes.map((scope) => {
+    const rows = providerRows.filter((row) => scopeRowMatchesProviderScope(scope, row));
+    const selectedRows = rows.filter((row) => providerScopeImportKey(scope, row) === input.routeContext.importScope);
+    const representative = selectedRows[0] ?? rows[0] ?? null;
+    const representativeScopeKey = representative ? providerScopeImportKey(scope, representative) : null;
+    const state = selectedRows.length > 0 ? "selected" : representativeScopeKey ? "available" : "unavailable";
+
+    return {
+      scope,
+      label: providerScopeLabel(scope),
+      state,
+      reason:
+        state === "unavailable"
+          ? `No current provider scope rows expose a selectable ${providerScopeLabel(scope)} control.`
+          : null,
+      href: representativeScopeKey
+        ? catalogPrimaryWorkbenchHref(
+            {
+              ...input.routeContext,
+              providerKey: input.profile.providerKey,
+              importScope: representativeScopeKey,
+              promotionPreviewId: null,
+              sourceObservationFilters: {
+                ...input.routeContext.sourceObservationFilters,
+                providerKey: input.profile.providerKey,
+              },
+            },
+            "import-to-promotion",
+          )
+        : null,
+      importScope: representativeScopeKey,
+      expectedObservationCount: sum(rows, (row) => row.total_observations),
+      observedCount: sum(rows, (row) => row.observed_observations),
+      changedCount: sum(rows, (row) => row.changed_observations),
+      promotedCount: sum(rows, (row) => row.promoted_observations),
+      rejectedCount: sum(rows, (row) => row.rejected_observations),
+    };
+  });
+}
+
+function providerScopeImportKey(scope: string, row: SourceObservationIntegrationScope): string | null {
+  const normalizedScope = normalizeProviderScope(scope);
+  switch (normalizedScope) {
+    case "language":
+      return row.language_code || null;
+    case "series":
+      return [row.language_code, row.series_id].filter(Boolean).join(":") || null;
+    case "product-line/category":
+      return [row.language_code, row.product_line_id].filter(Boolean).join(":") || null;
+    case "expansion":
+    case "set-name":
+    case "product/card":
+      return scopeKey(row) || null;
+    default:
+      return null;
+  }
+}
+
+function scopeRowMatchesProviderScope(scope: string, row: SourceObservationIntegrationScope): boolean {
+  const normalizedScope = normalizeProviderScope(scope);
+  switch (normalizedScope) {
+    case "language":
+      return Boolean(row.language_code);
+    case "series":
+      return Boolean(row.series_id);
+    case "expansion":
+    case "set-name":
+    case "product/card":
+      return Boolean(row.expansion_id || row.expansion_name);
+    case "product-line/category":
+      return Boolean(row.product_line_id || row.product_line_name);
+    default:
+      return false;
+  }
+}
+
+function normalizeProviderScope(scope: string): string {
+  if (scope === "pokemon/card") {
+    return "product/card";
+  }
+
+  return scope;
+}
+
+function providerScopeLabel(scope: string): string {
+  return scope
+    .split("/")
+    .map((part) =>
+      part
+        .split("-")
+        .map((segment) => segment.replace(/^\w/, (char) => char.toUpperCase()))
+        .join(" "),
+    )
+    .join(" / ");
+}
+
+function profileSectionMappingRows(
+  profile: CatalogProviderProfileVersionReview,
+  section: CatalogProviderProfileEditableSectionKey,
+  diagnostics: readonly { path: string; diagnosticText: string; severity: "error" | "warning" }[],
+): readonly ProfileMappingRow[] {
+  const profileRecord = recordValue(profile.profile);
+  const contractRecord = recordValue(profile.executableMappingContract);
+  const rows: ProfileMappingRow[] = [];
+
+  switch (section) {
+    case "catalog-field-mapping": {
+      const catalogFieldMapping = recordValue(profileRecord?.catalogFieldMapping);
+      const fieldKeys = recordValue(catalogFieldMapping?.fieldKeys);
+      addMappingRecordRow(
+        rows,
+        "catalog-field-mapping.blueprint",
+        "Blueprint key",
+        "profile.catalogFieldMapping.blueprintKey",
+        catalogFieldMapping?.blueprintKey,
+        diagnostics,
+      );
+      addMappingRecordRow(
+        rows,
+        "catalog-field-mapping.category",
+        "Category key",
+        "profile.catalogFieldMapping.categoryKey",
+        catalogFieldMapping?.categoryKey,
+        diagnostics,
+      );
+      for (const [fieldKey, expression] of Object.entries(fieldKeys ?? {}).sort(([left], [right]) =>
+        left.localeCompare(right),
+      )) {
+        addMappingExpressionRow(
+          rows,
+          `catalog-field-mapping.field.${fieldKey}`,
+          `Catalog field: ${fieldKey}`,
+          `profile.catalogFieldMapping.fieldKeys.${fieldKey}`,
+          expression,
+          diagnostics,
+        );
+      }
+      break;
+    }
+    case "source-observation": {
+      const sourceObservation = recordValue(contractRecord?.sourceObservation);
+      for (const key of ["observationId", "externalKey", "sourceUrl", "sourceUpdatedAt", "sourcePayload"]) {
+        addMappingExpressionRow(
+          rows,
+          `source-observation.${key}`,
+          sourceObservationLabel(key),
+          `executableMappingContract.sourceObservation.${key}`,
+          sourceObservation?.[key],
+          diagnostics,
+        );
+      }
+      break;
+    }
+    case "normalized-observation": {
+      const normalizedObservation = recordValue(contractRecord?.normalizedObservation);
+      addMappingExpressionRow(
+        rows,
+        "normalized-observation.languageCode",
+        "Language code",
+        "executableMappingContract.normalizedObservation.languageCode",
+        normalizedObservation?.languageCode,
+        diagnostics,
+      );
+      for (const [fieldKey, expression] of Object.entries(recordValue(normalizedObservation?.fields) ?? {}).sort(
+        ([left], [right]) => left.localeCompare(right),
+      )) {
+        addMappingExpressionRow(
+          rows,
+          `normalized-observation.field.${fieldKey}`,
+          `Normalized field: ${fieldKey}`,
+          `executableMappingContract.normalizedObservation.fields.${fieldKey}`,
+          expression,
+          diagnostics,
+        );
+      }
+      for (const [index, expression] of arrayValue(normalizedObservation?.hashMaterial).entries()) {
+        addMappingExpressionRow(
+          rows,
+          `normalized-observation.hashMaterial.${index}`,
+          `Hash material ${index + 1}`,
+          `executableMappingContract.normalizedObservation.hashMaterial.${index}`,
+          expression,
+          diagnostics,
+          true,
+        );
+      }
+      for (const [index, expression] of arrayValue(normalizedObservation?.mergeIdentity).entries()) {
+        addMappingExpressionRow(
+          rows,
+          `normalized-observation.mergeIdentity.${index}`,
+          `Merge identity ${index + 1}`,
+          `executableMappingContract.normalizedObservation.mergeIdentity.${index}`,
+          expression,
+          diagnostics,
+          true,
+        );
+      }
+      break;
+    }
+    case "external-references": {
+      for (const [index, reference] of arrayValue(contractRecord?.externalReferences).entries()) {
+        const record = recordValue(reference);
+        addMappingExpressionRow(
+          rows,
+          `external-references.${index}.source`,
+          `${stringValue(record?.providerKey) ?? "External"} ${stringValue(record?.target) ?? "reference"}`,
+          `executableMappingContract.externalReferences.${index}.source`,
+          record?.source,
+          diagnostics,
+          true,
+        );
+      }
+      break;
+    }
+    case "selected-options": {
+      for (const [referenceIndex, reference] of arrayValue(contractRecord?.externalReferences).entries()) {
+        const selectedOptions = recordValue(recordValue(reference)?.selectedOptions);
+        for (const [dimensionIndex, dimension] of arrayValue(selectedOptions?.dimensions).entries()) {
+          const record = recordValue(dimension);
+          addMappingExpressionRow(
+            rows,
+            `selected-options.${referenceIndex}.${dimensionIndex}`,
+            `Selected option: ${stringValue(record?.dimensionKey) ?? `dimension ${dimensionIndex + 1}`}`,
+            `executableMappingContract.externalReferences.${referenceIndex}.selectedOptions.dimensions.${dimensionIndex}.providerValue`,
+            record?.providerValue,
+            diagnostics,
+            true,
+          );
+        }
+      }
+      const selectedOptionMapping = recordValue(profileRecord?.selectedOptionMapping);
+      for (const [index, dimension] of arrayValue(selectedOptionMapping?.dimensions).entries()) {
+        const record = recordValue(dimension);
+        addMappingRecordRow(
+          rows,
+          `selected-option-mapping.${index}`,
+          `Option dimension: ${stringValue(record?.dimensionKey) ?? index + 1}`,
+          `profile.selectedOptionMapping.dimensions.${index}`,
+          record?.sourcePath ?? record?.providerValuePath ?? record?.optionLookupTableKey,
+          diagnostics,
+          true,
+        );
+      }
+      break;
+    }
+    case "reference-hierarchy": {
+      for (const [index, hierarchy] of arrayValue(contractRecord?.referenceHierarchy).entries()) {
+        addReferenceHierarchyRows(
+          rows,
+          hierarchy,
+          `executableMappingContract.referenceHierarchy.${index}`,
+          diagnostics,
+        );
+      }
+      break;
+    }
+    case "duplicate-prevention": {
+      const duplicatePrevention = recordValue(contractRecord?.duplicatePrevention);
+      for (const [index, expression] of arrayValue(duplicatePrevention?.mergeCandidateEvidence).entries()) {
+        addMappingExpressionRow(
+          rows,
+          `duplicate-prevention.mergeCandidateEvidence.${index}`,
+          `Merge evidence ${index + 1}`,
+          `executableMappingContract.duplicatePrevention.mergeCandidateEvidence.${index}`,
+          expression,
+          diagnostics,
+          true,
+        );
+      }
+      for (const [ruleIndex, rule] of arrayValue(duplicatePrevention?.identityRules).entries()) {
+        const record = recordValue(rule);
+        for (const [evidenceIndex, expression] of arrayValue(record?.evidence).entries()) {
+          addMappingExpressionRow(
+            rows,
+            `duplicate-prevention.identityRules.${ruleIndex}.${evidenceIndex}`,
+            `${stringValue(record?.ruleKey) ?? `Rule ${ruleIndex + 1}`} evidence ${evidenceIndex + 1}`,
+            `executableMappingContract.duplicatePrevention.identityRules.${ruleIndex}.evidence.${evidenceIndex}`,
+            expression,
+            diagnostics,
+            true,
+          );
+        }
+      }
+      for (const [index, rule] of arrayValue(recordValue(profileRecord?.duplicatePreventionMapping)?.rules).entries()) {
+        const record = recordValue(rule);
+        addMappingRecordRow(
+          rows,
+          `duplicate-prevention.mapping.${index}`,
+          `Duplicate rule: ${stringValue(record?.ruleKey) ?? index + 1}`,
+          `profile.duplicatePreventionMapping.rules.${index}`,
+          record?.sourcePath ?? record?.matchKind,
+          diagnostics,
+          true,
+        );
+      }
+      break;
+    }
+    case "promotion-plan": {
+      const promotionCommandPlan = recordValue(contractRecord?.promotionCommandPlan);
+      for (const [commandIndex, command] of arrayValue(promotionCommandPlan?.commands).entries()) {
+        const commandRecord = recordValue(command);
+        for (const [inputKey, expression] of Object.entries(recordValue(commandRecord?.inputs) ?? {}).sort(
+          ([left], [right]) => left.localeCompare(right),
+        )) {
+          addMappingExpressionRow(
+            rows,
+            `promotion-plan.${commandIndex}.${inputKey}`,
+            `${stringValue(commandRecord?.commandName) ?? `Command ${commandIndex + 1}`}: ${inputKey}`,
+            `executableMappingContract.promotionCommandPlan.commands.${commandIndex}.inputs.${inputKey}`,
+            expression,
+            diagnostics,
+            true,
+          );
+        }
+      }
+      break;
+    }
+    default:
+      break;
+  }
+
+  return rows;
+}
+
+function addReferenceHierarchyRows(
+  rows: ProfileMappingRow[],
+  value: unknown,
+  path: string,
+  diagnostics: readonly { path: string; diagnosticText: string; severity: "error" | "warning" }[],
+): void {
+  const record = recordValue(value);
+  if (!record) {
+    return;
+  }
+  addMappingExpressionRow(
+    rows,
+    `reference-hierarchy.${path}.key`,
+    `Reference hierarchy: ${stringValue(record.targetTypeKey) ?? "record"}`,
+    `${path}.referenceRecordKey`,
+    record.referenceRecordKey,
+    diagnostics,
+    true,
+  );
+  if (record.parent) {
+    addReferenceHierarchyRows(rows, record.parent, `${path}.parent`, diagnostics);
+  }
+}
+
+function addMappingExpressionRow(
+  rows: ProfileMappingRow[],
+  key: string,
+  label: string,
+  path: string,
+  value: unknown,
+  diagnostics: readonly { path: string; diagnosticText: string; severity: "error" | "warning" }[],
+  listAffordances = false,
+): void {
+  const expression = recordValue(value);
+  if (!expression) {
+    return;
+  }
+
+  rows.push({
+    key,
+    label,
+    path,
+    summary: compactMappingSummary(expressionSummary(expression)),
+    owner: stringValue(expression.owner),
+    redaction: stringValue(expression.redaction),
+    uses: stringArrayValue(expression.uses),
+    diagnostics: diagnosticsForPath(diagnostics, path),
+    previewAvailable: Boolean(recordValue(expression.selector)),
+    affordances: {
+      duplicate: listAffordances,
+      reorder: listAffordances,
+      remove: listAffordances,
+      inlineDiagnostics: true,
+      longPathSafe: true,
+    },
+  });
+}
+
+function addMappingRecordRow(
+  rows: ProfileMappingRow[],
+  key: string,
+  label: string,
+  path: string,
+  value: unknown,
+  diagnostics: readonly { path: string; diagnosticText: string; severity: "error" | "warning" }[],
+  listAffordances = false,
+): void {
+  const summary = value === undefined || value === null ? "" : typeof value === "string" ? value : String(value);
+  if (!summary) {
+    return;
+  }
+
+  rows.push({
+    key,
+    label,
+    path,
+    summary: compactMappingSummary(summary),
+    owner: null,
+    redaction: null,
+    uses: [],
+    diagnostics: diagnosticsForPath(diagnostics, path),
+    previewAvailable: false,
+    affordances: {
+      duplicate: listAffordances,
+      reorder: listAffordances,
+      remove: listAffordances,
+      inlineDiagnostics: true,
+      longPathSafe: true,
+    },
+  });
+}
+
+function diagnosticsForPath(
+  diagnostics: readonly { path: string; diagnosticText: string; severity: "error" | "warning" }[],
+  path: string,
+): ProfileMappingRow["diagnostics"] {
+  return diagnostics.filter((diagnostic) => diagnostic.path === path || diagnostic.path.startsWith(`${path}.`));
+}
+
+function compactMappingSummary(summary: string): string {
+  const trimmed = summary.trim() || "Configured mapping expression";
+  if (trimmed.length <= 120) {
+    return trimmed;
+  }
+
+  return `${trimmed.slice(0, 72)}...${trimmed.slice(-36)}`;
+}
+
+function sourceObservationLabel(key: string): string {
+  switch (key) {
+    case "observationId":
+      return "Observation id";
+    case "externalKey":
+      return "External key";
+    case "sourceUrl":
+      return "Source URL";
+    case "sourceUpdatedAt":
+      return "Source updated";
+    case "sourcePayload":
+      return "Source payload";
+    default:
+      return key;
   }
 }
 
@@ -2565,12 +3164,7 @@ function rowActionsFor(
 function hasOriginalSourceProfileEvidence(observation: SourceObservationListItem): boolean {
   const sourceProfileKey = observation.source_profile_key.trim();
   const sourceProfileVersion = observation.source_profile_version.trim();
-  return (
-    sourceProfileKey.length > 0 &&
-    sourceProfileVersion.length > 0 &&
-    sourceProfileKey.toLowerCase() !== "legacy" &&
-    sourceProfileVersion.toLowerCase() !== "legacy"
-  );
+  return sourceProfileKey.length > 0 && sourceProfileVersion.length > 0;
 }
 
 function auditTrailFor(observation: SourceObservationListItem): readonly string[] {
