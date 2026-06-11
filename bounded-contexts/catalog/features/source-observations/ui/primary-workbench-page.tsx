@@ -83,6 +83,7 @@ export type CatalogPrimaryWorkbenchCommandFeedback = Readonly<{
     | "job-cancelled"
     | "preview-ready"
     | "draft-created"
+    | "profile-activated"
     | "section-saved"
     | "section-conflict"
     | "section-invalid"
@@ -1932,6 +1933,9 @@ function commandSuccessTitle(result: CatalogPrimaryWorkbenchCommandFeedback["res
   if (result === "draft-created") {
     return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.draft.title");
   }
+  if (result === "profile-activated") {
+    return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.activation.title");
+  }
   if (result === "section-saved") {
     return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.section.title");
   }
@@ -1949,6 +1953,9 @@ function commandFeedbackDescription(feedback: CatalogPrimaryWorkbenchCommandFeed
     }
     if (feedback.result === "draft-created") {
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.draft.description");
+    }
+    if (feedback.result === "profile-activated") {
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.activation.description");
     }
     if (feedback.result === "section-saved") {
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.section.description");

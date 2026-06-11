@@ -300,6 +300,10 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.draft.description":
     "The new draft profile is selected. Review lifecycle restrictions and validation evidence before activation.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.draft.title": "Draft profile created",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.activation.description":
+    "The provider profile is active. Review audit evidence before pulling provider data with the new behavior.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.activation.title":
+    "Provider profile activated",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.failed":
     "The command did not complete. Review the named blockers, then retry from this workbench.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.invalid.intent":
@@ -360,6 +364,8 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.context.scope": "Scope: {value}",
   "catalog.features.sourceObservations.ui.primaryWorkbench.context.unit": "Unit: {value}",
   "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.active.profile.missing": "Active profile missing",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.activation.readiness.blocked":
+    "Activation readiness blocked",
   "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.authorization.denied": "Authorization denied",
   "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.blocked": "Blocked",
   "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.catalog.api.unavailable":
@@ -387,6 +393,8 @@ export const catalogEnglishTranslations = {
     "Import context is incomplete",
   "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.job.not.found": "Job not found",
   "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.kill.switch.active": "Kill switch active",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.migration.evidence.missing":
+    "Migration evidence missing",
   "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.needs.input": "Needs input",
   "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.no.audit.evidence.for.this.context":
     "No audit evidence for this context",
@@ -418,6 +426,8 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.profile.section.stale": "Section changed",
   "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.profile.version.missing":
     "Profile version missing",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.reference.impact.review.required":
+    "Reference impact review required",
   "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.promotion.conflict": "Promotion conflict",
   "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.promotion.preview.is.stale":
     "Promotion preview is stale",
@@ -816,6 +826,59 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activation.description":
     "Blocking checks grouped by domain concept with exact remediation.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activation.title": "Activation readiness",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.activate": "Activate profile",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.auditLink":
+    "Open audit evidence",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.banner.blocked.description":
+    "Resolve readiness, migration evidence, reference impact, permission, or active-job blockers before activation.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.banner.blocked.title":
+    "Activation decision is blocked",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.banner.ready.description":
+    "Readiness, migration evidence, affected references, and permissions are aligned for activation.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.banner.ready.title":
+    "Activation decision is ready",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.banner.unavailable.description":
+    "Select a provider profile before activation evidence can be reviewed.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.banner.unavailable.title":
+    "Activation decision needs a profile",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.blockers":
+    "Activation blockers",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.description":
+    "Decide whether this profile can be activated with affected references, migration evidence, replay implications, permissions, and audit consequences visible.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.evidence.help":
+    "Describe the validation evidence, reviewed mapping fingerprint change, and operator decision before activation.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.evidence.label":
+    "Migration evidence",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.evidence.save":
+    "Save migration evidence",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.fixtureRun.label":
+    "Fixture run",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.key.action": "Action state",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.key.after":
+    "Fingerprint after",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.key.audit":
+    "Audit consequence",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.key.before":
+    "Fingerprint before",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.key.events": "Audit events",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.key.migration":
+    "Migration evidence",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.key.profile": "Profile",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.key.provider": "Provider",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.metric.action": "Activation",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.metric.evidence": "Evidence",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.metric.importEligibility":
+    "Import eligibility",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.metric.migrationNotRequired":
+    "migration not required",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.metric.migrationRequired":
+    "migration required",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.metric.references":
+    "Affected references",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.noBlockers": "No blockers",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.replay.title":
+    "Replay implications",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.title": "Activation decision",
   "catalog.features.sourceObservations.ui.primaryWorkbench.validation.back": "Back to import workbench",
   "catalog.features.sourceObservations.ui.primaryWorkbench.validation.blockers.empty": "No blockers",
   "catalog.features.sourceObservations.ui.primaryWorkbench.validation.compare.cardVariantKey": "Card variant key",

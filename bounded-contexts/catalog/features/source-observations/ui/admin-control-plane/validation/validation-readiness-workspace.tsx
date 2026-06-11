@@ -3,6 +3,7 @@ import {
   Button,
   DataTable,
   EmptyState,
+  Form,
   KeyValueList,
   LinkButton,
   MetricStrip,
@@ -15,12 +16,14 @@ import {
 } from "@chase-sets/design-system";
 import { t } from "@chase-sets/localization";
 import type { CatalogPrimaryWorkbenchReadModel } from "../../../api/primary-workbench-admin-contracts";
+import { getCatalogPrimaryWorkbenchBlockerCopy } from "../../primary-workbench-copy";
 
 type ValidationReadiness = CatalogPrimaryWorkbenchReadModel["validationReadiness"];
 type FixtureFlow = ValidationReadiness["fixtureFlows"][number];
 type DryRunEvidence = ValidationReadiness["dryRunEvidence"][number];
 type SemanticSection = ValidationReadiness["semanticCompare"]["sections"][number];
 type ActivationGroup = ValidationReadiness["activationReadiness"]["groups"][number];
+type ActivationDecision = ValidationReadiness["activationDecision"];
 type EvidenceRow = DryRunEvidence["duplicateCandidates"][number];
 type BadgeTone = "success" | "warning" | "danger" | "neutral" | "info" | "accent";
 
@@ -204,7 +207,147 @@ export function CatalogIntegrationValidationReadinessWorkspace({
           ))}
         </div>
       </WorkflowModule>
+
+      <ActivationDecisionModule readModel={readModel} />
     </section>
+  );
+}
+
+function ActivationDecisionModule({ readModel }: { readModel: CatalogPrimaryWorkbenchReadModel }) {
+  const validation = readModel.validationReadiness;
+  const decision = validation.activationDecision;
+
+  return (
+    <WorkflowModule
+      title={t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.title")}
+      description={t(
+        "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.description",
+      )}
+      status={<Badge tone={decisionTone(decision.status)}>{statusLabel(decision.status)}</Badge>}
+      actions={
+        <LinkButton
+          size="sm"
+          tone="secondary"
+          leadingIcon="externalLink"
+          href={decision.auditConsequences.auditEvidenceUrl}
+        >
+          {t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.auditLink")}
+        </LinkButton>
+      }
+      density="compact"
+    >
+      <div className="grid gap-4">
+        <OperationalStatusBanner
+          tone={decision.status === "ready" ? "success" : decision.status === "blocked" ? "danger" : "warning"}
+          title={activationDecisionTitle(decision)}
+          description={activationDecisionDescription(decision)}
+        />
+        <MetricStrip
+          items={[
+            {
+              label: t(
+                "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.metric.references",
+              ),
+              value: String(decision.affectedReferences.referenceCount),
+              trend: decision.affectedReferences.requiresMigrationEvidence
+                ? t(
+                    "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.metric.migrationRequired",
+                  )
+                : t(
+                    "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.metric.migrationNotRequired",
+                  ),
+            },
+            {
+              label: t(
+                "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.metric.importEligibility",
+              ),
+              value: statusLabel(decision.importEligibility),
+              trend: statusLabel(validation.activationReadiness.status),
+            },
+            {
+              label: t(
+                "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.metric.evidence",
+              ),
+              value: statusLabel(decision.migrationEvidence.state),
+              trend: decision.migrationEvidence.recordedAt ?? readModel.generatedAt,
+            },
+            {
+              label: t(
+                "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.metric.action",
+              ),
+              value: statusLabel(decision.actionState),
+              trend: decision.lifecycle ?? t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected"),
+            },
+          ]}
+        />
+
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(20rem,26rem)]">
+          <div className="grid min-w-0 gap-4">
+            <KeyValueList
+              density="compact"
+              layout="grid"
+              items={[
+                {
+                  key: t(
+                    "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.key.provider",
+                  ),
+                  value:
+                    decision.providerKey ?? t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected"),
+                },
+                {
+                  key: t(
+                    "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.key.profile",
+                  ),
+                  value:
+                    decision.profileVersion ??
+                    t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected"),
+                },
+                {
+                  key: t(
+                    "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.key.before",
+                  ),
+                  value:
+                    decision.migrationEvidence.mappingFingerprintBefore ??
+                    t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected"),
+                },
+                {
+                  key: t(
+                    "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.key.after",
+                  ),
+                  value:
+                    decision.migrationEvidence.mappingFingerprintAfter ??
+                    t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected"),
+                },
+                {
+                  key: t(
+                    "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.key.events",
+                  ),
+                  value: decision.auditConsequences.eventNames.join(", "),
+                },
+                {
+                  key: t(
+                    "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.key.audit",
+                  ),
+                  value: decision.auditConsequences.summary,
+                },
+              ]}
+            />
+            <EvidenceList
+              title={t(
+                "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.replay.title",
+              )}
+              items={decision.affectedReferences.replayImplications}
+            />
+            <ActivationBlockerList decision={decision} />
+          </div>
+
+          <div className="grid min-w-0 gap-4">
+            <MigrationEvidenceForm readModel={readModel} decision={decision} />
+            <ActivateProfileForm readModel={readModel} decision={decision} />
+          </div>
+        </div>
+      </div>
+    </WorkflowModule>
   );
 }
 
@@ -537,6 +680,173 @@ function ActivationGroupChecklist({ group }: { group: ActivationGroup }) {
   );
 }
 
+function MigrationEvidenceForm({
+  readModel,
+  decision,
+}: {
+  readModel: CatalogPrimaryWorkbenchReadModel;
+  decision: ActivationDecision;
+}) {
+  const disabled = !isDecisionActionAvailable(decision.saveEvidenceState);
+  const evidence = decision.migrationEvidence;
+  const evidenceHelpId = "catalog-activation-migration-evidence-help";
+  const controlClassName =
+    "min-h-10 rounded-md border border-border-subtle bg-surface px-3 py-2 text-sm font-normal text-foreground disabled:bg-surface-muted disabled:text-secondary";
+
+  return (
+    <Form
+      spacing="md"
+      method="post"
+      action={decision.workspaceHref}
+      data-catalog-validation-evidence-form="true"
+      className="grid min-w-0 gap-3 rounded-md border border-border-subtle p-4"
+    >
+      <ValidationContextHiddenInputs readModel={readModel} intent={decision.evidenceCommandKey} />
+      <input type="hidden" name="sectionKey" value="migration-evidence" />
+      <input type="hidden" name="migrationFingerprintBefore" value={evidence.mappingFingerprintBefore ?? ""} />
+      <input type="hidden" name="migrationFingerprintAfter" value={evidence.mappingFingerprintAfter ?? ""} />
+      <input type="hidden" name="migrationRecordedAt" value={evidence.recordedAt ?? readModel.generatedAt} />
+      <label className="grid gap-1 text-sm font-semibold text-foreground">
+        {t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.evidence.label")}
+        <textarea
+          className={`${controlClassName} min-h-28`}
+          name="migrationEvidenceText"
+          defaultValue={evidence.evidenceText}
+          disabled={disabled}
+          required={decision.affectedReferences.requiresMigrationEvidence}
+          aria-describedby={evidenceHelpId}
+        />
+      </label>
+      <span id={evidenceHelpId} className="text-xs leading-5 text-secondary">
+        {t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.evidence.help")}
+      </span>
+      <label className="grid gap-1 text-sm font-semibold text-foreground">
+        {t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.fixtureRun.label")}
+        <input
+          className={controlClassName}
+          name="migrationFixtureRunId"
+          defaultValue={evidence.fixtureRunId ?? ""}
+          disabled={disabled}
+        />
+      </label>
+      <Button type="submit" leadingIcon="check" disabled={disabled}>
+        {t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.evidence.save")}
+      </Button>
+      <ActivationBlockerBadges blockers={decision.saveEvidenceBlockers} />
+    </Form>
+  );
+}
+
+function ActivateProfileForm({
+  readModel,
+  decision,
+}: {
+  readModel: CatalogPrimaryWorkbenchReadModel;
+  decision: ActivationDecision;
+}) {
+  const disabled = !isDecisionActionAvailable(decision.actionState);
+
+  return (
+    <Form
+      spacing="md"
+      method="post"
+      action={decision.workspaceHref}
+      data-catalog-activate-profile-form="true"
+      className="grid min-w-0 gap-3 rounded-md border border-border-subtle p-4"
+    >
+      <ValidationContextHiddenInputs readModel={readModel} intent={decision.activationCommandKey} />
+      <KeyValueList
+        density="compact"
+        items={[
+          {
+            key: t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.key.action"),
+            value: statusLabel(decision.actionState),
+          },
+          {
+            key: t(
+              "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.key.migration",
+            ),
+            value: statusLabel(decision.migrationEvidence.state),
+          },
+        ]}
+      />
+      <Button type="submit" leadingIcon="check" disabled={disabled}>
+        {t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.activate")}
+      </Button>
+      <ActivationBlockerBadges blockers={decision.blockers} />
+    </Form>
+  );
+}
+
+function ValidationContextHiddenInputs({
+  readModel,
+  intent,
+}: {
+  readModel: CatalogPrimaryWorkbenchReadModel;
+  intent: ActivationDecision["activationCommandKey"] | ActivationDecision["evidenceCommandKey"];
+}) {
+  const context = readModel.routeContext;
+  const decision = readModel.validationReadiness.activationDecision;
+
+  return (
+    <>
+      <input type="hidden" name="_intent" value={intent} />
+      <input type="hidden" name="providerKey" value={decision.providerKey ?? context.providerKey ?? ""} />
+      <input type="hidden" name="unitKey" value={context.unitKey ?? ""} />
+      <input type="hidden" name="importScope" value={context.importScope ?? ""} />
+      <input type="hidden" name="profileVersion" value={decision.profileVersion ?? context.profileVersion ?? ""} />
+      <input type="hidden" name="selectedObservationIds" value={context.selectedObservationIds.join(",")} />
+      <input type="hidden" name="jobId" value={context.jobId ?? ""} />
+      <input type="hidden" name="promotionPreviewId" value={context.promotionPreviewId ?? ""} />
+    </>
+  );
+}
+
+function ActivationBlockerList({ decision }: { decision: ActivationDecision }) {
+  if (decision.blockers.length === 0 && decision.saveEvidenceBlockers.length === 0) {
+    return (
+      <Badge tone="success">
+        {t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.noBlockers")}
+      </Badge>
+    );
+  }
+
+  return (
+    <div className="grid min-w-0 gap-2">
+      <h3 className="text-sm font-semibold text-foreground">
+        {t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.blockers")}
+      </h3>
+      <ActivationBlockerBadges blockers={[...new Set([...decision.blockers, ...decision.saveEvidenceBlockers])]} />
+    </div>
+  );
+}
+
+function ActivationBlockerBadges({ blockers }: { blockers: ActivationDecision["blockers"] }) {
+  if (blockers.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="grid min-w-0 gap-1.5">
+      {blockers.map((blocker) => {
+        const copy = getCatalogPrimaryWorkbenchBlockerCopy(blocker);
+
+        return (
+          <div key={blocker} className="grid min-w-0 gap-1">
+            <div className="flex min-w-0 flex-wrap gap-1.5">
+              <Badge tone="danger">{copy.label}</Badge>
+            </div>
+            <span className="text-xs leading-5 text-secondary">
+              {copy.reason} {t("catalog.features.sourceObservations.ui.primaryWorkbench.copy.next.prefix")}{" "}
+              {copy.nextStep}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function FactPreview({ facts }: { facts: DryRunEvidence["normalizedFacts"] }) {
   const visibleFacts = facts.slice(0, 4);
   if (visibleFacts.length === 0) {
@@ -763,6 +1073,50 @@ function statusTone(status: ValidationReadiness["status"]): BadgeTone {
   if (status === "ready") return "success";
   if (status === "blocked" || status === "unavailable") return "danger";
   return "warning";
+}
+
+function decisionTone(status: ActivationDecision["status"]): BadgeTone {
+  if (status === "ready") return "success";
+  if (status === "blocked") return "danger";
+  return "warning";
+}
+
+function activationDecisionTitle(decision: ActivationDecision): string {
+  if (decision.status === "ready") {
+    return t(
+      "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.banner.ready.title",
+    );
+  }
+  if (decision.status === "blocked") {
+    return t(
+      "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.banner.blocked.title",
+    );
+  }
+
+  return t(
+    "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.banner.unavailable.title",
+  );
+}
+
+function activationDecisionDescription(decision: ActivationDecision): string {
+  if (decision.status === "ready") {
+    return t(
+      "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.banner.ready.description",
+    );
+  }
+  if (decision.status === "blocked") {
+    return t(
+      "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.banner.blocked.description",
+    );
+  }
+
+  return t(
+    "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.banner.unavailable.description",
+  );
+}
+
+function isDecisionActionAvailable(state: ActivationDecision["actionState"]): boolean {
+  return state === "available" || state === "degraded";
 }
 
 function fixtureTone(status: FixtureFlow["status"]): BadgeTone {

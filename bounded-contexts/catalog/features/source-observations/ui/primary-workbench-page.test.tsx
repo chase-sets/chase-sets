@@ -234,6 +234,16 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.getByRole("heading", { name: "Dry-run evidence" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Semantic compare" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Activation readiness" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Activation decision" })).toBeTruthy();
+    expect(screen.getByRole("textbox", { name: "Migration evidence" })).toBeTruthy();
+    expect(screen.getByRole("textbox", { name: "Fixture run" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Save migration evidence" }).hasAttribute("disabled")).toBe(false);
+    expect(screen.getByRole("button", { name: "Activate profile" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getAllByText("Migration evidence missing").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Reference impact review required").length).toBeGreaterThan(0);
+    expect(screen.getByRole("link", { name: "Open audit evidence" }).getAttribute("href")).toContain(
+      "section=evidence",
+    );
     expect(screen.getAllByText(/Sprigatito/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/sha256:candidate-mapping/).length).toBeGreaterThan(0);
     expect(screen.getAllByText("Changes the card variant merge identity.").length).toBeGreaterThan(0);
@@ -241,6 +251,29 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.getByRole("link", { name: "Back to import workbench" }).getAttribute("href")).toContain(
       "section=workbench",
     );
+
+    const migrationEvidenceForm = document.querySelector<HTMLFormElement>(
+      'form[data-catalog-validation-evidence-form="true"]',
+    );
+    expect(migrationEvidenceForm?.getAttribute("action")).toContain("section=readiness");
+    expect(migrationEvidenceForm?.querySelector<HTMLInputElement>('input[name="_intent"]')?.value).toBe(
+      "update-provider-profile-section",
+    );
+    expect(migrationEvidenceForm?.querySelector<HTMLInputElement>('input[name="sectionKey"]')?.value).toBe(
+      "migration-evidence",
+    );
+    expect(migrationEvidenceForm?.querySelector<HTMLInputElement>('input[name="providerKey"]')?.value).toBe("tcgdex");
+    expect(migrationEvidenceForm?.querySelector<HTMLInputElement>('input[name="profileVersion"]')?.value).toBe(
+      "2026.06.04",
+    );
+
+    const activationForm = document.querySelector<HTMLFormElement>('form[data-catalog-activate-profile-form="true"]');
+    expect(activationForm?.getAttribute("action")).toContain("section=readiness");
+    expect(activationForm?.querySelector<HTMLInputElement>('input[name="_intent"]')?.value).toBe(
+      "activate-provider-profile",
+    );
+    expect(activationForm?.querySelector<HTMLInputElement>('input[name="providerKey"]')?.value).toBe("tcgdex");
+    expect(activationForm?.querySelector<HTMLInputElement>('input[name="profileVersion"]')?.value).toBe("2026.06.04");
 
     fireEvent.click(screen.getAllByRole("button", { name: "Inspect proof" })[0]!);
 

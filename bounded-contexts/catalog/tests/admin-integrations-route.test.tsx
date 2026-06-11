@@ -488,6 +488,123 @@ describe("Catalog integrations route", () => {
     );
   });
 
+  it("keeps migration-evidence saves inside validation readiness", async () => {
+    const listSourceObservationProviderProfiles = vi.fn().mockResolvedValue({
+      items: [profileReview({ active: true, lifecycle: "active", profileVersion: "2026.06.04" })],
+      total: 1,
+      count: 1,
+    });
+    const updateSourceObservationProviderProfileSection = vi.fn().mockResolvedValue({
+      providerKey: "tcgdex",
+      profileKey: "tcgdex-pokemon-card",
+      profileVersion: "2026.06.04",
+    });
+    const recordCatalogControlPlaneEvent = vi.fn().mockResolvedValue({ status: "recorded" });
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listSourceObservationProviderProfiles,
+      updateSourceObservationProviderProfileSection,
+      recordCatalogControlPlaneEvent,
+    });
+
+    const response = await runAction(
+      {
+        _intent: "update-provider-profile-section",
+        providerKey: "tcgdex",
+        unitKey: "tcgdex:pokemon:card:import",
+        importScope: "en:3:base:base1",
+        profileVersion: "2026.06.04",
+        sectionKey: "migration-evidence",
+        migrationEvidenceText: "Dry-run and replay evidence reviewed for the activation decision.",
+        migrationFixtureRunId: "fixture-run-1037",
+        migrationFingerprintBefore: "sha256:active-mapping",
+        migrationFingerprintAfter: "sha256:candidate-mapping",
+        migrationRecordedAt: "2026-06-11T00:00:00.000Z",
+        promotionPreviewId: "preview-stale",
+      },
+      "https://admin.example/catalog/integrations?section=readiness&providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.04",
+    );
+
+    expect(updateSourceObservationProviderProfileSection).toHaveBeenCalledWith(
+      "tcgdex",
+      "2026.06.04",
+      "migration-evidence",
+      expect.objectContaining({
+        section: "migration-evidence",
+        migrationEvidence: expect.objectContaining({
+          evidenceText: "Dry-run and replay evidence reviewed for the activation decision.",
+          fixtureRunId: "fixture-run-1037",
+          mappingFingerprintBefore: "sha256:active-mapping",
+          mappingFingerprintAfter: "sha256:candidate-mapping",
+          recordedAt: "2026-06-11T00:00:00.000Z",
+        }),
+      }),
+    );
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toContain("section=readiness");
+    expect(response.headers.get("Location")).toContain("commandResult=section-saved");
+    expect(response.headers.get("Location")).toContain("commandSection=migration-evidence");
+    expect(response.headers.get("Location")).not.toContain("section=profile-work");
+    expect(response.headers.get("Location")).not.toContain("promotionPreviewId=");
+    expect(recordCatalogControlPlaneEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "catalog_control_plane.profile_section_saved",
+        providerKey: "tcgdex",
+        profileRef: "tcgdex:2026.06.04",
+        promotionResult: "section-saved",
+        detourTarget: "validation-readiness",
+        detourOutcome: "returned",
+      }),
+    );
+  });
+
+  it("activates provider profiles from validation readiness", async () => {
+    const activateSourceObservationProviderProfile = vi.fn().mockResolvedValue({
+      providerKey: "tcgdex",
+      profileKey: "tcgdex-pokemon-card",
+      profileVersion: "2026.06.04",
+    });
+    const recordCatalogControlPlaneEvent = vi.fn().mockResolvedValue({ status: "recorded" });
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      activateSourceObservationProviderProfile,
+      recordCatalogControlPlaneEvent,
+    });
+
+    const response = await runAction(
+      {
+        _intent: "activate-provider-profile",
+        providerKey: "tcgdex",
+        unitKey: "tcgdex:pokemon:card:import",
+        importScope: "en:3:base:base1",
+        profileVersion: "2026.06.04",
+        selectedObservationIds: "obs_001",
+        promotionPreviewId: "preview-stale",
+      },
+      "https://admin.example/catalog/integrations?section=readiness&providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.04",
+    );
+
+    expect(activateSourceObservationProviderProfile).toHaveBeenCalledWith("tcgdex", "2026.06.04");
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toContain("section=readiness");
+    expect(response.headers.get("Location")).toContain("providerKey=tcgdex");
+    expect(response.headers.get("Location")).toContain("profileVersion=2026.06.04");
+    expect(response.headers.get("Location")).toContain("selectedObservationIds=obs_001");
+    expect(response.headers.get("Location")).toContain("commandStatus=success");
+    expect(response.headers.get("Location")).toContain("commandResult=profile-activated");
+    expect(response.headers.get("Location")).not.toContain("promotionPreviewId=");
+    expect(recordCatalogControlPlaneEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "catalog_control_plane.profile_activated",
+        providerKey: "tcgdex",
+        unitKey: "tcgdex:pokemon:card:import",
+        scopeId: "en:3:base:base1",
+        profileRef: "tcgdex:2026.06.04",
+        promotionResult: "profile-activated",
+        detourTarget: "validation-readiness",
+        detourOutcome: "returned",
+      }),
+    );
+  });
+
   it("returns section-scoped feedback for stale and invalid section saves", async () => {
     const listSourceObservationProviderProfiles = vi.fn().mockResolvedValue({
       items: [profileReview({ active: false, lifecycle: "draft", profileVersion: "2026.06.04-draft" })],

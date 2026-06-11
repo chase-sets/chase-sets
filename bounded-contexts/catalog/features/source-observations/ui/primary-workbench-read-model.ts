@@ -57,6 +57,7 @@ type ValidationFixtureFlow = ValidationReadiness["fixtureFlows"][number];
 type ValidationDryRunEvidence = ValidationReadiness["dryRunEvidence"][number];
 type ValidationSemanticSection = ValidationReadiness["semanticCompare"]["sections"][number];
 type ValidationActivationGroup = ValidationReadiness["activationReadiness"]["groups"][number];
+type ValidationActivationDecision = ValidationReadiness["activationDecision"];
 
 const defaultReviewPageSize = 25;
 const providerOptionQueryFreshTtlMinutes = 15;
@@ -161,6 +162,7 @@ export function buildCatalogPrimaryWorkbenchReadModel(
     reviewable: sourceObservationReview.counts.observed + sourceObservationReview.counts.changed,
     activeJobCount,
     blockers: readinessBlockers,
+    activationBlockers: validationReadiness.activationDecision.blockers,
     cloneProfileBlockers: profileAuthoring.cloneDraft.blockers,
     promotionBlockers: promotionPreview.blockers,
   });
@@ -2284,6 +2286,14 @@ function validationReadinessFor(input: {
     readinessUnit,
     semanticCompare,
   });
+  const activationDecision = validationActivationDecisionFor({
+    activationReadiness,
+    activeJobCount: input.activeJobCount,
+    canManage: input.canManage,
+    profile,
+    routeContext: input.routeContext,
+    semanticCompare,
+  });
   const blockedFixtureFlows = fixtureFlows.filter(
     (flow) => flow.status === "blocked" || flow.status === "not-covered",
   ).length;
@@ -2329,6 +2339,7 @@ function validationReadinessFor(input: {
     dryRunEvidence,
     semanticCompare,
     activationReadiness,
+    activationDecision,
   };
 }
 
@@ -2815,6 +2826,121 @@ function validationActivationReadinessFor(input: {
     referenceCount: input.profile?.referenceCount ?? 0,
     groups,
   };
+}
+
+function validationActivationDecisionFor(input: {
+  activationReadiness: ValidationReadiness["activationReadiness"];
+  activeJobCount: number;
+  canManage: boolean;
+  profile: CatalogProviderProfileVersionReview | null;
+  routeContext: CatalogPrimaryWorkbenchRouteContext;
+  semanticCompare: ValidationReadiness["semanticCompare"];
+}): ValidationActivationDecision {
+  const profile = input.profile;
+  const migrationEvidenceRecorded = Boolean(profile?.migrationEvidence?.evidenceText);
+  const migrationEvidenceRequired = input.activationReadiness.requiresMigrationEvidence;
+  const blockers = new Set<CatalogPrimaryWorkbenchBlockerCategory>();
+
+  if (!profile) {
+    blockers.add("profile-version-missing");
+  }
+  if (!input.canManage) {
+    blockers.add("permission-denied");
+  }
+  if (input.activeJobCount > 0) {
+    blockers.add("active-job-conflict");
+  }
+  if (input.activeJobCount > 1) {
+    blockers.add("concurrent-job");
+  }
+  if (input.activationReadiness.status === "blocked") {
+    blockers.add("activation-readiness-blocked");
+  }
+  if (migrationEvidenceRequired && !migrationEvidenceRecorded) {
+    blockers.add("migration-evidence-missing");
+  }
+  if (migrationEvidenceRequired && input.activationReadiness.referenceCount > 0 && !migrationEvidenceRecorded) {
+    blockers.add("reference-impact-review-required");
+  }
+
+  const saveEvidenceBlockers = new Set<CatalogPrimaryWorkbenchBlockerCategory>();
+  if (!profile) {
+    saveEvidenceBlockers.add("profile-version-missing");
+  }
+  if (!input.canManage) {
+    saveEvidenceBlockers.add("permission-denied");
+  }
+
+  const blockerList = [...blockers];
+  const saveEvidenceBlockerList = [...saveEvidenceBlockers];
+  const status: ValidationActivationDecision["status"] = !profile
+    ? "unavailable"
+    : blockerList.length > 0
+      ? "blocked"
+      : "ready";
+
+  return {
+    status,
+    actionState: actionStateForBlockers(blockerList, input.canManage ? "available" : "denied"),
+    blockers: blockerList,
+    saveEvidenceState: actionStateForBlockers(saveEvidenceBlockerList, input.canManage ? "available" : "denied"),
+    saveEvidenceBlockers: saveEvidenceBlockerList,
+    activationCommandKey: "activate-provider-profile",
+    evidenceCommandKey: "update-provider-profile-section",
+    workspaceHref: catalogPrimaryWorkbenchSupportingHref(input.routeContext, "validation-readiness"),
+    providerKey: profile?.providerKey ?? input.routeContext.providerKey ?? null,
+    profileVersion: profile?.profileVersion ?? input.routeContext.profileVersion ?? null,
+    lifecycle: profile?.lifecycle ?? null,
+    importEligibility: !profile
+      ? "not-selected"
+      : input.activationReadiness.status === "ready"
+        ? "eligible"
+        : "blocked",
+    affectedReferences: {
+      referenceCount: input.activationReadiness.referenceCount,
+      requiresMigrationEvidence: migrationEvidenceRequired,
+      replayImplications: validationReplayImplicationsFor({
+        referenceCount: input.activationReadiness.referenceCount,
+        mappingFingerprintChanged: input.semanticCompare.mappingFingerprint.changed,
+      }),
+    },
+    migrationEvidence: {
+      state: migrationEvidenceRecorded ? "recorded" : migrationEvidenceRequired ? "required" : "not-required",
+      evidenceText: profile?.migrationEvidence?.evidenceText ?? "",
+      fixtureRunId: profile?.migrationEvidence?.fixtureRunId ?? null,
+      mappingFingerprintBefore: profile?.migrationEvidence?.mappingFingerprintBefore ?? null,
+      mappingFingerprintAfter: profile?.migrationEvidence?.mappingFingerprintAfter ?? null,
+      recordedAt: profile?.migrationEvidence?.recordedAt ?? null,
+      recordedByUserId: profile?.migrationEvidence?.recordedByUserId ?? null,
+    },
+    auditConsequences: {
+      auditEvidenceUrl: catalogPrimaryWorkbenchSupportingHref(input.routeContext, "audit-evidence"),
+      eventNames: ["activation-readiness-evaluated", "profile-activated"],
+      summary:
+        status === "ready"
+          ? "Activation records readiness evaluation and profile activation audit evidence."
+          : "Blocked activation keeps readiness, migration evidence, and remediation visible before activation.",
+    },
+  };
+}
+
+function validationReplayImplicationsFor(input: {
+  referenceCount: number;
+  mappingFingerprintChanged: boolean;
+}): readonly string[] {
+  const implications: string[] = [];
+  if (input.referenceCount > 0) {
+    implications.push(
+      `${input.referenceCount} existing references may need replay or reapply review after activation.`,
+    );
+  }
+  implications.push(
+    input.mappingFingerprintChanged
+      ? "Mapping fingerprint changed; replay and reapply decisions must use this activation evidence."
+      : "No mapping fingerprint change detected for replay or reapply decisions.",
+  );
+
+  return implications;
 }
 
 function validationActivationGroupsFromProfile(input: {
@@ -4095,6 +4221,7 @@ function buildActions(input: {
   reviewable: number;
   activeJobCount: number;
   blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
+  activationBlockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
   cloneProfileBlockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
   promotionBlockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
 }): readonly CatalogPrimaryWorkbenchActionReadModel[] {
@@ -4124,6 +4251,7 @@ function buildActions(input: {
   const replayBlockers: readonly CatalogPrimaryWorkbenchBlockerCategory[] = [];
   const replayState = actionStateForBlockers(replayBlockers, manageState);
   const cloneProfileState = actionStateForBlockers(input.cloneProfileBlockers, manageState);
+  const activationState = actionStateForBlockers(input.activationBlockers, manageState);
 
   return [
     {
@@ -4156,6 +4284,12 @@ function buildActions(input: {
               ? "catalog.primary.reapply.originalProfileMissing"
               : "catalog.primary.import.blocked"
           : null,
+    },
+    {
+      key: "activate-provider-profile",
+      state: activationState,
+      blockers: input.activationBlockers,
+      copyKey: input.activationBlockers.length > 0 ? "catalog.primary.import.blocked" : null,
     },
     {
       key: "preview-promotion",
