@@ -250,8 +250,25 @@ const runnerGroups = [
     projectionWakeRunners,
     config.projectionWakeScheduler.maxConcurrentRunners,
     config.projectionWakeScheduler.pollIntervalMs,
+    // Reserve wake-loop capacity for the hot lane so critical read-after-write
+    // wakes are never starved by in-flight standard/bulk passes. The loop
+    // clamps the reservation so standard/bulk always keep at least one slot.
+    config.projectionWakeScheduler.hotLaneRunnerCount,
   ),
 ].filter((group) => group.runners.length > 0);
+
+for (const group of runnerGroups) {
+  // A reservation request with no reserved-capacity runners silently clamps
+  // to zero inside the loop; make that regression loud at startup.
+  if ((group.reservedRunnerSlots ?? 0) > 0 && !group.runners.some((runner) => runner.reservedCapacity === true)) {
+    logger.warn("Worker runner group requested reserved slots but no runner carries reservedCapacity.", {
+      type: "platform-worker.runner_group.reservation_unbacked",
+      groupName: group.name,
+      requestedReservedRunnerSlots: group.reservedRunnerSlots,
+    });
+  }
+}
+
 const runnerLoops = runnerGroups.map((group) => ({
   ...group,
   loop: createWorkerRunnerLoop({
@@ -259,6 +276,7 @@ const runnerLoops = runnerGroups.map((group) => ({
     controlPlane,
     runners: group.runners,
     maxConcurrentRunners: group.maxConcurrentRunners,
+    reservedRunnerSlots: group.reservedRunnerSlots,
     leaseTtlMs: config.leaseTtlMs,
     leaseRenewIntervalMs: config.leaseRenewIntervalMs,
     pollIntervalMs: group.pollIntervalMs ?? config.pollIntervalMs,
@@ -458,6 +476,9 @@ app.get("/internal/workers/status", async (c) => {
         standard: config.projectionWakeScheduler.standardLaneRunnerCount,
         bulk: config.projectionWakeScheduler.bulkLaneRunnerCount,
       },
+      // Effective (clamped) reservation reported by the wakes runner loop, so
+      // operators see the slots actually protected for the hot lane.
+      hotLaneReservedRunnerSlots: loopStatuses.find((status) => status.name === "wakes")?.reservedRunnerSlots ?? 0,
       disabledProjectionKeys: config.projectionWakeDisabledProjections,
     },
     projectionWakeIntents: await workSignalStore.summarizeProjectionWakeIntents(),
@@ -526,6 +547,7 @@ type RunnerGroup = Readonly<{
   runners: readonly WorkerRunner[];
   maxConcurrentRunners: number;
   pollIntervalMs?: number;
+  reservedRunnerSlots?: number;
 }>;
 
 function createRunnerGroup(
@@ -533,12 +555,14 @@ function createRunnerGroup(
   runners: readonly WorkerRunner[],
   maxConcurrentRunners: number,
   pollIntervalMs?: number,
+  reservedRunnerSlots?: number,
 ): RunnerGroup {
   return {
     name,
     runners,
     maxConcurrentRunners,
     pollIntervalMs,
+    reservedRunnerSlots,
   };
 }
 

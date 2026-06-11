@@ -52,6 +52,15 @@ export type WorkerRunner = Readonly<{
   kind: "projector" | "projection-group" | "subscription" | "job";
   runOnce: (context?: ProjectionRunContext) => Promise<ProjectorRunResult>;
   priority?: () => bigint | number;
+  /**
+   * Reserved-capacity runners belong to the loop's critical class: only they
+   * may occupy the loop's reserved slots (`reservedRunnerSlots`), which fill
+   * before the shared slots on every scheduling pass. Beyond the reservation
+   * they compete fairly in the shared rotation. Hot-lane wake runners use
+   * this so critical read-after-write wakes are not starved by standard/bulk
+   * passes.
+   */
+  reservedCapacity?: boolean;
   projectionStatusSnapshot?: () => ContextProjectionGroupStatus;
 }>;
 
@@ -61,6 +70,8 @@ export type WorkerRunnerLoop = Readonly<{
   status: () => Readonly<{
     workerId: string;
     activeRunnerCount: number;
+    activeReservedSlotCount: number;
+    reservedRunnerSlots: number;
     leaseMissCount: number;
     stopped: boolean;
   }>;
@@ -124,6 +135,16 @@ type WorkerRunnerLoopOptions = Readonly<{
   controlPlane: PlatformControlPlane;
   runners: readonly WorkerRunner[];
   maxConcurrentRunners: number;
+  /**
+   * Slots reserved for `reservedCapacity` runners. Shared runners may occupy
+   * at most `maxConcurrentRunners - reservedRunnerSlots` slots; reserved
+   * runners fill the reserved slots first and also compete fairly in the
+   * shared rotation. The effective reservation is clamped to the reserved
+   * runner count and, whenever shared runners exist, to
+   * `maxConcurrentRunners - 1`, so the shared class always keeps at least one
+   * slot and can never be starved by the reservation itself.
+   */
+  reservedRunnerSlots?: number;
   leaseTtlMs: number;
   leaseRenewIntervalMs: number;
   pollIntervalMs: number;
@@ -274,12 +295,66 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
   const activeAbortControllers = new Map<Promise<void>, AbortController>();
   const activeRunnerNames = new Set<string>();
   const failedRunnerBackoffs = new Map<string, Readonly<{ attempt: number; eligibleAt: number }>>();
+  const reservedRunners = options.runners.filter((runner) => runner.reservedCapacity === true);
+  const reservedRunnerSlots = clampReservedRunnerSlots(
+    options.reservedRunnerSlots ?? 0,
+    options.maxConcurrentRunners,
+    reservedRunners.length,
+    options.runners.length - reservedRunners.length,
+  );
+  const sharedRunnerSlots = options.maxConcurrentRunners - reservedRunnerSlots;
   let stopped = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let nextReservedRunnerIndex = 0;
   let nextRunnerIndex = 0;
+  let activeReservedSlotCount = 0;
+  let activeSharedSlotCount = 0;
   let leaseMissCount = 0;
   const failureBackoffBaseMs = Math.max(0, Math.floor(options.failureBackoffBaseMs ?? options.pollIntervalMs * 5));
   const failureBackoffMaxMs = Math.max(failureBackoffBaseMs, Math.floor(options.failureBackoffMaxMs ?? 30_000));
+
+  const startRunner = (runner: WorkerRunner, slotPool: "reserved" | "shared") => {
+    const runAbortController = new AbortController();
+    const promise = runLeasedRunner(options, runner, runAbortController.signal)
+      .then((leaseAcquired) => {
+        if (!leaseAcquired) {
+          leaseMissCount += 1;
+          return;
+        }
+        failedRunnerBackoffs.delete(runner.name);
+      })
+      .catch((error) => {
+        const previous = failedRunnerBackoffs.get(runner.name);
+        const attempt = (previous?.attempt ?? 0) + 1;
+        const backoffMs =
+          failureBackoffBaseMs <= 0
+            ? 0
+            : Math.min(failureBackoffMaxMs, failureBackoffBaseMs * 2 ** Math.min(attempt - 1, 10));
+        failedRunnerBackoffs.set(runner.name, {
+          attempt,
+          eligibleAt: Date.now() + backoffMs,
+        });
+        options.onError?.(error, runner);
+      })
+      .finally(() => {
+        active.delete(promise);
+        activeAbortControllers.delete(promise);
+        activeRunnerNames.delete(runner.name);
+        if (slotPool === "reserved") {
+          activeReservedSlotCount -= 1;
+        } else {
+          activeSharedSlotCount -= 1;
+        }
+      });
+    active.add(promise);
+    activeAbortControllers.set(promise, runAbortController);
+    activeRunnerNames.add(runner.name);
+    if (slotPool === "reserved") {
+      activeReservedSlotCount += 1;
+    } else {
+      activeSharedSlotCount += 1;
+    }
+  };
 
   const schedule = () => {
     if (stopped) {
@@ -287,9 +362,34 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
     }
 
     const now = Date.now();
+    // Reserved slots fill first and accept only reserved-capacity runners, so
+    // a critical runner always finds capacity no matter how busy the shared
+    // class is, and shared runners can never occupy the reserved slots.
     for (
       let attempts = 0;
-      attempts < options.runners.length && active.size < options.maxConcurrentRunners;
+      attempts < reservedRunners.length && activeReservedSlotCount < reservedRunnerSlots;
+      attempts += 1
+    ) {
+      const selection = selectNextRunner(
+        reservedRunners,
+        activeRunnerNames,
+        failedRunnerBackoffs,
+        nextReservedRunnerIndex,
+        now,
+      );
+      if (!selection) {
+        break;
+      }
+      nextReservedRunnerIndex = (selection.index + 1) % reservedRunners.length;
+      startRunner(selection.runner, "reserved");
+    }
+
+    // The shared slots keep the original fair rotation across every runner
+    // class, so reserved runners beyond their reservation compete equally and
+    // the shared class is never starved by the reservation itself.
+    for (
+      let attempts = 0;
+      attempts < options.runners.length && activeSharedSlotCount < sharedRunnerSlots;
       attempts += 1
     ) {
       const selection = selectNextRunner(
@@ -302,39 +402,8 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
       if (!selection) {
         break;
       }
-      const { runner, index } = selection;
-      nextRunnerIndex = (index + 1) % options.runners.length;
-
-      const runAbortController = new AbortController();
-      const promise = runLeasedRunner(options, runner, runAbortController.signal)
-        .then((leaseAcquired) => {
-          if (!leaseAcquired) {
-            leaseMissCount += 1;
-            return;
-          }
-          failedRunnerBackoffs.delete(runner.name);
-        })
-        .catch((error) => {
-          const previous = failedRunnerBackoffs.get(runner.name);
-          const attempt = (previous?.attempt ?? 0) + 1;
-          const backoffMs =
-            failureBackoffBaseMs <= 0
-              ? 0
-              : Math.min(failureBackoffMaxMs, failureBackoffBaseMs * 2 ** Math.min(attempt - 1, 10));
-          failedRunnerBackoffs.set(runner.name, {
-            attempt,
-            eligibleAt: Date.now() + backoffMs,
-          });
-          options.onError?.(error, runner);
-        })
-        .finally(() => {
-          active.delete(promise);
-          activeAbortControllers.delete(promise);
-          activeRunnerNames.delete(runner.name);
-        });
-      active.add(promise);
-      activeAbortControllers.set(promise, runAbortController);
-      activeRunnerNames.add(runner.name);
+      nextRunnerIndex = (selection.index + 1) % options.runners.length;
+      startRunner(selection.runner, "shared");
     }
 
     timer = setTimeout(schedule, options.pollIntervalMs);
@@ -356,10 +425,22 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
     status: () => ({
       workerId: options.workerId,
       activeRunnerCount: active.size,
+      activeReservedSlotCount: activeReservedSlotCount,
+      reservedRunnerSlots,
       leaseMissCount,
       stopped,
     }),
   };
+}
+
+function clampReservedRunnerSlots(
+  requestedSlots: number,
+  maxConcurrentRunners: number,
+  reservedRunnerCount: number,
+  sharedRunnerCount: number,
+): number {
+  const maxReservableSlots = sharedRunnerCount > 0 ? maxConcurrentRunners - 1 : maxConcurrentRunners;
+  return Math.max(0, Math.min(Math.floor(requestedSlots), reservedRunnerCount, maxReservableSlots));
 }
 
 function selectNextRunner(

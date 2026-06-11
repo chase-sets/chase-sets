@@ -86,7 +86,18 @@ locals {
   worker_job_concurrency              = tostring(var.worker_job_concurrency > 0 ? var.worker_job_concurrency : local.worker_default_job_concurrency)
   worker_dispatch_concurrency         = "1"
   worker_scheduled_concurrency        = "1"
-  worker_wake_concurrency             = local.is_staging ? "2" : "1"
+  # Hot-lane reserved capacity (#1223): the wakes loop reserves
+  # min(hot lane runner count, wake concurrency - 1) slots for hot-lane wake
+  # runners, so wake concurrency must be at least hot lanes + 1 for the
+  # reservation to be real while standard/bulk keep a slot. Production runs 2
+  # like staging so the reservation is provisioned before production proof
+  # mode (#1237) enables the relay; the worker_runner_capacity check sums
+  # production runner concurrency to 7 = worker_database_pool_max and staging
+  # to 10 = worker_database_pool_max.
+  worker_wake_concurrency           = "2"
+  worker_wake_hot_lane_runners      = "1"
+  worker_wake_standard_lane_runners = "1"
+  worker_wake_bulk_lane_runners     = "1"
 
   # Direct/session-compatible listener URLs for the worker-owned projection wake
   # relay (wave-1 source contexts). Staging bypasses the PgBouncer transaction
