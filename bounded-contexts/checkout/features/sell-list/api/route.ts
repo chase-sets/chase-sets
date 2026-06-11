@@ -159,7 +159,10 @@ function parseLineOutcomeReferences(value: unknown) {
   }
 
   const offerIds = Array.isArray(source.offerIds)
-    ? source.offerIds.map(String).map((entry) => entry.trim()).filter(Boolean)
+    ? source.offerIds
+        .map(String)
+        .map((entry) => entry.trim())
+        .filter(Boolean)
     : undefined;
   const listingId = source.listingId === null || source.listingId === undefined ? null : stringValue(source.listingId);
   return {
@@ -234,7 +237,8 @@ function parseSellerEvidence(value: unknown): SellListSellerConfirmationEvidence
   return {
     shipFrom: {
       status: "ready",
-      addressId: shipFrom.addressId === null || shipFrom.addressId === undefined ? null : stringValue(shipFrom.addressId),
+      addressId:
+        shipFrom.addressId === null || shipFrom.addressId === undefined ? null : stringValue(shipFrom.addressId),
       country: shipFromCountry,
       region: shipFromRegion,
       postalCode: shipFromPostalCode,
@@ -243,7 +247,8 @@ function parseSellerEvidence(value: unknown): SellListSellerConfirmationEvidence
       status: "ready",
       method: "saved-payout",
       readinessStatus: payoutReadinessStatus,
-      lastCheckedAt: payout.lastCheckedAt === null || payout.lastCheckedAt === undefined ? null : stringValue(payout.lastCheckedAt),
+      lastCheckedAt:
+        payout.lastCheckedAt === null || payout.lastCheckedAt === undefined ? null : stringValue(payout.lastCheckedAt),
     },
     label: {
       status: "ready",
@@ -330,7 +335,13 @@ function parseSellListConfirmationBody(body: Record<string, unknown>) {
 }
 
 function hasSellListConfirmationEvidence(body: ReturnType<typeof parseSellListConfirmationBody>) {
-  return Boolean(body.confirmationId && body.readinessSnapshotId && body.readinessSourceRevision && body.sellerEvidence && body.handoffSummary);
+  return Boolean(
+    body.confirmationId &&
+    body.readinessSnapshotId &&
+    body.readinessSourceRevision &&
+    body.sellerEvidence &&
+    body.handoffSummary,
+  );
 }
 
 export function createAccountSellListRoutes(services: CheckoutSellListServices) {
@@ -497,7 +508,10 @@ export function createAccountSellListRoutes(services: CheckoutSellListServices) 
       const sellerEvidence = confirmationBody.sellerEvidence!;
       const handoffSummary = confirmationBody.handoffSummary!;
 
-      const existingConfirmation = await services.getConfirmation(access.actor.accountId, confirmationBody.confirmationId);
+      const existingConfirmation = await services.getConfirmation(
+        access.actor.accountId,
+        confirmationBody.confirmationId,
+      );
       if (existingConfirmation) {
         return c.json({
           id: access.actor.accountId,

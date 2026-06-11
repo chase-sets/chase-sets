@@ -161,7 +161,7 @@ export type SellListConfirmationSummary = Readonly<{
   publishedListingCount: number;
   skippedLineCount: number;
   skippedReasons: readonly string[];
-    lineOutcomes?: readonly SellListLineConfirmationOutcome[];
+  lineOutcomes?: readonly SellListLineConfirmationOutcome[];
   sideEffects: SellListConfirmationSideEffects;
 }>;
 

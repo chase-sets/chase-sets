@@ -200,14 +200,17 @@ function parseSellListReviewPlan(value: string): SellListReviewPlan | null {
       .filter((entry): entry is Record<string, unknown> => entry !== null)
       .map((entry): SellListReviewPlanLine | null => {
         const lineId = stringValue(entry.lineId);
-        const lineType = entry.lineType === "selected-offer" ? "selected-offer" : entry.lineType === "product" ? "product" : null;
+        const lineType =
+          entry.lineType === "selected-offer" ? "selected-offer" : entry.lineType === "product" ? "product" : null;
         if (!lineId || !lineType) {
           return null;
         }
 
         const selectedOfferSource = objectValue(entry.selectedOffer);
         const selectedOffer =
-          selectedOfferSource && stringValue(selectedOfferSource.offerId) && stringValue(selectedOfferSource.feeQuoteFingerprint)
+          selectedOfferSource &&
+          stringValue(selectedOfferSource.offerId) &&
+          stringValue(selectedOfferSource.feeQuoteFingerprint)
             ? {
                 offerId: stringValue(selectedOfferSource.offerId),
                 feeQuoteFingerprint: stringValue(selectedOfferSource.feeQuoteFingerprint),
@@ -247,7 +250,10 @@ function parseSellListReviewPlan(value: string): SellListReviewPlan | null {
           productOfferTargets,
           fallbackListing,
           skippedReasons: Array.isArray(entry.skippedReasons)
-            ? entry.skippedReasons.map(String).map((reason) => reason.trim()).filter(Boolean)
+            ? entry.skippedReasons
+                .map(String)
+                .map((reason) => reason.trim())
+                .filter(Boolean)
             : [],
         };
       })

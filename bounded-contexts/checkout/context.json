@@ -53,10 +53,7 @@
     {
       "projectionName": "checkout.sell-list-projection",
       "sourceContextNames": ["checkout"],
-      "ownedTables": [
-        "checkout_sell_list_line_pages",
-        "checkout_sell_list_confirmation_pages"
-      ],
+      "ownedTables": ["checkout_sell_list_line_pages", "checkout_sell_list_confirmation_pages"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
     },

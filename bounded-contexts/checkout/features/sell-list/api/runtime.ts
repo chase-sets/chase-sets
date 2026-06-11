@@ -185,10 +185,7 @@ export type CheckoutSellListServices = Readonly<{
   ) => Promise<SellListReadinessSnapshot>;
   listLines: (sellerAccountId: string) => ReturnType<typeof listSellListLines>;
   getLatestConfirmation: (sellerAccountId: string) => ReturnType<typeof getLatestSellListConfirmation>;
-  getConfirmation: (
-    sellerAccountId: string,
-    confirmationId: string,
-  ) => ReturnType<typeof getSellListConfirmation>;
+  getConfirmation: (sellerAccountId: string, confirmationId: string) => ReturnType<typeof getSellListConfirmation>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
@@ -320,7 +317,11 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
       return { lineId: params.lineId, version: result.version };
     },
     confirmSellListCheckout: async (params, context) => {
-      const existingConfirmation = await getSellListConfirmation(deps.db, params.sellerAccountId, params.confirmationId);
+      const existingConfirmation = await getSellListConfirmation(
+        deps.db,
+        params.sellerAccountId,
+        params.confirmationId,
+      );
       if (existingConfirmation) {
         return {
           sellerAccountId: params.sellerAccountId,
