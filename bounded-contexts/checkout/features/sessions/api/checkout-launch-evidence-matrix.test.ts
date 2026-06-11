@@ -83,12 +83,41 @@ describe("Checkout launch evidence matrix", () => {
   it("requires launch-register evidence for constrained, recovery, downstream, and cleanup rows", () => {
     const launchRows = checkoutLaunchEvidenceRows.filter((row) => row.launchRegisterStatus === "required");
 
-    expect(launchRows.length).toBeGreaterThan(15);
+    expect(launchRows.length).toBeGreaterThanOrEqual(19);
     for (const row of launchRows) {
       expect(row.ownerIssues, row.state).toContain("#1116");
       expect(row.requiredEvidence, row.state).toContain("launch-register");
       expect(row.launchEvidenceExpectation, row.state).not.toMatch(/\b(todo|tbd)\b/i);
     }
+  });
+
+  it("requires production proof Buy Now canary evidence before launch promotion", () => {
+    const row = checkoutLaunchEvidenceRows.find((entry) => entry.state === "production-proof-buy-now-readiness");
+
+    expect(row).toBeDefined();
+    expect(row?.phase).toBe("launch-governance");
+    expect(row?.readinessContract).toBe("production-proof-canary");
+    expect(row?.scenarioStates).toEqual(expect.arrayContaining(["production-proof-readiness", "slow-budget"]));
+    expect(row?.entrySources).toEqual(["buy-now"]);
+    expect(row?.actorModes).toEqual(["signed-in"]);
+    expect(row?.performanceSurface).toBe("checkout-entry-review-render");
+    expect(row?.visibleState).toBe("checkout-review-visible");
+    expect(row?.requiredEvidence).toEqual(
+      expect.arrayContaining([
+        "canary",
+        "metrics",
+        "observability-event",
+        "support-runbook",
+        "launch-register",
+        "fresh-state-scan",
+      ]),
+    );
+    expect(row?.externalEvidenceIssues).toEqual(expect.arrayContaining(["#1227", "#1228", "#1237"]));
+    expect(row?.noSideEffectProofRequired).toBe(true);
+    expect(row?.sideEffectStatus).toBe("not-attempted");
+    expect(row?.launchEvidenceExpectation).toMatch(/pay-ready/i);
+    expect(row?.launchEvidenceExpectation).toMatch(/temporary recovery/i);
+    expect(row?.launchEvidenceExpectation).toMatch(/checkout-ready-slo-exceeded/i);
   });
 
   it("separates pending downstream handoff from committed downstream facts", () => {

@@ -64,6 +64,7 @@ describe("Checkout visual targets", () => {
     const desktopCheckoutTargets = checkoutVisualTargets.filter(
       (target) =>
         target.surface === "guest-buy-checkout" ||
+        target.surface === "production-proof-buy-now-readiness" ||
         target.surface === "guest-sell-checkout" ||
         target.surface === "signed-in-sell-checkout" ||
         target.surface === "split-group-summary",
@@ -87,6 +88,20 @@ describe("Checkout visual targets", () => {
       expect(target.layoutRequirements, target.surface).toContain("mobile-single-column-checkout");
       expect(target.layoutRequirements, target.surface).toContain("no-horizontal-overflow");
     }
+  });
+
+  it("anchors production proof Buy Now readiness to pay-ready checkout review", () => {
+    const target = checkoutVisualTargets.find((entry) => entry.surface === "production-proof-buy-now-readiness");
+
+    expect(target).toBeDefined();
+    expect(target?.launchRegisterStatus).toBe("required");
+    expect(target?.readinessBeforeCheckout).toBe(false);
+    expect(target?.copySurface).toBe("checkout-review");
+    expect(target?.performanceSurface).toBe("checkout-entry-review-render");
+    expect(target?.visibleState).toBe("checkout-review-visible");
+    expect(target?.noSideEffectEvidenceRequired).toBe(true);
+    expect(target?.exitEvidence).toMatch(/ready SLO/i);
+    expect(target?.exitEvidence).toMatch(/temporary recovery/i);
   });
 
   it("separates pending activity from committed downstream facts", () => {

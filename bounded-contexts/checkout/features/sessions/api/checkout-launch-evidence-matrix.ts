@@ -25,6 +25,7 @@ export type CheckoutLaunchScenarioState =
   | "slow-budget"
   | "active-session-stale"
   | "blocked"
+  | "production-proof-readiness"
   | "unassigned-fulfillment"
   | "optimization-available"
   | "optimization-accepted"
@@ -58,6 +59,7 @@ export type CheckoutLaunchReadinessContract =
   | "checkout.sell-list-confirmation-pages"
   | "downstream-owned-fact"
   | "launch-register"
+  | "production-proof-canary"
   | "fresh-state-cleanup";
 
 export type CheckoutLaunchRegisterStatus = "required" | "not-required";
@@ -79,10 +81,13 @@ export type CheckoutLaunchEvidenceKind =
   | "launch-register"
   | "fresh-state-scan";
 
+export type CheckoutLaunchExternalEvidenceIssue = "#1227" | "#1228" | "#1237";
+
 export type CheckoutLaunchEvidenceRow = Readonly<{
   state: CheckoutVisualTargetKey;
   docLabel: string;
   ownerIssues: readonly CheckoutVisualOwnerIssue[];
+  externalEvidenceIssues?: readonly CheckoutLaunchExternalEvidenceIssue[];
   scenarioStates: readonly CheckoutLaunchScenarioState[];
   phase: CheckoutLaunchPhase;
   readinessContract: CheckoutLaunchReadinessContract;
@@ -149,6 +154,7 @@ export const checkoutLaunchEvidenceRequiredScenarioStates = [
   "slow-budget",
   "active-session-stale",
   "blocked",
+  "production-proof-readiness",
   "unassigned-fulfillment",
   "optimization-available",
   "optimization-accepted",
@@ -605,6 +611,45 @@ export const checkoutLaunchEvidenceRows = [
       "Slow but valid fresh-write paths show bounded recovery instead of ambiguous no-state UI.",
   }),
   row({
+    state: "production-proof-buy-now-readiness",
+    docLabel: "Production proof Buy Now readiness",
+    ownerIssues: ["#1115", "#1116", "#1123", "#1206"],
+    externalEvidenceIssues: ["#1227", "#1228", "#1237"],
+    scenarioStates: ["production-proof-readiness", "slow-budget"],
+    phase: "launch-governance",
+    readinessContract: "production-proof-canary",
+    entrySources: ["buy-now"],
+    actorModes: ["signed-in"],
+    viewports: ["desktop"],
+    copySurface: "checkout-review",
+    visualTarget: "production-proof-buy-now-readiness",
+    performanceSurface: "checkout-entry-review-render",
+    visibleState: "checkout-review-visible",
+    requiredEvidence: [
+      "copy-policy",
+      "visual-target",
+      "unit-contract",
+      "route-test",
+      "e2e",
+      "canary",
+      "metrics",
+      "observability-event",
+      "support-runbook",
+      "launch-register",
+      "fresh-state-scan",
+    ],
+    launchRegisterStatus: "required",
+    readinessBeforeCheckout: false,
+    noSideEffectProofRequired: true,
+    pendingDownstreamBoundaryRequired: false,
+    freshStateCleanupProofRequired: true,
+    sideEffectStatus: "not-attempted",
+    sideEffectClasses: downstreamSideEffects,
+    supportReferenceRequired: true,
+    launchEvidenceExpectation:
+      "Production proof-mode Buy Now must reach pay-ready checkout within the ready SLO; temporary recovery is safety evidence only, and checkout-ready-slo-exceeded artifacts remain launch blockers tied to projection runtime evidence.",
+  }),
+  row({
     state: "disabled-accelerated-saved-instrument",
     docLabel: "Disabled accelerated or saved instrument",
     ownerIssues: ["#1113", "#1115", "#1116", "#1121"],
@@ -915,6 +960,50 @@ export function assertCheckoutLaunchEvidenceMatrixCoverage(): void {
   const cleanupRows = checkoutLaunchEvidenceRows.filter((evidenceRow) => evidenceRow.freshStateCleanupProofRequired);
   if (cleanupRows.length !== checkoutLaunchEvidenceRows.length) {
     throw new Error("Every launch evidence row must require fresh-state cleanup proof.");
+  }
+
+  const productionProofRows = checkoutLaunchEvidenceRows.filter((evidenceRow) =>
+    evidenceRow.scenarioStates.includes("production-proof-readiness"),
+  );
+  if (productionProofRows.length !== 1) {
+    throw new Error("Checkout launch evidence must have one production proof readiness row.");
+  }
+
+  for (const evidenceRow of productionProofRows) {
+    const externalEvidenceIssues = evidenceRow.externalEvidenceIssues ?? [];
+
+    for (const requiredIssue of ["#1227", "#1228", "#1237"] as const) {
+      if (!externalEvidenceIssues.includes(requiredIssue)) {
+        throw new Error(`Production proof readiness row must link ${requiredIssue}.`);
+      }
+    }
+    for (const requiredEvidence of [
+      "canary",
+      "metrics",
+      "observability-event",
+      "support-runbook",
+      "launch-register",
+      "fresh-state-scan",
+    ] as const) {
+      if (!evidenceRow.requiredEvidence.includes(requiredEvidence)) {
+        throw new Error(`Production proof readiness row must require ${requiredEvidence}.`);
+      }
+    }
+    if (evidenceRow.performanceSurface !== "checkout-entry-review-render") {
+      throw new Error("Production proof readiness row must prove checkout review render.");
+    }
+    if (evidenceRow.visibleState !== "checkout-review-visible") {
+      throw new Error("Production proof readiness row must prove the checkout review visible state.");
+    }
+    if (!evidenceRow.noSideEffectProofRequired || evidenceRow.sideEffectStatus !== "not-attempted") {
+      throw new Error("Production proof readiness row must prove no payment or order side effects started.");
+    }
+    if (!/\bpay-ready\b/i.test(evidenceRow.launchEvidenceExpectation)) {
+      throw new Error("Production proof readiness row must name pay-ready proof.");
+    }
+    if (!/temporary recovery/i.test(evidenceRow.launchEvidenceExpectation)) {
+      throw new Error("Production proof readiness row must distinguish temporary recovery from launch proof.");
+    }
   }
 }
 

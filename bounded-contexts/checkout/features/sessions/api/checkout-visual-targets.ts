@@ -66,6 +66,7 @@ export type CheckoutVisualTargetKey =
   | "split-group-summary"
   | "kill-switch-checkout-unavailable"
   | "temporary-recovery-loading"
+  | "production-proof-buy-now-readiness"
   | "disabled-accelerated-saved-instrument"
   | "promo-credit-gift-card-state"
   | "notification-support-reference"
@@ -516,6 +517,27 @@ export const checkoutVisualTargets = [
     exitEvidence: "Temporary recovery remains a known Checkout-owned state rather than an ambiguous platform error.",
   }),
   visualTarget({
+    surface: "production-proof-buy-now-readiness",
+    docLabel: "Production proof Buy Now readiness",
+    ownerIssues: ["#1112", "#1114", "#1115", "#1116", "#1123", "#1206"],
+    evidenceSources: ["generated-image", "implemented-baseline", "launch-evidence-row"],
+    artifact: "buy-flow",
+    frames: ["3 Desktop Guest Buy Checkout"],
+    viewports: ["desktop"],
+    copySurface: "checkout-review",
+    performanceSurface: "checkout-entry-review-render",
+    visibleState: "checkout-review-visible",
+    launchRegisterStatus: "required",
+    layoutRequirements: desktopCheckoutLayout,
+    forbiddenPatterns: universalForbiddenPatterns,
+    readinessBeforeCheckout: false,
+    noSideEffectEvidenceRequired: true,
+    pendingDownstreamBoundaryRequired: false,
+    deltaOwnerIssues: ["#1115", "#1116"],
+    exitEvidence:
+      "Production proof-mode Buy Now must reach pay-ready checkout within the ready SLO; temporary recovery is safety evidence only.",
+  }),
+  visualTarget({
     surface: "disabled-accelerated-saved-instrument",
     docLabel: "Disabled accelerated or saved instrument",
     ownerIssues: ["#1112", "#1113", "#1121", "#1124", "#1116"],
@@ -676,6 +698,7 @@ export const checkoutVisualRequiredTargets = [
   "split-group-summary",
   "kill-switch-checkout-unavailable",
   "temporary-recovery-loading",
+  "production-proof-buy-now-readiness",
   "disabled-accelerated-saved-instrument",
   "promo-credit-gift-card-state",
   "notification-support-reference",
