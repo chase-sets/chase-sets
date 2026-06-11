@@ -5,6 +5,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 ## Core References
 
 - [Product Brief](./PRODUCT.md): product vision, users, and marketplace economics.
+- [Launch Checklist](./launch/checklist.md): single frozen launch checklist for the Shopify-simple checkout; replaces per-PR evidence ledgers and is reviewed once at launch.
 - [Marketplace Glossary](./GLOSSARY.md): canonical marketplace language and account-role naming rules.
 - [Bounded Context Map](../bounded-contexts/README.md): strategic ownership and integration relationships.
 - [Bounded Context Structure](./architecture/bounded-context-structure.md): directory, export, deployable-composition, and typed-ID rules.
