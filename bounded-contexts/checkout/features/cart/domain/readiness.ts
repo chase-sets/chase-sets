@@ -389,3 +389,32 @@ export function validateCartReadinessSnapshot(
     valid: current.snapshotId === provided.snapshotId && current.sourceRevision === provided.sourceRevision,
   };
 }
+
+export function cartReadinessDecisionsFromSnapshot(snapshot: CartReadinessSnapshot): CartReadinessDecisionInput {
+  return {
+    lineOutcomes: snapshot.lineOutcomes
+      .filter(
+        (
+          outcome,
+        ): outcome is Readonly<{
+          lineId: string;
+          outcome: Exclude<CartReadinessLineOutcome, "checkout">;
+          reason: CartReadinessSnapshot["lineOutcomes"][number]["reason"];
+        }> => outcome.outcome === "removed" || outcome.outcome === "save-for-later",
+      )
+      .map((outcome) => ({
+        lineId: outcome.lineId,
+        outcome: outcome.outcome,
+      })),
+    optimization:
+      (snapshot.optimization.decision === "accepted" || snapshot.optimization.decision === "declined") &&
+      snapshot.optimization.proposedLineId &&
+      snapshot.optimization.proposedListingId
+        ? {
+            decision: snapshot.optimization.decision,
+            lineId: snapshot.optimization.proposedLineId,
+            listingId: snapshot.optimization.proposedListingId,
+          }
+        : null,
+  };
+}

@@ -119,6 +119,13 @@ unresolved line IDs, customer-safe line outcomes, and optional fulfillment optim
 session creation recomputes the snapshot from current cart facts and rejects missing, stale, partial, blocked, or
 unresolved readiness input.
 
+Returning to an uncommitted active cart checkout session or submitting final confirmation revalidates the stored
+readiness snapshot against current cart facts. If the source revision, customer decisions, fulfillment readiness, or
+unresolved line state no longer matches, Checkout routes the customer back to cart/readiness recovery and does not
+start payment, order, label, payout, settlement, notification, account-history, or support side effects. Once order or
+payment records exist, reloads follow confirmation, payment handoff, and reconciliation state instead of revalidating a
+cart source that may already be consumed.
+
 Supported customer-safe outcomes before checkout are:
 
 - ready lines continue into checkout;

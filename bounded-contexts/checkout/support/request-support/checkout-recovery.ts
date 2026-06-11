@@ -184,7 +184,7 @@ export function checkoutRecoveryForError(
       return checkoutRecoveryForKind("cart-empty", currentPath);
     }
 
-    if (code === "validation_failed") {
+    if (code === "validation_failed" || code === "readiness_snapshot_stale" || code === "unresolved_fulfillment") {
       return checkoutRecoveryForKind("request-validation", currentPath);
     }
   }

@@ -10,6 +10,7 @@ import {
   normalizeRequestedBalanceCreditAmount,
   submitPurchaseIntentThroughMarketplace,
 } from "../../../support/request-support/checkout-confirmation";
+import { CheckoutDomainError } from "../../../support/runtime-support/common";
 
 function requireCheckoutAccess(c: { get(key: "actor"): CheckoutApiEnv["Variables"]["actor"] }) {
   const actor = c.get("actor");
@@ -247,7 +248,17 @@ export function createAccountCheckoutSessionRoutes(services: CheckoutSessionServ
       return access.response;
     }
 
-    const session = await services.getSession(c.req.param("sessionId"), access.actor.accountId);
+    let session: Awaited<ReturnType<CheckoutSessionServices["getSession"]>>;
+    try {
+      session = await services.getSession(c.req.param("sessionId"), access.actor.accountId);
+    } catch (error) {
+      if (error instanceof CheckoutDomainError) {
+        return c.json({ error: { code: errorCode(error), message: errorMessage(error) } }, 400);
+      }
+
+      throw error;
+    }
+
     if (!session) {
       return c.json(
         { error: { code: "not_found", message: t("checkout.features.sessions.api.route.checkout.session.not.found") } },

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   applyCartReadinessToLines,
+  cartReadinessDecisionsFromSnapshot,
   cartReadinessLineHasFulfillment,
   createCartReadinessSnapshot,
   parseCartReadinessDecisionInput,
@@ -177,6 +178,48 @@ describe("cart readiness snapshots", () => {
     expect(snapshot.status).toBe("ready");
     expect(snapshot.optimization.decision).toBe("declined");
     expect(applyCartReadinessToLines([expensiveLockedLine], snapshot)[0]?.locked_listing_id).toBe("lst_expensive");
+  });
+
+  it("replays stored customer decisions when revalidating an active checkout session", () => {
+    const expensiveLockedLine: CartReadinessLine = {
+      ...readyLine,
+      line_id: "cli_optimized",
+      locked_listing_id: "lst_expensive",
+      seller_options: [
+        { ...readyLine.seller_options[0]!, listing_id: "lst_expensive", price_amount: "30.00" },
+        { ...readyLine.seller_options[0]!, listing_id: "lst_lower", price_amount: "24.00" },
+      ],
+    };
+    const saved: CartReadinessLine = { ...readyLine, line_id: "cli_saved" };
+    const removed: CartReadinessLine = { ...readyLine, line_id: "cli_removed" };
+    const currentLines = [expensiveLockedLine, saved, removed];
+
+    for (const decision of ["accepted", "declined"] as const) {
+      const snapshot = createCartReadinessSnapshot(currentLines, {
+        lineOutcomes: [
+          { lineId: "cli_saved", outcome: "save-for-later" },
+          { lineId: "cli_removed", outcome: "removed" },
+        ],
+        optimization: { decision, lineId: "cli_optimized", listingId: "lst_lower" },
+      });
+
+      const decisions = cartReadinessDecisionsFromSnapshot(snapshot);
+
+      expect(decisions).toEqual({
+        lineOutcomes: [
+          { lineId: "cli_removed", outcome: "removed" },
+          { lineId: "cli_saved", outcome: "save-for-later" },
+        ],
+        optimization: { decision, lineId: "cli_optimized", listingId: "lst_lower" },
+      });
+      expect(
+        validateCartReadinessSnapshot(currentLines, {
+          snapshotId: snapshot.snapshotId,
+          sourceRevision: snapshot.sourceRevision,
+          decisions,
+        }).valid,
+      ).toBe(true);
+    }
   });
 
   it("parses readiness decisions without promoting malformed outcomes", () => {
