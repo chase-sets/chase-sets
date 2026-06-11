@@ -204,12 +204,6 @@
       "@chase-sets/identity/web": [
         "./bounded-contexts/identity/web.ts"
       ],
-      "@chase-sets/insights": [
-        "./bounded-contexts/insights/index.ts"
-      ],
-      "@chase-sets/insights/context": [
-        "./bounded-contexts/insights/context.json"
-      ],
       "@chase-sets/inventory": [
         "./bounded-contexts/inventory/index.ts"
       ],

@@ -27,9 +27,8 @@ Structure, public export, deployable composition, and shared-ID rules live in [B
 | [Payments](./payments/README.md) | Own external money movement, charges, and refunds. |
 | [Settlement](./settlement/README.md) | Own internal ledger truth, balances, and payouts. |
 | [Pricing](./pricing/README.md) | Own fair-value estimation and repricing intelligence. |
-| [Insights](./insights/README.md) | Own cross-context reporting, analytics, and forecasting views. |
 | [Support](./support/README.md) | Own structured marketplace support requests with guided, auditable resolution steps. |
-| [Platform Operations](./platform-operations/README.md) | Own internal operator workflows for cross-context platform runtime health. |
+| [Platform Operations](./platform-operations/README.md) | Own operator workflows for platform runtime health, release controls, and cross-context insights reporting. |
 
 Implemented contexts are the directories that contain both `package.json` and `context.json`.
 
@@ -76,7 +75,7 @@ Use Buyer and Seller when describing transaction endpoints: the buyer account pa
 - Payments depends on Ordering and on refund triggers informed by Fulfillment outcomes.
 - Settlement depends on Payments and Ordering.
 - Pricing consumes history from Catalog, Inventory, Marketplace, Ordering, and Fulfillment.
-- Insights consumes integration events from every context.
+- Platform Operations consumes integration events from transactional contexts for read-only insights reporting.
 
 ## Integration Rule
 
@@ -98,4 +97,4 @@ These scenarios should map cleanly to one owner per decision:
 8. Settlement owns ledger adjustments and payout eligibility.
 9. Ordering owns tax quote contracts and order tax snapshots through its tax-quotes slice.
 10. Pricing owns recommendations but never directly mutates listings or inventory.
-11. Insights owns reporting and forecasting without owning source transactions.
+11. Platform Operations owns insights reporting and forecasting without owning source transactions.

@@ -8,7 +8,6 @@ import { contextManifest as discoveryManifest, module as discoveryModule } from 
 import { contextManifest as experienceManifest, module as experienceModule } from "@chase-sets/experience";
 import { contextManifest as fulfillmentManifest, module as fulfillmentModule } from "@chase-sets/fulfillment";
 import { contextManifest as identityManifest, module as identityModule } from "@chase-sets/identity";
-import { contextManifest as insightsManifest, module as insightsModule } from "@chase-sets/insights";
 import { contextManifest as inventoryManifest, module as inventoryModule } from "@chase-sets/inventory";
 import { contextManifest as marketplaceManifest, module as marketplaceModule } from "@chase-sets/marketplace";
 import { contextManifest as notificationsManifest, module as notificationsModule } from "@chase-sets/notification-center";
@@ -68,12 +67,6 @@ export const workerContextRegistry = [
     packageName: "@chase-sets/identity",
     manifest: identityManifest,
     module: identityModule,
-  },
-  {
-    contextName: "insights",
-    packageName: "@chase-sets/insights",
-    manifest: insightsManifest,
-    module: insightsModule,
   },
   {
     contextName: "inventory",

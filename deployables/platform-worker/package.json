@@ -32,7 +32,6 @@
     "@chase-sets/experience": "workspace:*",
     "@chase-sets/fulfillment": "workspace:*",
     "@chase-sets/identity": "workspace:*",
-    "@chase-sets/insights": "workspace:*",
     "@chase-sets/inventory": "workspace:*",
     "@chase-sets/marketplace": "workspace:*",
     "@chase-sets/money-movement-testing": "workspace:*",

@@ -1,10 +1,19 @@
 {
   "contextName": "platform-operations",
   "packageName": "@chase-sets/platform-operations",
-  "ownedNouns": ["projection-operation", "platform-operation-attention", "feature-rollout", "release-lock"],
+  "ownedNouns": [
+    "projection-operation",
+    "platform-operation-attention",
+    "feature-rollout",
+    "release-lock",
+    "sales-performance-kpi",
+    "fulfillment-latency-kpi",
+    "conversion-order-kpi",
+    "dashboard-read-model"
+  ],
   "streamPrefix": "platform-operations.",
   "apiBasePath": "/api/platform",
-  "slices": ["projection-operations", "release-controls", "release-dashboard"],
+  "slices": ["projection-operations", "release-controls", "release-dashboard", "insights-dashboards"],
   "allowedSupportDirectories": ["runtime-support"],
   "publicExports": [".", "./context", "./routes/*"],
   "allowedContextDependencies": [],
@@ -111,6 +120,12 @@
       "purpose": "Own operator-facing release health, production currency, canary status, and release-dashboard language for Platform Operations.",
       "allowedWhen": "Required when release-health artifacts and release-control policy need a single read-only operations surface.",
       "expectedConsumers": ["Admin web route contribution", "Release process operators"]
+    },
+    "insights-dashboards": {
+      "classification": "slice",
+      "purpose": "Own cross-context analytical dashboard-read-model contracts, KPI projection behavior, and dashboard query language for Platform Operations reporting.",
+      "allowedWhen": "Required when marketplace reporting needs read-only KPI projections without a transactional owner.",
+      "expectedConsumers": ["Internal platform-operations module composition", "Future operator reporting surfaces"]
     },
     "runtime-support": {
       "classification": "support",

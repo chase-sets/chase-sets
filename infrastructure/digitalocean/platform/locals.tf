@@ -339,7 +339,6 @@ locals {
     "experience",
     "fulfillment",
     "identity",
-    "insights",
     "inventory",
     "marketplace",
     "notifications",

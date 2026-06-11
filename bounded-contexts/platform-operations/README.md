@@ -12,15 +12,17 @@ Platform Operations owns internal operator workflows for cross-context platform 
 - Platform operation admin route modules
 - Platform operation API clients
 - Platform operation workflow tests
+- Cross-context analytical KPI dashboard-read-model contracts and dashboard query language (`features/insights-dashboards`)
 
 ## Does Not Own
 
-- Projection handlers, read models, or projection group declarations
+- Projection handlers, read models, or projection group declarations owned by business contexts
 - Projection replay, retry, rebuild, lease, or fencing semantics
 - Source-context event facts
 - Bounded-context business repair policy
 - Deployable runtime composition
 - Business-context decisions about whether a released capability should exist
+- Transactional decisions, order lifecycle invariants, or payment authorizations behind analytical reporting
 
 ## Boundary Notes
 

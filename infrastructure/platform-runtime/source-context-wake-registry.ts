@@ -272,18 +272,6 @@ export const sourceContextWakeRegistry = [
     routeDependencyIds: ["identity.shipping-addresses-self-refresh"],
   }),
   registryEntry({
-    sourceContextName: "insights",
-    owner: "Insights",
-    rolloutState: "not-eligible",
-    phase: "phase-3-expansion",
-    rolloutWave: "wave-4-deferred-or-not-eligible",
-    priorityLane: "bulk",
-    expectedEventVolume: "unknown",
-    wakeStoreLoadEstimate: "none",
-    affectedProjectionNames: [],
-    routeDependencyIds: [],
-  }),
-  registryEntry({
     sourceContextName: "inventory",
     owner: "Inventory",
     rolloutState: "eligible",

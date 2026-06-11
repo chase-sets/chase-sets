@@ -52,7 +52,6 @@ Each context has its own `README.md` and `GLOSSARY.md` where useful. Treat those
 - `discovery`: browse, search, detail, filters, facets, and relevance behavior.
 - `fulfillment`: ship-from locations, shipments, packages, and shipping method selection.
 - `identity`: users, accounts, memberships, and roles.
-- `insights`: analytical projections, dashboards, metrics, and forecasting views.
 - `inventory`: account-held stock, storage, availability, and resolved product inventory.
 - `marketplace`: listings, offers, product-scoped supply, and product-scoped demand before orders exist.
 - `ordering`: commercial commitments between purchasing and selling accounts after checkout creates orders, including provider-agnostic tax quotes and order tax snapshots.

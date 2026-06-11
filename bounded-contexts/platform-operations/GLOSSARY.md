@@ -21,3 +21,8 @@
 - Kill Switch: A Feature Rollout override that disables a capability for every subject until an operator clears it.
 - Account Allowlist: A rollout list that enables a capability for specific account subjects before or outside the percentage cohort.
 - Account Opt-Out: A rollout list that disables a capability for specific account subjects even when the percentage cohort includes them.
+- Analytical Projection: A read-only dashboard-read-model built from integration events across multiple bounded contexts.
+- KPI: A named metric used to track marketplace or account performance. Canonical KPI contracts are Sales Performance KPI (`insights.dashboards.sales-performance-kpi.query`, `/dashboards/sales-performance-kpi`), Fulfillment Latency KPI (`insights.dashboards.fulfillment-latency-kpi.query`, `/dashboards/fulfillment-latency-kpi`), and Conversion Order KPI (`insights.dashboards.conversion-order-kpi.query`, `/dashboards/conversion-order-kpi`).
+- Dashboard View: The presentation-focused projection used to render operational or commercial reporting.
+- Forecast Model: The analytical model used to estimate future demand, pricing, or operational outcomes.
+- Report Slice: A filtered analytical view scoped by time, account, or product dimensions.

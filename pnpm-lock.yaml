@@ -487,18 +487,6 @@ importers:
         specifier: ^8.20.0
         version: 8.20.0
 
-  bounded-contexts/insights:
-    dependencies:
-      '@chase-sets/bounded-context-module':
-        specifier: workspace:*
-        version: link:../../contracts/bounded-context-module
-      '@chase-sets/event-core':
-        specifier: workspace:*
-        version: link:../../contracts/event-core
-      '@chase-sets/event-core-postgres':
-        specifier: workspace:*
-        version: link:../../infrastructure/event-core-postgres
-
   bounded-contexts/inventory:
     dependencies:
       '@chase-sets/bounded-context-module':
@@ -1736,9 +1724,6 @@ importers:
       '@chase-sets/identity':
         specifier: workspace:*
         version: link:../../bounded-contexts/identity
-      '@chase-sets/insights':
-        specifier: workspace:*
-        version: link:../../bounded-contexts/insights
       '@chase-sets/inventory':
         specifier: workspace:*
         version: link:../../bounded-contexts/inventory
