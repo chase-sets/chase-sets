@@ -1383,15 +1383,12 @@ function DiscoveryItemDetailRealtimeView({
                 mobile: {
                   buy: {
                     content: renderBuyActionCard("mobile-buy-card", "plain", "panel"),
-                    title: t("discovery.routes.itemDetail.buy"),
                   },
                   sell: {
                     content: renderSellActionCard("mobile-sell-card", "plain", "panel"),
-                    title: t("discovery.routes.itemDetail.sell.2"),
                   },
                   watch: {
                     content: renderWatchActionCard("mobile-watch-card", "plain", "panel"),
-                    title: t("discovery.routes.itemDetail.watch"),
                   },
                 },
                 sellLabel: data.canUseSellerFeatures
