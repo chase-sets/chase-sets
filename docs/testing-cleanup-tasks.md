@@ -25,7 +25,11 @@ This list tracks the cleanup work from the full test-suite review.
 - [ ] Replace source-string tests with exported policies, metadata, or runtime behavior tests.
   - [x] Converted the marketplace service-worker cache/exclusion coverage to assert exported policy helpers.
   - [x] Removed the platform API dependency on the deleted manual marketplace parity matrix.
-  - [ ] Convert platform feedback placement coverage away from source scanning.
-  - [ ] Convert admin-support bootstrap profile coverage away from source scanning.
+  - [ ] Convert platform feedback placement coverage away from source scanning (the placement
+        contract spans route sources in other contexts and is not exported anywhere yet).
+  - [x] Convert admin-support bootstrap profile coverage away from source scanning (now exercises
+        the bootstrap entrypoint with mocked dependencies and asserts the orchestration calls).
+  - [x] Convert admin-web dev proxy coverage away from source scanning (now imports the vite
+        config and asserts the exported proxy table).
 - [ ] Extract repeated Hono route-test harness helpers for actor/context/service setup.
 - [ ] Revisit UI tests that assert class fragments or incidental text and convert them to user-facing contracts.
