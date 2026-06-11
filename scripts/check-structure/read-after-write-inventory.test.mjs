@@ -210,6 +210,79 @@ describe("read-after-write route inventory guard", () => {
     );
   });
 
+  it("fails when inventory claims a loader helper the destination route module does not use", async () => {
+    const root = createTempRepo();
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-start.tsx", ["appendFreshWriteToken"]);
+    writeFileSync(
+      path.join(root, "bounded-contexts", "checkout", "routes", "checkout-session.tsx"),
+      ["export async function loader() {", "  return { ok: true };", "}", ""].join("\n"),
+      "utf8",
+    );
+
+    const result = await validate(root, createContextManifest(root));
+
+    expect(result.violations).toContain(
+      "bounded-contexts/checkout/context.json readAfterWriteRouteInventory[0]: destination.helperUses claims 'loadFreshlyWrittenResource' on route 'checkout-session' but no production route module for that route uses it",
+    );
+  });
+
+  it("fails when a file-level exception claims a helper the file does not use", async () => {
+    const root = createTempRepo();
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-start.tsx", ["appendFreshWriteToken"]);
+    writeFileSync(
+      path.join(root, "bounded-contexts", "checkout", "routes", "checkout-session.tsx"),
+      ["export async function loader() {", "  return { ok: true };", "}", ""].join("\n"),
+      "utf8",
+    );
+    mkdirSync(path.join(root, "bounded-contexts", "checkout", "support"), { recursive: true });
+    writeFileSync(
+      path.join(root, "bounded-contexts", "checkout", "support", "forwarding.ts"),
+      ["export function forward() {", "  return null;", "}", ""].join("\n"),
+      "utf8",
+    );
+
+    const result = await validate(
+      root,
+      createContextManifest(root, {
+        apiMounts: [
+          {
+            mountPath: "/api/marketplace",
+            kind: "primary",
+            requiresAuth: true,
+            readFreshnessRoutes: [],
+          },
+        ],
+        readAfterWriteRouteInventory: [
+          {
+            id: "checkout.token-carrier",
+            owner: "checkout",
+            risk: "important",
+            source: {
+              routeId: "checkout-start",
+              helperUses: ["appendFreshWriteToken"],
+            },
+            destination: {
+              routeId: "checkout-session",
+              transientRecovery: "Destination freshness is owned by another context.",
+            },
+            exception: {
+              status: "not-post-write-read",
+              owner: "checkout",
+              reviewBy: "2026-07-31",
+              reason: "This context only carries the token to another owning destination.",
+              files: ["bounded-contexts/checkout/support/forwarding.ts"],
+              helperUses: ["appendFreshWriteToken"],
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(result.violations).toContain(
+      "bounded-contexts/checkout/context.json readAfterWriteRouteInventory[0]: exception.helperUses claims 'appendFreshWriteToken' for file 'bounded-contexts/checkout/support/forwarding.ts' but the file does not use it",
+    );
+  });
+
   it("fails when a freshness route is not referenced by inventory metadata", async () => {
     const root = createTempRepo();
     writeRoute(root, "bounded-contexts/checkout/routes/checkout-start.tsx", ["appendFreshWriteToken"]);
