@@ -8,23 +8,24 @@ import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-s
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import { createCheckoutCartRuntime } from "../../features/cart/api/runtime";
 import { createCheckoutSellListRuntime } from "../../features/sell-list/api/runtime";
+import type { CheckoutObservabilityTelemetry } from "../../features/sessions/api/checkout-observability-telemetry";
 import { createCheckoutSessionRuntime } from "../../features/sessions/api/runtime";
 
-export type CheckoutServiceOptions = Readonly<Record<string, never>>;
+export type CheckoutHostPorts = Readonly<{
+  checkoutObservabilityTelemetry?: CheckoutObservabilityTelemetry;
+}>;
 
 export type CheckoutServices = Readonly<{
   cart: ReturnType<typeof createCheckoutCartRuntime>;
   sellList: ReturnType<typeof createCheckoutSellListRuntime>;
   sessions: ReturnType<typeof createCheckoutSessionRuntime>;
+  checkoutObservabilityTelemetry?: CheckoutObservabilityTelemetry;
   projectors: readonly ProjectionHandlerSet[];
   pool: PgTransactionalPool;
   db: PgQueryable;
 }>;
 
-export function createCheckoutServices(
-  pool: PgTransactionalPool,
-  _options: CheckoutServiceOptions = {},
-): CheckoutServices {
+export function createCheckoutServices(pool: PgTransactionalPool, ports: CheckoutHostPorts = {}): CheckoutServices {
   const eventStore = createPostgresEventStore({
     pool,
     wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "checkout" }),
@@ -44,6 +45,7 @@ export function createCheckoutServices(
     cart,
     sellList,
     sessions,
+    checkoutObservabilityTelemetry: ports.checkoutObservabilityTelemetry,
     projectors: [...cart.projectors, ...sellList.projectors, ...sessions.projectors],
     pool,
     db,

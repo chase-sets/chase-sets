@@ -49,6 +49,7 @@ import {
   recordCatalogControlPlaneEvent,
   recordCatalogIntegrationJob,
   recordCatalogIntegrationOptionQuery,
+  recordCheckoutObservabilityEvent,
   recordRealtimeAuthorizationRejected,
   recordRealtimeBatchRead,
   recordRealtimeConnectionClosed,
@@ -160,6 +161,7 @@ const mobileMessageWebhookGateway =
 const emailWebhookGateway = createSesEmailWebhookGateway();
 const catalogAssetStorage = createCatalogAssetStorage(config.catalogAssetStorage);
 const sourceObservationTelemetry = createSourceObservationTelemetry();
+const checkoutObservabilityTelemetry = createCheckoutObservabilityTelemetry();
 const listingPhotoStorage = createListingPhotoStorage(config.listingPhotoStorage);
 const taxQuoteResolver = shouldBlockProductionTaxQuotes(
   config.deploymentEnvironment,
@@ -201,6 +203,7 @@ const runtime = createPlatformApiHost({
     ...(postageWebhookGateway ? { postageWebhookGateway } : {}),
     catalogAssetStorage,
     sourceObservationTelemetry,
+    checkoutObservabilityTelemetry,
     listingPhotoStorage,
     ...(taxQuoteResolver ? { taxQuoteResolver } : {}),
     socialLoginProviders,
@@ -481,6 +484,12 @@ function createSourceObservationTelemetry() {
     recordBulkReviewWorkUnit: (event: { jobKind: string; result: string }) =>
       recordCatalogIntegrationJob({ ...event, operation: "bulk-review-work-unit" }),
     recordControlPlaneEvent: recordCatalogControlPlaneEvent,
+  };
+}
+
+function createCheckoutObservabilityTelemetry() {
+  return {
+    recordCheckoutEvent: recordCheckoutObservabilityEvent,
   };
 }
 

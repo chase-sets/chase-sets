@@ -4,6 +4,8 @@ Milestone #17 uses this contract to turn launch-matrix `observability-event` evi
 
 The executable contract lives in `bounded-contexts/checkout/features/sessions/api/checkout-observability-contract.ts`.
 The runtime recorder lives in `infrastructure/observability/index.ts` as `recordCheckoutObservabilityEvent`.
+Checkout receives that recorder through the `checkoutObservabilityTelemetry` host port so the context can emit
+contracted events without importing infrastructure observability directly.
 
 ## Evidence Rules
 
@@ -29,7 +31,7 @@ Grafana provisions `infrastructure/observability/stack/grafana/dashboards/checko
 
 Starter alerts live in `infrastructure/observability/stack/grafana/provisioning/alerting/platform-api-alerts.yml` for launch/fresh-state/provider alert events and side-effect boundary violations.
 
-This dashboard is the query and alert baseline. `recordCheckoutObservabilityEvent` is the runtime emission primitive: it whitelists bounded launch labels, converts support references to presence, and does not accept raw checkout ids, account ids, emails, addresses, provider payloads, `afterWrite` tokens, card data, bank data, full URLs, secrets, or sensitive risk details as metric attributes. #1114 remains open until checkout route call sites and staging/launch evidence prove these panels receive redacted events for launch-supported states.
+This dashboard is the query and alert baseline. `recordCheckoutObservabilityEvent` is the runtime emission primitive: it whitelists bounded launch labels, converts support references to presence, and does not accept raw checkout ids, account ids, emails, addresses, provider payloads, `afterWrite` tokens, card data, bank data, full URLs, secrets, or sensitive risk details as metric attributes. The first Checkout route call sites emit buy review render, active-session stale recovery, changed-economics review, and confirmation handoff pending-downstream events. #1114 remains open until remaining launch-supported states and staging/launch evidence prove these panels receive redacted events.
 
 ## Required Dimensions
 
