@@ -287,6 +287,64 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.queryByText(/raw JSON|Profile JSON|Candidate JSON|Active JSON/i)).toBeNull();
   });
 
+  it("renders lifecycle recovery with rollback, deprecation, retirement, and complete-removal evidence", () => {
+    const overview = controlPlaneOverview();
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.04&section=lifecycle",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: {
+        items: [profileReview({ active: true, lifecycle: "active", referenceCount: 2 })],
+        total: 1,
+        count: 1,
+      },
+      controlPlaneOverview: {
+        ...overview,
+        unitActivity: {
+          ...overview.unitActivity,
+          units: overview.unitActivity.units.map((unit) => ({ ...unit, recentJobs: [] })),
+        },
+      },
+      canManageCatalog: true,
+    });
+
+    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+
+    expect(screen.getByRole("heading", { name: "Lifecycle recovery" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Open activation readiness" }).getAttribute("href")).toContain(
+      "section=readiness",
+    );
+    expect(screen.getByRole("heading", { name: "Rollback profile" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Deprecate profile" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Retire profile" })).toBeTruthy();
+    expect(screen.getByText("Retire means complete removal")).toBeTruthy();
+    expect(screen.getAllByText(/complete removal of code, product patterns/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Profile retirement references").length).toBeGreaterThan(0);
+
+    const rollbackForm = document.querySelector<HTMLFormElement>('form[data-catalog-lifecycle-command="rollback"]');
+    const deprecateForm = document.querySelector<HTMLFormElement>('form[data-catalog-lifecycle-command="deprecate"]');
+    const retireForm = document.querySelector<HTMLFormElement>('form[data-catalog-lifecycle-command="retire"]');
+
+    expect(rollbackForm?.getAttribute("action")).toContain("section=lifecycle");
+    expect(deprecateForm?.getAttribute("action")).toContain("section=lifecycle");
+    expect(retireForm?.getAttribute("action")).toContain("section=lifecycle");
+    expect(rollbackForm?.querySelector<HTMLInputElement>('input[name="_intent"]')?.value).toBe(
+      "rollback-provider-profile",
+    );
+    expect(deprecateForm?.querySelector<HTMLInputElement>('input[name="_intent"]')?.value).toBe(
+      "deprecate-provider-profile",
+    );
+    expect(retireForm?.querySelector<HTMLInputElement>('input[name="_intent"]')?.value).toBe("retire-provider-profile");
+    expect(screen.getByLabelText(/I confirm rollback profile impact and audit evidence/i)).toBeTruthy();
+    expect(screen.getByLabelText(/I confirm deprecate profile impact and audit evidence/i)).toBeTruthy();
+    expect(
+      screen.getByLabelText(/I confirm retirement means complete removal and all impact evidence is clear/i),
+    ).toBeTruthy();
+    expect(retireForm?.querySelector<HTMLInputElement>('input[name="providerKey"]')?.value).toBe("tcgdex");
+    expect(retireForm?.querySelector<HTMLInputElement>('input[name="profileVersion"]')?.value).toBe("2026.06.04");
+    expect(screen.queryByText(/raw JSON|Profile JSON|Candidate JSON|Active JSON/i)).toBeNull();
+  });
+
   it("renders option-query, import-scope, and mapping authoring detail panels without reviving raw profile editors", () => {
     const baseOverview = controlPlaneOverview();
     const readModel = buildCatalogPrimaryWorkbenchReadModel({

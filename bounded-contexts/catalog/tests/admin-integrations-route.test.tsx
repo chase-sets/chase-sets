@@ -605,6 +605,170 @@ describe("Catalog integrations route", () => {
     );
   });
 
+  it("runs provider profile rollback, deprecation, and retirement from lifecycle recovery", async () => {
+    const rollbackSourceObservationProviderProfile = vi.fn().mockResolvedValue({
+      providerKey: "tcgdex",
+      profileKey: "tcgdex-pokemon-card",
+      profileVersion: "2026.06.03",
+    });
+    const deprecateSourceObservationProviderProfile = vi.fn().mockResolvedValue({
+      providerKey: "tcgdex",
+      profileKey: "tcgdex-pokemon-card",
+      profileVersion: "2026.06.04",
+    });
+    const retireSourceObservationProviderProfile = vi.fn().mockResolvedValue({
+      providerKey: "tcgdex",
+      profileKey: "tcgdex-pokemon-card",
+      profileVersion: "2026.06.02",
+    });
+    const recordCatalogControlPlaneEvent = vi.fn().mockResolvedValue({ status: "recorded" });
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      rollbackSourceObservationProviderProfile,
+      deprecateSourceObservationProviderProfile,
+      retireSourceObservationProviderProfile,
+      recordCatalogControlPlaneEvent,
+    });
+
+    const lifecycleUrl =
+      "https://admin.example/catalog/integrations?section=lifecycle&providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1";
+    const rollbackResponse = await runAction(
+      {
+        _intent: "rollback-provider-profile",
+        providerKey: "tcgdex",
+        profileVersion: "2026.06.03",
+        lifecycleConfirmation: lifecycleConfirmationValue("rollback-provider-profile", "tcgdex", "2026.06.03"),
+        selectedObservationIds: "obs_001",
+        promotionPreviewId: "preview-stale",
+      },
+      lifecycleUrl,
+    );
+    const deprecateResponse = await runAction(
+      {
+        _intent: "deprecate-provider-profile",
+        providerKey: "tcgdex",
+        profileVersion: "2026.06.04",
+        lifecycleConfirmation: lifecycleConfirmationValue("deprecate-provider-profile", "tcgdex", "2026.06.04"),
+      },
+      lifecycleUrl,
+    );
+    const retireResponse = await runAction(
+      {
+        _intent: "retire-provider-profile",
+        providerKey: "tcgdex",
+        profileVersion: "2026.06.02",
+        lifecycleConfirmation: lifecycleConfirmationValue("retire-provider-profile", "tcgdex", "2026.06.02"),
+      },
+      lifecycleUrl,
+    );
+
+    expect(rollbackSourceObservationProviderProfile).toHaveBeenCalledWith("tcgdex", "2026.06.03");
+    expect(deprecateSourceObservationProviderProfile).toHaveBeenCalledWith("tcgdex", "2026.06.04");
+    expect(retireSourceObservationProviderProfile).toHaveBeenCalledWith("tcgdex", "2026.06.02");
+    expect(rollbackResponse.headers.get("Location")).toContain("section=lifecycle");
+    expect(rollbackResponse.headers.get("Location")).toContain("commandResult=profile-rolled-back");
+    expect(rollbackResponse.headers.get("Location")).not.toContain("promotionPreviewId=");
+    expect(deprecateResponse.headers.get("Location")).toContain("commandResult=profile-deprecated");
+    expect(retireResponse.headers.get("Location")).toContain("commandResult=profile-retired");
+    expect(recordCatalogControlPlaneEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "catalog_control_plane.profile_rolled_back",
+        detourTarget: "lifecycle-recovery",
+        detourOutcome: "returned",
+        promotionResult: "profile-rolled-back",
+      }),
+    );
+    expect(recordCatalogControlPlaneEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "catalog_control_plane.profile_deprecated",
+        promotionResult: "profile-deprecated",
+      }),
+    );
+    expect(recordCatalogControlPlaneEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "catalog_control_plane.profile_retired",
+        promotionResult: "profile-retired",
+      }),
+    );
+  });
+
+  it("fails closed when profile lifecycle confirmation is missing", async () => {
+    const retireSourceObservationProviderProfile = vi.fn();
+    const recordCatalogControlPlaneEvent = vi.fn().mockResolvedValue({ status: "recorded" });
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      retireSourceObservationProviderProfile,
+      recordCatalogControlPlaneEvent,
+    });
+
+    const response = await runAction(
+      {
+        _intent: "retire-provider-profile",
+        providerKey: "tcgdex",
+        unitKey: "tcgdex:pokemon:card:import",
+        importScope: "en:3:base:base1",
+        profileVersion: "2026.06.02",
+      },
+      "https://admin.example/catalog/integrations?section=lifecycle&providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1",
+    );
+
+    expect(retireSourceObservationProviderProfile).not.toHaveBeenCalled();
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toContain("section=lifecycle");
+    expect(response.headers.get("Location")).toContain("commandStatus=error");
+    expect(response.headers.get("Location")).toContain("commandResult=confirmation-required");
+    expect(recordCatalogControlPlaneEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "catalog_control_plane.blocker_hit",
+        providerKey: "tcgdex",
+        profileRef: "tcgdex:2026.06.02",
+        promotionResult: "confirmation-required",
+        detourTarget: "lifecycle-recovery",
+        detourOutcome: "blocked",
+        blockerCategory: "readiness",
+      }),
+    );
+  });
+
+  it("returns lifecycle-scoped feedback for profile lifecycle consistency conflicts", async () => {
+    const retireSourceObservationProviderProfile = vi
+      .fn()
+      .mockRejectedValue(new CatalogApiError(409, { error: { code: "profile_lifecycle_active_jobs" } }));
+    const recordCatalogControlPlaneEvent = vi.fn().mockResolvedValue({ status: "recorded" });
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      retireSourceObservationProviderProfile,
+      recordCatalogControlPlaneEvent,
+    });
+
+    const response = await runAction(
+      {
+        _intent: "retire-provider-profile",
+        providerKey: "tcgdex",
+        unitKey: "tcgdex:pokemon:card:import",
+        importScope: "en:3:base:base1",
+        profileVersion: "2026.06.02",
+        lifecycleConfirmation: lifecycleConfirmationValue("retire-provider-profile", "tcgdex", "2026.06.02"),
+        promotionPreviewId: "preview-stale",
+      },
+      "https://admin.example/catalog/integrations?section=lifecycle&providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1",
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toContain("section=lifecycle");
+    expect(response.headers.get("Location")).toContain("commandStatus=error");
+    expect(response.headers.get("Location")).toContain("commandResult=lifecycle-conflict");
+    expect(response.headers.get("Location")).not.toContain("promotionPreviewId=");
+    expect(recordCatalogControlPlaneEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "catalog_control_plane.blocker_hit",
+        providerKey: "tcgdex",
+        profileRef: "tcgdex:2026.06.02",
+        promotionResult: "lifecycle-conflict",
+        detourTarget: "lifecycle-recovery",
+        detourOutcome: "blocked",
+        blockerCategory: "active-job",
+      }),
+    );
+  });
+
   it("returns section-scoped feedback for stale and invalid section saves", async () => {
     const listSourceObservationProviderProfiles = vi.fn().mockResolvedValue({
       items: [profileReview({ active: false, lifecycle: "draft", profileVersion: "2026.06.04-draft" })],
@@ -855,6 +1019,10 @@ describe("Catalog integrations route", () => {
     expect(failureResponse.headers.get("Location")).not.toContain("provider%20secret%20leaked");
   });
 });
+
+function lifecycleConfirmationValue(intent: string, providerKey: string, profileVersion: string): string {
+  return `confirm:${intent}:${providerKey}:${profileVersion}`;
+}
 
 async function runAction(body: Record<string, string>, url = "https://admin.example/catalog/integrations") {
   return action({

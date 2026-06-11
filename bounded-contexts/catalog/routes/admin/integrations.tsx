@@ -14,8 +14,10 @@ import type {
 } from "../../client";
 import type {
   CatalogPrimaryWorkbenchActionReadModel,
+  CatalogPrimaryWorkbenchLifecycleOperation,
   CatalogPrimaryWorkbenchRouteContext,
 } from "../../features/source-observations/api/primary-workbench-admin-contracts";
+import type { CatalogAdminRollbackRetirementImpactSummaryReadModel } from "../../features/source-observations/api/admin-control-plane-read-model-contracts";
 import type {
   CatalogProviderProfileAuthoringModel,
   CatalogProviderProfileEditableSectionKey,
@@ -50,6 +52,9 @@ type CatalogPrimaryWorkbenchFormIntent = Extract<
   | "cancel-import-job"
   | "clone-provider-profile"
   | "activate-provider-profile"
+  | "rollback-provider-profile"
+  | "deprecate-provider-profile"
+  | "retire-provider-profile"
   | "update-provider-profile-section"
   | "preview-promotion"
   | "execute-promotion"
@@ -82,6 +87,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     canManageCatalog: true,
   });
   const profileAuthoringModel = await selectedProviderProfileAuthoringModel(api, preliminaryReadModel.routeContext);
+  const lifecycleImpacts = await selectedProviderProfileLifecycleImpacts(api, preliminaryReadModel.routeContext);
   const reviewPagination = { limit: 25, offset: 0 };
   const reviewQuery = buildCatalogPrimaryWorkbenchSourceObservationReviewQuery(
     preliminaryReadModel.routeContext,
@@ -95,6 +101,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     scopes: routeData.data,
     profileReviews,
     profileAuthoringModel,
+    lifecycleImpacts,
     controlPlaneOverview,
     reviewObservations,
     reviewPagination,
@@ -106,6 +113,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     ...routeData,
     profileReviews,
     profileAuthoringModel,
+    lifecycleImpacts,
     controlPlaneOverview,
     reviewObservations,
     reviewPagination,
@@ -127,6 +135,50 @@ async function selectedProviderProfileAuthoringModel(
     context.providerKey,
     context.profileVersion,
   );
+}
+
+async function selectedProviderProfileLifecycleImpacts(
+  api: ReturnType<typeof createCatalogRequestApiClient>,
+  context: CatalogPrimaryWorkbenchRouteContext,
+): Promise<Partial<
+  Record<CatalogPrimaryWorkbenchLifecycleOperation, CatalogAdminRollbackRetirementImpactSummaryReadModel>
+> | null> {
+  if (!context.providerKey || !context.profileVersion) {
+    return null;
+  }
+  if (typeof api.getSourceObservationProviderProfileLifecycleImpact !== "function") {
+    return null;
+  }
+
+  const providerKey = context.providerKey;
+  const profileVersion = context.profileVersion;
+  const operations: readonly CatalogPrimaryWorkbenchLifecycleOperation[] = [
+    "activation",
+    "rollback",
+    "deprecate",
+    "retire",
+  ];
+  const results = await Promise.allSettled(
+    operations.map(async (operation) => ({
+      operation,
+      impact:
+        await api.getSourceObservationProviderProfileLifecycleImpact<CatalogAdminRollbackRetirementImpactSummaryReadModel>(
+          providerKey,
+          profileVersion,
+          operation,
+        ),
+    })),
+  );
+  const impacts: Partial<
+    Record<CatalogPrimaryWorkbenchLifecycleOperation, CatalogAdminRollbackRetirementImpactSummaryReadModel>
+  > = {};
+  for (const result of results) {
+    if (result.status === "fulfilled") {
+      impacts[result.value.operation] = result.value.impact;
+    }
+  }
+
+  return impacts;
 }
 
 export async function action({ request }: ActionFunctionArgs) {
@@ -267,6 +319,67 @@ export async function action({ request }: ActionFunctionArgs) {
           status: "success",
           result: "profile-activated",
         });
+      }
+      case "rollback-provider-profile":
+      case "deprecate-provider-profile":
+      case "retire-provider-profile": {
+        const providerKey = stringValue(formData.get("providerKey")) ?? context.providerKey;
+        const profileVersion = stringValue(formData.get("profileVersion")) ?? context.profileVersion;
+        if (!providerKey || !profileVersion) {
+          return commandRedirectWithTelemetry(api, {
+            context: { ...context, section: "lifecycle-recovery", selectedObservationIds },
+            intent,
+            status: "error",
+            result: "invalid-intent",
+          });
+        }
+        if (!lifecycleConfirmationAccepted(formData, intent, providerKey, profileVersion)) {
+          return commandRedirectWithTelemetry(api, {
+            context: {
+              ...context,
+              section: "lifecycle-recovery",
+              providerKey,
+              profileVersion,
+              selectedObservationIds,
+              promotionPreviewId: null,
+            },
+            intent,
+            status: "error",
+            result: "confirmation-required",
+          });
+        }
+
+        try {
+          const profile = await runProviderProfileLifecycleCommand(api, intent, providerKey, profileVersion);
+
+          return commandRedirectWithTelemetry(api, {
+            context: {
+              ...context,
+              section: "lifecycle-recovery",
+              providerKey: profile.providerKey,
+              profileVersion: profile.profileVersion,
+              selectedObservationIds,
+              promotionPreviewId: null,
+            },
+            intent,
+            status: "success",
+            result: lifecycleSuccessResult(intent),
+          });
+        } catch (error) {
+          return commandRedirectWithTelemetry(api, {
+            context: {
+              ...context,
+              section: "lifecycle-recovery",
+              providerKey,
+              profileVersion,
+              selectedObservationIds,
+              promotionPreviewId: null,
+            },
+            intent,
+            status: "error",
+            result: lifecycleFailureResult(error),
+          });
+        }
       }
       case "update-provider-profile-section": {
         const providerKey = stringValue(formData.get("providerKey")) ?? context.providerKey;
@@ -489,6 +602,7 @@ export default function IntegrationsRoute() {
             scopes: routeData.data,
             profileReviews: routeData.profileReviews,
             profileAuthoringModel: routeData.profileAuthoringModel,
+            lifecycleImpacts: routeData.lifecycleImpacts,
             controlPlaneOverview: routeData.controlPlaneOverview,
             reviewObservations: routeData.reviewObservations,
             reviewPagination: routeData.reviewPagination,
@@ -566,9 +680,13 @@ function commandRedirect(input: {
       input.commandSection === "migration-evidence" &&
       input.context.section === "validation-readiness")
       ? "validation-readiness"
-      : input.intent === "clone-provider-profile" || input.intent === "update-provider-profile-section"
-        ? "profile-authoring"
-        : "import-to-promotion";
+      : input.intent === "rollback-provider-profile" ||
+          input.intent === "deprecate-provider-profile" ||
+          input.intent === "retire-provider-profile"
+        ? "lifecycle-recovery"
+        : input.intent === "clone-provider-profile" || input.intent === "update-provider-profile-section"
+          ? "profile-authoring"
+          : "import-to-promotion";
   const url = new URL(catalogPrimaryWorkbenchHref(input.context, redirectSection), "https://admin.example");
   url.searchParams.set("commandStatus", input.status);
   url.searchParams.set("commandIntent", input.intent);
@@ -600,9 +718,14 @@ function isCommandFeedbackResult(value: string | null): value is CatalogPrimaryW
     value === "preview-ready" ||
     value === "draft-created" ||
     value === "profile-activated" ||
+    value === "profile-rolled-back" ||
+    value === "profile-deprecated" ||
+    value === "profile-retired" ||
     value === "section-saved" ||
     value === "section-conflict" ||
     value === "section-invalid" ||
+    value === "lifecycle-conflict" ||
+    value === "confirmation-required" ||
     value === "preview-required" ||
     value === "job-required" ||
     value === "reason-required" ||
@@ -972,6 +1095,86 @@ function editableProfileSectionKey(value: string | null): CatalogProviderProfile
     default:
       return null;
   }
+}
+
+async function runProviderProfileLifecycleCommand(
+  api: ReturnType<typeof createCatalogRequestApiClient>,
+  intent: Extract<
+    CatalogPrimaryWorkbenchFormIntent,
+    "rollback-provider-profile" | "deprecate-provider-profile" | "retire-provider-profile"
+  >,
+  providerKey: string,
+  profileVersion: string,
+): Promise<CatalogProviderProfileVersionReview> {
+  if (intent === "rollback-provider-profile") {
+    return api.rollbackSourceObservationProviderProfile<CatalogProviderProfileVersionReview>(
+      providerKey,
+      profileVersion,
+    );
+  }
+  if (intent === "deprecate-provider-profile") {
+    return api.deprecateSourceObservationProviderProfile<CatalogProviderProfileVersionReview>(
+      providerKey,
+      profileVersion,
+    );
+  }
+
+  return api.retireSourceObservationProviderProfile<CatalogProviderProfileVersionReview>(providerKey, profileVersion);
+}
+
+function lifecycleConfirmationAccepted(
+  formData: FormData,
+  intent: Extract<
+    CatalogPrimaryWorkbenchFormIntent,
+    "rollback-provider-profile" | "deprecate-provider-profile" | "retire-provider-profile"
+  >,
+  providerKey: string,
+  profileVersion: string,
+): boolean {
+  return (
+    stringValue(formData.get("lifecycleConfirmation")) ===
+    lifecycleConfirmationValue(intent, providerKey, profileVersion)
+  );
+}
+
+function lifecycleConfirmationValue(
+  intent: Extract<
+    CatalogPrimaryWorkbenchFormIntent,
+    "rollback-provider-profile" | "deprecate-provider-profile" | "retire-provider-profile"
+  >,
+  providerKey: string,
+  profileVersion: string,
+): string {
+  return `confirm:${intent}:${providerKey}:${profileVersion}`;
+}
+
+function lifecycleSuccessResult(
+  intent: Extract<
+    CatalogPrimaryWorkbenchFormIntent,
+    "rollback-provider-profile" | "deprecate-provider-profile" | "retire-provider-profile"
+  >,
+): Extract<
+  CatalogPrimaryWorkbenchCommandFeedback["result"],
+  "profile-rolled-back" | "profile-deprecated" | "profile-retired"
+> {
+  if (intent === "rollback-provider-profile") {
+    return "profile-rolled-back";
+  }
+  if (intent === "deprecate-provider-profile") {
+    return "profile-deprecated";
+  }
+
+  return "profile-retired";
+}
+
+function lifecycleFailureResult(
+  error: unknown,
+): Extract<CatalogPrimaryWorkbenchCommandFeedback["result"], "lifecycle-conflict" | "command-failed"> {
+  if (error instanceof CatalogApiError && error.status === 409) {
+    return "lifecycle-conflict";
+  }
+
+  return "command-failed";
 }
 
 function profileSectionFailureResult(

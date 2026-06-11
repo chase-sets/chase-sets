@@ -4,6 +4,8 @@ import type {
 } from "./admin-control-plane-read-model-slos";
 import type {
   CatalogAdminControlPlaneQueryKey,
+  CatalogAdminControlPlaneDiagnostic,
+  CatalogAdminRollbackRetirementImpactSummaryReadModel,
   CatalogAdminJobConsistency,
   CatalogAdminProfileVersionPointer,
 } from "./admin-control-plane-read-model-contracts";
@@ -21,6 +23,7 @@ export type CatalogPrimaryWorkbenchSectionKey =
   | "source-observation-review"
   | "promotion-preview"
   | "promotion-result"
+  | "lifecycle-recovery"
   | "supporting-evidence";
 
 export type CatalogPrimaryWorkbenchCommandKey =
@@ -31,6 +34,9 @@ export type CatalogPrimaryWorkbenchCommandKey =
   | "cancel-import-job"
   | "clone-provider-profile"
   | "activate-provider-profile"
+  | "rollback-provider-profile"
+  | "deprecate-provider-profile"
+  | "retire-provider-profile"
   | "update-provider-profile-section"
   | "select-source-observations"
   | "preview-promotion"
@@ -70,6 +76,8 @@ export type CatalogPrimaryWorkbenchBlockerCategory =
   | "profile-section-read-only"
   | "profile-section-stale"
   | "profile-section-invalid"
+  | "profile-lifecycle-conflict"
+  | "profile-retirement-references"
   | "activation-readiness-blocked"
   | "migration-evidence-missing"
   | "reference-impact-review-required"
@@ -267,6 +275,7 @@ export type CatalogPrimaryWorkbenchDownstreamIssueKey =
   | "#1038"
   | "#1039"
   | "#1040"
+  | "#1042"
   | "#1057"
   | "#1058"
   | "#1059"
@@ -290,6 +299,7 @@ export type CatalogPrimaryWorkbenchReadModel = Readonly<{
   healthTriage: CatalogPrimaryWorkbenchHealthTriageReadModel;
   profileAuthoring: CatalogPrimaryWorkbenchProfileAuthoringReadModel;
   validationReadiness: CatalogPrimaryWorkbenchValidationReadinessReadModel;
+  lifecycleRecovery: CatalogPrimaryWorkbenchLifecycleRecoveryReadModel;
   importJobs: CatalogPrimaryWorkbenchImportJobsReadModel;
   sourceObservationReview: CatalogPrimaryWorkbenchSourceObservationReviewReadModel;
   promotionPreview: CatalogPrimaryWorkbenchPromotionPreviewReadModel;
@@ -578,6 +588,93 @@ export type CatalogPrimaryWorkbenchValidationEvidenceRow = Readonly<{
     diagnosticText: string;
     severity: "error" | "warning";
   }>[];
+}>;
+
+export type CatalogPrimaryWorkbenchLifecycleOperation =
+  CatalogAdminRollbackRetirementImpactSummaryReadModel["operation"];
+
+export type CatalogPrimaryWorkbenchLifecycleRecoveryStatus = "ready" | "blocked" | "unavailable";
+
+export type CatalogPrimaryWorkbenchLifecycleRecoveryReadModel = Readonly<{
+  status: CatalogPrimaryWorkbenchLifecycleRecoveryStatus;
+  freshness: CatalogAdminControlPlaneFreshnessState;
+  generatedAt: string;
+  selectedProviderKey: string | null;
+  selectedProfileVersion: string | null;
+  returnToPrimaryHref: string;
+  auditEvidenceUrl: string;
+  summary: Readonly<{
+    activeJobs: number;
+    affectedReferences: number;
+    downstreamProfileReferences: number;
+    impactedCatalogItems: number;
+    blockers: number;
+    recentLifecycleEvents: number;
+  }>;
+  profiles: readonly Readonly<{
+    providerKey: string;
+    profileKey: string;
+    profileVersion: string;
+    displayName: string;
+    lifecycle: string;
+    active: boolean;
+    referenceCount: number;
+    href: string;
+  }>[];
+  operations: readonly CatalogPrimaryWorkbenchLifecycleOperationReadModel[];
+  recentAuditEvents: readonly Readonly<{
+    eventId: string;
+    occurredAt: string;
+    eventName: string;
+    category: string;
+    providerKey: string;
+    unitKey: CatalogIntegrationUnitKey | null;
+    profileVersion: string | null;
+    summary: string;
+  }>[];
+  strictRetirement: Readonly<{
+    requiredDisposition: "complete-removal";
+    forbiddenSupportPaths: readonly string[];
+    summary: string;
+  }>;
+}>;
+
+export type CatalogPrimaryWorkbenchLifecycleOperationReadModel = Readonly<{
+  operation: CatalogPrimaryWorkbenchLifecycleOperation;
+  label: string;
+  description: string;
+  commandKey: Extract<
+    CatalogPrimaryWorkbenchCommandKey,
+    "activate-provider-profile" | "rollback-provider-profile" | "deprecate-provider-profile" | "retire-provider-profile"
+  >;
+  providerKey: string | null;
+  profileVersion: string | null;
+  lifecycle: string | null;
+  active: boolean;
+  state: CatalogPrimaryWorkbenchActionState;
+  blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
+  confirmationRequired: boolean;
+  allowed: boolean;
+  submitHref: string;
+  supportHref: string | null;
+  impact: Readonly<{
+    generatedAt: string | null;
+    referencedObservationCount: number;
+    sourceProfileReferenceCount: number;
+    promotionProfileReferenceCount: number;
+    impactedCatalogItemCount: number;
+    impactedCatalogItemIds: readonly string[];
+    externalReferenceCount: number;
+    sampleObservationIds: readonly string[];
+    impactedJobCount: number;
+    blockers: readonly CatalogAdminControlPlaneDiagnostic[];
+  }>;
+  auditConsequences: Readonly<{
+    auditEvidenceUrl: string;
+    eventName: string;
+    summary: string;
+  }>;
+  nextSteps: readonly string[];
 }>;
 
 export type CatalogPrimaryWorkbenchHealthTriageRolloutControl = Readonly<{
@@ -1167,6 +1264,20 @@ export const catalogPrimaryWorkbenchSections = [
     routeContextKeys: ["section", "providerKey", "unitKey", "profileVersion", "jobId", "returnPath"],
   }),
   section({
+    key: "lifecycle-recovery",
+    defaultVisible: false,
+    queryKeys: ["rollback-retirement-impact-summary", "audit-evidence-timeline", "import-job-progress-summary"],
+    commands: [
+      "activate-provider-profile",
+      "rollback-provider-profile",
+      "deprecate-provider-profile",
+      "retire-provider-profile",
+    ],
+    freshnessStates: ["fresh", "stale", "lagging", "partial", "unavailable"],
+    pagination: "cursor",
+    routeContextKeys: ["section", "providerKey", "unitKey", "profileVersion", "jobId", "returnPath"],
+  }),
+  section({
     key: "supporting-evidence",
     defaultVisible: false,
     queryKeys: [
@@ -1281,6 +1392,67 @@ export const catalogPrimaryWorkbenchActions = [
     },
   ),
   action(
+    "rollback-provider-profile",
+    "POST",
+    "/api/catalog/source-observations/admin/provider-profiles/:providerKey/:profileVersion/rollback",
+    "catalog.manage",
+    {
+      blockerCategories: [
+        "permission-denied",
+        "authorization-denied",
+        "profile-version-missing",
+        "profile-lifecycle-conflict",
+        "active-job-conflict",
+        "concurrent-job",
+        "security-privacy-blocked",
+        "deploy-skew-unsupported-version",
+      ],
+      confirmationRequired: true,
+      idempotencyRequired: true,
+    },
+  ),
+  action(
+    "deprecate-provider-profile",
+    "POST",
+    "/api/catalog/source-observations/admin/provider-profiles/:providerKey/:profileVersion/deprecate",
+    "catalog.manage",
+    {
+      blockerCategories: [
+        "permission-denied",
+        "authorization-denied",
+        "profile-version-missing",
+        "profile-lifecycle-conflict",
+        "active-job-conflict",
+        "concurrent-job",
+        "security-privacy-blocked",
+        "deploy-skew-unsupported-version",
+      ],
+      confirmationRequired: true,
+      idempotencyRequired: true,
+    },
+  ),
+  action(
+    "retire-provider-profile",
+    "POST",
+    "/api/catalog/source-observations/admin/provider-profiles/:providerKey/:profileVersion/retire",
+    "catalog.manage",
+    {
+      blockerCategories: [
+        "permission-denied",
+        "authorization-denied",
+        "profile-version-missing",
+        "profile-lifecycle-conflict",
+        "profile-retirement-references",
+        "active-job-conflict",
+        "concurrent-job",
+        "security-privacy-blocked",
+        "deploy-skew-unsupported-version",
+      ],
+      confirmationRequired: true,
+      idempotencyRequired: true,
+    },
+  ),
+  action(
     "update-provider-profile-section",
     "PATCH",
     "/api/catalog/source-observations/admin/provider-profiles/:providerKey/:profileVersion/sections/:section",
@@ -1359,6 +1531,8 @@ export const catalogPrimaryWorkbenchBlockers = [
   blocker("profile-section-read-only", ["blocked"], "catalog.primary.import.blocked"),
   blocker("profile-section-stale", ["blocked"], "catalog.primary.deploySkew.failClosed"),
   blocker("profile-section-invalid", ["blocked"], "catalog.primary.import.blocked"),
+  blocker("profile-lifecycle-conflict", ["blocked"], "catalog.primary.reapply.originalProfileMissing"),
+  blocker("profile-retirement-references", ["blocked"], "catalog.primary.reapply.originalProfileMissing"),
   blocker("activation-readiness-blocked", ["blocked"], "catalog.primary.import.blocked"),
   blocker("migration-evidence-missing", ["blocked"], "catalog.primary.import.blocked"),
   blocker("reference-impact-review-required", ["blocked"], "catalog.primary.import.blocked"),
@@ -1520,6 +1694,16 @@ export const catalogPrimaryWorkbenchDownstreamContracts = [
       "validationReadiness.activationDecision.affectedReferences",
       "validationReadiness.activationDecision.migrationEvidence",
       "validationReadiness.activationDecision.auditConsequences",
+    ],
+  ),
+  downstream(
+    "#1042",
+    ["lifecycle-recovery", "supporting-evidence"],
+    [
+      "lifecycleRecovery.operations",
+      "lifecycleRecovery.summary",
+      "lifecycleRecovery.strictRetirement",
+      "lifecycleRecovery.recentAuditEvents",
     ],
   ),
   downstream(
@@ -1688,6 +1872,7 @@ export function validateCatalogPrimaryWorkbenchReadModelContract(
   assertPrimaryWorkbenchPromotionPreview(value.promotionPreview);
   assertPrimaryWorkbenchProfileAuthoring(value.profileAuthoring);
   assertPrimaryWorkbenchValidationReadiness(value.validationReadiness);
+  assertPrimaryWorkbenchLifecycleRecovery(value.lifecycleRecovery);
 }
 
 function validatePrimaryWorkbenchRouteContext(context: CatalogPrimaryWorkbenchRouteContext): void {
@@ -2026,6 +2211,57 @@ function assertPrimaryWorkbenchValidationReadiness(
   const validationText = JSON.stringify(value);
   if (/raw\s+json/i.test(validationText)) {
     throw new Error("Primary workbench validation readiness must not expose raw JSON workflow copy.");
+  }
+}
+
+function assertPrimaryWorkbenchLifecycleRecovery(
+  value: CatalogPrimaryWorkbenchReadModel["lifecycleRecovery"] | undefined,
+): void {
+  if (!value) {
+    throw new Error("Primary workbench lifecycle recovery contract is required.");
+  }
+  if (!["ready", "blocked", "unavailable"].includes(value.status)) {
+    throw new Error("Primary workbench lifecycle recovery status must be explicit.");
+  }
+  if (!isSafePrimaryWorkbenchReturnPath(value.returnToPrimaryHref)) {
+    throw new Error("Primary workbench lifecycle recovery return link must target the rebuilt workbench.");
+  }
+  if (value.strictRetirement.requiredDisposition !== "complete-removal") {
+    throw new Error("Primary workbench lifecycle recovery must preserve complete-removal retirement semantics.");
+  }
+  const retirementText = `${value.strictRetirement.summary} ${value.strictRetirement.forbiddenSupportPaths.join(" ")}`;
+  if (!/complete removal/i.test(retirementText) || !/documentation/i.test(retirementText)) {
+    throw new Error(
+      "Primary workbench lifecycle recovery must state complete code, pattern, and documentation removal.",
+    );
+  }
+  const operations = new Set(value.operations.map((operation) => operation.operation));
+  for (const operation of ["activation", "rollback", "deprecate", "retire"] as const) {
+    if (!operations.has(operation)) {
+      throw new Error(`Primary workbench lifecycle recovery must expose ${operation} evidence.`);
+    }
+  }
+  for (const operation of value.operations) {
+    assertCatalogPrimaryWorkbenchActionState(operation.state);
+    assertPrimaryWorkbenchBlockers(operation.blockers);
+    if (!isSafePrimaryWorkbenchReturnPath(operation.submitHref)) {
+      throw new Error("Primary workbench lifecycle recovery submit link must stay in the rebuilt workbench.");
+    }
+    if (
+      (operation.operation === "rollback" || operation.operation === "deprecate" || operation.operation === "retire") &&
+      !operation.confirmationRequired
+    ) {
+      throw new Error("Primary workbench lifecycle recovery destructive lifecycle actions require confirmation.");
+    }
+    if (operation.operation === "retire" && operation.blockers.includes("profile-retirement-references")) {
+      const referenceCount =
+        operation.impact.referencedObservationCount +
+        operation.impact.sourceProfileReferenceCount +
+        operation.impact.promotionProfileReferenceCount;
+      if (referenceCount === 0) {
+        throw new Error("Primary workbench profile retirement reference blocker must name concrete references.");
+      }
+    }
   }
 }
 

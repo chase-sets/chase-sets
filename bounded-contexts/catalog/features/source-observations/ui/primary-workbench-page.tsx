@@ -35,6 +35,7 @@ import {
   CATALOG_CONTROL_PLANE_WORKSPACES,
 } from "./admin-control-plane/information-architecture";
 import { CatalogIntegrationHealthTriageDashboard } from "./admin-control-plane/health/integration-health-dashboard";
+import { CatalogIntegrationLifecycleRecoveryWorkspace } from "./admin-control-plane/lifecycle/lifecycle-recovery-workspace";
 import { CatalogIntegrationProfileAuthoringWorkspace } from "./admin-control-plane/profiles/profile-authoring-workspace";
 import { CatalogIntegrationValidationReadinessWorkspace } from "./admin-control-plane/validation/validation-readiness-workspace";
 import {
@@ -71,6 +72,9 @@ type CatalogPrimaryWorkbenchSubmitIntent = Extract<
   | "execute-promotion"
   | "reject-source-observations"
   | "defer-source-observations"
+  | "rollback-provider-profile"
+  | "deprecate-provider-profile"
+  | "retire-provider-profile"
   | "start-reapply"
   | "start-replay"
 >;
@@ -84,9 +88,14 @@ export type CatalogPrimaryWorkbenchCommandFeedback = Readonly<{
     | "preview-ready"
     | "draft-created"
     | "profile-activated"
+    | "profile-rolled-back"
+    | "profile-deprecated"
+    | "profile-retired"
     | "section-saved"
     | "section-conflict"
     | "section-invalid"
+    | "lifecycle-conflict"
+    | "confirmation-required"
     | "preview-required"
     | "job-required"
     | "reason-required"
@@ -162,6 +171,8 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
       <CatalogIntegrationProfileAuthoringWorkspace readModel={readModel} />
     ) : activeSection === "validation-readiness" ? (
       <CatalogIntegrationValidationReadinessWorkspace readModel={readModel} />
+    ) : activeSection === "lifecycle-recovery" ? (
+      <CatalogIntegrationLifecycleRecoveryWorkspace readModel={readModel} />
     ) : null;
   const columns = useMemo<DataColumn<PrimaryWorkbenchStep>[]>(
     () => [
@@ -1936,6 +1947,15 @@ function commandSuccessTitle(result: CatalogPrimaryWorkbenchCommandFeedback["res
   if (result === "profile-activated") {
     return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.activation.title");
   }
+  if (result === "profile-rolled-back") {
+    return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.rollback.title");
+  }
+  if (result === "profile-deprecated") {
+    return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.deprecated.title");
+  }
+  if (result === "profile-retired") {
+    return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.retired.title");
+  }
   if (result === "section-saved") {
     return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.section.title");
   }
@@ -1957,6 +1977,15 @@ function commandFeedbackDescription(feedback: CatalogPrimaryWorkbenchCommandFeed
     if (feedback.result === "profile-activated") {
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.activation.description");
     }
+    if (feedback.result === "profile-rolled-back") {
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.rollback.description");
+    }
+    if (feedback.result === "profile-deprecated") {
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.deprecated.description");
+    }
+    if (feedback.result === "profile-retired") {
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.retired.description");
+    }
     if (feedback.result === "section-saved") {
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.section.description");
     }
@@ -1975,6 +2004,10 @@ function commandFeedbackDescription(feedback: CatalogPrimaryWorkbenchCommandFeed
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.section.conflict");
     case "section-invalid":
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.section.invalid");
+    case "lifecycle-conflict":
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.lifecycle.conflict");
+    case "confirmation-required":
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.confirmation.required");
     case "unsupported-command":
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.unsupported");
     case "invalid-intent":
