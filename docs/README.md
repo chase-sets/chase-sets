@@ -76,7 +76,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Push-Wake Operations](./runbooks/push-wake-operations.md): incident playbook for the push-wake pipeline — latency stage map, operator console wake panel, failure classes, Checkout triage, and safe inspection commands.
 - [Projection Freshness Audit](./runbooks/projection-freshness-audit.md): read-after-write audit record fields, privacy rules, and guest Buy Now root-cause classification.
 - [Guest Buy Now Projection Lag Root Cause](./runbooks/guest-buy-now-projection-lag-root-cause.md): staging incident classification, evidence limits, failed contract, and follow-up mapping for Checkout projection lag.
-- [Guest Buy Now Freshness Canary](./runbooks/guest-buy-now-freshness-canary.md): staging synthetic browser canary, fixture ownership, redacted evidence, and no-payment/no-order safety.
+- [Guest Buy Now Freshness Canary](./runbooks/guest-buy-now-freshness-canary.md): guest and account Buy Now readiness canary, write-to-checkout-ready release gate, negative invalid-session probe, production proof-mode runs, fixture ownership, redacted evidence, and no-payment/no-order safety.
 - [Remote Dev](./runbooks/remote-dev.md): disposable DigitalOcean preview sessions.
 - [Social Login Operations](./runbooks/social-login-operations.md): Google and Facebook provider setup, callback URLs, smoke tests, and secret rotation.
 - [DigitalOcean Platform Deployment](./runbooks/digitalocean-platform-deployment.md): staging full-system platform and production deployment workflow.

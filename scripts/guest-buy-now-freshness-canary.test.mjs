@@ -3,8 +3,10 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_READY_SLO_MS,
   GUEST_BUY_NOW_FRESHNESS_CANARY_VERSION,
   PRODUCTION_FEASIBILITY_DECISION,
+  SEGMENT_METRIC_REFERENCES,
   assertRedactedEvidence,
   buildGuestBuyNowCanaryEvidence,
   classifyGuestBuyNowObservation,
@@ -21,13 +23,24 @@ const baseOptions = {
   diagnosticCorrelationId: "diag_123",
 };
 
+const healthyProbe = {
+  attempted: true,
+  documentStatus: 401,
+  permanentRecoveryVisible: true,
+  temporaryRecoveryVisible: false,
+  checkoutReviewVisible: false,
+  platformErrorVisible: false,
+};
+
 describe("guest Buy Now freshness canary", () => {
-  it("classifies payable checkout as pass", () => {
+  it("classifies pay-ready checkout inside the readiness SLO as promote", () => {
     expect(
       classifyGuestBuyNowObservation({
         afterWritePresent: true,
         guestCookiePresent: true,
         checkoutReviewVisible: true,
+        readyLatencyMs: 1800,
+        negativeProbe: healthyProbe,
       }),
     ).toEqual({
       finalState: "pass",
@@ -36,16 +49,52 @@ describe("guest Buy Now freshness canary", () => {
     });
   });
 
-  it("classifies preparing-checkout recovery as temporary", () => {
+  it("aborts promotion when checkout readiness exceeds the agreed SLO", () => {
+    expect(
+      classifyGuestBuyNowObservation(
+        {
+          afterWritePresent: true,
+          guestCookiePresent: true,
+          checkoutReviewVisible: true,
+          readyLatencyMs: 14_000,
+          negativeProbe: healthyProbe,
+        },
+        { readySloMs: 10_000 },
+      ),
+    ).toEqual({
+      finalState: "pass",
+      promotionDecision: "abort",
+      failureReason: "checkout-ready-slo-exceeded",
+    });
+  });
+
+  it("aborts promotion for temporary recovery that never becomes pay-ready inside the SLO", () => {
     expect(
       classifyGuestBuyNowObservation({
         afterWritePresent: true,
         guestCookiePresent: true,
         temporaryRecoveryVisible: true,
+        readyLatencyMs: null,
         pageText: "Preparing checkout. Refresh checkout. Your payment has not started.",
+        negativeProbe: healthyProbe,
       }),
     ).toEqual({
       finalState: "temporary",
+      promotionDecision: "abort",
+      failureReason: "checkout-ready-slo-exceeded",
+    });
+  });
+
+  it("falls back to the submit-to-state latency when only checkout review visibility is provided", () => {
+    expect(
+      classifyGuestBuyNowObservation({
+        afterWritePresent: true,
+        guestCookiePresent: true,
+        checkoutReviewVisible: true,
+        latencyMs: 1250,
+      }),
+    ).toEqual({
+      finalState: "pass",
       promotionDecision: "promote",
       failureReason: null,
     });
@@ -71,6 +120,7 @@ describe("guest Buy Now freshness canary", () => {
         afterWritePresent: false,
         guestCookiePresent: true,
         checkoutReviewVisible: true,
+        readyLatencyMs: 500,
       }).failureReason,
     ).toBe("missing-after-write");
     expect(
@@ -78,8 +128,41 @@ describe("guest Buy Now freshness canary", () => {
         afterWritePresent: true,
         guestCookiePresent: false,
         checkoutReviewVisible: true,
+        readyLatencyMs: 500,
       }).failureReason,
     ).toBe("missing-guest-cookie");
+  });
+
+  it("requires the account session cookie for the account flow instead of the guest cookie", () => {
+    expect(
+      classifyGuestBuyNowObservation(
+        {
+          afterWritePresent: true,
+          guestCookiePresent: false,
+          sessionCookiePresent: true,
+          checkoutReviewVisible: true,
+          readyLatencyMs: 700,
+          negativeProbe: healthyProbe,
+        },
+        { flow: "account" },
+      ),
+    ).toEqual({
+      finalState: "pass",
+      promotionDecision: "promote",
+      failureReason: null,
+    });
+    expect(
+      classifyGuestBuyNowObservation(
+        {
+          afterWritePresent: true,
+          guestCookiePresent: true,
+          sessionCookiePresent: false,
+          checkoutReviewVisible: true,
+          readyLatencyMs: 700,
+        },
+        { flow: "account" },
+      ).failureReason,
+    ).toBe("missing-session-cookie");
   });
 
   it("fails clearly when the platform edge shows a generic error page", () => {
@@ -97,12 +180,79 @@ describe("guest Buy Now freshness canary", () => {
     });
   });
 
+  it("aborts promotion when the negative probe shows recovery masking an invalid session", () => {
+    expect(
+      classifyGuestBuyNowObservation({
+        afterWritePresent: true,
+        guestCookiePresent: true,
+        checkoutReviewVisible: true,
+        readyLatencyMs: 900,
+        negativeProbe: {
+          attempted: true,
+          documentStatus: 200,
+          permanentRecoveryVisible: false,
+          temporaryRecoveryVisible: true,
+          checkoutReviewVisible: false,
+          platformErrorVisible: false,
+        },
+      }),
+    ).toEqual({
+      finalState: "pass",
+      promotionDecision: "abort",
+      failureReason: "negative-probe-masked-invalid-session",
+    });
+  });
+
+  it("aborts promotion when the negative probe lands on a platform error or unknown state", () => {
+    expect(
+      classifyGuestBuyNowObservation({
+        afterWritePresent: true,
+        guestCookiePresent: true,
+        checkoutReviewVisible: true,
+        readyLatencyMs: 900,
+        negativeProbe: { attempted: true, documentStatus: 503, permanentRecoveryVisible: false },
+      }).failureReason,
+    ).toBe("negative-probe-platform-error");
+    expect(
+      classifyGuestBuyNowObservation({
+        afterWritePresent: true,
+        guestCookiePresent: true,
+        checkoutReviewVisible: true,
+        readyLatencyMs: 900,
+        negativeProbe: { attempted: true, documentStatus: 200, permanentRecoveryVisible: false },
+      }).failureReason,
+    ).toBe("negative-probe-unexpected-state");
+  });
+
+  it("keeps the headline readiness failure when both readiness and the probe fail", () => {
+    expect(
+      classifyGuestBuyNowObservation({
+        afterWritePresent: true,
+        guestCookiePresent: true,
+        temporaryRecoveryVisible: true,
+        readyLatencyMs: null,
+        negativeProbe: { attempted: true, documentStatus: 200, permanentRecoveryVisible: false },
+      }),
+    ).toEqual({
+      finalState: "temporary",
+      promotionDecision: "abort",
+      failureReason: "checkout-ready-slo-exceeded",
+    });
+  });
+
   it("builds redacted pass evidence without sensitive identifiers", () => {
     const evidence = buildGuestBuyNowCanaryEvidence({
       ...baseOptions,
       diagnosticCorrelationId: "diag raw!/value",
       observation: {
         latencyMs: 1250,
+        readyLatencyMs: 1250,
+        segments: {
+          writeToRedirectMs: 400,
+          redirectToDocumentMs: 350,
+          documentToReadyMs: 500,
+          writeToCheckoutReadyMs: 1250,
+        },
         afterWritePresent: true,
         guestCookiePresent: true,
         checkoutReviewVisible: true,
@@ -110,60 +260,99 @@ describe("guest Buy Now freshness canary", () => {
         checkoutDocumentStatus: 200,
         stateWaitOutcome: "matched",
         waitMode: "exact-dependency",
+        negativeProbe: healthyProbe,
         pageText:
-          "Checkout Summary Continue to payment chk_01KTMF9TCCPKGA3J3TYMGGXQ2R afterWrite=raw-token todd.skelton@outlook.com chase_sets_guest_checkout=secret",
+          "Checkout Summary Continue to payment chk_01KTMF9TCCPKGA3J3TYMGGXQ2R afterWrite=raw-token todd.skelton@outlook.com chase_sets_guest_checkout=secret chase_sets_session=session-secret",
       },
     });
 
     expect(evidence).toMatchObject({
       schemaVersion: GUEST_BUY_NOW_FRESHNESS_CANARY_VERSION,
+      flow: "guest",
       finalState: "pass",
       promotionDecision: "promote",
+      readySloMs: DEFAULT_READY_SLO_MS,
+      readyLatencyMs: 1250,
       latencyMs: 1250,
+      segments: {
+        writeToRedirectMs: 400,
+        redirectToDocumentMs: 350,
+        documentToReadyMs: 500,
+        writeToCheckoutReadyMs: 1250,
+      },
+      segmentReferences: SEGMENT_METRIC_REFERENCES,
       waitMode: "exact-dependency",
       platformErrorVisible: false,
       checkoutDocumentStatus: 200,
       stateWaitOutcome: "matched",
       diagnosticCorrelationId: "diag-raw--value",
+      negativeProbe: { attempted: true, documentStatus: 401, outcome: "permanent-recovery" },
       paymentOrOrderSideEffects: "not-attempted",
       productionFeasibility: PRODUCTION_FEASIBILITY_DECISION,
     });
     expect(assertRedactedEvidence(evidence)).toEqual([]);
   });
 
+  it("records a skipped negative probe explicitly", () => {
+    const evidence = buildGuestBuyNowCanaryEvidence({
+      ...baseOptions,
+      observation: {
+        afterWritePresent: true,
+        guestCookiePresent: true,
+        checkoutReviewVisible: true,
+        readyLatencyMs: 800,
+        negativeProbe: { attempted: false },
+      },
+    });
+
+    expect(evidence.negativeProbe).toEqual({ attempted: false, outcome: "skipped" });
+    expect(evidence.promotionDecision).toBe("promote");
+  });
+
   it("parses CLI and environment defaults", () => {
-    const parsed = parseGuestBuyNowCanaryArgs(["--item-path", "/items/canary"], {
+    const parsed = parseGuestBuyNowCanaryArgs(["--item-path", "/items/canary", "--skip-negative-probe"], {
       GUEST_BUY_NOW_CANARY_OUT: "artifacts/guest-buy-now.json",
       GUEST_BUY_NOW_CANARY_BASE_URL: "https://marketplace.staging.chasesets.com",
       GUEST_BUY_NOW_CANARY_FIXTURE_KEY: "canary-fixture",
       GUEST_BUY_NOW_CANARY_GUEST_EMAIL: "guest-buy-now-canary@example.test",
       GUEST_BUY_NOW_CANARY_ENVIRONMENT: "staging",
       GUEST_BUY_NOW_CANARY_TIMEOUT_MS: "1234",
+      GUEST_BUY_NOW_CANARY_READY_SLO_MS: "9000",
+      GUEST_BUY_NOW_CANARY_ATTEMPTS: "3",
       GUEST_BUY_NOW_CANARY_CORRELATION_ID: "diag_1",
       GUEST_BUY_NOW_CANARY_SEARCH_QUERY: "pikachu",
+      MARKETPLACE_E2E_EMAIL: "marketplace-e2e@example.test",
+      MARKETPLACE_E2E_PASSWORD: "marketplace-e2e-password",
     });
 
     expect(parsed).toMatchObject({
       outPath: "artifacts/guest-buy-now.json",
       baseUrl: "https://marketplace.staging.chasesets.com",
+      flow: "guest",
       itemPath: "/items/canary",
       fixtureKey: "canary-fixture",
       guestEmail: "guest-buy-now-canary@example.test",
+      accountEmail: "marketplace-e2e@example.test",
+      accountPassword: "marketplace-e2e-password",
       searchQuery: "pikachu",
       timeoutMs: 1234,
+      readySloMs: 9000,
+      maxAttempts: 3,
+      skipNegativeProbe: true,
       diagnosticCorrelationId: "diag_1",
     });
   });
 
-  it("requires canary configuration and rejects production browser canaries", () => {
-    expect(validateGuestBuyNowCanaryOptions({ environment: "staging", searchQuery: "" })).toEqual([
+  it("requires canary configuration and rejects public production browser canaries", () => {
+    expect(validateGuestBuyNowCanaryOptions({ flow: "guest", environment: "staging", searchQuery: "" })).toEqual([
       "GUEST_BUY_NOW_CANARY_BASE_URL or --base-url is required.",
       "GUEST_BUY_NOW_CANARY_ITEM_PATH/--item-path or GUEST_BUY_NOW_CANARY_SEARCH_QUERY/--search-query is required.",
       "GUEST_BUY_NOW_CANARY_FIXTURE_KEY or --fixture-key is required.",
-      "GUEST_BUY_NOW_CANARY_GUEST_EMAIL or --guest-email is required.",
+      "GUEST_BUY_NOW_CANARY_GUEST_EMAIL or --guest-email is required for the guest flow.",
     ]);
     expect(
       validateGuestBuyNowCanaryOptions({
+        flow: "guest",
         baseUrl: "https://marketplace.chasesets.com",
         itemPath: "/items/canary",
         fixtureKey: "canary-fixture",
@@ -171,6 +360,34 @@ describe("guest Buy Now freshness canary", () => {
         environment: "production",
       }),
     ).toContain(PRODUCTION_FEASIBILITY_DECISION.reason);
+  });
+
+  it("requires the account flow, operator credentials, and a proof reference in production proof mode", () => {
+    const errors = validateGuestBuyNowCanaryOptions({
+      flow: "guest",
+      baseUrl: "https://marketplace.chasesets.com",
+      itemPath: "/items/canary",
+      fixtureKey: "production-proof-fixture",
+      guestEmail: "guest@example.test",
+      environment: "production-proof",
+    });
+
+    expect(errors.join(" ")).toContain("only --flow account can run there");
+    expect(errors.join(" ")).toContain("requires configured operator credentials");
+    expect(errors.join(" ")).toContain("--production-proof-reference");
+
+    expect(
+      validateGuestBuyNowCanaryOptions({
+        flow: "account",
+        baseUrl: "https://marketplace.chasesets.com",
+        itemPath: "/items/canary",
+        fixtureKey: "production-proof-fixture",
+        accountEmail: "proof-operator@example.test",
+        accountPassword: "proof-operator-password",
+        productionProofReference: "proof-run-2026-06-11",
+        environment: "production-proof",
+      }),
+    ).toEqual([]);
   });
 
   it("resolves an explicit item path before searching", async () => {
@@ -257,7 +474,7 @@ describe("guest Buy Now freshness canary", () => {
     ).rejects.toThrow("found no active buyable marketplace item");
   });
 
-  it("writes evidence and exits successfully for safe temporary state with injected observation", async () => {
+  it("writes evidence and aborts for safe temporary state that never becomes pay-ready", async () => {
     const directory = await mkdtemp(join(tmpdir(), "chase-sets-guest-buy-now-canary-"));
     const outFile = join(directory, "guest-buy-now.json");
     const evidence = await runGuestBuyNowFreshnessCanary({
@@ -271,14 +488,103 @@ describe("guest Buy Now freshness canary", () => {
       diagnosticCorrelationId: "diag_123",
       observe: async () => ({
         latencyMs: 900,
+        readyLatencyMs: null,
         afterWritePresent: true,
         guestCookiePresent: true,
         temporaryRecoveryVisible: true,
         pageText: "Preparing checkout Refresh checkout",
+        negativeProbe: healthyProbe,
       }),
     });
 
     expect(evidence.finalState).toBe("temporary");
+    expect(evidence.promotionDecision).toBe("abort");
+    expect(evidence.failureReason).toBe("checkout-ready-slo-exceeded");
+    expect(evidence.attemptCount).toBe(1);
     expect(JSON.parse(await readFile(outFile, "utf8"))).toEqual(evidence);
+  });
+
+  it("retries readiness-SLO failures up to the attempt budget and promotes on a later pass", async () => {
+    const observations = [
+      {
+        latencyMs: 12_000,
+        readyLatencyMs: null,
+        afterWritePresent: true,
+        guestCookiePresent: true,
+        temporaryRecoveryVisible: true,
+        negativeProbe: healthyProbe,
+      },
+      {
+        latencyMs: 1500,
+        readyLatencyMs: 1500,
+        afterWritePresent: true,
+        guestCookiePresent: true,
+        checkoutReviewVisible: true,
+        negativeProbe: healthyProbe,
+      },
+    ];
+    const attempts = [];
+    const evidence = await runGuestBuyNowFreshnessCanary({
+      baseUrl: "https://marketplace.staging.chasesets.com",
+      itemPath: "/items/canary",
+      fixtureKey: "canary-fixture",
+      guestEmail: "guest-buy-now-canary@example.test",
+      environment: "staging",
+      checkedAt: baseOptions.checkedAt,
+      diagnosticCorrelationId: "diag_123",
+      maxAttempts: 3,
+      observe: async (_options, attempt) => {
+        attempts.push(attempt);
+        return observations.shift();
+      },
+    });
+
+    expect(attempts).toEqual([1, 2]);
+    expect(evidence.promotionDecision).toBe("promote");
+    expect(evidence.attemptCount).toBe(2);
+    expect(evidence.maxAttempts).toBe(3);
+    expect(evidence.attemptSummaries).toEqual([
+      {
+        attempt: 1,
+        finalState: "temporary",
+        promotionDecision: "abort",
+        failureReason: "checkout-ready-slo-exceeded",
+        readyLatencyMs: null,
+      },
+      {
+        attempt: 2,
+        finalState: "pass",
+        promotionDecision: "promote",
+        failureReason: null,
+        readyLatencyMs: 1500,
+      },
+    ]);
+  });
+
+  it("does not retry hard failures such as permanent not-found", async () => {
+    const attempts = [];
+    const evidence = await runGuestBuyNowFreshnessCanary({
+      baseUrl: "https://marketplace.staging.chasesets.com",
+      itemPath: "/items/canary",
+      fixtureKey: "canary-fixture",
+      guestEmail: "guest-buy-now-canary@example.test",
+      environment: "staging",
+      checkedAt: baseOptions.checkedAt,
+      diagnosticCorrelationId: "diag_123",
+      maxAttempts: 3,
+      observe: async (_options, attempt) => {
+        attempts.push(attempt);
+        return {
+          latencyMs: 600,
+          afterWritePresent: true,
+          guestCookiePresent: true,
+          permanentNotFoundVisible: true,
+        };
+      },
+    });
+
+    expect(attempts).toEqual([1]);
+    expect(evidence.failureReason).toBe("permanent-checkout-session-not-found");
+    expect(evidence.promotionDecision).toBe("abort");
   });
 });
