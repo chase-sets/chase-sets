@@ -4,9 +4,6 @@ on:
   pull_request:
   merge_group:
     types: [checks_requested]
-  push:
-    branches:
-      - main
 
 permissions:
   contents: read
@@ -213,7 +210,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs: change-scope
-    if: needs['change-scope'].outputs.coverage_fast == 'true'
+    if: github.event_name == 'merge_group' && needs['change-scope'].outputs.coverage_fast == 'true'
     continue-on-error: true
     outputs:
       fast_status: ${{ steps.coverage.outputs.fast_status }}
@@ -262,7 +259,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs: change-scope
-    if: needs['change-scope'].outputs.db_tests == 'true'
+    if: github.event_name == 'merge_group' && needs['change-scope'].outputs.db_tests == 'true'
     continue-on-error: true
     outputs:
       db_status: ${{ steps.coverage.outputs.db_status }}
@@ -322,7 +319,7 @@ jobs:
       - change-scope
       - coverage-fast
       - coverage-db
-    if: always() && needs['change-scope'].outputs.coverage_summary == 'true'
+    if: always() && github.event_name == 'merge_group' && needs['change-scope'].outputs.coverage_summary == 'true'
     continue-on-error: true
     steps:
       - uses: actions/checkout@v6
