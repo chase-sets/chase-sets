@@ -8,6 +8,11 @@ import { appendFreshWriteToken } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { useRealtimePatchedSnapshot } from "@chase-sets/platform-runtime/realtime-react";
 import { createDiscoveryRequestApiClient, DiscoveryApiError } from "../support/request-support/api-client";
+import {
+  appendAnonymousProductAlertCookie,
+  ensureAnonymousProductAlertOwnerId,
+  readAnonymousProductAlertOwnerId,
+} from "../support/request-support/anonymous-product-alert";
 import { applyDiscoveryItemPatch } from "../support/client-support/realtime-market";
 import { discoveryRealtimeRouteTopics } from "../support/realtime-support/topics";
 import type {
@@ -97,6 +102,7 @@ const EMPTY_ITEM_DETAIL_RESULT = {
   notFound: false,
   error: null,
   canonicalUrl: null,
+  productAlertClaimError: null,
 } as const;
 
 type DiscoveryOfferMatchWithTerms = DiscoveryAccountOfferMatch &
@@ -144,6 +150,23 @@ function buildRegisterToSellHref(request: Request) {
 function buildRegisterToClaimListingDraftHref(intentId: string) {
   const returnTo = `/account/listings?claimListingIntent=${encodeURIComponent(intentId)}`;
   return `/register?returnTo=${encodeURIComponent(returnTo)}`;
+}
+
+function buildRegisterToClaimProductAlertHref(itemSlugOrId: string, intentId: string) {
+  const returnTo = `/items/${encodeURIComponent(itemSlugOrId)}?market=watch&claimProductAlertIntent=${encodeURIComponent(
+    intentId,
+  )}`;
+  return `/register?returnTo=${encodeURIComponent(returnTo)}`;
+}
+
+function productAlertClaimErrorMessage(error: unknown) {
+  if (error instanceof DiscoveryApiError) {
+    const body = error.body as { error?: { message?: unknown } } | null;
+    const message = body?.error?.message;
+    return typeof message === "string" ? message : t("discovery.routes.itemDetail.product.alert.claim.failed");
+  }
+
+  return error instanceof Error ? error.message : t("discovery.routes.itemDetail.product.alert.claim.failed");
 }
 
 function canUseAccountSellList(actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>) {
@@ -437,6 +460,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     url.searchParams.get("market") === "sell" ? "sell" : url.searchParams.get("market") === "watch" ? "watch" : "buy";
   const initialSelectedListingId = readExplicitMarketSelectionId(url.searchParams, "listing");
   const initialSelectedOfferId = readExplicitMarketSelectionId(url.searchParams, "offer");
+  const claimProductAlertIntentId = url.searchParams.get("claimProductAlertIntent")?.trim() ?? "";
   const initialSelectedOptions = readInitialSelectedOptions(url.searchParams);
   const initialSelectedOptionFiltersPresent = hasInitialSelectedOptionFilters(url.searchParams);
 
@@ -461,6 +485,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       registerToSellHref: buildRegisterToSellHref(request),
       notFound: true,
       canonicalUrl: null,
+      productAlertClaimError: null,
     };
   }
 
@@ -471,6 +496,33 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     }
 
     const actor = await resolveActorFromAuthApi({ request });
+    let productAlertClaimError: string | null = null;
+
+    if (claimProductAlertIntentId) {
+      const cleanClaimPath = `/items/${item.slug || item.catalog_item_id}?market=watch`;
+      if (!actor) {
+        productAlertClaimError = t("discovery.routes.itemDetail.sign.in.to.finish.product.alert");
+      } else if (!actor.permissions.includes("accounts.view")) {
+        productAlertClaimError = t("discovery.routes.itemDetail.account.cannot.create.product.alerts");
+      } else {
+        const anonymousOwnerId = readAnonymousProductAlertOwnerId(request);
+        if (!anonymousOwnerId) {
+          productAlertClaimError = t("discovery.features.productAlerts.api.route.anonymous.product.alert.required");
+        } else {
+          try {
+            await api.claimAnonymousProductAlertIntent(anonymousOwnerId, claimProductAlertIntentId);
+            throw redirect(`${cleanClaimPath}&productAlertCreated=1`);
+          } catch (error) {
+            if (error instanceof Response) {
+              throw error;
+            }
+
+            productAlertClaimError = productAlertClaimErrorMessage(error);
+          }
+        }
+      }
+    }
+
     if (!canUseAccountSellList(actor)) {
       item = await attachPublicStandardOfferTerms(marketplaceApi, item);
     }
@@ -548,9 +600,14 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       canSubmitOffers,
       registerToSellHref: buildRegisterToSellHref(request),
       notFound: false,
+      productAlertClaimError,
       canonicalUrl: new URL(`/items/${item.slug || item.catalog_item_id}`, new URL(request.url).origin).toString(),
     };
   } catch (error) {
+    if (error instanceof Response) {
+      throw error;
+    }
+
     if (error instanceof DiscoveryApiError) {
       return {
         item: null,
@@ -572,6 +629,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
         registerToSellHref: buildRegisterToSellHref(request),
         notFound: true,
         canonicalUrl: null,
+        productAlertClaimError: null,
         error: error.message,
       };
     }
@@ -596,6 +654,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       registerToSellHref: buildRegisterToSellHref(request),
       notFound: true,
       canonicalUrl: null,
+      productAlertClaimError: null,
       error: error instanceof Error ? error.message : t("discovery.routes.itemDetail.item.not.found"),
     };
   }
@@ -611,12 +670,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
   try {
     if (intent === "create-product-alert") {
-      await requireActorFromAuthApi({
-        request,
-        permission: "accounts.view",
-      });
       const item = await discoveryApi.getItemDetail(params.id!);
-      await discoveryApi.createProductAlert({
+      const body = {
         marketSide: String(formData.get("marketSide") ?? "") === "offer" ? "offer" : "listing",
         catalogItemId: item.catalog_item_id,
         productId: String(formData.get("productId") ?? ""),
@@ -627,7 +682,27 @@ export async function action({ request, params }: ActionFunctionArgs) {
           optional: true,
           invalidMessage: t("discovery.routes.itemDetail.validation.threshold.invalid"),
         }),
+      } as const;
+
+      const actor = await resolveActorFromAuthApi({ request });
+      if (!actor) {
+        const anonymousOwnerId = ensureAnonymousProductAlertOwnerId(request);
+        const productAlertIntent = await discoveryApi.createAnonymousProductAlertIntent(anonymousOwnerId, {
+          ...body,
+          sourcePath: `/items/${item.slug || item.catalog_item_id}?market=watch`,
+        });
+        const response = redirect(
+          buildRegisterToClaimProductAlertHref(item.slug || item.catalog_item_id, productAlertIntent.intent_id),
+        );
+        appendAnonymousProductAlertCookie(response.headers, anonymousOwnerId, request);
+        return response;
+      }
+
+      await requireActorFromAuthApi({
+        request,
+        permission: "accounts.view",
       });
+      await discoveryApi.createProductAlert(body);
 
       return redirect(`/items/${item.slug || item.catalog_item_id}?productAlertCreated=1`);
     }
@@ -1097,6 +1172,7 @@ function DiscoveryItemDetailRealtimeView({
                   selectedOptions={context.selectedProductOptions}
                   productSelectionDetails={context.selectedProductSelectionDetails}
                   productSummary={context.selectedProductSummary}
+                  errorMessage={data.productAlertClaimError ?? actionErrorMessage}
                 />
               );
               const renderOffer = (

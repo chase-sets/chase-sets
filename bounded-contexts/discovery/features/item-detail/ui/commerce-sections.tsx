@@ -246,6 +246,7 @@ export function ProductAlertCreationSection({
   selectedOptions,
   productSelectionDetails = [],
   productSummary,
+  errorMessage,
 }: {
   formId: string;
   panelVariant?: FormPanelVariant;
@@ -257,6 +258,7 @@ export function ProductAlertCreationSection({
   selectedOptions: readonly { dimensionId: string; optionId: string }[];
   productSelectionDetails?: readonly ProductSelectionDisplayDetail[];
   productSummary: string | null;
+  errorMessage?: string | null;
 }) {
   const isListingAlert = marketSide === "listing";
   const defaultActions = (
@@ -336,6 +338,7 @@ export function ProductAlertCreationSection({
             min="0"
             step="0.01"
           />
+          {errorMessage ? <Text>{errorMessage}</Text> : null}
           {actions !== undefined ? actions : defaultActions}
         </Stack>
       </Form>

@@ -63,6 +63,11 @@ function errorMessage(error: unknown) {
     : t("discovery.features.productAlerts.api.route.product.alert.request.failed");
 }
 
+function requireAnonymousProductAlertOwnerId(c: Context<DiscoveryApiEnv>) {
+  const value = c.req.header("x-discovery-anonymous-product-alert-id")?.trim() ?? "";
+  return value.startsWith("anon_") ? value : null;
+}
+
 export function createProductAlertRoutes(services: ProductAlertServices) {
   const app = new Hono<DiscoveryApiEnv>();
 
@@ -127,6 +132,57 @@ export function createProductAlertRoutes(services: ProductAlertServices) {
     }
   });
 
+  app.post("/product-alert-intents/:id/claim", async (c) => {
+    const access = requireProductAlertAccess(c);
+    if (access.response) return access.response;
+
+    const anonymousOwnerId = requireAnonymousProductAlertOwnerId(c);
+    if (!anonymousOwnerId) {
+      return c.json(
+        {
+          error: {
+            code: "anonymous_product_alert_required",
+            message: t("discovery.features.productAlerts.api.route.anonymous.product.alert.required"),
+          },
+        },
+        400,
+      );
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("discovery.features.productAlerts.api.route.authentication.context.missing"),
+          },
+        },
+        401,
+      );
+    }
+
+    try {
+      return c.json(
+        await services.claimAnonymousProductAlertIntent(
+          {
+            anonymousOwnerId,
+            intentId: c.req.param("id"),
+            accountId: access.actor.accountId,
+          },
+          context,
+        ),
+      );
+    } catch (error) {
+      return c.json(
+        {
+          error: { code: "validation_failed", message: errorMessage(error) },
+        },
+        400,
+      );
+    }
+  });
+
   app.post("/product-alerts/:id/pause", async (c) => {
     return updateAlert(c, services, "pause");
   });
@@ -137,6 +193,54 @@ export function createProductAlertRoutes(services: ProductAlertServices) {
 
   app.post("/product-alerts/:id/delete", async (c) => {
     return updateAlert(c, services, "delete");
+  });
+
+  return app;
+}
+
+export function createGuestProductAlertRoutes(services: ProductAlertServices) {
+  const app = new Hono<DiscoveryApiEnv>();
+
+  app.post("/product-alert-intents", async (c) => {
+    const anonymousOwnerId = requireAnonymousProductAlertOwnerId(c);
+    if (!anonymousOwnerId) {
+      return c.json(
+        {
+          error: {
+            code: "anonymous_product_alert_required",
+            message: t("discovery.features.productAlerts.api.route.anonymous.product.alert.required"),
+          },
+        },
+        400,
+      );
+    }
+
+    const body = await c.req.json().catch(() => ({}));
+
+    try {
+      return c.json(
+        await services.createAnonymousProductAlertIntent({
+          anonymousOwnerId,
+          sourcePath: String(body.sourcePath ?? ""),
+          marketSide: body.marketSide === "offer" ? "offer" : "listing",
+          catalogItemId: String(body.catalogItemId ?? ""),
+          productId: String(body.productId ?? ""),
+          selectedOptions: parseSelectedOptions(body.selectedOptions),
+          productSummary:
+            body.productSummary === null || body.productSummary === undefined ? null : String(body.productSummary),
+          thresholdAmount:
+            body.thresholdAmount === null || body.thresholdAmount === undefined ? null : String(body.thresholdAmount),
+        }),
+        201,
+      );
+    } catch (error) {
+      return c.json(
+        {
+          error: { code: "validation_failed", message: errorMessage(error) },
+        },
+        400,
+      );
+    }
   });
 
   return app;

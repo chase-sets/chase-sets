@@ -649,6 +649,7 @@ export const discoveryEnglishTranslations = {
     "Offers are tied to an account so sellers can evaluate the request and you can track the response.",
   "discovery.routes.itemDetail.account.cannot.submit.product.wide.offers.yet":
     "This account cannot submit product-wide offers yet.",
+  "discovery.routes.itemDetail.account.cannot.create.product.alerts": "This account cannot create Product Alerts.",
   "discovery.routes.itemDetail.offer.marketplace.fee": "Marketplace sales fee: {amount}",
   "discovery.routes.itemDetail.offer.quote.time": "Quote time: {time}",
   "discovery.routes.itemDetail.offer.seller.net": "Seller net: {amount}",
@@ -657,6 +658,7 @@ export const discoveryEnglishTranslations = {
   "discovery.routes.itemDetail.choose.options.before.offer.registration": "Choose options before starting an offer.",
   "discovery.routes.itemDetail.make.offer.after.sign.in": "Make an offer after sign in",
   "discovery.routes.itemDetail.sign.in.or.register.to.make.offer": "Continue to make offer",
+  "discovery.routes.itemDetail.sign.in.to.finish.product.alert": "Sign in to finish saving this Watch alert.",
   "discovery.routes.itemDetail.selected.offer.summary": "Selected offer: {price} from {buyer}.",
   "discovery.routes.itemDetail.selected.offer.supply.summary":
     "Requested: {requested}. Your active supply covers {available}.",
@@ -770,12 +772,16 @@ export const discoveryEnglishTranslations = {
   "discovery.routes.itemDetail.buy.locked.to.this.seller": "Buy this listing",
   "discovery.routes.itemDetail.buy.optimized": "Buy now",
   "discovery.routes.itemDetail.create.product.alert": "Set alert",
+  "discovery.routes.itemDetail.product.alert.claim.failed":
+    "We could not finish saving that Watch alert. Review the criteria and try again.",
   "discovery.features.productAlerts.api.notificationRoutes.account.cannot.view.product.alert.notifications":
     "This account cannot view Product Alert notifications.",
   "discovery.features.productAlerts.api.notificationRoutes.sign.in.to.view.product.alert.notifications":
     "Sign in to view Product Alert notifications.",
   "discovery.features.productAlerts.api.route.account.cannot.manage.product.alerts":
     "This account cannot manage Product Alerts.",
+  "discovery.features.productAlerts.api.route.anonymous.product.alert.required":
+    "Watch alert registration expired. Start a new alert from the item page.",
   "discovery.features.productAlerts.api.route.authentication.context.missing": "Authentication context is missing.",
   "discovery.features.productAlerts.api.route.product.alert.request.failed": "Product Alert request failed.",
   "discovery.features.productAlerts.api.route.sign.in.to.manage.product.alerts": "Sign in to manage Product Alerts.",

@@ -10,6 +10,8 @@ const {
   mockAddSellListLine,
   mockAddGuestSellListLine,
   mockCreateProductAlert,
+  mockCreateAnonymousProductAlertIntent,
+  mockClaimAnonymousProductAlertIntent,
   mockRequireActorFromAuthApi,
   mockResolveActorFromAuthApi,
   mockCreateSubmittedOffer,
@@ -20,9 +22,12 @@ const {
   mockAppendAnonymousCartCookie,
   mockAppendAnonymousSellListCookie,
   mockAppendAnonymousListingDraftCookie,
+  mockAppendAnonymousProductAlertCookie,
   mockEnsureAnonymousCartId,
   mockEnsureAnonymousSellListId,
   mockEnsureAnonymousListingDraftOwnerId,
+  mockEnsureAnonymousProductAlertOwnerId,
+  mockReadAnonymousProductAlertOwnerId,
 } = vi.hoisted(() => ({
   mockAddCartLine: vi.fn(),
   mockCreateCheckoutSession: vi.fn(),
@@ -33,6 +38,8 @@ const {
   mockAddSellListLine: vi.fn(),
   mockAddGuestSellListLine: vi.fn(),
   mockCreateProductAlert: vi.fn(),
+  mockCreateAnonymousProductAlertIntent: vi.fn(),
+  mockClaimAnonymousProductAlertIntent: vi.fn(),
   mockRequireActorFromAuthApi: vi.fn(),
   mockResolveActorFromAuthApi: vi.fn(),
   mockCreateSubmittedOffer: vi.fn(),
@@ -49,9 +56,14 @@ const {
   mockAppendAnonymousListingDraftCookie: vi.fn((headers: Headers, anonymousOwnerId: string) => {
     headers.append("Set-Cookie", `chase_sets_anonymous_listing_drafts=${anonymousOwnerId}`);
   }),
+  mockAppendAnonymousProductAlertCookie: vi.fn((headers: Headers, anonymousOwnerId: string) => {
+    headers.append("Set-Cookie", `chase_sets_anonymous_product_alerts=${anonymousOwnerId}`);
+  }),
   mockEnsureAnonymousCartId: vi.fn(() => "anon_cart_1"),
   mockEnsureAnonymousSellListId: vi.fn(() => "anon_sell_1"),
   mockEnsureAnonymousListingDraftOwnerId: vi.fn(() => "anon_listing_draft_1"),
+  mockEnsureAnonymousProductAlertOwnerId: vi.fn(() => "anon_watch_1"),
+  mockReadAnonymousProductAlertOwnerId: vi.fn<() => string | null>(() => "anon_watch_1"),
 }));
 
 vi.mock("@chase-sets/platform-runtime/auth", async () => {
@@ -69,6 +81,12 @@ vi.mock("@chase-sets/platform-runtime/auth", async () => {
 vi.mock("../support/request-support/api-client", () => ({
   DiscoveryApiError: class DiscoveryApiError extends Error {},
   createDiscoveryRequestApiClient: mockCreateDiscoveryRequestApiClient,
+}));
+
+vi.mock("../support/request-support/anonymous-product-alert", () => ({
+  appendAnonymousProductAlertCookie: mockAppendAnonymousProductAlertCookie,
+  ensureAnonymousProductAlertOwnerId: mockEnsureAnonymousProductAlertOwnerId,
+  readAnonymousProductAlertOwnerId: mockReadAnonymousProductAlertOwnerId,
 }));
 
 vi.mock("@chase-sets/marketplace/server", () => ({
@@ -1349,6 +1367,172 @@ describe("item detail buy now action", () => {
 
     expect(result).toEqual({ error: "Enter a target price of $0.00 or more using dollars and cents." });
     expect(mockCreateProductAlert).not.toHaveBeenCalled();
+  });
+
+  it("saves guest Watch intent before registration without exposing criteria in the return URL", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    mockCreateAnonymousProductAlertIntent.mockResolvedValueOnce({
+      intent_id: "pai_1",
+    });
+    mockCreateDiscoveryRequestApiClient.mockReturnValue({
+      getItemDetail: vi.fn().mockResolvedValue({
+        catalog_item_id: "cat_charizard",
+        slug: "charizard-base-set",
+        title: "Charizard",
+      }),
+      createAnonymousProductAlertIntent: mockCreateAnonymousProductAlertIntent,
+      createProductAlert: mockCreateProductAlert,
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({});
+    mockCreateCheckoutRequestApiClient.mockReturnValue({});
+
+    const form = new URLSearchParams();
+    form.set("intent", "create-product-alert");
+    form.set("marketSide", "listing");
+    form.set("productId", "cat_charizard::form:raw");
+    form.set("selectedOptions", JSON.stringify([{ dimensionId: "form", optionId: "raw" }]));
+    form.set("productSummary", "Form: Raw");
+    form.set("thresholdAmount", "20");
+
+    const result = (await action({
+      request: new Request("http://localhost/items/cat_charizard?market=watch", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { id: "cat_charizard" },
+      context: undefined,
+    } as never)) as Response;
+
+    expect(result.status).toBe(302);
+    expect(result.headers.get("Location")).toBe(
+      "/register?returnTo=%2Fitems%2Fcharizard-base-set%3Fmarket%3Dwatch%26claimProductAlertIntent%3Dpai_1",
+    );
+    expect(result.headers.get("Location")).not.toContain("cat_charizard::form:raw");
+    expect(result.headers.get("Location")).not.toContain("threshold");
+    expect(result.headers.get("Set-Cookie")).toContain("chase_sets_anonymous_product_alerts=anon_watch_1");
+    expect(mockCreateAnonymousProductAlertIntent).toHaveBeenCalledWith("anon_watch_1", {
+      sourcePath: "/items/charizard-base-set?market=watch",
+      marketSide: "listing",
+      catalogItemId: "cat_charizard",
+      productId: "cat_charizard::form:raw",
+      selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+      productSummary: "Form: Raw",
+      thresholdAmount: "20.00",
+    });
+    expect(mockRequireActorFromAuthApi).not.toHaveBeenCalled();
+    expect(mockCreateProductAlert).not.toHaveBeenCalled();
+  });
+
+  it("claims guest Watch intent for signed-in registration return", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer",
+      permissions: ["accounts.view"],
+    });
+    mockClaimAnonymousProductAlertIntent.mockResolvedValueOnce({
+      intent_id: "pai_1",
+      status: "claimed",
+    });
+    mockCreateDiscoveryRequestApiClient.mockReturnValue({
+      getItemDetail: vi.fn().mockResolvedValue({
+        catalog_item_id: "cat_charizard",
+        slug: "charizard-base-set",
+        title: "Charizard",
+        market_listings: [],
+        offer_demand_matches: [],
+      }),
+      claimAnonymousProductAlertIntent: mockClaimAnonymousProductAlertIntent,
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({});
+    mockCreateCheckoutRequestApiClient.mockReturnValue({});
+    mockCreateInventoryRequestApiClient.mockReturnValue({});
+
+    let redirectResponse: Response | null = null;
+    try {
+      await loader({
+        request: new Request("http://localhost/items/charizard-base-set?market=watch&claimProductAlertIntent=pai_1"),
+        params: { id: "charizard-base-set" },
+        context: {},
+      } as never);
+    } catch (error) {
+      redirectResponse = error as Response;
+    }
+
+    expect(redirectResponse?.status).toBe(302);
+    expect(redirectResponse?.headers.get("Location")).toBe(
+      "/items/charizard-base-set?market=watch&productAlertCreated=1",
+    );
+    expect(mockClaimAnonymousProductAlertIntent).toHaveBeenCalledWith("anon_watch_1", "pai_1");
+  });
+
+  it("shows Watch claim recovery when the anonymous Product Alert cookie is missing", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer",
+      permissions: ["accounts.view"],
+    });
+    mockReadAnonymousProductAlertOwnerId.mockReturnValueOnce(null);
+    mockCreateDiscoveryRequestApiClient.mockReturnValue({
+      getItemDetail: vi.fn().mockResolvedValue({
+        catalog_item_id: "cat_charizard",
+        slug: "charizard-base-set",
+        title: "Charizard",
+        market_listings: [],
+        offer_demand_matches: [],
+      }),
+      claimAnonymousProductAlertIntent: mockClaimAnonymousProductAlertIntent,
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({});
+    mockCreateCheckoutRequestApiClient.mockReturnValue({});
+    mockCreateInventoryRequestApiClient.mockReturnValue({});
+
+    const result = await loader({
+      request: new Request("http://localhost/items/charizard-base-set?market=watch&claimProductAlertIntent=pai_1"),
+      params: { id: "charizard-base-set" },
+      context: {},
+    } as never);
+
+    expect(result.productAlertClaimError).toBe(
+      "Watch alert registration expired. Start a new alert from the item page.",
+    );
+    expect(result.initialMarketIntent).toBe("watch");
+    expect(result.item?.catalog_item_id).toBe("cat_charizard");
+    expect(mockClaimAnonymousProductAlertIntent).not.toHaveBeenCalled();
+  });
+
+  it("shows Watch claim recovery when the anonymous Product Alert intent is expired or replayed", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer",
+      permissions: ["accounts.view"],
+    });
+    mockClaimAnonymousProductAlertIntent.mockRejectedValueOnce(
+      new Error("Watch alert is no longer available. Start a new alert from the item page."),
+    );
+    mockCreateDiscoveryRequestApiClient.mockReturnValue({
+      getItemDetail: vi.fn().mockResolvedValue({
+        catalog_item_id: "cat_charizard",
+        slug: "charizard-base-set",
+        title: "Charizard",
+        market_listings: [],
+        offer_demand_matches: [],
+      }),
+      claimAnonymousProductAlertIntent: mockClaimAnonymousProductAlertIntent,
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({});
+    mockCreateCheckoutRequestApiClient.mockReturnValue({});
+    mockCreateInventoryRequestApiClient.mockReturnValue({});
+
+    const result = await loader({
+      request: new Request("http://localhost/items/charizard-base-set?market=watch&claimProductAlertIntent=pai_1"),
+      params: { id: "charizard-base-set" },
+      context: {},
+    } as never);
+
+    expect(result.productAlertClaimError).toBe(
+      "Watch alert is no longer available. Start a new alert from the item page.",
+    );
+    expect(result.initialMarketIntent).toBe("watch");
+    expect(result.item?.catalog_item_id).toBe("cat_charizard");
+    expect(mockClaimAnonymousProductAlertIntent).toHaveBeenCalledWith("anon_watch_1", "pai_1");
   });
 
   it("saves guest listing draft intent before seller registration", async () => {
