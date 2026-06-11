@@ -1,9 +1,15 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { CheckoutSellListPage } from "./sell-list-page";
 import type { CheckoutSellListConfirmationRow, CheckoutSellListLineRow } from "../read-model/queries";
+
+afterEach(async () => {
+  cleanup();
+  // Drain React scheduler work from dialog interactions before jsdom teardown.
+  await new Promise((resolve) => setTimeout(resolve, 20));
+});
 
 const selectedOfferLine: CheckoutSellListLineRow = {
   seller_account_id: "acc_seller",
