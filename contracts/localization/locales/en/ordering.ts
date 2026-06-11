@@ -189,7 +189,9 @@ export const orderingEnglishTranslations = {
   "ordering.features.orders.ui.orderDetailPage.standard": "Standard",
   "ordering.features.orders.ui.orderDetailPage.status": "Status",
   "ordering.features.orders.ui.orderDetailPage.status.2": "Status",
+  "ordering.features.orders.ui.orderDetailPage.support.reference": "Support reference",
   "ordering.features.orders.ui.orderDetailPage.terms.resolved": "Terms resolved",
+  "ordering.features.orders.ui.orderDetailPage.view.fulfillment": "View fulfillment",
   "ordering.features.orders.ui.orderListPage.items": "Items",
   "ordering.features.orders.ui.orderListPage.browse.marketplace": "Browse marketplace",
   "ordering.features.orders.ui.orderListPage.empty.orders.protection.description":

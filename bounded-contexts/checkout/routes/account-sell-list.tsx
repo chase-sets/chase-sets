@@ -754,6 +754,7 @@ export default function CheckoutAccountSellListRoute() {
       productOfferReviews={"productOfferReviews" in data ? data.productOfferReviews : []}
       inventoryItems={"inventoryItems" in data ? data.inventoryItems : []}
       payoutReadiness={"payoutReadiness" in data ? data.payoutReadiness : null}
+      latestConfirmation={"latestConfirmation" in data.sellList ? (data.sellList.latestConfirmation ?? null) : null}
       registrationReturn={data.registrationReturn}
       mergedLineCount={data.mergedLineCount}
       mergeError={data.mergeError}

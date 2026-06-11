@@ -3,7 +3,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { CheckoutSellListPage } from "./sell-list-page";
-import type { CheckoutSellListLineRow } from "../read-model/queries";
+import type { CheckoutSellListConfirmationRow, CheckoutSellListLineRow } from "../read-model/queries";
 
 const selectedOfferLine: CheckoutSellListLineRow = {
   seller_account_id: "acc_seller",
@@ -37,6 +37,50 @@ const productLine: CheckoutSellListLineRow = {
   quantity: 1,
   fallback_mode: "create-listing",
   minimum_listing_price_amount: "399.00",
+};
+
+const latestConfirmation: CheckoutSellListConfirmationRow = {
+  seller_account_id: "acc_seller",
+  confirmation_id: "slc_chk_sell_1",
+  confirmed_at: "2026-06-11T05:00:00.000Z",
+  readiness_evidence: {
+    contract: "checkout.sell-list-readiness.v1",
+    sourceRevision: "sell-list-rev-1",
+  },
+  seller_evidence: {
+    sellerAccountId: "acc_seller",
+    payoutReadiness: "ready",
+  },
+  handoff_summary: {
+    acceptedOfferCount: 1,
+    publishedListingCount: 1,
+    skippedLineCount: 0,
+    skippedReasons: [],
+    sideEffects: {
+      sale: "handoff-recorded",
+      accountHistory: "pending-downstream",
+      label: "pending-downstream",
+      payout: "pending-downstream",
+      settlement: "pending-downstream",
+      notification: "pending-downstream",
+    },
+    lineOutcomes: [
+      {
+        lineId: "sll_offer",
+        itemTitle: "Charizard",
+        status: "completed",
+        action: "mixed",
+        quantity: 2,
+        remainingQuantity: 0,
+        detail:
+          "Marketplace handoff recorded. Downstream sale, label, payout, settlement, and notification work is pending.",
+        references: {
+          offerIds: ["off_charizard"],
+          listingId: "lst_charizard",
+        },
+      },
+    ],
+  },
 };
 
 describe("checkout sell list page", () => {
@@ -196,6 +240,30 @@ describe("checkout sell list page", () => {
       "1 Sell List line(s) moved to your account. Review final seller terms, payout setup, and ship-from details before continuing.",
     );
     expect(markup).toContain("Continue to seller checkout");
+  });
+
+  it("shows latest seller confirmation as pending seller activity without completed downstream facts", () => {
+    const markup = renderToString(
+      <CheckoutSellListPage
+        sellListLines={[]}
+        latestConfirmation={latestConfirmation}
+        payoutReadiness={{ status: "ready", missing_requirements: [] }}
+      />,
+    );
+
+    expect(markup).toContain("Latest seller confirmation");
+    expect(markup).toContain("Seller confirmation recorded");
+    expect(markup).toContain("slc_chk_sell_1");
+    expect(markup).toContain("Marketplace handoff recorded");
+    expect(markup).toContain("Pending downstream");
+    expect(markup).toContain("offer off_charizard");
+    expect(markup).toContain("listing lst_charizard");
+    expect(markup).toContain("View seller activity");
+    expect(markup).toContain("View committed sales");
+    expect(markup).toContain("View sale shipments");
+    expect(markup).not.toContain("Sale complete");
+    expect(markup).not.toContain("Label ready");
+    expect(markup).not.toContain("Payout ready");
   });
 
   it("shows guest selected-offer payout details through Reference Info without a fee fingerprint", () => {

@@ -68,6 +68,7 @@ export function OrderingOrderDetailPage({
   backHref,
   paymentHref,
   supportHref,
+  fulfillmentHref,
   order,
   errorMessage,
   supplementarySection,
@@ -77,6 +78,7 @@ export function OrderingOrderDetailPage({
   backHref: string;
   paymentHref?: string | null;
   supportHref?: string | null;
+  fulfillmentHref?: string | null;
   order: PurchaseDetail | SaleDetail;
   errorMessage?: string | null;
   supplementarySection?: ReactNode;
@@ -93,6 +95,9 @@ export function OrderingOrderDetailPage({
       ? t("ordering.features.orders.ui.orderDetailPage.purchase")
       : t("ordering.features.orders.ui.orderDetailPage.sale");
   const cancelIntent = role === "buyer" ? "cancel-purchase" : "cancel-sale";
+  const sourceReference = order.source_reference_id?.trim() || order.order_id;
+  const canViewFulfillment =
+    Boolean(fulfillmentHref) && order.status !== "pending-payment" && order.status !== "pending-reservation";
   const supportLabel =
     role === "buyer" && order.cancellation_unavailable_reason === "fulfillment-started"
       ? t("ordering.features.orders.ui.orderDetailPage.ask.to.cancel")
@@ -199,12 +204,20 @@ export function OrderingOrderDetailPage({
         <Stack gap={4}>
           <Surface elevated glow>
             <Stack gap={4}>
-              <Grid columns={{ base: 1, md: 3 }} gap={3}>
+              <Grid columns={{ base: 1, md: 4 }} gap={3}>
                 <Stack gap={1}>
                   <Text size="sm" tone="secondary">
                     {t("ordering.features.orders.ui.orderDetailPage.source")}
                   </Text>
                   <Text weight="semibold">{formatSourceType(order.source_type)}</Text>
+                </Stack>
+                <Stack gap={1}>
+                  <Text size="sm" tone="secondary">
+                    {t("ordering.features.orders.ui.orderDetailPage.support.reference")}
+                  </Text>
+                  <Text weight="semibold" wrap="anywhere">
+                    {sourceReference}
+                  </Text>
                 </Stack>
                 <Stack gap={1}>
                   <Text size="sm" tone="secondary">
@@ -227,6 +240,11 @@ export function OrderingOrderDetailPage({
                 {supportHref ? (
                   <LinkButton href={supportHref} tone="secondary">
                     {supportLabel}
+                  </LinkButton>
+                ) : null}
+                {canViewFulfillment ? (
+                  <LinkButton href={fulfillmentHref!} tone="secondary">
+                    {t("ordering.features.orders.ui.orderDetailPage.view.fulfillment")}
                   </LinkButton>
                 ) : null}
                 {canCancel ? (

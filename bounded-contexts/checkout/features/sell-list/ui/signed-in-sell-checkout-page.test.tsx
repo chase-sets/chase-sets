@@ -218,5 +218,7 @@ describe("signed-in sell checkout page", () => {
     expect(markup).toContain("Your sale confirmation was recorded");
     expect(markup).toContain("Marketplace handoff");
     expect(markup).toContain("Support can track pending or failed downstream work from this confirmation.");
+    expect(markup).toContain("View seller activity");
+    expect(markup).toContain("View committed sales");
   });
 });
