@@ -8,6 +8,7 @@ import {
   CurrencyInput,
   Grid,
   Inline,
+  Inset,
   KeyValueList,
   LinkButton,
   MarketplaceEmptyState,
@@ -851,12 +852,12 @@ function LatestSellListConfirmationPanel({ confirmation }: { confirmation: Check
             {sideEffectRows.map((entry) => {
               const status = sideEffects[entry.key] ?? "not-attempted";
               return (
-                <Surface key={entry.key} tone="subtle" padding={3}>
+                <Inset key={entry.key} padding={3}>
                   <Inline gap={2}>
                     <Text weight="semibold">{entry.label}</Text>
                     <Badge tone={sideEffectTone(status)}>{formatStatus(status)}</Badge>
                   </Inline>
-                </Surface>
+                </Inset>
               );
             })}
           </Grid>
@@ -867,7 +868,7 @@ function LatestSellListConfirmationPanel({ confirmation }: { confirmation: Check
                 {t("checkout.features.sellList.ui.sellListPage.latest.confirmation.line.outcomes")}
               </Text>
               {lineOutcomes.map((outcome) => (
-                <Surface key={outcome.lineId} tone="subtle" padding={3}>
+                <Inset key={outcome.lineId} padding={3}>
                   <Grid columns={{ base: 1, md: 3 }} gap={3}>
                     <Stack gap={1}>
                       <Inline gap={2}>
@@ -907,7 +908,7 @@ function LatestSellListConfirmationPanel({ confirmation }: { confirmation: Check
                       <Text wrap="anywhere">{confirmationReferenceSummary(outcome)}</Text>
                     </Stack>
                   </Grid>
-                </Surface>
+                </Inset>
               ))}
             </Stack>
           ) : null}
