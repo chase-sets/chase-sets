@@ -24,6 +24,7 @@ export function parseLaunchPacketArgs(argv, env = process.env) {
       readOption(argv, "--launch-supply-reference") ?? readEnv("PRODUCTION_LAUNCH_SUPPLY_MEASUREMENTS_REFERENCE", env),
     promotionPath: readOption(argv, "--promotion") ?? readEnv("MARKETPLACE_PROMOTION_EVIDENCE", env),
     checkoutFeePath: readOption(argv, "--checkout-fee") ?? readEnv("MARKETPLACE_CHECKOUT_FEE_EVIDENCE", env),
+    checkoutLaunchPath: readOption(argv, "--checkout-launch") ?? readEnv("CHECKOUT_LAUNCH_EVIDENCE", env),
     stripeMoneyPath: readOption(argv, "--stripe-money") ?? readEnv("STRIPE_MONEY_OPERATIONS_EVIDENCE", env),
     supportPath: readOption(argv, "--support") ?? readEnv("SUPPORT_OPERATIONS_EVIDENCE", env),
     fulfillmentPostagePath: readOption(argv, "--fulfillment-postage") ?? readEnv("FULFILLMENT_POSTAGE_EVIDENCE", env),
@@ -51,6 +52,7 @@ export async function readLaunchPacketInputs(options) {
     productionEnvironment,
     promotion,
     marketplaceCheckoutFee,
+    checkoutLaunchEvidence,
     stripeMoneyOperations,
     supportOperations,
     fulfillmentPostage,
@@ -61,6 +63,7 @@ export async function readLaunchPacketInputs(options) {
     productionEnvironmentPromise,
     readJson(options.promotionPath),
     readJson(options.checkoutFeePath),
+    readJson(options.checkoutLaunchPath),
     readJson(options.stripeMoneyPath),
     readJson(options.supportPath),
     readJson(options.fulfillmentPostagePath),
@@ -73,6 +76,7 @@ export async function readLaunchPacketInputs(options) {
     productionEnvironment,
     promotion,
     marketplaceCheckoutFee,
+    checkoutLaunchEvidence,
     stripeMoneyOperations,
     supportOperations,
     fulfillmentPostage,
@@ -86,6 +90,7 @@ export function buildLaunchPacket(input, options = {}) {
   const promotion = requireRecord(input.promotion, "promotion evidence");
   const marketplacePromotion = requireRecord(promotion.marketplacePromotion, "marketplace promotion gate");
   const marketplaceCheckoutFee = requireRecord(input.marketplaceCheckoutFee, "marketplace checkout fee gate");
+  const checkoutLaunchEvidence = requireRecord(input.checkoutLaunchEvidence, "checkout launch evidence gate");
   const stripeMoneyOperations = requireRecord(input.stripeMoneyOperations, "stripe money operations gate");
   const supportOperations = requireRecord(input.supportOperations, "support operations gate");
   const fulfillmentPostage = requireRecord(input.fulfillmentPostage, "fulfillment postage gate");
@@ -98,6 +103,7 @@ export function buildLaunchPacket(input, options = {}) {
         {
           marketplacePromotion,
           marketplaceCheckoutFee,
+          checkoutLaunchEvidence,
           stripeMoneyOperations,
           supportOperations,
           fulfillmentPostage,
@@ -115,6 +121,7 @@ export function buildLaunchPacket(input, options = {}) {
     gates: {
       marketplacePromotion,
       marketplaceCheckoutFee,
+      checkoutLaunchEvidence,
       stripeMoneyOperations,
       supportOperations,
       fulfillmentPostage,
@@ -155,6 +162,14 @@ export function buildDesiredProductionEnvironment(gates, options = {}) {
     PRODUCTION_MARKETPLACE_CHECKOUT_FEE_REFERENCE: referenceString(
       gates.marketplaceCheckoutFee,
       "marketplace checkout fee",
+    ),
+    PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_APPROVED: approvalString(
+      gates.checkoutLaunchEvidence,
+      "checkout launch evidence",
+    ),
+    PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_REFERENCE: referenceString(
+      gates.checkoutLaunchEvidence,
+      "checkout launch evidence",
     ),
     PRODUCTION_STRIPE_MONEY_OPERATIONS_APPROVED: approvalString(gates.stripeMoneyOperations, "stripe money operations"),
     PRODUCTION_STRIPE_MONEY_OPERATIONS_REFERENCE: referenceString(
@@ -230,6 +245,7 @@ function validateLaunchPacketOptions(options) {
   const required = [
     ["--promotion", options.promotionPath],
     ["--checkout-fee", options.checkoutFeePath],
+    ["--checkout-launch", options.checkoutLaunchPath],
     ["--stripe-money", options.stripeMoneyPath],
     ["--support", options.supportPath],
     ["--fulfillment-postage", options.fulfillmentPostagePath],

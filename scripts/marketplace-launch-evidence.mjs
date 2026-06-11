@@ -74,6 +74,16 @@ const REQUIRED_PUBLIC_PRESENCE_COPY_AUDIT_PAGE_COUNT = 8;
 const REQUIRED_MARKETPLACE_CHECKOUT_FEE_POLICY_VERSION = "marketplace-checkout-fee-v1";
 const PRODUCTION_MARKETPLACE_HOSTS = new Set(["chasesets.com", "marketplace.chasesets.com"]);
 const MARKETPLACE_CHECKOUT_FEE_POLICY_PATH = "/api/marketplace/account/marketplace-checkout-fee-policy";
+const REQUIRED_CHECKOUT_LAUNCH_EVIDENCE_MATRIX_VERSION = "checkout-launch-evidence-matrix/v1";
+const REQUIRED_CHECKOUT_LAUNCH_MATRIX_ROW_COUNT = 24;
+const REQUIRED_CHECKOUT_LAUNCH_SCENARIO_STATE_COUNT = 22;
+const REQUIRED_CHECKOUT_LAUNCH_REGISTER_ROW_COUNT = 18;
+const REQUIRED_CHECKOUT_LAUNCH_NO_SIDE_EFFECT_ROW_COUNT = 13;
+const REQUIRED_CHECKOUT_LAUNCH_PENDING_DOWNSTREAM_ROW_COUNT = 5;
+const REQUIRED_CHECKOUT_LAUNCH_FRESH_STATE_ROW_COUNT = 24;
+const REQUIRED_CHECKOUT_LAUNCH_ENTRY_SOURCES = ["buy-now", "buy-cart-readiness", "sell-list-readiness"];
+const REQUIRED_CHECKOUT_LAUNCH_ACTOR_MODES = ["guest", "signed-in"];
+const REQUIRED_CHECKOUT_LAUNCH_VIEWPORTS = ["desktop", "mobile"];
 
 const REQUIRED_APPROVAL_GATES = [
   {
@@ -87,6 +97,12 @@ const REQUIRED_APPROVAL_GATES = [
     label: "Marketplace Checkout Fee",
     approvedEnv: "PRODUCTION_MARKETPLACE_CHECKOUT_FEE_APPROVED",
     referenceEnv: "PRODUCTION_MARKETPLACE_CHECKOUT_FEE_REFERENCE",
+  },
+  {
+    key: "checkoutLaunchEvidence",
+    label: "Checkout launch evidence",
+    approvedEnv: "PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_APPROVED",
+    referenceEnv: "PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_REFERENCE",
   },
   {
     key: "stripeMoneyOperations",
@@ -173,6 +189,7 @@ export function validateMarketplaceLaunchEvidence(packet, options = {}) {
   validateLaunchSupplyMeasurements(gates.launchSupplyMeasurements, errors);
   validateMarketplacePromotion(gates.marketplacePromotion, now, errors);
   validateMarketplaceCheckoutFee(gates.marketplaceCheckoutFee, now, errors);
+  validateCheckoutLaunchEvidence(gates.checkoutLaunchEvidence, now, errors);
   validateStripeMoneyOperations(gates.stripeMoneyOperations, now, errors);
   validateSupportOperations(gates.supportOperations, now, errors);
   validateFulfillmentPostage(gates.fulfillmentPostage, now, errors);
@@ -559,6 +576,162 @@ function validatePolicyEffectiveAt(label, value, now, errors) {
   if (effectiveAt.getTime() > now.getTime() + 60_000) {
     errors.push(`${label} feePolicyEffectiveAt cannot be in the future.`);
   }
+}
+
+function validateCheckoutLaunchEvidence(gate, now, errors) {
+  if (!isRecord(gate)) {
+    return;
+  }
+
+  validateRequiredBooleans(
+    "Checkout launch evidence",
+    gate,
+    [
+      "currentMainRevalidated",
+      "buyGuestCovered",
+      "buySignedInCovered",
+      "sellGuestCovered",
+      "sellSignedInCovered",
+      "unassignedFulfillmentOutsideCheckoutProven",
+      "optimizationDecisionOutsideCheckoutProven",
+      "pendingDownstreamBoundaryProven",
+      "noCustomerCommittingSideEffectsBeforeConfirm",
+      "freshStateCleanupPassed",
+      "killSwitchFailClosedProven",
+      "legacyCompatibilityAbsent",
+      "visualMobileAccessibilityPassed",
+    ],
+    errors,
+  );
+  validateRequiredStrings(
+    "Checkout launch evidence",
+    gate,
+    [
+      "evidenceCompletedAt",
+      "environment",
+      "releaseCommit",
+      "matrixReference",
+      "matrixVersion",
+      "copyPolicyReference",
+      "visualTargetsReference",
+      "performanceBudgetReference",
+      "coverageArtifactReference",
+      "performanceMeasurementReference",
+      "noSideEffectReference",
+      "noCompatibilityScanReference",
+      "freshStateCleanupReference",
+      "launchRegisterReference",
+      "observabilityReference",
+      "supportReference",
+      "securityPolicyReference",
+      "stagingWorkflowRunReference",
+      "productionWorkflowRunReference",
+    ],
+    errors,
+  );
+  validateDetailedReferences(
+    "Checkout launch evidence",
+    gate,
+    [
+      "matrixReference",
+      "copyPolicyReference",
+      "visualTargetsReference",
+      "performanceBudgetReference",
+      "coverageArtifactReference",
+      "performanceMeasurementReference",
+      "noSideEffectReference",
+      "noCompatibilityScanReference",
+      "freshStateCleanupReference",
+      "launchRegisterReference",
+      "observabilityReference",
+      "supportReference",
+      "securityPolicyReference",
+      "stagingWorkflowRunReference",
+      "productionWorkflowRunReference",
+    ],
+    errors,
+  );
+  validateCompletedAt("Checkout launch evidence", "evidenceCompletedAt", gate.evidenceCompletedAt, now, errors);
+
+  if (isNonEmptyString(gate.environment) && gate.environment.trim().toLowerCase() !== "production") {
+    errors.push("Checkout launch evidence environment must be production.");
+  }
+
+  if (gate.matrixVersion !== REQUIRED_CHECKOUT_LAUNCH_EVIDENCE_MATRIX_VERSION) {
+    errors.push(`Checkout launch evidence matrixVersion must be ${REQUIRED_CHECKOUT_LAUNCH_EVIDENCE_MATRIX_VERSION}.`);
+  }
+
+  validateMinimumNumber(
+    "Checkout launch evidence matrixRowCount",
+    gate.matrixRowCount,
+    REQUIRED_CHECKOUT_LAUNCH_MATRIX_ROW_COUNT,
+    errors,
+  );
+  validateMinimumNumber(
+    "Checkout launch evidence scenarioStateCount",
+    gate.scenarioStateCount,
+    REQUIRED_CHECKOUT_LAUNCH_SCENARIO_STATE_COUNT,
+    errors,
+  );
+  validateMinimumNumber(
+    "Checkout launch evidence launchRegisterRowCount",
+    gate.launchRegisterRowCount,
+    REQUIRED_CHECKOUT_LAUNCH_REGISTER_ROW_COUNT,
+    errors,
+  );
+  validateMinimumNumber(
+    "Checkout launch evidence noSideEffectRowCount",
+    gate.noSideEffectRowCount,
+    REQUIRED_CHECKOUT_LAUNCH_NO_SIDE_EFFECT_ROW_COUNT,
+    errors,
+  );
+  validateMinimumNumber(
+    "Checkout launch evidence pendingDownstreamBoundaryRowCount",
+    gate.pendingDownstreamBoundaryRowCount,
+    REQUIRED_CHECKOUT_LAUNCH_PENDING_DOWNSTREAM_ROW_COUNT,
+    errors,
+  );
+  validateMinimumNumber(
+    "Checkout launch evidence freshStateCleanupRowCount",
+    gate.freshStateCleanupRowCount,
+    REQUIRED_CHECKOUT_LAUNCH_FRESH_STATE_ROW_COUNT,
+    errors,
+  );
+  validateMinimumNumber(
+    "Checkout launch evidence measuredPerformanceRowCount",
+    gate.measuredPerformanceRowCount,
+    REQUIRED_CHECKOUT_LAUNCH_MATRIX_ROW_COUNT,
+    errors,
+  );
+  validateMinimumNumber("Checkout launch evidence visualSnapshotCount", gate.visualSnapshotCount, 4, errors);
+  validateMinimumNumber("Checkout launch evidence mobileViewportCount", gate.mobileViewportCount, 2, errors);
+  validateMinimumNumber(
+    "Checkout launch evidence accessibilityScenarioCount",
+    gate.accessibilityScenarioCount,
+    8,
+    errors,
+  );
+  validateMinimumNumber("Checkout launch evidence e2eScenarioCount", gate.e2eScenarioCount, 8, errors);
+  validateMinimumNumber("Checkout launch evidence canaryArtifactCount", gate.canaryArtifactCount, 3, errors);
+
+  validateRequiredArrayMembers(
+    "Checkout launch evidence entrySourcesCovered",
+    gate.entrySourcesCovered,
+    REQUIRED_CHECKOUT_LAUNCH_ENTRY_SOURCES,
+    errors,
+  );
+  validateRequiredArrayMembers(
+    "Checkout launch evidence actorModesCovered",
+    gate.actorModesCovered,
+    REQUIRED_CHECKOUT_LAUNCH_ACTOR_MODES,
+    errors,
+  );
+  validateRequiredArrayMembers(
+    "Checkout launch evidence viewportsCovered",
+    gate.viewportsCovered,
+    REQUIRED_CHECKOUT_LAUNCH_VIEWPORTS,
+    errors,
+  );
 }
 
 function validateStripeMoneyOperations(gate, now, errors) {
@@ -1605,6 +1778,7 @@ function validateReleaseCommitConsistency(gates, errors) {
 
   for (const [key, label] of [
     ["marketplaceCheckoutFee", "Marketplace Checkout Fee"],
+    ["checkoutLaunchEvidence", "Checkout launch evidence"],
     ["stripeMoneyOperations", "Stripe money operations"],
     ["supportOperations", "Support operations"],
     ["fulfillmentPostage", "Fulfillment postage"],
@@ -1624,6 +1798,7 @@ function validateReleaseCommitFormats(gates, errors) {
   for (const [key, label] of [
     ["marketplacePromotion", "Marketplace promotion"],
     ["marketplaceCheckoutFee", "Marketplace Checkout Fee"],
+    ["checkoutLaunchEvidence", "Checkout launch evidence"],
     ["stripeMoneyOperations", "Stripe money operations"],
     ["supportOperations", "Support operations"],
     ["fulfillmentPostage", "Fulfillment postage"],
@@ -1722,6 +1897,29 @@ function validateConcreteIdentifiers(label, gate, fields, errors) {
       if (normalized.length < 6 || PLACEHOLDER_REFERENCE_PATTERN.test(normalized)) {
         errors.push(`${label} ${field} must be a concrete identifier, not a placeholder.`);
       }
+    }
+  }
+}
+
+function validateMinimumNumber(label, value, minimum, errors) {
+  if (!Number.isInteger(value)) {
+    errors.push(`${label} must be an integer.`);
+    return;
+  }
+  if (value < minimum) {
+    errors.push(`${label} must be at least ${minimum}.`);
+  }
+}
+
+function validateRequiredArrayMembers(label, value, requiredValues, errors) {
+  if (!Array.isArray(value)) {
+    errors.push(`${label} must be an array.`);
+    return;
+  }
+  const normalizedValues = new Set(value.filter((entry) => typeof entry === "string").map((entry) => entry.trim()));
+  for (const requiredValue of requiredValues) {
+    if (!normalizedValues.has(requiredValue)) {
+      errors.push(`${label} must include ${requiredValue}.`);
     }
   }
 }

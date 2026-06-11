@@ -411,6 +411,14 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformVariables).toContain(
       "production_marketplace_checkout_fee_reference is required when production_marketplace_checkout_fee_approved is true.",
     );
+    expect(platformVariables).toContain('variable "production_checkout_launch_evidence_approved"');
+    expect(platformVariables).toContain(
+      "production_checkout_launch_evidence_approved may only be true for production.",
+    );
+    expect(platformVariables).toContain('variable "production_checkout_launch_evidence_reference"');
+    expect(platformVariables).toContain(
+      "production_checkout_launch_evidence_reference is required when production_checkout_launch_evidence_approved is true.",
+    );
     expect(platformVariables).toContain('variable "production_stripe_money_operations_approved"');
     expect(platformVariables).toContain("production_stripe_money_operations_approved may only be true for production.");
     expect(platformVariables).toContain('variable "production_stripe_money_operations_reference"');
@@ -533,6 +541,7 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(platformMain).toContain('check "production_marketplace_evidence_reference_quality"');
     expect(platformMain).toContain("var.production_transactional_email_reference");
+    expect(platformMain).toContain("var.production_checkout_launch_evidence_reference");
     expect(platformMain).toContain("local.placeholder_evidence_references");
     expect(platformMain).toContain(
       'error_message = "Production marketplace promotion evidence references must point to real external evidence records, not placeholders."',
@@ -541,6 +550,11 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformMain).toContain("var.production_marketplace_checkout_fee_approved");
     expect(platformMain).toContain(
       'error_message = "Production marketplace promotion requires approved Marketplace Checkout Fee evidence before live checkout."',
+    );
+    expect(platformMain).toContain('check "production_checkout_launch_evidence_readiness"');
+    expect(platformMain).toContain("var.production_checkout_launch_evidence_approved");
+    expect(platformMain).toContain(
+      'error_message = "Production marketplace promotion requires approved checkout launch evidence before public checkout."',
     );
     expect(platformMain).toContain('check "production_stripe_money_operations_readiness"');
     expect(platformMain).toContain("var.production_stripe_money_operations_approved");
@@ -760,6 +774,12 @@ describe("DigitalOcean platform configuration", () => {
       "TF_VAR_production_marketplace_checkout_fee_reference: ${{ vars.PRODUCTION_MARKETPLACE_CHECKOUT_FEE_REFERENCE || '' }}",
     );
     expect(platformProductionWorkflow).toContain(
+      "TF_VAR_production_checkout_launch_evidence_approved: ${{ vars.PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_APPROVED == 'true' && 'true' || 'false' }}",
+    );
+    expect(platformProductionWorkflow).toContain(
+      "TF_VAR_production_checkout_launch_evidence_reference: ${{ vars.PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_REFERENCE || '' }}",
+    );
+    expect(platformProductionWorkflow).toContain(
       "TF_VAR_production_stripe_money_operations_approved: ${{ vars.PRODUCTION_STRIPE_MONEY_OPERATIONS_APPROVED == 'true' && 'true' || 'false' }}",
     );
     expect(platformProductionWorkflow).toContain(
@@ -833,6 +853,9 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(platformProductionWorkflow).toContain(
       "Production marketplace promotion requires approved Marketplace Checkout Fee evidence.",
+    );
+    expect(platformProductionWorkflow).toContain(
+      "Production marketplace promotion requires approved checkout launch evidence.",
     );
     expect(platformProductionWorkflow).toContain(
       "Production marketplace promotion requires approved Stripe money operations evidence.",

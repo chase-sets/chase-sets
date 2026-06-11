@@ -117,6 +117,28 @@ variable "production_marketplace_checkout_fee_reference" {
   }
 }
 
+variable "production_checkout_launch_evidence_approved" {
+  type        = bool
+  default     = false
+  description = "Explicit Checkout evidence gate that the simplified buy-cart, buy-now, and sell-list checkout flows are freshly proven against the current release before production marketplace promotion."
+
+  validation {
+    condition     = var.environment == "production" || var.production_checkout_launch_evidence_approved == false
+    error_message = "production_checkout_launch_evidence_approved may only be true for production."
+  }
+}
+
+variable "production_checkout_launch_evidence_reference" {
+  type        = string
+  default     = ""
+  description = "Checkout-owned evidence reference for approved production checkout launch posture, such as the composite checkout matrix review record."
+
+  validation {
+    condition     = !var.production_checkout_launch_evidence_approved || trimspace(var.production_checkout_launch_evidence_reference) != ""
+    error_message = "production_checkout_launch_evidence_reference is required when production_checkout_launch_evidence_approved is true."
+  }
+}
+
 variable "production_stripe_money_operations_approved" {
   type        = bool
   default     = false
