@@ -136,9 +136,10 @@ describe("guest sell checkout page", () => {
         sellerName: "Jane Seller",
         estimatedTotal: "$38.00",
         sideEffects: {
+          sale: "not-attempted",
           label: "not-attempted",
           payout: "not-attempted",
-          sale: "not-attempted",
+          settlement: "not-attempted",
           notification: "not-attempted",
           accountHistory: "not-attempted",
         },

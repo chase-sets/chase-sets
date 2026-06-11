@@ -111,7 +111,7 @@ describe("signed-in sell checkout page", () => {
     expect(markup).toContain("Seller account ready");
     expect(markup).toContain("Prepare a prepaid label");
     expect(markup).toContain("Review sale handoff");
-    expect(markup).toContain("No label, payout, sale, notification, or account-history side effect starts");
+    expect(markup).toContain("No label, payout, settlement, sale, notification, or account-history side effect starts");
     expect(markup).not.toContain("provider diagnostics");
     expect(markup).not.toContain("settlement internals");
   });
@@ -179,7 +179,7 @@ describe("signed-in sell checkout page", () => {
     expect(markup).toContain("disabled");
   });
 
-  it("renders a signed-in confirmation handoff that states side effects have not started", () => {
+  it("renders a signed-in confirmation handoff with downstream status copy", () => {
     const actionState: SignedInSellCheckoutActionState = {
       status: "confirmed",
       values: defaultValues,
@@ -188,11 +188,12 @@ describe("signed-in sell checkout page", () => {
         sellerName: "Jane Seller",
         estimatedTotal: "$38.00",
         sideEffects: {
-          label: "not-attempted",
-          payout: "not-attempted",
-          sale: "not-attempted",
-          notification: "not-attempted",
-          accountHistory: "not-attempted",
+          sale: "handoff-recorded",
+          label: "pending-downstream",
+          payout: "pending-downstream",
+          settlement: "pending-downstream",
+          notification: "pending-downstream",
+          accountHistory: "pending-downstream",
         },
       },
     };
@@ -214,7 +215,8 @@ describe("signed-in sell checkout page", () => {
 
     expect(markup).toContain("Sale review ready");
     expect(markup).toContain("signed-in-sell-chk_sell_1");
-    expect(markup).toContain("No seller-committing side effects have started.");
-    expect(markup).toContain("Sale, payout, label, notification, and account-history work stay pending.");
+    expect(markup).toContain("Your sale confirmation was recorded");
+    expect(markup).toContain("Marketplace handoff");
+    expect(markup).toContain("Support can track pending or failed downstream work from this confirmation.");
   });
 });

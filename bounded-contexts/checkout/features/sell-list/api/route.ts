@@ -1,9 +1,8 @@
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
-import { createId } from "@chase-sets/primitives/typed-ids";
 import type { SellListLineId } from "../../../support/runtime-support/common";
 import type { CheckoutApiEnv } from "../../../api";
-import type { SellListExecutionSummary } from "../domain/domain";
+import type { SellListConfirmationSummary, SellListSellerConfirmationEvidence } from "../domain/domain";
 import { parseSellListReadinessDecisionInput } from "../domain/readiness";
 import type { CheckoutSellListServices } from "./runtime";
 
@@ -87,6 +86,14 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("checkout.features.sellList.api.route.sell.list.request.failed");
 }
 
+function objectValue(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+}
+
+function stringValue(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : "";
+}
+
 function parseSellListLineBody(body: Record<string, unknown>) {
   return {
     lineType: body.lineType === "selected-offer" ? ("selected-offer" as const) : ("product" as const),
@@ -135,18 +142,168 @@ function parseLineOutcomeStatus(value: unknown): "completed" | "partial" | "skip
 
 function parseLineOutcomeAction(
   value: unknown,
-): "accepted-offer" | "accepted-smart-match" | "created-listing" | "mixed" | "kept-in-sell-list" {
+): "accepted-offer" | "accepted-smart-match" | "published-listing" | "mixed" | "kept-in-sell-list" {
   return value === "accepted-offer" ||
     value === "accepted-smart-match" ||
-    value === "created-listing" ||
+    value === "published-listing" ||
     value === "mixed" ||
     value === "kept-in-sell-list"
     ? value
     : "kept-in-sell-list";
 }
 
-function parseSellListCheckoutBody(body: Record<string, unknown>) {
-  const executionId = String(body.executionId ?? "").trim();
+function parseLineOutcomeReferences(value: unknown) {
+  const source = objectValue(value);
+  if (!source) {
+    return undefined;
+  }
+
+  const offerIds = Array.isArray(source.offerIds)
+    ? source.offerIds
+        .map(String)
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+    : undefined;
+  const listingId = source.listingId === null || source.listingId === undefined ? null : stringValue(source.listingId);
+  return {
+    ...(offerIds && offerIds.length > 0 ? { offerIds } : {}),
+    ...(listingId ? { listingId } : listingId === null ? { listingId: null } : {}),
+  };
+}
+
+function parseSideEffectStatus(value: unknown): SellListConfirmationSummary["sideEffects"]["sale"] | null {
+  return value === "not-attempted" ||
+    value === "not-applicable" ||
+    value === "handoff-recorded" ||
+    value === "pending-downstream" ||
+    value === "failed"
+    ? value
+    : null;
+}
+
+function parseSideEffects(value: unknown): SellListConfirmationSummary["sideEffects"] | null {
+  const source = objectValue(value);
+  if (!source) {
+    return null;
+  }
+
+  const sale = parseSideEffectStatus(source.sale);
+  const label = parseSideEffectStatus(source.label);
+  const payout = parseSideEffectStatus(source.payout);
+  const settlement = parseSideEffectStatus(source.settlement);
+  const notification = parseSideEffectStatus(source.notification);
+  const accountHistory = parseSideEffectStatus(source.accountHistory);
+  if (!sale || !label || !payout || !settlement || !notification || !accountHistory) {
+    return null;
+  }
+
+  return { sale, label, payout, settlement, notification, accountHistory };
+}
+
+function parseSellerEvidence(value: unknown): SellListSellerConfirmationEvidence | null {
+  const source = objectValue(value);
+  const shipFrom = objectValue(source?.shipFrom);
+  const payout = objectValue(source?.payout);
+  const label = objectValue(source?.label);
+  const conditionReview = objectValue(source?.conditionReview);
+  const risk = objectValue(source?.risk);
+  const provider = objectValue(source?.provider);
+  const freshness = objectValue(source?.freshness);
+  if (!shipFrom || !payout || !label || !conditionReview || !risk || !provider || !freshness) {
+    return null;
+  }
+  if (
+    shipFrom.status !== "ready" ||
+    payout.status !== "ready" ||
+    payout.method !== "saved-payout" ||
+    label.status !== "ready" ||
+    (label.preference !== "prepaid-label" && label.preference !== "seller-label-later") ||
+    conditionReview.status !== "accepted" ||
+    risk.status !== "clear" ||
+    provider.status !== "ready" ||
+    freshness.status !== "current"
+  ) {
+    return null;
+  }
+  const shipFromCountry = stringValue(shipFrom.country);
+  const shipFromRegion = stringValue(shipFrom.region);
+  const shipFromPostalCode = stringValue(shipFrom.postalCode);
+  const payoutReadinessStatus = stringValue(payout.readinessStatus);
+  const acceptedAt = stringValue(conditionReview.acceptedAt);
+  if (!shipFromCountry || !shipFromRegion || !shipFromPostalCode || !payoutReadinessStatus || !acceptedAt) {
+    return null;
+  }
+
+  return {
+    shipFrom: {
+      status: "ready",
+      addressId:
+        shipFrom.addressId === null || shipFrom.addressId === undefined ? null : stringValue(shipFrom.addressId),
+      country: shipFromCountry,
+      region: shipFromRegion,
+      postalCode: shipFromPostalCode,
+    },
+    payout: {
+      status: "ready",
+      method: "saved-payout",
+      readinessStatus: payoutReadinessStatus,
+      lastCheckedAt:
+        payout.lastCheckedAt === null || payout.lastCheckedAt === undefined ? null : stringValue(payout.lastCheckedAt),
+    },
+    label: {
+      status: "ready",
+      preference: label.preference,
+    },
+    conditionReview: {
+      status: "accepted",
+      acceptedAt,
+    },
+    risk: { status: "clear" },
+    provider: { status: "ready" },
+    freshness: { status: "current" },
+  };
+}
+
+function parseHandoffSummary(value: unknown): SellListConfirmationSummary | null {
+  const source = objectValue(value);
+  if (!source) {
+    return null;
+  }
+
+  const sideEffects = parseSideEffects(source.sideEffects);
+  if (!sideEffects) {
+    return null;
+  }
+
+  const lineOutcomes = Array.isArray(source.lineOutcomes)
+    ? source.lineOutcomes
+        .map(objectValue)
+        .filter((entry): entry is Record<string, unknown> => entry !== null)
+        .map((entry) => ({
+          lineId: stringValue(entry.lineId) as SellListLineId,
+          itemTitle: stringValue(entry.itemTitle),
+          status: parseLineOutcomeStatus(entry.status),
+          action: parseLineOutcomeAction(entry.action),
+          quantity: Number(entry.quantity ?? 0),
+          remainingQuantity: Number(entry.remainingQuantity ?? 0),
+          detail: stringValue(entry.detail),
+          references: parseLineOutcomeReferences(entry.references),
+        }))
+        .filter((entry) => entry.lineId && entry.itemTitle)
+    : [];
+
+  return {
+    acceptedOfferCount: Number(source.acceptedOfferCount ?? 0),
+    publishedListingCount: Number(source.publishedListingCount ?? 0),
+    skippedLineCount: Number(source.skippedLineCount ?? 0),
+    skippedReasons: Array.isArray(source.skippedReasons) ? source.skippedReasons.map(String).filter(Boolean) : [],
+    lineOutcomes,
+    sideEffects,
+  };
+}
+
+function parseSellListConfirmationBody(body: Record<string, unknown>) {
+  const confirmationId = String(body.confirmationId ?? body.confirmation_id ?? "").trim();
   const readinessSnapshotId = String(body.readinessSnapshotId ?? body.readiness_snapshot_id ?? "").trim();
   const readinessSourceRevision = String(body.readinessSourceRevision ?? body.readiness_source_revision ?? "").trim();
   const readinessDecisions = parseSellListReadinessDecisionInput(body.readinessDecisions ?? body.readiness_decisions);
@@ -162,59 +319,29 @@ function parseSellListCheckoutBody(body: Record<string, unknown>) {
         }))
         .filter((entry) => entry.lineId && Number.isFinite(entry.quantity) && entry.quantity > 0)
     : [];
-  const executionSummary =
-    body.executionSummary && typeof body.executionSummary === "object"
-      ? (body.executionSummary as Record<string, unknown>)
-      : null;
-  const lineOutcomes: NonNullable<SellListExecutionSummary["lineOutcomes"]> =
-    executionSummary && Array.isArray(executionSummary.lineOutcomes)
-      ? executionSummary.lineOutcomes
-          .filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === "object"))
-          .map((entry) => ({
-            lineId: String(entry.lineId ?? "") as SellListLineId,
-            itemTitle: String(entry.itemTitle ?? ""),
-            status: parseLineOutcomeStatus(entry.status),
-            action: parseLineOutcomeAction(entry.action),
-            quantity: Number(entry.quantity ?? 0),
-            remainingQuantity: Number(entry.remainingQuantity ?? 0),
-            detail: String(entry.detail ?? ""),
-          }))
-          .filter((entry) => entry.lineId && entry.itemTitle)
-      : [];
+  const sellerEvidence = parseSellerEvidence(body.sellerEvidence ?? body.seller_evidence);
+  const handoffSummary = parseHandoffSummary(body.handoffSummary ?? body.handoff_summary);
 
   return {
-    executionId,
+    confirmationId,
     readinessSnapshotId,
     readinessSourceRevision,
     readinessDecisions,
     completedLineIds,
     remainingLineQuantities,
-    executionSummary: executionSummary
-      ? {
-          acceptedOfferCount: Number(executionSummary.acceptedOfferCount ?? 0),
-          createdListingCount: Number(executionSummary.createdListingCount ?? 0),
-          skippedLineCount: Number(executionSummary.skippedLineCount ?? 0),
-          skippedReasons: Array.isArray(executionSummary.skippedReasons)
-            ? executionSummary.skippedReasons.map(String).filter(Boolean)
-            : [],
-          lineOutcomes,
-        }
-      : null,
+    sellerEvidence,
+    handoffSummary,
   };
 }
 
-function hasSellListReadinessEvidence(body: ReturnType<typeof parseSellListCheckoutBody>) {
-  return Boolean(body.readinessSnapshotId && body.readinessSourceRevision);
-}
-
-function parseSellListExecutionBody(body: Record<string, unknown>) {
-  return {
-    executionId: String(body.executionId ?? "").trim(),
-    executionPlan:
-      body.executionPlan && typeof body.executionPlan === "object"
-        ? (body.executionPlan as Record<string, unknown>)
-        : {},
-  };
+function hasSellListConfirmationEvidence(body: ReturnType<typeof parseSellListConfirmationBody>) {
+  return Boolean(
+    body.confirmationId &&
+    body.readinessSnapshotId &&
+    body.readinessSourceRevision &&
+    body.sellerEvidence &&
+    body.handoffSummary,
+  );
 }
 
 export function createAccountSellListRoutes(services: CheckoutSellListServices) {
@@ -226,16 +353,14 @@ export function createAccountSellListRoutes(services: CheckoutSellListServices) 
       return access.response;
     }
 
-    const [items, latestReceipt, latestPendingExecution] = await Promise.all([
+    const [items, latestConfirmation] = await Promise.all([
       services.listLines(access.actor.accountId),
-      services.getLatestReceipt(access.actor.accountId),
-      services.getLatestPendingExecution(access.actor.accountId),
+      services.getLatestConfirmation(access.actor.accountId),
     ]);
     return c.json({
       items,
       count: items.reduce((sum, item) => sum + item.quantity, 0),
-      latestReceipt,
-      latestPendingExecution,
+      latestConfirmation,
     });
   });
 
@@ -290,125 +415,26 @@ export function createAccountSellListRoutes(services: CheckoutSellListServices) 
     }
   });
 
-  app.get("/sell-list/executions/latest-pending", async (c) => {
+  app.get("/sell-list/confirmations/:confirmationId", async (c) => {
     const access = requireSellListAccess(c);
     if (access.response) {
       return access.response;
     }
 
-    const execution = await services.getLatestPendingExecution(access.actor.accountId);
-    if (!execution) {
+    const confirmation = await services.getConfirmation(access.actor.accountId, c.req.param("confirmationId"));
+    if (!confirmation) {
       return c.json(
         {
           error: {
             code: "not_found",
-            message: t("checkout.features.sellList.api.route.sell.list.execution.pending.not.found"),
+            message: t("checkout.features.sellList.api.route.sell.list.confirmation.not.found"),
           },
         },
         404,
       );
     }
 
-    return c.json(execution);
-  });
-
-  app.get("/sell-list/executions/:executionId", async (c) => {
-    const access = requireSellListAccess(c);
-    if (access.response) {
-      return access.response;
-    }
-
-    const receipt = await services.getReceiptByExecutionId(access.actor.accountId, c.req.param("executionId"));
-    if (!receipt) {
-      return c.json(
-        {
-          error: {
-            code: "not_found",
-            message: t("checkout.features.sellList.api.route.sell.list.execution.receipt.not.found"),
-          },
-        },
-        404,
-      );
-    }
-
-    return c.json(receipt);
-  });
-
-  app.post("/sell-list/executions", async (c) => {
-    const access = requireSellListAccess(c);
-    if (access.response) {
-      return access.response;
-    }
-
-    const body = parseSellListExecutionBody(await c.req.json<Record<string, unknown>>().catch(() => ({})));
-    if (!body.executionId) {
-      return c.json(
-        {
-          error: {
-            code: "validation_failed",
-            message: t("checkout.features.sellList.api.route.sell.list.execution.id.required"),
-          },
-        },
-        400,
-      );
-    }
-
-    try {
-      const execution = await services.startSellListExecution({
-        sellerAccountId: access.actor.accountId as never,
-        executionId: body.executionId,
-        executionPlan: body.executionPlan,
-      });
-
-      return c.json({
-        id: access.actor.accountId,
-        executionId: execution.execution_id,
-        status: execution.status,
-        executionPlan: execution.execution_plan,
-        executionProgress: execution.execution_progress,
-        executionSummary: execution.execution_summary,
-      });
-    } catch (error) {
-      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
-    }
-  });
-
-  app.post("/sell-list/executions/:executionId/progress", async (c) => {
-    const access = requireSellListAccess(c);
-    if (access.response) {
-      return access.response;
-    }
-
-    const body: Record<string, unknown> = await c.req.json<Record<string, unknown>>().catch(() => ({}));
-    const completedActionKey = String(body.completedActionKey ?? "").trim();
-    if (!completedActionKey) {
-      return c.json(
-        {
-          error: {
-            code: "validation_failed",
-            message: t("checkout.features.sellList.api.route.sell.list.execution.action.key.required"),
-          },
-        },
-        400,
-      );
-    }
-
-    try {
-      const execution = await services.recordSellListExecutionProgress({
-        sellerAccountId: access.actor.accountId as never,
-        executionId: c.req.param("executionId"),
-        completedActionKey,
-      });
-
-      return c.json({
-        id: access.actor.accountId,
-        executionId: execution.execution_id,
-        status: execution.status,
-        executionProgress: execution.execution_progress,
-      });
-    } catch (error) {
-      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
-    }
+    return c.json(confirmation);
   });
 
   app.post("/sell-list/:lineId/remove", async (c) => {
@@ -445,7 +471,7 @@ export function createAccountSellListRoutes(services: CheckoutSellListServices) 
     }
   });
 
-  app.post("/sell-list/checkout", async (c) => {
+  app.post("/sell-list/confirm", async (c) => {
     const access = requireSellListAccess(c);
     if (access.response) {
       return access.response;
@@ -465,73 +491,60 @@ export function createAccountSellListRoutes(services: CheckoutSellListServices) 
     }
 
     const body = await c.req.json<Record<string, unknown>>().catch(() => ({}));
-    const checkoutBody = parseSellListCheckoutBody(body);
+    const confirmationBody = parseSellListConfirmationBody(body);
 
     try {
-      const executionId = checkoutBody.executionId || createId("sle");
-      if (!hasSellListReadinessEvidence(checkoutBody)) {
+      if (!hasSellListConfirmationEvidence(confirmationBody)) {
         return c.json(
           {
             error: {
               code: "validation_failed",
-              message: t("checkout.features.sellList.api.route.sell.list.readiness.snapshot.required"),
+              message: t("checkout.features.sellList.api.route.sell.list.confirmation.evidence.required"),
             },
           },
           400,
         );
       }
+      const sellerEvidence = confirmationBody.sellerEvidence!;
+      const handoffSummary = confirmationBody.handoffSummary!;
 
-      const existingReceipt =
-        typeof services.getReceiptByExecutionId === "function"
-          ? await services.getReceiptByExecutionId(access.actor.accountId, executionId)
-          : null;
-      if (existingReceipt) {
+      const existingConfirmation = await services.getConfirmation(
+        access.actor.accountId,
+        confirmationBody.confirmationId,
+      );
+      if (existingConfirmation) {
         return c.json({
           id: access.actor.accountId,
-          executionId,
+          confirmationId: confirmationBody.confirmationId,
           version: 0,
-          status: "reviewed",
+          status: "confirmed",
           completedLineIds: [],
-          receipt: existingReceipt,
+          confirmation: existingConfirmation,
         });
       }
 
-      const existingExecution =
-        typeof services.getExecution === "function"
-          ? await services.getExecution(access.actor.accountId, executionId)
-          : null;
-      if (!existingExecution) {
-        return c.json(
-          {
-            error: {
-              code: "execution_not_started",
-              message: t("checkout.features.sellList.api.route.sell.list.execution.not.started"),
-            },
-          },
-          409,
-        );
-      }
-
-      const result = await services.checkoutSellList(
+      const result = await services.confirmSellListCheckout(
         {
           sellerAccountId: access.actor.accountId as never,
-          executionId,
-          readinessSnapshotId: checkoutBody.readinessSnapshotId,
-          readinessSourceRevision: checkoutBody.readinessSourceRevision,
-          readinessDecisions: checkoutBody.readinessDecisions,
-          completedLineIds: checkoutBody.completedLineIds as never,
-          remainingLineQuantities: checkoutBody.remainingLineQuantities as never,
-          executionSummary: checkoutBody.executionSummary,
+          confirmationId: confirmationBody.confirmationId,
+          readinessSnapshotId: confirmationBody.readinessSnapshotId,
+          readinessSourceRevision: confirmationBody.readinessSourceRevision,
+          readinessDecisions: confirmationBody.readinessDecisions,
+          completedLineIds: confirmationBody.completedLineIds as never,
+          remainingLineQuantities: confirmationBody.remainingLineQuantities as never,
+          sellerEvidence,
+          handoffSummary,
         },
         context,
       );
 
       return c.json({
         id: result.sellerAccountId,
-        executionId,
+        confirmationId: confirmationBody.confirmationId,
         version: result.version,
         status: result.status,
         completedLineIds: result.completedLineIds,
+        confirmation: result.confirmation,
       });
     } catch (error) {
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);

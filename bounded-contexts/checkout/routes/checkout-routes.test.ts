@@ -12,6 +12,7 @@ const {
   mockCreatePaymentsRequestApiClient,
   mockCreateAuthRequestApiClient,
   mockCreateIdentityRequestApiClient,
+  MockMarketplaceApiError,
   mockCreateCheckoutSession,
   mockCreateCartReadiness,
   mockCreateSellListReadiness,
@@ -37,12 +38,12 @@ const {
   mockPreviewOfferAcceptanceTerms,
   mockAcceptOfferMatch,
   mockCreateListing,
+  mockPublishListing,
   mockGetPayoutReadiness,
   mockAddSellListLine,
   mockAddGuestSellListLine,
-  mockStartSellListExecution,
-  mockRecordSellListExecutionProgress,
-  mockCheckoutSellList,
+  mockGetSellListConfirmation,
+  mockConfirmSellListCheckout,
   mockRemoveGuestSellListLine,
   mockMergeGuestSellListToAccount,
   mockListShippingAddresses,
@@ -64,6 +65,14 @@ const {
   mockCreatePaymentsRequestApiClient: vi.fn(),
   mockCreateAuthRequestApiClient: vi.fn(),
   mockCreateIdentityRequestApiClient: vi.fn(),
+  MockMarketplaceApiError: class MarketplaceApiError extends Error {
+    public constructor(
+      public readonly status: number,
+      public readonly body: unknown,
+    ) {
+      super(`Marketplace API error ${status}`);
+    }
+  },
   mockCreateCheckoutSession: vi.fn(),
   mockCreateCartReadiness: vi.fn(),
   mockCreateSellListReadiness: vi.fn(),
@@ -89,12 +98,12 @@ const {
   mockPreviewOfferAcceptanceTerms: vi.fn(),
   mockAcceptOfferMatch: vi.fn(),
   mockCreateListing: vi.fn(),
+  mockPublishListing: vi.fn(),
   mockGetPayoutReadiness: vi.fn(),
   mockAddSellListLine: vi.fn(),
   mockAddGuestSellListLine: vi.fn(),
-  mockStartSellListExecution: vi.fn(),
-  mockRecordSellListExecutionProgress: vi.fn(),
-  mockCheckoutSellList: vi.fn(),
+  mockGetSellListConfirmation: vi.fn(),
+  mockConfirmSellListCheckout: vi.fn(),
   mockRemoveGuestSellListLine: vi.fn(),
   mockMergeGuestSellListToAccount: vi.fn(),
   mockListShippingAddresses: vi.fn(),
@@ -149,6 +158,7 @@ vi.mock("@chase-sets/payments/server", () => ({
 
 vi.mock("@chase-sets/marketplace/server", () => ({
   createMarketplaceRequestApiClient: mockCreateMarketplaceRequestApiClient,
+  MarketplaceApiError: MockMarketplaceApiError,
 }));
 
 vi.mock("@chase-sets/settlement/server", () => ({
@@ -169,16 +179,26 @@ import { action as sellCheckoutSessionAction, loader as sellCheckoutSessionLoade
 
 describe("checkout web routes", () => {
   beforeEach(() => {
-    mockStartSellListExecution.mockImplementation(async (body: { executionPlan: unknown }) => ({
-      status: "pending",
-      executionPlan: body.executionPlan,
-      executionProgress: { completedActionKeys: [] },
-      executionSummary: null,
-    }));
-    mockRecordSellListExecutionProgress.mockResolvedValue({
-      status: "pending",
-      executionProgress: { completedActionKeys: [] },
+    mockGetSellListConfirmation.mockRejectedValue(new Error("not found"));
+    mockConfirmSellListCheckout.mockImplementation(
+      async (body: { confirmationId: string; handoffSummary: unknown }) => ({
+        confirmation: {
+          seller_account_id: "acc_seller",
+          confirmation_id: body.confirmationId,
+          confirmed_at: "2026-06-10T00:00:00.000Z",
+          readiness_evidence: {},
+          seller_evidence: {},
+          handoff_summary: body.handoffSummary,
+        },
+      }),
+    );
+    mockAcceptOfferMatch.mockResolvedValue({ status: "accepted" });
+    mockCreateListing.mockResolvedValue({
+      id: "lst_slc_chk_sell_1_sll_1",
+      status: "draft",
+      feeQuoteFingerprint: "listing_quote_1",
     });
+    mockPublishListing.mockResolvedValue({ status: "published" });
     mockCreateSettlementRequestApiClient.mockReturnValue({
       getPayoutReadiness: mockGetPayoutReadiness.mockResolvedValue({
         account_id: "acc_seller",
@@ -817,11 +837,10 @@ describe("checkout web routes", () => {
   });
 
   function expectNoSellerCommitSideEffects() {
-    expect(mockStartSellListExecution).not.toHaveBeenCalled();
-    expect(mockRecordSellListExecutionProgress).not.toHaveBeenCalled();
     expect(mockAcceptOfferMatch).not.toHaveBeenCalled();
     expect(mockCreateListing).not.toHaveBeenCalled();
-    expect(mockCheckoutSellList).not.toHaveBeenCalled();
+    expect(mockPublishListing).not.toHaveBeenCalled();
+    expect(mockConfirmSellListCheckout).not.toHaveBeenCalled();
   }
 
   function expectSignedInSellCheckoutRedirect(response: Response) {
@@ -850,10 +869,7 @@ describe("checkout web routes", () => {
     };
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getSellList: vi.fn(async () => ({ items: [sellListLine], count: 1 })),
-      startSellListExecution: mockStartSellListExecution,
-      recordSellListExecutionProgress: mockRecordSellListExecutionProgress,
       createSellListReadiness: mockCreateSellListReadiness,
-      checkoutSellList: mockCheckoutSellList,
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
       previewOfferAcceptanceTerms: mockPreviewOfferAcceptanceTerms,
@@ -926,10 +942,7 @@ describe("checkout web routes", () => {
         ],
         count: 1,
       })),
-      startSellListExecution: mockStartSellListExecution,
-      recordSellListExecutionProgress: mockRecordSellListExecutionProgress,
       createSellListReadiness: mockCreateSellListReadiness,
-      checkoutSellList: mockCheckoutSellList,
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
       previewOfferAcceptanceTerms: mockPreviewOfferAcceptanceTerms,
@@ -977,10 +990,7 @@ describe("checkout web routes", () => {
     };
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getSellList: vi.fn(async () => ({ items: [sellListLine], count: 1 })),
-      startSellListExecution: mockStartSellListExecution,
-      recordSellListExecutionProgress: mockRecordSellListExecutionProgress,
       createSellListReadiness: mockCreateSellListReadiness,
-      checkoutSellList: mockCheckoutSellList,
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
       getOfferMatch: mockGetOfferMatch,
@@ -1049,10 +1059,7 @@ describe("checkout web routes", () => {
     };
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getSellList: vi.fn(async () => ({ items: [sellListLine], count: 3 })),
-      startSellListExecution: mockStartSellListExecution,
-      recordSellListExecutionProgress: mockRecordSellListExecutionProgress,
       createSellListReadiness: mockCreateSellListReadiness,
-      checkoutSellList: mockCheckoutSellList,
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
       getOfferMatch: mockGetOfferMatch,
@@ -1103,10 +1110,7 @@ describe("checkout web routes", () => {
     };
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getSellList: vi.fn(async () => ({ items: [sellListLine], count: 1 })),
-      startSellListExecution: mockStartSellListExecution,
-      recordSellListExecutionProgress: mockRecordSellListExecutionProgress,
       createSellListReadiness: mockCreateSellListReadiness,
-      checkoutSellList: mockCheckoutSellList,
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
       acceptOfferMatch: mockAcceptOfferMatch,
@@ -1147,10 +1151,7 @@ describe("checkout web routes", () => {
     };
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getSellList: vi.fn(async () => ({ items: [sellListLine], count: 4 })),
-      startSellListExecution: mockStartSellListExecution,
-      recordSellListExecutionProgress: mockRecordSellListExecutionProgress,
       createSellListReadiness: mockCreateSellListReadiness,
-      checkoutSellList: mockCheckoutSellList,
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
       getOfferMatch: mockGetOfferMatch,
@@ -1192,7 +1193,7 @@ describe("checkout web routes", () => {
     expectNoSellerCommitSideEffects();
   });
 
-  it("keeps payout setup out of Sell List execution and lets seller checkout own recovery", async () => {
+  it("keeps payout setup out of Sell List confirmation and lets seller checkout own recovery", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
     mockGetPayoutReadiness.mockResolvedValue({
       account_id: "acc_seller",
@@ -1214,10 +1215,7 @@ describe("checkout web routes", () => {
     };
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getSellList: vi.fn(async () => ({ items: [sellListLine], count: 1 })),
-      startSellListExecution: mockStartSellListExecution,
-      recordSellListExecutionProgress: mockRecordSellListExecutionProgress,
       createSellListReadiness: mockCreateSellListReadiness,
-      checkoutSellList: mockCheckoutSellList,
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
       previewOfferAcceptanceTerms: mockPreviewOfferAcceptanceTerms,
@@ -1607,7 +1605,6 @@ describe("checkout web routes", () => {
     );
     expect(mockAcceptOfferMatch).not.toHaveBeenCalled();
     expect(mockCreateListing).not.toHaveBeenCalled();
-    expect(mockCheckoutSellList).not.toHaveBeenCalled();
   });
 
   it("keeps guest seller checkout in Sell List recovery when readiness is blocked", async () => {
@@ -1642,7 +1639,6 @@ describe("checkout web routes", () => {
     expect(result).toEqual({ error: "Resolve Sell List readiness before seller checkout starts." });
     expect(mockAcceptOfferMatch).not.toHaveBeenCalled();
     expect(mockCreateListing).not.toHaveBeenCalled();
-    expect(mockCheckoutSellList).not.toHaveBeenCalled();
   });
 
   it("loads guest seller checkout only when Sell List readiness still matches", async () => {
@@ -1831,7 +1827,22 @@ describe("checkout web routes", () => {
         lineActions: [{ lineId: "sll_1", action: "selected-offer" }],
         lineOutcomes: [],
       }),
-      sellListReviewPlan: JSON.stringify({ version: 1, lines: [{ lineId: "sll_1", lineType: "selected-offer" }] }),
+      sellListReviewPlan: JSON.stringify({
+        version: 1,
+        lines: [
+          {
+            lineId: "sll_1",
+            lineType: "selected-offer",
+            itemTitle: "Mewtwo",
+            productId: "prod_1",
+            quantity: 1,
+            selectedOffer: { offerId: "off_1", feeQuoteFingerprint: "quote_1" },
+            productOfferTargets: [],
+            fallbackListing: null,
+            skippedReasons: [],
+          },
+        ],
+      }),
       sellerName: "Jane Seller",
       email: "jane@example.com",
       phone: "555-0100",
@@ -1862,6 +1873,13 @@ describe("checkout web routes", () => {
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getSellList: vi.fn(async () => ({ items: [guestSellListLine({ seller_account_id: "acc_seller" })], count: 1 })),
       createSellListReadiness: mockCreateSellListReadiness,
+      getSellListConfirmation: mockGetSellListConfirmation,
+      confirmSellListCheckout: mockConfirmSellListCheckout,
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      acceptOfferMatch: mockAcceptOfferMatch,
+      createListing: mockCreateListing,
+      publishListing: mockPublishListing,
     });
   }
 
@@ -1918,7 +1936,23 @@ describe("checkout web routes", () => {
     expect(result.status).toBe("confirmed");
     expect(result.status === "confirmed" ? result.values.shipFromLine1 : "").toBe("100 Market Street");
     expect(result.status === "confirmed" ? result.values.shipFromCity : "").toBe("Wichita");
-    expectNoSellerCommitSideEffects();
+    expect(mockAcceptOfferMatch).toHaveBeenCalledWith("off_1", {
+      feeQuoteFingerprint: "quote_1",
+      sourceActionKey: "sell-confirm:slc_chk_sell_1:sll_1:selected:off_1",
+    });
+    expect(mockConfirmSellListCheckout).toHaveBeenCalledWith(
+      expect.objectContaining({
+        confirmationId: "slc_chk_sell_1",
+        sellerEvidence: expect.objectContaining({
+          shipFrom: expect.objectContaining({
+            addressId: "adr_seller",
+            country: "US",
+            region: "KS",
+            postalCode: "67202",
+          }),
+        }),
+      }),
+    );
   });
 
   it.each([
@@ -1955,7 +1989,7 @@ describe("checkout web routes", () => {
     expectNoSellerCommitSideEffects();
   });
 
-  it("returns a signed-in seller confirmation handoff with no seller-committing side effects", async () => {
+  it("returns a signed-in seller confirmation after recording Marketplace handoff evidence", async () => {
     mockSignedInSellCheckoutState();
 
     const result = await sellCheckoutSessionAction({
@@ -1972,16 +2006,364 @@ describe("checkout web routes", () => {
       expect.objectContaining({
         status: "confirmed",
         confirmation: expect.objectContaining({
-          referenceId: "signed-in-sell-chk_sell_1",
+          referenceId: "slc_chk_sell_1",
           sideEffects: {
-            label: "not-attempted",
-            payout: "not-attempted",
-            sale: "not-attempted",
-            notification: "not-attempted",
-            accountHistory: "not-attempted",
+            sale: "handoff-recorded",
+            label: "pending-downstream",
+            payout: "pending-downstream",
+            settlement: "pending-downstream",
+            notification: "pending-downstream",
+            accountHistory: "pending-downstream",
           },
         }),
       }),
+    );
+    expect(mockGetSellListConfirmation).toHaveBeenCalledWith("slc_chk_sell_1");
+    expect(mockAcceptOfferMatch).toHaveBeenCalledWith("off_1", {
+      feeQuoteFingerprint: "quote_1",
+      sourceActionKey: "sell-confirm:slc_chk_sell_1:sll_1:selected:off_1",
+    });
+    expect(mockConfirmSellListCheckout).toHaveBeenCalledWith(
+      expect.objectContaining({
+        confirmationId: "slc_chk_sell_1",
+        readinessSnapshotId: "slr_ready",
+        readinessSourceRevision: "slr_source",
+        completedLineIds: ["sll_1"],
+        remainingLineQuantities: [],
+        handoffSummary: expect.objectContaining({
+          acceptedOfferCount: 1,
+          publishedListingCount: 0,
+          skippedLineCount: 0,
+          sideEffects: {
+            sale: "handoff-recorded",
+            label: "pending-downstream",
+            payout: "pending-downstream",
+            settlement: "pending-downstream",
+            notification: "pending-downstream",
+            accountHistory: "pending-downstream",
+          },
+        }),
+      }),
+    );
+  });
+
+  it("rejects hidden fallback listing facts on selected-offer confirmation before side effects", async () => {
+    mockSignedInSellCheckoutState();
+
+    const form = signedInSellCheckoutForm({
+      sellListReviewPlan: JSON.stringify({
+        version: 1,
+        lines: [
+          {
+            lineId: "sll_1",
+            lineType: "selected-offer",
+            itemTitle: "Mewtwo",
+            productId: "prod_1",
+            quantity: 1,
+            selectedOffer: { offerId: "off_1", feeQuoteFingerprint: "quote_1" },
+            productOfferTargets: [],
+            fallbackListing: { inventoryItemId: "inv_extra", priceAmount: "40.00", quantityCap: 1 },
+            skippedReasons: [],
+          },
+        ],
+      }),
+    });
+
+    const result = await sellCheckoutSessionAction({
+      request: new Request("http://localhost/checkout/sell/session/chk_sell_1", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { sessionId: "chk_sell_1" },
+      context: undefined,
+    } as never);
+
+    expect(result.status).toBe("error");
+    expect(result.status === "error" ? result.fieldErrors.form : "").toContain(
+      "Return to the Sell List and refresh the reviewed sale plan",
+    );
+    expectNoSellerCommitSideEffects();
+  });
+
+  it("records fallback-only listing handoff without claiming sale or payout side effects", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(signedInSellerActor());
+    mockCreateSellListReadiness.mockResolvedValue({
+      readiness: {
+        ...readySellListReadinessResponse().readiness,
+        lineCount: 1,
+        includedLineIds: ["sll_product"],
+        lineOutcomes: [{ lineId: "sll_product", outcome: "checkout", reason: "ready", action: "fallback-listing" }],
+      },
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellList: vi.fn(async () => ({
+        items: [
+          guestSellListLine({
+            seller_account_id: "acc_seller",
+            line_id: "sll_product",
+            line_type: "product",
+            offer_id: null,
+            offer_price_amount: null,
+            quantity: 1,
+            minimum_listing_price_amount: "12.00",
+          }),
+        ],
+        count: 1,
+      })),
+      createSellListReadiness: mockCreateSellListReadiness,
+      getSellListConfirmation: mockGetSellListConfirmation,
+      confirmSellListCheckout: mockConfirmSellListCheckout,
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      acceptOfferMatch: mockAcceptOfferMatch,
+      createListing: mockCreateListing,
+      publishListing: mockPublishListing,
+    });
+
+    const result = await sellCheckoutSessionAction({
+      request: new Request("http://localhost/checkout/sell/session/chk_sell_1", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: signedInSellCheckoutForm({
+          readinessDecisions: JSON.stringify({
+            lineActions: [{ lineId: "sll_product", action: "fallback-listing" }],
+            lineOutcomes: [],
+          }),
+          sellListReviewPlan: JSON.stringify({
+            version: 1,
+            lines: [
+              {
+                lineId: "sll_product",
+                lineType: "product",
+                itemTitle: "Mewtwo",
+                productId: "prod_1",
+                quantity: 1,
+                selectedOffer: null,
+                productOfferTargets: [],
+                fallbackListing: { inventoryItemId: "inv_1", priceAmount: "12.00", quantityCap: 1 },
+                skippedReasons: [],
+              },
+            ],
+          }),
+        }).toString(),
+      }),
+      params: { sessionId: "chk_sell_1" },
+      context: undefined,
+    } as never);
+
+    expect(result.status).toBe("confirmed");
+    expect(mockAcceptOfferMatch).not.toHaveBeenCalled();
+    expect(mockCreateListing).toHaveBeenCalledWith({
+      inventoryItemId: "inv_1",
+      priceAmount: "12.00",
+      quantityCap: 1,
+      listingIdOverride: "lst_slc_chk_sell_1_sll_product",
+    });
+    expect(mockConfirmSellListCheckout).toHaveBeenCalledWith(
+      expect.objectContaining({
+        completedLineIds: ["sll_product"],
+        remainingLineQuantities: [],
+        handoffSummary: expect.objectContaining({
+          acceptedOfferCount: 0,
+          publishedListingCount: 1,
+          sideEffects: {
+            sale: "not-applicable",
+            label: "not-applicable",
+            payout: "not-applicable",
+            settlement: "not-applicable",
+            notification: "pending-downstream",
+            accountHistory: "pending-downstream",
+          },
+        }),
+      }),
+    );
+  });
+
+  it("records Smart Match and fallback listing handoffs with remaining Sell List quantity on publish replay", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(signedInSellerActor());
+    mockCreateSellListReadiness.mockResolvedValue({
+      readiness: {
+        ...readySellListReadinessResponse().readiness,
+        lineCount: 4,
+        includedLineIds: ["sll_product"],
+        lineOutcomes: [{ lineId: "sll_product", outcome: "checkout", reason: "ready", action: "smart-match" }],
+      },
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellList: vi.fn(async () => ({
+        items: [
+          guestSellListLine({
+            seller_account_id: "acc_seller",
+            line_id: "sll_product",
+            line_type: "product",
+            offer_id: null,
+            offer_price_amount: null,
+            quantity: 4,
+            minimum_listing_price_amount: "12.00",
+          }),
+        ],
+        count: 4,
+      })),
+      createSellListReadiness: mockCreateSellListReadiness,
+      getSellListConfirmation: mockGetSellListConfirmation,
+      confirmSellListCheckout: mockConfirmSellListCheckout,
+    });
+    mockCreateListing.mockResolvedValue({
+      id: "lst_slc_chk_sell_1_sll_product",
+      status: "draft",
+      feeQuoteFingerprint: "listing_quote_1",
+    });
+    mockPublishListing.mockRejectedValueOnce(
+      new MockMarketplaceApiError(400, { error: { message: "Listing is already active." } }),
+    );
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      acceptOfferMatch: mockAcceptOfferMatch,
+      createListing: mockCreateListing,
+      publishListing: mockPublishListing,
+    });
+
+    const form = signedInSellCheckoutForm({
+      readinessDecisions: JSON.stringify({
+        lineActions: [{ lineId: "sll_product", action: "smart-match" }],
+        lineOutcomes: [],
+      }),
+      sellListReviewPlan: JSON.stringify({
+        version: 1,
+        lines: [
+          {
+            lineId: "sll_product",
+            lineType: "product",
+            itemTitle: "Mewtwo",
+            productId: "prod_1",
+            quantity: 4,
+            selectedOffer: null,
+            productOfferTargets: [{ offerId: "off_product_1", feeQuoteFingerprint: "quote_product_1", quantity: 1 }],
+            fallbackListing: { inventoryItemId: "inv_1", priceAmount: "12.00", quantityCap: 1 },
+            skippedReasons: [],
+          },
+        ],
+      }),
+    });
+
+    const result = await sellCheckoutSessionAction({
+      request: new Request("http://localhost/checkout/sell/session/chk_sell_1", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { sessionId: "chk_sell_1" },
+      context: undefined,
+    } as never);
+
+    expect(result.status).toBe("confirmed");
+    expect(mockAcceptOfferMatch).toHaveBeenCalledWith("off_product_1", {
+      feeQuoteFingerprint: "quote_product_1",
+      sourceActionKey: "sell-confirm:slc_chk_sell_1:sll_product:match:off_product_1",
+    });
+    expect(mockCreateListing).toHaveBeenCalledWith({
+      inventoryItemId: "inv_1",
+      priceAmount: "12.00",
+      quantityCap: 1,
+      listingIdOverride: "lst_slc_chk_sell_1_sll_product",
+    });
+    expect(mockPublishListing).toHaveBeenCalledWith("lst_slc_chk_sell_1_sll_product", {
+      feeQuoteFingerprint: "listing_quote_1",
+    });
+    expect(mockConfirmSellListCheckout).toHaveBeenCalledWith(
+      expect.objectContaining({
+        completedLineIds: [],
+        remainingLineQuantities: [{ lineId: "sll_product", quantity: 2 }],
+        handoffSummary: expect.objectContaining({
+          acceptedOfferCount: 1,
+          publishedListingCount: 1,
+          lineOutcomes: [
+            expect.objectContaining({
+              lineId: "sll_product",
+              status: "partial",
+              action: "mixed",
+              remainingQuantity: 2,
+              references: {
+                offerIds: ["off_product_1"],
+                listingId: "lst_slc_chk_sell_1_sll_product",
+              },
+            }),
+          ],
+        }),
+      }),
+    );
+  });
+
+  it("rejects signed-in seller confirmation when the reviewed plan exceeds current line quantity", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(signedInSellerActor());
+    mockCreateSellListReadiness.mockResolvedValue({
+      readiness: {
+        ...readySellListReadinessResponse().readiness,
+        includedLineIds: ["sll_product"],
+        lineOutcomes: [{ lineId: "sll_product", outcome: "checkout", reason: "ready", action: "smart-match" }],
+      },
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellList: vi.fn(async () => ({
+        items: [
+          guestSellListLine({
+            seller_account_id: "acc_seller",
+            line_id: "sll_product",
+            line_type: "product",
+            offer_id: null,
+            offer_price_amount: null,
+            quantity: 1,
+            minimum_listing_price_amount: "12.00",
+          }),
+        ],
+        count: 1,
+      })),
+      createSellListReadiness: mockCreateSellListReadiness,
+      getSellListConfirmation: mockGetSellListConfirmation,
+      confirmSellListCheckout: mockConfirmSellListCheckout,
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      acceptOfferMatch: mockAcceptOfferMatch,
+      createListing: mockCreateListing,
+      publishListing: mockPublishListing,
+    });
+
+    const form = signedInSellCheckoutForm({
+      readinessDecisions: JSON.stringify({
+        lineActions: [{ lineId: "sll_product", action: "smart-match" }],
+        lineOutcomes: [],
+      }),
+      sellListReviewPlan: JSON.stringify({
+        version: 1,
+        lines: [
+          {
+            lineId: "sll_product",
+            lineType: "product",
+            itemTitle: "Mewtwo",
+            productId: "prod_1",
+            quantity: 1,
+            selectedOffer: null,
+            productOfferTargets: [{ offerId: "off_product_1", feeQuoteFingerprint: "quote_product_1", quantity: 2 }],
+            fallbackListing: null,
+            skippedReasons: [],
+          },
+        ],
+      }),
+    });
+
+    const result = await sellCheckoutSessionAction({
+      request: new Request("http://localhost/checkout/sell/session/chk_sell_1", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { sessionId: "chk_sell_1" },
+      context: undefined,
+    } as never);
+
+    expect(result.status).toBe("error");
+    expect(result.status === "error" ? result.fieldErrors.form : "").toContain(
+      "Return to the Sell List and refresh the reviewed sale plan",
     );
     expectNoSellerCommitSideEffects();
   });
@@ -2020,7 +2402,6 @@ describe("checkout web routes", () => {
     );
     expect(mockAcceptOfferMatch).not.toHaveBeenCalled();
     expect(mockCreateListing).not.toHaveBeenCalled();
-    expect(mockCheckoutSellList).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -2058,7 +2439,6 @@ describe("checkout web routes", () => {
     );
     expect(mockAcceptOfferMatch).not.toHaveBeenCalled();
     expect(mockCreateListing).not.toHaveBeenCalled();
-    expect(mockCheckoutSellList).not.toHaveBeenCalled();
   });
 
   it("returns a guest seller confirmation handoff with no seller-committing side effects", async () => {
@@ -2091,6 +2471,7 @@ describe("checkout web routes", () => {
             label: "not-attempted",
             payout: "not-attempted",
             sale: "not-attempted",
+            settlement: "not-attempted",
             notification: "not-attempted",
             accountHistory: "not-attempted",
           },
@@ -2099,7 +2480,6 @@ describe("checkout web routes", () => {
     );
     expect(mockAcceptOfferMatch).not.toHaveBeenCalled();
     expect(mockCreateListing).not.toHaveBeenCalled();
-    expect(mockCheckoutSellList).not.toHaveBeenCalled();
   });
 
   it("preserves buy-now checkout intent in the sign-in return target", async () => {

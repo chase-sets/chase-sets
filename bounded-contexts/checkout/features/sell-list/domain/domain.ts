@@ -33,13 +33,15 @@ export type CheckoutSellListLine = Readonly<{
 export type CheckoutSellListState = Readonly<{
   sellerAccountId: AccountId | null;
   lines: readonly CheckoutSellListLine[];
-  lastCheckedOutAt: string | null;
+  lastConfirmedAt: string | null;
+  confirmationIds: readonly string[];
 }>;
 
 export const initialCheckoutSellListState: CheckoutSellListState = {
   sellerAccountId: null,
   lines: [],
-  lastCheckedOutAt: null,
+  lastConfirmedAt: null,
+  confirmationIds: [],
 };
 
 export type AddSellListLineCommand = Readonly<
@@ -65,12 +67,14 @@ export type CheckoutSellListCommand =
   | SetSellListLineQuantityCommand
   | RemoveSellListLineCommand
   | Readonly<{
-      type: "CheckoutSellList";
-      executionId?: string | null;
-      checkedOutAt: string;
+      type: "ConfirmSellListCheckout";
+      confirmationId: string;
+      confirmedAt: string;
       completedLineIds?: readonly SellListLineId[] | null;
       remainingLineQuantities?: readonly SellListRemainingLineQuantity[] | null;
-      executionSummary?: SellListExecutionSummary | null;
+      readinessEvidence: SellListReadinessConfirmationEvidence;
+      sellerEvidence: SellListSellerConfirmationEvidence;
+      handoffSummary: SellListConfirmationSummary;
     }>;
 
 export type SellListRemainingLineQuantity = Readonly<{
@@ -78,22 +82,87 @@ export type SellListRemainingLineQuantity = Readonly<{
   quantity: number;
 }>;
 
-export type SellListLineExecutionOutcome = Readonly<{
+export type SellListLineConfirmationOutcome = Readonly<{
   lineId: SellListLineId;
   itemTitle: string;
   status: "completed" | "partial" | "skipped";
-  action: "accepted-offer" | "accepted-smart-match" | "created-listing" | "mixed" | "kept-in-sell-list";
+  action: "accepted-offer" | "accepted-smart-match" | "published-listing" | "mixed" | "kept-in-sell-list";
   quantity: number;
   remainingQuantity: number;
   detail: string;
+  references?: Readonly<{
+    offerIds?: readonly string[];
+    listingId?: string | null;
+  }>;
 }>;
 
-export type SellListExecutionSummary = Readonly<{
+export type SellListConfirmationSideEffectStatus =
+  | "not-attempted"
+  | "not-applicable"
+  | "handoff-recorded"
+  | "pending-downstream"
+  | "failed";
+
+export type SellListConfirmationSideEffects = Readonly<{
+  sale: SellListConfirmationSideEffectStatus;
+  label: SellListConfirmationSideEffectStatus;
+  payout: SellListConfirmationSideEffectStatus;
+  settlement: SellListConfirmationSideEffectStatus;
+  notification: SellListConfirmationSideEffectStatus;
+  accountHistory: SellListConfirmationSideEffectStatus;
+}>;
+
+export type SellListReadinessConfirmationEvidence = Readonly<{
+  schemaVersion: "checkout.sell-list-readiness.v1";
+  snapshotId: string;
+  sourceRevision: string;
+  includedLineIds: readonly string[];
+  lineOutcomes: readonly Readonly<{
+    lineId: string;
+    action: "selected-offer" | "smart-match" | "fallback-listing" | null;
+  }>[];
+}>;
+
+export type SellListSellerConfirmationEvidence = Readonly<{
+  shipFrom: Readonly<{
+    status: "ready";
+    addressId: string | null;
+    country: string;
+    region: string;
+    postalCode: string;
+  }>;
+  payout: Readonly<{
+    status: "ready";
+    method: "saved-payout";
+    readinessStatus: string;
+    lastCheckedAt: string | null;
+  }>;
+  label: Readonly<{
+    status: "ready";
+    preference: "prepaid-label" | "seller-label-later";
+  }>;
+  conditionReview: Readonly<{
+    status: "accepted";
+    acceptedAt: string;
+  }>;
+  risk: Readonly<{
+    status: "clear";
+  }>;
+  provider: Readonly<{
+    status: "ready";
+  }>;
+  freshness: Readonly<{
+    status: "current";
+  }>;
+}>;
+
+export type SellListConfirmationSummary = Readonly<{
   acceptedOfferCount: number;
-  createdListingCount: number;
+  publishedListingCount: number;
   skippedLineCount: number;
   skippedReasons: readonly string[];
-  lineOutcomes?: readonly SellListLineExecutionOutcome[];
+  lineOutcomes?: readonly SellListLineConfirmationOutcome[];
+  sideEffects: SellListConfirmationSideEffects;
 }>;
 
 export type SellListLineAddedEvent = DomainEvent<
@@ -113,15 +182,17 @@ export type SellListLineQuantitySetEvent = DomainEvent<
   Readonly<{ lineId: SellListLineId; quantity: number }>
 >;
 
-export type SellListCheckedOutEvent = DomainEvent<
-  "checkout.sell-list.checked-out",
+export type SellListCheckoutConfirmedEvent = DomainEvent<
+  "checkout.sell-list.checkout-confirmed",
   Readonly<{
     sellerAccountId: AccountId;
-    executionId: string;
-    checkedOutAt: string;
+    confirmationId: string;
+    confirmedAt: string;
     completedLineIds: SellListLineId[];
     remainingLineQuantities: SellListRemainingLineQuantity[];
-    executionSummary: SellListExecutionSummary | null;
+    readinessEvidence: SellListReadinessConfirmationEvidence;
+    sellerEvidence: SellListSellerConfirmationEvidence;
+    handoffSummary: SellListConfirmationSummary;
   }>
 >;
 
@@ -129,7 +200,7 @@ export type CheckoutSellListEvent =
   | SellListLineAddedEvent
   | SellListLineQuantitySetEvent
   | SellListLineRemovedEvent
-  | SellListCheckedOutEvent;
+  | SellListCheckoutConfirmedEvent;
 
 function requireSellListLine(state: CheckoutSellListState, lineId: SellListLineId) {
   const line = state.lines.find((entry) => entry.lineId === lineId);
@@ -163,8 +234,11 @@ function normalizeRemainingLineQuantities(
   }
 
   const completed = new Set(completedLineIds);
+  const seenLineIds = new Set<SellListLineId>();
   return value.map((entry) => {
     const line = requireSellListLine(state, entry.lineId);
+    assert(!seenLineIds.has(entry.lineId), "Remaining Sell List lines must be unique.");
+    seenLineIds.add(entry.lineId);
     assert(!completed.has(entry.lineId), "Completed Sell List lines cannot also remain partially open.");
     const quantity = ensurePositiveInteger(
       entry.quantity,
@@ -237,9 +311,10 @@ export const decideCheckoutSellList: AggregateDecider<
           data: { lineId: command.lineId },
         },
       ];
-    case "CheckoutSellList":
+    case "ConfirmSellListCheckout":
       assert(state.sellerAccountId !== null, "Sell list has not been initialized.");
       assert(state.lines.length > 0, "Sell list must contain at least one line.");
+      assert(!state.confirmationIds.includes(command.confirmationId), "Sell List checkout is already confirmed.");
       const completedLineIds = normalizeCompletedLineIds(state, command.completedLineIds);
       const remainingLineQuantities = normalizeRemainingLineQuantities(
         state,
@@ -248,21 +323,23 @@ export const decideCheckoutSellList: AggregateDecider<
       );
       assert(
         completedLineIds.length > 0 || remainingLineQuantities.length > 0,
-        "Sell list checkout must complete or partially execute at least one line.",
+        "Sell list checkout must confirm or partially keep at least one line.",
       );
       return [
         {
-          type: "checkout.sell-list.checked-out",
+          type: "checkout.sell-list.checkout-confirmed",
           data: {
             sellerAccountId: state.sellerAccountId,
-            executionId: normalizeRequiredText(
-              command.executionId ?? `${state.sellerAccountId}:${command.checkedOutAt}`,
-              "Sell list checkout must record an execution id.",
+            confirmationId: normalizeRequiredText(
+              command.confirmationId,
+              "Sell list checkout must record a confirmation id.",
             ),
-            checkedOutAt: normalizeRequiredText(command.checkedOutAt, "Sell list checkout must record a timestamp."),
+            confirmedAt: normalizeRequiredText(command.confirmedAt, "Sell list checkout must record a timestamp."),
             completedLineIds,
             remainingLineQuantities,
-            executionSummary: command.executionSummary ?? null,
+            readinessEvidence: command.readinessEvidence,
+            sellerEvidence: command.sellerEvidence,
+            handoffSummary: command.handoffSummary,
           },
         },
       ];
@@ -280,7 +357,8 @@ export const evolveCheckoutSellList: AggregateEvolver<CheckoutSellListState, Che
       return {
         sellerAccountId: event.data.sellerAccountId,
         lines: [...state.lines, event.data],
-        lastCheckedOutAt: state.lastCheckedOutAt,
+        lastConfirmedAt: state.lastConfirmedAt,
+        confirmationIds: state.confirmationIds,
       };
     case "checkout.sell-list.line-removed":
       return {
@@ -294,7 +372,7 @@ export const evolveCheckoutSellList: AggregateEvolver<CheckoutSellListState, Che
           line.lineId === event.data.lineId ? { ...line, quantity: event.data.quantity } : line,
         ),
       };
-    case "checkout.sell-list.checked-out":
+    case "checkout.sell-list.checkout-confirmed":
       const remainingByLineId = new Map(
         event.data.remainingLineQuantities.map((entry) => [entry.lineId, entry.quantity]),
       );
@@ -306,7 +384,8 @@ export const evolveCheckoutSellList: AggregateEvolver<CheckoutSellListState, Che
             const quantity = remainingByLineId.get(line.lineId);
             return quantity ? { ...line, quantity } : line;
           }),
-        lastCheckedOutAt: event.data.checkedOutAt,
+        lastConfirmedAt: event.data.confirmedAt,
+        confirmationIds: [...state.confirmationIds, event.data.confirmationId],
       };
     default:
       return assertNever(event);

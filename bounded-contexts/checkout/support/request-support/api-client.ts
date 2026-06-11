@@ -6,10 +6,12 @@ export type {
   CartReadinessSnapshot,
   SellListReadinessDecisionInput,
   SellListReadinessSnapshot,
+  SellListConfirmationSummary,
+  SellListSellerConfirmationEvidence,
   CheckoutCartLine,
   AddCheckoutSellListLineRequest,
   CheckoutSellListLineRow,
-  CheckoutSellListReceiptRow,
+  CheckoutSellListConfirmationRow,
   CreateCheckoutSessionRequest,
   CheckoutSessionRow,
 } from "../../client";

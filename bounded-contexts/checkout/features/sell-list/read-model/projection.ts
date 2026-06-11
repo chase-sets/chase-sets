@@ -101,39 +101,44 @@ export function buildCheckoutSellListProjectionHandlers(db: PgQueryable): Projec
         [data.lineId],
       );
     },
-    "checkout.sell-list.checked-out": async (event) => {
+    "checkout.sell-list.checkout-confirmed": async (event) => {
       const data = event.data as {
         sellerAccountId: string;
-        executionId?: string;
-        checkedOutAt?: string;
-        completedLineIds?: string[];
-        remainingLineQuantities?: readonly { lineId: string; quantity: number }[];
-        executionSummary?: unknown;
+        confirmationId: string;
+        confirmedAt: string;
+        completedLineIds: string[];
+        remainingLineQuantities: readonly { lineId: string; quantity: number }[];
+        readinessEvidence: unknown;
+        sellerEvidence: unknown;
+        handoffSummary: unknown;
       };
-      const executionId = data.executionId ?? `${data.sellerAccountId}:${data.checkedOutAt ?? event.timing.recordedAt}`;
 
-      if (data.executionSummary) {
-        await db.query(
-          `INSERT INTO checkout_sell_list_execution_receipt_pages (
-             seller_account_id,
-             execution_id,
-             checked_out_at,
-             execution_summary,
-             updated_at
-           ) VALUES ($1, $2, $3, $4, $5)
-           ON CONFLICT (seller_account_id, execution_id) DO UPDATE
-           SET checked_out_at = EXCLUDED.checked_out_at,
-               execution_summary = EXCLUDED.execution_summary,
-               updated_at = EXCLUDED.updated_at`,
-          [
-            data.sellerAccountId,
-            executionId,
-            data.checkedOutAt ?? event.timing.recordedAt,
-            JSON.stringify(data.executionSummary),
-            event.timing.recordedAt,
-          ],
-        );
-      }
+      await db.query(
+        `INSERT INTO checkout_sell_list_confirmation_pages (
+           seller_account_id,
+           confirmation_id,
+           confirmed_at,
+           readiness_evidence,
+           seller_evidence,
+           handoff_summary,
+           updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (seller_account_id, confirmation_id) DO UPDATE
+         SET confirmed_at = EXCLUDED.confirmed_at,
+             readiness_evidence = EXCLUDED.readiness_evidence,
+             seller_evidence = EXCLUDED.seller_evidence,
+             handoff_summary = EXCLUDED.handoff_summary,
+             updated_at = EXCLUDED.updated_at`,
+        [
+          data.sellerAccountId,
+          data.confirmationId,
+          data.confirmedAt,
+          JSON.stringify(data.readinessEvidence),
+          JSON.stringify(data.sellerEvidence),
+          JSON.stringify(data.handoffSummary),
+          event.timing.recordedAt,
+        ],
+      );
 
       if (Array.isArray(data.completedLineIds) && data.completedLineIds.length > 0) {
         await db.query(
@@ -144,15 +149,7 @@ export function buildCheckoutSellListProjectionHandlers(db: PgQueryable): Projec
         );
       }
 
-      if (!Array.isArray(data.completedLineIds)) {
-        await db.query(
-          `DELETE FROM checkout_sell_list_line_pages
-           WHERE seller_account_id = $1`,
-          [data.sellerAccountId],
-        );
-      }
-
-      for (const entry of data.remainingLineQuantities ?? []) {
+      for (const entry of data.remainingLineQuantities) {
         await db.query(
           `UPDATE checkout_sell_list_line_pages
            SET quantity = $3,

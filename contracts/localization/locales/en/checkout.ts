@@ -295,15 +295,9 @@ export const checkoutEnglishTranslations = {
     "Shipping is saved for seller acceptance.",
   "checkout.features.sessions.ui.checkoutPage.your.cart.is.empty": "Your buy cart is empty",
   "checkout.features.sellList.api.route.sell.list.request.failed": "Sell List request failed.",
-  "checkout.features.sellList.api.route.sell.list.execution.receipt.not.found":
-    "Sell List execution receipt not found.",
-  "checkout.features.sellList.api.route.sell.list.execution.id.required": "Sell List execution id is required.",
-  "checkout.features.sellList.api.route.sell.list.execution.action.key.required":
-    "Sell List execution action key is required.",
-  "checkout.features.sellList.api.route.sell.list.execution.not.started":
-    "Start the Sell List execution before committing sale side effects.",
-  "checkout.features.sellList.api.route.sell.list.execution.pending.not.found":
-    "No pending Sell List execution is available.",
+  "checkout.features.sellList.api.route.sell.list.confirmation.not.found": "Sell List confirmation not found.",
+  "checkout.features.sellList.api.route.sell.list.confirmation.evidence.required":
+    "Sell List confirmation requires current readiness, seller, and handoff evidence.",
   "checkout.features.sellList.api.route.sell.list.readiness.snapshot.required":
     "Sell List readiness snapshot is required.",
   "checkout.features.sellList.api.route.sell.list.review.requires.seller.account":
@@ -478,7 +472,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.guestSellCheckoutPage.summary.needs.review": "Needs review",
   "checkout.features.sellList.ui.guestSellCheckoutPage.summary.estimated.payout": "Estimated payout",
   "checkout.features.sellList.ui.guestSellCheckoutPage.summary.reassurance":
-    "No label, payout, sale, notification, or account-history side effect starts in this guest review.",
+    "No label, payout, settlement, sale, notification, or account-history side effect starts in this guest review.",
   "checkout.features.sellList.ui.guestSellCheckoutPage.mobile.summary": "Sale summary",
   "checkout.features.sellList.ui.guestSellCheckoutPage.mobile.summary.collapsed": "{count} ready line(s)",
   "checkout.features.sellList.ui.guestSellCheckoutPage.sticky.context": "Final sale steps come after account setup.",
@@ -576,7 +570,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.signedInSellCheckoutPage.summary.needs.review": "Needs review",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.summary.estimated.payout": "Estimated payout",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.summary.reassurance":
-    "{quantity} item(s). No label, payout, sale, notification, or account-history side effect starts in this review.",
+    "{quantity} item(s). No label, payout, settlement, sale, notification, or account-history side effect starts in this review.",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.mobile.summary": "Sale summary",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.mobile.summary.collapsed": "{count} ready line(s)",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.sticky.context": "Final sale steps come after this review.",
@@ -641,17 +635,17 @@ export const checkoutEnglishTranslations = {
     "This review does not accept offers, create listings, buy labels, start payout, send notifications, or write seller account history.",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.title": "Sale review ready",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.description":
-    "Your sale review is ready for the final sale step. No seller-committing side effects have started.",
-  "checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.reference": "Review reference",
-  "checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.sale.title": "Final sale step",
+    "Your sale confirmation was recorded and the reviewed marketplace handoffs are in progress.",
+  "checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.reference": "Confirmation reference",
+  "checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.sale.title": "Marketplace handoff",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.sale.description":
-    "Sale work starts only after the final step rechecks current readiness.",
-  "checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.label.title": "Label review",
+    "Accepted offers and reviewed fallback listings use the Sell List plan you confirmed.",
+  "checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.label.title": "Downstream steps",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.label.description":
-    "Label serviceability is confirmed before any label is purchased.",
-  "checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.side.effects.title": "No commitment yet",
+    "Label, payout, settlement, notifications, and account history stay with their owning workflows.",
+  "checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.side.effects.title": "Support reference ready",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.side.effects.description":
-    "Sale, payout, label, notification, and account-history work stay pending.",
+    "Support can track pending or failed downstream work from this confirmation.",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.recovery.access.required": "Sign in required",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.recovery.access.required.description":
     "Sign in with the seller account that started this checkout.",
@@ -698,7 +692,7 @@ export const checkoutEnglishTranslations = {
   "checkout.routes.accountSellList.sale.action.completed.detail":
     "{itemTitle}: {acceptedQuantity} matched offer quantity and {listingQuantity} fallback listing quantity completed.",
   "checkout.routes.accountSellList.sale.action.partial.detail":
-    "{itemTitle}: {executedQuantity} quantity executed; {remainingQuantity} remains in the Sell List.",
+    "{itemTitle}: {executedQuantity} quantity confirmed; {remainingQuantity} remains in the Sell List.",
   "checkout.routes.accountSellList.selected.offer.accepted.detail": "{itemTitle}: selected offer accepted.",
   "checkout.routes.accountSellList.selected.offer.missing.detail": "{itemTitle}: selected offer is missing.",
   "checkout.routes.sellCheckoutSession.meta.title": "Seller Checkout | Chase Sets",
@@ -743,6 +737,11 @@ export const checkoutEnglishTranslations = {
     "Seller readiness needs review. Return to the Sell List before seller checkout.",
   "checkout.routes.sellCheckoutSession.validation.readiness.recovery":
     "Seller checkout readiness is no longer current.",
+  "checkout.routes.sellCheckoutSession.validation.review.plan.required":
+    "Return to the Sell List and refresh the reviewed sale plan before confirming.",
+  "checkout.routes.sellCheckoutSession.confirmation.line.completed": "{itemTitle}: handoff recorded.",
+  "checkout.routes.sellCheckoutSession.confirmation.line.partial":
+    "{itemTitle}: handoff recorded for part of the line; remaining quantity stays in the Sell List.",
   "checkout.routes.checkoutSession.checkout.marketplace": "Checkout | Marketplace",
   "checkout.routes.checkoutSession.checkout.session.not.found": "Checkout session not found.",
   "checkout.routes.checkoutSession.checkout.session.not.found.2": "Checkout session not found.",
