@@ -11,6 +11,13 @@ import {
   submitPurchaseIntentThroughMarketplace,
 } from "../../../support/request-support/checkout-confirmation";
 import { CheckoutDomainError } from "../../../support/runtime-support/common";
+import {
+  recordActiveSessionStaleRecovery,
+  recordBuyCheckoutReviewRendered,
+  recordChangedEconomicsReview,
+  recordConfirmationPendingHandoff,
+} from "./checkout-session-route-observability";
+import type { CheckoutObservabilityTelemetry } from "./checkout-observability-telemetry";
 
 function requireCheckoutAccess(c: { get(key: "actor"): CheckoutApiEnv["Variables"]["actor"] }) {
   const actor = c.get("actor");
@@ -123,7 +130,10 @@ function parseOptimizationGoal(value: unknown) {
   return value === "fewest-shipments" ? ("fewest-shipments" as const) : ("lowest-total" as const);
 }
 
-export function createAccountCheckoutSessionRoutes(services: CheckoutSessionServices) {
+export function createAccountCheckoutSessionRoutes(
+  services: CheckoutSessionServices,
+  checkoutObservabilityTelemetry?: CheckoutObservabilityTelemetry,
+) {
   const app = new Hono<CheckoutApiEnv>();
 
   app.post("/checkout-sessions", async (c) => {
@@ -253,7 +263,9 @@ export function createAccountCheckoutSessionRoutes(services: CheckoutSessionServ
       session = await services.getSession(c.req.param("sessionId"), access.actor.accountId);
     } catch (error) {
       if (error instanceof CheckoutDomainError) {
-        return c.json({ error: { code: errorCode(error), message: errorMessage(error) } }, 400);
+        const code = errorCode(error);
+        recordActiveSessionStaleRecovery(checkoutObservabilityTelemetry, access.actor, code);
+        return c.json({ error: { code, message: errorMessage(error) } }, 400);
       }
 
       throw error;
@@ -266,6 +278,7 @@ export function createAccountCheckoutSessionRoutes(services: CheckoutSessionServ
       );
     }
 
+    recordBuyCheckoutReviewRendered(checkoutObservabilityTelemetry, access.actor, session);
     return c.json(session);
   });
 
@@ -454,6 +467,12 @@ export function createAccountCheckoutSessionRoutes(services: CheckoutSessionServ
       }
 
       if (session.payment_id) {
+        recordConfirmationPendingHandoff(
+          checkoutObservabilityTelemetry,
+          access.actor,
+          session,
+          "payment-already-started",
+        );
         return c.json({
           payment_id: session.payment_id,
           order_ids: session.order_ids,
@@ -462,6 +481,12 @@ export function createAccountCheckoutSessionRoutes(services: CheckoutSessionServ
       }
 
       if (deferPayment && session.order_ids.length > 0) {
+        recordConfirmationPendingHandoff(
+          checkoutObservabilityTelemetry,
+          access.actor,
+          session,
+          "orders-created-payment-deferred",
+        );
         return c.json({
           order_ids: session.order_ids,
           status: "orders-created",
@@ -482,6 +507,12 @@ export function createAccountCheckoutSessionRoutes(services: CheckoutSessionServ
         fulfillmentPreviewRevision !== session.fulfillment_preview_revision &&
         !acknowledgedMaterialChanges
       ) {
+        recordChangedEconomicsReview(
+          checkoutObservabilityTelemetry,
+          access.actor,
+          session,
+          "fulfillment-preview-stale",
+        );
         return c.json(
           {
             error: {
@@ -553,6 +584,12 @@ export function createAccountCheckoutSessionRoutes(services: CheckoutSessionServ
       }
 
       if (deferPayment) {
+        recordConfirmationPendingHandoff(
+          checkoutObservabilityTelemetry,
+          access.actor,
+          session,
+          "orders-created-payment-deferred",
+        );
         return c.json({
           order_ids: orderIds,
           status: "orders-created",
@@ -593,6 +630,7 @@ export function createAccountCheckoutSessionRoutes(services: CheckoutSessionServ
       );
 
       session = paymentResult.session;
+      recordConfirmationPendingHandoff(checkoutObservabilityTelemetry, access.actor, session, "payment-started");
       return c.json({
         payment_id: paymentId,
         order_ids: orderIds,
@@ -600,7 +638,9 @@ export function createAccountCheckoutSessionRoutes(services: CheckoutSessionServ
         session,
       });
     } catch (error) {
-      return c.json({ error: { code: errorCode(error), message: errorMessage(error) } }, 400);
+      const code = errorCode(error);
+      recordActiveSessionStaleRecovery(checkoutObservabilityTelemetry, access.actor, code);
+      return c.json({ error: { code, message: errorMessage(error) } }, 400);
     }
   });
 

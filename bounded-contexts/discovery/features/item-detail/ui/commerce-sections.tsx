@@ -674,9 +674,7 @@ export function CheckoutPurchaseIntentSection({
   const addToCartFetcher = useFetcher<ItemDetailActionData>();
   const isProductCartWorkflow = actionMode === "add-to-cart";
   const isListingWorkflow = Boolean(selectedListing && !isProductCartWorkflow);
-  const addToCartUsesSelectedListing = Boolean(
-    selectedListing && selectedListingSource === "explicit" && isListingWorkflow,
-  );
+  const addToCartUsesSelectedListing = Boolean(selectedListing && isListingWorkflow);
   const selectedListingQuantity = selectedListing
     ? parseQuantity(selectedListing.visible_quantity ?? selectedListing.quantity_cap)
     : null;
@@ -745,7 +743,7 @@ export function CheckoutPurchaseIntentSection({
     selectedListing && selectedListingSource === "explicit" ? "selected_listing" : "best_available_listing";
   const listingCheckoutSelection = selectedListing ? selectedListingSource : "none";
   const cartWorkflow = addToCartUsesSelectedListing ? "listing_buy_cart" : "product_buy_cart";
-  const cartSelection = addToCartUsesSelectedListing ? "explicit" : "none";
+  const cartSelection = addToCartUsesSelectedListing ? selectedListingSource : "none";
 
   useEffect(() => {
     if (isAddToCartActionData(addToCartFetcher.data)) {

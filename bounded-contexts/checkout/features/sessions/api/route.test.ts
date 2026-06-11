@@ -24,6 +24,7 @@ vi.mock("../../../support/request-support/checkout-confirmation", () => ({
 import { createAccountCheckoutSessionRoutes } from "./route";
 import { CheckoutDomainError } from "../../../support/runtime-support/common";
 import type { CheckoutSessionRow } from "../read-model/queries";
+import type { CheckoutObservabilityTelemetry } from "./checkout-observability-telemetry";
 
 const shippingAddress = {
   name: "Jane Smith",
@@ -46,6 +47,7 @@ function buildApp(
     roleKey: "owner",
     permissions: ["orders.view", "orders.manage"],
   },
+  checkoutObservabilityTelemetry?: CheckoutObservabilityTelemetry,
 ) {
   const app = new Hono<CheckoutApiEnv>();
 
@@ -61,7 +63,7 @@ function buildApp(
     await next();
   });
 
-  app.route("/account", createAccountCheckoutSessionRoutes(services));
+  app.route("/account", createAccountCheckoutSessionRoutes(services, checkoutObservabilityTelemetry));
   return app;
 }
 
@@ -152,6 +154,7 @@ describe("checkout session routes", () => {
   });
 
   it("returns active-session readiness validation errors from checkout reload", async () => {
+    const checkoutObservabilityTelemetry = { recordCheckoutEvent: vi.fn() };
     const services = createServices({
       getSession: vi.fn(async () => {
         throw new CheckoutDomainError(
@@ -160,7 +163,7 @@ describe("checkout session routes", () => {
         );
       }),
     });
-    const app = buildApp(services);
+    const app = buildApp(services, undefined, checkoutObservabilityTelemetry);
 
     const response = await app.fetch(new Request("http://checkout.test/account/checkout-sessions/chk_1"));
 
@@ -171,6 +174,21 @@ describe("checkout session routes", () => {
         message: "Cart readiness changed. Review your cart before checkout.",
       },
     });
+    expect(checkoutObservabilityTelemetry.recordCheckoutEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "checkout.session.active_stale_recovery",
+        actorMode: "signed-in",
+        entrySource: "active-session",
+        scenarioState: "active-session-stale",
+        visibleState: "checkout-permanent-recovery-visible",
+        sideEffectStatus: "not-attempted",
+        readinessContract: "checkout.session-read-model",
+        readinessSnapshotState: "stale",
+        sourceRevisionState: "stale",
+        supportReferencePresent: false,
+        launchRegisterDecision: "blocked",
+      }),
+    );
   });
 
   it("does not convert unexpected active-session reload failures into validation errors", async () => {
@@ -185,6 +203,75 @@ describe("checkout session routes", () => {
 
     expect(response.status).toBe(500);
     await expect(response.text()).resolves.not.toContain("validation_failed");
+  });
+
+  it("emits signed-in buy checkout review telemetry without raw identifiers", async () => {
+    const checkoutObservabilityTelemetry = { recordCheckoutEvent: vi.fn() };
+    const services = createServices({
+      getSession: vi.fn(async () =>
+        createSession({
+          cart_readiness_snapshot: { snapshotId: "cr_ready", sourceRevision: "cart_rev_1" } as never,
+        }),
+      ),
+    });
+    const app = buildApp(services, undefined, checkoutObservabilityTelemetry);
+
+    const response = await app.fetch(new Request("http://checkout.test/account/checkout-sessions/chk_1"));
+
+    expect(response.status).toBe(200);
+    expect(checkoutObservabilityTelemetry.recordCheckoutEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "checkout.buy.signed_in_review_rendered",
+        actorMode: "signed-in",
+        entrySource: "buy-cart-readiness",
+        scenarioState: "normal",
+        visibleState: "checkout-review-visible",
+        sideEffectStatus: "forbidden-before-confirm",
+        readinessContract: "checkout.cart-readiness.v1",
+        readinessSnapshotState: "fresh",
+        sourceRevisionState: "current",
+        supportReferencePresent: false,
+        downstreamStatus: "not-started",
+      }),
+    );
+    const emitted = JSON.stringify(checkoutObservabilityTelemetry.recordCheckoutEvent.mock.calls[0]?.[0]);
+    expect(emitted).not.toContain("chk_1");
+    expect(emitted).not.toContain("acc_buyer");
+    expect(emitted).not.toContain("cr_ready");
+  });
+
+  it("emits guest buy-now checkout review telemetry", async () => {
+    const checkoutObservabilityTelemetry = { recordCheckoutEvent: vi.fn() };
+    const services = createServices({
+      getSession: vi.fn(async () => createSession({ source_type: "buy-now" })),
+    });
+    const app = buildApp(
+      services,
+      {
+        sessionId: "guest:tok_1",
+        tenantId: "tnt_identity",
+        userId: "usr_guest_checkout",
+        accountId: "acc_guest",
+        membershipId: "guest:tok_1",
+        roleKey: "guest-buyer",
+        permissions: ["guest-checkout.manage"],
+      },
+      checkoutObservabilityTelemetry,
+    );
+
+    const response = await app.fetch(new Request("http://checkout.test/account/checkout-sessions/chk_1"));
+
+    expect(response.status).toBe(200);
+    expect(checkoutObservabilityTelemetry.recordCheckoutEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "checkout.buy.guest_review_rendered",
+        actorMode: "guest",
+        entrySource: "buy-now",
+        readinessContract: "checkout.session-read-model",
+        readinessSnapshotState: "not-applicable",
+        supportReferencePresent: false,
+      }),
+    );
   });
 
   it("passes cart readiness snapshot evidence into cart checkout creation", async () => {
@@ -444,6 +531,7 @@ describe("checkout session routes", () => {
   });
 
   it("confirms a new checkout session by recording orders and payment", async () => {
+    const checkoutObservabilityTelemetry = { recordCheckoutEvent: vi.fn() };
     mockCreateCheckoutOrdersThroughOrdering.mockResolvedValue({
       orderIds: ["ord_1"],
       readyLineKeys: ["cli_1"],
@@ -452,7 +540,7 @@ describe("checkout session routes", () => {
     const services = createServices({
       getSession: vi.fn(async () => createSession()),
     });
-    const app = buildApp(services);
+    const app = buildApp(services, undefined, checkoutObservabilityTelemetry);
 
     const response = await app.fetch(
       new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
@@ -487,9 +575,29 @@ describe("checkout session routes", () => {
       expect.objectContaining({ sessionId: "chk_1", paymentId: "pay_1" }),
       expect.any(Object),
     );
+    expect(checkoutObservabilityTelemetry.recordCheckoutEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "checkout.reconciliation.pending_visible",
+        actorMode: "signed-in",
+        entrySource: "buy-cart-readiness",
+        scenarioState: "pending-downstream",
+        visibleState: "support-safe-status-visible",
+        sideEffectStatus: "pending-downstream",
+        readinessContract: "downstream-owned-fact",
+        downstreamStatus: "payment-started",
+        supportReferencePresent: true,
+        launchRegisterDecision: "enabled",
+      }),
+    );
+    const emitted = JSON.stringify(checkoutObservabilityTelemetry.recordCheckoutEvent.mock.calls[0]?.[0]);
+    expect(emitted).not.toContain("chk_1");
+    expect(emitted).not.toContain("acc_buyer");
+    expect(emitted).not.toContain("ord_1");
+    expect(emitted).not.toContain("pay_1");
   });
 
   it("rejects stale active-session readiness before committing orders or payment", async () => {
+    const checkoutObservabilityTelemetry = { recordCheckoutEvent: vi.fn() };
     const services = createServices({
       getSession: vi.fn(async () => {
         throw new CheckoutDomainError(
@@ -498,7 +606,7 @@ describe("checkout session routes", () => {
         );
       }),
     });
-    const app = buildApp(services);
+    const app = buildApp(services, undefined, checkoutObservabilityTelemetry);
 
     const response = await app.fetch(
       new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
@@ -520,6 +628,61 @@ describe("checkout session routes", () => {
     expect(services.setShippingAddress).not.toHaveBeenCalled();
     expect(services.recordOrdersCreated).not.toHaveBeenCalled();
     expect(services.recordPaymentStarted).not.toHaveBeenCalled();
+    expect(checkoutObservabilityTelemetry.recordCheckoutEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "checkout.session.active_stale_recovery",
+        sideEffectStatus: "not-attempted",
+        downstreamStatus: "not-started",
+      }),
+    );
+  });
+
+  it("emits changed economics telemetry before stale fulfillment confirmation can commit", async () => {
+    const checkoutObservabilityTelemetry = { recordCheckoutEvent: vi.fn() };
+    const services = createServices({
+      getSession: vi.fn(async () =>
+        createSession({
+          fulfillment_preview_revision: "fulfillment-rev-2",
+          cart_readiness_snapshot: { snapshotId: "cr_ready", sourceRevision: "cart_rev_1" } as never,
+        }),
+      ),
+    });
+    const app = buildApp(services, undefined, checkoutObservabilityTelemetry);
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shippingAddress,
+          marketplaceCheckoutFeeQuoteFingerprint: "quote_1",
+          fulfillmentPreviewRevision: "fulfillment-rev-1",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "fulfillment_preview_stale",
+        message: "Fulfillment changed. Review the latest checkout preview before continuing.",
+      },
+    });
+    expect(mockCreateCheckoutOrdersThroughOrdering).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutPaymentThroughPayments).not.toHaveBeenCalled();
+    expect(checkoutObservabilityTelemetry.recordCheckoutEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "checkout.economics.changed_review_required",
+        scenarioState: "blocked",
+        visibleState: "checkout-review-visible",
+        sideEffectStatus: "not-attempted",
+        readinessContract: "checkout.cart-readiness.v1",
+        readinessSnapshotState: "fresh",
+        sourceRevisionState: "fulfillment-preview-stale",
+        supportReferencePresent: false,
+        launchRegisterDecision: "blocked",
+      }),
+    );
   });
 
   it("rejects customer deferred payment before committing orders or payment", async () => {
