@@ -102,7 +102,7 @@ Optional `preview`, `staging`, and `production` variables:
 
 Optional `production` variables for telemetry-backed canary analysis:
 
-- `CANARY_PROMETHEUS_URL`: production Prometheus base URL used by `pnpm run canary:evidence`.
+- `CANARY_PROMETHEUS_URL`: production Prometheus base URL used by `pnpm run ops canary:evidence`.
 - `CANARY_PROMETHEUS_QUERY_FILE`: repository-relative query file that maps required canary signals to baseline and canary PromQL.
 - `CANARY_OBSERVATION_WINDOW_SECONDS`: canary analysis window; defaults to `300`.
 
@@ -280,7 +280,7 @@ Before flipping proof mode on, run the GitHub Environment readiness preflight fr
 ```powershell
 gh variable list --env production --json name,value > .\secure\github-production-variables-2026-05-30.json
 gh secret list --env production --json name,updatedAt > .\secure\github-production-secrets-2026-05-30.json
-pnpm run marketplace:production-proof-readiness -- --variables .\secure\github-production-variables-2026-05-30.json --secrets .\secure\github-production-secrets-2026-05-30.json
+pnpm run ops marketplace:production-proof-readiness --variables .\secure\github-production-variables-2026-05-30.json --secrets .\secure\github-production-secrets-2026-05-30.json
 ```
 
 The readiness command also accepts `--variables -` or `--secrets -` for stdin when an operator wants to pipe one export directly instead of keeping both JSON files.
@@ -294,7 +294,7 @@ The same readiness output includes `providerCallbackSetup.dashboardDestinations`
 After proof mode deploys, run:
 
 ```powershell
-pnpm run marketplace:production-proof-topology-evidence -- --base-url https://marketplace.chasesets.com --reference PRODUCTION-PROOF-2026-05-30 --operator "ops@chasesets.com" --proof-enabled true --public-enabled false
+pnpm run ops marketplace:production-proof-topology-evidence --base-url https://marketplace.chasesets.com --reference PRODUCTION-PROOF-2026-05-30 --operator "ops@chasesets.com" --proof-enabled true --public-enabled false
 ```
 
 The command fails until the base URL is `https://marketplace.chasesets.com`, `https://chasesets.com`, or `https://admin.chasesets.com`, `/api/health/ready` returns JSON `200`, Stripe payment, Stripe Connect money-movement, SES/SNS email, and EasyPost postage callback paths return JSON `200` or `400` without redirects, the private Checkout/Ordering/Payments/Settlement proof APIs used by live money smoke and deferred-checkout order creation return JSON `401` without redirects, the private Inventory/Marketplace launch-supply proof APIs return JSON `401` without redirects, the proof marketplace web route reaches the authenticated marketplace payout setup page instead of returning 404, proof mode is explicitly enabled, and public marketplace promotion remains disabled. Attach the redacted output to the private proof record before configuring provider dashboards or creating launch-supply proof listings.
@@ -304,7 +304,7 @@ The public marketplace is deployed to production only when the production GitHub
 After all launch gates pass and production variables are updated from the passing packet, run the final public launch readiness preflight before triggering production promotion:
 
 ```powershell
-pnpm run marketplace:production-launch-readiness -- --variables .\secure\github-production-variables-2026-05-30.json --secrets .\secure\github-production-secrets-2026-05-30.json
+pnpm run ops marketplace:production-launch-readiness --variables .\secure\github-production-variables-2026-05-30.json --secrets .\secure\github-production-secrets-2026-05-30.json
 ```
 
 This command combines the launch evidence variable snapshot with required production secret-name checks and fails until public promotion is on, proof mode is off, launch references are real, admin Google Workspace SSO is configured for `chasesets.com`, live Stripe/EasyPost secret names exist, and Amazon SES is set to `transactional-production`.

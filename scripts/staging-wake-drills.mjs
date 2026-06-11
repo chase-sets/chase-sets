@@ -20,11 +20,13 @@
 //                   evidence for #1237; explicitly not a production-like
 //                   volume load test.
 import { spawn } from "node:child_process";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { appendFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { normalizeString, readEnv, readOption } from "./lib/cli-options.mjs";
+import { writeJsonRecord } from "./lib/output-file.mjs";
 
 export const STAGING_WAKE_DRILLS_VERSION = "staging-wake-drills/v1";
 export const DRILL_KINDS = Object.freeze(["reconciliation", "load"]);
@@ -749,26 +751,8 @@ function normalizeUrl(value) {
   }
 }
 
-function normalizeString(value) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
 function readBoolean(value) {
   return /^(1|true|yes)$/i.test(String(value ?? "").trim());
-}
-
-function readEnv(name, env) {
-  const value = env[name];
-  return value && value.trim() ? value.trim() : null;
-}
-
-function readOption(argv, name) {
-  const index = argv.indexOf(name);
-  if (index < 0) {
-    return null;
-  }
-  const value = argv[index + 1];
-  return value && !value.startsWith("--") ? value : null;
 }
 
 function readFlag(argv, name) {
@@ -799,8 +783,7 @@ async function main(argv, env = process.env) {
       },
     );
 
-    await mkdir(dirname(options.outPath), { recursive: true });
-    await writeFile(options.outPath, `${JSON.stringify(evidence, null, 2)}\n`);
+    await writeJsonRecord(options.outPath, evidence);
     console.log(JSON.stringify(evidence, null, 2));
 
     if (env.GITHUB_STEP_SUMMARY) {

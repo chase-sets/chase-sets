@@ -83,8 +83,8 @@ Unlock only after the incident owner confirms production is ready for normal pro
 Generate the exact GitHub Environment commands from the repo root:
 
 ```powershell
-pnpm run release-lock:commands -- --action lock --environment production --reason "Payment provider incident" --reference "INC-2026-05-31-001"
-pnpm run release-lock:commands -- --action unlock --environment production
+pnpm run ops release-lock:commands --action lock --environment production --reason "Payment provider incident" --reference "INC-2026-05-31-001"
+pnpm run ops release-lock:commands --action unlock --environment production
 ```
 
 Operators can also prepare these commands in the admin console at `/platform/release-controls`. The console reads the current production lock variables, validates lock reason requirements, and produces the same `gh variable set` shape without mutating GitHub from the browser.
@@ -147,19 +147,19 @@ The first canary implementation may use smoke probes and workflow-collected heal
 Evaluate a canary evidence file with:
 
 ```powershell
-pnpm run canary:analysis -- --file .\artifacts\release-health\canary-analysis.json
+pnpm run ops canary:analysis --file .\artifacts\release-health\canary-analysis.json
 ```
 
 Generate canary evidence from telemetry snapshots with:
 
 ```powershell
-pnpm run canary:evidence -- --release-commit <40-char-sha> --observation-window-seconds 300 --source-file .\artifacts\release-health\telemetry.json --out .\artifacts\release-health\canary-analysis.json
+pnpm run ops canary:evidence --release-commit <40-char-sha> --observation-window-seconds 300 --source-file .\artifacts\release-health\telemetry.json --out .\artifacts\release-health\canary-analysis.json
 ```
 
 Generate canary evidence from production Prometheus snapshots with:
 
 ```powershell
-pnpm run canary:evidence -- --release-commit <40-char-sha> --observation-window-seconds 300 --prometheus-base-url https://<prometheus-host> --prometheus-query-file .\bounded-contexts\platform-operations\features\release-dashboard\read-model\canary-prometheus-queries.json --out .\artifacts\release-health\canary-analysis.json
+pnpm run ops canary:evidence --release-commit <40-char-sha> --observation-window-seconds 300 --prometheus-base-url https://<prometheus-host> --prometheus-query-file .\bounded-contexts\platform-operations\features\release-dashboard\read-model\canary-prometheus-queries.json --out .\artifacts\release-health\canary-analysis.json
 ```
 
 The production deployment workflow runs the same collector before advancing the `production` marker when `CANARY_PROMETHEUS_URL` and `CANARY_PROMETHEUS_QUERY_FILE` repository variables are configured. The query file maps canary signal names to `baselineQuery`, `canaryQuery`, `owner`, and `maxIncrease`. Keep the workflow variables unset until production telemetry sources exist for every required signal that should gate promotion.
@@ -273,7 +273,7 @@ CI retry posture is resolved from GitHub Actions workflow runs for the release c
 Build a Markdown dashboard from release-health artifacts with:
 
 ```powershell
-pnpm run release-health:report -- --dir .\artifacts\release-health --out .\artifacts\release-health\summary.md
+pnpm run ops release-health:report --dir .\artifacts\release-health --out .\artifacts\release-health\summary.md
 ```
 
 The report includes SLO posture for cautious merge-queue batch tuning. Initial thresholds are deliberately conservative:
@@ -355,7 +355,7 @@ Abort an account canary by setting `killSwitchActive=true` for the feature polic
 Generate deterministic account canary evidence before any percentage rollout:
 
 ```powershell
-pnpm run account-canary:evidence -- --policy-file .\artifacts\release-health\feature-policy.json --feature-key marketplace.public-seller-proof --release-commit <40-char-sha> --account account:acct_canary --out .\artifacts\release-health\account-canary.json
+pnpm run ops account-canary:evidence --policy-file .\artifacts\release-health\feature-policy.json --feature-key marketplace.public-seller-proof --release-commit <40-char-sha> --account account:acct_canary --out .\artifacts\release-health\account-canary.json
 ```
 
 The account canary evidence requires:

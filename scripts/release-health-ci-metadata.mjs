@@ -2,6 +2,7 @@
 import { writeFile } from "node:fs/promises";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { isCommitSha, readEnv, readOption } from "./lib/cli-options.mjs";
 
 export function parseReleaseHealthCiMetadataArgs(argv, env = process.env) {
   return {
@@ -98,24 +99,6 @@ function formatGitHubOutput(metadata) {
 
 function nonNegativeInteger(value) {
   return Number.isInteger(value) && value > 0 ? value : 0;
-}
-
-function isCommitSha(value) {
-  return typeof value === "string" && /^[0-9a-f]{40}$/i.test(value);
-}
-
-function readEnv(name, env) {
-  const value = env[name];
-  return value && value.trim() ? value.trim() : null;
-}
-
-function readOption(argv, name) {
-  const index = argv.indexOf(name);
-  if (index < 0) {
-    return null;
-  }
-  const value = argv[index + 1];
-  return value && !value.startsWith("--") ? value : null;
 }
 
 async function main(argv, env = process.env) {

@@ -1,8 +1,9 @@
 #!/usr/bin/env node
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { readFile } from "node:fs/promises";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { isCommitSha, readEnv, readOption } from "./lib/cli-options.mjs";
+import { writeJsonRecord } from "./lib/output-file.mjs";
 
 export const ROLLBACK_READINESS_VERSION = "rollback-readiness/v1";
 
@@ -33,8 +34,7 @@ export async function runRollbackReadiness(options) {
   const result = evaluateRollbackReadiness({ ...options, terraformPlan });
 
   if (options.outPath) {
-    await mkdir(dirname(options.outPath), { recursive: true });
-    await writeFile(options.outPath, `${JSON.stringify(result.record, null, 2)}\n`);
+    await writeJsonRecord(options.outPath, result.record);
   }
 
   return result;
@@ -121,30 +121,12 @@ function parseBoolean(value, name) {
   throw new Error(`${name} must be true or false.`);
 }
 
-function readEnv(name, env) {
-  const value = env[name];
-  return value && value.trim() ? value.trim() : null;
-}
-
-function readOption(argv, name) {
-  const index = argv.indexOf(name);
-  if (index < 0) {
-    return null;
-  }
-  const value = argv[index + 1];
-  return value && !value.startsWith("--") ? value : null;
-}
-
 function emptyToNull(value) {
   return isNonEmptyString(value) ? value.trim() : null;
 }
 
 function isNonEmptyString(value) {
   return typeof value === "string" && value.trim().length > 0;
-}
-
-function isCommitSha(value) {
-  return typeof value === "string" && /^[0-9a-f]{40}$/i.test(value);
 }
 
 async function main(argv, env = process.env) {

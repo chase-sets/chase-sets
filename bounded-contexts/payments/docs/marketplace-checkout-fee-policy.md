@@ -33,7 +33,7 @@ Before marketplace production promotion, counsel/provider review must approve fi
 Build the redacted launch-packet gate from the Payments-owned approval record instead of hand-editing `gates.marketplaceCheckoutFee`. The approval record must include `approvalCompletedAt`; rerun the fee, refund-language, disclosure, and live Stripe configuration review when the approval is older than 30 days at launch review:
 
 ```powershell
-pnpm run marketplace:checkout-fee-evidence -- --approval .\secure\marketplace-checkout-fee-2026-05-30.json --reference PAYMENTS-FEE-2026-05-30
+pnpm run ops marketplace:checkout-fee-evidence --approval .\secure\marketplace-checkout-fee-2026-05-30.json --reference PAYMENTS-FEE-2026-05-30
 ```
 
 The command fails unless the approval is production-scoped, current, uses Stripe live mode, includes the live `/api/marketplace/account/marketplace-checkout-fee-policy` endpoint URL on a production Chase Sets host, records an HTTP `200` endpoint observation timestamp, includes the endpoint evidence reference, carries the current live policy snapshot (`marketplace-checkout-fee-v1`, US-only launch, card/base 2.9% plus $0.30, bank account 0.5% plus $0.00, platform credit $0.00, and `409 fee_quote_stale` confirmation behavior), includes references for buyer-facing copy, fee labels, refund language, state disclosure review, and Stripe live fee configuration, and approves every required Marketplace Checkout Fee launch proof.

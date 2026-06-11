@@ -26,7 +26,7 @@ Keep UCP, AP2, autonomous payment, headless checkout, AI-agent checkout, Payment
 Before marketplace production promotion, build the Marketplace Promotion and UCP/AP2 Marketing launch gates from the final launch review record:
 
 ```powershell
-pnpm run marketplace:promotion-evidence -- --review .\secure\marketplace-promotion-2026-05-30.json --reference LAUNCH-REVIEW-2026-05-30
+pnpm run ops marketplace:promotion-evidence --review .\secure\marketplace-promotion-2026-05-30.json --reference LAUNCH-REVIEW-2026-05-30
 ```
 
 The Public Presence evidence in that review must confirm launch-mode copy for home, terms, privacy, refunds and returns, order protection, sales fee, FAQ, and contact pages, removal of future-only live-transaction language, and absence of uncertified UCP/AP2/headless-checkout claims.
@@ -34,7 +34,7 @@ The Public Presence evidence in that review must confirm launch-mode copy for ho
 Run the live copy audit before the final review. Use prelaunch mode while production is intentionally gated:
 
 ```powershell
-pnpm run marketplace:public-presence-copy-audit -- --base-url https://chasesets.com --mode prelaunch
+pnpm run ops marketplace:public-presence-copy-audit --base-url https://chasesets.com --mode prelaunch
 ```
 
 For launch review, run the same command with `--mode launch`. Launch mode fails while future-only copy such as early access, waitlist, or production-promotion-gated checkout language remains on any required public page.

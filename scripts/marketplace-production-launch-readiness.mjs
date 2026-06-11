@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { buildProductionEnvSnapshot, REQUIRED_LAUNCH_ENV_VARIABLES } from "./marketplace-production-env-snapshot.mjs";
+import { readEnv, readOption } from "./lib/cli-options.mjs";
 
 export const MARKETPLACE_PRODUCTION_LAUNCH_READINESS_VERSION = "marketplace-production-launch-readiness/v1";
 
@@ -153,9 +154,9 @@ export async function readJsonInput(path, readStdinImpl = readStdin) {
 function buildOperatorSetup({ missingSecrets }) {
   return {
     packetCommand:
-      "pnpm run marketplace:launch-packet -- --public-enabled true --launch-evidence-reference <passing-packet-reference> ...",
+      "pnpm run ops marketplace:launch-packet --public-enabled true --launch-evidence-reference <passing-packet-reference> ...",
     environmentCommand:
-      "pnpm run marketplace:production-env-commands -- --file <redacted-marketplace-launch-evidence.json>",
+      "pnpm run ops marketplace:production-env-commands --file <redacted-marketplace-launch-evidence.json>",
     secretCommands: missingSecrets.map((name) => `gh secret set ${name} --env production`),
     googleSocialLoginOAuthSetup: buildGoogleSocialLoginOAuthSetup({
       marketplaceUrl: "https://marketplace.chasesets.com",
@@ -202,20 +203,6 @@ function normalizeNameValueRows(value) {
 function normalizeNameRows(value) {
   const rows = Array.isArray(value) ? value : Array.isArray(value?.secrets) ? value.secrets : [];
   return rows.filter((row) => isRecord(row) && isNonEmptyString(row.name)).map((row) => String(row.name).trim());
-}
-
-function readEnv(name, env) {
-  const value = env[name];
-  return value && value.trim() ? value.trim() : null;
-}
-
-function readOption(argv, name) {
-  const index = argv.indexOf(name);
-  if (index < 0) {
-    return null;
-  }
-  const value = argv[index + 1];
-  return value && !value.startsWith("--") ? value : null;
 }
 
 function isRecord(value) {

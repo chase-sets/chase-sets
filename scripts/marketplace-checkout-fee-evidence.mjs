@@ -8,6 +8,7 @@ import {
   validateEvidenceReferences,
 } from "./marketplace-evidence-references.mjs";
 import { validateReleaseCommit } from "./marketplace-release-commit.mjs";
+import { readEnv, readOption } from "./lib/cli-options.mjs";
 
 export const MARKETPLACE_CHECKOUT_FEE_EVIDENCE_VERSION = "marketplace-checkout-fee-evidence/v1";
 const MAX_CHECKOUT_FEE_APPROVAL_AGE_DAYS = 30;
@@ -333,20 +334,6 @@ function validatePolicySnapshot(approval, errors) {
   if (approval.feeQuoteStaleResponseCode !== 409 || approval.feeQuoteStaleResponseError !== "fee_quote_stale") {
     errors.push("Marketplace Checkout Fee stale quote response must match the live policy: 409 fee_quote_stale.");
   }
-}
-
-function readEnv(name, env) {
-  const value = env[name];
-  return value && value.trim() ? value.trim() : null;
-}
-
-function readOption(argv, name) {
-  const index = argv.indexOf(name);
-  if (index < 0) {
-    return null;
-  }
-  const value = argv[index + 1];
-  return value && !value.startsWith("--") ? value : null;
 }
 
 function requireString(value, label) {

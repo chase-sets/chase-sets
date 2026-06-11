@@ -12,6 +12,7 @@ import {
   REQUIRED_PUBLIC_PRESENCE_PAGES,
 } from "./marketplace-public-presence-copy-audit.mjs";
 import { validateReleaseCommit } from "./marketplace-release-commit.mjs";
+import { readEnv, readOption } from "./lib/cli-options.mjs";
 
 export const MARKETPLACE_PROMOTION_EVIDENCE_VERSION = "marketplace-promotion-evidence/v1";
 const MAX_PROMOTION_REVIEW_AGE_DAYS = 30;
@@ -329,20 +330,6 @@ function validateCompletedAt(label, value, checkedAt, errors) {
   if (ageDays > MAX_PROMOTION_REVIEW_AGE_DAYS) {
     errors.push(`${label} cannot be older than ${MAX_PROMOTION_REVIEW_AGE_DAYS} days.`);
   }
-}
-
-function readEnv(name, env) {
-  const value = env[name];
-  return value && value.trim() ? value.trim() : null;
-}
-
-function readOption(argv, name) {
-  const index = argv.indexOf(name);
-  if (index < 0) {
-    return null;
-  }
-  const value = argv[index + 1];
-  return value && !value.startsWith("--") ? value : null;
 }
 
 function requireString(value, label) {

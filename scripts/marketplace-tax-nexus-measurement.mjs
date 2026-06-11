@@ -2,6 +2,7 @@
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { isIsoTimestamp, validateEvidenceReference } from "./marketplace-evidence-references.mjs";
+import { readEnv, readOption } from "./lib/cli-options.mjs";
 
 export const TAX_NEXUS_MEASUREMENT_QUERY_VERSION = "tax-nexus-measurement-query/v1";
 
@@ -419,20 +420,6 @@ function parseDate(value, fieldName) {
     throw new Error(`${fieldName} must be a valid ISO date or timestamp.`);
   }
   return date;
-}
-
-function readEnv(name, env) {
-  const value = env[name];
-  return value && value.trim() ? value.trim() : null;
-}
-
-function readOption(argv, name) {
-  const index = argv.indexOf(name);
-  if (index < 0) {
-    return null;
-  }
-  const value = argv[index + 1];
-  return value && !value.startsWith("--") ? value : null;
 }
 
 function isNonEmptyString(value) {

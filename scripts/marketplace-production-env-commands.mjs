@@ -7,6 +7,7 @@ import {
   OPTIONAL_LAUNCH_ENV_VARIABLES,
   REQUIRED_LAUNCH_ENV_VARIABLES,
 } from "./marketplace-production-env-snapshot.mjs";
+import { readEnv, readOption } from "./lib/cli-options.mjs";
 
 export const MARKETPLACE_PRODUCTION_ENV_COMMANDS_VERSION = "marketplace-production-env-commands/v1";
 
@@ -93,20 +94,6 @@ function validateOptions(options) {
     errors.push("MARKETPLACE_LAUNCH_EVIDENCE_PACKET or --file is required.");
   }
   return errors;
-}
-
-function readEnv(name, env) {
-  const value = env[name];
-  return value && value.trim() ? value.trim() : null;
-}
-
-function readOption(argv, name) {
-  const index = argv.indexOf(name);
-  if (index < 0) {
-    return null;
-  }
-  const value = argv[index + 1];
-  return value && !value.startsWith("--") ? value : null;
 }
 
 function requireRecord(value, label) {

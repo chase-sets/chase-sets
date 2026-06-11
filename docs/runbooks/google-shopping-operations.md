@@ -4,7 +4,7 @@ This runbook owns the operator checklist for Chase Sets Google Merchant Center /
 
 ## Operator Surface And Evidence Links
 
-The launch evidence output from `pnpm run google-shopping:launch-readiness-evidence` includes this runbook path as `runbook.path`. Store that JSON output or its private evidence reference with the launch packet so release reviewers can jump from the machine gate to the human operating guide.
+The launch evidence output from `pnpm run ops google-shopping:launch-readiness-evidence` includes this runbook path as `runbook.path`. Store that JSON output or its private evidence reference with the launch packet so release reviewers can jump from the machine gate to the human operating guide.
 
 The Google Shopping admin/operator surface should link to this runbook with the label `Google Shopping Operations` near sync status, diagnostics, and pause/rollback controls. The surface should not copy credentials, private Merchant Center screenshots, or raw provider payloads into the UI; it should show redacted status, row identifiers, evidence references, and the next operator action from this runbook.
 
@@ -29,13 +29,13 @@ Complete these steps in order before live production Merchant writes:
 1. Confirm Merchant Center approval, API data source creation, target country, content language, feed label, free-listings destination, shipping settings, returns settings, and marketplace/multi-seller handling in a private evidence record.
 2. Confirm production worker variables are present with `GOOGLE_MERCHANT_SYNC_ENABLED=true`, `GOOGLE_MERCHANT_DRY_RUN=true`, `CHASE_SETS_MARKETPLACE_INDEXING=true`, and a credential secret reference that points to the bound service-account JSON variable.
 3. Run the feed row evidence sweep and verify non-zero eligible rows, zero blocking row issues, representative sample payloads, HTTPS images, production listing links, seller external ids, and policy fields.
-4. Run `pnpm run google-shopping:crawl-posture-evidence` against `https://marketplace.chasesets.com` with sampled eligible listing links and verify `merchantFeedSubmissionAllowed=true`.
+4. Run `pnpm run ops google-shopping:crawl-posture-evidence` against `https://marketplace.chasesets.com` with sampled eligible listing links and verify `merchantFeedSubmissionAllowed=true`.
 5. Enqueue a full dry-run sync, wait for completion, and confirm `failed=0`, expected submitted/deleted/excluded counts, and a concrete job reference.
 6. Refresh diagnostics in dry-run/live-read mode as appropriate, then capture `/google-shopping/diagnostics/snapshot?limit=500` with zero P0 disapproved submitted rows.
-7. Run `pnpm run google-shopping:launch-readiness-evidence -- --expected-mode dry-run` and store the passing output reference.
+7. Run `pnpm run ops google-shopping:launch-readiness-evidence --expected-mode dry-run` and store the passing output reference.
 8. Obtain production sync approval from Ops and policy owners, including the evidence reference that authorizes changing from dry-run to live writes.
 9. Change production to `GOOGLE_MERCHANT_DRY_RUN=false` only after the dry-run evidence, diagnostics snapshot, crawl posture, policy references, and production approval are complete.
-10. Run `pnpm run google-shopping:launch-readiness-evidence -- --expected-mode live --production-sync-approval-reference <reference>` and do not launch if `passesGoogleShoppingLaunchReadinessGate` is false.
+10. Run `pnpm run ops google-shopping:launch-readiness-evidence --expected-mode live --production-sync-approval-reference <reference>` and do not launch if `passesGoogleShoppingLaunchReadinessGate` is false.
 11. Enqueue a small live sync batch first when possible, inspect provider responses and diagnostics, then scale to the normal full sync batch.
 12. Monitor the next scheduled maintenance and diagnostics windows before declaring launch complete.
 
@@ -89,7 +89,7 @@ Before enabling production writes, collect a private evidence record with:
 Before live Merchant writes, run the focused crawl posture proof against the public marketplace origin with a small sample of eligible feed links:
 
 ```bash
-pnpm run google-shopping:crawl-posture-evidence -- \
+pnpm run ops google-shopping:crawl-posture-evidence \
   --base-url https://marketplace.chasesets.com \
   --expect-indexing true \
   --sample-url https://marketplace.chasesets.com/listings/<listing-slug>
@@ -109,7 +109,7 @@ For staging/proof, run the same command with `--expect-indexing false` and the s
 Before changing production from dry-run to live Merchant writes, produce a redacted Google Shopping readiness report and run:
 
 ```bash
-pnpm run google-shopping:launch-readiness-evidence -- \
+pnpm run ops google-shopping:launch-readiness-evidence \
   --readiness-report ./secure/google-shopping-readiness.json \
   --expected-mode live \
   --reference GOOGLE-SHOPPING-LAUNCH-2026-06-04 \

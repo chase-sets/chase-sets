@@ -1,9 +1,10 @@
 #!/usr/bin/env node
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { readFile } from "node:fs/promises";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { CANARY_ANALYSIS_VERSION, evaluateCanaryAnalysis } from "./canary-analysis.mjs";
+import { normalizeString, readEnv, readOption, readRepeatedOptions } from "./lib/cli-options.mjs";
+import { writeJsonRecord } from "./lib/output-file.mjs";
 
 export const CANARY_EVIDENCE_VERSION = CANARY_ANALYSIS_VERSION;
 
@@ -139,8 +140,7 @@ export async function collectCanaryEvidence(options) {
   const analysis = evaluateCanaryAnalysis(evidence);
 
   if (options.outPath) {
-    await mkdir(dirname(options.outPath), { recursive: true });
-    await writeFile(options.outPath, `${JSON.stringify(evidence, null, 2)}\n`);
+    await writeJsonRecord(options.outPath, evidence);
   }
 
   return { evidence, analysis };
@@ -341,38 +341,9 @@ async function main(argv, env = process.env) {
   }
 }
 
-function normalizeString(value) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
 function normalizeNonNegativeInteger(value) {
   const normalized = Number.parseInt(String(value), 10);
   return Number.isInteger(normalized) && normalized >= 0 ? normalized : 0;
-}
-
-function readEnv(name, env) {
-  const value = env[name];
-  return value && value.trim() ? value.trim() : null;
-}
-
-function readOption(argv, name) {
-  const index = argv.indexOf(name);
-  if (index < 0) {
-    return null;
-  }
-  const value = argv[index + 1];
-  return value && !value.startsWith("--") ? value : null;
-}
-
-function readRepeatedOptions(argv, name) {
-  const values = [];
-  for (let index = 0; index < argv.length; index += 1) {
-    if (argv[index] === name && argv[index + 1] && !argv[index + 1].startsWith("--")) {
-      values.push(argv[index + 1]);
-      index += 1;
-    }
-  }
-  return values;
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
