@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
+import { tcgdexPokemonCardSourceObservationMappingContract } from "../api/tcgdex-executable-mapping-contract";
+import { tcgdexPokemonTcgProviderProfile } from "../api/provider-integration-profiles";
 import { catalogProviderProfileEditableSectionKeys } from "../api/provider-profile-section-registry";
 import { buildCatalogPrimaryWorkbenchReadModel } from "./primary-workbench-read-model";
 import { CatalogPrimaryWorkbenchPage } from "./primary-workbench-page";
@@ -10,6 +12,10 @@ import {
   sourceObservationListItem,
   sourceObservationScope,
 } from "./primary-workbench-test-fixtures";
+
+function jsonClone<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
 
 describe("CatalogPrimaryWorkbenchPage", () => {
   afterEach(() => {
@@ -153,6 +159,69 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.queryByRole("heading", { name: "Provider import operations" })).toBeNull();
     expect(screen.queryByText(/raw JSON/i)).toBeNull();
     expect(screen.queryByText(/Profile JSON|Candidate JSON|Active JSON/i)).toBeNull();
+  });
+
+  it("renders option-query, import-scope, and mapping authoring detail panels without reviving raw profile editors", () => {
+    const baseOverview = controlPlaneOverview();
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&section=profile-work&profileVersion=2026.06.04-draft",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: {
+        items: [
+          profileReview({
+            active: false,
+            lifecycle: "draft",
+            profileVersion: "2026.06.04-draft",
+            profile: jsonClone(tcgdexPokemonTcgProviderProfile),
+            executableMappingContract: jsonClone(tcgdexPokemonCardSourceObservationMappingContract),
+            capabilities: [...tcgdexPokemonTcgProviderProfile.capabilities],
+            supportedScopes: [...tcgdexPokemonTcgProviderProfile.supportedScopes],
+            languageOptions: [...tcgdexPokemonTcgProviderProfile.languageOptions],
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+      controlPlaneOverview: controlPlaneOverview({
+        providerReadiness: {
+          ...baseOverview.providerReadiness,
+          providers: [
+            {
+              ...baseOverview.providerReadiness.providers[0]!,
+              optionQueryHealth: {
+                status: "degraded",
+                diagnosticCodes: ["provider-option-query-stale-cache-used"],
+                message: "Stale provider option query cache used during adapter recovery.",
+              },
+            },
+          ],
+        },
+      }),
+      canManageCatalog: true,
+    });
+
+    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+
+    expect(screen.getByRole("heading", { name: "Provider option queries" })).toBeTruthy();
+    expect(screen.getAllByText("tcgdex-list-expansions").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("tcgdex-expansion-card-count").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("symbolUrl").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Option queries degraded").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Stale provider option query cache used/i).length).toBeGreaterThan(0);
+    expect(screen.getByRole("heading", { name: "Import-scope controls" })).toBeTruthy();
+    expect(screen.getAllByText("Product / Card").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("en:3:base:base1").length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("heading", { name: "Mapping expression rows" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Observation id").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("catalog-merge-evidence").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Preview").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Duplicate").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Reorder").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Remove").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Inline diagnostics").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Long paths").length).toBeGreaterThan(0);
+    expect(screen.queryByText(/Profile JSON|Candidate JSON|Active JSON|raw JSON/i)).toBeNull();
   });
 
   it("renders section forms as editable typed controls for draft profiles", () => {
@@ -569,7 +638,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     );
   });
 
-  it("blocks replay for promoted Source Observations with retired original profile evidence", () => {
+  it("blocks replay for promoted Source Observations with missing original profile evidence", () => {
     const readModel = buildCatalogPrimaryWorkbenchReadModel({
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&filter.status=promoted",
@@ -581,7 +650,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
           sourceObservationListItem({
             observation_id: "obs_promoted",
             status: "promoted",
-            source_profile_version: "legacy",
+            source_profile_version: "",
             promoted_catalog_item_id: "cat_001",
             promoted_at: "2026-06-09T01:05:00.000Z",
           }),

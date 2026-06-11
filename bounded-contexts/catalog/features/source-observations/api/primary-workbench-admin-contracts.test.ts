@@ -381,6 +381,7 @@ describe("Catalog primary workbench admin contracts", () => {
     expect(downstreamIssues).toEqual([
       "#1033",
       "#1034",
+      "#1035",
       "#1056",
       "#1038",
       "#1039",
@@ -685,6 +686,9 @@ describe("Catalog primary workbench admin contracts", () => {
                 options: [],
               },
             ],
+            optionQueries: [],
+            importScopeControls: [],
+            mappingRows: [],
             diagnostics: [],
             semanticChangeCount: 0,
             readinessCheckCount: 0,

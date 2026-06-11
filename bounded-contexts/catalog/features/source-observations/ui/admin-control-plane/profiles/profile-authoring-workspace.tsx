@@ -25,6 +25,7 @@ type ProfileAuthoringReadModel = CatalogPrimaryWorkbenchReadModel["profileAuthor
 type ProfileOverview = NonNullable<ProfileAuthoringReadModel["selectedProfile"]>;
 type ProfileOption = ProfileAuthoringReadModel["availableProfiles"][number];
 type ProfileSectionWorkspace = ProfileAuthoringReadModel["sectionWorkspaces"][number];
+type BadgeTone = "success" | "warning" | "danger" | "neutral" | "info" | "accent";
 
 export function CatalogIntegrationProfileAuthoringWorkspace({
   readModel,
@@ -385,6 +386,8 @@ function ProfileSectionWorkspaceCard({
         />
       ) : null}
 
+      <ProfileSectionDomainDetails workspace={workspace} />
+
       <Form
         spacing="md"
         method="post"
@@ -403,6 +406,290 @@ function ProfileSectionWorkspaceCard({
         </Button>
       </Form>
     </section>
+  );
+}
+
+function ProfileSectionDomainDetails({ workspace }: { workspace: ProfileSectionWorkspace }) {
+  return (
+    <div className="grid gap-4">
+      <ProviderOptionQueryDetails workspace={workspace} />
+      <ImportScopeControlDetails workspace={workspace} />
+      <MappingRowDetails workspace={workspace} />
+    </div>
+  );
+}
+
+function ProviderOptionQueryDetails({ workspace }: { workspace: ProfileSectionWorkspace }) {
+  if (workspace.sectionKey !== "provider-options" || workspace.optionQueries.length === 0) {
+    return null;
+  }
+
+  const columns: DataColumn<ProfileSectionWorkspace["optionQueries"][number]>[] = [
+    {
+      key: "query",
+      header: t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.query"),
+      sortable: true,
+      cell: (query) => (
+        <div className="grid min-w-0 gap-1">
+          <div className="text-sm font-semibold text-foreground">{query.displayName}</div>
+          <div className="break-all text-xs leading-5 text-secondary">{query.queryKind}</div>
+          {query.aliases.length > 0 ? (
+            <div className="flex min-w-0 flex-wrap gap-1">
+              {query.aliases.map((alias) => (
+                <Badge key={alias} tone="neutral">
+                  {alias}
+                </Badge>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ),
+    },
+    {
+      key: "scope",
+      header: t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.scope"),
+      mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.scope"),
+      cell: (query) => (
+        <div className="grid min-w-0 gap-1 text-xs leading-5 text-secondary">
+          <div className="flex min-w-0 flex-wrap gap-1">
+            <Badge tone="info">{query.scope}</Badge>
+            {query.parentScope ? (
+              <Badge tone={query.parentRequired ? "warning" : "neutral"}>{query.parentScope}</Badge>
+            ) : null}
+          </div>
+          {query.parentDiagnosticText ? <div>{query.parentDiagnosticText}</div> : null}
+          {query.parentValueKind ? <div>{query.parentValueKind}</div> : null}
+        </div>
+      ),
+    },
+    {
+      key: "operation",
+      header: t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.operation"),
+      mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.operation"),
+      cell: (query) => <span className="break-all text-xs leading-5 text-secondary">{query.operation}</span>,
+    },
+    {
+      key: "output",
+      header: t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.output"),
+      mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.output"),
+      cell: (query) => (
+        <div className="grid min-w-0 gap-1">
+          {query.outputMappings.map((mapping) => (
+            <div key={mapping.key} className="grid min-w-0 gap-0.5 text-xs leading-5">
+              <span className="font-semibold text-foreground">{mapping.label}</span>
+              <span className="break-all text-secondary">{mapping.path}</span>
+            </div>
+          ))}
+        </div>
+      ),
+    },
+    {
+      key: "cache",
+      header: t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.cache"),
+      mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.cache"),
+      cell: (query) => (
+        <div className="grid min-w-0 gap-1 text-xs leading-5 text-secondary">
+          <div className="flex min-w-0 flex-wrap gap-1">
+            <Badge tone={optionQueryHealthTone(query.cacheState.status)}>{query.cacheState.label}</Badge>
+            {query.cacheState.cacheOnly ? (
+              <Badge tone="warning">
+                {t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.cacheOnly")}
+              </Badge>
+            ) : null}
+          </div>
+          <div>{query.cacheState.description}</div>
+          {query.cacheState.diagnosticCodes.length > 0 ? (
+            <div className="break-all">{query.cacheState.diagnosticCodes.join(", ")}</div>
+          ) : null}
+        </div>
+      ),
+    },
+  ];
+
+  return (
+    <EvidencePanel
+      title={t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.optionQueries.title")}
+      description={t(
+        "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.optionQueries.description",
+      )}
+      status={<Badge tone="neutral">{workspace.optionQueries.length}</Badge>}
+    >
+      <DataTable rows={[...workspace.optionQueries]} columns={columns} getRowId={(query) => query.queryKind} />
+    </EvidencePanel>
+  );
+}
+
+function ImportScopeControlDetails({ workspace }: { workspace: ProfileSectionWorkspace }) {
+  if (workspace.importScopeControls.length === 0) {
+    return null;
+  }
+
+  const columns: DataColumn<ProfileSectionWorkspace["importScopeControls"][number]>[] = [
+    {
+      key: "scope",
+      header: t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.importScope"),
+      sortable: true,
+      cell: (scope) => (
+        <div className="grid min-w-0 gap-1">
+          <div className="text-sm font-semibold text-foreground">{scope.label}</div>
+          <div className="break-all text-xs leading-5 text-secondary">{scope.scope}</div>
+          {scope.importScope ? (
+            <div className="break-all text-xs leading-5 text-secondary">{scope.importScope}</div>
+          ) : null}
+        </div>
+      ),
+    },
+    {
+      key: "state",
+      header: t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.state"),
+      mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.state"),
+      cell: (scope) => (
+        <div className="grid min-w-0 gap-1 text-xs leading-5 text-secondary">
+          <Badge tone={importScopeTone(scope.state)}>{stateLabel(scope.state)}</Badge>
+          {scope.reason ? <div>{scope.reason}</div> : null}
+        </div>
+      ),
+    },
+    {
+      key: "volume",
+      header: t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.volume"),
+      mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.volume"),
+      cell: (scope) => (
+        <div className="grid min-w-0 gap-1 text-xs leading-5 text-secondary">
+          <div>
+            {t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.volume.expected", {
+              count: String(scope.expectedObservationCount),
+            })}
+          </div>
+          <div>
+            {t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.volume.observed", {
+              count: String(scope.observedCount),
+            })}
+          </div>
+          <div>
+            {t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.volume.changed", {
+              count: String(scope.changedCount),
+            })}
+          </div>
+          <div>
+            {t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.volume.promoted", {
+              count: String(scope.promotedCount),
+            })}
+          </div>
+          <div>
+            {t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.volume.rejected", {
+              count: String(scope.rejectedCount),
+            })}
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: "action",
+      header: t("catalog.features.sourceObservations.ui.primaryWorkbench.table.action"),
+      mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.table.action"),
+      align: "right",
+      cell: (scope) =>
+        scope.href ? (
+          <LinkButton size="sm" tone={scope.state === "selected" ? "secondary" : "primary"} href={scope.href}>
+            {scope.state === "selected"
+              ? t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.action.selected")
+              : t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.action.useScope")}
+          </LinkButton>
+        ) : (
+          <Badge tone="neutral">
+            {t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.action.unavailable")}
+          </Badge>
+        ),
+    },
+  ];
+
+  return (
+    <EvidencePanel
+      title={t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.importScopes.title")}
+      description={t(
+        "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.importScopes.description",
+      )}
+      status={<Badge tone="neutral">{workspace.importScopeControls.length}</Badge>}
+    >
+      <DataTable rows={[...workspace.importScopeControls]} columns={columns} getRowId={(scope) => scope.scope} />
+    </EvidencePanel>
+  );
+}
+
+function MappingRowDetails({ workspace }: { workspace: ProfileSectionWorkspace }) {
+  if (workspace.mappingRows.length === 0) {
+    return null;
+  }
+
+  const columns: DataColumn<ProfileSectionWorkspace["mappingRows"][number]>[] = [
+    {
+      key: "mapping",
+      header: t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.mapping"),
+      sortable: true,
+      cell: (row) => (
+        <div className="grid min-w-0 gap-1">
+          <div className="text-sm font-semibold text-foreground">{row.label}</div>
+          <div className="break-all text-xs leading-5 text-secondary">{row.path}</div>
+        </div>
+      ),
+    },
+    {
+      key: "summary",
+      header: t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.summary"),
+      mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.summary"),
+      cell: (row) => <span className="break-all text-xs leading-5 text-secondary">{row.summary}</span>,
+    },
+    {
+      key: "ownership",
+      header: t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.ownership"),
+      mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.ownership"),
+      cell: (row) => (
+        <div className="grid min-w-0 gap-1 text-xs leading-5 text-secondary">
+          {row.owner ? <Badge tone="info">{row.owner}</Badge> : null}
+          {row.redaction ? (
+            <Badge tone={row.redaction === "none" ? "neutral" : "warning"}>{row.redaction}</Badge>
+          ) : null}
+          {row.uses.length > 0 ? <div className="break-all">{row.uses.join(", ")}</div> : null}
+        </div>
+      ),
+    },
+    {
+      key: "editor",
+      header: t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.editorMetadata"),
+      mobileLabel: t(
+        "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.editorMetadata",
+      ),
+      cell: (row) => (
+        <div className="flex min-w-0 flex-wrap gap-1">
+          {mappingAffordanceLabels(row).map((label) => (
+            <Badge key={label} tone="neutral">
+              {label}
+            </Badge>
+          ))}
+          {row.diagnostics.map((diagnostic) => (
+            <Badge
+              key={`${diagnostic.path}:${diagnostic.diagnosticText}`}
+              tone={diagnostic.severity === "error" ? "danger" : "warning"}
+            >
+              {diagnostic.path}
+            </Badge>
+          ))}
+        </div>
+      ),
+    },
+  ];
+
+  return (
+    <EvidencePanel
+      title={t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.mappingRows.title")}
+      description={t(
+        "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.mappingRows.description",
+      )}
+      status={<Badge tone="neutral">{workspace.mappingRows.length}</Badge>}
+    >
+      <DataTable rows={[...workspace.mappingRows]} columns={columns} getRowId={(row) => row.key} />
+    </EvidencePanel>
   );
 }
 
@@ -835,6 +1122,56 @@ function actionTone(state: CatalogPrimaryWorkbenchActionState) {
   }
 
   return "neutral";
+}
+
+function optionQueryHealthTone(
+  status: ProfileSectionWorkspace["optionQueries"][number]["cacheState"]["status"],
+): BadgeTone {
+  if (status === "ready") {
+    return "success";
+  }
+  if (status === "degraded") {
+    return "warning";
+  }
+  if (status === "blocked") {
+    return "danger";
+  }
+
+  return "neutral";
+}
+
+function importScopeTone(state: ProfileSectionWorkspace["importScopeControls"][number]["state"]): BadgeTone {
+  if (state === "selected") {
+    return "success";
+  }
+  if (state === "available") {
+    return "info";
+  }
+
+  return "warning";
+}
+
+function mappingAffordanceLabels(row: ProfileSectionWorkspace["mappingRows"][number]): readonly string[] {
+  return [
+    row.previewAvailable
+      ? t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.affordance.preview")
+      : null,
+    row.affordances.duplicate
+      ? t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.affordance.duplicate")
+      : null,
+    row.affordances.reorder
+      ? t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.affordance.reorder")
+      : null,
+    row.affordances.remove
+      ? t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.affordance.remove")
+      : null,
+    row.affordances.inlineDiagnostics
+      ? t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.affordance.inlineDiagnostics")
+      : null,
+    row.affordances.longPathSafe
+      ? t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.affordance.longPaths")
+      : null,
+  ].filter((label): label is string => Boolean(label));
 }
 
 function lifecycleTone(lifecycle: string) {
