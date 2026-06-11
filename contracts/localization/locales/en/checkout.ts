@@ -319,6 +319,8 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.estimated.payout.aria": "View estimated payout details",
   "checkout.features.sellList.ui.sellListPage.estimated.payout.facts": "Payout facts",
   "checkout.features.sellList.ui.sellListPage.estimated.payout.summary": "Estimated payout uses {source}.",
+  "checkout.features.sellList.ui.sellListPage.final.registered.payout": "Final registered payout",
+  "checkout.features.sellList.ui.sellListPage.final.terms.source": "Final terms source",
   "checkout.features.sellList.ui.sellListPage.expected.payout.before.checkout":
     "Expected payout before seller checkout",
   "checkout.features.sellList.ui.sellListPage.fallback.listing.ready.detail":
@@ -362,8 +364,11 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.offer": "Offer",
   "checkout.features.sellList.ui.sellListPage.offer.terms.need.refresh":
     "Refresh this line before seller checkout so the offer terms are current.",
+  "checkout.features.sellList.ui.sellListPage.no.change": "No change",
+  "checkout.features.sellList.ui.sellListPage.payout.change": "Payout change",
   "checkout.features.sellList.ui.sellListPage.registered.terms.line1":
     "Seller checkout revalidates the current fee quote before committing a sale.",
+  "checkout.features.sellList.ui.sellListPage.refresh.needed": "Refresh needed",
   "checkout.features.sellList.ui.sellListPage.ready": "Ready",
   "checkout.features.sellList.ui.sellListPage.ready.for.seller.checkout": "Ready for seller checkout",
   "checkout.features.sellList.ui.sellListPage.ready.for.seller.checkout.description":
@@ -421,8 +426,26 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.smart.match.seller.net": "Smart Match seller net",
   "checkout.features.sellList.ui.sellListPage.some.items.need.action": "Some items need action",
   "checkout.features.sellList.ui.sellListPage.standard": "Standard",
+  "checkout.features.sellList.ui.sellListPage.standard.estimate": "Standard estimate",
+  "checkout.features.sellList.ui.sellListPage.standard.estimate.comparison": "Standard estimate comparison",
   "checkout.features.sellList.ui.sellListPage.standard.terms": "Standard terms",
   "checkout.features.sellList.ui.sellListPage.terms.source": "Terms source",
+  "checkout.features.sellList.ui.sellListPage.terms.comparison.better.line":
+    "Final registered payout is higher than the standard estimate. Review the difference before continuing.",
+  "checkout.features.sellList.ui.sellListPage.terms.comparison.changed.inline":
+    "Final terms changed from the standard estimate. Review payout details before continuing.",
+  "checkout.features.sellList.ui.sellListPage.terms.comparison.changed.line":
+    "Final registered terms changed from the standard estimate. Review the difference before continuing.",
+  "checkout.features.sellList.ui.sellListPage.terms.comparison.final.unavailable.inline":
+    "Final terms could not be refreshed. Refresh this line before continuing.",
+  "checkout.features.sellList.ui.sellListPage.terms.comparison.final.unavailable.line":
+    "Final registered terms could not be refreshed. Return to the Sell List and refresh before seller checkout.",
+  "checkout.features.sellList.ui.sellListPage.terms.comparison.same.line":
+    "Final registered terms match the standard estimate.",
+  "checkout.features.sellList.ui.sellListPage.terms.comparison.standard.unavailable.line":
+    "The standard estimate could not be rebuilt for comparison. Final registered terms are shown.",
+  "checkout.features.sellList.ui.sellListPage.terms.comparison.worse.line":
+    "Final registered payout is lower than the standard estimate. Review the difference before continuing.",
   "checkout.features.sellList.ui.sellListPage.just.now": "Just now",
   "checkout.features.sellList.ui.sellListPage.continue.to.seller.checkout": "Continue to seller checkout",
   "checkout.features.sellList.ui.sellListPage.pre.checkout.action": "Pre-checkout action",
@@ -604,9 +627,10 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.signedInSellCheckoutPage.terms.title": "Review",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.terms.description":
     "Confirm the sale facts before continuing.",
-  "checkout.features.sellList.ui.signedInSellCheckoutPage.terms.accept": "I reviewed the seller checkout details",
+  "checkout.features.sellList.ui.signedInSellCheckoutPage.terms.accept":
+    "I reviewed the final seller terms, payout, ship-from, and sale details",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.terms.accept.description":
-    "Final sale, labels, payout, settlement, and notifications are not started by this review.",
+    "Offer acceptance, listing publication, labels, payout, settlement, and notifications stay blocked until this fresh review is confirmed.",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.side.effect.boundary":
     "This review does not accept offers, create listings, buy labels, start payout, send notifications, or write seller account history.",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.title": "Sale review ready",
@@ -644,6 +668,9 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.use.smart.match.offer": "Use {buyer} offer",
   "checkout.features.sellList.ui.sellListPage.use.smart.match.offer.description":
     "{quantity} item(s), estimated seller payout {sellerNet}.",
+  "checkout.features.sellList.ui.sellListPage.sales.fee.change": "Sales fee change",
+  "checkout.features.sellList.ui.sellListPage.shipping.allowance.change": "Shipping allowance change",
+  "checkout.features.sellList.ui.sellListPage.unavailable": "Unavailable",
   "checkout.features.sellList.ui.sellListPage.your.sell.list.is.empty": "Your Sell List is empty",
   "checkout.routes.accountCart.cart.marketplace": "Buy Cart | Marketplace",
   "checkout.routes.accountCart.preferred.listing.missing": "Choose a preferred listing before locking this cart line.",
@@ -693,7 +720,7 @@ export const checkoutEnglishTranslations = {
   "checkout.routes.sellCheckoutSession.validation.payout.method.required": "Choose a payout method.",
   "checkout.routes.sellCheckoutSession.validation.label.preference.required": "Choose a label preference.",
   "checkout.routes.sellCheckoutSession.validation.terms.required":
-    "Confirm that you reviewed the seller checkout details.",
+    "Confirm that you reviewed the final seller terms and sale details.",
   "checkout.routes.sellCheckoutSession.validation.payout.setup.required":
     "Payout setup is required before seller checkout can continue.",
   "checkout.routes.sellCheckoutSession.validation.payout.failed":

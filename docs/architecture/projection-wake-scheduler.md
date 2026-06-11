@@ -67,6 +67,10 @@ Staging and production share this contract; only scale values differ. The Terraf
 
 Scheduler observer events separate claim, completion (ran vs. already satisfied), not-ready retry, lease-busy deferral, unknown target, run failure, attempts exhausted, lost claims, and readiness record failures, each carrying lane, origin, attempt count, and queue age. The worker status endpoint exposes the live wake-intent summary (queued, claimed, failed, expired, stale claims, oldest ages) for dashboards and the milestone's commit-to-checkpoint latency segmentation.
 
+### Wake Pipeline Metrics
+
+The platform worker emits `chase_sets_projection_wake_*` metrics from the relay and scheduler log observers: relay catch-up passes (count, duration, events), fan-out outcomes (enqueued/skipped/failed with reason and lane, enqueued intent counts, notification age), and wake-intent outcomes (per outcome/lane/origin/target with queue age and processing duration), plus `chase_sets_projection_freshness_wake_requests_total` and `chase_sets_projection_freshness_work_signal_errors_total` from the API freshness audit path. The Projection Wake Pipeline Grafana dashboard (`chase-sets-projection-wake-pipeline`) charts these series, and the `platform-worker-wake-alerts` provisioning group alerts on fan-out failures, attempts-exhausted intents, hot-lane queue age p95, and work-signal error rate. Emission-side notification metrics (`chase_sets_projection_wake_notifications_total`) land with the per-context event-store emission observer seam.
+
 ## API Wake-Before-Wait And Checkpoint Readiness
 
 Read-after-write freshness waits integrate with the work-signal store through a check-then-wake contract:

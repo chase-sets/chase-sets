@@ -1,0 +1,126 @@
+{
+  "title": "Projection Wake Pipeline",
+  "uid": "chase-sets-projection-wake-pipeline",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "tags": ["chase-sets", "platform-worker", "projection-wake"],
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Fan-out outcomes rate",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum by (status, reason) (rate(chase_sets_projection_wake_relay_fan_out_total[5m]))",
+          "legendFormat": "{{status}} {{reason}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Intents enqueued rate by lane",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum by (priority_lane) (rate(chase_sets_projection_wake_relay_fan_out_intents_total[5m]))",
+          "legendFormat": "{{priority_lane}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Notification age p95",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "histogram_quantile(0.95, sum by (le, source_context) (rate(chase_sets_projection_wake_notification_age_ms_bucket[5m])))",
+          "legendFormat": "p95 {{source_context}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Relay catch-up duration p95 by reason",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "histogram_quantile(0.95, sum by (le, source_context, reason) (rate(chase_sets_projection_wake_relay_catch_up_duration_ms_bucket[5m])))",
+          "legendFormat": "p95 {{source_context}} {{reason}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Intent queue age p95 by lane/origin",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "histogram_quantile(0.95, sum by (le, priority_lane, origin) (rate(chase_sets_projection_wake_intent_queue_age_ms_bucket[5m])))",
+          "legendFormat": "p95 {{priority_lane}} {{origin}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Intent processing p95 by lane",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "histogram_quantile(0.95, sum by (le, priority_lane) (rate(chase_sets_projection_wake_intent_processing_ms_bucket[5m])))",
+          "legendFormat": "p95 {{priority_lane}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Intent outcomes rate",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum by (outcome, priority_lane) (rate(chase_sets_projection_wake_intents_total[5m]))",
+          "legendFormat": "{{outcome}} {{priority_lane}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Freshness wake requests and work-signal errors",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum by (outcome, wait_mode) (rate(chase_sets_projection_freshness_wake_requests_total[5m]))",
+          "legendFormat": "wake requests {{outcome}} {{wait_mode}}"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum by (outcome, wait_mode) (rate(chase_sets_projection_freshness_work_signal_errors_total[5m]))",
+          "legendFormat": "work-signal errors {{outcome}} {{wait_mode}}"
+        }
+      ]
+    },
+    {
+      "type": "logs",
+      "title": "Wake pipeline logs",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 32 },
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "Loki" },
+          "expr": "{service_name=\"platform-worker\"} | json | type=~\"projection-wake.*\""
+        }
+      ]
+    }
+  ]
+}
