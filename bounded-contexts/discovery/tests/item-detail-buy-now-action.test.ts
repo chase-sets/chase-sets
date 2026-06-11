@@ -331,6 +331,10 @@ describe("item detail buy now action", () => {
     expect(redirectUrl.searchParams.get("catalogItemId")).toBe("cat_charizard");
     expect(redirectUrl.searchParams.get("productId")).toBe("cat_charizard::form:raw");
     expect(redirectUrl.searchParams.get("itemTitle")).toBe("Charizard");
+    expect(redirectUrl.searchParams.get("selectedOptions")).toBe(
+      JSON.stringify([{ dimensionId: "form", optionId: "raw" }]),
+    );
+    expect(redirectUrl.searchParams.get("productSummary")).toBe("Raw");
     expect(redirectUrl.searchParams.get("offerPriceAmount")).toBe("350.00");
     expect(redirectUrl.searchParams.get("quantity")).toBe("1");
   });
@@ -378,6 +382,11 @@ describe("item detail buy now action", () => {
     const redirectUrl = new URL(response.headers.get("Location")!, "http://localhost");
     expect(redirectUrl.pathname).toBe("/checkout/start");
     expect(redirectUrl.searchParams.get("source")).toBe("offer-intent");
+    expect(redirectUrl.searchParams.get("productId")).toBe("cat_charizard::form:raw");
+    expect(redirectUrl.searchParams.get("selectedOptions")).toBe(
+      JSON.stringify([{ dimensionId: "form", optionId: "raw" }]),
+    );
+    expect(redirectUrl.searchParams.get("productSummary")).toBe("Raw");
     expect(redirectUrl.searchParams.get("offerPriceAmount")).toBe("350.00");
     expect(redirectUrl.searchParams.get("quantity")).toBe("2");
     expect(mockRequireActorFromAuthApi).not.toHaveBeenCalled();
