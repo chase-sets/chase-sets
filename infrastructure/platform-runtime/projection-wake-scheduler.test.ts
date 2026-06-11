@@ -504,6 +504,38 @@ describe("projection wake scheduler", () => {
     expect(store.readiness).toHaveLength(1);
   });
 
+  it("propagates work-signal store claim failures so the worker loop applies failure backoff", async () => {
+    const projection = checkoutProjection({ position: 90n, headPosition: 120n });
+    const controlPlane = recordingControlPlane();
+    const store: Parameters<typeof createProjectionWakeSchedulerRunners>[0]["workSignalStore"] = {
+      claimNextProjectionWakeIntent: async () => {
+        throw new Error("work-signal store unavailable");
+      },
+      completeProjectionWakeIntent: async () => {
+        throw new Error("not used");
+      },
+      failProjectionWakeIntent: async () => {
+        throw new Error("not used");
+      },
+      recordCheckpointReady: async () => {
+        throw new Error("not used");
+      },
+    };
+
+    const runners = createProjectionWakeSchedulerRunners({
+      workerId: "worker-a",
+      controlPlane: controlPlane.controlPlane,
+      workSignalStore: store,
+      projectionGroups: [projection.group],
+      lanes: [{ lane: "hot", runnerCount: 1 }],
+      now: () => NOW,
+    });
+
+    await expect(runners[0].runOnce()).rejects.toThrow("work-signal store unavailable");
+    expect(projection.runCount()).toBe(0);
+    expect(controlPlane.acquiredLeaseNames).toEqual([]);
+  });
+
   it("creates lane runner instances per configured count and skips empty lanes", () => {
     const projection = checkoutProjection({ position: 0n, headPosition: 0n });
     const store = recordingSchedulerStore([]);

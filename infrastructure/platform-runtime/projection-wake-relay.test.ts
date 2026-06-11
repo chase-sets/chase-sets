@@ -16,6 +16,7 @@ import {
   type ProjectionWakeRelayFanOutFailedEvent,
   type ProjectionWakeRelayFanOutSkippedEvent,
   type ProjectionWakeRelayFanOutSucceededEvent,
+  type ProjectionWakeRelayLeaseEvent,
   type ProjectionWakeRelaySourceCatchUpCompletedEvent,
   type ProjectionWakeRelayNotificationRejectedEvent,
   type ProjectionWakeRelaySourceSkippedEvent,
@@ -25,10 +26,11 @@ import {
   sourceContextWakeRegistry,
   type SourceContextWakeRegistryEntry,
 } from "./source-context-wake-registry";
-import type {
-  EnqueueProjectionWakeIntentInput,
-  ProjectionWakeIntentRecord,
-  WorkSignalPriorityLane,
+import {
+  createProjectionWakeIntentCoalescingKey,
+  type EnqueueProjectionWakeIntentInput,
+  type ProjectionWakeIntentRecord,
+  type WorkSignalPriorityLane,
 } from "./work-signal-store";
 
 const GENERATED_AT = new Date("2026-06-10T12:00:00.000Z");
@@ -160,6 +162,31 @@ describe("projection wake relay fan-out", () => {
 
     expect(rejected[0].reason).toContain("unsupported kind");
     expect(failures).toMatchObject([{ reason: "invalid-notification", intentCount: 0, enqueuedCount: 0 }]);
+  });
+
+  it("rejects notifications whose position range runs backwards before fan-out", async () => {
+    const rejected: ProjectionWakeRelayNotificationRejectedEvent[] = [];
+    const { store, inputs } = recordingWorkSignalStore();
+
+    await expect(
+      fanOutEventStoreWakeNotification({
+        notification: JSON.stringify(
+          checkoutWakeNotification({
+            firstGlobalPosition: parseGlobalPosition("102"),
+            lastGlobalPosition: parseGlobalPosition("101"),
+          }),
+        ),
+        projectionInterestIndex: checkoutProjectionIndex({ eventTypes: ["CheckoutSessionCreated"] }),
+        workSignalStore: store,
+        relayConfigs: checkoutRelayConfigs(),
+        observer: {
+          notificationRejected: (event) => rejected.push(event),
+        },
+      }),
+    ).rejects.toThrow(ProjectionWakeRelayNotificationRejectedError);
+
+    expect(rejected[0].reason).toContain("lastGlobalPosition must be >= firstGlobalPosition");
+    expect(inputs).toEqual([]);
   });
 
   it("fails closed when the projection interest index is stale", async () => {
@@ -528,6 +555,176 @@ describe("projection wake relay active runtime", () => {
     });
   });
 
+  it("replays durable rows as a coalescable duplicate after a crash between durable enqueue and cursor advance", async () => {
+    const controlPlaneOptions = { rejectCursorAdvance: true };
+    const controlPlane = recordingRelayControlPlane(controlPlaneOptions);
+    const { store, inputs } = recordingWorkSignalStore();
+    const events = eventStoreWithRows([storedEvent({ position: "101", eventType: "CheckoutSessionCreated" })]);
+    const index = checkoutProjectionIndex({ eventTypes: ["CheckoutSessionCreated"] });
+
+    // Session 1: the durable enqueue succeeds, then the relay dies before the
+    // source cursor is persisted.
+    await expect(
+      runProjectionWakeRelayActiveSession({
+        workerId: "worker-a",
+        controlPlane,
+        projectionInterestIndex: index,
+        workSignalStore: store,
+        sources: [{ sourceContextName: "checkout", eventStore: events }],
+        relayConfigs: checkoutRelayConfigs(),
+        leaseTtlMs: 30_000,
+        leaseRenewIntervalMs: 10_000,
+      }),
+    ).rejects.toThrow("cursor advance was rejected");
+
+    expect(inputs).toHaveLength(1);
+    expect(controlPlane.advances).toEqual([]);
+
+    // Session 2 (restart): catch-up replays from the unadvanced cursor. The
+    // same durable rows fan out again so nothing is lost, and the duplicate
+    // enqueue lands on the identical coalescing identity so the durable store
+    // coalesces it instead of duplicating work.
+    controlPlaneOptions.rejectCursorAdvance = false;
+    const abortController = new AbortController();
+    const result = await runProjectionWakeRelayActiveSession({
+      workerId: "worker-a",
+      controlPlane,
+      projectionInterestIndex: index,
+      workSignalStore: store,
+      sources: [{ sourceContextName: "checkout", eventStore: events }],
+      relayConfigs: checkoutRelayConfigs(),
+      leaseTtlMs: 30_000,
+      leaseRenewIntervalMs: 10_000,
+      signal: abortController.signal,
+      observer: {
+        sourceCatchUpCompleted: () => abortController.abort(),
+      },
+    });
+
+    expect(result).toMatchObject({ status: "stopped", caughtUpEventCount: 1, cursorAdvanceCount: 1 });
+    expect(inputs).toHaveLength(2);
+    expect(inputs[1]).toMatchObject({
+      checkpointKey: inputs[0].checkpointKey,
+      requiredPosition: inputs[0].requiredPosition,
+      requiredCursor: inputs[0].requiredCursor,
+    });
+    expect(
+      createProjectionWakeIntentCoalescingKey({
+        sourceContextName: inputs[1].sourceContextName,
+        targetContextName: inputs[1].targetContextName,
+        projectionName: inputs[1].projectionName,
+        checkpointKey: inputs[1].checkpointKey,
+        priorityLane: inputs[1].priorityLane ?? "standard",
+      }),
+    ).toBe(
+      createProjectionWakeIntentCoalescingKey({
+        sourceContextName: inputs[0].sourceContextName,
+        targetContextName: inputs[0].targetContextName,
+        projectionName: inputs[0].projectionName,
+        checkpointKey: inputs[0].checkpointKey,
+        priorityLane: inputs[0].priorityLane ?? "standard",
+      }),
+    );
+    expect(controlPlane.advances).toMatchObject([{ sourceContextName: "checkout", lastFanOutPosition: "101" }]);
+  });
+
+  it("treats stale out-of-order notifications as no-ops once the cursor has advanced past their positions", async () => {
+    const abortController = new AbortController();
+    const listener = new FakeRelayListenerClient();
+    const events = eventStoreWithRows([
+      storedEvent({ position: "101", eventType: "CheckoutSessionCreated" }),
+      storedEvent({ position: "102", eventType: "CheckoutSessionCreated" }),
+    ]);
+    const { store, inputs } = recordingWorkSignalStore();
+    const controlPlane = recordingRelayControlPlane();
+    const completed: ProjectionWakeRelaySourceCatchUpCompletedEvent[] = [];
+
+    const result = await runProjectionWakeRelayActiveSession({
+      workerId: "worker-a",
+      controlPlane,
+      projectionInterestIndex: checkoutProjectionIndex({ eventTypes: ["CheckoutSessionCreated"] }),
+      workSignalStore: store,
+      sources: [
+        {
+          sourceContextName: "checkout",
+          eventStore: events,
+          listenerPool: listenerPoolFromClients([listener]),
+        },
+      ],
+      relayConfigs: checkoutRelayConfigs(),
+      leaseTtlMs: 30_000,
+      leaseRenewIntervalMs: 10_000,
+      signal: abortController.signal,
+      observer: {
+        sourceCatchUpCompleted: (event) => {
+          completed.push(event);
+          if (event.reason === "startup") {
+            // A delayed notification referencing positions the cursor already
+            // passed arrives after newer positions were fanned out.
+            listener.emit(
+              "platform_event_store_commits",
+              JSON.stringify(
+                checkoutWakeNotification({
+                  firstGlobalPosition: parseGlobalPosition("101"),
+                  lastGlobalPosition: parseGlobalPosition("101"),
+                  eventCount: 1,
+                }),
+              ),
+            );
+            return;
+          }
+          abortController.abort();
+        },
+      },
+    });
+
+    expect(completed.map((event) => [event.reason, event.eventCount])).toEqual([
+      ["startup", 2],
+      ["notification", 0],
+    ]);
+    expect(inputs).toHaveLength(1);
+    expect(controlPlane.advances).toMatchObject([{ sourceContextName: "checkout", lastFanOutPosition: "102" }]);
+    expect(result).toMatchObject({ status: "stopped", caughtUpEventCount: 2, cursorAdvanceCount: 1 });
+  });
+
+  it("performs no listener, fan-out, or cursor work when the active lease is held by another relay", async () => {
+    const listener = new FakeRelayListenerClient();
+    const { store, inputs } = recordingWorkSignalStore();
+    const controlPlane = recordingRelayControlPlane({ missLease: true });
+    const missed: ProjectionWakeRelayLeaseEvent[] = [];
+
+    const result = await runProjectionWakeRelayActiveSession({
+      workerId: "worker-b",
+      controlPlane,
+      projectionInterestIndex: checkoutProjectionIndex({ eventTypes: ["CheckoutSessionCreated"] }),
+      workSignalStore: store,
+      sources: [
+        {
+          sourceContextName: "checkout",
+          eventStore: eventStoreWithRows([storedEvent({ position: "101", eventType: "CheckoutSessionCreated" })]),
+          listenerPool: listenerPoolFromClients([listener]),
+        },
+      ],
+      relayConfigs: checkoutRelayConfigs(),
+      leaseTtlMs: 30_000,
+      leaseRenewIntervalMs: 10_000,
+      observer: {
+        leaseMissed: (event) => missed.push(event),
+      },
+    });
+
+    expect(result).toMatchObject({
+      status: "lease-missed",
+      caughtUpEventCount: 0,
+      cursorAdvanceCount: 0,
+    });
+    expect(missed).toMatchObject([{ leaseName: "projection-wake-relay:active", workerId: "worker-b" }]);
+    expect(inputs).toEqual([]);
+    expect(listener.queries).toEqual([]);
+    expect(controlPlane.advances).toEqual([]);
+    expect(controlPlane.released).toBe(0);
+  });
+
   it("fails closed when cursor advancement is rejected by lease fencing", async () => {
     const { store } = recordingWorkSignalStore();
     const controlPlane = recordingRelayControlPlane({ rejectCursorAdvance: true });
@@ -656,7 +853,7 @@ function recordingWorkSignalStore(options: { failOnEnqueue?: boolean } = {}) {
   };
 }
 
-function recordingRelayControlPlane(options: { rejectCursorAdvance?: boolean } = {}) {
+function recordingRelayControlPlane(options: { rejectCursorAdvance?: boolean; missLease?: boolean } = {}) {
   const lease = {
     leaseName: "projection-wake-relay:active",
     ownerId: "worker-a",
@@ -676,6 +873,10 @@ function recordingRelayControlPlane(options: { rejectCursorAdvance?: boolean } =
     acquired: 0,
     released: 0,
     acquireLease: async () => {
+      if (options.missLease) {
+        return null;
+      }
+
       controlPlane.acquired += 1;
       return lease;
     },

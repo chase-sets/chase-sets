@@ -364,6 +364,68 @@ describe("work signal store", () => {
     expect(calls[3].sql).toContain("readiness.ready_position >= waiters.required_position");
   });
 
+  it("never late-satisfies expired waiters and never satisfies new waiters from expired readiness", async () => {
+    const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
+    const store = createPostgresWorkSignalStore(
+      {
+        query: async (sql: string, values: readonly unknown[] = []) => {
+          calls.push({ sql, values });
+          if (sql.includes("INSERT INTO platform_projection_checkpoint_readiness")) {
+            return { rows: [checkpointReadinessRow()], rowCount: 1 };
+          }
+          if (sql.includes("SELECT") && sql.includes("platform_projection_checkpoint_waiters")) {
+            return { rows: [checkpointWaiterRow()], rowCount: 1 };
+          }
+          return { rows: [], rowCount: 0 };
+        },
+      },
+      { now: () => NOW },
+    );
+
+    await store.recordCheckpointReady({
+      checkpointKey: "checkout.checkout-session-projection:catalog",
+      sourceContextName: "catalog",
+      targetContextName: "checkout",
+      projectionName: "checkout-session-projection",
+      readyPosition: 42,
+    });
+    await store.addCheckpointWaiter({
+      waiterId: "waiter_1",
+      checkpointKey: "checkout.checkout-session-projection:catalog",
+      sourceContextName: "catalog",
+      targetContextName: "checkout",
+      projectionName: "checkout-session-projection",
+      requiredPosition: 40,
+      origin: "api-wait",
+    });
+    await store.cleanupExpiredWorkSignals({ before: NOW, limit: 10 });
+
+    // Readiness recording must not resurrect waiters that already expired
+    // (their callers have already timed out fail-closed) or re-satisfy
+    // already-satisfied waiters.
+    const satisfyOnReadiness = calls.find(
+      (call) =>
+        call.sql.includes("UPDATE platform_projection_checkpoint_waiters") &&
+        call.sql.includes("required_position <= $3::bigint"),
+    );
+    expect(satisfyOnReadiness?.sql).toContain("expires_at > now()");
+    expect(satisfyOnReadiness?.sql).toContain("satisfied_at IS NULL");
+
+    // Late waiter registration must not be satisfied by readiness rows that
+    // already expired, so stale readiness can never unblock a fresh wait.
+    const satisfyOnRegistration = calls.find((call) =>
+      call.sql.includes("FROM platform_projection_checkpoint_readiness readiness"),
+    );
+    expect(satisfyOnRegistration?.sql).toContain("readiness.ready_position >= waiters.required_position");
+    expect(satisfyOnRegistration?.sql).toContain("readiness.expires_at > now()");
+
+    // Cleanup may only prune waiters that expired or were already satisfied;
+    // a live unsatisfied waiter is never deleted out from under its caller.
+    const waiterPrune = calls.find((call) => call.sql.includes("DELETE FROM platform_projection_checkpoint_waiters"));
+    expect(waiterPrune?.sql).toContain("expires_at <= $1::timestamptz");
+    expect(waiterPrune?.sql).toContain("satisfied_at <= $1::timestamptz");
+  });
+
   it("exposes bounded cleanup and queue summary queries", async () => {
     const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
     const store = createPostgresWorkSignalStore({
