@@ -11,7 +11,7 @@ import { buildCheckoutApi } from "./api";
 import { buildCheckoutCatalogProjectionHandlers } from "./features/cart/integrations/catalog/catalog-projection";
 import {
   createCheckoutServices,
-  type CheckoutServiceOptions,
+  type CheckoutHostPorts,
   type CheckoutServices,
 } from "./support/runtime-support/services";
 import { checkoutSchemaSql } from "./support/runtime-support/schema";
@@ -34,7 +34,7 @@ function getEventSubscription(sourceContextName: string, projectionName: string)
   return declaration;
 }
 
-export const module: BcApiModule<CheckoutServices, PgTransactionalPool, CheckoutServiceOptions> = {
+export const module: BcApiModule<CheckoutServices, PgTransactionalPool, CheckoutHostPorts> = {
   contextName: "checkout",
   routePrefix: "/api/marketplace",
   streamPrefix: "checkout.",
@@ -42,7 +42,7 @@ export const module: BcApiModule<CheckoutServices, PgTransactionalPool, Checkout
   apiMounts: contextManifest.apiMounts as BcApiModule<
     CheckoutServices,
     PgTransactionalPool,
-    CheckoutServiceOptions
+    CheckoutHostPorts
   >["apiMounts"],
   projectionGroups,
   createServices: (pool, options) => createCheckoutServices(pool, options),

@@ -12,7 +12,7 @@ export function buildCheckoutApi(services: CheckoutServices) {
 
   app.route("/account", createAccountCartRoutes(services.cart));
   app.route("/account", createAccountSellListRoutes(services.sellList));
-  app.route("/account", createAccountCheckoutSessionRoutes(services.sessions));
+  app.route("/account", createAccountCheckoutSessionRoutes(services.sessions, services.checkoutObservabilityTelemetry));
   app.route("/guest", createGuestCartRoutes(services.cart));
   app.route("/guest", createGuestSellListRoutes(services.sellList));
 
