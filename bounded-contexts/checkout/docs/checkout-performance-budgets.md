@@ -64,7 +64,7 @@ Larger shapes require a new budget review before launch enablement.
 | Totals refresh | 2,000 ms | 8,000 ms | checkout-review-visible or checkout-permanent-recovery-visible | route, e2e, mobile, metrics |
 | Payment/payout setup handoff | 2,500 ms | 10,000 ms | payment-or-payout-handoff-visible or checkout-permanent-recovery-visible | route, e2e, metrics |
 | Final confirmation visible state | 3,500 ms | 12,000 ms | confirmation-visible or checkout-permanent-recovery-visible | route, e2e, mobile, a11y, metrics |
-| Provider-return confirmation | 3,000 ms | 12,000 ms | confirmation-visible or checkout-permanent-recovery-visible | route, e2e, metrics, runbook |
+| Provider-return confirmation | 3,000 ms | 12,000 ms | confirmation-visible, checkout-permanent-recovery-visible, or support-safe-status-visible | route, e2e, metrics, runbook |
 | Account-history handoff | 2,500 ms | 10,000 ms | account-history-handoff-visible or support-safe-status-visible | route, e2e, mobile, metrics |
 | Support lookup | 2,000 ms | 8,000 ms | support-safe-status-visible | route, e2e, metrics, runbook |
 | Reversal/recovery status refresh | 2,500 ms | 10,000 ms | reversal-or-recovery-status-visible or support-safe-status-visible | route, e2e, metrics, runbook |

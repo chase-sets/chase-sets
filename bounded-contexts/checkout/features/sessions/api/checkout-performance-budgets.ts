@@ -361,7 +361,7 @@ export const checkoutPerformanceBudgets = [
     maxLines: 50,
     maxFulfillmentGroups: 8,
     maxSummaryRows: 60,
-    visibleStates: ["confirmation-visible", "checkout-permanent-recovery-visible"],
+    visibleStates: ["confirmation-visible", "checkout-permanent-recovery-visible", "support-safe-status-visible"],
     ambiguousNoStateFails: true,
     skeletonOrPendingStateRequired: true,
     sideEffectsForbiddenBeforeExplicitConfirm: [],
