@@ -813,6 +813,93 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sections.group.mapping": "Observation mapping",
   "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sections.group.promotion": "Catalog promotion",
   "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sections.group.provider": "Provider acquisition",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activation.description":
+    "Blocking checks grouped by domain concept with exact remediation.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activation.title": "Activation readiness",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.back": "Back to import workbench",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.blockers.empty": "No blockers",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.compare.cardVariantKey": "Card variant key",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.compare.description":
+    "Mapping fingerprint, activation impact, changed sections, fixture coverage, and unchanged areas.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.compare.emptyDescription":
+    "Semantic comparison is unavailable for this profile.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.compare.emptyTitle": "No semantic sections",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.compare.inspect": "Inspect compare",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.compare.noChanges.description":
+    "This section is unchanged for activation comparison.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.compare.noChanges.title": "No changes",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.compare.sheet.description":
+    "Candidate and active summaries with activation impact.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.compare.sheet.title": "{value} compare",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.compare.table.changes": "Changes",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.compare.table.section": "Section",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.compare.title": "Semantic compare",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.description":
+    "Fixture validation, fixture-backed dry runs, semantic compare, and activation checks for the selected profile.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.diagnostics.empty": "No diagnostics",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.dryRun.description":
+    "Redacted normalized facts, duplicate candidate evidence, selected options, promotion commands, diagnostics, and audit links.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.dryRun.duplicateCandidates":
+    "Duplicate candidates",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.dryRun.emptyDescription":
+    "Fixture-backed proof evidence has not been generated for this selection.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.dryRun.emptyTitle": "No dry-run evidence",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.dryRun.inputs": "Inputs",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.dryRun.inspect": "Inspect proof",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.dryRun.noFacts": "No facts captured",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.dryRun.noPromotionCommands":
+    "No promotion commands",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.dryRun.promotionCommandPreview":
+    "Promotion command preview",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.dryRun.selectedOptions": "Selected options",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.dryRun.sheet.description":
+    "Redacted facts, duplicate candidate evidence, selected options, promotion command preview, diagnostics, and audit evidence.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.dryRun.sheet.title": "{value} dry-run proof",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.dryRun.table.redactedFacts": "Redacted facts",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.dryRun.table.source": "Source",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.dryRun.title": "Dry-run evidence",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.evidence.emptyRows": "No evidence rows",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.evidence.noneDeclared": "None declared",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.fixture.coveredFlows": "covered flows",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.fixture.description":
+    "Coverage, payload paths, expected evidence, diagnostics, and flow-level blockers.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.fixture.emptyDescription":
+    "Select a provider profile with fixture coverage.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.fixture.emptyDiagnostics":
+    "No fixture diagnostics",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.fixture.emptyTitle": "No fixture flows",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.fixture.expectedDiagnostics":
+    "Expected diagnostic paths",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.fixture.expectedHashEvidence":
+    "Expected hash evidence",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.fixture.expectedMergeEvidence":
+    "Expected merge evidence",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.fixture.expectedPromotionCommands":
+    "Expected promotion commands",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.fixture.inspect": "Inspect fixture",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.fixture.sheet.description":
+    "Payload path, expected evidence, diagnostics, and blockers.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.fixture.sheet.title": "{value} fixture",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.fixture.table.expectedEvidence":
+    "Expected evidence",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.fixture.table.flow": "Fixture flow",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.fixture.table.hashPaths": "hash paths",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.fixture.table.mergePaths": "merge paths",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.fixture.table.promotionCommands":
+    "promotion commands",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.fixture.title": "Fixture flow proof",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.metric.auditEvidence": "Audit evidence",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.metric.dryRunProofs": "Dry-run proofs",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.metric.fixtureFlows": "Fixture flows",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.metric.readinessBlockers": "Readiness blockers",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.metric.semanticChanges": "Semantic changes",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.redaction.normalizedFacts": "Normalized facts",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.redaction.payload": "Payload body",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.redaction.sourceHash": "Source hash",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.table.diagnostics": "Diagnostics",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.table.inspect": "Inspect",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.table.status": "Status",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.title": "Validation readiness",
   "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sections.count": "{count} section(s)",
   "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sections.description":
     "Registered profile sections are edited through typed controls that preserve the rest of the profile.",

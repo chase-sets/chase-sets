@@ -2,10 +2,12 @@ import { t } from "@chase-sets/localization";
 import type {
   CatalogIntegrationControlPlaneOverview,
   CatalogIntegrationRecentJobSummary,
+  CatalogProviderProfileAuthoringModel,
   CatalogProviderProfileVersionReview,
   SourceObservationListItem,
   SourceObservationIntegrationScope,
 } from "./contracts";
+import { tcgdexPokemonCardSourceObservationMappingContract } from "../api/tcgdex-executable-mapping-contract";
 
 export function sourceObservationScope(
   overrides: Partial<SourceObservationIntegrationScope> = {},
@@ -73,6 +75,167 @@ export function profileReview(
       status: "valid",
       diagnostics: [],
     },
+    ...overrides,
+  };
+}
+
+export function profileAuthoringModel(
+  overrides: Partial<CatalogProviderProfileAuthoringModel> = {},
+): CatalogProviderProfileAuthoringModel {
+  const review =
+    overrides.review ?? profileReview({ executableMappingContract: tcgdexPokemonCardSourceObservationMappingContract });
+
+  return {
+    review,
+    editableSections: [],
+    sectionSummaries: [],
+    fixtureCases: [
+      {
+        flow: "normal",
+        payloadFile: "normal.json",
+        payloadPath: "bounded-contexts/catalog/features/source-observations/api/__fixtures__/tcgdex/normal.json",
+        expectedStatus: "completed",
+        expectedDiagnosticPaths: [],
+        expectedHashEvidencePaths: ["normalizedObservation.hashMaterial.0"],
+        expectedMergeEvidencePaths: ["duplicatePrevention.mergeCandidateEvidence.0"],
+        expectedPromotionCommands: [
+          "CreateCatalogItem",
+          "AssignBlueprintToCatalogItem",
+          "SetCatalogItemFieldValue",
+          "AssignCatalogItemToCategory",
+          "LinkExternalCatalogItemReference",
+        ],
+        expectedObservation: {
+          externalKey: "en:sv01-001",
+          normalizedKind: "pokemon-card",
+          normalizedFields: {
+            name: "Sprigatito",
+            cardNumber: "001",
+          },
+          externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:493958" }],
+        },
+        samplePayload: { id: "sv01-001", card: { name: "Sprigatito", localId: "001" } },
+        samplePayloadAvailable: true,
+      },
+      {
+        flow: "unknown-option",
+        payloadFile: "unknown-option.json",
+        payloadPath:
+          "bounded-contexts/catalog/features/source-observations/api/__fixtures__/tcgdex/unknown-option.json",
+        expectedStatus: "completed",
+        expectedDiagnosticPaths: ["selectedOptions.dimensions.0.optionKey"],
+        expectedHashEvidencePaths: ["normalizedObservation.hashMaterial.0"],
+        expectedMergeEvidencePaths: ["duplicatePrevention.mergeCandidateEvidence.0"],
+        expectedPromotionCommands: ["CreateCatalogItem"],
+        expectedObservation: {
+          externalKey: "en:sv01-001-unknown-option",
+          normalizedKind: "pokemon-card",
+          normalizedFields: {
+            cardVariantKey: "provider-new-foil",
+          },
+        },
+        samplePayload: { id: "sv01-001-unknown-option", card: { name: "Sprigatito", localId: "001" } },
+        samplePayloadAvailable: true,
+      },
+    ],
+    dryRunInputTemplate: {
+      observedAt: "2026-06-09T00:00:00.000Z",
+      defaultFlow: "normal",
+      payload: { id: "sv01-001", card: { name: "Sprigatito", localId: "001" } },
+      fixturePayloads: [],
+    },
+    semanticDiff: {
+      providerKey: review.providerKey,
+      candidateProfileVersion: review.profileVersion,
+      activeProfileVersion: "2026.06.03",
+      mappingFingerprint: {
+        candidate: "sha256:candidate-mapping",
+        active: "sha256:active-mapping",
+        changed: true,
+      },
+      changes: [
+        {
+          sectionKey: "normalized-observation",
+          domainConcept: "Normalized Observation",
+          path: "executableMappingContract.normalizedObservation.fields.cardVariantKey",
+          label: t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.compare.cardVariantKey"),
+          candidate: "variant.key",
+          active: "previous.variant",
+          changed: true,
+          severity: "warning",
+          activationImpact: "Changes the card variant merge identity.",
+        },
+      ],
+      sections: [
+        {
+          sectionKey: "normalized-observation",
+          domainConcept: "Normalized Observation",
+          status: "warning",
+          changes: [
+            {
+              sectionKey: "normalized-observation",
+              domainConcept: "Normalized Observation",
+              path: "executableMappingContract.normalizedObservation.fields.cardVariantKey",
+              label: t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.compare.cardVariantKey"),
+              candidate: "variant.key",
+              active: "previous.variant",
+              changed: true,
+              severity: "warning",
+              activationImpact: "Changes the card variant merge identity.",
+            },
+          ],
+        },
+        {
+          sectionKey: "promotion-plan",
+          domainConcept: "Promotion Plan",
+          status: "valid",
+          changes: [],
+        },
+      ],
+    },
+    activationReadiness: {
+      status: "ready",
+      checks: [
+        {
+          checkKey: "activation-fixture-covered-flow:normal",
+          code: "activation-fixture-covered-flow",
+          sectionKey: "fixture-contract",
+          domainConcept: "Fixture Coverage",
+          status: "passed",
+          path: "fixtures.coveredFlows.normal",
+          diagnosticText: "Profile fixture contract covers normal.",
+          severity: "warning",
+          remediation: "No remediation required.",
+          blockingBehavior: "allow",
+          flow: "normal",
+        },
+      ],
+      groups: [
+        {
+          domainConcept: "Fixture Coverage",
+          status: "ready",
+          checks: [
+            {
+              checkKey: "activation-fixture-covered-flow:normal",
+              code: "activation-fixture-covered-flow",
+              sectionKey: "fixture-contract",
+              domainConcept: "Fixture Coverage",
+              status: "passed",
+              path: "fixtures.coveredFlows.normal",
+              diagnosticText: "Profile fixture contract covers normal.",
+              severity: "warning",
+              remediation: "No remediation required.",
+              blockingBehavior: "allow",
+              flow: "normal",
+            },
+          ],
+        },
+      ],
+      requiresMigrationEvidence: true,
+      referenceCount: 2,
+    },
+    selectedOptionSchema: null,
+    promotionTargetSchema: null,
     ...overrides,
   };
 }

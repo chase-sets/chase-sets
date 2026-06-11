@@ -382,6 +382,7 @@ describe("Catalog primary workbench admin contracts", () => {
       "#1033",
       "#1034",
       "#1035",
+      "#1036",
       "#1056",
       "#1038",
       "#1039",
@@ -727,6 +728,7 @@ describe("Catalog primary workbench admin contracts", () => {
           ],
         },
       },
+      validationReadiness: validationReadinessFixture(),
       importJobs: {
         freshness: "fresh",
         activeJobCount: 1,
@@ -982,6 +984,134 @@ describe("Catalog primary workbench admin contracts", () => {
     expect(readModel.instrumentation.dimensions).toContain("route_context_preserved");
   });
 });
+
+function validationReadinessFixture(): CatalogPrimaryWorkbenchReadModel["validationReadiness"] {
+  return {
+    status: "ready",
+    freshness: "fresh",
+    generatedAt: "2026-06-09T00:00:00.000Z",
+    selectedProviderKey: "tcgdex",
+    selectedUnitKey: "tcgdex:pokemon:single-card:source-observation-import",
+    selectedProfileVersion: "2026.06.04",
+    selectedFixtureFlow: "normal",
+    returnToPrimaryHref: "/catalog/integrations?providerKey=tcgdex&section=workbench",
+    summary: {
+      readyFixtureFlows: 1,
+      totalFixtureFlows: 1,
+      blockedFixtureFlows: 0,
+      dryRunEvidenceCount: 1,
+      semanticChangeCount: 0,
+      unchangedSectionCount: 1,
+      blockingReadinessChecks: 0,
+      auditEvidenceCount: 1,
+    },
+    fixtureFlows: [
+      {
+        flow: "normal",
+        label: "Normal",
+        status: "ready",
+        payloadFile: "normal.json",
+        payloadPath: "bounded-contexts/catalog/features/source-observations/api/__fixtures__/tcgdex/normal.json",
+        expectedStatus: "completed",
+        expectedDiagnosticPaths: [],
+        expectedHashEvidencePaths: ["normalizedObservation.hashMaterial.0"],
+        expectedMergeEvidencePaths: ["duplicatePrevention.mergeCandidateEvidence.0"],
+        expectedPromotionCommands: ["CreateCatalogItem"],
+        samplePayloadAvailable: true,
+        diagnostics: [],
+        actionState: "available",
+        blockers: [],
+      },
+    ],
+    dryRunEvidence: [
+      {
+        externalKey: "en:sv01-001",
+        sourceUrl: "fixture://tcgdex/normal.json",
+        sourceHash: "sha256:source",
+        status: "completed",
+        normalizedFacts: [{ key: "name", value: "Sprigatito" }],
+        redactionSummary: [
+          { label: "Payload body", value: "not retained" },
+          { label: "Normalized facts", value: "1 redacted summary" },
+        ],
+        duplicateCandidates: [
+          {
+            key: "duplicate-prevention.mergeCandidateEvidence.0",
+            label: "Merge identity",
+            path: "executableMappingContract.duplicatePrevention.mergeCandidateEvidence.0",
+            summary: "merge identity selector",
+            owner: "catalog",
+            uses: ["merge-identity"],
+            diagnostics: [],
+          },
+        ],
+        selectedOptions: [],
+        promotionCommandPreview: [
+          {
+            commandName: "CreateCatalogItem",
+            inputs: [
+              {
+                key: "promotion-command.0.title",
+                label: "title",
+                path: "executableMappingContract.promotionCommandPlan.commands.0.inputs.title",
+                summary: "card.name selector",
+                owner: "catalog-truth",
+                uses: ["promotion-command"],
+                diagnostics: [],
+              },
+            ],
+          },
+        ],
+        diagnostics: [],
+        auditEvidence: ["fixture-run:fixture_run_001"],
+      },
+    ],
+    semanticCompare: {
+      mappingFingerprint: {
+        candidate: "sha256:mapping",
+        active: "sha256:mapping",
+        changed: false,
+      },
+      activationImpact: [],
+      fixtureCoverage: [{ flow: "normal", status: "ready" }],
+      sections: [
+        {
+          sectionKey: "normalized-observation",
+          domainConcept: "Normalized Observation",
+          status: "valid",
+          changeCount: 0,
+          changes: [],
+        },
+      ],
+      unchangedSections: [{ sectionKey: "normalized-observation", domainConcept: "Normalized Observation" }],
+    },
+    activationReadiness: {
+      status: "ready",
+      requiresMigrationEvidence: false,
+      referenceCount: 2,
+      groups: [
+        {
+          domainConcept: "Activation",
+          status: "ready",
+          checks: [
+            {
+              checkKey: "activation:ready",
+              code: "activation-ready",
+              sectionKey: "readiness",
+              status: "passed",
+              path: "activationReadiness",
+              diagnosticText: "Activation readiness has no blocking checks.",
+              severity: "warning",
+              remediation: "No remediation required.",
+              blockingBehavior: "allow",
+              flow: null,
+            },
+          ],
+        },
+      ],
+    },
+  };
+}
 
 function healthTriageFixture(): CatalogPrimaryWorkbenchReadModel["healthTriage"] {
   return {

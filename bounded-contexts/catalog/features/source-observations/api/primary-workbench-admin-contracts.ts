@@ -257,6 +257,7 @@ export type CatalogPrimaryWorkbenchDownstreamIssueKey =
   | "#1033"
   | "#1034"
   | "#1035"
+  | "#1036"
   | "#1056"
   | "#1038"
   | "#1039"
@@ -283,6 +284,7 @@ export type CatalogPrimaryWorkbenchReadModel = Readonly<{
   readiness: CatalogPrimaryWorkbenchReadinessReadModel;
   healthTriage: CatalogPrimaryWorkbenchHealthTriageReadModel;
   profileAuthoring: CatalogPrimaryWorkbenchProfileAuthoringReadModel;
+  validationReadiness: CatalogPrimaryWorkbenchValidationReadinessReadModel;
   importJobs: CatalogPrimaryWorkbenchImportJobsReadModel;
   sourceObservationReview: CatalogPrimaryWorkbenchSourceObservationReviewReadModel;
   promotionPreview: CatalogPrimaryWorkbenchPromotionPreviewReadModel;
@@ -403,6 +405,141 @@ export type CatalogPrimaryWorkbenchHealthTriageProvider = Readonly<{
   latestDiagnosticText: string | null;
   ownerMetricKey: string;
   nextAction: string;
+}>;
+
+export type CatalogPrimaryWorkbenchValidationReadinessStatus = "ready" | "degraded" | "blocked" | "unavailable";
+
+export type CatalogPrimaryWorkbenchValidationFixtureFlowStatus = "ready" | "warning" | "blocked" | "not-covered";
+
+export type CatalogPrimaryWorkbenchValidationReadinessReadModel = Readonly<{
+  status: CatalogPrimaryWorkbenchValidationReadinessStatus;
+  freshness: CatalogAdminControlPlaneFreshnessState;
+  generatedAt: string;
+  selectedProviderKey: string | null;
+  selectedUnitKey: CatalogIntegrationUnitKey | null;
+  selectedProfileVersion: string | null;
+  selectedFixtureFlow: string | null;
+  returnToPrimaryHref: string;
+  summary: Readonly<{
+    readyFixtureFlows: number;
+    totalFixtureFlows: number;
+    blockedFixtureFlows: number;
+    dryRunEvidenceCount: number;
+    semanticChangeCount: number;
+    unchangedSectionCount: number;
+    blockingReadinessChecks: number;
+    auditEvidenceCount: number;
+  }>;
+  fixtureFlows: readonly Readonly<{
+    flow: string;
+    label: string;
+    status: CatalogPrimaryWorkbenchValidationFixtureFlowStatus;
+    payloadFile: string | null;
+    payloadPath: string | null;
+    expectedStatus: string | null;
+    expectedDiagnosticPaths: readonly string[];
+    expectedHashEvidencePaths: readonly string[];
+    expectedMergeEvidencePaths: readonly string[];
+    expectedPromotionCommands: readonly string[];
+    samplePayloadAvailable: boolean;
+    diagnostics: readonly Readonly<{
+      path: string;
+      diagnosticText: string;
+      severity: "error" | "warning";
+    }>[];
+    actionState: CatalogPrimaryWorkbenchActionState;
+    blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
+  }>[];
+  dryRunEvidence: readonly Readonly<{
+    externalKey: string;
+    sourceUrl: string | null;
+    sourceHash: string | null;
+    status: "completed" | "blocked" | "not-run";
+    normalizedFacts: readonly Readonly<{ key: string; value: string }>[];
+    redactionSummary: readonly Readonly<{ label: string; value: string }>[];
+    duplicateCandidates: readonly CatalogPrimaryWorkbenchValidationEvidenceRow[];
+    selectedOptions: readonly CatalogPrimaryWorkbenchValidationEvidenceRow[];
+    promotionCommandPreview: readonly Readonly<{
+      commandName: string;
+      inputs: readonly CatalogPrimaryWorkbenchValidationEvidenceRow[];
+    }>[];
+    diagnostics: readonly Readonly<{
+      code: string;
+      path: string;
+      sectionKey: string;
+      domainConcept: string;
+      diagnosticText: string;
+      severity: "error" | "warning";
+      fixtureFlow: string | null;
+    }>[];
+    auditEvidence: readonly string[];
+  }>[];
+  semanticCompare: Readonly<{
+    mappingFingerprint: Readonly<{
+      candidate: string | null;
+      active: string | null;
+      changed: boolean;
+    }>;
+    activationImpact: readonly string[];
+    fixtureCoverage: readonly Readonly<{
+      flow: string;
+      status: CatalogPrimaryWorkbenchValidationFixtureFlowStatus;
+    }>[];
+    sections: readonly Readonly<{
+      sectionKey: string;
+      domainConcept: string;
+      status: "valid" | "warning" | "error";
+      changeCount: number;
+      changes: readonly Readonly<{
+        path: string;
+        label: string;
+        candidateSummary: string;
+        activeSummary: string;
+        changed: boolean;
+        severity: "info" | "warning" | "error";
+        activationImpact: string;
+      }>[];
+    }>[];
+    unchangedSections: readonly Readonly<{
+      sectionKey: string;
+      domainConcept: string;
+    }>[];
+  }>;
+  activationReadiness: Readonly<{
+    status: "ready" | "blocked";
+    requiresMigrationEvidence: boolean;
+    referenceCount: number;
+    groups: readonly Readonly<{
+      domainConcept: string;
+      status: "ready" | "blocked";
+      checks: readonly Readonly<{
+        checkKey: string;
+        code: string;
+        sectionKey: string;
+        status: "passed" | "blocked";
+        path: string;
+        diagnosticText: string;
+        severity: "error" | "warning";
+        remediation: string;
+        blockingBehavior: string;
+        flow: string | null;
+      }>[];
+    }>[];
+  }>;
+}>;
+
+export type CatalogPrimaryWorkbenchValidationEvidenceRow = Readonly<{
+  key: string;
+  label: string;
+  path: string;
+  summary: string;
+  owner: string | null;
+  uses: readonly string[];
+  diagnostics: readonly Readonly<{
+    path: string;
+    diagnosticText: string;
+    severity: "error" | "warning";
+  }>[];
 }>;
 
 export type CatalogPrimaryWorkbenchHealthTriageRolloutControl = Readonly<{
@@ -1297,6 +1434,20 @@ export const catalogPrimaryWorkbenchDownstreamContracts = [
     ],
   ),
   downstream(
+    "#1036",
+    ["readiness", "supporting-evidence"],
+    [
+      "validationReadiness.status",
+      "validationReadiness.fixtureFlows",
+      "validationReadiness.dryRunEvidence.normalizedFacts",
+      "validationReadiness.dryRunEvidence.duplicateCandidates",
+      "validationReadiness.dryRunEvidence.selectedOptions",
+      "validationReadiness.dryRunEvidence.promotionCommandPreview",
+      "validationReadiness.semanticCompare",
+      "validationReadiness.activationReadiness",
+    ],
+  ),
+  downstream(
     "#1056",
     [
       "provider-scope-selection",
@@ -1461,6 +1612,7 @@ export function validateCatalogPrimaryWorkbenchReadModelContract(
   assertPrimaryWorkbenchBlockers(value.promotionPreview?.blockers);
   assertPrimaryWorkbenchPromotionPreview(value.promotionPreview);
   assertPrimaryWorkbenchProfileAuthoring(value.profileAuthoring);
+  assertPrimaryWorkbenchValidationReadiness(value.validationReadiness);
 }
 
 function validatePrimaryWorkbenchRouteContext(context: CatalogPrimaryWorkbenchRouteContext): void {
@@ -1744,6 +1896,45 @@ function assertPrimaryWorkbenchProfileAuthoring(
     if (!["not-submitted", "saved", "conflict", "invalid", "failed"].includes(workspace.saveOutcome)) {
       throw new Error(`Primary workbench profile section ${workspace.sectionKey} save outcome must be explicit.`);
     }
+  }
+}
+
+function assertPrimaryWorkbenchValidationReadiness(
+  value: CatalogPrimaryWorkbenchReadModel["validationReadiness"] | undefined,
+): void {
+  if (!value) {
+    throw new Error("Primary workbench validation readiness contract is required.");
+  }
+  if (!["ready", "degraded", "blocked", "unavailable"].includes(value.status)) {
+    throw new Error("Primary workbench validation readiness status must be explicit.");
+  }
+  if (!isSafePrimaryWorkbenchReturnPath(value.returnToPrimaryHref)) {
+    throw new Error("Primary workbench validation readiness return link must target the rebuilt workbench.");
+  }
+  if (value.selectedProfileVersion && value.fixtureFlows.length === 0) {
+    throw new Error("Primary workbench validation readiness must expose fixture flows for the selected profile.");
+  }
+  for (const flow of value.fixtureFlows) {
+    if (!flow.flow || !["ready", "warning", "blocked", "not-covered"].includes(flow.status)) {
+      throw new Error("Primary workbench validation fixture flows must be named and explicitly statused.");
+    }
+    assertPrimaryWorkbenchBlockers(flow.blockers);
+    assertCatalogPrimaryWorkbenchActionState(flow.actionState);
+  }
+  for (const evidence of value.dryRunEvidence) {
+    if (!["completed", "blocked", "not-run"].includes(evidence.status)) {
+      throw new Error("Primary workbench validation dry-run evidence status must be explicit.");
+    }
+    if (evidence.redactionSummary.length === 0) {
+      throw new Error("Primary workbench validation dry-run evidence must summarize redaction.");
+    }
+  }
+  if (!["ready", "blocked"].includes(value.activationReadiness.status)) {
+    throw new Error("Primary workbench activation readiness status must be explicit.");
+  }
+  const validationText = JSON.stringify(value);
+  if (/raw\s+json/i.test(validationText)) {
+    throw new Error("Primary workbench validation readiness must not expose raw JSON workflow copy.");
   }
 }
 

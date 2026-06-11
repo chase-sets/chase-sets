@@ -36,6 +36,7 @@ import {
 } from "./admin-control-plane/information-architecture";
 import { CatalogIntegrationHealthTriageDashboard } from "./admin-control-plane/health/integration-health-dashboard";
 import { CatalogIntegrationProfileAuthoringWorkspace } from "./admin-control-plane/profiles/profile-authoring-workspace";
+import { CatalogIntegrationValidationReadinessWorkspace } from "./admin-control-plane/validation/validation-readiness-workspace";
 import {
   catalogPrimaryWorkbenchHref,
   catalogPrimaryWorkbenchSupportingHref,
@@ -158,6 +159,8 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
       <CatalogIntegrationHealthTriageDashboard readModel={readModel} />
     ) : activeSection === "profile-authoring" ? (
       <CatalogIntegrationProfileAuthoringWorkspace readModel={readModel} />
+    ) : activeSection === "validation-readiness" ? (
+      <CatalogIntegrationValidationReadinessWorkspace readModel={readModel} />
     ) : null;
   const columns = useMemo<DataColumn<PrimaryWorkbenchStep>[]>(
     () => [

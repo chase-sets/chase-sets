@@ -7,6 +7,7 @@ import { buildCatalogPrimaryWorkbenchReadModel } from "../features/source-observ
 import {
   controlPlaneOverview,
   integrationJobSummary,
+  profileAuthoringModel,
   profileReview,
   sourceObservationScope,
 } from "../features/source-observations/ui/primary-workbench-test-fixtures";
@@ -240,6 +241,9 @@ describe("Catalog integrations route", () => {
     mockCreateCatalogRequestApiClient.mockReturnValue({
       listSourceObservationIntegrationScopes: vi.fn().mockResolvedValue(scopes),
       listSourceObservationProviderProfiles: vi.fn().mockResolvedValue(profileReviews),
+      getSourceObservationProviderProfileAuthoringModel: vi
+        .fn()
+        .mockResolvedValue(profileAuthoringModel({ review: profileReviews.items[0] })),
       getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(null),
       listSourceObservations: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
       recordCatalogControlPlaneEvent,
