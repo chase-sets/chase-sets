@@ -636,11 +636,11 @@ describe("item detail commerce panel", () => {
 
     const buySheet = screen.getByRole("dialog", { name: "Buy selected product" });
     expect(within(buySheet).getByRole("spinbutton", { name: /Quantity/ })).toBeTruthy();
-    expect(within(buySheet).getByRole("button", { name: "Buy now" })).not.toHaveProperty("disabled", true);
-    expect(within(buySheet).getByRole("button", { name: "Add product to Buy Cart" })).not.toHaveProperty(
+    expect(within(buySheet).getByRole("button", { name: "Buy best available listing" })).not.toHaveProperty(
       "disabled",
       true,
     );
+    expect(within(buySheet).queryByRole("button", { name: "Add product to Buy Cart" })).toBeNull();
     expect(within(buySheet).getByRole("button", { name: "View buying this listing details" })).toBeTruthy();
     expect(within(buySheet).queryByText("Desktop buy rail")).toBeNull();
   });
@@ -659,11 +659,11 @@ describe("item detail commerce panel", () => {
       />,
     );
 
-    expect(screen.getByText("Selected product")).toBeTruthy();
+    expect(screen.getByText("Buy options")).toBeTruthy();
     expect(screen.getByText("Choose a listing, product, or offer action.")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Buy this listing/ })).toBeTruthy();
-    expect(screen.getByText("Check out with the selected listing.")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Add product to Buy Cart/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Best available listing/ })).toBeTruthy();
+    expect(screen.getByText("Check out with the current best available listing.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Selected product/ })).toBeTruthy();
     expect(screen.getByText("Save the selected product for Buy Cart review.")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Make offer/ })).toBeTruthy();
     expect(screen.getByText("Offer your price and quantity for this product.")).toBeTruthy();
@@ -708,7 +708,7 @@ describe("item detail commerce panel", () => {
     );
 
     const accordion = container.querySelector('[class*="-mx-5"]');
-    const activeTrigger = screen.getByRole("button", { name: /Buy this listing/ });
+    const activeTrigger = screen.getByRole("button", { name: /Best available listing/ });
 
     expect(accordion).toBeTruthy();
     expect(accordion?.className).toContain("w-[calc(100%+2.5rem)]");
@@ -1560,7 +1560,7 @@ describe("item detail commerce panel", () => {
     );
 
     const buyNowHeader = screen.getByRole("button", {
-      name: /Check out with the selected listing/i,
+      name: /Best available listing/i,
     });
     const makeOfferHeader = screen.getByRole("button", {
       name: /Offer your price and quantity/i,
@@ -1683,6 +1683,7 @@ describe("item detail commerce panel", () => {
     expect(productQuantityText.indexOf("Raw")).toBeGreaterThanOrEqual(0);
     expect(productQuantityText.indexOf("Raw")).toBeLessThan(productQuantityText.indexOf("2 available"));
     expect(screen.getByRole("button", { name: "Buy this listing" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Add listing to Buy Cart" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Buy optimized" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Add product to cart" })).toBeNull();
   });
@@ -1705,9 +1706,11 @@ describe("item detail commerce panel", () => {
     expect(screen.getByText("Best available listing")).toBeTruthy();
     expect(screen.getByText("Best available price")).toBeTruthy();
     expect(screen.queryByText("Selected listing")).toBeNull();
+    expect(screen.getByRole("button", { name: "Buy best available listing" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Add listing to Buy Cart" })).toBeNull();
   });
 
-  it("frames explicit selected-listing Buy Cart adds as a preference with reference detail", () => {
+  it("keeps product Buy Cart adds product-level when a listing is selected", () => {
     renderWithDataRouter(
       <CheckoutPurchaseIntentSection
         catalogItemId="cat_charizard"
@@ -1722,21 +1725,22 @@ describe("item detail commerce panel", () => {
       />,
     );
 
-    expect(screen.getByText("Selected listing")).toBeTruthy();
-    expect(screen.getByText("Selected price")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Add listing to Buy Cart" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Add product to Buy Cart" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "View listing in Buy Cart details" }));
-    const listingCartDialog = screen.getByRole("dialog", { name: "Listing in Buy Cart" });
+    expect(screen.getByText("Selected product")).toBeTruthy();
+    expect(screen.getByText("Product criteria")).toBeTruthy();
+    expect(screen.getByText("1 listing matches this selection.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Add product to Buy Cart" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Buy best match" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Add listing to Buy Cart" })).toBeNull();
+    expect(screen.queryByText("Selected price")).toBeNull();
+    expect(screen.queryByText("Chase Sets")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "View buying this product details" }));
+    const listingCartDialog = screen.getByRole("dialog", { name: "Buying this product" });
+    expect(within(listingCartDialog).getByText("The Buy Cart saves the product and selected options.")).toBeTruthy();
     expect(
-      within(listingCartDialog).getByText(
-        "Adding a listing saves the product with this listing as the starting preference.",
-      ),
+      within(listingCartDialog).getByText("Chase Sets finds an available listing during cart review."),
     ).toBeTruthy();
     expect(
-      within(listingCartDialog).getByText(
-        "Lock this listing from Buy Cart review if you want exact fulfillment before checkout.",
-      ),
+      within(listingCartDialog).getByText("Buy best match starts checkout with the current best available listing."),
     ).toBeTruthy();
   });
 
@@ -1753,9 +1757,9 @@ describe("item detail commerce panel", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: "Buy now" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Buy this listing" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Add listing to Buy Cart" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Add product to Buy Cart" })).toBeNull();
     expect(screen.getByText("Selected price")).toBeTruthy();
     expect(screen.getByText("$399.99")).toBeTruthy();
     expect(screen.getByText("Chase Sets")).toBeTruthy();

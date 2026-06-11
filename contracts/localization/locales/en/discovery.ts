@@ -282,11 +282,14 @@ export const discoveryEnglishTranslations = {
     "Get notified when matching supply appears at or below your target.",
   "discovery.routes.itemDetail.buy.card.description": "Choose a listing, product, or offer action.",
   "discovery.routes.itemDetail.buy.card.title": "Buy options",
+  "discovery.routes.itemDetail.buy.best.available.listing": "Buy best available listing",
+  "discovery.routes.itemDetail.buy.best.match": "Buy best match",
   "discovery.routes.itemDetail.buy.now": "Buy this listing",
-  "discovery.routes.itemDetail.buy.now.2": "Buy now",
   "discovery.routes.itemDetail.buy.now.action.description": "Check out with the selected listing.",
   "discovery.routes.itemDetail.buy.now.selected.action.guidance": "Checkout confirms the listing before you pay.",
   "discovery.routes.itemDetail.buy.now.workflow.helper": "Check out with the selected listing.",
+  "discovery.routes.itemDetail.best.available.listing.workflow.helper":
+    "Check out with the current best available listing.",
   "discovery.routes.itemDetail.buyer.protection.included": "Order protection included",
   "discovery.routes.itemDetail.confirmed.at.checkout": "Confirmed at checkout",
   "discovery.routes.itemDetail.checkout.immediately.with.best.matching.live.listing":
@@ -662,6 +665,7 @@ export const discoveryEnglishTranslations = {
   "discovery.routes.itemDetail.selected.offer.summary": "Selected offer: {price} from {buyer}.",
   "discovery.routes.itemDetail.selected.offer.supply.summary":
     "Requested: {requested}. Your active supply covers {available}.",
+  "discovery.routes.itemDetail.selected.listing.workflow.helper": "Buy this listing or save it to Buy Cart.",
   "discovery.routes.itemDetail.selling.product": "Selling: {productSummary}",
   "discovery.routes.itemDetail.standard.terms": "Standard terms",
   "discovery.routes.itemDetail.referenceInfo.acceptOffer.line1":
@@ -675,15 +679,12 @@ export const discoveryEnglishTranslations = {
     "Buy this listing keeps checkout focused on this seller's listing.",
   "discovery.routes.itemDetail.referenceInfo.buyListing.title": "Buying this listing",
   "discovery.routes.itemDetail.referenceInfo.buyListing.trigger": "Buying this listing",
-  "discovery.routes.itemDetail.referenceInfo.listingCart.aria": "View listing in Buy Cart details",
   "discovery.routes.itemDetail.referenceInfo.listingCart.line1":
     "The Buy Cart keeps this listing as the starting preference, but Smart Match can choose another available listing.",
   "discovery.routes.itemDetail.referenceInfo.listingCart.line2":
     "Lock this listing from Buy Cart review if you want exact fulfillment before checkout.",
   "discovery.routes.itemDetail.referenceInfo.listingCart.summary":
     "Adding a listing saves the product with this listing as the starting preference.",
-  "discovery.routes.itemDetail.referenceInfo.listingCart.title": "Listing in Buy Cart",
-  "discovery.routes.itemDetail.referenceInfo.listingCart.trigger": "Listing in Buy Cart",
   "discovery.routes.itemDetail.referenceInfo.createListing.aria": "View creating a listing details",
   "discovery.routes.itemDetail.referenceInfo.createListing.line1":
     "Guests can draft the price and quantity before registration.",
@@ -724,6 +725,8 @@ export const discoveryEnglishTranslations = {
     "Chase Sets finds an available listing during cart review.",
   "discovery.routes.itemDetail.referenceInfo.productCart.line2":
     "You can choose or lock an exact listing before checkout.",
+  "discovery.routes.itemDetail.referenceInfo.productCart.line3":
+    "Buy best match starts checkout with the current best available listing.",
   "discovery.routes.itemDetail.referenceInfo.productCart.summary":
     "The Buy Cart saves the product and selected options.",
   "discovery.routes.itemDetail.referenceInfo.productCart.title": "Buying this product",
@@ -769,8 +772,6 @@ export const discoveryEnglishTranslations = {
   "discovery.routes.publicAccount.account.details.visible": "Account details visible",
   "discovery.routes.publicAccount.verified.account": "Verified account",
   "discovery.routes.itemDetail.add.product.to.cart": "Add product to Buy Cart",
-  "discovery.routes.itemDetail.buy.locked.to.this.seller": "Buy this listing",
-  "discovery.routes.itemDetail.buy.optimized": "Buy now",
   "discovery.routes.itemDetail.create.product.alert": "Set alert",
   "discovery.routes.itemDetail.product.alert.claim.failed":
     "We could not finish saving that Watch alert. Review the criteria and try again.",
