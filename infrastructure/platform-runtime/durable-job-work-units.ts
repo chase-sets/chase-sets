@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import {
+  emitDurableJobWorkSignal,
   toDurableJobPublicSnapshot,
   type DurableJobPublicSnapshot,
   type DurableJobRecord,
@@ -282,7 +283,7 @@ export function createPostgresDurableJobWorkUnitStore<
       [job.jobId, JSON.stringify(snapshot)],
     );
     const sequence = Number(result.rows[0]?.sequence ?? 0);
-    await queryable.query(`SELECT pg_notify($1, $2)`, [notifyChannel, JSON.stringify({ jobId: job.jobId, sequence })]);
+    await emitDurableJobWorkSignal(queryable, notifyChannel, "durable-job-work-units", job.jobId, sequence);
   }
 
   return {

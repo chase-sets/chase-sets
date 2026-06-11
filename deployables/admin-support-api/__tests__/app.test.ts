@@ -346,6 +346,40 @@ describe("admin-support API app", () => {
       rollout: {
         summary: { entryCount: expect.any(Number) },
       },
+      // Composite-origin dispositions (#1248/#1238): structural inventory of
+      // which wake families ride the work-signal composite versus documented
+      // exceptions.
+      origins: expect.arrayContaining([
+        expect.objectContaining({
+          origin: "projection-operation-events",
+          kind: "projection-operation.event",
+          disposition: "composite",
+        }),
+        expect.objectContaining({
+          origin: "durable-job-events",
+          kind: "durable-job.event",
+          channel: "durable_job_events",
+          disposition: "composite",
+        }),
+        expect.objectContaining({
+          origin: "realtime-outbox-wake",
+          kind: "realtime.outbox-wake",
+          channel: "realtime_projection_patch",
+          disposition: "composite",
+        }),
+        expect.objectContaining({
+          origin: "event-store-commit",
+          disposition: "approved-exception",
+        }),
+        expect.objectContaining({
+          origin: "transactional-email-outbox",
+          disposition: "scheduled-exception",
+        }),
+        expect.objectContaining({
+          origin: "notification-outbox",
+          disposition: "scheduled-exception",
+        }),
+      ]),
     });
     // Privacy posture: structural fields only — lease/cursor metadata is never
     // forwarded wholesale.
@@ -377,6 +411,7 @@ describe("admin-support API app", () => {
         summary: { entryCount: expect.any(Number) },
         sources: expect.any(Array),
       },
+      origins: expect.any(Array),
     });
   });
 

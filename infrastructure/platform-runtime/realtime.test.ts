@@ -1,9 +1,11 @@
+import { EventEmitter } from "node:events";
+
 import { describe, expect, it } from "vitest";
 import {
   authorizeRealtimeTopics,
   coalesceRealtimeProjectionPatchInputs,
   compactRealtimeReplayMessages,
-  createPostgresRealtimeWakeSignal,
+  createRealtimeOutboxWakeSignal,
   createPostgresRealtimeStreamLimiter,
   createRealtimeOutboxPartitionName,
   createRealtimeOutboxPartitionMaintainer,
@@ -28,6 +30,11 @@ import {
   runRealtimeProjectionTransaction,
   selectRealtimeStoresForTopics,
 } from "./realtime";
+import {
+  createWorkSignalEnvelope,
+  parseWorkSignalEnvelope,
+  serializeWorkSignalEnvelope,
+} from "./work-signal-composite";
 
 const actor = {
   sessionId: "sess_1",
@@ -820,12 +827,19 @@ describe("realtime outbox", () => {
     expect(calls[4].sql).toContain("INSERT INTO realtime_projection_topic_heads");
     expect(calls[4].params).toEqual(["42", ["listing:list_1", "public:market"], "2026-04-28T00:00:00.000Z"]);
     expect(calls[5].sql).toContain("pg_notify");
-    expect(calls[5].params).toEqual([
-      realtimeProjectionNotifyChannel,
-      "discovery",
-      "discovery-market",
-      ["listing:list_1", "public:market"],
-    ]);
+    expect(calls[5].params?.[0]).toBe(realtimeProjectionNotifyChannel);
+    const wakeEnvelope = parseWorkSignalEnvelope(String(calls[5].params?.[1]));
+    expect(wakeEnvelope).toMatchObject({
+      schemaVersion: 1,
+      payloadVersion: 1,
+      kind: "realtime.outbox-wake",
+      source: "realtime-outbox",
+      payload: {
+        context: "discovery",
+        projection: "discovery-market",
+        topics: ["listing:list_1", "public:market"],
+      },
+    });
   });
 
   it("rejects projection patch contract drift before writing", async () => {
@@ -1655,68 +1669,153 @@ describe("realtime outbox", () => {
     expect(statements.at(-1)).toBe("release");
   });
 
-  it("exposes a Postgres notification wake signal for low-latency polling", async () => {
-    const listeners = new Set<(message: { channel: string; payload?: string }) => void>();
-    const queries: string[] = [];
-    const client = {
-      query: async (sql: string) => {
-        queries.push(sql);
-        return { rows: [] };
-      },
-      on: (_event: "notification", listener: (message: { channel: string; payload?: string }) => void) => {
-        listeners.add(listener);
-      },
-      off: (_event: "notification", listener: (message: { channel: string; payload?: string }) => void) => {
-        listeners.delete(listener);
-      },
-    };
-    const wakeSignal = await createPostgresRealtimeWakeSignal(client);
+  it("exposes a composite work-signal wake signal for low-latency polling", async () => {
+    const client = createWakeSignalNotificationClient();
+    const wakeSignal = createRealtimeOutboxWakeSignal(createWakeSignalPool(client));
     const woke = wakeSignal.wait(60_000);
 
-    for (const listener of listeners) {
-      listener({ channel: realtimeProjectionNotifyChannel });
-    }
+    await waitForWakeSignalListen(client);
+    client.emit("notification", {
+      channel: realtimeProjectionNotifyChannel,
+      payload: serializeWorkSignalEnvelope(
+        createWorkSignalEnvelope({
+          kind: "realtime.outbox-wake",
+          source: "realtime-outbox",
+          payload: { context: "discovery", projection: "discovery-market", topics: ["public:market"] },
+        }),
+      ),
+    });
+
     await expect(woke).resolves.toBe("notified");
     await wakeSignal.stop?.();
 
-    expect(queries).toEqual([
+    expect(client.queries).toEqual([
       `LISTEN ${realtimeProjectionNotifyChannel}`,
       `UNLISTEN ${realtimeProjectionNotifyChannel}`,
     ]);
+    expect(client.isReleased()).toBe(true);
   });
 
-  it("only wakes topic-aware Postgres waiters for intersecting notification topics", async () => {
-    const listeners = new Set<(message: { channel: string; payload?: string }) => void>();
+  it("only wakes topic-aware waiters for intersecting envelope or legacy notification topics", async () => {
+    const client = createWakeSignalNotificationClient();
     const observed: unknown[] = [];
-    const client = {
-      query: async () => ({ rows: [] }),
-      on: (_event: "notification", listener: (message: { channel: string; payload?: string }) => void) => {
-        listeners.add(listener);
+    const wakeSignal = createRealtimeOutboxWakeSignal(createWakeSignalPool(client), {
+      observer: {
+        wakeNotificationReceived: (event) => observed.push(event),
       },
-      off: () => undefined,
-    };
-    const wakeSignal = await createPostgresRealtimeWakeSignal(client, {
-      wakeNotificationReceived: (event) => observed.push(event),
     });
     const itemWake = wakeSignal.wait(60_000, ["item:item_1"]);
-    const accountWake = wakeSignal.wait(5, ["public-account:account_1"]);
+    const accountWake = wakeSignal.wait(150, ["public-account:account_1"]);
+    const legacyWake = wakeSignal.wait(60_000, ["listing:list_9"]);
 
-    for (const listener of listeners) {
-      listener({
-        channel: realtimeProjectionNotifyChannel,
-        payload: JSON.stringify({ topics: ["item:item_1"] }),
-      });
-    }
+    await waitForWakeSignalListen(client);
+    client.emit("notification", {
+      channel: realtimeProjectionNotifyChannel,
+      payload: serializeWorkSignalEnvelope(
+        createWorkSignalEnvelope({
+          kind: "realtime.outbox-wake",
+          source: "realtime-outbox",
+          payload: { context: "catalog", projection: "catalog-items", topics: ["item:item_1"] },
+        }),
+      ),
+    });
+    // Rolling-deploy compatibility: pre-composite emitters send raw topics.
+    client.emit("notification", {
+      channel: realtimeProjectionNotifyChannel,
+      payload: JSON.stringify({ context: "marketplace", projection: "listings", topics: ["listing:list_9"] }),
+    });
 
     await expect(itemWake).resolves.toBe("notified");
+    await expect(legacyWake).resolves.toBe("notified");
     await expect(accountWake).resolves.toBe("timeout");
     await wakeSignal.stop?.();
-    expect(observed).toEqual([
-      {
-        notificationTopics: ["item:item_1"],
-        waiterCount: 2,
-        matchedWaiterCount: 1,
-      },
-    ]);
+    expect(observed[0]).toMatchObject({
+      notificationTopics: ["item:item_1"],
+      waiterCount: 3,
+      matchedWaiterCount: 1,
+    });
+    expect(observed[1]).toMatchObject({
+      notificationTopics: ["listing:list_9"],
+      matchedWaiterCount: 1,
+    });
+  });
+
+  it("fails open to wake-all when a notification payload is unparseable", async () => {
+    const client = createWakeSignalNotificationClient();
+    const wakeSignal = createRealtimeOutboxWakeSignal(createWakeSignalPool(client));
+    const itemWake = wakeSignal.wait(60_000, ["item:item_1"]);
+    const accountWake = wakeSignal.wait(60_000, ["public-account:account_1"]);
+
+    await waitForWakeSignalListen(client);
+    // Deploy-overlap safety: a payload from an unknown emitter version must
+    // wake every waiter (a dropped latency hint is worse than an extra
+    // outbox poll), never be silently discarded.
+    client.emit("notification", {
+      channel: realtimeProjectionNotifyChannel,
+      payload: "not-json{{{",
+    });
+
+    await expect(itemWake).resolves.toBe("notified");
+    await expect(accountWake).resolves.toBe("notified");
+    await wakeSignal.stop?.();
+  });
+
+  it("falls back to a timeout when the wake-signal listener is unavailable", async () => {
+    const client = createWakeSignalNotificationClient({ failListen: true });
+    const unavailable: unknown[] = [];
+    const wakeSignal = createRealtimeOutboxWakeSignal(createWakeSignalPool(client), {
+      onListenerUnavailable: (error) => unavailable.push(error),
+    });
+
+    await expect(wakeSignal.wait(100, ["item:item_1"])).resolves.toBe("timeout");
+    // Reconnects are circuit-broken: the cooled-down retry does not re-report.
+    await expect(wakeSignal.wait(100, ["item:item_1"])).resolves.toBe("timeout");
+    expect(unavailable).toHaveLength(1);
+    expect(client.listenAttempts()).toBe(1);
+    expect(client.isReleased()).toBe(true);
   });
 });
+
+function createWakeSignalNotificationClient(options: { failListen?: boolean } = {}) {
+  const emitter = new EventEmitter();
+  const queries: string[] = [];
+  let released = false;
+  let listenAttempts = 0;
+
+  return Object.assign(emitter, {
+    queries,
+    isReleased: () => released,
+    listenAttempts: () => listenAttempts,
+    query: async (sql: string) => {
+      if (sql.startsWith("LISTEN")) {
+        listenAttempts += 1;
+        if (options.failListen) {
+          throw new Error("LISTEN is unavailable on this connection.");
+        }
+      }
+      queries.push(sql);
+      return { rows: [], rowCount: 0 };
+    },
+    release: () => {
+      released = true;
+    },
+  });
+}
+
+function createWakeSignalPool(client: ReturnType<typeof createWakeSignalNotificationClient>) {
+  return {
+    connect: async () => client,
+    query: async () => ({ rows: [], rowCount: 0 }),
+  } as unknown as Parameters<typeof createRealtimeOutboxWakeSignal>[0];
+}
+
+async function waitForWakeSignalListen(client: ReturnType<typeof createWakeSignalNotificationClient>): Promise<void> {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    if (client.queries.some((sql) => sql.startsWith("LISTEN"))) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+
+  throw new Error("Wake signal listener did not issue LISTEN.");
+}

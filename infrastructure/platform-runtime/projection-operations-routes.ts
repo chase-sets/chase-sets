@@ -17,6 +17,7 @@ import {
   listSourceContextWakeRegistryEntries,
   summarizeSourceContextWakeRegistry,
 } from "./source-context-wake-registry";
+import { listWorkSignalOriginDispositions } from "./work-signal-composite";
 import type { PostgresWorkSignalStore } from "./work-signal-store";
 
 const PROJECTION_OPERATIONS_PERMISSION = "security.manage";
@@ -107,6 +108,10 @@ export function createProjectionOperationsRoutes(
       relay,
       schedulers,
       rollout: readWakeRolloutStatus(),
+      // Static composite-origin disposition inventory (#1248/#1238): which
+      // wake families ride the work-signal composite versus documented
+      // exceptions. Structural metadata only.
+      origins: listWorkSignalOriginDispositions(),
     });
   });
 

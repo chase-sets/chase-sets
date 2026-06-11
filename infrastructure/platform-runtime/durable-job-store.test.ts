@@ -1,3 +1,5 @@
+import { EventEmitter } from "node:events";
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createDurableJobProgressCheckpoint,
@@ -6,6 +8,11 @@ import {
   DurableJobHandoffError,
   runDurableJobSideEffect,
 } from "./durable-job-store";
+import {
+  createWorkSignalEnvelope,
+  parseWorkSignalEnvelope,
+  serializeWorkSignalEnvelope,
+} from "./work-signal-composite";
 
 describe("durable job store", () => {
   afterEach(() => {
@@ -90,9 +97,22 @@ describe("durable job store", () => {
     expect(calls[1].sql).toContain("INSERT INTO inventory_import_batch_job_events");
     expect(calls.some((call) => call.sql.includes("FOR UPDATE SKIP LOCKED"))).toBe(true);
     expect(calls.some((call) => call.sql.includes("coalesce(max(sequence), 0) + 1"))).toBe(true);
-    expect(calls.some((call) => call.sql.includes("pg_notify"))).toBe(true);
     expect(String(calls[1].values[1])).not.toContain("batchId");
     expect(String(calls[1].values[1])).toContain("queued");
+
+    // Notifications ride the work-signal composite: versioned envelope on the
+    // store channel with only opaque job identifiers.
+    const notifyCall = calls.find((call) => call.sql.includes("pg_notify"));
+    expect(notifyCall?.values[0]).toBe("durable_job_events");
+    const envelope = parseWorkSignalEnvelope(String(notifyCall?.values[1]));
+    expect(envelope).toMatchObject({
+      schemaVersion: 1,
+      payloadVersion: 1,
+      kind: "durable-job.event",
+      source: "durable-job-store",
+      payload: { jobId: "job_1" },
+    });
+    expect(String(notifyCall?.values[1])).not.toContain("batchId");
   });
 
   it("renews claimed leases on progress updates and rejects expired owners", async () => {
@@ -414,6 +434,53 @@ describe("durable job store", () => {
     expect(release).toHaveBeenCalledTimes(1);
   });
 
+  it("wakes event waiters from composite envelopes and legacy notification payloads", async () => {
+    const client = createJobNotificationClient();
+    const store = createPostgresDurableJobStore<{ batchId: string }, { phase: string }, { committed: number }>(
+      {
+        query: async () => ({ rows: [], rowCount: 0 }),
+        connect: async () => client,
+      } as never,
+      {
+        jobsTable: "inventory_import_batch_jobs",
+        eventsTable: "inventory_import_batch_job_events",
+      },
+    );
+
+    const compositeWait = store.waitForEvents({ jobId: "job_1", timeoutMs: 30_000 });
+    const legacyWait = store.waitForEvents({ jobId: "job_2", timeoutMs: 30_000 });
+    let otherJobSettled = false;
+    const otherJobWait = store.waitForEvents({ jobId: "job_3", timeoutMs: 150 }).then(() => {
+      otherJobSettled = true;
+    });
+
+    await vi.waitFor(() => {
+      expect(client.queries).toContain("LISTEN durable_job_events");
+    });
+
+    client.emit("notification", {
+      channel: "durable_job_events",
+      payload: serializeWorkSignalEnvelope(
+        createWorkSignalEnvelope({
+          kind: "durable-job.event",
+          source: "durable-job-store",
+          payload: { jobId: "job_1", sequence: 3 },
+        }),
+      ),
+    });
+    // Rolling-deploy compatibility: pre-composite emitters send raw payloads.
+    client.emit("notification", {
+      channel: "durable_job_events",
+      payload: JSON.stringify({ jobId: "job_2", sequence: 1 }),
+    });
+
+    await expect(compositeWait).resolves.toBeUndefined();
+    await expect(legacyWait).resolves.toBeUndefined();
+    // The unrelated job waiter is not woken; it waits out its bounded timeout.
+    expect(otherJobSettled).toBe(false);
+    await expect(otherJobWait).resolves.toBeUndefined();
+  });
+
   it("throttles public checkpoints and skipped renew writes separately", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-29T00:00:00.000Z"));
@@ -495,3 +562,21 @@ describe("durable job store", () => {
     expect(work).not.toHaveBeenCalled();
   });
 });
+
+function createJobNotificationClient() {
+  const emitter = new EventEmitter();
+  const queries: string[] = [];
+  let released = false;
+
+  return Object.assign(emitter, {
+    queries,
+    isReleased: () => released,
+    query: async (sql: string) => {
+      queries.push(sql);
+      return { rows: [], rowCount: 0 };
+    },
+    release: () => {
+      released = true;
+    },
+  });
+}

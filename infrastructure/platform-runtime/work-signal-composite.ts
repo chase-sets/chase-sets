@@ -84,6 +84,13 @@ export type WorkSignalNotificationReceivedEvent = Readonly<{
   kind: WorkSignalKind | "legacy" | "invalid";
   matchedWaiterCount: number;
   waiterCount: number;
+  /**
+   * The parsed notification, so adapters can derive structural metadata (for
+   * example realtime topics) for their own observer contracts. Envelope
+   * payloads have already passed the sensitive-key denylist; observers must
+   * still only forward structural fields and never log raw payloads.
+   */
+  notification: PostgresWorkSignalNotification;
 }>;
 
 export type WorkSignalWaitEndedEvent = Readonly<{
@@ -221,10 +228,22 @@ export function createPostgresWorkSignalWaiter(
     channel: string;
     observer?: Pick<WorkSignalObserver, "listenerUnavailable" | "notificationReceived" | "waitEnded">;
     defaultTimeoutMs?: number;
+    /**
+     * Circuit-breaks listener reconnect attempts after a connect/LISTEN
+     * failure so high-frequency waits (SSE polls) cannot churn pooled
+     * connections. Waits during the cooldown fall back to their bounded
+     * timeout without re-attempting LISTEN. Default 0 retries the LISTEN
+     * connect on every wait (note: before the connect-failure fix, a
+     * rejected connect was cached forever, so 0 is retry-per-wait, not the
+     * historical behavior); pass a cooldown to bound redials.
+     */
+    listenRetryCooldownMs?: number;
   }>,
 ): PostgresWorkSignalWaiter {
   const channel = assertPostgresWorkSignalChannel(input.channel);
   const defaultTimeoutMs = Math.max(100, Math.floor(input.defaultTimeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS));
+  const listenRetryCooldownMs = Math.max(0, Math.floor(input.listenRetryCooldownMs ?? 0));
+  let listenDisabledUntil = 0;
   const waiters = new Set<
     Readonly<{
       matches: WaitForPostgresWorkSignalInput["matches"];
@@ -287,6 +306,7 @@ export function createPostgresWorkSignalWaiter(
       kind: notification.envelope?.kind ?? (message.payload ? "legacy" : "invalid"),
       matchedWaiterCount,
       waiterCount: pending.length,
+      notification,
     });
   };
 
@@ -295,8 +315,22 @@ export function createPostgresWorkSignalWaiter(
       throw new Error(`Work signal waiter for '${channel}' has been stopped.`);
     }
 
+    if (!clientPromise && listenRetryCooldownMs > 0 && Date.now() < listenDisabledUntil) {
+      throw new WorkSignalListenCooldownError(channel);
+    }
+
     clientPromise ??= (async () => {
-      const client = (await db.connect()) as PostgresNotificationClient;
+      let client: PostgresNotificationClient;
+      try {
+        client = (await db.connect()) as PostgresNotificationClient;
+      } catch (error) {
+        // Forget the rejected promise so the next wait outside the cooldown
+        // can retry instead of caching the failure for the process lifetime.
+        clientPromise = null;
+        listenDisabledUntil = Date.now() + listenRetryCooldownMs;
+        throw error;
+      }
+
       const onError = () => resetClient(client, onError);
       activeClient = client;
       activeErrorListener = onError;
@@ -306,6 +340,7 @@ export function createPostgresWorkSignalWaiter(
       try {
         await client.query(`LISTEN ${channel}`);
       } catch (error) {
+        listenDisabledUntil = Date.now() + listenRetryCooldownMs;
         removeListener(client, "notification", onNotification);
         resetClient(client, onError);
         throw error;
@@ -329,7 +364,11 @@ export function createPostgresWorkSignalWaiter(
       try {
         await getClient();
       } catch (error) {
-        input.observer?.listenerUnavailable?.({ channel, error });
+        // Cooldown-suppressed waits are expected fallback polling, not new
+        // listener failures, so they do not re-notify the observer.
+        if (!(error instanceof WorkSignalListenCooldownError)) {
+          input.observer?.listenerUnavailable?.({ channel, error });
+        }
         const timeoutResult = await waitForWorkSignalTimeout(timeoutMs, waitInput.signal);
         const result = timeoutResult === "aborted" ? "aborted" : "listener-unavailable";
         input.observer?.waitEnded?.({ channel, result });
@@ -394,6 +433,128 @@ export function createPostgresWorkSignalWaiter(
       }
     },
   };
+}
+
+export type WorkSignalOriginDisposition = Readonly<{
+  origin: string;
+  kind: WorkSignalKind | null;
+  channel: string;
+  emitter: string;
+  waiter: string;
+  disposition: "composite" | "approved-exception" | "scheduled-exception" | "reserved";
+  notes: string;
+}>;
+
+// Tracked migration/reuse disposition for every platform work-signal origin
+// family (#1248/#1238). Structural metadata only: this inventory backs the
+// operator wake-status panel (#1232) and the work-signal structure guardrail,
+// so it must never carry payloads, identifiers, or environment secrets.
+const WORK_SIGNAL_ORIGIN_DISPOSITIONS: readonly WorkSignalOriginDisposition[] = [
+  {
+    origin: "event-store-commit",
+    kind: "event-store.commit",
+    channel: "platform_event_store_commits",
+    emitter: "event-core-postgres event store (after-commit, composite-compatible envelope)",
+    waiter: "worker-owned projection wake relay (single fenced listener per source context)",
+    disposition: "approved-exception",
+    notes:
+      "Direct emission stays in event-core-postgres to avoid a package cycle; envelopes match the composite contract and the relay owns the only budgeted LISTEN connections.",
+  },
+  {
+    origin: "projection-wake-intent",
+    kind: "projection.wake-intent",
+    channel: "none (durable control-plane work-signal store rows)",
+    emitter: "projection wake relay fan-out into platform_projection_wake_intents",
+    waiter: "worker wake-intent scheduler claims durable rows on bounded intervals",
+    disposition: "composite",
+    notes: "Durable store rows are the contract; claims and fallback polling replace per-process listeners.",
+  },
+  {
+    origin: "projection-checkpoint-ready",
+    kind: "projection.checkpoint-ready",
+    channel: "none (durable control-plane work-signal store rows)",
+    emitter: "worker checkpoint-readiness recorder into platform_projection_checkpoint_readiness",
+    waiter: "API read-consistency waiters poll readiness rows with bounded timeouts",
+    disposition: "composite",
+    notes: "Readiness rows in the control database remain the durable source of truth.",
+  },
+  {
+    origin: "projection-operation-events",
+    kind: "projection-operation.event",
+    channel: "platform_projection_operation_events",
+    emitter: "platform control plane appendProjectionOperationEvent (composite emit)",
+    waiter: "API projection-operation SSE waiters (composite waiter, legacy payload compatible)",
+    disposition: "composite",
+    notes: "Migrated in PR #1261; operation/event tables stay the record of truth.",
+  },
+  {
+    origin: "durable-job-events",
+    kind: "durable-job.event",
+    channel: "durable_job_events",
+    emitter: "context durable-job stores and work-unit stores (composite emit)",
+    waiter: "API durable-job SSE waiters (composite waiter, legacy payload compatible)",
+    disposition: "composite",
+    notes:
+      "Context-named channels (for example catalog_source_observation_durable_job_events) share the same envelope and waiter contract; context-owned job/event tables stay the record of truth.",
+  },
+  {
+    origin: "realtime-outbox-wake",
+    kind: "realtime.outbox-wake",
+    channel: "realtime_projection_patch",
+    emitter: "realtime projection outbox recorder (composite emit)",
+    waiter: "platform-api realtime SSE wake signal (composite waiter, one per realtime context pool, budgeted)",
+    disposition: "composite",
+    notes:
+      "Listener count is unchanged and budgeted in the push-wake connection ledger; outbox rows stay the replay source of truth and SSE polling remains the fallback.",
+  },
+  {
+    origin: "scheduled-runner-due",
+    kind: "scheduled-runner.due",
+    channel: "none (reserved)",
+    emitter: "none (reserved kind; scheduled runners poll on their intervals)",
+    waiter: "none",
+    disposition: "reserved",
+    notes: "Adapter lands with the scheduled/manual trigger phase of #1249.",
+  },
+  {
+    origin: "reconciliation-requested",
+    kind: "reconciliation.requested",
+    channel: "none (reserved)",
+    emitter: "none (reserved kind)",
+    waiter: "none",
+    disposition: "reserved",
+    notes: "Adapter lands with the reconciliation phase of #1249.",
+  },
+  {
+    origin: "transactional-email-outbox",
+    kind: null,
+    channel: "none",
+    emitter: "none (claim/retry polling dispatcher; no notifications)",
+    waiter: "none (worker dispatch loop on a bounded interval)",
+    disposition: "scheduled-exception",
+    notes:
+      "Provider-owned outbox rows with claim TTL retry; interval dispatch is already bounded by provider rate limits, so wake signals add no latency value.",
+  },
+  {
+    origin: "notification-outbox",
+    kind: null,
+    channel: "none",
+    emitter: "none (claim/retry polling dispatcher; no notifications)",
+    waiter: "none (worker dispatch loop on a bounded interval)",
+    disposition: "scheduled-exception",
+    notes: "Same scheduled/outbox posture as the transactional email dispatcher.",
+  },
+];
+
+export function listWorkSignalOriginDispositions(): readonly WorkSignalOriginDisposition[] {
+  return WORK_SIGNAL_ORIGIN_DISPOSITIONS;
+}
+
+class WorkSignalListenCooldownError extends Error {
+  constructor(channel: string) {
+    super(`Work signal listener for '${channel}' is in its reconnect cooldown.`);
+    this.name = "WorkSignalListenCooldownError";
+  }
 }
 
 export function assertPostgresWorkSignalChannel(channel: string): string {

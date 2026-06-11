@@ -1,7 +1,13 @@
 import { Hono, type Context } from "hono";
 import { streamSSE } from "hono/streaming";
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { RealtimeProjectionPatch, RealtimeSyncRequired } from "@chase-sets/realtime";
+import {
+  createPostgresWorkSignalWaiter,
+  type PostgresWorkSignalNotification,
+  type WorkSignalListenerUnavailableEvent,
+  type WorkSignalNotificationReceivedEvent,
+} from "./work-signal-composite";
 import type { ResolvedActor } from "./auth";
 import { decodeRealtimeCursor, encodeRealtimeCursor, type RealtimeCursorSigningKeySet } from "./realtime-cursor";
 import { createRealtimeReadHub, type RealtimeReadHub } from "./realtime-read-hub";
@@ -262,90 +268,84 @@ export type RealtimeStatusRouteConfig = Omit<RealtimeRouteConfig, "cursorSigning
     cursorSigningConfigured: boolean;
   }>;
 
-type PostgresRealtimeNotificationClient = PgQueryable &
-  Readonly<{
-    on: (
-      event: "notification",
-      listener: (message: Readonly<{ channel: string; payload?: string }>) => void,
-    ) => unknown;
-    off?: (
-      event: "notification",
-      listener: (message: Readonly<{ channel: string; payload?: string }>) => void,
-    ) => unknown;
-    removeListener?: (
-      event: "notification",
-      listener: (message: Readonly<{ channel: string; payload?: string }>) => void,
-    ) => unknown;
-    release?: () => void;
-  }>;
-
 type RealtimeEndpointMode = "any" | "public" | "account";
 
-export async function createPostgresRealtimeWakeSignal(
-  client: PostgresRealtimeNotificationClient,
-  observer?: Pick<RealtimeObserver, "wakeNotificationReceived">,
-): Promise<RealtimeWakeSignal> {
-  const waiters = new Set<
-    Readonly<{
-      topics: readonly string[];
-      resolve: () => void;
-    }>
-  >();
-  const notify = (message: Readonly<{ channel: string; payload?: string }>) => {
-    if (message.channel !== realtimeProjectionNotifyChannel) {
-      return;
-    }
+export type RealtimeOutboxWakeSignalOptions = Readonly<{
+  observer?: Pick<RealtimeObserver, "wakeNotificationReceived">;
+  /** Invoked when a listener connect/LISTEN attempt fails (at most once per cooldown). */
+  onListenerUnavailable?: (error: unknown) => void;
+  /** Reconnect circuit-breaker passed through to the composite waiter. */
+  listenRetryCooldownMs?: number;
+}>;
 
-    const notificationTopics = parseRealtimeNotificationTopics(message.payload);
-    const pending = [...waiters];
-    let matchedWaiterCount = 0;
-    for (const waiter of pending) {
-      if (realtimeTopicsIntersect(waiter.topics, notificationTopics)) {
-        matchedWaiterCount += 1;
-        waiters.delete(waiter);
-        waiter.resolve();
-      }
-    }
-    observer?.wakeNotificationReceived?.({
-      notificationTopics,
-      waiterCount: pending.length,
-      matchedWaiterCount,
-    });
-  };
-
-  client.on("notification", notify);
-  await client.query(`LISTEN ${realtimeProjectionNotifyChannel}`);
+// Realtime SSE wake signal on the platform work-signal composite
+// (#1248/#1238): one lazily connected composite waiter per realtime context
+// pool, listening on `realtime_projection_patch`. Wakes are latency hints —
+// the durable outbox rows remain the replay source of truth and SSE streams
+// keep their bounded polling fallback, so listener loss only costs latency.
+export function createRealtimeOutboxWakeSignal(
+  db: PgTransactionalPool,
+  options: RealtimeOutboxWakeSignalOptions = {},
+): RealtimeWakeSignal {
+  const observer = options.observer;
+  const waiter = createPostgresWorkSignalWaiter(db, {
+    channel: realtimeProjectionNotifyChannel,
+    listenRetryCooldownMs: options.listenRetryCooldownMs ?? DEFAULT_REALTIME_WAKE_LISTEN_RETRY_COOLDOWN_MS,
+    observer: {
+      ...(observer?.wakeNotificationReceived
+        ? {
+            notificationReceived: (event: WorkSignalNotificationReceivedEvent) => {
+              observer.wakeNotificationReceived?.({
+                notificationTopics: readRealtimeWakeNotificationTopics(event.notification),
+                waiterCount: event.waiterCount,
+                matchedWaiterCount: event.matchedWaiterCount,
+              });
+            },
+          }
+        : {}),
+      ...(options.onListenerUnavailable
+        ? {
+            listenerUnavailable: (event: WorkSignalListenerUnavailableEvent) => {
+              options.onListenerUnavailable?.(event.error);
+            },
+          }
+        : {}),
+    },
+  });
 
   return {
-    wait: (timeoutMs, topics = []) =>
-      new Promise((resolve) => {
-        const waiter = () => done("notified");
-        const timer = setTimeout(() => done("timeout"), timeoutMs);
-        timer.unref?.();
-        const entry = {
-          topics: normalizeRealtimeTopics(topics),
-          resolve: waiter,
-        };
-
-        function done(result: RealtimeWakeResult) {
-          clearTimeout(timer);
-          waiters.delete(entry);
-          resolve(result);
-        }
-
-        waiters.add(entry);
-      }),
+    wait: async (timeoutMs, topics = []) => {
+      const subscribedTopics = normalizeRealtimeTopics(topics);
+      const result = await waiter.wait({
+        timeoutMs,
+        matches: (notification) =>
+          realtimeTopicsIntersect(subscribedTopics, readRealtimeWakeNotificationTopics(notification)),
+      });
+      return result === "notified" ? "notified" : "timeout";
+    },
     stop: async () => {
-      waiters.clear();
-      if (client.off) {
-        client.off("notification", notify);
-      } else {
-        client.removeListener?.("notification", notify);
-      }
-      await client.query(`UNLISTEN ${realtimeProjectionNotifyChannel}`);
-      client.release?.();
+      await waiter.stop();
     },
   };
+}
+
+const DEFAULT_REALTIME_WAKE_LISTEN_RETRY_COOLDOWN_MS = 60_000;
+
+function readRealtimeWakeNotificationTopics(notification: PostgresWorkSignalNotification): readonly string[] {
+  if (notification.envelope) {
+    if (notification.envelope.kind !== "realtime.outbox-wake") {
+      return [];
+    }
+
+    const topics = (notification.envelope.payload as { topics?: unknown }).topics;
+    return Array.isArray(topics)
+      ? normalizeRealtimeTopics(topics.filter((topic): topic is string => typeof topic === "string"))
+      : [];
+  }
+
+  // Rolling-deploy compatibility: pre-composite emitters send a raw
+  // { context, projection, topics } payload.
+  return parseRealtimeNotificationTopics(notification.payload);
 }
 
 export function createMergedRealtimeWakeSignal(
