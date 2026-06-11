@@ -138,7 +138,7 @@ Primary issues:
 Exit criteria:
 
 - Current providers are behind ProviderAdapter boundaries or have reviewed extension points with removal criteria. Retired compatibility branches are launch blockers until completely deleted.
-- #785 moves TCGdex option queries and Expansion import payload acquisition behind the registered `tcgdex` ProviderAdapter. Remaining TCGdex variant expansion, external-reference extraction, Reference Record hierarchy provisioning, and promotion command planning are Catalog semantic helpers referenced by the executable profile contract; they are deterministic, fixture-backed, and reviewed extension points until generic profile interpretation can express them safely. Replacing one requires complete deletion of the old helper, tests, fixtures, docs, runbooks, and operator instructions.
+- #785 moves TCGdex option queries and Expansion import payload acquisition behind the registered `tcgdex` ProviderAdapter. Remaining TCGdex variant expansion, external-reference extraction, Reference Record hierarchy provisioning, and promotion command planning are Catalog semantic helpers referenced by the executable profile contract; they are deterministic, fixture-backed, and reviewed extension points until generic profile interpretation can express them safely. Replacing one requires complete deletion of the old helper, tests, fixtures, seeds, documentation, runbooks, release notes, and operator instructions.
 - #786 moves TCGplayer product-line, set-name, product, SKU option queries and Product/Set import payload acquisition behind the registered `tcgplayer` ProviderAdapter. The implemented profile-backed unit is `tcgplayer:pokemon:single-card:source-observation-import`; MTG single-card, MTG sealed-product, and One Piece single-card remain future split units until dedicated profile versions exist. Remaining TCGplayer product-form, barcode, selected Option, external-reference, duplicate-prevention, Reference Record hierarchy, and promotion-readiness helpers are reviewed Catalog semantic extension points with removal criteria in the provider profile docs.
 - #1062 proves the target architecture with `tcgdex:pokemon:single-card:source-observation-import`: deterministic readiness tests resolve dry-run evidence by `unitKey`, while the real-provider proof packet runs through TCGdex ProviderAdapter option queries/import planning/fetch, the Catalog Integration Engine, redacted Source Observation review summaries, promotion-preview counts before writes, and canonical degraded transport mapping without adding provider-specific runtime/API/admin/promotion branches or current two-page compatibility paths.
 - #806 MTGJSON and Scryfall validation passes the no-core-change gate and includes source-conflict evidence, documented in [Catalog Integration MTGJSON And Scryfall Validation](./catalog-integration-mtgjson-scryfall-validation.md). The validation proves `mtgjson:mtg:single-card:reference-data`, `mtgjson:mtg:set:reference-data`, `scryfall:mtg:single-card:reference-data`, and `scryfall:mtg:single-card:image-evidence` through ProviderAdapter extension points and Catalog Integration Engine dry-runs without registering production runtime branches. Production enablement remains gated by provider-data governance and policy/legal signoff.
@@ -156,7 +156,7 @@ Primary issues:
 - #798 activation, rollback, retirement, replay, and reapply impact analysis, documented in [Catalog Integration Impact Analysis](./catalog-integration-impact-analysis.md)
 - #803 provider-data policy/legal signoff, documented in [Catalog Integration Data Governance](./catalog-integration-data-governance.md)
 - #1050/#1055 Stage 0 cleanup gate and clean-contract handoff
-- #1090 complete deletion of old Catalog integrations pages after rebuilt workbench acceptance
+- #1090 complete deletion of old Catalog integrations pages, route/API/client/read-model behavior, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, and operator instructions after rebuilt workbench acceptance
 
 Exit criteria:
 
@@ -272,7 +272,7 @@ The milestone is ready to close only when:
 - #796 gates #768 diagnostics/readiness UX.
 - #794 and #803 gate live provider sampling, fixture retention, dry-run retention, diagnostics retention, raw provider evidence display/export, and MTGJSON/Scryfall sampling.
 - #807 gates final #806 validation and release completion.
-- #1054 and #1055 gate prelaunch reset/drop evidence and clean-contract handoff. #1090 owns complete deletion of old Catalog integrations pages, modules, tests, fixtures, screenshots, docs, runbooks, release notes, and operator instructions after the rebuilt workbench is accepted.
+- #1054 and #1055 gate prelaunch reset/drop evidence and clean-contract handoff. #1090 owns complete deletion of old Catalog integrations pages, modules, route/API/client/read-model behavior, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, and operator instructions after the rebuilt workbench is accepted.
 - #775 and #1053 gate no-legacy-branch and no-raw-JSON release readiness.
 
 ## Parallel Work After Phase 0

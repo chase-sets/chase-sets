@@ -36,7 +36,7 @@ Admin activation is guarded by the fixture harness and migration evidence. The a
 
 Rollback means activating a prior validated profile version and deprecating the currently active version. It does not edit or delete historical profile rows. Source Observations should continue to record the profile version that produced their normalized data so replay can use the same version by default and operator-initiated reapply can explicitly choose the current active version.
 
-Retirement is stricter than deprecation. A profile version can be retired only after no Source Observations reference it as either their source profile version or promotion profile version. Retired versions remain readable for historical review but cannot be activated for new imports. This profile lifecycle state is not permission to retain unlaunched legacy control-plane code, product patterns, tests, fixtures, screenshots, docs, runbooks, release notes, operator instructions, flags, aliases, redirects, support-only routes, or compatibility shims; retiring those launch-blocking surfaces means complete removal.
+Retirement is stricter than deprecation. A profile version can be retired only after no Source Observations reference it as either their source profile version or promotion profile version. Retired versions remain readable for historical review but cannot be activated for new imports. This profile lifecycle state is not permission to retain unlaunched legacy control-plane code, product patterns, route/API/client/read-model behavior, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, operator instructions, flags, aliases, redirects, support-only routes, compatibility shims, or migration shims; retiring those launch-blocking surfaces means complete removal.
 
 Bootstrap seeds static profile rows only as initial or reconciliation data. It preserves admin-authored rows with migration evidence or authoring audit metadata, then verifies that each seeded active provider still has an active persisted row. If an operator edits or retires the seeded active version without activating a replacement, bootstrap fails loudly instead of letting imports fall back to static runtime config.
 
@@ -211,16 +211,17 @@ shape audit fixtures. Runtime DTO adaptation may assemble deterministic
 product-form, barcode, source hash, and selected-option context before invoking
 the profile contract only as a reviewed clean launch helper. If a future generic
 profile section replaces one of these helpers, the old helper, tests, fixtures,
-docs, and operator instructions must be deleted completely. These helpers must
-not import price, listing, seller, inventory, order, or message facts into
-Catalog truth or hash material.
+seeds, documentation, runbooks, release notes, and operator instructions must be
+deleted completely. These helpers must not import price, listing, seller,
+inventory, order, or message facts into Catalog truth or hash material.
 
 The runtime dispatches TCGplayer import work through the reviewed provider
 transport and durable-job boundary. #1090 owns complete deletion of any current
 page or route pattern that treats the TCGplayer branch as old-page compatibility
 after the rebuilt workbench is accepted. Future generic executor replacement
-must remove the old branch, tests, fixtures, screenshots, docs, and operator
-instructions in the same cleanup, not leave a compatibility alias.
+must remove the old branch, tests, fixtures, seeds, screenshots, documentation,
+runbooks, release notes, and operator instructions in the same cleanup, not leave
+a compatibility alias.
 
 ## Scrydex Scryfall-Style Proof Profile
 

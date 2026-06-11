@@ -373,8 +373,9 @@ export const catalogProviderTransportRetiredSurfaceRule = {
     "legacy provider selectors",
     "raw JSON authoring and broad patch escape hatches",
     "support-only route variants",
-    "compatibility redirects and hidden feature flags",
-    "tests, fixtures, screenshots, docs, runbooks, release notes, and operator instructions that teach retired behavior",
+    "compatibility redirects, aliases, shims, and hidden feature flags",
+    "API, client, and read-model compatibility behavior",
+    "tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, and operator instructions that teach retired behavior",
   ],
   ownerIssue: "#1090",
 } as const;

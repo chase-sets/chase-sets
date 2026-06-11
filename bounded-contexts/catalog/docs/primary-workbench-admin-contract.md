@@ -127,9 +127,9 @@ These are not temporary launch aids. They are prohibited implementation outcomes
 
 ## Retirement Rule
 
-For this control plane rebuild, "retire", "remove", "deprecate", and "cleanup" mean complete removal, not soft deprecation. Retired behavior must be deleted from runtime code, API routes, UI modules, product patterns, tests, fixtures, screenshots, documentation, runbooks, release notes, operator instructions, aliases, flags, fallbacks, redirects, support-only routes, and compatibility shims.
+For this control plane rebuild, "retire", "remove", "deprecate", and "cleanup" mean complete removal, not soft deprecation. Retired behavior must be deleted from runtime code, API routes, UI modules, product patterns, read-model contracts, clients, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, operator instructions, route aliases, feature flags, hidden flags, fallback branches, redirects, compatibility aliases, compatibility shims, migration shims, and support-only routes.
 
-Forbidden outcomes include compatibility shims, legacy support paths, migration of the current two-page surface, raw JSON escape hatches, support-only preserved routes, or docs that teach operators how to use retired behavior.
+Forbidden outcomes include compatibility shims, legacy support paths, migration of the current two-page surface, raw JSON escape hatches, support-only preserved routes, documentation-only deprecation, hidden flag fallbacks, or documentation that teaches operators how to use retired behavior.
 
 ## Downstream Issue Handoff
 

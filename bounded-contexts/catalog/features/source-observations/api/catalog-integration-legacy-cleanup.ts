@@ -310,7 +310,7 @@ export function catalogIntegrationLegacyCleanupReleaseChecklist(): readonly stri
     "Verify seeded active TCGdex, TCGplayer, and Scrydex profile versions are present after bootstrap.",
     "Verify profile section projections and diagnostics rebuilt from retained or seeded profile versions.",
     "Verify every editable Provider Integration Profile section reports rawJsonBacked=false.",
-    "Verify unsupported profile authoring compatibility code, controls, fixtures, and durable docs are absent.",
+    "Verify unsupported profile authoring compatibility code, controls, fixtures, seeds, and durable documentation are absent.",
   ];
 }
 

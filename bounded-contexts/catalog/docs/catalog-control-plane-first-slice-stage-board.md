@@ -2,7 +2,7 @@
 
 This board operationalizes the first-slice delivery sequence for the Catalog Control Plane UX rebuild. It turns the milestone stage labels into entry gates, exit evidence, owner records, and follow-up rules so implementation can proceed without preserving the current two-page Catalog integrations surface as a migration target.
 
-The rebuild continues to use the clean launch contracts from [Catalog Control Plane Clean Contract Handoff](./catalog-control-plane-clean-contract-handoff.md): the primary operator path is provider import -> Source Observation review -> promotion into Catalog Items or Catalog-owned references, and retired behavior must be completely deleted from code, product patterns, tests, fixtures, screenshots, documentation, runbooks, release notes, operator instructions, aliases, flags, fallbacks, redirects, support-only routes, and compatibility shims. The product framing for that default operator path is documented in [Catalog Control Plane Primary Path](./catalog-control-plane-primary-path.md), and the rebuilt route/workspace IA is documented in [Catalog Control Plane Information Architecture](./catalog-control-plane-information-architecture.md). The dense-workbench design-system proof is documented in [Dense Admin Workbench Pattern](../../../packages/design-system/DENSE_ADMIN_WORKBENCH.md).
+The rebuild continues to use the clean launch contracts from [Catalog Control Plane Clean Contract Handoff](./catalog-control-plane-clean-contract-handoff.md): the primary operator path is provider import -> Source Observation review -> promotion into Catalog Items or Catalog-owned references, and retired behavior must be completely deleted from code, product patterns, route/API/client/read-model behavior, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, operator instructions, aliases, flags, fallbacks, redirects, support-only routes, and compatibility shims. The product framing for that default operator path is documented in [Catalog Control Plane Primary Path](./catalog-control-plane-primary-path.md), and the rebuilt route/workspace IA is documented in [Catalog Control Plane Information Architecture](./catalog-control-plane-information-architecture.md). The dense-workbench design-system proof is documented in [Dense Admin Workbench Pattern](../../../packages/design-system/DENSE_ADMIN_WORKBENCH.md).
 
 ## Stage Status
 
@@ -11,7 +11,7 @@ The rebuild continues to use the clean launch contracts from [Catalog Control Pl
 | Stage 0 cleanup | #1050-#1055 | Complete | #1050 and #1055 closed; PRs #1091, #1125, #1094, #1138, and #1143 provide cleanup evidence. |
 | Stage 1 contracts and IA | #1060, #1031, #1048, #1046, #1049 | Complete | API/read-model contracts, rebuilt IA, grouped navigation/mobile pattern, dense-workbench primitive proof, and primary-path framing accepted. |
 | Stage 2 primary workbench | #1056, #1038, #1039, #1040, #1057, #1058 | In implementation; #1056 is command-connecting the clean default workbench shell after #1038, #1039, #1057, and #1058 shipped their scoped evidence | Provider/scope selection through import, Source Observation review, promotion preview, promotion/recovery, route context, and operator copy accepted together as one workbench. |
-| Stage 3 hardening and proof | #1063, #1065, #1059, #1062, #1064, #1047 | In implementation; #1065 shipped provider transport budgets and first-slice proof criteria | Durable-job edge cases, provider transport budgets, instrumentation, real-provider proof, security/privacy, and no-confusion acceptance accepted. |
+| Stage 3 hardening and proof | #1063, #1065, #1059, #1062, #1064, #1047 | In implementation; #1065 shipped provider transport budgets, #1062 shipped real-provider proof, and #1064 is wiring the security/privacy launch gate | Durable-job edge cases, provider transport budgets, instrumentation, real-provider proof, security/privacy, and no-confusion acceptance accepted. |
 | Stage 4 rollout and retirement | #1061, #1088, #1090 | Blocked by accepted first slice | Decision/risk register, production rollout, smoke/signoff, and complete old-surface deletion accepted. |
 
 ## Cross-Stage Coordination
@@ -27,7 +27,7 @@ Stage 1 can begin because Stage 0 is complete and no open milestone issue carrie
 - migrate the current two-page Catalog integrations route layout or module boundaries;
 - reintroduce legacy provider selectors, scripted import endpoints, raw JSON broad patches, transitional profile mode, or silent active-profile fallback;
 - treat supporting workspaces as peers that bury the primary import-to-promotion path;
-- leave retired behavior in code, product patterns, tests, fixtures, screenshots, documentation, runbooks, release notes, operator instructions, aliases, flags, fallbacks, redirects, support-only routes, or compatibility shims.
+- leave retired behavior in code, product patterns, route/API/client/read-model behavior, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, operator instructions, aliases, flags, fallbacks, redirects, support-only routes, or compatibility shims.
 
 ## Stage 1 Exit Gate
 
@@ -70,8 +70,8 @@ Until a specific assignee is added, first-slice implementation comments should n
 | #1063 | Stage 3 | Owner comment and current bounded-context delivery segment | In implementation; connects provider import retry/resume/cancel controls to durable job APIs, preserves job ids and profile snapshots, prunes failed outcomes for retry, derives cancelled/stale operator statuses, and covers durable-job edge-case acceptance. |
 | #1065 | Stage 3 | Owner comment and shipped implementation evidence | Complete; [Catalog Integration Provider Transport Budgets](./catalog-integration-provider-transport-budgets.md), selected TCGdex proof provider, supplemental TCGplayer transport evidence, reliability categories, performance budgets, and #1062 evidence gates are defined. |
 | #1059 | Stage 3 | Issue comment required before implementation PR | Waiting on #1049 path framing and Stage 2 event points. |
-| #1062 | Stage 3 | Issue comment required before implementation PR | Waiting on accepted Stage 2 primary path. |
-| #1064 | Stage 3 | Issue comment required before implementation PR | Waiting on #1060 security/privacy fields and Stage 2 action surfaces. |
+| #1062 | Stage 3 | Owner comment and PR #1286 | Complete; real TCGdex provider proof covers option queries, import planning/fetch, dry-run Source Observations, promotion-preview counts before writes, degraded transport evidence, redaction-safe packet fields, and handoffs to #1061/#1064/#1065. |
+| #1064 | Stage 3 | Current bounded-context delivery segment | In implementation; `catalog-security-privacy-launch-gate/v1` ties RBAC, write safeguards, governed data, audit integrity, #1062 proof, reset/drop controls, and complete retirement evidence to #1047/#1061 handoffs. |
 | #1047 | Stage 3 | Issue comment required before implementation PR | Waiting on #1046 proof artifact and accepted Stage 2 workbench. |
 | #1088 | Stage 4 | Release checklist owner in #1061 or issue comment | Can track risks now; final acceptance waits on first-slice evidence. |
 | #1061 | Stage 4 | Release checklist owner in #1061 | Blocked by first-slice completion. |
@@ -86,7 +86,7 @@ Each stage exit comment should include:
 - accepted owner/signoff;
 - explicit statement that the next stage is ready or still blocked;
 - any P3+ follow-up with owner and reason;
-- confirmation that no retired behavior remains usable through hidden flags, fallbacks, redirects, aliases, support-only routes, compatibility shims, old tests, fixtures, screenshots, documentation, runbooks, release notes, or operator instructions.
+- confirmation that no retired behavior remains usable through hidden flags, fallbacks, redirects, aliases, support-only routes, compatibility shims, route/API/client/read-model behavior, old tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, or operator instructions.
 
 ## Related References
 

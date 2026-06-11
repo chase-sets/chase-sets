@@ -155,6 +155,12 @@ describe("Catalog provider transport budgets", () => {
         "raw JSON escape hatch",
       ]),
     );
+    expect(catalogProviderTransportRetiredSurfaceRule.appliesTo).toEqual(
+      expect.arrayContaining([
+        "API, client, and read-model compatibility behavior",
+        "tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, and operator instructions that teach retired behavior",
+      ]),
+    );
     expect(catalogProviderTransportRetiredSurfaceRule.ownerIssue).toBe("#1090");
   });
 

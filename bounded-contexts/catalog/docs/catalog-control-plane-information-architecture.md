@@ -51,7 +51,7 @@ The rebuilt control plane may retain familiar URLs only when those URLs are back
 
 | Current concept | Disposition | Target |
 | --- | --- | --- |
-| `/catalog/integrations` two-page god page | Rebuild as clean contract | Import to promotion workbench. The URL may remain, but old page code, module structure, tests, fixtures, screenshots, docs, and runbooks must be deleted. |
+| `/catalog/integrations` two-page god page | Rebuild as clean contract | Import to promotion workbench. The URL may remain, but old page code, module structure, route/API/client/read-model behavior, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, and operator instructions must be deleted. |
 | `/catalog/source-observations` list/import page | Rebuild as clean contract | Import to promotion workbench or a focused Source Observation review deep link. The old second-page workflow must not remain. |
 | Health, authoring, validation, operations, and audit segmented modules | Delete | Do not migrate these areas into grouped navigation one-to-one. |
 | Import and job operations module | Fold into primary path | Import and job state are steps in the default workbench. |
@@ -60,7 +60,7 @@ The rebuilt control plane may retain familiar URLs only when those URLs are back
 | Provider profile review module | Supporting detour | Profile authoring exists to unblock import/review/promotion and must preserve return context. |
 | Rollback and retirement module | Supporting detour | Lifecycle actions are rebuilt around impact evidence and complete removal semantics. |
 
-Retire, remove, deprecate, and cleanup mean complete deletion of old code, patterns, tests, fixtures, screenshots, docs, runbooks, release notes, and operator instructions. No hidden flag, fallback branch, compatibility redirect, alias, shim, or support-only route may preserve a retired screen or pattern.
+Retire, remove, deprecate, and cleanup mean complete deletion of old code, product patterns, routes, APIs, read-model contracts, clients, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, and operator instructions. No hidden flag, feature flag, fallback branch, compatibility redirect, alias, shim, migration shim, or support-only route may preserve a retired screen or pattern.
 
 ## Test Contract
 
@@ -78,7 +78,7 @@ The IA manifest is covered by `information-architecture.test.ts`. The tests prov
 - #1046 implements dense-workbench primitives that can render the workspace responsibilities and evidence states.
 - #1057 owns route, deep-link, and context preservation details.
 - #1056 owns the cohesive default import-to-promotion workbench.
-- #1090 owns complete deletion of the current pages and old supporting artifacts after the rebuilt first slice is accepted.
+- #1090 owns complete deletion of the current pages, old supporting artifacts, route/API/client/read-model behavior, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, and operator instructions after the rebuilt first slice is accepted.
 
 ## Related References
 

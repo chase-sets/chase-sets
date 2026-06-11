@@ -106,11 +106,11 @@ Resilience and error-boundary copy must fail closed without raw payload escape h
 | Provider transport | Adapter-facing provider connectivity, throttle, quota, pagination, payload acquisition, and cache state. | Profile validation or promotion conflicts. |
 | Rollout stop | Governance control that blocks or quarantines a provider, unit, or command. | Permission denial. |
 | Security/privacy blocker | Fail-closed state caused by unsafe evidence, missing redaction, or governed data exposure risk. | Raw provider evidence route. |
-| Retire | Complete removal of associated code, product patterns, routes, APIs, clients, tests, fixtures, screenshots, documentation, runbooks, release notes, and operator instructions. | Soft deprecation, compatibility redirects, hidden support paths, aliases, shims, or preserved tests. |
+| Retire | Complete removal of associated code, product patterns, routes, APIs, read-model contracts, clients, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, and operator instructions. | Soft deprecation, compatibility redirects, hidden support paths, aliases, flags, shims, preserved tests, or preserved documentation. |
 
 ## Retirement Language
 
-For this milestone, retire, deprecate, remove legacy, and cleanup mean complete deletion. Retired behavior must not remain in code, product patterns, route/module/API/client behavior, feature flags, fallback branches, compatibility redirects, aliases, migration shims, support-only routes, tests, fixtures, screenshots, documentation, runbooks, release notes, or operator instructions.
+For this milestone, retire, deprecate, remove legacy, and cleanup mean complete deletion. Retired behavior must not remain in code, product patterns, route/module/API/client/read-model behavior, feature flags, hidden flags, fallback branches, compatibility redirects, aliases, compatibility shims, migration shims, support-only routes, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, or operator instructions.
 
 Operator copy may say a removed behavior is unavailable only to explain why the rebuilt workbench fails closed. It must never teach operators how to use the removed behavior or imply a preserved support path exists.
 

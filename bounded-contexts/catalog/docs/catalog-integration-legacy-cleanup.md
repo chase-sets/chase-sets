@@ -6,7 +6,7 @@ Catalog owns removal of pre-launch Catalog Integration Control Plane data and co
 
 The control plane has not launched. Prefer wipe and rebuild over backwards compatibility for unlaunched integration data.
 
-Retire means complete removal of code, runtime behavior, product patterns, tests, fixtures, screenshots, docs, runbooks, release notes, and operator instructions. Legacy Source Observation profile markers may remain only as reset/drop detection data before cleanup runs; they are not retained runtime compatibility paths and must not power promotion or reapply fallback behavior.
+Retire means complete removal of code, runtime behavior, product patterns, route/API/client/read-model behavior, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, and operator instructions. Legacy Source Observation profile markers may remain only as reset/drop detection data before cleanup runs; they are not retained runtime compatibility paths and must not power promotion or reapply fallback behavior.
 
 The typed inventory lives in:
 
@@ -32,10 +32,10 @@ Seeded Provider Integration Profile versions are intentional bootstrap data. Adm
 
 | Path | Owner issue | Removal expectation | Launch gate |
 | --- | --- | --- | --- |
-| Transitional static profile compatibility | #1053, #1055 | deleted before clean launch handoff | No `transitional-static-profile` code, rows, tests, fixtures, screenshots, docs, runbooks, release notes, or operator instructions remain at launch. |
-| Broad Provider Integration Profile patch route | #1053, #1090 | deleted before rebuilt workbench acceptance | Broad raw patch code, controls, tests, fixtures, screenshots, docs, runbooks, release notes, and operator instructions are removed; section-scoped typed commands are the named supported workflow. |
+| Transitional static profile compatibility | #1053, #1055 | deleted before clean launch handoff | No `transitional-static-profile` code, rows, route/API/client/read-model behavior, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, or operator instructions remain at launch. |
+| Broad Provider Integration Profile patch route | #1053, #1090 | deleted before rebuilt workbench acceptance | Broad raw patch code, controls, route/API/client/read-model behavior, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, and operator instructions are removed; section-scoped typed commands are the named supported workflow. |
 
-These paths are not normal authoring workflows and are not allowed to survive as hidden or support-only compatibility. Retiring one means completely deleting its code, runtime behavior, product pattern, tests, fixtures, screenshots, docs, runbooks, release notes, and operator instructions. Adding a new retained path is launch-blocking unless the path is rebuilt as a clean launch contract with focused tests and owner-approved evidence.
+These paths are not normal authoring workflows and are not allowed to survive as hidden or support-only compatibility. Retiring one means completely deleting its code, runtime behavior, product pattern, route/API/client/read-model behavior, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, and operator instructions. Adding a new retained path is launch-blocking unless the path is rebuilt as a clean launch contract with focused tests and owner-approved evidence.
 
 Legacy Source Observation profile marker reads are deliberately excluded from retained legacy paths. They are verification queries for destructive cleanup only; runtime code must fail closed instead of treating missing or `legacy` source profile metadata as active-profile fallback.
 
@@ -65,7 +65,7 @@ Use the release checklist from `catalogIntegrationLegacyCleanupReleaseChecklist`
 4. Verify seeded active TCGdex, TCGplayer, and Scrydex profile versions are present after bootstrap.
 5. Verify profile section projections and diagnostics rebuilt from retained or seeded profile versions.
 6. Verify every editable Provider Integration Profile section reports `rawJsonBacked=false`.
-7. Verify unsupported profile authoring compatibility code, controls, fixtures, and durable docs are absent.
+7. Verify unsupported profile authoring compatibility code, controls, fixtures, seeds, and durable documentation are absent.
 
 ## Verification Queries
 
@@ -88,4 +88,4 @@ SELECT COUNT(*) AS profile_section_diagnostics FROM catalog_provider_profile_ver
 - #1054 provides executable pre-launch reset evidence.
 - #793 owns schema compatibility policy.
 - #1055 owns the clean-contract handoff evidence.
-- #1090 owns complete deletion of old Catalog integrations pages, modules, tests, fixtures, screenshots, docs, runbooks, release notes, and operator instructions after the rebuilt workbench is accepted.
+- #1090 owns complete deletion of old Catalog integrations pages, modules, route/API/client/read-model behavior, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, and operator instructions after the rebuilt workbench is accepted.

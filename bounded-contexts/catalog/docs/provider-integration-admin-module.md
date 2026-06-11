@@ -52,7 +52,7 @@ The admin module should save edits through typed section commands instead of arb
 - The server validates section shape, immutable profile identity, lifecycle constraints, evidence safety, fixture coverage, and mapping compatibility.
 - Validation diagnostics identify section and control paths with redacted messages suitable for display.
 - Successful saves return the updated authoring model or enough review data for the UI to refresh section diagnostics and activation readiness.
-- Generic JSON patch and broad profile patch paths are pre-launch cleanup targets. Retiring them means complete deletion from UI code, API/client contracts used by the launch control plane, tests, fixtures, screenshots, docs, runbooks, release notes, and operator instructions before the UX rebuild is accepted.
+- Generic JSON patch and broad profile patch paths are pre-launch cleanup targets. Retiring them means complete deletion from UI code, API/client/read-model contracts used by the launch control plane, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, and operator instructions before the UX rebuild is accepted.
 
 Typed commands currently cover the first section-level slices for basics, provider options, connector, catalog field mapping, source contract, fixtures, source observation, normalized observation, external references, selected options, reference hierarchy, duplicate prevention, promotion plan, retirement plan, and migration evidence. Deeper field-specific commands may be added where they make validation, audit, or UI ergonomics meaningfully better.
 

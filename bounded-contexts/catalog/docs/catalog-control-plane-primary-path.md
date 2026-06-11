@@ -93,7 +93,7 @@ Do not use this framing to:
 - make health, profiles, validation, lifecycle, controls, observability, or audit equal peers that hide the primary path;
 - preserve old page modules as support-only, internal, hidden, redirect-only, or migration-only destinations;
 - reintroduce raw profile JSON patching, legacy provider selectors, scripted import endpoints, transitional profile mode, or silent active-profile fallback;
-- describe retired behavior as usable in docs, tests, fixtures, screenshots, runbooks, release notes, or operator instructions.
+- describe retired behavior as usable in documentation, tests, fixtures, screenshots, runbooks, release notes, or operator instructions.
 
 Any exception is launch-blocking until it is rebuilt as a clean launch contract or completely deleted.
 

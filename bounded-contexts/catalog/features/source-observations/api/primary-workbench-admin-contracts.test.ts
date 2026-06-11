@@ -264,7 +264,7 @@ describe("Catalog primary workbench admin contracts", () => {
     );
   });
 
-  it("defines retirement as complete removal across code, docs, evidence, and operator surfaces", () => {
+  it("defines retirement as complete removal across code, documentation, evidence, and operator surfaces", () => {
     expect(catalogPrimaryWorkbenchRetirementPolicy).toMatchObject({
       term: "retire",
       requiredDisposition: "complete-removal",
@@ -275,13 +275,19 @@ describe("Catalog primary workbench admin contracts", () => {
         "API routes",
         "UI modules",
         "product patterns",
+        "read-model contracts",
+        "clients",
         "route aliases",
+        "feature flags",
         "hidden flags",
-        "fallbacks",
+        "fallback branches",
         "redirects",
+        "compatibility aliases",
         "compatibility shims",
+        "migration shims",
         "tests",
         "fixtures",
+        "seeds",
         "screenshots",
         "documentation",
         "runbooks",
@@ -296,6 +302,9 @@ describe("Catalog primary workbench admin contracts", () => {
         "legacy support path",
         "migration of the current two-page surface",
         "raw JSON escape hatch",
+        "support-only preserved route",
+        "documentation-only deprecation",
+        "hidden flag fallback",
       ]),
     );
   });
