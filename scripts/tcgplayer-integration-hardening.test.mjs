@@ -27,10 +27,14 @@ const scenarioFiles = [
     ],
   },
   {
-    name: "Catalog import and duplicate prevention",
-    file: "bounded-contexts/catalog/features/source-observations/api/runtime.test.ts",
+    name: "Catalog import",
+    file: "bounded-contexts/catalog/features/source-observations/api/runtime-provider-integration-jobs.test.ts",
+    evidence: ["imports TCGplayer set scopes as provider-product source observations"],
+  },
+  {
+    name: "Catalog duplicate prevention",
+    file: "bounded-contexts/catalog/features/source-observations/api/runtime-promotion.test.ts",
     evidence: [
-      "imports TCGplayer set scopes as provider-product source observations",
       "refreshing an existing Catalog Item linked to the same TCGplayer Product ID",
       "future provider observations through the same TCGplayer Product ID reference",
       "blocks promotion when external Catalog Item references match multiple Catalog Items",

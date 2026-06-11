@@ -5,7 +5,14 @@ import { describe, expect, it } from "vitest";
 const scanRoots = ["bounded-contexts", "contracts", "deployables", "infrastructure", "packages", "scripts"];
 const ignoredDirectories = new Set([".git", ".turbo", "artifacts", "build", "coverage", "dist", "node_modules"]);
 const sourceExtensions = new Set([".js", ".mjs", ".ts", ".tsx"]);
-const ignoredFilePatterns = [/\.test\.[cm]?[jt]sx?$/, /\.config\.[cm]?[jt]s$/, /\.generated\./];
+const ignoredFilePatterns = [
+  /\.test\.[cm]?[jt]sx?$/,
+  /\.config\.[cm]?[jt]s$/,
+  /\.generated\./,
+  // Extracted test-support harnesses fake the database client, so their
+  // pg_notify/LISTEN strings are fixtures, not runtime primitive use.
+  /-test-harness\.[cm]?[jt]sx?$/,
+];
 
 const workSignalPrimitivePatterns = [
   /\bpg_notify\b/i,
