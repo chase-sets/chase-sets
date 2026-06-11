@@ -224,7 +224,7 @@ jobs:
           PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
         run: |
           set -euo pipefail
-          pnpm run wake:drills -- "${{ inputs.drill }}" \
+          pnpm run wake:drills "${{ inputs.drill }}" \
             --out "artifacts/wake-drills/staging-wake-drill-${{ inputs.drill }}.json"
 
       - name: Upload wake drill evidence

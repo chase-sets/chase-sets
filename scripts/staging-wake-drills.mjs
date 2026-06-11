@@ -784,5 +784,7 @@ async function main(argv, env = process.env) {
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  process.exitCode = await main(process.argv.slice(2));
+  // pnpm forwards a literal "--" separator to the script; ignore it so
+  // `pnpm run wake:drills -- reconciliation` and the bare form both work.
+  process.exitCode = await main(process.argv.slice(2).filter((arg, index) => !(index === 0 && arg === "--")));
 }
