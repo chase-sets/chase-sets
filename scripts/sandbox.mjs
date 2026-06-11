@@ -6,6 +6,7 @@ import {
   buildDockerComposeArgs,
   buildSandboxEnv,
   ensureWorktreeSandboxEnvironment,
+  resolveWorktreeSandbox,
 } from "./lib/sandbox.mjs";
 
 const command = process.argv[2] ?? "doctor";
@@ -21,6 +22,7 @@ function printUsage() {
   console.log("  node ./scripts/sandbox.mjs down        # stop current sandbox containers");
   console.log("  node ./scripts/sandbox.mjs clean       # stop current sandbox and remove volumes");
   console.log("  node ./scripts/sandbox.mjs list        # list Docker Compose projects");
+  console.log("  node ./scripts/sandbox.mjs gc          # remove sandboxes whose worktree no longer exists");
   console.log("  node ./scripts/sandbox.mjs clean-all   # remove all chase-sets-* Compose projects");
 }
 
@@ -142,6 +144,66 @@ function cleanAllSandboxes() {
   }
 }
 
+function listRegisteredWorktreePaths() {
+  const result = spawnSync("git", ["worktree", "list", "--porcelain"], {
+    cwd: rootDir,
+    encoding: "utf8",
+    windowsHide: true,
+  });
+  if (result.status !== 0) {
+    return [];
+  }
+  return String(result.stdout ?? "")
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith("worktree "))
+    .map((line) => line.slice("worktree ".length).trim())
+    .filter(Boolean);
+}
+
+function gcSandboxes() {
+  // Project names hash the worktree path, so every registered worktree's
+  // expected name is computable; anything else with our prefix is orphaned.
+  const expected = new Set(
+    listRegisteredWorktreePaths()
+      .map((worktreePath) => {
+        try {
+          return resolveWorktreeSandbox({ rootDir: worktreePath, env: {}, contextNames: [] }).composeProjectName;
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean),
+  );
+
+  const output = runDocker(["compose", "ls", "--all", "--format", "json"], {
+    encoding: "utf8",
+    stdio: "pipe",
+  });
+  const orphaned = parseComposeProjects(output)
+    .filter((name) => name.startsWith("chase-sets-"))
+    .filter((name) => !expected.has(name));
+
+  if (orphaned.length === 0) {
+    console.log("No orphaned chase-sets-* sandboxes found.");
+    return;
+  }
+
+  for (const projectName of orphaned) {
+    console.log(`Removing orphaned sandbox ${projectName}...`);
+    runDocker([
+      "compose",
+      "--env-file",
+      sandbox.envFilePath,
+      "-f",
+      "docker-compose.dev.yml",
+      "-p",
+      projectName,
+      "down",
+      "-v",
+    ]);
+  }
+}
+
 try {
   if (command === "doctor") {
     printDoctor();
@@ -155,6 +217,8 @@ try {
     composeDown(true);
   } else if (command === "list") {
     listComposeProjects();
+  } else if (command === "gc") {
+    gcSandboxes();
   } else if (command === "clean-all") {
     cleanAllSandboxes();
   } else {

@@ -63,13 +63,20 @@ Remove this worktree's containers and volumes:
 pnpm run sandbox:clean
 ```
 
+Remove sandboxes whose worktree no longer exists (safe to run any time —
+registered worktrees' sandboxes are never touched):
+
+```bash
+pnpm run sandbox:gc
+```
+
 Remove every `chase-sets-*` Compose project on the machine:
 
 ```bash
 pnpm run sandbox:clean:all
 ```
 
-Use all-sandbox cleanup only when no other local worktree should keep running.
+Use all-sandbox cleanup only when no other local worktree should keep running; prefer `sandbox:gc` for routine reclamation.
 
 ## Environment Model
 

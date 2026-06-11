@@ -149,6 +149,7 @@
     "sandbox:down": "node ./scripts/sandbox.mjs down",
     "sandbox:clean": "node ./scripts/sandbox.mjs clean",
     "sandbox:list": "node ./scripts/sandbox.mjs list",
+    "sandbox:gc": "node ./scripts/sandbox.mjs gc",
     "sandbox:clean:all": "node ./scripts/sandbox.mjs clean-all",
     "test:platform": "pnpm --filter @chase-sets/app-platform-api run test",
     "check:structure": "node ./scripts/check-structure.mjs",
