@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc -p ./tests/tsconfig.json --noEmit",
-    "test": "vitest run --config ./tests/vitest.config.mjs"
+    "test": "vitest run --config ./tests/vitest.config.mjs",
+    "test:watch": "vitest --config ./tests/vitest.config.mjs"
   },
   "exports": {
     ".": "./index.ts",

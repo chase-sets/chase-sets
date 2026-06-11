@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "vitest run --config ./tests/vitest.config.mjs"
+    "test": "vitest run --config ./tests/vitest.config.mjs",
+    "test:watch": "vitest --config ./tests/vitest.config.mjs"
   },
   "exports": {
     ".": "./index.ts",
