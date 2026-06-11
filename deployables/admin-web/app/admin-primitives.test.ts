@@ -18,13 +18,13 @@ const featureContextAdminSections = new Map([
   ["catalog", "catalog"],
   ["commercial-terms", "commerce"],
   ["discovery", "growth"],
-  ["experience", "support"],
   ["identity", "access"],
   ["ordering", "commerce"],
   ["platform-operations", "platform"],
   ["public-presence", "growth"],
   ["support", "support"],
 ]);
+const featureSliceAdminSections = new Map([["platform-operations/features/platform-feedback", "support"]]);
 
 function collectTsxFiles(root: string): string[] {
   return readdirSync(root).flatMap((entry) => {
@@ -93,7 +93,15 @@ function isFeatureUiSource(filePath: string) {
 }
 
 function adminSectionForFeatureUi(filePath: string) {
-  const [, contextName] = /^bounded-contexts\/([^/]+)\//.exec(relativePath(filePath)) ?? [];
+  const relative = relativePath(filePath);
+
+  for (const [slicePrefix, section] of featureSliceAdminSections) {
+    if (relative.startsWith(`bounded-contexts/${slicePrefix}/`)) {
+      return section;
+    }
+  }
+
+  const [, contextName] = /^bounded-contexts\/([^/]+)\//.exec(relative) ?? [];
   return contextName ? featureContextAdminSections.get(contextName) : undefined;
 }
 
@@ -200,7 +208,7 @@ describe("admin web primitive usage", () => {
     expect(collectAdminRenderedFeatureUiFiles().map(relativePath)).toEqual(
       expect.arrayContaining([
         "bounded-contexts/support/features/support-requests/ui/support-operations-page.tsx",
-        "bounded-contexts/experience/features/platform-feedback/ui/admin-pages.tsx",
+        "bounded-contexts/platform-operations/features/platform-feedback/ui/admin-pages.tsx",
         "bounded-contexts/public-presence/features/promo-bar/ui/admin-pages.tsx",
         "bounded-contexts/platform-operations/features/projection-operations/ui/projection-operations-page.tsx",
       ]),

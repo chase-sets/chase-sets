@@ -54,7 +54,7 @@ Tests compare the registry to bounded-context metadata so new contexts, projecti
 | `wave-1-checkout-hot-path` | `checkout`, `marketplace`, `ordering`, `payments` | Protect guest Buy Now, payment handoff, submitted-offer, and order/payment hot paths first. |
 | `wave-2-commerce-dependencies` | `catalog`, `fulfillment`, `identity`, `inventory` | Add high-fanout commerce dependencies after capacity and topology proof. |
 | `wave-3-platform-expansion` | `discovery`, `public-presence`, `reputation`, `settlement`, `support` | Expand lower-criticality or narrower fan-out contexts with owner approval. |
-| `wave-4-deferred-or-not-eligible` | `auth`, `commercial-terms`, `experience`, `notifications`, `platform-operations`, `pricing` | No current source projection fan-out or route dependency requiring event-store wake fan-out. |
+| `wave-4-deferred-or-not-eligible` | `auth`, `commercial-terms`, `notifications`, `platform-operations`, `pricing` | No current source projection fan-out or route dependency requiring event-store wake fan-out. |
 
 Wave membership is a rollout control, not a scheduling hint. Runtime code must consume the enablement flags, and operator tooling must show the rollout state.
 

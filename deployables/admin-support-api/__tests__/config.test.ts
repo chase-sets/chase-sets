@@ -3,7 +3,7 @@ import { getApiHostContextNames } from "@chase-sets/platform-runtime/api";
 import { apiContextRegistry } from "../src/generated/api-context-registry";
 import { getContextDatabaseEnvName, loadConfig } from "../src/config";
 
-const adminSupportContextNames = ["auth", "catalog", "experience", "identity", "public-presence"] as const;
+const adminSupportContextNames = ["auth", "catalog", "identity", "platform-operations", "public-presence"] as const;
 
 describe("admin-support API configuration", () => {
   afterEach(() => {
@@ -51,7 +51,7 @@ describe("admin-support API configuration", () => {
       expect.objectContaining({
         auth: "postgres://auth",
         catalog: "postgres://catalog",
-        experience: "postgres://experience",
+        "platform-operations": "postgres://platform-operations",
         identity: "postgres://identity",
         "public-presence": "postgres://public-presence",
       }),

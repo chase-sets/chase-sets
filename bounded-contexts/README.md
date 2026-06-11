@@ -15,7 +15,6 @@ Structure, public export, deployable composition, and shared-ID rules live in [B
 | [Catalog](./catalog/README.md) | Own the canonical product model for what can be bought or sold. |
 | [Public Presence](./public-presence/README.md) | Own public product pages, prelaunch policy surfaces, waitlist behavior, and internal waitlist review. |
 | [Discovery](./discovery/README.md) | Own browse, search, and detail discovery experiences for catalog items. |
-| [Experience](./experience/README.md) | Own internal platform feedback and feedback review surfaces. |
 | [Checkout](./checkout/README.md) | Own account cart intent and active checkout session orchestration. |
 | [Inventory](./inventory/README.md) | Own account-held stock and operational availability. |
 | [Commercial Terms](./commercial-terms/README.md) | Own seller-side marketplace sales fee policy and account-specific commercial agreements. |

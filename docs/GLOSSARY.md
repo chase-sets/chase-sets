@@ -69,7 +69,7 @@ Do not rename durable event fields, persisted columns, provider metadata, or tra
 | Google Shopping Export Row | [Architecture](./adr/0007-google-shopping-merchant-center-integration.md) | Discovery-owned public export row for one Marketplace Listing submitted or dry-run-evaluated for Google Merchant Center. |
 | Merchant Offer ID | [Architecture](./adr/0007-google-shopping-merchant-center-integration.md) | Stable Google-facing offer id derived from immutable Chase Sets Listing identity. |
 | External Seller ID | [Architecture](./adr/0007-google-shopping-merchant-center-integration.md) | Google marketplace seller identifier derived from Chase Sets Account identity for multi-seller Merchant Center submissions. |
-| Platform Feedback | [Experience](../bounded-contexts/experience/GLOSSARY.md) | Internal product feedback, not public account reputation. |
+| Platform Feedback | [Platform Operations](../bounded-contexts/platform-operations/GLOSSARY.md) | Internal product feedback, not public account reputation. |
 | Sign-In Identifier | [Auth](../bounded-contexts/auth/GLOSSARY.md) | Contact value Auth accepts to start an authentication journey, such as email or phone. |
 | Phone Code | [Auth](../bounded-contexts/auth/GLOSSARY.md) | Short-lived Auth challenge sent over SMS and consumed to start or continue a session. |
 | Social Login | [Auth](../bounded-contexts/auth/GLOSSARY.md) | Auth-owned sign-in or registration journey through an external provider. |

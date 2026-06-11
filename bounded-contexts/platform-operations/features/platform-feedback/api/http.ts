@@ -1,9 +1,8 @@
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
-import type { ExperienceServices } from "./support/runtime-support/services";
-import type { PlatformFeedbackServices } from "./features/platform-feedback/api/runtime";
-import type { PlatformFeedbackRelatedEntity } from "./features/platform-feedback/domain/common";
+import type { PlatformFeedbackServices } from "./runtime";
+import type { PlatformFeedbackRelatedEntity } from "../domain/common";
 
 export type ExperienceApiEnv = AuthenticatedApiEnv;
 
@@ -248,8 +247,8 @@ export function createPlatformFeedbackRoutes(services: PlatformFeedbackServices)
   return app;
 }
 
-export function buildExperienceApi(services: ExperienceServices) {
+export function buildExperienceApi(platformFeedback: PlatformFeedbackServices) {
   const app = new Hono<ExperienceApiEnv>();
-  app.route("/platform-feedback", createPlatformFeedbackRoutes(services.platformFeedback));
+  app.route("/platform-feedback", createPlatformFeedbackRoutes(platformFeedback));
   return app;
 }

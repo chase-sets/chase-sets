@@ -63,7 +63,6 @@ const contextSuiteOwnership = new Map([
   ["checkout", ["marketplace_checkout"]],
   ["commercial-terms", ["marketplace_browse", "marketplace_seller"]],
   ["discovery", ["marketplace_browse"]],
-  ["experience", []],
   ["fulfillment", ["marketplace_account"]],
   ["identity", ["marketplace_account"]],
   ["inventory", ["marketplace_seller"]],

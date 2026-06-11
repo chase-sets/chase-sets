@@ -4,7 +4,7 @@ import { useLoaderData, useSearchParams } from "react-router";
 import { loadFreshlyWrittenResource } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import { PlatformFeedbackPrompt } from "@chase-sets/experience/server";
+import { PlatformFeedbackPrompt } from "@chase-sets/platform-operations/server";
 import { MarketplaceApiError, type SubmittedOfferDetail } from "../support/request-support/api-client";
 import { createMarketplaceRequestApiClient } from "../support/request-support/api-client";
 import { MarketplaceSubmittedOfferDetailPage } from "../features/offers/ui/submitted-offer-detail-page";

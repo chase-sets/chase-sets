@@ -211,7 +211,7 @@ export const ADMIN_WEB_API_DEPENDENCIES = [
     section: "Support",
     surface: "Platform Feedback",
     callerType: "server-loader/action",
-    sourceFile: "bounded-contexts/experience/support/request-support/api-client.ts",
+    sourceFile: "bounded-contexts/platform-operations/support/request-support/api-client.ts",
     apiPath: "/api/experience",
     sourceEvidence: ['resolveRequestApiBaseUrl(request, "/api/experience")'],
     contract: "internal-origin server call",

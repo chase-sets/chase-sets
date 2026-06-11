@@ -5,7 +5,6 @@ import { contextManifest as catalogManifest, module as catalogModule } from "@ch
 import { contextManifest as checkoutManifest, module as checkoutModule } from "@chase-sets/checkout";
 import { contextManifest as commercialTermsManifest, module as commercialTermsModule } from "@chase-sets/commercial-terms";
 import { contextManifest as discoveryManifest, module as discoveryModule } from "@chase-sets/discovery";
-import { contextManifest as experienceManifest, module as experienceModule } from "@chase-sets/experience";
 import { contextManifest as fulfillmentManifest, module as fulfillmentModule } from "@chase-sets/fulfillment";
 import { contextManifest as identityManifest, module as identityModule } from "@chase-sets/identity";
 import { contextManifest as inventoryManifest, module as inventoryModule } from "@chase-sets/inventory";
@@ -13,6 +12,7 @@ import { contextManifest as marketplaceManifest, module as marketplaceModule } f
 import { contextManifest as notificationsManifest, module as notificationsModule } from "@chase-sets/notification-center";
 import { contextManifest as orderingManifest, module as orderingModule } from "@chase-sets/ordering";
 import { contextManifest as paymentsManifest, module as paymentsModule } from "@chase-sets/payments";
+import { contextManifest as platformOperationsManifest, module as platformOperationsModule } from "@chase-sets/platform-operations";
 import { contextManifest as pricingManifest, module as pricingModule } from "@chase-sets/pricing";
 import { contextManifest as publicPresenceManifest, module as publicPresenceModule } from "@chase-sets/public-presence";
 import { contextManifest as reputationManifest, module as reputationModule } from "@chase-sets/reputation";
@@ -49,12 +49,6 @@ export const workerContextRegistry = [
     packageName: "@chase-sets/discovery",
     manifest: discoveryManifest,
     module: discoveryModule,
-  },
-  {
-    contextName: "experience",
-    packageName: "@chase-sets/experience",
-    manifest: experienceManifest,
-    module: experienceModule,
   },
   {
     contextName: "fulfillment",
@@ -97,6 +91,12 @@ export const workerContextRegistry = [
     packageName: "@chase-sets/payments",
     manifest: paymentsManifest,
     module: paymentsModule,
+  },
+  {
+    contextName: "platform-operations",
+    packageName: "@chase-sets/platform-operations",
+    manifest: platformOperationsManifest,
+    module: platformOperationsModule,
   },
   {
     contextName: "pricing",

@@ -13,6 +13,7 @@ Platform Operations owns internal operator workflows for cross-context platform 
 - Platform operation API clients
 - Platform operation workflow tests
 - Cross-context analytical KPI dashboard-read-model contracts and dashboard query language (`features/insights-dashboards`)
+- Platform feedback submission, prompt dismissal, review queue status, reporting read models, and internal admin review surfaces (`features/platform-feedback`)
 
 ## Does Not Own
 
@@ -23,6 +24,11 @@ Platform Operations owns internal operator workflows for cross-context platform 
 - Deployable runtime composition
 - Business-context decisions about whether a released capability should exist
 - Transactional decisions, order lifecycle invariants, or payment authorizations behind analytical reporting
+- Account reviews, reputation summaries, or support tickets behind platform feedback
+
+## Platform Feedback
+
+Platform Operations hosts the former Experience bounded context as the `platform-feedback` slice. Platform feedback is internal-only product signal: a user submission is immutable after it is sent, admin lifecycle state is limited to new/reviewed/archived, and follow-up consent records permission to use existing contact methods only. Marketplace, inventory, and payments routes embed the `PlatformFeedbackPrompt` from the `./server` surface, and the feedback API stays mounted at `/api/experience`.
 
 ## Boundary Notes
 

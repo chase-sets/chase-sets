@@ -9,23 +9,36 @@
     "sales-performance-kpi",
     "fulfillment-latency-kpi",
     "conversion-order-kpi",
-    "dashboard-read-model"
+    "dashboard-read-model",
+    "platform-feedback",
+    "platform-feedback-prompt"
   ],
   "streamPrefix": "platform-operations.",
   "apiBasePath": "/api/platform",
-  "slices": ["projection-operations", "release-controls", "release-dashboard", "insights-dashboards"],
-  "allowedSupportDirectories": ["runtime-support"],
-  "publicExports": [".", "./context", "./routes/*"],
+  "slices": [
+    "projection-operations",
+    "release-controls",
+    "release-dashboard",
+    "insights-dashboards",
+    "platform-feedback"
+  ],
+  "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support"],
+  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
   "allowedContextDependencies": [],
-  "seedRequirements": [],
+  "seedRequirements": ["identity"],
   "eventSubscriptions": [],
   "projectionGroups": [],
   "hostPorts": [],
-  "apiDeployables": ["platform-api"],
+  "apiDeployables": ["admin-support-api", "platform-api"],
   "apiMounts": [
     {
       "mountPath": "/api/platform",
       "kind": "primary",
+      "requiresAuth": true
+    },
+    {
+      "mountPath": "/api/experience",
+      "kind": "additional",
       "requiresAuth": true
     }
   ],
@@ -33,6 +46,22 @@
     {
       "deployable": "admin-web",
       "routes": [
+        {
+          "routeId": "platform-feedback",
+          "routePath": "platform-feedback",
+          "fileExport": "./routes/admin/platform-feedback",
+          "routeType": "route",
+          "sourceContext": "platform-operations",
+          "section": "support"
+        },
+        {
+          "routeId": "platform-feedback-detail",
+          "routePath": "platform-feedback/:id",
+          "fileExport": "./routes/admin/platform-feedback-detail",
+          "routeType": "route",
+          "sourceContext": "platform-operations",
+          "section": "support"
+        },
         {
           "routeId": "projection-operations",
           "routePath": "projections",
@@ -61,6 +90,18 @@
     }
   ],
   "shellContributions": [
+    {
+      "deployable": "admin-web",
+      "slot": "primary-nav",
+      "key": "platform-feedback",
+      "label": "Platform Feedback",
+      "icon": "message",
+      "href": "/platform-feedback",
+      "section": "support",
+      "order": 20,
+      "visibility": "signed-in",
+      "requiredPermissions": ["platform-feedback.view"]
+    },
     {
       "deployable": "admin-web",
       "slot": "primary-nav",
@@ -127,6 +168,35 @@
       "allowedWhen": "Required when marketplace reporting needs read-only KPI projections without a transactional owner.",
       "expectedConsumers": ["Internal platform-operations module composition", "Future operator reporting surfaces"]
     },
+    "platform-feedback": {
+      "classification": "slice",
+      "purpose": "Own platform-feedback behavior, read models, UI contracts, and admin review surfaces.",
+      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
+      "expectedConsumers": [
+        "Internal platform-operations module composition",
+        "Marketplace contextual feedback prompts"
+      ]
+    },
+    "request-support": {
+      "classification": "support",
+      "purpose": "Provide request API clients shared by platform-feedback route modules and prompt UI.",
+      "allowedWhen": "Allowed only for context-local request composition.",
+      "expectedConsumers": ["platform-feedback"],
+      "justification": "request-support centralizes the platform-feedback API client for route modules and browser prompt UI.",
+      "createdFor": "platform-feedback routes and contextual prompt submissions.",
+      "sunsetWhen": "Remove when all consumers can move behavior back into feature-local modules.",
+      "crossCuttingRuntimeComposition": true
+    },
+    "seed-support": {
+      "classification": "support",
+      "purpose": "Provide deterministic platform-feedback seed identifiers.",
+      "allowedWhen": "Allowed for bootstrap and test data.",
+      "expectedConsumers": ["platform-feedback", "Deployable composition for platform-operations"],
+      "justification": "seed-support centralizes deterministic identifiers for sample platform feedback.",
+      "createdFor": "platform-feedback bootstrap and test data flows.",
+      "sunsetWhen": "Remove when sample platform feedback is no longer seeded.",
+      "crossCuttingRuntimeComposition": true
+    },
     "runtime-support": {
       "classification": "support",
       "purpose": "Provide reusable runtime-support assets shared by Platform Operations release-controls API composition.",
@@ -143,5 +213,5 @@
       "expectedConsumers": ["Generated deployable route adapters"]
     }
   },
-  "runtimeDeployables": []
+  "runtimeDeployables": ["admin-support-worker", "platform-worker"]
 }

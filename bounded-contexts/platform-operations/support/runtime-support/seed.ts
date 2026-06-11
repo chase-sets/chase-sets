@@ -1,20 +1,20 @@
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
-import { createExperienceServices } from "./services";
+import { createPlatformOperationsServices } from "./services";
 import { experienceSeedIds } from "../seed-support/ids";
 
 function isoDate(value: string) {
   return new Date(value).toISOString();
 }
 
-export async function seedExperienceDatabase(pool: PgTransactionalPool) {
-  const services = createExperienceServices(pool);
+export async function seedPlatformFeedbackData(pool: PgTransactionalPool) {
+  const services = createPlatformOperationsServices(pool);
 
   try {
     const existing = await services.db.query("SELECT COUNT(*) AS count FROM experience_platform_feedback_pages");
     if (Number(existing.rows[0]?.count ?? 0) > 0) {
-      console.log("Experience already contains data. Skipping seed.");
+      console.log("Platform feedback already contains data. Skipping seed.");
       return;
     }
   } catch {

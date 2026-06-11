@@ -6,7 +6,7 @@ import type {
   PlatformFeedbackMetrics,
   PlatformFeedbackPromptEligibility,
   SubmitPlatformFeedbackRequest,
-} from "./features/platform-feedback/api/contracts";
+} from "../../features/platform-feedback/api/contracts";
 
 const DEFAULT_BASE_URL = "/api/experience";
 
@@ -17,7 +17,7 @@ export type {
   PlatformFeedbackMetrics,
   PlatformFeedbackPromptEligibility,
   SubmitPlatformFeedbackRequest,
-} from "./features/platform-feedback/api/contracts";
+} from "../../features/platform-feedback/api/contracts";
 
 export class ExperienceApiError extends Error {
   public constructor(

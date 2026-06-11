@@ -10,9 +10,9 @@
   "allowedContextDependencies": [
     "@chase-sets/catalog",
     "@chase-sets/commercial-terms",
-    "@chase-sets/experience",
     "@chase-sets/identity",
-    "@chase-sets/inventory"
+    "@chase-sets/inventory",
+    "@chase-sets/platform-operations"
   ],
   "seedRequirements": ["catalog", "commercial-terms", "identity", "inventory"],
   "eventSubscriptions": [

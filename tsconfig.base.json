@@ -147,24 +147,6 @@
       "@chase-sets/event-core/*": [
         "./contracts/event-core/*.ts"
       ],
-      "@chase-sets/experience": [
-        "./bounded-contexts/experience/index.ts"
-      ],
-      "@chase-sets/experience/context": [
-        "./bounded-contexts/experience/context.json"
-      ],
-      "@chase-sets/experience/routes/*": [
-        "./bounded-contexts/experience/routes/*.tsx"
-      ],
-      "@chase-sets/experience/seed-support/*": [
-        "./bounded-contexts/experience/support/seed-support/*.ts"
-      ],
-      "@chase-sets/experience/server": [
-        "./bounded-contexts/experience/server.ts"
-      ],
-      "@chase-sets/experience/web": [
-        "./bounded-contexts/experience/web.ts"
-      ],
       "@chase-sets/fulfillment": [
         "./bounded-contexts/fulfillment/index.ts"
       ],
@@ -329,6 +311,12 @@
       ],
       "@chase-sets/platform-operations/routes/*": [
         "./bounded-contexts/platform-operations/routes/*.tsx"
+      ],
+      "@chase-sets/platform-operations/seed-support/*": [
+        "./bounded-contexts/platform-operations/support/seed-support/*.ts"
+      ],
+      "@chase-sets/platform-operations/server": [
+        "./bounded-contexts/platform-operations/server.ts"
       ],
       "@chase-sets/platform-runtime": [
         "./infrastructure/platform-runtime/index.ts"

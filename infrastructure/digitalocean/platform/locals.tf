@@ -324,8 +324,8 @@ locals {
     "auth",
     "catalog",
     "control",
-    "experience",
     "identity",
+    "platform-operations",
     "public-presence",
   ]
 
@@ -336,7 +336,6 @@ locals {
     "commercial-terms",
     "control",
     "discovery",
-    "experience",
     "fulfillment",
     "identity",
     "inventory",

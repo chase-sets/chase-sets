@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import type { ResolvedActor } from "@chase-sets/auth-context";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import { createPlatformFeedbackRoutes, type ExperienceApiEnv } from "../api";
+import { createPlatformFeedbackRoutes, type ExperienceApiEnv } from "../features/platform-feedback/api/http";
 import type { PlatformFeedbackServices } from "../features/platform-feedback/api/runtime";
 
 const context = {

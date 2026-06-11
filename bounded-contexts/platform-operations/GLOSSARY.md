@@ -26,3 +26,10 @@
 - Dashboard View: The presentation-focused projection used to render operational or commercial reporting.
 - Forecast Model: The analytical model used to estimate future demand, pricing, or operational outcomes.
 - Report Slice: A filtered analytical view scoped by time, account, or product dimensions.
+- Platform Feedback: An internal record of a user's experience with Chase Sets. It evaluates the platform (not another account), is visible to internal users only, and carries a rating, topic, optional comment, source workflow, and source context.
+- Platform Feedback Rating: The numeric experience score inside Platform Feedback, an integer from `1` through `5`.
+- Platform Feedback Topic: The required high-level area the feedback is about, such as ease of use, pricing/fees, product data/search, checkout/payment, selling/inventory, performance/reliability, or other.
+- Platform Feedback Comment: The optional written narrative attached to Platform Feedback.
+- Source Workflow: The user task that produced a platform-feedback prompt, such as checkout payment, listing publish, offer submit, offer accept, inventory create, or inventory adjust.
+- Prompt Dismissal: A record that a user chose not to leave platform feedback for a Source Workflow at that time.
+- Review Queue Status: The internal lifecycle state for Platform Feedback: new, reviewed, or archived.

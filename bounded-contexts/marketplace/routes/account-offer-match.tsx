@@ -3,7 +3,7 @@ import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react
 import { redirect, useActionData, useLoaderData, useSearchParams } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import { PlatformFeedbackPrompt } from "@chase-sets/experience/server";
+import { PlatformFeedbackPrompt } from "@chase-sets/platform-operations/server";
 import {
   createMarketplaceRequestApiClient,
   MarketplaceApiError,
