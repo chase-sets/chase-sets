@@ -247,7 +247,7 @@ export function CatalogIntegrationPrimaryStepsModule({
       ) : null}
 
       <DataTable
-        rows={steps}
+        rows={[...steps]}
         columns={columns}
         getRowId={(step) => step.key}
         selectedKeys={selectedKeys}
