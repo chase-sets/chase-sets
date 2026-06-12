@@ -83,9 +83,9 @@ export type ItemDetailActionData = AddToCartActionData | Readonly<{ error: strin
 export function isAddToCartActionData(value: unknown): value is AddToCartActionData {
   return Boolean(
     value &&
-      typeof value === "object" &&
-      "status" in value &&
-      (value as { status?: unknown }).status === "added-to-cart",
+    typeof value === "object" &&
+    "status" in value &&
+    (value as { status?: unknown }).status === "added-to-cart",
   );
 }
 

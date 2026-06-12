@@ -2,12 +2,12 @@ import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs } from "react-router";
 import { redirect } from "react-router";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import { createDiscoveryRequestApiClient, DiscoveryApiError } from "../support/request-support/api-client";
+import { createDiscoveryRequestApiClient, DiscoveryApiError } from "../../request-support/api-client";
 import {
   ensureAnonymousProductAlertOwnerId,
   readAnonymousProductAlertOwnerId,
-} from "../support/request-support/anonymous-product-alert";
-import type { DiscoveryAccountOfferMatch, DiscoverySellerInventoryItem } from "../support/client-support/contracts";
+} from "../../request-support/anonymous-product-alert";
+import type { DiscoveryAccountOfferMatch, DiscoverySellerInventoryItem } from "../../client-support/contracts";
 import {
   createMarketplaceRequestApiClient,
   type MarketplaceListingInventoryItemOption,
@@ -25,7 +25,7 @@ import {
   readExplicitMarketSelectionId,
   readInitialSelectedOptions,
   toSellerInventoryItem,
-} from "./item-detail.support";
+} from "./support";
 
 type DiscoveryOfferMatchWithTerms = DiscoveryAccountOfferMatch &
   Readonly<{

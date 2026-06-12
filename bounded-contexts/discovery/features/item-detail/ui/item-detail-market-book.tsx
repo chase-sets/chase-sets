@@ -21,7 +21,11 @@ import {
   Tabs,
   Text,
 } from "@chase-sets/design-system";
-import type { DiscoveryItemDetail, DiscoveryMarketListing, DiscoveryOffer } from "../../../support/client-support/contracts";
+import type {
+  DiscoveryItemDetail,
+  DiscoveryMarketListing,
+  DiscoveryOffer,
+} from "../../../support/client-support/contracts";
 import {
   formatCompactProductSummary,
   formatListingAvailability,

@@ -11,13 +11,14 @@ import { getActionErrorMessage } from "../features/item-detail/ui/commerce-secti
 import {
   EMPTY_ITEM_DETAIL_RESULT,
   MARKETPLACE_DESCRIPTION,
-  readExplicitMarketSelectionId,
-  readInitialSelectedOptions,
   selectItemImageUrl,
-} from "./item-detail.support";
-import { loader } from "./item-detail.loader";
-import { buildItemDetailCommerce } from "./item-detail.commerce";
-import type { DiscoveryItemDetailActionData, DiscoveryItemDetailRouteData } from "./item-detail.types";
+} from "../support/request-support/item-detail/support";
+import { loader } from "../support/request-support/item-detail/loader";
+import { buildItemDetailCommerce } from "../support/request-support/item-detail/commerce";
+import type {
+  DiscoveryItemDetailActionData,
+  DiscoveryItemDetailRouteData,
+} from "../support/request-support/item-detail/types";
 
 export {
   BuyActionCard,
@@ -33,9 +34,12 @@ export {
   WatchActionCard,
 } from "../features/item-detail/ui/commerce-sections";
 export type { AddToCartActionData, CommerceAccordionEdge } from "../features/item-detail/ui/commerce-sections";
-export { loader } from "./item-detail.loader";
-export { action } from "./item-detail.action";
-export { readExplicitMarketSelectionId, readInitialSelectedOptions } from "./item-detail.support";
+export { loader } from "../support/request-support/item-detail/loader";
+export { action } from "../support/request-support/item-detail/action";
+export {
+  readExplicitMarketSelectionId,
+  readInitialSelectedOptions,
+} from "../support/request-support/item-detail/support";
 
 export const meta: MetaFunction<typeof loader> = ({ data }) => [
   ...buildOpenGraphMeta({

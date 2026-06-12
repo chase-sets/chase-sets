@@ -3,12 +3,12 @@ import type { ActionFunctionArgs } from "react-router";
 import { redirect } from "react-router";
 import { requireActorFromAuthApi, resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { appendFreshWriteToken } from "@chase-sets/http/responses";
-import { createDiscoveryRequestApiClient } from "../support/request-support/api-client";
+import { createDiscoveryRequestApiClient } from "../../request-support/api-client";
 import {
   appendAnonymousProductAlertCookie,
   ensureAnonymousProductAlertOwnerId,
-} from "../support/request-support/anonymous-product-alert";
-import { imageVariantSrcSet } from "../support/client-support/assets";
+} from "../../request-support/anonymous-product-alert";
+import { imageVariantSrcSet } from "../../client-support/assets";
 import {
   appendAnonymousListingDraftCookie,
   createMarketplaceRequestApiClient,
@@ -22,8 +22,8 @@ import {
   ensureAnonymousCartId,
   ensureAnonymousSellListId,
 } from "@chase-sets/checkout/server";
-import type { AddToCartActionData } from "../features/item-detail/ui/commerce-sections";
-import { canUseAccountCheckoutCart } from "../features/item-detail/ui/commerce-sections";
+import type { AddToCartActionData } from "../../../features/item-detail/ui/commerce-sections";
+import { canUseAccountCheckoutCart } from "../../../features/item-detail/ui/commerce-sections";
 import {
   buildRegisterToClaimListingDraftHref,
   buildRegisterToClaimProductAlertHref,
@@ -32,7 +32,7 @@ import {
   LISTING_STOCK_LOCATION_NAME,
   LISTING_STOCK_SHIP_FROM_CODE,
   selectItemImage,
-} from "./item-detail.support";
+} from "./support";
 import {
   assertSelectedListingQuantityAvailable,
   findSelectedListingForAction,
@@ -43,7 +43,7 @@ import {
   parseSelectedOptions,
   saveGuestSelectedOfferToSellList,
   shipFromAddressFromForm,
-} from "./item-detail.action-helpers";
+} from "./action-helpers";
 
 export async function action({ request, params }: ActionFunctionArgs) {
   const formData = await request.formData();

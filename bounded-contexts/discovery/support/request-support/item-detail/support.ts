@@ -1,10 +1,7 @@
 import { t } from "@chase-sets/localization";
-import { DiscoveryApiError } from "../support/request-support/api-client";
-import type { DiscoveryItemDetail, DiscoverySellerInventoryItem } from "../support/client-support/contracts";
-import {
-  buildDiscoveryProductAssetImage,
-  selectDiscoveryProductAssetUrl,
-} from "../support/client-support/product-assets";
+import { DiscoveryApiError } from "../../request-support/api-client";
+import type { DiscoveryItemDetail, DiscoverySellerInventoryItem } from "../../client-support/contracts";
+import { buildDiscoveryProductAssetImage, selectDiscoveryProductAssetUrl } from "../../client-support/product-assets";
 import {
   createMarketplaceRequestApiClient,
   type MarketplaceListingInventoryItemOption,

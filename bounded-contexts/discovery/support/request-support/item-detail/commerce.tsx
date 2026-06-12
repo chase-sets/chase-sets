@@ -4,7 +4,7 @@ import type { FormPanelVariant } from "@chase-sets/design-system";
 import type {
   ItemDetailCommerceSections,
   ItemDetailMarketplaceSectionContext,
-} from "../features/item-detail/ui/item-detail-page";
+} from "../../../features/item-detail/ui/item-detail-page";
 import {
   BuyActionCard,
   CheckoutPurchaseIntentSection,
@@ -17,8 +17,8 @@ import {
   ProductSellListIntentSection,
   WatchActionCard,
   SellActionCard,
-} from "../features/item-detail/ui/commerce-sections";
-import type { DiscoveryItemDetailRouteData, DiscoveryItemDetailActionData } from "./item-detail.types";
+} from "../../../features/item-detail/ui/commerce-sections";
+import type { DiscoveryItemDetailRouteData, DiscoveryItemDetailActionData } from "./types";
 
 export function buildItemDetailCommerce(
   data: DiscoveryItemDetailRouteData,

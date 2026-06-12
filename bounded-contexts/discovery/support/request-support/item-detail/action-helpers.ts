@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { redirect } from "react-router";
-import type { DiscoveryItemDetail } from "../support/client-support/contracts";
+import type { DiscoveryItemDetail } from "../../client-support/contracts";
 import {
   createMarketplaceRequestApiClient,
   MarketplaceApiError,
