@@ -1,10 +1,10 @@
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import {
   buildFilteredQuery,
   executeListQuery,
   type ListParams,
   type ListResult,
-} from "../../../support/projection-support/list-query";
+  type PgQueryable,
+} from "@chase-sets/event-core-postgres";
 import type { BulkLifecycleRow } from "../../../support/runtime-support/bulk-lifecycle";
 
 export type ReferenceTypeRow = Readonly<{

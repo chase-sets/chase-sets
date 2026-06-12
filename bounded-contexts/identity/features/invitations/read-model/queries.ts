@@ -1,6 +1,5 @@
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { executeListQuery, type ListParams, type PgQueryable } from "@chase-sets/event-core-postgres";
 import { normalizeEmail } from "../../../support/runtime-support/common";
-import { executeListQuery, type ListParams } from "../../../support/read-model-support/list-query";
 
 export type InvitationRow = Readonly<{
   invitation_id: string;

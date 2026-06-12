@@ -1,5 +1,4 @@
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { type ListParams, type ListResult } from "../../../support/projection-support/list-query";
+import type { ListParams, ListResult, PgQueryable } from "@chase-sets/event-core-postgres";
 import type { BulkLifecycleRow } from "../../../support/runtime-support/bulk-lifecycle";
 
 export type CatalogItemListRow = Readonly<{
