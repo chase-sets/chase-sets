@@ -27,7 +27,7 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 COPY --from=manifests /manifests ./
 RUN pnpm install --frozen-lockfile
 
-COPY tsconfig.json tsconfig.base.json tailwind.config.ts ./
+COPY tsconfig.json tsconfig.base.json tsconfig.vitest.json tailwind.config.ts ./
 COPY scripts ./scripts
 COPY contracts ./contracts
 COPY infrastructure ./infrastructure
