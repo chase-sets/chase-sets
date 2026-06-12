@@ -21,8 +21,37 @@ import {
   type UcpEnvelope,
   type UcpMcpResourceDescriptor,
   type UcpMcpToolDescriptor,
-} from "@chase-sets/ucp";
+} from "./ucp-contracts";
 import type { ResolvedActor } from "./auth";
+
+export {
+  buildUcpBusinessProfile,
+  createUcpEnvelope,
+  normalizeUcpOrigin,
+  UCP_CAPABILITIES,
+  UCP_LATEST_SPEC_BASE_URL,
+  UCP_MCP_APP_RESOURCE_MIME_TYPE,
+  UCP_MCP_ENDPOINT_PATH,
+  UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI,
+  UCP_MCP_RESOURCES,
+  UCP_MCP_TOOLS,
+  UCP_REST_ENDPOINT_PATH,
+  UCP_SHOPPING_SERVICE,
+  UCP_SPEC_BASE_URL,
+  UCP_VERSION,
+  unsupportedUcpOperation,
+  type UcpBusinessProfile,
+  type UcpCapabilityDeclaration,
+  type UcpEnvelope,
+  type UcpMcpResourceDescriptor,
+  type UcpMcpSecurityScheme,
+  type UcpMcpToolDescriptor,
+  type UcpMessage,
+  type UcpMessageSeverity,
+  type UcpResponseStatus,
+  type UcpServiceDeclaration,
+  type UcpTransport,
+} from "./ucp-contracts";
 
 type UcpRuntimeEnv = {
   Variables: {

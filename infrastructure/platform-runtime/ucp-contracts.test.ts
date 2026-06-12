@@ -9,7 +9,7 @@ import {
   UCP_MCP_TOOLS,
   UCP_REST_ENDPOINT_PATH,
   UCP_VERSION,
-} from "./index";
+} from "./ucp";
 
 describe("UCP contract profile", () => {
   it("advertises REST and MCP shopping services from the same origin", () => {

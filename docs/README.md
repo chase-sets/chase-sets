@@ -111,8 +111,6 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Panel Interaction Patterns](../packages/design-system/PANEL_INTERACTIONS.md)
 - [Section Navigation](../packages/design-system/SECTION_NAVIGATION.md)
 - [Localization Contract](../contracts/localization/README.md)
-- [MCP Contract](../contracts/mcp/README.md)
-- [UCP Contract](../contracts/ucp/README.md)
 - [Catalog Graded Card Data Model](../bounded-contexts/catalog/docs/graded-card-data-model.md)
 - [Catalog Source Observation Integration](../bounded-contexts/catalog/docs/source-observation-integration.md)
 - [Catalog Integration Control Plane](../bounded-contexts/catalog/docs/catalog-integration-control-plane.md)

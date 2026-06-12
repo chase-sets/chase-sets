@@ -1,13 +1,26 @@
 import type { ResolvedActor } from "@chase-sets/auth-context";
 import { readApiErrorMessage } from "@chase-sets/http/responses";
 import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
-import {
-  normalizeRolloutEnvironment,
-  type ReleaseControlPolicyDecision,
-  type RolloutEnvironment,
-} from "@chase-sets/release-controls";
 
 export const PRICING_ACCOUNT_REPRICING_FEATURE_KEY = "pricing.account-repricing";
+
+// Platform Operations owns rollout evaluation. Pricing keeps this API DTO local to avoid a bounded-context package dependency.
+export type RolloutEnvironment = "development" | "test" | "preview" | "staging" | "production";
+
+export type RolloutSubject = Readonly<{
+  subjectType: "account" | "membership" | "operator" | "anonymous";
+  subjectId: string;
+}>;
+
+export type ReleaseControlPolicyDecision = Readonly<{
+  enabled: boolean;
+  reason: "kill-switch" | "subject-opt-out" | "subject-allowlist" | "percentage-rollout" | "percentage-rollout-miss";
+  bucket: number;
+  featureKey: string;
+  environment: RolloutEnvironment;
+  subject: RolloutSubject;
+  cohortSize: number;
+}>;
 
 export type PricingRolloutGuardDecision = ReleaseControlPolicyDecision;
 
@@ -65,4 +78,10 @@ export async function evaluatePricingAccountRepricingRollout(
   }
 
   return (await response.json()) as PricingRolloutGuardDecision;
+}
+
+const rolloutEnvironments = ["development", "test", "preview", "staging", "production"] as const;
+
+function normalizeRolloutEnvironment(value: unknown): RolloutEnvironment {
+  return rolloutEnvironments.find((candidate) => candidate === value) ?? "production";
 }

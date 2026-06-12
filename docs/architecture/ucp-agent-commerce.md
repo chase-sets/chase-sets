@@ -11,7 +11,7 @@ UCP is a standards-facing protocol facade. It translates between external agent/
 - `/ucp/oauth/authorize`, `/ucp/oauth/token`, `/ucp/oauth/introspect`, `/ucp/oauth/revoke`: Auth-owned OAuth authorization-code-with-PKCE runtime backed by Identity-owned Linked Platform Authorization records.
 - `/ucp/oauth/authorizations`: account consent-management surface for listing and revoking Linked Platform Authorizations.
 
-Deployables mount these surfaces only. Protocol constants, envelopes, tool metadata, and profile construction live in `contracts/ucp`. Transport guardrails live in `infrastructure/platform-runtime/ucp`. Domain handlers stay in owning bounded contexts.
+Deployables mount these surfaces only. Protocol constants, envelopes, tool metadata, profile construction, and transport guardrails live in `infrastructure/platform-runtime/ucp`. Domain handlers stay in owning bounded contexts.
 
 ## ChatGPT Apps Compatibility
 
@@ -36,7 +36,7 @@ ChatGPT OAuth does not replace UCP request signatures. If ChatGPT calls signed c
 | Order state | Ordering, with Payment and Fulfillment facts projected where needed |
 | Payment handlers | Payments |
 | Identity linking | Auth for OAuth journey, Identity for durable consent/client facts |
-| Signatures, digest, replay plumbing | Infrastructure/Contracts |
+| Signatures, digest, replay plumbing | Infrastructure |
 
 ## Transport Contract
 

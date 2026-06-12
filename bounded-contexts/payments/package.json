@@ -37,7 +37,6 @@
     "@chase-sets/primitives": "workspace:*",
     "@chase-sets/provider-webhook-inbox": "workspace:*",
     "@chase-sets/transactional-email-outbox": "workspace:*",
-    "@chase-sets/ucp": "workspace:*",
     "hono": "^4.12.12"
   },
   "devDependencies": {

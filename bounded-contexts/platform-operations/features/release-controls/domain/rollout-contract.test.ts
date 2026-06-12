@@ -1,5 +1,11 @@
-import { evaluateFeatureRollout, normalizeSubjectList, rolloutBucket, rolloutSubjectKey, type RolloutSubject } from ".";
 import { describe, expect, it } from "vitest";
+import {
+  evaluateFeatureRollout,
+  normalizeSubjectList,
+  rolloutBucket,
+  rolloutSubjectKey,
+  type RolloutSubject,
+} from "./rollout";
 
 describe("release control rollout contract", () => {
   it("keeps percentage rollout cohorts deterministic", () => {

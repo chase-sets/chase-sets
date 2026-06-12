@@ -1,7 +1,7 @@
 import { createHash, createSign, generateKeyPairSync, type KeyObject } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
-import { UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI, UCP_MCP_TOOLS, UCP_VERSION } from "@chase-sets/ucp";
+import { UCP_MCP_MARKETPLACE_RESULTS_RESOURCE_URI, UCP_MCP_TOOLS, UCP_VERSION } from "./ucp";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { ResolvedActor } from "./auth";
 import {

@@ -4,7 +4,7 @@ import {
   normalizeRolloutEnvironment,
   normalizeRolloutSubjectType,
   type RolloutSubject,
-} from "@chase-sets/release-controls";
+} from "../domain/rollout";
 import { canSubjectReadDecision } from "../read-model/policy-contracts";
 import type { ReleaseControlsPolicyServices } from "./runtime";
 

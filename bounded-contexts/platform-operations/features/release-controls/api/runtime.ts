@@ -3,7 +3,6 @@ import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec"
 import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import type { ReleaseControlPolicyDecision, RolloutEnvironment, RolloutSubject } from "@chase-sets/release-controls";
 import {
   decideReleaseControlsPolicy,
   evolveReleaseControlsPolicy,
@@ -18,6 +17,7 @@ import {
   evaluateStoredRolloutPolicy,
   type ReleaseControlsPolicySnapshot,
 } from "../read-model/policy-contracts";
+import type { ReleaseControlPolicyDecision, RolloutEnvironment, RolloutSubject } from "../domain/rollout";
 
 export type ReleaseControlsPolicyServices = Readonly<{
   commandHandler: CommandHandler<ReleaseControlsPolicyCommand, ReleaseControlsPolicyState, ReleaseControlsPolicyEvent>;
