@@ -7,10 +7,17 @@
     ".": "./index.ts"
   },
   "scripts": {
+    "test": "vitest run --config ./vitest.config.ts",
+    "test:watch": "vitest --config ./vitest.config.ts",
     "typecheck": "tsc -p ./tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@chase-sets/event-core": "workspace:*",
+    "@chase-sets/localization": "workspace:*",
     "@chase-sets/primitives": "workspace:*",
     "@chase-sets/product-measures": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.4"
   }
 }

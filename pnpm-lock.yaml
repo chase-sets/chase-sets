@@ -959,12 +959,22 @@ importers:
 
   contracts/catalog-seed:
     dependencies:
+      '@chase-sets/event-core':
+        specifier: workspace:*
+        version: link:../event-core
+      '@chase-sets/localization':
+        specifier: workspace:*
+        version: link:../localization
       '@chase-sets/primitives':
         specifier: workspace:*
         version: link:../primitives
       '@chase-sets/product-measures':
         specifier: workspace:*
         version: link:../product-measures
+    devDependencies:
+      vitest:
+        specifier: ^4.1.4
+        version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
 
   contracts/communications-email:
     dependencies:
@@ -1336,6 +1346,9 @@ importers:
       '@chase-sets/catalog':
         specifier: workspace:*
         version: link:../../bounded-contexts/catalog
+      '@chase-sets/catalog-seed':
+        specifier: workspace:*
+        version: link:../../contracts/catalog-seed
       '@chase-sets/checkout':
         specifier: workspace:*
         version: link:../../bounded-contexts/checkout
@@ -1400,6 +1413,9 @@ importers:
       '@chase-sets/catalog':
         specifier: workspace:*
         version: link:../../bounded-contexts/catalog
+      '@chase-sets/catalog-seed':
+        specifier: workspace:*
+        version: link:../../contracts/catalog-seed
       '@chase-sets/checkout':
         specifier: workspace:*
         version: link:../../bounded-contexts/checkout

@@ -19,19 +19,5 @@ export {
   marketplaceRealtimeTopicPolicyManifest,
   marketplaceRealtimeTopics,
 } from "./support/realtime-support/topics";
-export {
-  filterUntouchedMarketplaceCatalogUsageCandidates,
-  loadUntouchedMarketplaceCatalogUsageCandidates,
-  normalizeRepresentativeCandidateLimit,
-  reconcileRepresentativeMarketplaceCatalogItems,
-  acceptRepresentativeOffers,
-  publishRepresentativeListings,
-  submitRepresentativeOffers,
-  type MarketplaceRepresentativeCatalogUsageCandidate,
-  type MarketplaceRepresentativeOfferAcceptanceResult,
-  type MarketplaceRepresentativeOfferResult,
-  type MarketplaceRepresentativeInventoryStock,
-  type MarketplaceRepresentativeListingResult,
-} from "./support/seed-support/representative-commerce-state";
 export { createReputationRequestApiClient } from "./support/request-support/reputation-api-client";
 export type { ReviewOpportunity } from "./support/request-support/reputation-api-client";

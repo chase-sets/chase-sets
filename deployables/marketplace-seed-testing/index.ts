@@ -80,8 +80,12 @@ function requireMarketplaceSeedDatabaseBaseUrl(testName: string): string {
   return databaseBaseUrl;
 }
 
-export function useMarketplaceSeedRuntime(testName: string) {
+export function useMarketplaceSeedRuntime(
+  testName: string,
+  options: Readonly<{ resetSchemas?: "beforeEach" | "beforeAll" | "manual" }> = {},
+) {
   let pools: MarketplaceSeedRuntimePools | undefined;
+  const resetSchemas = options.resetSchemas ?? "beforeEach";
 
   function requirePools() {
     if (!pools) {
@@ -99,9 +103,15 @@ export function useMarketplaceSeedRuntime(testName: string) {
     pools = createMultiContextTestPools(databaseUrls) as MarketplaceSeedRuntimePools;
   });
 
-  beforeEach(async () => {
-    await resetMultiContextTestSchemas(requirePools());
-  }, 120_000);
+  if (resetSchemas === "beforeAll") {
+    beforeAll(async () => {
+      await resetMultiContextTestSchemas(requirePools());
+    }, 120_000);
+  } else if (resetSchemas === "beforeEach") {
+    beforeEach(async () => {
+      await resetMultiContextTestSchemas(requirePools());
+    }, 120_000);
+  }
 
   afterAll(async () => {
     if (pools) {
