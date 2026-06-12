@@ -324,6 +324,43 @@ describe("checkout session runtime", () => {
     expect(String(db.query.mock.calls[0]?.[0])).toContain("checkout_catalog_items");
   });
 
+  it("rejects buy-now session creation when fulfillment is not assigned", async () => {
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const db = { query: vi.fn(async () => ({ rows: [] })) };
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db,
+      cart: createCartServices() as never,
+    });
+
+    await expect(
+      services.createBuyNow(
+        {
+          accountId: "acc_buyer" as never,
+          listingId: "",
+          catalogItemId: "cat_1",
+          productId: "cat_1::",
+          itemTitle: "Charizard",
+          itemSubtitle: null,
+          selectedOptions: [],
+          productSummary: null,
+          quantity: 1,
+          fulfillmentMode: "optimize",
+          lockedListingId: null,
+          shippingOption: "standard",
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({
+      code: "unresolved_fulfillment",
+      message: "Resolve item availability before checkout starts.",
+    } satisfies Partial<CheckoutDomainError>);
+
+    expect(db.query).not.toHaveBeenCalled();
+    expect(allEvents).toEqual([]);
+  });
+
   it("fails closed when cart readiness is missing, stale, or unresolved", async () => {
     const unresolvedLine: CheckoutCartLineRow = {
       ...readyCartLine,
@@ -580,6 +617,79 @@ describe("checkout session runtime", () => {
     ).rejects.toMatchObject({
       code: "readiness_snapshot_stale",
       message: "Cart readiness changed. Review your cart before checkout.",
+    } satisfies Partial<CheckoutDomainError>);
+    expect(cart.removeLine).not.toHaveBeenCalled();
+    expect(cart.checkout).not.toHaveBeenCalled();
+  });
+
+  it("rejects order handoff when session lines have unassigned fulfillment", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const cart = createCartServices([readyCartLine]);
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query: vi.fn(async () => ({ rows: [] })) },
+      cart: cart as never,
+    });
+    await services.commandHandler({
+      streamId: "checkout.session-chk_unassigned",
+      command: {
+        type: "StartCheckoutSession",
+        sessionId: "chk_unassigned" as never,
+        buyerAccountId: "acc_buyer" as never,
+        sourceType: "buy-now",
+        shippingOption: "standard",
+        lines: [
+          {
+            listingId: null,
+            cartLineId: null,
+            catalogItemId: "cat_1",
+            productId: "cat_1::",
+            itemTitle: "Charizard",
+            itemSubtitle: null,
+            selectedOptions: [],
+            productSummary: null,
+            quantity: 1,
+            fulfillmentMode: "optimize",
+            lockedListingId: null,
+            availabilityState: "available",
+          },
+        ],
+        createdAt: "2026-06-09T00:00:00.000Z",
+      },
+      context,
+    });
+    await services.setShippingAddress(
+      {
+        sessionId: "chk_unassigned",
+        accountId: "acc_buyer" as never,
+        shippingAddress: serviceableShippingAddress,
+      },
+      context,
+    );
+
+    await expect(
+      services.assertReadyForOrderCreation({
+        sessionId: "chk_unassigned",
+        accountId: "acc_buyer" as never,
+      }),
+    ).rejects.toMatchObject({
+      code: "unresolved_fulfillment",
+      message: "Resolve item availability before checkout starts.",
+    } satisfies Partial<CheckoutDomainError>);
+
+    await expect(
+      services.recordOrdersCreated(
+        {
+          sessionId: "chk_unassigned",
+          accountId: "acc_buyer" as never,
+          orderIds: ["ord_1"],
+          fulfilledLineKeys: [],
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({
+      code: "unresolved_fulfillment",
     } satisfies Partial<CheckoutDomainError>);
     expect(cart.removeLine).not.toHaveBeenCalled();
     expect(cart.checkout).not.toHaveBeenCalled();

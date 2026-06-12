@@ -130,6 +130,36 @@ export function recordAddressServiceabilityFailure(
   });
 }
 
+export function recordUnassignedFulfillmentFailure(
+  checkoutObservabilityTelemetry: CheckoutObservabilityTelemetry | undefined,
+  actor: CheckoutActor,
+  code: string,
+) {
+  if (code !== "unresolved_fulfillment") {
+    return;
+  }
+
+  recordCheckoutObservabilityTelemetry(checkoutObservabilityTelemetry, {
+    state: "buy-readiness-unassigned-fulfillment",
+    entrySource: "buy-now",
+    actorMode: checkoutActorMode(actor),
+    scenarioState: "unassigned-fulfillment",
+    visibleState: "readiness-decision-visible",
+    sideEffectStatus: "not-attempted",
+    readinessContract: "checkout.buy-readiness.v1",
+    readinessSnapshotState: "not-applicable",
+    sourceRevisionState: "missing-assigned-fulfillment",
+    freshWriteReceiptPresence: "not-provided",
+    supportReferencePresent: false,
+    performanceBudgetId: "buy-cart-readiness-evaluation",
+    providerCategory: "fulfillment",
+    riskCategory: "none",
+    downstreamStatus: "not-started",
+    launchRegisterDecision: "blocked",
+    freshStateScanResult: "blocked-before-checkout",
+  });
+}
+
 export function recordUnsupportedCustomerEconomicsInput(
   checkoutObservabilityTelemetry: CheckoutObservabilityTelemetry | undefined,
   actor: CheckoutActor,
