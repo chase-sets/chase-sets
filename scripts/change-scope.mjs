@@ -27,7 +27,7 @@ const rootTestTypecheckPatterns = [/^tsconfig\.tests\.json$/, /^test-env\.d\.ts$
 // Root vitest configuration shared by every workspace test run: changing it
 // must re-run every workspace's tests, but it is test-only, so it must not
 // fan out to builds, docker images, or deploys.
-const rootTestConfigPatterns = [/^vitest\.projects\.config\.mjs$/];
+const rootTestConfigPatterns = [/^vitest\.projects\.config\.mjs$/, /^vitest\.shared\.mjs$/];
 const deploymentScriptPatterns = [
   /^scripts\/digitalocean-/,
   /^scripts\/platform-smoke/,

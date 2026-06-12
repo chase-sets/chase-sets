@@ -1,10 +1,10 @@
-import { defineConfig } from "vitest/config";
+import { defineBoundedContextTestConfig } from "../../../vitest.shared.mjs";
 
-export default defineConfig({
+// The import-batches and inventory-items UI suites (features/**/*.test.tsx)
+// predate this include list and have never run; revive them before widening
+// the include to the standard bounded-context set.
+export default defineBoundedContextTestConfig({
   test: {
-    environment: "node",
     include: ["features/**/*.test.ts", "tests/**/*.test.ts"],
-    hookTimeout: 120_000,
-    testTimeout: 120_000,
   },
 });

@@ -350,7 +350,7 @@ describe("change-scope", () => {
     const baseDir = path.join(process.cwd(), "repo");
     const scope = classifyChanges({
       baseDir,
-      changedFiles: ["vitest.projects.config.mjs"],
+      changedFiles: ["vitest.projects.config.mjs", "vitest.shared.mjs"],
       workspaces: [
         workspace(baseDir, "deployables", "marketplace", "@test/marketplace-web"),
         workspace(baseDir, "bounded-contexts", "catalog", "@test/catalog"),

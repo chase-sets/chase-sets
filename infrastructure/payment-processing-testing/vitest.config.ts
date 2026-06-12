@@ -1,7 +1,3 @@
-import { defineConfig } from "vitest/config";
+import { defineWorkspaceTestConfig } from "../../vitest.shared.mjs";
 
-export default defineConfig({
-  test: {
-    environment: "node",
-  },
-});
+export default defineWorkspaceTestConfig();
