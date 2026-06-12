@@ -222,9 +222,6 @@ importers:
       '@chase-sets/settlement':
         specifier: workspace:*
         version: link:../settlement
-      '@chase-sets/ucp':
-        specifier: workspace:*
-        version: link:../../contracts/ucp
       hono:
         specifier: ^4.12.12
         version: 4.12.18
@@ -320,9 +317,6 @@ importers:
       '@chase-sets/primitives':
         specifier: workspace:*
         version: link:../../contracts/primitives
-      '@chase-sets/ucp':
-        specifier: workspace:*
-        version: link:../../contracts/ucp
       hono:
         specifier: ^4.12.12
         version: 4.12.18
@@ -617,9 +611,6 @@ importers:
       '@chase-sets/event-core-postgres':
         specifier: workspace:*
         version: link:../../infrastructure/event-core-postgres
-      '@chase-sets/fulfillment-delivery-promises':
-        specifier: workspace:*
-        version: link:../../contracts/fulfillment-delivery-promises
       '@chase-sets/http':
         specifier: workspace:*
         version: link:../../contracts/http
@@ -650,9 +641,6 @@ importers:
       '@chase-sets/product-measures':
         specifier: workspace:*
         version: link:../../contracts/product-measures
-      '@chase-sets/ucp':
-        specifier: workspace:*
-        version: link:../../contracts/ucp
       hono:
         specifier: ^4.12.12
         version: 4.12.18
@@ -711,9 +699,6 @@ importers:
       '@chase-sets/payment-processing':
         specifier: workspace:*
         version: link:../../contracts/payment-processing
-      '@chase-sets/payment-processing-testing':
-        specifier: workspace:*
-        version: link:../../infrastructure/payment-processing-testing
       '@chase-sets/platform-operations':
         specifier: workspace:*
         version: link:../platform-operations
@@ -726,9 +711,6 @@ importers:
       '@chase-sets/provider-webhook-inbox':
         specifier: workspace:*
         version: link:../../infrastructure/provider-webhook-inbox
-      '@chase-sets/ucp':
-        specifier: workspace:*
-        version: link:../../contracts/ucp
       hono:
         specifier: ^4.12.12
         version: 4.12.18
@@ -775,9 +757,6 @@ importers:
       '@chase-sets/primitives':
         specifier: workspace:*
         version: link:../../contracts/primitives
-      '@chase-sets/release-controls':
-        specifier: workspace:*
-        version: link:../../contracts/release-controls
       hono:
         specifier: ^4.12.12
         version: 4.12.18
@@ -833,9 +812,6 @@ importers:
       '@chase-sets/platform-runtime':
         specifier: workspace:*
         version: link:../../infrastructure/platform-runtime
-      '@chase-sets/release-controls':
-        specifier: workspace:*
-        version: link:../../contracts/release-controls
       hono:
         specifier: ^4.12.12
         version: 4.12.18
@@ -930,9 +906,6 @@ importers:
       '@chase-sets/money-movement':
         specifier: workspace:*
         version: link:../../contracts/money-movement
-      '@chase-sets/money-movement-testing':
-        specifier: workspace:*
-        version: link:../../infrastructure/money-movement-testing
       '@chase-sets/notification-outbox':
         specifier: workspace:*
         version: link:../../infrastructure/notification-outbox
@@ -989,12 +962,6 @@ importers:
 
   contracts/event-core: {}
 
-  contracts/fulfillment-delivery-promises:
-    devDependencies:
-      vitest:
-        specifier: ^4.1.4
-        version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
-
   contracts/http: {}
 
   contracts/localization:
@@ -1002,12 +969,6 @@ importers:
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
-      vitest:
-        specifier: ^4.1.4
-        version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
-
-  contracts/mcp:
-    devDependencies:
       vitest:
         specifier: ^4.1.4
         version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
@@ -1057,18 +1018,6 @@ importers:
         version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
 
   contracts/realtime:
-    devDependencies:
-      vitest:
-        specifier: ^4.1.4
-        version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
-
-  contracts/release-controls:
-    devDependencies:
-      vitest:
-        specifier: ^4.1.4
-        version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
-
-  contracts/ucp:
     devDependencies:
       vitest:
         specifier: ^4.1.4
@@ -1395,12 +1344,15 @@ importers:
       '@chase-sets/marketplace':
         specifier: workspace:*
         version: link:../../bounded-contexts/marketplace
+      '@chase-sets/money-movement':
+        specifier: workspace:*
+        version: link:../../contracts/money-movement
       '@chase-sets/ordering':
         specifier: workspace:*
         version: link:../../bounded-contexts/ordering
-      '@chase-sets/payment-processing-testing':
+      '@chase-sets/payment-processing':
         specifier: workspace:*
-        version: link:../../infrastructure/payment-processing-testing
+        version: link:../../contracts/payment-processing
       '@chase-sets/payments':
         specifier: workspace:*
         version: link:../../bounded-contexts/payments
@@ -1465,9 +1417,9 @@ importers:
       '@chase-sets/marketplace':
         specifier: workspace:*
         version: link:../../bounded-contexts/marketplace
-      '@chase-sets/money-movement-testing':
+      '@chase-sets/money-movement':
         specifier: workspace:*
-        version: link:../../infrastructure/money-movement-testing
+        version: link:../../contracts/money-movement
       '@chase-sets/notification-center':
         specifier: workspace:*
         version: link:../../bounded-contexts/notifications
@@ -1480,9 +1432,9 @@ importers:
       '@chase-sets/ordering':
         specifier: workspace:*
         version: link:../../bounded-contexts/ordering
-      '@chase-sets/payment-processing-testing':
+      '@chase-sets/payment-processing':
         specifier: workspace:*
-        version: link:../../infrastructure/payment-processing-testing
+        version: link:../../contracts/payment-processing
       '@chase-sets/payments':
         specifier: workspace:*
         version: link:../../bounded-contexts/payments
@@ -1492,9 +1444,9 @@ importers:
       '@chase-sets/platform-runtime':
         specifier: workspace:*
         version: link:../../infrastructure/platform-runtime
-      '@chase-sets/postage-labels-testing':
+      '@chase-sets/postage-labels':
         specifier: workspace:*
-        version: link:../../infrastructure/postage-labels-testing
+        version: link:../../contracts/postage-labels
       '@chase-sets/pricing':
         specifier: workspace:*
         version: link:../../bounded-contexts/pricing
@@ -1516,9 +1468,6 @@ importers:
       '@chase-sets/stripe-payments':
         specifier: workspace:*
         version: link:../../infrastructure/stripe-payments
-      '@chase-sets/ucp':
-        specifier: workspace:*
-        version: link:../../contracts/ucp
       '@hono/node-server':
         specifier: ^1.19.13
         version: 1.19.14(hono@4.12.18)
@@ -1580,9 +1529,9 @@ importers:
       '@chase-sets/marketplace':
         specifier: workspace:*
         version: link:../../bounded-contexts/marketplace
-      '@chase-sets/money-movement-testing':
+      '@chase-sets/money-movement':
         specifier: workspace:*
-        version: link:../../infrastructure/money-movement-testing
+        version: link:../../contracts/money-movement
       '@chase-sets/notification-center':
         specifier: workspace:*
         version: link:../../bounded-contexts/notifications
@@ -1601,9 +1550,9 @@ importers:
       '@chase-sets/ordering':
         specifier: workspace:*
         version: link:../../bounded-contexts/ordering
-      '@chase-sets/payment-processing-testing':
+      '@chase-sets/payment-processing':
         specifier: workspace:*
-        version: link:../../infrastructure/payment-processing-testing
+        version: link:../../contracts/payment-processing
       '@chase-sets/payments':
         specifier: workspace:*
         version: link:../../bounded-contexts/payments
@@ -1613,9 +1562,9 @@ importers:
       '@chase-sets/platform-runtime':
         specifier: workspace:*
         version: link:../../infrastructure/platform-runtime
-      '@chase-sets/postage-labels-testing':
+      '@chase-sets/postage-labels':
         specifier: workspace:*
-        version: link:../../infrastructure/postage-labels-testing
+        version: link:../../contracts/postage-labels
       '@chase-sets/pricing':
         specifier: workspace:*
         version: link:../../bounded-contexts/pricing
@@ -1773,22 +1722,6 @@ importers:
         specifier: ^4.1.4
         version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
 
-  infrastructure/money-movement-testing:
-    dependencies:
-      '@chase-sets/money-movement':
-        specifier: workspace:*
-        version: link:../../contracts/money-movement
-      '@chase-sets/primitives':
-        specifier: workspace:*
-        version: link:../../contracts/primitives
-    devDependencies:
-      typescript:
-        specifier: ^5.9.3
-        version: 5.9.3
-      vitest:
-        specifier: ^4.1.4
-        version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
-
   infrastructure/notification-outbox:
     dependencies:
       '@chase-sets/event-core':
@@ -1846,22 +1779,6 @@ importers:
         specifier: ^4.1.4
         version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
 
-  infrastructure/payment-processing-testing:
-    dependencies:
-      '@chase-sets/payment-processing':
-        specifier: workspace:*
-        version: link:../../contracts/payment-processing
-      '@chase-sets/primitives':
-        specifier: workspace:*
-        version: link:../../contracts/primitives
-    devDependencies:
-      typescript:
-        specifier: ^5.9.3
-        version: 5.9.3
-      vitest:
-        specifier: ^4.1.4
-        version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
-
   infrastructure/platform-runtime:
     dependencies:
       '@chase-sets/auth-context':
@@ -1885,15 +1802,9 @@ importers:
       '@chase-sets/http':
         specifier: workspace:*
         version: link:../../contracts/http
-      '@chase-sets/mcp':
-        specifier: workspace:*
-        version: link:../../contracts/mcp
       '@chase-sets/realtime':
         specifier: workspace:*
         version: link:../../contracts/realtime
-      '@chase-sets/ucp':
-        specifier: workspace:*
-        version: link:../../contracts/ucp
       '@react-router/dev':
         specifier: ^7.14.0
         version: 7.15.0(@react-router/serve@7.14.0(react-router@7.15.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(typescript@5.9.3))(@types/node@25.6.2)(jiti@2.7.0)(lightningcss@1.32.0)(react-router@7.15.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(tsx@4.21.0)(typescript@5.9.3)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))(yaml@2.8.4)
@@ -1903,16 +1814,6 @@ importers:
       react:
         specifier: ^19.2.5
         version: 19.2.6
-    devDependencies:
-      vitest:
-        specifier: ^4.1.4
-        version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
-
-  infrastructure/postage-labels-testing:
-    dependencies:
-      '@chase-sets/postage-labels':
-        specifier: workspace:*
-        version: link:../../contracts/postage-labels
     devDependencies:
       vitest:
         specifier: ^4.1.4
