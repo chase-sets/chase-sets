@@ -89,9 +89,9 @@
 
 ## Provider configuration (Stripe / EasyPost)
 
-- [ ] Stripe production keys and signed webhooks are configured and verified with a live test transaction.
-- [ ] EasyPost production credentials and a label purchase are verified, or labels are recorded as an owner-approved deferral.
-- [ ] No production configuration references sandbox objects or test credentials.
+- [ ] Stripe production keys and signed webhooks are configured and verified with a live test transaction. Provider configuration baseline: PR #1541.
+- [ ] EasyPost production credentials and a label purchase are verified, or labels are recorded as an owner-approved deferral. Provider configuration baseline: PR #1541.
+- [ ] No production configuration references sandbox objects or test credentials. Provider configuration baseline: PR #1541.
 
 ## Final gate
 
