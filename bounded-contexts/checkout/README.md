@@ -54,6 +54,7 @@ This is a greenfield codebase, so local development environments should reset/bo
 - [Checkout Risk Control Policy](./docs/checkout-risk-control-policy.md): Milestone #17 fraud, abuse, inventory-hoarding, provider-risk, support-safe hold, observability, and fresh-state cleanup contract.
 - [Checkout Address And Serviceability Policy](./docs/checkout-address-serviceability-policy.md): Milestone #17 address validation, serviceability, delivery restrictions, quote readiness, support-safe recovery, and fresh-state cleanup contract.
 - [Checkout Economics Policy](./docs/checkout-economics-policy.md): Milestone #17 discounts, credits, gift cards, fees, promotions, payout estimates, changed economics, reversal linkage, and fresh-state cleanup contract.
+- [Checkout Reconciliation Policy](./docs/checkout-reconciliation-policy.md): Milestone #17 payment, order, label, payout, settlement, notification, account-history, support, reversal, idempotency, and fresh-state reconciliation contract.
 - [Guest Buy Now Freshness Verification](./docs/guest-buy-now-freshness-verification.md): signed-out Buy Now freshness contract, test/canary states, fixture ownership, and no-payment/no-order side-effect rules.
 
 ## Buy Cart Readiness
