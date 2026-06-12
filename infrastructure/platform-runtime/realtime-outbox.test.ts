@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   coalesceRealtimeProjectionPatchInputs,
   compactRealtimeReplayMessages,
@@ -551,6 +551,14 @@ describe("realtime outbox", () => {
   it("coalesces concurrent identical replay reads through the process-local read hub", async () => {
     let outboxReadCount = 0;
     const observed: string[] = [];
+    let markOutboxReadStarted: (() => void) | undefined;
+    const outboxReadStarted = new Promise<void>((resolve) => {
+      markOutboxReadStarted = resolve;
+    });
+    let unblockOutboxRead: (() => void) | undefined;
+    const outboxReadBlocked = new Promise<void>((resolve) => {
+      unblockOutboxRead = resolve;
+    });
     const db = {
       query: async (sql: string) => {
         if (sql.includes("DELETE FROM realtime_projection_outbox")) {
@@ -559,7 +567,8 @@ describe("realtime outbox", () => {
 
         if (sql.includes("SELECT outbox.outbox_id AS outbox_id, outbox.payload")) {
           outboxReadCount += 1;
-          await new Promise((resolve) => setTimeout(resolve, 5));
+          markOutboxReadStarted?.();
+          await outboxReadBlocked;
           return { rows: [] };
         }
 
@@ -573,10 +582,13 @@ describe("realtime outbox", () => {
       },
     });
 
-    await Promise.all([
+    const reads = [
       hub.read([{ contextName: "discovery", db }], ["public:market"], {}, 100),
       hub.read([{ contextName: "discovery", db }], ["public:market"], {}, 100),
-    ]);
+    ];
+    await outboxReadStarted;
+    unblockOutboxRead?.();
+    await Promise.all(reads);
 
     expect(outboxReadCount).toBe(1);
     expect(observed).toEqual(["started", "coalesced"]);
@@ -1043,6 +1055,7 @@ describe("realtime outbox", () => {
   });
 
   it("only wakes topic-aware waiters for intersecting envelope or legacy notification topics", async () => {
+    vi.useFakeTimers();
     const client = createWakeSignalNotificationClient();
     const observed: unknown[] = [];
     const wakeSignal = createRealtimeOutboxWakeSignal(createWakeSignalPool(client), {
@@ -1050,40 +1063,45 @@ describe("realtime outbox", () => {
         wakeNotificationReceived: (event) => observed.push(event),
       },
     });
-    const itemWake = wakeSignal.wait(60_000, ["item:item_1"]);
-    const accountWake = wakeSignal.wait(150, ["public-account:account_1"]);
-    const legacyWake = wakeSignal.wait(60_000, ["listing:list_9"]);
+    try {
+      const itemWake = wakeSignal.wait(60_000, ["item:item_1"]);
+      const accountWake = wakeSignal.wait(150, ["public-account:account_1"]);
+      const legacyWake = wakeSignal.wait(60_000, ["listing:list_9"]);
 
-    await waitForWakeSignalListen(client);
-    client.emit("notification", {
-      channel: realtimeProjectionNotifyChannel,
-      payload: serializeWorkSignalEnvelope(
-        createWorkSignalEnvelope({
-          kind: "realtime.outbox-wake",
-          source: "realtime-outbox",
-          payload: { context: "catalog", projection: "catalog-items", topics: ["item:item_1"] },
-        }),
-      ),
-    });
-    // Rolling-deploy compatibility: pre-composite emitters send raw topics.
-    client.emit("notification", {
-      channel: realtimeProjectionNotifyChannel,
-      payload: JSON.stringify({ context: "marketplace", projection: "listings", topics: ["listing:list_9"] }),
-    });
+      await waitForWakeSignalListen(client);
+      client.emit("notification", {
+        channel: realtimeProjectionNotifyChannel,
+        payload: serializeWorkSignalEnvelope(
+          createWorkSignalEnvelope({
+            kind: "realtime.outbox-wake",
+            source: "realtime-outbox",
+            payload: { context: "catalog", projection: "catalog-items", topics: ["item:item_1"] },
+          }),
+        ),
+      });
+      // Rolling-deploy compatibility: pre-composite emitters send raw topics.
+      client.emit("notification", {
+        channel: realtimeProjectionNotifyChannel,
+        payload: JSON.stringify({ context: "marketplace", projection: "listings", topics: ["listing:list_9"] }),
+      });
 
-    await expect(itemWake).resolves.toBe("notified");
-    await expect(legacyWake).resolves.toBe("notified");
-    await expect(accountWake).resolves.toBe("timeout");
-    await wakeSignal.stop?.();
-    expect(observed[0]).toMatchObject({
-      notificationTopics: ["item:item_1"],
-      waiterCount: 3,
-      matchedWaiterCount: 1,
-    });
-    expect(observed[1]).toMatchObject({
-      notificationTopics: ["listing:list_9"],
-      matchedWaiterCount: 1,
-    });
+      await expect(itemWake).resolves.toBe("notified");
+      await expect(legacyWake).resolves.toBe("notified");
+      await vi.advanceTimersByTimeAsync(150);
+      await expect(accountWake).resolves.toBe("timeout");
+      expect(observed[0]).toMatchObject({
+        notificationTopics: ["item:item_1"],
+        waiterCount: 3,
+        matchedWaiterCount: 1,
+      });
+      expect(observed[1]).toMatchObject({
+        notificationTopics: ["listing:list_9"],
+        matchedWaiterCount: 1,
+      });
+    } finally {
+      await wakeSignal.stop?.();
+      vi.useRealTimers();
+    }
   });
 
   it("fails open to wake-all when a notification payload is unparseable", async () => {
@@ -1107,18 +1125,28 @@ describe("realtime outbox", () => {
   });
 
   it("falls back to a timeout when the wake-signal listener is unavailable", async () => {
+    vi.useFakeTimers();
     const client = createWakeSignalNotificationClient({ failListen: true });
     const unavailable: unknown[] = [];
     const wakeSignal = createRealtimeOutboxWakeSignal(createWakeSignalPool(client), {
       onListenerUnavailable: (error) => unavailable.push(error),
     });
+    try {
+      const firstWait = wakeSignal.wait(100, ["item:item_1"]);
+      await vi.advanceTimersByTimeAsync(100);
+      await expect(firstWait).resolves.toBe("timeout");
 
-    await expect(wakeSignal.wait(100, ["item:item_1"])).resolves.toBe("timeout");
-    // Reconnects are circuit-broken: the cooled-down retry does not re-report.
-    await expect(wakeSignal.wait(100, ["item:item_1"])).resolves.toBe("timeout");
-    expect(unavailable).toHaveLength(1);
-    expect(client.listenAttempts()).toBe(1);
-    expect(client.isReleased()).toBe(true);
+      const secondWait = wakeSignal.wait(100, ["item:item_1"]);
+      // Reconnects are circuit-broken: the cooled-down retry does not re-report.
+      await vi.advanceTimersByTimeAsync(100);
+      await expect(secondWait).resolves.toBe("timeout");
+      expect(unavailable).toHaveLength(1);
+      expect(client.listenAttempts()).toBe(1);
+      expect(client.isReleased()).toBe(true);
+    } finally {
+      await wakeSignal.stop?.();
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -1127,17 +1155,24 @@ function createWakeSignalNotificationClient(options: { failListen?: boolean } = 
   const queries: string[] = [];
   let released = false;
   let listenAttempts = 0;
+  let resolveListen: (() => void) | undefined;
+  const listenIssued = new Promise<void>((resolve) => {
+    resolveListen = resolve;
+  });
 
   return Object.assign(emitter, {
     queries,
     isReleased: () => released,
     listenAttempts: () => listenAttempts,
+    waitForListen: () => listenIssued,
     query: async (sql: string) => {
       if (sql.startsWith("LISTEN")) {
         listenAttempts += 1;
         if (options.failListen) {
           throw new Error("LISTEN is unavailable on this connection.");
         }
+        resolveListen?.();
+        resolveListen = undefined;
       }
       queries.push(sql);
       return { rows: [], rowCount: 0 };
@@ -1156,12 +1191,7 @@ function createWakeSignalPool(client: ReturnType<typeof createWakeSignalNotifica
 }
 
 async function waitForWakeSignalListen(client: ReturnType<typeof createWakeSignalNotificationClient>): Promise<void> {
-  for (let attempt = 0; attempt < 50; attempt += 1) {
-    if (client.queries.some((sql) => sql.startsWith("LISTEN"))) {
-      return;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-
-  throw new Error("Wake signal listener did not issue LISTEN.");
+  await client.waitForListen();
+  await Promise.resolve();
+  await Promise.resolve();
 }

@@ -248,7 +248,7 @@ describe("realtime SSE routes", () => {
     const text = await readSseTextUntil(reader!, (value) => value.includes("event: projection.patch"));
     abort.abort();
     await reader!.cancel();
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await reader!.closed.catch(() => undefined);
 
     expect(response.status).toBe(200);
     expect(queryParams).toContainEqual(["1", ["public:market"], 100]);

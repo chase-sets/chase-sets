@@ -33,11 +33,18 @@ describe("Catalog provider profile contract harness", () => {
   });
 
   it("keeps replay deterministic while changed fixtures move the source hash", async () => {
-    for (const providerKey of ["scrydex", "tcgdex", "tcgplayer"]) {
-      const normal = await dryRunFixture(providerKey, "normal");
-      const replay = await dryRunFixture(providerKey, "replay");
-      const changed = await dryRunFixture(providerKey, "changed");
+    const results = await Promise.all(
+      ["scrydex", "tcgdex", "tcgplayer"].map(async (providerKey) => {
+        const [normal, replay, changed] = await Promise.all([
+          dryRunFixture(providerKey, "normal"),
+          dryRunFixture(providerKey, "replay"),
+          dryRunFixture(providerKey, "changed"),
+        ]);
+        return { providerKey, normal, replay, changed };
+      }),
+    );
 
+    for (const { providerKey, normal, replay, changed } of results) {
       expect(normal.observation?.sourceRecordHash, providerKey).toBe(replay.observation?.sourceRecordHash);
       expect(normal.observation?.sourceRecordHash, providerKey).not.toBe(changed.observation?.sourceRecordHash);
       expect(normal.observation?.sourceMappingFingerprint, providerKey).toBe(
