@@ -158,6 +158,65 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.queryByText(/raw JSON/i)).toBeNull();
   });
 
+  it("renders audit and release evidence with filters, timeline, redacted links, and release checklist", () => {
+    const profile = profileReview({ active: true, lifecycle: "active" });
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&filter.status=changed&selectedObservationIds=obs_001&promotionPreviewId=preview_001&section=evidence",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profile], total: 1, count: 1 },
+      profileAuthoringModel: profileAuthoringModel({ review: profile }),
+      controlPlaneOverview: {
+        ...controlPlaneOverview(),
+        auditLifecycle: {
+          ...controlPlaneOverview().auditLifecycle,
+          entries: [
+            {
+              eventId: "aud_release_001",
+              occurredAt: "2026-06-09T01:00:00.000Z",
+              eventName: "import-job-started",
+              category: "import-job",
+              providerKey: "tcgdex",
+              unitKey: "tcgdex:pokemon:card:import",
+              profileVersion: "2026.06.04",
+              actorUserId: "user_operator",
+              relatedJobId: "job_001",
+              summary: "Provider import started for release evidence.",
+              diagnosticCodes: [],
+            },
+          ],
+        },
+      },
+      reviewObservations: {
+        items: [sourceObservationListItem({ observation_id: "obs_001", status: "changed", provider_key: "tcgdex" })],
+        total: 1,
+        count: 1,
+      },
+      canManageCatalog: true,
+    });
+
+    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+
+    expect(
+      screen
+        .getAllByRole("link", { name: /Audit evidence/i })
+        .some((link) => link.getAttribute("aria-current") === "page"),
+    ).toBe(true);
+    expect(screen.getByRole("heading", { name: "Audit and release evidence" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Timeline filters" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Audit timeline" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Redacted evidence links" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Release evidence checklist" })).toBeTruthy();
+    expect(screen.getAllByText("Source payload access").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("not-required").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Complete retired-surface removal").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/complete removal of code, patterns, documentation/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("source-observation-changed").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Release tests and smoke evidence").length).toBeGreaterThan(0);
+    expect(screen.queryByText(/raw JSON/i)).toBeNull();
+    expect(screen.queryByText(/holding area/i)).toBeNull();
+  });
+
   it("renders profile authoring overview and draft creation as a focused support workspace", () => {
     const readModel = buildCatalogPrimaryWorkbenchReadModel({
       requestUrl:

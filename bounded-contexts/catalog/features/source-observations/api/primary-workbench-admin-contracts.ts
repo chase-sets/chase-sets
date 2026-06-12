@@ -3,6 +3,11 @@ import type {
   CatalogAdminControlPlanePaginationMode,
 } from "./admin-control-plane-read-model-slos";
 import type {
+  CatalogIntegrationAuditEvidenceCategory,
+  CatalogIntegrationAuditEvidenceEventName,
+  CatalogIntegrationAuditEvidenceRedactionState,
+} from "./catalog-integration-audit-evidence";
+import type {
   CatalogAdminControlPlaneQueryKey,
   CatalogAdminControlPlaneDiagnostic,
   CatalogAdminRollbackRetirementImpactSummaryReadModel,
@@ -26,6 +31,7 @@ export type CatalogPrimaryWorkbenchSectionKey =
   | "promotion-result"
   | "lifecycle-recovery"
   | "governance-controls"
+  | "audit-evidence"
   | "supporting-evidence";
 
 export type CatalogPrimaryWorkbenchCommandKey =
@@ -281,6 +287,7 @@ export type CatalogPrimaryWorkbenchDownstreamIssueKey =
   | "#1041"
   | "#1042"
   | "#1043"
+  | "#1044"
   | "#1057"
   | "#1058"
   | "#1059"
@@ -306,6 +313,7 @@ export type CatalogPrimaryWorkbenchReadModel = Readonly<{
   validationReadiness: CatalogPrimaryWorkbenchValidationReadinessReadModel;
   lifecycleRecovery: CatalogPrimaryWorkbenchLifecycleRecoveryReadModel;
   governanceControls: CatalogPrimaryWorkbenchGovernanceControlsReadModel;
+  auditEvidence: CatalogPrimaryWorkbenchAuditEvidenceReadModel;
   importJobs: CatalogPrimaryWorkbenchImportJobsReadModel;
   sourceObservationReview: CatalogPrimaryWorkbenchSourceObservationReviewReadModel;
   conflictResolution: CatalogPrimaryWorkbenchConflictResolutionReadModel;
@@ -782,6 +790,122 @@ export type CatalogPrimaryWorkbenchGovernanceControlsReadModel = Readonly<{
     }>[];
     launchBlockerIfPresent: readonly string[];
   }>;
+}>;
+
+export type CatalogPrimaryWorkbenchAuditEvidenceStatus = "ready" | "partial" | "blocked" | "unavailable";
+
+export type CatalogPrimaryWorkbenchAuditEvidenceFilterKey =
+  | "provider"
+  | "unit"
+  | "profile-version"
+  | "job"
+  | "observation"
+  | "action-category"
+  | "actor"
+  | "time";
+
+export type CatalogPrimaryWorkbenchAuditEvidenceTargetType =
+  | "provider-profile"
+  | "import-job"
+  | "source-observation"
+  | "catalog-item"
+  | "control-plane"
+  | "release";
+
+export type CatalogPrimaryWorkbenchReleaseEvidenceWorkflowKey =
+  | "provider-data-pull"
+  | "source-observation-review"
+  | "promotion"
+  | "dry-run-diagnostics"
+  | "reapply-rollback"
+  | "governance-retirement"
+  | "release-smoke";
+
+export type CatalogPrimaryWorkbenchReleaseEvidenceStatus = "ready" | "partial" | "missing" | "blocked";
+
+export type CatalogPrimaryWorkbenchAuditEvidenceReadModel = Readonly<{
+  status: CatalogPrimaryWorkbenchAuditEvidenceStatus;
+  freshness: CatalogAdminControlPlaneFreshnessState;
+  generatedAt: string;
+  returnToPrimaryHref: string;
+  summary: Readonly<{
+    timelineEvents: number;
+    redactedEvidenceLinks: number;
+    releaseChecklistItems: number;
+    missingEvidence: number;
+    partialProjectionCount: number;
+    residualDebtItems: number;
+  }>;
+  filters: readonly Readonly<{
+    key: CatalogPrimaryWorkbenchAuditEvidenceFilterKey;
+    label: string;
+    value: string | null;
+    options: readonly string[];
+    active: boolean;
+  }>[];
+  projectionState: Readonly<{
+    queryKey: Extract<CatalogAdminControlPlaneQueryKey, "audit-evidence-timeline">;
+    freshness: CatalogAdminControlPlaneFreshnessState;
+    generatedAt: string | null;
+    statusMessage: string;
+    missingProjection: boolean;
+    partialProjection: boolean;
+  }>;
+  redactionPolicy: Readonly<{
+    sourcePayloadAccess: "not-required";
+    profileSnapshotAccess: "not-required";
+    unsafeEvidenceBlocked: boolean;
+    governedDataClasses: readonly string[];
+    forbiddenEvidenceRequests: readonly string[];
+    summary: string;
+  }>;
+  timeline: readonly Readonly<{
+    eventId: string;
+    occurredAt: string;
+    eventName: CatalogIntegrationAuditEvidenceEventName;
+    category: CatalogIntegrationAuditEvidenceCategory;
+    actorLabel: string;
+    targetType: CatalogPrimaryWorkbenchAuditEvidenceTargetType;
+    targetId: string;
+    providerKey: string | null;
+    unitKey: CatalogIntegrationUnitKey | null;
+    profileVersion: string | null;
+    jobId: string | null;
+    observationId: string | null;
+    catalogItemId: string | null;
+    summary: string;
+    diagnosticCodes: readonly string[];
+    redactionState: CatalogIntegrationAuditEvidenceRedactionState;
+    evidenceLinks: readonly CatalogPrimaryWorkbenchAuditEvidenceLink[];
+  }>[];
+  evidenceLinks: readonly CatalogPrimaryWorkbenchAuditEvidenceLink[];
+  releaseChecklist: readonly CatalogPrimaryWorkbenchReleaseEvidenceChecklistRow[];
+}>;
+
+export type CatalogPrimaryWorkbenchAuditEvidenceLink = Readonly<{
+  key: string;
+  label: string;
+  href: string;
+  kind: "audit-event" | "diagnostic" | "proof" | "runbook" | "test" | "release-note";
+  summary: string;
+  redactionState: CatalogIntegrationAuditEvidenceRedactionState;
+  sourcePayloadAccess: "not-required";
+  profileSnapshotAccess: "not-required";
+}>;
+
+export type CatalogPrimaryWorkbenchReleaseEvidenceChecklistRow = Readonly<{
+  workflowKey: CatalogPrimaryWorkbenchReleaseEvidenceWorkflowKey;
+  workflowLabel: string;
+  status: CatalogPrimaryWorkbenchReleaseEvidenceStatus;
+  owner: string;
+  requiredEvidence: readonly string[];
+  proofLinks: readonly CatalogPrimaryWorkbenchAuditEvidenceLink[];
+  tests: readonly string[];
+  e2eProof: string;
+  smokeProof: string;
+  residualDebt: readonly string[];
+  releaseNote: string;
+  blocksRelease: boolean;
 }>;
 
 export type CatalogPrimaryWorkbenchHealthTriageRolloutControl = Readonly<{
@@ -1506,6 +1630,33 @@ export const catalogPrimaryWorkbenchSections = [
     routeContextKeys: ["section", "providerKey", "unitKey", "importScope", "profileVersion", "jobId", "returnPath"],
   }),
   section({
+    key: "audit-evidence",
+    defaultVisible: false,
+    queryKeys: [
+      "audit-evidence-timeline",
+      "import-job-progress-summary",
+      "source-observation-review-query",
+      "promotion-plan-preview",
+      "dry-run-evidence-summary",
+      "rollback-retirement-impact-summary",
+    ],
+    commands: [],
+    freshnessStates: ["fresh", "stale", "lagging", "partial", "unavailable"],
+    pagination: "cursor",
+    routeContextKeys: [
+      "section",
+      "providerKey",
+      "unitKey",
+      "importScope",
+      "profileVersion",
+      "sourceObservationFilters",
+      "selectedObservationIds",
+      "jobId",
+      "promotionPreviewId",
+      "returnPath",
+    ],
+  }),
+  section({
     key: "supporting-evidence",
     defaultVisible: false,
     queryKeys: [
@@ -1956,6 +2107,26 @@ export const catalogPrimaryWorkbenchDownstreamContracts = [
     ],
   ),
   downstream(
+    "#1044",
+    [
+      "audit-evidence",
+      "import-jobs",
+      "source-observation-review",
+      "promotion-preview",
+      "lifecycle-recovery",
+      "governance-controls",
+      "supporting-evidence",
+    ],
+    [
+      "auditEvidence.filters",
+      "auditEvidence.projectionState",
+      "auditEvidence.redactionPolicy",
+      "auditEvidence.timeline",
+      "auditEvidence.evidenceLinks",
+      "auditEvidence.releaseChecklist",
+    ],
+  ),
+  downstream(
     "#1056",
     [
       "provider-scope-selection",
@@ -2134,6 +2305,7 @@ export function validateCatalogPrimaryWorkbenchReadModelContract(
   assertPrimaryWorkbenchBlockers(value.promotionPreview?.blockers);
   assertPrimaryWorkbenchConflictResolution(value.conflictResolution);
   assertPrimaryWorkbenchGovernanceControls(value.governanceControls);
+  assertPrimaryWorkbenchAuditEvidence(value.auditEvidence);
   assertPrimaryWorkbenchPromotionPreview(value.promotionPreview);
   assertPrimaryWorkbenchProfileAuthoring(value.profileAuthoring);
   assertPrimaryWorkbenchValidationReadiness(value.validationReadiness);
@@ -2382,6 +2554,126 @@ function assertPrimaryWorkbenchGovernanceControls(
   }
   if (/holding area/i.test(removalText)) {
     throw new Error("Primary workbench governance controls must not preserve a compatibility holding area.");
+  }
+}
+
+function assertPrimaryWorkbenchAuditEvidence(
+  value: CatalogPrimaryWorkbenchReadModel["auditEvidence"] | undefined,
+): void {
+  if (!value) {
+    throw new Error("Primary workbench audit evidence contract is required.");
+  }
+  if (!["ready", "partial", "blocked", "unavailable"].includes(value.status)) {
+    throw new Error("Primary workbench audit evidence status must be explicit.");
+  }
+  if (!isSafePrimaryWorkbenchReturnPath(value.returnToPrimaryHref)) {
+    throw new Error("Primary workbench audit evidence return link must target the rebuilt workbench.");
+  }
+  if (value.projectionState.queryKey !== "audit-evidence-timeline") {
+    throw new Error("Primary workbench audit evidence projection must use the canonical audit timeline query.");
+  }
+  if (value.projectionState.missingProjection && value.status !== "unavailable") {
+    throw new Error("Primary workbench missing audit projection must be unavailable.");
+  }
+  if (value.projectionState.partialProjection && value.status === "ready") {
+    throw new Error("Primary workbench partial audit projection cannot report ready.");
+  }
+
+  const requiredFilterKeys: readonly CatalogPrimaryWorkbenchAuditEvidenceFilterKey[] = [
+    "provider",
+    "unit",
+    "profile-version",
+    "job",
+    "observation",
+    "action-category",
+    "actor",
+    "time",
+  ];
+  const filterKeys = new Set(value.filters.map((filter) => filter.key));
+  for (const filterKey of requiredFilterKeys) {
+    if (!filterKeys.has(filterKey)) {
+      throw new Error(`Primary workbench audit evidence filter '${filterKey}' is required.`);
+    }
+  }
+
+  if (
+    value.redactionPolicy.sourcePayloadAccess !== "not-required" ||
+    value.redactionPolicy.profileSnapshotAccess !== "not-required"
+  ) {
+    throw new Error("Primary workbench audit evidence must not require source payload or profile snapshot access.");
+  }
+  if (value.redactionPolicy.forbiddenEvidenceRequests.length === 0) {
+    throw new Error("Primary workbench audit evidence must list forbidden evidence request patterns.");
+  }
+
+  const links = [...value.evidenceLinks, ...value.timeline.flatMap((event) => event.evidenceLinks)];
+  for (const link of links) {
+    assertPrimaryWorkbenchAuditEvidenceLink(link);
+  }
+  for (const event of value.timeline) {
+    if (!event.eventId || !event.occurredAt || !event.eventName || !event.category || !event.targetId) {
+      throw new Error("Primary workbench audit timeline rows must name event, time, category, and target.");
+    }
+    if (event.evidenceLinks.length === 0) {
+      throw new Error("Primary workbench audit timeline rows must expose redacted evidence links.");
+    }
+  }
+
+  const requiredReleaseWorkflows: readonly CatalogPrimaryWorkbenchReleaseEvidenceWorkflowKey[] = [
+    "provider-data-pull",
+    "source-observation-review",
+    "promotion",
+    "dry-run-diagnostics",
+    "reapply-rollback",
+    "governance-retirement",
+    "release-smoke",
+  ];
+  const checklistKeys = new Set(value.releaseChecklist.map((entry) => entry.workflowKey));
+  for (const workflowKey of requiredReleaseWorkflows) {
+    if (!checklistKeys.has(workflowKey)) {
+      throw new Error(`Primary workbench release evidence workflow '${workflowKey}' is required.`);
+    }
+  }
+  for (const checklist of value.releaseChecklist) {
+    if (!["ready", "partial", "missing", "blocked"].includes(checklist.status)) {
+      throw new Error("Primary workbench release evidence checklist status must be explicit.");
+    }
+    if (checklist.requiredEvidence.length === 0 || checklist.tests.length === 0) {
+      throw new Error("Primary workbench release evidence checklist rows require evidence and tests.");
+    }
+    if (!checklist.e2eProof || !checklist.smokeProof || !checklist.releaseNote) {
+      throw new Error("Primary workbench release evidence checklist rows require E2E proof, smoke proof, and notes.");
+    }
+    for (const link of checklist.proofLinks) {
+      assertPrimaryWorkbenchAuditEvidenceLink(link);
+    }
+  }
+
+  const evidenceText = JSON.stringify(value);
+  if (/raw\s+json|payload\s+json|profile\s+json|compatibility holding area/i.test(evidenceText)) {
+    throw new Error(
+      "Primary workbench audit evidence must expose redacted summaries without legacy document workflows.",
+    );
+  }
+  const retirementText = value.releaseChecklist
+    .filter((entry) => entry.workflowKey === "governance-retirement")
+    .map((entry) => `${entry.requiredEvidence.join(" ")} ${entry.releaseNote} ${entry.residualDebt.join(" ")}`)
+    .join(" ");
+  if (!/complete removal/i.test(retirementText) || !/documentation/i.test(retirementText)) {
+    throw new Error("Primary workbench release evidence must state complete code, pattern, and documentation removal.");
+  }
+}
+
+function assertPrimaryWorkbenchAuditEvidenceLink(link: CatalogPrimaryWorkbenchAuditEvidenceLink): void {
+  if (!link.key || !link.label || !link.summary || !isSafePrimaryWorkbenchReturnPath(link.href)) {
+    throw new Error("Primary workbench audit evidence links must be named and target rebuilt workbench evidence.");
+  }
+  if (
+    link.sourcePayloadAccess !== "not-required" ||
+    link.profileSnapshotAccess !== "not-required" ||
+    !["not-needed", "redacted", "excluded"].includes(link.redactionState)
+  ) {
+    throw new Error("Primary workbench audit evidence links must remain redaction-safe.");
   }
 }
 
