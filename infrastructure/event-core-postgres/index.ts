@@ -1,3 +1,4 @@
+export * from "./catalog-mirror";
 export * from "./event-store";
 export * from "./pool";
 export * from "./projection-store";

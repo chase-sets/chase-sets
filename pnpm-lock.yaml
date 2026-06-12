@@ -1812,6 +1812,9 @@ importers:
       '@chase-sets/event-core':
         specifier: workspace:*
         version: link:../../contracts/event-core
+      '@chase-sets/localization':
+        specifier: workspace:*
+        version: link:../../contracts/localization
       '@chase-sets/observability':
         specifier: workspace:*
         version: link:../observability
