@@ -52,6 +52,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Checkout Performance Budgets](../bounded-contexts/checkout/docs/checkout-performance-budgets.md): Milestone #17 cart/list, readiness, checkout entry, confirmation, mobile, support, and recovery performance budgets.
 - [Checkout Launch Evidence Matrix](../bounded-contexts/checkout/docs/checkout-launch-evidence-matrix.md): Milestone #17 composite evidence rows joining copy, visual, performance, coverage, launch register, no-side-effect, and fresh-state cleanup proof.
 - [Checkout Observability Contract](../bounded-contexts/checkout/docs/checkout-observability-contract.md): Milestone #17 redacted telemetry profiles for launch rows, support-safe references, side-effect status, and release-health evidence.
+- [Checkout Transactional Notification Policy](../bounded-contexts/checkout/docs/checkout-transactional-notifications.md): Milestone #17 buy/sell notification trigger inventory, launch decisions, idempotency, and support-safe fallback behavior.
 - [Guest Buy Now Freshness Verification](../bounded-contexts/checkout/docs/guest-buy-now-freshness-verification.md): signed-out Buy Now freshness contract, shared test/canary states, fixture ownership, and no-payment/no-order side-effect rules.
 - [Discovery Google Shopping Feed Mapping](../bounded-contexts/discovery/docs/google-shopping-feed-mapping.md): product, offer, image, condition, shipping, returns, and eligibility mapping for Google Shopping rows.
 - [Marketplace API](./api/marketplace-api.md): human-readable API guide.
