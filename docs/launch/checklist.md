@@ -56,7 +56,7 @@
 
 - [ ] Support can look up any checkout, order, or sale by support-safe reference — including pending confirmations before downstream IDs exist.
 - [ ] Checkout entry, recovery, confirmation, and failure states emit observability events visible on a dashboard.
-- [ ] Support runbooks cover: stuck checkout, payment dispute, missing/failed downstream handoff, and refund requests.
+- [ ] Support runbooks cover: stuck checkout, payment dispute, missing/failed downstream handoff, and refund requests (runbook coverage baseline: PR #1513).
 
 ## Reconciliation and reversal paths
 
