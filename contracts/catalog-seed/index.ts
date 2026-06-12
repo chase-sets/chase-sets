@@ -12,7 +12,4 @@ export {
   type SeedReferenceTypeId,
 } from "./ids";
 export { catalogScenarioItems, type CatalogScenarioItemAlias } from "./scenario";
-export {
-  type CatalogRepresentativeCatalogUsageCandidate,
-  type CatalogRepresentativeProductSchema,
-} from "./representative-commerce-state";
+export * from "./representative-commerce-state";

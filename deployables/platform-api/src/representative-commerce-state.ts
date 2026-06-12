@@ -10,21 +10,22 @@ import { getProjectionGroup, syncProjectionGroup } from "@chase-sets/bounded-con
 import { bootstrapPlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
 import { representativeCommerceStateDataProfiles, seedApiHostIfEmpty } from "@chase-sets/platform-runtime/api";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { prepareRepresentativeCatalogUsageCandidates } from "@chase-sets/catalog/server";
 import { settlementOperationLogFields } from "@chase-sets/settlement/server";
 import {
   normalizeRepresentativeCandidateLimit,
   acceptRepresentativeOffers,
   filterUntouchedMarketplaceCatalogUsageCandidates,
+  prepareRepresentativeCatalogUsageCandidates,
   publishRepresentativeListings,
   reconcileRepresentativeMarketplaceCatalogItems,
   submitRepresentativeOffers,
-} from "@chase-sets/marketplace/server";
-import {
   ensureRepresentativeInventoryStock,
   reconcileRepresentativeInventoryCatalogItems,
-} from "@chase-sets/inventory/server";
-import { reconcileRepresentativeDiscoveryMarketState } from "@chase-sets/discovery/server";
+  reconcileRepresentativeDiscoveryMarketState,
+  type CatalogRepresentativeServices,
+  type RepresentativeInventoryServices,
+  type RepresentativeMarketplaceServices,
+} from "@chase-sets/catalog-seed";
 import { apiContextRegistry } from "./generated/api-context-registry";
 import { createPlatformApiHost } from "./app";
 import {
@@ -356,7 +357,7 @@ function getDiscoveryDb(services: Readonly<Record<string, unknown>>): Pick<PgQue
   return discovery.db as Pick<PgQueryable, "query">;
 }
 
-function getCatalogServices(services: Readonly<Record<string, unknown>>) {
+function getCatalogServices(services: Readonly<Record<string, unknown>>): CatalogRepresentativeServices {
   const catalog = services.catalog;
   if (
     !catalog ||
@@ -377,10 +378,10 @@ function getCatalogServices(services: Readonly<Record<string, unknown>>) {
     );
   }
 
-  return catalog as Parameters<typeof prepareRepresentativeCatalogUsageCandidates>[0];
+  return catalog as CatalogRepresentativeServices;
 }
 
-function getMarketplaceServices(services: Readonly<Record<string, unknown>>) {
+function getMarketplaceServices(services: Readonly<Record<string, unknown>>): RepresentativeMarketplaceServices {
   const marketplace = services.marketplace;
   if (
     !marketplace ||
@@ -394,16 +395,16 @@ function getMarketplaceServices(services: Readonly<Record<string, unknown>>) {
     throw new Error("Representative commerce state requires mounted Marketplace services with a queryable db.");
   }
 
-  return marketplace as Parameters<typeof publishRepresentativeListings>[0];
+  return marketplace as RepresentativeMarketplaceServices;
 }
 
-function getInventoryServices(services: Readonly<Record<string, unknown>>) {
+function getInventoryServices(services: Readonly<Record<string, unknown>>): RepresentativeInventoryServices {
   const inventory = services.inventory;
   if (!inventory || typeof inventory !== "object" || !("catalogItems" in inventory) || !("items" in inventory)) {
     throw new Error("Representative commerce state requires mounted Inventory services.");
   }
 
-  return inventory as Parameters<typeof ensureRepresentativeInventoryStock>[0];
+  return inventory as RepresentativeInventoryServices;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
