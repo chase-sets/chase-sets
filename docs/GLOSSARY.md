@@ -58,9 +58,9 @@ Do not rename durable event fields, persisted columns, provider metadata, or tra
 | Marketplace Sales Fee Snapshot | [Marketplace](../bounded-contexts/marketplace/docs/marketplace-sales-fee-confirmation.md) | Account-confirmed per-unit fee snapshot consumed by Ordering. |
 | Marketplace Checkout Fee | [Payments](../bounded-contexts/payments/GLOSSARY.md) | Buyer-side payment-level fee policy. Current policy lives in [Payments Marketplace Checkout Fee Policy](../bounded-contexts/payments/docs/marketplace-checkout-fee-policy.md). |
 | Promo Bar Message | [Public Presence](../bounded-contexts/public-presence/GLOSSARY.md) | Public marketplace copy shown in the site promo bar for marketplace-wide information. |
-| Tax Quote | [Tax](../bounded-contexts/tax/GLOSSARY.md) | Provider-agnostic sales tax calculation. |
-| Tax Nexus Readiness | [Tax](../bounded-contexts/tax/GLOSSARY.md) | State-by-state sales-tax threshold and collection-provider readiness. |
-| Collection-Required Jurisdiction | [Tax](../bounded-contexts/tax/GLOSSARY.md) | Jurisdiction where Chase Sets must collect sales tax before accepting covered marketplace orders. |
+| Tax Quote | [Ordering](../bounded-contexts/ordering/GLOSSARY.md) | Provider-agnostic sales tax calculation. |
+| Tax Nexus Readiness | [Ordering](../bounded-contexts/ordering/GLOSSARY.md) | State-by-state sales-tax threshold and collection-provider readiness. |
+| Collection-Required Jurisdiction | [Ordering](../bounded-contexts/ordering/GLOSSARY.md) | Jurisdiction where Chase Sets must collect sales tax before accepting covered marketplace orders. |
 | Price Signal | [Pricing](../bounded-contexts/pricing/GLOSSARY.md) | Observed input for product-scoped price estimation. |
 | Notification Center | [Notifications](../bounded-contexts/notifications/GLOSSARY.md) | Account-level surface for recent marketplace updates and simple notification actions. |
 | Notification Feed Item | [Notifications](../bounded-contexts/notifications/GLOSSARY.md) | Account-visible update projected into the Notification Center. |
@@ -69,7 +69,7 @@ Do not rename durable event fields, persisted columns, provider metadata, or tra
 | Google Shopping Export Row | [Architecture](./adr/0007-google-shopping-merchant-center-integration.md) | Discovery-owned public export row for one Marketplace Listing submitted or dry-run-evaluated for Google Merchant Center. |
 | Merchant Offer ID | [Architecture](./adr/0007-google-shopping-merchant-center-integration.md) | Stable Google-facing offer id derived from immutable Chase Sets Listing identity. |
 | External Seller ID | [Architecture](./adr/0007-google-shopping-merchant-center-integration.md) | Google marketplace seller identifier derived from Chase Sets Account identity for multi-seller Merchant Center submissions. |
-| Platform Feedback | [Experience](../bounded-contexts/experience/GLOSSARY.md) | Internal product feedback, not public account reputation. |
+| Platform Feedback | [Platform Operations](../bounded-contexts/platform-operations/GLOSSARY.md) | Internal product feedback, not public account reputation. |
 | Sign-In Identifier | [Auth](../bounded-contexts/auth/GLOSSARY.md) | Contact value Auth accepts to start an authentication journey, such as email or phone. |
 | Phone Code | [Auth](../bounded-contexts/auth/GLOSSARY.md) | Short-lived Auth challenge sent over SMS and consumed to start or continue a session. |
 | Social Login | [Auth](../bounded-contexts/auth/GLOSSARY.md) | Auth-owned sign-in or registration journey through an external provider. |

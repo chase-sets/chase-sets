@@ -15,22 +15,18 @@ Structure, public export, deployable composition, and shared-ID rules live in [B
 | [Catalog](./catalog/README.md) | Own the canonical product model for what can be bought or sold. |
 | [Public Presence](./public-presence/README.md) | Own public product pages, prelaunch policy surfaces, waitlist behavior, and internal waitlist review. |
 | [Discovery](./discovery/README.md) | Own browse, search, and detail discovery experiences for catalog items. |
-| [Experience](./experience/README.md) | Own internal platform feedback and feedback review surfaces. |
 | [Checkout](./checkout/README.md) | Own account cart intent and active checkout session orchestration. |
 | [Inventory](./inventory/README.md) | Own account-held stock and operational availability. |
 | [Commercial Terms](./commercial-terms/README.md) | Own seller-side marketplace sales fee policy and account-specific commercial agreements. |
 | [Marketplace](./marketplace/README.md) | Own listing and offer workflows before an order exists. |
-| [Ordering](./ordering/README.md) | Own per-seller orders and commercial commitment. |
+| [Ordering](./ordering/README.md) | Own per-seller orders, commercial commitment, provider-agnostic tax quotes, and tax nexus readiness. |
 | [Fulfillment](./fulfillment/README.md) | Own shipment execution and delivery state. |
 | [Reputation](./reputation/README.md) | Own post-transaction ratings, written feedback, and canonical review summaries. |
 | [Notifications](./notifications/README.md) | Own account notification center, notification settings, feed read state, and delivery policy. |
 | [Payments](./payments/README.md) | Own external money movement, charges, and refunds. |
 | [Settlement](./settlement/README.md) | Own internal ledger truth, balances, and payouts. |
 | [Pricing](./pricing/README.md) | Own fair-value estimation and repricing intelligence. |
-| [Insights](./insights/README.md) | Own cross-context reporting, analytics, and forecasting views. |
-| [Tax](./tax/README.md) | Own provider-agnostic sales tax quote contracts and local quote behavior. |
-| [Support](./support/README.md) | Own structured marketplace support requests with guided, auditable resolution steps. |
-| [Platform Operations](./platform-operations/README.md) | Own internal operator workflows for cross-context platform runtime health. |
+| [Platform Operations](./platform-operations/README.md) | Own operator workflows for platform runtime health, release controls, cross-context insights reporting, platform feedback, and marketplace support requests. |
 
 Implemented contexts are the directories that contain both `package.json` and `context.json`.
 
@@ -76,9 +72,8 @@ Use Buyer and Seller when describing transaction endpoints: the buyer account pa
 - Notifications depends on source-context facts from Discovery, Ordering, Fulfillment, and future contexts for account-visible notification decisions.
 - Payments depends on Ordering and on refund triggers informed by Fulfillment outcomes.
 - Settlement depends on Payments and Ordering.
-- Tax provides provider-agnostic quote contracts consumed by Ordering.
 - Pricing consumes history from Catalog, Inventory, Marketplace, Ordering, and Fulfillment.
-- Insights consumes integration events from every context.
+- Platform Operations consumes integration events from transactional contexts for read-only insights reporting.
 
 ## Integration Rule
 
@@ -98,6 +93,6 @@ These scenarios should map cleanly to one owner per decision:
 6. Reputation owns post-transaction ratings, written feedback, and aggregate review summaries.
 7. Payments owns charge and refund execution.
 8. Settlement owns ledger adjustments and payout eligibility.
-9. Tax owns tax quote contracts; Ordering owns order tax snapshots.
+9. Ordering owns tax quote contracts and order tax snapshots through its tax-quotes slice.
 10. Pricing owns recommendations but never directly mutates listings or inventory.
-11. Insights owns reporting and forecasting without owning source transactions.
+11. Platform Operations owns insights reporting and forecasting without owning source transactions.

@@ -24,7 +24,7 @@ import { module as paymentsModule } from "@chase-sets/payments";
 import { module as pricingModule } from "@chase-sets/pricing";
 import { module as reputationModule } from "@chase-sets/reputation";
 import { module as settlementModule } from "@chase-sets/settlement";
-import { module as supportModule } from "@chase-sets/support";
+import { module as platformOperationsModule } from "@chase-sets/platform-operations";
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing-testing";
 
 export const marketplaceSeedContextNames = [
@@ -41,7 +41,7 @@ export const marketplaceSeedContextNames = [
   "pricing",
   "reputation",
   "settlement",
-  "support",
+  "platform-operations",
 ] as const;
 
 export const marketplaceSeedLifecycleContextOrder = [
@@ -60,7 +60,7 @@ export const marketplaceSeedLifecycleContextOrder = [
   "pricing",
   "reputation",
   "settlement",
-  "support",
+  "platform-operations",
 ] as const;
 
 export type MarketplaceSeedRuntimePools = Readonly<
@@ -184,9 +184,9 @@ export function createMarketplaceSeedRuntime(pools: MarketplaceSeedRuntimePools)
       ports: undefined,
     },
     {
-      contextName: "support",
-      module: supportModule,
-      pool: pools.support,
+      contextName: "platform-operations",
+      module: platformOperationsModule,
+      pool: pools["platform-operations"],
       ports: undefined,
     },
   ] as const);

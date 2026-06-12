@@ -21,3 +21,20 @@
 - Kill Switch: A Feature Rollout override that disables a capability for every subject until an operator clears it.
 - Account Allowlist: A rollout list that enables a capability for specific account subjects before or outside the percentage cohort.
 - Account Opt-Out: A rollout list that disables a capability for specific account subjects even when the percentage cohort includes them.
+- Analytical Projection: A read-only dashboard-read-model built from integration events across multiple bounded contexts.
+- KPI: A named metric used to track marketplace or account performance. Canonical KPI contracts are Sales Performance KPI (`insights.dashboards.sales-performance-kpi.query`, `/dashboards/sales-performance-kpi`), Fulfillment Latency KPI (`insights.dashboards.fulfillment-latency-kpi.query`, `/dashboards/fulfillment-latency-kpi`), and Conversion Order KPI (`insights.dashboards.conversion-order-kpi.query`, `/dashboards/conversion-order-kpi`).
+- Dashboard View: The presentation-focused projection used to render operational or commercial reporting.
+- Forecast Model: The analytical model used to estimate future demand, pricing, or operational outcomes.
+- Report Slice: A filtered analytical view scoped by time, account, or product dimensions.
+- Platform Feedback: An internal record of a user's experience with Chase Sets. It evaluates the platform (not another account), is visible to internal users only, and carries a rating, topic, optional comment, source workflow, and source context.
+- Platform Feedback Rating: The numeric experience score inside Platform Feedback, an integer from `1` through `5`.
+- Platform Feedback Topic: The required high-level area the feedback is about, such as ease of use, pricing/fees, product data/search, checkout/payment, selling/inventory, performance/reliability, or other.
+- Platform Feedback Comment: The optional written narrative attached to Platform Feedback.
+- Source Workflow: The user task that produced a platform-feedback prompt, such as checkout payment, listing publish, offer submit, offer accept, inventory create, or inventory adjust.
+- Prompt Dismissal: A record that a user chose not to leave platform feedback for a Source Workflow at that time.
+- Review Queue Status: The internal lifecycle state for Platform Feedback: new, reviewed, or archived.
+- Support Request: A structured request for help with a marketplace order.
+- Support Flow: The issue-specific checklist, response options, and resolution policy for a support request.
+- Support Evidence: Structured information supplied by the buyer, seller, or platform on a support request.
+- Support Resolution: The final support outcome, such as refund, replacement, return for refund, no action, or support escalation.
+- Buyer Cancellation Request: The support-owned fallback flow used when a buyer wants to cancel after Fulfillment has started package preparation.

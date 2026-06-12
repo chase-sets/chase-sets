@@ -5,20 +5,18 @@ import { contextManifest as catalogManifest, module as catalogModule } from "@ch
 import { contextManifest as checkoutManifest, module as checkoutModule } from "@chase-sets/checkout";
 import { contextManifest as commercialTermsManifest, module as commercialTermsModule } from "@chase-sets/commercial-terms";
 import { contextManifest as discoveryManifest, module as discoveryModule } from "@chase-sets/discovery";
-import { contextManifest as experienceManifest, module as experienceModule } from "@chase-sets/experience";
 import { contextManifest as fulfillmentManifest, module as fulfillmentModule } from "@chase-sets/fulfillment";
 import { contextManifest as identityManifest, module as identityModule } from "@chase-sets/identity";
-import { contextManifest as insightsManifest, module as insightsModule } from "@chase-sets/insights";
 import { contextManifest as inventoryManifest, module as inventoryModule } from "@chase-sets/inventory";
 import { contextManifest as marketplaceManifest, module as marketplaceModule } from "@chase-sets/marketplace";
 import { contextManifest as notificationsManifest, module as notificationsModule } from "@chase-sets/notification-center";
 import { contextManifest as orderingManifest, module as orderingModule } from "@chase-sets/ordering";
 import { contextManifest as paymentsManifest, module as paymentsModule } from "@chase-sets/payments";
+import { contextManifest as platformOperationsManifest, module as platformOperationsModule } from "@chase-sets/platform-operations";
 import { contextManifest as pricingManifest, module as pricingModule } from "@chase-sets/pricing";
 import { contextManifest as publicPresenceManifest, module as publicPresenceModule } from "@chase-sets/public-presence";
 import { contextManifest as reputationManifest, module as reputationModule } from "@chase-sets/reputation";
 import { contextManifest as settlementManifest, module as settlementModule } from "@chase-sets/settlement";
-import { contextManifest as supportManifest, module as supportModule } from "@chase-sets/support";
 
 export const workerContextRegistry = [
   {
@@ -52,12 +50,6 @@ export const workerContextRegistry = [
     module: discoveryModule,
   },
   {
-    contextName: "experience",
-    packageName: "@chase-sets/experience",
-    manifest: experienceManifest,
-    module: experienceModule,
-  },
-  {
     contextName: "fulfillment",
     packageName: "@chase-sets/fulfillment",
     manifest: fulfillmentManifest,
@@ -68,12 +60,6 @@ export const workerContextRegistry = [
     packageName: "@chase-sets/identity",
     manifest: identityManifest,
     module: identityModule,
-  },
-  {
-    contextName: "insights",
-    packageName: "@chase-sets/insights",
-    manifest: insightsManifest,
-    module: insightsModule,
   },
   {
     contextName: "inventory",
@@ -106,6 +92,12 @@ export const workerContextRegistry = [
     module: paymentsModule,
   },
   {
+    contextName: "platform-operations",
+    packageName: "@chase-sets/platform-operations",
+    manifest: platformOperationsManifest,
+    module: platformOperationsModule,
+  },
+  {
     contextName: "pricing",
     packageName: "@chase-sets/pricing",
     manifest: pricingManifest,
@@ -128,11 +120,5 @@ export const workerContextRegistry = [
     packageName: "@chase-sets/settlement",
     manifest: settlementManifest,
     module: settlementModule,
-  },
-  {
-    contextName: "support",
-    packageName: "@chase-sets/support",
-    manifest: supportManifest,
-    module: supportModule,
   },
 ] as const;

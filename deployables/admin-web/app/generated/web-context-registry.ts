@@ -6,12 +6,10 @@ import authManifest from "@chase-sets/auth/context";
 import catalogManifest from "@chase-sets/catalog/context";
 import commercialTermsManifest from "@chase-sets/commercial-terms/context";
 import discoveryManifest from "@chase-sets/discovery/context";
-import experienceManifest from "@chase-sets/experience/context";
 import identityManifest from "@chase-sets/identity/context";
 import orderingManifest from "@chase-sets/ordering/context";
 import platformOperationsManifest from "@chase-sets/platform-operations/context";
 import publicPresenceManifest from "@chase-sets/public-presence/context";
-import supportManifest from "@chase-sets/support/context";
 
 export const webContextRegistry = [
   {
@@ -35,11 +33,6 @@ export const webContextRegistry = [
     manifest: discoveryManifest as WebContextRegistry[number]["manifest"],
   },
   {
-    contextName: "experience",
-    packageName: "@chase-sets/experience",
-    manifest: experienceManifest as WebContextRegistry[number]["manifest"],
-  },
-  {
     contextName: "identity",
     packageName: "@chase-sets/identity",
     manifest: identityManifest as WebContextRegistry[number]["manifest"],
@@ -58,10 +51,5 @@ export const webContextRegistry = [
     contextName: "public-presence",
     packageName: "@chase-sets/public-presence",
     manifest: publicPresenceManifest as WebContextRegistry[number]["manifest"],
-  },
-  {
-    contextName: "support",
-    packageName: "@chase-sets/support",
-    manifest: supportManifest as WebContextRegistry[number]["manifest"],
   },
 ] as const satisfies WebContextRegistry;

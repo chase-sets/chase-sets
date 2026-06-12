@@ -2,8 +2,8 @@
 
 import { contextManifest as authManifest, module as authModule } from "@chase-sets/auth";
 import { contextManifest as catalogManifest, module as catalogModule } from "@chase-sets/catalog";
-import { contextManifest as experienceManifest, module as experienceModule } from "@chase-sets/experience";
 import { contextManifest as identityManifest, module as identityModule } from "@chase-sets/identity";
+import { contextManifest as platformOperationsManifest, module as platformOperationsModule } from "@chase-sets/platform-operations";
 import { contextManifest as publicPresenceManifest, module as publicPresenceModule } from "@chase-sets/public-presence";
 
 export const apiContextRegistry = [
@@ -20,16 +20,16 @@ export const apiContextRegistry = [
     module: catalogModule,
   },
   {
-    contextName: "experience",
-    packageName: "@chase-sets/experience",
-    manifest: experienceManifest,
-    module: experienceModule,
-  },
-  {
     contextName: "identity",
     packageName: "@chase-sets/identity",
     manifest: identityManifest,
     module: identityModule,
+  },
+  {
+    contextName: "platform-operations",
+    packageName: "@chase-sets/platform-operations",
+    manifest: platformOperationsManifest,
+    module: platformOperationsModule,
   },
   {
     contextName: "public-presence",

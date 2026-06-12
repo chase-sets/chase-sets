@@ -10,8 +10,8 @@
   "allowedContextDependencies": [
     "@chase-sets/auth",
     "@chase-sets/checkout",
-    "@chase-sets/experience",
-    "@chase-sets/ordering"
+    "@chase-sets/ordering",
+    "@chase-sets/platform-operations"
   ],
   "seedRequirements": ["identity", "marketplace", "ordering"],
   "eventSubscriptions": [
@@ -29,7 +29,7 @@
       "projectionHandlerSetNames": ["payments-order-input-projection"]
     },
     {
-      "sourceContextName": "support",
+      "sourceContextName": "platform-operations",
       "projectionName": "payments-support-refund-effect",
       "subscriptionVersion": 1,
       "eventTypes": ["support.support-request.resolved"],
@@ -55,7 +55,7 @@
     },
     {
       "projectionName": "payments-support-refund-effect",
-      "sourceContextNames": ["support"],
+      "sourceContextNames": ["platform-operations"],
       "ownedTables": ["payments_support_refund_effects"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"

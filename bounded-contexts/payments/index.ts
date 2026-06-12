@@ -50,7 +50,7 @@ export const module: BcApiModule<PaymentsServices, PgTransactionalPool, Payments
   projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) => {
     const orderingSubscription = getEventSubscription("ordering", "payments-order-input-projection");
-    const supportSubscription = getEventSubscription("support", "payments-support-refund-effect");
+    const supportSubscription = getEventSubscription("platform-operations", "payments-support-refund-effect");
     const orderingCancellationSubscription = getEventSubscription(
       "ordering",
       "payments-order-cancellation-refund-effect",
@@ -69,7 +69,7 @@ export const module: BcApiModule<PaymentsServices, PgTransactionalPool, Payments
       },
       {
         subscriptionName: "payments.support-refund-effect",
-        sourceContextName: "support",
+        sourceContextName: "platform-operations",
         projectionName: supportSubscription.projectionName,
         subscriptionVersion: supportSubscription.subscriptionVersion,
         handlers: buildPaymentsSupportRefundEffectHandlers(services.db, services.refunds),

@@ -3,7 +3,7 @@ import { getWorkerHostContextNames } from "@chase-sets/platform-runtime/worker";
 import { workerContextRegistry } from "../src/generated/worker-context-registry";
 import { getContextDatabaseEnvName, loadConfig } from "../src/config";
 
-const adminSupportContextNames = ["auth", "catalog", "experience", "identity", "public-presence"] as const;
+const adminSupportContextNames = ["auth", "catalog", "identity", "platform-operations", "public-presence"] as const;
 
 describe("admin-support worker configuration", () => {
   afterEach(() => {
@@ -28,7 +28,7 @@ describe("admin-support worker configuration", () => {
       expect.objectContaining({
         auth: "postgres://auth",
         catalog: "postgres://catalog",
-        experience: "postgres://experience",
+        "platform-operations": "postgres://platform-operations",
         identity: "postgres://identity",
         "public-presence": "postgres://public-presence",
       }),

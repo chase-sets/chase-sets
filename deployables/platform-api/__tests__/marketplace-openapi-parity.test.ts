@@ -154,10 +154,18 @@ function readMarketplaceWebApiMounts(): readonly string[] {
       continue;
     }
 
-    for (const mount of manifest.apiMounts ?? []) {
-      if (mount.kind === "primary" && mount.mountPath !== "/api/auth") {
-        mountPaths.add(mount.mountPath);
-      }
+    // A context's marketplace-web-facing API is its /api/marketplace mount
+    // when one is declared (for example platform-operations hosts support
+    // requests on an additional /api/marketplace mount while its primary
+    // mount serves admin-web platform operations); otherwise it is the
+    // context's primary mount.
+    const mounts = manifest.apiMounts ?? [];
+    const marketplaceWebMount =
+      mounts.find((mount) => mount.mountPath === "/api/marketplace") ??
+      mounts.find((mount) => mount.kind === "primary");
+
+    if (marketplaceWebMount && marketplaceWebMount.mountPath !== "/api/auth") {
+      mountPaths.add(marketplaceWebMount.mountPath);
     }
   }
 

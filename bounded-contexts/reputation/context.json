@@ -52,7 +52,7 @@
       "projectionHandlerSetNames": ["reputation-shipment-source-projection"]
     },
     {
-      "sourceContextName": "support",
+      "sourceContextName": "platform-operations",
       "projectionName": "reputation-support-source-projection",
       "subscriptionVersion": 1,
       "eventTypes": [
@@ -88,7 +88,7 @@
     },
     {
       "projectionName": "reputation-support-source-projection",
-      "sourceContextNames": ["support"],
+      "sourceContextNames": ["platform-operations"],
       "ownedTables": ["reputation_review_eligibility_pages"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"

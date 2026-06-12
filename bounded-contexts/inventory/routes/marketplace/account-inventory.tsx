@@ -4,7 +4,7 @@ import { redirect, useActionData, useLoaderData, useSearchParams } from "react-r
 import type { ListResponse } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import { PlatformFeedbackPrompt } from "@chase-sets/experience/server";
+import { PlatformFeedbackPrompt } from "@chase-sets/platform-operations/server";
 import {
   InventoryApiError,
   type InventoryItemListItem,

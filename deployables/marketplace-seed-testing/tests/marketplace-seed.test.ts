@@ -100,7 +100,7 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
     );
     expect(Number(payoutEmails.rows[0]?.count ?? 0)).toBeGreaterThan(0);
 
-    const supportRequests = await pools.support.query<{
+    const supportRequests = await pools["platform-operations"].query<{
       support_request_id: string;
       status: string;
       flow_type: string;
@@ -144,14 +144,23 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
 });
 
 async function readSeedEventCounts(pools: ReturnType<typeof useMarketplaceSeedRuntime>["pools"]) {
-  const contextNames = ["ordering", "payments", "fulfillment", "reputation", "settlement", "support"] as const;
+  // Support streams keep their durable "support." prefix but live in the
+  // platform-operations context database after the context merge.
+  const seedEventSources = [
+    ["ordering", "ordering"],
+    ["payments", "payments"],
+    ["fulfillment", "fulfillment"],
+    ["reputation", "reputation"],
+    ["settlement", "settlement"],
+    ["support", "platform-operations"],
+  ] as const;
   const entries = await Promise.all(
-    contextNames.map(async (contextName) => {
-      const result = await pools[contextName].query<{ count: string }>(
+    seedEventSources.map(async ([streamContextName, poolName]) => {
+      const result = await pools[poolName].query<{ count: string }>(
         "SELECT COUNT(*) AS count FROM event_store_events WHERE stream_id LIKE $1",
-        [`${contextName}.%`],
+        [`${streamContextName}.%`],
       );
-      return [contextName, result.rows[0]?.count ?? "0"] as const;
+      return [streamContextName, result.rows[0]?.count ?? "0"] as const;
     }),
   );
 

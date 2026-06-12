@@ -47,7 +47,7 @@ const surfaceChecks = [
   {
     id: "support-request-tables",
     owner: "Support",
-    file: "bounded-contexts/support/features/support-requests/ui/support-request-list-page.tsx",
+    file: "bounded-contexts/platform-operations/features/support-requests/ui/support-request-list-page.tsx",
     visualEvidence: ["Support request lists render through DataTable instead of legacy responsive table markup."],
     accessibilityEvidence: ["Table headers and row identity are owned by DataTable column metadata and getRowId."],
     mustInclude: ["DataTable", "getRowId", "columns"],

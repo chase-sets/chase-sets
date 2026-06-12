@@ -50,7 +50,7 @@ export const module: BcApiModule<ReputationServices, PgTransactionalPool, void> 
     const identitySubscription = getEventSubscription("identity", "reputation-account-projection");
     const orderingSubscription = getEventSubscription("ordering", "reputation-order-source-projection");
     const fulfillmentSubscription = getEventSubscription("fulfillment", "reputation-shipment-source-projection");
-    const supportSubscription = getEventSubscription("support", "reputation-support-source-projection");
+    const supportSubscription = getEventSubscription("platform-operations", "reputation-support-source-projection");
 
     return [
       {
@@ -87,7 +87,7 @@ export const module: BcApiModule<ReputationServices, PgTransactionalPool, void> 
       },
       {
         subscriptionName: "reputation.support-source-projection",
-        sourceContextName: "support",
+        sourceContextName: "platform-operations",
         projectionName: supportSubscription.projectionName,
         subscriptionVersion: supportSubscription.subscriptionVersion,
         handlers: buildReputationSupportProjectionHandlers(services.db),

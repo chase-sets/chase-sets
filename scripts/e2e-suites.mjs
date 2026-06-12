@@ -63,22 +63,18 @@ const contextSuiteOwnership = new Map([
   ["checkout", ["marketplace_checkout"]],
   ["commercial-terms", ["marketplace_browse", "marketplace_seller"]],
   ["discovery", ["marketplace_browse"]],
-  ["experience", []],
   ["fulfillment", ["marketplace_account"]],
   ["identity", ["marketplace_account"]],
-  ["insights", []],
   ["inventory", ["marketplace_seller"]],
   ["marketplace", ["marketplace_account", "marketplace_seller"]],
   ["notifications", ["marketplace_account"]],
   ["ordering", ["marketplace_account", "marketplace_checkout"]],
   ["payments", ["marketplace_account", "marketplace_checkout"]],
-  ["platform-operations", []],
+  ["platform-operations", ["marketplace_account"]],
   ["pricing", ["marketplace_browse"]],
   ["public-presence", ["marketplace_browse"]],
   ["reputation", ["marketplace_account"]],
   ["settlement", ["marketplace_account", "marketplace_seller"]],
-  ["support", ["marketplace_account"]],
-  ["tax", []],
 ]);
 
 const marketplaceRouteSuiteOwnership = [

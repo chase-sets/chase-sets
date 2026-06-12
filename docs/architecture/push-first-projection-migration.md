@@ -92,9 +92,9 @@ Bold source contexts are staging-enabled in the registry (wave 1). `Enabled` cou
 | `settlement:settlement-account-risk-source-projection` | Settlement | identity, reputation | push-eligible | 0/2 |
 | `settlement:settlement-fulfillment-source-projection` | Settlement | fulfillment | push-eligible | 0/1 |
 | `settlement:settlement-payment-input-projection` | Settlement | **payments** | push-enabled | 1/1 |
-| `settlement:settlement-support-hold-projection` | Settlement | support | push-eligible | 0/1 |
-| `support:support-order-source-projection` | Support | **ordering** | push-enabled | 1/1 |
-| `support:support-shipment-source-projection` | Support | fulfillment | push-eligible | 0/1 |
+| `settlement:settlement-support-hold-projection` | Settlement | platform-operations | push-eligible | 0/1 |
+| `platform-operations:support-order-source-projection` | Platform Operations | **ordering** | push-enabled | 1/1 |
+| `platform-operations:support-shipment-source-projection` | Platform Operations | fulfillment | push-eligible | 0/1 |
 
 Totals: 20 `push-enabled`, 38 `push-eligible`, 0 `disabled`, 0 `opted-out`.
 

@@ -1281,12 +1281,12 @@ export const mcpServiceCatalog = [
     ...service(
       "insights",
       "Insights",
-      "bounded-contexts/insights",
+      "bounded-contexts/platform-operations",
       "Marketplace analytics, account performance summaries, and operational insights.",
       "accounts.view",
       ["insight"],
       {
-        packageName: "@chase-sets/insights",
+        packageName: "@chase-sets/platform-operations",
       },
     ),
     tools: [

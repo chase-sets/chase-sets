@@ -324,8 +324,8 @@ locals {
     "auth",
     "catalog",
     "control",
-    "experience",
     "identity",
+    "platform-operations",
     "public-presence",
   ]
 
@@ -336,10 +336,8 @@ locals {
     "commercial-terms",
     "control",
     "discovery",
-    "experience",
     "fulfillment",
     "identity",
-    "insights",
     "inventory",
     "marketplace",
     "notifications",
@@ -350,7 +348,6 @@ locals {
     "public-presence",
     "reputation",
     "settlement",
-    "support",
   ]
 
   context_names = local.marketplace_platform_enabled ? local.platform_context_names : local.landing_context_names
