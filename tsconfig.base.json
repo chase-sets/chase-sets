@@ -1,3 +1,4 @@
+// Workspace tsconfigs extend this file or tsconfig.vitest.json; root tsconfig.json is only the editor/solution entry.
 {
   "compilerOptions": {
     "target": "ES2022",

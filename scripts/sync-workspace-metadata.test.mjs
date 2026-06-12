@@ -91,6 +91,9 @@ describe("sync-workspace-metadata --check", () => {
 
     syncWorkspaceMetadata(fixture);
 
+    expect(readFileSync(path.join(fixture.rootDir, "tsconfig.base.json"), "utf8")).toMatch(
+      /^\/\/ Workspace tsconfigs extend this file or tsconfig\.vitest\.json;/,
+    );
     expect(() => syncWorkspaceMetadata({ ...fixture, check: true })).not.toThrow();
   });
 
