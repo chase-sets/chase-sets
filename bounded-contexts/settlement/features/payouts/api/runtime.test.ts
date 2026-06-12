@@ -122,6 +122,37 @@ function createPayoutReadiness(
 }
 
 describe("settlement payout runtime", () => {
+  it("records provider-health checks as settlement operation liveness telemetry", async () => {
+    const operationEvents: Record<string, unknown>[] = [];
+    const payouts = createPayoutRuntime({
+      eventStore: createInMemoryEventStore().eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: {} as never,
+      wallets: {} as never,
+      payoutReadiness: {} as never,
+      moneyMovementGateway: createFakeMoneyMovementGateway(),
+      operationsRecorder: {
+        record: (event) => {
+          operationEvents.push(event);
+        },
+      },
+    });
+
+    const health = await payouts.getProviderHealth();
+
+    expect(health).toMatchObject({
+      provider_name: "fake",
+      adapter_mode: "fake",
+    });
+    expect(operationEvents).toEqual([
+      expect.objectContaining({
+        kind: "provider-health-checked",
+        providerName: "fake",
+      }),
+    ]);
+    expect(operationEvents[0]?.occurredAt).toEqual(expect.any(String));
+  });
+
   it("debits the wallet when requesting a payout and credits it back when the payout fails", async () => {
     const { eventStore, readAllEvents } = createInMemoryEventStore();
     let payoutRow: Record<string, unknown> | null = null;

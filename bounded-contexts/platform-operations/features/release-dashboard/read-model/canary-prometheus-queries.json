@@ -20,7 +20,6 @@
       "currentState": "needs-instrumentation",
       "baselineQuery": "vector(0)",
       "canaryQuery": "sum(rate(chase_sets_http_server_requests_total{status_class=\"5xx\"}[15m]))",
-      "emptyResultValue": 0,
       "maxIncrease": 0.005,
       "threshold": "current production 5xx rate <= 0.005 errors/second"
     },
@@ -42,8 +41,7 @@
       "source": "Prometheus checkout projection freshness pending and error telemetry",
       "currentState": "available-now",
       "baselineQuery": "vector(0)",
-      "canaryQuery": "sum(rate(chase_sets_projection_freshness_pending_total[15m])) + sum(rate(chase_sets_projection_freshness_work_signal_errors_total[15m]))",
-      "emptyResultValue": 0,
+      "canaryQuery": "((sum(rate(chase_sets_projection_freshness_pending_total[15m])) or on() (sum(rate(chase_sets_projection_freshness_evaluations_total[15m])) * 0)) + (sum(rate(chase_sets_projection_freshness_work_signal_errors_total[15m])) or on() (sum(rate(chase_sets_projection_freshness_evaluations_total[15m])) * 0)))",
       "maxIncrease": 0,
       "threshold": "production projection pending/error telemetry must remain zero"
     },
@@ -55,7 +53,6 @@
       "currentState": "needs-instrumentation",
       "baselineQuery": "vector(0)",
       "canaryQuery": "sum(rate(chase_sets_checkout_observability_events_total{release_health_required=\"true\",alert_class=~\"launch-alert|provider-alert|side-effect-boundary\"}[15m]))",
-      "emptyResultValue": 0,
       "maxIncrease": 0,
       "threshold": "production checkout/payment release-health alert events must remain zero"
     },
@@ -66,8 +63,7 @@
       "source": "Prometheus settlement operation failures for payout setup, readiness, and provider reconciliation",
       "currentState": "available-now",
       "baselineQuery": "vector(0)",
-      "canaryQuery": "sum(rate(chase_sets_settlement_operations_total{kind=~\"payout-setup-session-failed|payout-account-management-session-failed|payout-readiness-refresh-failed|payout-readiness-webhook-ignored|payout-request-blocked-by-setup|payout-failed|money-movement-webhook-ignored\"}[15m]))",
-      "emptyResultValue": 0,
+      "canaryQuery": "(sum(rate(chase_sets_settlement_operations_total{kind=~\"payout-setup-session-failed|payout-account-management-session-failed|payout-readiness-refresh-failed|payout-readiness-webhook-ignored|payout-request-blocked-by-setup|payout-failed|money-movement-webhook-ignored\"}[15m])) or on() (sum(rate(chase_sets_settlement_operations_total{kind=\"provider-health-checked\"}[15m])) * 0))",
       "maxIncrease": 0,
       "threshold": "production settlement payout/setup failures must remain zero"
     }

@@ -28,7 +28,8 @@ export type SettlementOperationEvent = Readonly<{
     | "payout-readiness-refresh-failed"
     | "payout-readiness-webhook-recorded"
     | "payout-readiness-webhook-ignored"
-    | "payout-request-blocked-by-setup";
+    | "payout-request-blocked-by-setup"
+    | "provider-health-checked";
   accountId?: AccountId | string;
   payoutId?: PayoutId | string;
   amount?: string;

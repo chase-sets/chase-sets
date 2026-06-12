@@ -164,7 +164,7 @@ describe("canary evidence collector", () => {
     });
   });
 
-  it("uses explicit empty Prometheus result values for zero-event counters", async () => {
+  it("keeps empty Prometheus query results missing instead of silently zeroing them", async () => {
     const directory = await mkdtemp(join(tmpdir(), "chase-sets-canary-prometheus-empty-"));
     const queryFile = join(directory, "queries.json");
     await writeFile(
@@ -177,7 +177,6 @@ describe("canary evidence collector", () => {
             source: "Prometheus settlement operation failures",
             baselineQuery: "baseline_settlement",
             canaryQuery: "canary_settlement",
-            emptyResultValue: 0,
             maxIncrease: 0,
           },
         ],
@@ -195,10 +194,11 @@ describe("canary evidence collector", () => {
 
     expect(telemetry.signals[0]).toMatchObject({
       name: "settlement-payout-errors",
-      baseline: 0,
-      canary: 0,
+      baseline: null,
+      canary: null,
+      status: "missing",
+      detail: "Prometheus returned no numeric result for settlement-payout-errors.",
     });
-    expect(telemetry.signals[0].status).toBeUndefined();
   });
 
   it("passes protected Prometheus query headers without embedding credentials in the URL", async () => {
@@ -369,14 +369,12 @@ describe("canary evidence collector", () => {
         baselineQuery: "baseline",
         canaryQuery: "canary",
         required: "sometimes",
-        emptyResultValue: "zero",
       }),
     ).toEqual([
       "owner is required.",
       "source is required.",
       "maxIncrease must be a non-negative number.",
       "required must be a boolean when provided.",
-      "emptyResultValue must be a finite number when provided.",
     ]);
   });
 
@@ -407,8 +405,10 @@ describe("canary evidence collector", () => {
     expect(signals.find((signal) => signal.name === "projection-lag-poison-events")).toMatchObject({
       required: true,
       currentState: "available-now",
-      emptyResultValue: 0,
     });
+    expect(signals.find((signal) => signal.name === "projection-lag-poison-events").canaryQuery).toContain(
+      "chase_sets_projection_freshness_evaluations_total",
+    );
     expect(signals.find((signal) => signal.name === "route-error-rate")).toMatchObject({
       required: false,
       currentState: "needs-instrumentation",
@@ -416,12 +416,18 @@ describe("canary evidence collector", () => {
     expect(signals.find((signal) => signal.name === "checkout-order-payment-errors")).toMatchObject({
       required: false,
       currentState: "needs-instrumentation",
-      emptyResultValue: 0,
     });
     expect(signals.find((signal) => signal.name === "settlement-payout-errors")).toMatchObject({
       required: true,
       currentState: "available-now",
-      emptyResultValue: 0,
     });
+    expect(signals.find((signal) => signal.name === "settlement-payout-errors")).toMatchObject({
+      required: true,
+      currentState: "available-now",
+    });
+    expect(signals.find((signal) => signal.name === "settlement-payout-errors").canaryQuery).toContain(
+      'kind="provider-health-checked"',
+    );
+    expect(signals.some((signal) => "emptyResultValue" in signal)).toBe(false);
   });
 });
