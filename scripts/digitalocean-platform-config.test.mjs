@@ -469,8 +469,22 @@ describe("DigitalOcean platform configuration", () => {
     expect(managedContexts).toEqual(expect.arrayContaining(platformApiContextNames()));
   });
 
+  it("retains retired production context databases outside active platform contexts", () => {
+    const activeContexts = terraformStringList(platformLocals, "platform_context_names");
+    const retainedDatabaseContexts = terraformStringList(platformLocals, "production_retained_context_database_names");
+
+    expect(activeContexts).not.toContain("reputation");
+    expect(retainedDatabaseContexts).toEqual(["reputation"]);
+    expect(platformLocals).toContain("context_database_names = distinct(concat(");
+    expect(platformLocals).toContain("local.is_production ? local.production_retained_context_database_names : []");
+    expect(occurrenceCount(platformLocals, "for context_name in local.context_database_names :")).toBe(3);
+  });
+
   it("keeps production context database names within DigitalOcean limits", () => {
-    const managedContexts = terraformStringList(platformLocals, "platform_context_names");
+    const managedContexts = [
+      ...terraformStringList(platformLocals, "platform_context_names"),
+      ...terraformStringList(platformLocals, "production_retained_context_database_names"),
+    ];
     const databaseNameOverrides = terraformStringMap(platformLocals, "context_database_name_token_overrides");
     const databaseNames = managedContexts.map((contextName) => {
       const token = databaseNameOverrides[contextName] ?? contextName.replaceAll("-", "_");

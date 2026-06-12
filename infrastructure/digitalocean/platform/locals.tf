@@ -351,12 +351,21 @@ locals {
 
   context_names = local.marketplace_platform_enabled ? local.platform_context_names : local.landing_context_names
 
+  production_retained_context_database_names = [
+    "reputation",
+  ]
+
+  context_database_names = distinct(concat(
+    local.context_names,
+    local.is_production ? local.production_retained_context_database_names : [],
+  ))
+
   context_database_name_token_overrides = {
     "platform-operations" = "platform_ops"
   }
 
   context_database_name_tokens = {
-    for context_name in local.context_names :
+    for context_name in local.context_database_names :
     context_name => (
       length("chase_sets_${local.database_name_token}_${replace(context_name, "-", "_")}") <= 40
       ? replace(context_name, "-", "_")
@@ -365,12 +374,12 @@ locals {
   }
 
   context_databases = {
-    for context_name in local.context_names :
+    for context_name in local.context_database_names :
     context_name => "chase_sets_${local.database_name_token}_${local.context_database_name_tokens[context_name]}"
   }
 
   context_database_users = {
-    for context_name in local.context_names :
+    for context_name in local.context_database_names :
     context_name => "cs_${local.database_name_token}_${replace(context_name, "-", "_")}"
   }
 
