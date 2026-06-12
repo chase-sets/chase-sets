@@ -268,8 +268,11 @@ describe("checkout sell list page", () => {
     expect(markup).toContain("View committed sales");
     expect(markup).toContain("View sale shipments");
     expect(markup).not.toContain("Sale complete");
+    expect(markup).not.toContain("Completed");
     expect(markup).not.toContain("Label ready");
     expect(markup).not.toContain("Payout ready");
+    expect(markup).not.toContain("Settlement complete");
+    expect(markup).not.toContain("Account history updated");
   });
 
   it("shows guest selected-offer payout details through Reference Info without a fee fingerprint", () => {
