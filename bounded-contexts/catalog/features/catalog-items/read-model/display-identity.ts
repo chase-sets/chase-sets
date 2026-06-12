@@ -81,6 +81,12 @@ type ResolutionContext = Readonly<{
   referenceDepths: ReadonlyMap<string, number>;
 }>;
 
+type ExistingDisplayIdentityHashRow = Readonly<{
+  catalog_item_id: string;
+  language_code: string;
+  display_identity_hash: string;
+}>;
+
 export async function resolveCatalogItemDisplayIdentity(
   db: PgQueryable,
   item: DisplayIdentityItem,
@@ -99,6 +105,91 @@ export async function resolveCatalogItemDisplayIdentity(
         .filter((referenceId): referenceId is string => referenceId !== null),
     ),
   ]);
+
+  return resolveCatalogItemDisplayIdentityWithLoadedData(item, fieldValues, fieldDefinitions, templates, references);
+}
+
+export async function resolveAndPersistCatalogItemDisplayIdentities<TItem extends DisplayIdentityItem>(
+  db: PgQueryable,
+  items: readonly TItem[],
+  resolvedAt: string | ((item: TItem) => string),
+): Promise<Map<string, PersistedDisplayIdentityResult>> {
+  const uniqueItems = [...new Map(items.map((item) => [item.catalog_item_id, item])).values()];
+  if (uniqueItems.length === 0) {
+    return new Map();
+  }
+
+  const fieldValuesByItemId = new Map(
+    uniqueItems.map((item) => [item.catalog_item_id, asArray<FieldValue>(item.field_values)] as const),
+  );
+  const directReferenceIdsByItemId = new Map(
+    uniqueItems.map((item) => {
+      const fieldValues = fieldValuesByItemId.get(item.catalog_item_id) ?? [];
+      return [
+        item.catalog_item_id,
+        fieldValues
+          .map((fieldValue) => referenceIdFromValue(fieldValue.value))
+          .filter((referenceId): referenceId is string => referenceId !== null),
+      ] as const;
+    }),
+  );
+
+  const fieldDefinitions = await loadFieldDefinitions(
+    db,
+    uniqueItems.flatMap((item) =>
+      (fieldValuesByItemId.get(item.catalog_item_id) ?? []).map((fieldValue) => fieldValue.fieldId),
+    ),
+  );
+  const templates = await loadActiveDisplayTemplates(db);
+  const referenceRowsById = await loadReferenceRecordRowsByGraph(
+    db,
+    uniqueItems.flatMap((item) => directReferenceIdsByItemId.get(item.catalog_item_id) ?? []),
+  );
+  const identities = uniqueItems.map((item) =>
+    resolveCatalogItemDisplayIdentityWithLoadedData(
+      item,
+      fieldValuesByItemId.get(item.catalog_item_id) ?? [],
+      fieldDefinitions,
+      templates,
+      buildReferenceRecordMap(directReferenceIdsByItemId.get(item.catalog_item_id) ?? [], referenceRowsById),
+    ),
+  );
+  const existingHashes = await loadExistingDisplayIdentityHashes(db, identities);
+  const resolvedAtForItem = typeof resolvedAt === "function" ? resolvedAt : () => resolvedAt;
+  const results = new Map<string, PersistedDisplayIdentityResult>(
+    identities.map((identity, index) => {
+      const item = uniqueItems[index];
+      if (!item) {
+        throw new Error(`Missing Catalog Item for display identity ${identity.catalogItemId}.`);
+      }
+
+      const resolvedAtValue = resolvedAtForItem(item);
+      const changed =
+        existingHashes.get(displayIdentityKey(identity.catalogItemId, identity.languageCode)) !== identity.hash;
+
+      return [
+        identity.catalogItemId,
+        {
+          identity,
+          changed,
+          resolvedAt: resolvedAtValue,
+        },
+      ];
+    }),
+  );
+
+  await persistDisplayIdentities(db, [...results.values()]);
+
+  return results;
+}
+
+function resolveCatalogItemDisplayIdentityWithLoadedData(
+  item: DisplayIdentityItem,
+  fieldValues: readonly FieldValue[],
+  fieldDefinitions: ReadonlyMap<string, FieldDefinitionRow>,
+  templates: readonly DisplayTemplateRow[],
+  references: ReadonlyMap<string, ReferenceRecordRef>,
+): ResolvedDisplayIdentity {
   const fieldsByKey = fieldValueMap(fieldValues, fieldDefinitions);
   const context: ResolutionContext = {
     item,
@@ -187,6 +278,113 @@ export async function resolveAndPersistCatalogItemDisplayIdentity(
   );
 
   return { identity, changed, resolvedAt };
+}
+
+async function loadExistingDisplayIdentityHashes(
+  db: PgQueryable,
+  identities: readonly ResolvedDisplayIdentity[],
+): Promise<Map<string, string>> {
+  const catalogItemIds = [...new Set(identities.map((identity) => identity.catalogItemId))];
+  if (catalogItemIds.length === 0) {
+    return new Map();
+  }
+
+  const existing = await db.query<ExistingDisplayIdentityHashRow>(
+    `SELECT catalog_item_id, language_code, display_identity_hash
+     FROM catalog_item_display_identities
+     WHERE catalog_item_id = ANY($1)`,
+    [catalogItemIds],
+  );
+
+  return new Map(
+    existing.rows.map((row) => [displayIdentityKey(row.catalog_item_id, row.language_code), row.display_identity_hash]),
+  );
+}
+
+async function persistDisplayIdentities(
+  db: PgQueryable,
+  results: readonly PersistedDisplayIdentityResult[],
+): Promise<void> {
+  if (results.length === 0) {
+    return;
+  }
+
+  await db.query(
+    `INSERT INTO catalog_item_display_identities (
+       catalog_item_id,
+       language_code,
+       title,
+       subtitle,
+       display_template_key,
+       display_template_target_kind,
+       display_template_target_id,
+       display_identity_hash,
+       resolver_version,
+       resolved_at,
+       updated_at
+     )
+     SELECT
+       input.catalog_item_id,
+       input.language_code,
+       input.title,
+       input.subtitle,
+       input.display_template_key,
+       input.display_template_target_kind,
+       input.display_template_target_id,
+       input.display_identity_hash,
+       input.resolver_version,
+       input.resolved_at,
+       input.resolved_at
+     FROM unnest(
+       $1::text[],
+       $2::text[],
+       $3::text[],
+       $4::text[],
+       $5::text[],
+       $6::text[],
+       $7::text[],
+       $8::text[],
+       $9::integer[],
+       $10::timestamptz[]
+     ) AS input(
+       catalog_item_id,
+       language_code,
+       title,
+       subtitle,
+       display_template_key,
+       display_template_target_kind,
+       display_template_target_id,
+       display_identity_hash,
+       resolver_version,
+       resolved_at
+     )
+     ON CONFLICT (catalog_item_id, language_code) DO UPDATE SET
+       title = EXCLUDED.title,
+       subtitle = EXCLUDED.subtitle,
+       display_template_key = EXCLUDED.display_template_key,
+       display_template_target_kind = EXCLUDED.display_template_target_kind,
+       display_template_target_id = EXCLUDED.display_template_target_id,
+       display_identity_hash = EXCLUDED.display_identity_hash,
+       resolver_version = EXCLUDED.resolver_version,
+       resolved_at = EXCLUDED.resolved_at,
+       updated_at = EXCLUDED.updated_at`,
+    [
+      results.map((result) => result.identity.catalogItemId),
+      results.map((result) => result.identity.languageCode),
+      results.map((result) => result.identity.title),
+      results.map((result) => result.identity.subtitle),
+      results.map((result) => result.identity.templateKey),
+      results.map((result) => result.identity.templateTargetKind),
+      results.map((result) => result.identity.templateTargetId),
+      results.map((result) => result.identity.hash),
+      results.map((result) => result.identity.resolverVersion),
+      results.map((result) => result.resolvedAt),
+    ],
+  );
+}
+
+function displayIdentityKey(catalogItemId: string, languageCode: string): string {
+  return `${catalogItemId}\u0000${languageCode}`;
 }
 
 function withDisplayIdentityMetadata(
@@ -420,7 +618,14 @@ async function loadReferenceRecordMap(
     return new Map();
   }
 
-  const rowsById = await loadReferenceRecordRowsByGraph(db, uniqueIds);
+  return buildReferenceRecordMap(uniqueIds, await loadReferenceRecordRowsByGraph(db, uniqueIds));
+}
+
+function buildReferenceRecordMap(
+  ids: readonly string[],
+  rowsById: ReadonlyMap<string, ReferenceRecordRow>,
+): Map<string, ReferenceRecordRef> {
+  const uniqueIds = [...new Set(ids)];
   const buildReference = (row: ReferenceRecordRow, depth: number, path: ReadonlySet<string>): ReferenceRecordRef => {
     const nextPath = new Set(path);
     nextPath.add(row.reference_record_id);
