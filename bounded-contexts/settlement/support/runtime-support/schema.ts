@@ -1,5 +1,5 @@
 import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres";
-import { transactionalEmailOutboxSchemaSql } from "@chase-sets/transactional-email-outbox";
+import { notificationOutboxSchemaSql } from "@chase-sets/notification-outbox";
 import { settlementWalletSchemaSql } from "../../features/wallets/read-model/schema";
 import { settlementPaymentSourceSchemaSql } from "../../features/wallets/integrations/payment-source/payment-source-schema";
 import { settlementSupportSourceSchemaSql } from "../../features/wallets/integrations/support-source/support-source-schema";
@@ -30,7 +30,7 @@ CREATE INDEX IF NOT EXISTS settlement_work_claims_eligible_idx
 
 export const settlementSchemaSql = [
   eventCorePostgresSchemaSql,
-  transactionalEmailOutboxSchemaSql,
+  notificationOutboxSchemaSql,
   settlementPaymentSourceSchemaSql,
   settlementSupportSourceSchemaSql,
   settlementFulfillmentSourceSchemaSql,

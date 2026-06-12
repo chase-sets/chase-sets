@@ -288,9 +288,7 @@ describe("marketplace transactional email evidence", () => {
     expect(evidence.errors).toContain(
       "Transactional email controlledSendProviderMessageId must be a concrete identifier, not a placeholder.",
     );
-    expect(evidence.errors).toContain(
-      "Transactional email outboxRowId must be a positive transactional_email_outbox row id.",
-    );
+    expect(evidence.errors).toContain("Transactional email outboxRowId must be a positive notification_outbox row id.");
   });
 
   it("fails when provider event ids do not match the SES event shape", () => {

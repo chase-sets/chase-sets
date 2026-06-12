@@ -526,23 +526,14 @@ const WORK_SIGNAL_ORIGIN_DISPOSITIONS: readonly WorkSignalOriginDisposition[] = 
     notes: "Adapter lands with the reconciliation phase of #1249.",
   },
   {
-    origin: "transactional-email-outbox",
-    kind: null,
-    channel: "none",
-    emitter: "none (claim/retry polling dispatcher; no notifications)",
-    waiter: "none (worker dispatch loop on a bounded interval)",
-    disposition: "scheduled-exception",
-    notes:
-      "Provider-owned outbox rows with claim TTL retry; interval dispatch is already bounded by provider rate limits, so wake signals add no latency value.",
-  },
-  {
     origin: "notification-outbox",
     kind: null,
     channel: "none",
     emitter: "none (claim/retry polling dispatcher; no notifications)",
     waiter: "none (worker dispatch loop on a bounded interval)",
     disposition: "scheduled-exception",
-    notes: "Same scheduled/outbox posture as the transactional email dispatcher.",
+    notes:
+      "Provider-owned email, mobile, and web notification rows with claim TTL retry; interval dispatch is already bounded by provider rate limits, so wake signals add no latency value.",
   },
 ];
 

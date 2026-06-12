@@ -1,4 +1,4 @@
-import type { TransactionalEmailOutbox } from "@chase-sets/communications-email";
+import type { NotificationOutbox } from "@chase-sets/notifications";
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import { mapShipmentDeliveredToTransactionalEmail } from "./transactional-email-intents";
@@ -22,7 +22,7 @@ function correlationIdFromEvent(event: TransportEvent) {
 }
 
 export async function projectFulfillmentEventToTransactionalEmail(
-  outbox: TransactionalEmailOutbox,
+  outbox: NotificationOutbox,
   event: TransportEvent,
   projectionName = FULFILLMENT_TRANSACTIONAL_EMAIL_PROJECTION,
 ) {
@@ -31,7 +31,7 @@ export async function projectFulfillmentEventToTransactionalEmail(
   const buyerEmail = data.shippingDestinationSnapshot.email?.trim();
   if (!buyerEmail) return;
 
-  await outbox.enqueueTransactionalEmail({
+  await outbox.enqueueNotification({
     message: mapShipmentDeliveredToTransactionalEmail({
       buyerEmail,
       orderId: data.orderId,
@@ -48,7 +48,7 @@ export async function projectFulfillmentEventToTransactionalEmail(
 }
 
 export function buildFulfillmentTransactionalEmailProjectionHandlers(
-  outbox: TransactionalEmailOutbox,
+  outbox: NotificationOutbox,
   projectionName = FULFILLMENT_TRANSACTIONAL_EMAIL_PROJECTION,
 ): ProjectorHandlerMap {
   return {

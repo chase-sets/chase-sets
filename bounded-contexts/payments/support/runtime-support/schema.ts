@@ -1,5 +1,5 @@
 import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres";
-import { transactionalEmailOutboxSchemaSql } from "@chase-sets/transactional-email-outbox";
+import { notificationOutboxSchemaSql } from "@chase-sets/notification-outbox";
 import { paymentsOrderInputSchemaSql } from "../../features/payments/integrations/order-input/order-input-schema";
 import { paymentsPaymentSchemaSql } from "../../features/payments/read-model/schema";
 import { paymentsOrderCancellationRefundEffectSchemaSql } from "../../features/refunds/integrations/ordering/order-cancellation-refund-effect-schema";
@@ -28,7 +28,7 @@ CREATE INDEX IF NOT EXISTS payments_work_claims_eligible_idx
 
 export const paymentsSchemaSql = [
   eventCorePostgresSchemaSql,
-  transactionalEmailOutboxSchemaSql,
+  notificationOutboxSchemaSql,
   paymentsOrderInputSchemaSql,
   paymentsOrderCancellationRefundEffectSchemaSql,
   paymentsSupportRefundEffectSchemaSql,

@@ -111,9 +111,9 @@
       "purpose": "Provider-neutral money movement adapter for payout setup, platform-balance transfers, connected-account payouts, and payout webhooks."
     },
     {
-      "portName": "transactionalEmailOutbox",
+      "portName": "notificationOutbox",
       "providedBy": "platform-worker",
-      "purpose": "Durable transactional email outbox consumed only by event projectors."
+      "purpose": "Durable outbound notification outbox consumed only by event projectors."
     }
   ],
   "apiDeployables": ["platform-api"],

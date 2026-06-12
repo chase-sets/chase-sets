@@ -11,7 +11,11 @@ describe("auth transactional email intents", () => {
     });
 
     expect(message.messageType).toBe("auth.magic-link.requested");
-    expect(message.to[0]?.email).toBe("buyer@example.com");
+    expect(message.channels[0]).toMatchObject({
+      channel: "email",
+      to: [{ email: "buyer@example.com" }],
+      subject: "Your Chase Sets sign-in link",
+    });
     expect(message.templateData.magicLink).toBe("https://chasesets.com/magic/token");
   });
 });

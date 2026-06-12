@@ -74,9 +74,9 @@
   ],
   "hostPorts": [
     {
-      "portName": "transactionalEmailOutbox",
+      "portName": "notificationOutbox",
       "providedBy": "platform-worker",
-      "purpose": "Durable transactional email outbox consumed only by support request event projectors."
+      "purpose": "Durable outbound notification outbox consumed only by support request event projectors."
     }
   ],
   "apiDeployables": ["admin-support-api", "platform-api"],

@@ -97,7 +97,7 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
 
     const payoutEmails = await pools.settlement.query<{ count: string }>(
       `SELECT COUNT(*) AS count
-       FROM transactional_email_outbox
+       FROM notification_outbox
        WHERE message_type = 'settlement.payout.completed'
          AND idempotency_key LIKE 'settlement:payout_completed:%'`,
     );

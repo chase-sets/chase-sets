@@ -164,9 +164,9 @@
       "purpose": "Consume the provider-agnostic tax quote resolver owned by the Ordering tax-quotes slice when creating order tax snapshots."
     },
     {
-      "portName": "transactionalEmailOutbox",
+      "portName": "notificationOutbox",
       "providedBy": "platform-worker",
-      "purpose": "Durable transactional email outbox consumed only by order event projectors."
+      "purpose": "Durable outbound notification outbox consumed only by order event projectors."
     }
   ],
   "apiDeployables": ["platform-api"],

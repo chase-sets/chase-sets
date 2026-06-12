@@ -6,7 +6,7 @@ import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-se
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { createNoopTransactionalEmailOutbox, type TransactionalEmailOutbox } from "@chase-sets/communications-email";
+import { createNoopNotificationOutbox, type NotificationOutbox } from "@chase-sets/notifications";
 import {
   buildPackagePlan,
   defaultPostagePolicy,
@@ -120,7 +120,7 @@ type OrderRuntimeDeps = Readonly<{
   shippingQuotePolicy: ShippingQuotePolicy;
   postagePolicyResolver?: PostagePolicyResolver;
   taxQuoteResolver?: TaxQuoteResolver;
-  transactionalEmailOutbox?: TransactionalEmailOutbox;
+  notificationOutbox?: NotificationOutbox;
 }>;
 
 export type CheckoutOrderLineSnapshot = Readonly<{
@@ -1029,7 +1029,7 @@ function planToPreview(
 export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrderServices {
   const taxQuoteResolver = deps.taxQuoteResolver ?? zeroTaxQuoteResolver;
   const postagePolicyResolver = deps.postagePolicyResolver ?? defaultPostagePolicyResolver;
-  const transactionalEmailOutbox = deps.transactionalEmailOutbox ?? createNoopTransactionalEmailOutbox();
+  const notificationOutbox = deps.notificationOutbox ?? createNoopNotificationOutbox();
   const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
       eventStore: deps.eventStore,
@@ -1676,7 +1676,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
       createProjectionHandlerSet({
         projectionName: ORDERING_TRANSACTIONAL_EMAIL_PROJECTION,
         handlers: buildOrderingTransactionalEmailProjectionHandlers(
-          transactionalEmailOutbox,
+          notificationOutbox,
           ORDERING_TRANSACTIONAL_EMAIL_PROJECTION,
         ),
       }),

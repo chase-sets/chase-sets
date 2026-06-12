@@ -51,7 +51,7 @@ When "reads are stale" or "checkout is slow", localize the stage before acting:
 7. **Durable job / realtime wake/replay**: durable-job SSE and realtime SSE have their own wake channels and replay from durable rows/cursors; see [Realtime SSE](./realtime-sse.md) and [Durable Job Workflows](../architecture/durable-job-workflows.md).
 8. **API waits** (`api-wait`): route freshness timeouts and 503s; see [Projection Freshness Audit](./projection-freshness-audit.md).
 
-For provider delivery (transactional email / notifications), the wake pipeline is not involved: localize across **outbox enqueue -> claim -> retry/backoff -> provider send -> webhook/provider acknowledgement -> terminal recording** using the outbox dispatcher's durable rows (`infrastructure/transactional-email-outbox`, `infrastructure/notification-outbox`), the worker status endpoint's `durableWorkflows` summaries, and [Email Operations](./email-operations.md). Composite work-signal adapters for these origins are #1248 and do not exist yet.
+For provider delivery (transactional email / notifications), the wake pipeline is not involved: localize across **outbox enqueue -> claim -> retry/backoff -> provider send -> webhook/provider acknowledgement -> terminal recording** using the notification outbox dispatcher's durable rows (`infrastructure/notification-outbox`), the worker status endpoint's `durableWorkflows` summaries, and [Email Operations](./email-operations.md). Composite work-signal adapters for this origin are #1248 and do not exist yet.
 
 ## Failure Classes
 

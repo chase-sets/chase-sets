@@ -6,7 +6,7 @@ import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-se
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { createNoopTransactionalEmailOutbox, type TransactionalEmailOutbox } from "@chase-sets/communications-email";
+import { createNoopNotificationOutbox, type NotificationOutbox } from "@chase-sets/notifications";
 import { recordProviderWebhookEvent } from "@chase-sets/provider-webhook-inbox";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, OrderId, PaymentId } from "@chase-sets/primitives/typed-ids";
@@ -86,7 +86,7 @@ type PaymentRuntimeDeps = Readonly<{
   db: PgQueryable;
   processorGateway: PaymentProcessorGateway;
   balanceCreditResolver?: BalanceCreditResolver;
-  transactionalEmailOutbox?: TransactionalEmailOutbox;
+  notificationOutbox?: NotificationOutbox;
 }>;
 
 type CheckoutStatusResult = Readonly<{
@@ -719,7 +719,7 @@ export type PaymentServices = Readonly<{
 }>;
 
 export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices {
-  const transactionalEmailOutbox = deps.transactionalEmailOutbox ?? createNoopTransactionalEmailOutbox();
+  const notificationOutbox = deps.notificationOutbox ?? createNoopNotificationOutbox();
   const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
       eventStore: deps.eventStore,
@@ -1674,7 +1674,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         projectionName: PAYMENTS_PAYMENT_TRANSACTIONAL_EMAIL_PROJECTION,
         handlers: buildPaymentTransactionalEmailProjectionHandlers(
           deps.db,
-          transactionalEmailOutbox,
+          notificationOutbox,
           PAYMENTS_PAYMENT_TRANSACTIONAL_EMAIL_PROJECTION,
         ),
       }),

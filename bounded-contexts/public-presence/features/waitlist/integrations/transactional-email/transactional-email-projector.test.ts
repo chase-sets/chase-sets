@@ -1,12 +1,12 @@
-import type { EnqueueTransactionalEmailInput } from "@chase-sets/communications-email";
+import type { EnqueueNotificationInput } from "@chase-sets/notifications";
 import { describe, expect, it, vi } from "vitest";
 import { projectWaitlistEventToTransactionalEmail } from "./transactional-email-projector";
 
 describe("waitlist transactional email projector", () => {
   it("enqueues one confirmation email for recorded waitlist signups", async () => {
-    let enqueued: EnqueueTransactionalEmailInput | null = null;
+    let enqueued: EnqueueNotificationInput | null = null;
     const outbox = {
-      enqueueTransactionalEmail: vi.fn(async (input: EnqueueTransactionalEmailInput) => {
+      enqueueNotification: vi.fn(async (input: EnqueueNotificationInput) => {
         enqueued = input;
       }),
     };
@@ -26,11 +26,13 @@ describe("waitlist transactional email projector", () => {
       },
     } as never);
 
-    expect(outbox.enqueueTransactionalEmail).toHaveBeenCalledOnce();
+    expect(outbox.enqueueNotification).toHaveBeenCalledOnce();
     expect(enqueued).toEqual(
       expect.objectContaining({
         message: expect.objectContaining({
-          to: [{ email: "collector@example.com" }],
+          channels: expect.arrayContaining([
+            expect.objectContaining({ channel: "email", to: [{ email: "collector@example.com" }] }),
+          ]),
           idempotencyKey: "public-presence:waitlist-signup-confirmation:wls_test",
         }),
         source: expect.objectContaining({
@@ -43,7 +45,7 @@ describe("waitlist transactional email projector", () => {
   });
 
   it("does not resend confirmation for duplicate waitlist updates", async () => {
-    const outbox = { enqueueTransactionalEmail: vi.fn(async () => undefined) };
+    const outbox = { enqueueNotification: vi.fn(async () => undefined) };
 
     await projectWaitlistEventToTransactionalEmail(outbox, {
       id: "evt_2",
@@ -60,6 +62,6 @@ describe("waitlist transactional email projector", () => {
       },
     } as never);
 
-    expect(outbox.enqueueTransactionalEmail).not.toHaveBeenCalled();
+    expect(outbox.enqueueNotification).not.toHaveBeenCalled();
   });
 });

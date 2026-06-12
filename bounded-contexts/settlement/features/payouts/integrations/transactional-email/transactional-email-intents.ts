@@ -1,4 +1,4 @@
-import type { TransactionalEmailMessage } from "@chase-sets/communications-email";
+import { createTransactionalEmailNotificationMessage, type NotificationMessage } from "@chase-sets/notifications";
 
 export type PayoutCompletedEmailIntentInput = Readonly<{
   sellerEmail: string;
@@ -7,10 +7,8 @@ export type PayoutCompletedEmailIntentInput = Readonly<{
   correlationId: string;
 }>;
 
-export function mapPayoutCompletedToTransactionalEmail(
-  input: PayoutCompletedEmailIntentInput,
-): TransactionalEmailMessage {
-  return {
+export function mapPayoutCompletedToTransactionalEmail(input: PayoutCompletedEmailIntentInput): NotificationMessage {
+  return createTransactionalEmailNotificationMessage({
     messageType: "settlement.payout.completed",
     criticality: "commerce",
     to: [{ email: input.sellerEmail }],
@@ -22,5 +20,5 @@ export function mapPayoutCompletedToTransactionalEmail(
     idempotencyKey: `settlement:payout_completed:${input.payoutId}`,
     correlationId: input.correlationId,
     actor: { userId: null, accountId: null },
-  };
+  });
 }

@@ -22,7 +22,7 @@ Consumer evidence shows the split is accidental rather than domain-driven:
 - `notifications`, `discovery`, and `auth` use the notification outbox pattern for event-projector writes that may fan out to web, email, SMS, RCS, or future channels.
 - `platform-worker` composes both dispatchers and already has email providers available as notification channel adapters through SES and local capture.
 
-The two outboxes preserve the same delivery semantics: source-event metadata, ordered claims by `next_attempt_at` then `outbox_id`, `FOR UPDATE SKIP LOCKED`, claim TTL recovery for stale `sending` rows, retry delay scheduling, max attempts, provider receipts, and no mutation of sent message payloads during idempotent replay. The difference is row identity: transactional email uses `idempotency_key`, while notification delivery uses `delivery_id`. A single-email notification can preserve the same effective identity by deriving `delivery_id` as `<idempotency_key>:email:1`.
+The two outboxes preserve the same delivery semantics: source-event metadata, ordered claims by `next_attempt_at` then `outbox_id`, `FOR UPDATE SKIP LOCKED`, claim TTL recovery for stale `sending` rows, retry delay scheduling, max attempts, provider receipts, and no mutation of sent message payloads during idempotent replay. The difference is row identity: transactional email uses `idempotency_key`, while notification delivery uses `delivery_id`. A single-email notification preserves the transactional identity by using the message idempotency key as its delivery id; multi-channel notifications keep the existing `<idempotency_key>:<channel>:<index>` delivery ids.
 
 ## Decision
 
@@ -55,7 +55,7 @@ Rejected. Notifications owns feed and delivery policy, not the source business f
 ## Consequences
 
 - There is one durable outbox table contract: `notification_outbox`. Existing database environments with `transactional_email_outbox` need an explicit migration or replay strategy before this is applied outside greenfield/dev databases.
-- Single-email transactional messages become one `email` delivery row with a deterministic delivery id derived from the message idempotency key. Replaying the same source fact remains idempotent.
+- Single-email transactional messages become one `email` delivery row with the same delivery id as the message idempotency key. Replaying the same source fact remains idempotent.
 - Worker composition becomes simpler: one outbox dispatcher, one adapter registry, and one retry policy.
 - Provider SDKs remain outside `contracts/*`; contracts stay pure TypeScript types and helpers.
 - Email delivery strategy documentation that references the retired email contract/outbox should treat this ADR as the superseding package-shape decision.

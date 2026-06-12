@@ -1,4 +1,4 @@
-import type { TransactionalEmailOutbox } from "@chase-sets/communications-email";
+import type { NotificationOutbox } from "@chase-sets/notifications";
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import { mapMagicLinkRequestedToTransactionalEmail } from "./transactional-email-intents";
@@ -27,7 +27,7 @@ function correlationIdFromEvent(event: TransportEvent) {
 }
 
 export async function projectAuthSessionEventToTransactionalEmail(
-  outbox: TransactionalEmailOutbox,
+  outbox: NotificationOutbox,
   deliveryTokens: MagicLinkDeliveryTokenStore,
   event: TransportEvent,
   projectionName = AUTH_SESSION_TRANSACTIONAL_EMAIL_PROJECTION,
@@ -42,7 +42,7 @@ export async function projectAuthSessionEventToTransactionalEmail(
     return;
   }
 
-  await outbox.enqueueTransactionalEmail({
+  await outbox.enqueueNotification({
     message: mapMagicLinkRequestedToTransactionalEmail({
       email: data.email,
       magicLink,
@@ -60,7 +60,7 @@ export async function projectAuthSessionEventToTransactionalEmail(
 }
 
 export function buildAuthSessionTransactionalEmailProjectionHandlers(
-  outbox: TransactionalEmailOutbox,
+  outbox: NotificationOutbox,
   deliveryTokens: MagicLinkDeliveryTokenStore,
   projectionName = AUTH_SESSION_TRANSACTIONAL_EMAIL_PROJECTION,
 ): ProjectorHandlerMap {

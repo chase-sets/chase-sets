@@ -20,16 +20,16 @@
   "dependencies": {
     "@chase-sets/auth-context": "workspace:*",
     "@chase-sets/bounded-context-module": "workspace:*",
-    "@chase-sets/communications-email": "workspace:*",
     "@chase-sets/design-system": "workspace:*",
     "@chase-sets/event-core": "workspace:*",
     "@chase-sets/event-core-postgres": "workspace:*",
     "@chase-sets/http": "workspace:*",
     "@chase-sets/identity": "workspace:*",
     "@chase-sets/localization": "workspace:*",
+    "@chase-sets/notification-outbox": "workspace:*",
+    "@chase-sets/notifications": "workspace:*",
     "@chase-sets/platform-runtime": "workspace:*",
     "@chase-sets/primitives": "workspace:*",
-    "@chase-sets/transactional-email-outbox": "workspace:*",
     "hono": "^4.12.12",
     "react": "^19.2.5",
     "react-router": "^7.14.0"

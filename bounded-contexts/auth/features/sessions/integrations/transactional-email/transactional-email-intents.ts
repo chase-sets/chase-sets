@@ -1,4 +1,4 @@
-import type { TransactionalEmailMessage } from "@chase-sets/communications-email";
+import { createTransactionalEmailNotificationMessage, type NotificationMessage } from "@chase-sets/notifications";
 
 export type MagicLinkRequestedEmailIntentInput = Readonly<{
   email: string;
@@ -9,8 +9,8 @@ export type MagicLinkRequestedEmailIntentInput = Readonly<{
 
 export function mapMagicLinkRequestedToTransactionalEmail(
   input: MagicLinkRequestedEmailIntentInput,
-): TransactionalEmailMessage {
-  return {
+): NotificationMessage {
+  return createTransactionalEmailNotificationMessage({
     messageType: "auth.magic-link.requested",
     criticality: "security",
     to: [{ email: input.email }],
@@ -27,5 +27,5 @@ export function mapMagicLinkRequestedToTransactionalEmail(
       userId: null,
       accountId: null,
     },
-  };
+  });
 }

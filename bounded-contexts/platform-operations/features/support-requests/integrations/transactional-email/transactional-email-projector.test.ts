@@ -6,7 +6,7 @@ describe("support request transactional email projector", () => {
     const db = {
       query: vi.fn(async () => ({ rows: [{ buyer_email: "buyer@example.com" }] })),
     };
-    const outbox = { enqueueTransactionalEmail: vi.fn(async (_input: unknown) => undefined) };
+    const outbox = { enqueueNotification: vi.fn(async (_input: unknown) => undefined) };
 
     await projectSupportRequestEventToTransactionalEmail(db, outbox, {
       id: "evt_support",
@@ -21,11 +21,11 @@ describe("support request transactional email projector", () => {
       },
     } as never);
 
-    expect(outbox.enqueueTransactionalEmail).toHaveBeenCalledOnce();
-    expect(outbox.enqueueTransactionalEmail.mock.calls[0]?.[0]).toMatchObject({
+    expect(outbox.enqueueNotification).toHaveBeenCalledOnce();
+    expect(outbox.enqueueNotification.mock.calls[0]?.[0]).toMatchObject({
       message: {
         messageType: "support.support-request.opened",
-        to: [{ email: "buyer@example.com" }],
+        channels: [{ channel: "email", to: [{ email: "buyer@example.com" }] }],
       },
       source: {
         sourceEventId: "evt_support",
@@ -38,7 +38,7 @@ describe("support request transactional email projector", () => {
     const db = {
       query: vi.fn(async () => ({ rows: [{ buyer_email: "buyer@example.com" }] })),
     };
-    const outbox = { enqueueTransactionalEmail: vi.fn(async (_input: unknown) => undefined) };
+    const outbox = { enqueueNotification: vi.fn(async (_input: unknown) => undefined) };
 
     await projectSupportRequestEventToTransactionalEmail(db, outbox, {
       id: "evt_support_resolved",
@@ -54,13 +54,13 @@ describe("support request transactional email projector", () => {
       },
     } as never);
 
-    expect(outbox.enqueueTransactionalEmail).toHaveBeenCalledOnce();
-    expect(outbox.enqueueTransactionalEmail.mock.calls[0]?.[0]).toMatchObject({
+    expect(outbox.enqueueNotification).toHaveBeenCalledOnce();
+    expect(outbox.enqueueNotification.mock.calls[0]?.[0]).toMatchObject({
       message: {
         messageType: "support.support-request.resolved",
         templateId: "support_request_resolved",
         templateData: { resolutionType: "partial-refund" },
-        to: [{ email: "buyer@example.com" }],
+        channels: [{ channel: "email", to: [{ email: "buyer@example.com" }] }],
       },
     });
   });
@@ -69,7 +69,7 @@ describe("support request transactional email projector", () => {
     const db = {
       query: vi.fn(async () => ({ rows: [{ buyer_email: " " }] })),
     };
-    const outbox = { enqueueTransactionalEmail: vi.fn(async (_input: unknown) => undefined) };
+    const outbox = { enqueueNotification: vi.fn(async (_input: unknown) => undefined) };
 
     await projectSupportRequestEventToTransactionalEmail(db, outbox, {
       id: "evt_support",
@@ -84,6 +84,6 @@ describe("support request transactional email projector", () => {
       },
     } as never);
 
-    expect(outbox.enqueueTransactionalEmail).not.toHaveBeenCalled();
+    expect(outbox.enqueueNotification).not.toHaveBeenCalled();
   });
 });

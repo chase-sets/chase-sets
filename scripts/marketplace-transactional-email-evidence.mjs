@@ -225,7 +225,7 @@ function validateTransactionalEmailIdentifiers(proof, errors) {
     errors,
   );
   if (!/^[1-9]\d*$/.test(proof.outboxRowId)) {
-    errors.push("Transactional email outboxRowId must be a positive transactional_email_outbox row id.");
+    errors.push("Transactional email outboxRowId must be a positive notification_outbox row id.");
   }
 
   validateEmailProviderEventId(

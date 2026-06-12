@@ -1,4 +1,4 @@
-import type { TransactionalEmailMessage } from "@chase-sets/communications-email";
+import { createTransactionalEmailNotificationMessage, type NotificationMessage } from "@chase-sets/notifications";
 
 export type WaitlistSignupConfirmationEmailIntentInput = Readonly<{
   email: string;
@@ -8,8 +8,8 @@ export type WaitlistSignupConfirmationEmailIntentInput = Readonly<{
 
 export function mapWaitlistSignupRecordedToTransactionalEmail(
   input: WaitlistSignupConfirmationEmailIntentInput,
-): TransactionalEmailMessage {
-  return {
+): NotificationMessage {
+  return createTransactionalEmailNotificationMessage({
     messageType: "public-presence.waitlist-signup.recorded",
     criticality: "operational",
     to: [{ email: input.email }],
@@ -26,5 +26,5 @@ export function mapWaitlistSignupRecordedToTransactionalEmail(
     idempotencyKey: `public-presence:waitlist-signup-confirmation:${input.signupId}`,
     correlationId: input.correlationId,
     actor: { userId: null, accountId: null },
-  };
+  });
 }

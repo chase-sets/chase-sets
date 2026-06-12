@@ -1439,7 +1439,7 @@ function validateTransactionalEmailIdentifiers(gate, errors) {
     errors,
   );
   if (isNonEmptyString(gate.outboxRowId) && !/^[1-9]\d*$/.test(gate.outboxRowId)) {
-    errors.push("Transactional email outboxRowId must be a positive transactional_email_outbox row id.");
+    errors.push("Transactional email outboxRowId must be a positive notification_outbox row id.");
   }
 
   validateEmailProviderEventId(

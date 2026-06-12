@@ -1,4 +1,4 @@
-import type { TransactionalEmailMessage } from "@chase-sets/communications-email";
+import { createTransactionalEmailNotificationMessage, type NotificationMessage } from "@chase-sets/notifications";
 
 export type SupportRequestEmailIntentInput = Readonly<{
   buyerEmail: string;
@@ -10,8 +10,8 @@ export type SupportRequestEmailIntentInput = Readonly<{
 
 export function mapSupportRequestOpenedToTransactionalEmail(
   input: SupportRequestEmailIntentInput,
-): TransactionalEmailMessage {
-  return {
+): NotificationMessage {
+  return createTransactionalEmailNotificationMessage({
     messageType: "support.support-request.opened",
     criticality: "operational",
     to: [{ email: input.buyerEmail }],
@@ -27,13 +27,13 @@ export function mapSupportRequestOpenedToTransactionalEmail(
     idempotencyKey: `support:support_request_opened:${input.supportRequestId}`,
     correlationId: input.correlationId,
     actor: { userId: null, accountId: null },
-  };
+  });
 }
 
 export function mapSupportRequestResolvedToTransactionalEmail(
   input: SupportRequestEmailIntentInput & Readonly<{ resolutionType: string }>,
-): TransactionalEmailMessage {
-  return {
+): NotificationMessage {
+  return createTransactionalEmailNotificationMessage({
     messageType: "support.support-request.resolved",
     criticality: "operational",
     to: [{ email: input.buyerEmail }],
@@ -50,5 +50,5 @@ export function mapSupportRequestResolvedToTransactionalEmail(
     idempotencyKey: `support:support_request_resolved:${input.supportRequestId}`,
     correlationId: input.correlationId,
     actor: { userId: null, accountId: null },
-  };
+  });
 }

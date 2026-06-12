@@ -106,9 +106,6 @@
       "@chase-sets/commercial-terms/server": [
         "./bounded-contexts/commercial-terms/server.ts"
       ],
-      "@chase-sets/communications-email": [
-        "./contracts/communications-email/index.ts"
-      ],
       "@chase-sets/design-system": [
         "./packages/design-system/src/index.ts"
       ],
@@ -477,9 +474,6 @@
       ],
       "@chase-sets/stripe-payments": [
         "./infrastructure/stripe-payments/index.ts"
-      ],
-      "@chase-sets/transactional-email-outbox": [
-        "./infrastructure/transactional-email-outbox/index.ts"
       ],
       "@chase-sets/twilio-messaging": [
         "./infrastructure/twilio-messaging/index.ts"

@@ -3,10 +3,8 @@ import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import { createPostgresEventStore, createPostgresProjectionStore } from "@chase-sets/event-core-postgres";
 import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
-import type { TransactionalEmailOutbox } from "@chase-sets/communications-email";
 import type { NotificationOutbox } from "@chase-sets/notifications";
 import { createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
-import { createPostgresTransactionalEmailOutbox } from "@chase-sets/transactional-email-outbox";
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { ResolvedActor } from "@chase-sets/auth-context";
 import { createId } from "@chase-sets/primitives/typed-ids";
@@ -76,7 +74,6 @@ export type AdminGoogleWorkspaceSsoConfig = Readonly<{
 }>;
 
 export type AuthHostPorts = Readonly<{
-  transactionalEmailOutbox?: TransactionalEmailOutbox;
   notificationOutbox?: NotificationOutbox;
   socialLoginProviders?: readonly SocialLoginProvider[];
   adminGoogleWorkspaceSso?: AdminGoogleWorkspaceSsoConfig | null;
@@ -89,13 +86,12 @@ export function createAuthServices(pool: PgTransactionalPool, ports: AuthHostPor
   });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
-  const transactionalEmailOutbox = ports.transactionalEmailOutbox ?? createPostgresTransactionalEmailOutbox({ db });
   const notificationOutbox = ports.notificationOutbox ?? createPostgresNotificationOutbox({ db });
   const sessions = createSessionRuntime({
     eventStore,
     checkpointStore,
     db,
-    transactionalEmailOutbox,
+    notificationOutbox,
     magicLinkDeliveryTokens: {
       getMagicLinkDeliveryToken: (tokenId) => getMagicLinkDeliveryToken(db, tokenId),
       clearMagicLinkDeliveryToken: (tokenId) => clearMagicLinkDeliveryToken(db, tokenId),

@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   applyNotificationChannelPreferences,
   createNotificationChannelAdapterRegistry,
+  createNoopTransactionalEmailGateway,
+  createTransactionalEmailNotificationMessage,
   createNoopNotificationOutbox,
   createNotificationDeliveryId,
   type NotificationChannelAdapter,
@@ -149,6 +151,53 @@ describe("notifications contract", () => {
         claimTtlMs: 1_000,
       }),
     ).resolves.toEqual([]);
+  });
+
+  it("represents transactional email as a single email delivery while preserving its idempotency key", () => {
+    const message = createTransactionalEmailNotificationMessage({
+      messageType: "settlement.payout.completed",
+      criticality: "commerce",
+      to: [{ email: "seller@example.com" }],
+      subject: "Payout po_123 completed",
+      templateId: "payout_completed",
+      templateVersion: 1,
+      locale: "en",
+      templateData: { payoutId: "po_123" },
+      idempotencyKey: "settlement:payout_completed:po_123",
+      correlationId: "evt_123",
+      actor: { userId: null, accountId: null },
+    });
+
+    expect(message.channels).toHaveLength(1);
+    expect(message.channels[0]).toMatchObject({
+      channel: "email",
+      subject: "Payout po_123 completed",
+      templateId: "payout_completed",
+    });
+    expect(createNotificationDeliveryId(message, message.channels[0], 0)).toBe("settlement:payout_completed:po_123");
+  });
+
+  it("keeps a no-op transactional email gateway for provider adapter composition tests", async () => {
+    const gateway = createNoopTransactionalEmailGateway();
+
+    await expect(
+      gateway.sendTransactionalEmail({
+        messageType: "auth.magic-link.requested",
+        criticality: "security",
+        to: [{ email: "buyer@example.com" }],
+        subject: "Your Chase Sets sign-in link",
+        templateId: "auth_magic_link",
+        templateVersion: 1,
+        locale: "en",
+        templateData: {},
+        idempotencyKey: "auth:magic-link:cmd_1",
+        correlationId: "req_123",
+        actor: { userId: null, accountId: null },
+      }),
+    ).resolves.toMatchObject({
+      providerName: "amazon-ses",
+      providerMessageId: "noop:auth:magic-link:cmd_1",
+    });
   });
 
   it("applies channel preferences while keeping security notifications mandatory", () => {

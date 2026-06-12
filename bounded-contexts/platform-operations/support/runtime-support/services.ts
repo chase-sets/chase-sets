@@ -6,8 +6,8 @@ import {
 } from "@chase-sets/event-core-postgres";
 import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
-import type { TransactionalEmailOutbox } from "@chase-sets/communications-email";
-import { createPostgresTransactionalEmailOutbox } from "@chase-sets/transactional-email-outbox";
+import type { NotificationOutbox } from "@chase-sets/notifications";
+import { createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
 import { createPlatformFeedbackRuntime } from "../../features/platform-feedback/api/runtime";
 import { createSupportRequestRuntime } from "../../features/support-requests/api/runtime";
 import {
@@ -16,7 +16,7 @@ import {
 } from "../../features/release-controls/api/runtime";
 
 export type PlatformOperationsHostPorts = Readonly<{
-  transactionalEmailOutbox?: TransactionalEmailOutbox;
+  notificationOutbox?: NotificationOutbox;
 }>;
 
 export type PlatformOperationsServices = Readonly<{
@@ -44,12 +44,12 @@ export function createPlatformOperationsServices(
     checkpointStore,
     db,
   });
-  const transactionalEmailOutbox = ports.transactionalEmailOutbox ?? createPostgresTransactionalEmailOutbox({ db });
+  const notificationOutbox = ports.notificationOutbox ?? createPostgresNotificationOutbox({ db });
   const supportRequests = createSupportRequestRuntime({
     eventStore,
     checkpointStore,
     db,
-    transactionalEmailOutbox,
+    notificationOutbox,
   });
 
   return {

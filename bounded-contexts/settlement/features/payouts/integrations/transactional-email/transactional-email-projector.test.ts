@@ -3,7 +3,7 @@ import { projectSettlementPayoutEventToTransactionalEmail } from "./transactiona
 
 describe("settlement transactional email projector", () => {
   it("enqueues when payout.completed events include a notification email", async () => {
-    const outbox = { enqueueTransactionalEmail: vi.fn(async () => undefined) };
+    const outbox = { enqueueNotification: vi.fn(async () => undefined) };
     await projectSettlementPayoutEventToTransactionalEmail(outbox, {
       id: "evt_4",
       type: "settlement.payout.completed",
@@ -19,6 +19,6 @@ describe("settlement transactional email projector", () => {
         amount: "42.00",
       },
     } as never);
-    expect(outbox.enqueueTransactionalEmail).toHaveBeenCalledOnce();
+    expect(outbox.enqueueNotification).toHaveBeenCalledOnce();
   });
 });

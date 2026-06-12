@@ -1,4 +1,4 @@
-import type { TransactionalEmailMessage } from "@chase-sets/communications-email";
+import { createTransactionalEmailNotificationMessage, type NotificationMessage } from "@chase-sets/notifications";
 
 export type OrderConfirmedEmailIntentInput = Readonly<{
   buyerEmail: string;
@@ -7,10 +7,8 @@ export type OrderConfirmedEmailIntentInput = Readonly<{
   correlationId: string;
 }>;
 
-export function mapOrderConfirmedToTransactionalEmail(
-  input: OrderConfirmedEmailIntentInput,
-): TransactionalEmailMessage {
-  return {
+export function mapOrderConfirmedToTransactionalEmail(input: OrderConfirmedEmailIntentInput): NotificationMessage {
+  return createTransactionalEmailNotificationMessage({
     messageType: "ordering.order.created",
     criticality: "commerce",
     to: [{ email: input.buyerEmail }],
@@ -22,5 +20,5 @@ export function mapOrderConfirmedToTransactionalEmail(
     idempotencyKey: `ordering:order_confirmed:${input.orderId}`,
     correlationId: input.correlationId,
     actor: { userId: null, accountId: null },
-  };
+  });
 }

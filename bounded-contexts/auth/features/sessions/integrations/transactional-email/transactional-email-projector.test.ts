@@ -4,7 +4,7 @@ import { projectAuthSessionEventToTransactionalEmail } from "./transactional-ema
 describe("auth transactional email projector", () => {
   it("enqueues email from auth.magic-link.requested transport events without storing the secret on the event", async () => {
     const outbox = {
-      enqueueTransactionalEmail: vi.fn(async (_input: { message: { templateData: unknown } }) => undefined),
+      enqueueNotification: vi.fn(async (_input: { message: { templateData: unknown } }) => undefined),
     };
     const deliveryTokens = {
       getMagicLinkDeliveryToken: vi.fn(async () => "https://chasesets.com/magic"),
@@ -28,9 +28,9 @@ describe("auth transactional email projector", () => {
       },
     } as never);
 
-    expect(outbox.enqueueTransactionalEmail).toHaveBeenCalledOnce();
+    expect(outbox.enqueueNotification).toHaveBeenCalledOnce();
     expect(deliveryTokens.clearMagicLinkDeliveryToken).toHaveBeenCalledWith("cmd_1");
-    expect(outbox.enqueueTransactionalEmail.mock.calls[0]?.[0].message.templateData).toEqual({
+    expect(outbox.enqueueNotification.mock.calls[0]?.[0].message.templateData).toEqual({
       magicLink: "https://chasesets.com/magic",
     });
   });

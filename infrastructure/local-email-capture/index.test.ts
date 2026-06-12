@@ -7,7 +7,7 @@ import {
   createLocalEmailCaptureNotificationAdapter,
   type LocalEmailCaptureRecord,
 } from ".";
-import type { TransactionalEmailMessage } from "@chase-sets/communications-email";
+import type { TransactionalEmailMessage } from "@chase-sets/notifications";
 
 const tempDirs: string[] = [];
 

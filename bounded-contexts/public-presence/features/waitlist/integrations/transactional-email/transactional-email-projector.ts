@@ -1,4 +1,4 @@
-import type { TransactionalEmailOutbox } from "@chase-sets/communications-email";
+import type { NotificationOutbox } from "@chase-sets/notifications";
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import { mapWaitlistSignupRecordedToTransactionalEmail } from "./transactional-email-intents";
@@ -21,7 +21,7 @@ function correlationIdFromEvent(event: TransportEvent) {
 }
 
 export async function projectWaitlistEventToTransactionalEmail(
-  outbox: TransactionalEmailOutbox,
+  outbox: NotificationOutbox,
   event: TransportEvent,
   projectionName = PUBLIC_PRESENCE_WAITLIST_TRANSACTIONAL_EMAIL_PROJECTION,
 ) {
@@ -30,7 +30,7 @@ export async function projectWaitlistEventToTransactionalEmail(
   }
 
   const data = event.data as WaitlistSignupRecordedEmailEvent["data"];
-  await outbox.enqueueTransactionalEmail({
+  await outbox.enqueueNotification({
     message: mapWaitlistSignupRecordedToTransactionalEmail({
       email: data.email,
       signupId: data.signupId,
@@ -46,7 +46,7 @@ export async function projectWaitlistEventToTransactionalEmail(
 }
 
 export function buildWaitlistTransactionalEmailProjectionHandlers(
-  outbox: TransactionalEmailOutbox,
+  outbox: NotificationOutbox,
   projectionName = PUBLIC_PRESENCE_WAITLIST_TRANSACTIONAL_EMAIL_PROJECTION,
 ): ProjectorHandlerMap {
   return {

@@ -96,6 +96,39 @@ describe("notification outbox", () => {
     expect(notificationOutboxSchemaSql).not.toContain("channel IN ('email', 'web')");
   });
 
+  it("records a single email delivery by the message idempotency key", async () => {
+    const queries: unknown[][] = [];
+    const db = {
+      query: vi.fn(async (_sql: string, values?: readonly unknown[]) => {
+        queries.push([...(values ?? [])]);
+        return { rows: [], rowCount: 1 };
+      }),
+    };
+    const outbox = createPostgresNotificationOutbox({
+      db,
+      now: () => new Date("2026-05-09T00:00:00.000Z"),
+    });
+
+    await outbox.enqueueNotification({
+      message: {
+        ...message,
+        channels: [{ channel: "email", to: [{ email: "seller@example.com" }], subject: "Payout completed" }],
+        idempotencyKey: "settlement:payout_completed:po_123",
+      },
+      source: {
+        sourceEventId: "evt_2",
+        sourceGlobalPosition: "13",
+        projectionName: "settlement-payout-transactional-email-projection",
+        occurredAt: "2026-05-09T00:00:00.000Z",
+      },
+    });
+
+    expect(db.query).toHaveBeenCalledOnce();
+    expect(queries[0]?.[0]).toBe("settlement:payout_completed:po_123");
+    expect(queries[0]?.[1]).toBe("settlement:payout_completed:po_123");
+    expect(queries[0]?.[2]).toBe("email");
+  });
+
   it("dispatches claimed deliveries through their channel adapters", async () => {
     const delivery: ClaimedNotificationDelivery = {
       outboxId: "1",

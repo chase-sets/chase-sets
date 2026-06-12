@@ -3,7 +3,7 @@ import { projectOrderingEventToTransactionalEmail } from "./transactional-email-
 
 describe("ordering transactional email projector", () => {
   it("enqueues only when order.created events include a buyer email snapshot", async () => {
-    const outbox = { enqueueTransactionalEmail: vi.fn(async (_input: unknown) => undefined) };
+    const outbox = { enqueueNotification: vi.fn(async (_input: unknown) => undefined) };
     await projectOrderingEventToTransactionalEmail(outbox, {
       id: "evt_2",
       type: "ordering.order.created",
@@ -19,10 +19,8 @@ describe("ordering transactional email projector", () => {
         shippingDestinationSnapshot: { email: "buyer@example.com" },
       },
     } as never);
-    expect(outbox.enqueueTransactionalEmail).toHaveBeenCalledOnce();
-    expect(
-      (outbox.enqueueTransactionalEmail.mock.calls[0]?.[0] as { source: unknown } | undefined)?.source,
-    ).toMatchObject({
+    expect(outbox.enqueueNotification).toHaveBeenCalledOnce();
+    expect((outbox.enqueueNotification.mock.calls[0]?.[0] as { source: unknown } | undefined)?.source).toMatchObject({
       sourceEventId: "evt_2",
       sourceGlobalPosition: "2",
     });

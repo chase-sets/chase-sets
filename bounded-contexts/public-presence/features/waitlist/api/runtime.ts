@@ -6,7 +6,7 @@ import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-se
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { createNoopTransactionalEmailOutbox, type TransactionalEmailOutbox } from "@chase-sets/communications-email";
+import { createNoopNotificationOutbox, type NotificationOutbox } from "@chase-sets/notifications";
 import { stableWaitlistSignupId, type WaitlistSource } from "../domain/common";
 import {
   decideWaitlistSignup,
@@ -27,7 +27,7 @@ type WaitlistRuntimeDeps = Readonly<{
   eventStore: EventStore;
   checkpointStore: ProjectionCheckpointStore;
   db: PgQueryable;
-  transactionalEmailOutbox?: TransactionalEmailOutbox;
+  notificationOutbox?: NotificationOutbox;
 }>;
 
 export type WaitlistServices = Readonly<{
@@ -48,7 +48,7 @@ export type WaitlistServices = Readonly<{
 }>;
 
 export function createWaitlistRuntime(deps: WaitlistRuntimeDeps): WaitlistServices {
-  const transactionalEmailOutbox = deps.transactionalEmailOutbox ?? createNoopTransactionalEmailOutbox();
+  const notificationOutbox = deps.notificationOutbox ?? createNoopNotificationOutbox();
   const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
       eventStore: deps.eventStore,
@@ -91,7 +91,7 @@ export function createWaitlistRuntime(deps: WaitlistRuntimeDeps): WaitlistServic
       createProjectionHandlerSet({
         projectionName: PUBLIC_PRESENCE_WAITLIST_TRANSACTIONAL_EMAIL_PROJECTION,
         handlers: buildWaitlistTransactionalEmailProjectionHandlers(
-          transactionalEmailOutbox,
+          notificationOutbox,
           PUBLIC_PRESENCE_WAITLIST_TRANSACTIONAL_EMAIL_PROJECTION,
         ),
       }),

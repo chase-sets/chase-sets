@@ -65,24 +65,24 @@ This keeps day-one cost low and avoids paying for marketing platform overhead be
 
 Keep provider details in `infrastructure/` and keep behavior in bounded contexts.
 
-### 1) Introduce a cross-context email contract
+### 1) Use the unified outbound messaging contract
 
-Create `contracts/communications-email` with:
+ADR 0012 supersedes the earlier package split. Use `contracts/notifications` for transactional email and notification-center messages with:
 
-- `sendTransactionalEmail(command)` for provider adapters
-- `enqueueTransactionalEmail(command)` for event projectors
+- email channel notification messages for event projectors
+- `sendTransactionalEmail(command)` only as a low-level provider adapter helper
 - provider-agnostic payload shape:
   - `messageType` (ubiquitous language, e.g. `auth.magic-link.requested`)
   - `to`, `subject`, `templateId`, `templateData`
   - idempotency key and correlation metadata
 
-### 2) Add durable transactional outbox infrastructure
+### 2) Use the durable notification outbox infrastructure
 
-Add `infrastructure/transactional-email-outbox` implementing durable enqueue, claim, sent, retry, and failed states.
+Use `infrastructure/notification-outbox` for durable enqueue, claim, sent, retry, and failed states.
 
 Responsibilities:
 
-- idempotent event-projector writes keyed by message idempotency key
+- idempotent event-projector writes keyed by message idempotency key for single-email messages
 - worker-safe claiming with lease expiry
 - provider failure retry scheduling
 - terminal failed state after retries are exhausted
@@ -106,7 +106,7 @@ Each context emits explicit application events, for example:
 - `ordering` or `checkout`: `ordering.order.created`
 - `settlement`: `settlement.payout.completed`
 
-A context-owned projector maps those events to outbox entries. A deployable worker dispatches outbox entries through the provider gateway.
+A context-owned projector maps those events to notification outbox entries. A deployable worker dispatches outbox entries through the email channel adapter.
 
 ### 5) Add provider webhook ingestion
 
