@@ -1,5 +1,3 @@
-import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing-testing";
-import { createFakeMoneyMovementGateway } from "@chase-sets/money-movement-testing";
 import { bootstrapPlatformAdminPassword } from "@chase-sets/auth/server";
 import { bootstrapPlatformAdminIdentity } from "@chase-sets/identity/server";
 import { syncContextProjectionGroups } from "@chase-sets/bounded-context-runtime";
@@ -11,6 +9,7 @@ import { loadBootstrapConfig } from "./config";
 import { closePlatformApiPools, createPlatformApiPools } from "./database-pools";
 import { apiContextRegistry } from "./generated/api-context-registry";
 import { createProductionTaxQuoteResolverBlocker, shouldBlockProductionTaxQuotes } from "./tax-readiness";
+import { createFakeMoneyMovementGateway, createFakePaymentProcessorGateway } from "./test-support/provider-gateways";
 
 async function bootstrap() {
   const config = loadBootstrapConfig();

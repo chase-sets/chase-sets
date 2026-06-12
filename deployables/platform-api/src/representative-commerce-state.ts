@@ -1,10 +1,7 @@
 import { pathToFileURL } from "node:url";
-import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing-testing";
 import { createStripePaymentProcessorGateway } from "@chase-sets/stripe-payments";
-import { createFakeMoneyMovementGateway } from "@chase-sets/money-movement-testing";
 import { createStripeConnectMoneyMovementGateway } from "@chase-sets/stripe-connect";
 import { createEasyPostPostageLabelProvider } from "@chase-sets/easypost-postage";
-import { createSandboxPostageLabelProvider } from "@chase-sets/postage-labels-testing";
 import { createFilesystemObjectStorage, createS3ObjectStorage, type ObjectStorage } from "@chase-sets/object-storage";
 import { getProjectionGroup, syncProjectionGroup } from "@chase-sets/bounded-context-runtime";
 import { bootstrapPlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
@@ -33,6 +30,11 @@ import {
   type PlatformApiListingPhotoStorageConfig,
 } from "./config";
 import { closePlatformApiPools, createPlatformApiPools } from "./database-pools";
+import {
+  createFakeMoneyMovementGateway,
+  createFakePaymentProcessorGateway,
+  createSandboxPostageLabelProvider,
+} from "./test-support/provider-gateways";
 
 const CONFIRMATION_PHRASE = "seed staging commerce";
 const DEFAULT_STEP_TIMEOUT_MS = 120_000;

@@ -12,7 +12,7 @@ import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import { createWalletRuntime } from "../../wallets/api/runtime";
 import { createPayoutRuntime } from "./runtime";
 import type { PayoutReadinessServices } from "../../payout-readiness/api/runtime";
-import { createFakeMoneyMovementGateway } from "@chase-sets/money-movement-testing";
+import { createFakeMoneyMovementGateway } from "@chase-sets/money-movement/test-support";
 
 function createInMemoryEventStore() {
   let globalPosition = 0;

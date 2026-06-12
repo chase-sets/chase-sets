@@ -12,12 +12,9 @@ import {
   createLocalEmailCaptureGateway,
   createLocalEmailCaptureNotificationAdapter,
 } from "@chase-sets/local-email-capture";
-import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing-testing";
 import { createStripePaymentProcessorGateway } from "@chase-sets/stripe-payments";
-import { createFakeMoneyMovementGateway } from "@chase-sets/money-movement-testing";
 import { createStripeConnectMoneyMovementGateway } from "@chase-sets/stripe-connect";
 import { createEasyPostPostageLabelProvider } from "@chase-sets/easypost-postage";
-import { createSandboxPostageLabelProvider } from "@chase-sets/postage-labels-testing";
 import { createFilesystemObjectStorage, createS3ObjectStorage, type ObjectStorage } from "@chase-sets/object-storage";
 import type { GoogleShoppingSyncMode } from "@chase-sets/discovery/server";
 import type { PaymentsServices } from "@chase-sets/payments/server";
@@ -89,6 +86,11 @@ import { platformEmailTemplateRenderer } from "./email-template-renderer";
 import { createGoogleMerchantServiceAccountAccessTokenProvider } from "./google-merchant-auth";
 import { createGoogleMerchantApiClient } from "./google-merchant-client";
 import { workerContextRegistry } from "./generated/worker-context-registry";
+import {
+  createFakeMoneyMovementGateway,
+  createFakePaymentProcessorGateway,
+  createSandboxPostageLabelProvider,
+} from "./test-support/provider-gateways";
 
 const observability = getObservabilityRuntime();
 const logger = observability.logger;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createSandboxPostageLabelProvider } from ".";
+import { createSandboxPostageLabelProvider } from "./test-support";
 
 describe("sandbox postage label adapter", () => {
   it("creates deterministic test USPS metadata", async () => {

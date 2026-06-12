@@ -2,13 +2,10 @@ import "./observability-prelude";
 import { serve } from "@hono/node-server";
 import { createClient } from "redis";
 import { refreshProjectionReplaySummary } from "@chase-sets/bounded-context-runtime";
-import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing-testing";
 import { createFacebookSocialLoginProvider, createGoogleSocialLoginProvider } from "@chase-sets/auth/server";
 import { createStripePaymentProcessorGateway } from "@chase-sets/stripe-payments";
-import { createFakeMoneyMovementGateway } from "@chase-sets/money-movement-testing";
 import { createStripeConnectMoneyMovementGateway } from "@chase-sets/stripe-connect";
 import { createEasyPostPostageLabelProvider, createEasyPostPostageWebhookGateway } from "@chase-sets/easypost-postage";
-import { createSandboxPostageLabelProvider } from "@chase-sets/postage-labels-testing";
 import {
   createFilesystemObjectStorage,
   createS3ObjectStorage,
@@ -76,6 +73,11 @@ import {
 } from "./config";
 import { closePlatformApiPools, createPlatformApiPools } from "./database-pools";
 import { createProductionTaxQuoteResolverBlocker, shouldBlockProductionTaxQuotes } from "./tax-readiness";
+import {
+  createFakeMoneyMovementGateway,
+  createFakePaymentProcessorGateway,
+  createSandboxPostageLabelProvider,
+} from "./test-support/provider-gateways";
 
 const observability = getObservabilityRuntime();
 const logger = observability.logger;
