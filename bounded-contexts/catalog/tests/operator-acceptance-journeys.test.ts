@@ -64,7 +64,8 @@ describe("Catalog integration operator acceptance journeys", () => {
   it("anchors acceptance to existing automated operator coverage", () => {
     expect(doc).toContain("catalog-integration-no-confusion-ux-acceptance.test.ts");
     expect(doc).toContain("primary-workbench-admin-contracts.test.ts");
-    expect(doc).toContain("primary-workbench-read-model.test.ts");
+    expect(doc).toContain("primary-workbench-import-jobs.test.ts");
+    expect(doc).toContain("primary-workbench-source-observation-review.test.ts");
     expect(doc).toContain("primary-workbench-page.test.tsx");
     expect(doc).toContain("catalog-integration-provider-transport-budgets.test.ts");
     expect(doc).toContain("catalog-integration-security-privacy-launch-gate.test.ts");
