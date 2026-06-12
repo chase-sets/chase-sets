@@ -32,5 +32,5 @@ This list tracks the cleanup work from the full test-suite review.
         the bootstrap entrypoint with mocked dependencies and asserts the orchestration calls).
   - [x] Convert admin-web dev proxy coverage away from source scanning (now imports the vite
         config and asserts the exported proxy table).
-- [ ] Extract repeated Hono route-test harness helpers for actor/context/service setup.
+- [x] Extract repeated Hono route-test harness helpers for actor/context/service setup.
 - [ ] Revisit UI tests that assert class fragments or incidental text and convert them to user-facing contracts.

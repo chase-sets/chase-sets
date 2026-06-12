@@ -1,5 +1,10 @@
-import { Hono } from "hono";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  createAccountUserTestActor,
+  createTestApp,
+  type TestActorOverrides,
+  useMockReset,
+} from "@chase-sets/bounded-context-runtime/test-support";
+import { describe, expect, it, vi } from "vitest";
 import type { CheckoutApiEnv } from "../../../api";
 import type { CheckoutSessionServices } from "./runtime";
 
@@ -37,46 +42,38 @@ const shippingAddress = {
 } as const;
 
 function createGuestBuyerActor(): CheckoutApiEnv["Variables"]["actor"] {
-  return {
+  return createAccountUserTestActor({
     sessionId: "guest:tok_1",
-    tenantId: "tnt_identity",
     userId: "usr_guest_checkout",
     accountId: "acc_guest",
     membershipId: "guest:tok_1",
     roleKey: "guest-buyer",
     permissions: ["guest-checkout.manage"],
-  };
+  }) as NonNullable<CheckoutApiEnv["Variables"]["actor"]>;
+}
+
+function createBuyerActor(overrides: TestActorOverrides = {}): NonNullable<CheckoutApiEnv["Variables"]["actor"]> {
+  return createAccountUserTestActor({
+    sessionId: "ses_1",
+    userId: "usr_1",
+    accountId: "acc_buyer",
+    membershipId: "mbr_1",
+    permissions: ["orders.view", "orders.manage"],
+    ...overrides,
+  }) as NonNullable<CheckoutApiEnv["Variables"]["actor"]>;
 }
 
 function buildApp(
   services: CheckoutSessionServices,
-  actor: CheckoutApiEnv["Variables"]["actor"] = {
-    sessionId: "ses_1",
-    tenantId: "tnt_identity",
-    userId: "usr_1",
-    accountId: "acc_buyer",
-    membershipId: "mbr_1",
-    roleKey: "owner",
-    permissions: ["orders.view", "orders.manage"],
-  },
+  actor: CheckoutApiEnv["Variables"]["actor"] = createBuyerActor(),
   checkoutObservabilityTelemetry?: CheckoutObservabilityTelemetry,
 ) {
-  const app = new Hono<CheckoutApiEnv>();
-
-  app.use("*", async (c, next) => {
-    c.set("actor", actor);
-    c.set("context", {
-      tenantId: "tnt_identity" as never,
-      audit: {
-        performedByUserId: actor?.userId as never,
-        forAccountId: actor?.accountId as never,
-      },
-    });
-    await next();
+  return createTestApp<CheckoutApiEnv>({
+    actor,
+    routes: (app) => {
+      app.route("/account", createAccountCheckoutSessionRoutes(services, checkoutObservabilityTelemetry));
+    },
   });
-
-  app.route("/account", createAccountCheckoutSessionRoutes(services, checkoutObservabilityTelemetry));
-  return app;
 }
 
 function createSession(overrides: Partial<CheckoutSessionRow> = {}): CheckoutSessionRow {
@@ -143,14 +140,13 @@ function expectNoCheckoutConfirmSideEffects(services: CheckoutSessionServices) {
   expect(mockCreateCheckoutPaymentThroughPayments).not.toHaveBeenCalled();
 }
 
-describe("checkout session routes", () => {
-  afterEach(() => {
-    vi.clearAllMocks();
-    mockCreateCheckoutOrdersThroughOrdering.mockReset();
-    mockCreateCheckoutPaymentThroughPayments.mockReset();
-    mockSubmitPurchaseIntentThroughMarketplace.mockReset();
-  });
+useMockReset(
+  mockCreateCheckoutOrdersThroughOrdering,
+  mockCreateCheckoutPaymentThroughPayments,
+  mockSubmitPurchaseIntentThroughMarketplace,
+);
 
+describe("checkout session routes", () => {
   it("returns cart session validation errors from checkout", async () => {
     const services = createServices({
       createFromCart: vi.fn(async () => {
@@ -268,19 +264,7 @@ describe("checkout session routes", () => {
     const services = createServices({
       getSession: vi.fn(async () => createSession({ source_type: "buy-now" })),
     });
-    const app = buildApp(
-      services,
-      {
-        sessionId: "guest:tok_1",
-        tenantId: "tnt_identity",
-        userId: "usr_guest_checkout",
-        accountId: "acc_guest",
-        membershipId: "guest:tok_1",
-        roleKey: "guest-buyer",
-        permissions: ["guest-checkout.manage"],
-      },
-      checkoutObservabilityTelemetry,
-    );
+    const app = buildApp(services, createGuestBuyerActor(), checkoutObservabilityTelemetry);
 
     const response = await app.fetch(new Request("http://checkout.test/account/checkout-sessions/chk_1"));
 
@@ -488,15 +472,7 @@ describe("checkout session routes", () => {
 
   it("blocks guest actors from starting offer-intent sessions", async () => {
     const services = createServices();
-    const app = buildApp(services, {
-      sessionId: "guest:tok_1",
-      tenantId: "tnt_identity",
-      userId: "usr_guest_checkout",
-      accountId: "acc_guest",
-      membershipId: "guest:tok_1",
-      roleKey: "guest-buyer",
-      permissions: ["guest-checkout.manage"],
-    });
+    const app = buildApp(services, createGuestBuyerActor());
 
     const response = await app.fetch(
       new Request("http://checkout.test/account/checkout-sessions", {
@@ -528,15 +504,7 @@ describe("checkout session routes", () => {
 
   it("allows signed-in buyers without order-management permissions to start buy-now sessions", async () => {
     const services = createServices();
-    const app = buildApp(services, {
-      sessionId: "ses_1",
-      tenantId: "tnt_identity",
-      userId: "usr_1",
-      accountId: "acc_buyer",
-      membershipId: "mbr_1",
-      roleKey: "viewer",
-      permissions: [],
-    });
+    const app = buildApp(services, createBuyerActor({ roleKey: "viewer", permissions: [] }));
 
     const response = await app.fetch(
       new Request("http://checkout.test/account/checkout-sessions", {
@@ -940,15 +908,14 @@ describe("checkout session routes", () => {
     const services = createServices({
       getSession: vi.fn(async () => createSession()),
     });
-    const app = buildApp(services, {
-      sessionId: "ses_1",
-      tenantId: "tnt_identity",
-      userId: "usr_ops",
-      accountId: "acc_buyer",
-      membershipId: "mbr_ops",
-      roleKey: "owner",
-      permissions: ["security.manage"],
-    });
+    const app = buildApp(
+      services,
+      createBuyerActor({
+        userId: "usr_ops",
+        membershipId: "mbr_ops",
+        permissions: ["security.manage"],
+      }),
+    );
 
     const response = await app.fetch(
       new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
@@ -983,15 +950,14 @@ describe("checkout session routes", () => {
     const services = createServices({
       getSession: vi.fn(async () => createSession()),
     });
-    const app = buildApp(services, {
-      sessionId: "ses_1",
-      tenantId: "tnt_identity",
-      userId: "usr_ops",
-      accountId: "acc_buyer",
-      membershipId: "mbr_ops",
-      roleKey: "owner",
-      permissions: ["security.manage"],
-    });
+    const app = buildApp(
+      services,
+      createBuyerActor({
+        userId: "usr_ops",
+        membershipId: "mbr_ops",
+        permissions: ["security.manage"],
+      }),
+    );
 
     const response = await app.fetch(
       new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
@@ -1335,15 +1301,7 @@ describe("checkout session routes", () => {
     const services = createServices({
       getSession: vi.fn(async () => createSession({ buyer_account_id: "acc_guest" })),
     });
-    const app = buildApp(services, {
-      sessionId: "guest:tok_1",
-      tenantId: "tnt_identity",
-      userId: "usr_guest_checkout",
-      accountId: "acc_guest",
-      membershipId: "guest:tok_1",
-      roleKey: "guest-buyer",
-      permissions: ["guest-checkout.manage"],
-    });
+    const app = buildApp(services, createGuestBuyerActor());
 
     const response = await app.fetch(
       new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
@@ -1384,15 +1342,7 @@ describe("checkout session routes", () => {
     const services = createServices({
       getSession: vi.fn(async () => createSession({ buyer_account_id: "acc_guest" })),
     });
-    const app = buildApp(services, {
-      sessionId: "guest:tok_1",
-      tenantId: "tnt_identity",
-      userId: "usr_guest_checkout",
-      accountId: "acc_guest",
-      membershipId: "guest:tok_1",
-      roleKey: "guest-buyer",
-      permissions: ["guest-checkout.manage"],
-    });
+    const app = buildApp(services, createGuestBuyerActor());
 
     const response = await app.fetch(
       new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {

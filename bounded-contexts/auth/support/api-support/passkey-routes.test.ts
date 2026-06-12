@@ -1,4 +1,10 @@
-import { Hono } from "hono";
+import {
+  createAnonymousTestActor,
+  createInternalSystemTestActor,
+  createTestApp,
+  createTestEventStoreContext,
+  useMockReset,
+} from "@chase-sets/bounded-context-runtime/test-support";
 import { describe, expect, it, vi } from "vitest";
 import type { AuthServices } from "../runtime-support/services";
 import { passkeyMatchesChallengeUser, registerPasskeyRoutes, resolvePasskeyRegistrationUserId } from "./passkey-routes";
@@ -25,14 +31,16 @@ vi.mock("@chase-sets/identity/server", () => ({
 }));
 
 function buildApp(services: AuthServices) {
-  const app = new Hono<AuthApiEnv>();
-  app.use("*", async (c, next) => {
-    c.set("actor", null);
-    c.set("context", { causationId: "test" } as unknown as AuthApiEnv["Variables"]["context"]);
-    await next();
+  return createTestApp<AuthApiEnv>({
+    actor: createAnonymousTestActor(),
+    context: createTestEventStoreContext(createInternalSystemTestActor(), {
+      tenantId: "ten_test",
+      trace: { traceId: "trc_test" as never },
+    }),
+    routes: (app) => {
+      registerPasskeyRoutes(app, services);
+    },
   });
-  registerPasskeyRoutes(app, services);
-  return app;
 }
 
 function createServices() {
@@ -80,6 +88,8 @@ function createServices() {
     projectors: [],
   } as unknown as AuthServices;
 }
+
+useMockReset(mockCreateIdentityAuthRequestClient, mockCreatePersonalIdentity, mockRegisterPasskeyCredential);
 
 describe("passkey route security", () => {
   it("allows discoverable credentials only when they match the challenged user", () => {

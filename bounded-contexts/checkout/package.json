@@ -19,6 +19,7 @@
     "@chase-sets/auth": "workspace:*",
     "@chase-sets/auth-context": "workspace:*",
     "@chase-sets/bounded-context-module": "workspace:*",
+    "@chase-sets/bounded-context-runtime": "workspace:*",
     "@chase-sets/catalog-seed": "workspace:*",
     "@chase-sets/design-system": "workspace:*",
     "@chase-sets/event-core": "workspace:*",

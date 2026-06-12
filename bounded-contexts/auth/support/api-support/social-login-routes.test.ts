@@ -1,5 +1,11 @@
-import { Hono } from "hono";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  createAnonymousTestActor,
+  createInternalSystemTestActor,
+  createTestApp,
+  createTestEventStoreContext,
+  useMockReset,
+} from "@chase-sets/bounded-context-runtime/test-support";
+import { describe, expect, it, vi } from "vitest";
 import type { AuthServices } from "../runtime-support/services";
 import { registerSocialLoginRoutes } from "./social-login-routes";
 import type { AuthApiEnv } from "./support";
@@ -17,21 +23,16 @@ vi.mock("@chase-sets/identity/server", () => ({
 }));
 
 function buildApp(services: AuthServices) {
-  const app = new Hono<AuthApiEnv>();
-  app.use("*", async (c, next) => {
-    c.set("context", {
+  return createTestApp<AuthApiEnv>({
+    actor: createAnonymousTestActor(),
+    context: createTestEventStoreContext(createInternalSystemTestActor(), {
       tenantId: "ten_test",
-      audit: {
-        performedByUserId: "usr_system",
-        forAccountId: "acc_system",
-      },
       trace: {},
-    } as never);
-    c.set("actor", null);
-    await next();
+    }),
+    routes: (app) => {
+      registerSocialLoginRoutes(app, services);
+    },
   });
-  registerSocialLoginRoutes(app, services);
-  return app;
 }
 
 function createServices(
@@ -171,11 +172,11 @@ function createServices(
   } as unknown as AuthServices;
 }
 
-afterEach(() => {
-  mockCreateIdentityAuthRequestClient.mockReset();
-  mockIdentityMutations.createPersonalIdentity.mockReset();
-  mockIdentityMutations.linkSocialLogin.mockReset();
-});
+useMockReset(
+  mockCreateIdentityAuthRequestClient,
+  mockIdentityMutations.createPersonalIdentity,
+  mockIdentityMutations.linkSocialLogin,
+);
 
 describe("social login routes", () => {
   it("starts a provider redirect with a single-use state token", async () => {
