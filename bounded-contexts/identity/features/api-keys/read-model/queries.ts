@@ -1,5 +1,4 @@
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { executeListQuery, type ListParams } from "../../../support/read-model-support/list-query";
+import { executeListQuery, type ListParams, type PgQueryable } from "@chase-sets/event-core-postgres";
 
 export type ApiKeyRow = Readonly<{
   api_key_id: string;

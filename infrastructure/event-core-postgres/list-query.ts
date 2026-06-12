@@ -1,24 +1,28 @@
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { PgQueryable } from "./types";
 
-export type ListParams = {
+export type ListParams = Readonly<{
   search?: string;
   status?: string;
   limit?: number;
   offset?: number;
-};
+}>;
 
-export type ListResult<T> = {
+export type ListResult<T> = Readonly<{
   items: T[];
   total: number;
-};
+}>;
+
+type CountRow = Readonly<{
+  count: string | number | bigint;
+}>;
 
 export function buildFilteredQuery(
   baseTable: string,
   params: ListParams,
-  searchColumns: string[],
+  searchColumns: readonly string[],
   orderBy: string,
-  extraConditions: string[] = [],
-  extraValues: unknown[] = [],
+  extraConditions: readonly string[] = [],
+  extraValues: readonly unknown[] = [],
 ): { countSql: string; listSql: string; values: unknown[] } {
   const conditions = [...extraConditions];
   const values = [...extraValues];
@@ -52,15 +56,29 @@ export async function executeListQuery<T>(
   db: PgQueryable,
   countSql: string,
   listSql: string,
-  values: unknown[],
+  values: readonly unknown[],
 ): Promise<ListResult<T>> {
   const [countResult, listResult] = await Promise.all([
-    db.query<{ count: string }>(countSql, values),
+    db.query<CountRow>(countSql, values),
     db.query<T>(listSql, values),
   ]);
 
   return {
     items: listResult.rows,
-    total: Number.parseInt(countResult.rows[0].count, 10),
+    total: coerceListCount(countResult.rows[0]?.count),
   };
+}
+
+function coerceListCount(value: string | number | bigint | undefined): number {
+  if (value === undefined) {
+    throw new Error("List query count result did not include a count row.");
+  }
+
+  const parsed = typeof value === "bigint" ? Number(value) : typeof value === "string" ? Number(value) : value;
+
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    throw new Error("List query count must be a non-negative safe integer.");
+  }
+
+  return parsed;
 }

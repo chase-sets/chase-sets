@@ -1,5 +1,4 @@
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import type { ListParams, ListResult } from "../../../support/projection-support/list-query";
+import type { ListParams, ListResult, PgQueryable } from "@chase-sets/event-core-postgres";
 
 export type DisplayTemplateListParams = ListParams & {
   targetKind?: string;

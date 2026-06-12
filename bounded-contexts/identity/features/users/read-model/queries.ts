@@ -1,6 +1,10 @@
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import {
+  buildFilteredQuery,
+  executeListQuery,
+  type ListParams,
+  type PgQueryable,
+} from "@chase-sets/event-core-postgres";
 import { normalizeEmail, normalizePhoneNumber } from "../../../support/runtime-support/common";
-import { buildFilteredQuery, executeListQuery, type ListParams } from "../../../support/read-model-support/list-query";
 
 export type UserRow = Readonly<{
   user_id: string;

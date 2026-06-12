@@ -1,33 +1,4 @@
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
-
-type ListParams = Readonly<{
-  search?: string;
-  status?: string;
-  limit?: number;
-  offset?: number;
-}>;
-
-type ListResult<T> = Readonly<{
-  items: T[];
-  total: number;
-}>;
-
-async function executeListQuery<T>(
-  db: PgQueryable,
-  countSql: string,
-  listSql: string,
-  values: readonly unknown[],
-): Promise<ListResult<T>> {
-  const [countResult, listResult] = await Promise.all([
-    db.query<{ count: string }>(countSql, values),
-    db.query<T>(listSql, values),
-  ]);
-
-  return {
-    items: listResult.rows,
-    total: Number.parseInt(countResult.rows[0]?.count ?? "0", 10),
-  };
-}
+import { executeListQuery, type ListParams, type PgQueryable } from "@chase-sets/event-core-postgres";
 
 export type SessionRow = Readonly<{
   session_id: string;

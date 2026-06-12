@@ -1,11 +1,11 @@
 import type { JsonValue } from "@chase-sets/primitives/json";
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import {
   buildFilteredQuery,
   executeListQuery,
   type ListParams,
   type ListResult,
-} from "../../../support/projection-support/list-query";
+  type PgQueryable,
+} from "@chase-sets/event-core-postgres";
 import type { SourceObservationNormalized } from "../domain/domain";
 
 export type SourceObservationListRow = Readonly<{

@@ -1,5 +1,9 @@
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { buildFilteredQuery, executeListQuery, type ListParams } from "../../../support/read-model-support/list-query";
+import {
+  buildFilteredQuery,
+  executeListQuery,
+  type ListParams,
+  type PgQueryable,
+} from "@chase-sets/event-core-postgres";
 import { accountBadgeKeys, type AccountBadgeKey } from "../domain/domain";
 
 export type AccountRow = Readonly<{
