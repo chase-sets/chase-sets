@@ -1,10 +1,6 @@
 export { default as contextManifest } from "./context.json";
 
-import type {
-  BcApiModule,
-  BcEventSubscriptionDeclaration,
-  BcProjectionGroupDeclaration,
-} from "@chase-sets/bounded-context-module";
+import { buildEventSubscriptionsFromManifest, defineBoundedContextModule } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
 import { buildNotificationsApi, buildNotificationsProviderWebhookApi } from "./api";
@@ -20,68 +16,27 @@ import {
   NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION,
 } from "./features/notification-center/integrations/source-events/notification-projector";
 
-const eventSubscriptions = (contextManifest.eventSubscriptions ?? []) as readonly BcEventSubscriptionDeclaration[];
-const projectionGroups = (contextManifest.projectionGroups ?? []) as readonly BcProjectionGroupDeclaration[];
-
-function getEventSubscription(sourceContextName: string, projectionName: string): BcEventSubscriptionDeclaration {
-  const declaration = eventSubscriptions.find(
-    (entry) => entry.sourceContextName === sourceContextName && entry.projectionName === projectionName,
-  );
-
-  if (!declaration) {
-    throw new Error(
-      `Notifications is missing an eventSubscriptions declaration for '${sourceContextName}' -> '${projectionName}'.`,
-    );
-  }
-
-  return declaration;
-}
-
-export const module: BcApiModule<NotificationsServices, PgTransactionalPool, NotificationsHostPorts> = {
-  contextName: "notifications",
-  routePrefix: "/api/notifications",
-  streamPrefix: "notifications.",
+export const module = defineBoundedContextModule<NotificationsServices, PgTransactionalPool, NotificationsHostPorts>({
+  manifest: contextManifest,
   schemaSql: notificationsSchemaSql,
-  apiMounts: contextManifest.apiMounts as BcApiModule<
-    NotificationsServices,
-    PgTransactionalPool,
-    NotificationsHostPorts
-  >["apiMounts"],
-  projectionGroups,
   createServices: (pool, ports) => createNotificationsServices(pool, ports),
   buildApis: (services) => [buildNotificationsApi(services), buildNotificationsProviderWebhookApi(services)],
   projectionHandlerSets: () => [],
-  buildSubscriptions: (services) => {
-    const orderingSubscription = getEventSubscription("ordering", NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION);
-    const fulfillmentSubscription = getEventSubscription("fulfillment", NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION);
-
-    return [
-      {
-        subscriptionName: "notifications.ordering-facts-projection",
-        sourceContextName: "ordering",
-        projectionName: orderingSubscription.projectionName,
-        subscriptionVersion: orderingSubscription.subscriptionVersion,
-        handlers: buildNotificationsOrderingProjectionHandlers(
-          services.notificationOutbox,
-          orderingSubscription.projectionName,
-        ),
-        eventTypes: orderingSubscription.eventTypes,
-        streamPrefixes: orderingSubscription.streamPrefixes,
-        order: orderingSubscription.order,
+  buildSubscriptions: (services) =>
+    buildEventSubscriptionsFromManifest({
+      contextName: "notifications",
+      manifest: contextManifest,
+      handlers: {
+        [`ordering.${NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION}`]: {
+          subscriptionName: "notifications.ordering-facts-projection",
+          buildHandlers: (subscription) =>
+            buildNotificationsOrderingProjectionHandlers(services.notificationOutbox, subscription.projectionName),
+        },
+        [`fulfillment.${NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION}`]: {
+          subscriptionName: "notifications.fulfillment-facts-projection",
+          buildHandlers: (subscription) =>
+            buildNotificationsFulfillmentProjectionHandlers(services.notificationOutbox, subscription.projectionName),
+        },
       },
-      {
-        subscriptionName: "notifications.fulfillment-facts-projection",
-        sourceContextName: "fulfillment",
-        projectionName: fulfillmentSubscription.projectionName,
-        subscriptionVersion: fulfillmentSubscription.subscriptionVersion,
-        handlers: buildNotificationsFulfillmentProjectionHandlers(
-          services.notificationOutbox,
-          fulfillmentSubscription.projectionName,
-        ),
-        eventTypes: fulfillmentSubscription.eventTypes,
-        streamPrefixes: fulfillmentSubscription.streamPrefixes,
-        order: fulfillmentSubscription.order,
-      },
-    ];
-  },
-};
+    }),
+});

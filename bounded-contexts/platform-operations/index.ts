@@ -1,10 +1,6 @@
 export { default as contextManifest } from "./context.json";
 
-import type {
-  BcApiModule,
-  BcEventSubscriptionDeclaration,
-  BcProjectionGroupDeclaration,
-} from "@chase-sets/bounded-context-module";
+import { buildEventSubscriptionsFromManifest, defineBoundedContextModule } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { buildPlatformOperationsApi } from "./api";
 import contextManifest from "./context.json";
@@ -22,34 +18,13 @@ import {
   type PlatformOperationsServices,
 } from "./support/runtime-support/services";
 
-const eventSubscriptions = (contextManifest.eventSubscriptions ?? []) as readonly BcEventSubscriptionDeclaration[];
-const projectionGroups = (contextManifest.projectionGroups ?? []) as readonly BcProjectionGroupDeclaration[];
-
-function getEventSubscription(sourceContextName: string, projectionName: string): BcEventSubscriptionDeclaration {
-  const declaration = eventSubscriptions.find(
-    (entry) => entry.sourceContextName === sourceContextName && entry.projectionName === projectionName,
-  );
-
-  if (!declaration) {
-    throw new Error(
-      `Platform Operations is missing an eventSubscriptions declaration for '${sourceContextName}' -> '${projectionName}'.`,
-    );
-  }
-
-  return declaration;
-}
-
-export const module: BcApiModule<PlatformOperationsServices, PgTransactionalPool, PlatformOperationsHostPorts> = {
-  contextName: "platform-operations",
-  routePrefix: "/api/platform",
-  streamPrefix: "platform-operations.",
+export const module = defineBoundedContextModule<
+  PlatformOperationsServices,
+  PgTransactionalPool,
+  PlatformOperationsHostPorts
+>({
+  manifest: contextManifest,
   schemaSql: platformOperationsSchemaSql,
-  apiMounts: contextManifest.apiMounts as BcApiModule<
-    PlatformOperationsServices,
-    PgTransactionalPool,
-    PlatformOperationsHostPorts
-  >["apiMounts"],
-  projectionGroups,
   createServices: (pool, ports) => createPlatformOperationsServices(pool, ports),
   buildApis: (services) => [
     buildPlatformOperationsApi(services),
@@ -57,32 +32,20 @@ export const module: BcApiModule<PlatformOperationsServices, PgTransactionalPool
     buildSupportApi(services.supportRequests),
   ],
   projectionHandlerSets: (services) => services.projectors,
-  buildSubscriptions: (services) => {
-    const orderSubscription = getEventSubscription("ordering", "support-order-source-projection");
-    const shipmentSubscription = getEventSubscription("fulfillment", "support-shipment-source-projection");
-
-    return [
-      {
-        subscriptionName: "support.order-source-projection",
-        sourceContextName: "ordering",
-        projectionName: orderSubscription.projectionName,
-        subscriptionVersion: orderSubscription.subscriptionVersion,
-        handlers: buildSupportOrderSourceProjectionHandlers(services.db),
-        eventTypes: orderSubscription.eventTypes,
-        streamPrefixes: orderSubscription.streamPrefixes,
-        order: orderSubscription.order,
+  buildSubscriptions: (services) =>
+    buildEventSubscriptionsFromManifest({
+      contextName: "platform-operations",
+      manifest: contextManifest,
+      handlers: {
+        "ordering.support-order-source-projection": {
+          subscriptionName: "support.order-source-projection",
+          buildHandlers: () => buildSupportOrderSourceProjectionHandlers(services.db),
+        },
+        "fulfillment.support-shipment-source-projection": {
+          subscriptionName: "support.shipment-source-projection",
+          buildHandlers: () => buildSupportShipmentSourceProjectionHandlers(services.db),
+        },
       },
-      {
-        subscriptionName: "support.shipment-source-projection",
-        sourceContextName: "fulfillment",
-        projectionName: shipmentSubscription.projectionName,
-        subscriptionVersion: shipmentSubscription.subscriptionVersion,
-        handlers: buildSupportShipmentSourceProjectionHandlers(services.db),
-        eventTypes: shipmentSubscription.eventTypes,
-        streamPrefixes: shipmentSubscription.streamPrefixes,
-        order: shipmentSubscription.order,
-      },
-    ];
-  },
+    }),
   seed: seedPlatformOperationsDatabase,
-};
+});

@@ -1,11 +1,6 @@
 export { default as contextManifest } from "./context.json";
 
-import type {
-  BcApiModule,
-  BcEventSubscriptionDeclaration,
-  BcProjectionGroupDeclaration,
-} from "@chase-sets/bounded-context-module";
-import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import { buildEventSubscriptionsFromManifest, defineBoundedContextModule } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
 import type { DiscoveryServices } from "./support/runtime-support/services";
@@ -20,153 +15,56 @@ import { buildDiscoverySearchItemProjectionHandlers } from "./features/search/re
 import { createDiscoveryServices, type DiscoveryHostPorts } from "./support/runtime-support/services";
 import { discoverySchemaSql } from "./support/runtime-support/schema";
 
-const eventSubscriptions = (contextManifest.eventSubscriptions ?? []) as readonly BcEventSubscriptionDeclaration[];
-const projectionGroups = (contextManifest.projectionGroups ?? []) as readonly BcProjectionGroupDeclaration[];
-
-function getEventSubscription(sourceContextName: string, projectionName: string): BcEventSubscriptionDeclaration {
-  const declaration = eventSubscriptions.find(
-    (entry) => entry.sourceContextName === sourceContextName && entry.projectionName === projectionName,
-  );
-
-  if (!declaration) {
-    throw new Error(
-      `Discovery is missing an eventSubscriptions declaration for '${sourceContextName}' -> '${projectionName}'.`,
-    );
-  }
-
-  return declaration;
-}
-
-function selectSubscriptionHandlers(
-  handlers: ProjectorHandlerMap,
-  eventTypes: readonly string[] | undefined,
-): ProjectorHandlerMap {
-  if (!eventTypes) {
-    return handlers;
-  }
-
-  return Object.fromEntries(
-    eventTypes.flatMap((eventType) => (handlers[eventType] ? [[eventType, handlers[eventType]]] : [])),
-  );
-}
-
-export const module: BcApiModule<DiscoveryServices, PgTransactionalPool, DiscoveryHostPorts> = {
-  contextName: "discovery",
-  routePrefix: "/api/marketplace",
-  streamPrefix: "discovery.",
+export const module = defineBoundedContextModule<DiscoveryServices, PgTransactionalPool, DiscoveryHostPorts>({
+  manifest: contextManifest,
   schemaSql: discoverySchemaSql,
-  apiMounts: contextManifest.apiMounts as BcApiModule<
-    DiscoveryServices,
-    PgTransactionalPool,
-    DiscoveryHostPorts
-  >["apiMounts"],
-  projectionGroups,
   createServices: (pool, ports) => createDiscoveryServices(pool, ports),
   buildApis: (services) => [buildDiscoveryApi(services)],
   projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) => {
-    const categorySubscription = getEventSubscription("catalog", "discovery-category-projection");
-    const productAlertPageSubscription = getEventSubscription("discovery", "discovery-product-alert-page-projection");
-    const searchSubscription = getEventSubscription("catalog", "discovery-search-item-projection");
-    const detailSubscription = getEventSubscription("catalog", "discovery-item-detail-projection");
-    const googleShoppingFeedRowSubscription = getEventSubscription(
-      "catalog",
-      "discovery-google-shopping-feed-row-projection",
-    );
-    const identitySubscription = getEventSubscription("identity", "discovery-market-projection");
-    const marketplaceSubscription = getEventSubscription("marketplace", "discovery-market-projection");
-    const productAlertSubscription = getEventSubscription(
-      "marketplace",
-      "discovery-product-alert-notification-projection",
-    );
-
     const marketProjectionHandlers = buildDiscoveryMarketProjectionHandlers(services.db);
 
-    return [
-      {
-        subscriptionName: "discovery.product-alert-page-projection",
-        sourceContextName: "discovery",
-        projectionName: productAlertPageSubscription.projectionName,
-        subscriptionVersion: productAlertPageSubscription.subscriptionVersion,
-        handlers: buildProductAlertPageProjectionHandlers(services.db),
-        eventTypes: productAlertPageSubscription.eventTypes,
-        streamPrefixes: productAlertPageSubscription.streamPrefixes,
-        order: productAlertPageSubscription.order,
+    return buildEventSubscriptionsFromManifest({
+      contextName: "discovery",
+      manifest: contextManifest,
+      handlers: {
+        "discovery.discovery-product-alert-page-projection": () => buildProductAlertPageProjectionHandlers(services.db),
+        "catalog.discovery-category-projection": {
+          subscriptionName: "discovery.catalog-category-projection",
+          buildHandlers: () => buildDiscoveryCategoryProjectionHandlers(services.db),
+        },
+        "catalog.discovery-search-item-projection": {
+          subscriptionName: "discovery.catalog-search-projection",
+          buildHandlers: () => buildDiscoverySearchItemProjectionHandlers(services.db),
+        },
+        "catalog.discovery-item-detail-projection": {
+          subscriptionName: "discovery.catalog-detail-projection",
+          buildHandlers: () => buildDiscoveryItemDetailProjectionHandlers(services.db),
+        },
+        "catalog.discovery-google-shopping-feed-row-projection": {
+          subscriptionName: "discovery.catalog-google-shopping-feed-row-projection",
+          buildHandlers: () => buildGoogleShoppingFeedRowProjectionHandlers(services.db),
+        },
+        "identity.discovery-market-projection": {
+          subscriptionName: "discovery.identity-market-projection",
+          filterToEventTypes: true,
+          buildHandlers: () => marketProjectionHandlers,
+        },
+        "marketplace.discovery-market-projection": {
+          subscriptionName: "discovery.marketplace-market-projection",
+          filterToEventTypes: true,
+          buildHandlers: () => marketProjectionHandlers,
+        },
+        "marketplace.discovery-product-alert-notification-projection": {
+          subscriptionName: "discovery.marketplace-product-alert-notifications",
+          buildHandlers: (subscription) =>
+            buildProductAlertNotificationProjectionHandlers(
+              services.db,
+              services.notificationOutbox,
+              subscription.projectionName,
+            ),
+        },
       },
-      {
-        subscriptionName: "discovery.catalog-category-projection",
-        sourceContextName: "catalog",
-        projectionName: categorySubscription.projectionName,
-        subscriptionVersion: categorySubscription.subscriptionVersion,
-        handlers: buildDiscoveryCategoryProjectionHandlers(services.db),
-        eventTypes: categorySubscription.eventTypes,
-        streamPrefixes: categorySubscription.streamPrefixes,
-        order: categorySubscription.order,
-      },
-      {
-        subscriptionName: "discovery.catalog-search-projection",
-        sourceContextName: "catalog",
-        projectionName: searchSubscription.projectionName,
-        subscriptionVersion: searchSubscription.subscriptionVersion,
-        handlers: buildDiscoverySearchItemProjectionHandlers(services.db),
-        eventTypes: searchSubscription.eventTypes,
-        streamPrefixes: searchSubscription.streamPrefixes,
-        order: searchSubscription.order,
-      },
-      {
-        subscriptionName: "discovery.catalog-detail-projection",
-        sourceContextName: "catalog",
-        projectionName: detailSubscription.projectionName,
-        subscriptionVersion: detailSubscription.subscriptionVersion,
-        handlers: buildDiscoveryItemDetailProjectionHandlers(services.db),
-        eventTypes: detailSubscription.eventTypes,
-        streamPrefixes: detailSubscription.streamPrefixes,
-        order: detailSubscription.order,
-      },
-      {
-        subscriptionName: "discovery.catalog-google-shopping-feed-row-projection",
-        sourceContextName: "catalog",
-        projectionName: googleShoppingFeedRowSubscription.projectionName,
-        subscriptionVersion: googleShoppingFeedRowSubscription.subscriptionVersion,
-        handlers: buildGoogleShoppingFeedRowProjectionHandlers(services.db),
-        eventTypes: googleShoppingFeedRowSubscription.eventTypes,
-        streamPrefixes: googleShoppingFeedRowSubscription.streamPrefixes,
-        order: googleShoppingFeedRowSubscription.order,
-      },
-      {
-        subscriptionName: "discovery.identity-market-projection",
-        sourceContextName: "identity",
-        projectionName: identitySubscription.projectionName,
-        subscriptionVersion: identitySubscription.subscriptionVersion,
-        handlers: selectSubscriptionHandlers(marketProjectionHandlers, identitySubscription.eventTypes),
-        eventTypes: identitySubscription.eventTypes,
-        streamPrefixes: identitySubscription.streamPrefixes,
-        order: identitySubscription.order,
-      },
-      {
-        subscriptionName: "discovery.marketplace-market-projection",
-        sourceContextName: "marketplace",
-        projectionName: marketplaceSubscription.projectionName,
-        subscriptionVersion: marketplaceSubscription.subscriptionVersion,
-        handlers: selectSubscriptionHandlers(marketProjectionHandlers, marketplaceSubscription.eventTypes),
-        eventTypes: marketplaceSubscription.eventTypes,
-        streamPrefixes: marketplaceSubscription.streamPrefixes,
-        order: marketplaceSubscription.order,
-      },
-      {
-        subscriptionName: "discovery.marketplace-product-alert-notifications",
-        sourceContextName: "marketplace",
-        projectionName: productAlertSubscription.projectionName,
-        subscriptionVersion: productAlertSubscription.subscriptionVersion,
-        handlers: buildProductAlertNotificationProjectionHandlers(
-          services.db,
-          services.notificationOutbox,
-          productAlertSubscription.projectionName,
-        ),
-        eventTypes: productAlertSubscription.eventTypes,
-        streamPrefixes: productAlertSubscription.streamPrefixes,
-        order: productAlertSubscription.order,
-      },
-    ];
+    });
   },
-};
+});

@@ -2,8 +2,10 @@ import type {
   ProjectionHandlerSet,
   ProjectionErrorPolicy,
   ProjectionRunContext,
+  ProjectorHandlerContext,
   ProjectorHandlerMap,
 } from "@chase-sets/event-core/projector";
+import type { TransportEvent } from "@chase-sets/event-core/transport";
 
 /**
  * Framework-agnostic contract for a bounded-context module.
@@ -12,6 +14,26 @@ import type {
  * cases that require runtime configuration.
  */
 export type BcProjectionHandlerSet = ProjectionHandlerSet;
+
+export type BcEventPayload = TransportEvent["data"];
+
+export type BcEventSubscriptionHandlerEvent<TPayload extends BcEventPayload = BcEventPayload> = Omit<
+  Readonly<TransportEvent>,
+  "data"
+> &
+  Readonly<{
+    data: TPayload;
+  }>;
+
+export type BcEventSubscriptionHandler<TPayload extends BcEventPayload = BcEventPayload> = {
+  handle(event: BcEventSubscriptionHandlerEvent<TPayload>, context?: ProjectorHandlerContext): Promise<void>;
+}["handle"];
+
+export type BcEventSubscriptionHandlerMap<
+  TEventPayloads extends Readonly<Record<string, BcEventPayload>> = Readonly<Record<string, BcEventPayload>>,
+> = Readonly<{
+  [TEventType in keyof TEventPayloads & string]: BcEventSubscriptionHandler<TEventPayloads[TEventType]>;
+}>;
 
 export type BcRouteType = "route" | "index";
 export type BcRoutePlacement = "root" | "layout";
@@ -120,6 +142,94 @@ export type BcEventSubscription = Readonly<{
   readonly order?: number;
 }>;
 
+export type BcContextManifest = Readonly<{
+  readonly contextName: string;
+  readonly apiBasePath: string;
+  readonly streamPrefix: string;
+  readonly apiMounts?: readonly unknown[];
+  readonly eventSubscriptions?: readonly BcEventSubscriptionDeclaration[];
+  readonly projectionGroups?: readonly unknown[];
+}>;
+
+export type BcEventSubscriptionHandlerMapBuilder<
+  TEventPayloads extends Readonly<Record<string, BcEventPayload>> = Readonly<Record<string, BcEventPayload>>,
+> = (
+  declaration: BcEventSubscriptionDeclaration,
+) => ProjectorHandlerMap | BcEventSubscriptionHandlerMap<TEventPayloads>;
+
+export type BcEventSubscriptionHandlerRegistration<
+  TEventPayloads extends Readonly<Record<string, BcEventPayload>> = Readonly<Record<string, BcEventPayload>>,
+> =
+  | BcEventSubscriptionHandlerMapBuilder<TEventPayloads>
+  | Readonly<{
+      subscriptionName?: string;
+      buildHandlers: BcEventSubscriptionHandlerMapBuilder<TEventPayloads>;
+      filterToEventTypes?: boolean;
+    }>;
+
+export type BcEventSubscriptionHandlerRegistrations = Readonly<Record<string, BcEventSubscriptionHandlerRegistration>>;
+
+export type BuildEventSubscriptionsFromManifestInput = Readonly<{
+  contextName: string;
+  manifest: Pick<BcContextManifest, "eventSubscriptions">;
+  handlers: BcEventSubscriptionHandlerRegistrations;
+}>;
+
+export function buildEventSubscriptionsFromManifest({
+  contextName,
+  manifest,
+  handlers,
+}: BuildEventSubscriptionsFromManifestInput): readonly BcEventSubscription[] {
+  const declarations = manifest.eventSubscriptions ?? [];
+
+  return Object.entries(handlers).map(([subscriptionKey, registration]) => {
+    const { sourceContextName, projectionName } = parseEventSubscriptionKey(subscriptionKey);
+    const declaration = declarations.find(
+      (entry) => entry.sourceContextName === sourceContextName && entry.projectionName === projectionName,
+    );
+
+    if (!declaration) {
+      throw new Error(
+        `Context '${contextName}' is missing an eventSubscriptions declaration for '${sourceContextName}' -> '${projectionName}'.`,
+      );
+    }
+
+    const normalizedRegistration = normalizeEventSubscriptionHandlerRegistration(
+      contextName,
+      projectionName,
+      registration,
+    );
+    const handlerMap = coerceProjectorHandlerMap(normalizedRegistration.buildHandlers(declaration));
+
+    return {
+      subscriptionName: normalizedRegistration.subscriptionName,
+      sourceContextName: declaration.sourceContextName,
+      projectionName: declaration.projectionName,
+      subscriptionVersion: declaration.subscriptionVersion,
+      handlers: normalizedRegistration.filterToEventTypes
+        ? selectEventSubscriptionHandlers(handlerMap, declaration.eventTypes)
+        : handlerMap,
+      eventTypes: declaration.eventTypes,
+      streamPrefixes: declaration.streamPrefixes,
+      errorPolicy: declaration.errorPolicy,
+      order: declaration.order,
+    };
+  });
+}
+
+export function selectEventSubscriptionHandlers(
+  handlers: ProjectorHandlerMap,
+  eventTypes: readonly string[] | undefined,
+): ProjectorHandlerMap {
+  if (!eventTypes) {
+    return handlers;
+  }
+
+  return Object.fromEntries(
+    eventTypes.flatMap((eventType) => (handlers[eventType] ? [[eventType, handlers[eventType]]] : [])),
+  );
+}
+
 export type BcProjectionGroup = BcProjectionGroupDeclaration &
   Readonly<{
     readonly reset?: (context?: ProjectionRunContext) => Promise<void>;
@@ -156,4 +266,111 @@ export interface BcApiModule<
   buildProjectionGroups?(services: TServices): readonly BcProjectionGroup[];
   seedProfiles?: readonly EnvironmentDataProfile[];
   seed?(pool: TPool, services?: TServices, options?: BcSeedOptions): Promise<void>;
+}
+
+export type DefineBoundedContextModuleInput<
+  TServices,
+  TPool,
+  THostPorts,
+  TRouter = unknown,
+  TProjectionHandlerSet extends BcProjectionHandlerSet = BcProjectionHandlerSet,
+> = Readonly<{
+  manifest: BcContextManifest;
+  schemaSql: string;
+  createServices: BcApiModule<TServices, TPool, THostPorts, TRouter, TProjectionHandlerSet>["createServices"];
+  buildApis: BcApiModule<TServices, TPool, THostPorts, TRouter, TProjectionHandlerSet>["buildApis"];
+  projectionHandlerSets?: BcApiModule<
+    TServices,
+    TPool,
+    THostPorts,
+    TRouter,
+    TProjectionHandlerSet
+  >["projectionHandlerSets"];
+  buildSubscriptions?: BcApiModule<TServices, TPool, THostPorts, TRouter, TProjectionHandlerSet>["buildSubscriptions"];
+  buildProjectionGroups?: BcApiModule<
+    TServices,
+    TPool,
+    THostPorts,
+    TRouter,
+    TProjectionHandlerSet
+  >["buildProjectionGroups"];
+  seedProfiles?: readonly EnvironmentDataProfile[];
+  seed?: BcApiModule<TServices, TPool, THostPorts, TRouter, TProjectionHandlerSet>["seed"];
+}>;
+
+export function defineBoundedContextModule<
+  TServices,
+  TPool,
+  THostPorts,
+  TRouter = unknown,
+  TProjectionHandlerSet extends BcProjectionHandlerSet = BcProjectionHandlerSet,
+>(
+  input: DefineBoundedContextModuleInput<TServices, TPool, THostPorts, TRouter, TProjectionHandlerSet>,
+): BcApiModule<TServices, TPool, THostPorts, TRouter, TProjectionHandlerSet> {
+  return {
+    contextName: input.manifest.contextName,
+    routePrefix: input.manifest.apiBasePath,
+    streamPrefix: input.manifest.streamPrefix,
+    schemaSql: input.schemaSql,
+    apiMounts: (input.manifest.apiMounts ?? []) as readonly BcApiMount[],
+    ...(input.manifest.projectionGroups
+      ? { projectionGroups: input.manifest.projectionGroups as readonly BcProjectionGroupDeclaration[] }
+      : {}),
+    createServices: input.createServices,
+    buildApis: input.buildApis,
+    ...(input.projectionHandlerSets ? { projectionHandlerSets: input.projectionHandlerSets } : {}),
+    ...(input.buildSubscriptions ? { buildSubscriptions: input.buildSubscriptions } : {}),
+    ...(input.buildProjectionGroups ? { buildProjectionGroups: input.buildProjectionGroups } : {}),
+    ...(input.seedProfiles ? { seedProfiles: input.seedProfiles } : {}),
+    ...(input.seed ? { seed: input.seed } : {}),
+  };
+}
+
+function parseEventSubscriptionKey(
+  subscriptionKey: string,
+): Readonly<{ sourceContextName: string; projectionName: string }> {
+  const separatorIndex = subscriptionKey.indexOf(".");
+  if (separatorIndex <= 0 || separatorIndex === subscriptionKey.length - 1) {
+    throw new Error(`Invalid event subscription key '${subscriptionKey}'. Use '<sourceContextName>.<projectionName>'.`);
+  }
+
+  return {
+    sourceContextName: subscriptionKey.slice(0, separatorIndex),
+    projectionName: subscriptionKey.slice(separatorIndex + 1),
+  };
+}
+
+function normalizeEventSubscriptionHandlerRegistration(
+  contextName: string,
+  projectionName: string,
+  registration: BcEventSubscriptionHandlerRegistration,
+): Readonly<{
+  subscriptionName: string;
+  buildHandlers: BcEventSubscriptionHandlerMapBuilder;
+  filterToEventTypes: boolean;
+}> {
+  if (typeof registration === "function") {
+    return {
+      subscriptionName: defaultSubscriptionName(contextName, projectionName),
+      buildHandlers: registration,
+      filterToEventTypes: false,
+    };
+  }
+
+  return {
+    subscriptionName: registration.subscriptionName ?? defaultSubscriptionName(contextName, projectionName),
+    buildHandlers: registration.buildHandlers,
+    filterToEventTypes: registration.filterToEventTypes ?? false,
+  };
+}
+
+function defaultSubscriptionName(contextName: string, projectionName: string): string {
+  const contextPrefix = `${contextName}-`;
+  return projectionName.startsWith(contextPrefix)
+    ? `${contextName}.${projectionName.slice(contextPrefix.length)}`
+    : `${contextName}.${projectionName}`;
+}
+
+function coerceProjectorHandlerMap(handlers: ProjectorHandlerMap | BcEventSubscriptionHandlerMap): ProjectorHandlerMap {
+  return handlers as ProjectorHandlerMap;
 }

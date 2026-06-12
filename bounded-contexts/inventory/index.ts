@@ -1,9 +1,9 @@
 export { default as contextManifest } from "./context.json";
 
-import type {
-  BcApiModule,
-  BcEventSubscriptionDeclaration,
-  BcProjectionGroupDeclaration,
+import {
+  buildEventSubscriptionsFromManifest,
+  defineBoundedContextModule,
+  type BcEventSubscriptionHandler,
 } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
@@ -15,62 +15,20 @@ import { createInventoryServices } from "./support/runtime-support/services";
 import { inventorySchemaSql } from "./support/runtime-support/schema";
 import { seedInventoryDatabase } from "./support/runtime-support/seed";
 
-const eventSubscriptions = (contextManifest.eventSubscriptions ?? []) as readonly BcEventSubscriptionDeclaration[];
-const projectionGroups = (contextManifest.projectionGroups ?? []) as readonly BcProjectionGroupDeclaration[];
-
-function getEventSubscription(sourceContextName: string, projectionName: string): BcEventSubscriptionDeclaration {
-  const declaration = eventSubscriptions.find(
-    (entry) => entry.sourceContextName === sourceContextName && entry.projectionName === projectionName,
-  );
-
-  if (!declaration) {
-    throw new Error(
-      `Inventory is missing an eventSubscriptions declaration for '${sourceContextName}' -> '${projectionName}'.`,
-    );
-  }
-
-  return declaration;
-}
-
-export const module: BcApiModule<InventoryServices, PgTransactionalPool, InventoryHostPorts> = {
-  contextName: "inventory",
-  routePrefix: "/api/inventory",
-  streamPrefix: "inventory.",
+export const module = defineBoundedContextModule<InventoryServices, PgTransactionalPool, InventoryHostPorts>({
+  manifest: contextManifest,
   schemaSql: inventorySchemaSql,
-  apiMounts: contextManifest.apiMounts as BcApiModule<
-    InventoryServices,
-    PgTransactionalPool,
-    InventoryHostPorts
-  >["apiMounts"],
-  projectionGroups,
   createServices: (pool, ports) => createInventoryServices(pool, ports),
   buildApis: (services) => [buildInventoryApi(services)],
   projectionHandlerSets: (services) => services.projectors,
-  buildSubscriptions: (services) => {
-    const catalogSubscription = getEventSubscription("catalog", "inventory-catalog-item-projection");
-    const orderingReservationWorkflowSubscription = getEventSubscription(
-      "ordering",
-      "inventory-order-reservation-workflow",
-    );
-
-    return [
-      {
-        subscriptionName: "inventory.catalog-item-projection",
-        sourceContextName: "catalog",
-        projectionName: catalogSubscription.projectionName,
-        subscriptionVersion: catalogSubscription.subscriptionVersion,
-        handlers: buildInventoryCatalogItemProjectionHandlers(services.db),
-        eventTypes: catalogSubscription.eventTypes,
-        streamPrefixes: catalogSubscription.streamPrefixes,
-        order: catalogSubscription.order,
-      },
-      {
-        subscriptionName: "inventory.order-reservation-workflow",
-        sourceContextName: "ordering",
-        projectionName: orderingReservationWorkflowSubscription.projectionName,
-        subscriptionVersion: orderingReservationWorkflowSubscription.subscriptionVersion,
-        handlers: {
-          "ordering.order.created": async (event) => {
+  buildSubscriptions: (services) =>
+    buildEventSubscriptionsFromManifest({
+      contextName: "inventory",
+      manifest: contextManifest,
+      handlers: {
+        "catalog.inventory-catalog-item-projection": () => buildInventoryCatalogItemProjectionHandlers(services.db),
+        "ordering.inventory-order-reservation-workflow": () => ({
+          "ordering.order.created": async (event: Parameters<BcEventSubscriptionHandler>[0]) => {
             const data = event.data as {
               orderId: string;
               reservationRequests: Array<{
@@ -138,7 +96,7 @@ export const module: BcApiModule<InventoryServices, PgTransactionalPool, Invento
               }
             }
           },
-          "ordering.order.cancelled": async (event) => {
+          "ordering.order.cancelled": async (event: Parameters<BcEventSubscriptionHandler>[0]) => {
             const data = event.data as {
               reservationRequests: Array<{
                 reservationRequestId: string;
@@ -187,12 +145,8 @@ export const module: BcApiModule<InventoryServices, PgTransactionalPool, Invento
               });
             }
           },
-        },
-        eventTypes: orderingReservationWorkflowSubscription.eventTypes,
-        streamPrefixes: orderingReservationWorkflowSubscription.streamPrefixes,
-        order: orderingReservationWorkflowSubscription.order,
+        }),
       },
-    ];
-  },
+    }),
   seed: seedInventoryDatabase,
-};
+});
