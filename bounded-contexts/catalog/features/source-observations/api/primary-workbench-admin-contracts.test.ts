@@ -1439,7 +1439,7 @@ function releaseChecklistFixture(
         summary: `${workflowLabel} proof.`,
       }),
     ],
-    tests: ["bounded-contexts/catalog/features/source-observations/ui/primary-workbench-read-model.test.ts"],
+    tests: ["bounded-contexts/catalog/features/source-observations/ui/primary-workbench-core-read-model.test.ts"],
     e2eProof: "deployables/admin-web/e2e/catalog-integrations.spec.ts",
     smokeProof: "production smoke opens the protected rebuilt Catalog integration workbench",
     residualDebt: [],

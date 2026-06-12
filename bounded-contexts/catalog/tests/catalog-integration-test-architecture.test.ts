@@ -5,7 +5,19 @@ import { describe, expect, it } from "vitest";
 
 const contextRoot = resolve(fileURLToPath(new URL(".", import.meta.url)), "..");
 const architectureDocPath = resolve(contextRoot, "docs/catalog-integration-test-architecture.md");
-const readModelTestPath = resolve(contextRoot, "features/source-observations/ui/primary-workbench-read-model.test.ts");
+const readModelTestPaths = [
+  "primary-workbench-core-read-model.test.ts",
+  "primary-workbench-profile-authoring.test.ts",
+  "primary-workbench-validation-readiness.test.ts",
+  "primary-workbench-lifecycle-recovery.test.ts",
+  "primary-workbench-import-jobs.test.ts",
+  "primary-workbench-health-triage.test.ts",
+  "primary-workbench-source-observation-review.test.ts",
+  "primary-workbench-conflict-resolution.test.ts",
+  "primary-workbench-governance-controls.test.ts",
+  "primary-workbench-audit-evidence.test.ts",
+  "primary-workbench-clean-reset-release.test.ts",
+].map((fileName) => resolve(contextRoot, "features/source-observations/ui", fileName));
 const pageTestPath = resolve(contextRoot, "features/source-observations/ui/primary-workbench-page.test.tsx");
 const acceptanceGateTestPath = resolve(
   contextRoot,
@@ -26,7 +38,17 @@ describe("Catalog integration test architecture", () => {
       "runtime-service-facets.test.ts",
       "runtime.test.ts",
       "route.test.ts",
-      "primary-workbench-read-model.test.ts",
+      "primary-workbench-core-read-model.test.ts",
+      "primary-workbench-profile-authoring.test.ts",
+      "primary-workbench-validation-readiness.test.ts",
+      "primary-workbench-lifecycle-recovery.test.ts",
+      "primary-workbench-import-jobs.test.ts",
+      "primary-workbench-health-triage.test.ts",
+      "primary-workbench-source-observation-review.test.ts",
+      "primary-workbench-conflict-resolution.test.ts",
+      "primary-workbench-governance-controls.test.ts",
+      "primary-workbench-audit-evidence.test.ts",
+      "primary-workbench-clean-reset-release.test.ts",
       "primary-workbench-page.test.tsx",
       "primary-workbench-route-context.test.ts",
       "primary-workbench-copy.test.ts",
@@ -44,12 +66,12 @@ describe("Catalog integration test architecture", () => {
     expect(doc).toContain("Catalog Integration Engine tests may assert Source Observation facts");
     expect(doc).toContain("API route tests may assert request validation");
     expect(doc).toContain("Runtime facet tests may prove the aggregate runtime");
-    expect(doc).toContain("Primary workbench read-model/copy/route-context tests own");
+    expect(doc).toContain("Primary workbench read-model seam tests, copy tests, and route-context tests own");
     expect(doc).toContain("E2E tests cover representative happy paths and critical blocked states");
   });
 
   it("anchors launch acceptance to rebuilt workbench tests and rejects old page evidence anchors", () => {
-    const readModelTest = readFileSync(readModelTestPath, "utf8");
+    const readModelTest = readModelTestPaths.map((testPath) => readFileSync(testPath, "utf8")).join("\n");
     const pageTest = readFileSync(pageTestPath, "utf8");
     const acceptanceGateTest = readFileSync(acceptanceGateTestPath, "utf8");
 
