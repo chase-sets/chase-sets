@@ -52,6 +52,20 @@ function selectSubscriptionHandlers(
   );
 }
 
+function createPaymentCaptureDispatchError(
+  failures: readonly Readonly<{ orderId: string; reason: unknown }>[],
+  orderCount: number,
+): AggregateError {
+  return new AggregateError(
+    failures.map(({ orderId, reason }) =>
+      reason instanceof Error
+        ? new Error(`Order '${orderId}' readiness dispatch failed: ${reason.message}`, { cause: reason })
+        : new Error(`Order '${orderId}' readiness dispatch failed: ${String(reason)}`),
+    ),
+    `Failed to mark ${failures.length} of ${orderCount} captured order(s) ready for fulfillment.`,
+  );
+}
+
 export const module: BcApiModule<OrderingServices, PgTransactionalPool, OrderingServiceOptions> = {
   contextName: "ordering",
   routePrefix: "/api/marketplace",
@@ -310,7 +324,7 @@ export const module: BcApiModule<OrderingServices, PgTransactionalPool, Ordering
                  processor_status,
                  captured_at,
                  updated_at
-               ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
+               ) VALUES ($1, $2, to_jsonb($3::text[]), $4, $5, $6, $7, $8, $9, $9)
                ON CONFLICT (payment_id) DO UPDATE
                SET buyer_account_id = EXCLUDED.buyer_account_id,
                    order_ids = EXCLUDED.order_ids,
@@ -324,7 +338,7 @@ export const module: BcApiModule<OrderingServices, PgTransactionalPool, Ordering
               [
                 data.paymentId,
                 data.buyerAccountId,
-                JSON.stringify(data.orderIds ?? []),
+                data.orderIds ?? [],
                 data.amount,
                 data.currencyCode,
                 data.processorName,
@@ -334,19 +348,29 @@ export const module: BcApiModule<OrderingServices, PgTransactionalPool, Ordering
               ],
             );
 
-            for (const orderId of data.orderIds ?? []) {
-              await services.orders.commandHandler({
-                streamId: `ordering.order-${orderId}`,
-                command: {
-                  type: "MarkReadyForFulfillment",
-                  readyForFulfillmentAt: data.capturedAt,
-                },
-                context: {
-                  tenantId: event.tenantId,
-                  audit: event.audit,
-                  trace: event.trace,
-                } as never,
-              });
+            const orderIds = data.orderIds ?? [];
+            const dispatchResults = await Promise.allSettled(
+              orderIds.map((orderId) =>
+                services.orders.commandHandler({
+                  streamId: `ordering.order-${orderId}`,
+                  command: {
+                    type: "MarkReadyForFulfillment",
+                    readyForFulfillmentAt: data.capturedAt,
+                  },
+                  context: {
+                    tenantId: event.tenantId,
+                    audit: event.audit,
+                    trace: event.trace,
+                  } as never,
+                }),
+              ),
+            );
+            const dispatchFailures = dispatchResults.flatMap((result, index) =>
+              result.status === "rejected" ? [{ orderId: orderIds[index], reason: result.reason }] : [],
+            );
+
+            if (dispatchFailures.length > 0) {
+              throw createPaymentCaptureDispatchError(dispatchFailures, orderIds.length);
             }
           },
         },
