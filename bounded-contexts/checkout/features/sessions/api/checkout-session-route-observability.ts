@@ -71,7 +71,7 @@ export function recordActiveSessionStaleRecovery(
   actor: CheckoutActor,
   code: string,
 ) {
-  if (code !== "readiness_snapshot_stale") {
+  if (code !== "readiness_snapshot_stale" && code !== "split_group_handoff_stale") {
     return;
   }
 

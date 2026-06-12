@@ -447,6 +447,32 @@ describe("checkout session runtime", () => {
     } satisfies Partial<CheckoutDomainError>);
   });
 
+  it("rejects an active cart session when split-group handoff no longer matches readiness", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const readiness = createCartReadinessSnapshot([readyCartLine]);
+    const row = createSessionPageRow(readiness, {
+      split_group_handoff: {
+        status: "ready",
+        supportReference: `CS-${readiness.snapshotId.toUpperCase()}`,
+        groups: readiness.fulfillmentGroups.map((group) => ({
+          ...group,
+          lineIds: ["cli_other"],
+        })),
+      },
+    });
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query: vi.fn(async () => ({ rows: [row] })) },
+      cart: createCartServices([readyCartLine]) as never,
+    });
+
+    await expect(services.getSession("chk_1", "acc_buyer" as never)).rejects.toMatchObject({
+      code: "split_group_handoff_stale",
+      message: "Cart readiness changed. Review your cart before checkout.",
+    } satisfies Partial<CheckoutDomainError>);
+  });
+
   it("rejects active-session cart readiness that is still unresolved", async () => {
     const unresolvedLine: CheckoutCartLineRow = {
       ...readyCartLine,
@@ -468,5 +494,83 @@ describe("checkout session runtime", () => {
       code: "unresolved_fulfillment",
       message: "Resolve item availability before checkout starts.",
     } satisfies Partial<CheckoutDomainError>);
+  });
+
+  it("revalidates cart split groups before recording orders", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const cart = createCartServices([readyCartLine]);
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query: vi.fn(async () => ({ rows: [] })) },
+      cart: cart as never,
+    });
+    const readiness = createCartReadinessSnapshot([readyCartLine]);
+    const created = await services.createFromCart(
+      {
+        accountId: "acc_buyer" as never,
+        readinessSnapshotId: readiness.snapshotId,
+        readinessSourceRevision: readiness.sourceRevision,
+        sessionIdOverride: "chk_split_revalidate" as never,
+      },
+      context,
+    );
+    await services.setShippingAddress(
+      {
+        sessionId: created.sessionId,
+        accountId: "acc_buyer" as never,
+        shippingAddress: {
+          shippingAddressId: "adr_home" as never,
+          name: "Jane Smith",
+          line1: "100 Market Street",
+          line2: null,
+          city: "Chicago",
+          state: "IL",
+          postalCode: "60601",
+          country: "US",
+        },
+      },
+      context,
+    );
+
+    cart.listCartLines.mockResolvedValue([
+      {
+        ...readyCartLine,
+        locked_listing_id: "lst_changed",
+        seller_options: [
+          {
+            ...readyCartLine.seller_options[0]!,
+            listing_id: "lst_changed",
+          },
+        ],
+      },
+    ]);
+
+    await expect(
+      services.assertReadyForOrderCreation({
+        sessionId: created.sessionId,
+        accountId: "acc_buyer" as never,
+      }),
+    ).rejects.toMatchObject({
+      code: "readiness_snapshot_stale",
+      message: "Cart readiness changed. Review your cart before checkout.",
+    } satisfies Partial<CheckoutDomainError>);
+
+    await expect(
+      services.recordOrdersCreated(
+        {
+          sessionId: created.sessionId,
+          accountId: "acc_buyer" as never,
+          orderIds: ["ord_1"],
+          fulfilledLineKeys: ["cli_1"],
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({
+      code: "readiness_snapshot_stale",
+      message: "Cart readiness changed. Review your cart before checkout.",
+    } satisfies Partial<CheckoutDomainError>);
+    expect(cart.removeLine).not.toHaveBeenCalled();
+    expect(cart.checkout).not.toHaveBeenCalled();
   });
 });

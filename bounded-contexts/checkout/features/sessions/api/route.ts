@@ -566,7 +566,11 @@ export function createAccountCheckoutSessionRoutes(
 
       let orderIds = [...session.order_ids];
       if (orderIds.length === 0) {
-        const checkoutOrders = await createCheckoutOrdersThroughOrdering(c.req.raw, session, {
+        const readySession = await services.assertReadyForOrderCreation({
+          sessionId,
+          accountId: access.actor.accountId as never,
+        });
+        const checkoutOrders = await createCheckoutOrdersThroughOrdering(c.req.raw, readySession, {
           fulfillmentPreviewRevision,
           acknowledgedMaterialChanges,
         });

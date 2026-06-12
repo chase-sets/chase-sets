@@ -15,6 +15,7 @@ import {
   cartReadinessDecisionsFromSnapshot,
   validateCartReadinessSnapshot,
   type CartReadinessDecisionInput,
+  type CartReadinessFulfillmentGroup,
   type CartReadinessSnapshot,
 } from "../../cart/domain/readiness";
 import {
@@ -34,6 +35,7 @@ import {
   type CheckoutShippingAddress,
   type CheckoutOptimizationGoal,
   type CheckoutSessionState,
+  type CheckoutSplitGroupHandoff,
 } from "../domain/domain";
 import { buildCheckoutSessionProjectionHandlers } from "../read-model/projection";
 import { getCheckoutSession, type CheckoutSessionRow } from "../read-model/queries";
@@ -160,6 +162,12 @@ export type CheckoutSessionServices = Readonly<{
     }>,
     context: EventStoreContext,
   ) => Promise<CheckoutSessionMutationResult>;
+  assertReadyForOrderCreation: (
+    params: Readonly<{
+      sessionId: string;
+      accountId: AccountId;
+    }>,
+  ) => Promise<CheckoutSessionRow>;
   recordPaymentStarted: (
     params: Readonly<{
       sessionId: string;
@@ -221,6 +229,87 @@ function stateToCheckoutSessionRow(state: CheckoutSessionState): CheckoutSession
     created_at: state.createdAt,
     updated_at: state.updatedAt,
   };
+}
+
+function readinessStaleError(code = "readiness_snapshot_stale") {
+  return new CheckoutDomainError("Cart readiness changed. Review your cart before checkout.", code);
+}
+
+function unresolvedFulfillmentError() {
+  return new CheckoutDomainError("Resolve item availability before checkout starts.", "unresolved_fulfillment");
+}
+
+function normalizedFulfillmentGroups(groups: readonly CartReadinessFulfillmentGroup[]) {
+  return groups
+    .map((group) => ({
+      groupId: group.groupId,
+      lineIds: [...group.lineIds].sort(),
+      listingIds: [...group.listingIds].sort(),
+      sellerAccountId: group.sellerAccountId,
+      sellerDisplayName: group.sellerDisplayName,
+      itemCount: group.itemCount,
+      packageCount: group.packageCount,
+      deliveryPromise: group.deliveryPromise,
+      shippingAmount: group.shippingAmount,
+      supportReference: group.supportReference,
+      downstreamReferenceStatus: group.downstreamReferenceStatus,
+    }))
+    .sort((left, right) => left.groupId.localeCompare(right.groupId));
+}
+
+function splitGroupHandoffMatches(
+  handoff: CheckoutSplitGroupHandoff | null | undefined,
+  currentGroups: readonly CartReadinessFulfillmentGroup[],
+) {
+  return (
+    handoff?.status === "ready" &&
+    JSON.stringify(normalizedFulfillmentGroups(handoff.groups)) ===
+      JSON.stringify(normalizedFulfillmentGroups(currentGroups))
+  );
+}
+
+async function assertCurrentCartReadinessForUncommittedSession(
+  state: Readonly<{
+    sourceType: "cart" | "buy-now" | "offer-intent" | null;
+    orderIds: readonly string[];
+    paymentId: string | null;
+    submittedOfferId: string | null;
+    cartReadinessSnapshot: CartReadinessSnapshot | null | undefined;
+    splitGroupHandoff: CheckoutSplitGroupHandoff | null | undefined;
+  }>,
+  accountId: AccountId | string,
+  cart: CheckoutCartServices,
+) {
+  if (state.sourceType !== "cart") {
+    return;
+  }
+
+  if (state.paymentId || state.orderIds.length > 0 || state.submittedOfferId) {
+    return;
+  }
+
+  const storedReadiness = state.cartReadinessSnapshot;
+  if (!storedReadiness) {
+    throw readinessStaleError();
+  }
+
+  const cartLines = await cart.listCartLines(accountId as AccountId);
+  const readiness = validateCartReadinessSnapshot(cartLines, {
+    snapshotId: storedReadiness.snapshotId,
+    sourceRevision: storedReadiness.sourceRevision,
+    decisions: cartReadinessDecisionsFromSnapshot(storedReadiness),
+  });
+  if (!readiness.valid) {
+    throw readinessStaleError();
+  }
+
+  if (readiness.current.status !== "ready" || readiness.current.unresolvedLineIds.length > 0) {
+    throw unresolvedFulfillmentError();
+  }
+
+  if (!splitGroupHandoffMatches(state.splitGroupHandoff, readiness.current.fulfillmentGroups)) {
+    throw readinessStaleError("split_group_handoff_stale");
+  }
 }
 
 function commitMetadataFromStoredEvents(
@@ -543,7 +632,14 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
         context,
       );
     },
+    assertReadyForOrderCreation: async (params) => {
+      const state = await loadSessionStateForBuyer(params.sessionId, params.accountId);
+      await assertCurrentCartReadinessForUncommittedSession(state, params.accountId, deps.cart);
+      return stateToCheckoutSessionRow(state);
+    },
     recordOrdersCreated: async (params, context) => {
+      const state = await loadSessionStateForBuyer(params.sessionId, params.accountId);
+      await assertCurrentCartReadinessForUncommittedSession(state, params.accountId, deps.cart);
       const result = await applySessionCommandForBuyer(
         {
           sessionId: params.sessionId,
@@ -623,34 +719,18 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
         return session;
       }
 
-      if (session.payment_id || session.order_ids.length > 0 || session.submitted_offer_id) {
-        return session;
-      }
-
-      const storedReadiness = session.cart_readiness_snapshot;
-      if (!storedReadiness) {
-        throw new CheckoutDomainError(
-          "Cart readiness changed. Review your cart before checkout.",
-          "readiness_snapshot_stale",
-        );
-      }
-
-      const cartLines = await deps.cart.listCartLines(accountId);
-      const readiness = validateCartReadinessSnapshot(cartLines, {
-        snapshotId: storedReadiness.snapshotId,
-        sourceRevision: storedReadiness.sourceRevision,
-        decisions: cartReadinessDecisionsFromSnapshot(storedReadiness),
-      });
-      if (!readiness.valid) {
-        throw new CheckoutDomainError(
-          "Cart readiness changed. Review your cart before checkout.",
-          "readiness_snapshot_stale",
-        );
-      }
-
-      if (readiness.current.status !== "ready" || readiness.current.unresolvedLineIds.length > 0) {
-        throw new CheckoutDomainError("Resolve item availability before checkout starts.", "unresolved_fulfillment");
-      }
+      await assertCurrentCartReadinessForUncommittedSession(
+        {
+          sourceType: session.source_type,
+          orderIds: session.order_ids,
+          paymentId: session.payment_id,
+          submittedOfferId: session.submitted_offer_id,
+          cartReadinessSnapshot: session.cart_readiness_snapshot ?? null,
+          splitGroupHandoff: session.split_group_handoff ?? null,
+        },
+        accountId,
+        deps.cart,
+      );
 
       return session;
     },
