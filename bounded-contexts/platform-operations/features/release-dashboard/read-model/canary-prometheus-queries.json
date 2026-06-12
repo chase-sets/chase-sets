@@ -20,6 +20,7 @@
       "currentState": "needs-instrumentation",
       "baselineQuery": "vector(0)",
       "canaryQuery": "sum(rate(chase_sets_http_server_requests_total{status_class=\"5xx\"}[15m]))",
+      "emptyResultValue": 0,
       "maxIncrease": 0.005,
       "threshold": "current production 5xx rate <= 0.005 errors/second"
     },
@@ -30,7 +31,7 @@
       "source": "Prometheus Chase Sets HTTP request duration histogram by route and host",
       "currentState": "needs-instrumentation",
       "baselineQuery": "vector(0)",
-      "canaryQuery": "histogram_quantile(0.95, sum(rate(chase_sets_http_server_request_duration_ms_bucket[15m])) by (le))",
+      "canaryQuery": "histogram_quantile(0.95, sum(rate(chase_sets_http_server_request_duration_ms_milliseconds_bucket[15m])) by (le))",
       "maxIncrease": 50,
       "threshold": "current production p95 <= 50ms until route baselines mature"
     },
@@ -42,6 +43,7 @@
       "currentState": "available-now",
       "baselineQuery": "vector(0)",
       "canaryQuery": "sum(rate(chase_sets_projection_freshness_pending_total[15m])) + sum(rate(chase_sets_projection_freshness_work_signal_errors_total[15m]))",
+      "emptyResultValue": 0,
       "maxIncrease": 0,
       "threshold": "production projection pending/error telemetry must remain zero"
     },
@@ -53,6 +55,7 @@
       "currentState": "needs-instrumentation",
       "baselineQuery": "vector(0)",
       "canaryQuery": "sum(rate(chase_sets_checkout_observability_events_total{release_health_required=\"true\",alert_class=~\"launch-alert|provider-alert|side-effect-boundary\"}[15m]))",
+      "emptyResultValue": 0,
       "maxIncrease": 0,
       "threshold": "production checkout/payment release-health alert events must remain zero"
     },
@@ -64,6 +67,7 @@
       "currentState": "available-now",
       "baselineQuery": "vector(0)",
       "canaryQuery": "sum(rate(chase_sets_settlement_operations_total{kind=~\"payout-setup-session-failed|payout-account-management-session-failed|payout-readiness-refresh-failed|payout-readiness-webhook-ignored|payout-request-blocked-by-setup|payout-failed|money-movement-webhook-ignored\"}[15m]))",
+      "emptyResultValue": 0,
       "maxIncrease": 0,
       "threshold": "production settlement payout/setup failures must remain zero"
     }

@@ -190,8 +190,20 @@ export async function collectPrometheusTelemetry({ baseUrl, queryFile, headers =
     }
 
     const [baseline, canary] = await Promise.all([
-      queryPrometheus({ baseUrl, query: signal.baselineQuery, headers, fetchImpl }),
-      queryPrometheus({ baseUrl, query: signal.canaryQuery, headers, fetchImpl }),
+      queryPrometheus({
+        baseUrl,
+        query: signal.baselineQuery,
+        headers,
+        fetchImpl,
+        emptyResultValue: signal.emptyResultValue,
+      }),
+      queryPrometheus({
+        baseUrl,
+        query: signal.canaryQuery,
+        headers,
+        fetchImpl,
+        emptyResultValue: signal.emptyResultValue,
+      }),
     ]);
 
     const source = normalizeString(signal.source) ?? `Prometheus: ${signal.canaryQuery}`;
@@ -278,6 +290,12 @@ export function validatePrometheusSignalConfig(signal) {
   if (signal?.required !== undefined && typeof signal.required !== "boolean") {
     errors.push("required must be a boolean when provided.");
   }
+  if (
+    signal?.emptyResultValue !== undefined &&
+    (typeof signal.emptyResultValue !== "number" || !Number.isFinite(signal.emptyResultValue))
+  ) {
+    errors.push("emptyResultValue must be a finite number when provided.");
+  }
   return errors;
 }
 
@@ -335,7 +353,7 @@ async function readTelemetrySource(filePath) {
   return JSON.parse(await readFile(filePath, "utf8"));
 }
 
-async function queryPrometheus({ baseUrl, query, headers, fetchImpl }) {
+async function queryPrometheus({ baseUrl, query, headers, fetchImpl, emptyResultValue }) {
   const url = new URL("/api/v1/query", baseUrl);
   url.searchParams.set("query", query);
   const response = await fetchImpl(url, { headers });
@@ -343,7 +361,7 @@ async function queryPrometheus({ baseUrl, query, headers, fetchImpl }) {
     throw new Error(`Prometheus query failed: ${response.status}`);
   }
   const body = await response.json();
-  return readPrometheusNumber(body);
+  return readPrometheusNumber(body) ?? emptyResultValue ?? null;
 }
 
 function readPrometheusNumber(body) {
