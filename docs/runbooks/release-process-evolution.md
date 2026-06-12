@@ -175,11 +175,11 @@ Canary ownership starts with this matrix:
 | --- | --- | --- | --- |
 | `observability-transport` | `infrastructure/observability` | Prometheus `up{job="otel-collector"}` scrape health | Abort promotion and inspect the observability host, Collector, and Caddy query path. |
 | `app-platform-deployment-phase` | `infrastructure/deployment-workflow` | Stage 1 production canary evidence | Abort promotion and inspect the App Platform deployment. |
-| `projection-lag-poison-events` | `owning-bounded-context/platform-operations` | Projection freshness pending and work-signal error counters, anchored to freshness evaluation telemetry | Abort promotion and inspect Platform Operations projection health. |
+| `projection-lag-poison-events` | `owning-bounded-context/platform-operations` | Projection freshness pending counters with `last_error="present"` plus work-signal error counters, anchored to freshness evaluation telemetry | Abort promotion and inspect Platform Operations projection health. |
 | `route-error-rate` | `platform-runtime/route-owner` | HTTP 5xx rate by route and host | Hold promotion once required; compare route-level errors against the stable cohort. |
 | `route-latency-p95` | `platform-runtime/route-owner` | HTTP latency histogram by route and host | Hold promotion until latency source and threshold are understood. |
 | `checkout-order-payment-errors` | `checkout/ordering/payments` | Checkout command, order, payment, and provider-health counters | Abort promotion and page the owning bounded context before exposing traffic. |
-| `settlement-payout-errors` | `settlement` | `chase_sets_settlement_operations_total` filtered to payout setup/session/readiness/reconciliation failure kinds, anchored to the authenticated provider-health canary's `provider-health-checked` operation | Abort promotion, inspect Payout Operations, and keep the release canary at the current cohort until setup and payout readiness are stable. |
+| `settlement-payout-errors` | `settlement` | `chase_sets_settlement_operations_total` filtered to payout setup/session/readiness/reconciliation failure kinds, anchored with `max_over_time` over the authenticated provider-health canary's `provider-health-checked` operation so sparse canary counters do not disappear as missing | Abort promotion, inspect Payout Operations, and keep the release canary at the current cohort until setup and payout readiness are stable. |
 
 Signals whose `currentState` is `needs-instrumentation` must remain out of production gating until telemetry is live. They can appear in dry-run canary evidence or as `required: false` production evidence, but they must remain visible as `missing` when unsupported; they must not silently pass.
 
