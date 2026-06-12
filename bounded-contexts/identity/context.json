@@ -304,7 +304,7 @@
       "classification": "support",
       "purpose": "Provide reusable read-model-support assets shared by identity-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": ["accounts", "users", "memberships", "invitations", "api-keys", "consents"],
+      "expectedConsumers": ["accounts", "users", "memberships", "invitations", "api-keys"],
       "justification": "read-model-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "identity workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
