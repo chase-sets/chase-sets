@@ -73,6 +73,35 @@ locals {
   admin_web_internal_api_origin = local.marketplace_platform_enabled ? local.platform_api_private_url : local.api_private_url
   marketplace_origin            = local.marketplace_domain != null ? "https://${local.marketplace_domain}" : ""
   database_size                 = local.is_staging ? var.staging_database_size : (local.is_non_production ? var.non_production_database_size : var.database_size)
+  observability_zone            = local.is_production ? var.root_domain : local.environment_zone
+  default_observability_otlp_endpoint = (
+    local.is_production || local.is_staging ? "https://otel.${local.observability_zone}" : ""
+  )
+  observability_otlp_endpoint = trimspace(var.observability_otlp_endpoint) != "" ? trimspace(var.observability_otlp_endpoint) : local.default_observability_otlp_endpoint
+  observability_enabled       = var.observability_enabled && local.observability_otlp_endpoint != ""
+  observability_runtime_env = local.observability_enabled ? {
+    OBSERVABILITY_ENABLED = {
+      value  = "true"
+      secret = false
+    }
+    OTEL_EXPORTER_OTLP_ENDPOINT = {
+      value  = local.observability_otlp_endpoint
+      secret = false
+    }
+    OTEL_EXPORTER_OTLP_HEADERS = {
+      value  = var.observability_otlp_headers
+      secret = true
+    }
+    OTEL_RESOURCE_ATTRIBUTES = {
+      value  = "cloud.provider=digitalocean,cloud.platform=digitalocean_app_platform,chase_sets.environment_slug=${local.environment_slug}"
+      secret = false
+    }
+    } : {
+    OBSERVABILITY_ENABLED = {
+      value  = "false"
+      secret = false
+    }
+  }
 
   api_database_pool_max               = "6"
   worker_default_database_pool_max    = local.is_staging ? 10 : (local.is_non_production ? 8 : 7)

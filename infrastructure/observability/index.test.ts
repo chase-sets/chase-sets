@@ -7,6 +7,7 @@ import {
   createLogger,
   itemDetailRailAnalyticsAttributes,
   loadObservabilityConfig,
+  parseOtlpHeaders,
   projectionFreshnessAuditMetricRecords,
   publicPresenceWaitlistAnalyticsAttributes,
   recordCheckoutObservabilityEvent,
@@ -25,6 +26,7 @@ describe("observability config", () => {
       serviceName: "platform-api",
       deploymentEnvironment: "local",
       otlpEndpoint: "http://localhost:4318",
+      otlpHeaders: {},
       tracesSamplerArg: "1.0",
       logFilePath: undefined,
       logLevel: "info",
@@ -38,6 +40,7 @@ describe("observability config", () => {
         OTEL_SERVICE_NAME: "api",
         OTEL_SERVICE_VERSION: "1.2.3",
         DEPLOYMENT_ENVIRONMENT: "production",
+        OTEL_EXPORTER_OTLP_HEADERS: "x-chase-sets-observability-token=token%20value,Authorization=Bearer%20otel",
         OTEL_RESOURCE_ATTRIBUTES: "region=us-central,team=marketplace",
         LOG_FILE_PATH: "./platform-api.jsonl",
         LOG_LEVEL: "warn",
@@ -49,10 +52,21 @@ describe("observability config", () => {
       tracesSamplerArg: "0.1",
       logFilePath: "./platform-api.jsonl",
       logLevel: "warn",
+      otlpHeaders: {
+        "x-chase-sets-observability-token": "token value",
+        Authorization: "Bearer otel",
+      },
       resourceAttributes: {
         region: "us-central",
         team: "marketplace",
       },
+    });
+  });
+
+  it("ignores malformed OTLP header entries without crashing startup", () => {
+    expect(parseOtlpHeaders("x-token=abc,missingEquals,bad name=value,x-empty=")).toEqual({
+      "x-token": "abc",
+      "x-empty": "",
     });
   });
 });
@@ -85,6 +99,7 @@ describe("structured logging", () => {
         LOG_LEVEL: "info",
         OTEL_SERVICE_NAME: "test-service",
         DEPLOYMENT_ENVIRONMENT: "test",
+        OBSERVABILITY_ENABLED: "false",
       }),
     );
 
@@ -101,6 +116,56 @@ describe("structured logging", () => {
       token: "[redacted]",
     });
     log.mockRestore();
+  });
+
+  it("exports structured logs through OTLP with scoped write headers", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const fetch = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
+    vi.stubGlobal("fetch", fetch);
+
+    const logger = createLogger(
+      loadObservabilityConfig({
+        OTEL_SERVICE_NAME: "platform-api",
+        DEPLOYMENT_ENVIRONMENT: "production",
+        OTEL_EXPORTER_OTLP_ENDPOINT: "https://otel.example.test",
+        OTEL_EXPORTER_OTLP_HEADERS: "x-chase-sets-observability-token=writer-token",
+      }),
+    );
+
+    logger.info("visible", { type: "test.log", count: 2, token: "secret" });
+
+    await vi.waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith(
+        "https://otel.example.test/v1/logs",
+        expect.objectContaining({
+          method: "POST",
+          headers: expect.objectContaining({
+            "content-type": "application/json",
+            "x-chase-sets-observability-token": "writer-token",
+          }),
+        }),
+      );
+    });
+
+    const body = JSON.parse(String(fetch.mock.calls[0][1]?.body));
+    const record = body.resourceLogs[0].scopeLogs[0].logRecords[0];
+    expect(body.resourceLogs[0].resource.attributes).toEqual(
+      expect.arrayContaining([
+        { key: "service.name", value: { stringValue: "platform-api" } },
+        { key: "deployment.environment", value: { stringValue: "production" } },
+      ]),
+    );
+    expect(JSON.parse(record.body.stringValue)).toMatchObject({
+      message: "visible",
+      service: "platform-api",
+      environment: "production",
+      type: "test.log",
+      count: 2,
+      token: "[redacted]",
+    });
+
+    log.mockRestore();
+    vi.unstubAllGlobals();
   });
 });
 

@@ -1,0 +1,26 @@
+{
+	email ${acme_email}
+}
+
+${grafana_domain} {
+	encode zstd gzip
+	reverse_proxy grafana:3000
+}
+
+${otel_domain} {
+	route {
+		@authorized header X-Chase-Sets-Observability-Token ${otel_write_token}
+		request_header @authorized -X-Chase-Sets-Observability-Token
+		reverse_proxy @authorized otel-collector:4318
+		respond "unauthorized" 401
+	}
+}
+
+${prometheus_domain} {
+	route {
+		@authorized header X-Chase-Sets-Observability-Query ${prometheus_query_token}
+		request_header @authorized -X-Chase-Sets-Observability-Query
+		reverse_proxy @authorized prometheus:9090
+		respond "unauthorized" 401
+	}
+}

@@ -1,0 +1,59 @@
+# ADR 0011: Production Observability Stack
+
+## Status
+
+Accepted.
+
+## Context
+
+ADR 0001 introduced OpenTelemetry in the platform API and a low-cost LGTM stack for local and self-hosted operations. The checked-in stack is intentionally local: short retention, local-only credentials, and Docker Compose volumes. Milestone #21 requires the same operational signals to run for production with durable storage, protected access, and release canary query support.
+
+The existing DigitalOcean platform root deploys the customer/application runtime through App Platform. App Platform is a good fit for stateless web, API, worker, and bootstrap components, but the current provider schema does not expose a durable volume contract for App Platform services. Prometheus, Loki, Tempo, and Grafana need persistence, predictable retention, and controlled recovery. Keeping those stores inside the main application App Platform app would also mix customer traffic deploy cadence with operational telemetry state.
+
+## Decision
+
+Run staging and production observability as a separate DigitalOcean self-hosted stack, not as extra components inside the customer-facing App Platform app.
+
+The production-ready topology is:
+
+- one observability host per long-lived environment (`staging`, `production`);
+- persistent DigitalOcean Block Storage volumes for Prometheus-compatible metrics, Loki-compatible logs, Tempo-compatible traces, and Grafana state;
+- `infrastructure/digitalocean/observability` as the provisioning root for hosts, volumes, DNS, firewall rules, credentials, and bootstrap;
+- Docker Compose or equivalent systemd-managed containers using the checked-in `infrastructure/observability/stack` configuration as the source of truth;
+- HTTPS ingress through a reverse proxy on the observability host;
+- Grafana with anonymous access disabled and credentials or SSO supplied by secret management;
+- OTLP ingestion behind a write credential, not a public unauthenticated endpoint;
+- Prometheus-compatible query access for release automation behind a separate scoped credential;
+- GitHub Actions canary evidence querying the protected Prometheus endpoint with `CANARY_PROMETHEUS_URL`, `CANARY_PROMETHEUS_QUERY_FILE`, `CANARY_OBSERVATION_WINDOW_SECONDS`, and secret `CANARY_PROMETHEUS_HEADERS`.
+
+The application deployables continue to run in App Platform and export telemetry with standard OpenTelemetry environment variables. Telemetry export remains best effort: missing or unreachable observability infrastructure is an operations incident, not a customer-facing outage.
+
+## Alternatives Considered
+
+### Add Prometheus, Loki, Tempo, and Grafana as App Platform components
+
+Rejected. The platform root already uses App Platform well for stateless application components, but the current service schema does not provide the persistent storage guarantees required for telemetry stores. Losing Grafana state or time-series data during ordinary app deploys would violate the milestone's retention and recovery requirements.
+
+### Use a fully managed external observability provider
+
+Deferred. A managed provider can satisfy the storage and access requirements, but the repo currently has no provider account, token, billing decision, or export contract. The self-hosted DigitalOcean path keeps the first production implementation inside the existing infrastructure provider and preserves the checked-in Grafana/LGTM assets.
+
+### Keep production on workflow artifacts and Admin Platform Operations only
+
+Rejected. Admin Platform Operations remains the canonical application operations surface for projection and release workflow state, but milestone #21 explicitly requires durable metrics, logs, traces, protected Grafana, and Prometheus-backed release canary evidence.
+
+## Consequences
+
+- A new observability infrastructure root or equivalent provisioning path must own droplets, volumes, DNS, firewall rules, generated credentials, and bootstrap configuration.
+- The platform deployment workflow must keep application deployable telemetry variables separate from observability host credentials.
+- Production release canary telemetry can use a protected query endpoint without placing credentials in `CANARY_PROMETHEUS_URL`.
+- Operators have two complementary surfaces: Grafana for telemetry and Admin Platform Operations for domain/platform read models.
+- Capacity, retention, backup, and credential rotation become explicit observability operations responsibilities.
+
+## Invariants
+
+- No anonymous Grafana access in staging or production.
+- No unauthenticated public OTLP write endpoint.
+- No customer identifiers, account ids, user ids, checkout session ids, emails, cookies, event ids, raw URLs, provider secrets, or raw payloads in metric labels or dashboard filters.
+- No production telemetry secret is committed to the repository or stored in a GitHub variable.
+- Application telemetry exporter failure must not block application startup or request handling.

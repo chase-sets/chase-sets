@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -82,6 +82,25 @@ describe("observability stack contracts", () => {
     expect(readStackFile("grafana/provisioning/alerting/platform-worker-wake-alerts.yml")).toContain(
       "Projection wake hot lane queue age p95 above SLO",
     );
+  });
+
+  it("keeps Grafana alert rule UIDs within the provisioning limit", () => {
+    const alertingDir = join(root, "stack", "grafana", "provisioning", "alerting");
+    const uids = readdirSync(alertingDir)
+      .filter((fileName) => fileName.endsWith(".yml"))
+      .flatMap((fileName) => {
+        const source = readFileSync(join(alertingDir, fileName), "utf8");
+
+        return [...source.matchAll(/^\s+- uid: (.+)$/gm)].map((match) => ({
+          fileName,
+          uid: match[1],
+        }));
+      });
+
+    expect(uids.length).toBeGreaterThan(0);
+    for (const { fileName, uid } of uids) {
+      expect(uid.length, `${fileName}: ${uid}`).toBeLessThanOrEqual(40);
+    }
   });
 
   it("keeps the Checkout launch dashboard aligned with the typed observability profiles", () => {

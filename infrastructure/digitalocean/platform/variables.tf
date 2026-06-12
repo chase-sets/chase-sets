@@ -314,6 +314,25 @@ variable "root_domain" {
   default = "chasesets.com"
 }
 
+variable "observability_enabled" {
+  type        = bool
+  default     = true
+  description = "Enables OpenTelemetry export for deployed App Platform components when an OTLP endpoint is available."
+}
+
+variable "observability_otlp_endpoint" {
+  type        = string
+  default     = ""
+  description = "Optional HTTPS OTLP endpoint override. Staging and production default to the observability stack endpoint for the environment."
+}
+
+variable "observability_otlp_headers" {
+  type        = string
+  sensitive   = true
+  default     = ""
+  description = "Comma-separated OTLP HTTP write headers, for example x-chase-sets-observability-token=<token>. Required for staging and production telemetry export."
+}
+
 variable "postgres_version" {
   type        = string
   default     = "16"

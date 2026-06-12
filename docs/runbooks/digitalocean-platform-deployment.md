@@ -5,7 +5,7 @@ This runbook covers DigitalOcean App Platform preview, staging, and production d
 ## Architecture
 
 - Regions: App Platform runs in `nyc`; managed Postgres and Spaces stay in `nyc3`.
-- Infrastructure: Terraform root at `infrastructure/digitalocean/platform`.
+- Infrastructure: App Platform Terraform root at `infrastructure/digitalocean/platform`; staging/production telemetry backend root at `infrastructure/digitalocean/observability`.
 - State: DigitalOcean Spaces bucket through Terraform's S3 backend with `use_lockfile=true`.
 - State keys:
   - PR previews: `platform/previews/pr-<number>.tfstate`.
@@ -17,6 +17,9 @@ This runbook covers DigitalOcean App Platform preview, staging, and production d
   - Preview assets: `catalog-assets/preview.tfstate`.
   - Staging assets: `catalog-assets/staging.tfstate`.
   - Production assets: `catalog-assets/production.tfstate`.
+- Observability state keys:
+  - Staging: `observability/staging.tfstate`.
+  - Production: `observability/production.tfstate`.
 - DNS: `chasesets.com` must exist as a DigitalOcean DNS domain before Terraform runs. Staging also uses `infrastructure/digitalocean/environment-dns` to delegate and populate the stable `staging.chasesets.com` child zone before App Platform deploy/reset operations. The platform Terraform root owns App Platform domain attachments and staging nested alias CNAMEs; App Platform owns the apex A/AAAA routing records for primary domains.
 - Catalog asset storage: preview, staging, and production each have a dedicated DigitalOcean Spaces bucket with a CDN-backed custom domain. PR previews share `assets.preview.chasesets.com` instead of creating per-PR buckets or CDNs.
 - Deploy orchestration: GitHub Actions is the canonical deploy owner. Label-gated PR previews and staging build one platform container image in GitHub Actions with bounded Docker Buildx cache, push it to DigitalOcean Container Registry, record the digest, and point App Platform components at that immutable image tag. Production verifies and promotes the staging-built commit image instead of rebuilding a second artifact. A change-scope classifier gates CI and CD work so documentation-only, workflow-only, and non-deployable changes do not build images or deploy App Platform.
@@ -100,12 +103,19 @@ Optional `preview`, `staging`, and `production` variables:
 
 - `PLATFORM_ALERT_EMAILS`: JSON list of alert recipients, for example `["ops@example.com"]`.
 
+Staging and production observability deployment secrets and variables:
+
+- `OBSERVABILITY_OTLP_HEADERS` (secret): output `app_platform_otlp_headers` from `infrastructure/digitalocean/observability`, used by App Platform services to write OTLP telemetry.
+- `OBSERVABILITY_ENABLED`: optional override; set to `false` only during an observability incident when the protected OTLP endpoint is unavailable.
+- `OBSERVABILITY_OTLP_ENDPOINT`: optional override. By default staging uses `https://otel.staging.chasesets.com` and production uses `https://otel.chasesets.com`.
+
 Optional `production` variables for telemetry-backed canary analysis:
 
 - `CANARY_PROMETHEUS_ENABLED`: set to `true` only after the production Prometheus endpoint is reachable and every configured required canary signal is ready to gate promotion.
 - `CANARY_PROMETHEUS_URL`: production Prometheus base URL used by `pnpm run ops canary:evidence`.
 - `CANARY_PROMETHEUS_QUERY_FILE`: repository-relative query file that maps required canary signals to baseline and canary PromQL.
 - `CANARY_OBSERVATION_WINDOW_SECONDS`: canary analysis window; defaults to `300`.
+- `CANARY_PROMETHEUS_HEADERS` (secret): JSON object of scoped query headers for the protected Prometheus-compatible endpoint, for example `{"X-Chase-Sets-Observability-Query":"<token>"}`. Use this for credentials instead of embedding secrets in `CANARY_PROMETHEUS_URL`.
 
 Additional `staging` variables:
 
@@ -183,7 +193,31 @@ terraform init
 terraform apply
 ```
 
-Then run `terraform init` in `infrastructure/digitalocean/platform` using the appropriate backend key. The CI workflows use the same backend settings.
+Then run `terraform init` in `infrastructure/digitalocean/platform` and `infrastructure/digitalocean/observability` using the appropriate backend key. The CI workflows use the same backend settings.
+
+## One-Time Observability Bootstrap
+
+Create or update the staging and production observability hosts before enabling App Platform telemetry export:
+
+```bash
+cd infrastructure/digitalocean/observability
+
+terraform init \
+  -backend-config=bucket=chase-sets-terraform-state \
+  -backend-config=key=observability/<environment>.tfstate \
+  -backend-config=region=us-east-1 \
+  -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
+  -backend-config=skip_credentials_validation=true \
+  -backend-config=skip_metadata_api_check=true \
+  -backend-config=skip_region_validation=true \
+  -backend-config=skip_requesting_account_id=true \
+  -backend-config=use_path_style=true \
+  -backend-config=use_lockfile=true
+
+terraform apply -var=environment=<environment>
+```
+
+Run once for `staging` and `production`. Generate distinct `grafana_admin_password`, `otel_write_token`, and `prometheus_query_token` values for each environment. After apply, copy `app_platform_otlp_headers` to the matching GitHub Environment `OBSERVABILITY_OTLP_HEADERS` secret. For production, copy `canary_prometheus_url` to `CANARY_PROMETHEUS_URL` and `canary_prometheus_headers` to the `CANARY_PROMETHEUS_HEADERS` secret.
 
 ## One-Time Catalog Asset Bootstrap
 

@@ -299,7 +299,7 @@ groups:
         labels:
           severity: warning
           route: checkout-session
-      - uid: projection-freshness-checkout-contract-regression
+      - uid: checkout-freshness-contract-reg
         title: Checkout freshness receipt or target-context regression
         condition: C
         data:
@@ -332,7 +332,7 @@ groups:
         labels:
           severity: critical
           route: checkout-session
-      - uid: projection-freshness-checkout-target-context-fallback
+      - uid: checkout-freshness-target-fallback
         title: Checkout freshness target-context fallback active
         condition: C
         data:
