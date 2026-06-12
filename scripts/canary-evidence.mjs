@@ -148,7 +148,6 @@ export function parseCanaryEvidenceArgs(argv, env = process.env) {
 
 export async function collectCanaryEvidence(options) {
   const telemetrySources = await Promise.all([
-    ...options.sourceFiles.map(readTelemetrySource),
     ...(options.prometheusBaseUrl && options.prometheusQueryFile
       ? [
           collectPrometheusTelemetry({
@@ -159,6 +158,7 @@ export async function collectCanaryEvidence(options) {
           }),
         ]
       : []),
+    ...options.sourceFiles.map(readTelemetrySource),
   ]);
   const telemetry = mergeTelemetrySources(telemetrySources);
   const evidence = buildCanaryEvidence({
@@ -342,7 +342,78 @@ function resolveCanarySignalRequired(signal) {
 }
 
 async function readTelemetrySource(filePath) {
-  return JSON.parse(await readFile(filePath, "utf8"));
+  return normalizeTelemetrySource(JSON.parse(await readFile(filePath, "utf8")));
+}
+
+function normalizeTelemetrySource(source) {
+  const signals = [...readSignals(source)];
+  const readinessSignal = buildProductionReadinessSignal(source);
+  const settlementSignal = buildProductionSettlementSignal(source);
+
+  if (readinessSignal) {
+    signals.push(readinessSignal);
+  }
+  if (settlementSignal) {
+    signals.push(settlementSignal);
+  }
+
+  return { signals };
+}
+
+function buildProductionReadinessSignal(source) {
+  if (normalizeString(source?.schemaVersion) !== "production-readiness-gate/v1") {
+    return null;
+  }
+  const ready = source.outcome === "ready";
+  return {
+    name: "projection-lag-poison-events",
+    owner: "owning-bounded-context/platform-operations",
+    required: true,
+    source: "Production post-deploy readiness gate",
+    currentState: "available-now",
+    maxIncrease: 0,
+    status: ready ? "pass" : "fail",
+    threshold: "production readiness gate outcome must be ready",
+    detail: ready
+      ? `Production readiness gate confirmed ${formatList(source.sourceContexts)} projections converged after ${formatMilliseconds(source.readyAfterMs)}.`
+      : `Production readiness gate outcome was ${normalizeString(source.outcome) ?? "unknown"}.`,
+  };
+}
+
+function buildProductionSettlementSignal(source) {
+  if (normalizeString(source?.schemaVersion) !== "production-settlement-provider-health-canary/v1") {
+    return null;
+  }
+  const passed = source.status === "pass";
+  return {
+    name: "settlement-payout-errors",
+    owner: "settlement",
+    required: true,
+    source: "Production settlement provider-health telemetry canary",
+    currentState: "available-now",
+    maxIncrease: 0,
+    status: passed ? "pass" : "fail",
+    threshold: "production settlement provider-health canary must pass",
+    detail: passed
+      ? `Settlement provider-health canary passed for ${normalizeString(source.providerName) ?? "provider"} at ${normalizeString(source.endpoint) ?? "provider-health endpoint"}.`
+      : `Settlement provider-health canary status was ${normalizeString(source.status) ?? "unknown"}.`,
+  };
+}
+
+function formatList(value) {
+  if (!Array.isArray(value) || value.length === 0) {
+    return "configured";
+  }
+  return (
+    value
+      .map((item) => normalizeString(item))
+      .filter(Boolean)
+      .join(", ") || "configured"
+  );
+}
+
+function formatMilliseconds(value) {
+  return typeof value === "number" && Number.isFinite(value) ? `${value}ms` : "an unrecorded interval";
 }
 
 async function queryPrometheus({ baseUrl, query, headers, fetchImpl }) {

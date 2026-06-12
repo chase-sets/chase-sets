@@ -2066,7 +2066,11 @@ jobs:
           CANARY_PROMETHEUS_URL: ${{ vars.CANARY_PROMETHEUS_URL || '' }}
           CANARY_PROMETHEUS_QUERY_FILE: ${{ vars.CANARY_PROMETHEUS_QUERY_FILE || '' }}
           CANARY_PROMETHEUS_HEADERS: ${{ secrets.CANARY_PROMETHEUS_HEADERS || '' }}
-        run: node ./scripts/canary-evidence.mjs --source-file artifacts/release-health/stage1-production-canary-telemetry.json
+        run: >
+          node ./scripts/canary-evidence.mjs
+          --source-file artifacts/release-health/stage1-production-canary-telemetry.json
+          --source-file artifacts/release-health/production-readiness-gate.json
+          --source-file artifacts/release-health/production-settlement-provider-health-canary.json
 
       - name: Mark production release
         if: steps.latest_main.outputs.should_deploy != 'false'
