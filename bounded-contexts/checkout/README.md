@@ -50,6 +50,7 @@ This is a greenfield codebase, so local development environments should reset/bo
 - [Checkout Performance Budgets](./docs/checkout-performance-budgets.md): Milestone #17 cart/list, readiness, checkout entry, confirmation, mobile, support, and recovery performance budgets.
 - [Checkout Launch Evidence Matrix](./docs/checkout-launch-evidence-matrix.md): Milestone #17 composite evidence rows that join copy, visual, performance, coverage, launch-register, no-side-effect, and fresh-state cleanup proof.
 - [Fresh-State Launch Exception Register](./docs/fresh-state-launch-exception-register.md): Milestone #17 retained internal artifact register and customer-facing legacy cleanup guard.
+- [Internal Helper Security Proof](./docs/internal-helper-security-proof.md): Milestone #17 permission, customer reachability, audit, redaction, and removal proof for retained internal helper families.
 - [Checkout Observability Contract](./docs/checkout-observability-contract.md): Milestone #17 redacted telemetry profiles for launch rows, support-safe references, side-effect status, and release-health evidence.
 - [Checkout Transactional Notification Policy](./docs/checkout-transactional-notifications.md): Milestone #17 notification trigger inventory for buy/sell confirmation, failures, support, refunds, missing contact, and duplicate prevention.
 - [Checkout Risk Control Policy](./docs/checkout-risk-control-policy.md): Milestone #17 fraud, abuse, inventory-hoarding, provider-risk, support-safe hold, observability, and fresh-state cleanup contract.

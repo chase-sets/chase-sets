@@ -87,8 +87,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.api.route.authentication.required": "Authentication required.",
   "checkout.features.sessions.api.route.checkout.session.not.found": "Checkout session not found.",
   "checkout.features.sessions.api.route.checkout.session.not.found.2": "Checkout session not found.",
-  "checkout.features.sessions.api.route.deferred.checkout.order.proof.required":
-    "Deferred checkout order creation is limited to operator proof flows.",
+  "checkout.features.sessions.api.route.deferred.checkout.order.proof.required": "This checkout action is restricted.",
   "checkout.features.sessions.api.route.forbidden": "Forbidden.",
   "checkout.features.sessions.api.route.payment.quote.required":
     "Review the latest payable total before payment starts.",

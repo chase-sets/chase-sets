@@ -11,6 +11,7 @@ import { checkoutSessionSchemaSql } from "../features/sessions/read-model/schema
 const checkoutRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = resolve(checkoutRoot, "..", "..");
 const exceptionRegisterPath = join(checkoutRoot, "docs", "fresh-state-launch-exception-register.md");
+const internalHelperProofPath = join(checkoutRoot, "docs", "internal-helper-security-proof.md");
 
 type ForbiddenPattern = Readonly<{
   label: string;
@@ -142,6 +143,12 @@ describe("fresh checkout read-model schemas", () => {
       { label: "migration or backfill copy", pattern: /\bmigration\/backfill\b|\bmigration\b|\bbackfill\b/i },
       { label: "hidden repair copy", pattern: /\bhidden repair\b/i },
       { label: "provider payload copy", pattern: /\bprovider payload\b/i },
+      { label: "proof-mode helper copy", pattern: /\bproof mode\b|\bproof-mode\b|\bproof flow\b/i },
+      {
+        label: "diagnostic helper copy",
+        pattern: /\bdiagnostic helper\b|\braw diagnostic\b|\bprovider diagnostics\b/i,
+      },
+      { label: "webhook replay helper copy", pattern: /\bwebhook replay\b/i },
       { label: "manual database edit copy", pattern: /\bmanual database edit\b/i },
       { label: "selected seller listing copy", pattern: /\bselected seller listing\b/i },
       { label: "stale read model copy", pattern: /\bstale read model\b/i },
@@ -182,6 +189,49 @@ describe("fresh checkout read-model schemas", () => {
       "| Artifact | Owner | Customer reachable | Permission gate | Rationale | No-side-effect proof | Expiration/follow-up |",
     );
     expect(register).toContain("`checkout-session-deploy-safe-convergence`");
+    expect(register).toContain("`deferred-checkout-order-proof`");
+    expect(register).toContain("`security.manage` actor permission plus a non-placeholder production proof reference");
     expect(register).not.toMatch(/\|\s*`[^`]+`\s*\|\s*Checkout\s*\|\s*Yes\s*\|/);
+  });
+
+  it("keeps retained internal helper proof permission-gated and not customer reachable", () => {
+    const proof = readText(internalHelperProofPath);
+    const requiredHelpers = [
+      "`marketplace-production-proof-access`",
+      "`deferred-checkout-order-proof`",
+      "`admin-support-projection-diagnostics`",
+      "`catalog-provider-diagnostics-and-test-utilities`",
+      "`support-lookup-and-recovery-diagnostics`",
+      "`provider-webhook-replay-and-reconciliation`",
+    ];
+
+    for (const helper of requiredHelpers) {
+      expect(proof).toContain(helper);
+    }
+
+    expect(proof).toContain("`security.manage`");
+    expect(proof).toContain("`catalog.view`");
+    expect(proof).toContain("`catalog.manage`");
+    expect(proof).toContain("signature-checked");
+    expect(proof).toContain("This checkout action is restricted.");
+
+    const helperRows = proof
+      .split("\n")
+      .filter((line) => line.startsWith("| `"))
+      .map((line) => line.split("|").map((cell) => cell.trim()));
+    expect(helperRows).toHaveLength(requiredHelpers.length);
+    for (const row of helperRows) {
+      expect(row[5]).toBe("No");
+    }
+  });
+
+  it("keeps customer-visible restricted helper copy generic", () => {
+    const localization = readText(join(repoRoot, "contracts", "localization", "locales", "en", "checkout.ts"));
+    const restrictedMessage = localization.match(
+      /"checkout\.features\.sessions\.api\.route\.deferred\.checkout\.order\.proof\.required":\s*"([^"]+)"/,
+    )?.[1];
+
+    expect(restrictedMessage).toBe("This checkout action is restricted.");
+    expect(restrictedMessage).not.toMatch(/\bproof\b|\bdiagnostic\b|\bprovider\b|\boperator\b/i);
   });
 });
