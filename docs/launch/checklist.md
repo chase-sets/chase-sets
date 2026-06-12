@@ -13,7 +13,7 @@
 ## Buy flows
 
 - [ ] Guest buy: cart review → checkout → payment → confirmation completes end to end with a Stripe test card, no account required (baseline: PR #1549).
-- [ ] Signed-in buy: saved contact/address/payment rows render, are editable, and checkout completes (UI baseline: PR #1256 / deploy 27255399723; runtime baseline: PR #1258 / deploy 27259042276).
+- [ ] Signed-in buy: saved contact/address/payment rows render, are editable, and checkout completes (UI baseline: PR #1256 / deploy 27255399723; runtime baseline: PR #1258 / deploy 27259042276; final signed-in handoff proof: PR #1550).
 - [ ] Buy Now works for guest and signed-in and lands on checkout review or a checkout-owned "preparing" recovery, never a blank or platform error page (baseline: PR #1212).
 - [ ] A multi-seller cart presents one payment action and one confirmation; per-group orders are visible afterward in account history.
 - [ ] Reload, back/forward, and double-clicking the pay button during checkout never create duplicate payments or orders (buy confirmation retry baseline: PR #1499).
