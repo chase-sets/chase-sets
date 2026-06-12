@@ -29,6 +29,9 @@ with stale fee, tax, credit, payout, or promotion facts.
   fresh-state capability is approved and launch-registered.
 - Gift cards and store credit remain disabled or launch-registered until
   Payments owns issuance, redemption, refund, and reversal rules.
+- Trusted confirmation and UCP headless completion reject customer-entered
+  promo, coupon, discount, gift-card, and store-credit fields before shipping
+  address persistence, order creation, payment creation, or downstream handoff.
 - Optional fulfillment savings are accepted or declined in readiness. Checkout
   may show the outcome, but it does not run optimization, allocate fulfillment,
   or hide changed economics inside the form.
@@ -77,7 +80,9 @@ with stale fee, tax, credit, payout, or promotion facts.
   optional optimization accepted/declined states.
 - Explicit launch-register rows for promo codes, gift cards, store credit,
   reversal economics, provider-unavailable economics, disabled/deferred
-  economics, exhausted credits, and unsupported customer-entered economics.
+  economics, exhausted credits, and unsupported customer-entered economics,
+  with runtime evidence that unsupported input fails closed before checkout
+  side effects.
 - #1102 copy and #1112 visual mappings for supported, changed, disabled,
   deferred, unavailable, exhausted, expired, invalid, risk-held, and
   no-side-effect economics states.

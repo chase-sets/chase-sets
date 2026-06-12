@@ -130,6 +130,37 @@ export function recordAddressServiceabilityFailure(
   });
 }
 
+export function recordUnsupportedCustomerEconomicsInput(
+  checkoutObservabilityTelemetry: CheckoutObservabilityTelemetry | undefined,
+  actor: CheckoutActor,
+  code: string,
+) {
+  if (code !== "checkout_economics_unsupported") {
+    return;
+  }
+
+  recordCheckoutObservabilityTelemetry(checkoutObservabilityTelemetry, {
+    state: "promo-credit-gift-card-state",
+    entrySource: "active-session",
+    actorMode: checkoutActorMode(actor),
+    scenarioState: "deferred-capability",
+    visibleState: "checkout-review-visible",
+    sideEffectStatus: "not-attempted",
+    readinessContract: "checkout.session-read-model",
+    readinessSnapshotState: "not-applicable",
+    sourceRevisionState: "current",
+    freshWriteReceiptPresence: "not-provided",
+    supportReferencePresent: false,
+    performanceBudgetId: "totals-refresh",
+    providerCategory: "payments",
+    riskCategory: "none",
+    downstreamStatus: "not-started",
+    launchRegisterDecision: "deferred",
+    freshStateScanResult: "not-applicable",
+    promotionDecision: "deferred",
+  });
+}
+
 export function recordChangedEconomicsReview(
   checkoutObservabilityTelemetry: CheckoutObservabilityTelemetry | undefined,
   actor: CheckoutActor,

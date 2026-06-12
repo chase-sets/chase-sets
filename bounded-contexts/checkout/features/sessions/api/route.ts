@@ -12,11 +12,16 @@ import {
 } from "../../../support/request-support/checkout-confirmation";
 import { CheckoutDomainError } from "../../../support/runtime-support/common";
 import {
+  assertNoUnsupportedCustomerEconomicsInput,
+  unsupportedCustomerEconomicsInputCode,
+} from "./checkout-economics-runtime";
+import {
   recordAddressServiceabilityFailure,
   recordActiveSessionStaleRecovery,
   recordBuyCheckoutReviewRendered,
   recordChangedEconomicsReview,
   recordConfirmationPendingHandoff,
+  recordUnsupportedCustomerEconomicsInput,
 } from "./checkout-session-route-observability";
 import type { CheckoutObservabilityTelemetry } from "./checkout-observability-telemetry";
 
@@ -454,6 +459,7 @@ export function createAccountCheckoutSessionRoutes(
     }
 
     try {
+      assertNoUnsupportedCustomerEconomicsInput(body);
       let session = await services.getSession(sessionId, access.actor.accountId);
       if (!session) {
         return c.json(
@@ -646,7 +652,11 @@ export function createAccountCheckoutSessionRoutes(
       const code = errorCode(error);
       recordActiveSessionStaleRecovery(checkoutObservabilityTelemetry, access.actor, code);
       recordAddressServiceabilityFailure(checkoutObservabilityTelemetry, access.actor, code);
-      return c.json({ error: { code, message: errorMessage(error) } }, 400);
+      recordUnsupportedCustomerEconomicsInput(checkoutObservabilityTelemetry, access.actor, code);
+      return c.json(
+        { error: { code, message: errorMessage(error) } },
+        code === unsupportedCustomerEconomicsInputCode ? 409 : 400,
+      );
     }
   });
 
