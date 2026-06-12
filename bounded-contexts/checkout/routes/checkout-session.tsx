@@ -41,6 +41,8 @@ const FULFILLMENT_PREVIEW_UNAVAILABLE = t(
   "checkout.routes.checkoutSession.fulfillment.preview.temporarily.unavailable",
 );
 const CHECKOUT_SESSION_FRESH_READ_TIMEOUT_MS = 2_000;
+const GUEST_SAVED_PAYMENT_UNAVAILABLE =
+  "Saved payment methods are available after sign-in. Continue with card payment.";
 
 async function loadWalletBalance(request: Request) {
   const response = await createForwardedAuthFetch(request, globalThis.fetch, { readTargetContextName: "settlement" })(
@@ -446,6 +448,15 @@ export async function action({ request, params }: ActionFunctionArgs) {
     }
 
     if (intent === "confirm-checkout") {
+      const selectedSavedPaymentInstrumentId = normalizeText(formData.get("savedCheckoutInstrumentId"));
+      const requestedSavePaymentMethodForFuture = String(formData.get("savePaymentMethodForFuture") ?? "") === "true";
+      if (
+        actor?.roleKey === "guest-buyer" &&
+        (selectedSavedPaymentInstrumentId || requestedSavePaymentMethodForFuture)
+      ) {
+        return { error: GUEST_SAVED_PAYMENT_UNAVAILABLE };
+      }
+
       const shippingOptionResult = await api.selectShippingOption(params.sessionId, {
         shippingOption: String(formData.get("shippingOption") ?? "standard"),
       });
@@ -460,11 +471,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
       const reviewedShippingAddressSignature = normalizeText(formData.get("reviewedShippingAddressSignature"));
       const marketplaceCheckoutFeeQuoteFingerprint =
         String(formData.get("marketplaceCheckoutFeeQuoteFingerprint") ?? "") || null;
-      const selectedSavedPaymentInstrumentId = normalizeText(formData.get("savedCheckoutInstrumentId"));
       const savePaymentMethodForFuture =
-        String(formData.get("savePaymentMethodForFuture") ?? "") === "true" &&
-        actor?.roleKey !== "guest-buyer" &&
-        !selectedSavedPaymentInstrumentId;
+        requestedSavePaymentMethodForFuture && actor?.roleKey !== "guest-buyer" && !selectedSavedPaymentInstrumentId;
       const session =
         typeof api.getCheckoutSession === "function" ? await api.getCheckoutSession(params.sessionId) : null;
       const sourceType = session?.source_type ?? String(formData.get("sourceType") ?? "");
