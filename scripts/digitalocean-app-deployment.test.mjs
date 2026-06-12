@@ -1,6 +1,9 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   activeDeployments,
+  approvedDestructiveChangeAddressesFromText,
   assertNoDestructiveChanges,
   appNotFound,
   appPlatformChanges,
@@ -98,6 +101,78 @@ describe("digitalocean-app-deployment", () => {
         name: "platform",
         actions: ["delete", "create"],
       },
+    ]);
+  });
+
+  it("parses resource-scoped production destructive-change approval markers", () => {
+    expect(
+      approvedDestructiveChangeAddressesFromText(`
+# Production Destructive Change Approval
+
+## Approved Destructive Changes
+
+- \`digitalocean_database_db.contexts["experience"]\`
+- \`digitalocean_database_user.contexts["experience"]\`
+
+## Evidence
+
+The resources are retired by a reviewed context merge.
+`),
+    ).toEqual(['digitalocean_database_db.contexts["experience"]', 'digitalocean_database_user.contexts["experience"]']);
+  });
+
+  it("blocks destructive Terraform changes not named by a resource-scoped marker", () => {
+    const plan = planFor([
+      resourceChange('digitalocean_database_db.contexts["experience"]', ["delete"]),
+      resourceChange('digitalocean_database_db.contexts["checkout"]', ["delete"]),
+    ]);
+
+    expect(() =>
+      assertNoDestructiveChanges(plan, {
+        allowedDestructiveAddresses: ['digitalocean_database_db.contexts["experience"]'],
+      }),
+    ).toThrow("destructive changes not covered by the reviewed override marker");
+  });
+
+  it("allows only destructive Terraform changes named by a resource-scoped marker", () => {
+    const plan = planFor([
+      resourceChange('digitalocean_database_db.contexts["experience"]', ["delete"]),
+      resourceChange('digitalocean_database_user.contexts["experience"]', ["delete"]),
+    ]);
+
+    expect(
+      assertNoDestructiveChanges(plan, {
+        allowedDestructiveAddresses: [
+          'digitalocean_database_db.contexts["experience"]',
+          'digitalocean_database_user.contexts["experience"]',
+        ],
+      }),
+    ).toEqual([
+      {
+        address: 'digitalocean_database_db.contexts["experience"]',
+        type: "digitalocean_database_db",
+        name: 'contexts["experience"]',
+        actions: ["delete"],
+      },
+      {
+        address: 'digitalocean_database_user.contexts["experience"]',
+        type: "digitalocean_database_user",
+        name: 'contexts["experience"]',
+        actions: ["delete"],
+      },
+    ]);
+  });
+
+  it("scopes the production context-merge approval marker to the retired resources", () => {
+    const approvalText = readFileSync(resolve(".github/deployment/production-destructive-change-approved.md"), "utf8");
+
+    expect(approvedDestructiveChangeAddressesFromText(approvalText)).toEqual([
+      'digitalocean_database_db.contexts["experience"]',
+      'digitalocean_database_db.contexts["insights"]',
+      'digitalocean_database_db.contexts["support"]',
+      'digitalocean_database_user.contexts["experience"]',
+      'digitalocean_database_user.contexts["insights"]',
+      'digitalocean_database_user.contexts["support"]',
     ]);
   });
 
