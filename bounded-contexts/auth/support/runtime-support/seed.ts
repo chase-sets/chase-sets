@@ -6,10 +6,11 @@ import { toSessionStreamId } from "../../features/sessions/domain/auth-flow";
 import { upsertPasswordCredential } from "../auth-support/store";
 import { createSessionRuntime } from "../../features/sessions/api/runtime";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
+import type { TenantId } from "@chase-sets/primitives/typed-ids";
 
 function createAuthSeedContext(): EventStoreContext {
   return {
-    tenantId: "tenant_seed_auth" as never,
+    tenantId: "tenant_seed_auth" as TenantId,
     audit: {
       performedByUserId: identitySeedIds.support.userId,
       forAccountId: identitySeedIds.support.accountId,

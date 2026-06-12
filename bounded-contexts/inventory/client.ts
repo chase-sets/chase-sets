@@ -1,5 +1,5 @@
 import { hc } from "hono/client";
-import type { HonoClientResource } from "@chase-sets/http/hono-client";
+import { honoClientResource } from "@chase-sets/http/hono-client";
 import { attachResponseMetadata, readApiErrorMessage, type ListResponse } from "@chase-sets/http/responses";
 import type { buildInventoryApi } from "./api";
 import type { InventoryCatalogItemSnapshot } from "./features/inventory-items/integrations/catalog/queries";
@@ -77,9 +77,11 @@ export function createInventoryApiClient({
       ...init,
       credentials: init.credentials ?? credentials,
     });
-  const client = hc<InventoryApiApp>(baseUrl, {
-    fetch: configuredFetch,
-  }) as unknown as HonoClientResource;
+  const client = honoClientResource(
+    hc<InventoryApiApp>(baseUrl, {
+      fetch: configuredFetch,
+    }),
+  );
   const headers = resolveHeaders(initialHeaders);
 
   return {

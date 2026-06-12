@@ -2,6 +2,7 @@ import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useActionData, useLoaderData } from "react-router";
 import { PromoBarAdminPage } from "../../features/promo-bar/ui/admin-pages";
+import type { PromoBarMessageTone } from "../../features/promo-bar/api/contracts";
 import { createPublicPresenceRequestApiClient } from "../../support/request-support/api-client";
 
 function optional(formData: FormData, key: string) {
@@ -15,7 +16,7 @@ function messageBody(formData: FormData) {
     description: optional(formData, "description"),
     href: optional(formData, "href"),
     linkLabel: optional(formData, "linkLabel"),
-    tone: String(formData.get("tone") ?? "info") as never,
+    tone: String(formData.get("tone") ?? "info") as PromoBarMessageTone,
     isActive: formData.get("isActive") === "true",
     displayOrder: Number(formData.get("displayOrder") ?? 100),
     startsAt: optional(formData, "startsAt"),

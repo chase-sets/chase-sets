@@ -13,6 +13,8 @@ import {
   normalizeMoneyAmount,
   normalizeRequiredText,
   PaymentsDomainError,
+  type CurrencyCode,
+  type PaymentProcessorName,
   type RefundId,
 } from "../../../support/runtime-support/common";
 import type { PaymentProcessorGateway } from "@chase-sets/payment-processing";
@@ -96,9 +98,9 @@ export function createRefundRuntime(deps: RefundRuntimeDeps): RefundServices {
           paymentId: params.paymentId,
           orderIds: orderIds as OrderId[],
           amount,
-          currencyCode: payment.currency_code as never,
+          currencyCode: payment.currency_code as CurrencyCode,
           reason: normalizeRequiredText(params.reason, "Refund reason is required."),
-          processorName: payment.processor_name as never,
+          processorName: payment.processor_name as PaymentProcessorName,
           requestedAt,
         },
         context,
@@ -111,7 +113,7 @@ export function createRefundRuntime(deps: RefundRuntimeDeps): RefundServices {
           processorPaymentReference: payment.processor_payment_reference,
           orderIds: orderIds as OrderId[],
           amount,
-          currencyCode: payment.currency_code as never,
+          currencyCode: payment.currency_code as CurrencyCode,
           reason: params.reason,
         });
         const issued = await commandHandler({

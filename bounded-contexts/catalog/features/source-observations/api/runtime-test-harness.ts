@@ -1,5 +1,6 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { JsonValue } from "@chase-sets/primitives/json";
+import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import type { CatalogItemServices } from "../../catalog-items/api/runtime";
 import type { ReferenceDataServices } from "../../reference-data/api/runtime";
@@ -15,10 +16,10 @@ import type {
 } from "./tcgplayer-automation-catalog-client";
 
 export const context: EventStoreContext = {
-  tenantId: "tnt_test" as never,
+  tenantId: "tnt_test" as TenantId,
   audit: {
-    performedByUserId: "usr_test" as never,
-    forAccountId: "acc_test" as never,
+    performedByUserId: "usr_test" as UserId,
+    forAccountId: "acc_test" as AccountId,
   },
 };
 
@@ -369,7 +370,7 @@ export function createTcgplayerImportHarness(input: { failProductIds?: ReadonlyS
       saveCheckpoint: async () => undefined,
     },
     tcgplayerAutomationCatalogClient: client,
-  } as unknown as CatalogRuntimeDeps;
+  } as object as CatalogRuntimeDeps;
 
   return {
     deps,
@@ -560,7 +561,7 @@ export function createIntegrationJobDedupeHarness(
       loadCheckpoint: async () => "0",
       saveCheckpoint: async () => undefined,
     },
-  } as unknown as CatalogRuntimeDeps;
+  } as object as CatalogRuntimeDeps;
 
   return {
     deps,
@@ -748,13 +749,13 @@ export function createIntegrationJobClaimHandoffHarness(
       saveCheckpoint: async () => undefined,
     },
     tcgplayerAutomationCatalogClient: input.tcgplayerAutomationCatalogClient,
-  } as unknown as CatalogRuntimeDeps;
+  } as object as CatalogRuntimeDeps;
 
   const referenceData = {
     referenceTypeCommandHandler: async () => ({ version: 1, state: {} }),
     referenceRecordCommandHandler: async () => ({ version: 1, state: {} }),
     projectors: [],
-  } as unknown as ReferenceDataServices;
+  } as object as ReferenceDataServices;
 
   return {
     deps,
@@ -813,7 +814,7 @@ export function createReferencePreloadHarness() {
         return { rowCount: 0, rows: [] as T[] };
       },
     },
-  } as unknown as CatalogRuntimeDeps;
+  } as object as CatalogRuntimeDeps;
 
   const referenceData = {
     referenceTypeCommandHandler: async (input: { command: ReferenceTypeCommand }) => {
@@ -843,7 +844,7 @@ export function createReferencePreloadHarness() {
         },
       },
     ],
-  } as unknown as ReferenceDataServices;
+  } as object as ReferenceDataServices;
 
   return {
     deps,
@@ -1059,7 +1060,7 @@ export function createChangedObservationRefreshHarness(
       loadCheckpoint: async () => "0",
       saveCheckpoint: async () => undefined,
     },
-  } as unknown as CatalogRuntimeDeps;
+  } as object as CatalogRuntimeDeps;
 
   const items = {
     commandHandler: async (input: { streamId: string; command: { type: string } & Record<string, unknown> }) => {
@@ -1074,7 +1075,7 @@ export function createChangedObservationRefreshHarness(
         },
       },
     ],
-  } as unknown as CatalogItemServices;
+  } as object as CatalogItemServices;
 
   const referenceData = {
     referenceTypeCommandHandler: async () => ({ version: 1, state: {} }),
@@ -1087,7 +1088,7 @@ export function createChangedObservationRefreshHarness(
         },
       },
     ],
-  } as unknown as ReferenceDataServices;
+  } as object as ReferenceDataServices;
 
   return {
     deps,
@@ -1474,7 +1475,7 @@ export function createBulkReviewJobHarness(
       loadCheckpoint: async () => "0",
       saveCheckpoint: async () => undefined,
     },
-  } as unknown as CatalogRuntimeDeps;
+  } as object as CatalogRuntimeDeps;
 
   return {
     deps,

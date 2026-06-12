@@ -582,6 +582,7 @@ async function executeCatalogAuthoringBulkJob(
     case "catalog.authoring.items.publish":
       return services.items.publishBulk(payload.itemIds ?? [], context, progressOptions);
     case "catalog.authoring.items.edit":
+      // Dynamic durable-job operation payload still needs a Catalog item edit operation parser.
       return services.items.editBulk(requireSelection(payload), payload.operation as never, context, progressOptions);
     default:
       throw new Error(`Unsupported Catalog authoring bulk job kind: ${payload.kind}`);

@@ -1,4 +1,4 @@
-import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
+import { toJsonValue, type JsonObject, type JsonValue } from "@chase-sets/primitives/json";
 import type { SourceObservationExternalProductReference } from "../domain/domain";
 import type {
   CatalogProviderExternalReferenceRule,
@@ -224,8 +224,8 @@ function extractTcgplayerAutomationExternalReferences(
     const selectedOptionResult = schema
       ? resolveCatalogProviderSelectedOptions({
           mapping: selectedOptionMapping,
-          payload: detail as unknown as JsonValue,
-          record: sku as unknown as JsonValue,
+          payload: toJsonValue(detail),
+          record: toJsonValue(sku),
           productReferenceSchema: schema,
         })
       : null;
@@ -341,7 +341,7 @@ function skuReviewEvidence(
   };
 
   if (selectedOptionResult && !selectedOptionResult.resolved && selectedOptionResult.reviewEvidence.length > 0) {
-    reviewEvidence.selectedOptions = selectedOptionResult.reviewEvidence as unknown as JsonValue;
+    reviewEvidence.selectedOptions = toJsonValue(selectedOptionResult.reviewEvidence);
   }
 
   return reviewEvidence;

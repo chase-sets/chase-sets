@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import type { InventoryApiEnv } from "../../../api";
 import type { InventoryHoldServices } from "../../holds/api/runtime";
 import type { InventoryItemServices } from "./runtime";
+import type { AccountId } from "@chase-sets/primitives/typed-ids";
 
 function parseSelectedOptions(value: unknown) {
   return Array.isArray(value)
@@ -95,9 +96,10 @@ export function inventoryItemRoutes(items: InventoryItemServices, holds: Invento
     try {
       const result = await items.ensureListingStock(
         {
-          accountId: actor.accountId as never,
+          accountId: actor.accountId as AccountId,
           catalogItemId: String(body.catalogItemId ?? ""),
           selectedOptions: parseSelectedOptions(body.selectedOptions),
+          // Dynamic API body graded-card shape still needs a dedicated request parser.
           gradedCard:
             typeof body.gradedCard === "object" && body.gradedCard !== null ? (body.gradedCard as never) : null,
           quantity: Number(body.quantity ?? body.quantityCap ?? 0),
@@ -127,7 +129,7 @@ export function inventoryItemRoutes(items: InventoryItemServices, holds: Invento
     const body = await c.req.json();
     const result = await items.createItem(
       {
-        accountId: actor.accountId as never,
+        accountId: actor.accountId as AccountId,
         catalogItemId: String(body.catalogItemId ?? ""),
         selectedOptions: body.selectedOptions,
         gradedCard: typeof body.gradedCard === "object" && body.gradedCard !== null ? body.gradedCard : null,
@@ -167,7 +169,7 @@ export function inventoryItemRoutes(items: InventoryItemServices, holds: Invento
     const body = await c.req.json();
     const result = await holds.createHold(
       {
-        accountId: actor.accountId as never,
+        accountId: actor.accountId as AccountId,
         itemId: c.req.param("id"),
         quantity: Number(body.quantity ?? 0),
         reason: String(body.reason ?? ""),

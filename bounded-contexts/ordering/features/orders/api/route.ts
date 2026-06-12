@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { normalizeShippingOption } from "../domain/common";
 import type { OrderingApiEnv } from "../../../api";
 import type { OrderingOrderServices } from "./runtime";
+import type { AccountId } from "@chase-sets/primitives/typed-ids";
 
 function requireOrderAccess(
   c: {
@@ -112,7 +113,7 @@ export function createAccountPurchaseOrderRoutes(services: OrderingOrderServices
 
     try {
       const result = await services.previewCheckoutFulfillment({
-        buyerAccountId: access.actor.accountId as never,
+        buyerAccountId: access.actor.accountId as AccountId,
         checkoutSessionId: String(body.checkoutSessionId ?? ""),
         sourceType: body.sourceType === "buy-now" ? "buy-now" : "cart-checkout",
         shippingOption: normalizeShippingOption(String(body.shippingOption ?? "standard")),
@@ -177,7 +178,7 @@ export function createAccountPurchaseOrderRoutes(services: OrderingOrderServices
     try {
       const result = await services.createOrdersFromCheckout(
         {
-          buyerAccountId: access.actor.accountId as never,
+          buyerAccountId: access.actor.accountId as AccountId,
           checkoutSessionId: String(body.checkoutSessionId ?? ""),
           sourceType: body.sourceType === "buy-now" ? "buy-now" : "cart-checkout",
           shippingOption: normalizeShippingOption(String(body.shippingOption ?? "standard")),

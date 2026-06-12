@@ -3,13 +3,14 @@ import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { commercialTermsSeedIds } from "../seed-support/ids";
 import { createCommercialTermsServices } from "./services";
+import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 
 function createSeedContext() {
   return {
-    tenantId: "tnt_identity" as never,
+    tenantId: "tnt_identity" as TenantId,
     audit: {
-      performedByUserId: identitySeedIds.support.userId as never,
-      forAccountId: identitySeedIds.demo.accountId as never,
+      performedByUserId: identitySeedIds.support.userId as UserId,
+      forAccountId: identitySeedIds.demo.accountId as AccountId,
     },
   };
 }
@@ -109,7 +110,7 @@ async function seedDefaultScheduleIfMissing(
     streamId: `commercial-terms.schedule-${input.scheduleId}`,
     command: {
       type: "CreateSchedule",
-      scheduleId: input.scheduleId as never,
+      scheduleId: input.scheduleId,
       label: input.label,
       accountType: input.accountType,
       marketplaceSalesFeePercentageBps: input.marketplaceSalesFeePercentageBps,

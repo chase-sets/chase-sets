@@ -161,7 +161,7 @@ export const decideCommercialAgreement: AggregateDecider<
         },
       ];
     default:
-      throw assertNever(command as never);
+      throw assertNever(command);
   }
 };
 
@@ -194,6 +194,6 @@ export const evolveCommercialAgreement: AggregateEvolver<CommercialAgreementStat
         effectiveUntil: event.data.effectiveUntil,
       };
     default:
-      throw assertNever(event as never);
+      throw assertNever(event);
   }
 };

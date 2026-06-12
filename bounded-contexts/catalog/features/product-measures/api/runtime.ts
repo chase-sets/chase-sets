@@ -6,7 +6,7 @@ import {
   type ProjectionHandlerSet,
 } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import type { JsonObject } from "@chase-sets/primitives/json";
+import { toJsonValue, type JsonObject } from "@chase-sets/primitives/json";
 import type {
   ProductMeasureSnapshot,
   ProductPhysicalFlag,
@@ -186,7 +186,7 @@ async function resolveCatalogItemMeasures(
           eventType: "catalog.catalog-item.product-measures-resolved",
           payload: {
             catalogItemId,
-            products: resolvedProducts as unknown as JsonObject["products"],
+            products: toJsonValue(resolvedProducts),
           } as JsonObject,
         },
       ],

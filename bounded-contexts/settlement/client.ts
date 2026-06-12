@@ -1,5 +1,5 @@
 import { hc } from "hono/client";
-import type { HonoClientResource } from "@chase-sets/http/hono-client";
+import { honoClientResource } from "@chase-sets/http/hono-client";
 import { attachResponseMetadata, type ListResponse } from "@chase-sets/http/responses";
 import type { buildSettlementApi } from "./api";
 import type { SettlementLedgerEntryRow, SettlementWalletRow } from "./features/wallets/read-model/queries";
@@ -112,9 +112,11 @@ export function createSettlementApiClient({
       ...init,
       credentials: init.credentials ?? credentials,
     });
-  const client = hc<SettlementApiApp>(baseUrl, {
-    fetch: configuredFetch,
-  }) as unknown as HonoClientResource;
+  const client = honoClientResource(
+    hc<SettlementApiApp>(baseUrl, {
+      fetch: configuredFetch,
+    }),
+  );
   const headers = resolveHeaders(initialHeaders);
 
   return {

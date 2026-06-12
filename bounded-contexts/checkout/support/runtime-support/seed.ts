@@ -2,7 +2,7 @@ import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-po
 import { catalogScenarioItems, catalogSeedIds } from "@chase-sets/catalog-seed";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { marketplaceReservedSeedIds } from "@chase-sets/marketplace/seed-support/ids";
-import type { AccountId } from "@chase-sets/primitives/typed-ids";
+import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 import { createCartReadinessSnapshot, type CartReadinessLine } from "../../features/cart/domain/readiness";
 import type { CheckoutSessionLine } from "../../features/sessions/domain/domain";
 import { createCheckoutProductDescriptor, type CheckoutVersionSchema } from "./common";
@@ -56,9 +56,9 @@ const demoCartLines = [
 
 function createSeedContextFor(accountId: AccountId, userId: string) {
   return {
-    tenantId: "tnt_identity" as never,
+    tenantId: "tnt_identity" as TenantId,
     audit: {
-      performedByUserId: userId as never,
+      performedByUserId: userId as UserId,
       forAccountId: accountId,
     },
   };

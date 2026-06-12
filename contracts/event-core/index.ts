@@ -6,6 +6,7 @@ export * from "./consistency";
 export * from "./domain";
 export * from "./event-store";
 export * from "./projector";
+export * from "./public-event-payloads";
 export * from "./storage";
 export * from "./stream-id";
 export * from "./transport";

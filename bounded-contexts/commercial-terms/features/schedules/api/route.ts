@@ -1,6 +1,10 @@
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { CommercialTermsApiEnv } from "../../../api";
+import {
+  normalizeCommercialAccountType,
+  normalizeCommercialTermsStatus,
+} from "../../../support/runtime-support/common";
 import type { ResolutionServices } from "../../resolutions/api/runtime";
 import type { ScheduleServices } from "./runtime";
 
@@ -58,7 +62,7 @@ function scheduleCommandBody(body: Record<string, unknown>) {
     marketplaceSalesFeePercentageBps: Number(body.marketplaceSalesFeePercentageBps ?? 0),
     marketplaceSalesFeeFixedAmount: String(body.marketplaceSalesFeeFixedAmount ?? ""),
     shippingAllowancePercentageBps: Number(body.shippingAllowancePercentageBps ?? 500),
-    status: String(body.status ?? "active") as never,
+    status: normalizeCommercialTermsStatus(String(body.status ?? "active")),
     effectiveFrom: typeof body.effectiveFrom === "string" ? body.effectiveFrom : new Date().toISOString(),
     effectiveUntil:
       typeof body.effectiveUntil === "string" && body.effectiveUntil.trim().length > 0 ? body.effectiveUntil : null,
@@ -126,7 +130,7 @@ export function createScheduleRoutes(services: ScheduleServices, resolutions: Re
       const result = await services.createSchedule(
         {
           ...scheduleCommandBody(body),
-          accountType: String(body.accountType ?? "") as never,
+          accountType: normalizeCommercialAccountType(String(body.accountType ?? "")),
         },
         context,
       );

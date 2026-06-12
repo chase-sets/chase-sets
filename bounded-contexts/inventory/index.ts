@@ -14,6 +14,7 @@ import { InventoryDomainError } from "./support/runtime-support/common";
 import { createInventoryServices } from "./support/runtime-support/services";
 import { inventorySchemaSql } from "./support/runtime-support/schema";
 import { seedInventoryDatabase } from "./support/runtime-support/seed";
+import type { AccountId } from "@chase-sets/primitives/typed-ids";
 
 export const module = defineBoundedContextModule<InventoryServices, PgTransactionalPool, InventoryHostPorts>({
   manifest: contextManifest,
@@ -54,7 +55,7 @@ export const module = defineBoundedContextModule<InventoryServices, PgTransactio
               try {
                 const hold = await services.holds.createHold(
                   {
-                    accountId: request.sellerAccountId as never,
+                    accountId: request.sellerAccountId as AccountId,
                     itemId: request.inventoryItemId,
                     quantity: request.quantity,
                     reason: "Ordering commitment",

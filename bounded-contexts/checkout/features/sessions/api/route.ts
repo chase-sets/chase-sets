@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
-import type { ShippingAddressId } from "@chase-sets/primitives/typed-ids";
+import type { ShippingAddressId, AccountId } from "@chase-sets/primitives/typed-ids";
 import type { CheckoutApiEnv } from "../../../api";
 import { parseCartReadinessDecisionInput } from "../../cart/domain/readiness";
 import type { CheckoutSessionCreateResult, CheckoutSessionServices } from "./runtime";
@@ -194,7 +194,7 @@ export function createAccountCheckoutSessionRoutes(
       if (body.source?.type === "cart") {
         const result = await services.createFromCart(
           {
-            accountId: access.actor.accountId as never,
+            accountId: access.actor.accountId as AccountId,
             shippingOption: String(body.shippingOption ?? "standard"),
             optimizationGoal: parseOptimizationGoal(body.optimizationGoal),
             readinessSnapshotId: String(body.source.readinessSnapshotId ?? ""),
@@ -225,7 +225,7 @@ export function createAccountCheckoutSessionRoutes(
 
         const result = await services.createOfferIntent(
           {
-            accountId: access.actor.accountId as never,
+            accountId: access.actor.accountId as AccountId,
             catalogItemId: String(source.catalogItemId ?? ""),
             productId: String(source.productId ?? ""),
             itemTitle: String(source.itemTitle ?? ""),
@@ -253,7 +253,7 @@ export function createAccountCheckoutSessionRoutes(
 
       const result = await services.createBuyNow(
         {
-          accountId: access.actor.accountId as never,
+          accountId: access.actor.accountId as AccountId,
           listingId: String(source.listingId ?? ""),
           catalogItemId: String(source.catalogItemId ?? ""),
           productId: String(source.productId ?? ""),
@@ -340,7 +340,7 @@ export function createAccountCheckoutSessionRoutes(
       await services.selectShippingOption(
         {
           sessionId: c.req.param("sessionId"),
-          accountId: access.actor.accountId as never,
+          accountId: access.actor.accountId as AccountId,
           shippingOption: String(body.shippingOption ?? "standard"),
         },
         context,
@@ -379,7 +379,7 @@ export function createAccountCheckoutSessionRoutes(
       await services.setShippingAddress(
         {
           sessionId: c.req.param("sessionId"),
-          accountId: access.actor.accountId as never,
+          accountId: access.actor.accountId as AccountId,
           shippingAddress: parseShippingAddress(body.shippingAddress),
         },
         context,
@@ -418,7 +418,7 @@ export function createAccountCheckoutSessionRoutes(
       await services.selectOptimizationGoal(
         {
           sessionId: c.req.param("sessionId"),
-          accountId: access.actor.accountId as never,
+          accountId: access.actor.accountId as AccountId,
           optimizationGoal: parseOptimizationGoal(body.optimizationGoal),
         },
         context,
@@ -562,7 +562,7 @@ export function createAccountCheckoutSessionRoutes(
         const shippingAddressResult = await services.setShippingAddress(
           {
             sessionId,
-            accountId: access.actor.accountId as never,
+            accountId: access.actor.accountId as AccountId,
             shippingAddress: parseShippingAddress(body.shippingAddress),
           },
           context,
@@ -575,7 +575,7 @@ export function createAccountCheckoutSessionRoutes(
         const offerResult = await services.recordOfferSubmitted(
           {
             sessionId,
-            accountId: access.actor.accountId as never,
+            accountId: access.actor.accountId as AccountId,
             offerId,
           },
           context,
@@ -604,7 +604,7 @@ export function createAccountCheckoutSessionRoutes(
       if (orderIds.length === 0) {
         const readySession = await services.assertReadyForOrderCreation({
           sessionId,
-          accountId: access.actor.accountId as never,
+          accountId: access.actor.accountId as AccountId,
         });
         const checkoutOrders = await createCheckoutOrdersThroughOrdering(c.req.raw, readySession, {
           fulfillmentPreviewRevision,
@@ -614,7 +614,7 @@ export function createAccountCheckoutSessionRoutes(
         const ordersResult = await services.recordOrdersCreated(
           {
             sessionId,
-            accountId: access.actor.accountId as never,
+            accountId: access.actor.accountId as AccountId,
             orderIds,
             fulfilledLineKeys: checkoutOrders.readyLineKeys,
           },
@@ -663,7 +663,7 @@ export function createAccountCheckoutSessionRoutes(
       const paymentResult = await services.recordPaymentStarted(
         {
           sessionId,
-          accountId: access.actor.accountId as never,
+          accountId: access.actor.accountId as AccountId,
           paymentId,
         },
         context,

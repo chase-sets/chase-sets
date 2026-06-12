@@ -4,7 +4,7 @@ import { marketplaceReservedSeedIds, reputationReservedSeedIds } from "@chase-se
 import { orderingReservedSeedIds } from "@chase-sets/ordering/seed-support/ids";
 import { paymentsReservedSeedIds } from "@chase-sets/payments/seed-support/ids";
 import { createPaymentsServices } from "./services";
-import type { PaymentId } from "@chase-sets/primitives/typed-ids";
+import type { PaymentId, AccountId, OrderId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { RefundId } from "./common";
 import { normalizeCurrencyCode, normalizeMoneyAmount } from "./common";
@@ -27,10 +27,10 @@ class SeedOrderMissingError extends Error {}
 
 function createSeedContext(accountId: string, userId: string): EventStoreContext {
   return {
-    tenantId: "tnt_seed_development" as never,
+    tenantId: "tnt_seed_development" as TenantId,
     audit: {
-      performedByUserId: userId as never,
-      forAccountId: accountId as never,
+      performedByUserId: userId as UserId,
+      forAccountId: accountId as AccountId,
     },
   };
 }
@@ -290,8 +290,8 @@ export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
   const createPayment = async (paymentId: PaymentId, order: OrderRow, createdAt: string) => {
     const processorPayment = await processorGateway.createPaymentSession({
       paymentId,
-      buyerAccountId: order.buyer_account_id as never,
-      orderIds: [order.order_id as never],
+      buyerAccountId: order.buyer_account_id as AccountId,
+      orderIds: [order.order_id as OrderId],
       amount: normalizeMoneyAmount(order.total_amount, { allowZero: true }),
       currencyCode: normalizeCurrencyCode("usd"),
       paymentMethodCategory: "card",
@@ -303,8 +303,8 @@ export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
       command: {
         type: "CreatePayment",
         paymentId,
-        buyerAccountId: order.buyer_account_id as never,
-        orderIds: [order.order_id as never],
+        buyerAccountId: order.buyer_account_id as AccountId,
+        orderIds: [order.order_id as OrderId],
         amount: normalizeMoneyAmount(order.total_amount, { allowZero: true }),
         marketplaceSalesFeeAmount: normalizeMoneyAmount(order.marketplace_sales_fee_amount, {
           allowZero: true,
@@ -323,8 +323,8 @@ export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
         }),
         sellerPayouts: [
           {
-            orderId: order.order_id as never,
-            sellerAccountId: order.seller_account_id as never,
+            orderId: order.order_id as OrderId,
+            sellerAccountId: order.seller_account_id as AccountId,
             sellerItemNetAmount: normalizeMoneyAmount(order.seller_item_net_amount, {
               allowZero: true,
             }),
@@ -428,9 +428,9 @@ export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
         type: "RequestRefund",
         refundId,
         paymentId: paymentsReservedSeedIds.payments.acceptedOfferCaptured,
-        orderIds: [acceptedOfferOrder.order_id as never],
+        orderIds: [acceptedOfferOrder.order_id as OrderId],
         amount: acceptedOfferOrder.total_amount,
-        currencyCode: "usd" as never,
+        currencyCode: normalizeCurrencyCode("usd"),
         reason,
         processorName: capturedProcessorPayment.processorName,
         requestedAt,
@@ -443,9 +443,9 @@ export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
         refundId,
         paymentId: paymentsReservedSeedIds.payments.acceptedOfferCaptured,
         processorPaymentReference: capturedProcessorPayment.processorPaymentReference,
-        orderIds: [acceptedOfferOrder.order_id as never],
+        orderIds: [acceptedOfferOrder.order_id as OrderId],
         amount: acceptedOfferOrder.total_amount,
-        currencyCode: "usd" as never,
+        currencyCode: normalizeCurrencyCode("usd"),
         reason,
       });
       await services.refunds.commandHandler({

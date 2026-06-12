@@ -127,10 +127,10 @@ type SupportSeedOrderSource = Readonly<{
 
 function createSupportSeedContext(accountId: string, userId: string): EventStoreContext {
   return {
-    tenantId: "tnt_seed_development" as never,
+    tenantId: "tnt_seed_development" as TenantId,
     audit: {
-      performedByUserId: userId as never,
-      forAccountId: accountId as never,
+      performedByUserId: userId as UserId,
+      forAccountId: accountId as AccountId,
     },
   };
 }

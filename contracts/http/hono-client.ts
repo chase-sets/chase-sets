@@ -19,3 +19,7 @@ export type HonoClientResource = HonoClientRouteMethods &
   Readonly<{
     [PathSegment in string as PathSegment extends `$${string}` ? never : PathSegment]: HonoClientResource;
   }>;
+
+export function honoClientResource(client: unknown): HonoClientResource {
+  return client as HonoClientResource;
+}

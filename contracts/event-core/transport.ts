@@ -28,6 +28,17 @@ export type TransportEvent = Readonly<{
   }>;
 }>;
 
+export type TransportEventPayload = TransportEvent["data"];
+
+export type TypedTransportEvent<
+  TPayload extends TransportEventPayload = TransportEventPayload,
+  TEventType extends string = string,
+> = Omit<TransportEvent, "type" | "data"> &
+  Readonly<{
+    type: TEventType;
+    data: TPayload;
+  }>;
+
 export function toTransportEvent(event: StoredEvent): TransportEvent {
   return {
     id: event.eventId,

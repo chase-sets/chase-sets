@@ -1,4 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import { createEmptyWalletSummary } from "../../../support/runtime-support/common";
 
 export type SettlementWalletRow = Readonly<{
@@ -54,7 +55,7 @@ export async function getWallet(db: PgQueryable, accountId: string): Promise<Set
     return row;
   }
 
-  const empty = createEmptyWalletSummary(accountId as never);
+  const empty = createEmptyWalletSummary(accountId as AccountId);
   return {
     account_id: empty.accountId,
     currency_code: empty.currencyCode,

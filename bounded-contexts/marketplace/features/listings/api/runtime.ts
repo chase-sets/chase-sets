@@ -3,9 +3,8 @@ import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec"
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import { createId } from "@chase-sets/primitives/typed-ids";
+import { createId, type AccountId, type ListingId, type TenantId, type UserId } from "@chase-sets/primitives/typed-ids";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
-import type { AccountId, ListingId } from "@chase-sets/primitives/typed-ids";
 import type { CommercialTermsResolver } from "../../../api";
 import type { MarketplaceRuntimeDeps } from "../../../support/runtime-support";
 import {
@@ -55,8 +54,8 @@ import {
   listSellerListings,
 } from "../read-model/queries";
 
-const MARKETPLACE_SYSTEM_TENANT_ID = "tnt_marketplace_system" as never;
-const MARKETPLACE_SYSTEM_USER_ID = "usr_marketplace_system" as never;
+const MARKETPLACE_SYSTEM_TENANT_ID = "tnt_marketplace_system" as TenantId;
+const MARKETPLACE_SYSTEM_USER_ID = "usr_marketplace_system" as UserId;
 const MAX_LISTING_PHOTO_UPLOAD_BYTES = 10 * 1024 * 1024;
 const LISTING_PHOTO_UPLOAD_CONTENT_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const HIGH_DOLLAR_LISTING_AMOUNT = 250;
@@ -69,7 +68,7 @@ function createMarketplaceSystemContext(accountId: string): EventStoreContext {
     tenantId: MARKETPLACE_SYSTEM_TENANT_ID,
     audit: {
       performedByUserId: MARKETPLACE_SYSTEM_USER_ID,
-      forAccountId: accountId as never,
+      forAccountId: accountId as AccountId,
     },
   };
 }
@@ -870,7 +869,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         accountId: params.accountId,
         inventoryItemId: supply.item_id,
         catalogItemId: supply.catalog_catalog_item_id,
-        productId: supply.product_id as never,
+        productId: supply.product_id,
         itemLanguageCode: supply.item_language_code,
         itemTitle: supply.item_title,
         itemSubtitle: supply.item_subtitle,

@@ -4,6 +4,7 @@ import { createDurableJobEventStream } from "@chase-sets/platform-runtime/durabl
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { SettlementApiEnv } from "../../../api";
 import { toPayoutReconciliationJobStatus, type PayoutServices } from "./runtime";
+import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 
 function requirePayoutAccess(
   c: {
@@ -139,7 +140,7 @@ export function createPayoutRoutes(services: PayoutServices) {
     try {
       return c.json(
         await services.previewPayoutRequest({
-          accountId: access.actor.accountId as never,
+          accountId: access.actor.accountId as AccountId,
           amount: String(body.amount ?? ""),
         }),
       );
@@ -322,7 +323,7 @@ export function createPayoutRoutes(services: PayoutServices) {
 
     try {
       const request = {
-        accountId: access.actor.accountId as never,
+        accountId: access.actor.accountId as AccountId,
         amount: String(body.amount ?? ""),
         destinationReference: typeof body.destinationReference === "string" ? body.destinationReference : null,
         note: typeof body.note === "string" ? body.note : null,
@@ -352,10 +353,10 @@ export function createMoneyMovementWebhookRoutes(services: PayoutServices) {
           signatureHeader,
         },
         {
-          tenantId: "tnt_identity" as never,
+          tenantId: "tnt_identity" as TenantId,
           audit: {
-            performedByUserId: "usr_identity_system" as never,
-            forAccountId: "acc_identity_system" as never,
+            performedByUserId: "usr_identity_system" as UserId,
+            forAccountId: "acc_identity_system" as AccountId,
           },
         } as EventStoreContext,
       );

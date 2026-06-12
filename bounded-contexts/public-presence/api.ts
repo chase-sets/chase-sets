@@ -4,8 +4,10 @@ import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createInMemoryRateLimiter } from "@chase-sets/http/rate-limit";
 import type { PublicPresenceServices } from "./support/runtime-support/services";
+import type { PromoBarMessageTone } from "./features/promo-bar/api/contracts";
 import type { PromoBarServices } from "./features/promo-bar/api/runtime";
 import type { WaitlistServices } from "./features/waitlist/api/runtime";
+import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 
 export type PublicPresenceApiEnv = AuthenticatedApiEnv;
 
@@ -27,10 +29,10 @@ function isRateLimited(request: Request) {
 
 function publicEventStoreContext(): EventStoreContext {
   return {
-    tenantId: "tnt_public_presence" as never,
+    tenantId: "tnt_public_presence" as TenantId,
     audit: {
-      performedByUserId: "usr_public_presence" as never,
-      forAccountId: "acc_public_presence" as never,
+      performedByUserId: "usr_public_presence" as UserId,
+      forAccountId: "acc_public_presence" as AccountId,
     },
   };
 }
@@ -79,7 +81,7 @@ function readPromoBarMessageBody(body: Record<string, unknown>) {
     description: typeof body.description === "string" ? body.description : null,
     href: typeof body.href === "string" ? body.href : null,
     linkLabel: typeof body.linkLabel === "string" ? body.linkLabel : null,
-    tone: typeof body.tone === "string" ? (body.tone as never) : undefined,
+    tone: typeof body.tone === "string" ? (body.tone as PromoBarMessageTone) : undefined,
     isActive: typeof body.isActive === "boolean" ? body.isActive : true,
     displayOrder: Number(body.displayOrder ?? 100),
     startsAt: typeof body.startsAt === "string" ? body.startsAt : null,

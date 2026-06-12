@@ -1,17 +1,12 @@
-import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import type {
+  ChaseSetsEventPayloads,
+  WaitlistSignupRecordedPayload,
+  WaitlistSignupUpdatedPayload,
+} from "@chase-sets/event-core";
+import { defineProjectorHandlers, type ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import type { WaitlistSource } from "../domain/common";
 
-type WaitlistEventData = Readonly<{
-  signupId: string;
-  email: string;
-  role: string;
-  interests: readonly string[];
-  emailConsentAcceptedAt: string;
-  source: WaitlistSource;
-  recordedAt?: string;
-  updatedAt?: string;
-}>;
+type WaitlistEventData = WaitlistSignupRecordedPayload | WaitlistSignupUpdatedPayload;
 
 async function upsertWaitlistSignup(db: PgQueryable, data: WaitlistEventData, timestamp: string) {
   await db.query(
@@ -65,14 +60,16 @@ async function upsertWaitlistSignup(db: PgQueryable, data: WaitlistEventData, ti
 }
 
 export function buildWaitlistProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
-  return {
+  return defineProjectorHandlers<
+    Pick<ChaseSetsEventPayloads, "public-presence.waitlist-signup.recorded" | "public-presence.waitlist-signup.updated">
+  >({
     "public-presence.waitlist-signup.recorded": async (event) => {
-      const data = event.data as unknown as WaitlistEventData;
+      const data = event.data;
       await upsertWaitlistSignup(db, data, data.recordedAt ?? new Date().toISOString());
     },
     "public-presence.waitlist-signup.updated": async (event) => {
-      const data = event.data as unknown as WaitlistEventData;
+      const data = event.data;
       await upsertWaitlistSignup(db, data, data.updatedAt ?? new Date().toISOString());
     },
-  };
+  });
 }

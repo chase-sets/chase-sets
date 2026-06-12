@@ -1,6 +1,10 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useActionData, useLoaderData } from "react-router";
-import { PublicPresenceApiError, createPublicPresenceRequestApiClient } from "../../support/request-support/api-client";
+import {
+  PublicPresenceApiError,
+  createPublicPresenceRequestApiClient,
+  type SubmitWaitlistSignupRequest,
+} from "../../support/request-support/api-client";
 import { PublicPresenceHomePage } from "../../features/waitlist/ui/public-pages";
 import heroImageUrl from "../../features/waitlist/ui/assets/chase-sets-prelaunch-hero.webp?url";
 import { publicPresenceT as t } from "../../support/ui-support/public-presence-translator";
@@ -53,8 +57,8 @@ export async function action({ request }: ActionFunctionArgs) {
   try {
     await api.submitWaitlistSignup({
       email: String(formData.get("email") ?? ""),
-      role: String(formData.get("role") ?? "both") as never,
-      interests: formData.getAll("interests").map(String) as never,
+      role: String(formData.get("role") ?? "both") as SubmitWaitlistSignupRequest["role"],
+      interests: formData.getAll("interests").map(String) as SubmitWaitlistSignupRequest["interests"],
       emailConsent: emailConsent === "yes" || emailConsent === "on",
       website: optional(formData.get("website")),
       source: {

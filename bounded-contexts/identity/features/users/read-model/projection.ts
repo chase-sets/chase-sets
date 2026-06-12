@@ -12,6 +12,13 @@ type SocialLoginLinkRow = Readonly<{
   linkedAt: string;
 }>;
 
+type ContactMethodProjection = {
+  contactMethodId: string;
+  type: string;
+  value: string;
+  verifiedAt: string | null;
+};
+
 async function syncUserEmailLookups(
   db: PgQueryable,
   userId: string,
@@ -182,7 +189,7 @@ export function buildUserProjectionHandlers(db: PgQueryable): ProjectorHandlerMa
         [userId],
       );
       const contactMethods = [
-        ...((current.rows[0]?.contact_methods as never[]) ?? []),
+        ...((current.rows[0]?.contact_methods as ContactMethodProjection[] | undefined) ?? []),
         {
           contactMethodId: (event.data as { contactMethodId: string }).contactMethodId,
           type: (event.data as { contactMethodType: string }).contactMethodType,
@@ -197,17 +204,7 @@ export function buildUserProjectionHandlers(db: PgQueryable): ProjectorHandlerMa
          WHERE user_id = $1`,
         [userId, JSON.stringify(contactMethods), event.timing.recordedAt],
       );
-      await syncContactMethodLookups(
-        db,
-        userId,
-        contactMethods as {
-          contactMethodId: string;
-          type: string;
-          value: string;
-          verifiedAt: string | null;
-        }[],
-        event.timing.recordedAt,
-      );
+      await syncContactMethodLookups(db, userId, contactMethods, event.timing.recordedAt);
     },
     "identity.user.contact-method-verified": async (event) => {
       const userId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);
@@ -216,12 +213,7 @@ export function buildUserProjectionHandlers(db: PgQueryable): ProjectorHandlerMa
         [userId],
       );
       const contactMethods = (
-        ((current.rows[0]?.contact_methods as never[]) ?? []) as {
-          contactMethodId: string;
-          type: string;
-          value: string;
-          verifiedAt: string | null;
-        }[]
+        ((current.rows[0]?.contact_methods as ContactMethodProjection[] | undefined) ?? []) as ContactMethodProjection[]
       ).map((method) =>
         method.contactMethodId === (event.data as { contactMethodId: string }).contactMethodId
           ? {

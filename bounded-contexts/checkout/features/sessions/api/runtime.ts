@@ -22,6 +22,7 @@ import {
   CheckoutDomainError,
   createCheckoutProductDescriptor,
   normalizeShippingOption,
+  type CartLineId,
   type CheckoutVersionSchema,
   type ShippingOption,
 } from "../../../support/runtime-support/common";
@@ -722,7 +723,7 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
             await deps.cart.removeLine(
               {
                 accountId: params.accountId,
-                lineId: lineId as never,
+                lineId: lineId as CartLineId,
               },
               context,
             );

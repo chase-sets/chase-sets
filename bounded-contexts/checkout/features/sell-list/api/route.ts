@@ -1,4 +1,5 @@
 import { t } from "@chase-sets/localization";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createInMemoryRateLimiter } from "@chase-sets/http/rate-limit";
 import { Hono } from "hono";
 import type { SellListLineId } from "../../../support/runtime-support/common";
@@ -6,6 +7,7 @@ import type { CheckoutApiEnv } from "../../../api";
 import type { SellListConfirmationSummary, SellListSellerConfirmationEvidence } from "../domain/domain";
 import { parseSellListReadinessDecisionInput } from "../domain/readiness";
 import type { CheckoutSellListServices } from "./runtime";
+import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 
 const MAX_ANONYMOUS_SELL_LIST_LINES = 50;
 const ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
@@ -57,15 +59,15 @@ function requireSellListAccess(c: { get(key: "actor"): CheckoutApiEnv["Variables
   return { actor, response: null };
 }
 
-function createGuestSellListContext() {
+function createGuestSellListContext(): EventStoreContext {
   return {
-    tenantId: "tnt_identity",
+    tenantId: "tnt_identity" as TenantId,
     audit: {
-      performedByUserId: "usr_anonymous_sell_list",
-      forAccountId: "acc_anonymous_sell_list",
+      performedByUserId: "usr_anonymous_sell_list" as UserId,
+      forAccountId: "acc_anonymous_sell_list" as AccountId,
     },
     trace: {},
-  } as never;
+  };
 }
 
 function requireAnonymousSellListId(c: { req: { header: (name: string) => string | undefined } }) {
@@ -423,7 +425,7 @@ export function createAccountSellListRoutes(services: CheckoutSellListServices) 
     try {
       const result = await services.addLine(
         {
-          sellerAccountId: access.actor.accountId as never,
+          sellerAccountId: access.actor.accountId as AccountId,
           ...parseSellListLineBody(body),
         },
         context,
@@ -479,8 +481,8 @@ export function createAccountSellListRoutes(services: CheckoutSellListServices) 
     try {
       const result = await services.removeLine(
         {
-          sellerAccountId: access.actor.accountId as never,
-          lineId: c.req.param("lineId") as never,
+          sellerAccountId: access.actor.accountId as AccountId,
+          lineId: c.req.param("lineId") as SellListLineId,
         },
         context,
       );
@@ -545,13 +547,16 @@ export function createAccountSellListRoutes(services: CheckoutSellListServices) 
 
       const result = await services.confirmSellListCheckout(
         {
-          sellerAccountId: access.actor.accountId as never,
+          sellerAccountId: access.actor.accountId as AccountId,
           confirmationId: confirmationBody.confirmationId,
           readinessSnapshotId: confirmationBody.readinessSnapshotId,
           readinessSourceRevision: confirmationBody.readinessSourceRevision,
           readinessDecisions: confirmationBody.readinessDecisions,
-          completedLineIds: confirmationBody.completedLineIds as never,
-          remainingLineQuantities: confirmationBody.remainingLineQuantities as never,
+          completedLineIds: confirmationBody.completedLineIds as readonly SellListLineId[],
+          remainingLineQuantities: confirmationBody.remainingLineQuantities as readonly {
+            lineId: SellListLineId;
+            quantity: number;
+          }[],
           sellerEvidence,
           handoffSummary,
         },
@@ -658,7 +663,7 @@ export function createGuestSellListRoutes(services: CheckoutSellListServices) {
 
       const result = await services.addLine(
         {
-          sellerAccountId: ownerId as never,
+          sellerAccountId: ownerId as AccountId,
           ...line,
         },
         context,
@@ -689,8 +694,8 @@ export function createGuestSellListRoutes(services: CheckoutSellListServices) {
     try {
       const result = await services.removeLine(
         {
-          sellerAccountId: ownerId as never,
-          lineId: c.req.param("lineId") as never,
+          sellerAccountId: ownerId as AccountId,
+          lineId: c.req.param("lineId") as SellListLineId,
         },
         context,
       );
@@ -728,7 +733,7 @@ export function createGuestSellListRoutes(services: CheckoutSellListServices) {
     const result = await services.mergeSellListIntoAccount(
       {
         sourceOwnerId: ownerId,
-        targetAccountId: access.actor.accountId as never,
+        targetAccountId: access.actor.accountId as AccountId,
       },
       context,
     );

@@ -1,4 +1,5 @@
 import type { NotificationMessage, WebNotificationChannel } from "@chase-sets/notifications";
+import type { AccountId } from "@chase-sets/primitives/typed-ids";
 
 export type ProductAlertNotificationInput = Readonly<{
   accountId: string;
@@ -25,7 +26,7 @@ export function mapProductAlertMatchToNotification(input: ProductAlertNotificati
       : `${input.productSummary ?? "The selected product"} is available at $${input.priceAmount}.`;
   const webChannel: WebNotificationChannel = {
     channel: "web",
-    recipient: { accountId: input.accountId as never },
+    recipient: { accountId: input.accountId as AccountId },
     title,
     body,
     actionHref,
@@ -50,6 +51,6 @@ export function mapProductAlertMatchToNotification(input: ProductAlertNotificati
     channels: [webChannel],
     idempotencyKey: `discovery:product-alert:${input.alertId}:${input.activityId}`,
     correlationId: input.correlationId,
-    actor: { userId: null, accountId: input.accountId as never },
+    actor: { userId: null, accountId: input.accountId as AccountId },
   };
 }

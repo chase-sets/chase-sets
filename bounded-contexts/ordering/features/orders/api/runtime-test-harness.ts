@@ -11,6 +11,8 @@ import type {
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import { type ProductMeasureSnapshot } from "@chase-sets/product-measures";
 import { createOrderingOrderRuntime } from "./runtime";
+import type { IsoUtcTimestamp } from "@chase-sets/primitives/iso-utc-timestamp";
+import type { AccountId, EventId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 
 export function createInMemoryEventStore() {
   let globalPosition = 0;
@@ -23,7 +25,7 @@ export function createInMemoryEventStore() {
       const stored = input.events.map((event, index) => {
         globalPosition += 1;
         return {
-          eventId: `evt_${globalPosition}` as never,
+          eventId: `evt_${globalPosition}` as EventId,
           streamId: input.streamId,
           streamVersion: existing.length + index + 1,
           globalPosition: String(globalPosition) as GlobalPosition,
@@ -31,8 +33,8 @@ export function createInMemoryEventStore() {
           eventType: event.eventType,
           payload: event.payload,
           metadata: event.metadata ?? {},
-          occurredAt: new Date().toISOString() as never,
-          recordedAt: new Date().toISOString() as never,
+          occurredAt: new Date().toISOString() as IsoUtcTimestamp,
+          recordedAt: new Date().toISOString() as IsoUtcTimestamp,
           performedByUserId: input.context.audit.performedByUserId,
           forAccountId: input.context.audit.forAccountId,
           traceId: input.context.trace?.traceId,
@@ -72,10 +74,10 @@ export function createCheckpointStore(): ProjectionCheckpointStore {
 }
 
 export const context = {
-  tenantId: "tnt_test" as never,
+  tenantId: "tnt_test" as TenantId,
   audit: {
-    performedByUserId: "usr_test" as never,
-    forAccountId: "acc_buyer" as never,
+    performedByUserId: "usr_test" as UserId,
+    forAccountId: "acc_buyer" as AccountId,
   },
 };
 

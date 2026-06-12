@@ -1,5 +1,6 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 import {
   createDurableJobExecutionContext,
   createDurableJobProgressCheckpoint,
@@ -458,10 +459,10 @@ const DEFAULT_REFRESH_WINDOW_DAYS = 25;
 const GOOGLE_SHOPPING_SYNC_STATE_RETENTION_DAYS = 90;
 
 const GOOGLE_SHOPPING_SYSTEM_CONTEXT: EventStoreContext = {
-  tenantId: "tnt_discovery" as never,
+  tenantId: "tnt_discovery" as TenantId,
   audit: {
-    performedByUserId: "usr_discovery_google_shopping_system" as never,
-    forAccountId: "acc_discovery_google_shopping_system" as never,
+    performedByUserId: "usr_discovery_google_shopping_system" as UserId,
+    forAccountId: "acc_discovery_google_shopping_system" as AccountId,
   },
 };
 

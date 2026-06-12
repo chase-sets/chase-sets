@@ -225,7 +225,10 @@ export function normalizeCatalogControlPlaneTelemetryEvent(
 export function isCatalogControlPlaneTelemetryEventName(
   value: unknown,
 ): value is CatalogControlPlaneTelemetryEventName {
-  return typeof value === "string" && catalogControlPlaneTelemetryEventNames.includes(value as never);
+  return (
+    typeof value === "string" &&
+    catalogControlPlaneTelemetryEventNames.includes(value as CatalogControlPlaneTelemetryEventName)
+  );
 }
 
 function telemetryCountBucket(value: number | null | undefined): CatalogControlPlaneTelemetryCountBucket {
