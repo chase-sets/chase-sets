@@ -76,7 +76,7 @@
 ## Performance
 
 - [ ] Checkout meets the performance budgets on production for Buy Now, cart, and sell-list entry (budget contract baseline: PR #1303).
-- [ ] **Known blocker:** the production proof-mode Buy Now canary reaches pay-ready checkout within the ready SLO. It was failing `checkout-ready-slo-exceeded` (deploy 27356677438; canary stuck in safe temporary recovery; projection-wake fix tracked in #1227/#1237/#1228). Launch requires a passing run or an owner-approved hold/deferral.
+- [ ] The production proof-mode Buy Now canary reaches pay-ready checkout within the ready SLO. Current-main evidence: deploy 27398499167 passed with `readyLatencyMs=8170` against `readySloMs=10000`; earlier `checkout-ready-slo-exceeded` and temporary-recovery rows remain classified in #1116/#1123.
 - [ ] Slow or degraded states render checkout-owned recovery before any gateway timeout, with no side effects attempted.
 
 ## Fresh-state / legacy deletion
