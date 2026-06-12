@@ -20,6 +20,7 @@ import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { subscribeRealtimePatches } from "@chase-sets/platform-runtime/realtime-web";
 import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
 import { CheckoutApiError, createCheckoutRequestApiClient } from "../support/request-support/api-client";
+import { resolveCheckoutShopifySimpleUnavailableState } from "../support/request-support/checkout-release-control";
 import {
   checkoutRecoveryForFreshWriteError,
   createCheckoutRecoveryResponse,
@@ -342,6 +343,11 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   if (!params.sessionId) {
     throw new Response(t("checkout.routes.checkoutSession.checkout.session.not.found"), { status: 404 });
   }
+  const unavailable = await resolveCheckoutShopifySimpleUnavailableState(request, actor, "buy");
+  if (unavailable) {
+    throw redirect(unavailable.redirectPath);
+  }
+
   const api = createCheckoutRequestApiClient(request, {
     requestTimeoutMs: CHECKOUT_SESSION_FRESH_READ_TIMEOUT_MS,
     recoverTransportErrorsAsGatewayTimeout: true,
@@ -417,6 +423,11 @@ export async function action({ request, params }: ActionFunctionArgs) {
   if (!params.sessionId) {
     throw new Response(t("checkout.routes.checkoutSession.checkout.session.not.found.2"), { status: 404 });
   }
+  const unavailable = await resolveCheckoutShopifySimpleUnavailableState(request, actor, "buy");
+  if (unavailable) {
+    return redirect(unavailable.redirectPath);
+  }
+
   const formData = await request.formData();
   const intent = String(formData.get("intent") ?? "");
   const api = createCheckoutRequestApiClient(request);

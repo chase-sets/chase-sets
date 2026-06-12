@@ -960,6 +960,7 @@ export function CheckoutSellListPage({
   registrationReturn = null,
   mergedLineCount = 0,
   mergeError = null,
+  checkoutUnavailable = false,
   errorMessage = null,
 }: {
   sellListLines: readonly CheckoutSellListLineRow[];
@@ -972,6 +973,7 @@ export function CheckoutSellListPage({
   registrationReturn?: "seller-checkout" | null;
   mergedLineCount?: number;
   mergeError?: string | null;
+  checkoutUnavailable?: boolean;
   errorMessage?: string | null;
 }) {
   const selectedOfferLines = sellListLines.filter((line) => line.line_type === "selected-offer");
@@ -1114,6 +1116,24 @@ export function CheckoutSellListPage({
                 </LinkButton>
                 <LinkButton href={SELLER_CHECKOUT_SIGN_IN_HREF} tone="secondary">
                   {t("checkout.features.sellList.ui.sellListPage.sign.in")}
+                </LinkButton>
+              </Inline>
+            }
+          />
+        ) : null}
+
+        {checkoutUnavailable ? (
+          <Banner
+            title={t("checkout.features.sellList.ui.sellListPage.checkout.unavailable.title")}
+            description={t("checkout.features.sellList.ui.sellListPage.checkout.unavailable.description")}
+            tone="warning"
+            actions={
+              <Inline gap={2}>
+                <LinkButton href="/account/sell-list" tone="secondary">
+                  {t("checkout.features.sellList.ui.sellListPage.review.sell.list")}
+                </LinkButton>
+                <LinkButton href="/search" tone="secondary">
+                  {t("checkout.features.sellList.ui.sellListPage.browse.products")}
                 </LinkButton>
               </Inline>
             }

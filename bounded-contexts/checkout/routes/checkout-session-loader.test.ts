@@ -85,7 +85,28 @@ describe("checkout web routes: checkout session loader", () => {
   });
 
   afterEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  it("blocks active buy checkout sessions while the Shopify-simple kill switch is active", async () => {
+    vi.stubEnv("CHASE_SETS_CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE", "true");
+    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCheckoutSession: mockGetCheckoutSession,
+    });
+
+    const redirectResponse = (await checkoutSessionLoader({
+      request: new Request("http://localhost/checkout/buy/session/chk_1"),
+      params: { sessionId: "chk_1" },
+      context: undefined,
+    } as never).catch((error) => error)) as Response;
+
+    expect(redirectResponse.status).toBe(302);
+    expect(redirectResponse.headers.get("Location")).toBe("/account/cart?checkout=disabled");
+    expect(mockGetCheckoutSession).not.toHaveBeenCalled();
+    expect(mockPreviewCheckoutFulfillment).not.toHaveBeenCalled();
+    expect(mockPreviewCheckoutStatus).not.toHaveBeenCalled();
   });
 
   it("keeps checkout visible when checkout totals are temporarily unavailable", async () => {

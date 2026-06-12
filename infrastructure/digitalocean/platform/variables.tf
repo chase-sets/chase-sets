@@ -139,6 +139,12 @@ variable "production_checkout_launch_evidence_reference" {
   }
 }
 
+variable "checkout_shopify_simple_kill_switch_active" {
+  type        = bool
+  default     = false
+  description = "Hard runtime kill switch for Shopify-simple checkout entry. When true, marketplace web redirects Buy Cart and Sell List checkout entry back to cart/list recovery without restoring legacy checkout."
+}
+
 variable "production_stripe_money_operations_approved" {
   type        = bool
   default     = false

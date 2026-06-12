@@ -577,6 +577,12 @@ resource "digitalocean_app" "platform" {
         }
 
         env {
+          key   = "CHASE_SETS_CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE"
+          value = var.checkout_shopify_simple_kill_switch_active ? "true" : "false"
+          scope = "RUN_TIME"
+        }
+
+        env {
           key   = "CHASE_SETS_INTERNAL_API_ORIGIN"
           value = "$${platform-api.PRIVATE_URL}"
           scope = "RUN_TIME"

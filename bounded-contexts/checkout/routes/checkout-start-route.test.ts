@@ -92,7 +92,49 @@ describe("checkout web routes: checkout start", () => {
   });
 
   afterEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  it("blocks buy checkout entry while the Shopify-simple kill switch is active", async () => {
+    vi.stubEnv("CHASE_SETS_CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE", "true");
+    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getGuestCart: mockGetGuestCart,
+      createCheckoutSession: mockCreateCheckoutSession,
+      startGuestCheckout: mockStartGuestCheckout,
+    });
+
+    const loaderRedirect = (await checkoutStartLoader({
+      request: new Request("http://localhost/checkout/buy/readiness", {
+        headers: { cookie: "chase_sets_anonymous_cart=anon_cart_1" },
+      }),
+      params: {},
+      context: undefined,
+    } as never).catch((error) => error)) as Response;
+
+    const form = new URLSearchParams();
+    form.set("source", "cart");
+    const actionRedirect = (await checkoutStartAction({
+      request: new Request("http://localhost/checkout/buy/readiness", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          cookie: "chase_sets_anonymous_cart=anon_cart_1",
+        },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never)) as Response;
+
+    expect(loaderRedirect.status).toBe(302);
+    expect(loaderRedirect.headers.get("Location")).toBe("/account/cart?checkout=disabled");
+    expect(actionRedirect.status).toBe(302);
+    expect(actionRedirect.headers.get("Location")).toBe("/account/cart?checkout=disabled");
+    expect(mockGetGuestCart).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
+    expect(mockStartGuestCheckout).not.toHaveBeenCalled();
   });
 
   it("starts cart checkout through the canonical checkout session API", async () => {

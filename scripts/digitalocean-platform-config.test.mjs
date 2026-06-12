@@ -564,6 +564,8 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformVariables).toContain(
       "production_checkout_launch_evidence_reference is required when production_checkout_launch_evidence_approved is true.",
     );
+    expect(platformVariables).toContain('variable "checkout_shopify_simple_kill_switch_active"');
+    expect(platformVariables).toContain("Hard runtime kill switch for Shopify-simple checkout entry.");
     expect(platformVariables).toContain('variable "production_stripe_money_operations_approved"');
     expect(platformVariables).toContain("production_stripe_money_operations_approved may only be true for production.");
     expect(platformVariables).toContain('variable "production_stripe_money_operations_reference"');
@@ -664,6 +666,8 @@ describe("DigitalOcean platform configuration", () => {
     expect(marketplaceService).toContain('key   = "STRIPE_PUBLISHABLE_KEY"');
     expect(marketplaceService).toContain("value = var.stripe_publishable_key");
     expect(marketplaceService).toContain('type  = "SECRET"');
+    expect(marketplaceService).toContain('key   = "CHASE_SETS_CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE"');
+    expect(marketplaceService).toContain('value = var.checkout_shopify_simple_kill_switch_active ? "true" : "false"');
     const adminWebService = terraformServiceBlock(platformMain, "admin-web");
     expect(adminWebService).toContain('key   = "CHASE_SETS_INTERNAL_API_ORIGIN"');
     expect(adminWebService).toContain("value = local.admin_web_internal_api_origin");
@@ -968,6 +972,13 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(platformProductionWorkflow).toContain(
       "TF_VAR_production_checkout_launch_evidence_reference: ${{ vars.PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_REFERENCE || '' }}",
+    );
+    expect(platformProductionWorkflow).toContain(
+      "TF_VAR_checkout_shopify_simple_kill_switch_active: ${{ vars.CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE == 'true' && 'true' || 'false' }}",
+    );
+    expect(occurrenceCount(platformProductionWorkflow, "TF_VAR_checkout_shopify_simple_kill_switch_active")).toBe(2);
+    expect(platformStagingResetWorkflow).toContain(
+      "TF_VAR_checkout_shopify_simple_kill_switch_active: ${{ vars.CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE == 'true' && 'true' || 'false' }}",
     );
     expect(platformProductionWorkflow).toContain(
       "TF_VAR_production_stripe_money_operations_approved: ${{ vars.PRODUCTION_STRIPE_MONEY_OPERATIONS_APPROVED == 'true' && 'true' || 'false' }}",

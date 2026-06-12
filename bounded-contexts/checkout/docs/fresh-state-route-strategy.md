@@ -41,15 +41,19 @@ Checkout may show the resulting delivery promise and total impact, but it must n
 ## Kill Switch
 
 Use Platform Operations release controls with feature key `checkout.shopify-simple`.
+Use `CHASE_SETS_CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE=true` as the hard marketplace-web runtime switch when all traffic, including anonymous and guest traffic, must fail closed before checkout entry/session work.
 
 When disabled:
 
 - Buy entry redirects to `/account/cart?checkout=disabled`.
 - Sell entry redirects to `/account/sell-list?checkout=disabled`.
+- Active buy sessions redirect to `/account/cart?checkout=disabled` before session, payment, fulfillment preview, order, or support calls.
+- Active sell sessions redirect to `/account/sell-list?checkout=disabled` before readiness, sale, label, payout, listing, or support handoff calls.
 - Cart and Sell List remain reachable so customers can review or remove intent.
 - The old dense checkout is not restored as a fallback path.
+- `checkout.launch.kill_switch_unavailable` telemetry records bounded launch-governance evidence and excludes raw URLs, checkout session ids, account ids, contact data, provider payloads, card data, bank data, and secrets.
 
-The kill switch is for operational disablement and smoke validation. It is not a public rollout selector between old and new checkout experiences.
+The kill switches are for operational disablement and smoke validation. They are not public rollout selectors between old and new checkout experiences.
 
 ## Route Test Expectations
 

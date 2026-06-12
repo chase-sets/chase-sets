@@ -2,8 +2,9 @@ import { t } from "@chase-sets/localization";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { createMarketplaceRequestApiClient } from "@chase-sets/marketplace/server";
 import { createId } from "@chase-sets/primitives/typed-ids";
-import type { ActionFunctionArgs } from "react-router";
+import { redirect, type ActionFunctionArgs } from "react-router";
 import { createCheckoutRequestApiClient } from "../../request-support/api-client";
+import { resolveCheckoutShopifySimpleUnavailableState } from "../../request-support/checkout-release-control";
 import type { GuestSellCheckoutActionState } from "../../../features/sell-list/ui/guest-sell-checkout-page";
 import type { SignedInSellCheckoutActionState } from "../../../features/sell-list/ui/signed-in-sell-checkout-page";
 import {
@@ -57,9 +58,14 @@ function estimatedTotalFor(
 export async function action({
   request,
   params,
-}: ActionFunctionArgs): Promise<GuestSellCheckoutActionState | SignedInSellCheckoutActionState> {
-  const formData = await request.formData();
+}: ActionFunctionArgs): Promise<GuestSellCheckoutActionState | SignedInSellCheckoutActionState | Response> {
   const actor = await resolveActorFromAuthApi({ request });
+  const unavailable = await resolveCheckoutShopifySimpleUnavailableState(request, actor, "sell");
+  if (unavailable) {
+    return redirect(unavailable.redirectPath);
+  }
+
+  const formData = await request.formData();
   if (canUseSignedInSellCheckout(actor)) {
     const api = createCheckoutRequestApiClient(request);
     const submittedValues = signedInValuesFromFormData(formData);

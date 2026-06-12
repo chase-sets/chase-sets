@@ -28,6 +28,9 @@ export const checkoutEnglishTranslations = {
   "checkout.features.cart.ui.cartPage.buy.cart": "Buy cart",
   "checkout.features.cart.ui.cartPage.checkout": "Checkout",
   "checkout.features.cart.ui.cartPage.checkout.issue": "Checkout issue",
+  "checkout.features.cart.ui.cartPage.checkout.unavailable.description":
+    "Checkout is temporarily unavailable. Your cart is still saved, and no payment or order work has started.",
+  "checkout.features.cart.ui.cartPage.checkout.unavailable.title": "Checkout is temporarily unavailable",
   "checkout.features.cart.ui.cartPage.decrease": "Decrease",
   "checkout.features.cart.ui.cartPage.empty.cart.protection.description":
     "When you add items, checkout will show final shipping, tax, and payment details before you pay.",
@@ -66,6 +69,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.cart.ui.cartPage.resolve.fulfillment": "Resolve items",
   "checkout.features.cart.ui.cartPage.review.items.before.checkout":
     "Review quantities and remove anything you do not want before checkout.",
+  "checkout.features.cart.ui.cartPage.review.cart": "Review cart",
   "checkout.features.cart.ui.cartPage.shipping.and.tax": "Shipping and tax",
   "checkout.features.cart.ui.cartPage.selected.listing": "Selected listing",
   "checkout.features.cart.ui.cartPage.keep.shopping": "Keep shopping",
@@ -328,6 +332,9 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.buyer": "Buyer",
   "checkout.features.sellList.ui.sellListPage.checkout": "Checkout",
   "checkout.features.sellList.ui.sellListPage.checkout.issue": "Sell List issue",
+  "checkout.features.sellList.ui.sellListPage.checkout.unavailable.description":
+    "Seller checkout is temporarily unavailable. Your Sell List is still saved, and no sale, label, payout, or listing handoff has started.",
+  "checkout.features.sellList.ui.sellListPage.checkout.unavailable.title": "Seller checkout is temporarily unavailable",
   "checkout.features.sellList.ui.sellListPage.choose.sale.action.before.checkout":
     "Choose a ready offer or listing action before seller checkout.",
   "checkout.features.sellList.ui.sellListPage.create.account": "Create account",
@@ -429,6 +436,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.ready.for.seller.checkout": "Ready for seller checkout",
   "checkout.features.sellList.ui.sellListPage.ready.for.seller.checkout.description":
     "Every line has a pre-checkout sale action and payout setup is ready.",
+  "checkout.features.sellList.ui.sellListPage.review.sell.list": "Review Sell List",
   "checkout.features.sellList.ui.sellListPage.readiness.needs.action": "{count} need action",
   "checkout.features.sellList.ui.sellListPage.readiness.ready": "{count} ready",
   "checkout.features.sellList.ui.sellListPage.remaining.quantity.action": "Remaining quantity action",
