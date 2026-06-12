@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from "react";
-import { Button, SectionNavigation, type SectionNavigationGroup } from "../components/actions";
+import { Button, type SectionNavigationGroup } from "../components/actions";
 import {
   BulkActionBar,
   BulkActionPanel,
@@ -16,6 +16,18 @@ import {
 } from "../components/data-display";
 import { Badge, EmptyState, SideSheet } from "../components/feedback";
 import { MetricStrip } from "./app-shells";
+import {
+  BadgeCluster,
+  DenseAdminWorkbench,
+  DenseAdminWorkbenchHeader,
+  DenseAdminWorkbenchLayout,
+  EvidenceCodeBlock,
+  WorkbenchActionRow,
+  WorkbenchDataCell,
+  WorkbenchGrid,
+  WorkbenchStack,
+  WorkbenchText,
+} from "./dense-admin-workbench";
 
 type ObservationStatus = "ready" | "blocked" | "denied" | "degraded" | "stale" | "success";
 
@@ -293,7 +305,7 @@ function ObservationEvidenceSheet({ observation }: { observation: WorkbenchObser
         </Button>
       }
     >
-      <div className="grid gap-4">
+      <WorkbenchStack>
         <KeyValueList
           items={[
             { key: "Provider", value: observation.provider },
@@ -302,26 +314,21 @@ function ObservationEvidenceSheet({ observation }: { observation: WorkbenchObser
             { key: "Audit reference", value: observation.auditRef },
           ]}
         />
-        <div className="rounded-tokenMd border border-muted bg-surface-2 p-3">
-          <div className="text-xs font-semibold uppercase text-tertiary">Command preview</div>
-          <pre className="mt-2 whitespace-pre-wrap break-words font-mono text-xs leading-5 text-secondary">
-            {observation.commandPreview}
-          </pre>
-        </div>
-      </div>
+        <EvidenceCodeBlock label="Command preview">{observation.commandPreview}</EvidenceCodeBlock>
+      </WorkbenchStack>
     </SideSheet>
   );
 }
 
 function renderBlockers(blockers: readonly string[]) {
   return (
-    <div className="flex min-w-0 flex-wrap gap-1.5">
-      {blockers.map((blocker) => (
-        <Badge key={blocker} tone={blocker === "None" ? "success" : "warning"}>
-          {blocker}
-        </Badge>
-      ))}
-    </div>
+    <BadgeCluster
+      items={blockers.map((blocker) => ({
+        key: blocker,
+        label: blocker,
+        tone: blocker === "None" ? "success" : "warning",
+      }))}
+    />
   );
 }
 
@@ -338,10 +345,12 @@ export function DenseAdminWorkbenchProof({ loading = false, empty = false }: Den
         header: "Source Observation",
         sortable: true,
         cell: (row) => (
-          <div className="grid min-w-0 gap-1">
-            <div className="break-words text-sm font-semibold text-foreground">{row.sourceLabel}</div>
-            <div className="break-all font-mono text-xs leading-5 text-tertiary">{row.sourcePath}</div>
-          </div>
+          <WorkbenchDataCell
+            title={row.sourceLabel}
+            description={row.sourcePath}
+            descriptionTone="tertiary"
+            descriptionVariant="mono"
+          />
         ),
       },
       {
@@ -373,7 +382,7 @@ export function DenseAdminWorkbenchProof({ loading = false, empty = false }: Den
         header: "Actions",
         mobileLabel: "Actions",
         cell: (row) => (
-          <div className="flex min-w-0 flex-wrap justify-end gap-2">
+          <WorkbenchActionRow>
             <ObservationEvidenceSheet observation={row} />
             <Button
               size="sm"
@@ -385,7 +394,7 @@ export function DenseAdminWorkbenchProof({ loading = false, empty = false }: Den
             >
               Preview
             </Button>
-          </div>
+          </WorkbenchActionRow>
         ),
       },
     ],
@@ -393,25 +402,20 @@ export function DenseAdminWorkbenchProof({ loading = false, empty = false }: Den
   );
 
   return (
-    <section className="grid gap-5" data-proof-artifact="dense-admin-workbench">
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
-        <div className="min-w-0">
-          <div className="text-xs font-semibold uppercase text-accent">Catalog control plane proof</div>
-          <h1 className="mt-1 font-heading text-2xl font-semibold leading-tight text-foreground md:text-3xl">
-            Import provider data, review Source Observations, promote Catalog facts
-          </h1>
-          <p className="mt-2 max-w-4xl text-sm leading-6 text-secondary">
-            Supporting health, profile, rollout, and evidence workflows stay grouped around the primary
-            import-to-promotion path instead of becoming equal destinations.
-          </p>
-        </div>
-        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end sm:justify-end">
-          <Button leadingIcon="refreshCcw">Pull provider data</Button>
-          <Button tone="secondary" leadingIcon="check">
-            Open promotion preview
-          </Button>
-        </div>
-      </div>
+    <DenseAdminWorkbench data-proof-artifact="dense-admin-workbench">
+      <DenseAdminWorkbenchHeader
+        eyebrow="Catalog control plane proof"
+        title="Import provider data, review Source Observations, promote Catalog facts"
+        description="Supporting health, profile, rollout, and evidence workflows stay grouped around the primary import-to-promotion path instead of becoming equal destinations."
+        actions={
+          <>
+            <Button leadingIcon="refreshCcw">Pull provider data</Button>
+            <Button tone="secondary" leadingIcon="check">
+              Open promotion preview
+            </Button>
+          </>
+        }
+      />
 
       <MetricStrip
         items={[
@@ -422,19 +426,15 @@ export function DenseAdminWorkbenchProof({ loading = false, empty = false }: Den
         ]}
       />
 
-      <div className="grid gap-5 lg:grid-cols-[18rem_minmax(0,1fr)] lg:items-start">
-        <div className="lg:sticky lg:top-20">
-          <SectionNavigation
-            groups={navigationGroups}
-            activeKey={activeSection}
-            label="Catalog control plane sections"
-            mobileLabel="Choose Catalog workflow"
-            onSelect={setActiveSection}
-          />
-        </div>
-
+      <DenseAdminWorkbenchLayout
+        navigationGroups={navigationGroups}
+        activeNavigationKey={activeSection}
+        navigationLabel="Catalog control plane sections"
+        mobileNavigationLabel="Choose Catalog workflow"
+        onNavigationSelect={setActiveSection}
+      >
         <BulkActionSurface>
-          <div className="grid min-w-0 gap-4">
+          <WorkbenchStack>
             <OperationalStatusBanner
               tone="warning"
               title="Provider transport is degraded, but the primary path remains usable"
@@ -502,20 +502,22 @@ export function DenseAdminWorkbenchProof({ loading = false, empty = false }: Den
                 emptyDescription="Pull provider data or adjust filters before promotion."
               />
 
-              <div className="flex flex-col gap-2 border-t border-muted pt-3 text-sm text-secondary sm:flex-row sm:items-center sm:justify-between">
-                <span>Showing 1-4 of 168 observations for provider context TCGdx / English / profile v12.</span>
-                <div className="flex flex-wrap gap-2">
+              <WorkbenchActionRow align="between" stackOnMobile>
+                <WorkbenchText>
+                  Showing 1-4 of 168 observations for provider context TCGdx / English / profile v12.
+                </WorkbenchText>
+                <WorkbenchActionRow align="start">
                   <Button size="sm" tone="secondary" disabled>
                     Previous
                   </Button>
                   <Button size="sm" tone="secondary">
                     Next
                   </Button>
-                </div>
-              </div>
+                </WorkbenchActionRow>
+              </WorkbenchActionRow>
             </WorkflowModule>
 
-            <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
+            <WorkbenchGrid columns="detail">
               <WorkflowModule
                 title="Readiness and support states"
                 description="Support signals explain why a command can or cannot complete without taking over the workbench."
@@ -533,7 +535,7 @@ export function DenseAdminWorkbenchProof({ loading = false, empty = false }: Den
               >
                 <WorkflowReadinessChecklist items={proofStateItems} />
               </WorkflowModule>
-            </div>
+            </WorkbenchGrid>
 
             {selectedCount > 0 ? (
               <BulkActionBar
@@ -566,9 +568,9 @@ export function DenseAdminWorkbenchProof({ loading = false, empty = false }: Den
                 ]}
               />
             ) : null}
-          </div>
+          </WorkbenchStack>
         </BulkActionSurface>
-      </div>
-    </section>
+      </DenseAdminWorkbenchLayout>
+    </DenseAdminWorkbench>
   );
 }

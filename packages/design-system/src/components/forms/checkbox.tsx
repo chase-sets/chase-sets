@@ -120,11 +120,7 @@ export function Checkbox({
           {label ? (
             <div className={cx("text-sm font-medium text-foreground", hideLabel && "sr-only")}>
               {label}
-              {required ? (
-                <span aria-hidden="true" className="ml-1 text-accent">
-                  *
-                </span>
-              ) : null}
+              {required ? <span aria-hidden="true" className="ml-1 text-accent before:content-['*']" /> : null}
             </div>
           ) : null}
         </div>
@@ -186,11 +182,7 @@ export function CheckboxGroup({
         {label ? (
           <legend id={legendId} className={cx("mb-2 text-sm font-medium text-foreground", hideLabel && "sr-only")}>
             {label}
-            {required ? (
-              <span aria-hidden="true" className="ml-1 text-accent">
-                *
-              </span>
-            ) : null}
+            {required ? <span aria-hidden="true" className="ml-1 text-accent before:content-['*']" /> : null}
           </legend>
         ) : null}
         <div className="space-y-2">

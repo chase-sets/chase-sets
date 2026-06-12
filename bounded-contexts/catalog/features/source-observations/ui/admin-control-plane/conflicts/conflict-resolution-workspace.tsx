@@ -6,6 +6,11 @@ import {
   LinkButton,
   MetricStrip,
   OperationalStatusBanner,
+  StatusReasonList,
+  WorkbenchDataCell,
+  WorkbenchGrid,
+  WorkbenchStack,
+  WorkbenchText,
   WorkflowModule,
   type DataColumn,
 } from "@chase-sets/design-system";
@@ -31,7 +36,7 @@ export function CatalogIntegrationConflictResolutionWorkspace({
   const conflicts = readModel.conflictResolution;
 
   return (
-    <section className="grid min-w-0 gap-4" data-catalog-conflict-resolution-workspace="true">
+    <WorkbenchStack element="section" data-catalog-conflict-resolution-workspace="true">
       <WorkflowModule
         title={t("catalog.features.sourceObservations.ui.conflictResolution.title")}
         description={t("catalog.features.sourceObservations.ui.conflictResolution.description")}
@@ -44,7 +49,7 @@ export function CatalogIntegrationConflictResolutionWorkspace({
         headingLevel={2}
         density="compact"
       >
-        <div className="grid gap-4">
+        <WorkbenchStack>
           <OperationalStatusBanner
             tone={conflicts.status === "blocked" ? "danger" : conflicts.status === "empty" ? "success" : "warning"}
             title={conflictBannerTitle(conflicts)}
@@ -78,7 +83,7 @@ export function CatalogIntegrationConflictResolutionWorkspace({
               },
             ]}
           />
-        </div>
+        </WorkbenchStack>
       </WorkflowModule>
 
       <WorkflowModule
@@ -102,7 +107,7 @@ export function CatalogIntegrationConflictResolutionWorkspace({
         )}
       </WorkflowModule>
 
-      <div className="grid min-w-0 gap-4 xl:grid-cols-2">
+      <WorkbenchGrid columns="two">
         <WorkflowModule
           title={t("catalog.features.sourceObservations.ui.conflictResolution.rules.title")}
           description={t("catalog.features.sourceObservations.ui.conflictResolution.rules.description")}
@@ -134,7 +139,7 @@ export function CatalogIntegrationConflictResolutionWorkspace({
           }
           density="compact"
         >
-          <div className="grid gap-4">
+          <WorkbenchStack>
             <OperationalStatusBanner
               tone={conflicts.overridePolicy.supported ? "warning" : "danger"}
               title={t("catalog.features.sourceObservations.ui.conflictResolution.override.banner.title")}
@@ -157,9 +162,9 @@ export function CatalogIntegrationConflictResolutionWorkspace({
               ]}
             />
             <BlockerBadges blockers={conflicts.overridePolicy.blockers} />
-          </div>
+          </WorkbenchStack>
         </WorkflowModule>
-      </div>
+      </WorkbenchGrid>
 
       <WorkflowModule
         title={t("catalog.features.sourceObservations.ui.conflictResolution.audit.title")}
@@ -181,7 +186,7 @@ export function CatalogIntegrationConflictResolutionWorkspace({
           />
         )}
       </WorkflowModule>
-    </section>
+    </WorkbenchStack>
   );
 }
 
@@ -191,12 +196,7 @@ const conflictColumns: DataColumn<ConflictRow>[] = [
     header: t("catalog.features.sourceObservations.ui.conflictResolution.table.fact"),
     sortable: true,
     cell: (row) => (
-      <div className="grid min-w-0 gap-1">
-        <span className="text-sm font-semibold text-foreground">{row.affectedFact}</span>
-        <span className="text-xs text-secondary">
-          {row.displayName} - {row.externalKey}
-        </span>
-      </div>
+      <WorkbenchDataCell title={row.affectedFact} description={row.displayName} detail={row.externalKey} />
     ),
   },
   {
@@ -210,16 +210,13 @@ const conflictColumns: DataColumn<ConflictRow>[] = [
     header: t("catalog.features.sourceObservations.ui.conflictResolution.table.values"),
     mobileLabel: t("catalog.features.sourceObservations.ui.conflictResolution.table.values"),
     cell: (row) => (
-      <div className="grid min-w-0 gap-1">
+      <WorkbenchStack gap="sm">
         {row.candidateValues.slice(0, 3).map((candidate) => (
-          <span
-            key={`${row.observationId}-${candidate.evidencePath}-${candidate.role}`}
-            className="text-xs text-secondary"
-          >
+          <WorkbenchText key={`${row.observationId}-${candidate.evidencePath}-${candidate.role}`} size="xs">
             {candidate.source}: {candidate.value} ({stateLabel(candidate.role)})
-          </span>
+          </WorkbenchText>
         ))}
-      </div>
+      </WorkbenchStack>
     ),
   },
   {
@@ -246,12 +243,7 @@ const ruleColumns: DataColumn<PrecedenceRule>[] = [
     key: "rule",
     header: t("catalog.features.sourceObservations.ui.conflictResolution.table.rule"),
     sortable: true,
-    cell: (rule) => (
-      <div className="grid min-w-0 gap-1">
-        <span className="text-sm font-semibold text-foreground">{rule.label}</span>
-        <span className="text-xs text-secondary">{rule.ruleId}</span>
-      </div>
-    ),
+    cell: (rule) => <WorkbenchDataCell title={rule.label} description={rule.ruleId} />,
   },
   {
     key: "behavior",
@@ -272,12 +264,7 @@ const auditColumns: DataColumn<AuditEvent>[] = [
     key: "event",
     header: t("catalog.features.sourceObservations.ui.conflictResolution.table.event"),
     sortable: true,
-    cell: (event) => (
-      <div className="grid min-w-0 gap-1">
-        <span className="text-sm font-semibold text-foreground">{event.eventName}</span>
-        <span className="text-xs text-secondary">{event.summary}</span>
-      </div>
-    ),
+    cell: (event) => <WorkbenchDataCell title={event.eventName} description={event.summary} />,
   },
   {
     key: "provider",
@@ -299,23 +286,20 @@ function BlockerBadges({ blockers }: { blockers: readonly CatalogPrimaryWorkbenc
   }
 
   return (
-    <div className="grid min-w-0 gap-2">
-      <h3 className="text-sm font-semibold text-foreground">
-        {t("catalog.features.sourceObservations.ui.conflictResolution.blockers.title")}
-      </h3>
-      <div className="grid min-w-0 gap-2">
-        {[...new Set(blockers)].map((blocker) => {
-          const copy = getCatalogPrimaryWorkbenchBlockerCopy(blocker);
-          return (
-            <div key={blocker} className="grid min-w-0 gap-1">
-              <Badge tone={blockerTone(blocker)}>{copy.label}</Badge>
-              <span className="text-xs leading-5 text-secondary">{copy.reason}</span>
-              <span className="text-xs leading-5 text-secondary">{copy.nextStep}</span>
-            </div>
-          );
-        })}
-      </div>
-    </div>
+    <StatusReasonList
+      nextStepPrefix={t("catalog.features.sourceObservations.ui.primaryWorkbench.copy.next.prefix")}
+      items={[...new Set(blockers)].map((blocker) => {
+        const copy = getCatalogPrimaryWorkbenchBlockerCopy(blocker);
+
+        return {
+          key: blocker,
+          label: copy.label,
+          reason: copy.reason,
+          nextStep: copy.nextStep,
+          tone: blockerTone(blocker),
+        };
+      })}
+    />
   );
 }
 

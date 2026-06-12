@@ -1,16 +1,32 @@
-import type { ReactNode } from "react";
 import {
   Badge,
+  BadgeCluster,
   Button,
+  Checkbox,
   DataTable,
+  DenseAdminWorkbenchLayout,
   EmptyState,
-  Form,
+  EvidenceList,
+  EvidencePanel,
+  HiddenInput,
   KeyValueList,
   LinkButton,
   MetricStrip,
+  NativeSelect,
   OperationalStatusBanner,
+  StatusReasonList,
+  Textarea,
+  TextInput,
+  WorkbenchDataCell,
+  WorkbenchForm,
+  WorkbenchFormGrid,
+  WorkbenchGrid,
+  WorkbenchStack,
+  WorkbenchText,
+  WorkbenchValueList,
   WorkflowModule,
   type DataColumn,
+  type SectionNavigationGroup,
 } from "@chase-sets/design-system";
 import { t } from "@chase-sets/localization";
 import type {
@@ -42,12 +58,10 @@ export function CatalogIntegrationProfileAuthoringWorkspace({
       header: t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.table.profile"),
       sortable: true,
       cell: (profile) => (
-        <div className="grid min-w-0 gap-1">
-          <div className="text-sm font-semibold text-foreground">{profile.displayName}</div>
-          <div className="text-xs leading-5 text-secondary">
-            {profile.profileKey}@{profile.profileVersion}
-          </div>
-        </div>
+        <WorkbenchDataCell
+          title={profile.displayName}
+          description={`${profile.profileKey}@${profile.profileVersion}`}
+        />
       ),
     },
     {
@@ -55,14 +69,24 @@ export function CatalogIntegrationProfileAuthoringWorkspace({
       header: t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.table.lifecycle"),
       mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.table.lifecycle"),
       cell: (profile) => (
-        <div className="flex min-w-0 flex-wrap gap-1.5">
-          <Badge tone={profile.active ? "success" : lifecycleTone(profile.lifecycle)}>
-            {stateLabel(profile.lifecycle)}
-          </Badge>
-          {profile.active ? (
-            <Badge tone="accent">{t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.active")}</Badge>
-          ) : null}
-        </div>
+        <BadgeCluster
+          items={[
+            {
+              key: "lifecycle",
+              label: stateLabel(profile.lifecycle),
+              tone: profile.active ? "success" : lifecycleTone(profile.lifecycle),
+            },
+            ...(profile.active
+              ? [
+                  {
+                    key: "active",
+                    label: t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.active"),
+                    tone: "accent" as const,
+                  },
+                ]
+              : []),
+          ]}
+        />
       ),
     },
     {
@@ -85,7 +109,7 @@ export function CatalogIntegrationProfileAuthoringWorkspace({
   ];
 
   return (
-    <section className="grid min-w-0 gap-4" data-catalog-profile-authoring-workspace="true">
+    <WorkbenchStack element="section" data-catalog-profile-authoring-workspace="true">
       <WorkflowModule
         title={t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.title")}
         description={t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.description")}
@@ -96,7 +120,7 @@ export function CatalogIntegrationProfileAuthoringWorkspace({
           </LinkButton>
         }
       >
-        <div className="grid gap-4">
+        <WorkbenchStack>
           <OperationalStatusBanner
             tone={authoring.status === "ready" ? "success" : "warning"}
             title={profileBannerTitle(authoring)}
@@ -150,7 +174,7 @@ export function CatalogIntegrationProfileAuthoringWorkspace({
               }
             />
           )}
-        </div>
+        </WorkbenchStack>
       </WorkflowModule>
 
       {authoring.sectionWorkspaces.length > 0 ? (
@@ -174,8 +198,8 @@ export function CatalogIntegrationProfileAuthoringWorkspace({
         description={t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.draft.description")}
         status={<Badge tone={actionTone(cloneDraft.state)}>{stateLabel(cloneDraft.state)}</Badge>}
       >
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
-          <div className="grid min-w-0 gap-4">
+        <WorkbenchGrid columns="detail">
+          <WorkbenchStack>
             <EvidenceList
               title={t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.restrictions")}
               items={cloneDraft.lifecycleRestrictions.map((restriction) => ({
@@ -195,36 +219,31 @@ export function CatalogIntegrationProfileAuthoringWorkspace({
               }))}
             />
             <ProfileBlockerList blockers={cloneDraft.blockers} />
-          </div>
+          </WorkbenchStack>
 
-          <Form
-            spacing="md"
+          <WorkbenchForm
             method="post"
             action={cloneDraft.submitHref}
             data-catalog-primary-workbench-command="clone-provider-profile"
-            className="grid min-w-0 gap-3 rounded-md border border-border-subtle p-4"
           >
             <ProfileAuthoringHiddenInputs readModel={readModel} authoring={authoring} />
-            <label className="grid gap-1 text-sm font-semibold text-foreground">
-              {t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.draft.target.label")}
-              <input
-                className="min-h-10 rounded-md border border-border-subtle bg-surface px-3 py-2 text-sm font-normal text-foreground"
-                name="targetProfileVersion"
-                defaultValue={cloneDraft.targetProfileVersion ?? ""}
-                disabled={cloneDisabled}
-                required
-              />
-            </label>
-            <div className="text-xs leading-5 text-secondary">
-              {cloneDraft.state === "denied"
-                ? t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.draft.denied")
-                : t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.draft.help")}
-            </div>
+            <TextInput
+              label={t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.draft.target.label")}
+              description={
+                cloneDraft.state === "denied"
+                  ? t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.draft.denied")
+                  : t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.draft.help")
+              }
+              name="targetProfileVersion"
+              defaultValue={cloneDraft.targetProfileVersion ?? ""}
+              disabled={cloneDisabled}
+              required
+            />
             <Button type="submit" leadingIcon="plus" disabled={cloneDisabled}>
               {t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.draft.submit")}
             </Button>
-          </Form>
-        </div>
+          </WorkbenchForm>
+        </WorkbenchGrid>
       </WorkflowModule>
 
       <WorkflowModule
@@ -244,7 +263,7 @@ export function CatalogIntegrationProfileAuthoringWorkspace({
           getRowId={(profile) => `${profile.providerKey}:${profile.profileVersion}`}
         />
       </WorkflowModule>
-    </section>
+    </WorkbenchStack>
   );
 }
 
@@ -255,66 +274,51 @@ function ProfileSectionWorkspaces({
   readModel: CatalogPrimaryWorkbenchReadModel;
   authoring: ProfileAuthoringReadModel;
 }) {
+  const navigationGroups = profileSectionNavigationGroups(authoring);
+  const activeNavigationKey = navigationGroups[0]?.items[0]?.key ?? "";
+
   return (
-    <div className="grid gap-4 lg:grid-cols-[16rem_minmax(0,1fr)] lg:items-start">
-      <div className="grid gap-3 lg:sticky lg:top-24">
-        <label className="grid gap-1 text-sm font-semibold text-foreground lg:hidden">
-          {t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sections.mobile.label")}
-          <select
-            className="min-h-10 rounded-md border border-border-subtle bg-surface px-3 py-2 text-sm font-normal text-foreground"
-            defaultValue={authoring.sectionWorkspaces[0]?.anchorId}
-            onChange={(event) => {
-              const target = document.getElementById(event.currentTarget.value);
-              target?.focus();
-              target?.scrollIntoView({ block: "start" });
-            }}
-          >
-            {authoring.sectionWorkspaces.map((workspace) => (
-              <option key={workspace.sectionKey} value={workspace.anchorId}>
-                {workspace.displayName}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <nav
-          className="hidden gap-4 rounded-md border border-border-subtle p-3 lg:grid"
-          aria-label={t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sections.navigation")}
-        >
-          {authoring.sectionGroups.map((group) => {
-            const sections = authoring.sectionWorkspaces.filter((workspace) =>
-              group.sections.includes(workspace.sectionKey),
-            );
-            if (sections.length === 0) {
-              return null;
-            }
-
-            return (
-              <div key={group.key} className="grid gap-1">
-                <div className="text-xs font-semibold uppercase tracking-normal text-secondary">{group.label}</div>
-                {sections.map((workspace) => (
-                  <a
-                    key={workspace.sectionKey}
-                    className="flex min-w-0 items-center justify-between gap-2 rounded-md px-2 py-1.5 text-sm font-semibold text-foreground hover:bg-surface-muted"
-                    href={`#${workspace.anchorId}`}
-                  >
-                    <span className="truncate">{workspace.displayName}</span>
-                    <Badge tone={sectionStatusTone(workspace.status)}>{stateLabel(workspace.status)}</Badge>
-                  </a>
-                ))}
-              </div>
-            );
-          })}
-        </nav>
-      </div>
-
-      <div className="grid min-w-0 gap-4">
+    <DenseAdminWorkbenchLayout
+      navigationGroups={navigationGroups}
+      activeNavigationKey={activeNavigationKey}
+      navigationLabel={t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sections.navigation")}
+      mobileNavigationLabel={t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sections.mobile.label")}
+      onNavigationSelect={(key) => {
+        const target = document.getElementById(key);
+        target?.focus();
+        target?.scrollIntoView({ block: "start" });
+      }}
+    >
+      <WorkbenchStack>
         {authoring.sectionWorkspaces.map((workspace) => (
           <ProfileSectionWorkspaceCard key={workspace.sectionKey} readModel={readModel} workspace={workspace} />
         ))}
-      </div>
-    </div>
+      </WorkbenchStack>
+    </DenseAdminWorkbenchLayout>
   );
+}
+
+function profileSectionNavigationGroups(authoring: ProfileAuthoringReadModel): SectionNavigationGroup[] {
+  return authoring.sectionGroups
+    .map((group) => ({
+      key: group.key,
+      label: group.label,
+      items: authoring.sectionWorkspaces
+        .filter((workspace) => group.sections.includes(workspace.sectionKey))
+        .map((workspace) => ({
+          key: workspace.anchorId,
+          label: workspace.displayName,
+          href: `#${workspace.anchorId}`,
+          state:
+            workspace.status === "valid"
+              ? ("default" as const)
+              : workspace.status === "blocked"
+                ? ("blocked" as const)
+                : ("warning" as const),
+          statusLabel: stateLabel(workspace.status),
+        })),
+    }))
+    .filter((group) => group.items.length > 0);
 }
 
 function ProfileSectionWorkspaceCard({
@@ -327,36 +331,34 @@ function ProfileSectionWorkspaceCard({
   const saveDisabled = !workspace.editable;
 
   return (
-    <section
+    <EvidencePanel
       id={workspace.anchorId}
       tabIndex={-1}
-      className="grid gap-4 border-t border-border-subtle pt-4 outline-none focus-visible:ring-2 focus-visible:ring-accent"
+      eyebrow={workspace.groupLabel}
+      title={workspace.displayName}
+      description={workspace.description}
+      status={
+        <BadgeCluster
+          align="end"
+          items={[
+            { key: "status", label: stateLabel(workspace.status), tone: sectionStatusTone(workspace.status) },
+            { key: "action", label: stateLabel(workspace.actionState), tone: actionTone(workspace.actionState) },
+            {
+              key: "save",
+              label: stateLabel(workspace.saveOutcome),
+              tone:
+                workspace.saveOutcome === "saved"
+                  ? "success"
+                  : workspace.saveOutcome === "not-submitted"
+                    ? "neutral"
+                    : "warning",
+            },
+          ]}
+        />
+      }
       data-catalog-profile-section-workspace={workspace.sectionKey}
     >
-      <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="text-xs font-semibold uppercase tracking-normal text-accent">{workspace.groupLabel}</div>
-          <h3 className="mt-1 text-base font-semibold text-foreground">{workspace.displayName}</h3>
-          <p className="mt-1 text-sm leading-6 text-secondary">{workspace.description}</p>
-        </div>
-        <div className="flex flex-wrap justify-end gap-1.5">
-          <Badge tone={sectionStatusTone(workspace.status)}>{stateLabel(workspace.status)}</Badge>
-          <Badge tone={actionTone(workspace.actionState)}>{stateLabel(workspace.actionState)}</Badge>
-          <Badge
-            tone={
-              workspace.saveOutcome === "saved"
-                ? "success"
-                : workspace.saveOutcome === "not-submitted"
-                  ? "neutral"
-                  : "warning"
-            }
-          >
-            {stateLabel(workspace.saveOutcome)}
-          </Badge>
-        </div>
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-3">
+      <WorkbenchGrid columns="three">
         <KeyValueList
           items={[
             keyValue("Domain", workspace.domainConcept),
@@ -372,7 +374,7 @@ function ProfileSectionWorkspaceCard({
           ]}
         />
         <ProfileBlockerList blockers={workspace.blockers} />
-      </div>
+      </WorkbenchGrid>
 
       {workspace.diagnostics.length > 0 ? (
         <EvidenceList
@@ -388,34 +390,32 @@ function ProfileSectionWorkspaceCard({
 
       <ProfileSectionDomainDetails workspace={workspace} />
 
-      <Form
-        spacing="md"
+      <WorkbenchForm
         method="post"
         action={workspace.submitHref}
         data-catalog-primary-workbench-command="update-provider-profile-section"
-        className="grid min-w-0 gap-3 rounded-md border border-border-subtle p-4"
       >
         <ProfileSectionHiddenInputs readModel={readModel} workspace={workspace} />
-        <div className="grid gap-3 md:grid-cols-2">
+        <WorkbenchFormGrid>
           {workspace.fields.map((fieldEntry) => (
             <ProfileSectionFieldControl key={fieldEntry.key} field={fieldEntry} />
           ))}
-        </div>
+        </WorkbenchFormGrid>
         <Button type="submit" leadingIcon="check" disabled={saveDisabled}>
           {t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sections.save")}
         </Button>
-      </Form>
-    </section>
+      </WorkbenchForm>
+    </EvidencePanel>
   );
 }
 
 function ProfileSectionDomainDetails({ workspace }: { workspace: ProfileSectionWorkspace }) {
   return (
-    <div className="grid gap-4">
+    <WorkbenchStack>
       <ProviderOptionQueryDetails workspace={workspace} />
       <ImportScopeControlDetails workspace={workspace} />
       <MappingRowDetails workspace={workspace} />
-    </div>
+    </WorkbenchStack>
   );
 }
 
@@ -430,19 +430,20 @@ function ProviderOptionQueryDetails({ workspace }: { workspace: ProfileSectionWo
       header: t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.query"),
       sortable: true,
       cell: (query) => (
-        <div className="grid min-w-0 gap-1">
-          <div className="text-sm font-semibold text-foreground">{query.displayName}</div>
-          <div className="break-all text-xs leading-5 text-secondary">{query.queryKind}</div>
-          {query.aliases.length > 0 ? (
-            <div className="flex min-w-0 flex-wrap gap-1">
-              {query.aliases.map((alias) => (
-                <Badge key={alias} tone="neutral">
-                  {alias}
-                </Badge>
-              ))}
-            </div>
-          ) : null}
-        </div>
+        <WorkbenchDataCell
+          title={query.displayName}
+          description={query.queryKind}
+          descriptionVariant="mono"
+          badges={
+            <BadgeCluster
+              items={query.aliases.map((alias) => ({
+                key: alias,
+                label: alias,
+                tone: "neutral",
+              }))}
+            />
+          }
+        />
       ),
     },
     {
@@ -450,37 +451,51 @@ function ProviderOptionQueryDetails({ workspace }: { workspace: ProfileSectionWo
       header: t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.scope"),
       mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.scope"),
       cell: (query) => (
-        <div className="grid min-w-0 gap-1 text-xs leading-5 text-secondary">
-          <div className="flex min-w-0 flex-wrap gap-1">
-            <Badge tone="info">{query.scope}</Badge>
-            {query.parentScope ? (
-              <Badge tone={query.parentRequired ? "warning" : "neutral"}>{query.parentScope}</Badge>
-            ) : null}
-          </div>
-          {query.parentDiagnosticText ? <div>{query.parentDiagnosticText}</div> : null}
-          {query.parentValueKind ? <div>{query.parentValueKind}</div> : null}
-        </div>
+        <WorkbenchStack gap="sm">
+          <BadgeCluster
+            items={[
+              { key: "scope", label: query.scope, tone: "info" },
+              ...(query.parentScope
+                ? [
+                    {
+                      key: "parent",
+                      label: query.parentScope,
+                      tone: query.parentRequired ? ("warning" as const) : ("neutral" as const),
+                    },
+                  ]
+                : []),
+            ]}
+          />
+          {query.parentDiagnosticText ? <WorkbenchText size="xs">{query.parentDiagnosticText}</WorkbenchText> : null}
+          {query.parentValueKind ? <WorkbenchText size="xs">{query.parentValueKind}</WorkbenchText> : null}
+        </WorkbenchStack>
       ),
     },
     {
       key: "operation",
       header: t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.operation"),
       mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.operation"),
-      cell: (query) => <span className="break-all text-xs leading-5 text-secondary">{query.operation}</span>,
+      cell: (query) => (
+        <WorkbenchText size="xs" wrap="anywhere">
+          {query.operation}
+        </WorkbenchText>
+      ),
     },
     {
       key: "output",
       header: t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.output"),
       mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.output"),
       cell: (query) => (
-        <div className="grid min-w-0 gap-1">
+        <WorkbenchStack gap="sm">
           {query.outputMappings.map((mapping) => (
-            <div key={mapping.key} className="grid min-w-0 gap-0.5 text-xs leading-5">
-              <span className="font-semibold text-foreground">{mapping.label}</span>
-              <span className="break-all text-secondary">{mapping.path}</span>
-            </div>
+            <WorkbenchDataCell
+              key={mapping.key}
+              title={mapping.label}
+              description={mapping.path}
+              descriptionVariant="mono"
+            />
           ))}
-        </div>
+        </WorkbenchStack>
       ),
     },
     {
@@ -488,20 +503,34 @@ function ProviderOptionQueryDetails({ workspace }: { workspace: ProfileSectionWo
       header: t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.cache"),
       mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.cache"),
       cell: (query) => (
-        <div className="grid min-w-0 gap-1 text-xs leading-5 text-secondary">
-          <div className="flex min-w-0 flex-wrap gap-1">
-            <Badge tone={optionQueryHealthTone(query.cacheState.status)}>{query.cacheState.label}</Badge>
-            {query.cacheState.cacheOnly ? (
-              <Badge tone="warning">
-                {t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.cacheOnly")}
-              </Badge>
-            ) : null}
-          </div>
-          <div>{query.cacheState.description}</div>
+        <WorkbenchStack gap="sm">
+          <BadgeCluster
+            items={[
+              {
+                key: "status",
+                label: query.cacheState.label,
+                tone: optionQueryHealthTone(query.cacheState.status),
+              },
+              ...(query.cacheState.cacheOnly
+                ? [
+                    {
+                      key: "cache-only",
+                      label: t(
+                        "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.cacheOnly",
+                      ),
+                      tone: "warning" as const,
+                    },
+                  ]
+                : []),
+            ]}
+          />
+          <WorkbenchText size="xs">{query.cacheState.description}</WorkbenchText>
           {query.cacheState.diagnosticCodes.length > 0 ? (
-            <div className="break-all">{query.cacheState.diagnosticCodes.join(", ")}</div>
+            <WorkbenchText size="xs" wrap="anywhere">
+              {query.cacheState.diagnosticCodes.join(", ")}
+            </WorkbenchText>
           ) : null}
-        </div>
+        </WorkbenchStack>
       ),
     },
   ];
@@ -530,13 +559,12 @@ function ImportScopeControlDetails({ workspace }: { workspace: ProfileSectionWor
       header: t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.importScope"),
       sortable: true,
       cell: (scope) => (
-        <div className="grid min-w-0 gap-1">
-          <div className="text-sm font-semibold text-foreground">{scope.label}</div>
-          <div className="break-all text-xs leading-5 text-secondary">{scope.scope}</div>
-          {scope.importScope ? (
-            <div className="break-all text-xs leading-5 text-secondary">{scope.importScope}</div>
-          ) : null}
-        </div>
+        <WorkbenchDataCell
+          title={scope.label}
+          description={scope.scope}
+          descriptionVariant="mono"
+          detail={scope.importScope}
+        />
       ),
     },
     {
@@ -544,10 +572,10 @@ function ImportScopeControlDetails({ workspace }: { workspace: ProfileSectionWor
       header: t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.state"),
       mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.state"),
       cell: (scope) => (
-        <div className="grid min-w-0 gap-1 text-xs leading-5 text-secondary">
+        <WorkbenchStack gap="sm">
           <Badge tone={importScopeTone(scope.state)}>{stateLabel(scope.state)}</Badge>
-          {scope.reason ? <div>{scope.reason}</div> : null}
-        </div>
+          {scope.reason ? <WorkbenchText size="xs">{scope.reason}</WorkbenchText> : null}
+        </WorkbenchStack>
       ),
     },
     {
@@ -555,33 +583,33 @@ function ImportScopeControlDetails({ workspace }: { workspace: ProfileSectionWor
       header: t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.volume"),
       mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.volume"),
       cell: (scope) => (
-        <div className="grid min-w-0 gap-1 text-xs leading-5 text-secondary">
-          <div>
+        <WorkbenchValueList>
+          <WorkbenchText size="xs">
             {t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.volume.expected", {
               count: String(scope.expectedObservationCount),
             })}
-          </div>
-          <div>
+          </WorkbenchText>
+          <WorkbenchText size="xs">
             {t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.volume.observed", {
               count: String(scope.observedCount),
             })}
-          </div>
-          <div>
+          </WorkbenchText>
+          <WorkbenchText size="xs">
             {t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.volume.changed", {
               count: String(scope.changedCount),
             })}
-          </div>
-          <div>
+          </WorkbenchText>
+          <WorkbenchText size="xs">
             {t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.volume.promoted", {
               count: String(scope.promotedCount),
             })}
-          </div>
-          <div>
+          </WorkbenchText>
+          <WorkbenchText size="xs">
             {t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.volume.rejected", {
               count: String(scope.rejectedCount),
             })}
-          </div>
-        </div>
+          </WorkbenchText>
+        </WorkbenchValueList>
       ),
     },
     {
@@ -627,31 +655,44 @@ function MappingRowDetails({ workspace }: { workspace: ProfileSectionWorkspace }
       key: "mapping",
       header: t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.mapping"),
       sortable: true,
-      cell: (row) => (
-        <div className="grid min-w-0 gap-1">
-          <div className="text-sm font-semibold text-foreground">{row.label}</div>
-          <div className="break-all text-xs leading-5 text-secondary">{row.path}</div>
-        </div>
-      ),
+      cell: (row) => <WorkbenchDataCell title={row.label} description={row.path} descriptionVariant="mono" />,
     },
     {
       key: "summary",
       header: t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.summary"),
       mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.summary"),
-      cell: (row) => <span className="break-all text-xs leading-5 text-secondary">{row.summary}</span>,
+      cell: (row) => (
+        <WorkbenchText size="xs" wrap="anywhere">
+          {row.summary}
+        </WorkbenchText>
+      ),
     },
     {
       key: "ownership",
       header: t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.ownership"),
       mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.ownership"),
       cell: (row) => (
-        <div className="grid min-w-0 gap-1 text-xs leading-5 text-secondary">
-          {row.owner ? <Badge tone="info">{row.owner}</Badge> : null}
-          {row.redaction ? (
-            <Badge tone={row.redaction === "none" ? "neutral" : "warning"}>{row.redaction}</Badge>
+        <WorkbenchStack gap="sm">
+          <BadgeCluster
+            items={[
+              ...(row.owner ? [{ key: "owner", label: row.owner, tone: "info" as const }] : []),
+              ...(row.redaction
+                ? [
+                    {
+                      key: "redaction",
+                      label: row.redaction,
+                      tone: row.redaction === "none" ? ("neutral" as const) : ("warning" as const),
+                    },
+                  ]
+                : []),
+            ]}
+          />
+          {row.uses.length > 0 ? (
+            <WorkbenchText size="xs" wrap="anywhere">
+              {row.uses.join(", ")}
+            </WorkbenchText>
           ) : null}
-          {row.uses.length > 0 ? <div className="break-all">{row.uses.join(", ")}</div> : null}
-        </div>
+        </WorkbenchStack>
       ),
     },
     {
@@ -661,21 +702,20 @@ function MappingRowDetails({ workspace }: { workspace: ProfileSectionWorkspace }
         "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.table.editorMetadata",
       ),
       cell: (row) => (
-        <div className="flex min-w-0 flex-wrap gap-1">
-          {mappingAffordanceLabels(row).map((label) => (
-            <Badge key={label} tone="neutral">
-              {label}
-            </Badge>
-          ))}
-          {row.diagnostics.map((diagnostic) => (
-            <Badge
-              key={`${diagnostic.path}:${diagnostic.diagnosticText}`}
-              tone={diagnostic.severity === "error" ? "danger" : "warning"}
-            >
-              {diagnostic.path}
-            </Badge>
-          ))}
-        </div>
+        <BadgeCluster
+          items={[
+            ...mappingAffordanceLabels(row).map((label) => ({
+              key: label,
+              label,
+              tone: "neutral" as const,
+            })),
+            ...row.diagnostics.map((diagnostic) => ({
+              key: `${diagnostic.path}:${diagnostic.diagnosticText}`,
+              label: diagnostic.path,
+              tone: diagnostic.severity === "error" ? ("danger" as const) : ("warning" as const),
+            })),
+          ]}
+        />
       ),
     },
   ];
@@ -694,78 +734,59 @@ function MappingRowDetails({ workspace }: { workspace: ProfileSectionWorkspace }
 }
 
 function ProfileSectionFieldControl({ field }: { field: ProfileSectionWorkspace["fields"][number] }) {
-  const labelClassName = "grid gap-1 text-sm font-semibold text-foreground";
-  const controlClassName =
-    "min-h-10 rounded-md border border-border-subtle bg-surface px-3 py-2 text-sm font-normal text-foreground disabled:bg-surface-muted disabled:text-secondary";
-
   if (field.control === "textarea") {
     return (
-      <label className={labelClassName}>
-        {field.label}
-        <textarea
-          className={`${controlClassName} min-h-24`}
-          name={field.key}
-          defaultValue={field.value}
-          disabled={field.disabled}
-          required={field.required}
-        />
-        {field.helpText ? <span className="text-xs font-normal leading-5 text-secondary">{field.helpText}</span> : null}
-      </label>
-    );
-  }
-
-  if (field.control === "select") {
-    return (
-      <label className={labelClassName}>
-        {field.label}
-        <select
-          className={controlClassName}
-          name={field.key}
-          defaultValue={field.value}
-          disabled={field.disabled}
-          required={field.required}
-        >
-          {field.options.length === 0 ? <option value={field.value}>{field.value || "Not selected"}</option> : null}
-          {field.options.map((optionEntry) => (
-            <option key={optionEntry.value} value={optionEntry.value}>
-              {optionEntry.label}
-            </option>
-          ))}
-        </select>
-        {field.helpText ? <span className="text-xs font-normal leading-5 text-secondary">{field.helpText}</span> : null}
-      </label>
-    );
-  }
-
-  if (field.control === "checkbox") {
-    return (
-      <label className="flex min-h-10 items-center gap-2 text-sm font-semibold text-foreground">
-        <input
-          className="h-4 w-4 rounded border-border-subtle"
-          type="checkbox"
-          name={field.key}
-          value="true"
-          defaultChecked={field.value === "true"}
-          disabled={field.disabled}
-        />
-        <span>{field.label}</span>
-        {field.helpText ? <span className="text-xs font-normal leading-5 text-secondary">{field.helpText}</span> : null}
-      </label>
-    );
-  }
-
-  return (
-    <label className={labelClassName}>
-      {field.label}
-      <input
-        className={controlClassName}
+      <Textarea
+        label={field.label}
+        description={field.helpText}
         name={field.key}
         defaultValue={field.value}
         disabled={field.disabled}
         required={field.required}
       />
-      {field.helpText ? <span className="text-xs font-normal leading-5 text-secondary">{field.helpText}</span> : null}
-    </label>
+    );
+  }
+
+  if (field.control === "select") {
+    return (
+      <NativeSelect
+        label={field.label}
+        description={field.helpText}
+        name={field.key}
+        defaultValue={field.value}
+        disabled={field.disabled}
+        required={field.required}
+        items={
+          field.options.length === 0
+            ? [{ value: field.value, label: field.value || "Not selected" }]
+            : field.options.map((optionEntry) => ({ value: optionEntry.value, label: optionEntry.label }))
+        }
+      />
+    );
+  }
+
+  if (field.control === "checkbox") {
+    return (
+      <Checkbox
+        label={field.label}
+        description={field.helpText}
+        name={field.key}
+        value="true"
+        defaultChecked={field.value === "true"}
+        disabled={field.disabled}
+      />
+    );
+  }
+
+  return (
+    <TextInput
+      label={field.label}
+      description={field.helpText}
+      name={field.key}
+      defaultValue={field.value}
+      disabled={field.disabled}
+      required={field.required}
+    />
   );
 }
 
@@ -781,26 +802,22 @@ function ProfileSectionHiddenInputs({
 
   return (
     <>
-      <input type="hidden" name="_intent" value="update-provider-profile-section" />
-      <input type="hidden" name="sectionKey" value={workspace.sectionKey} />
-      <input type="hidden" name="providerKey" value={selectedProfile?.providerKey ?? context.providerKey ?? ""} />
-      <input type="hidden" name="unitKey" value={context.unitKey ?? ""} />
-      <input type="hidden" name="importScope" value={context.importScope ?? ""} />
-      <input
-        type="hidden"
-        name="profileVersion"
-        value={selectedProfile?.profileVersion ?? context.profileVersion ?? ""}
-      />
-      <input type="hidden" name="selectedObservationIds" value={context.selectedObservationIds.join(",")} />
-      <input type="hidden" name="jobId" value={context.jobId ?? ""} />
-      <input type="hidden" name="promotionPreviewId" value={context.promotionPreviewId ?? ""} />
+      <HiddenInput name="_intent" value="update-provider-profile-section" />
+      <HiddenInput name="sectionKey" value={workspace.sectionKey} />
+      <HiddenInput name="providerKey" value={selectedProfile?.providerKey ?? context.providerKey ?? ""} />
+      <HiddenInput name="unitKey" value={context.unitKey ?? ""} />
+      <HiddenInput name="importScope" value={context.importScope ?? ""} />
+      <HiddenInput name="profileVersion" value={selectedProfile?.profileVersion ?? context.profileVersion ?? ""} />
+      <HiddenInput name="selectedObservationIds" value={context.selectedObservationIds.join(",")} />
+      <HiddenInput name="jobId" value={context.jobId ?? ""} />
+      <HiddenInput name="promotionPreviewId" value={context.promotionPreviewId ?? ""} />
     </>
   );
 }
 
 function ProfileOverviewEvidence({ profile }: { profile: ProfileOverview }) {
   return (
-    <div className="grid gap-4 xl:grid-cols-2">
+    <WorkbenchGrid columns="two">
       <EvidencePanel
         title={t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.overview.title")}
         description={t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.overview.description")}
@@ -950,32 +967,7 @@ function ProfileOverviewEvidence({ profile }: { profile: ProfileOverview }) {
           ]}
         />
       </EvidencePanel>
-    </div>
-  );
-}
-
-function EvidencePanel({
-  title,
-  description,
-  status,
-  children,
-}: {
-  title: string;
-  description: string;
-  status: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <section className="grid gap-3 border-t border-border-subtle pt-4">
-      <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h3 className="text-sm font-semibold text-foreground">{title}</h3>
-          <p className="mt-1 text-xs leading-5 text-secondary">{description}</p>
-        </div>
-        {status}
-      </div>
-      {children}
-    </section>
+    </WorkbenchGrid>
   );
 }
 
@@ -991,55 +983,18 @@ function ProfileAuthoringHiddenInputs({
 
   return (
     <>
-      <input type="hidden" name="_intent" value="clone-provider-profile" />
-      <input type="hidden" name="providerKey" value={cloneDraft.sourceProviderKey ?? context.providerKey ?? ""} />
-      <input type="hidden" name="unitKey" value={context.unitKey ?? ""} />
-      <input type="hidden" name="importScope" value={context.importScope ?? ""} />
-      <input
-        type="hidden"
-        name="profileVersion"
-        value={cloneDraft.sourceProfileVersion ?? context.profileVersion ?? ""}
-      />
-      <input type="hidden" name="sourceProviderKey" value={cloneDraft.sourceProviderKey ?? ""} />
-      <input type="hidden" name="sourceProfileVersion" value={cloneDraft.sourceProfileVersion ?? ""} />
-      <input type="hidden" name="targetLifecycle" value={cloneDraft.targetLifecycle} />
-      <input type="hidden" name="selectedObservationIds" value={context.selectedObservationIds.join(",")} />
-      <input type="hidden" name="jobId" value={context.jobId ?? ""} />
-      <input type="hidden" name="promotionPreviewId" value={context.promotionPreviewId ?? ""} />
+      <HiddenInput name="_intent" value="clone-provider-profile" />
+      <HiddenInput name="providerKey" value={cloneDraft.sourceProviderKey ?? context.providerKey ?? ""} />
+      <HiddenInput name="unitKey" value={context.unitKey ?? ""} />
+      <HiddenInput name="importScope" value={context.importScope ?? ""} />
+      <HiddenInput name="profileVersion" value={cloneDraft.sourceProfileVersion ?? context.profileVersion ?? ""} />
+      <HiddenInput name="sourceProviderKey" value={cloneDraft.sourceProviderKey ?? ""} />
+      <HiddenInput name="sourceProfileVersion" value={cloneDraft.sourceProfileVersion ?? ""} />
+      <HiddenInput name="targetLifecycle" value={cloneDraft.targetLifecycle} />
+      <HiddenInput name="selectedObservationIds" value={context.selectedObservationIds.join(",")} />
+      <HiddenInput name="jobId" value={context.jobId ?? ""} />
+      <HiddenInput name="promotionPreviewId" value={context.promotionPreviewId ?? ""} />
     </>
-  );
-}
-
-function EvidenceList({
-  title,
-  items,
-}: {
-  title: string;
-  items: readonly Readonly<{
-    key: string;
-    label: string;
-    description: string;
-    tone: "success" | "warning" | "danger" | "neutral" | "info";
-  }>[];
-}) {
-  return (
-    <div className="grid gap-2">
-      <div className="text-sm font-semibold text-foreground">{title}</div>
-      <div className="grid gap-2">
-        {items.length > 0 ? (
-          items.map((item) => (
-            <div key={item.key} className="grid gap-1 rounded-md border border-border-subtle p-3">
-              <div className="flex min-w-0 flex-wrap gap-1.5">
-                <Badge tone={item.tone}>{item.label}</Badge>
-              </div>
-              <div className="text-xs leading-5 text-secondary">{item.description}</div>
-            </div>
-          ))
-        ) : (
-          <Badge tone="neutral">{t("catalog.features.sourceObservations.ui.primaryWorkbench.none")}</Badge>
-        )}
-      </div>
-    </div>
   );
 }
 
@@ -1049,26 +1004,20 @@ function ProfileBlockerList({ blockers }: { blockers: readonly CatalogPrimaryWor
   }
 
   return (
-    <div className="grid gap-2">
-      <div className="text-sm font-semibold text-foreground">
-        {t("catalog.features.sourceObservations.ui.primaryWorkbench.table.blockers")}
-      </div>
-      {blockers.map((blocker) => {
+    <StatusReasonList
+      nextStepPrefix={t("catalog.features.sourceObservations.ui.primaryWorkbench.copy.next.prefix")}
+      items={blockers.map((blocker) => {
         const copy = getCatalogPrimaryWorkbenchBlockerCopy(blocker);
 
-        return (
-          <div key={blocker} className="grid gap-1 rounded-md border border-border-subtle p-3">
-            <div className="flex min-w-0 flex-wrap gap-1.5">
-              <Badge tone={blockerTone(blocker)}>{copy.label}</Badge>
-            </div>
-            <div className="text-xs leading-5 text-secondary">
-              {copy.reason} {t("catalog.features.sourceObservations.ui.primaryWorkbench.copy.next.prefix")}{" "}
-              {copy.nextStep}
-            </div>
-          </div>
-        );
+        return {
+          key: blocker,
+          label: copy.label,
+          reason: copy.reason,
+          nextStep: copy.nextStep,
+          tone: blockerTone(blocker),
+        };
       })}
-    </div>
+    />
   );
 }
 

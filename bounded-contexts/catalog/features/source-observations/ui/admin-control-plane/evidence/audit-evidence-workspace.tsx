@@ -4,8 +4,13 @@ import {
   EmptyState,
   KeyValueList,
   LinkButton,
+  LinkText,
   MetricStrip,
   OperationalStatusBanner,
+  WorkbenchDataCell,
+  WorkbenchLinkList,
+  WorkbenchStack,
+  WorkbenchText,
   WorkflowModule,
   type DataColumn,
 } from "@chase-sets/design-system";
@@ -27,7 +32,7 @@ export function CatalogIntegrationAuditEvidenceWorkspace({
   const audit = readModel.auditEvidence;
 
   return (
-    <section className="grid min-w-0 gap-4" data-catalog-audit-evidence-workspace="true">
+    <WorkbenchStack element="section" data-catalog-audit-evidence-workspace="true">
       <WorkflowModule
         title={t("catalog.features.sourceObservations.ui.auditEvidence.title")}
         description={t("catalog.features.sourceObservations.ui.auditEvidence.description")}
@@ -40,7 +45,7 @@ export function CatalogIntegrationAuditEvidenceWorkspace({
         headingLevel={2}
         density="compact"
       >
-        <div className="grid gap-4">
+        <WorkbenchStack>
           <OperationalStatusBanner
             tone={audit.status === "blocked" ? "danger" : audit.status === "ready" ? "success" : "warning"}
             title={auditBannerTitle(audit)}
@@ -100,7 +105,7 @@ export function CatalogIntegrationAuditEvidenceWorkspace({
               },
             ]}
           />
-        </div>
+        </WorkbenchStack>
       </WorkflowModule>
 
       <WorkflowModule
@@ -171,7 +176,7 @@ export function CatalogIntegrationAuditEvidenceWorkspace({
           emptyDescription={t("catalog.features.sourceObservations.ui.auditEvidence.release.emptyDescription")}
         />
       </WorkflowModule>
-    </section>
+    </WorkbenchStack>
   );
 }
 
@@ -180,12 +185,7 @@ const filterColumns: DataColumn<AuditFilter>[] = [
     key: "filter",
     header: t("catalog.features.sourceObservations.ui.auditEvidence.table.filter"),
     sortable: true,
-    cell: (filter) => (
-      <div className="grid min-w-0 gap-1">
-        <span className="text-sm font-semibold text-foreground">{filter.label}</span>
-        <span className="text-xs text-secondary">{filter.key}</span>
-      </div>
-    ),
+    cell: (filter) => <WorkbenchDataCell title={filter.label} description={filter.key} />,
   },
   {
     key: "value",
@@ -221,26 +221,19 @@ const timelineColumns: DataColumn<AuditTimelineRow>[] = [
     key: "event",
     header: t("catalog.features.sourceObservations.ui.auditEvidence.table.event"),
     sortable: true,
-    cell: (row) => (
-      <div className="grid min-w-0 gap-1">
-        <span className="text-sm font-semibold text-foreground">{row.eventName}</span>
-        <span className="text-xs text-secondary">{row.eventId}</span>
-        <span className="text-xs text-secondary">{row.occurredAt}</span>
-      </div>
-    ),
+    cell: (row) => <WorkbenchDataCell title={row.eventName} description={row.eventId} detail={row.occurredAt} />,
   },
   {
     key: "target",
     header: t("catalog.features.sourceObservations.ui.auditEvidence.table.target"),
     mobileLabel: t("catalog.features.sourceObservations.ui.auditEvidence.table.target"),
     cell: (row) => (
-      <div className="grid min-w-0 gap-1">
-        <span className="text-sm text-foreground">{row.targetId}</span>
-        <span className="text-xs text-secondary">{stateLabel(row.targetType)}</span>
-        <span className="text-xs text-secondary">
-          {row.providerKey ?? t("catalog.features.sourceObservations.ui.primaryWorkbench.none")}
-        </span>
-      </div>
+      <WorkbenchDataCell
+        title={row.targetId}
+        titleWeight="regular"
+        description={stateLabel(row.targetType)}
+        detail={row.providerKey ?? t("catalog.features.sourceObservations.ui.primaryWorkbench.none")}
+      />
     ),
   },
   {
@@ -248,10 +241,10 @@ const timelineColumns: DataColumn<AuditTimelineRow>[] = [
     header: t("catalog.features.sourceObservations.ui.auditEvidence.table.category"),
     mobileLabel: t("catalog.features.sourceObservations.ui.auditEvidence.table.category"),
     cell: (row) => (
-      <div className="grid gap-1">
+      <WorkbenchStack gap="sm">
         <Badge tone={categoryTone(row.category)}>{stateLabel(row.category)}</Badge>
-        <span className="text-xs text-secondary">{row.actorLabel}</span>
-      </div>
+        <WorkbenchText size="xs">{row.actorLabel}</WorkbenchText>
+      </WorkbenchStack>
     ),
   },
   {
@@ -259,14 +252,15 @@ const timelineColumns: DataColumn<AuditTimelineRow>[] = [
     header: t("catalog.features.sourceObservations.ui.auditEvidence.table.summary"),
     mobileLabel: t("catalog.features.sourceObservations.ui.auditEvidence.table.summary"),
     cell: (row) => (
-      <div className="grid min-w-0 gap-1">
-        <span className="text-sm text-foreground">{row.summary}</span>
-        <span className="text-xs text-secondary">
-          {row.diagnosticCodes.length > 0
+      <WorkbenchDataCell
+        title={row.summary}
+        titleWeight="regular"
+        description={
+          row.diagnosticCodes.length > 0
             ? row.diagnosticCodes.slice(0, 3).join(", ")
-            : t("catalog.features.sourceObservations.ui.primaryWorkbench.none")}
-        </span>
-      </div>
+            : t("catalog.features.sourceObservations.ui.primaryWorkbench.none")
+        }
+      />
     ),
   },
   {
@@ -284,12 +278,10 @@ const linkColumns: DataColumn<AuditEvidenceLink>[] = [
     header: t("catalog.features.sourceObservations.ui.auditEvidence.table.evidence"),
     sortable: true,
     cell: (link) => (
-      <div className="grid min-w-0 gap-1">
-        <a className="text-sm font-semibold text-accent hover:underline" href={link.href}>
-          {link.label}
-        </a>
-        <span className="text-xs text-secondary">{link.key}</span>
-      </div>
+      <WorkbenchStack gap="sm">
+        <LinkText href={link.href}>{link.label}</LinkText>
+        <WorkbenchText size="xs">{link.key}</WorkbenchText>
+      </WorkbenchStack>
     ),
   },
   {
@@ -303,11 +295,11 @@ const linkColumns: DataColumn<AuditEvidenceLink>[] = [
     header: t("catalog.features.sourceObservations.ui.auditEvidence.table.redaction"),
     mobileLabel: t("catalog.features.sourceObservations.ui.auditEvidence.table.redaction"),
     cell: (link) => (
-      <div className="grid min-w-0 gap-1">
+      <WorkbenchStack gap="sm">
         <Badge tone={redactionTone(link.redactionState)}>{stateLabel(link.redactionState)}</Badge>
-        <span className="text-xs text-secondary">{link.sourcePayloadAccess}</span>
-        <span className="text-xs text-secondary">{link.profileSnapshotAccess}</span>
-      </div>
+        <WorkbenchText size="xs">{link.sourcePayloadAccess}</WorkbenchText>
+        <WorkbenchText size="xs">{link.profileSnapshotAccess}</WorkbenchText>
+      </WorkbenchStack>
     ),
   },
   {
@@ -323,27 +315,21 @@ const releaseColumns: DataColumn<ReleaseChecklistRow>[] = [
     key: "workflow",
     header: t("catalog.features.sourceObservations.ui.auditEvidence.table.workflow"),
     sortable: true,
-    cell: (row) => (
-      <div className="grid min-w-0 gap-1">
-        <span className="text-sm font-semibold text-foreground">{row.workflowLabel}</span>
-        <span className="text-xs text-secondary">{row.workflowKey}</span>
-        <span className="text-xs text-secondary">{row.owner}</span>
-      </div>
-    ),
+    cell: (row) => <WorkbenchDataCell title={row.workflowLabel} description={row.workflowKey} detail={row.owner} />,
   },
   {
     key: "status",
     header: t("catalog.features.sourceObservations.ui.auditEvidence.table.status"),
     mobileLabel: t("catalog.features.sourceObservations.ui.auditEvidence.table.status"),
     cell: (row) => (
-      <div className="grid gap-1">
+      <WorkbenchStack gap="sm">
         <Badge tone={checklistTone(row.status)}>{stateLabel(row.status)}</Badge>
-        <span className="text-xs text-secondary">
+        <WorkbenchText size="xs">
           {row.blocksRelease
             ? t("catalog.features.sourceObservations.ui.auditEvidence.release.blocks")
             : t("catalog.features.sourceObservations.ui.auditEvidence.release.nonBlocking")}
-        </span>
-      </div>
+        </WorkbenchText>
+      </WorkbenchStack>
     ),
   },
   {
@@ -357,11 +343,11 @@ const releaseColumns: DataColumn<ReleaseChecklistRow>[] = [
     header: t("catalog.features.sourceObservations.ui.auditEvidence.table.proof"),
     mobileLabel: t("catalog.features.sourceObservations.ui.auditEvidence.table.proof"),
     cell: (row) => (
-      <div className="grid min-w-0 gap-1">
+      <WorkbenchStack gap="sm">
         <EvidenceLinkList links={row.proofLinks} />
-        <span className="text-xs text-secondary">{row.e2eProof}</span>
-        <span className="text-xs text-secondary">{row.smokeProof}</span>
-      </div>
+        <WorkbenchText size="xs">{row.e2eProof}</WorkbenchText>
+        <WorkbenchText size="xs">{row.smokeProof}</WorkbenchText>
+      </WorkbenchStack>
     ),
   },
   {
@@ -369,28 +355,29 @@ const releaseColumns: DataColumn<ReleaseChecklistRow>[] = [
     header: t("catalog.features.sourceObservations.ui.auditEvidence.table.releaseNote"),
     mobileLabel: t("catalog.features.sourceObservations.ui.auditEvidence.table.releaseNote"),
     cell: (row) => (
-      <div className="grid min-w-0 gap-1">
-        <span className="text-sm text-foreground">{row.releaseNote}</span>
-        <span className="text-xs text-secondary">
-          {row.residualDebt.length > 0
+      <WorkbenchDataCell
+        title={row.releaseNote}
+        titleWeight="regular"
+        description={
+          row.residualDebt.length > 0
             ? row.residualDebt.join(", ")
-            : t("catalog.features.sourceObservations.ui.auditEvidence.release.noResidualDebt")}
-        </span>
-        <span className="text-xs text-secondary">{row.tests.slice(0, 2).join(", ")}</span>
-      </div>
+            : t("catalog.features.sourceObservations.ui.auditEvidence.release.noResidualDebt")
+        }
+        detail={row.tests.slice(0, 2).join(", ")}
+      />
     ),
   },
 ];
 
 function EvidenceLinkList({ links }: Readonly<{ links: readonly AuditEvidenceLink[] }>) {
   return (
-    <div className="grid justify-items-end gap-1">
+    <WorkbenchLinkList align="end">
       {links.slice(0, 2).map((link) => (
-        <a key={link.key} className="text-sm font-semibold text-accent hover:underline" href={link.href}>
+        <LinkText key={link.key} href={link.href}>
           {link.label}
-        </a>
+        </LinkText>
       ))}
-    </div>
+    </WorkbenchLinkList>
   );
 }
 

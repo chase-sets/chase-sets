@@ -19,6 +19,22 @@ export const defaultLedgerPath = path.join(
   "DESIGN_SYSTEM_LEGACY_INVENTORY.json",
 );
 
+const catalogControlPlaneForbiddenSignals = [
+  "className=",
+  "<div",
+  "<section",
+  "<span",
+  "<input",
+  "<label",
+  "<select",
+  "<textarea",
+  "<nav",
+  "<a ",
+  "<ul",
+  "<li",
+  "<Form",
+];
+
 const surfaceChecks = [
   {
     id: "fulfillment-print-document",
@@ -63,8 +79,129 @@ const surfaceChecks = [
     accessibilityEvidence: [
       "Workflow navigation, command actions, and evidence drawers expose accessible names and preserve primary-path context.",
     ],
-    mustInclude: ["SectionNavigation", "BulkActionSurface", "DataTable", "SideSheet", "aria-label"],
-    mustNotInclude: ['<input type="checkbox"', 'className="text-sm text-danger"'],
+    mustInclude: [
+      "DenseAdminWorkbench",
+      "DenseAdminWorkbenchLayout",
+      "BulkActionSurface",
+      "DataTable",
+      "SideSheet",
+      "WorkbenchForm",
+      "HiddenInput",
+      "StatusReasonList",
+      "aria-label",
+    ],
+    mustNotInclude: catalogControlPlaneForbiddenSignals,
+  },
+  {
+    id: "catalog-profile-authoring-controls",
+    owner: "Catalog",
+    file: "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-authoring-workspace.tsx",
+    visualEvidence: [
+      "Profile authoring uses dense-admin navigation, evidence panels, workbench forms, and design-system field controls.",
+    ],
+    accessibilityEvidence: [
+      "Profile section navigation, hidden command metadata, text inputs, textareas, selects, and checkboxes are owned by the design system.",
+    ],
+    mustInclude: [
+      "DenseAdminWorkbenchLayout",
+      "EvidencePanel",
+      "WorkbenchForm",
+      "TextInput",
+      "Textarea",
+      "NativeSelect",
+      "Checkbox",
+      "HiddenInput",
+    ],
+    mustNotInclude: catalogControlPlaneForbiddenSignals,
+  },
+  {
+    id: "catalog-validation-readiness-controls",
+    owner: "Catalog",
+    file: "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/validation/validation-readiness-workspace.tsx",
+    visualEvidence: [
+      "Validation readiness uses workbench grids, dense cells, evidence lists, and workbench forms for activation evidence.",
+    ],
+    accessibilityEvidence: [
+      "Migration evidence and activation commands use design-system forms, hidden inputs, textarea, text input, and blocker patterns.",
+    ],
+    mustInclude: ["WorkbenchForm", "Textarea", "TextInput", "HiddenInput", "EvidenceStringList", "StatusReasonList"],
+    mustNotInclude: catalogControlPlaneForbiddenSignals,
+  },
+  {
+    id: "catalog-health-workspace-patterns",
+    owner: "Catalog",
+    file: "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/health/integration-health-dashboard.tsx",
+    visualEvidence: [
+      "Health triage support tables use shared dense workbench data cells, stacks, text, and badge clusters.",
+    ],
+    accessibilityEvidence: [
+      "Support workflow cells no longer recreate layout markup; row identity and status remain in DataTable and Badge metadata.",
+    ],
+    mustInclude: ["WorkbenchDataCell", "WorkbenchStack", "BadgeCluster", "DataTable"],
+    mustNotInclude: catalogControlPlaneForbiddenSignals,
+  },
+  {
+    id: "catalog-governance-workspace-patterns",
+    owner: "Catalog",
+    file: "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/governance/governance-controls-workspace.tsx",
+    visualEvidence: [
+      "Governance controls use workbench cells, link lists, value lists, and blocker reason patterns instead of raw table-cell markup.",
+    ],
+    accessibilityEvidence: [
+      "Evidence links use LinkText and blockers use StatusReasonList so link and status semantics stay centralized.",
+    ],
+    mustInclude: ["LinkText", "WorkbenchLinkList", "WorkbenchValueList", "StatusReasonList"],
+    mustNotInclude: catalogControlPlaneForbiddenSignals,
+  },
+  {
+    id: "catalog-conflict-workspace-patterns",
+    owner: "Catalog",
+    file: "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/conflicts/conflict-resolution-workspace.tsx",
+    visualEvidence: ["Conflict resolution uses workbench grids, stacks, data cells, and shared blocker reason lists."],
+    accessibilityEvidence: [
+      "Conflict evidence, precedence, and override blockers use DataTable row metadata and StatusReasonList.",
+    ],
+    mustInclude: ["WorkbenchGrid", "WorkbenchDataCell", "WorkbenchText", "StatusReasonList"],
+    mustNotInclude: catalogControlPlaneForbiddenSignals,
+  },
+  {
+    id: "catalog-lifecycle-workspace-patterns",
+    owner: "Catalog",
+    file: "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/lifecycle/lifecycle-recovery-workspace.tsx",
+    visualEvidence: [
+      "Lifecycle recovery uses workbench grids, workbench forms, hidden inputs, evidence string lists, and shared blocker reasons.",
+    ],
+    accessibilityEvidence: [
+      "Lifecycle command confirmation and hidden command metadata are owned by design-system form primitives.",
+    ],
+    mustInclude: ["WorkbenchForm", "HiddenInput", "EvidenceStringList", "StatusReasonList"],
+    mustNotInclude: catalogControlPlaneForbiddenSignals,
+  },
+  {
+    id: "catalog-audit-evidence-workspace-patterns",
+    owner: "Catalog",
+    file: "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/evidence/audit-evidence-workspace.tsx",
+    visualEvidence: [
+      "Audit evidence uses workbench stacks, data cells, text, and link lists for release proof and redaction tables.",
+    ],
+    accessibilityEvidence: [
+      "Evidence and proof links are centralized through LinkText and WorkbenchLinkList rather than raw anchors.",
+    ],
+    mustInclude: ["LinkText", "WorkbenchLinkList", "WorkbenchDataCell", "WorkbenchStack"],
+    mustNotInclude: catalogControlPlaneForbiddenSignals,
+  },
+  {
+    id: "catalog-clean-reset-workspace-patterns",
+    owner: "Catalog",
+    file: "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/evidence/clean-reset-release-workspace.tsx",
+    visualEvidence: [
+      "Clean reset release tables use workbench action rows, stacks, and data cells instead of raw release-proof markup.",
+    ],
+    accessibilityEvidence: [
+      "Release proof links remain buttons while surrounding evidence text is centralized in dense workbench cells.",
+    ],
+    mustInclude: ["WorkbenchActionRow", "WorkbenchDataCell", "WorkbenchStack", "LinkButton"],
+    mustNotInclude: catalogControlPlaneForbiddenSignals,
   },
   {
     id: "discovery-commerce-comparison-list",

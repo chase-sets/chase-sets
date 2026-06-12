@@ -6,15 +6,30 @@ import {
   BulkActionSurface,
   Button,
   DataTable,
+  DenseAdminWorkbench,
+  DenseAdminWorkbenchHeader,
+  DenseAdminWorkbenchLayout,
   EmptyState,
   FilterArea,
-  Form,
+  BadgeCluster,
+  EvidenceStringList,
+  HiddenInput,
   KeyValueList,
   LinkButton,
+  LinkText,
   MetricStrip,
   OperationalStatusBanner,
-  SectionNavigation,
   SideSheet,
+  StatusReasonList,
+  TextInput,
+  WorkbenchActionRow,
+  WorkbenchDataCell,
+  WorkbenchDetailPanel,
+  WorkbenchForm,
+  WorkbenchGrid,
+  WorkbenchGridSpan,
+  WorkbenchStack,
+  WorkbenchText,
   WorkflowModule,
   WorkflowReadinessChecklist,
   type DataColumn,
@@ -193,10 +208,7 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
         header: t("catalog.features.sourceObservations.ui.primaryWorkbench.table.primary.step"),
         sortable: true,
         cell: (step) => (
-          <div className="grid min-w-0 gap-1">
-            <div className="text-sm font-semibold text-foreground">{step.label}</div>
-            <div className="text-sm leading-6 text-secondary">{step.evidence}</div>
-          </div>
+          <WorkbenchDataCell title={step.label} description={step.evidence} descriptionTone="secondary" />
         ),
       },
       {
@@ -217,10 +229,10 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
         mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.table.action"),
         align: "right",
         cell: (step) => (
-          <div className="flex flex-wrap justify-end gap-2">
+          <WorkbenchActionRow>
             <StepEvidenceSheet step={step} readModel={readModel} />
             <PrimaryStepAction readModel={readModel} step={step} />
-          </div>
+          </WorkbenchActionRow>
         ),
       },
     ],
@@ -233,31 +245,38 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
         header: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.table.job"),
         sortable: true,
         cell: (job) => (
-          <div className="grid min-w-0 gap-1">
-            <div className="text-sm font-semibold text-foreground">{job.summary}</div>
-            <div className="text-xs text-secondary">
-              {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.table.profile", {
-                profile: profileSnapshotLabel(job.profileSnapshot, job.profileVersion),
-              })}
-            </div>
-            <div className="text-xs leading-5 text-secondary">
-              {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.context.unit", {
-                unit: job.unitKey ?? t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected"),
-              })}
-            </div>
-            <div className="flex min-w-0 flex-wrap gap-1">
-              <Badge tone={job.scopeMatchesRoute ? "success" : "warning"}>
-                {job.scopeMatchesRoute
-                  ? t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.context.current.scope")
-                  : t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.context.overlapping.scope")}
-              </Badge>
-              <Badge tone="neutral">
-                {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.context.scope", {
-                  scope: job.importScope ?? t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected"),
-                })}
-              </Badge>
-            </div>
-          </div>
+          <WorkbenchDataCell
+            title={job.summary}
+            description={t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.table.profile", {
+              profile: profileSnapshotLabel(job.profileSnapshot, job.profileVersion),
+            })}
+            detail={t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.context.unit", {
+              unit: job.unitKey ?? t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected"),
+            })}
+            badges={
+              <BadgeCluster
+                items={[
+                  {
+                    key: "scope-route",
+                    label: job.scopeMatchesRoute
+                      ? t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.context.current.scope")
+                      : t(
+                          "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.context.overlapping.scope",
+                        ),
+                    tone: job.scopeMatchesRoute ? "success" : "warning",
+                  },
+                  {
+                    key: "scope",
+                    label: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.context.scope", {
+                      scope:
+                        job.importScope ?? t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected"),
+                    }),
+                    tone: "neutral",
+                  },
+                ]}
+              />
+            }
+          />
         ),
       },
       {
@@ -265,32 +284,32 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
         header: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.table.progress"),
         mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.table.progress"),
         cell: (job) => (
-          <div className="grid min-w-0 gap-1">
+          <WorkbenchStack gap="sm">
             <Badge tone={jobStateTone(job.state)}>{stateLabel(job.state)}</Badge>
-            <div className="text-xs text-secondary">
+            <WorkbenchText size="xs">
               {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.operator.status", {
                 status: stateLabel(job.operatorStatus),
               })}
-            </div>
-            <div className="text-xs text-secondary">
+            </WorkbenchText>
+            <WorkbenchText size="xs">
               {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.progress.value", {
                 completed: job.completed,
                 total: job.total,
                 percent: job.progressPercent,
               })}
-            </div>
-            <div className="text-xs leading-5 text-secondary">
+            </WorkbenchText>
+            <WorkbenchText size="xs">
               {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.created", {
                 value: job.createdAt,
               })}
-            </div>
-            <div className="text-xs leading-5 text-secondary">
+            </WorkbenchText>
+            <WorkbenchText size="xs">
               {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.started", {
                 value:
                   job.startedAt ?? t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.not.started"),
               })}
-            </div>
-          </div>
+            </WorkbenchText>
+          </WorkbenchStack>
         ),
       },
       {
@@ -298,20 +317,22 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
         header: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.table.consistency"),
         mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.table.consistency"),
         cell: (job) => (
-          <div className="grid min-w-0 gap-2">
-            <div className="text-xs leading-5 text-secondary">
+          <WorkbenchStack gap="sm">
+            <WorkbenchText size="xs">
               {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.profile.snapshot", {
                 profile: profileSnapshotLabel(job.profileSnapshot, job.profileVersion),
               })}
-            </div>
-            <div className="flex min-w-0 flex-wrap gap-1.5">
-              <Badge tone="neutral">{stateLabel(job.consistency.duplicateSubmissionPolicy)}</Badge>
-              <Badge tone="neutral">{stateLabel(job.consistency.retryResumePolicy)}</Badge>
-              <Badge tone="neutral">{stateLabel(job.consistency.partialFailurePolicy)}</Badge>
-              <Badge tone="neutral">{stateLabel(job.consistency.workUnitClaimPolicy)}</Badge>
-            </div>
+            </WorkbenchText>
+            <BadgeCluster
+              items={[
+                { key: "duplicate", label: stateLabel(job.consistency.duplicateSubmissionPolicy), tone: "neutral" },
+                { key: "retry", label: stateLabel(job.consistency.retryResumePolicy), tone: "neutral" },
+                { key: "partial", label: stateLabel(job.consistency.partialFailurePolicy), tone: "neutral" },
+                { key: "claim", label: stateLabel(job.consistency.workUnitClaimPolicy), tone: "neutral" },
+              ]}
+            />
             <BlockerList blockers={job.blockers} compact hideWhenEmpty />
-          </div>
+          </WorkbenchStack>
         ),
       },
       {
@@ -320,16 +341,16 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
         mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.table.failures"),
         cell: (job) =>
           job.failureGroups.length > 0 ? (
-            <div className="flex min-w-0 flex-wrap gap-1.5">
-              {job.failureGroups.map((group) => (
-                <Badge key={group.key} tone={group.severity === "error" ? "danger" : "warning"}>
-                  {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.failure.group", {
-                    label: failureGroupLabel(group),
-                    count: group.count,
-                  })}
-                </Badge>
-              ))}
-            </div>
+            <BadgeCluster
+              items={job.failureGroups.map((group) => ({
+                key: group.key,
+                tone: group.severity === "error" ? "danger" : "warning",
+                label: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.failure.group", {
+                  label: failureGroupLabel(group),
+                  count: group.count,
+                }),
+              }))}
+            />
           ) : (
             <Badge tone="success">{t("catalog.features.sourceObservations.ui.primaryWorkbench.none")}</Badge>
           ),
@@ -340,7 +361,7 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
         mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.table.action"),
         align: "right",
         cell: (job) => (
-          <div className="flex flex-wrap justify-end gap-2">
+          <WorkbenchActionRow>
             {job.retryAvailable ? (
               <ImportJobLifecycleAction readModel={readModel} job={job} intent="retry-import-job">
                 {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.retry")}
@@ -356,13 +377,13 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
                 {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.cancel")}
               </ImportJobLifecycleAction>
             ) : null}
-            <a className="text-sm font-semibold text-accent hover:underline" href={job.sourceObservationReviewHref}>
+            <LinkText href={job.sourceObservationReviewHref}>
               {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.review.link")}
-            </a>
-            <a className="text-sm font-semibold text-accent hover:underline" href={job.auditEvidenceUrl}>
+            </LinkText>
+            <LinkText href={job.auditEvidenceUrl}>
               {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.evidence.link")}
-            </a>
-          </div>
+            </LinkText>
+          </WorkbenchActionRow>
         ),
       },
     ],
@@ -375,22 +396,23 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
         header: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.table.observation"),
         sortable: true,
         cell: (row) => (
-          <div className="grid min-w-0 gap-1">
-            <div className="truncate text-sm font-semibold text-foreground">{row.displayName}</div>
-            <div className="text-xs leading-5 text-secondary">
-              {t("catalog.features.sourceObservations.ui.primaryWorkbench.review.table.external", {
-                provider: row.providerKey,
-                external: row.externalKey,
-              })}
-            </div>
-            <div className="flex min-w-0 flex-wrap gap-1">
-              {row.normalizedFactSummaries.slice(0, 3).map((fact) => (
-                <Badge key={fact} tone="neutral">
-                  {fact}
-                </Badge>
-              ))}
-            </div>
-          </div>
+          <WorkbenchDataCell
+            title={row.displayName}
+            truncateTitle
+            description={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.table.external", {
+              provider: row.providerKey,
+              external: row.externalKey,
+            })}
+            badges={
+              <BadgeCluster
+                items={row.normalizedFactSummaries.slice(0, 3).map((fact) => ({
+                  key: fact,
+                  label: fact,
+                  tone: "neutral",
+                }))}
+              />
+            }
+          />
         ),
       },
       {
@@ -398,14 +420,14 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
         header: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.table.status"),
         mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.table.status"),
         cell: (row) => (
-          <div className="grid gap-1">
+          <WorkbenchStack gap="sm">
             <Badge tone={sourceObservationStatusTone(row.status)}>{stateLabel(row.status)}</Badge>
-            <span className="text-xs text-secondary">
+            <WorkbenchText size="xs">
               {t("catalog.features.sourceObservations.ui.primaryWorkbench.review.table.changed", {
                 value: row.sourceUpdatedAt ?? row.changedAt,
               })}
-            </span>
-          </div>
+            </WorkbenchText>
+          </WorkbenchStack>
         ),
       },
       {
@@ -413,17 +435,20 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
         header: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.table.evidence"),
         mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.table.evidence"),
         cell: (row) => (
-          <div className="grid min-w-0 gap-1">
-            <span className="text-sm text-foreground">{row.payloadSummary}</span>
-            <span className="text-xs leading-5 text-secondary">{row.redactionSummary}</span>
-            {row.duplicateEvidence.length > 0 ? (
-              <Badge tone="warning">
-                {t("catalog.features.sourceObservations.ui.primaryWorkbench.review.duplicate.count", {
-                  count: row.duplicateEvidence.length,
-                })}
-              </Badge>
-            ) : null}
-          </div>
+          <WorkbenchDataCell
+            title={row.payloadSummary}
+            titleWeight="regular"
+            detail={row.redactionSummary}
+            badges={
+              row.duplicateEvidence.length > 0 ? (
+                <Badge tone="warning">
+                  {t("catalog.features.sourceObservations.ui.primaryWorkbench.review.duplicate.count", {
+                    count: row.duplicateEvidence.length,
+                  })}
+                </Badge>
+              ) : null
+            }
+          />
         ),
       },
       {
@@ -431,12 +456,12 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
         header: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.table.readiness"),
         mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.table.readiness"),
         cell: (row) => (
-          <div className="grid gap-1">
+          <WorkbenchStack gap="sm">
             <Badge tone={row.promotionReadiness.state === "eligible" ? "success" : "warning"}>
               {stateLabel(row.promotionReadiness.state)}
             </Badge>
             <BlockerList blockers={row.promotionReadiness.blockers} />
-          </div>
+          </WorkbenchStack>
         ),
       },
       {
@@ -448,17 +473,17 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
           const rowActionBlockers = uniqueBlockers(row.actions.flatMap((actionEntry) => actionEntry.blockers));
 
           return (
-            <div className="grid justify-items-end gap-2">
-              <div className="flex flex-wrap justify-end gap-2">
+            <WorkbenchStack gap="sm">
+              <WorkbenchActionRow>
                 <SourceObservationEvidenceSheet row={row} />
                 {row.actions
                   .filter((actionEntry) => actionEntry.key !== "view-source-observation")
                   .map((actionEntry) => (
                     <RowCommandAction key={actionEntry.key} actionEntry={actionEntry} readModel={readModel} row={row} />
                   ))}
-              </div>
+              </WorkbenchActionRow>
               <BlockerList blockers={rowActionBlockers} compact hideWhenEmpty />
-            </div>
+            </WorkbenchStack>
           );
         },
       },
@@ -467,28 +492,22 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
   );
 
   return (
-    <section className="grid gap-5" data-catalog-primary-workbench="true">
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
-        <div className="min-w-0">
-          <div className="text-xs font-semibold uppercase tracking-normal text-accent">
-            {t("catalog.features.sourceObservations.ui.primaryWorkbench.eyebrow")}
-          </div>
-          <h1 className="mt-1 font-heading text-2xl font-semibold leading-tight text-foreground md:text-3xl">
-            {t("catalog.features.sourceObservations.ui.primaryWorkbench.title")}
-          </h1>
-          <p className="mt-2 max-w-4xl text-sm leading-6 text-secondary">
-            {t("catalog.features.sourceObservations.ui.primaryWorkbench.description")}
-          </p>
-        </div>
-        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end sm:justify-end">
-          <CommandFormButton readModel={readModel} intent="start-provider-import" leadingIcon="refreshCcw">
-            {t("catalog.features.sourceObservations.ui.primaryWorkbench.pull.provider.data")}
-          </CommandFormButton>
-          <CommandFormButton readModel={readModel} intent="preview-promotion" tone="secondary" leadingIcon="check">
-            {t("catalog.features.sourceObservations.ui.primaryWorkbench.preview.promotion")}
-          </CommandFormButton>
-        </div>
-      </div>
+    <DenseAdminWorkbench data-catalog-primary-workbench="true">
+      <DenseAdminWorkbenchHeader
+        eyebrow={t("catalog.features.sourceObservations.ui.primaryWorkbench.eyebrow")}
+        title={t("catalog.features.sourceObservations.ui.primaryWorkbench.title")}
+        description={t("catalog.features.sourceObservations.ui.primaryWorkbench.description")}
+        actions={
+          <>
+            <CommandFormButton readModel={readModel} intent="start-provider-import" leadingIcon="refreshCcw">
+              {t("catalog.features.sourceObservations.ui.primaryWorkbench.pull.provider.data")}
+            </CommandFormButton>
+            <CommandFormButton readModel={readModel} intent="preview-promotion" tone="secondary" leadingIcon="check">
+              {t("catalog.features.sourceObservations.ui.primaryWorkbench.preview.promotion")}
+            </CommandFormButton>
+          </>
+        }
+      />
 
       {commandFeedback ? <CommandFeedbackBanner feedback={commandFeedback} /> : null}
 
@@ -521,19 +540,15 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
         ]}
       />
 
-      <div className="grid gap-5 lg:grid-cols-[18rem_minmax(0,1fr)] lg:items-start">
-        <div className="lg:sticky lg:top-20">
-          <SectionNavigation
-            groups={navigation}
-            activeKey={activeSection}
-            label={t("catalog.features.sourceObservations.ui.primaryWorkbench.navigation.label")}
-            mobileLabel={t("catalog.features.sourceObservations.ui.primaryWorkbench.navigation.mobile.label")}
-            onSelect={handleSectionSelect}
-          />
-        </div>
-
+      <DenseAdminWorkbenchLayout
+        navigationGroups={navigation}
+        activeNavigationKey={activeSection}
+        navigationLabel={t("catalog.features.sourceObservations.ui.primaryWorkbench.navigation.label")}
+        mobileNavigationLabel={t("catalog.features.sourceObservations.ui.primaryWorkbench.navigation.mobile.label")}
+        onNavigationSelect={handleSectionSelect}
+      >
         <BulkActionSurface>
-          <div className="grid min-w-0 gap-4">
+          <WorkbenchStack>
             {implementedSupportWorkspace ?? (
               <>
                 <OperationalStatusBanner
@@ -761,7 +776,7 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
                   density="compact"
                 >
                   {readModel.importJobs.selectedScope ? (
-                    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(18rem,24rem)]">
+                    <WorkbenchGrid columns="equalDetail">
                       <KeyValueList
                         items={[
                           {
@@ -867,10 +882,10 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
                           },
                         ]}
                       />
-                      <div className="xl:col-span-3">
+                      <WorkbenchGridSpan>
                         <BlockerList blockers={readModel.importJobs.selectedScope.readiness.blockers} compact />
-                      </div>
-                    </div>
+                      </WorkbenchGridSpan>
+                    </WorkbenchGrid>
                   ) : (
                     <EmptyState
                       title={t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.empty.title")}
@@ -938,18 +953,19 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
                     ))}
                   </FilterArea>
 
-                  <div className="flex min-w-0 flex-wrap gap-2">
-                    {readModel.sourceObservationReview.savedFilters.map((savedFilter) => (
-                      <Badge key={savedFilter.key} tone="neutral">
-                        {savedFilter.label}
-                        {savedFilter.count === null
+                  <BadgeCluster
+                    items={readModel.sourceObservationReview.savedFilters.map((savedFilter) => ({
+                      key: savedFilter.key,
+                      label:
+                        savedFilter.label +
+                        (savedFilter.count === null
                           ? ""
                           : t("catalog.features.sourceObservations.ui.primaryWorkbench.review.saved.count", {
                               value: savedFilter.count,
-                            })}
-                      </Badge>
-                    ))}
-                  </div>
+                            })),
+                      tone: "neutral",
+                    }))}
+                  />
 
                   <DataTable
                     rows={[...readModel.sourceObservationReview.rows]}
@@ -966,14 +982,14 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
                   />
 
                   {selectedObservationKeys.size > 0 ? (
-                    <div className="grid gap-3 rounded-tokenMd border border-border bg-surface-2 p-3">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div className="text-sm font-semibold text-foreground">
+                    <WorkbenchDetailPanel>
+                      <WorkbenchActionRow align="between">
+                        <WorkbenchText tone="foreground" weight="semibold">
                           {t("catalog.features.sourceObservations.ui.primaryWorkbench.review.selected", {
                             count: selectedObservationKeys.size,
                           })}
-                        </div>
-                        <div className="flex flex-wrap justify-end gap-2">
+                        </WorkbenchText>
+                        <WorkbenchActionRow>
                           <CommandFormButton
                             readModel={readModel}
                             intent="preview-promotion"
@@ -1000,8 +1016,8 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
                           <Button size="sm" tone="secondary" onClick={() => setSelectedObservationKeys(new Set())}>
                             {t("catalog.features.sourceObservations.ui.primaryWorkbench.clear.selection")}
                           </Button>
-                        </div>
-                      </div>
+                        </WorkbenchActionRow>
+                      </WorkbenchActionRow>
                       <KeyValueList
                         items={[
                           {
@@ -1020,11 +1036,10 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
                           },
                         ]}
                       />
-                      <Form
-                        spacing="none"
+                      <WorkbenchForm
+                        variant="inline"
                         method="post"
                         action={catalogPrimaryWorkbenchHref(readModel.routeContext, "import-to-promotion")}
-                        className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end"
                         data-catalog-primary-workbench-command="reject-source-observations"
                       >
                         <CommandHiddenInputs
@@ -1032,20 +1047,15 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
                           intent="reject-source-observations"
                           selectedObservationIds={[...selectedObservationKeys]}
                         />
-                        <label className="grid min-w-0 gap-1 text-sm text-secondary">
-                          <span className="font-semibold text-foreground">
-                            {t("catalog.features.sourceObservations.ui.primaryWorkbench.review.reject.reason")}
-                          </span>
-                          <input
-                            className="min-h-10 rounded-tokenSm border border-border bg-surface px-3 py-2 text-sm text-foreground"
-                            name="reason"
-                            required
-                            disabled={
-                              selectedReviewableObservationCount === 0 ||
-                              !isActionAvailable(readModel, "reject-source-observations")
-                            }
-                          />
-                        </label>
+                        <TextInput
+                          label={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.reject.reason")}
+                          name="reason"
+                          required
+                          disabled={
+                            selectedReviewableObservationCount === 0 ||
+                            !isActionAvailable(readModel, "reject-source-observations")
+                          }
+                        />
                         <Button
                           type="submit"
                           size="sm"
@@ -1057,8 +1067,8 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
                         >
                           {t("catalog.features.sourceObservations.ui.primaryWorkbench.review.reject")}
                         </Button>
-                      </Form>
-                    </div>
+                      </WorkbenchForm>
+                    </WorkbenchDetailPanel>
                   ) : null}
                 </WorkflowModule>
 
@@ -1078,7 +1088,7 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
                   headingLevel={2}
                   density="compact"
                 >
-                  <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
+                  <WorkbenchGrid columns="detail">
                     <KeyValueList
                       items={[
                         {
@@ -1135,7 +1145,7 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
                         },
                       ]}
                     />
-                  </div>
+                  </WorkbenchGrid>
 
                   <KeyValueList
                     items={[
@@ -1178,15 +1188,15 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
                     ]}
                   />
 
-                  <div className="grid gap-2">
-                    <div className="text-sm font-semibold text-foreground">
+                  <WorkbenchStack gap="sm">
+                    <WorkbenchText tone="foreground" weight="semibold">
                       {t("catalog.features.sourceObservations.ui.primaryWorkbench.table.blockers")}
-                    </div>
+                    </WorkbenchText>
                     <BlockerList blockers={readModel.promotionPreview.blockers} />
-                  </div>
+                  </WorkbenchStack>
                 </WorkflowModule>
 
-                <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
+                <WorkbenchGrid columns="detail">
                   <WorkflowModule
                     title={t("catalog.features.sourceObservations.ui.primaryWorkbench.readiness.recovery.title")}
                     description={t(
@@ -1243,13 +1253,13 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
                       ]}
                     />
                   </WorkflowModule>
-                </div>
+                </WorkbenchGrid>
               </>
             )}
-          </div>
+          </WorkbenchStack>
         </BulkActionSurface>
-      </div>
-    </section>
+      </DenseAdminWorkbenchLayout>
+    </DenseAdminWorkbench>
   );
 }
 
@@ -1377,18 +1387,17 @@ function ImportJobLifecycleAction({
   children: ReactNode;
 }) {
   return (
-    <Form
-      spacing="none"
+    <WorkbenchForm
+      variant="button"
       method="post"
       action={catalogPrimaryWorkbenchHref({ ...readModel.routeContext, jobId: job.jobId }, "import-to-promotion")}
-      className="inline-flex"
       data-catalog-primary-workbench-command={intent}
     >
       <CommandHiddenInputs readModel={readModel} intent={intent} jobId={job.jobId} />
       <Button type="submit" size="sm" tone={tone}>
         {children}
       </Button>
-    </Form>
+    </WorkbenchForm>
   );
 }
 
@@ -1410,19 +1419,18 @@ function CommandFormButton({
   ...buttonProps
 }: CommandFormButtonProps) {
   return (
-    <Form
-      spacing="none"
+    <WorkbenchForm
+      variant="button"
       method="post"
       action={catalogPrimaryWorkbenchHref(readModel.routeContext, "import-to-promotion")}
-      className="inline-flex"
       data-catalog-primary-workbench-command={intent}
     >
       <CommandHiddenInputs readModel={readModel} intent={intent} selectedObservationIds={selectedObservationIds} />
-      {reason ? <input type="hidden" name="reason" value={reason} /> : null}
+      {reason ? <HiddenInput name="reason" value={reason} /> : null}
       <Button type="submit" disabled={disabled || !isActionAvailable(readModel, intent)} {...buttonProps}>
         {children}
       </Button>
-    </Form>
+    </WorkbenchForm>
   );
 }
 
@@ -1443,14 +1451,14 @@ function CommandHiddenInputs({
 
   return (
     <>
-      <input type="hidden" name="_intent" value={intent} />
-      <input type="hidden" name="providerKey" value={context.providerKey ?? ""} />
-      <input type="hidden" name="unitKey" value={context.unitKey ?? ""} />
-      <input type="hidden" name="importScope" value={context.importScope ?? ""} />
-      <input type="hidden" name="profileVersion" value={context.profileVersion ?? ""} />
-      <input type="hidden" name="selectedObservationIds" value={observationIds.join(",")} />
-      <input type="hidden" name="jobId" value={jobIdValue} />
-      <input type="hidden" name="promotionPreviewId" value={context.promotionPreviewId ?? ""} />
+      <HiddenInput name="_intent" value={intent} />
+      <HiddenInput name="providerKey" value={context.providerKey ?? ""} />
+      <HiddenInput name="unitKey" value={context.unitKey ?? ""} />
+      <HiddenInput name="importScope" value={context.importScope ?? ""} />
+      <HiddenInput name="profileVersion" value={context.profileVersion ?? ""} />
+      <HiddenInput name="selectedObservationIds" value={observationIds.join(",")} />
+      <HiddenInput name="jobId" value={jobIdValue} />
+      <HiddenInput name="promotionPreviewId" value={context.promotionPreviewId ?? ""} />
     </>
   );
 }
@@ -1615,7 +1623,7 @@ function StepEvidenceSheet({
         </Button>
       }
     >
-      <div className="grid gap-4">
+      <WorkbenchStack>
         <KeyValueList
           items={[
             {
@@ -1649,7 +1657,7 @@ function StepEvidenceSheet({
           ]}
         />
         <BlockerList blockers={step.blockers} />
-      </div>
+      </WorkbenchStack>
     </SideSheet>
   );
 }
@@ -1676,7 +1684,7 @@ function SourceObservationEvidenceSheet({ row }: { row: SourceObservationReviewR
         </Button>
       }
     >
-      <div className="grid gap-4">
+      <WorkbenchStack>
         <KeyValueList
           items={[
             {
@@ -1730,46 +1738,29 @@ function SourceObservationEvidenceSheet({ row }: { row: SourceObservationReviewR
           ]}
         />
 
-        <EvidenceList
+        <EvidenceStringList
           title={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.normalized")}
           items={row.normalizedFactSummaries}
-          empty={t("catalog.features.sourceObservations.ui.primaryWorkbench.none")}
+          emptyLabel={t("catalog.features.sourceObservations.ui.primaryWorkbench.none")}
         />
-        <EvidenceList
+        <EvidenceStringList
           title={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.duplicates")}
           items={row.duplicateEvidence}
-          empty={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.no.duplicates")}
+          emptyLabel={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.no.duplicates")}
         />
-        <EvidenceList
+        <EvidenceStringList
           title={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.conflicts")}
           items={row.conflictEvidence}
-          empty={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.no.conflicts")}
+          emptyLabel={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.no.conflicts")}
         />
-        <EvidenceList
+        <EvidenceStringList
           title={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.audit")}
           items={row.auditTrail}
-          empty={t("catalog.features.sourceObservations.ui.primaryWorkbench.none")}
+          emptyLabel={t("catalog.features.sourceObservations.ui.primaryWorkbench.none")}
         />
         <BlockerList blockers={row.promotionReadiness.blockers} />
-      </div>
+      </WorkbenchStack>
     </SideSheet>
-  );
-}
-
-function EvidenceList({ title, items, empty }: { title: string; items: readonly string[]; empty: string }) {
-  return (
-    <div className="grid gap-2">
-      <div className="text-sm font-semibold text-foreground">{title}</div>
-      {items.length > 0 ? (
-        <ul className="grid gap-1 text-sm leading-6 text-secondary">
-          {items.map((item) => (
-            <li key={item}>{item}</li>
-          ))}
-        </ul>
-      ) : (
-        <Badge tone="success">{empty}</Badge>
-      )}
-    </div>
   );
 }
 
@@ -1792,23 +1783,21 @@ function BlockerList({
   }
 
   return (
-    <div className={compact ? "grid min-w-0 gap-1 text-left" : "grid min-w-0 gap-2 text-left"}>
-      {visibleBlockers.map((blocker) => {
+    <StatusReasonList
+      compact={compact}
+      nextStepPrefix={t("catalog.features.sourceObservations.ui.primaryWorkbench.copy.next.prefix")}
+      items={visibleBlockers.map((blocker) => {
         const copy = getCatalogPrimaryWorkbenchBlockerCopy(blocker);
 
-        return (
-          <div key={blocker} className={compact ? "grid min-w-0 gap-1" : "grid min-w-0 gap-1.5"}>
-            <div className="flex min-w-0 flex-wrap gap-1.5">
-              <Badge tone={blockerTone(blocker)}>{copy.label}</Badge>
-            </div>
-            <div className={compact ? "max-w-72 text-xs leading-5 text-secondary" : "text-xs leading-5 text-secondary"}>
-              {copy.reason} {t("catalog.features.sourceObservations.ui.primaryWorkbench.copy.next.prefix")}{" "}
-              {copy.nextStep}
-            </div>
-          </div>
-        );
+        return {
+          key: blocker,
+          label: copy.label,
+          reason: copy.reason,
+          nextStep: copy.nextStep,
+          tone: blockerTone(blocker),
+        };
       })}
-    </div>
+    />
   );
 }
 

@@ -6,6 +6,9 @@ import {
   LinkButton,
   MetricStrip,
   OperationalStatusBanner,
+  WorkbenchActionRow,
+  WorkbenchDataCell,
+  WorkbenchStack,
   WorkflowModule,
   type DataColumn,
 } from "@chase-sets/design-system";
@@ -28,25 +31,25 @@ export function CatalogIntegrationCleanResetReleaseWorkspace({
   const cleanReset = readModel.cleanResetRelease;
 
   return (
-    <section className="grid min-w-0 gap-4" data-catalog-clean-reset-release-workspace="true">
+    <WorkbenchStack element="section" data-catalog-clean-reset-release-workspace="true">
       <WorkflowModule
         title={t("catalog.features.sourceObservations.ui.cleanResetRelease.title")}
         description={t("catalog.features.sourceObservations.ui.cleanResetRelease.description")}
         status={<Badge tone={statusTone(cleanReset.status)}>{stateLabel(cleanReset.status)}</Badge>}
         actions={
-          <div className="flex flex-wrap justify-end gap-2">
+          <WorkbenchActionRow>
             <LinkButton size="sm" tone="secondary" leadingIcon="chevronLeft" href={cleanReset.returnToPrimaryHref}>
               {t("catalog.features.sourceObservations.ui.cleanResetRelease.backToWorkbench")}
             </LinkButton>
             <LinkButton size="sm" tone="secondary" leadingIcon="externalLink" href={cleanReset.auditEvidenceHref}>
               {t("catalog.features.sourceObservations.ui.cleanResetRelease.openAuditEvidence")}
             </LinkButton>
-          </div>
+          </WorkbenchActionRow>
         }
         headingLevel={2}
         density="compact"
       >
-        <div className="grid gap-4">
+        <WorkbenchStack>
           <OperationalStatusBanner
             tone={cleanReset.status === "blocked" ? "danger" : cleanReset.status === "complete" ? "success" : "warning"}
             title={bannerTitle(cleanReset)}
@@ -104,7 +107,7 @@ export function CatalogIntegrationCleanResetReleaseWorkspace({
               },
             ]}
           />
-        </div>
+        </WorkbenchStack>
       </WorkflowModule>
 
       <WorkflowModule
@@ -199,7 +202,7 @@ export function CatalogIntegrationCleanResetReleaseWorkspace({
           density="compact"
         />
       </WorkflowModule>
-    </section>
+    </WorkbenchStack>
   );
 }
 
@@ -208,12 +211,7 @@ const decisionColumns: DataColumn<CleanResetDecision>[] = [
     key: "decision",
     header: t("catalog.features.sourceObservations.ui.cleanResetRelease.table.decision"),
     sortable: true,
-    cell: (decision) => (
-      <div className="grid min-w-0 gap-1">
-        <span className="text-sm font-semibold text-foreground">{decision.label}</span>
-        <span className="text-xs text-secondary">{decision.key}</span>
-      </div>
-    ),
+    cell: (decision) => <WorkbenchDataCell title={decision.label} description={decision.key} />,
   },
   {
     key: "status",
@@ -232,10 +230,11 @@ const decisionColumns: DataColumn<CleanResetDecision>[] = [
     header: t("catalog.features.sourceObservations.ui.cleanResetRelease.table.evidence"),
     mobileLabel: t("catalog.features.sourceObservations.ui.cleanResetRelease.table.evidence"),
     cell: (decision) => (
-      <div className="grid gap-1">
-        <span className="text-sm text-foreground">{decision.evidence}</span>
-        <span className="text-xs text-secondary">{decision.requiredEvidence.join("; ")}</span>
-      </div>
+      <WorkbenchDataCell
+        title={decision.evidence}
+        titleWeight="regular"
+        description={decision.requiredEvidence.join("; ")}
+      />
     ),
   },
   {
@@ -257,12 +256,7 @@ const findingColumns: DataColumn<CleanResetFinding>[] = [
     key: "finding",
     header: t("catalog.features.sourceObservations.ui.cleanResetRelease.table.finding"),
     sortable: true,
-    cell: (finding) => (
-      <div className="grid min-w-0 gap-1">
-        <span className="text-sm font-semibold text-foreground">{finding.code}</span>
-        <span className="text-xs text-secondary">{finding.message}</span>
-      </div>
-    ),
+    cell: (finding) => <WorkbenchDataCell title={finding.code} description={finding.message} />,
   },
   {
     key: "severity",
@@ -277,12 +271,7 @@ const backfillColumns: DataColumn<CleanResetBackfill>[] = [
     key: "backfill",
     header: t("catalog.features.sourceObservations.ui.cleanResetRelease.table.backfill"),
     sortable: true,
-    cell: (row) => (
-      <div className="grid min-w-0 gap-1">
-        <span className="text-sm font-semibold text-foreground">{row.key}</span>
-        <span className="text-xs text-secondary">{row.reason}</span>
-      </div>
-    ),
+    cell: (row) => <WorkbenchDataCell title={row.key} description={row.reason} />,
   },
   {
     key: "status",
@@ -303,12 +292,7 @@ const scaffoldingColumns: DataColumn<CleanResetScaffolding>[] = [
     key: "scaffold",
     header: t("catalog.features.sourceObservations.ui.cleanResetRelease.table.scaffolding"),
     sortable: true,
-    cell: (row) => (
-      <div className="grid min-w-0 gap-1">
-        <span className="text-sm font-semibold text-foreground">{row.label}</span>
-        <span className="text-xs text-secondary">{row.key}</span>
-      </div>
-    ),
+    cell: (row) => <WorkbenchDataCell title={row.label} description={row.key} />,
   },
   {
     key: "status",
@@ -327,12 +311,12 @@ const scaffoldingColumns: DataColumn<CleanResetScaffolding>[] = [
     header: t("catalog.features.sourceObservations.ui.cleanResetRelease.table.removal"),
     mobileLabel: t("catalog.features.sourceObservations.ui.cleanResetRelease.table.removal"),
     cell: (row) => (
-      <div className="grid gap-1">
-        <span className="text-sm text-foreground">{row.removalEvidence}</span>
+      <WorkbenchStack gap="sm">
+        <WorkbenchDataCell title={row.removalEvidence} titleWeight="regular" />
         <LinkButton size="sm" tone="secondary" leadingIcon="externalLink" href={row.evidenceUrl}>
           {t("catalog.features.sourceObservations.ui.cleanResetRelease.openEvidence")}
         </LinkButton>
-      </div>
+      </WorkbenchStack>
     ),
   },
 ];
@@ -343,12 +327,12 @@ const proofLinkColumns: DataColumn<CleanResetProofLink>[] = [
     header: t("catalog.features.sourceObservations.ui.cleanResetRelease.table.proof"),
     sortable: true,
     cell: (row) => (
-      <div className="grid gap-1">
+      <WorkbenchStack gap="sm">
         <LinkButton size="sm" tone="secondary" leadingIcon="externalLink" href={row.href}>
           {row.label}
         </LinkButton>
-        <span className="text-xs text-secondary">{row.summary}</span>
-      </div>
+        <WorkbenchDataCell title={row.summary} titleWeight="regular" />
+      </WorkbenchStack>
     ),
   },
   {

@@ -56,11 +56,7 @@ export function Switch({
           {label ? (
             <div className="text-sm font-medium text-foreground">
               {label}
-              {required ? (
-                <span aria-hidden="true" className="ml-1 text-accent">
-                  *
-                </span>
-              ) : null}
+              {required ? <span aria-hidden="true" className="ml-1 text-accent before:content-['*']" /> : null}
             </div>
           ) : null}
         </div>
