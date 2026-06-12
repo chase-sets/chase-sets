@@ -2015,6 +2015,41 @@ jobs:
             exit "$canary_exit"
           fi
 
+      - name: Production settlement provider-health telemetry canary
+        id: settlement_canary
+        if: steps.latest_main.outputs.should_deploy != 'false' && vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true'
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          PRODUCTION_SETTLEMENT_CANARY_ACCOUNT_EMAIL: ${{ secrets.PRODUCTION_PROOF_CANARY_EMAIL || secrets.PLATFORM_ADMIN_EMAIL || '' }}
+          PRODUCTION_SETTLEMENT_CANARY_ACCOUNT_PASSWORD: ${{ secrets.PRODUCTION_PROOF_CANARY_PASSWORD || secrets.PLATFORM_ADMIN_PASSWORD || '' }}
+          PRODUCTION_MARKETPLACE_PROOF_REFERENCE: ${{ vars.PRODUCTION_MARKETPLACE_PROOF_REFERENCE || '' }}
+          PRODUCTION_SETTLEMENT_CANARY_SCRAPE_WAIT_SECONDS: ${{ vars.PRODUCTION_SETTLEMENT_CANARY_SCRAPE_WAIT_SECONDS || '20' }}
+        run: |
+          set -euo pipefail
+          started_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          echo "started_at=${started_at}" >> "$GITHUB_OUTPUT"
+          if [ -z "${PRODUCTION_SETTLEMENT_CANARY_ACCOUNT_EMAIL}" ] || [ -z "${PRODUCTION_SETTLEMENT_CANARY_ACCOUNT_PASSWORD}" ]; then
+            echo "Production proof mode requires operator credentials for the settlement provider-health telemetry canary." >&2
+            exit 1
+          fi
+          marketplace_domain="$(terraform output -json marketplace_domains | jq -r '.[0] // empty')"
+          if [ -z "$marketplace_domain" ]; then
+            echo "Production proof mode was enabled but no marketplace domain was present in Terraform outputs." >&2
+            exit 1
+          fi
+          cd ../../..
+          node ./scripts/production-settlement-provider-health-canary.mjs \
+            --environment production-proof \
+            --production-proof-reference "${PRODUCTION_MARKETPLACE_PROOF_REFERENCE}" \
+            --base-url "https://${marketplace_domain}" \
+            --auth-base-url "https://${marketplace_domain}" \
+            --out artifacts/release-health/production-settlement-provider-health-canary.json
+          sleep "${PRODUCTION_SETTLEMENT_CANARY_SCRAPE_WAIT_SECONDS}"
+          completed_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          echo "completed_at=${completed_at}" >> "$GITHUB_OUTPUT"
+
       - name: Collect production canary observability evidence
         id: canary_evidence
         if: |
@@ -2154,13 +2189,13 @@ jobs:
           STAGING_RESULT: ${{ needs.deploy-staging.result }}
           STAGING_STARTED_AT: ${{ needs.deploy-staging.outputs.started_at }}
           STAGING_COMPLETED_AT: ${{ needs.deploy-staging.outputs.completed_at }}
-          CANARY_RESULT: ${{ steps.proof_canary.outcome == 'failure' && 'failure' || steps.canary_evidence.outcome == 'failure' && 'failure' || steps.stage1_canary.outcome || 'skipped' }}
+          CANARY_RESULT: ${{ steps.proof_canary.outcome == 'failure' && 'failure' || steps.settlement_canary.outcome == 'failure' && 'failure' || steps.canary_evidence.outcome == 'failure' && 'failure' || steps.stage1_canary.outcome || 'skipped' }}
           CANARY_STARTED_AT: ${{ steps.stage1_canary.outputs.started_at }}
-          CANARY_COMPLETED_AT: ${{ steps.proof_canary.outputs.completed_at || steps.stage1_canary.outputs.completed_at }}
+          CANARY_COMPLETED_AT: ${{ steps.settlement_canary.outputs.completed_at || steps.proof_canary.outputs.completed_at || steps.stage1_canary.outputs.completed_at }}
           CANARY_SKIPPED_REASON: ${{ steps.stage1_canary.outcome == 'skipped' && 'stage-1-canary-not-run' || '' }}
           CANARY_COHORT_SUBJECT_TYPE: operator
           CANARY_COHORT_SIZE: "0"
-          CANARY_PROMOTION_DECISION: ${{ steps.proof_canary.outcome == 'failure' && 'abort' || steps.canary_evidence.outcome == 'failure' && 'abort' || steps.proof_canary.outputs.promotion_decision == 'warn' && 'warn' || steps.stage1_canary.outcome == 'success' && 'promote' || steps.stage1_canary.outcome == 'failure' && 'abort' || 'skipped' }}
+          CANARY_PROMOTION_DECISION: ${{ steps.proof_canary.outcome == 'failure' && 'abort' || steps.settlement_canary.outcome == 'failure' && 'abort' || steps.canary_evidence.outcome == 'failure' && 'abort' || steps.proof_canary.outputs.promotion_decision == 'warn' && 'warn' || steps.stage1_canary.outcome == 'success' && 'promote' || steps.stage1_canary.outcome == 'failure' && 'abort' || 'skipped' }}
           PRODUCTION_RESULT: ${{ job.status }}
           PRODUCTION_STARTED_AT: ${{ steps.production_started.outputs.started_at }}
           PRODUCTION_COMPLETED_AT: ${{ steps.release_health_metadata.outputs.completed_at }}
@@ -2189,6 +2224,7 @@ jobs:
             artifacts/release-health/stage1-production-canary-telemetry.json
             artifacts/release-health/canary-analysis.json
             artifacts/release-health/production-proof-buy-now-freshness-canary.json
+            artifacts/release-health/production-settlement-provider-health-canary.json
             artifacts/release-health/production-readiness-gate.json
           if-no-files-found: ignore
           retention-days: 30

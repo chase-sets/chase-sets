@@ -809,8 +809,11 @@ describe("DigitalOcean platform configuration", () => {
       platformProductionWorkflow.indexOf("- name: Production proof-mode Buy Now freshness canary"),
     );
     expect(platformProductionWorkflow.indexOf("- name: Production proof-mode Buy Now freshness canary")).toBeLessThan(
-      platformProductionWorkflow.indexOf("- name: Collect production canary observability evidence"),
+      platformProductionWorkflow.indexOf("- name: Production settlement provider-health telemetry canary"),
     );
+    expect(
+      platformProductionWorkflow.indexOf("- name: Production settlement provider-health telemetry canary"),
+    ).toBeLessThan(platformProductionWorkflow.indexOf("- name: Collect production canary observability evidence"));
     expect(platformProductionWorkflow.indexOf("- name: Collect production canary observability evidence")).toBeLessThan(
       platformProductionWorkflow.indexOf("- name: Mark production release"),
     );
@@ -824,15 +827,37 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).toContain(
       "run: node ./scripts/canary-evidence.mjs --source-file artifacts/release-health/stage1-production-canary-telemetry.json",
     );
+    const settlementProviderHealthCanaryStep = workflowStep(
+      platformProductionWorkflow,
+      "Production settlement provider-health telemetry canary",
+    );
+    expect(settlementProviderHealthCanaryStep).toContain(
+      "if: steps.latest_main.outputs.should_deploy != 'false' && vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true'",
+    );
+    expect(settlementProviderHealthCanaryStep).toContain("production-settlement-provider-health-canary.mjs");
+    expect(settlementProviderHealthCanaryStep).toContain(
+      "PRODUCTION_SETTLEMENT_CANARY_ACCOUNT_EMAIL: ${{ secrets.PRODUCTION_PROOF_CANARY_EMAIL || secrets.PLATFORM_ADMIN_EMAIL || '' }}",
+    );
+    expect(settlementProviderHealthCanaryStep).toContain(
+      "artifacts/release-health/production-settlement-provider-health-canary.json",
+    );
+    expect(settlementProviderHealthCanaryStep).toContain(
+      "PRODUCTION_SETTLEMENT_CANARY_SCRAPE_WAIT_SECONDS: ${{ vars.PRODUCTION_SETTLEMENT_CANARY_SCRAPE_WAIT_SECONDS || '20' }}",
+    );
+    expect(settlementProviderHealthCanaryStep).toContain('echo "started_at=${started_at}" >> "$GITHUB_OUTPUT"');
+    expect(settlementProviderHealthCanaryStep).toContain('echo "completed_at=${completed_at}" >> "$GITHUB_OUTPUT"');
     expect(platformProductionWorkflow).toContain("- name: Resolve CI retry metadata");
     expect(platformProductionWorkflow).toContain("node ./scripts/release-health-ci-metadata.mjs");
     expect(platformProductionWorkflow).toContain("CI_RETRY_COUNT: ${{ steps.ci_metadata.outputs.ci_retry_count }}");
     expect(platformProductionWorkflow).toContain(
-      "CANARY_RESULT: ${{ steps.proof_canary.outcome == 'failure' && 'failure' || steps.canary_evidence.outcome == 'failure' && 'failure' || steps.stage1_canary.outcome || 'skipped' }}",
+      "CANARY_RESULT: ${{ steps.proof_canary.outcome == 'failure' && 'failure' || steps.settlement_canary.outcome == 'failure' && 'failure' || steps.canary_evidence.outcome == 'failure' && 'failure' || steps.stage1_canary.outcome || 'skipped' }}",
     );
     expect(platformProductionWorkflow).toContain("CANARY_STARTED_AT: ${{ steps.stage1_canary.outputs.started_at }}");
     expect(platformProductionWorkflow).toContain(
-      "CANARY_PROMOTION_DECISION: ${{ steps.proof_canary.outcome == 'failure' && 'abort' || steps.canary_evidence.outcome == 'failure' && 'abort' || steps.proof_canary.outputs.promotion_decision == 'warn' && 'warn' || steps.stage1_canary.outcome == 'success' && 'promote' || steps.stage1_canary.outcome == 'failure' && 'abort' || 'skipped' }}",
+      "CANARY_COMPLETED_AT: ${{ steps.settlement_canary.outputs.completed_at || steps.proof_canary.outputs.completed_at || steps.stage1_canary.outputs.completed_at }}",
+    );
+    expect(platformProductionWorkflow).toContain(
+      "CANARY_PROMOTION_DECISION: ${{ steps.proof_canary.outcome == 'failure' && 'abort' || steps.settlement_canary.outcome == 'failure' && 'abort' || steps.canary_evidence.outcome == 'failure' && 'abort' || steps.proof_canary.outputs.promotion_decision == 'warn' && 'warn' || steps.stage1_canary.outcome == 'success' && 'promote' || steps.stage1_canary.outcome == 'failure' && 'abort' || 'skipped' }}",
     );
     const productionProofCanaryStep = workflowStep(
       platformProductionWorkflow,
@@ -874,6 +899,9 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).toContain("- name: Upload release health summary");
     expect(platformProductionWorkflow).toContain("name: production-release-health");
     expect(platformProductionWorkflow).toContain("artifacts/release-health/canary-analysis.json");
+    expect(platformProductionWorkflow).toContain(
+      "artifacts/release-health/production-settlement-provider-health-canary.json",
+    );
     expect(platformProductionWorkflow).toContain("retention-days: 30");
     expect(platformProductionWorkflow).toContain(
       "TF_VAR_production_marketplace_launch_evidence_reference: ${{ vars.PRODUCTION_MARKETPLACE_LAUNCH_EVIDENCE_REFERENCE || '' }}",

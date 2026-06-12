@@ -806,6 +806,9 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
       };
     },
     async getProviderHealth() {
+      await recordOperation({
+        kind: "provider-health-checked",
+      });
       return {
         provider_name: deps.moneyMovementGateway.providerName,
         adapter_mode: deps.moneyMovementGateway.providerName === "fake" ? "fake" : "provider",

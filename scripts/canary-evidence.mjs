@@ -195,14 +195,12 @@ export async function collectPrometheusTelemetry({ baseUrl, queryFile, headers =
         query: signal.baselineQuery,
         headers,
         fetchImpl,
-        emptyResultValue: signal.emptyResultValue,
       }),
       queryPrometheus({
         baseUrl,
         query: signal.canaryQuery,
         headers,
         fetchImpl,
-        emptyResultValue: signal.emptyResultValue,
       }),
     ]);
 
@@ -290,12 +288,6 @@ export function validatePrometheusSignalConfig(signal) {
   if (signal?.required !== undefined && typeof signal.required !== "boolean") {
     errors.push("required must be a boolean when provided.");
   }
-  if (
-    signal?.emptyResultValue !== undefined &&
-    (typeof signal.emptyResultValue !== "number" || !Number.isFinite(signal.emptyResultValue))
-  ) {
-    errors.push("emptyResultValue must be a finite number when provided.");
-  }
   return errors;
 }
 
@@ -353,7 +345,7 @@ async function readTelemetrySource(filePath) {
   return JSON.parse(await readFile(filePath, "utf8"));
 }
 
-async function queryPrometheus({ baseUrl, query, headers, fetchImpl, emptyResultValue }) {
+async function queryPrometheus({ baseUrl, query, headers, fetchImpl }) {
   const url = new URL("/api/v1/query", baseUrl);
   url.searchParams.set("query", query);
   const response = await fetchImpl(url, { headers });
@@ -361,7 +353,7 @@ async function queryPrometheus({ baseUrl, query, headers, fetchImpl, emptyResult
     throw new Error(`Prometheus query failed: ${response.status}`);
   }
   const body = await response.json();
-  return readPrometheusNumber(body) ?? emptyResultValue ?? null;
+  return readPrometheusNumber(body);
 }
 
 function readPrometheusNumber(body) {
