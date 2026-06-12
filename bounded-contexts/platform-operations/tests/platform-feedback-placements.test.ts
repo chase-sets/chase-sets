@@ -1,9 +1,22 @@
 import { describe, expect, it } from "vitest";
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+
+function repositoryRoot(): string {
+  let candidate = process.cwd();
+  while (!existsSync(join(candidate, "pnpm-workspace.yaml"))) {
+    const parent = dirname(candidate);
+    if (parent === candidate) {
+      throw new Error(`Could not locate the repository root from ${process.cwd()}`);
+    }
+    candidate = parent;
+  }
+  return candidate;
+}
 
 async function routeSource(path: string) {
-  return readFile(join(process.cwd(), "..", "..", path), "utf8");
+  return readFile(join(repositoryRoot(), path), "utf8");
 }
 
 describe("platform feedback prompt placements", () => {

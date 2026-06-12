@@ -346,6 +346,27 @@ describe("change-scope", () => {
     expect(scope.e2eTestsRequired).toBe(false);
   });
 
+  it("re-runs every workspace's tests for root vitest configuration changes without runtime fanout", () => {
+    const baseDir = path.join(process.cwd(), "repo");
+    const scope = classifyChanges({
+      baseDir,
+      changedFiles: ["vitest.projects.config.mjs"],
+      workspaces: [
+        workspace(baseDir, "deployables", "marketplace", "@test/marketplace-web"),
+        workspace(baseDir, "bounded-contexts", "catalog", "@test/catalog"),
+      ],
+    });
+
+    expect(scope.localChecksRequired).toBe(true);
+    expect(scope.unitTestsRequired).toBe(true);
+    expect(scope.affectedWorkspaces).toEqual(["@test/marketplace-web", "@test/catalog"]);
+    expect(scope.runtimeAffectedWorkspaces).toEqual([]);
+    expect(scope.buildRequired).toBe(false);
+    expect(scope.dockerImageRequired).toBe(false);
+    expect(scope.deployRequired).toBe(false);
+    expect(scope.e2eTestsRequired).toBe(false);
+  });
+
   it("does not expand bounded-context unit test changes to runtime dependents or E2E", () => {
     const baseDir = path.join(process.cwd(), "repo");
     const scope = classifyChanges({

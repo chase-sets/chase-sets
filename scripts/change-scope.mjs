@@ -24,6 +24,10 @@ const rootRuntimePatterns = [
   /^playwright\.config\.ts$/,
 ];
 const rootTestTypecheckPatterns = [/^tsconfig\.tests\.json$/, /^test-env\.d\.ts$/];
+// Root vitest configuration shared by every workspace test run: changing it
+// must re-run every workspace's tests, but it is test-only, so it must not
+// fan out to builds, docker images, or deploys.
+const rootTestConfigPatterns = [/^vitest\.projects\.config\.mjs$/];
 const deploymentScriptPatterns = [
   /^scripts\/digitalocean-/,
   /^scripts\/platform-smoke/,
@@ -166,6 +170,7 @@ export function classifyChanges({
   let dockerChanged = false;
   let rootRuntimeChanged = false;
   let rootTestTypecheckChanged = false;
+  let rootTestConfigChanged = false;
   let deploymentScriptChanged = false;
   let scriptOrConfigChanged = false;
   const selectedE2eSuiteIds = new Set();
@@ -206,8 +211,16 @@ export function classifyChanges({
     dockerChanged ||= matchesAny(filePath, dockerPatterns);
     rootRuntimeChanged ||= matchesAny(filePath, rootRuntimePatterns);
     rootTestTypecheckChanged ||= matchesAny(filePath, rootTestTypecheckPatterns);
+    rootTestConfigChanged ||= matchesAny(filePath, rootTestConfigPatterns);
     deploymentScriptChanged ||= matchesAny(filePath, deploymentScriptPatterns);
-    scriptOrConfigChanged ||= filePath.startsWith("scripts/") || rootRuntimeChanged || rootTestTypecheckChanged;
+    scriptOrConfigChanged ||=
+      filePath.startsWith("scripts/") || rootRuntimeChanged || rootTestTypecheckChanged || rootTestConfigChanged;
+  }
+
+  if (rootTestConfigChanged) {
+    for (const workspace of workspaces) {
+      directlyTestOnlyAffectedWorkspaces.add(workspace.name);
+    }
   }
 
   if (rootRuntimeChanged) {

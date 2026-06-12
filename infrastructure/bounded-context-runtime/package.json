@@ -11,7 +11,8 @@
   },
   "types": "./index.ts",
   "scripts": {
-    "test": "vitest run --pool vmThreads --environment node"
+    "test": "vitest run --config ./vitest.config.ts",
+    "test:watch": "vitest --config ./vitest.config.ts"
   },
   "dependencies": {
     "@chase-sets/bounded-context-module": "workspace:*",

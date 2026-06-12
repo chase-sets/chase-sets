@@ -1,7 +1,23 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-const marketplaceSystemGuidance = readFileSync("MARKETPLACE_SYSTEM.md", "utf8");
+function repositoryRoot(): string {
+  let candidate = process.cwd();
+  while (!existsSync(join(candidate, "pnpm-workspace.yaml"))) {
+    const parent = dirname(candidate);
+    if (parent === candidate) {
+      throw new Error(`Could not locate the repository root from ${process.cwd()}`);
+    }
+    candidate = parent;
+  }
+  return candidate;
+}
+
+const marketplaceSystemGuidance = readFileSync(
+  join(repositoryRoot(), "packages", "design-system", "MARKETPLACE_SYSTEM.md"),
+  "utf8",
+);
 
 describe("marketplace system guidance", () => {
   it("documents object-first item-detail rail actions", () => {

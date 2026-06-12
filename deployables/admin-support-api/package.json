@@ -9,7 +9,6 @@
   "scripts": {
     "bootstrap": "tsx --env-file=.env.example --env-file-if-exists=.env.local src/bootstrap.ts",
     "bootstrap:production": "tsx src/bootstrap.ts",
-    "build": "tsc -p ./tsconfig.json --noEmit",
     "dev": "tsx watch --env-file=.env.example --env-file-if-exists=.env.local src/main.ts",
     "start": "tsx --env-file=.env.example --env-file-if-exists=.env.local src/main.ts",
     "start:production": "tsx src/main.ts",
