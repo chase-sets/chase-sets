@@ -876,14 +876,15 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).toContain("node ./scripts/release-health-ci-metadata.mjs");
     expect(platformProductionWorkflow).toContain("CI_RETRY_COUNT: ${{ steps.ci_metadata.outputs.ci_retry_count }}");
     expect(platformProductionWorkflow).toContain(
-      "CANARY_RESULT: ${{ steps.proof_canary.outcome == 'failure' && 'failure' || steps.settlement_canary.outcome == 'failure' && 'failure' || steps.canary_evidence.outcome == 'failure' && 'failure' || steps.stage1_canary.outcome || 'skipped' }}",
+      "CANARY_RESULT: ${{ steps.proof_canary.outcome == 'failure' && 'failure' || steps.settlement_canary.outcome == 'failure' && 'failure' || steps.stage1_canary.outcome || 'skipped' }}",
     );
+    expect(platformProductionWorkflow).toContain("CANARY_EVIDENCE_RESULT: ${{ steps.canary_evidence.outcome || 'skipped' }}");
     expect(platformProductionWorkflow).toContain("CANARY_STARTED_AT: ${{ steps.stage1_canary.outputs.started_at }}");
     expect(platformProductionWorkflow).toContain(
       "CANARY_COMPLETED_AT: ${{ steps.settlement_canary.outputs.completed_at || steps.proof_canary.outputs.completed_at || steps.stage1_canary.outputs.completed_at }}",
     );
     expect(platformProductionWorkflow).toContain(
-      "CANARY_PROMOTION_DECISION: ${{ steps.proof_canary.outcome == 'failure' && 'abort' || steps.settlement_canary.outcome == 'failure' && 'abort' || steps.canary_evidence.outcome == 'failure' && 'abort' || steps.proof_canary.outputs.promotion_decision == 'warn' && 'warn' || steps.stage1_canary.outcome == 'success' && 'promote' || steps.stage1_canary.outcome == 'failure' && 'abort' || 'skipped' }}",
+      "CANARY_PROMOTION_DECISION: ${{ steps.proof_canary.outcome == 'failure' && 'abort' || steps.settlement_canary.outcome == 'failure' && 'abort' || steps.proof_canary.outputs.promotion_decision == 'warn' && 'warn' || steps.stage1_canary.outcome == 'success' && 'promote' || steps.stage1_canary.outcome == 'failure' && 'abort' || 'skipped' }}",
     );
     const productionProofCanaryStep = workflowStep(
       platformProductionWorkflow,

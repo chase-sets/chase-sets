@@ -2052,6 +2052,10 @@ jobs:
 
       - name: Collect production canary observability evidence
         id: canary_evidence
+        # Advisory (issue #1416): evidence collection runs after production has
+        # already applied, so a collection failure must never mark a shipped
+        # release failed. Failures alert and land in release health instead.
+        continue-on-error: true
         if: |
           always() &&
           steps.latest_main.outputs.should_deploy != 'false' &&
@@ -2071,6 +2075,16 @@ jobs:
           --source-file artifacts/release-health/stage1-production-canary-telemetry.json
           --source-file artifacts/release-health/production-readiness-gate.json
           --source-file artifacts/release-health/production-settlement-provider-health-canary.json
+
+      - name: Alert on canary evidence collection failure
+        if: steps.canary_evidence.outcome == 'failure'
+        run: |
+          {
+            echo "## Canary evidence collection FAILED (advisory)"
+            echo ""
+            echo "canary-evidence.mjs failed after production applied. The release is not blocked (issue #1416); the failure is recorded in release health. Investigate asynchronously."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::warning::Canary evidence collection failed; release proceeds (advisory per #1416)."
 
       - name: Mark production release
         if: steps.latest_main.outputs.should_deploy != 'false'
@@ -2193,13 +2207,14 @@ jobs:
           STAGING_RESULT: ${{ needs.deploy-staging.result }}
           STAGING_STARTED_AT: ${{ needs.deploy-staging.outputs.started_at }}
           STAGING_COMPLETED_AT: ${{ needs.deploy-staging.outputs.completed_at }}
-          CANARY_RESULT: ${{ steps.proof_canary.outcome == 'failure' && 'failure' || steps.settlement_canary.outcome == 'failure' && 'failure' || steps.canary_evidence.outcome == 'failure' && 'failure' || steps.stage1_canary.outcome || 'skipped' }}
+          CANARY_RESULT: ${{ steps.proof_canary.outcome == 'failure' && 'failure' || steps.settlement_canary.outcome == 'failure' && 'failure' || steps.stage1_canary.outcome || 'skipped' }}
+          CANARY_EVIDENCE_RESULT: ${{ steps.canary_evidence.outcome || 'skipped' }}
           CANARY_STARTED_AT: ${{ steps.stage1_canary.outputs.started_at }}
           CANARY_COMPLETED_AT: ${{ steps.settlement_canary.outputs.completed_at || steps.proof_canary.outputs.completed_at || steps.stage1_canary.outputs.completed_at }}
           CANARY_SKIPPED_REASON: ${{ steps.stage1_canary.outcome == 'skipped' && 'stage-1-canary-not-run' || '' }}
           CANARY_COHORT_SUBJECT_TYPE: operator
           CANARY_COHORT_SIZE: "0"
-          CANARY_PROMOTION_DECISION: ${{ steps.proof_canary.outcome == 'failure' && 'abort' || steps.settlement_canary.outcome == 'failure' && 'abort' || steps.canary_evidence.outcome == 'failure' && 'abort' || steps.proof_canary.outputs.promotion_decision == 'warn' && 'warn' || steps.stage1_canary.outcome == 'success' && 'promote' || steps.stage1_canary.outcome == 'failure' && 'abort' || 'skipped' }}
+          CANARY_PROMOTION_DECISION: ${{ steps.proof_canary.outcome == 'failure' && 'abort' || steps.settlement_canary.outcome == 'failure' && 'abort' || steps.proof_canary.outputs.promotion_decision == 'warn' && 'warn' || steps.stage1_canary.outcome == 'success' && 'promote' || steps.stage1_canary.outcome == 'failure' && 'abort' || 'skipped' }}
           PRODUCTION_RESULT: ${{ job.status }}
           PRODUCTION_STARTED_AT: ${{ steps.production_started.outputs.started_at }}
           PRODUCTION_COMPLETED_AT: ${{ steps.release_health_metadata.outputs.completed_at }}
