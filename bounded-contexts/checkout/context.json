@@ -5,7 +5,7 @@
   "streamPrefix": "checkout.",
   "apiBasePath": "/api/marketplace",
   "slices": ["cart", "sell-list", "sessions"],
-  "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support", "ucp-support"],
+  "allowedSupportDirectories": ["request-support", "route-support", "runtime-support", "seed-support", "ucp-support"],
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
   "allowedContextDependencies": [
     "@chase-sets/auth",
@@ -358,6 +358,15 @@
       "createdFor": "checkout routes, Discovery purchase-intent forms, and checkout confirmation that need authenticated API calls.",
       "sunsetWhen": "Remove when route modules no longer share request client behavior.",
       "crossCuttingRuntimeComposition": true
+    },
+    "route-support": {
+      "classification": "support",
+      "purpose": "Provide the sell-checkout-session route adapter modules (loader, action, readiness, marketplace handoff) that orchestrate cross-context server surfaces for the seller checkout route.",
+      "allowedWhen": "Allowed only when route-layer behavior orchestrates cross-context server surfaces that cannot live inside a feature folder.",
+      "expectedConsumers": ["routes"],
+      "justification": "route-support centralizes the seller checkout route's loader/action orchestration that composes Marketplace, Identity, and Settlement server surfaces.",
+      "createdFor": "the sell-checkout-session route, which composes cross-context server clients during loader and action handling.",
+      "sunsetWhen": "Remove when the seller checkout route no longer orchestrates cross-context server surfaces."
     },
     "runtime-support": {
       "classification": "support",
