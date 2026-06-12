@@ -149,6 +149,22 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformBootstrapJob).toContain("value = var.environment");
   });
 
+  it("keeps deterministic platform admin bootstrap owned by one pre-deploy job", () => {
+    const platformBootstrapJob = terraformJobBlock(platformMain, "platform-bootstrap");
+    const adminSupportBootstrapJob = terraformJobBlock(platformMain, "admin-support-bootstrap");
+
+    for (const key of ["PLATFORM_ADMIN_EMAIL", "PLATFORM_ADMIN_PASSWORD", "PLATFORM_ADMIN_DISPLAY_NAME"]) {
+      expect(platformBootstrapJob).toContain(`key   = "${key}"`);
+      expect(adminSupportBootstrapJob).toContain(`key   = "${key}"`);
+    }
+
+    expect(platformBootstrapJob).not.toContain("local.marketplace_platform_enabled ? [] : [1]");
+    expect(occurrenceCount(adminSupportBootstrapJob, "for_each = local.marketplace_platform_enabled ? [] : [1]")).toBe(
+      3,
+    );
+    expect(adminSupportBootstrapJob).toContain("it owns deterministic platform admin");
+  });
+
   it("keeps shared Catalog asset buckets and CDN domains in their own stable root", () => {
     expect(catalogAssetsMain).toContain('resource "digitalocean_spaces_bucket" "catalog_assets"');
     expect(catalogAssetsMain).toContain('acl           = "public-read"');

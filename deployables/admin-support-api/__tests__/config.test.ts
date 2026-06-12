@@ -16,6 +16,25 @@ describe("admin-support API configuration", () => {
     );
   });
 
+  it("ignores retired standalone context database URL env vars", () => {
+    vi.stubEnv("DATABASE_URL", "postgres://shared");
+    vi.stubEnv("PLATFORM_INTERNAL_AUTH_SECRET", "dev-internal-secret");
+    vi.stubEnv("DATABASE_URL_EXPERIENCE", "postgres://experience");
+    vi.stubEnv("DATABASE_URL_INSIGHTS", "postgres://insights");
+    vi.stubEnv("DATABASE_URL_SUPPORT", "postgres://support");
+
+    const config = loadConfig();
+
+    expect(
+      Object.keys(config.contextDatabaseUrls).every((contextName) => {
+        return adminSupportContextNames.includes(contextName as (typeof adminSupportContextNames)[number]);
+      }),
+    ).toBe(true);
+    expect(Object.values(config.contextDatabaseUrls)).not.toEqual(
+      expect.arrayContaining(["postgres://experience", "postgres://insights", "postgres://support"]),
+    );
+  });
+
   it("loads production config without Stripe, EasyPost, payment, or marketplace requirements", () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("PLATFORM_CONTROL_DATABASE_URL", "postgres://control");
