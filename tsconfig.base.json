@@ -327,6 +327,9 @@
       "@chase-sets/platform-runtime/auth": [
         "./infrastructure/platform-runtime/auth.ts"
       ],
+      "@chase-sets/platform-runtime/context-pools": [
+        "./infrastructure/platform-runtime/context-pools.ts"
+      ],
       "@chase-sets/platform-runtime/control-plane": [
         "./infrastructure/platform-runtime/control-plane.ts"
       ],

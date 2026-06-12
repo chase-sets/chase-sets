@@ -1,5 +1,5 @@
 import type { Context } from "hono";
-import { conflictResponse, internalErrorResponse, validationFailedResponse } from "@chase-sets/http/responses";
+import { conflictResponse, internalErrorResponse, validationFailedResponse } from "./responses";
 
 type EventStoreErrorLike = Readonly<{
   code: string;

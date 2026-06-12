@@ -58,8 +58,8 @@ import {
   type PlatformActorResolver,
   type TenantContextEnv,
 } from "./middleware/auth-context";
+import { errorHandler } from "@chase-sets/http/error-handler";
 import { authenticationRequiredResponse, forbiddenResponse } from "@chase-sets/http/responses";
-import { errorHandler } from "./middleware/error-handler";
 import { apiContextRegistry } from "./generated/api-context-registry";
 
 export type PlatformIdentityServices = Readonly<{

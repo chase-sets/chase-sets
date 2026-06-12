@@ -1,10 +1,11 @@
 import type { Context, Next } from "hono";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
+import { createAuthBootstrapContext } from "@chase-sets/auth-context";
 import { createActorEventStoreContext, type ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import { PLATFORM_INTERNAL_AUTH_HEADER, resolvePlatformInternalAuthSecret } from "@chase-sets/platform-runtime/http";
 import type { PlatformIdentityServices } from "../app";
-import { createAuthBootstrapContext, resolveActorFromRequest } from "../auth-request-context";
+import { resolveActorFromRequest } from "../auth-request-context";
 import { authenticationRequiredResponse } from "@chase-sets/http/responses";
 import { attachActiveTraceContext } from "@chase-sets/observability";
 

@@ -471,6 +471,15 @@ export function startObservability(config = loadObservabilityConfig()): Observab
   return runtime;
 }
 
+export function createObservabilityPrelude(serviceName: string): ObservabilityRuntime {
+  return startObservability(
+    loadObservabilityConfig(process.env, {
+      serviceName,
+      serviceVersion: "0.1.0",
+    }),
+  );
+}
+
 export function getObservabilityRuntime(): ObservabilityRuntime {
   return runtime ?? startObservability();
 }

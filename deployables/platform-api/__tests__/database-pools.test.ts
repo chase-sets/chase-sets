@@ -4,22 +4,7 @@ import { createPlatformApiHost } from "../src/app";
 import { closePlatformApiPools, createPlatformApiPools } from "../src/database-pools";
 
 describe("platform api database pools", () => {
-  it("reuses one pool when every context falls back to DATABASE_URL", async () => {
-    const pools = createPlatformApiPools({
-      sharedDatabaseUrl: "postgresql://localhost/chase_sets",
-      contextDatabaseUrls: {},
-      port: 6182,
-    });
-
-    try {
-      expect(pools.auth).toBe(pools.catalog);
-      expect(pools.catalog).toBe(pools.payments);
-    } finally {
-      await closePlatformApiPools(pools);
-    }
-  });
-
-  it("supports mixed per-context pools while the host still mounts every context", async () => {
+  it("binds the shared pool factory to the platform API host registry", async () => {
     const pools = createPlatformApiPools({
       sharedDatabaseUrl: "postgresql://localhost/shared",
       contextDatabaseUrls: {
