@@ -4,9 +4,11 @@
 
 **Rule:** This list is frozen. Additions require a new issue with rationale. The list is reviewed once, at actual launch — it is not enforced per-PR.
 
+**Proof validity (issue #1414):** launch proof is **monotonic**. Evidence recorded against a main commit X remains valid for every descendant of X unless a later change touches the covered surface (as classified by `scripts/change-scope.mjs`). A merge to main does not invalidate prior proof; "current-main revalidation" passes are not required and must not be requested. Evidence rows are recorded **only in this file via pull request** — never as issue or milestone comments. Evidence minimums (matrix row counts, scenario counts, artifact counts) change only by editing this file via pull request; review passes may not raise them.
+
 **Owner:** Todd
 
-**How to use:** Walk the list top to bottom against current main in a production-like environment. "Baseline" citations point to the PR/deploy where the behavior was first proven — spot-check that it still holds; do not rebuild evidence matrices.
+**How to use:** Walk the list top to bottom in a production-like environment. "Baseline" citations point to the PR/deploy where the behavior was first proven — spot-check that it still holds; do not rebuild evidence matrices.
 
 ## Buy flows
 
