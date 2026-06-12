@@ -147,6 +147,12 @@ Checkout session creation derives `splitGroupHandoff` from those readiness group
 The handoff is accepted only when the groups cover the same line ids and selected listing ids as the checkout session.
 Missing, duplicate, partial, stale, or mismatched group facts fail closed before checkout starts.
 
+Active cart checkout reads and the buy order-creation handoff revalidate the stored readiness snapshot and
+`splitGroupHandoff` against current cart facts before Ordering can receive a checkout order request. Changed seller
+grouping, changed selected listing ids, unavailable groups, unresolved fulfillment, or mismatched support references
+route back to cart/readiness recovery with no payment, order, label, payout, notification, account-history, support,
+refund, void, or reversal side effects started by Checkout.
+
 These group facts are handoff references, not downstream commitments. They must not be shown as completed orders,
 shipments, labels, payouts, settlements, notifications, account-history rows, support cases, refunds, or reversals
 until the owning context commits those facts. Checkout may use them to keep one customer-facing checkout action and

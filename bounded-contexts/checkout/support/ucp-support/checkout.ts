@@ -279,7 +279,11 @@ export function createCheckoutUcpHandlers(
 
           let orderIds = [...refreshedSession.order_ids];
           if (orderIds.length === 0) {
-            const checkoutOrders = await createCheckoutOrdersThroughOrdering(input.request, refreshedSession, {
+            const readySession = await checkout.sessions.assertReadyForOrderCreation({
+              sessionId,
+              accountId: access.actor.accountId as AccountId,
+            });
+            const checkoutOrders = await createCheckoutOrdersThroughOrdering(input.request, readySession, {
               fulfillmentPreviewRevision: readNullableString(
                 body.fulfillmentPreviewRevision ?? body.fulfillment_preview_revision,
               ),

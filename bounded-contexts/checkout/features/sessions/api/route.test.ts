@@ -111,6 +111,7 @@ function createServices(overrides: Partial<CheckoutSessionServices> = {}): Check
     recordFulfillmentPreview: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
     selectShippingOption: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
     setShippingAddress: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
+    assertReadyForOrderCreation: vi.fn(async ({ sessionId }) => createSession({ session_id: sessionId })),
     recordOrdersCreated: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
     recordPaymentStarted: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
     recordOfferSubmitted: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
@@ -626,6 +627,55 @@ describe("checkout session routes", () => {
     expect(mockCreateCheckoutOrdersThroughOrdering).not.toHaveBeenCalled();
     expect(mockCreateCheckoutPaymentThroughPayments).not.toHaveBeenCalled();
     expect(services.setShippingAddress).not.toHaveBeenCalled();
+    expect(services.recordOrdersCreated).not.toHaveBeenCalled();
+    expect(services.recordPaymentStarted).not.toHaveBeenCalled();
+    expect(checkoutObservabilityTelemetry.recordCheckoutEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "checkout.session.active_stale_recovery",
+        sideEffectStatus: "not-attempted",
+        downstreamStatus: "not-started",
+      }),
+    );
+  });
+
+  it("rejects stale split-group handoff before creating checkout orders", async () => {
+    const checkoutObservabilityTelemetry = { recordCheckoutEvent: vi.fn() };
+    const services = createServices({
+      getSession: vi.fn(async () => createSession()),
+      assertReadyForOrderCreation: vi.fn(async () => {
+        throw new CheckoutDomainError(
+          "Cart readiness changed. Review your cart before checkout.",
+          "split_group_handoff_stale",
+        );
+      }),
+    });
+    const app = buildApp(services, undefined, checkoutObservabilityTelemetry);
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shippingAddress, marketplaceCheckoutFeeQuoteFingerprint: "quote_1" }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "split_group_handoff_stale",
+        message: "Cart readiness changed. Review your cart before checkout.",
+      },
+    });
+    expect(services.setShippingAddress).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: "chk_1", accountId: "acc_buyer" }),
+      expect.any(Object),
+    );
+    expect(services.assertReadyForOrderCreation).toHaveBeenCalledWith({
+      sessionId: "chk_1",
+      accountId: "acc_buyer",
+    });
+    expect(mockCreateCheckoutOrdersThroughOrdering).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutPaymentThroughPayments).not.toHaveBeenCalled();
     expect(services.recordOrdersCreated).not.toHaveBeenCalled();
     expect(services.recordPaymentStarted).not.toHaveBeenCalled();
     expect(checkoutObservabilityTelemetry.recordCheckoutEvent).toHaveBeenCalledWith(

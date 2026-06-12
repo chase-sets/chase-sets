@@ -72,6 +72,7 @@ function createSessions(overrides: Partial<CheckoutSessionServices> = {}): Check
     selectOptimizationGoal: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
     recordFulfillmentPreview: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
     setShippingAddress: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
+    assertReadyForOrderCreation: vi.fn(async ({ sessionId }) => session({ session_id: sessionId })),
     recordOrdersCreated: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
     recordPaymentStarted: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
     recordOfferSubmitted: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
