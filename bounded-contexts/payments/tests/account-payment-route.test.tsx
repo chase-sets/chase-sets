@@ -99,7 +99,7 @@ vi.mock("react-router", async () => {
   };
 });
 
-import MarketplaceAccountPaymentRoute from "@chase-sets/payments/routes/marketplace/account-payment";
+import MarketplaceAccountPaymentRoute from "../routes/marketplace/account-payment";
 
 function buildPurchase(overrides: Partial<PurchaseDetail> = {}): PurchaseDetail {
   return {

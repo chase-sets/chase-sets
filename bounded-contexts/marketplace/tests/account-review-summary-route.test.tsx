@@ -1,4 +1,5 @@
-import { render, screen } from "@testing-library/react";
+// @vitest-environment jsdom
+import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChaseRoot } from "@chase-sets/design-system";
 import { jsonResponse, requestUrl } from "./test-support/http";
@@ -30,7 +31,7 @@ vi.mock("@chase-sets/platform-runtime/auth", async () => {
 
 import MarketplaceAccountReviewSummaryRoute, {
   loader,
-} from "@chase-sets/marketplace/routes/marketplace/account-review-summary";
+} from "../routes/marketplace/account-review-summary";
 
 describe("marketplace account review summary route", () => {
   beforeEach(() => {
@@ -41,6 +42,7 @@ describe("marketplace account review summary route", () => {
   });
 
   afterEach(() => {
+    cleanup();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
   });

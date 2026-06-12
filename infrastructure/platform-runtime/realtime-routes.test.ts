@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   authorizeRealtimeTopics,
+  createRealtimeStatusSnapshot,
   createRealtimeRoutes,
   decodeRealtimeCursor,
   encodeRealtimeCursor,
@@ -563,6 +564,59 @@ describe("realtime SSE routes", () => {
     expect(text).toContain('"reason":"replay-backpressure"');
     expect(text).toContain(`id: ${encodeRealtimeCursor({ discovery: "9" })}`);
     expect(text).not.toContain("event: projection.patch");
+  });
+});
+
+describe("realtime status snapshot", () => {
+  it("summarizes context heads, active connection count, and public route config", async () => {
+    const db = {
+      query: async (sql: string) => {
+        if (sql.includes("MAX(outbox_id)")) {
+          return { rows: [{ head: "5" }] };
+        }
+
+        throw new Error(`Unexpected query: ${sql}`);
+      },
+    };
+
+    const snapshot = await createRealtimeStatusSnapshot({
+      stores: [
+        { contextName: "catalog", exactTopics: ["public:market"], topicPrefixes: ["item:"], db },
+        { contextName: "discovery", exactTopics: [], topicPrefixes: ["listing:"], db },
+      ],
+      activeConnectionCount: 3,
+      wakeSignalConfigured: true,
+      routeTuning: {
+        batchSize: 25,
+      },
+      resourceLimits: {
+        maxActiveStreams: 10,
+      },
+    });
+
+    expect(snapshot).toMatchObject({
+      activeConnectionCount: 3,
+      wakeSignalConfigured: true,
+      routeTuning: { batchSize: 25 },
+      resourceLimits: { maxActiveStreams: 10 },
+      routeConfig: {
+        cursorSigningConfigured: false,
+      },
+      stores: [
+        {
+          contextName: "catalog",
+          exactTopics: ["public:market"],
+          topicPrefixes: ["item:"],
+          head: "5",
+        },
+        {
+          contextName: "discovery",
+          exactTopics: [],
+          topicPrefixes: ["listing:"],
+          head: "5",
+        },
+      ],
+    });
   });
 });
 

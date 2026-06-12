@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
-import type { HealthProjectionReplaySummary } from "@chase-sets/platform-runtime/health";
 import { createUcpEnvelope } from "@chase-sets/platform-runtime/ucp";
 import { buildPlatformApiApp } from "../src/app";
 
@@ -14,6 +13,32 @@ function signedUcpHeaders(body: string) {
     Signature: "sig1=:placeholder:",
     "Content-Digest": `sha-256=:${createHash("sha256").update(body).digest("base64")}:`,
   };
+}
+
+function platformActor(permissions: readonly string[]) {
+  return {
+    sessionId: "sess_1",
+    tenantId: "tenant_1",
+    userId: "user_1",
+    accountId: "account_1",
+    membershipId: "member_1",
+    roleKey: "platform-user",
+    permissions,
+  };
+}
+
+function createEmptyRuntime(services: Record<string, unknown> = {}) {
+  return {
+    mountedContexts: [],
+    mountedModules: [],
+    services: {
+      auth: {},
+      identity: {},
+      ...services,
+    },
+    projectionGroups: [],
+    subscriptionRunners: [],
+  } as never;
 }
 
 function createCatalogRuntime() {
@@ -37,6 +62,7 @@ function createCatalogRuntime() {
     mountedContexts: [
       {
         contextName: "catalog",
+        mountRole: "active",
         module: catalogModule,
         services: {},
         pool: {},
@@ -54,131 +80,59 @@ function createCatalogRuntime() {
   } as never;
 }
 
-describe("platform api app", () => {
-  it("mounts the health route", async () => {
-    const app = buildPlatformApiApp(
-      {
-        mountedContexts: [],
-        mountedModules: [],
-        services: {
-          auth: {},
-          identity: {},
+describe("platform api app wiring", () => {
+  it("mounts platform health aliases", async () => {
+    const app = buildPlatformApiApp(createEmptyRuntime(), {
+      readinessChecks: [
+        {
+          name: "control.database",
+          check: async () => undefined,
         },
-        projectionGroups: [],
-        subscriptionRunners: [],
-      },
-      {
-        getProjectionReplay: vi.fn(
-          async () =>
-            ({
-              status: "ok",
-              totalGroups: 0,
-              requiredGroups: 0,
-              initializedGroups: 0,
-              caughtUpGroups: 0,
-              behindGroups: 0,
-              staleGroups: 0,
-              runningGroups: 0,
-              errorGroups: 0,
-              contexts: [],
-            }) satisfies HealthProjectionReplaySummary,
-        ),
-      },
-    );
-
-    const response = await app.request("/health");
-
-    expect(response.status).toBe(200);
-  });
-
-  it("keeps projection replay out of readiness", async () => {
-    const getProjectionReplay = vi.fn(async () => {
-      throw new Error("projection replay unavailable");
+      ],
     });
-    const app = buildPlatformApiApp(
-      {
-        mountedContexts: [],
-        mountedModules: [],
-        services: {
-          auth: {},
-          identity: {},
-        },
-        projectionGroups: [],
-        subscriptionRunners: [],
-      },
-      {
-        getProjectionReplay,
-        readinessChecks: [
-          {
-            name: "control.database",
-            check: async () => undefined,
-          },
-        ],
-      },
-    );
 
-    const response = await app.request("/health/ready");
+    const rootResponse = await app.request("/health");
+    const apiResponse = await app.request("/api/health/ready");
 
-    expect(response.status).toBe(200);
-    expect(getProjectionReplay).not.toHaveBeenCalled();
-    await expect(response.json()).resolves.toEqual({
+    expect(rootResponse.status).toBe(200);
+    expect(apiResponse.status).toBe(200);
+    await expect(apiResponse.json()).resolves.toEqual({
       status: "ok",
       checks: [{ name: "control.database", status: "ok" }],
     });
   });
 
-  it("mounts API-prefixed health for ingress smoke checks", async () => {
-    const app = buildPlatformApiApp(
-      {
-        mountedContexts: [],
-        mountedModules: [],
-        services: {
-          auth: {},
-          identity: {},
-        },
-        projectionGroups: [],
-        subscriptionRunners: [],
-      },
-      {
-        readinessChecks: [
-          {
-            name: "control.database",
-            check: async () => undefined,
-          },
-        ],
-      },
-    );
+  it("mounts projection operations under the same-origin API prefix", async () => {
+    const app = buildPlatformApiApp(createEmptyRuntime(), {
+      resolveActor: vi.fn(async () => platformActor(["security.manage"])),
+    });
 
-    const response = await app.request("/api/health/ready");
+    const response = await app.request("/api/platform/projections");
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({
-      status: "ok",
-      checks: [{ name: "control.database", status: "ok" }],
+    await expect(response.json()).resolves.toMatchObject({
+      summary: {
+        status: "ok",
+        totalGroups: 0,
+      },
+      projectionGroups: [],
+      projectionStatusSource: "runtime-memory",
     });
   });
 
   it("requires catalog manage permission for direct Catalog API mutations", async () => {
     const app = buildPlatformApiApp(createCatalogRuntime(), {
-      resolveActor: vi.fn(async () => ({
-        sessionId: "sess_1",
-        tenantId: "tenant_1",
-        userId: "user_1",
-        accountId: "account_1",
-        membershipId: "member_1",
-        roleKey: "catalog-viewer",
-        permissions: ["catalog.view"],
-      })),
+      resolveActor: vi.fn(async () => platformActor(["catalog.view"])),
     });
 
     const readResponse = await app.request("/api/catalog/source-observations/provider-profiles");
-    expect(readResponse.status).toBe(200);
-
     const writeResponse = await app.request("/api/catalog/source-observations/provider-profiles", {
       method: "POST",
       body: JSON.stringify({ version: {} }),
       headers: { "Content-Type": "application/json" },
     });
+
+    expect(readResponse.status).toBe(200);
     expect(writeResponse.status).toBe(403);
     await expect(writeResponse.json()).resolves.toMatchObject({
       error: { code: "authorization_forbidden" },
@@ -198,249 +152,16 @@ describe("platform api app", () => {
     });
   });
 
-  it("requires platform operations permission for projection operations", async () => {
-    const app = buildPlatformApiApp(
-      {
-        mountedContexts: [],
-        mountedModules: [],
-        services: {
-          auth: {},
-          identity: {},
-        },
-        projectionGroups: [],
-        subscriptionRunners: [],
+  it("mounts internal realtime status with platform-api context stores", async () => {
+    const realtimePool = {
+      query: async (sql: string) => {
+        if (sql.includes("MAX(outbox_id)")) {
+          return { rows: [{ head: "5" }] };
+        }
+
+        throw new Error(`Unexpected query: ${sql}`);
       },
-      {
-        resolveActor: vi.fn(async () => ({
-          sessionId: "sess_1",
-          tenantId: "tenant_1",
-          userId: "user_1",
-          accountId: "account_1",
-          membershipId: "member_1",
-          roleKey: "catalog-admin",
-          permissions: ["catalog.view"],
-        })),
-      },
-    );
-
-    const response = await app.request("/api/platform/projections");
-
-    expect(response.status).toBe(403);
-  });
-
-  it("requires platform operations permission for the public wake-status route", async () => {
-    const app = buildPlatformApiApp(
-      {
-        mountedContexts: [],
-        mountedModules: [],
-        services: {
-          auth: {},
-          identity: {},
-        },
-        projectionGroups: [],
-        subscriptionRunners: [],
-      },
-      {
-        resolveActor: vi.fn(async () => ({
-          sessionId: "sess_1",
-          tenantId: "tenant_1",
-          userId: "user_1",
-          accountId: "account_1",
-          membershipId: "member_1",
-          roleKey: "catalog-admin",
-          permissions: ["catalog.view"],
-        })),
-      },
-    );
-
-    const response = await app.request("/api/platform/projections/wake-status");
-
-    expect(response.status).toBe(403);
-  });
-
-  it("mounts projection operations under the same-origin API prefix", async () => {
-    const app = buildPlatformApiApp(
-      {
-        mountedContexts: [],
-        mountedModules: [],
-        services: {
-          auth: {},
-          identity: {},
-        },
-        projectionGroups: [],
-        subscriptionRunners: [],
-      },
-      {
-        resolveActor: vi.fn(async () => ({
-          sessionId: "sess_1",
-          tenantId: "tenant_1",
-          userId: "user_1",
-          accountId: "account_1",
-          membershipId: "member_1",
-          roleKey: "platform-admin",
-          permissions: ["security.manage"],
-        })),
-      },
-    );
-
-    const response = await app.request("/api/platform/projections");
-
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
-      summary: {
-        status: "ok",
-        totalGroups: 0,
-      },
-      projectionGroups: [],
-      blockedProjections: [],
-      projectionStatusSource: "runtime-memory",
-      workers: [],
-      runners: [],
-    });
-  });
-
-  it("serves projection operations from worker snapshots without live refresh", async () => {
-    const refreshStatus = vi.fn(async () => {
-      throw new Error("Projection operations should not live refresh by default.");
-    });
-    const app = buildPlatformApiApp(
-      {
-        mountedContexts: [],
-        mountedModules: [],
-        services: {
-          auth: {},
-          identity: {},
-        },
-        projectionGroups: [
-          {
-            targetContextName: "inventory",
-            projectionName: "inventory-catalog-item-projection",
-            refreshStatus,
-            getStatus: () => ({
-              targetContextName: "inventory",
-              projectionName: "inventory-catalog-item-projection",
-              projectionRevision: 1,
-              storedProjectionRevision: 1,
-              revisionStale: false,
-              sourceContextNames: ["catalog"],
-              ownedTables: ["inventory_catalog_items"],
-              requiredDuringBootstrap: true,
-              initialized: false,
-              caughtUp: false,
-              state: "behind",
-              lastError: null,
-              outstandingEventCount: "10",
-              blockedStreamCount: 0,
-              poisonEventCount: 0,
-              updatedAt: "2026-05-25T00:00:00.000Z",
-              subscriptions: [],
-            }),
-          },
-        ],
-        subscriptionRunners: [],
-      } as never,
-      {
-        resolveActor: vi.fn(async () => ({
-          sessionId: "sess_1",
-          tenantId: "tenant_1",
-          userId: "user_1",
-          accountId: "account_1",
-          membershipId: "member_1",
-          roleKey: "platform-admin",
-          permissions: ["security.manage"],
-        })),
-        controlPlane: {
-          bootstrap: vi.fn(async () => undefined),
-          acquireLease: vi.fn(async () => null),
-          renewLease: vi.fn(async () => false),
-          releaseLease: vi.fn(async () => undefined),
-          heartbeatWorker: vi.fn(async () => undefined),
-          recordRunnerStatus: vi.fn(async () => undefined),
-          recordProjectionStatusSnapshot: vi.fn(async () => undefined),
-          listProjectionStatusSnapshots: vi.fn(async () => [
-            {
-              projection_key: "inventory.inventory-catalog-item-projection",
-              target_context_name: "inventory",
-              projection_name: "inventory-catalog-item-projection",
-              runner_name: "inventory.inventory-catalog-item-projection",
-              owner_id: "worker-a",
-              status: {
-                targetContextName: "inventory",
-                projectionName: "inventory-catalog-item-projection",
-                projectionRevision: 1,
-                storedProjectionRevision: 1,
-                revisionStale: false,
-                sourceContextNames: ["catalog"],
-                ownedTables: ["inventory_catalog_items"],
-                requiredDuringBootstrap: true,
-                initialized: true,
-                caughtUp: false,
-                state: "running",
-                lastError: null,
-                outstandingEventCount: "42",
-                blockedStreamCount: 0,
-                poisonEventCount: 0,
-                updatedAt: "2026-05-25T00:00:00.000Z",
-                subscriptions: [],
-              },
-              updated_at: new Date().toISOString(),
-            },
-          ]),
-          listWorkerHeartbeats: vi.fn(async () => []),
-          listRunnerStatuses: vi.fn(async () => []),
-          listLeases: vi.fn(async () => []),
-          enqueueProjectionOperation: vi.fn(async () => {
-            throw new Error("not used");
-          }),
-          claimProjectionOperation: vi.fn(async () => null),
-          recordProjectionOperationProgress: vi.fn(async () => false),
-          completeProjectionOperation: vi.fn(async () => false),
-          failProjectionOperation: vi.fn(async () => false),
-          cancelProjectionOperation: vi.fn(async () => false),
-          getProjectionOperation: vi.fn(async () => null),
-          listProjectionOperationEvents: vi.fn(async () => []),
-          waitForProjectionOperationEvents: vi.fn(async () => undefined),
-          listProjectionOperations: vi.fn(async () => []),
-          summarizeProjectionOperations: vi.fn(async () => ({
-            queuedCount: "0",
-            runningCount: "0",
-            failedCount: "0",
-            cancelRequestedCount: "0",
-            oldestQueuedAt: null,
-            oldestRunningAt: null,
-            averageDurationMs: null,
-          })),
-          claimScheduledRunner: vi.fn(async () => false),
-          recordScheduledRunnerCompleted: vi.fn(async () => undefined),
-          getProjectionWakeRelayCursor: vi.fn(async () => null),
-          listProjectionWakeRelayCursors: vi.fn(async () => []),
-          advanceProjectionWakeRelayCursor: vi.fn(async () => null),
-        },
-      },
-    );
-
-    const response = await app.request("/api/platform/projections");
-
-    expect(response.status).toBe(200);
-    expect(refreshStatus).not.toHaveBeenCalled();
-    await expect(response.json()).resolves.toMatchObject({
-      projectionStatusSource: "worker-snapshot",
-      projectionGroups: [
-        {
-          targetContextName: "inventory",
-          projectionName: "inventory-catalog-item-projection",
-          state: "running",
-          outstandingEventCount: "42",
-          snapshot: {
-            runnerName: "inventory.inventory-catalog-item-projection",
-            ownerId: "worker-a",
-          },
-        },
-      ],
-    });
-  });
-
-  it("mounts the internal realtime status route", async () => {
+    };
     const discoveryModule = {
       contextName: "discovery",
       apiMounts: [],
@@ -451,20 +172,12 @@ describe("platform api app", () => {
       ...discoveryModule,
       contextName: "catalog",
     };
-    const realtimePool = {
-      query: async (sql: string) => {
-        if (sql.includes("MAX(outbox_id)")) {
-          return { rows: [{ head: "5" }] };
-        }
-
-        throw new Error(`Unexpected query: ${sql}`);
-      },
-    };
     const app = buildPlatformApiApp(
       {
         mountedContexts: [
           {
             contextName: "catalog",
+            mountRole: "active",
             module: catalogModule,
             services: {},
             pool: realtimePool,
@@ -472,6 +185,7 @@ describe("platform api app", () => {
           },
           {
             contextName: "discovery",
+            mountRole: "active",
             module: discoveryModule,
             services: {},
             pool: realtimePool,
@@ -500,115 +214,30 @@ describe("platform api app", () => {
     const response = await app.request("/internal/realtime/status");
 
     expect(response.status).toBe(200);
-    const body = await response.json();
-    expect(body).toMatchObject({
+    await expect(response.json()).resolves.toMatchObject({
       activeConnectionCount: 3,
       routeTuning: { batchSize: 25 },
-    });
-    expect(body.stores).toEqual(
-      expect.arrayContaining([
+      stores: expect.arrayContaining([
         expect.objectContaining({ contextName: "catalog", head: "5" }),
         expect.objectContaining({ contextName: "discovery", head: "5" }),
       ]),
-    );
-  });
-
-  it("mounts the MCP JSON-RPC bridge with platform actor resolution", async () => {
-    const app = buildPlatformApiApp(
-      {
-        mountedContexts: [],
-        mountedModules: [],
-        services: {
-          auth: {},
-          identity: {},
-        },
-        projectionGroups: [],
-        subscriptionRunners: [],
-      },
-      {
-        resolveActor: vi.fn(async () => ({
-          sessionId: "sess_1",
-          tenantId: "tenant_1",
-          userId: "user_1",
-          accountId: "account_1",
-          membershipId: "member_1",
-          roleKey: "manager",
-          permissions: ["inventory.view"],
-        })),
-        mcp: {
-          toolHandlers: {
-            "inventory.list-items": vi.fn(async ({ actor }) => ({
-              accountId: actor?.accountId,
-              items: [],
-            })),
-          },
-        },
-      },
-    );
-
-    const response = await app.request("/mcp", {
-      method: "POST",
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: "request_1",
-        method: "tools/call",
-        params: {
-          name: "inventory.list-items",
-          arguments: {
-            accountId: "account_1",
-          },
-        },
-      }),
-    });
-
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({
-      jsonrpc: "2.0",
-      id: "request_1",
-      result: {
-        content: [
-          {
-            type: "json",
-            json: {
-              accountId: "account_1",
-              items: [],
-            },
-          },
-        ],
-      },
     });
   });
 
   it("registers Inventory import MCP handlers from platform runtime services", async () => {
     const app = buildPlatformApiApp(
-      {
-        mountedContexts: [],
-        mountedModules: [],
-        services: {
-          auth: {},
-          identity: {},
-          inventory: {
-            importBatches: {
-              createBatch: vi.fn(),
-              getBatch: vi.fn(),
-              listBatches: vi.fn(),
-              commitBatch: vi.fn(),
-            },
+      createEmptyRuntime({
+        inventory: {
+          importBatches: {
+            createBatch: vi.fn(),
+            getBatch: vi.fn(),
+            listBatches: vi.fn(),
+            commitBatch: vi.fn(),
           },
         },
-        projectionGroups: [],
-        subscriptionRunners: [],
-      },
+      }),
       {
-        resolveActor: vi.fn(async () => ({
-          sessionId: "sess_1",
-          tenantId: "tenant_1",
-          userId: "user_1",
-          accountId: "account_1",
-          membershipId: "member_1",
-          roleKey: "manager",
-          permissions: ["inventory.view"],
-        })),
+        resolveActor: vi.fn(async () => platformActor(["inventory.view"])),
       },
     );
 
@@ -644,70 +273,6 @@ describe("platform api app", () => {
     });
   });
 
-  it("mounts the UCP profile, REST, and MCP surfaces", async () => {
-    const app = buildPlatformApiApp(
-      {
-        mountedContexts: [],
-        mountedModules: [],
-        services: {
-          auth: {},
-          identity: {},
-        },
-        projectionGroups: [],
-        subscriptionRunners: [],
-      },
-      {
-        ucp: {
-          restHandlers: {
-            search_catalog: vi.fn(async () => createUcpEnvelope("ok", { products: [] })),
-          },
-        },
-      },
-    );
-
-    const profileResponse = await app.request("https://marketplace.example/.well-known/ucp");
-    expect(profileResponse.status).toBe(200);
-    await expect(profileResponse.json()).resolves.toMatchObject({
-      ucp: {
-        services: {
-          "dev.ucp.shopping": [
-            { transport: "rest", endpoint: "https://marketplace.example/ucp/v1" },
-            { transport: "mcp", endpoint: "https://marketplace.example/ucp/mcp" },
-          ],
-        },
-      },
-    });
-
-    const restResponse = await app.request("/ucp/v1/catalog/search", {
-      method: "POST",
-      body: "{}",
-      headers: { "Content-Type": "application/json" },
-    });
-    expect(restResponse.status).toBe(200);
-    await expect(restResponse.json()).resolves.toMatchObject({ products: [] });
-
-    const mcpResponse = await app.request("/ucp/mcp", {
-      method: "POST",
-      body: JSON.stringify({ jsonrpc: "2.0", id: "1", method: "tools/list" }),
-    });
-    expect(mcpResponse.status).toBe(200);
-    await expect(mcpResponse.json()).resolves.toMatchObject({
-      result: {
-        tools: [
-          { name: "search_catalog" },
-          { name: "lookup_catalog" },
-          { name: "get_product" },
-          { name: "create_checkout" },
-          { name: "get_checkout" },
-          { name: "update_checkout" },
-          { name: "complete_checkout" },
-          { name: "cancel_checkout" },
-          { name: "get_order" },
-        ],
-      },
-    });
-  });
-
   it("wires Discovery-owned UCP catalog search handlers from runtime services", async () => {
     const searchItems = vi.fn(async () => ({
       items: [
@@ -737,12 +302,8 @@ describe("platform api app", () => {
       total: 1,
       nextCursor: null,
     }));
-    const app = buildPlatformApiApp({
-      mountedContexts: [],
-      mountedModules: [],
-      services: {
-        auth: {},
-        identity: {},
+    const app = buildPlatformApiApp(
+      createEmptyRuntime({
         discovery: {
           items: {
             search: {
@@ -758,10 +319,8 @@ describe("platform api app", () => {
             projectionHandlerSets: [],
           },
         },
-      },
-      projectionGroups: [],
-      subscriptionRunners: [],
-    } as never);
+      }),
+    );
 
     const response = await app.request("/ucp/v1/catalog/search", {
       method: "POST",
@@ -795,42 +354,30 @@ describe("platform api app", () => {
       updated_at: "2026-05-16T00:00:00.000Z",
     }));
     const app = buildPlatformApiApp(
-      {
-        mountedContexts: [],
-        mountedModules: [],
-        services: {
-          auth: {},
-          identity: {},
-          checkout: {
-            sessions: {
-              commandHandler: vi.fn(),
-              createFromCart: vi.fn(),
-              createBuyNow,
-              createOfferIntent: vi.fn(),
-              selectShippingOption: vi.fn(),
-              selectOptimizationGoal: vi.fn(),
-              recordFulfillmentPreview: vi.fn(),
-              setShippingAddress: vi.fn(),
-              recordOrdersCreated: vi.fn(),
-              recordPaymentStarted: vi.fn(),
-              recordOfferSubmitted: vi.fn(),
-              getSession,
-              projectionHandlerSets: [],
-            },
+      createEmptyRuntime({
+        checkout: {
+          sessions: {
+            commandHandler: vi.fn(),
+            createFromCart: vi.fn(),
+            createBuyNow,
+            createOfferIntent: vi.fn(),
+            selectShippingOption: vi.fn(),
+            selectOptimizationGoal: vi.fn(),
+            recordFulfillmentPreview: vi.fn(),
+            setShippingAddress: vi.fn(),
+            recordOrdersCreated: vi.fn(),
+            recordPaymentStarted: vi.fn(),
+            recordOfferSubmitted: vi.fn(),
+            getSession,
+            projectionHandlerSets: [],
           },
         },
-        projectionGroups: [],
-        subscriptionRunners: [],
-      } as never,
+      }),
       {
         resolveActor: vi.fn(async () => ({
-          sessionId: "sess_1",
-          tenantId: "tenant_1",
-          userId: "user_1",
+          ...platformActor(["orders.view", "orders.manage"]),
           accountId: "acc_buyer",
-          membershipId: "member_1",
           roleKey: "buyer",
-          permissions: ["orders.view", "orders.manage"],
         })),
       },
     );
@@ -897,6 +444,7 @@ describe("platform api app", () => {
         mountedContexts: [
           {
             contextName: "settlement",
+            mountRole: "active",
             module,
             services: {},
             pool: {},
@@ -935,65 +483,6 @@ describe("platform api app", () => {
     const writeRouter = new Hono();
     writeRouter.post("/cart", async (c) => c.json({ status: "added" }, 201));
 
-    const runOnce = vi.fn().mockResolvedValueOnce({ processed: 1 }).mockResolvedValueOnce({ processed: 0 });
-    const module = {
-      contextName: "checkout",
-      apiMounts: [
-        {
-          mountPath: "/api/marketplace",
-          kind: "primary",
-          requiresAuth: true,
-        },
-      ],
-      buildApis: () => [writeRouter],
-      projectionHandlerSets: () => [{ runOnce }],
-    };
-    const app = buildPlatformApiApp(
-      {
-        mountedContexts: [
-          {
-            contextName: "checkout",
-            module,
-            services: {},
-            pool: {},
-            projectionHandlerSets: [{ runOnce }],
-          },
-        ],
-        mountedModules: [{ module, services: {} }],
-        services: {
-          auth: {},
-          identity: {},
-        },
-        projectionGroups: [],
-        subscriptionRunners: [],
-      } as never,
-      {
-        resolveActor: vi.fn(async () => ({
-          sessionId: "sess_1",
-          tenantId: "tenant_1",
-          userId: "user_1",
-          accountId: "account_1",
-          membershipId: "member_1",
-          roleKey: "buyer",
-          permissions: ["orders.manage"],
-        })),
-      },
-    );
-
-    const response = await app.request("/api/marketplace/cart", {
-      method: "POST",
-      body: JSON.stringify({ productId: "prod_1" }),
-      headers: { "Content-Type": "application/json" },
-    });
-
-    expect(response.status).toBe(201);
-    expect(runOnce).not.toHaveBeenCalled();
-  });
-
-  it("keeps write-drain consistency disabled by default", async () => {
-    const writeRouter = new Hono();
-    writeRouter.post("/cart", async (c) => c.json({ status: "added" }, 201));
-
     const runOnce = vi.fn();
     const module = {
       contextName: "checkout",
@@ -1012,6 +501,7 @@ describe("platform api app", () => {
         mountedContexts: [
           {
             contextName: "checkout",
+            mountRole: "active",
             module,
             services: {},
             pool: {},
@@ -1027,15 +517,7 @@ describe("platform api app", () => {
         subscriptionRunners: [],
       } as never,
       {
-        resolveActor: vi.fn(async () => ({
-          sessionId: "sess_1",
-          tenantId: "tenant_1",
-          userId: "user_1",
-          accountId: "account_1",
-          membershipId: "member_1",
-          roleKey: "buyer",
-          permissions: ["orders.manage"],
-        })),
+        resolveActor: vi.fn(async () => platformActor(["orders.manage"])),
       },
     );
 

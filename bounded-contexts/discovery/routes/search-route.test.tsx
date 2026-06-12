@@ -1,4 +1,5 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+// @vitest-environment jsdom
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RealtimeProjectionPatch } from "@chase-sets/platform-runtime/realtime";
@@ -30,7 +31,7 @@ vi.mock("@chase-sets/platform-runtime/realtime-web", () => ({
   subscribeRealtimePatches: mockSubscribeRealtimePatches,
 }));
 
-import SearchRoute from "@chase-sets/discovery/routes/search";
+import SearchRoute from "./search";
 
 type SubscribeRealtimePatchesOptions = Parameters<typeof subscribeRealtimePatches>[0];
 
@@ -125,6 +126,7 @@ function searchDataWithMarketOnlyResult(search = "") {
 
 describe("marketplace search route", () => {
   afterEach(() => {
+    cleanup();
     vi.clearAllMocks();
     vi.unstubAllGlobals();
     vi.useRealTimers();

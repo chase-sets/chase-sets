@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { action as listingsAction, loader as listingsLoader } from "@chase-sets/marketplace/routes/account-listings";
+import { action as listingsAction, loader as listingsLoader } from "../routes/account-listings";
 import { readFreshWriteToken } from "@chase-sets/http/responses";
 
 function jsonResponse(body: unknown, status = 200, headers: HeadersInit = {}) {

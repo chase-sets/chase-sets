@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChaseRoot } from "@chase-sets/design-system";
 import type { ComponentProps } from "react";
@@ -70,7 +70,7 @@ vi.mock("@chase-sets/platform-runtime/auth", async () => {
 import MarketplaceAccountPaymentNewRoute, {
   action,
   loader,
-} from "@chase-sets/payments/routes/marketplace/account-payment-new";
+} from "../routes/marketplace/account-payment-new";
 
 function buildPurchase(purchaseId: string): PurchaseDetail {
   return {
@@ -164,6 +164,7 @@ describe("marketplace account payment start route", () => {
   });
 
   afterEach(() => {
+    cleanup();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
   });
