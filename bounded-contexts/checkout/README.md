@@ -51,6 +51,7 @@ This is a greenfield codebase, so local development environments should reset/bo
 - [Checkout Launch Evidence Matrix](./docs/checkout-launch-evidence-matrix.md): Milestone #17 composite evidence rows that join copy, visual, performance, coverage, launch-register, no-side-effect, and fresh-state cleanup proof.
 - [Checkout Observability Contract](./docs/checkout-observability-contract.md): Milestone #17 redacted telemetry profiles for launch rows, support-safe references, side-effect status, and release-health evidence.
 - [Checkout Transactional Notification Policy](./docs/checkout-transactional-notifications.md): Milestone #17 notification trigger inventory for buy/sell confirmation, failures, support, refunds, missing contact, and duplicate prevention.
+- [Checkout Risk Control Policy](./docs/checkout-risk-control-policy.md): Milestone #17 fraud, abuse, inventory-hoarding, provider-risk, support-safe hold, observability, and fresh-state cleanup contract.
 - [Guest Buy Now Freshness Verification](./docs/guest-buy-now-freshness-verification.md): signed-out Buy Now freshness contract, test/canary states, fixture ownership, and no-payment/no-order side-effect rules.
 
 ## Buy Cart Readiness
