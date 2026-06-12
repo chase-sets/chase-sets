@@ -1,6 +1,6 @@
-import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
+import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
-import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
+import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import {
@@ -64,14 +64,10 @@ const RELEASE_CONTROL_POLICY_STREAM_ID = "platform-operations.release-controls-p
 export function createReleaseControlsPolicyRuntime(
   deps: ReleaseControlsPolicyRuntimeDeps,
 ): ReleaseControlsPolicyServices {
-  const repository = createAggregateRepository({
+  const { commandHandler, repository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: createPassthroughDomainEventCodec<ReleaseControlsPolicyEvent>(),
     initialState: () => initialReleaseControlsPolicyState,
-    evolve: evolveReleaseControlsPolicy,
-  });
-  const commandHandler = createCommandHandler({
-    repository,
     evolve: evolveReleaseControlsPolicy,
     decide: decideReleaseControlsPolicy,
   });

@@ -1,6 +1,6 @@
-import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
+import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
-import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
+import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
@@ -41,13 +41,10 @@ export type AgreementServices = Readonly<{
 }>;
 
 export function createAgreementRuntime(deps: AgreementRuntimeDeps): AgreementServices {
-  const commandHandler = createCommandHandler({
-    repository: createAggregateRepository({
-      eventStore: deps.eventStore,
-      codec: createPassthroughDomainEventCodec<CommercialAgreementEvent>(),
-      initialState: () => initialCommercialAgreementState,
-      evolve: evolveCommercialAgreement,
-    }),
+  const { commandHandler } = createAggregateCommandHandler({
+    eventStore: deps.eventStore,
+    codec: createPassthroughDomainEventCodec<CommercialAgreementEvent>(),
+    initialState: () => initialCommercialAgreementState,
     evolve: evolveCommercialAgreement,
     decide: decideCommercialAgreement,
   });

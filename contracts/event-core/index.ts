@@ -1,4 +1,5 @@
 export * from "./aggregate-repository";
+export * from "./aggregate-command-handler";
 export * from "./codec";
 export * from "./command-handler";
 export * from "./consistency";

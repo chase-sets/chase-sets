@@ -1,6 +1,6 @@
-import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
+import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
-import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
+import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createId } from "@chase-sets/primitives/typed-ids";
@@ -351,25 +351,17 @@ function normalizeAnonymousOwnerId(value: string) {
 }
 
 export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): MarketplaceListingServices {
-  const repository = createAggregateRepository({
+  const { commandHandler, repository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: createPassthroughDomainEventCodec<MarketplaceListingEvent>(),
     initialState: () => initialMarketplaceListingState,
     evolve: evolveMarketplaceListing,
-  });
-  const commandHandler = createCommandHandler({
-    repository,
-    evolve: evolveMarketplaceListing,
     decide: decideMarketplaceListing,
   });
-  const sellerAvailabilityRepository = createAggregateRepository({
+  const { commandHandler: sellerAvailabilityCommandHandler } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: createPassthroughDomainEventCodec<SellerListingAvailabilityEvent>(),
     initialState: () => initialSellerListingAvailabilityState,
-    evolve: evolveSellerListingAvailability,
-  });
-  const sellerAvailabilityCommandHandler = createCommandHandler({
-    repository: sellerAvailabilityRepository,
     evolve: evolveSellerListingAvailability,
     decide: decideSellerListingAvailability,
   });

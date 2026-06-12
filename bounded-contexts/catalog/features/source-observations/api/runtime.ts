@@ -1,6 +1,6 @@
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
-import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
-import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
+import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
+import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import {
@@ -788,13 +788,10 @@ export function createSourceObservationRuntime(
   profileVersions: CatalogProviderIntegrationProfileVersionReader = staticCatalogProviderIntegrationProfileVersions,
   rolloutControlPolicy: CatalogIntegrationRolloutControlPolicy = createCatalogIntegrationRolloutControlPolicyFromEnv(),
 ): SourceObservationServices {
-  const commandHandler = createCommandHandler({
-    repository: createAggregateRepository({
-      eventStore: deps.eventStore,
-      codec: createPassthroughDomainEventCodec<SourceObservationEvent>(),
-      initialState: () => initialSourceObservationState,
-      evolve: evolveSourceObservation,
-    }),
+  const { commandHandler } = createAggregateCommandHandler({
+    eventStore: deps.eventStore,
+    codec: createPassthroughDomainEventCodec<SourceObservationEvent>(),
+    initialState: () => initialSourceObservationState,
     evolve: evolveSourceObservation,
     decide: decideSourceObservation,
   });

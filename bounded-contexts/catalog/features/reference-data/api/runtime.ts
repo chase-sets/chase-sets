@@ -1,6 +1,6 @@
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
-import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
-import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
+import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
+import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import { withCatalogAdminRealtimeInvalidation } from "../../../support/projection-support/realtime-invalidation";
@@ -62,23 +62,17 @@ export type ReferenceDataServices = Readonly<{
 }>;
 
 export function createReferenceDataRuntime(deps: CatalogRuntimeDeps): ReferenceDataServices {
-  const referenceTypeCommandHandler = createCommandHandler({
-    repository: createAggregateRepository({
-      eventStore: deps.eventStore,
-      codec: createPassthroughDomainEventCodec<ReferenceTypeEvent>(),
-      initialState: () => initialReferenceTypeState,
-      evolve: evolveReferenceType,
-    }),
+  const { commandHandler: referenceTypeCommandHandler } = createAggregateCommandHandler({
+    eventStore: deps.eventStore,
+    codec: createPassthroughDomainEventCodec<ReferenceTypeEvent>(),
+    initialState: () => initialReferenceTypeState,
     evolve: evolveReferenceType,
     decide: decideReferenceType,
   });
-  const referenceRecordCommandHandler = createCommandHandler({
-    repository: createAggregateRepository({
-      eventStore: deps.eventStore,
-      codec: createPassthroughDomainEventCodec<ReferenceRecordEvent>(),
-      initialState: () => initialReferenceRecordState,
-      evolve: evolveReferenceRecord,
-    }),
+  const { commandHandler: referenceRecordCommandHandler } = createAggregateCommandHandler({
+    eventStore: deps.eventStore,
+    codec: createPassthroughDomainEventCodec<ReferenceRecordEvent>(),
+    initialState: () => initialReferenceRecordState,
     evolve: evolveReferenceRecord,
     decide: decideReferenceRecord,
   });
