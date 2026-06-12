@@ -40,6 +40,7 @@ const scanRoots = [
   "bounded-contexts/catalog/routes/admin",
   "bounded-contexts/catalog/tests",
   "contracts/localization/locales/en/catalog.ts",
+  "contracts/localization/locales/en/catalog",
   "deployables/admin-web/e2e",
   "packages/design-system/DENSE_ADMIN_WORKBENCH.md",
   "packages/design-system/SECTION_NAVIGATION.md",

@@ -4,10 +4,7 @@ import fs from "node:fs";
 
 const englishFilePaths = [
   "contracts/localization/locales/en.ts",
-  ...fs
-    .readdirSync("contracts/localization/locales/en", { withFileTypes: true })
-    .filter((entry) => entry.isFile() && entry.name.endsWith(".ts"))
-    .map((entry) => `contracts/localization/locales/en/${entry.name}`),
+  ...walkLocalizationFiles("contracts/localization/locales/en"),
 ];
 const englishKeys = new Set(
   englishFilePaths.flatMap((filePath) =>
@@ -102,6 +99,18 @@ if (violations.length > 0) {
 }
 
 console.log(`Localization check passed for ${files.length} source files.`);
+
+function walkLocalizationFiles(directory) {
+  return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const entryPath = `${directory}/${entry.name}`;
+
+    if (entry.isDirectory()) {
+      return walkLocalizationFiles(entryPath);
+    }
+
+    return entry.isFile() && entry.name.endsWith(".ts") ? [entryPath] : [];
+  });
+}
 
 function isCheckedSourceFile(file) {
   const normalized = file.replaceAll("\\", "/");
