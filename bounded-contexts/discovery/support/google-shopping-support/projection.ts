@@ -1,19 +1,11 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { extractIdFromStreamId, type PgQueryable } from "@chase-sets/event-core-postgres";
 import {
   refreshGoogleShoppingFeedRowsForCatalogItem,
   type GoogleShoppingIncrementalSyncReason,
 } from "./feed-row-projection";
 
 const ITEM_STREAM_PREFIX = "catalog.item-";
-
-function extractIdFromStreamId(streamId: string, prefix: string): string {
-  if (!streamId.startsWith(prefix)) {
-    throw new Error(`Stream ID "${streamId}" does not start with prefix "${prefix}".`);
-  }
-
-  return streamId.slice(prefix.length);
-}
 
 async function refreshCatalogItemRows(
   db: PgQueryable,

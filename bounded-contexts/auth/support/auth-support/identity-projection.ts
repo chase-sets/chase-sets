@@ -1,6 +1,6 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { extractIdFromStreamId, type PgQueryable } from "@chase-sets/event-core-postgres";
 import { type AccountId, type UserId } from "@chase-sets/primitives/typed-ids";
 import {
   AUTH_BOOTSTRAP_ACCOUNT_ID,
@@ -172,14 +172,6 @@ type SocialLoginLinkRow = Readonly<{
   email: string;
   linkedAt: string;
 }>;
-
-function extractIdFromStreamId(streamId: string, prefix: string): string {
-  if (!streamId.startsWith(prefix)) {
-    throw new Error(`Stream ID "${streamId}" does not start with prefix "${prefix}".`);
-  }
-
-  return streamId.slice(prefix.length);
-}
 
 export function buildAuthIdentityAccountProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
