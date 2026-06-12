@@ -29,6 +29,7 @@ describe("Catalog primary workbench admin contracts", () => {
       "promotion-result",
       "lifecycle-recovery",
       "governance-controls",
+      "audit-evidence",
       "supporting-evidence",
     ];
 
@@ -435,6 +436,7 @@ describe("Catalog primary workbench admin contracts", () => {
       "#1041",
       "#1042",
       "#1043",
+      "#1044",
       "#1056",
       "#1038",
       "#1039",
@@ -783,6 +785,7 @@ describe("Catalog primary workbench admin contracts", () => {
       validationReadiness: validationReadinessFixture(),
       lifecycleRecovery: lifecycleRecoveryFixture(),
       governanceControls: governanceControlsFixture(),
+      auditEvidence: auditEvidenceFixture(),
       importJobs: {
         freshness: "fresh",
         activeJobCount: 1,
@@ -1128,6 +1131,166 @@ function conflictResolutionFixture(): CatalogPrimaryWorkbenchReadModel["conflict
         summary: "Profile section edited before conflict review.",
       },
     ],
+  };
+}
+
+function auditEvidenceFixture(): CatalogPrimaryWorkbenchReadModel["auditEvidence"] {
+  const evidenceLink = auditEvidenceLinkFixture({
+    key: "audit:aud_001",
+    label: "source-observation-promoted",
+    summary: "Promoted Charizard from redacted Source Observation evidence.",
+  });
+
+  return {
+    status: "partial",
+    freshness: "partial",
+    generatedAt: "2026-06-09T00:00:00.000Z",
+    returnToPrimaryHref: "/catalog/integrations?providerKey=tcgdex&section=workbench",
+    summary: {
+      timelineEvents: 1,
+      redactedEvidenceLinks: 1,
+      releaseChecklistItems: 7,
+      missingEvidence: 0,
+      partialProjectionCount: 1,
+      residualDebtItems: 1,
+    },
+    filters: [
+      auditFilterFixture("provider", "Provider", "tcgdex", ["tcgdex"]),
+      auditFilterFixture("unit", "Unit", "tcgdex:pokemon:single-card:source-observation-import", [
+        "tcgdex:pokemon:single-card:source-observation-import",
+      ]),
+      auditFilterFixture("profile-version", "Profile version", "2026.06.04", ["2026.06.04"]),
+      auditFilterFixture("job", "Job", "job_001", ["job_001"]),
+      auditFilterFixture("observation", "Observation", "obs_001", ["obs_001"]),
+      auditFilterFixture("action-category", "Action category", null, ["promotion"]),
+      auditFilterFixture("actor", "Actor", null, ["operator:user_admin"]),
+      auditFilterFixture("time", "Time", null, ["2026-06-09T00:00:00.000Z"]),
+    ],
+    projectionState: {
+      queryKey: "audit-evidence-timeline",
+      freshness: "partial",
+      generatedAt: "2026-06-09T00:00:00.000Z",
+      statusMessage: "Audit projection is partial.",
+      missingProjection: false,
+      partialProjection: true,
+    },
+    redactionPolicy: {
+      sourcePayloadAccess: "not-required",
+      profileSnapshotAccess: "not-required",
+      unsafeEvidenceBlocked: false,
+      governedDataClasses: ["audit-evidence", "dry-run-output-evidence"],
+      forbiddenEvidenceRequests: [
+        "source payload body download",
+        "provider profile snapshot document",
+        "compatibility fallback export",
+      ],
+      summary:
+        "Normal review uses redacted summaries and links; source payload bodies and profile snapshots are not required.",
+    },
+    timeline: [
+      {
+        eventId: "aud_001",
+        occurredAt: "2026-06-09T00:00:00.000Z",
+        eventName: "source-observation-promoted",
+        category: "source-observation",
+        actorLabel: "operator:user_admin",
+        targetType: "catalog-item",
+        targetId: "cat_001",
+        providerKey: "tcgdex",
+        unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+        profileVersion: "2026.06.04",
+        jobId: "job_001",
+        observationId: "obs_001",
+        catalogItemId: "cat_001",
+        summary: "Promoted Charizard from redacted Source Observation evidence.",
+        diagnosticCodes: [],
+        redactionState: "redacted",
+        evidenceLinks: [evidenceLink],
+      },
+    ],
+    evidenceLinks: [evidenceLink],
+    releaseChecklist: [
+      releaseChecklistFixture("provider-data-pull", "Provider data pull"),
+      releaseChecklistFixture("source-observation-review", "Source Observation review"),
+      releaseChecklistFixture("promotion", "Promotion evidence"),
+      releaseChecklistFixture("dry-run-diagnostics", "Dry-run and diagnostic evidence"),
+      releaseChecklistFixture("reapply-rollback", "Reapply, replay, rollback, and retirement evidence"),
+      releaseChecklistFixture("governance-retirement", "Complete retired-surface removal", {
+        requiredEvidence: [
+          "complete removal of code, patterns, documentation, tests, fixtures, screenshots, runbooks, release notes, and operator instructions",
+          "no hidden flag",
+          "no fallback branch",
+          "no compatibility redirect",
+          "no migration shim",
+        ],
+        releaseNote:
+          "Retire means complete removal of code, patterns, documentation, tests, fixtures, screenshots, runbooks, release notes, and operator instructions.",
+      }),
+      releaseChecklistFixture("release-smoke", "Release tests and smoke evidence", {
+        status: "partial",
+        residualDebt: ["Audit projection remains partial and is named in release notes."],
+      }),
+    ],
+  };
+}
+
+function auditFilterFixture(
+  key: CatalogPrimaryWorkbenchReadModel["auditEvidence"]["filters"][number]["key"],
+  label: string,
+  value: string | null,
+  options: readonly string[],
+): CatalogPrimaryWorkbenchReadModel["auditEvidence"]["filters"][number] {
+  return {
+    key,
+    label,
+    value,
+    options,
+    active: Boolean(value),
+  };
+}
+
+function auditEvidenceLinkFixture(
+  overrides: Partial<CatalogPrimaryWorkbenchReadModel["auditEvidence"]["evidenceLinks"][number]> = {},
+): CatalogPrimaryWorkbenchReadModel["auditEvidence"]["evidenceLinks"][number] {
+  return {
+    key: "audit:evidence",
+    label: "Audit evidence",
+    href: "/catalog/integrations?providerKey=tcgdex&section=evidence",
+    kind: "audit-event",
+    summary: "Redacted audit summary.",
+    redactionState: "redacted",
+    sourcePayloadAccess: "not-required",
+    profileSnapshotAccess: "not-required",
+    ...overrides,
+  };
+}
+
+function releaseChecklistFixture(
+  workflowKey: CatalogPrimaryWorkbenchReadModel["auditEvidence"]["releaseChecklist"][number]["workflowKey"],
+  workflowLabel: string,
+  overrides: Partial<CatalogPrimaryWorkbenchReadModel["auditEvidence"]["releaseChecklist"][number]> = {},
+): CatalogPrimaryWorkbenchReadModel["auditEvidence"]["releaseChecklist"][number] {
+  return {
+    workflowKey,
+    workflowLabel,
+    status: "ready",
+    owner: "catalog-source-observations",
+    requiredEvidence: ["redacted evidence summary", "test evidence"],
+    proofLinks: [
+      auditEvidenceLinkFixture({
+        key: `release:${workflowKey}`,
+        label: workflowLabel,
+        kind: "proof",
+        summary: `${workflowLabel} proof.`,
+      }),
+    ],
+    tests: ["bounded-contexts/catalog/features/source-observations/ui/primary-workbench-read-model.test.ts"],
+    e2eProof: "deployables/admin-web/e2e/catalog-integrations.spec.ts",
+    smokeProof: "production smoke opens the protected rebuilt Catalog integration workbench",
+    residualDebt: [],
+    releaseNote: `${workflowLabel} release evidence is present.`,
+    blocksRelease: false,
+    ...overrides,
   };
 }
 

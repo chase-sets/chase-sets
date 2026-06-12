@@ -558,7 +558,7 @@ function buildDefaultWorkflowEvidence(evidenceBase: string): readonly CatalogNoC
     workflow(
       "verify-audit-release-evidence",
       7,
-      ["promotion-result", "supporting-evidence"],
+      ["promotion-result", "audit-evidence", "supporting-evidence"],
       [],
       "Audit/release evidence links provider scope, job, observation, promotion, and signoff facts.",
     ),

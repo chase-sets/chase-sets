@@ -584,6 +584,134 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.governanceControls.table.surface": "Surface",
   "catalog.features.sourceObservations.ui.governanceControls.table.value": "Value",
   "catalog.features.sourceObservations.ui.governanceControls.title": "Governance controls",
+  "catalog.features.sourceObservations.ui.auditEvidence.backToWorkbench": "Back to import workbench",
+  "catalog.features.sourceObservations.ui.auditEvidence.banner.blocked.description":
+    "One or more release evidence rows block signoff. Resolve the named owner workflow before shipping.",
+  "catalog.features.sourceObservations.ui.auditEvidence.banner.blocked.title": "Release evidence is blocking",
+  "catalog.features.sourceObservations.ui.auditEvidence.banner.partial.description":
+    "Audit evidence is reviewable, with {count} partial projection signal(s) called out for release notes.",
+  "catalog.features.sourceObservations.ui.auditEvidence.banner.partial.title": "Audit projection is partial",
+  "catalog.features.sourceObservations.ui.auditEvidence.banner.ready.title": "Audit and release evidence are ready",
+  "catalog.features.sourceObservations.ui.auditEvidence.banner.unavailable.title": "Audit projection is unavailable",
+  "catalog.features.sourceObservations.ui.auditEvidence.description":
+    "Review who changed what, which provider/unit/profile/job/Source Observation/Catalog item was touched, and which release evidence must ship.",
+  "catalog.features.sourceObservations.ui.auditEvidence.filters.active": "Active",
+  "catalog.features.sourceObservations.ui.auditEvidence.filters.available": "Available",
+  "catalog.features.sourceObservations.ui.auditEvidence.filters.description":
+    "Provider, unit, profile version, job, observation, action category, actor, and time filters stay visible with the timeline.",
+  "catalog.features.sourceObservations.ui.auditEvidence.filters.emptyDescription":
+    "Filter rows are required even when the audit projection is unavailable.",
+  "catalog.features.sourceObservations.ui.auditEvidence.filters.emptyTitle": "No filters",
+  "catalog.features.sourceObservations.ui.auditEvidence.filters.notApplied": "not applied",
+  "catalog.features.sourceObservations.ui.auditEvidence.filters.title": "Timeline filters",
+  "catalog.features.sourceObservations.ui.auditEvidence.key.forbiddenRequests": "Forbidden evidence requests",
+  "catalog.features.sourceObservations.ui.auditEvidence.key.generatedAt": "Generated at",
+  "catalog.features.sourceObservations.ui.auditEvidence.key.profileSnapshot": "Profile snapshot access",
+  "catalog.features.sourceObservations.ui.auditEvidence.key.projection": "Projection state",
+  "catalog.features.sourceObservations.ui.auditEvidence.key.sourcePayload": "Source payload access",
+  "catalog.features.sourceObservations.ui.auditEvidence.links.description":
+    "Every link opens a redacted summary, proof, diagnostic, test, runbook, or release-note artifact in the rebuilt workbench.",
+  "catalog.features.sourceObservations.ui.auditEvidence.links.emptyDescription":
+    "Evidence links appear when timeline or release checklist rows are available.",
+  "catalog.features.sourceObservations.ui.auditEvidence.links.emptyTitle": "No evidence links",
+  "catalog.features.sourceObservations.ui.auditEvidence.links.title": "Redacted evidence links",
+  "catalog.features.sourceObservations.ui.auditEvidence.metric.checklist": "Checklist items",
+  "catalog.features.sourceObservations.ui.auditEvidence.metric.links": "Evidence links",
+  "catalog.features.sourceObservations.ui.auditEvidence.metric.linksTrend": "redacted summaries",
+  "catalog.features.sourceObservations.ui.auditEvidence.metric.missing": "missing or blocking",
+  "catalog.features.sourceObservations.ui.auditEvidence.metric.projection": "Partial signals",
+  "catalog.features.sourceObservations.ui.auditEvidence.metric.timeline": "Timeline events",
+  "catalog.features.sourceObservations.ui.auditEvidence.readModel.actor.jobWorker": "job worker",
+  "catalog.features.sourceObservations.ui.auditEvidence.readModel.actor.operator": "operator:{value}",
+  "catalog.features.sourceObservations.ui.auditEvidence.readModel.actor.operatorScope": "operator scope",
+  "catalog.features.sourceObservations.ui.auditEvidence.readModel.actor.providerAdapter": "provider adapter",
+  "catalog.features.sourceObservations.ui.auditEvidence.readModel.actor.releaseOwner": "release owner",
+  "catalog.features.sourceObservations.ui.auditEvidence.readModel.actor.system": "system",
+  "catalog.features.sourceObservations.ui.auditEvidence.readModel.dryRun.summary":
+    "{externalKey}: {status}; {evidence}",
+  "catalog.features.sourceObservations.ui.auditEvidence.readModel.job.summary":
+    "{status}: {completed}/{total} ({percent}%)",
+  "catalog.features.sourceObservations.ui.auditEvidence.readModel.link.job": "Job {value}",
+  "catalog.features.sourceObservations.ui.auditEvidence.readModel.link.observation": "Observation {value}",
+  "catalog.features.sourceObservations.ui.auditEvidence.readModel.link.promotion": "Promotion command plan",
+  "catalog.features.sourceObservations.ui.auditEvidence.readModel.projection.unavailable":
+    "Audit evidence timeline projection is unavailable.",
+  "catalog.features.sourceObservations.ui.auditEvidence.readModel.promotion.summary":
+    "{eligible} eligible promotion target(s), {blocked} blocked target(s)",
+  "catalog.features.sourceObservations.ui.auditEvidence.readModel.redaction.entry": "{label}: {value}",
+  "catalog.features.sourceObservations.ui.auditEvidence.readModel.redaction.summary":
+    "Normal review uses redacted summaries and links; source payload bodies and profile snapshots are not required.",
+  "catalog.features.sourceObservations.ui.auditEvidence.readModel.release.dryRun.label":
+    "Dry-run and diagnostic evidence",
+  "catalog.features.sourceObservations.ui.auditEvidence.readModel.release.dryRun.noEvidence":
+    "No dry-run evidence row is available in this context.",
+  "catalog.features.sourceObservations.ui.auditEvidence.readModel.release.dryRun.releaseNote":
+    "Dry-run summaries, fixture coverage, diagnostics, and activation readiness are included as release evidence.",
+  "catalog.features.sourceObservations.ui.auditEvidence.readModel.release.lifecycle.blocked":
+    "Lifecycle recovery has blockers that must be resolved or accepted before launch signoff.",
+  "catalog.features.sourceObservations.ui.auditEvidence.readModel.release.lifecycle.label":
+    "Reapply, replay, rollback, and retirement evidence",
+  "catalog.features.sourceObservations.ui.auditEvidence.readModel.release.lifecycle.releaseNote":
+    "Recovery evidence connects reapply, replay, rollback, deprecation, and retirement decisions back to audit history.",
+  "catalog.features.sourceObservations.ui.auditEvidence.readModel.release.promotion.label": "Promotion evidence",
+  "catalog.features.sourceObservations.ui.auditEvidence.readModel.release.promotion.releaseNote":
+    "Promotion evidence includes command plan hash, disposition counts, stale safeguards, and idempotency proof.",
+  "catalog.features.sourceObservations.ui.auditEvidence.readModel.release.provider.label": "Provider data pull",
+  "catalog.features.sourceObservations.ui.auditEvidence.readModel.release.provider.noJobs":
+    "No provider import job is available in this context.",
+  "catalog.features.sourceObservations.ui.auditEvidence.readModel.release.provider.releaseNote":
+    "Provider data pull evidence includes provider/unit scope, job state, adapter readiness, consistency, and redacted job summary.",
+  "catalog.features.sourceObservations.ui.auditEvidence.readModel.release.retirement.label":
+    "Complete retired-surface removal",
+  "catalog.features.sourceObservations.ui.auditEvidence.readModel.release.retirement.releaseNote":
+    "Retire means complete removal of code, patterns, documentation, tests, fixtures, screenshots, runbooks, release notes, and operator instructions.",
+  "catalog.features.sourceObservations.ui.auditEvidence.readModel.release.review.label": "Source Observation review",
+  "catalog.features.sourceObservations.ui.auditEvidence.readModel.release.review.noRows":
+    "No Source Observation review rows are available in this context.",
+  "catalog.features.sourceObservations.ui.auditEvidence.readModel.release.review.releaseNote":
+    "Review evidence includes filters, redacted facts, duplicate/conflict evidence, and operator decisions.",
+  "catalog.features.sourceObservations.ui.auditEvidence.readModel.release.smoke.label":
+    "Release tests and smoke evidence",
+  "catalog.features.sourceObservations.ui.auditEvidence.readModel.release.smoke.partialProjection":
+    "Audit projection remains partial and must be named in release notes.",
+  "catalog.features.sourceObservations.ui.auditEvidence.readModel.release.smoke.releaseNote":
+    "Release evidence links tests, E2E proof, static verification, smoke checks, and residual debt.",
+  "catalog.features.sourceObservations.ui.auditEvidence.readModel.retirement.summary":
+    "Retired surfaces are release evidence only and require complete code, pattern, documentation, test, fixture, screenshot, runbook, release-note, and operator-instruction removal.",
+  "catalog.features.sourceObservations.ui.auditEvidence.readModel.sourceObservation.summary": "{name}: {summary}",
+  "catalog.features.sourceObservations.ui.auditEvidence.readModel.target.controlPlane": "control-plane",
+  "catalog.features.sourceObservations.ui.auditEvidence.release.blocks": "blocks release",
+  "catalog.features.sourceObservations.ui.auditEvidence.release.description":
+    "Changed workflows map to required evidence, tests, E2E proof, smoke proof, residual debt, owner, and release-note text.",
+  "catalog.features.sourceObservations.ui.auditEvidence.release.emptyDescription":
+    "Release checklist rows are required before production signoff.",
+  "catalog.features.sourceObservations.ui.auditEvidence.release.emptyTitle": "No release checklist",
+  "catalog.features.sourceObservations.ui.auditEvidence.release.noResidualDebt": "no residual debt",
+  "catalog.features.sourceObservations.ui.auditEvidence.release.nonBlocking": "non-blocking",
+  "catalog.features.sourceObservations.ui.auditEvidence.release.title": "Release evidence checklist",
+  "catalog.features.sourceObservations.ui.auditEvidence.table.category": "Category",
+  "catalog.features.sourceObservations.ui.auditEvidence.table.evidence": "Evidence",
+  "catalog.features.sourceObservations.ui.auditEvidence.table.event": "Event",
+  "catalog.features.sourceObservations.ui.auditEvidence.table.filter": "Filter",
+  "catalog.features.sourceObservations.ui.auditEvidence.table.kind": "Kind",
+  "catalog.features.sourceObservations.ui.auditEvidence.table.options": "Options",
+  "catalog.features.sourceObservations.ui.auditEvidence.table.proof": "Proof",
+  "catalog.features.sourceObservations.ui.auditEvidence.table.redaction": "Redaction",
+  "catalog.features.sourceObservations.ui.auditEvidence.table.releaseNote": "Release note",
+  "catalog.features.sourceObservations.ui.auditEvidence.table.requiredEvidence": "Required evidence",
+  "catalog.features.sourceObservations.ui.auditEvidence.table.state": "State",
+  "catalog.features.sourceObservations.ui.auditEvidence.table.status": "Status",
+  "catalog.features.sourceObservations.ui.auditEvidence.table.summary": "Summary",
+  "catalog.features.sourceObservations.ui.auditEvidence.table.target": "Target",
+  "catalog.features.sourceObservations.ui.auditEvidence.table.value": "Value",
+  "catalog.features.sourceObservations.ui.auditEvidence.table.workflow": "Workflow",
+  "catalog.features.sourceObservations.ui.auditEvidence.timeline.description":
+    "Timeline rows show event, actor, provider, unit, profile, job, observation, target, summary, diagnostics, and redacted evidence links.",
+  "catalog.features.sourceObservations.ui.auditEvidence.timeline.emptyDescription":
+    "The projection is unavailable or the current filters have no matching events.",
+  "catalog.features.sourceObservations.ui.auditEvidence.timeline.emptyTitle": "No timeline events",
+  "catalog.features.sourceObservations.ui.auditEvidence.timeline.title": "Audit timeline",
+  "catalog.features.sourceObservations.ui.auditEvidence.title": "Audit and release evidence",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.execution.preview.fresh": "Preview freshness",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.execution.stale.guard": "Stale preview guard",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.execution.stale.value":
