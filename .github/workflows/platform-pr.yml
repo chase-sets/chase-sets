@@ -388,38 +388,8 @@ jobs:
       - uses: docker/setup-buildx-action@v4
         if: steps.buildx.outcome == 'failure'
 
-      - uses: digitalocean/action-doctl@v2.5.2
-        if: github.event_name == 'merge_group'
-        env:
-          NODE_OPTIONS: --no-deprecation
-        with:
-          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-
       - name: Build App Platform image
-        env:
-          PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
         run: |
-          set -euo pipefail
-          # Merge-queue runs build the exact commit that fast-forwards onto
-          # main, so the validated image is pushed by commit SHA and the
-          # deploy workflow reuses it instead of rebuilding (issue #1326).
-          if [ "${{ github.event_name }}" = "merge_group" ]; then
-            registry_name="$(doctl registry get --format Name --no-header 2>/dev/null | tr -d '[:space:]' || true)"
-            if [ -n "$registry_name" ]; then
-              doctl registry login --expiry-seconds 3600
-              image="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}:${{ github.event.merge_group.head_sha }}"
-              docker buildx build \
-                --pull \
-                --cache-from type=gha,scope=platform-image \
-                --cache-to type=gha,scope=platform-image,mode=max \
-                --push \
-                --tag "$image" \
-                .
-              echo "Pushed merge-queue validated image ${image}"
-              exit 0
-            fi
-            echo "No container registry available; falling back to a local validation build."
-          fi
           docker buildx build \
             --pull \
             --cache-from type=gha,scope=platform-image \
