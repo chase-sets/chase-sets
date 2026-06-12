@@ -26,7 +26,15 @@ const rowListExports = new Set(["KeyValueList"]);
 const scanRoots = ["bounded-contexts", "packages/design-system/src"];
 
 function repositoryRoot() {
-  return path.resolve(process.cwd(), "../..");
+  let candidate = process.cwd();
+  while (!fs.existsSync(path.join(candidate, "pnpm-workspace.yaml"))) {
+    const parent = path.dirname(candidate);
+    if (parent === candidate) {
+      throw new Error(`Could not locate the repository root from ${process.cwd()}`);
+    }
+    candidate = parent;
+  }
+  return candidate;
 }
 
 function scanFiles(directory: string): string[] {

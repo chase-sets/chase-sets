@@ -1,10 +1,8 @@
-import { defineConfig } from "vitest/config";
+import { defineWorkspaceTestConfig } from "../../../vitest.shared.mjs";
 
-export default defineConfig({
+export default defineWorkspaceTestConfig({
   test: {
-    environment: "node",
     include: ["tests/**/*.test.ts"],
-    hookTimeout: 120_000,
     testTimeout: 300_000,
   },
 });

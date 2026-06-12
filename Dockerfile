@@ -38,11 +38,7 @@ COPY deployables ./deployables
 RUN pnpm run sync:workspace-metadata \
   && pnpm --filter @chase-sets/app-public-web run build \
   && pnpm --filter @chase-sets/app-marketplace-web run build \
-  && pnpm --filter @chase-sets/app-admin-web run build \
-  && pnpm --filter @chase-sets/app-platform-api run build \
-  && pnpm --filter @chase-sets/app-platform-worker run build \
-  && pnpm --filter @chase-sets/app-admin-support-api run build \
-  && pnpm --filter @chase-sets/app-admin-support-worker run build
+  && pnpm --filter @chase-sets/app-admin-web run build
 
 ENV NODE_ENV=production
 EXPOSE 8080

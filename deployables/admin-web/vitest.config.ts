@@ -1,18 +1,15 @@
-import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import { createWorkspaceSourceAliases } from "../../scripts/workspace-source-aliases.mjs";
+import { defineWorkspaceTestConfig } from "../../vitest.shared.mjs";
 
-export default defineConfig({
+export default defineWorkspaceTestConfig({
   plugins: [react()],
-  resolve: {
-    alias: createWorkspaceSourceAliases(),
-  },
+  resolve: { alias: createWorkspaceSourceAliases() },
   test: {
     environment: "jsdom",
     globals: true,
     setupFiles: "./src/test/setup.ts",
     include: ["app/**/*.test.ts", "app/**/*.test.tsx"],
-    exclude: ["dist/**", "node_modules/**"],
     css: true,
   },
 });

@@ -1,8 +1,3 @@
-import { defineConfig } from "vitest/config";
+import { defineBoundedContextTestConfig } from "../../../vitest.shared.mjs";
 
-export default defineConfig({
-  test: {
-    environment: "node",
-    include: ["features/**/*.test.ts", "features/**/*.test.tsx", "tests/**/*.test.ts", "tests/**/*.test.tsx"],
-  },
-});
+export default defineBoundedContextTestConfig();

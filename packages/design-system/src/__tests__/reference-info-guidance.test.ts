@@ -1,13 +1,27 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
+function repositoryRoot(): string {
+  let candidate = process.cwd();
+  while (!existsSync(join(candidate, "pnpm-workspace.yaml"))) {
+    const parent = dirname(candidate);
+    if (parent === candidate) {
+      throw new Error(`Could not locate the repository root from ${process.cwd()}`);
+    }
+    candidate = parent;
+  }
+  return candidate;
+}
+
+const packageRoot = join(repositoryRoot(), "packages", "design-system");
+
 function readPackageFile(path: string) {
-  return readFileSync(resolve(process.cwd(), path), "utf8");
+  return readFileSync(resolve(packageRoot, path), "utf8");
 }
 
 function readRepoFile(path: string) {
-  return readFileSync(resolve(process.cwd(), "..", "..", path), "utf8");
+  return readFileSync(resolve(repositoryRoot(), path), "utf8");
 }
 
 function designSystemImports(source: string) {

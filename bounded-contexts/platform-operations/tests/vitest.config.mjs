@@ -1,11 +1,10 @@
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vitest/config";
+import { defineBoundedContextTestConfig } from "../../../vitest.shared.mjs";
 
-export default defineConfig({
+export default defineBoundedContextTestConfig({
   plugins: [react()],
   test: {
     environment: "jsdom",
     globals: true,
-    include: ["features/**/*.test.ts", "features/**/*.test.tsx", "tests/**/*.test.ts", "tests/**/*.test.tsx"],
   },
 });

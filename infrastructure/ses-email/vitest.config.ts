@@ -1,13 +1,7 @@
-import { defineConfig } from "vitest/config";
 import { createWorkspaceSourceAliases } from "../../scripts/workspace-source-aliases.mjs";
+import { defineWorkspaceTestConfig } from "../../vitest.shared.mjs";
 
-export default defineConfig({
-  resolve: {
-    alias: createWorkspaceSourceAliases(),
-  },
-  test: {
-    environment: "node",
-    globals: true,
-    include: ["./**/*.test.ts"],
-  },
+export default defineWorkspaceTestConfig({
+  resolve: { alias: createWorkspaceSourceAliases() },
+  test: { globals: true },
 });
