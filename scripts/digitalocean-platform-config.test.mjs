@@ -854,7 +854,7 @@ describe("DigitalOcean platform configuration", () => {
       "Production settlement provider-health telemetry canary",
     );
     expect(settlementProviderHealthCanaryStep).toContain(
-      "if: steps.latest_main.outputs.should_deploy != 'false' && vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true'",
+      "if: env.SHOULD_DEPLOY != 'false' && vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true'",
     );
     expect(settlementProviderHealthCanaryStep).toContain("production-settlement-provider-health-canary.mjs");
     expect(settlementProviderHealthCanaryStep).toContain(
@@ -889,7 +889,7 @@ describe("DigitalOcean platform configuration", () => {
       "Production proof-mode Buy Now freshness canary",
     );
     expect(productionProofCanaryStep).toContain(
-      "if: steps.latest_main.outputs.should_deploy != 'false' && vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true'",
+      "if: env.SHOULD_DEPLOY != 'false' && vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true'",
     );
     expect(productionProofCanaryStep).toContain(
       "GUEST_BUY_NOW_CANARY_ACCOUNT_EMAIL: ${{ secrets.PRODUCTION_PROOF_CANARY_EMAIL || secrets.PLATFORM_ADMIN_EMAIL || '' }}",
@@ -1302,7 +1302,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingBuyNowCanariesStep).toContain(
       "MARKETPLACE_E2E_PASSWORD: ${{ secrets.MARKETPLACE_E2E_PASSWORD || '' }}",
     );
-    expect(stagingBuyNowEvidenceStep).toContain("if: always() && steps.latest_main.outputs.should_deploy != 'false'");
+    expect(stagingBuyNowEvidenceStep).toContain("if: always() && env.SHOULD_DEPLOY != 'false'");
     expect(stagingBuyNowEvidenceStep).toContain("staging-buy-now-freshness-canaries");
     expect(stagingBuyNowEvidenceStep).toContain("artifacts/release-health/account-buy-now-freshness-canary.json");
     expect(platformProductionWorkflow).toContain("buy_now_canary_result: ${{ steps.buy_now_canaries.outputs.result }}");
