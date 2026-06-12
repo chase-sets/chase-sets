@@ -7,11 +7,11 @@ Use this runbook for Catalog Integration Control Plane incidents involving provi
 1. Confirm deploy health:
    - `https://admin.chasesets.com/api/health/ready`
    - worker status endpoint for the active environment.
-2. Open Grafana and inspect:
+2. Open Grafana `Catalog Integration Control Plane` (`chase-sets-catalog-integration-control-plane`) and inspect:
    - Catalog option query failures and degraded cache use.
    - Catalog integration job outcomes.
-   - worker run count/duration for Catalog job runners.
-   - projection run count/duration and projection operations.
+   - control-plane blocker, support detour, and read-model freshness events.
+   - worker run count/duration for Catalog job runners and projection metrics when freshness is implicated.
 3. Open Admin Control Plane:
    - `/catalog/integrations`
    - readiness summary

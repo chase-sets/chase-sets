@@ -104,6 +104,10 @@ type CleanResetScaffoldingRow = CleanResetRelease["temporaryScaffolding"][number
 const defaultReviewPageSize = 25;
 const providerOptionQueryFreshTtlMinutes = 15;
 const providerOptionQueryStaleTtlHours = 24;
+const catalogIntegrationGrafanaDashboardHref =
+  "https://grafana.chasesets.com/d/chase-sets-catalog-integration-control-plane/catalog-integration-control-plane";
+const catalogIntegrationOperationsRunbookHref =
+  "https://github.com/chase-sets/chase-sets/blob/main/docs/runbooks/catalog-integration-operations.md";
 
 export function buildCatalogPrimaryWorkbenchReadModel(
   input: CatalogPrimaryWorkbenchInput,
@@ -4559,7 +4563,7 @@ function governanceSignal(input: {
         label: t("catalog.features.sourceObservations.ui.governanceControls.readModel.alert", {
           value: input.ownerMetricKey,
         }),
-        href: input.auditEvidenceUrl,
+        href: catalogIntegrationGrafanaDashboardHref,
       },
     ],
     runbookLinks: [
@@ -4567,7 +4571,7 @@ function governanceSignal(input: {
         label: t("catalog.features.sourceObservations.ui.governanceControls.readModel.runbook", {
           value: input.label,
         }),
-        href: input.auditEvidenceUrl,
+        href: catalogIntegrationOperationsRunbookHref,
       },
     ],
   };

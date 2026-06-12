@@ -79,14 +79,16 @@ Use Grafana for telemetry questions: request rates, latency, projection freshnes
 - Staging Grafana: `https://grafana.staging.chasesets.com`
 - Staging OTLP endpoint: `https://otel.staging.chasesets.com`
 - Staging Prometheus query endpoint: `https://prometheus.staging.chasesets.com`
+- Staging Projection Wake Pipeline dashboard: `https://grafana.staging.chasesets.com/d/chase-sets-projection-wake-pipeline/projection-wake-pipeline`
+- Staging Catalog Integration Control Plane dashboard: `https://grafana.staging.chasesets.com/d/chase-sets-catalog-integration-control-plane/catalog-integration-control-plane`
 - Staging Projection Operations: `https://admin.staging.chasesets.com/platform/projections`
-- Staging Push Wakes: `https://admin.staging.chasesets.com/platform/projections?tab=wake`
 - Staging Release Dashboard: `https://admin.staging.chasesets.com/platform/release-dashboard`
 - Production Grafana: `https://grafana.chasesets.com`
 - Production OTLP endpoint: `https://otel.chasesets.com`
 - Production Prometheus query endpoint: `https://prometheus.chasesets.com`
+- Production Projection Wake Pipeline dashboard: `https://grafana.chasesets.com/d/chase-sets-projection-wake-pipeline/projection-wake-pipeline`
+- Production Catalog Integration Control Plane dashboard: `https://grafana.chasesets.com/d/chase-sets-catalog-integration-control-plane/catalog-integration-control-plane`
 - Production Projection Operations: `https://admin.chasesets.com/platform/projections`
-- Production Push Wakes: `https://admin.chasesets.com/platform/projections?tab=wake`
 - Production Release Dashboard: `https://admin.chasesets.com/platform/release-dashboard`
 
 Grafana access requirements:
@@ -124,7 +126,7 @@ Projection freshness metrics add only bounded labels: `mount_path`, `route_path`
 Production release canary telemetry uses the Prometheus-compatible query endpoint selected by ADR 0011. Configure the production GitHub Environment with:
 
 - `CANARY_PROMETHEUS_URL`: base URL for the protected query endpoint.
-- `CANARY_PROMETHEUS_QUERY_FILE`: repository-relative query file, currently `bounded-contexts/platform-operations/features/release-dashboard/read-model/canary-prometheus-queries.json`.
+- `CANARY_PROMETHEUS_QUERY_FILE`: repository-relative query file, currently `infrastructure/observability/release-canary-prometheus-queries.json`.
 - `CANARY_OBSERVATION_WINDOW_SECONDS`: defaults to `300`.
 - `CANARY_PROMETHEUS_HEADERS` (secret): JSON object of query headers, for example `{"X-Chase-Sets-Observability-Query":"<token>"}`.
 
@@ -160,7 +162,8 @@ Catalog Integration Control Plane signals add:
 
 - `chase_sets_catalog_integration_option_queries_total`
 - `chase_sets_catalog_integration_jobs_total`
+- `chase_sets_catalog_control_plane_events_total`
 
 These metrics use bounded provider/query/job/status labels only. Do not add job ids, Source Observation ids, cache keys, credential names, raw provider values, payload paths, source URLs, account ids, or user ids as metric labels.
 
-Catalog-specific dashboards, alert starter conditions, redaction rules, and incident workflows live in [Catalog Integration Observability](../../bounded-contexts/catalog/docs/catalog-integration-observability.md) and [Catalog Integration Operations](./catalog-integration-operations.md).
+Catalog-specific dashboards, alert starter conditions, redaction rules, and incident workflows live in the Grafana `Catalog Integration Control Plane` dashboard, [Catalog Integration Observability](../../bounded-contexts/catalog/docs/catalog-integration-observability.md), and [Catalog Integration Operations](./catalog-integration-operations.md).

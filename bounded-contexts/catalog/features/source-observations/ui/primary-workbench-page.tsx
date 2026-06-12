@@ -38,7 +38,7 @@ import { CatalogIntegrationConflictResolutionWorkspace } from "./admin-control-p
 import { CatalogIntegrationAuditEvidenceWorkspace } from "./admin-control-plane/evidence/audit-evidence-workspace";
 import { CatalogIntegrationCleanResetReleaseWorkspace } from "./admin-control-plane/evidence/clean-reset-release-workspace";
 import { CatalogIntegrationGovernanceControlsWorkspace } from "./admin-control-plane/governance/governance-controls-workspace";
-import { CatalogIntegrationHealthTriageDashboard } from "./admin-control-plane/health/integration-health-dashboard";
+import { CatalogIntegrationHealthTriageWorkspace } from "./admin-control-plane/health/integration-health-dashboard";
 import { CatalogIntegrationLifecycleRecoveryWorkspace } from "./admin-control-plane/lifecycle/lifecycle-recovery-workspace";
 import { CatalogIntegrationProfileAuthoringWorkspace } from "./admin-control-plane/profiles/profile-authoring-workspace";
 import { CatalogIntegrationValidationReadinessWorkspace } from "./admin-control-plane/validation/validation-readiness-workspace";
@@ -170,7 +170,7 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
   const selectedReviewableObservationCount = selectedObservationRows.filter(isReviewableObservationRow).length;
   const implementedSupportWorkspace =
     activeSection === "health-triage" ? (
-      <CatalogIntegrationHealthTriageDashboard readModel={readModel} />
+      <CatalogIntegrationHealthTriageWorkspace readModel={readModel} />
     ) : activeSection === "profile-authoring" ? (
       <CatalogIntegrationProfileAuthoringWorkspace readModel={readModel} />
     ) : activeSection === "validation-readiness" ? (

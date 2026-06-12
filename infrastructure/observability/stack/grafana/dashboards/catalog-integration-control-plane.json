@@ -1,0 +1,114 @@
+{
+  "title": "Catalog Integration Control Plane",
+  "uid": "chase-sets-catalog-integration-control-plane",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "tags": ["chase-sets", "catalog", "control-plane", "observability"],
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Provider option query outcomes",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum by (provider, query_kind, result, cache_status) (rate(chase_sets_catalog_integration_option_queries_total[5m]))",
+          "legendFormat": "{{provider}} {{query_kind}} {{result}} {{cache_status}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Degraded and cache-only option queries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum by (provider, query_kind, degraded, cache_only) (rate(chase_sets_catalog_integration_option_queries_total{degraded=\"true\"}[5m]))",
+          "legendFormat": "{{provider}} {{query_kind}} degraded={{degraded}} cache_only={{cache_only}}"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum by (provider, query_kind, degraded, cache_only) (rate(chase_sets_catalog_integration_option_queries_total{cache_only=\"true\"}[5m]))",
+          "legendFormat": "{{provider}} {{query_kind}} cache_only={{cache_only}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Integration job outcomes",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum by (operation, job_kind, result) (rate(chase_sets_catalog_integration_jobs_total{operation=\"integration-job\"}[5m]))",
+          "legendFormat": "{{job_kind}} {{result}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Bulk review work-unit outcomes",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum by (operation, job_kind, result) (rate(chase_sets_catalog_integration_jobs_total{operation=\"bulk-review-work-unit\"}[5m]))",
+          "legendFormat": "{{job_kind}} {{result}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Primary journey events",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum by (event, provider, read_model_freshness) (increase(chase_sets_catalog_control_plane_events_total{event=~\"catalog_control_plane.primary_workbench_viewed|catalog_control_plane.provider_scope_selected|catalog_control_plane.import_started|catalog_control_plane.import_completed|catalog_control_plane.import_failed|catalog_control_plane.observation_review_opened|catalog_control_plane.promotion_preview_opened|catalog_control_plane.promotion_completed|catalog_control_plane.promotion_failed\"}[1h]))",
+          "legendFormat": "{{event}} {{provider}} {{read_model_freshness}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Blockers and supporting detours",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum by (event, blocker_category, detour_target, detour_outcome) (increase(chase_sets_catalog_control_plane_events_total{event=~\"catalog_control_plane.blocker_hit|catalog_control_plane.supporting_workflow_detour_opened|catalog_control_plane.returned_to_primary_path\"}[1h]))",
+          "legendFormat": "{{event}} {{blocker_category}} {{detour_target}} {{detour_outcome}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Read-model freshness mix",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum by (read_model_freshness) (increase(chase_sets_catalog_control_plane_events_total[1h]))",
+          "legendFormat": "{{read_model_freshness}}"
+        }
+      ]
+    },
+    {
+      "type": "logs",
+      "title": "Catalog control-plane logs",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "Loki" },
+          "expr": "{service_name=~\"platform-api|admin-support-api|platform-worker\"} | json | context=\"catalog\""
+        }
+      ]
+    }
+  ]
+}

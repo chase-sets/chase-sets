@@ -9,6 +9,8 @@ const legacyAdminPrimitivePattern =
 const unsafeAdminMarketplaceLinkPattern = /(?:href|to)=\{?`?["']?\/account[/?]/;
 const unsafeAdminPublicRelativeLinkPattern =
   /(?:href|to)=\{?`?["']?\/(?:contact|faq|items|listings|order-protection|privacy|refunds-and-returns|sales-fees|search|terms)(?:[/?#]|[`"'])/;
+const embeddedObservabilityDashboardPattern =
+  /\b(?:histogram_quantile|rate|increase)\s*\(|\b(?:PromQL|LogQL|datasourceUid|datasource|legendFormat)\b|_bucket\b/i;
 const ignoredDirectories = new Set(["build", "dist", "generated", "node_modules"]);
 const importPattern = /import(?:\s+type)?[\s\S]*?\sfrom\s+["']([^"']+)["']/g;
 const literalHrefPattern = /\b(?:href|to)=\{?([`"'])(\/[^`"']*)\1/g;
@@ -202,6 +204,15 @@ describe("admin web primitive usage", () => {
 
   it("keeps same-host cross-section admin links permission-aware", () => {
     const offenders = collectAdminRenderedFeatureUiFiles().flatMap(crossSectionLinkOffenders);
+
+    expect(offenders).toEqual([]);
+  });
+
+  it("keeps admin-rendered UI from embedding observability dashboard primitives", () => {
+    const offenders = [...collectAdminRouteFiles(), ...collectAdminRenderedFeatureUiFiles()].flatMap((filePath) => {
+      const match = embeddedObservabilityDashboardPattern.exec(readFileSync(filePath, "utf8"));
+      return match ? [`${relativePath(filePath)} -> ${match[0]}`] : [];
+    });
 
     expect(offenders).toEqual([]);
   });

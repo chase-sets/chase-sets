@@ -8,6 +8,7 @@ Catalog Integration Control Plane observability covers provider adapters, provid
 - Provider adapters own transport facts: provider reachability, auth/session state, pagination, retry, rate-limit, cooldown, and typed payload acquisition diagnostics.
 - Platform owns OpenTelemetry export, request/worker/projection metrics, trace propagation, logs, local LGTM stack, and generic durable job runtime behavior.
 - Deployables wire the Catalog `sourceObservationTelemetry` host port to platform observability. Catalog does not import the OpenTelemetry runtime directly.
+- Grafana owns telemetry visualization and alert history. The canonical dashboard is `Catalog Integration Control Plane` (`chase-sets-catalog-integration-control-plane`); Admin links may deep-link there, but Admin must stay focused on readiness, blocked actions, durable jobs, and audit evidence.
 
 ## Metrics
 
@@ -121,6 +122,8 @@ Start with low-noise alerts and tune thresholds after production baselines:
 - Adapter auth failure: credential-readiness diagnostics show missing, expired, revoked, invalid, or authentication-failed states.
 
 Alerts should route to Catalog/Ops first. Provider policy/legal review is required before changing retention or exposing additional provider evidence.
+
+The starter Grafana rules live in `infrastructure/observability/stack/grafana/provisioning/alerting/catalog-integration-alerts.yml`. Keep alert labels bounded and tune thresholds in Grafana/observability provisioning, not in Admin UI copy.
 
 ## Redaction Rules
 

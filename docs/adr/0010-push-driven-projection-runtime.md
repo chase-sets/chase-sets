@@ -63,6 +63,7 @@ Phase 0 gates production push enablement and broad consumer rollout. Foundationa
 - Staging and production must use the same logical query/listener/control-plane/composite contract, with environment-specific scale and rollout flags only.
 - Existing durable job, projection operation, and realtime wake paths must be migrated to shared primitives or kept as documented, budgeted exceptions until their phase lands.
 - New direct `LISTEN`, `pg_notify`, job event wait, or wake-store helper patterns require a reviewed composite disposition.
+- Grafana is the canonical surface for wake pipeline rates, percentiles, logs, and alerts. Admin Projection Operations remains the action/read-model surface for blocked-stream retry, projection rebuild, operation cancel, durable operation state, and links to wake runbooks/dashboards.
 
 ## Closure Evidence
 
@@ -76,4 +77,4 @@ Milestone #19 cannot close until these artifacts exist and are linked from the r
 - connection-budget and Terraform safety checks;
 - composite migration disposition for durable jobs, projection operations, realtime SSE, and scheduled/manual work;
 - stale listener/polling helper cleanup or approved exceptions;
-- observability, runbooks, security/privacy review, and recovery drills.
+- Grafana dashboards/alerts, runbooks, security/privacy review, and recovery drills.

@@ -2474,6 +2474,35 @@ function isSafePrimaryWorkbenchReturnPath(path: string): boolean {
   }
 }
 
+function isSafePrimaryWorkbenchObservabilityLink(path: string): boolean {
+  if (isSafePrimaryWorkbenchReturnPath(path)) {
+    return true;
+  }
+  if (path.startsWith("//")) {
+    return false;
+  }
+  try {
+    const parsedUrl = new URL(path);
+    if (parsedUrl.protocol !== "https:") {
+      return false;
+    }
+    if (
+      ["grafana.chasesets.com", "grafana.staging.chasesets.com"].includes(parsedUrl.hostname) &&
+      parsedUrl.pathname.startsWith("/d/chase-sets-catalog-integration-control-plane")
+    ) {
+      return true;
+    }
+
+    return (
+      parsedUrl.hostname === "github.com" &&
+      (parsedUrl.pathname.startsWith("/chase-sets/chase-sets/blob/main/docs/runbooks/") ||
+        parsedUrl.pathname.startsWith("/chase-sets/chase-sets/blob/main/bounded-contexts/catalog/docs/"))
+    );
+  } catch {
+    return false;
+  }
+}
+
 function section(input: CatalogPrimaryWorkbenchSectionContract): CatalogPrimaryWorkbenchSectionContract {
   return input;
 }
@@ -2629,8 +2658,8 @@ function assertPrimaryWorkbenchGovernanceControls(
       throw new Error("Primary workbench governance observability signals require alert and runbook links.");
     }
     for (const link of [...signal.alertLinks, ...signal.runbookLinks]) {
-      if (!link.label || !isSafePrimaryWorkbenchReturnPath(link.href)) {
-        throw new Error("Primary workbench governance alert and runbook links must target rebuilt evidence.");
+      if (!link.label || !isSafePrimaryWorkbenchObservabilityLink(link.href)) {
+        throw new Error("Primary workbench governance alert and runbook links must target approved observability.");
       }
     }
     if (signal.stale && signal.status === "ready") {

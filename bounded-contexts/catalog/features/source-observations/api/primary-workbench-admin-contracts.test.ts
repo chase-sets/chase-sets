@@ -1043,6 +1043,24 @@ describe("Catalog primary workbench admin contracts", () => {
     expect(readModel.readiness.providerTransport).toEqual(["rate-limit", "partial-data"]);
     expect(readModel.promotionPreview.dispositions["confirmation-required"]).toBe(1);
     expect(readModel.instrumentation.dimensions).toContain("route_context_preserved");
+
+    const unsafeObservabilityLinkModel = structuredClone(readModel) as unknown as {
+      governanceControls: {
+        observability: {
+          signals: {
+            alertLinks: { label: string; href: string }[];
+          }[];
+        };
+      };
+    };
+    unsafeObservabilityLinkModel.governanceControls.observability.signals[0].alertLinks = [
+      { label: "Bad alert", href: "https://evil.example/dashboard" },
+    ];
+    expect(() =>
+      validateCatalogPrimaryWorkbenchReadModelContract(
+        unsafeObservabilityLinkModel as unknown as CatalogPrimaryWorkbenchReadModel,
+      ),
+    ).toThrow("Primary workbench governance alert and runbook links must target approved observability.");
   });
 });
 
@@ -1750,6 +1768,10 @@ function governanceSignalFixture(
   value: string,
 ): CatalogPrimaryWorkbenchReadModel["governanceControls"]["observability"]["signals"][number] {
   const href = "/catalog/integrations?providerKey=tcgdex&section=evidence";
+  const alertHref =
+    "https://grafana.chasesets.com/d/chase-sets-catalog-integration-control-plane/catalog-integration-control-plane";
+  const runbookHref =
+    "https://github.com/chase-sets/chase-sets/blob/main/docs/runbooks/catalog-integration-operations.md";
 
   return {
     key,
@@ -1760,8 +1782,8 @@ function governanceSignalFixture(
     ownerMetricKey: `catalog.integration.${key}`,
     evidenceUrl: href,
     stale: false,
-    alertLinks: [{ label: `Alert catalog.integration.${key}`, href }],
-    runbookLinks: [{ label: `Runbook ${label}`, href }],
+    alertLinks: [{ label: `Alert catalog.integration.${key}`, href: alertHref }],
+    runbookLinks: [{ label: `Runbook ${label}`, href: runbookHref }],
   };
 }
 

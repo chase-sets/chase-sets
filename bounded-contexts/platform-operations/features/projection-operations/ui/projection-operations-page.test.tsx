@@ -200,7 +200,7 @@ describe("ProjectionOperationsPage", () => {
     expect(screen.getAllByText("Stale workers").length).toBeGreaterThan(0);
   });
 
-  it("renders the push-wake panel with queue, relay, checkpoint, and rollout sections", () => {
+  it("renders the push-wake handoff without duplicating Grafana telemetry sections", () => {
     const data = normalizeProjectionOperationsSnapshot({ summary: { status: "ok" } });
     const wakeStatus = normalizeWakeStatusSnapshot({
       generatedAt: "2026-06-11T12:00:00.000Z",
@@ -341,18 +341,16 @@ describe("ProjectionOperationsPage", () => {
     render(<ProjectionOperationsPage data={data} filters={{ ...emptyFilters, tab: "wake" }} wakeStatus={wakeStatus} />);
 
     expect(screen.getByRole("tab", { name: "Push wakes" })).toBeTruthy();
-    expect(screen.getByText("Wake intent queue")).toBeTruthy();
-    expect(screen.getByText("Active relay lease")).toBeTruthy();
-    expect(screen.getAllByText("platform-worker-1").length).toBeGreaterThan(0);
-    expect(screen.getByText("Checkpoint readiness")).toBeTruthy();
-    expect(screen.getByText("Rollout by source context")).toBeTruthy();
-    expect(screen.getAllByText("staging-enabled").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("api-wait").length).toBeGreaterThan(0);
-    expect(screen.getByText("Push-first migration by projection group")).toBeTruthy();
-    expect(screen.getAllByText("push-enabled").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("push-eligible").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("checkout:checkout.session-projection").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("discovery:discovery-market-projection").length).toBeGreaterThan(0);
+    expect(screen.getByText("Wake telemetry lives in Grafana")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Open Grafana wake dashboard" }).getAttribute("href")).toBe(
+      "https://grafana.chasesets.com/d/chase-sets-projection-wake-pipeline/projection-wake-pipeline",
+    );
+    expect(screen.getByRole("link", { name: "Open push-wake runbook" }).getAttribute("href")).toBe(
+      "https://github.com/chase-sets/chase-sets/blob/main/docs/runbooks/push-wake-operations.md",
+    );
+    expect(screen.queryByText("Wake intent queue")).toBeNull();
+    expect(screen.queryByText("Active relay lease")).toBeNull();
+    expect(screen.queryByText("Push-first migration by projection group")).toBeNull();
   });
 
   it("merges wake attention items into the attention-first console", () => {

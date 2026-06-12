@@ -20,7 +20,7 @@ import type {
   CatalogPrimaryWorkbenchReadModel,
 } from "../../../api/primary-workbench-admin-contracts";
 
-export function CatalogIntegrationHealthTriageDashboard({
+export function CatalogIntegrationHealthTriageWorkspace({
   readModel,
 }: Readonly<{
   readModel: CatalogPrimaryWorkbenchReadModel;

@@ -22,7 +22,7 @@ export async function loadWakeStatusSnapshot(request: Request): Promise<WakeStat
   const url = resolveProjectionOperationsApiUrl(request);
   url.pathname = `${url.pathname.replace(/\/$/, "")}/wake-status`;
 
-  // The wake panel degrades instead of failing the whole console: an API host
+  // Wake attention degrades instead of failing the whole console: an API host
   // that predates the endpoint (deploy skew) or a transient error renders as
   // an explicit unavailable state.
   try {

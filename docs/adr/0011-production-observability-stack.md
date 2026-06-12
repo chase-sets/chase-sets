@@ -24,9 +24,14 @@ The production-ready topology is:
 - Grafana with anonymous access disabled and credentials or SSO supplied by secret management;
 - OTLP ingestion behind a write credential, not a public unauthenticated endpoint;
 - Prometheus-compatible query access for release automation behind a separate scoped credential;
-- GitHub Actions canary evidence querying the protected Prometheus endpoint with `CANARY_PROMETHEUS_URL`, `CANARY_PROMETHEUS_QUERY_FILE`, `CANARY_OBSERVATION_WINDOW_SECONDS`, and secret `CANARY_PROMETHEUS_HEADERS`.
+- GitHub Actions canary evidence querying the protected Prometheus endpoint with `CANARY_PROMETHEUS_URL`, `CANARY_PROMETHEUS_QUERY_FILE`, `CANARY_OBSERVATION_WINDOW_SECONDS`, and secret `CANARY_PROMETHEUS_HEADERS`; the canonical repository query contract is `infrastructure/observability/release-canary-prometheus-queries.json`.
 
 The application deployables continue to run in App Platform and export telemetry with standard OpenTelemetry environment variables. Telemetry export remains best effort: missing or unreachable observability infrastructure is an operations incident, not a customer-facing outage.
+
+Operators have a two-plane model:
+
+- Grafana/LGTM owns telemetry dashboards, alert state, traces, logs, metric trends, release canary Prometheus queries, and bounded-label exploration.
+- Admin owns domain and platform operation read models, permission-aware actions, durable job/projection operation state, audit evidence, and links to the relevant Grafana dashboards and runbooks.
 
 ## Alternatives Considered
 
@@ -40,14 +45,15 @@ Deferred. A managed provider can satisfy the storage and access requirements, bu
 
 ### Keep production on workflow artifacts and Admin Platform Operations only
 
-Rejected. Admin Platform Operations remains the canonical application operations surface for projection and release workflow state, but milestone #21 explicitly requires durable metrics, logs, traces, protected Grafana, and Prometheus-backed release canary evidence.
+Rejected. Admin Platform Operations remains the canonical application operations surface for projection and release workflow state, but milestone #21 explicitly requires durable metrics, logs, traces, protected Grafana, and Prometheus-backed release canary evidence. Recreating Grafana-style dashboards inside Admin would split alert/query ownership and weaken redaction guardrails.
 
 ## Consequences
 
 - A new observability infrastructure root or equivalent provisioning path must own droplets, volumes, DNS, firewall rules, generated credentials, and bootstrap configuration.
 - The platform deployment workflow must keep application deployable telemetry variables separate from observability host credentials.
 - Production release canary telemetry can use a protected query endpoint without placing credentials in `CANARY_PROMETHEUS_URL`.
-- Operators have two complementary surfaces: Grafana for telemetry and Admin Platform Operations for domain/platform read models.
+- Operators have two complementary surfaces: Grafana for telemetry and Admin Platform Operations for domain/platform read models and actions.
+- Dashboard JSON, alert provisioning, and release canary PromQL contracts live under `infrastructure/observability`; bounded contexts own the semantics and bounded labels they emit.
 - Capacity, retention, backup, and credential rotation become explicit observability operations responsibilities.
 
 ## Invariants
@@ -57,3 +63,4 @@ Rejected. Admin Platform Operations remains the canonical application operations
 - No customer identifiers, account ids, user ids, checkout session ids, emails, cookies, event ids, raw URLs, provider secrets, or raw payloads in metric labels or dashboard filters.
 - No production telemetry secret is committed to the repository or stored in a GitHub variable.
 - Application telemetry exporter failure must not block application startup or request handling.
+- Admin-rendered UI must not embed PromQL, LogQL, Grafana dashboard JSON, datasource definitions, or alert rule primitives; it may link to approved Grafana dashboards and runbooks.
