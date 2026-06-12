@@ -24,7 +24,6 @@
     "@chase-sets/localization": "workspace:*",
     "@chase-sets/marketplace": "workspace:*",
     "@chase-sets/platform-runtime": "workspace:*",
-    "@chase-sets/release-controls": "workspace:*",
     "hono": "^4.12.12"
   }
 }

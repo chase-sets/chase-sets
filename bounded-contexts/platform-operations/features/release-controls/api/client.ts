@@ -4,7 +4,7 @@ import {
   type ReleaseControlPolicyDecision,
   type RolloutEnvironment,
   type RolloutSubject,
-} from "@chase-sets/release-controls";
+} from "../domain/rollout";
 import {
   buildReleaseControlsSnapshot,
   readReleaseControlsQuery,

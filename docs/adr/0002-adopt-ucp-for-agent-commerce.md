@@ -35,8 +35,7 @@ Checkout completion requires a trusted UI handoff unless a later AP2 Mandate imp
 ## Consequences
 
 - UCP terms are boundary DTOs. Internal ubiquitous language remains Catalog Item/Product, Listing, Offer, Cart, Checkout Session, Order/Purchase/Sale, Payment, and Shipment.
-- `@chase-sets/ucp` owns protocol constants, profile declarations, envelopes, and transport-neutral contract helpers.
-- `@chase-sets/platform-runtime/ucp` owns generic profile, REST transport, MCP transport, signature-header, digest, cryptographic HTTP Message Signature verification through UCP key resolution, Postgres-backed profile/key caching, and durable idempotency guardrails.
+- `@chase-sets/platform-runtime/ucp` owns protocol constants, profile declarations, envelopes, transport-neutral contract helpers, generic profile routes, REST transport, MCP transport, signature-header, digest, cryptographic HTTP Message Signature verification through UCP key resolution, Postgres-backed profile/key caching, and durable idempotency guardrails.
 - Discovery, Checkout, Ordering, Payments, Auth, and Identity will provide concrete handlers through their existing context-owned services.
 - The existing Chase Sets-native `/mcp` bridge remains available for internal agent tooling; `/ucp/mcp` is the standards-facing UCP profile with UCP tool names.
 - Product code must not add a generic `ai-commerce` or `ucp` bounded context.

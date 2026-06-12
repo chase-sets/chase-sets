@@ -7,7 +7,6 @@ import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createNoopTransactionalEmailOutbox, type TransactionalEmailOutbox } from "@chase-sets/communications-email";
-import { createFulfillmentDeliveryPromise } from "@chase-sets/fulfillment-delivery-promises";
 import {
   buildPackagePlan,
   defaultPostagePolicy,
@@ -60,6 +59,7 @@ import {
   type OrderingOrderEvent,
   type OrderingOrderState,
 } from "../domain/domain";
+import { createFulfillmentDeliveryPromise } from "../domain/fulfillment-delivery-promise";
 
 export type TaxDestinationAddress = AddressSnapshot;
 

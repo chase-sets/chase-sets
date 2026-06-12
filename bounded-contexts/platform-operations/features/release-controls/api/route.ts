@@ -1,10 +1,6 @@
 import type { AuthenticatedApiEnv, ResolvedActor } from "@chase-sets/auth-context";
 import { Hono } from "hono";
-import {
-  normalizeRolloutEnvironment,
-  normalizeRolloutSubjectType,
-  type RolloutSubject,
-} from "@chase-sets/release-controls";
+import { normalizeRolloutEnvironment, normalizeRolloutSubjectType, type RolloutSubject } from "../domain/rollout";
 import { canSubjectReadDecision } from "../read-model/policy-contracts";
 import type { ReleaseControlsPolicyServices } from "./runtime";
 

@@ -33,7 +33,6 @@
     "@chase-sets/platform-runtime": "workspace:*",
     "@chase-sets/primitives": "workspace:*",
     "@chase-sets/settlement": "workspace:*",
-    "@chase-sets/ucp": "workspace:*",
     "hono": "^4.12.12"
   },
   "devDependencies": {

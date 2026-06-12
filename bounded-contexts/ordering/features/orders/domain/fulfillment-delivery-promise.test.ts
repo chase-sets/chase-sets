@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createFulfillmentDeliveryPromise } from "./index";
+import { createFulfillmentDeliveryPromise } from "./fulfillment-delivery-promise";
 
 const baseInput = {
   shippingOption: "standard",

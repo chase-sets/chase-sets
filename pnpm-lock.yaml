@@ -228,9 +228,6 @@ importers:
       '@chase-sets/settlement':
         specifier: workspace:*
         version: link:../settlement
-      '@chase-sets/ucp':
-        specifier: workspace:*
-        version: link:../../contracts/ucp
       hono:
         specifier: ^4.12.12
         version: 4.12.18
@@ -326,9 +323,6 @@ importers:
       '@chase-sets/primitives':
         specifier: workspace:*
         version: link:../../contracts/primitives
-      '@chase-sets/ucp':
-        specifier: workspace:*
-        version: link:../../contracts/ucp
       hono:
         specifier: ^4.12.12
         version: 4.12.18
@@ -626,9 +620,6 @@ importers:
       '@chase-sets/event-core-postgres':
         specifier: workspace:*
         version: link:../../infrastructure/event-core-postgres
-      '@chase-sets/fulfillment-delivery-promises':
-        specifier: workspace:*
-        version: link:../../contracts/fulfillment-delivery-promises
       '@chase-sets/http':
         specifier: workspace:*
         version: link:../../contracts/http
@@ -656,9 +647,6 @@ importers:
       '@chase-sets/transactional-email-outbox':
         specifier: workspace:*
         version: link:../../infrastructure/transactional-email-outbox
-      '@chase-sets/ucp':
-        specifier: workspace:*
-        version: link:../../contracts/ucp
       hono:
         specifier: ^4.12.12
         version: 4.12.18
@@ -729,9 +717,6 @@ importers:
       '@chase-sets/transactional-email-outbox':
         specifier: workspace:*
         version: link:../../infrastructure/transactional-email-outbox
-      '@chase-sets/ucp':
-        specifier: workspace:*
-        version: link:../../contracts/ucp
       hono:
         specifier: ^4.12.12
         version: 4.12.18
@@ -775,9 +760,6 @@ importers:
       '@chase-sets/primitives':
         specifier: workspace:*
         version: link:../../contracts/primitives
-      '@chase-sets/release-controls':
-        specifier: workspace:*
-        version: link:../../contracts/release-controls
       '@chase-sets/transactional-email-outbox':
         specifier: workspace:*
         version: link:../../infrastructure/transactional-email-outbox
@@ -836,9 +818,6 @@ importers:
       '@chase-sets/platform-runtime':
         specifier: workspace:*
         version: link:../../infrastructure/platform-runtime
-      '@chase-sets/release-controls':
-        specifier: workspace:*
-        version: link:../../contracts/release-controls
       hono:
         specifier: ^4.12.12
         version: 4.12.18
@@ -999,12 +978,6 @@ importers:
 
   contracts/event-core: {}
 
-  contracts/fulfillment-delivery-promises:
-    devDependencies:
-      vitest:
-        specifier: ^4.1.4
-        version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
-
   contracts/http: {}
 
   contracts/localization:
@@ -1012,12 +985,6 @@ importers:
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
-      vitest:
-        specifier: ^4.1.4
-        version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
-
-  contracts/mcp:
-    devDependencies:
       vitest:
         specifier: ^4.1.4
         version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
@@ -1067,18 +1034,6 @@ importers:
         version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
 
   contracts/realtime:
-    devDependencies:
-      vitest:
-        specifier: ^4.1.4
-        version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
-
-  contracts/release-controls:
-    devDependencies:
-      vitest:
-        specifier: ^4.1.4
-        version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
-
-  contracts/ucp:
     devDependencies:
       vitest:
         specifier: ^4.1.4
@@ -1529,9 +1484,6 @@ importers:
       '@chase-sets/stripe-payments':
         specifier: workspace:*
         version: link:../../infrastructure/stripe-payments
-      '@chase-sets/ucp':
-        specifier: workspace:*
-        version: link:../../contracts/ucp
       '@hono/node-server':
         specifier: ^1.19.13
         version: 1.19.14(hono@4.12.18)
@@ -1875,15 +1827,9 @@ importers:
       '@chase-sets/http':
         specifier: workspace:*
         version: link:../../contracts/http
-      '@chase-sets/mcp':
-        specifier: workspace:*
-        version: link:../../contracts/mcp
       '@chase-sets/realtime':
         specifier: workspace:*
         version: link:../../contracts/realtime
-      '@chase-sets/ucp':
-        specifier: workspace:*
-        version: link:../../contracts/ucp
       '@react-router/dev':
         specifier: ^7.14.0
         version: 7.15.0(@react-router/serve@7.14.0(react-router@7.15.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(typescript@5.9.3))(@types/node@25.6.2)(jiti@2.7.0)(lightningcss@1.32.0)(react-router@7.15.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(tsx@4.21.0)(typescript@5.9.3)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))(yaml@2.8.4)

@@ -4,7 +4,7 @@ import {
   normalizeSubjectList,
   type FeatureRolloutPolicy,
   type RolloutEnvironment,
-} from "@chase-sets/release-controls";
+} from "./rollout";
 
 export type ReleaseLockPolicy = Readonly<{
   locked: boolean;

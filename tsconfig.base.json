@@ -151,9 +151,6 @@
       "@chase-sets/fulfillment": [
         "./bounded-contexts/fulfillment/index.ts"
       ],
-      "@chase-sets/fulfillment-delivery-promises": [
-        "./contracts/fulfillment-delivery-promises/index.ts"
-      ],
       "@chase-sets/fulfillment/context": [
         "./bounded-contexts/fulfillment/context.json"
       ],
@@ -231,9 +228,6 @@
       ],
       "@chase-sets/marketplace/server": [
         "./bounded-contexts/marketplace/server.ts"
-      ],
-      "@chase-sets/mcp": [
-        "./contracts/mcp/index.ts"
       ],
       "@chase-sets/money-movement": [
         "./contracts/money-movement/index.ts"
@@ -460,9 +454,6 @@
       "@chase-sets/realtime": [
         "./contracts/realtime/index.ts"
       ],
-      "@chase-sets/release-controls": [
-        "./contracts/release-controls/index.ts"
-      ],
       "@chase-sets/ses-email": [
         "./infrastructure/ses-email/index.ts"
       ],
@@ -492,9 +483,6 @@
       ],
       "@chase-sets/twilio-messaging": [
         "./infrastructure/twilio-messaging/index.ts"
-      ],
-      "@chase-sets/ucp": [
-        "./contracts/ucp/index.ts"
       ],
       "@chase-sets/web-notifications": [
         "./infrastructure/web-notifications/index.ts"

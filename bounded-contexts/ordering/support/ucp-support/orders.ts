@@ -1,4 +1,4 @@
-import { createUcpEnvelope, type UcpEnvelope } from "@chase-sets/ucp";
+import { createUcpEnvelope, type UcpEnvelope } from "@chase-sets/platform-runtime/ucp";
 import type { UcpOperationHandlerInput } from "@chase-sets/platform-runtime/ucp";
 import type { OrderingServices } from "../runtime-support/services";
 import type { OrderingOrderDetailRow, OrderingOrderListRow } from "../../features/orders/read-model/queries";

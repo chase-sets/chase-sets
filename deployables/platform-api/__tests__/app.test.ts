@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import type { HealthProjectionReplaySummary } from "@chase-sets/platform-runtime/health";
-import { createUcpEnvelope } from "@chase-sets/ucp";
+import { createUcpEnvelope } from "@chase-sets/platform-runtime/ucp";
 import { buildPlatformApiApp } from "../src/app";
 
 function signedUcpHeaders(body: string) {

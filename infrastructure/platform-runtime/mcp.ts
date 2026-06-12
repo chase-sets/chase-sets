@@ -9,7 +9,7 @@ import {
   type McpResourceDescriptor,
   type McpServiceDescriptor,
   type McpToolDescriptor,
-} from "@chase-sets/mcp";
+} from "./mcp-contracts";
 import type { ResolvedActor } from "./auth";
 
 export type McpRuntimeEnv = {

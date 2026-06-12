@@ -9,7 +9,7 @@ import {
   validateMcpServiceCatalog,
   type McpActor,
   type McpServiceDescriptor,
-} from "./index";
+} from "./mcp-contracts";
 
 const accountActor: McpActor = {
   actorId: "actor_1",

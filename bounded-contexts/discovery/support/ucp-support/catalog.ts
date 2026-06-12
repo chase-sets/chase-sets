@@ -1,4 +1,4 @@
-import { createUcpEnvelope, type UcpEnvelope } from "@chase-sets/ucp";
+import { createUcpEnvelope, type UcpEnvelope } from "@chase-sets/platform-runtime/ucp";
 import type { UcpOperationHandlerInput } from "@chase-sets/platform-runtime/ucp";
 import type { DiscoveryItemsServices } from "../item-support/runtime";
 import type { DiscoverySearchItemRow } from "../../features/search/read-model/queries";

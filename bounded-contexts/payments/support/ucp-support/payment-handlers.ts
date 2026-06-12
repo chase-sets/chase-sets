@@ -1,4 +1,4 @@
-import { createUcpEnvelope, type UcpEnvelope } from "@chase-sets/ucp";
+import { createUcpEnvelope, type UcpEnvelope } from "@chase-sets/platform-runtime/ucp";
 import type { AgenticProcessorPaymentInput, PaymentProcessorPublicConfig } from "@chase-sets/payment-processing";
 
 export type UcpAp2MandateVerificationInput = Readonly<{
