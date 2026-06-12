@@ -1,5 +1,5 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { extractIdFromStreamId, type PgQueryable } from "@chase-sets/event-core-postgres";
 
 const ITEM_STREAM_PREFIX = "catalog.item-";
 
@@ -7,14 +7,6 @@ export type PricingSelectedOptionEntry = Readonly<{
   dimensionId: string;
   optionId: string;
 }>;
-
-function extractIdFromStreamId(streamId: string, prefix: string): string {
-  if (!streamId.startsWith(prefix)) {
-    throw new Error(`Stream ID "${streamId}" does not start with prefix "${prefix}".`);
-  }
-
-  return streamId.slice(prefix.length);
-}
 
 export function derivePricingCatalogProductKey(
   catalogItemId: string,

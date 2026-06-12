@@ -1,5 +1,5 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { coerceDimensionOptionLabel, type PgQueryable } from "@chase-sets/event-core-postgres";
 import { coerceLocalizedTextMap, resolveLocalizedTextMap, type LocalizedTextMap } from "@chase-sets/localization";
 import { extractIdFromStreamId } from "../../../support/projection-support/extract-id-from-stream";
 
@@ -183,28 +183,4 @@ export function buildDimensionProjectionHandlers(db: PgQueryable): ProjectorHand
       ]);
     },
   };
-}
-
-function coerceDimensionOptionLabel(value: unknown): LocalizedTextMap {
-  if (Array.isArray(value)) {
-    return coerceLocalizedTextMap({
-      defaultLocale: "en",
-      values: Object.fromEntries(
-        value
-          .map((entry) => {
-            if (typeof entry !== "object" || entry === null) {
-              return null;
-            }
-
-            const candidate = entry as { locale?: unknown; value?: unknown };
-            return typeof candidate.locale === "string" && typeof candidate.value === "string"
-              ? [candidate.locale, candidate.value]
-              : null;
-          })
-          .filter((entry): entry is [string, string] => entry !== null),
-      ),
-    });
-  }
-
-  return coerceLocalizedTextMap(value);
 }

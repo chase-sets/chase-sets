@@ -1,12 +1,5 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
-
-function extractIdFromStreamId(streamId: string, prefix: string): string {
-  if (!streamId.startsWith(prefix)) {
-    throw new Error(`Stream ID "${streamId}" does not start with prefix "${prefix}".`);
-  }
-  return streamId.slice(prefix.length);
-}
+import { extractIdFromStreamId, type PgQueryable } from "@chase-sets/event-core-postgres";
 
 async function refreshAccountReviews(db: PgQueryable, accountId: string, updatedAt: string) {
   await db.query(

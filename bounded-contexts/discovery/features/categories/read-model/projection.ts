@@ -1,5 +1,5 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { extractIdFromStreamId, type PgQueryable } from "@chase-sets/event-core-postgres";
 import { coerceLocalizedTextMap, resolveLocalizedTextMap } from "@chase-sets/localization";
 import { createMarketplaceSlug, rememberSlugRedirect } from "../../../support/runtime-support/slugs";
 
@@ -17,14 +17,6 @@ type CategorySourceRow = Readonly<{
   display_order: number;
   updated_at: string;
 }>;
-
-function extractIdFromStreamId(streamId: string, prefix: string): string {
-  if (!streamId.startsWith(prefix)) {
-    throw new Error(`Stream ID "${streamId}" does not start with prefix "${prefix}".`);
-  }
-
-  return streamId.slice(prefix.length);
-}
 
 async function refreshDiscoveryCategory(db: PgQueryable, categoryId: string): Promise<void> {
   const result = await db.query<CategorySourceRow>(
