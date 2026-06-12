@@ -298,12 +298,14 @@ jobs:
           if [ "$release_commit" != "$latest_main" ]; then
             echo "Release commit ${release_commit} is no longer origin/main (${latest_main}); skipping stale staging deployment."
             echo "should_deploy=false" >> "$GITHUB_OUTPUT"
+            echo "SHOULD_DEPLOY=false" >> "$GITHUB_ENV"
             exit 0
           fi
           echo "should_deploy=true" >> "$GITHUB_OUTPUT"
+          echo "SHOULD_DEPLOY=true" >> "$GITHUB_ENV"
 
       - name: Validate staging configuration
-        if: steps.latest_main.outputs.should_deploy != 'false'
+        if: env.SHOULD_DEPLOY != 'false'
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
@@ -387,28 +389,28 @@ jobs:
           fi
 
       - uses: ./.github/actions/setup-pnpm-workspace
-        if: steps.latest_main.outputs.should_deploy != 'false'
+        if: env.SHOULD_DEPLOY != 'false'
 
       - name: Install dependencies
-        if: steps.latest_main.outputs.should_deploy != 'false'
+        if: env.SHOULD_DEPLOY != 'false'
         run: pnpm install --frozen-lockfile
 
       - uses: hashicorp/setup-terraform@v4
-        if: steps.latest_main.outputs.should_deploy != 'false'
+        if: env.SHOULD_DEPLOY != 'false'
         with:
           terraform_wrapper: false
         env:
           NODE_OPTIONS: --no-deprecation
 
       - uses: digitalocean/action-doctl@v2.5.2
-        if: steps.latest_main.outputs.should_deploy != 'false'
+        if: env.SHOULD_DEPLOY != 'false'
         env:
           NODE_OPTIONS: --no-deprecation
         with:
           token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
 
       - name: Package staged doctl binary
-        if: steps.latest_main.outputs.should_deploy != 'false'
+        if: env.SHOULD_DEPLOY != 'false'
         run: |
           set -euo pipefail
           doctl_path="$(command -v doctl)"
@@ -418,7 +420,7 @@ jobs:
           ./artifacts/deploy-tools/doctl/doctl version
 
       - name: Upload staged doctl binary
-        if: steps.latest_main.outputs.should_deploy != 'false'
+        if: env.SHOULD_DEPLOY != 'false'
         uses: actions/upload-artifact@v7
         with:
           name: staged-doctl-linux-amd64
@@ -427,7 +429,7 @@ jobs:
           retention-days: 1
 
       - name: Terraform init staging environment DNS
-        if: steps.latest_main.outputs.should_deploy != 'false'
+        if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/environment-dns
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
@@ -446,17 +448,17 @@ jobs:
             -backend-config=use_lockfile=true
 
       - name: Terraform format staging environment DNS
-        if: steps.latest_main.outputs.should_deploy != 'false'
+        if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/environment-dns
         run: terraform fmt -check -recursive
 
       - name: Terraform validate staging environment DNS
-        if: steps.latest_main.outputs.should_deploy != 'false'
+        if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/environment-dns
         run: terraform validate
 
       - name: Terraform apply staging environment DNS
-        if: steps.latest_main.outputs.should_deploy != 'false'
+        if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/environment-dns
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
@@ -469,14 +471,14 @@ jobs:
 
       - uses: docker/setup-buildx-action@v4
         id: buildx
-        if: steps.latest_main.outputs.should_deploy != 'false'
+        if: env.SHOULD_DEPLOY != 'false'
         continue-on-error: true
 
       - uses: docker/setup-buildx-action@v4
-        if: steps.latest_main.outputs.should_deploy != 'false' && steps.buildx.outcome == 'failure'
+        if: env.SHOULD_DEPLOY != 'false' && steps.buildx.outcome == 'failure'
 
       - name: Build and push App Platform image
-        if: steps.latest_main.outputs.should_deploy != 'false'
+        if: env.SHOULD_DEPLOY != 'false'
         id: image
         run: |
           set -euo pipefail
@@ -506,7 +508,7 @@ jobs:
           echo "Pushed ${image}@${digest}"
 
       - name: Terraform init
-        if: steps.latest_main.outputs.should_deploy != 'false'
+        if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
@@ -525,12 +527,12 @@ jobs:
             -backend-config=use_lockfile=true
 
       - name: Terraform format
-        if: steps.latest_main.outputs.should_deploy != 'false'
+        if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
         run: terraform fmt -check -recursive
 
       - name: Reconcile staging App Platform alias DNS state
-        if: steps.latest_main.outputs.should_deploy != 'false'
+        if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
         env:
           DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
@@ -599,8 +601,22 @@ jobs:
             terraform import "$address" "${zone},${record_id}"
           done
 
+      # Staleness develops while waiting for or holding the serialized deploy
+      # lane (42% of staging deploys never promoted); re-check before the
+      # expensive apply so superseded releases skip in seconds (issue #1418).
+      - name: Re-check release freshness before staging apply
+        if: env.SHOULD_DEPLOY != 'false' && github.event_name == 'push'
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          latest_main="$(git rev-parse origin/main)"
+          if [ "${{ needs.resolve-release.outputs.release_commit }}" != "$latest_main" ]; then
+            echo "Release commit superseded by ${latest_main}; skipping remaining staging work."
+            echo "SHOULD_DEPLOY=false" >> "$GITHUB_ENV"
+          fi
+
       - name: Terraform plan
-        if: steps.latest_main.outputs.should_deploy != 'false'
+        if: env.SHOULD_DEPLOY != 'false'
         id: terraform_plan
         working-directory: infrastructure/digitalocean/platform
         env:
@@ -645,7 +661,7 @@ jobs:
           echo "app_changed=${app_changed}" >> "$GITHUB_OUTPUT"
 
       - name: Wait for previous App Platform deployment
-        if: steps.latest_main.outputs.should_deploy != 'false'
+        if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
@@ -662,7 +678,7 @@ jobs:
           node ../../../scripts/digitalocean-app-deployment.mjs wait "$app_id" --timeout-seconds="${APP_PLATFORM_DEPLOYMENT_TIMEOUT_SECONDS}" --poll-seconds=30
 
       - name: Terraform apply
-        if: steps.latest_main.outputs.should_deploy != 'false'
+        if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
@@ -702,7 +718,7 @@ jobs:
         run: terraform apply -auto-approve tfplan
 
       - name: Wait for Terraform App Platform deployment
-        if: steps.latest_main.outputs.should_deploy != 'false'
+        if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
@@ -713,7 +729,7 @@ jobs:
           node ../../../scripts/digitalocean-app-deployment.mjs wait "$app_id" --timeout-seconds="${APP_PLATFORM_DEPLOYMENT_TIMEOUT_SECONDS}" --poll-seconds=30
 
       - name: Reset stale staging root domain attachment
-        if: steps.latest_main.outputs.should_deploy != 'false'
+        if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
@@ -724,7 +740,7 @@ jobs:
           node ../../../scripts/digitalocean-app-deployment.mjs reset-domain "$app_id" staging.chasesets.com
 
       - name: Deploy App Platform image
-        if: steps.latest_main.outputs.should_deploy != 'false' && steps.terraform_plan.outputs.app_changed != 'true'
+        if: env.SHOULD_DEPLOY != 'false' && steps.terraform_plan.outputs.app_changed != 'true'
         working-directory: infrastructure/digitalocean/platform
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
@@ -735,7 +751,7 @@ jobs:
           node ../../../scripts/digitalocean-app-deployment.mjs deploy "$app_id" --force-rebuild
 
       - name: Wait for staging domains
-        if: steps.latest_main.outputs.should_deploy != 'false'
+        if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
@@ -763,8 +779,22 @@ jobs:
             --timeout-seconds=1800 \
             --poll-seconds=30
 
+      # Second freshness re-check before the ~3.5-minute smoke/critical-flow/
+      # canary tail: a superseded release's staging state has no consumer, so
+      # skip the verification work too (issue #1418).
+      - name: Re-check release freshness before staging verification
+        if: env.SHOULD_DEPLOY != 'false' && github.event_name == 'push'
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          latest_main="$(git rev-parse origin/main)"
+          if [ "${{ needs.resolve-release.outputs.release_commit }}" != "$latest_main" ]; then
+            echo "Release commit superseded by ${latest_main}; skipping staging verification tail."
+            echo "SHOULD_DEPLOY=false" >> "$GITHUB_ENV"
+          fi
+
       - name: Smoke check
-        if: steps.latest_main.outputs.should_deploy != 'false'
+        if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
@@ -818,11 +848,11 @@ jobs:
             "${catalog_asset_public_base_url}/" >/dev/null
 
       - name: Install Playwright Chromium for staging critical flows
-        if: steps.latest_main.outputs.should_deploy != 'false'
+        if: env.SHOULD_DEPLOY != 'false'
         run: pnpm exec playwright install --with-deps chromium
 
       - name: Staging marketplace critical flows
-        if: steps.latest_main.outputs.should_deploy != 'false'
+        if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
@@ -847,7 +877,7 @@ jobs:
 
       - name: Staging Buy Now freshness canaries
         id: buy_now_canaries
-        if: steps.latest_main.outputs.should_deploy != 'false'
+        if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
@@ -971,7 +1001,7 @@ jobs:
             artifacts/release-health/account-buy-now-freshness-canary.json
 
       - name: Upload staging Buy Now canary evidence
-        if: always() && steps.latest_main.outputs.should_deploy != 'false'
+        if: always() && env.SHOULD_DEPLOY != 'false'
         uses: actions/upload-artifact@v7
         with:
           name: staging-buy-now-freshness-canaries
@@ -982,7 +1012,7 @@ jobs:
           retention-days: 30
 
       - name: Staging Stripe money smoke
-        if: steps.latest_main.outputs.should_deploy != 'false'
+        if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
@@ -1017,12 +1047,12 @@ jobs:
 
       - name: Mark staging deployed
         id: staging_deployed
-        if: steps.latest_main.outputs.should_deploy != 'false'
+        if: env.SHOULD_DEPLOY != 'false'
         run: echo "deployed=true" >> "$GITHUB_OUTPUT"
 
       - name: Record staging completion
         id: staging_completed
-        if: steps.latest_main.outputs.should_deploy != 'false'
+        if: env.SHOULD_DEPLOY != 'false'
         run: echo "completed_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
 
   record-staging-release-health:
@@ -1256,17 +1286,19 @@ jobs:
           if [ "$release_commit" != "$latest_main" ]; then
             echo "Release commit ${release_commit} is no longer origin/main (${latest_main}); skipping stale production deployment."
             echo "should_deploy=false" >> "$GITHUB_OUTPUT"
+            echo "SHOULD_DEPLOY=false" >> "$GITHUB_ENV"
             exit 0
           fi
           echo "should_deploy=true" >> "$GITHUB_OUTPUT"
+          echo "SHOULD_DEPLOY=true" >> "$GITHUB_ENV"
 
       - name: Record production start
         id: production_started
-        if: steps.latest_main.outputs.should_deploy != 'false'
+        if: env.SHOULD_DEPLOY != 'false'
         run: echo "started_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
 
       - name: Evaluate production release lock
-        if: steps.latest_main.outputs.should_deploy != 'false'
+        if: env.SHOULD_DEPLOY != 'false'
         env:
           RELEASE_ENVIRONMENT: production
           RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
@@ -1275,7 +1307,7 @@ jobs:
         run: node ./scripts/release-lock.mjs
 
       - name: Validate production configuration
-        if: steps.latest_main.outputs.should_deploy != 'false'
+        if: env.SHOULD_DEPLOY != 'false'
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
@@ -1489,28 +1521,28 @@ jobs:
           fi
 
       - uses: ./.github/actions/setup-pnpm-workspace
-        if: steps.latest_main.outputs.should_deploy != 'false'
+        if: env.SHOULD_DEPLOY != 'false'
 
       - name: Install dependencies
-        if: steps.latest_main.outputs.should_deploy != 'false'
+        if: env.SHOULD_DEPLOY != 'false'
         run: pnpm install --frozen-lockfile
 
       - uses: hashicorp/setup-terraform@v4
-        if: steps.latest_main.outputs.should_deploy != 'false'
+        if: env.SHOULD_DEPLOY != 'false'
         with:
           terraform_wrapper: false
         env:
           NODE_OPTIONS: --no-deprecation
 
       - name: Download staged doctl binary
-        if: steps.latest_main.outputs.should_deploy != 'false'
+        if: env.SHOULD_DEPLOY != 'false'
         uses: actions/download-artifact@v7
         with:
           name: staged-doctl-linux-amd64
           path: artifacts/deploy-tools/doctl
 
       - name: Install staged doctl binary
-        if: steps.latest_main.outputs.should_deploy != 'false'
+        if: env.SHOULD_DEPLOY != 'false'
         env:
           DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
         run: |
@@ -1522,14 +1554,14 @@ jobs:
 
       - uses: docker/setup-buildx-action@v4
         id: buildx
-        if: steps.latest_main.outputs.should_deploy != 'false'
+        if: env.SHOULD_DEPLOY != 'false'
         continue-on-error: true
 
       - uses: docker/setup-buildx-action@v4
-        if: steps.latest_main.outputs.should_deploy != 'false' && steps.buildx.outcome == 'failure'
+        if: env.SHOULD_DEPLOY != 'false' && steps.buildx.outcome == 'failure'
 
       - name: Verify promoted App Platform image
-        if: steps.latest_main.outputs.should_deploy != 'false'
+        if: env.SHOULD_DEPLOY != 'false'
         id: image
         run: |
           set -euo pipefail
@@ -1552,7 +1584,7 @@ jobs:
           echo "Promoting ${image}@${digest}"
 
       - name: Terraform init
-        if: steps.latest_main.outputs.should_deploy != 'false'
+        if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
@@ -1571,12 +1603,12 @@ jobs:
             -backend-config=use_lockfile=true
 
       - name: Terraform format
-        if: steps.latest_main.outputs.should_deploy != 'false'
+        if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
         run: terraform fmt -check -recursive
 
       - name: Terraform plan
-        if: steps.latest_main.outputs.should_deploy != 'false'
+        if: env.SHOULD_DEPLOY != 'false'
         id: terraform_plan
         working-directory: infrastructure/digitalocean/platform
         env:
@@ -1625,7 +1657,7 @@ jobs:
           echo "app_changed=${app_changed}" >> "$GITHUB_OUTPUT"
 
       - name: Wait for previous App Platform deployment
-        if: steps.latest_main.outputs.should_deploy != 'false'
+        if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
@@ -1642,7 +1674,7 @@ jobs:
           node ../../../scripts/digitalocean-app-deployment.mjs wait "$app_id" --timeout-seconds="${APP_PLATFORM_DEPLOYMENT_TIMEOUT_SECONDS}" --poll-seconds=30
 
       - name: Terraform apply
-        if: steps.latest_main.outputs.should_deploy != 'false'
+        if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
@@ -1685,7 +1717,7 @@ jobs:
         run: terraform apply -auto-approve tfplan
 
       - name: Wait for Terraform App Platform deployment
-        if: steps.latest_main.outputs.should_deploy != 'false'
+        if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
@@ -1696,7 +1728,7 @@ jobs:
           node ../../../scripts/digitalocean-app-deployment.mjs wait "$app_id" --timeout-seconds="${APP_PLATFORM_DEPLOYMENT_TIMEOUT_SECONDS}" --poll-seconds=30
 
       - name: Deploy App Platform image
-        if: steps.latest_main.outputs.should_deploy != 'false' && steps.terraform_plan.outputs.app_changed != 'true'
+        if: env.SHOULD_DEPLOY != 'false' && steps.terraform_plan.outputs.app_changed != 'true'
         working-directory: infrastructure/digitalocean/platform
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
@@ -1707,7 +1739,7 @@ jobs:
           node ../../../scripts/digitalocean-app-deployment.mjs deploy "$app_id" --force-rebuild
 
       - name: Wait for production domains
-        if: steps.latest_main.outputs.should_deploy != 'false'
+        if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
@@ -1736,7 +1768,7 @@ jobs:
             --poll-seconds=30
 
       - name: Smoke check
-        if: steps.latest_main.outputs.should_deploy != 'false'
+        if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
@@ -1777,7 +1809,7 @@ jobs:
       # the event-store head before the canaries run.
       - name: Export production readiness database URLs
         if: |
-          steps.latest_main.outputs.should_deploy != 'false' &&
+          env.SHOULD_DEPLOY != 'false' &&
           (vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true')
         # Warn-and-proceed support step: an export failure leaves the gate
         # without database URLs, which it reports as a config-error warning —
@@ -1852,7 +1884,7 @@ jobs:
         timeout-minutes: 20
         id: readiness_gate
         if: |
-          steps.latest_main.outputs.should_deploy != 'false' &&
+          env.SHOULD_DEPLOY != 'false' &&
           (vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true')
         env:
           READINESS_GATE_SOURCE_CONTEXTS: ${{ vars.PRODUCTION_READINESS_GATE_SOURCE_CONTEXTS || 'checkout' }}
@@ -1876,7 +1908,7 @@ jobs:
 
       - name: Stage 1 production canary
         id: stage1_canary
-        if: steps.latest_main.outputs.should_deploy != 'false'
+        if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
@@ -1923,12 +1955,12 @@ jobs:
           echo "Stage 1 production canary verified ${#canary_urls[@]} synthetic/operator-safe endpoints."
 
       - name: Install Playwright Chromium for production proof canary
-        if: steps.latest_main.outputs.should_deploy != 'false' && vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true'
+        if: env.SHOULD_DEPLOY != 'false' && vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true'
         run: pnpm exec playwright install --with-deps chromium
 
       - name: Production proof-mode Buy Now freshness canary
         id: proof_canary
-        if: steps.latest_main.outputs.should_deploy != 'false' && vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true'
+        if: env.SHOULD_DEPLOY != 'false' && vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true'
         working-directory: infrastructure/digitalocean/platform
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
@@ -2017,7 +2049,7 @@ jobs:
 
       - name: Production settlement provider-health telemetry canary
         id: settlement_canary
-        if: steps.latest_main.outputs.should_deploy != 'false' && vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true'
+        if: env.SHOULD_DEPLOY != 'false' && vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true'
         working-directory: infrastructure/digitalocean/platform
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
@@ -2054,7 +2086,7 @@ jobs:
         id: canary_evidence
         if: |
           always() &&
-          steps.latest_main.outputs.should_deploy != 'false' &&
+          env.SHOULD_DEPLOY != 'false' &&
           steps.stage1_canary.outcome == 'success' &&
           vars.CANARY_PROMETHEUS_ENABLED == 'true' &&
           vars.CANARY_PROMETHEUS_URL != '' &&
@@ -2073,7 +2105,7 @@ jobs:
           --source-file artifacts/release-health/production-settlement-provider-health-canary.json
 
       - name: Mark production release
-        if: steps.latest_main.outputs.should_deploy != 'false'
+        if: env.SHOULD_DEPLOY != 'false'
         run: |
           set -euo pipefail
           release_commit="${{ needs.resolve-release.outputs.release_commit }}"
@@ -2104,7 +2136,7 @@ jobs:
 
       - name: Resolve release health metadata
         id: release_health_metadata
-        if: always() && steps.latest_main.outputs.should_deploy != 'false'
+        if: always() && env.SHOULD_DEPLOY != 'false'
         env:
           SOURCE_WORKFLOW_CREATED_AT: ${{ github.event_name == 'push' && github.event.head_commit.timestamp || '' }}
           GH_TOKEN: ${{ github.token }}
@@ -2154,7 +2186,7 @@ jobs:
 
       - name: Resolve CI retry metadata
         id: ci_metadata
-        if: always() && steps.latest_main.outputs.should_deploy != 'false'
+        if: always() && env.SHOULD_DEPLOY != 'false'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -2171,7 +2203,7 @@ jobs:
           fi
 
       - name: Write release health summary
-        if: always() && steps.latest_main.outputs.should_deploy != 'false'
+        if: always() && env.SHOULD_DEPLOY != 'false'
         env:
           RELEASE_HEALTH_OUT: artifacts/release-health/production-release.json
           RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
@@ -2219,7 +2251,7 @@ jobs:
         run: node ./scripts/release-health.mjs
 
       - name: Upload release health summary
-        if: always() && steps.latest_main.outputs.should_deploy != 'false'
+        if: always() && env.SHOULD_DEPLOY != 'false'
         uses: actions/upload-artifact@v7
         with:
           name: production-release-health
