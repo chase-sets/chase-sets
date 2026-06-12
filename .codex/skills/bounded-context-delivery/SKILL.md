@@ -32,7 +32,7 @@ git -C <worktree> switch -c <branch> --track origin/main
 ```
 
 - `main/` is the primary checkout and stays on `main`; never switch branches there.
-- Create a new worktree only when the pool is busy: `git -C main worktree add ../<name> -b <branch> origin/main`.
+- Create a new worktree only when the pool is busy, and only through the validated helper: `pnpm run ops worktree:add <name> [branch]` (hand-built `git worktree add` commands have produced corrupted `;C`-suffixed directories twice; the helper rejects malformed names before git runs).
 - Install dependencies once per worktree (`pnpm run deps:install`) and reuse them; the shared pnpm store is `../.chase-sets-pnpm-store`.
 - Remove only corrupted or excess worktrees (`git worktree remove`, then `git -C main worktree prune`).
 
