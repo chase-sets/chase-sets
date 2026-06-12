@@ -83,9 +83,9 @@
 
 ## Fresh-state / legacy deletion
 
-- [ ] Legacy dense checkout routes, UI, and copy are deleted or hard-disabled; old checkout links and old session payloads fail closed with safe recovery.
-- [ ] Pre-launch fixtures, seeds, cached read models, and provider sandbox objects are regenerated around the new contracts; guard tests fail if legacy patterns are reintroduced.
-- [ ] Any retained legacy artifact is listed in the exception register with owner, internal-only rationale, and expiration/follow-up — otherwise it is removed.
+- [ ] Legacy dense checkout routes, UI, and copy are deleted or hard-disabled; old checkout links and old session payloads fail closed with safe recovery. Fresh buy route/delete baseline: PR #1535.
+- [ ] Pre-launch fixtures, seeds, cached read models, and provider sandbox objects are regenerated around the new contracts; guard tests fail if legacy patterns are reintroduced. Guard baseline: PR #1535.
+- [ ] Any retained legacy artifact is listed in the exception register with owner, internal-only rationale, and expiration/follow-up — otherwise it is removed. Exception-register baseline: PR #1535.
 
 ## Provider configuration (Stripe / EasyPost)
 
