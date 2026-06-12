@@ -276,6 +276,54 @@ describe("checkout UCP handlers", () => {
     expect(sessions.recordPaymentStarted).not.toHaveBeenCalled();
   });
 
+  it("does not complete headless checkout with deferred customer economics input", async () => {
+    const sessions = createSessions();
+    const handlers = createCheckoutUcpHandlers(
+      {
+        sessions,
+      },
+      {
+        paymentHandoff: {
+          payment: { provider: "test" },
+          evaluateCompleteRequest: () => ({
+            kind: "headless-agentic-payment",
+            agenticPayment: {} as never,
+            evidence: { mandate: "verified" },
+          }),
+        },
+      },
+    );
+
+    const response = await handlers.restHandlers.complete_checkout(
+      input(
+        {
+          marketplace_checkout_fee_quote_fingerprint: "quote_1",
+          gift_card_code: "GC123",
+          shipping_address: {
+            name: "Jane Smith",
+            line1: "100 Market Street",
+            city: "Chicago",
+            state: "IL",
+            postal_code: "60601",
+            country: "US",
+          },
+        },
+        { id: "chk_1" },
+      ),
+    );
+
+    expect(response.ucp.status).toBe("error");
+    expect(response.messages).toEqual([
+      expect.objectContaining({
+        code: "checkout_economics_unsupported",
+        message: "Promo codes, gift cards, and store credit are not available in launch checkout.",
+      }),
+    ]);
+    expect(sessions.setShippingAddress).not.toHaveBeenCalled();
+    expect(sessions.recordOrdersCreated).not.toHaveBeenCalled();
+    expect(sessions.recordPaymentStarted).not.toHaveBeenCalled();
+  });
+
   it("requires a linked buyer account", async () => {
     const sessions = createSessions();
     const handlers = createCheckoutUcpHandlers({ sessions });

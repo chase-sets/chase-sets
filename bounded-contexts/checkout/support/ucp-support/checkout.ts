@@ -10,6 +10,7 @@ import { CheckoutDomainError } from "../runtime-support/common";
 import type { CheckoutSessionRow } from "../../features/sessions/read-model/queries";
 import type { CheckoutOptimizationGoal, CheckoutShippingAddress } from "../../features/sessions/domain/domain";
 import { parseCartReadinessDecisionInput, type CartReadinessDecisionInput } from "../../features/cart/domain/readiness";
+import { assertNoUnsupportedCustomerEconomicsInput } from "../../features/sessions/api/checkout-economics-runtime";
 
 type UcpHandler = (input: UcpOperationHandlerInput) => Promise<UcpEnvelope>;
 type UcpPaymentHandlerHandoff = Readonly<{
@@ -218,6 +219,7 @@ export function createCheckoutUcpHandlers(
 
       if (guardedPaymentResponse?.kind === "headless-agentic-payment") {
         try {
+          assertNoUnsupportedCustomerEconomicsInput(body);
           const shippingAddress = readShippingAddress(body.shippingAddress ?? body.shipping_address);
           if (shippingAddress) {
             await checkout.sessions.setShippingAddress(

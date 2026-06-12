@@ -744,6 +744,52 @@ describe("checkout session routes", () => {
     expect(emitted).not.toContain("acc_buyer");
   });
 
+  it("rejects deferred customer economics input before checkout side effects", async () => {
+    const checkoutObservabilityTelemetry = { recordCheckoutEvent: vi.fn() };
+    const services = createServices();
+    const app = buildApp(services, undefined, checkoutObservabilityTelemetry);
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shippingAddress,
+          marketplaceCheckoutFeeQuoteFingerprint: "quote_1",
+          promoCode: "SAVE10",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "checkout_economics_unsupported",
+        message: "Promo codes, gift cards, and store credit are not available in launch checkout.",
+      },
+    });
+    expect(services.getSession).not.toHaveBeenCalled();
+    expect(services.setShippingAddress).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutOrdersThroughOrdering).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutPaymentThroughPayments).not.toHaveBeenCalled();
+    expect(services.recordOrdersCreated).not.toHaveBeenCalled();
+    expect(services.recordPaymentStarted).not.toHaveBeenCalled();
+    expect(checkoutObservabilityTelemetry.recordCheckoutEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "checkout.capability.promo_credit_gift_card_state",
+        scenarioState: "deferred-capability",
+        visibleState: "checkout-review-visible",
+        sideEffectStatus: "not-attempted",
+        launchRegisterDecision: "deferred",
+        downstreamStatus: "not-started",
+      }),
+    );
+    const emitted = JSON.stringify(checkoutObservabilityTelemetry.recordCheckoutEvent.mock.calls[0]?.[0]);
+    expect(emitted).not.toContain("SAVE10");
+    expect(emitted).not.toContain("chk_1");
+    expect(emitted).not.toContain("acc_buyer");
+  });
+
   it("emits changed economics telemetry before stale fulfillment confirmation can commit", async () => {
     const checkoutObservabilityTelemetry = { recordCheckoutEvent: vi.fn() };
     const services = createServices({

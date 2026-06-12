@@ -149,6 +149,7 @@ describe("Checkout economics policy", () => {
       /The executable contract lives in\s+`bounded-contexts\/checkout\/features\/sessions\/api\/checkout-economics-policy\.ts`\./,
     );
     expect(doc).toMatch(/Customer-entered promo codes are not shown in the launch checkout/i);
+    expect(doc).toMatch(/reject customer-entered\s+promo, coupon, discount, gift-card, and store-credit fields/i);
     expect(checkoutReadme).toContain("./docs/checkout-economics-policy.md");
     expect(docsIndex).toContain("../bounded-contexts/checkout/docs/checkout-economics-policy.md");
 
