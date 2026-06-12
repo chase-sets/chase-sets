@@ -36,6 +36,18 @@ const shippingAddress = {
   country: "US",
 } as const;
 
+function createGuestBuyerActor(): CheckoutApiEnv["Variables"]["actor"] {
+  return {
+    sessionId: "guest:tok_1",
+    tenantId: "tnt_identity",
+    userId: "usr_guest_checkout",
+    accountId: "acc_guest",
+    membershipId: "guest:tok_1",
+    roleKey: "guest-buyer",
+    permissions: ["guest-checkout.manage"],
+  };
+}
+
 function buildApp(
   services: CheckoutSessionServices,
   actor: CheckoutApiEnv["Variables"]["actor"] = {
@@ -119,6 +131,16 @@ function createServices(overrides: Partial<CheckoutSessionServices> = {}): Check
     projectors: [],
     ...overrides,
   };
+}
+
+function expectNoCheckoutConfirmSideEffects(services: CheckoutSessionServices) {
+  expect(services.getSession).not.toHaveBeenCalled();
+  expect(services.setShippingAddress).not.toHaveBeenCalled();
+  expect(services.assertReadyForOrderCreation).not.toHaveBeenCalled();
+  expect(services.recordOrdersCreated).not.toHaveBeenCalled();
+  expect(services.recordPaymentStarted).not.toHaveBeenCalled();
+  expect(mockCreateCheckoutOrdersThroughOrdering).not.toHaveBeenCalled();
+  expect(mockCreateCheckoutPaymentThroughPayments).not.toHaveBeenCalled();
 }
 
 describe("checkout session routes", () => {
@@ -1094,6 +1116,158 @@ describe("checkout session routes", () => {
       null,
       false,
       "/account/payments/:paymentId",
+    );
+  });
+
+  it("rejects guest saved checkout instruments before checkout side effects", async () => {
+    const checkoutObservabilityTelemetry = { recordCheckoutEvent: vi.fn() };
+    const services = createServices({
+      getSession: vi.fn(async () => {
+        throw new Error("guest saved instrument should fail before session lookup");
+      }),
+    });
+    const app = buildApp(services, createGuestBuyerActor(), checkoutObservabilityTelemetry);
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shippingAddress,
+          marketplaceCheckoutFeeQuoteFingerprint: "quote_1",
+          savedCheckoutInstrumentId: "pci_guest",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "saved_checkout_instrument_unavailable",
+        message: "Saved payment methods are available after sign-in. Continue with card payment.",
+      },
+    });
+    expectNoCheckoutConfirmSideEffects(services);
+    expect(checkoutObservabilityTelemetry.recordCheckoutEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "checkout.capability.accelerated_or_saved_disabled",
+        actorMode: "guest",
+        scenarioState: "disabled-capability",
+        visibleState: "checkout-review-visible",
+        sideEffectStatus: "not-attempted",
+        providerCategory: "payments",
+        launchRegisterDecision: "blocked",
+        downstreamStatus: "not-started",
+      }),
+    );
+    const emitted = JSON.stringify(checkoutObservabilityTelemetry.recordCheckoutEvent.mock.calls[0]?.[0]);
+    expect(emitted).not.toContain("pci_guest");
+    expect(emitted).not.toContain("chk_1");
+    expect(emitted).not.toContain("acc_guest");
+  });
+
+  it("rejects guest save-payment requests before checkout side effects", async () => {
+    const services = createServices({
+      getSession: vi.fn(async () => {
+        throw new Error("guest saved payment request should fail before session lookup");
+      }),
+    });
+    const app = buildApp(services, createGuestBuyerActor());
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shippingAddress,
+          marketplaceCheckoutFeeQuoteFingerprint: "quote_1",
+          savePaymentMethodForFuture: true,
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "saved_checkout_instrument_unavailable",
+        message: "Saved payment methods are available after sign-in. Continue with card payment.",
+      },
+    });
+    expectNoCheckoutConfirmSideEffects(services);
+  });
+
+  it("passes saved checkout instruments through signed-in confirmation", async () => {
+    mockCreateCheckoutOrdersThroughOrdering.mockResolvedValue({
+      orderIds: ["ord_1"],
+      readyLineKeys: ["cli_1"],
+    });
+    mockCreateCheckoutPaymentThroughPayments.mockResolvedValue("pay_1");
+    const services = createServices({
+      getSession: vi.fn(async () => createSession()),
+    });
+    const app = buildApp(services);
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shippingAddress,
+          marketplaceCheckoutFeeQuoteFingerprint: "quote_1",
+          savedCheckoutInstrumentId: " pci_saved ",
+          savePaymentMethodForFuture: true,
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockCreateCheckoutPaymentThroughPayments).toHaveBeenCalledWith(
+      expect.any(Request),
+      "chk_1",
+      ["ord_1"],
+      null,
+      "card",
+      "quote_1",
+      "pci_saved",
+      false,
+      "/account/payments/:paymentId",
+    );
+  });
+
+  it("treats blank saved checkout instruments as absent", async () => {
+    mockCreateCheckoutOrdersThroughOrdering.mockResolvedValue({
+      orderIds: ["ord_1"],
+      readyLineKeys: ["cli_1"],
+    });
+    mockCreateCheckoutPaymentThroughPayments.mockResolvedValue("pay_1");
+    const services = createServices({
+      getSession: vi.fn(async () => createSession({ buyer_account_id: "acc_guest" })),
+    });
+    const app = buildApp(services, createGuestBuyerActor());
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shippingAddress,
+          marketplaceCheckoutFeeQuoteFingerprint: "quote_1",
+          savedCheckoutInstrumentId: "   ",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockCreateCheckoutPaymentThroughPayments).toHaveBeenCalledWith(
+      expect.any(Request),
+      "chk_1",
+      ["ord_1"],
+      null,
+      "card",
+      "quote_1",
+      null,
+      false,
+      "/checkout/payments/:paymentId",
     );
   });
 

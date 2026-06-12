@@ -22,6 +22,7 @@ import {
   recordBuyCheckoutReviewRendered,
   recordChangedEconomicsReview,
   recordConfirmationPendingHandoff,
+  recordDisabledSavedInstrumentFailure,
   recordUnassignedFulfillmentFailure,
   recordUnsupportedCustomerEconomicsInput,
 } from "./checkout-session-route-observability";
@@ -87,6 +88,30 @@ function canDeferCheckoutPayment(actor: CheckoutApiEnv["Variables"]["actor"], pr
     actor.permissions.includes("security.manage") &&
     isValidProofReference(proofReference)
   );
+}
+
+const savedCheckoutInstrumentUnavailableCode = "saved_checkout_instrument_unavailable" as const;
+
+function normalizeSavedCheckoutInstrumentId(value: unknown) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  const normalized = String(value).trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function assertSavedInstrumentAllowed(
+  actor: CheckoutApiEnv["Variables"]["actor"],
+  savedCheckoutInstrumentId: string | null,
+  savePaymentMethodForFuture: boolean,
+) {
+  if (actor?.roleKey === "guest-buyer" && (savedCheckoutInstrumentId || savePaymentMethodForFuture)) {
+    throw new CheckoutDomainError(
+      "Saved payment methods are available after sign-in. Continue with card payment.",
+      savedCheckoutInstrumentUnavailableCode,
+    );
+  }
 }
 
 function checkoutSessionStartedResponse(result: CheckoutSessionCreateResult) {
@@ -430,10 +455,7 @@ export function createAccountCheckoutSessionRoutes(
     const body = await c.req.json().catch(() => ({}));
     const requestedBalanceCreditAmount = normalizeRequestedBalanceCreditAmount(body.requestedBalanceCreditAmount);
     const paymentMethodCategory = String(body.paymentMethodCategory ?? "card");
-    const savedCheckoutInstrumentId =
-      body.savedCheckoutInstrumentId === null || body.savedCheckoutInstrumentId === undefined
-        ? null
-        : String(body.savedCheckoutInstrumentId);
+    const savedCheckoutInstrumentId = normalizeSavedCheckoutInstrumentId(body.savedCheckoutInstrumentId);
     const marketplaceCheckoutFeeQuoteFingerprint =
       typeof body.marketplaceCheckoutFeeQuoteFingerprint === "string"
         ? body.marketplaceCheckoutFeeQuoteFingerprint
@@ -447,6 +469,7 @@ export function createAccountCheckoutSessionRoutes(
       requestedDeferredPayment && canDeferCheckoutPayment(access.actor, deferredCheckoutOrderProofReference);
     const savePaymentMethodForFuture =
       body.savePaymentMethodForFuture === true && access.actor.roleKey !== "guest-buyer" && !savedCheckoutInstrumentId;
+    const requestedSavePaymentMethodForFuture = body.savePaymentMethodForFuture === true;
 
     if (requestedDeferredPayment && !deferPayment) {
       return c.json(
@@ -462,6 +485,7 @@ export function createAccountCheckoutSessionRoutes(
 
     try {
       assertNoUnsupportedCustomerEconomicsInput(body);
+      assertSavedInstrumentAllowed(access.actor, savedCheckoutInstrumentId, requestedSavePaymentMethodForFuture);
       let session = await services.getSession(sessionId, access.actor.accountId);
       if (!session) {
         return c.json(
@@ -656,9 +680,10 @@ export function createAccountCheckoutSessionRoutes(
       recordAddressServiceabilityFailure(checkoutObservabilityTelemetry, access.actor, code);
       recordUnassignedFulfillmentFailure(checkoutObservabilityTelemetry, access.actor, code);
       recordUnsupportedCustomerEconomicsInput(checkoutObservabilityTelemetry, access.actor, code);
+      recordDisabledSavedInstrumentFailure(checkoutObservabilityTelemetry, access.actor, code);
       return c.json(
         { error: { code, message: errorMessage(error) } },
-        code === unsupportedCustomerEconomicsInputCode ? 409 : 400,
+        code === unsupportedCustomerEconomicsInputCode || code === savedCheckoutInstrumentUnavailableCode ? 409 : 400,
       );
     }
   });
