@@ -1,7 +1,10 @@
 import type { JsonValue } from "@chase-sets/primitives/json";
+import { extractIdFromStreamId } from "@chase-sets/event-core";
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { SourceObservationNormalized, SourceObservationStatus } from "../domain/domain";
+
+const SOURCE_OBSERVATION_STREAM_PREFIX = "catalog.source-observation-";
 
 type ObservationProjectionData = {
   observationId: string;
@@ -69,7 +72,7 @@ export function buildSourceObservationProjectionHandlers(db: PgQueryable): Proje
       });
     },
     "catalog.source-observation.promoted": async (event) => {
-      const observationId = extractObservationId(event.streamId);
+      const observationId = extractIdFromStreamId(event.streamId, SOURCE_OBSERVATION_STREAM_PREFIX);
       const data = event.data as {
         catalogItemId: string;
         promotedAt: string;
@@ -101,7 +104,7 @@ export function buildSourceObservationProjectionHandlers(db: PgQueryable): Proje
       );
     },
     "catalog.source-observation.promotion-plan-recorded": async (event) => {
-      const observationId = extractObservationId(event.streamId);
+      const observationId = extractIdFromStreamId(event.streamId, SOURCE_OBSERVATION_STREAM_PREFIX);
       const data = event.data as {
         catalogItemId: string;
         promotionProfileKey: string;
@@ -128,7 +131,7 @@ export function buildSourceObservationProjectionHandlers(db: PgQueryable): Proje
       );
     },
     "catalog.source-observation.rejected": async (event) => {
-      const observationId = extractObservationId(event.streamId);
+      const observationId = extractIdFromStreamId(event.streamId, SOURCE_OBSERVATION_STREAM_PREFIX);
       const data = event.data as { reason: string };
 
       await db.query(
@@ -141,7 +144,7 @@ export function buildSourceObservationProjectionHandlers(db: PgQueryable): Proje
       );
     },
     "catalog.source-observation.deferred": async (event) => {
-      const observationId = extractObservationId(event.streamId);
+      const observationId = extractIdFromStreamId(event.streamId, SOURCE_OBSERVATION_STREAM_PREFIX);
       const data = event.data as { reason: string; reviewStatus: "observed" | "changed" };
 
       await db.query(
@@ -154,15 +157,6 @@ export function buildSourceObservationProjectionHandlers(db: PgQueryable): Proje
       );
     },
   };
-}
-
-function extractObservationId(streamId: string): string {
-  const prefix = "catalog.source-observation-";
-  if (!streamId.startsWith(prefix)) {
-    throw new Error(`Stream ID "${streamId}" does not start with prefix "${prefix}".`);
-  }
-
-  return streamId.slice(prefix.length);
 }
 
 async function upsertObservation(

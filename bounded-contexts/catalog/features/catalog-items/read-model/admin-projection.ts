@@ -1,6 +1,6 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { extractIdFromStreamId } from "../../../support/projection-support/extract-id-from-stream";
+import { extractIdFromStreamId } from "@chase-sets/event-core";
 import {
   asArray,
   asStringArray,

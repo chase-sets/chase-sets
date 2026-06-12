@@ -6,7 +6,6 @@
   "apiBasePath": "/api/identity",
   "slices": ["accounts", "users", "memberships", "invitations", "api-keys", "consents", "shipping-addresses"],
   "allowedSupportDirectories": [
-    "read-model-support",
     "request-support",
     "route-support",
     "runtime-support",
@@ -299,15 +298,6 @@
       "purpose": "Own reusable account recipient shipping address behavior, read models, and UI contracts for the identity context.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
       "expectedConsumers": ["Internal identity module composition", "Checkout request-time address selection"]
-    },
-    "read-model-support": {
-      "classification": "support",
-      "purpose": "Provide reusable read-model-support assets shared by identity-owned features and composition seams.",
-      "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": ["accounts", "users", "memberships", "invitations", "api-keys"],
-      "justification": "read-model-support centralizes context-local composition that should not duplicate across features.",
-      "createdFor": "identity workflows that span multiple features or public entrypoints.",
-      "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
     },
     "request-support": {
       "classification": "support",

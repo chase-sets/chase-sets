@@ -1,16 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import {
-  CATALOG_BLUEPRINT_STREAM_PREFIX,
-  CATALOG_DIMENSION_STREAM_PREFIX,
-  CATALOG_ITEM_STREAM_PREFIX,
   asArray,
   asStringArray,
   buildCatalogMirrorProjectionHandlers,
   buildVersionSchema,
   catalogMirrorTables,
   coerceDimensionOptionLabel,
-  extractIdFromStreamId,
   type CatalogMirrorSpec,
 } from "./catalog-mirror";
 import { createCatalogMirrorReplayDb } from "./catalog-mirror-replay";
@@ -55,18 +51,6 @@ const CORE_EVENT_TYPES = [
 ];
 
 describe("catalog mirror primitives", () => {
-  it("extracts ids from prefixed stream ids", () => {
-    expect(extractIdFromStreamId("catalog.item-cat_9", CATALOG_ITEM_STREAM_PREFIX)).toBe("cat_9");
-    expect(extractIdFromStreamId("catalog.blueprint-bp_9", CATALOG_BLUEPRINT_STREAM_PREFIX)).toBe("bp_9");
-    expect(extractIdFromStreamId("catalog.dimension-dim_9", CATALOG_DIMENSION_STREAM_PREFIX)).toBe("dim_9");
-  });
-
-  it("rejects stream ids missing the expected prefix", () => {
-    expect(() => extractIdFromStreamId("ordering.order-ord_1", CATALOG_ITEM_STREAM_PREFIX)).toThrowError(
-      'Stream ID "ordering.order-ord_1" does not start with prefix "catalog.item-".',
-    );
-  });
-
   it.each([
     { value: [1, 2], expected: [1, 2] },
     { value: "nope", expected: [] },

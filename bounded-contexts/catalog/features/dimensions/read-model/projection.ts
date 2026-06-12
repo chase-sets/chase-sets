@@ -1,7 +1,7 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import { coerceDimensionOptionLabel, type PgQueryable } from "@chase-sets/event-core-postgres";
 import { coerceLocalizedTextMap, resolveLocalizedTextMap, type LocalizedTextMap } from "@chase-sets/localization";
-import { extractIdFromStreamId } from "../../../support/projection-support/extract-id-from-stream";
+import { extractIdFromStreamId } from "@chase-sets/event-core";
 
 const STREAM_PREFIX = "catalog.dimension-";
 

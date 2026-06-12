@@ -1,6 +1,7 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import { extractIdFromStreamId, type PgQueryable } from "@chase-sets/event-core-postgres";
+import { extractIdFromStreamId } from "@chase-sets/event-core";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
 export function buildFulfillmentAccountProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {

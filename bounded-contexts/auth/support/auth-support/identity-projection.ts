@@ -1,6 +1,7 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import { extractIdFromStreamId, type PgQueryable } from "@chase-sets/event-core-postgres";
+import { extractIdFromStreamId } from "@chase-sets/event-core";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { type AccountId, type UserId } from "@chase-sets/primitives/typed-ids";
 import {
   AUTH_BOOTSTRAP_ACCOUNT_ID,

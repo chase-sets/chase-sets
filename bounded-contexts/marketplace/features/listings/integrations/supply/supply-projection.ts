@@ -1,9 +1,7 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import { extractIdFromStreamId } from "@chase-sets/event-core";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import {
-  buildCatalogMirrorProjectionHandlers,
-  extractIdFromStreamId,
-} from "@chase-sets/event-core-postgres/catalog-mirror";
+import { buildCatalogMirrorProjectionHandlers } from "@chase-sets/event-core-postgres/catalog-mirror";
 
 async function refreshMarketplaceAccountReputation(db: PgQueryable, accountId: string, updatedAt: string) {
   await db.query(

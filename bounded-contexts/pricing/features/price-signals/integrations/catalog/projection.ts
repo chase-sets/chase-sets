@@ -1,5 +1,6 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
-import { extractIdFromStreamId, type PgQueryable } from "@chase-sets/event-core-postgres";
+import { extractIdFromStreamId } from "@chase-sets/event-core";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
 const ITEM_STREAM_PREFIX = "catalog.item-";
 

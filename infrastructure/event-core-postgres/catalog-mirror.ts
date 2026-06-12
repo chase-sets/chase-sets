@@ -1,4 +1,5 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import { extractIdFromStreamId } from "@chase-sets/event-core";
 import { coerceLocalizedTextMap, resolveLocalizedTextMap, type LocalizedTextMap } from "@chase-sets/localization";
 import type { PgQueryable } from "./types";
 import { assertSqlIdentifier } from "./sql-identifier";
@@ -6,14 +7,6 @@ import { assertSqlIdentifier } from "./sql-identifier";
 export const CATALOG_ITEM_STREAM_PREFIX = "catalog.item-";
 export const CATALOG_BLUEPRINT_STREAM_PREFIX = "catalog.blueprint-";
 export const CATALOG_DIMENSION_STREAM_PREFIX = "catalog.dimension-";
-
-export function extractIdFromStreamId(streamId: string, prefix: string): string {
-  if (!streamId.startsWith(prefix)) {
-    throw new Error(`Stream ID "${streamId}" does not start with prefix "${prefix}".`);
-  }
-
-  return streamId.slice(prefix.length);
-}
 
 export function asArray<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : [];

@@ -1,15 +1,8 @@
+import { extractIdFromStreamId } from "@chase-sets/event-core";
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
 const ACCOUNT_STREAM_PREFIX = "identity.account-";
-
-function extractAccountId(streamId: string) {
-  if (!streamId.startsWith(ACCOUNT_STREAM_PREFIX)) {
-    throw new Error(`Stream ID "${streamId}" does not start with "${ACCOUNT_STREAM_PREFIX}".`);
-  }
-
-  return streamId.slice(ACCOUNT_STREAM_PREFIX.length);
-}
 
 export function buildOrderingAccountProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
@@ -44,7 +37,7 @@ export function buildOrderingAccountProjectionHandlers(db: PgQueryable): Project
          ON CONFLICT (account_id) DO UPDATE
          SET display_name = EXCLUDED.display_name,
              updated_at = EXCLUDED.updated_at`,
-        [extractAccountId(event.streamId), displayName, event.timing.recordedAt],
+        [extractIdFromStreamId(event.streamId, ACCOUNT_STREAM_PREFIX), displayName, event.timing.recordedAt],
       );
     },
     "identity.account.suspended": async (event) => {
@@ -53,7 +46,7 @@ export function buildOrderingAccountProjectionHandlers(db: PgQueryable): Project
          SET status = 'suspended',
              updated_at = $2
          WHERE account_id = $1`,
-        [extractAccountId(event.streamId), event.timing.recordedAt],
+        [extractIdFromStreamId(event.streamId, ACCOUNT_STREAM_PREFIX), event.timing.recordedAt],
       );
     },
     "identity.account.reactivated": async (event) => {
@@ -62,7 +55,7 @@ export function buildOrderingAccountProjectionHandlers(db: PgQueryable): Project
          SET status = 'active',
              updated_at = $2
          WHERE account_id = $1`,
-        [extractAccountId(event.streamId), event.timing.recordedAt],
+        [extractIdFromStreamId(event.streamId, ACCOUNT_STREAM_PREFIX), event.timing.recordedAt],
       );
     },
     "identity.account.closed": async (event) => {
@@ -71,7 +64,7 @@ export function buildOrderingAccountProjectionHandlers(db: PgQueryable): Project
          SET status = 'closed',
              updated_at = $2
          WHERE account_id = $1`,
-        [extractAccountId(event.streamId), event.timing.recordedAt],
+        [extractIdFromStreamId(event.streamId, ACCOUNT_STREAM_PREFIX), event.timing.recordedAt],
       );
     },
   };
