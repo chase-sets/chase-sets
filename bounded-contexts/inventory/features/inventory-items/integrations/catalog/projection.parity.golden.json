@@ -1,0 +1,558 @@
+{
+  "handledEventTypes": [
+    "catalog.blueprint.created",
+    "catalog.blueprint.dimensions-set",
+    "catalog.blueprint.product-resolution-rules-set",
+    "catalog.blueprint.published",
+    "catalog.blueprint.revised",
+    "catalog.catalog-item.archived",
+    "catalog.catalog-item.blueprint-assigned",
+    "catalog.catalog-item.created",
+    "catalog.catalog-item.display-identity-resolved",
+    "catalog.catalog-item.external-catalog-item-reference-linked",
+    "catalog.catalog-item.external-catalog-item-reference-unlinked",
+    "catalog.catalog-item.external-product-reference-linked",
+    "catalog.catalog-item.external-product-reference-unlinked",
+    "catalog.catalog-item.published",
+    "catalog.catalog-item.retired",
+    "catalog.dimension.created",
+    "catalog.dimension.option-added",
+    "catalog.dimension.option-revised",
+    "catalog.dimension.revised"
+  ],
+  "effects": [
+    {
+      "sql": "INSERT INTO inventory_catalog_dimensions ( dimension_id, name, updated_at ) VALUES ($1, $2, $3) ON CONFLICT (dimension_id) DO UPDATE SET name = EXCLUDED.name, updated_at = EXCLUDED.updated_at",
+      "params": ["dim_condition", "Condition", "2026-06-01T00:01:00.000Z"]
+    },
+    {
+      "sql": "SELECT catalog_item_id FROM inventory_catalog_items ORDER BY catalog_item_id ASC",
+      "params": []
+    },
+    {
+      "sql": "INSERT INTO inventory_catalog_dimension_options ( option_id, dimension_id, code, label_i18n, label, updated_at ) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (option_id) DO UPDATE SET dimension_id = EXCLUDED.dimension_id, code = EXCLUDED.code, label_i18n = EXCLUDED.label_i18n, label = EXCLUDED.label, updated_at = EXCLUDED.updated_at",
+      "params": [
+        "opt_near_mint",
+        "dim_condition",
+        "NM",
+        "{\"defaultLocale\":\"en\",\"values\":{\"en\":\"Near Mint\",\"ja\":\"ほぼ新品\"}}",
+        "Near Mint",
+        "2026-06-01T00:02:00.000Z"
+      ]
+    },
+    {
+      "sql": "SELECT catalog_item_id FROM inventory_catalog_items ORDER BY catalog_item_id ASC",
+      "params": []
+    },
+    {
+      "sql": "INSERT INTO inventory_catalog_items ( catalog_item_id, language_code, title, subtitle, status, updated_at ) VALUES ($1, $2, $3, $4, 'draft', $5) ON CONFLICT (catalog_item_id) DO UPDATE SET language_code = EXCLUDED.language_code, title = EXCLUDED.title, subtitle = EXCLUDED.subtitle, updated_at = EXCLUDED.updated_at",
+      "params": ["cat_alpha", "ja", "Charizard", "Japanese Base Set", "2026-06-01T00:03:00.000Z"]
+    },
+    {
+      "sql": "SELECT catalog_item_id, language_code, title, subtitle, blueprint_id, status, updated_at FROM inventory_catalog_items WHERE catalog_item_id = $1",
+      "params": ["cat_alpha"]
+    },
+    {
+      "sql": "UPDATE inventory_catalog_items SET product_schema = $2, updated_at = $3 WHERE catalog_item_id = $1",
+      "params": ["cat_alpha", null, "2026-06-01T00:03:00.000Z"]
+    },
+    {
+      "sql": "INSERT INTO inventory_catalog_items ( catalog_item_id, language_code, title, subtitle, status, updated_at ) VALUES ($1, $2, $3, $4, 'draft', $5) ON CONFLICT (catalog_item_id) DO UPDATE SET language_code = EXCLUDED.language_code, title = EXCLUDED.title, subtitle = EXCLUDED.subtitle, updated_at = EXCLUDED.updated_at",
+      "params": ["cat_beta", "en", "Plain String Title", null, "2026-06-01T00:04:00.000Z"]
+    },
+    {
+      "sql": "SELECT catalog_item_id, language_code, title, subtitle, blueprint_id, status, updated_at FROM inventory_catalog_items WHERE catalog_item_id = $1",
+      "params": ["cat_beta"]
+    },
+    {
+      "sql": "UPDATE inventory_catalog_items SET product_schema = $2, updated_at = $3 WHERE catalog_item_id = $1",
+      "params": ["cat_beta", null, "2026-06-01T00:04:00.000Z"]
+    },
+    {
+      "sql": "INSERT INTO inventory_catalog_blueprints ( blueprint_id, name, updated_at ) VALUES ($1, $2, $3) ON CONFLICT (blueprint_id) DO UPDATE SET name = EXCLUDED.name, updated_at = EXCLUDED.updated_at",
+      "params": ["bp_main", "Graded Card", "2026-06-01T00:05:00.000Z"]
+    },
+    {
+      "sql": "UPDATE inventory_catalog_blueprints SET dimension_rules = $2, updated_at = $3 WHERE blueprint_id = $1",
+      "params": [
+        "bp_main",
+        "[{\"dimensionId\":\"dim_condition\",\"required\":true,\"allowedOptionIds\":[\"opt_near_mint\",\"opt_missing\"],\"appliesWhen\":[{\"dimensionId\":\"dim_language\",\"optionIds\":[\"opt_english\"]}]},{\"dimensionId\":\"dim_language\",\"required\":false}]",
+        "2026-06-01T00:06:00.000Z"
+      ]
+    },
+    {
+      "sql": "SELECT catalog_item_id FROM inventory_catalog_items WHERE blueprint_id = $1",
+      "params": ["bp_main"]
+    },
+    {
+      "sql": "UPDATE inventory_catalog_items SET blueprint_id = $2, updated_at = $3 WHERE catalog_item_id = $1",
+      "params": ["cat_alpha", "bp_main", "2026-06-01T00:07:00.000Z"]
+    },
+    {
+      "sql": "SELECT catalog_item_id, language_code, title, subtitle, blueprint_id, status, updated_at FROM inventory_catalog_items WHERE catalog_item_id = $1",
+      "params": ["cat_alpha"]
+    },
+    {
+      "sql": "SELECT * FROM inventory_catalog_blueprints WHERE blueprint_id = $1",
+      "params": ["bp_main"]
+    },
+    {
+      "sql": "SELECT dimension_id AS id, name AS name FROM inventory_catalog_dimensions WHERE dimension_id = ANY($1)",
+      "params": [["dim_condition", "dim_language"]]
+    },
+    {
+      "sql": "SELECT option_id, code, label_i18n, label FROM inventory_catalog_dimension_options WHERE option_id = ANY($1)",
+      "params": [["opt_near_mint", "opt_missing", "opt_english"]]
+    },
+    {
+      "sql": "UPDATE inventory_catalog_items SET product_schema = $2, updated_at = $3 WHERE catalog_item_id = $1",
+      "params": [
+        "cat_alpha",
+        "{\"canonicalDimensionOrder\":[],\"dimensions\":[{\"dimensionId\":\"dim_condition\",\"dimensionName\":\"Condition\",\"required\":true,\"appliesWhen\":[{\"dimensionId\":\"dim_language\",\"optionIds\":[\"opt_english\"]}],\"allowedOptions\":[{\"optionId\":\"opt_near_mint\",\"code\":\"NM\",\"label_i18n\":{\"defaultLocale\":\"en\",\"values\":{\"en\":\"Near Mint\",\"ja\":\"ほぼ新品\"}},\"label\":\"Near Mint\"},{\"optionId\":\"opt_missing\",\"code\":\"opt_missing\",\"label_i18n\":{\"defaultLocale\":\"en\",\"values\":{\"en\":\"opt_missing\"}},\"label\":\"opt_missing\"}]},{\"dimensionId\":\"dim_language\",\"dimensionName\":\"dim_language\",\"required\":false,\"appliesWhen\":[],\"allowedOptions\":[]}]}",
+        "2026-06-01T00:07:00.000Z"
+      ]
+    },
+    {
+      "sql": "UPDATE inventory_catalog_blueprints SET canonical_dimension_order = $2, updated_at = $3 WHERE blueprint_id = $1",
+      "params": ["bp_main", "[\"dim_condition\",\"dim_language\"]", "2026-06-01T00:08:00.000Z"]
+    },
+    {
+      "sql": "SELECT catalog_item_id FROM inventory_catalog_items WHERE blueprint_id = $1",
+      "params": ["bp_main"]
+    },
+    {
+      "sql": "SELECT catalog_item_id, language_code, title, subtitle, blueprint_id, status, updated_at FROM inventory_catalog_items WHERE catalog_item_id = $1",
+      "params": ["cat_alpha"]
+    },
+    {
+      "sql": "SELECT * FROM inventory_catalog_blueprints WHERE blueprint_id = $1",
+      "params": ["bp_main"]
+    },
+    {
+      "sql": "SELECT dimension_id AS id, name AS name FROM inventory_catalog_dimensions WHERE dimension_id = ANY($1)",
+      "params": [["dim_condition", "dim_language"]]
+    },
+    {
+      "sql": "SELECT option_id, code, label_i18n, label FROM inventory_catalog_dimension_options WHERE option_id = ANY($1)",
+      "params": [["opt_near_mint", "opt_missing", "opt_english"]]
+    },
+    {
+      "sql": "UPDATE inventory_catalog_items SET product_schema = $2, updated_at = $3 WHERE catalog_item_id = $1",
+      "params": [
+        "cat_alpha",
+        "{\"canonicalDimensionOrder\":[{\"dimensionId\":\"dim_condition\",\"dimensionName\":\"Condition\"},{\"dimensionId\":\"dim_language\",\"dimensionName\":\"dim_language\"}],\"dimensions\":[{\"dimensionId\":\"dim_condition\",\"dimensionName\":\"Condition\",\"required\":true,\"appliesWhen\":[{\"dimensionId\":\"dim_language\",\"optionIds\":[\"opt_english\"]}],\"allowedOptions\":[{\"optionId\":\"opt_near_mint\",\"code\":\"NM\",\"label_i18n\":{\"defaultLocale\":\"en\",\"values\":{\"en\":\"Near Mint\",\"ja\":\"ほぼ新品\"}},\"label\":\"Near Mint\"},{\"optionId\":\"opt_missing\",\"code\":\"opt_missing\",\"label_i18n\":{\"defaultLocale\":\"en\",\"values\":{\"en\":\"opt_missing\"}},\"label\":\"opt_missing\"}]},{\"dimensionId\":\"dim_language\",\"dimensionName\":\"dim_language\",\"required\":false,\"appliesWhen\":[],\"allowedOptions\":[]}]}",
+        "2026-06-01T00:07:00.000Z"
+      ]
+    },
+    {
+      "sql": "INSERT INTO inventory_catalog_dimensions ( dimension_id, name, updated_at ) VALUES ($1, $2, $3) ON CONFLICT (dimension_id) DO UPDATE SET name = EXCLUDED.name, updated_at = EXCLUDED.updated_at",
+      "params": ["dim_language", "Language", "2026-06-01T00:09:00.000Z"]
+    },
+    {
+      "sql": "SELECT catalog_item_id FROM inventory_catalog_items ORDER BY catalog_item_id ASC",
+      "params": []
+    },
+    {
+      "sql": "SELECT catalog_item_id, language_code, title, subtitle, blueprint_id, status, updated_at FROM inventory_catalog_items WHERE catalog_item_id = $1",
+      "params": ["cat_alpha"]
+    },
+    {
+      "sql": "SELECT catalog_item_id, language_code, title, subtitle, blueprint_id, status, updated_at FROM inventory_catalog_items WHERE catalog_item_id = $1",
+      "params": ["cat_beta"]
+    },
+    {
+      "sql": "SELECT * FROM inventory_catalog_blueprints WHERE blueprint_id = $1",
+      "params": ["bp_main"]
+    },
+    {
+      "sql": "UPDATE inventory_catalog_items SET product_schema = $2, updated_at = $3 WHERE catalog_item_id = $1",
+      "params": ["cat_beta", null, "2026-06-01T00:04:00.000Z"]
+    },
+    {
+      "sql": "SELECT dimension_id AS id, name AS name FROM inventory_catalog_dimensions WHERE dimension_id = ANY($1)",
+      "params": [["dim_condition", "dim_language"]]
+    },
+    {
+      "sql": "SELECT option_id, code, label_i18n, label FROM inventory_catalog_dimension_options WHERE option_id = ANY($1)",
+      "params": [["opt_near_mint", "opt_missing", "opt_english"]]
+    },
+    {
+      "sql": "UPDATE inventory_catalog_items SET product_schema = $2, updated_at = $3 WHERE catalog_item_id = $1",
+      "params": [
+        "cat_alpha",
+        "{\"canonicalDimensionOrder\":[{\"dimensionId\":\"dim_condition\",\"dimensionName\":\"Condition\"},{\"dimensionId\":\"dim_language\",\"dimensionName\":\"Language\"}],\"dimensions\":[{\"dimensionId\":\"dim_condition\",\"dimensionName\":\"Condition\",\"required\":true,\"appliesWhen\":[{\"dimensionId\":\"dim_language\",\"optionIds\":[\"opt_english\"]}],\"allowedOptions\":[{\"optionId\":\"opt_near_mint\",\"code\":\"NM\",\"label_i18n\":{\"defaultLocale\":\"en\",\"values\":{\"en\":\"Near Mint\",\"ja\":\"ほぼ新品\"}},\"label\":\"Near Mint\"},{\"optionId\":\"opt_missing\",\"code\":\"opt_missing\",\"label_i18n\":{\"defaultLocale\":\"en\",\"values\":{\"en\":\"opt_missing\"}},\"label\":\"opt_missing\"}]},{\"dimensionId\":\"dim_language\",\"dimensionName\":\"Language\",\"required\":false,\"appliesWhen\":[],\"allowedOptions\":[]}]}",
+        "2026-06-01T00:07:00.000Z"
+      ]
+    },
+    {
+      "sql": "INSERT INTO inventory_catalog_dimensions ( dimension_id, name, updated_at ) VALUES ($1, $2, $3) ON CONFLICT (dimension_id) DO UPDATE SET name = EXCLUDED.name, updated_at = EXCLUDED.updated_at",
+      "params": ["dim_condition", "Card Condition", "2026-06-01T00:10:00.000Z"]
+    },
+    {
+      "sql": "SELECT catalog_item_id FROM inventory_catalog_items ORDER BY catalog_item_id ASC",
+      "params": []
+    },
+    {
+      "sql": "SELECT catalog_item_id, language_code, title, subtitle, blueprint_id, status, updated_at FROM inventory_catalog_items WHERE catalog_item_id = $1",
+      "params": ["cat_alpha"]
+    },
+    {
+      "sql": "SELECT catalog_item_id, language_code, title, subtitle, blueprint_id, status, updated_at FROM inventory_catalog_items WHERE catalog_item_id = $1",
+      "params": ["cat_beta"]
+    },
+    {
+      "sql": "SELECT * FROM inventory_catalog_blueprints WHERE blueprint_id = $1",
+      "params": ["bp_main"]
+    },
+    {
+      "sql": "UPDATE inventory_catalog_items SET product_schema = $2, updated_at = $3 WHERE catalog_item_id = $1",
+      "params": ["cat_beta", null, "2026-06-01T00:04:00.000Z"]
+    },
+    {
+      "sql": "SELECT dimension_id AS id, name AS name FROM inventory_catalog_dimensions WHERE dimension_id = ANY($1)",
+      "params": [["dim_condition", "dim_language"]]
+    },
+    {
+      "sql": "SELECT option_id, code, label_i18n, label FROM inventory_catalog_dimension_options WHERE option_id = ANY($1)",
+      "params": [["opt_near_mint", "opt_missing", "opt_english"]]
+    },
+    {
+      "sql": "UPDATE inventory_catalog_items SET product_schema = $2, updated_at = $3 WHERE catalog_item_id = $1",
+      "params": [
+        "cat_alpha",
+        "{\"canonicalDimensionOrder\":[{\"dimensionId\":\"dim_condition\",\"dimensionName\":\"Card Condition\"},{\"dimensionId\":\"dim_language\",\"dimensionName\":\"Language\"}],\"dimensions\":[{\"dimensionId\":\"dim_condition\",\"dimensionName\":\"Card Condition\",\"required\":true,\"appliesWhen\":[{\"dimensionId\":\"dim_language\",\"optionIds\":[\"opt_english\"]}],\"allowedOptions\":[{\"optionId\":\"opt_near_mint\",\"code\":\"NM\",\"label_i18n\":{\"defaultLocale\":\"en\",\"values\":{\"en\":\"Near Mint\",\"ja\":\"ほぼ新品\"}},\"label\":\"Near Mint\"},{\"optionId\":\"opt_missing\",\"code\":\"opt_missing\",\"label_i18n\":{\"defaultLocale\":\"en\",\"values\":{\"en\":\"opt_missing\"}},\"label\":\"opt_missing\"}]},{\"dimensionId\":\"dim_language\",\"dimensionName\":\"Language\",\"required\":false,\"appliesWhen\":[],\"allowedOptions\":[]}]}",
+        "2026-06-01T00:07:00.000Z"
+      ]
+    },
+    {
+      "sql": "INSERT INTO inventory_catalog_dimension_options ( option_id, dimension_id, code, label_i18n, label, updated_at ) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (option_id) DO UPDATE SET dimension_id = EXCLUDED.dimension_id, code = EXCLUDED.code, label_i18n = EXCLUDED.label_i18n, label = EXCLUDED.label, updated_at = EXCLUDED.updated_at",
+      "params": [
+        "opt_near_mint",
+        "dim_condition",
+        "NM",
+        "{\"defaultLocale\":\"en\",\"values\":{\"en\":\"Near Mint (revised)\"}}",
+        "Near Mint (revised)",
+        "2026-06-01T00:11:00.000Z"
+      ]
+    },
+    {
+      "sql": "SELECT catalog_item_id FROM inventory_catalog_items ORDER BY catalog_item_id ASC",
+      "params": []
+    },
+    {
+      "sql": "SELECT catalog_item_id, language_code, title, subtitle, blueprint_id, status, updated_at FROM inventory_catalog_items WHERE catalog_item_id = $1",
+      "params": ["cat_alpha"]
+    },
+    {
+      "sql": "SELECT catalog_item_id, language_code, title, subtitle, blueprint_id, status, updated_at FROM inventory_catalog_items WHERE catalog_item_id = $1",
+      "params": ["cat_beta"]
+    },
+    {
+      "sql": "SELECT * FROM inventory_catalog_blueprints WHERE blueprint_id = $1",
+      "params": ["bp_main"]
+    },
+    {
+      "sql": "UPDATE inventory_catalog_items SET product_schema = $2, updated_at = $3 WHERE catalog_item_id = $1",
+      "params": ["cat_beta", null, "2026-06-01T00:04:00.000Z"]
+    },
+    {
+      "sql": "SELECT dimension_id AS id, name AS name FROM inventory_catalog_dimensions WHERE dimension_id = ANY($1)",
+      "params": [["dim_condition", "dim_language"]]
+    },
+    {
+      "sql": "SELECT option_id, code, label_i18n, label FROM inventory_catalog_dimension_options WHERE option_id = ANY($1)",
+      "params": [["opt_near_mint", "opt_missing", "opt_english"]]
+    },
+    {
+      "sql": "UPDATE inventory_catalog_items SET product_schema = $2, updated_at = $3 WHERE catalog_item_id = $1",
+      "params": [
+        "cat_alpha",
+        "{\"canonicalDimensionOrder\":[{\"dimensionId\":\"dim_condition\",\"dimensionName\":\"Card Condition\"},{\"dimensionId\":\"dim_language\",\"dimensionName\":\"Language\"}],\"dimensions\":[{\"dimensionId\":\"dim_condition\",\"dimensionName\":\"Card Condition\",\"required\":true,\"appliesWhen\":[{\"dimensionId\":\"dim_language\",\"optionIds\":[\"opt_english\"]}],\"allowedOptions\":[{\"optionId\":\"opt_near_mint\",\"code\":\"NM\",\"label_i18n\":{\"defaultLocale\":\"en\",\"values\":{\"en\":\"Near Mint (revised)\"}},\"label\":\"Near Mint (revised)\"},{\"optionId\":\"opt_missing\",\"code\":\"opt_missing\",\"label_i18n\":{\"defaultLocale\":\"en\",\"values\":{\"en\":\"opt_missing\"}},\"label\":\"opt_missing\"}]},{\"dimensionId\":\"dim_language\",\"dimensionName\":\"Language\",\"required\":false,\"appliesWhen\":[],\"allowedOptions\":[]}]}",
+        "2026-06-01T00:07:00.000Z"
+      ]
+    },
+    {
+      "sql": "INSERT INTO inventory_catalog_blueprints ( blueprint_id, name, updated_at ) VALUES ($1, $2, $3) ON CONFLICT (blueprint_id) DO UPDATE SET name = EXCLUDED.name, updated_at = EXCLUDED.updated_at",
+      "params": ["bp_main", "Graded Card (revised)", "2026-06-01T00:12:00.000Z"]
+    },
+    {
+      "sql": "SELECT catalog_item_id FROM inventory_catalog_items WHERE blueprint_id = $1",
+      "params": ["bp_main"]
+    },
+    {
+      "sql": "SELECT catalog_item_id, language_code, title, subtitle, blueprint_id, status, updated_at FROM inventory_catalog_items WHERE catalog_item_id = $1",
+      "params": ["cat_alpha"]
+    },
+    {
+      "sql": "SELECT * FROM inventory_catalog_blueprints WHERE blueprint_id = $1",
+      "params": ["bp_main"]
+    },
+    {
+      "sql": "SELECT dimension_id AS id, name AS name FROM inventory_catalog_dimensions WHERE dimension_id = ANY($1)",
+      "params": [["dim_condition", "dim_language"]]
+    },
+    {
+      "sql": "SELECT option_id, code, label_i18n, label FROM inventory_catalog_dimension_options WHERE option_id = ANY($1)",
+      "params": [["opt_near_mint", "opt_missing", "opt_english"]]
+    },
+    {
+      "sql": "UPDATE inventory_catalog_items SET product_schema = $2, updated_at = $3 WHERE catalog_item_id = $1",
+      "params": [
+        "cat_alpha",
+        "{\"canonicalDimensionOrder\":[{\"dimensionId\":\"dim_condition\",\"dimensionName\":\"Card Condition\"},{\"dimensionId\":\"dim_language\",\"dimensionName\":\"Language\"}],\"dimensions\":[{\"dimensionId\":\"dim_condition\",\"dimensionName\":\"Card Condition\",\"required\":true,\"appliesWhen\":[{\"dimensionId\":\"dim_language\",\"optionIds\":[\"opt_english\"]}],\"allowedOptions\":[{\"optionId\":\"opt_near_mint\",\"code\":\"NM\",\"label_i18n\":{\"defaultLocale\":\"en\",\"values\":{\"en\":\"Near Mint (revised)\"}},\"label\":\"Near Mint (revised)\"},{\"optionId\":\"opt_missing\",\"code\":\"opt_missing\",\"label_i18n\":{\"defaultLocale\":\"en\",\"values\":{\"en\":\"opt_missing\"}},\"label\":\"opt_missing\"}]},{\"dimensionId\":\"dim_language\",\"dimensionName\":\"Language\",\"required\":false,\"appliesWhen\":[],\"allowedOptions\":[]}]}",
+        "2026-06-01T00:07:00.000Z"
+      ]
+    },
+    {
+      "sql": "INSERT INTO inventory_catalog_blueprints ( blueprint_id, name, updated_at ) VALUES ($1, $2, $3) ON CONFLICT (blueprint_id) DO UPDATE SET name = EXCLUDED.name, updated_at = EXCLUDED.updated_at",
+      "params": ["bp_unseen", "Blueprint Revised Before Created", "2026-06-01T00:13:00.000Z"]
+    },
+    {
+      "sql": "SELECT catalog_item_id FROM inventory_catalog_items WHERE blueprint_id = $1",
+      "params": ["bp_unseen"]
+    },
+    {
+      "sql": "UPDATE inventory_catalog_blueprints SET status = 'active', updated_at = $2 WHERE blueprint_id = $1",
+      "params": ["bp_main", "2026-06-01T00:14:00.000Z"]
+    },
+    {
+      "sql": "SELECT catalog_item_id FROM inventory_catalog_items WHERE blueprint_id = $1",
+      "params": ["bp_main"]
+    },
+    {
+      "sql": "SELECT catalog_item_id, language_code, title, subtitle, blueprint_id, status, updated_at FROM inventory_catalog_items WHERE catalog_item_id = $1",
+      "params": ["cat_alpha"]
+    },
+    {
+      "sql": "SELECT * FROM inventory_catalog_blueprints WHERE blueprint_id = $1",
+      "params": ["bp_main"]
+    },
+    {
+      "sql": "SELECT dimension_id AS id, name AS name FROM inventory_catalog_dimensions WHERE dimension_id = ANY($1)",
+      "params": [["dim_condition", "dim_language"]]
+    },
+    {
+      "sql": "SELECT option_id, code, label_i18n, label FROM inventory_catalog_dimension_options WHERE option_id = ANY($1)",
+      "params": [["opt_near_mint", "opt_missing", "opt_english"]]
+    },
+    {
+      "sql": "UPDATE inventory_catalog_items SET product_schema = $2, updated_at = $3 WHERE catalog_item_id = $1",
+      "params": [
+        "cat_alpha",
+        "{\"canonicalDimensionOrder\":[{\"dimensionId\":\"dim_condition\",\"dimensionName\":\"Card Condition\"},{\"dimensionId\":\"dim_language\",\"dimensionName\":\"Language\"}],\"dimensions\":[{\"dimensionId\":\"dim_condition\",\"dimensionName\":\"Card Condition\",\"required\":true,\"appliesWhen\":[{\"dimensionId\":\"dim_language\",\"optionIds\":[\"opt_english\"]}],\"allowedOptions\":[{\"optionId\":\"opt_near_mint\",\"code\":\"NM\",\"label_i18n\":{\"defaultLocale\":\"en\",\"values\":{\"en\":\"Near Mint (revised)\"}},\"label\":\"Near Mint (revised)\"},{\"optionId\":\"opt_missing\",\"code\":\"opt_missing\",\"label_i18n\":{\"defaultLocale\":\"en\",\"values\":{\"en\":\"opt_missing\"}},\"label\":\"opt_missing\"}]},{\"dimensionId\":\"dim_language\",\"dimensionName\":\"Language\",\"required\":false,\"appliesWhen\":[],\"allowedOptions\":[]}]}",
+        "2026-06-01T00:07:00.000Z"
+      ]
+    },
+    {
+      "sql": "UPDATE inventory_catalog_items SET language_code = $2, title = $3, subtitle = $4, updated_at = $5 WHERE catalog_item_id = $1",
+      "params": ["cat_alpha", "en", "Charizard 4/102", "Base Set Rare Holo", "2026-06-01T00:16:00.000Z"]
+    },
+    {
+      "sql": "SELECT catalog_item_id, language_code, title, subtitle, blueprint_id, status, updated_at FROM inventory_catalog_items WHERE catalog_item_id = $1",
+      "params": ["cat_alpha"]
+    },
+    {
+      "sql": "SELECT * FROM inventory_catalog_blueprints WHERE blueprint_id = $1",
+      "params": ["bp_main"]
+    },
+    {
+      "sql": "SELECT dimension_id AS id, name AS name FROM inventory_catalog_dimensions WHERE dimension_id = ANY($1)",
+      "params": [["dim_condition", "dim_language"]]
+    },
+    {
+      "sql": "SELECT option_id, code, label_i18n, label FROM inventory_catalog_dimension_options WHERE option_id = ANY($1)",
+      "params": [["opt_near_mint", "opt_missing", "opt_english"]]
+    },
+    {
+      "sql": "UPDATE inventory_catalog_items SET product_schema = $2, updated_at = $3 WHERE catalog_item_id = $1",
+      "params": [
+        "cat_alpha",
+        "{\"canonicalDimensionOrder\":[{\"dimensionId\":\"dim_condition\",\"dimensionName\":\"Card Condition\"},{\"dimensionId\":\"dim_language\",\"dimensionName\":\"Language\"}],\"dimensions\":[{\"dimensionId\":\"dim_condition\",\"dimensionName\":\"Card Condition\",\"required\":true,\"appliesWhen\":[{\"dimensionId\":\"dim_language\",\"optionIds\":[\"opt_english\"]}],\"allowedOptions\":[{\"optionId\":\"opt_near_mint\",\"code\":\"NM\",\"label_i18n\":{\"defaultLocale\":\"en\",\"values\":{\"en\":\"Near Mint (revised)\"}},\"label\":\"Near Mint (revised)\"},{\"optionId\":\"opt_missing\",\"code\":\"opt_missing\",\"label_i18n\":{\"defaultLocale\":\"en\",\"values\":{\"en\":\"opt_missing\"}},\"label\":\"opt_missing\"}]},{\"dimensionId\":\"dim_language\",\"dimensionName\":\"Language\",\"required\":false,\"appliesWhen\":[],\"allowedOptions\":[]}]}",
+        "2026-06-01T00:16:00.000Z"
+      ]
+    },
+    {
+      "sql": "UPDATE inventory_catalog_items SET language_code = $2, title = $3, subtitle = $4, updated_at = $5 WHERE catalog_item_id = $1",
+      "params": ["cat_beta", "en", "Plain Item", null, "2026-06-01T00:17:00.000Z"]
+    },
+    {
+      "sql": "SELECT catalog_item_id, language_code, title, subtitle, blueprint_id, status, updated_at FROM inventory_catalog_items WHERE catalog_item_id = $1",
+      "params": ["cat_beta"]
+    },
+    {
+      "sql": "UPDATE inventory_catalog_items SET product_schema = $2, updated_at = $3 WHERE catalog_item_id = $1",
+      "params": ["cat_beta", null, "2026-06-01T00:17:00.000Z"]
+    },
+    {
+      "sql": "UPDATE inventory_catalog_items SET status = 'active', updated_at = $2 WHERE catalog_item_id = $1",
+      "params": ["cat_alpha", "2026-06-01T00:18:00.000Z"]
+    },
+    {
+      "sql": "SELECT catalog_item_id, language_code, title, subtitle, blueprint_id, status, updated_at FROM inventory_catalog_items WHERE catalog_item_id = $1",
+      "params": ["cat_alpha"]
+    },
+    {
+      "sql": "SELECT * FROM inventory_catalog_blueprints WHERE blueprint_id = $1",
+      "params": ["bp_main"]
+    },
+    {
+      "sql": "SELECT dimension_id AS id, name AS name FROM inventory_catalog_dimensions WHERE dimension_id = ANY($1)",
+      "params": [["dim_condition", "dim_language"]]
+    },
+    {
+      "sql": "SELECT option_id, code, label_i18n, label FROM inventory_catalog_dimension_options WHERE option_id = ANY($1)",
+      "params": [["opt_near_mint", "opt_missing", "opt_english"]]
+    },
+    {
+      "sql": "UPDATE inventory_catalog_items SET product_schema = $2, updated_at = $3 WHERE catalog_item_id = $1",
+      "params": [
+        "cat_alpha",
+        "{\"canonicalDimensionOrder\":[{\"dimensionId\":\"dim_condition\",\"dimensionName\":\"Card Condition\"},{\"dimensionId\":\"dim_language\",\"dimensionName\":\"Language\"}],\"dimensions\":[{\"dimensionId\":\"dim_condition\",\"dimensionName\":\"Card Condition\",\"required\":true,\"appliesWhen\":[{\"dimensionId\":\"dim_language\",\"optionIds\":[\"opt_english\"]}],\"allowedOptions\":[{\"optionId\":\"opt_near_mint\",\"code\":\"NM\",\"label_i18n\":{\"defaultLocale\":\"en\",\"values\":{\"en\":\"Near Mint (revised)\"}},\"label\":\"Near Mint (revised)\"},{\"optionId\":\"opt_missing\",\"code\":\"opt_missing\",\"label_i18n\":{\"defaultLocale\":\"en\",\"values\":{\"en\":\"opt_missing\"}},\"label\":\"opt_missing\"}]},{\"dimensionId\":\"dim_language\",\"dimensionName\":\"Language\",\"required\":false,\"appliesWhen\":[],\"allowedOptions\":[]}]}",
+        "2026-06-01T00:18:00.000Z"
+      ]
+    },
+    {
+      "sql": "INSERT INTO inventory_catalog_external_product_references ( provider_key, external_key, catalog_item_id, selected_options, updated_at ) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (provider_key, external_key) DO UPDATE SET catalog_item_id = EXCLUDED.catalog_item_id, selected_options = EXCLUDED.selected_options, updated_at = EXCLUDED.updated_at",
+      "params": [
+        "tcgplayer",
+        "tcg_sku_1",
+        "cat_alpha",
+        "[{\"dimensionId\":\"dim_condition\",\"optionId\":\"opt_near_mint\"}]",
+        "2026-06-01T00:19:00.000Z"
+      ]
+    },
+    {
+      "sql": "INSERT INTO inventory_catalog_external_catalog_item_references ( provider_key, external_key, catalog_item_id, updated_at ) VALUES ($1, $2, $3, $4) ON CONFLICT (provider_key, external_key) DO UPDATE SET catalog_item_id = EXCLUDED.catalog_item_id, updated_at = EXCLUDED.updated_at",
+      "params": ["tcgplayer", "product:12345", "cat_alpha", "2026-06-01T00:20:00.000Z"]
+    },
+    {
+      "sql": "INSERT INTO inventory_catalog_items ( catalog_item_id, language_code, title, subtitle, status, updated_at ) VALUES ($1, $2, $3, $4, 'draft', $5) ON CONFLICT (catalog_item_id) DO UPDATE SET language_code = EXCLUDED.language_code, title = EXCLUDED.title, subtitle = EXCLUDED.subtitle, updated_at = EXCLUDED.updated_at",
+      "params": ["cat_alpha", "en", "Charizard (re-delivered)", "Upsert path", "2026-06-01T00:22:00.000Z"]
+    },
+    {
+      "sql": "SELECT catalog_item_id, language_code, title, subtitle, blueprint_id, status, updated_at FROM inventory_catalog_items WHERE catalog_item_id = $1",
+      "params": ["cat_alpha"]
+    },
+    {
+      "sql": "SELECT * FROM inventory_catalog_blueprints WHERE blueprint_id = $1",
+      "params": ["bp_main"]
+    },
+    {
+      "sql": "SELECT dimension_id AS id, name AS name FROM inventory_catalog_dimensions WHERE dimension_id = ANY($1)",
+      "params": [["dim_condition", "dim_language"]]
+    },
+    {
+      "sql": "SELECT option_id, code, label_i18n, label FROM inventory_catalog_dimension_options WHERE option_id = ANY($1)",
+      "params": [["opt_near_mint", "opt_missing", "opt_english"]]
+    },
+    {
+      "sql": "UPDATE inventory_catalog_items SET product_schema = $2, updated_at = $3 WHERE catalog_item_id = $1",
+      "params": [
+        "cat_alpha",
+        "{\"canonicalDimensionOrder\":[{\"dimensionId\":\"dim_condition\",\"dimensionName\":\"Card Condition\"},{\"dimensionId\":\"dim_language\",\"dimensionName\":\"Language\"}],\"dimensions\":[{\"dimensionId\":\"dim_condition\",\"dimensionName\":\"Card Condition\",\"required\":true,\"appliesWhen\":[{\"dimensionId\":\"dim_language\",\"optionIds\":[\"opt_english\"]}],\"allowedOptions\":[{\"optionId\":\"opt_near_mint\",\"code\":\"NM\",\"label_i18n\":{\"defaultLocale\":\"en\",\"values\":{\"en\":\"Near Mint (revised)\"}},\"label\":\"Near Mint (revised)\"},{\"optionId\":\"opt_missing\",\"code\":\"opt_missing\",\"label_i18n\":{\"defaultLocale\":\"en\",\"values\":{\"en\":\"opt_missing\"}},\"label\":\"opt_missing\"}]},{\"dimensionId\":\"dim_language\",\"dimensionName\":\"Language\",\"required\":false,\"appliesWhen\":[],\"allowedOptions\":[]}]}",
+        "2026-06-01T00:22:00.000Z"
+      ]
+    },
+    {
+      "sql": "UPDATE inventory_catalog_items SET status = 'archived', updated_at = $2 WHERE catalog_item_id = $1",
+      "params": ["cat_beta", "2026-06-01T00:23:00.000Z"]
+    },
+    {
+      "sql": "DELETE FROM inventory_catalog_external_product_references WHERE provider_key = $1 AND external_key = $2",
+      "params": ["tcgplayer", "tcg_sku_1"]
+    },
+    {
+      "sql": "DELETE FROM inventory_catalog_external_catalog_item_references WHERE provider_key = $1 AND external_key = $2",
+      "params": ["tcgplayer", "product:12345"]
+    },
+    {
+      "sql": "UPDATE inventory_catalog_items SET status = 'archived', updated_at = $2 WHERE catalog_item_id = $1",
+      "params": ["cat_alpha", "2026-06-01T00:26:00.000Z"]
+    }
+  ],
+  "finalState": {
+    "items": {
+      "cat_alpha": {
+        "catalog_item_id": "cat_alpha",
+        "language_code": "en",
+        "title": "Charizard (re-delivered)",
+        "subtitle": "Upsert path",
+        "blueprint_id": "bp_main",
+        "status": "archived",
+        "product_schema": "{\"canonicalDimensionOrder\":[{\"dimensionId\":\"dim_condition\",\"dimensionName\":\"Card Condition\"},{\"dimensionId\":\"dim_language\",\"dimensionName\":\"Language\"}],\"dimensions\":[{\"dimensionId\":\"dim_condition\",\"dimensionName\":\"Card Condition\",\"required\":true,\"appliesWhen\":[{\"dimensionId\":\"dim_language\",\"optionIds\":[\"opt_english\"]}],\"allowedOptions\":[{\"optionId\":\"opt_near_mint\",\"code\":\"NM\",\"label_i18n\":{\"defaultLocale\":\"en\",\"values\":{\"en\":\"Near Mint (revised)\"}},\"label\":\"Near Mint (revised)\"},{\"optionId\":\"opt_missing\",\"code\":\"opt_missing\",\"label_i18n\":{\"defaultLocale\":\"en\",\"values\":{\"en\":\"opt_missing\"}},\"label\":\"opt_missing\"}]},{\"dimensionId\":\"dim_language\",\"dimensionName\":\"Language\",\"required\":false,\"appliesWhen\":[],\"allowedOptions\":[]}]}",
+        "updated_at": "2026-06-01T00:26:00.000Z"
+      },
+      "cat_beta": {
+        "catalog_item_id": "cat_beta",
+        "language_code": "en",
+        "title": "Plain Item",
+        "subtitle": null,
+        "blueprint_id": null,
+        "status": "archived",
+        "product_schema": null,
+        "updated_at": "2026-06-01T00:23:00.000Z"
+      }
+    },
+    "blueprints": {
+      "bp_main": {
+        "blueprint_id": "bp_main",
+        "name": "Graded Card (revised)",
+        "status": "active",
+        "dimension_rules": [
+          {
+            "dimensionId": "dim_condition",
+            "required": true,
+            "allowedOptionIds": ["opt_near_mint", "opt_missing"],
+            "appliesWhen": [
+              {
+                "dimensionId": "dim_language",
+                "optionIds": ["opt_english"]
+              }
+            ]
+          },
+          {
+            "dimensionId": "dim_language",
+            "required": false
+          }
+        ],
+        "canonical_dimension_order": ["dim_condition", "dim_language"],
+        "updated_at": "2026-06-01T00:14:00.000Z"
+      },
+      "bp_unseen": {
+        "blueprint_id": "bp_unseen",
+        "name": "Blueprint Revised Before Created",
+        "status": "draft",
+        "dimension_rules": [],
+        "canonical_dimension_order": [],
+        "updated_at": "2026-06-01T00:13:00.000Z"
+      }
+    },
+    "dimensions": {
+      "dim_condition": {
+        "dimension_id": "dim_condition",
+        "name": "Card Condition",
+        "updated_at": "2026-06-01T00:10:00.000Z"
+      },
+      "dim_language": {
+        "dimension_id": "dim_language",
+        "name": "Language",
+        "updated_at": "2026-06-01T00:09:00.000Z"
+      }
+    },
+    "dimensionOptions": {
+      "opt_near_mint": {
+        "option_id": "opt_near_mint",
+        "dimension_id": "dim_condition",
+        "code": "NM",
+        "label_i18n": {
+          "defaultLocale": "en",
+          "values": {
+            "en": "Near Mint (revised)"
+          }
+        },
+        "label": "Near Mint (revised)",
+        "updated_at": "2026-06-01T00:11:00.000Z"
+      }
+    }
+  }
+}
