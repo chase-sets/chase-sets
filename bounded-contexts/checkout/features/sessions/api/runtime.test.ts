@@ -9,7 +9,7 @@ import type {
   StoredEvent,
 } from "@chase-sets/event-core/storage";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
-import { createCartReadinessSnapshot } from "../../cart/domain/readiness";
+import { cartReadinessDecisionsFromSnapshot, createCartReadinessSnapshot } from "../../cart/domain/readiness";
 import type { CheckoutCartLineRow } from "../../cart/read-model/queries";
 import type { CheckoutDomainError } from "../../../support/runtime-support/common";
 import type { CheckoutSessionRow } from "../read-model/queries";
@@ -114,6 +114,30 @@ const readyCartLine: CheckoutCartLineRow = {
   ],
   created_at: "2026-06-09T00:00:00.000Z",
   updated_at: "2026-06-09T00:00:00.000Z",
+};
+
+const optimizationCartLine: CheckoutCartLineRow = {
+  ...readyCartLine,
+  line_id: "cli_optimized",
+  locked_listing_id: "lst_expensive",
+  seller_options: [
+    {
+      ...readyCartLine.seller_options[0]!,
+      listing_id: "lst_expensive",
+      seller_account_id: "acc_current",
+      seller_slug: "current-seller",
+      seller_display_name: "Current Seller",
+      price_amount: "30.00",
+    },
+    {
+      ...readyCartLine.seller_options[0]!,
+      listing_id: "lst_lower",
+      seller_account_id: "acc_lower",
+      seller_slug: "lower-seller",
+      seller_display_name: "Lower Seller",
+      price_amount: "24.00",
+    },
+  ],
 };
 
 function createCartServices(lines: readonly CheckoutCartLineRow[] = [readyCartLine]) {
@@ -412,6 +436,123 @@ describe("checkout session runtime", () => {
       ),
     ).rejects.toThrow("Resolve item availability before checkout starts.");
   });
+
+  it.each([
+    {
+      decision: "accepted",
+      expectedListingId: "lst_lower",
+      expectedSellerAccountId: "acc_lower",
+    },
+    {
+      decision: "declined",
+      expectedListingId: "lst_expensive",
+      expectedSellerAccountId: "acc_current",
+    },
+  ] as const)(
+    "starts cart checkout with a pre-checkout optimization decision: $decision",
+    async ({ decision, expectedListingId, expectedSellerAccountId }) => {
+      const { eventStore } = createInMemoryEventStore();
+      const cart = createCartServices([optimizationCartLine]);
+      const services = createCheckoutSessionRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: { query: vi.fn(async () => ({ rows: [] })) },
+        cart: cart as never,
+      });
+      const readiness = createCartReadinessSnapshot([optimizationCartLine], {
+        optimization: { decision, lineId: "cli_optimized", listingId: "lst_lower" },
+      });
+
+      const created = await services.createFromCart(
+        {
+          accountId: "acc_buyer" as never,
+          readinessSnapshotId: readiness.snapshotId,
+          readinessSourceRevision: readiness.sourceRevision,
+          readinessDecisions: cartReadinessDecisionsFromSnapshot(readiness),
+          sessionIdOverride: `chk_optimization_${decision}` as never,
+        },
+        context,
+      );
+      const result = await services.selectShippingOption(
+        {
+          sessionId: created.sessionId,
+          accountId: "acc_buyer" as never,
+          shippingOption: "priority",
+        },
+        context,
+      );
+
+      expect(cart.listCartLines).toHaveBeenCalledWith("acc_buyer");
+      expect(result.session.cart_readiness_snapshot).toMatchObject({
+        optimization: {
+          decision,
+          proposedLineId: "cli_optimized",
+          proposedListingId: "lst_lower",
+          currentListingId: "lst_expensive",
+        },
+      });
+      expect(result.session.lines).toEqual([
+        expect.objectContaining({
+          cartLineId: "cli_optimized",
+          listingId: expectedListingId,
+          lockedListingId: expectedListingId,
+          fulfillmentMode: "locked-listing",
+        }),
+      ]);
+      expect(result.session.split_group_handoff?.groups).toEqual([
+        expect.objectContaining({
+          lineIds: ["cli_optimized"],
+          listingIds: [expectedListingId],
+          sellerAccountId: expectedSellerAccountId,
+          downstreamReferenceStatus: "not-started",
+        }),
+      ]);
+    },
+  );
+
+  it.each(["accepted", "declined"] as const)(
+    "fails closed before checkout starts when cart facts change after a %s optimization decision",
+    async (decision) => {
+      const staleReadiness = createCartReadinessSnapshot([optimizationCartLine], {
+        optimization: { decision, lineId: "cli_optimized", listingId: "lst_lower" },
+      });
+      const changedCartLine: CheckoutCartLineRow = {
+        ...optimizationCartLine,
+        seller_options: optimizationCartLine.seller_options.map((sellerOption) =>
+          sellerOption.listing_id === "lst_lower"
+            ? {
+                ...sellerOption,
+                price_amount: "23.00",
+              }
+            : sellerOption,
+        ),
+      };
+      const { allEvents, eventStore } = createInMemoryEventStore();
+      const services = createCheckoutSessionRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: { query: vi.fn(async () => ({ rows: [] })) },
+        cart: createCartServices([changedCartLine]) as never,
+      });
+
+      await expect(
+        services.createFromCart(
+          {
+            accountId: "acc_buyer" as never,
+            readinessSnapshotId: staleReadiness.snapshotId,
+            readinessSourceRevision: staleReadiness.sourceRevision,
+            readinessDecisions: cartReadinessDecisionsFromSnapshot(staleReadiness),
+            sessionIdOverride: `chk_optimization_stale_${decision}` as never,
+          },
+          context,
+        ),
+      ).rejects.toMatchObject({
+        code: "readiness_snapshot_stale",
+        message: "Cart readiness changed. Review your cart before checkout.",
+      } satisfies Partial<CheckoutDomainError>);
+      expect(allEvents).toEqual([]);
+    },
+  );
 
   it("returns an active cart session when the stored readiness still matches current cart facts", async () => {
     const { eventStore } = createInMemoryEventStore();
