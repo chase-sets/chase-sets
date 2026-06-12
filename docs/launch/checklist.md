@@ -29,7 +29,7 @@
 
 - [ ] Checkout can only start from a fresh readiness snapshot; missing, stale, partial, or legacy-shaped state fails closed back to cart/list recovery (buy baseline: PR #1193; sell baseline: PR #1202).
 - [ ] Items without a fulfillment assignment stay out of checkout and are resolved in cart or the pre-checkout step (cart readiness baseline: PR #1193; buy runtime baseline: PR #1456).
-- [ ] Optional savings optimization is offered before checkout, and both accepted and declined decisions carry into checkout correctly.
+- [ ] Optional savings optimization is offered before checkout, and both accepted and declined decisions carry into checkout correctly (baseline: PR #1495).
 - [ ] An active checkout session revalidates freshness (readiness, prices, address, risk, provider state) on return/reload/provider-return and before final confirmation; stale sessions route back to cart/list with no side effects (split-group handoff baseline: PR #1453; address/serviceability baseline: PR #1454; deferred economics input baseline: PR #1455; guest saved-instrument bypass baseline: PR #1458; guest saved-payment action baseline: PR #1485).
 
 ## Confirmation and downstream handoff
