@@ -50,7 +50,6 @@
     "@chase-sets/pricing": "workspace:*",
     "@chase-sets/primitives": "workspace:*",
     "@chase-sets/public-presence": "workspace:*",
-    "@chase-sets/reputation": "workspace:*",
     "@chase-sets/ses-email": "workspace:*",
     "@chase-sets/settlement": "workspace:*",
     "@chase-sets/stripe-connect": "workspace:*",

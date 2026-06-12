@@ -1,9 +1,10 @@
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { catalogSeedIds } from "@chase-sets/catalog/seed-support/ids";
 import { catalogScenarioItems } from "@chase-sets/catalog/seed-support/scenario";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { inventorySeedIds } from "@chase-sets/inventory/seed-support/ids";
-import { marketplaceReservedSeedIds } from "@chase-sets/marketplace/seed-support/ids";
+import { marketplaceReservedSeedIds, reputationReservedSeedIds } from "@chase-sets/marketplace/seed-support/ids";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { AccountId, ListingId, OfferId, UserId } from "@chase-sets/primitives/typed-ids";
 import {
@@ -786,4 +787,121 @@ export async function seedMarketplaceDatabase(
   }
 
   await acceptReservedSeedOffer(services, acceptedSeedOffer, identitySeedIds.demo.accountId, context);
+}
+
+function createReputationSeedContext(accountId: string, userId: string): EventStoreContext {
+  return {
+    tenantId: "tnt_seed_development" as never,
+    audit: {
+      performedByUserId: userId as never,
+      forAccountId: accountId as never,
+    },
+  };
+}
+
+export async function seedReputationData(
+  pool: PgTransactionalPool,
+  services: MarketplaceServices = createMarketplaceServices(pool),
+) {
+
+  try {
+    const existing = await services.db.query("SELECT COUNT(*) AS count FROM reputation_review_pages");
+    if (Number(existing.rows[0]?.count ?? 0) > 0) {
+      console.log("Reputation already contains data. Skipping seed.");
+      return;
+    }
+  } catch {
+    // Table may not exist yet. Proceed with seeding.
+  }
+
+  const buyerToSellerOpportunity = await services.reviews.getOrderReviewOpportunity(
+    (
+      await services.db.query<{ order_id: string }>(
+        `SELECT order_id
+         FROM reputation_review_eligibility_pages
+         WHERE author_account_id = $1
+         ORDER BY eligible_at ASC, order_id ASC
+         LIMIT 1`,
+        [identitySeedIds.collector.accountId],
+      )
+    ).rows[0]?.order_id ?? "",
+    identitySeedIds.collector.accountId,
+  );
+
+  if (!buyerToSellerOpportunity) {
+    console.log(
+      "Reputation seed is waiting for buyer-to-seller review eligibility from a delivered shipment. Skipping reviews for this pass.",
+    );
+    return;
+  }
+
+  const sellerToBuyerOpportunity = await services.reviews.getOrderReviewOpportunity(
+    buyerToSellerOpportunity.order_id,
+    identitySeedIds.demo.accountId,
+  );
+
+  if (!sellerToBuyerOpportunity) {
+    console.log(
+      "Reputation seed is waiting for seller-to-buyer review eligibility from a delivered shipment. Skipping reviews for this pass.",
+    );
+    return;
+  }
+
+  await services.reviews.commandHandler({
+    streamId: `reputation.review-${reputationReservedSeedIds.reviews.buyerToSellerActive}`,
+    command: {
+      type: "SubmitReview",
+      reviewId: reputationReservedSeedIds.reviews.buyerToSellerActive,
+      orderId: buyerToSellerOpportunity.order_id as never,
+      authorAccountId: identitySeedIds.collector.accountId,
+      subjectAccountId: buyerToSellerOpportunity.subject_account_id as never,
+      authorRole: buyerToSellerOpportunity.author_role as never,
+      rating: 4,
+      feedback: "Packed well and shipped exactly as described.",
+      submittedAt: "2026-03-23T09:00:00.000Z",
+    },
+    context: createReputationSeedContext(identitySeedIds.collector.accountId, identitySeedIds.collector.userId),
+  });
+  await services.reviews.commandHandler({
+    streamId: `reputation.review-${reputationReservedSeedIds.reviews.buyerToSellerActive}`,
+    command: {
+      type: "UpdateReview",
+      rating: 5,
+      feedback: "Packed well, shipped quickly, and matched the listing.",
+      updatedAt: "2026-03-23T10:00:00.000Z",
+    },
+    context: createReputationSeedContext(identitySeedIds.collector.accountId, identitySeedIds.collector.userId),
+  });
+
+  await services.reviews.commandHandler({
+    streamId: `reputation.review-${reputationReservedSeedIds.reviews.sellerToBuyerWithdrawn}`,
+    command: {
+      type: "SubmitReview",
+      reviewId: reputationReservedSeedIds.reviews.sellerToBuyerWithdrawn,
+      orderId: sellerToBuyerOpportunity.order_id as never,
+      authorAccountId: identitySeedIds.demo.accountId,
+      subjectAccountId: sellerToBuyerOpportunity.subject_account_id as never,
+      authorRole: sellerToBuyerOpportunity.author_role as never,
+      rating: 3,
+      feedback: "Responsive but asked for extra packing photos.",
+      submittedAt: "2026-03-23T09:15:00.000Z",
+    },
+    context: createReputationSeedContext(identitySeedIds.demo.accountId, identitySeedIds.demo.userId),
+  });
+  await services.reviews.commandHandler({
+    streamId: `reputation.review-${reputationReservedSeedIds.reviews.sellerToBuyerWithdrawn}`,
+    command: {
+      type: "WithdrawReview",
+      withdrawnAt: "2026-03-23T10:15:00.000Z",
+    },
+    context: createReputationSeedContext(identitySeedIds.demo.accountId, identitySeedIds.demo.userId),
+  });
+}
+
+export async function seedMarketplaceContextDatabase(
+  pool: PgTransactionalPool,
+  services: MarketplaceServices = createMarketplaceServices(pool),
+) {
+  await seedMarketplaceDatabase(pool, services);
+  await seedReputationData(pool, services);
 }

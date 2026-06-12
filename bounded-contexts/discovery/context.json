@@ -225,7 +225,10 @@
         "marketplace.seller-listing-availability.disabled",
         "marketplace.seller-listing-availability.enabled",
         "marketplace.offer.submitted",
-        "marketplace.offer.accepted"
+        "marketplace.offer.accepted",
+        "reputation.review.submitted",
+        "reputation.review.updated",
+        "reputation.review.withdrawn"
       ],
       "order": 30,
       "projectionHandlerSetNames": ["discovery-market-projection"]
@@ -246,14 +249,6 @@
       ],
       "order": 35,
       "projectionHandlerSetNames": ["discovery-product-alert-notification-projection"]
-    },
-    {
-      "sourceContextName": "reputation",
-      "projectionName": "discovery-market-projection",
-      "subscriptionVersion": 1,
-      "eventTypes": ["reputation.review.submitted", "reputation.review.updated", "reputation.review.withdrawn"],
-      "order": 10,
-      "projectionHandlerSetNames": ["discovery-market-projection"]
     }
   ],
   "projectionGroups": [
@@ -299,7 +294,7 @@
     },
     {
       "projectionName": "discovery-market-projection",
-      "sourceContextNames": ["identity", "marketplace", "reputation"],
+      "sourceContextNames": ["identity", "marketplace"],
       "ownedTables": [
         "discovery_market_accounts",
         "discovery_market_account_reviews",

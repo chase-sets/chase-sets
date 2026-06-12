@@ -18,10 +18,9 @@ Structure, public export, deployable composition, and shared-ID rules live in [B
 | [Checkout](./checkout/README.md) | Own account cart intent and active checkout session orchestration. |
 | [Inventory](./inventory/README.md) | Own account-held stock and operational availability. |
 | [Commercial Terms](./commercial-terms/README.md) | Own seller-side marketplace sales fee policy and account-specific commercial agreements. |
-| [Marketplace](./marketplace/README.md) | Own listing and offer workflows before an order exists. |
+| [Marketplace](./marketplace/README.md) | Own listing and offer workflows before an order exists, plus post-transaction reviews and review summaries. |
 | [Ordering](./ordering/README.md) | Own per-seller orders, commercial commitment, provider-agnostic tax quotes, and tax nexus readiness. |
 | [Fulfillment](./fulfillment/README.md) | Own shipment execution and delivery state. |
-| [Reputation](./reputation/README.md) | Own post-transaction ratings, written feedback, and canonical review summaries. |
 | [Notifications](./notifications/README.md) | Own account notification center, notification settings, feed read state, and delivery policy. |
 | [Payments](./payments/README.md) | Own external money movement, charges, and refunds. |
 | [Settlement](./settlement/README.md) | Own internal ledger truth, balances, and payouts. |
@@ -50,7 +49,7 @@ These marketplace nouns are already fixed to a single owner:
 - Checkout Session is owned by Checkout.
 - Order is owned by Ordering.
 - Shipment is owned by Fulfillment.
-- Review is owned by Reputation.
+- Review is owned by Marketplace through its reviews slice.
 
 Use Buyer and Seller when describing transaction endpoints: the buyer account pays and receives products; the seller account provides products and receives settlement.
 
@@ -68,7 +67,7 @@ Use Buyer and Seller when describing transaction endpoints: the buyer account pa
 - Checkout depends on Discovery entry points, Catalog product identity, Ordering order creation, and Payments payment initialization.
 - Ordering depends on Marketplace product commitments and seller-confirmed fee snapshots, Identity account references, and inventory reservation outcomes published after order commitment.
 - Fulfillment depends on Ordering.
-- Reputation depends on Identity for account references, Ordering for order references, and Fulfillment for delivery outcomes.
+- Marketplace reviews depend on Identity for account references, Ordering for order references, and Fulfillment for delivery outcomes.
 - Notifications depends on source-context facts from Discovery, Ordering, Fulfillment, and future contexts for account-visible notification decisions.
 - Payments depends on Ordering and on refund triggers informed by Fulfillment outcomes.
 - Settlement depends on Payments and Ordering.
@@ -90,7 +89,7 @@ These scenarios should map cleanly to one owner per decision:
 3. Marketplace owns listing publication and offer negotiation for products.
 4. Checkout owns cart intent and checkout sessions; Ordering owns order creation for committed products.
 5. Fulfillment owns shipment state and tracking.
-6. Reputation owns post-transaction ratings, written feedback, and aggregate review summaries.
+6. Marketplace owns post-transaction ratings, written feedback, and aggregate review summaries through its reviews slice.
 7. Payments owns charge and refund execution.
 8. Settlement owns ledger adjustments and payout eligibility.
 9. Ordering owns tax quote contracts and order tax snapshots through its tax-quotes slice.

@@ -35,7 +35,7 @@ vi.mock("@chase-sets/platform-runtime/auth", async () => {
 import MarketplaceAccountSaleReviewRoute, {
   action,
   loader,
-} from "@chase-sets/reputation/routes/marketplace/account-sale-review";
+} from "@chase-sets/marketplace/routes/marketplace/account-sale-review";
 
 const opportunity = {
   order_id: "ord_1",

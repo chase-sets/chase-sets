@@ -346,7 +346,6 @@ locals {
     "platform-operations",
     "pricing",
     "public-presence",
-    "reputation",
     "settlement",
   ]
 

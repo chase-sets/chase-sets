@@ -3,7 +3,6 @@ import { Hono } from "hono";
 import { module as catalogModule } from "@chase-sets/catalog";
 import { module as identityModule } from "@chase-sets/identity";
 import { module as marketplaceModule } from "@chase-sets/marketplace";
-import { module as reputationModule } from "@chase-sets/reputation";
 import { createNoopCommercialTermsResolver } from "@chase-sets/commercial-terms/server";
 import {
   bootstrapContextDatabase,
@@ -26,7 +25,7 @@ import { createDiscoveryServices } from "../../support/runtime-support/services"
 import { module as discoveryModule } from "../..";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
-const discoveryContextNames = ["catalog", "identity", "marketplace", "reputation", "discovery"] as const;
+const discoveryContextNames = ["catalog", "identity", "marketplace", "discovery"] as const;
 
 function requireDatabaseBaseUrl(): string {
   if (!databaseBaseUrl) {
@@ -92,7 +91,6 @@ describe("marketplace search", () => {
     const marketplaceServices = marketplaceModule.createServices(pools.marketplace, {
       commercialTermsResolver: createNoopCommercialTermsResolver(),
     });
-    const reputationServices = reputationModule.createServices(pools.reputation, undefined);
     discoveryServices = createDiscoveryServices(pools.discovery);
     const mountedContexts = [
       {
@@ -119,14 +117,6 @@ describe("marketplace search", () => {
         projectionHandlerSets: [],
       },
       {
-        contextName: "reputation",
-        mountRole: "source-only",
-        module: reputationModule,
-        services: reputationServices,
-        pool: pools.reputation,
-        projectionHandlerSets: [],
-      },
-      {
         contextName: "discovery",
         module: discoveryModule,
         services: discoveryServices,
@@ -146,7 +136,6 @@ describe("marketplace search", () => {
     await bootstrapContextDatabase(catalogModule, pools.catalog);
     await bootstrapContextDatabase(identityModule, pools.identity);
     await bootstrapContextDatabase(marketplaceModule, pools.marketplace);
-    await bootstrapContextDatabase(reputationModule, pools.reputation);
     await bootstrapContextDatabase(discoveryModule, pools.discovery);
   });
 
