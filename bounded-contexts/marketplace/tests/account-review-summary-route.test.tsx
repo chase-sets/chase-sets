@@ -29,9 +29,7 @@ vi.mock("@chase-sets/platform-runtime/auth", async () => {
   };
 });
 
-import MarketplaceAccountReviewSummaryRoute, {
-  loader,
-} from "../routes/marketplace/account-review-summary";
+import MarketplaceAccountReviewSummaryRoute, { loader } from "../routes/marketplace/account-review-summary";
 
 describe("marketplace account review summary route", () => {
   beforeEach(() => {

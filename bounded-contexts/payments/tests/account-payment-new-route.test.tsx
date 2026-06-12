@@ -67,10 +67,7 @@ vi.mock("@chase-sets/platform-runtime/auth", async () => {
   };
 });
 
-import MarketplaceAccountPaymentNewRoute, {
-  action,
-  loader,
-} from "../routes/marketplace/account-payment-new";
+import MarketplaceAccountPaymentNewRoute, { action, loader } from "../routes/marketplace/account-payment-new";
 
 function buildPurchase(purchaseId: string): PurchaseDetail {
   return {

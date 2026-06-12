@@ -33,10 +33,7 @@ vi.mock("@chase-sets/platform-runtime/auth", async () => {
   };
 });
 
-import MarketplaceAccountPurchaseReviewRoute, {
-  action,
-  loader,
-} from "../routes/marketplace/account-purchase-review";
+import MarketplaceAccountPurchaseReviewRoute, { action, loader } from "../routes/marketplace/account-purchase-review";
 
 const opportunity = {
   order_id: "ord_1",

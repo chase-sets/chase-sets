@@ -1,8 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-  action as inventoryAction,
-  loader as inventoryLoader,
-} from "../routes/marketplace/account-inventory";
+import { action as inventoryAction, loader as inventoryLoader } from "../routes/marketplace/account-inventory";
 import {
   action as inventoryImportsAction,
   loader as inventoryImportsLoader,
