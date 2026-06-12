@@ -293,6 +293,10 @@ export type GoogleShoppingDiagnosticsRefreshResult = Readonly<{
   total: number;
 }>;
 
+export type GoogleShoppingDiagnosticsNormalizationOptions = Readonly<{
+  previousIssueChunkSize?: number;
+}>;
+
 export type GoogleShoppingFullSyncJobProgress = Readonly<{
   phase: "queued" | "processing" | "completed" | "failed";
   completed: number;
@@ -449,6 +453,7 @@ const MAX_BATCH_SIZE = 500;
 const DEFAULT_INCREMENTAL_BATCH_SIZE = 100;
 const DEFAULT_MAINTENANCE_BATCH_SIZE = 100;
 const DEFAULT_DIAGNOSTICS_BATCH_SIZE = 100;
+const DEFAULT_DIAGNOSTICS_PREVIOUS_ISSUE_CHUNK_SIZE = 100;
 const DEFAULT_REFRESH_WINDOW_DAYS = 25;
 const GOOGLE_SHOPPING_SYNC_STATE_RETENTION_DAYS = 90;
 
@@ -527,6 +532,7 @@ export type GoogleShoppingSyncServices = Readonly<{
   processNextDiagnosticsRefreshJob: (input: {
     claimOwnerId: string;
     claimTtlMs: number;
+    previousIssueChunkSize?: number;
     merchantClientForMode: (mode: GoogleShoppingSyncMode) => GoogleShoppingSyncMerchantClient;
     signal?: AbortSignal;
     throwIfLeaseLost?: () => void;
@@ -849,6 +855,7 @@ export function createGoogleShoppingSyncRuntime(deps: GoogleShoppingSyncRuntimeD
         );
 
         const rows = await listGoogleShoppingFeedRowsByListingIds(deps.db, payload.listingIds);
+        // Bounded by the incremental job payload, which is created from a configured maintenance/due-request chunk.
         const rowsByListingId = new Map(rows.map((row) => [row.listingId, row]));
         const merchantClient = input.merchantClientForMode(payload.mode);
 
@@ -959,6 +966,9 @@ export function createGoogleShoppingSyncRuntime(deps: GoogleShoppingSyncRuntimeD
         );
 
         const merchantClient = input.merchantClientForMode(payload.mode);
+        const previousIssueChunkSize = normalizeBatchSize(
+          input.previousIssueChunkSize ?? DEFAULT_DIAGNOSTICS_PREVIOUS_ISSUE_CHUNK_SIZE,
+        );
         let cursor: string | null = null;
         let diagnosticsResult = emptyGoogleShoppingDiagnosticsRefreshResult(payload.mode, total);
 
@@ -981,6 +991,7 @@ export function createGoogleShoppingSyncRuntime(deps: GoogleShoppingSyncRuntimeD
               merchantClient,
               signal: input.signal,
               jobContext,
+              previousIssueChunkSize,
             });
             diagnosticsResult = addGoogleShoppingDiagnosticsOutcome(diagnosticsResult, outcome);
             progress = addGoogleShoppingSyncOutcome(
@@ -1092,11 +1103,13 @@ async function enqueueIncrementalSyncJob(
     message?: string;
   }>,
 ): Promise<GoogleShoppingFullSyncJob> {
+  // Key-only de-dupe bounded by the request chunk supplied by scheduled maintenance or due-request draining.
   const listingIds = [...new Set(input.requests.map((request) => request.listingId))];
   const reasonsByListingId = Object.fromEntries(
     listingIds.map((listingId) => [
       listingId,
       [
+        // Key-only reason de-dupe is per listing within the same bounded request chunk.
         ...new Set(
           input.requests.filter((request) => request.listingId === listingId).flatMap((request) => request.reasons),
         ),
@@ -1517,6 +1530,7 @@ export async function processGoogleShoppingDiagnosticsRow(input: {
   merchantClient: GoogleShoppingSyncMerchantClient;
   signal?: AbortSignal;
   jobContext: DurableJobExecutionContext<GoogleShoppingFullSyncJobProgress, GoogleShoppingFullSyncJobResult>;
+  previousIssueChunkSize?: number;
 }): Promise<GoogleShoppingDiagnosticsRowOutcome> {
   const attemptedAt = new Date().toISOString();
   if (!input.merchantClient.getProcessedProductStatus) {
@@ -1546,6 +1560,7 @@ export async function processGoogleShoppingDiagnosticsRow(input: {
         input.row.diagnosticIssues,
         result.diagnostics,
         attemptedAt,
+        { previousIssueChunkSize: input.previousIssueChunkSize },
       );
       if (input.mode === "live") {
         await recordGoogleShoppingDiagnosticsResult(input.db, input.row.rowId, {
@@ -2226,12 +2241,40 @@ export function normalizeGoogleShoppingDiagnostics(
   previousIssuesValue: unknown,
   diagnostics: GoogleShoppingProductDiagnostics,
   observedAt: string,
+  options: GoogleShoppingDiagnosticsNormalizationOptions = {},
 ) {
-  const previousIssues = diagnosticIssueSnapshots(previousIssuesValue);
-  const previousByKey = new Map(previousIssues.map((issue) => [diagnosticIssueKey(issue), issue]));
-  const activeIssues = diagnostics.issues.map((issue) => {
-    const key = diagnosticIssueKey(issue);
-    const previous = previousByKey.get(key);
+  const previousIssueChunkSize = normalizeBatchSize(
+    options.previousIssueChunkSize ?? DEFAULT_DIAGNOSTICS_PREVIOUS_ISSUE_CHUNK_SIZE,
+  );
+  const activeIssueDrafts = diagnostics.issues.map((issue) => ({
+    issue,
+    key: diagnosticIssueKey(issue),
+  }));
+  // Key-only lookup bounded by current provider issues for one row, not by total catalog size.
+  const activeIssueKeys = new Set(activeIssueDrafts.map((draft) => draft.key));
+  // Values are retained only for active keys, so this map is bounded by current provider issues for one row.
+  const previousByActiveKey = new Map<string, GoogleShoppingDiagnosticIssueSnapshot>();
+  const resolvedIssues: GoogleShoppingDiagnosticIssueSnapshot[] = [];
+  const retainedResolvedIssues: GoogleShoppingDiagnosticIssueSnapshot[] = [];
+
+  for (const previousIssueChunk of diagnosticIssueSnapshotChunks(previousIssuesValue, previousIssueChunkSize)) {
+    for (const previousIssue of previousIssueChunk) {
+      const key = diagnosticIssueKey(previousIssue);
+      if (activeIssueKeys.has(key)) {
+        previousByActiveKey.set(key, previousIssue);
+        continue;
+      }
+
+      if (previousIssue.resolvedAt) {
+        retainedResolvedIssues.push(previousIssue);
+      } else {
+        resolvedIssues.push({ ...previousIssue, resolvedAt: observedAt });
+      }
+    }
+  }
+
+  const activeIssues = activeIssueDrafts.map(({ issue, key }) => {
+    const previous = previousByActiveKey.get(key);
     return {
       code: normalizedIssueText(issue.code, "unknown_issue"),
       severity: normalizedIssueText(issue.severity, "UNKNOWN"),
@@ -2248,13 +2291,6 @@ export function normalizeGoogleShoppingDiagnostics(
       known: isKnownGoogleShoppingIssueCode(issue.code),
     } satisfies GoogleShoppingDiagnosticIssueSnapshot;
   });
-  const activeKeys = new Set(activeIssues.map((issue) => diagnosticIssueKey(issue)));
-  const resolvedIssues = previousIssues
-    .filter((issue) => !issue.resolvedAt && !activeKeys.has(diagnosticIssueKey(issue)))
-    .map((issue) => ({ ...issue, resolvedAt: observedAt }));
-  const retainedResolvedIssues = previousIssues.filter(
-    (issue) => issue.resolvedAt && !activeKeys.has(diagnosticIssueKey(issue)),
-  );
   const status = googleShoppingDiagnosticStatus(diagnostics.destinationStatuses, activeIssues);
 
   return {
@@ -2377,30 +2413,63 @@ function diagnosticIssueSnapshots(value: unknown): GoogleShoppingDiagnosticIssue
   }
 
   return parsed.flatMap((entry) => {
-    if (!entry || typeof entry !== "object") {
-      return [];
-    }
-    const record = entry as Record<string, unknown>;
-    return [
-      {
-        code: normalizedIssueText(record.code, "unknown_issue"),
-        severity: normalizedIssueText(record.severity, "UNKNOWN"),
-        resolution: stringOrNull(record.resolution),
-        attribute: stringOrNull(record.attribute),
-        reportingContext: stringOrNull(record.reportingContext),
-        description: stringOrNull(record.description),
-        detail: stringOrNull(record.detail),
-        documentation: stringOrNull(record.documentation),
-        applicableCountries: Array.isArray(record.applicableCountries)
-          ? record.applicableCountries.flatMap((country) => (typeof country === "string" ? [country] : []))
-          : [],
-        firstSeenAt: stringOrNull(record.firstSeenAt) ?? new Date(0).toISOString(),
-        lastSeenAt: stringOrNull(record.lastSeenAt) ?? new Date(0).toISOString(),
-        resolvedAt: stringOrNull(record.resolvedAt),
-        known: typeof record.known === "boolean" ? record.known : isKnownGoogleShoppingIssueCode(record.code),
-      },
-    ];
+    const snapshot = diagnosticIssueSnapshot(entry);
+    return snapshot ? [snapshot] : [];
   });
+}
+
+function* diagnosticIssueSnapshotChunks(
+  value: unknown,
+  chunkSize: number,
+): Generator<GoogleShoppingDiagnosticIssueSnapshot[]> {
+  const parsed = readJsonValue<unknown>(value);
+  if (!Array.isArray(parsed)) {
+    return;
+  }
+
+  const normalizedChunkSize = normalizeBatchSize(chunkSize);
+  let chunk: GoogleShoppingDiagnosticIssueSnapshot[] = [];
+  for (const entry of parsed) {
+    const snapshot = diagnosticIssueSnapshot(entry);
+    if (!snapshot) {
+      continue;
+    }
+
+    chunk.push(snapshot);
+    if (chunk.length >= normalizedChunkSize) {
+      yield chunk;
+      chunk = [];
+    }
+  }
+
+  if (chunk.length > 0) {
+    yield chunk;
+  }
+}
+
+function diagnosticIssueSnapshot(entry: unknown): GoogleShoppingDiagnosticIssueSnapshot | null {
+  if (!entry || typeof entry !== "object") {
+    return null;
+  }
+
+  const record = entry as Record<string, unknown>;
+  return {
+    code: normalizedIssueText(record.code, "unknown_issue"),
+    severity: normalizedIssueText(record.severity, "UNKNOWN"),
+    resolution: stringOrNull(record.resolution),
+    attribute: stringOrNull(record.attribute),
+    reportingContext: stringOrNull(record.reportingContext),
+    description: stringOrNull(record.description),
+    detail: stringOrNull(record.detail),
+    documentation: stringOrNull(record.documentation),
+    applicableCountries: Array.isArray(record.applicableCountries)
+      ? record.applicableCountries.flatMap((country) => (typeof country === "string" ? [country] : []))
+      : [],
+    firstSeenAt: stringOrNull(record.firstSeenAt) ?? new Date(0).toISOString(),
+    lastSeenAt: stringOrNull(record.lastSeenAt) ?? new Date(0).toISOString(),
+    resolvedAt: stringOrNull(record.resolvedAt),
+    known: typeof record.known === "boolean" ? record.known : isKnownGoogleShoppingIssueCode(record.code),
+  };
 }
 
 function diagnosticIssueKey(issue: GoogleShoppingProductIssue | GoogleShoppingDiagnosticIssueSnapshot) {

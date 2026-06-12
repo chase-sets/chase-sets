@@ -11,6 +11,7 @@ import {
   previewGoogleShoppingMaintenanceSync,
   processGoogleShoppingDiagnosticsRow,
   processGoogleShoppingSyncRow,
+  type GoogleShoppingDiagnosticIssueSnapshot,
   type GoogleShoppingFeedRowForSync,
   type GoogleShoppingMaintenancePreview,
   type GoogleShoppingProductDiagnostics,
@@ -461,6 +462,69 @@ describe("google shopping diagnostics", () => {
     ]);
   });
 
+  it("reconciles previous diagnostics in chunks with output identical to single-pass behavior", async () => {
+    vi.useFakeTimers({ now: new Date(now) });
+    try {
+      const previousIssues = [
+        previousDiagnosticIssue({
+          code: "invalid_gtin",
+          attribute: "gtins",
+          firstSeenAt: "2026-06-01T00:00:00.000Z",
+          lastSeenAt: "2026-06-02T00:00:00.000Z",
+        }),
+        previousDiagnosticIssue({
+          code: "missing_price",
+          attribute: "price",
+          firstSeenAt: "2026-05-30T00:00:00.000Z",
+          lastSeenAt: "2026-06-02T00:00:00.000Z",
+        }),
+        previousDiagnosticIssue({
+          code: "price_mismatch",
+          attribute: "price",
+          firstSeenAt: "2026-05-28T00:00:00.000Z",
+          lastSeenAt: "2026-05-29T00:00:00.000Z",
+          resolvedAt: "2026-05-29T00:00:00.000Z",
+        }),
+        previousDiagnosticIssue({
+          code: "brand_new_policy_code",
+          severity: "WARNING",
+          attribute: "image_link",
+          firstSeenAt: "2026-06-01T00:00:00.000Z",
+          lastSeenAt: "2026-06-02T00:00:00.000Z",
+          resolvedAt: "2026-06-02T00:00:00.000Z",
+          known: false,
+        }),
+      ];
+      const currentDiagnostics = diagnostics([
+        issue({ code: "invalid_gtin", attribute: "gtins" }),
+        issue({ code: "brand_new_policy_code", severity: "WARNING", attribute: "image_link" }),
+      ]);
+
+      const chunked = await runDiagnosticsRow(previousIssues, currentDiagnostics, 2);
+      const singlePass = await runDiagnosticsRow(previousIssues, currentDiagnostics, 100);
+
+      expect(chunked).toEqual(singlePass);
+      expect(chunked.persistedIssues).toEqual([
+        expect.objectContaining({
+          code: "invalid_gtin",
+          firstSeenAt: "2026-06-01T00:00:00.000Z",
+          lastSeenAt: now,
+          resolvedAt: null,
+        }),
+        expect.objectContaining({
+          code: "brand_new_policy_code",
+          firstSeenAt: now,
+          lastSeenAt: now,
+          resolvedAt: null,
+        }),
+        expect.objectContaining({ code: "missing_price", resolvedAt: now }),
+        expect.objectContaining({ code: "price_mismatch", resolvedAt: "2026-05-29T00:00:00.000Z" }),
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("skips dry-run diagnostics without mutating row state", async () => {
     const db = recordingDb();
     const client: GoogleShoppingSyncMerchantClient = {
@@ -765,6 +829,61 @@ function issue(overrides: Partial<GoogleShoppingProductDiagnostics["issues"][num
     documentation: "https://support.google.com/merchants/answer/6324461",
     applicableCountries: ["US"],
     ...overrides,
+  };
+}
+
+function previousDiagnosticIssue(
+  overrides: Partial<GoogleShoppingDiagnosticIssueSnapshot> = {},
+): GoogleShoppingDiagnosticIssueSnapshot {
+  return {
+    code: "invalid_gtin",
+    severity: "DISAPPROVED",
+    resolution: "merchant_action",
+    attribute: "gtins",
+    reportingContext: "FREE_LISTINGS",
+    description: "Invalid GTIN",
+    detail: "The value provided for the gtin attribute is not a valid GTIN.",
+    documentation: "https://support.google.com/merchants/answer/6324461",
+    applicableCountries: ["US"],
+    firstSeenAt: "2026-06-01T00:00:00.000Z",
+    lastSeenAt: "2026-06-02T00:00:00.000Z",
+    resolvedAt: null,
+    known: true,
+    ...overrides,
+  };
+}
+
+async function runDiagnosticsRow(
+  previousIssues: readonly GoogleShoppingDiagnosticIssueSnapshot[],
+  currentDiagnostics: GoogleShoppingProductDiagnostics,
+  previousIssueChunkSize: number,
+) {
+  const db = recordingDb();
+  const client: GoogleShoppingSyncMerchantClient = {
+    insertOrUpdateProductInput: vi.fn(),
+    deleteProductInput: vi.fn(),
+    getProcessedProductStatus: vi.fn(
+      async (): Promise<GoogleShoppingSyncProviderResult> => ({
+        status: "success",
+        operation: "get-processed-product",
+        attempts: 1,
+        diagnostics: currentDiagnostics,
+      }),
+    ),
+  };
+
+  const outcome = await processGoogleShoppingDiagnosticsRow({
+    db,
+    row: diagnosticsRow({ diagnosticIssues: previousIssues }),
+    mode: "live",
+    merchantClient: client,
+    jobContext: testJobContext(),
+    previousIssueChunkSize,
+  });
+
+  return {
+    outcome,
+    persistedIssues: JSON.parse(String(db.queries.at(-1)?.values[3])) as GoogleShoppingDiagnosticIssueSnapshot[],
   };
 }
 
