@@ -71,6 +71,14 @@ describe("guest sell checkout page", () => {
     expect(markup).toContain('id="guest-sell-checkout-form"');
     expect(markup).toContain('name="readinessSnapshotId"');
     expect(markup).toContain("This page records a guest review state only.");
+    expect(markup).toContain("Checkout policies");
+    expect(markup).toContain("Terms of service");
+    expect(markup).toContain('href="/terms"');
+    expect(markup).toContain("Privacy policy");
+    expect(markup).toContain('href="/privacy"');
+    expect(markup).toContain("Refunds and returns");
+    expect(markup).toContain('href="/refunds-and-returns"');
+    expect(markup).toContain("Guest seller contact and ship-from details are used");
     expect(markup).not.toContain("provider diagnostics");
     expect(markup).not.toContain("settlement internals");
   });

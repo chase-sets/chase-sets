@@ -244,6 +244,14 @@ describe("checkout session page", () => {
     expect(markup).toContain("Marketplace checkout fee");
     expect(markup).toContain("Delivery estimate");
     expect(markup).toContain("Payment review comes next");
+    expect(markup).toContain("Terms of service");
+    expect(markup).toContain('href="/terms"');
+    expect(markup).toContain("Privacy policy");
+    expect(markup).toContain('href="/privacy"');
+    expect(markup).toContain("Refunds and returns");
+    expect(markup).toContain('href="/refunds-and-returns"');
+    expect(markup).toContain("Guest checkout contact and shipping details are used");
+    expect(markup).toContain("Raw card details stay with the payment provider.");
     expect(markup).not.toContain("Recalculate fulfillment");
     expect(markup).not.toContain("Card Vault");
     expect(markup).not.toContain("Optimized seller listing");
@@ -255,6 +263,25 @@ describe("checkout session page", () => {
     expect(markup).not.toContain("lst_card_vault");
     expect(markup).not.toContain("cat_bulbasaur");
     expect(markup).not.toContain("acc_card_vault");
+  });
+
+  it("keeps signed-in checkout policy links without guest data copy", () => {
+    const markup = renderToString(
+      <CheckoutSessionPage
+        session={readySession}
+        fulfillmentPreview={readyFulfillmentPreview}
+        paymentPreview={paymentPreview}
+        savedShippingAddresses={[signedInSavedAddress]}
+        savedCheckoutInstruments={[savedCard]}
+        isSignedInBuyer
+      />,
+    );
+
+    expect(markup).toContain("Checkout policies");
+    expect(markup).toContain("Terms of service");
+    expect(markup).toContain("Privacy policy");
+    expect(markup).toContain("Refunds and returns");
+    expect(markup).not.toContain("Guest checkout contact and shipping details are used");
   });
 
   it("renders purchase intent checkout without payment controls or purchase-creation copy", () => {

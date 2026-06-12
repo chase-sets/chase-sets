@@ -33,6 +33,7 @@ import {
   productOptionsFromSummary,
 } from "@chase-sets/design-system";
 import type { CheckoutFulfillmentPreview, CheckoutSessionRow } from "../../../support/request-support/api-client";
+import { CheckoutPolicyLinks } from "../../shared/ui/checkout-policy-links";
 
 type CheckoutPaymentPreview = Readonly<{
   currency_code: string;
@@ -1089,6 +1090,11 @@ export function CheckoutSessionPage({
                       {t("checkout.features.sessions.ui.checkoutPage.back.to.cart")}
                     </LinkButton>
                   </Inline>
+                  <CheckoutPolicyLinks
+                    guestDataDescription={
+                      isSignedInBuyer ? null : t("checkout.features.sessions.ui.checkoutPage.guest.data.description")
+                    }
+                  />
                 </Stack>
               </Form>
             )}

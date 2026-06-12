@@ -27,6 +27,7 @@ import {
 import { t } from "@chase-sets/localization";
 import type { CheckoutSellListLineRow } from "../read-model/queries";
 import type { SellListReadinessSnapshot } from "../domain/readiness";
+import { CheckoutPolicyLinks } from "../../shared/ui/checkout-policy-links";
 
 export type SignedInSellCheckoutRecoveryKind =
   | "access-required"
@@ -807,6 +808,8 @@ export function SignedInSellCheckoutPage({
                   {t("checkout.features.sellList.ui.signedInSellCheckoutPage.side.effect.boundary")}
                 </Text>
               </CheckoutFormSection>
+
+              <CheckoutPolicyLinks />
 
               <div className="hidden md:flex md:items-center md:gap-2" data-primary-action-count="1">
                 {primaryAction}

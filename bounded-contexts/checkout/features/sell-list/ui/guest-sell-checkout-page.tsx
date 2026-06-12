@@ -24,6 +24,7 @@ import {
 import { t } from "@chase-sets/localization";
 import type { CheckoutSellListLineRow } from "../read-model/queries";
 import type { SellListReadinessSnapshot } from "../domain/readiness";
+import { CheckoutPolicyLinks } from "../../shared/ui/checkout-policy-links";
 
 export type GuestSellCheckoutRecoveryKind =
   | "missing-sell-list"
@@ -544,6 +545,10 @@ export function GuestSellCheckoutPage({
                   {t("checkout.features.sellList.ui.guestSellCheckoutPage.side.effect.boundary")}
                 </Text>
               </CheckoutFormSection>
+
+              <CheckoutPolicyLinks
+                guestDataDescription={t("checkout.features.sellList.ui.guestSellCheckoutPage.guest.data.description")}
+              />
 
               <div className="hidden md:flex md:items-center md:gap-2" data-primary-action-count="1">
                 {primaryAction}
