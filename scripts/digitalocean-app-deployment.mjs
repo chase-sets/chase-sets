@@ -1,5 +1,5 @@
 import { execFile, spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import process from "node:process";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
@@ -158,9 +158,53 @@ export function destructiveResourceChanges(plan) {
     }));
 }
 
+export function approvedDestructiveChangeAddressesFromText(text) {
+  const headingMatch = /^## Approved Destructive Changes\s*$/m.exec(text);
+  if (!headingMatch) {
+    throw new Error("Production destructive-change approval must include an 'Approved Destructive Changes' section.");
+  }
+
+  const sectionStart = headingMatch.index + headingMatch[0].length;
+  const sectionTail = text.slice(sectionStart);
+  const nextHeadingIndex = sectionTail.search(/\n##\s+/);
+  const section = nextHeadingIndex >= 0 ? sectionTail.slice(0, nextHeadingIndex) : sectionTail;
+  const addresses = section
+    .split(/\r?\n/)
+    .map((line) => line.match(/^\s*-\s+`([^`]+)`\s*$/)?.[1])
+    .filter((address) => typeof address === "string" && address.length > 0);
+
+  if (addresses.length === 0) {
+    throw new Error("Production destructive-change approval must list at least one exact Terraform resource address.");
+  }
+
+  return [...new Set(addresses)];
+}
+
+export function readDestructiveChangeAllowFile(filePath) {
+  return approvedDestructiveChangeAddressesFromText(readFileSync(filePath, "utf8"));
+}
+
 export function assertNoDestructiveChanges(plan, options = {}) {
   const destructiveChanges = destructiveResourceChanges(plan);
   if (destructiveChanges.length === 0) {
+    return destructiveChanges;
+  }
+
+  if (options.allowedDestructiveAddresses?.length > 0) {
+    const allowed = new Set(options.allowedDestructiveAddresses);
+    const unapprovedChanges = destructiveChanges.filter((change) => !allowed.has(change.address));
+
+    if (unapprovedChanges.length > 0) {
+      const summary = unapprovedChanges.map((change) => `- ${change.address}: ${change.actions.join(",")}`).join("\n");
+      throw new Error(
+        `Production Terraform plan contains destructive changes not covered by the reviewed override marker:\n${summary}`,
+      );
+    }
+
+    console.warn("Production destructive-change override marker is present for these resources:");
+    for (const change of destructiveChanges) {
+      console.warn(`- ${change.address}: ${change.actions.join(",")}`);
+    }
     return destructiveChanges;
   }
 
@@ -373,9 +417,10 @@ async function main(argv) {
     }
 
     const allowFilePath = options.find((option) => option.startsWith("--allow-file="))?.slice("--allow-file=".length);
-    const allowDestructiveChanges = Boolean(allowFilePath && existsSync(allowFilePath));
+    const allowedDestructiveAddresses =
+      allowFilePath && existsSync(allowFilePath) ? readDestructiveChangeAllowFile(allowFilePath) : [];
 
-    await assertTerraformPlanSafe(tfplanPath, { allowDestructiveChanges });
+    await assertTerraformPlanSafe(tfplanPath, { allowedDestructiveAddresses });
     return;
   }
 
