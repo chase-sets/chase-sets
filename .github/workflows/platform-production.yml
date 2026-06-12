@@ -1481,6 +1481,16 @@ jobs:
               echo "Production marketplace platform deployment requires EASYPOST_MODE=production." >&2
               exit 1
             fi
+
+            if [ -n "${TF_VAR_stripe_api_base_url:-}" ]; then
+              echo "Production marketplace platform deployment requires STRIPE_API_BASE_URL to be unset." >&2
+              exit 1
+            fi
+
+            if [ -n "${TF_VAR_easypost_api_base_url:-}" ]; then
+              echo "Production marketplace platform deployment requires EASYPOST_API_BASE_URL to be unset." >&2
+              exit 1
+            fi
           fi
 
           if [ "${TF_VAR_production_marketplace_public_enabled:-false}" = "true" ]; then
