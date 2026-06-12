@@ -7,3 +7,11 @@ export type JsonObject = {
 export type JsonArray = readonly JsonValue[];
 
 export type JsonValue = JsonPrimitive | JsonObject | JsonArray;
+
+export function toJsonValue(value: unknown): JsonValue {
+  return value as JsonValue;
+}
+
+export function toJsonObject(value: unknown): JsonObject {
+  return value as JsonObject;
+}

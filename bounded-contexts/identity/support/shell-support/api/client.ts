@@ -1,5 +1,5 @@
 import { hc } from "hono/client";
-import type { HonoClientResource } from "@chase-sets/http/hono-client";
+import { honoClientResource } from "@chase-sets/http/hono-client";
 import { attachResponseMetadata, type ListResponse } from "@chase-sets/http/responses";
 import type { buildIdentityApi } from "../../../api";
 
@@ -51,9 +51,11 @@ export function createIdentityApiClient({
       ...init,
       credentials: init.credentials ?? credentials,
     });
-  const client = hc<IdentityApiApp>(baseUrl, {
-    fetch: configuredFetch,
-  }) as unknown as HonoClientResource;
+  const client = honoClientResource(
+    hc<IdentityApiApp>(baseUrl, {
+      fetch: configuredFetch,
+    }),
+  );
   const headers = resolveHeaders(initialHeaders);
 
   return {

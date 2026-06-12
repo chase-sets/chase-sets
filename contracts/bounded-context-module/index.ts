@@ -1,11 +1,12 @@
 import type {
+  EventPayloadMap,
   ProjectionHandlerSet,
   ProjectionErrorPolicy,
   ProjectionRunContext,
   ProjectorHandlerContext,
   ProjectorHandlerMap,
 } from "@chase-sets/event-core/projector";
-import type { TransportEvent } from "@chase-sets/event-core/transport";
+import type { TransportEvent, TypedTransportEvent } from "@chase-sets/event-core/transport";
 
 /**
  * Framework-agnostic contract for a bounded-context module.
@@ -17,23 +18,30 @@ export type BcProjectionHandlerSet = ProjectionHandlerSet;
 
 export type BcEventPayload = TransportEvent["data"];
 
-export type BcEventSubscriptionHandlerEvent<TPayload extends BcEventPayload = BcEventPayload> = Omit<
-  Readonly<TransportEvent>,
-  "data"
-> &
-  Readonly<{
-    data: TPayload;
-  }>;
+export type BcEventSubscriptionHandlerEvent<
+  TPayload extends BcEventPayload = BcEventPayload,
+  TEventType extends string = string,
+> = Readonly<TypedTransportEvent<TPayload, TEventType>>;
 
-export type BcEventSubscriptionHandler<TPayload extends BcEventPayload = BcEventPayload> = {
-  handle(event: BcEventSubscriptionHandlerEvent<TPayload>, context?: ProjectorHandlerContext): Promise<void>;
+export type BcEventSubscriptionHandler<
+  TPayload extends BcEventPayload = BcEventPayload,
+  TEventType extends string = string,
+> = {
+  handle(
+    event: BcEventSubscriptionHandlerEvent<TPayload, TEventType>,
+    context?: ProjectorHandlerContext,
+  ): Promise<void>;
 }["handle"];
 
-export type BcEventSubscriptionHandlerMap<
-  TEventPayloads extends Readonly<Record<string, BcEventPayload>> = Readonly<Record<string, BcEventPayload>>,
-> = Readonly<{
-  [TEventType in keyof TEventPayloads & string]: BcEventSubscriptionHandler<TEventPayloads[TEventType]>;
+export type BcEventSubscriptionHandlerMap<TEventPayloads extends EventPayloadMap = EventPayloadMap> = Readonly<{
+  [TEventType in keyof TEventPayloads & string]?: BcEventSubscriptionHandler<TEventPayloads[TEventType], TEventType>;
 }>;
+
+export function defineEventSubscriptionHandlers<TEventPayloads extends EventPayloadMap>(
+  handlers: BcEventSubscriptionHandlerMap<TEventPayloads>,
+): BcEventSubscriptionHandlerMap<TEventPayloads> {
+  return handlers;
+}
 
 export type BcRouteType = "route" | "index";
 export type BcRoutePlacement = "root" | "layout";
@@ -151,15 +159,11 @@ export type BcContextManifest = Readonly<{
   readonly projectionGroups?: readonly unknown[];
 }>;
 
-export type BcEventSubscriptionHandlerMapBuilder<
-  TEventPayloads extends Readonly<Record<string, BcEventPayload>> = Readonly<Record<string, BcEventPayload>>,
-> = (
+export type BcEventSubscriptionHandlerMapBuilder<TEventPayloads extends EventPayloadMap = EventPayloadMap> = (
   declaration: BcEventSubscriptionDeclaration,
 ) => ProjectorHandlerMap | BcEventSubscriptionHandlerMap<TEventPayloads>;
 
-export type BcEventSubscriptionHandlerRegistration<
-  TEventPayloads extends Readonly<Record<string, BcEventPayload>> = Readonly<Record<string, BcEventPayload>>,
-> =
+export type BcEventSubscriptionHandlerRegistration<TEventPayloads extends EventPayloadMap = EventPayloadMap> =
   | BcEventSubscriptionHandlerMapBuilder<TEventPayloads>
   | Readonly<{
       subscriptionName?: string;
@@ -167,19 +171,21 @@ export type BcEventSubscriptionHandlerRegistration<
       filterToEventTypes?: boolean;
     }>;
 
-export type BcEventSubscriptionHandlerRegistrations = Readonly<Record<string, BcEventSubscriptionHandlerRegistration>>;
+export type BcEventSubscriptionHandlerRegistrations<TEventPayloads extends EventPayloadMap = EventPayloadMap> =
+  Readonly<Record<string, BcEventSubscriptionHandlerRegistration<TEventPayloads>>>;
 
-export type BuildEventSubscriptionsFromManifestInput = Readonly<{
-  contextName: string;
-  manifest: Pick<BcContextManifest, "eventSubscriptions">;
-  handlers: BcEventSubscriptionHandlerRegistrations;
-}>;
+export type BuildEventSubscriptionsFromManifestInput<TEventPayloads extends EventPayloadMap = EventPayloadMap> =
+  Readonly<{
+    contextName: string;
+    manifest: Pick<BcContextManifest, "eventSubscriptions">;
+    handlers: BcEventSubscriptionHandlerRegistrations<TEventPayloads>;
+  }>;
 
-export function buildEventSubscriptionsFromManifest({
+export function buildEventSubscriptionsFromManifest<TEventPayloads extends EventPayloadMap = EventPayloadMap>({
   contextName,
   manifest,
   handlers,
-}: BuildEventSubscriptionsFromManifestInput): readonly BcEventSubscription[] {
+}: BuildEventSubscriptionsFromManifestInput<TEventPayloads>): readonly BcEventSubscription[] {
   const declarations = manifest.eventSubscriptions ?? [];
 
   return Object.entries(handlers).map(([subscriptionKey, registration]) => {

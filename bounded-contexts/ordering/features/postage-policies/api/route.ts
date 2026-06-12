@@ -2,7 +2,7 @@ import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { OrderingApiEnv } from "../../../api";
 import { mapPostagePolicyDomainError, type OrderingPostagePolicyPayload } from "../domain/domain";
-import type { PostagePolicyServices } from "./runtime";
+import type { PostagePolicyPreviewRequest, PostagePolicyServices } from "./runtime";
 
 type PostagePolicyPermission = "postage-policies.view" | "postage-policies.manage";
 
@@ -73,12 +73,22 @@ function policyPayload(body: Record<string, unknown>): Partial<OrderingPostagePo
     maxLetterDeclaredValueAmount: Number(body.maxLetterDeclaredValueAmount ?? 0),
     letterEnvelopeWeightOunces: Number(body.letterEnvelopeWeightOunces ?? 0),
     parcelPackagingWeightOunces: Number(body.parcelPackagingWeightOunces ?? 0),
-    parcelRequiredShippingOptions: readArray(body.parcelRequiredShippingOptions) as never,
-    letterRequiredPhysicalFlags: readArray(body.letterRequiredPhysicalFlags) as never,
-    parcelRequiredPhysicalFlags: readArray(body.parcelRequiredPhysicalFlags) as never,
-    signatureRequiredShippingOptions: readArray(body.signatureRequiredShippingOptions) as never,
+    parcelRequiredShippingOptions: readArray(
+      body.parcelRequiredShippingOptions,
+    ) as OrderingPostagePolicyPayload["parcelRequiredShippingOptions"],
+    letterRequiredPhysicalFlags: readArray(
+      body.letterRequiredPhysicalFlags,
+    ) as OrderingPostagePolicyPayload["letterRequiredPhysicalFlags"],
+    parcelRequiredPhysicalFlags: readArray(
+      body.parcelRequiredPhysicalFlags,
+    ) as OrderingPostagePolicyPayload["parcelRequiredPhysicalFlags"],
+    signatureRequiredShippingOptions: readArray(
+      body.signatureRequiredShippingOptions,
+    ) as OrderingPostagePolicyPayload["signatureRequiredShippingOptions"],
     signatureRequiredDeclaredValueAmount: readNullableNumber(body.signatureRequiredDeclaredValueAmount),
-    signatureRequiredPhysicalFlags: readArray(body.signatureRequiredPhysicalFlags) as never,
+    signatureRequiredPhysicalFlags: readArray(
+      body.signatureRequiredPhysicalFlags,
+    ) as OrderingPostagePolicyPayload["signatureRequiredPhysicalFlags"],
   };
 }
 
@@ -97,7 +107,7 @@ function previewBody(body: Record<string, unknown>) {
     typeof body.policy === "object" && body.policy !== null ? (body.policy as Record<string, unknown>) : body;
   return {
     policy: policyPayload(policySource),
-    shippingOption: String(body.shippingOption ?? "standard") as never,
+    shippingOption: String(body.shippingOption ?? "standard") as PostagePolicyPreviewRequest["shippingOption"],
     itemSubtotalAmount: String(body.itemSubtotalAmount ?? "0"),
     quantity: Number(body.quantity ?? 1),
     unitLengthInches: Number(body.unitLengthInches ?? 3.5),
@@ -105,7 +115,9 @@ function previewBody(body: Record<string, unknown>) {
     unitHeightInches: Number(body.unitHeightInches ?? 0.016),
     unitWeightOunces: Number(body.unitWeightOunces ?? 0.05),
     physicalFlags:
-      readArray(body.physicalFlags).length > 0 ? (readArray(body.physicalFlags) as never) : (["raw-card"] as never),
+      readArray(body.physicalFlags).length > 0
+        ? (readArray(body.physicalFlags) as PostagePolicyPreviewRequest["physicalFlags"])
+        : (["raw-card"] as PostagePolicyPreviewRequest["physicalFlags"]),
   };
 }
 

@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PaymentsApiEnv } from "../../payments/api/route";
 import type { RefundServices } from "./runtime";
+import type { PaymentId } from "@chase-sets/primitives/typed-ids";
 
 function requireRefundAccess(
   c: {
@@ -73,7 +74,7 @@ export function createRefundRoutes(services: RefundServices) {
     try {
       const result = await services.issueRefund(
         {
-          paymentId: c.req.param("paymentId") as never,
+          paymentId: c.req.param("paymentId") as PaymentId,
           orderIds: Array.isArray(body.orderIds) ? body.orderIds.map(String) : [],
           amount: String(body.amount ?? ""),
           reason: String(body.reason ?? t("payments.features.refunds.api.route.operator.refund")),

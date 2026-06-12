@@ -3,7 +3,7 @@ import { catalogScenarioItems, catalogSeedIds } from "@chase-sets/catalog-seed";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { marketplaceReservedSeedIds, reputationReservedSeedIds } from "@chase-sets/marketplace/seed-support/ids";
 import { defaultPostagePolicy } from "@chase-sets/product-measures";
-import type { AccountId } from "@chase-sets/primitives/typed-ids";
+import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 import { orderingReservedSeedIds } from "../seed-support/ids";
 import { createOrderingServices, type OrderingServices } from "./services";
 
@@ -78,9 +78,9 @@ const seedShippingAddress = {
 
 function createSeedContextFor(accountId: AccountId, userId: string) {
   return {
-    tenantId: "tnt_identity" as never,
+    tenantId: "tnt_identity" as TenantId,
     audit: {
-      performedByUserId: userId as never,
+      performedByUserId: userId as UserId,
       forAccountId: accountId,
     },
   };

@@ -3,7 +3,7 @@ import {
   buildGoogleShoppingMappedFeedRow,
   type GoogleShoppingExclusionReason,
   type GoogleShoppingMappedFeedRow,
-  type GoogleShoppingPayloadInput,
+  type GoogleShoppingMappedFeedRowInput,
   type GoogleShoppingSelectedOption,
 } from "./export-row";
 
@@ -89,9 +89,11 @@ export async function refreshGoogleShoppingFeedRowForListing(
       description: facts.catalog_description ?? facts.product_summary,
       productSummary: facts.product_summary,
       selectedOptions: selectedOptionsForGoogleShopping(facts.selected_options, facts.product_schema),
-      productAssetSets: arrayValue(facts.product_asset_sets) as never,
+      productAssetSets: arrayValue(
+        facts.product_asset_sets,
+      ) as GoogleShoppingMappedFeedRowInput["catalog"]["productAssetSets"],
       imageUrls: stringArrayValue(facts.image_urls),
-      imageFallback: objectValue(facts.image_fallback) as never,
+      imageFallback: objectValue(facts.image_fallback) as GoogleShoppingMappedFeedRowInput["catalog"]["imageFallback"],
       productForm: productFormFromSchema(facts.product_schema),
       fallbackImagePolicyApproved: true,
     },

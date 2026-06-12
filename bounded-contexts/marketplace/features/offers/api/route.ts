@@ -2,6 +2,7 @@ import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { MarketplaceApiEnv } from "../../../api";
 import { MarketplaceOfferFeeQuoteStaleError, type MarketplaceOfferServices } from "./runtime";
+import type { AccountId, OfferId } from "@chase-sets/primitives/typed-ids";
 
 function requireOfferAccess(
   c: {
@@ -190,8 +191,8 @@ export function createAccountSubmittedOfferRoutes(services: MarketplaceOfferServ
     try {
       const result = await services.submitOffer(
         {
-          offerId: typeof body.offerId === "string" && body.offerId.trim() ? (body.offerId as never) : undefined,
-          buyerAccountId: access.actor.accountId as never,
+          offerId: typeof body.offerId === "string" && body.offerId.trim() ? (body.offerId as OfferId) : undefined,
+          buyerAccountId: access.actor.accountId as AccountId,
           catalogItemId: String(body.catalogItemId ?? ""),
           productId: String(body.productId ?? ""),
           itemTitle: String(body.itemTitle ?? ""),
@@ -280,8 +281,8 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
 
     try {
       const quote = await services.previewOfferAcceptanceTerms({
-        offerId: c.req.param("id") as never,
-        sellerAccountId: access.actor.accountId as never,
+        offerId: c.req.param("id") as OfferId,
+        sellerAccountId: access.actor.accountId as AccountId,
       });
 
       return c.json(quote);
@@ -320,8 +321,8 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
       const body = await c.req.json().catch(() => ({}));
       const result = await services.acceptOffer(
         {
-          offerId: c.req.param("id") as never,
-          sellerAccountId: access.actor.accountId as never,
+          offerId: c.req.param("id") as OfferId,
+          sellerAccountId: access.actor.accountId as AccountId,
           feeQuoteFingerprint:
             body && typeof body === "object" && "feeQuoteFingerprint" in body
               ? String(body.feeQuoteFingerprint ?? "")

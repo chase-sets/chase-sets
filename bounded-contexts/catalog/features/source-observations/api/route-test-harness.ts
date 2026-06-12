@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
 import { sourceObservationRoutes } from "./route";
 import type { SourceObservationRouteServices } from "./route";
@@ -14,10 +15,10 @@ import {
 } from "./catalog-integration-rollout-controls";
 
 export const context: EventStoreContext = {
-  tenantId: "tnt_test" as never,
+  tenantId: "tnt_test" as TenantId,
   audit: {
-    performedByUserId: "usr_test" as never,
-    forAccountId: "acc_test" as never,
+    performedByUserId: "usr_test" as UserId,
+    forAccountId: "acc_test" as AccountId,
   },
 };
 

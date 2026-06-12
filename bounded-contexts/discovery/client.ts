@@ -1,5 +1,5 @@
 import { hc } from "hono/client";
-import type { HonoClientResource } from "@chase-sets/http/hono-client";
+import { honoClientResource } from "@chase-sets/http/hono-client";
 import { attachResponseMetadata } from "@chase-sets/http/responses";
 import type { buildDiscoveryApi } from "./api";
 import type { CategoryListResponse, DiscoveryCategoryItem } from "./features/categories/api/contracts";
@@ -92,9 +92,11 @@ export function createDiscoveryApiClient({
       ...init,
       credentials: init.credentials ?? credentials,
     });
-  const client = hc<DiscoveryApiApp>(baseUrl, {
-    fetch: configuredFetch,
-  }) as unknown as HonoClientResource;
+  const client = honoClientResource(
+    hc<DiscoveryApiApp>(baseUrl, {
+      fetch: configuredFetch,
+    }),
+  );
   const headers = resolveHeaders(initialHeaders);
 
   return {

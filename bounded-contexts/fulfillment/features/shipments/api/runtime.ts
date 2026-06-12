@@ -26,7 +26,12 @@ import {
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, OrderId, ShipmentId } from "@chase-sets/primitives/typed-ids";
 import type { PackagePlan } from "@chase-sets/product-measures";
-import { FulfillmentDomainError } from "../domain/common";
+import {
+  FulfillmentDomainError,
+  type ShipmentExceptionType,
+  type ShipmentLineId,
+  type ShippingMethod,
+} from "../domain/common";
 import {
   getBuyerShipment,
   getSellerShipment,
@@ -788,7 +793,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
         streamId: `fulfillment.shipment-${params.shipmentId}`,
         command: {
           type: "ConfirmShipmentPackingLine",
-          lineId: params.lineId as never,
+          lineId: params.lineId as ShipmentLineId,
           confirmedAt: new Date().toISOString(),
         },
         context,
@@ -803,7 +808,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
         streamId: `fulfillment.shipment-${params.shipmentId}`,
         command: {
           type: "UnconfirmShipmentPackingLine",
-          lineId: params.lineId as never,
+          lineId: params.lineId as ShipmentLineId,
           unconfirmedAt: new Date().toISOString(),
         },
         context,
@@ -818,7 +823,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
         streamId: `fulfillment.shipment-${params.shipmentId}`,
         command: {
           type: "SetShipmentPackingLineQuantity",
-          lineId: params.lineId as never,
+          lineId: params.lineId as ShipmentLineId,
           confirmedQuantity: params.confirmedQuantity,
           setAt: new Date().toISOString(),
         },
@@ -834,7 +839,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
         streamId: `fulfillment.shipment-${params.shipmentId}`,
         command: {
           type: "AttachShipmentLabel",
-          shippingMethod: params.shippingMethod as never,
+          shippingMethod: params.shippingMethod as ShippingMethod,
           carrierName: params.carrierName,
           labelReference: params.labelReference,
           trackingIdentifier: params.trackingIdentifier,
@@ -1105,7 +1110,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
         streamId: `fulfillment.shipment-${params.shipmentId}`,
         command: {
           type: "RaiseShipmentException",
-          exceptionType: params.exceptionType as never,
+          exceptionType: params.exceptionType as ShipmentExceptionType,
           notes: params.notes ?? null,
           raisedAt: new Date().toISOString(),
         },

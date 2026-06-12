@@ -4,6 +4,7 @@ import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PaymentServices } from "./runtime";
 import { normalizeRequestedBalanceCreditAmount } from "./balance-credit-request";
+import type { AccountId, OrderId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 
 export type PaymentsApiEnv = AuthenticatedApiEnv;
 
@@ -139,7 +140,7 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
     try {
       const payment = await services.createAccountPayment(
         {
-          accountId: access.actor.accountId as never,
+          accountId: access.actor.accountId as AccountId,
           orderIds: Array.isArray(body.orderIds) ? body.orderIds.map(String) : [],
           currencyCode: String(body.currencyCode ?? "usd"),
           requestedBalanceCreditAmount: normalizeRequestedBalanceCreditAmount(body.requestedBalanceCreditAmount),
@@ -201,8 +202,8 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
           .map((value) => value.trim()) ??
         [];
       const status = await services.getCheckoutStatus({
-        accountId: access.actor.accountId as never,
-        orderIds: orderIds.filter(Boolean) as never,
+        accountId: access.actor.accountId as AccountId,
+        orderIds: orderIds.filter(Boolean) as OrderId[],
         currencyCode: c.req.query("currencyCode") ?? "usd",
         requestedBalanceCreditAmount: c.req.query("requestedBalanceCreditAmount") ?? null,
         paymentMethodCategory: c.req.query("paymentMethodCategory") ?? null,
@@ -224,7 +225,7 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
 
     try {
       const status = await services.previewCheckoutStatus({
-        accountId: access.actor.accountId as never,
+        accountId: access.actor.accountId as AccountId,
         amount: String(c.req.query("amount") ?? "0.00"),
         currencyCode: c.req.query("currencyCode") ?? "usd",
         requestedBalanceCreditAmount: c.req.query("requestedBalanceCreditAmount") ?? null,
@@ -245,7 +246,7 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
       return access.response;
     }
 
-    const instruments = await services.listSavedCheckoutInstruments(access.actor.accountId as never);
+    const instruments = await services.listSavedCheckoutInstruments(access.actor.accountId as AccountId);
 
     return c.json({
       items: instruments
@@ -276,7 +277,7 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
       return access.response;
     }
 
-    const instruments = await services.listSavedCheckoutInstruments(access.actor.accountId as never);
+    const instruments = await services.listSavedCheckoutInstruments(access.actor.accountId as AccountId);
     return c.json({
       items: instruments.map((instrument) => ({
         instrument_id: instrument.instrument_id,
@@ -304,7 +305,7 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
     const body = await c.req.json().catch(() => ({}));
     try {
       const setup = await services.createSavedCheckoutSetupSession({
-        accountId: access.actor.accountId as never,
+        accountId: access.actor.accountId as AccountId,
         returnUrlBase: resolvePublicOrigin(c.req.url, c.req.raw.headers),
         returnUrlPath:
           body.returnUrlPath === null || body.returnUrlPath === undefined
@@ -324,7 +325,7 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
     }
     try {
       const instrument = await services.reconcileSavedCheckoutSetupSession({
-        accountId: access.actor.accountId as never,
+        accountId: access.actor.accountId as AccountId,
         setupReference: c.req.param("processorSetupReference"),
       });
       return c.json({ instrument });
@@ -339,7 +340,7 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
       return access.response;
     }
     const instrument = await services.setSavedCheckoutInstrumentDefault({
-      accountId: access.actor.accountId as never,
+      accountId: access.actor.accountId as AccountId,
       instrumentId: c.req.param("instrumentId"),
     });
     if (!instrument) {
@@ -362,7 +363,7 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
       return access.response;
     }
     const instrument = await services.removeSavedCheckoutInstrument({
-      accountId: access.actor.accountId as never,
+      accountId: access.actor.accountId as AccountId,
       instrumentId: c.req.param("instrumentId"),
     });
     if (!instrument) {
@@ -386,7 +387,7 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
     }
     return c.json(
       await services.reconcileSavedCheckoutInstruments({
-        accountId: access.actor.accountId as never,
+        accountId: access.actor.accountId as AccountId,
       }),
     );
   });
@@ -427,7 +428,7 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
     try {
       const payment = await services.recoverCheckoutPayment(
         {
-          accountId: access.actor.accountId as never,
+          accountId: access.actor.accountId as AccountId,
           orderIds: Array.isArray(body.orderIds) ? body.orderIds.map(String) : [],
           currencyCode: String(body.currencyCode ?? "usd"),
           requestedBalanceCreditAmount: normalizeRequestedBalanceCreditAmount(body.requestedBalanceCreditAmount),
@@ -488,8 +489,8 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
           .map((value) => value.trim()) ??
         [];
       const recovery = await services.getCheckoutRecoveryOptions({
-        accountId: access.actor.accountId as never,
-        orderIds: orderIds.filter(Boolean) as never,
+        accountId: access.actor.accountId as AccountId,
+        orderIds: orderIds.filter(Boolean) as OrderId[],
         currencyCode: c.req.query("currencyCode") ?? "usd",
         requestedBalanceCreditAmount: c.req.query("requestedBalanceCreditAmount") ?? null,
         paymentMethodCategory: c.req.query("paymentMethodCategory") ?? null,
@@ -614,10 +615,10 @@ export function createPaymentProcessorWebhookRoutes(services: PaymentServices) {
           signatureHeader,
         },
         {
-          tenantId: "tnt_identity" as never,
+          tenantId: "tnt_identity" as TenantId,
           audit: {
-            performedByUserId: "usr_identity_system" as never,
-            forAccountId: "acc_identity_system" as never,
+            performedByUserId: "usr_identity_system" as UserId,
+            forAccountId: "acc_identity_system" as AccountId,
           },
         } as EventStoreContext,
       );

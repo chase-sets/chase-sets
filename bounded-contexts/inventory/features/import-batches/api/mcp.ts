@@ -2,6 +2,8 @@ import { createActorEventStoreContext, type ResolvedActor } from "@chase-sets/pl
 import type { McpResourceHandler, McpToolHandler } from "@chase-sets/platform-runtime/mcp";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import { listInventoryImportSourceProfiles } from "../domain/import-source-profiles";
+import type { InventoryImportSourceKey } from "../domain/import-source-profiles";
+import type { InventoryImportQuantityMode } from "../domain/import-source-adapters";
 import type { ImportCsvRow } from "../domain/csv";
 import type { InventoryImportBatchServices } from "./runtime";
 
@@ -36,7 +38,7 @@ function ensureActorAccount(actor: ResolvedActor | null, accountId: string | nul
   return actor;
 }
 
-function parseQuantityMode(value: string | null): "add" | "replace" | undefined {
+function parseQuantityMode(value: string | null): InventoryImportQuantityMode | undefined {
   if (!value) {
     return undefined;
   }
@@ -113,8 +115,8 @@ export function createInventoryImportBatchMcpHandlers(
         accountId: scopedActor.accountId as AccountId,
         csvText: stringArgument(args, "csvText") ?? undefined,
         parsedRows: parseParsedRows(args.parsedRows),
-        sourceKey: stringArgument(args, "sourceKey") as never,
-        quantityMode: parseQuantityMode(stringArgument(args, "quantityMode")) as never,
+        sourceKey: stringArgument(args, "sourceKey") as InventoryImportSourceKey | undefined,
+        quantityMode: parseQuantityMode(stringArgument(args, "quantityMode")),
         defaultStorageLocationId: stringArgument(args, "defaultStorageLocationId"),
         sourceFilename: stringArgument(args, "sourceFilename"),
       },

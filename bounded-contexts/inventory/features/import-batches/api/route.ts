@@ -4,7 +4,9 @@ import { createDurableJobEventStream } from "@chase-sets/platform-runtime/durabl
 import type { InventoryApiEnv } from "../../../api";
 import { toInventoryImportBatchJobStatus, type InventoryImportBatchServices } from "./runtime";
 import type { ImportCsvRow } from "../domain/csv";
-import { listInventoryImportSourceProfiles } from "../domain/import-source-profiles";
+import { listInventoryImportSourceProfiles, type InventoryImportSourceKey } from "../domain/import-source-profiles";
+import type { InventoryImportQuantityMode } from "../domain/import-source-adapters";
+import type { AccountId } from "@chase-sets/primitives/typed-ids";
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("inventory.features.importBatches.api.route.request.failed");
@@ -95,11 +97,11 @@ export function inventoryImportBatchRoutes(services: InventoryImportBatchService
     try {
       const job = await services.enqueueCreateBatchJob(
         {
-          accountId: actor.accountId as never,
+          accountId: actor.accountId as AccountId,
           csvText: body.csvText,
           parsedRows: body.parsedRows,
-          sourceKey: body.sourceKey as never,
-          quantityMode: body.quantityMode as never,
+          sourceKey: body.sourceKey as InventoryImportSourceKey | undefined,
+          quantityMode: body.quantityMode as InventoryImportQuantityMode | undefined,
           defaultStorageLocationId: body.defaultStorageLocationId,
           sourceFilename: body.sourceFilename,
         },
@@ -152,7 +154,7 @@ export function inventoryImportBatchRoutes(services: InventoryImportBatchService
       const job = await services.enqueueCommitBatchJob(
         {
           batchId: c.req.param("id"),
-          accountId: actor.accountId as never,
+          accountId: actor.accountId as AccountId,
         },
         c.get("context"),
       );

@@ -1,11 +1,14 @@
 import { t } from "@chase-sets/localization";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createInMemoryRateLimiter } from "@chase-sets/http/rate-limit";
 import { Hono } from "hono";
 import type { CheckoutApiEnv } from "../../../api";
+import type { CartLineId } from "../../../support/runtime-support/common";
 import type { CheckoutObservabilityTelemetry } from "../../sessions/api/checkout-observability-telemetry";
 import { recordCartReadinessObservability } from "./cart-readiness-observability";
 import { parseCartReadinessDecisionInput } from "../domain/readiness";
 import type { CheckoutCartServices } from "./runtime";
+import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 
 const MAX_ANONYMOUS_CART_LINES = 50;
 const ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
@@ -67,15 +70,15 @@ function optionalBodyString(value: unknown): string | null {
   return value === null || value === undefined ? null : String(value);
 }
 
-function createGuestCheckoutContext() {
+function createGuestCheckoutContext(): EventStoreContext {
   return {
-    tenantId: "tnt_identity",
+    tenantId: "tnt_identity" as TenantId,
     audit: {
-      performedByUserId: "usr_guest_checkout",
-      forAccountId: "acc_guest_checkout",
+      performedByUserId: "usr_guest_checkout" as UserId,
+      forAccountId: "acc_guest_checkout" as AccountId,
     },
     trace: {},
-  } as never;
+  };
 }
 
 function parseVersionSelection(value: unknown) {
@@ -266,7 +269,7 @@ export function createAccountCartRoutes(
     try {
       const result = await services.addLine(
         {
-          accountId: access.actor.accountId as never,
+          accountId: access.actor.accountId as AccountId,
           ...parseCartLineBody(body),
         },
         context,
@@ -303,7 +306,7 @@ export function createAccountCartRoutes(
     try {
       const result = await services.addLines(
         {
-          accountId: access.actor.accountId as never,
+          accountId: access.actor.accountId as AccountId,
           lines: rawLines
             .filter((line: unknown): line is Record<string, unknown> => Boolean(line && typeof line === "object"))
             .map(parseCartLineBody),
@@ -341,8 +344,8 @@ export function createAccountCartRoutes(
     try {
       const result = await services.setLineQuantity(
         {
-          accountId: access.actor.accountId as never,
-          lineId: c.req.param("lineId") as never,
+          accountId: access.actor.accountId as AccountId,
+          lineId: c.req.param("lineId") as CartLineId,
           quantity: Number(body.quantity ?? 0),
         },
         context,
@@ -379,8 +382,8 @@ export function createAccountCartRoutes(
     try {
       const result = await services.setLineFulfillment(
         {
-          accountId: access.actor.accountId as never,
-          lineId: c.req.param("lineId") as never,
+          accountId: access.actor.accountId as AccountId,
+          lineId: c.req.param("lineId") as CartLineId,
           availabilityState:
             body.availabilityState === "unavailable" ||
             body.availabilityState === "changed" ||
@@ -420,8 +423,8 @@ export function createAccountCartRoutes(
     try {
       const result = await services.removeLine(
         {
-          accountId: access.actor.accountId as never,
-          lineId: c.req.param("lineId") as never,
+          accountId: access.actor.accountId as AccountId,
+          lineId: c.req.param("lineId") as CartLineId,
         },
         context,
       );
@@ -523,7 +526,7 @@ export function createGuestCartRoutes(
 
       const result = await services.addLine(
         {
-          accountId: ownerId as never,
+          accountId: ownerId as AccountId,
           ...line,
         },
         context,
@@ -570,7 +573,7 @@ export function createGuestCartRoutes(
 
       const result = await services.addLines(
         {
-          accountId: ownerId as never,
+          accountId: ownerId as AccountId,
           lines,
         },
         context,
@@ -602,8 +605,8 @@ export function createGuestCartRoutes(
     try {
       const result = await services.setLineQuantity(
         {
-          accountId: ownerId as never,
-          lineId: c.req.param("lineId") as never,
+          accountId: ownerId as AccountId,
+          lineId: c.req.param("lineId") as CartLineId,
           quantity: Number(body.quantity ?? 0),
         },
         context,
@@ -636,8 +639,8 @@ export function createGuestCartRoutes(
     try {
       const result = await services.setLineFulfillment(
         {
-          accountId: ownerId as never,
-          lineId: c.req.param("lineId") as never,
+          accountId: ownerId as AccountId,
+          lineId: c.req.param("lineId") as CartLineId,
           availabilityState:
             body.availabilityState === "unavailable" ||
             body.availabilityState === "changed" ||
@@ -674,8 +677,8 @@ export function createGuestCartRoutes(
     try {
       const result = await services.removeLine(
         {
-          accountId: ownerId as never,
-          lineId: c.req.param("lineId") as never,
+          accountId: ownerId as AccountId,
+          lineId: c.req.param("lineId") as CartLineId,
         },
         context,
       );
@@ -713,7 +716,7 @@ export function createGuestCartRoutes(
     const result = await services.mergeCartIntoAccount(
       {
         sourceOwnerId: ownerId,
-        targetAccountId: access.actor.accountId as never,
+        targetAccountId: access.actor.accountId as AccountId,
       },
       context,
     );

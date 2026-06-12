@@ -1,24 +1,11 @@
-import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import type { ChaseSetsEventPayloads } from "@chase-sets/event-core";
+import { defineProjectorHandlers, type ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
 export function buildPayoutReadinessProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
-  return {
+  return defineProjectorHandlers<Pick<ChaseSetsEventPayloads, "settlement.payout-readiness.recorded">>({
     "settlement.payout-readiness.recorded": async (event) => {
-      const data = event.data as unknown as {
-        accountId: string;
-        status: string;
-        missingRequirements: readonly string[];
-        providerReference: string | null;
-        onboardingStatus?: string;
-        transferCapabilityStatus?: string;
-        payoutCapabilityStatus?: string;
-        payoutDestinationStatus?: string;
-        payoutAccountDashboard?: string;
-        lossesCollector?: string;
-        feesCollector?: string;
-        requirementsCollector?: string;
-        recordedAt: string;
-      };
+      const data = event.data;
 
       await db.query(
         `INSERT INTO settlement_payout_readiness_pages (
@@ -70,5 +57,5 @@ export function buildPayoutReadinessProjectionHandlers(db: PgQueryable): Project
         ],
       );
     },
-  };
+  });
 }

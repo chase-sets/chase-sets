@@ -2,7 +2,7 @@ import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
 import type { PlatformFeedbackServices } from "./runtime";
-import type { PlatformFeedbackRelatedEntity } from "../domain/common";
+import { normalizeTopic, normalizeWorkflow, type PlatformFeedbackRelatedEntity } from "../domain/common";
 
 export type ExperienceApiEnv = AuthenticatedApiEnv;
 
@@ -81,7 +81,7 @@ export function createPlatformFeedbackRoutes(services: PlatformFeedbackServices)
       return c.json(
         await services.getPromptEligibility({
           accountId: access.actor.accountId,
-          workflow: c.req.query("workflow") as never,
+          workflow: normalizeWorkflow(c.req.query("workflow") ?? ""),
           relatedEntities: relatedEntitiesFromQuery(c),
         }),
       );
@@ -110,10 +110,10 @@ export function createPlatformFeedbackRoutes(services: PlatformFeedbackServices)
           userId: access.actor.userId,
           accountId: access.actor.accountId,
           rating: Number(body.rating ?? 0),
-          topic: String(body.topic ?? "") as never,
+          topic: normalizeTopic(String(body.topic ?? "")),
           comment: typeof body.comment === "string" ? body.comment : null,
           followUpConsent: Boolean(body.followUpConsent),
-          workflow: String(body.workflow ?? "") as never,
+          workflow: normalizeWorkflow(String(body.workflow ?? "")),
           sourceRoutePath: String(body.sourceRoutePath ?? ""),
           relatedEntities: relatedEntitiesFromBody(body.relatedEntities),
         },
@@ -144,7 +144,7 @@ export function createPlatformFeedbackRoutes(services: PlatformFeedbackServices)
         {
           userId: access.actor.userId,
           accountId: access.actor.accountId,
-          workflow: String(body.workflow ?? "") as never,
+          workflow: normalizeWorkflow(String(body.workflow ?? "")),
           sourceRoutePath: String(body.sourceRoutePath ?? ""),
           relatedEntities: relatedEntitiesFromBody(body.relatedEntities),
         },

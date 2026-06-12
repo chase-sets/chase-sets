@@ -1,10 +1,11 @@
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import type { ShipmentStatus } from "../../features/shipments/domain/common";
+import type { ShipmentLineId, ShipmentStatus } from "../../features/shipments/domain/common";
 import { fulfillmentReservedSeedIds } from "@chase-sets/fulfillment/seed-support/ids";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { createFulfillmentServices } from "./services";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
+import type { AccountId, OrderId, ShipmentId, TenantId } from "@chase-sets/primitives/typed-ids";
 
 type OrderSnapshot = Readonly<{
   order_id: string;
@@ -26,7 +27,7 @@ type OrderSnapshot = Readonly<{
 
 function createSeedContext(): EventStoreContext {
   return {
-    tenantId: "tnt_seed_development" as never,
+    tenantId: "tnt_seed_development" as TenantId,
     audit: {
       performedByUserId: identitySeedIds.demo.userId,
       forAccountId: identitySeedIds.demo.accountId,
@@ -137,15 +138,15 @@ export async function seedFulfillmentDatabase(pool: PgTransactionalPool) {
       streamId: `fulfillment.shipment-${shipmentId}`,
       command: {
         type: "CreateShipment",
-        shipmentId: shipmentId as never,
-        orderId: order.order_id as never,
-        buyerAccountId: order.buyer_account_id as never,
-        sellerAccountId: order.seller_account_id as never,
+        shipmentId: shipmentId as ShipmentId,
+        orderId: order.order_id as OrderId,
+        buyerAccountId: order.buyer_account_id as AccountId,
+        sellerAccountId: order.seller_account_id as AccountId,
         shippingOption: order.shipping_option,
         shippingDestinationSnapshot: order.shipping_destination_snapshot,
         shippingOriginSnapshot: order.shipping_origin_snapshot,
         lines: order.lines.map((line, index) => ({
-          lineId: `spl_seed_${shipmentId}_${index}` as never,
+          lineId: `spl_seed_${shipmentId}_${index}` as ShipmentLineId,
           orderLineId: line.line_id,
           catalogItemId: line.catalog_catalog_item_id,
           productId: line.product_id,
@@ -183,7 +184,7 @@ export async function seedFulfillmentDatabase(pool: PgTransactionalPool) {
           streamId: `fulfillment.shipment-${shipmentId}`,
           command: {
             type: "ConfirmShipmentPackingLine",
-            lineId: `spl_seed_${shipmentId}_${index}` as never,
+            lineId: `spl_seed_${shipmentId}_${index}` as ShipmentLineId,
             confirmedAt: new Date().toISOString(),
           },
           context,

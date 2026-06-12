@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { InventoryApiEnv } from "../../../api";
 import type { StorageLocationServices } from "./runtime";
+import type { AccountId } from "@chase-sets/primitives/typed-ids";
 
 function parseShipFromAddress(value: unknown) {
   const source = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
@@ -41,7 +42,7 @@ export function inventoryStorageLocationRoutes(services: StorageLocationServices
     const body = await c.req.json();
     const result = await services.createStorageLocation(
       {
-        accountId: actor.accountId as never,
+        accountId: actor.accountId as AccountId,
         name: String(body.name ?? ""),
         description: typeof body.description === "string" ? body.description : null,
         shipFromCode: String(body.shipFromCode ?? ""),

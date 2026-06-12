@@ -1,5 +1,5 @@
 import { hc } from "hono/client";
-import type { HonoClientResource } from "@chase-sets/http/hono-client";
+import { honoClientResource } from "@chase-sets/http/hono-client";
 import { attachResponseMetadata } from "@chase-sets/http/responses";
 import type { buildCheckoutApi } from "./api";
 import type { CheckoutCartLine } from "./features/cart/api/contracts";
@@ -295,9 +295,11 @@ export function createCheckoutApiClient({
       timeout?.cleanup();
     }
   };
-  const client = hc<CheckoutApiApp>(baseUrl, {
-    fetch: configuredFetch,
-  }) as unknown as HonoClientResource;
+  const client = honoClientResource(
+    hc<CheckoutApiApp>(baseUrl, {
+      fetch: configuredFetch,
+    }),
+  );
   const headers = resolveHeaders(initialHeaders);
 
   return {

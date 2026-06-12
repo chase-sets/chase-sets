@@ -2,6 +2,7 @@ import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { SettlementApiEnv } from "../../../api";
 import type { PayoutReadinessServices } from "./runtime";
+import type { AccountId } from "@chase-sets/primitives/typed-ids";
 
 function requirePayoutReadinessAccess(
   c: {
@@ -134,7 +135,7 @@ export function createPayoutReadinessRoutes(services: PayoutReadinessServices) {
       const refreshUrl = hostedRedirectUrlFromBody(body, "refreshUrl", c.req.raw);
       const result = await services.createOnboardingSession(
         {
-          accountId: access.actor.accountId as never,
+          accountId: access.actor.accountId as AccountId,
           contactEmail: typeof body.contactEmail === "string" ? body.contactEmail : null,
           returnUrl,
           refreshUrl,
@@ -172,7 +173,7 @@ export function createPayoutReadinessRoutes(services: PayoutReadinessServices) {
     try {
       const result = await services.createPayoutSetupSession(
         {
-          accountId: access.actor.accountId as never,
+          accountId: access.actor.accountId as AccountId,
           contactEmail: typeof body.contactEmail === "string" ? body.contactEmail : null,
         },
         context,
@@ -208,7 +209,7 @@ export function createPayoutReadinessRoutes(services: PayoutReadinessServices) {
     try {
       const result = await services.createAccountManagementSession(
         {
-          accountId: access.actor.accountId as never,
+          accountId: access.actor.accountId as AccountId,
           returnUrl: hostedRedirectUrlFromBody(body, "returnUrl", c.req.raw),
         },
         context,
@@ -242,7 +243,7 @@ export function createPayoutReadinessRoutes(services: PayoutReadinessServices) {
     try {
       const result = await services.createPayoutAccountManagementSession(
         {
-          accountId: access.actor.accountId as never,
+          accountId: access.actor.accountId as AccountId,
         },
         context,
       );
@@ -277,7 +278,7 @@ export function createPayoutReadinessRoutes(services: PayoutReadinessServices) {
     try {
       const readiness = await services.refreshProviderReadiness(
         {
-          accountId: access.actor.accountId as never,
+          accountId: access.actor.accountId as AccountId,
           contactEmail: typeof body.contactEmail === "string" ? body.contactEmail : null,
           providerReference: typeof body.providerReference === "string" ? body.providerReference : null,
         },

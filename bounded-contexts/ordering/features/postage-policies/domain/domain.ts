@@ -302,7 +302,7 @@ export const decidePostagePolicy: AggregateDecider<PostagePolicyState, PostagePo
         },
       ];
     default:
-      throw assertNever(command as never);
+      throw assertNever(command);
   }
 };
 
@@ -339,7 +339,7 @@ export const evolvePostagePolicy: AggregateEvolver<PostagePolicyState, PostagePo
         status: "retired",
       };
     default:
-      throw assertNever(event as never);
+      throw assertNever(event);
   }
 };
 

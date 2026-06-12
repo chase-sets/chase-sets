@@ -7,6 +7,7 @@ import {
   normalizeSource,
   normalizeWaitlistInterests,
   normalizeWaitlistCommerceIntent,
+  PublicPresenceDomainError,
   stableWaitlistSignupId,
   type WaitlistInterest,
   type WaitlistCommerceIntent,
@@ -125,7 +126,7 @@ export const decideWaitlistSignup: AggregateDecider<WaitlistSignupState, Waitlis
       ];
     }
     default:
-      return assertNever(command as never);
+      throw new PublicPresenceDomainError(`Unsupported waitlist command: ${JSON.stringify(command)}`);
   }
 };
 
@@ -153,6 +154,6 @@ export const evolveWaitlistSignup: AggregateEvolver<WaitlistSignupState, Waitlis
         updatedAt: event.data.updatedAt,
       };
     default:
-      return assertNever(event as never);
+      return assertNever(event);
   }
 };

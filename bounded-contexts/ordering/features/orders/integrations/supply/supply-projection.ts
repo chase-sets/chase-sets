@@ -1,5 +1,8 @@
-import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import type { ChaseSetsEventPayloads } from "@chase-sets/event-core";
+import { defineProjectorHandlers, type ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
+import type { JsonValue } from "@chase-sets/primitives/json";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
 type AcceptedOfferParams = Readonly<{
@@ -16,7 +19,7 @@ type AcceptedOfferParams = Readonly<{
   marketplaceSalesFeeUnitAmount: string;
   sellerNetUnitAmount: string;
   shippingAllowancePercentageBps: number;
-  shippingDestinationSnapshot: unknown;
+  shippingDestinationSnapshot: AddressSnapshot;
   termsScheduleId: string | null;
   termsAgreementId: string | null;
   termsResolvedAt: string;
@@ -32,7 +35,21 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
     onOfferAccepted?: (params: AcceptedOfferParams) => Promise<void>;
   }> = {},
 ): ProjectorHandlerMap {
-  return {
+  return defineProjectorHandlers<
+    Pick<
+      ChaseSetsEventPayloads,
+      | "marketplace.listing.created"
+      | "marketplace.listing.price-updated"
+      | "marketplace.listing.quantity-cap-updated"
+      | "marketplace.listing.purchase-limits-updated"
+      | "marketplace.listing.published"
+      | "marketplace.listing.paused"
+      | "marketplace.listing.withdrawn"
+      | "marketplace.seller-listing-availability.disabled"
+      | "marketplace.seller-listing-availability.enabled"
+      | "marketplace.offer.accepted"
+    >
+  >({
     "marketplace.listing.created": async (event) => {
       const data = event.data as {
         listingId: string;
@@ -356,10 +373,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
       );
     },
     "marketplace.offer.accepted": async (event) => {
-      const data = event.data as unknown as Omit<AcceptedOfferParams, "context"> &
-        Readonly<{
-          acceptedAt: string;
-        }>;
+      const data = event.data;
 
       await db.query(
         `INSERT INTO ordering_offer_acceptance_inputs (
@@ -445,7 +459,7 @@ export function buildOrderingMarketplaceSupplyProjectionHandlers(
         } as EventStoreContext,
       });
     },
-  };
+  });
 }
 
 export function buildOrderingInventorySupplyProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {

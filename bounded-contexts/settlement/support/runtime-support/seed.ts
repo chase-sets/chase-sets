@@ -2,8 +2,10 @@ import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { paymentsReservedSeedIds } from "@chase-sets/payments/seed-support/ids";
 import { settlementReservedSeedIds } from "@chase-sets/settlement/seed-support/ids";
+import { normalizeCurrencyCode } from "./common";
 import { createSettlementServices } from "./services";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { TenantId } from "@chase-sets/primitives/typed-ids";
 
 type SeedPaymentSourceRow = Readonly<{
   amount: string;
@@ -14,7 +16,7 @@ type SeedPaymentSourceRow = Readonly<{
 
 function createSeedContext(): EventStoreContext {
   return {
-    tenantId: "tnt_seed_development" as never,
+    tenantId: "tnt_seed_development" as TenantId,
     audit: {
       performedByUserId: identitySeedIds.demo.userId,
       forAccountId: identitySeedIds.demo.accountId,
@@ -60,7 +62,7 @@ export async function seedSettlementDatabase(pool: PgTransactionalPool) {
   await services.wallets.ensureWallet(
     {
       accountId: sellerAccountId,
-      currencyCode: seedPayment.currency_code as never,
+      currencyCode: normalizeCurrencyCode(seedPayment.currency_code),
       openedAt: seedPayment.captured_at ?? "2026-03-24T08:00:00.000Z",
     },
     context,
@@ -72,7 +74,7 @@ export async function seedSettlementDatabase(pool: PgTransactionalPool) {
       kind: "sale",
       direction: "credit",
       amount: seedPayment.amount,
-      currencyCode: seedPayment.currency_code as never,
+      currencyCode: normalizeCurrencyCode(seedPayment.currency_code),
       fundsStatus: "pending",
       paymentId: paymentsReservedSeedIds.payments.acceptedOfferCaptured,
       description: "Captured order awaiting settlement release",

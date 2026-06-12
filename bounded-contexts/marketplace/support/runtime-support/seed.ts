@@ -5,11 +5,12 @@ import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { inventorySeedIds } from "@chase-sets/inventory/seed-support/ids";
 import { marketplaceReservedSeedIds, reputationReservedSeedIds } from "@chase-sets/marketplace/seed-support/ids";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
-import type { AccountId, ListingId, OfferId, UserId } from "@chase-sets/primitives/typed-ids";
+import type { AccountId, ListingId, OfferId, UserId, OrderId, TenantId } from "@chase-sets/primitives/typed-ids";
 import {
   createMarketplaceProductDescriptor,
   type MarketplaceVersionSchema,
 } from "../../features/offers/domain/versioning";
+import type { ReviewRole } from "../../features/reviews/domain/common";
 import { requiresListingPhotoEvidence } from "../../features/listings/domain/domain";
 import type { MarketplaceListingPhotoUpload } from "../../features/listings/api/runtime";
 import { quoteMarketplaceTerms } from "./fee-quotes";
@@ -682,10 +683,10 @@ function createSeedContext() {
 
 function createSeedContextFor(accountId: string, userId: string) {
   return {
-    tenantId: "tnt_identity" as never,
+    tenantId: "tnt_identity" as TenantId,
     audit: {
-      performedByUserId: userId as never,
-      forAccountId: accountId as never,
+      performedByUserId: userId as UserId,
+      forAccountId: accountId as AccountId,
     },
   };
 }
@@ -812,10 +813,10 @@ export async function seedMarketplaceDatabase(
 
 function createReputationSeedContext(accountId: string, userId: string): EventStoreContext {
   return {
-    tenantId: "tnt_seed_development" as never,
+    tenantId: "tnt_seed_development" as TenantId,
     audit: {
-      performedByUserId: userId as never,
-      forAccountId: accountId as never,
+      performedByUserId: userId as UserId,
+      forAccountId: accountId as AccountId,
     },
   };
 }
@@ -880,10 +881,10 @@ export async function seedReputationData(
     command: {
       type: "SubmitReview",
       reviewId: reputationReservedSeedIds.reviews.buyerToSellerActive,
-      orderId: buyerToSellerOpportunity.order_id as never,
+      orderId: buyerToSellerOpportunity.order_id as OrderId,
       authorAccountId: identitySeedIds.collector.accountId,
-      subjectAccountId: buyerToSellerOpportunity.subject_account_id as never,
-      authorRole: buyerToSellerOpportunity.author_role as never,
+      subjectAccountId: buyerToSellerOpportunity.subject_account_id as AccountId,
+      authorRole: buyerToSellerOpportunity.author_role as ReviewRole,
       rating: 4,
       feedback: "Packed well and shipped exactly as described.",
       submittedAt: "2026-03-23T09:00:00.000Z",
@@ -906,10 +907,10 @@ export async function seedReputationData(
     command: {
       type: "SubmitReview",
       reviewId: reputationReservedSeedIds.reviews.sellerToBuyerWithdrawn,
-      orderId: sellerToBuyerOpportunity.order_id as never,
+      orderId: sellerToBuyerOpportunity.order_id as OrderId,
       authorAccountId: identitySeedIds.demo.accountId,
-      subjectAccountId: sellerToBuyerOpportunity.subject_account_id as never,
-      authorRole: sellerToBuyerOpportunity.author_role as never,
+      subjectAccountId: sellerToBuyerOpportunity.subject_account_id as AccountId,
+      authorRole: sellerToBuyerOpportunity.author_role as ReviewRole,
       rating: 3,
       feedback: "Responsive but asked for extra packing photos.",
       submittedAt: "2026-03-23T09:15:00.000Z",

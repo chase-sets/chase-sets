@@ -23,7 +23,7 @@ import {
   type DurableJobWorkUnitSummary,
 } from "@chase-sets/platform-runtime/durable-job-work-units";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import type { JsonValue } from "@chase-sets/primitives/json";
+import { toJsonValue, type JsonValue } from "@chase-sets/primitives/json";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import { withCatalogAdminRealtimeInvalidation } from "../../../support/projection-support/realtime-invalidation";
@@ -4803,7 +4803,7 @@ export async function ensurePokemonReferenceHierarchy(input: {
 }): Promise<ReferenceRecordId> {
   const result = await provisionCatalogProviderReferenceHierarchy({
     profile: input.profile,
-    payload: input.normalized as unknown as JsonValue,
+    payload: toJsonValue(input.normalized),
     provisioner: {
       ensureReferenceType: (def) => ensureReferenceType(input, def),
       ensureReferenceRecord: (def) => ensureReferenceRecord(input, def),

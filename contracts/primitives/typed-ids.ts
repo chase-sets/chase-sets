@@ -8,6 +8,14 @@ export function createId<Prefix extends string>(prefix: Prefix): TypedUlid<Prefi
   return `${prefix}_${ulid()}` as TypedUlid<Prefix>;
 }
 
+export function parseTypedId<Prefix extends string>(value: string, prefix: Prefix): TypedUlid<Prefix> {
+  if (!value.startsWith(`${prefix}_`)) {
+    throw new Error(`Expected '${prefix}_' id prefix.`);
+  }
+
+  return value as TypedUlid<Prefix>;
+}
+
 export type EventId = TypedUlid<"evt">;
 
 export type TenantId = TypedUlid<"tnt">;

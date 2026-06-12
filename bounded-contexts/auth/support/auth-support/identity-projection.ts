@@ -10,7 +10,7 @@ import {
   upsertRow,
   type PgQueryable,
 } from "@chase-sets/event-core-postgres";
-import { type AccountId, type UserId } from "@chase-sets/primitives/typed-ids";
+import { type AccountId, type UserId, type TenantId } from "@chase-sets/primitives/typed-ids";
 import {
   AUTH_BOOTSTRAP_ACCOUNT_ID,
   AUTH_BOOTSTRAP_TENANT_ID,
@@ -335,7 +335,7 @@ export function normalizeAuthPhoneNumber(value: string): string {
 
 export function createAuthBootstrapContext(): EventStoreContext {
   return {
-    tenantId: AUTH_BOOTSTRAP_TENANT_ID as never,
+    tenantId: AUTH_BOOTSTRAP_TENANT_ID as TenantId,
     audit: {
       performedByUserId: AUTH_BOOTSTRAP_USER_ID as UserId,
       forAccountId: AUTH_BOOTSTRAP_ACCOUNT_ID as AccountId,

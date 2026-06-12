@@ -1,5 +1,5 @@
 import type { GlobalPosition, StreamId, StreamVersion } from "./storage";
-import type { TransportEvent } from "./transport";
+import type { TransportEvent, TransportEventPayload, TypedTransportEvent } from "./transport";
 
 export type ProjectionErrorPolicy = "strict-per-stream" | "global-strict";
 
@@ -97,9 +97,30 @@ export type ProjectorHandlerContext = Readonly<{
   };
 }>;
 
-export type ProjectorHandler = (event: Readonly<TransportEvent>, context?: ProjectorHandlerContext) => Promise<void>;
+export type EventPayloadMap = Readonly<Record<string, TransportEventPayload>>;
+
+export type ProjectorHandler<
+  TPayload extends TransportEventPayload = TransportEventPayload,
+  TEventType extends string = string,
+> = (event: Readonly<TypedTransportEvent<TPayload, TEventType>>, context?: ProjectorHandlerContext) => Promise<void>;
 
 export type ProjectorHandlerMap = Readonly<Record<string, ProjectorHandler>>;
+
+export type TypedProjectorHandlerMap<TEventPayloads extends EventPayloadMap> = Readonly<{
+  [TEventType in keyof TEventPayloads & string]?: ProjectorHandler<TEventPayloads[TEventType], TEventType>;
+}>;
+
+export function defineProjectorHandlers<TEventPayloads extends EventPayloadMap>(
+  handlers: TypedProjectorHandlerMap<TEventPayloads>,
+): ProjectorHandlerMap {
+  const untypedHandlers: Record<string, ProjectorHandler> = {};
+  for (const [eventType, handler] of Object.entries(handlers)) {
+    if (handler) {
+      untypedHandlers[eventType] = handler as ProjectorHandler;
+    }
+  }
+  return untypedHandlers;
+}
 
 export type TransactionalProjectorHandlerContext = Readonly<
   ProjectorHandlerContext & {
@@ -107,15 +128,20 @@ export type TransactionalProjectorHandlerContext = Readonly<
   }
 >;
 
-export type TransactionalProjectorHandler = (
-  event: Readonly<TransportEvent>,
+export type TransactionalProjectorHandler<
+  TPayload extends TransportEventPayload = TransportEventPayload,
+  TEventType extends string = string,
+> = (
+  event: Readonly<TypedTransportEvent<TPayload, TEventType>>,
   context: TransactionalProjectorHandlerContext,
 ) => Promise<void>;
 
-export type TransactionalProjectorHandlerMap = Readonly<Record<string, TransactionalProjectorHandler>>;
+export type TransactionalProjectorHandlerMap<TEventPayloads extends EventPayloadMap = EventPayloadMap> = Readonly<{
+  [TEventType in keyof TEventPayloads & string]?: TransactionalProjectorHandler<TEventPayloads[TEventType], TEventType>;
+}>;
 
-export function createTransactionalProjectorHandlerMap(
-  handlers: TransactionalProjectorHandlerMap,
+export function createTransactionalProjectorHandlerMap<TEventPayloads extends EventPayloadMap = EventPayloadMap>(
+  handlers: TransactionalProjectorHandlerMap<TEventPayloads>,
 ): ProjectorHandlerMap {
   return Object.fromEntries(
     Object.entries(handlers).map(([eventType, handler]) => [

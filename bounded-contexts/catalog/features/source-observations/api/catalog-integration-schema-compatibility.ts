@@ -267,9 +267,12 @@ export const catalogIntegrationSchemaCompatibilityPolicies = [
 
 export const catalogIntegrationSchemaCompatibilityPoliciesByKey: Readonly<
   Record<CatalogIntegrationSchemaCompatibilitySurfaceKey, CatalogIntegrationSchemaCompatibilityPolicy>
-> = Object.fromEntries(
-  catalogIntegrationSchemaCompatibilityPolicies.map((policy) => [policy.key, policy]),
-) as unknown as Readonly<
+> = catalogIntegrationSchemaCompatibilityPolicies.reduce<
+  Partial<Record<CatalogIntegrationSchemaCompatibilitySurfaceKey, CatalogIntegrationSchemaCompatibilityPolicy>>
+>((policies, policy) => {
+  policies[policy.key] = policy;
+  return policies;
+}, {}) as Readonly<
   Record<CatalogIntegrationSchemaCompatibilitySurfaceKey, CatalogIntegrationSchemaCompatibilityPolicy>
 >;
 

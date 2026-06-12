@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import { createInMemoryRateLimiter } from "@chase-sets/http/rate-limit";
 import { Hono } from "hono";
+import type { AccountId, ListingId } from "@chase-sets/primitives/typed-ids";
 import type { MarketplaceApiEnv } from "../../../api";
 import {
   MarketplaceSalesFeeQuoteStaleError,
@@ -159,6 +160,7 @@ function parseInventorySnapshot(body: Record<string, unknown>) {
   }
 
   const source = snapshot as Record<string, unknown>;
+  // Dynamic draft snapshot ship-from address still needs an AddressSnapshot parser.
   const shipFromAddress =
     source.shipFromAddress && typeof source.shipFromAddress === "object" ? (source.shipFromAddress as never) : null;
 
@@ -171,6 +173,7 @@ function parseInventorySnapshot(body: Record<string, unknown>) {
     catalogItemId: String(source.catalogItemId ?? ""),
     productId: String(source.productId ?? ""),
     selectedOptions: parseSelectedOptions(source.selectedOptions),
+    // Dynamic draft snapshot graded-card shape still needs a dedicated parser.
     gradedCard: source.gradedCard && typeof source.gradedCard === "object" ? (source.gradedCard as never) : null,
     storageLocationId: String(source.storageLocationId ?? ""),
     storageLocationName: String(source.storageLocationName ?? ""),
@@ -543,19 +546,19 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
               quantityCap: Number(body.quantityCap ?? 0),
               purchaseLimits: parsePurchaseLimits(body),
               listingPhotoUploads,
-              listingIdOverride: parseOptionalString(body.listingIdOverride) as never,
+              listingIdOverride: parseOptionalString(body.listingIdOverride) as ListingId,
             },
             context,
           )
         : await services.createListing(
             {
-              accountId: access.actor.accountId as never,
+              accountId: access.actor.accountId as AccountId,
               inventoryItemId: String(body.inventoryItemId ?? ""),
               priceAmount: String(body.priceAmount ?? ""),
               quantityCap: Number(body.quantityCap ?? 0),
               purchaseLimits: parsePurchaseLimits(body),
               listingPhotoUploads,
-              listingIdOverride: parseOptionalString(body.listingIdOverride) as never,
+              listingIdOverride: parseOptionalString(body.listingIdOverride) as ListingId,
             },
             context,
           );

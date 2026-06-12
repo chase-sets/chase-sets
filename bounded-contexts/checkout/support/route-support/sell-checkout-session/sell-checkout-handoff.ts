@@ -1,4 +1,5 @@
 import { t } from "@chase-sets/localization";
+import type { SellListLineId } from "../../runtime-support/common";
 import { MarketplaceApiError } from "@chase-sets/marketplace/server";
 import type {
   CheckoutSellListConfirmationRow,
@@ -238,7 +239,7 @@ export async function performMarketplaceHandoff(
     }
 
     lineOutcomes.push({
-      lineId: line.line_id as never,
+      lineId: line.line_id as SellListLineId,
       itemTitle: line.item_title,
       status: remainingQuantity > 0 ? "partial" : "completed",
       action:

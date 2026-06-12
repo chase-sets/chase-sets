@@ -3,6 +3,7 @@ import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { identitySeedIds } from "../seed-support/ids";
 import { createIdentityServices } from "./services";
 import { createIdentityBootstrapContext } from "./bootstrap-context";
+import type { AccountId, ConsentId, MembershipId, ShippingAddressId, UserId } from "@chase-sets/primitives/typed-ids";
 
 const DEMO_CONTACT_METHOD_ID = "ctm_seed_demo_sms";
 const DEMO_PASSKEY_ID = "crd_seed_demo_passkey";
@@ -783,7 +784,7 @@ async function seedRepresentativeIdentityAccounts(
         streamId: `identity.account-${account.accountId}`,
         command: {
           type: "CreateAccount",
-          accountId: account.accountId as never,
+          accountId: account.accountId as AccountId,
           name: account.name,
           accountType: account.accountType,
           displayName: account.displayName,
@@ -797,7 +798,7 @@ async function seedRepresentativeIdentityAccounts(
         streamId: `identity.user-${account.userId}`,
         command: {
           type: "CreateUser",
-          userId: account.userId as never,
+          userId: account.userId as UserId,
           displayName: account.name,
           primaryEmail: account.primaryEmail,
           givenName: account.givenName,
@@ -826,9 +827,9 @@ async function seedRepresentativeIdentityAccounts(
         streamId: `identity.membership-${account.membershipId}`,
         command: {
           type: "GrantMembership",
-          membershipId: account.membershipId as never,
-          userId: account.userId as never,
-          accountId: account.accountId as never,
+          membershipId: account.membershipId as MembershipId,
+          userId: account.userId as UserId,
+          accountId: account.accountId as AccountId,
           roleKey: account.roleKey,
         },
         context,
@@ -840,10 +841,10 @@ async function seedRepresentativeIdentityAccounts(
         streamId: `identity.consent-${account.consentId}`,
         command: {
           type: "RecordConsent",
-          consentId: account.consentId as never,
+          consentId: account.consentId as ConsentId,
           subjectType: "user",
-          userId: account.userId as never,
-          accountId: account.accountId as never,
+          userId: account.userId as UserId,
+          accountId: account.accountId as AccountId,
           policyKey: "terms-of-service",
           policyVersion: "v1",
           recordedAt: REPRESENTATIVE_SEEDED_AT,
@@ -859,8 +860,8 @@ async function seedRepresentativeIdentityAccounts(
         streamId: `identity.shipping-address-book-${account.accountId}`,
         command: {
           type: "AddShippingAddress",
-          accountId: account.accountId as never,
-          shippingAddressId: account.shippingAddressId as never,
+          accountId: account.accountId as AccountId,
+          shippingAddressId: account.shippingAddressId as ShippingAddressId,
           label: "Representative staging address",
           address: account.shippingAddress,
           makeDefault: true,

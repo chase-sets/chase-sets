@@ -1,20 +1,18 @@
-import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import type { ChaseSetsEventPayloads } from "@chase-sets/event-core";
+import { defineProjectorHandlers, type ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import { extractIdFromStreamId } from "@chase-sets/event-core";
 import { transitionStatus, updateRow, upsertRow, type PgQueryable } from "@chase-sets/event-core-postgres";
 import { AUTH_SESSION_STREAM_PREFIX } from "../domain/auth-flow";
 
 export function buildSessionProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
-  return {
+  return defineProjectorHandlers<
+    Pick<
+      ChaseSetsEventPayloads,
+      "auth.session.started" | "auth.session.account-switched" | "auth.session.revoked" | "auth.session.expired"
+    >
+  >({
     "auth.session.started": async (event) => {
-      const { sessionId, userId, accountId, availableAccountIds, authenticationMethod, expiresAt } =
-        event.data as unknown as {
-          sessionId: string;
-          userId: string;
-          accountId: string;
-          availableAccountIds: string[];
-          authenticationMethod: string;
-          expiresAt: string;
-        };
+      const { sessionId, userId, accountId, availableAccountIds, authenticationMethod, expiresAt } = event.data;
       await upsertRow(db, {
         table: "identity_sessions",
         insertColumns: [
@@ -43,7 +41,7 @@ export function buildSessionProjectionHandlers(db: PgQueryable): ProjectorHandle
     },
     "auth.session.account-switched": async (event) => {
       const sessionId = extractIdFromStreamId(event.streamId, AUTH_SESSION_STREAM_PREFIX);
-      const { accountId } = event.data as { accountId: string };
+      const { accountId } = event.data;
       const values = {
         account_id: accountId,
         updated_at: event.timing.recordedAt,
@@ -100,5 +98,5 @@ export function buildSessionProjectionHandlers(db: PgQueryable): ProjectorHandle
         updatedAt: event.timing.recordedAt,
       });
     },
-  };
+  });
 }

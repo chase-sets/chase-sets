@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import {
   buildEventSubscriptionsFromManifest,
+  defineEventSubscriptionHandlers,
   defineBoundedContextModule,
   type BcContextManifest,
   type BcEventSubscriptionHandler,
@@ -125,6 +126,32 @@ describe("buildEventSubscriptionsFromManifest", () => {
     });
 
     expect(subscription?.handlers["catalog.catalog-item.published"]).toBe(handler);
+  });
+
+  it("contextually types payloads in typed handler maps", () => {
+    type CatalogEventPayloads = Readonly<{
+      "catalog.catalog-item.published": Readonly<{
+        itemId: string;
+      }>;
+    }>;
+
+    const handlers = defineEventSubscriptionHandlers<CatalogEventPayloads>({
+      "catalog.catalog-item.published": async (event) => {
+        expect(event.data.itemId).toBe("cat_1");
+        // @ts-expect-error typed subscription payloads reject fields not published by the event contract.
+        expect(event.data.itemName).toBeUndefined();
+      },
+    });
+
+    const [subscription] = buildEventSubscriptionsFromManifest({
+      contextName: "inventory",
+      manifest,
+      handlers: {
+        "catalog.inventory-catalog-item-projection": () => handlers,
+      },
+    });
+
+    expect(subscription?.handlers["catalog.catalog-item.published"]).toBe(handlers["catalog.catalog-item.published"]);
   });
 });
 

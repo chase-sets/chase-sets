@@ -3,12 +3,13 @@ import { Hono } from "hono";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { FulfillmentApiEnv } from "../../../api";
 import type { FulfillmentShipmentServices } from "./runtime";
+import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 
 const providerWebhookContext = {
-  tenantId: "tnt_identity" as never,
+  tenantId: "tnt_identity" as TenantId,
   audit: {
-    performedByUserId: "usr_identity_system" as never,
-    forAccountId: "acc_identity_system" as never,
+    performedByUserId: "usr_identity_system" as UserId,
+    forAccountId: "acc_identity_system" as AccountId,
   },
 } satisfies EventStoreContext;
 

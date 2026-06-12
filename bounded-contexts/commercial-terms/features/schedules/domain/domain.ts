@@ -163,7 +163,7 @@ export const decideCommercialTermsSchedule: AggregateDecider<
         },
       ];
     default:
-      throw assertNever(command as never);
+      throw assertNever(command);
   }
 };
 
@@ -196,6 +196,6 @@ export const evolveCommercialTermsSchedule: AggregateEvolver<
         effectiveUntil: event.data.effectiveUntil,
       };
     default:
-      throw assertNever(event as never);
+      throw assertNever(event);
   }
 };

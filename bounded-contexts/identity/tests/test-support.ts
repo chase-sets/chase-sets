@@ -6,7 +6,7 @@ import { buildIdentityApi, type IdentityApiEnv } from "../api";
 import type { IdentityServices } from "../support/runtime-support/services";
 
 export function createIdentityTestPool(connectionString: string): PgTransactionalPool {
-  return new pg.Pool({ connectionString, max: 1 }) as unknown as PgTransactionalPool;
+  return new pg.Pool({ connectionString, max: 1 }) as PgTransactionalPool;
 }
 
 export function buildIdentityTestApp(services: IdentityServices, context: EventStoreContext): Hono<IdentityApiEnv> {

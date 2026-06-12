@@ -1,23 +1,19 @@
-import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import type { ChaseSetsEventPayloads } from "@chase-sets/event-core";
+import { defineProjectorHandlers, type ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
 export function buildPlatformFeedbackProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
-  return {
+  return defineProjectorHandlers<
+    Pick<
+      ChaseSetsEventPayloads,
+      | "experience.platform-feedback.submitted"
+      | "experience.platform-feedback.prompt-dismissed"
+      | "experience.platform-feedback.reviewed"
+      | "experience.platform-feedback.archived"
+    >
+  >({
     "experience.platform-feedback.submitted": async (event) => {
-      const data = event.data as unknown as {
-        feedbackId: string;
-        userId: string;
-        accountId: string;
-        rating: number;
-        topic: string;
-        comment: string | null;
-        followUpConsent: boolean;
-        workflow: string;
-        sourceRoutePath: string;
-        relatedEntities: readonly unknown[];
-        relatedEntityKey: string | null;
-        submittedAt: string;
-      };
+      const data = event.data;
 
       await db.query(
         `INSERT INTO experience_platform_feedback_pages (
@@ -66,17 +62,7 @@ export function buildPlatformFeedbackProjectionHandlers(db: PgQueryable): Projec
       );
     },
     "experience.platform-feedback.prompt-dismissed": async (event) => {
-      const data = event.data as unknown as {
-        promptId: string;
-        userId: string;
-        accountId: string;
-        workflow: string;
-        sourceRoutePath: string;
-        relatedEntities: readonly unknown[];
-        relatedEntityKey: string | null;
-        dismissedAt: string;
-        snoozedUntil: string;
-      };
+      const data = event.data;
 
       await db.query(
         `INSERT INTO experience_platform_feedback_prompt_pages (
@@ -147,5 +133,5 @@ export function buildPlatformFeedbackProjectionHandlers(db: PgQueryable): Projec
         [data.feedbackId, data.archivedByUserId, data.archivedAt],
       );
     },
-  };
+  });
 }

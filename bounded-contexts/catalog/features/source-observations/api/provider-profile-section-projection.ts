@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { JsonValue } from "@chase-sets/primitives/json";
+import { toJsonValue, type JsonValue } from "@chase-sets/primitives/json";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { CatalogIntegrationUnitKey } from "./integration-unit";
 import type {
@@ -251,7 +251,7 @@ export function assertCatalogProviderProfileSectionEtag(
 
 export function catalogProviderProfileSectionFingerprint(section: CatalogProviderIngestionUnitProfileSection): string {
   return `sha256:${createHash("sha256")
-    .update(stableJsonStringify(section as unknown as JsonValue))
+    .update(stableJsonStringify(toJsonValue(section)))
     .digest("hex")}`;
 }
 
