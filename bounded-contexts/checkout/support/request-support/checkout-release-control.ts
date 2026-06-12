@@ -42,12 +42,16 @@ type ReleaseControlDecision = Readonly<{
   reason?: unknown;
 }>;
 
+type CheckoutReleaseEnvironment = Readonly<{
+  CHASE_SETS_CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE?: string;
+  DEPLOYMENT_ENVIRONMENT?: string;
+  NODE_ENV?: string;
+}>;
+
 const activeEnvironmentValues = new Set(["1", "true", "yes", "on"]);
 const rolloutEnvironments = ["development", "test", "preview", "staging", "production"] as const;
 
-export function isCheckoutShopifySimpleDeploymentKillSwitchActive(
-  env: Pick<NodeJS.ProcessEnv, "CHASE_SETS_CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE"> = process.env,
-) {
+export function isCheckoutShopifySimpleDeploymentKillSwitchActive(env: CheckoutReleaseEnvironment = process.env) {
   return activeEnvironmentValues.has(
     String(env.CHASE_SETS_CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE ?? "")
       .trim()
@@ -62,7 +66,7 @@ export function normalizeCheckoutRolloutEnvironment(value: unknown): CheckoutRol
   return rolloutEnvironments.find((candidate) => candidate === text) ?? "development";
 }
 
-function checkoutRolloutEnvironment(env: NodeJS.ProcessEnv) {
+function checkoutRolloutEnvironment(env: CheckoutReleaseEnvironment) {
   return normalizeCheckoutRolloutEnvironment(env.DEPLOYMENT_ENVIRONMENT ?? env.NODE_ENV);
 }
 
@@ -124,7 +128,7 @@ export async function evaluateCheckoutShopifySimpleDecision(
   request: Request,
   actor: CheckoutReleaseActor,
   options: Readonly<{
-    env?: NodeJS.ProcessEnv;
+    env?: CheckoutReleaseEnvironment;
     fetch?: typeof globalThis.fetch;
     environment?: CheckoutRolloutEnvironment;
   }> = {},
@@ -195,7 +199,7 @@ export async function resolveCheckoutShopifySimpleUnavailableState(
   actor: CheckoutReleaseActor,
   mode: CheckoutFreshStateMode,
   options: Readonly<{
-    env?: NodeJS.ProcessEnv;
+    env?: CheckoutReleaseEnvironment;
     fetch?: typeof globalThis.fetch;
     environment?: CheckoutRolloutEnvironment;
   }> = {},
