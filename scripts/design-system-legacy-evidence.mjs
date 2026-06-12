@@ -74,22 +74,58 @@ const surfaceChecks = [
     owner: "Catalog",
     file: "bounded-contexts/catalog/features/source-observations/ui/primary-workbench-page.tsx",
     visualEvidence: [
-      "The rebuilt Catalog primary workbench uses grouped section navigation, dense tables, bulk actions, and evidence drawers.",
+      "The rebuilt Catalog primary workbench container uses grouped section navigation, dense-admin layout, and bulk action surfaces.",
     ],
     accessibilityEvidence: [
-      "Workflow navigation, command actions, and evidence drawers expose accessible names and preserve primary-path context.",
+      "Workflow navigation and workspace selection preserve primary-path context through design-system shell components.",
     ],
-    mustInclude: [
-      "DenseAdminWorkbench",
-      "DenseAdminWorkbenchLayout",
-      "BulkActionSurface",
-      "DataTable",
-      "SideSheet",
-      "WorkbenchForm",
-      "HiddenInput",
-      "StatusReasonList",
-      "aria-label",
+    mustInclude: ["DenseAdminWorkbench", "DenseAdminWorkbenchLayout", "BulkActionSurface"],
+    mustNotInclude: catalogControlPlaneForbiddenSignals,
+  },
+  {
+    id: "catalog-authoring-steps-module",
+    owner: "Catalog",
+    file: "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/primary-steps-module.tsx",
+    visualEvidence: [
+      "The import-to-promotion steps module renders dense tables and step evidence drawers from design-system primitives.",
     ],
+    accessibilityEvidence: [
+      "Step tables and evidence drawers expose row identity and accessible structure via DataTable and SideSheet.",
+    ],
+    mustInclude: ["DataTable", "SideSheet"],
+    mustNotInclude: catalogControlPlaneForbiddenSignals,
+  },
+  {
+    id: "catalog-authoring-command-controls",
+    owner: "Catalog",
+    file: "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/command-controls.tsx",
+    visualEvidence: [
+      "Workbench command actions render through shared WorkbenchForm controls with hidden command metadata.",
+    ],
+    accessibilityEvidence: ["Command forms carry hidden inputs and design-system buttons with accessible labels."],
+    mustInclude: ["WorkbenchForm", "HiddenInput"],
+    mustNotInclude: catalogControlPlaneForbiddenSignals,
+  },
+  {
+    id: "catalog-authoring-status-formatting",
+    owner: "Catalog",
+    file: "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/workbench-formatting.tsx",
+    visualEvidence: ["Blocker and status presentation uses the shared StatusReasonList primitive."],
+    accessibilityEvidence: ["Status reasons render as structured lists owned by the design system."],
+    mustInclude: ["StatusReasonList"],
+    mustNotInclude: catalogControlPlaneForbiddenSignals,
+  },
+  {
+    id: "catalog-authoring-review-module",
+    owner: "Catalog",
+    file: "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/source-observation-review/source-observation-review-module.tsx",
+    visualEvidence: [
+      "Source observation review renders dense tables, detail panels, and evidence sheets from design-system primitives.",
+    ],
+    accessibilityEvidence: [
+      "Review tables and evidence drawers expose accessible names, including explicit aria-label usage.",
+    ],
+    mustInclude: ["DataTable", "SideSheet", "aria-label"],
     mustNotInclude: catalogControlPlaneForbiddenSignals,
   },
   {
