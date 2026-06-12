@@ -895,7 +895,7 @@ describe("checkout session routes", () => {
     await expect(response.json()).resolves.toEqual({
       error: {
         code: "deferred_checkout_order_proof_required",
-        message: "Deferred checkout order creation is limited to operator proof flows.",
+        message: "This checkout action is restricted.",
       },
     });
     expect(mockCreateCheckoutOrdersThroughOrdering).not.toHaveBeenCalled();
@@ -933,7 +933,7 @@ describe("checkout session routes", () => {
     await expect(response.json()).resolves.toEqual({
       error: {
         code: "deferred_checkout_order_proof_required",
-        message: "Deferred checkout order creation is limited to operator proof flows.",
+        message: "This checkout action is restricted.",
       },
     });
     expect(mockCreateCheckoutOrdersThroughOrdering).not.toHaveBeenCalled();
@@ -947,6 +947,7 @@ describe("checkout session routes", () => {
       orderIds: ["ord_1"],
       readyLineKeys: ["cli_1"],
     });
+    const checkoutObservabilityTelemetry = { recordCheckoutEvent: vi.fn() };
     const services = createServices({
       getSession: vi.fn(async () => createSession()),
     });
@@ -957,6 +958,7 @@ describe("checkout session routes", () => {
         membershipId: "mbr_ops",
         permissions: ["security.manage"],
       }),
+      checkoutObservabilityTelemetry,
     );
 
     const response = await app.fetch(
@@ -979,6 +981,38 @@ describe("checkout session routes", () => {
     expect(mockCreateCheckoutOrdersThroughOrdering).toHaveBeenCalledTimes(1);
     expect(mockCreateCheckoutPaymentThroughPayments).not.toHaveBeenCalled();
     expect(services.recordPaymentStarted).not.toHaveBeenCalled();
+    expect(services.recordOrdersCreated).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: "chk_1",
+        accountId: "acc_buyer",
+        orderIds: ["ord_1"],
+      }),
+      expect.objectContaining({
+        audit: expect.objectContaining({
+          performedByUserId: "usr_ops",
+          forAccountId: "acc_buyer",
+        }),
+      }),
+    );
+    expect(checkoutObservabilityTelemetry.recordCheckoutEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "checkout.reconciliation.pending_visible",
+        actorMode: "signed-in",
+        scenarioState: "pending-downstream",
+        visibleState: "support-safe-status-visible",
+        sideEffectStatus: "pending-downstream",
+        supportReferencePresent: true,
+        providerCategory: "payments",
+        downstreamStatus: "orders-created-payment-deferred",
+        launchRegisterDecision: "enabled",
+      }),
+    );
+    const emitted = JSON.stringify(checkoutObservabilityTelemetry.recordCheckoutEvent.mock.calls[0]?.[0]);
+    expect(emitted).not.toContain("PRODUCTION-PROOF-2026-06-10");
+    expect(emitted).not.toContain("usr_ops");
+    expect(emitted).not.toContain("mbr_ops");
+    expect(emitted).not.toContain("chk_1");
+    expect(emitted).not.toContain("acc_buyer");
   });
 
   it("rejects non-deferred payment confirmation before committing orders when fee quote is missing", async () => {
