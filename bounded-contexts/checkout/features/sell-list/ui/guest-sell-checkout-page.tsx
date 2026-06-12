@@ -24,7 +24,7 @@ import {
 import { t } from "@chase-sets/localization";
 import type { CheckoutSellListLineRow } from "../read-model/queries";
 import type { SellListReadinessSnapshot } from "../domain/readiness";
-import { CheckoutPolicyLinks } from "../../shared/ui/checkout-policy-links";
+import { CheckoutPolicyLinks } from "../../sessions/ui/checkout-policy-links";
 
 export type GuestSellCheckoutRecoveryKind =
   | "missing-sell-list"
