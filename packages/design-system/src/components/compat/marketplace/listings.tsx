@@ -1,0 +1,392 @@
+import { useState, type ImgHTMLAttributes, type ReactNode } from "react";
+import { ImageIcon, Truck } from "lucide-react";
+import { cn } from "../../../lib/utils";
+import { IconButton } from "../../actions";
+import { ProductMediaImage, type ResponsiveImageSource } from "../../data-display/product-media";
+import { Badge } from "../badge";
+import { AccountReputationSummary, OrderProtectionBadge, TrustBadge, VerifiedAccountBadge } from "./trust";
+import {
+  densityClasses,
+  hasReviewCount,
+  modelLabels,
+  normalizeRatingValue,
+  type ListingModel,
+  type MarketplaceDensity,
+} from "./shared";
+
+export interface ListingCardProps {
+  href?: string;
+  title: string;
+  subtitle?: ReactNode;
+  model?: ListingModel;
+  cardLayout?: "standard" | "search-result";
+  image?: ResponsiveImageSource;
+  imageSrc?: string;
+  imageSrcSet?: string;
+  imageSizes?: string;
+  imageAlt?: string;
+  imageFetchPriority?: ImgHTMLAttributes<HTMLImageElement>["fetchPriority"];
+  imageLoading?: ImgHTMLAttributes<HTMLImageElement>["loading"];
+  imageDecoding?: ImgHTMLAttributes<HTMLImageElement>["decoding"];
+  imageWidth?: ImgHTMLAttributes<HTMLImageElement>["width"];
+  imageHeight?: ImgHTMLAttributes<HTMLImageElement>["height"];
+  imageSlot?: "fluid" | "compact-product";
+  imageFallback?: ResponsiveImageSource;
+  imageFallbackSrc?: string;
+  imageFallbackAlt?: string;
+  imageFallbackSrcSet?: string;
+  imageFallbackSizes?: string;
+  imageFallbackMode?: "permanent" | "loading-only";
+  showMediaPlaceholder?: boolean;
+  price?: ReactNode;
+  priceDetail?: ReactNode;
+  priceExplanation?: ReactNode;
+  rating?: number;
+  reviewCount?: number | string;
+  sellerName?: string | null;
+  sellerHref?: string | null;
+  sellerTrust?: ReactNode;
+  sellerTrustLabel?: ReactNode;
+  sellerVerified?: boolean;
+  sellerMeta?: ReactNode;
+  sellerFeedbackAction?: ReactNode;
+  fulfillment?: ReactNode;
+  availability?: ReactNode;
+  condition?: ReactNode;
+  valueCue?: ReactNode;
+  truncateValueCue?: boolean;
+  recommendationReason?: ReactNode;
+  promotion?: ReactNode;
+  protection?: ReactNode;
+  returnPolicy?: ReactNode;
+  primaryAction: ReactNode;
+  secondaryAction?: ReactNode;
+  compareAction?: ReactNode;
+  saveLabel?: string;
+  savedLabel?: string;
+  watchingLabel?: string;
+  saved?: boolean;
+  watching?: boolean;
+  density?: MarketplaceDensity;
+  className?: string;
+}
+
+export function ListingCard({
+  href,
+  title,
+  subtitle,
+  model = "product",
+  cardLayout = "standard",
+  image,
+  imageSrc,
+  imageSrcSet,
+  imageSizes,
+  imageAlt,
+  imageFetchPriority = "auto",
+  imageLoading = "lazy",
+  imageDecoding = "async",
+  imageWidth,
+  imageHeight,
+  imageSlot = "fluid",
+  imageFallback,
+  imageFallbackSrc,
+  imageFallbackAlt,
+  imageFallbackSrcSet,
+  imageFallbackSizes,
+  imageFallbackMode = "permanent",
+  showMediaPlaceholder = true,
+  price,
+  priceDetail,
+  priceExplanation,
+  rating,
+  reviewCount,
+  sellerName,
+  sellerHref,
+  sellerTrust,
+  sellerTrustLabel,
+  sellerVerified = false,
+  sellerMeta,
+  sellerFeedbackAction,
+  fulfillment,
+  availability,
+  condition,
+  valueCue,
+  truncateValueCue = true,
+  recommendationReason,
+  promotion,
+  protection,
+  returnPolicy,
+  primaryAction,
+  secondaryAction,
+  compareAction,
+  saveLabel = "Save",
+  savedLabel = "Saved",
+  watchingLabel = "Watching",
+  saved = false,
+  watching = false,
+  density = "compact",
+  className,
+}: ListingCardProps) {
+  const [imageLoaded, setImageLoaded] = useState(false);
+  const [imageFailed, setImageFailed] = useState(false);
+  const primaryImage =
+    image ??
+    (imageSrc
+      ? { src: imageSrc, srcSet: imageSrcSet, sizes: imageSizes, width: imageWidth, height: imageHeight }
+      : undefined);
+  const fallbackImage =
+    imageFallback ??
+    (imageFallbackSrc
+      ? {
+          src: imageFallbackSrc,
+          srcSet: imageFallbackSrcSet,
+          sizes: imageFallbackSizes,
+          width: imageWidth,
+          height: imageHeight,
+        }
+      : undefined);
+  const hasMediaFrame = Boolean(primaryImage || showMediaPlaceholder);
+  const isLinked = Boolean(href);
+  const resolvedSellerTrust =
+    sellerTrust ??
+    (sellerTrustLabel ? (
+      sellerVerified ? (
+        <VerifiedAccountBadge label={sellerTrustLabel} />
+      ) : (
+        <TrustBadge tone="policy">{sellerTrustLabel}</TrustBadge>
+      )
+    ) : null);
+  const sellerHasAccountReputation =
+    Boolean(sellerName && sellerHref) || normalizeRatingValue(rating) !== null || hasReviewCount(reviewCount);
+  const sellerTrustSummary =
+    sellerName || resolvedSellerTrust || sellerMeta || sellerFeedbackAction ? (
+      <div className="grid min-w-0 gap-1">
+        <div className="flex min-w-0 flex-wrap items-start gap-x-2 gap-y-1">
+          {sellerName && sellerHasAccountReputation ? (
+            <AccountReputationSummary
+              accountName={sellerName}
+              href={sellerHref}
+              averageRating={rating}
+              reviewCount={reviewCount}
+              className="min-w-0"
+            />
+          ) : sellerName ? (
+            <span className="min-w-0 truncate font-semibold leading-5 text-[var(--foreground)]">{sellerName}</span>
+          ) : null}
+          {resolvedSellerTrust}
+        </div>
+        {sellerMeta || sellerFeedbackAction ? (
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm text-[var(--text-secondary)]">
+            {sellerMeta ? <span>{sellerMeta}</span> : null}
+            {sellerFeedbackAction}
+          </div>
+        ) : null}
+      </div>
+    ) : null;
+  const resolvedProtection = protection ? <OrderProtectionBadge label={protection} /> : null;
+  const hasPrice = price !== undefined && price !== null && price !== false && price !== "";
+  const hasMarketSignals = sellerTrustSummary || fulfillment || resolvedProtection || returnPolicy;
+  const canUseFallbackAsImage = Boolean(fallbackImage) && imageFallbackMode === "permanent";
+  const resolvedImage = primaryImage && !imageFailed ? primaryImage : canUseFallbackAsImage ? fallbackImage : undefined;
+  const resolvedImageSrc = resolvedImage?.src;
+  const resolvedImageAlt =
+    resolvedImageSrc === fallbackImage?.src ? (imageFallbackAlt ?? imageAlt ?? title) : (imageAlt ?? title);
+  const isSearchResultLayout = cardLayout === "search-result";
+  const showFallbackPreview = Boolean(
+    primaryImage &&
+    fallbackImage &&
+    imageFallbackMode === "permanent" &&
+    !imageFailed &&
+    primaryImage.src !== fallbackImage.src &&
+    (isSearchResultLayout || !imageLoaded),
+  );
+  const productMediaSlotClassName =
+    imageSlot === "compact-product"
+      ? isSearchResultLayout
+        ? "w-full max-w-[7.25rem] justify-self-center sm:max-w-[7.75rem] md:max-w-[10.25rem]"
+        : "w-full max-w-[10rem] justify-self-center"
+      : undefined;
+  const mediaContainerClassName = isSearchResultLayout
+    ? "relative grid min-h-40 place-items-center py-3 pl-3 pr-1 sm:min-h-40 md:min-h-[14rem] md:py-4 md:pl-4 md:pr-1"
+    : "relative grid min-h-44 place-items-center sm:min-h-36 sm:items-start sm:justify-items-center";
+  const mediaImageClassName = isSearchResultLayout
+    ? "relative z-10 aspect-[2.5/3.5] h-auto max-h-40 min-h-0 md:max-h-[12.5rem]"
+    : "relative max-h-72 min-h-44 sm:h-auto sm:max-h-80 sm:min-h-0";
+  const fallbackPreviewImageClassName = isSearchResultLayout
+    ? "absolute z-0 aspect-[2.5/3.5] h-auto max-h-40 min-h-0 -translate-x-2 -translate-y-2 opacity-75 md:max-h-[12.5rem]"
+    : "absolute inset-0 max-h-72 min-h-44 sm:h-auto sm:max-h-80 sm:min-h-0";
+  const contentClassName = isSearchResultLayout
+    ? "gap-2.5 py-3 pl-1 pr-3 md:gap-2.5 md:py-4 md:pl-1 md:pr-4"
+    : cn("gap-3", densityClasses[density]);
+
+  return (
+    <article
+      className={cn(
+        "group relative grid overflow-hidden rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] shadow-[var(--shadow-sm)] transition-colors hover:border-[color-mix(in_srgb,var(--primary)_38%,var(--border))] focus-within:border-[var(--primary)]",
+        hasMediaFrame
+          ? isSearchResultLayout
+            ? "grid-cols-[minmax(7.5rem,8.25rem)_minmax(0,1fr)] md:grid-cols-[minmax(10.5rem,12.5rem)_minmax(0,1fr)]"
+            : density === "compact"
+              ? "grid-cols-1 sm:grid-cols-[minmax(9rem,0.95fr)_minmax(0,1fr)]"
+              : "sm:grid-cols-[minmax(10rem,0.95fr)_minmax(0,1fr)]"
+          : "grid-cols-1",
+        isLinked && "cursor-pointer",
+        className,
+      )}
+      data-card-layout={cardLayout}
+    >
+      {href ? (
+        <a
+          href={href}
+          aria-label={`View details for ${title}`}
+          className="focus-ring absolute inset-0 z-10 rounded-[var(--radius)]"
+        />
+      ) : null}
+      {hasMediaFrame ? (
+        <div
+          className={cn(
+            mediaContainerClassName,
+            resolvedImageSrc || showFallbackPreview ? "bg-transparent" : "bg-[var(--surface-2)]",
+            isLinked && "z-20 pointer-events-none",
+          )}
+        >
+          {showFallbackPreview ? (
+            <ProductMediaImage
+              src={imageFallbackSrc}
+              alt={imageFallbackAlt ?? imageAlt ?? title}
+              image={fallbackImage}
+              fetchPriority={imageFetchPriority}
+              loading={imageLoading}
+              decoding={imageDecoding}
+              className={cn(fallbackPreviewImageClassName, productMediaSlotClassName)}
+              aria-hidden="true"
+            />
+          ) : null}
+          {resolvedImageSrc ? (
+            <ProductMediaImage
+              src={resolvedImageSrc}
+              alt={resolvedImageAlt}
+              image={resolvedImage}
+              loading={imageLoading}
+              decoding={imageDecoding}
+              fetchPriority={imageFetchPriority}
+              onLoad={() => setImageLoaded(true)}
+              onError={() => setImageFailed(true)}
+              className={cn(mediaImageClassName, productMediaSlotClassName)}
+            />
+          ) : (
+            <div className="grid h-full min-h-36 place-items-center text-sm font-semibold text-[var(--muted-foreground)]">
+              {isSearchResultLayout ? (
+                <ImageIcon className="h-8 w-8 text-[var(--muted-foreground)]" aria-hidden="true" />
+              ) : (
+                modelLabels[model]
+              )}
+            </div>
+          )}
+          {promotion && !isSearchResultLayout ? (
+            <div className="absolute left-2 top-2 rounded-full bg-[var(--deal-soft)] px-2 py-1 text-xs font-semibold text-[var(--deal)]">
+              {promotion}
+            </div>
+          ) : null}
+        </div>
+      ) : promotion && !isSearchResultLayout ? (
+        <div className="px-3 pt-3">
+          <div className="inline-flex rounded-full bg-[var(--deal-soft)] px-2 py-1 text-xs font-semibold text-[var(--deal)]">
+            {promotion}
+          </div>
+        </div>
+      ) : null}
+
+      <div className={cn("grid content-start", contentClassName, isLinked && "z-20 pointer-events-none")}>
+        <div className="grid gap-1.5">
+          {condition || availability ? (
+            <div className="flex flex-wrap items-center gap-2">
+              {condition ? <Badge variant="outline">{condition}</Badge> : null}
+              {availability ? (
+                <span className="text-xs font-medium text-[var(--text-secondary)]">{availability}</span>
+              ) : null}
+            </div>
+          ) : null}
+          <h3
+            className={cn(
+              "m-0 line-clamp-2 font-semibold text-[var(--foreground)]",
+              isSearchResultLayout ? "text-sm leading-5 md:text-base md:leading-6" : "text-base leading-6",
+            )}
+          >
+            {title}
+          </h3>
+          {subtitle ? <p className="m-0 text-sm font-medium leading-5 text-[var(--foreground)]">{subtitle}</p> : null}
+          {valueCue ? (
+            <p className={cn("m-0 text-sm leading-5 text-[var(--text-secondary)]", truncateValueCue && "line-clamp-2")}>
+              {valueCue}
+            </p>
+          ) : null}
+        </div>
+
+        {hasPrice || priceDetail || priceExplanation ? (
+          <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
+            <div className="grid gap-1">
+              {hasPrice ? (
+                <div
+                  className={cn(
+                    "font-bold tabular-nums text-[var(--foreground)]",
+                    isSearchResultLayout ? "text-lg leading-6" : "text-xl leading-7",
+                  )}
+                >
+                  {price}
+                </div>
+              ) : null}
+              {priceDetail ? (
+                <div className="text-xs leading-4 text-[var(--muted-foreground)]">{priceDetail}</div>
+              ) : null}
+              {priceExplanation ? (
+                <div className="text-xs leading-4 text-[var(--text-secondary)]">{priceExplanation}</div>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+
+        {hasMarketSignals ? (
+          <div className="grid gap-2 text-sm text-[var(--text-secondary)]">
+            {sellerTrustSummary}
+            {fulfillment || resolvedProtection || returnPolicy ? (
+              <div className="flex flex-wrap gap-2">
+                {fulfillment ? (
+                  <span className="inline-flex items-center gap-1.5">
+                    <Truck className="h-4 w-4 text-[var(--trust)]" aria-hidden="true" />
+                    {fulfillment}
+                  </span>
+                ) : null}
+                {resolvedProtection}
+                {returnPolicy ? <TrustBadge tone="policy">{returnPolicy}</TrustBadge> : null}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {recommendationReason ? (
+          <div className="rounded-[var(--radius)] bg-[var(--surface-2)] px-3 py-2 text-xs leading-4 text-[var(--text-secondary)]">
+            {recommendationReason}
+          </div>
+        ) : null}
+
+        <div
+          className={cn("flex flex-wrap items-center gap-2 pt-1", isLinked && "pointer-events-auto relative z-30")}
+          data-primary-action-count="1"
+        >
+          {primaryAction}
+          {secondaryAction ?? (
+            <IconButton
+              label={`${saved ? savedLabel : saveLabel} ${title}`}
+              icon="heart"
+              tone="secondary"
+              aria-pressed={saved}
+            />
+          )}
+          {compareAction}
+          {watching ? <IconButton label={`${watchingLabel} ${title}`} icon="eye" tone="ghost" aria-pressed /> : null}
+        </div>
+      </div>
+    </article>
+  );
+}

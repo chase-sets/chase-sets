@@ -214,7 +214,7 @@ Recommended first flows:
 ## Implementation Roadmap
 
 1. Adopt marketplace tokens and `ThemeToggle` across marketplace-facing routes.
-2. Replace listing grids with `ListingCard`, `SearchFilterPanel`, `FilterRail`, and mobile-card table behavior.
+2. Replace listing grids with `ListingCard`, `SearchFilterPanel`, and mobile-card table behavior.
 3. Replace listing detail pages with media, price, account attribution, protection, policy, review, specification, comparison, and sticky CTA modules.
 4. Replace public seller-profile language with account profiles that use `AccountReputationSummary`, account listings, `ReviewCard`, and trust-building empty states; add contextual seller labels only inside listing, sale, or transaction modules.
 5. Move checkout to transparent `PriceBreakdown`, editable sections, secure-payment messaging, and recovery notices.
