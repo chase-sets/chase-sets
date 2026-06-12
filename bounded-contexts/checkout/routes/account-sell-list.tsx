@@ -25,6 +25,7 @@ import {
   ensureAnonymousSellListId,
   readAnonymousSellListId,
 } from "../support/request-support/guest-checkout";
+import { resolveCheckoutShopifySimpleUnavailableState } from "../support/request-support/checkout-release-control";
 import {
   SELLER_CHECKOUT_REGISTER_HREF,
   SELLER_CHECKOUT_SIGN_IN_HREF,
@@ -328,6 +329,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const api = createCheckoutRequestApiClient(request);
   const anonymousSellListId = readAnonymousSellListId(request);
   const requestUrl = new URL(request.url);
+  const checkoutUnavailable = requestUrl.searchParams.get("checkout") === "disabled";
   const registrationReturn: "seller-checkout" | null =
     requestUrl.searchParams.get("registrationReturn") === "seller-checkout" ? "seller-checkout" : null;
 
@@ -339,6 +341,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
       registrationReturn: null,
       mergedLineCount: 0,
       mergeError: null,
+      checkoutUnavailable,
       sellList,
       offerReviews: await loadGuestSellListOfferReviews(request, sellList.items),
     };
@@ -363,6 +366,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     registrationReturn,
     mergedLineCount,
     mergeError,
+    checkoutUnavailable,
     sellList,
     offerReviews: await loadSellListOfferReviews(request, sellList.items, {
       includeStandardComparison: registrationReturn === "seller-checkout",
@@ -702,6 +706,11 @@ export async function action({ request }: ActionFunctionArgs) {
     }
 
     if (intent === "review-sell-list-checkout") {
+      const unavailable = await resolveCheckoutShopifySimpleUnavailableState(request, actor, "sell");
+      if (unavailable) {
+        return redirect(unavailable.redirectPath);
+      }
+
       if (!useAccountSellList) {
         if (!anonymousSellListId) {
           return redirect(SELLER_CHECKOUT_SIGN_IN_HREF);
@@ -758,6 +767,7 @@ export default function CheckoutAccountSellListRoute() {
       registrationReturn={data.registrationReturn}
       mergedLineCount={data.mergedLineCount}
       mergeError={data.mergeError}
+      checkoutUnavailable={data.checkoutUnavailable}
       errorMessage={actionData?.error ?? null}
     />
   );

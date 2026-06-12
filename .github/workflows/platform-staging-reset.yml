@@ -32,6 +32,7 @@ jobs:
       TF_INPUT: "false"
       TF_VAR_environment: staging
       TF_VAR_platform_image_repository: chase-sets-platform
+      TF_VAR_checkout_shopify_simple_kill_switch_active: ${{ vars.CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE == 'true' && 'true' || 'false' }}
       TF_VAR_alert_emails: ${{ vars.PLATFORM_ALERT_EMAILS || '[]' }}
       DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK: chase-sets
       PLATFORM_IMAGE_REPOSITORY: chase-sets-platform

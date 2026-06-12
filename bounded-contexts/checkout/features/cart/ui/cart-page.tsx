@@ -439,9 +439,11 @@ function SummaryText({ children }: { children: ReactNode }) {
 
 export function CheckoutCartPage({
   cartLines,
+  checkoutUnavailable = false,
   errorMessage,
 }: {
   cartLines: readonly CheckoutCartLine[];
+  checkoutUnavailable?: boolean;
   errorMessage?: string | null;
 }) {
   const cartLineGroups = groupCartLines(cartLines);
@@ -489,6 +491,24 @@ export function CheckoutCartPage({
 
   const cartContent = (
     <Stack gap={4}>
+      {checkoutUnavailable ? (
+        <Banner
+          title={t("checkout.features.cart.ui.cartPage.checkout.unavailable.title")}
+          description={t("checkout.features.cart.ui.cartPage.checkout.unavailable.description")}
+          tone="warning"
+          actions={
+            <Inline gap={2}>
+              <LinkButton href="/account/cart" tone="secondary">
+                {t("checkout.features.cart.ui.cartPage.review.cart")}
+              </LinkButton>
+              <LinkButton href="/search" tone="secondary">
+                {t("checkout.features.cart.ui.cartPage.keep.shopping")}
+              </LinkButton>
+            </Inline>
+          }
+        />
+      ) : null}
+
       {errorMessage ? (
         <Surface tone="subtle" elevated>
           <Stack gap={2}>

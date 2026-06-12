@@ -66,8 +66,8 @@
 
 ## Kill switches and recovery
 
-- [ ] The checkout kill switch blocks entry with a customer-safe "checkout unavailable" state — verified on and off in staging.
-- [ ] Kill switch, rollback, and provider-outage states fail closed into cart/list recovery and never resurrect the legacy dense checkout, old routes, or old payloads.
+- [ ] The checkout kill switch blocks entry with a customer-safe "checkout unavailable" state — verified on and off in staging (kill-switch baseline: PR #1542).
+- [ ] Kill switch, rollback, and provider-outage states fail closed into cart/list recovery and never resurrect the legacy dense checkout, old routes, or old payloads (fail-closed baseline: PR #1542).
 
 ## Security, privacy, legal
 

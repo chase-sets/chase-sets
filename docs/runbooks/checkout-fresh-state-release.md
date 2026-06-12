@@ -5,8 +5,9 @@ This runbook covers Milestone #17 route activation, disablement, and smoke valid
 ## Feature Key
 
 Use Platform Operations release controls with feature key `checkout.shopify-simple`.
+Use the marketplace runtime variable `CHASE_SETS_CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE=true` when all customer traffic, including anonymous cart/list traffic, must fail closed immediately.
 
-The kill switch disables fresh checkout entry. It must not restore legacy dense checkout routes or old session compatibility.
+The kill switches disable fresh checkout entry. They must not restore legacy dense checkout routes or old session compatibility.
 
 ## Activation
 
@@ -28,11 +29,13 @@ The kill switch disables fresh checkout entry. It must not restore legacy dense 
 
 ## Disablement
 
-1. Set `checkout.shopify-simple` to disabled through Platform Operations release controls.
-2. Confirm buy checkout entry redirects to `/account/cart?checkout=disabled`.
-3. Confirm sell checkout entry redirects to `/account/sell-list?checkout=disabled`.
-4. Confirm cart and Sell List remain reachable for review, removal, or save-for-later actions.
-5. Confirm disabled entry does not redirect to `/checkout/start`, `/checkout/:sessionId`, the deleted `/checkout/concept` route, or any dense legacy checkout path.
+1. Set `checkout.shopify-simple` to disabled through Platform Operations release controls for signed-in rollout disablement.
+2. Set `CHASE_SETS_CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE=true` when anonymous, guest, and signed-in checkout entry must all fail closed.
+3. Confirm buy checkout entry and active buy sessions redirect to `/account/cart?checkout=disabled`.
+4. Confirm sell checkout entry and active sell sessions redirect to `/account/sell-list?checkout=disabled`.
+5. Confirm cart and Sell List remain reachable for review, removal, fulfillment resolution, or save-for-later actions.
+6. Confirm disabled entry does not redirect to `/checkout/start`, `/checkout/:sessionId`, the deleted `/checkout/concept` route, or any dense legacy checkout path.
+7. Confirm `checkout.launch.kill_switch_unavailable` telemetry remains bounded to entry source, actor mode, scenario state, visible state, side-effect status, launch-register decision, fresh-state scan result, and release run only.
 
 ## Smoke Validation
 
@@ -47,6 +50,7 @@ Run these checks after activation and after disablement:
 - Buy confirmation creates or links the expected order, payment, and account-history handoff records.
 - Sell confirmation creates or links the expected sale, label, payout-readiness, and account-history handoff records.
 - Payment-owned guest handoff remains accessible only for valid guest payment recovery.
+- Kill-switched buy and sell entry returns to cart/list recovery and emits `checkout.launch.kill_switch_unavailable` without payment, order, label, payout, notification, account-history, support, sale, or listing side effects.
 - Legacy route probes are rejected, hard-disabled, or redirected to fresh recovery without compatibility adapters.
 
 ## Launch Evidence Gate

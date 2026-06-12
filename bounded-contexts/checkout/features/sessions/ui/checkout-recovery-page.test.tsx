@@ -108,9 +108,12 @@ describe("CheckoutSessionRecoveryPage", () => {
     expect(await screen.findByText("pay-ready:chk_happy")).toBeTruthy();
     expect(screen.queryByText("Checkout session not found.")).toBeNull();
     // Slow renders can let one extra interval fire between the successful
-    // load and the recovery component unmounting, so assert settlement
-    // rather than an exact count: pay-ready stops all further replays.
+    // load and the recovery component unmounting. Let that in-flight tick
+    // settle before freezing the count, then prove the page stops replaying.
     expect(loaderCalls).toBeGreaterThanOrEqual(3);
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    expect(loaderCalls).toBeGreaterThanOrEqual(3);
+    expect(loaderCalls).toBeLessThanOrEqual(4);
     const settledLoaderCalls = loaderCalls;
     await new Promise((resolve) => setTimeout(resolve, 120));
     expect(loaderCalls).toBe(settledLoaderCalls);

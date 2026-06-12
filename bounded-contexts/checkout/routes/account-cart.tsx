@@ -28,14 +28,15 @@ function cartLineIdsFromForm(formData: FormData) {
 export async function loader({ request }: LoaderFunctionArgs) {
   const api = createCheckoutRequestApiClient(request);
   const actor = await resolveActorFromAuthApi({ request });
+  const checkoutUnavailable = new URL(request.url).searchParams.get("checkout") === "disabled";
 
   if (!canUseAccountCart(actor)) {
     const cart = await api.getGuestCart(readAnonymousCartId(request));
-    return { cart };
+    return { cart, checkoutUnavailable };
   }
 
   const cart = await api.getCart();
-  return { cart };
+  return { cart, checkoutUnavailable };
 }
 
 export async function action({ request }: ActionFunctionArgs) {
@@ -143,5 +144,11 @@ export default function CheckoutAccountCartRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
 
-  return <CheckoutCartPage cartLines={data.cart.items} errorMessage={actionData?.error ?? null} />;
+  return (
+    <CheckoutCartPage
+      cartLines={data.cart.items}
+      checkoutUnavailable={data.checkoutUnavailable}
+      errorMessage={actionData?.error ?? null}
+    />
+  );
 }

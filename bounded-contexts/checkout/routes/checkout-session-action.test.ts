@@ -85,7 +85,37 @@ describe("checkout web routes: checkout session action", () => {
   });
 
   afterEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  it("blocks active buy checkout actions while the Shopify-simple kill switch is active", async () => {
+    vi.stubEnv("CHASE_SETS_CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE", "true");
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      confirmCheckoutSession: mockConfirmCheckoutSession,
+      selectShippingAddress: mockSelectShippingAddress,
+      selectShippingOption: mockSelectShippingOption,
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "confirm-checkout");
+
+    const response = (await checkoutSessionAction({
+      request: new Request("http://localhost/checkout/buy/session/chk_1", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { sessionId: "chk_1" },
+      context: undefined,
+    } as never)) as Response;
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("/account/cart?checkout=disabled");
+    expect(mockSelectShippingOption).not.toHaveBeenCalled();
+    expect(mockSelectShippingAddress).not.toHaveBeenCalled();
+    expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
   });
 
   it("confirms signed-in checkout and redirects to payment detail", async () => {
