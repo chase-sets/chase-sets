@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   bootstrapPlatformAdminPassword: vi.fn(async () => undefined),
@@ -43,10 +43,31 @@ vi.mock("../src/database-pools", () => ({
   closeAdminSupportApiPools: mocks.closeAdminSupportApiPools,
 }));
 
+const adminSupportContexts = ["auth", "catalog", "identity", "platform-operations", "public-presence"] as const;
+
+function createRuntime() {
+  return {
+    mountedContexts: adminSupportContexts.map((contextName) => ({
+      contextName,
+      module: { contextName },
+      pool: { contextName },
+    })),
+    services: {
+      identity: { kind: "identity-services" },
+      auth: { kind: "auth-services" },
+    },
+  };
+}
+
 describe("admin-support bootstrap profile", () => {
-  it("uses production-safe seed orchestration only", async () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+  });
+
+  it("bootstraps the current composite contexts without host-wide seeding", async () => {
     const config = {
-      dataProfiles: ["admin-support"],
+      dataProfiles: ["critical-bootstrap", "catalog-integration-bootstrap"],
       deploymentEnvironment: "production",
       platformAdmin: {
         email: "admin@example.com",
@@ -56,20 +77,8 @@ describe("admin-support bootstrap profile", () => {
       },
     };
     const pools = { control: { kind: "control-pool" } };
-    const catalogModule = { contextName: "catalog" };
-    const experienceModule = { contextName: "experience" };
-    const catalogPool = { kind: "catalog-pool" };
-    const experiencePool = { kind: "experience-pool" };
-    const runtime = {
-      mountedContexts: [
-        { contextName: "catalog", module: catalogModule, pool: catalogPool },
-        { contextName: "experience", module: experienceModule, pool: experiencePool },
-      ],
-      services: {
-        identity: { kind: "identity-services" },
-        auth: { kind: "auth-services" },
-      },
-    };
+    const runtime = createRuntime();
+    const catalogContext = runtime.mountedContexts.find((entry) => entry.contextName === "catalog");
 
     mocks.loadConfig.mockReturnValue(config);
     mocks.createAdminSupportApiPools.mockReturnValue(pools);
@@ -82,13 +91,18 @@ describe("admin-support bootstrap profile", () => {
 
     // Control plane plus per-context database bootstrap only - no host-wide seeding.
     expect(mocks.bootstrapPlatformControlPlane).toHaveBeenCalledWith(pools.control);
-    expect(mocks.bootstrapContextDatabase).toHaveBeenCalledTimes(2);
-    expect(mocks.bootstrapContextDatabase).toHaveBeenNthCalledWith(1, catalogModule, catalogPool);
-    expect(mocks.bootstrapContextDatabase).toHaveBeenNthCalledWith(2, experienceModule, experiencePool);
+    expect(mocks.bootstrapContextDatabase).toHaveBeenCalledTimes(adminSupportContexts.length);
+    for (const [index, context] of runtime.mountedContexts.entries()) {
+      expect(mocks.bootstrapContextDatabase).toHaveBeenNthCalledWith(index + 1, context.module, context.pool);
+    }
+    expect(mocks.bootstrapContextDatabase).not.toHaveBeenCalledWith(
+      expect.objectContaining({ contextName: "experience" }),
+      expect.anything(),
+    );
 
     // Catalog seeding stays scoped to the configured data profiles and environment.
     expect(mocks.bootstrapCatalogDatabase).toHaveBeenCalledTimes(1);
-    expect(mocks.bootstrapCatalogDatabase).toHaveBeenCalledWith(catalogPool, undefined, {
+    expect(mocks.bootstrapCatalogDatabase).toHaveBeenCalledWith(catalogContext?.pool, undefined, {
       enabledDataProfiles: config.dataProfiles,
       environmentName: config.deploymentEnvironment,
     });
@@ -112,5 +126,30 @@ describe("admin-support bootstrap profile", () => {
     expect(mocks.syncContextProjectionGroups.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.bootstrapPlatformAdminPassword.mock.invocationCallOrder[0] ?? 0,
     );
+  });
+
+  it("skips platform admin reconciliation when the deployment job omits admin credentials", async () => {
+    const config = {
+      dataProfiles: ["critical-bootstrap", "catalog-integration-bootstrap"],
+      deploymentEnvironment: "production",
+      platformAdmin: null,
+    };
+    const pools = { control: { kind: "control-pool" } };
+    const runtime = createRuntime();
+
+    mocks.loadConfig.mockReturnValue(config);
+    mocks.createAdminSupportApiPools.mockReturnValue(pools);
+    mocks.createAdminSupportApiHost.mockReturnValue(runtime);
+
+    await import("../src/bootstrap");
+    await vi.waitFor(() => {
+      expect(mocks.closeAdminSupportApiPools).toHaveBeenCalledWith(pools);
+    });
+
+    expect(mocks.bootstrapPlatformAdminIdentity).not.toHaveBeenCalled();
+    expect(mocks.syncContextProjectionGroups).not.toHaveBeenCalled();
+    expect(mocks.bootstrapPlatformAdminPassword).not.toHaveBeenCalled();
+    expect(mocks.bootstrapContextDatabase).toHaveBeenCalledTimes(adminSupportContexts.length);
+    expect(mocks.bootstrapCatalogDatabase).toHaveBeenCalledTimes(1);
   });
 });
