@@ -806,20 +806,24 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).toContain("name: staging-release-health");
     expect(platformProductionWorkflow).toContain("- name: Stage 1 production canary");
     expect(platformProductionWorkflow.indexOf("- name: Stage 1 production canary")).toBeLessThan(
-      platformProductionWorkflow.indexOf("- name: Collect production canary observability evidence"),
-    );
-    expect(platformProductionWorkflow.indexOf("- name: Collect production canary observability evidence")).toBeLessThan(
       platformProductionWorkflow.indexOf("- name: Production proof-mode Buy Now freshness canary"),
     );
     expect(platformProductionWorkflow.indexOf("- name: Production proof-mode Buy Now freshness canary")).toBeLessThan(
+      platformProductionWorkflow.indexOf("- name: Collect production canary observability evidence"),
+    );
+    expect(platformProductionWorkflow.indexOf("- name: Collect production canary observability evidence")).toBeLessThan(
       platformProductionWorkflow.indexOf("- name: Mark production release"),
     );
+    expect(platformProductionWorkflow).toContain("stage1-production-canary-telemetry.json");
+    expect(platformProductionWorkflow).toContain('"app-platform-deployment-phase"');
     expect(platformProductionWorkflow).toContain("CANARY_PROMETHEUS_URL: ${{ vars.CANARY_PROMETHEUS_URL || '' }}");
     expect(platformProductionWorkflow).toContain(
       "CANARY_PROMETHEUS_QUERY_FILE: ${{ vars.CANARY_PROMETHEUS_QUERY_FILE || '' }}",
     );
     expect(platformProductionWorkflow).toContain("vars.CANARY_PROMETHEUS_ENABLED == 'true'");
-    expect(platformProductionWorkflow).toContain("run: node ./scripts/canary-evidence.mjs");
+    expect(platformProductionWorkflow).toContain(
+      "run: node ./scripts/canary-evidence.mjs --source-file artifacts/release-health/stage1-production-canary-telemetry.json",
+    );
     expect(platformProductionWorkflow).toContain("- name: Resolve CI retry metadata");
     expect(platformProductionWorkflow).toContain("node ./scripts/release-health-ci-metadata.mjs");
     expect(platformProductionWorkflow).toContain("CI_RETRY_COUNT: ${{ steps.ci_metadata.outputs.ci_retry_count }}");

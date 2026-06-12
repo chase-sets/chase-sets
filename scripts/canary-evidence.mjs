@@ -10,8 +10,18 @@ export const CANARY_EVIDENCE_VERSION = CANARY_ANALYSIS_VERSION;
 
 export const REQUIRED_CANARY_SIGNALS = [
   {
+    name: "observability-transport",
+    owner: "infrastructure/observability",
+    required: true,
+    source: "Prometheus scrape health for the production OpenTelemetry Collector",
+    maxIncrease: 0,
+    currentState: "available-now",
+    detail: "Prometheus must scrape the OpenTelemetry Collector before production canary telemetry can gate promotion.",
+  },
+  {
     name: "app-platform-deployment-phase",
     owner: "infrastructure/deployment-workflow",
+    required: true,
     source: "DigitalOcean App Platform deployment phase",
     maxIncrease: 0,
     currentState: "available-now",
@@ -20,6 +30,7 @@ export const REQUIRED_CANARY_SIGNALS = [
   {
     name: "route-error-rate",
     owner: "platform-runtime/route-owner",
+    required: false,
     source: "HTTP telemetry by route and host",
     maxIncrease: 0.005,
     currentState: "needs-instrumentation",
@@ -28,6 +39,7 @@ export const REQUIRED_CANARY_SIGNALS = [
   {
     name: "route-latency-p95",
     owner: "platform-runtime/route-owner",
+    required: false,
     source: "HTTP latency histogram by route and host",
     maxIncrease: 50,
     currentState: "needs-instrumentation",
@@ -36,6 +48,7 @@ export const REQUIRED_CANARY_SIGNALS = [
   {
     name: "worker-health-backlog",
     owner: "platform-operations/infrastructure-runtime",
+    required: false,
     source: "worker heartbeat and durable job backlog telemetry",
     maxIncrease: 0,
     currentState: "needs-instrumentation",
@@ -44,6 +57,7 @@ export const REQUIRED_CANARY_SIGNALS = [
   {
     name: "projection-lag-poison-events",
     owner: "owning-bounded-context/platform-operations",
+    required: true,
     source: "projection operation snapshots and poison-event telemetry",
     maxIncrease: 0,
     currentState: "available-now",
@@ -52,6 +66,7 @@ export const REQUIRED_CANARY_SIGNALS = [
   {
     name: "checkout-order-payment-errors",
     owner: "checkout/ordering/payments",
+    required: false,
     source: "checkout, order, payment, and provider-health telemetry",
     maxIncrease: 0,
     currentState: "needs-instrumentation",
@@ -60,6 +75,7 @@ export const REQUIRED_CANARY_SIGNALS = [
   {
     name: "settlement-payout-errors",
     owner: "settlement",
+    required: true,
     source: "settlement operation telemetry for payout setup, readiness, and provider reconciliation",
     maxIncrease: 0,
     currentState: "available-now",
@@ -69,6 +85,7 @@ export const REQUIRED_CANARY_SIGNALS = [
   {
     name: "fulfillment-postage-callback-errors",
     owner: "fulfillment",
+    required: false,
     source: "postage provider callback telemetry",
     maxIncrease: 0,
     currentState: "needs-instrumentation",
@@ -77,6 +94,7 @@ export const REQUIRED_CANARY_SIGNALS = [
   {
     name: "transactional-email-callback-errors",
     owner: "notifications",
+    required: false,
     source: "SES/SNS callback and outbox telemetry",
     maxIncrease: 0,
     currentState: "needs-instrumentation",
@@ -85,6 +103,7 @@ export const REQUIRED_CANARY_SIGNALS = [
   {
     name: "database-pool-pressure",
     owner: "infrastructure-runtime",
+    required: false,
     source: "database pool and migration telemetry",
     maxIncrease: 0,
     currentState: "needs-instrumentation",
@@ -93,6 +112,7 @@ export const REQUIRED_CANARY_SIGNALS = [
   {
     name: "ucp-discovery-signed-write-health",
     owner: "ucp-facade-owners",
+    required: false,
     source: "UCP discovery and signed-write telemetry",
     maxIncrease: 0,
     currentState: "deferred",
@@ -178,7 +198,7 @@ export async function collectPrometheusTelemetry({ baseUrl, queryFile, headers =
     signals.push({
       name: signal.name,
       owner: signal.owner,
-      required: signal.required,
+      required: resolveCanarySignalRequired(signal),
       source,
       currentState: signal.currentState ?? "available-now",
       baseline,
@@ -255,6 +275,9 @@ export function validatePrometheusSignalConfig(signal) {
   if (typeof signal?.maxIncrease !== "number" || !Number.isFinite(signal.maxIncrease) || signal.maxIncrease < 0) {
     errors.push("maxIncrease must be a non-negative number.");
   }
+  if (signal?.required !== undefined && typeof signal.required !== "boolean") {
+    errors.push("required must be a boolean when provided.");
+  }
   return errors;
 }
 
@@ -275,7 +298,7 @@ function buildSignalEvidence(signal, telemetry) {
     return {
       name: signal.name,
       owner: signal.owner,
-      required: true,
+      required: resolveCanarySignalRequired(signal),
       source: signal.source,
       currentState: signal.currentState,
       maxIncrease: signal.maxIncrease,
@@ -287,7 +310,7 @@ function buildSignalEvidence(signal, telemetry) {
   return {
     name: signal.name,
     owner: normalizeString(telemetry.owner) ?? signal.owner,
-    required: telemetry.required !== false,
+    required: telemetry.required ?? resolveCanarySignalRequired(signal),
     source: normalizeString(telemetry.source) ?? signal.source,
     currentState: normalizeString(telemetry.currentState) ?? signal.currentState,
     ...(typeof telemetry.baseline === "number" ? { baseline: telemetry.baseline } : {}),
@@ -299,6 +322,13 @@ function buildSignalEvidence(signal, telemetry) {
     ...(typeof telemetry.threshold === "string" ? { threshold: telemetry.threshold } : {}),
     detail: normalizeString(telemetry.detail) ?? signal.detail,
   };
+}
+
+function resolveCanarySignalRequired(signal) {
+  if (typeof signal?.required === "boolean") {
+    return signal.required;
+  }
+  return signal?.currentState === "available-now";
 }
 
 async function readTelemetrySource(filePath) {

@@ -128,7 +128,7 @@ Production release canary telemetry uses the Prometheus-compatible query endpoin
 - `CANARY_OBSERVATION_WINDOW_SECONDS`: defaults to `300`.
 - `CANARY_PROMETHEUS_HEADERS` (secret): JSON object of query headers, for example `{"X-Chase-Sets-Observability-Query":"<token>"}`.
 
-Keep credentials out of `CANARY_PROMETHEUS_URL`; use `CANARY_PROMETHEUS_HEADERS` for bearer, basic, tenant, or gateway-specific query credentials. The canary collector fails closed when required signals are missing or above threshold.
+Keep credentials out of `CANARY_PROMETHEUS_URL`; use `CANARY_PROMETHEUS_HEADERS` for bearer, basic, tenant, or gateway-specific query credentials. The first required production stack signal is `observability-transport`, backed by `up{job="otel-collector"}`. The canary collector fails closed when required signals are missing or above threshold. Signals that are still `needs-instrumentation` may appear as `required: false`, but they must remain visible as missing until their telemetry is live.
 
 ## Projection Freshness Queries
 

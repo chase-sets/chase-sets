@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
+import { metrics } from "@opentelemetry/api";
 import {
   catalogControlPlaneEventAttributes,
   catalogIntegrationJobAttributes,
   catalogIntegrationOptionQueryAttributes,
+  createHonoObservabilityMiddleware,
   checkoutObservabilityEventAttributes,
   createLogger,
   itemDetailRailAnalyticsAttributes,
@@ -166,6 +168,69 @@ describe("structured logging", () => {
 
     log.mockRestore();
     vi.unstubAllGlobals();
+  });
+});
+
+describe("request metrics", () => {
+  it("creates custom HTTP instruments from the active meter when a request is recorded", async () => {
+    const counterAdds: unknown[] = [];
+    const histogramRecords: unknown[] = [];
+    const createCounter = vi.fn((name: string) => ({
+      add: (value: number, attributes?: unknown) => counterAdds.push({ name, value, attributes }),
+    }));
+    const createHistogram = vi.fn((name: string) => ({
+      record: (value: number, attributes?: unknown) => histogramRecords.push({ name, value, attributes }),
+    }));
+    const getMeter = vi.spyOn(metrics, "getMeter").mockReturnValue({
+      createCounter,
+      createHistogram,
+      createUpDownCounter: vi.fn(),
+    } as never);
+    const logger = {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    };
+    const middleware = createHonoObservabilityMiddleware(logger);
+    const context = {
+      req: {
+        raw: new Request("https://admin.chasesets.com/api/health/ready"),
+        method: "GET",
+        path: "/api/health/ready",
+      },
+      res: undefined as Response | undefined,
+    };
+
+    try {
+      await middleware(context, async () => {
+        context.res = new Response(null, { status: 204 });
+      });
+    } finally {
+      getMeter.mockRestore();
+    }
+
+    expect(createCounter).toHaveBeenCalledWith("chase_sets_http_server_requests_total", undefined);
+    expect(createHistogram).toHaveBeenCalledWith("chase_sets_http_server_request_duration_ms", { unit: "ms" });
+    expect(counterAdds).toContainEqual({
+      name: "chase_sets_http_server_requests_total",
+      value: 1,
+      attributes: {
+        method: "GET",
+        route: "/api/health/ready",
+        status_class: "2xx",
+      },
+    });
+    expect(histogramRecords).toEqual([
+      expect.objectContaining({
+        name: "chase_sets_http_server_request_duration_ms",
+        attributes: {
+          method: "GET",
+          route: "/api/health/ready",
+          status_class: "2xx",
+        },
+      }),
+    ]);
   });
 });
 

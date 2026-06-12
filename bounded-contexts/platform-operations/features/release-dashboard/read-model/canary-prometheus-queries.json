@@ -2,54 +2,70 @@
   "schemaVersion": "canary-prometheus-queries/v1",
   "signals": [
     {
-      "name": "app-platform-deployment-phase",
-      "owner": "infrastructure/deployment-workflow",
-      "source": "Prometheus DigitalOcean App Platform deployment phase gauge",
+      "name": "observability-transport",
+      "owner": "infrastructure/observability",
+      "required": true,
+      "source": "Prometheus scrape health for the production OpenTelemetry Collector",
       "currentState": "available-now",
-      "baselineQuery": "max(chase_sets_app_platform_deployment_active{environment=\"production\",release!=\"canary\"})",
-      "canaryQuery": "max(chase_sets_app_platform_deployment_active{environment=\"production\",release=\"canary\"})",
+      "baselineQuery": "vector(0)",
+      "canaryQuery": "1 - max(up{job=\"otel-collector\"})",
       "maxIncrease": 0,
-      "threshold": "canary deployment phase must match active baseline"
+      "threshold": "OpenTelemetry Collector Prometheus scrape target must be up"
     },
     {
       "name": "route-error-rate",
       "owner": "platform-runtime/route-owner",
-      "source": "Prometheus HTTP 5xx rate by route, host, and release cohort",
+      "required": false,
+      "source": "Prometheus Chase Sets HTTP 5xx rate by route and host",
       "currentState": "needs-instrumentation",
-      "baselineQuery": "sum(rate(http_requests_total{environment=\"production\",status=~\"5..\",release!=\"canary\"}[15m]))",
-      "canaryQuery": "sum(rate(http_requests_total{environment=\"production\",status=~\"5..\",release=\"canary\"}[15m]))",
+      "baselineQuery": "vector(0)",
+      "canaryQuery": "sum(rate(chase_sets_http_server_requests_total{status_class=\"5xx\"}[15m]))",
       "maxIncrease": 0.005,
-      "threshold": "canary <= baseline + 0.005 errors/second"
+      "threshold": "current production 5xx rate <= 0.005 errors/second"
     },
     {
       "name": "route-latency-p95",
       "owner": "platform-runtime/route-owner",
-      "source": "Prometheus HTTP request duration histogram by route, host, and release cohort",
+      "required": false,
+      "source": "Prometheus Chase Sets HTTP request duration histogram by route and host",
       "currentState": "needs-instrumentation",
-      "baselineQuery": "histogram_quantile(0.95, sum(rate(http_request_duration_milliseconds_bucket{environment=\"production\",release!=\"canary\"}[15m])) by (le))",
-      "canaryQuery": "histogram_quantile(0.95, sum(rate(http_request_duration_milliseconds_bucket{environment=\"production\",release=\"canary\"}[15m])) by (le))",
+      "baselineQuery": "vector(0)",
+      "canaryQuery": "histogram_quantile(0.95, sum(rate(chase_sets_http_server_request_duration_ms_bucket[15m])) by (le))",
       "maxIncrease": 50,
-      "threshold": "canary p95 <= baseline p95 + 50ms"
+      "threshold": "current production p95 <= 50ms until route baselines mature"
+    },
+    {
+      "name": "projection-lag-poison-events",
+      "owner": "owning-bounded-context/platform-operations",
+      "required": true,
+      "source": "Prometheus checkout projection freshness pending and error telemetry",
+      "currentState": "available-now",
+      "baselineQuery": "vector(0)",
+      "canaryQuery": "sum(rate(chase_sets_projection_freshness_pending_total[15m])) + sum(rate(chase_sets_projection_freshness_work_signal_errors_total[15m]))",
+      "maxIncrease": 0,
+      "threshold": "production projection pending/error telemetry must remain zero"
     },
     {
       "name": "checkout-order-payment-errors",
       "owner": "checkout/ordering/payments",
+      "required": false,
       "source": "Prometheus checkout command, order, payment, and provider-health failure counters",
       "currentState": "needs-instrumentation",
-      "baselineQuery": "sum(rate(chase_sets_checkout_payment_failures_total{environment=\"production\",release!=\"canary\"}[15m]))",
-      "canaryQuery": "sum(rate(chase_sets_checkout_payment_failures_total{environment=\"production\",release=\"canary\"}[15m]))",
+      "baselineQuery": "vector(0)",
+      "canaryQuery": "sum(rate(chase_sets_checkout_observability_events_total{release_health_required=\"true\",alert_class=~\"launch-alert|provider-alert|side-effect-boundary\"}[15m]))",
       "maxIncrease": 0,
-      "threshold": "canary checkout/payment failures must not exceed baseline"
+      "threshold": "production checkout/payment release-health alert events must remain zero"
     },
     {
       "name": "settlement-payout-errors",
       "owner": "settlement",
+      "required": true,
       "source": "Prometheus settlement operation failures for payout setup, readiness, and provider reconciliation",
       "currentState": "available-now",
-      "baselineQuery": "sum(rate(chase_sets_settlement_operations_total{environment=\"production\",release!=\"canary\",kind=~\"payout-setup-session-failed|payout-account-management-session-failed|payout-readiness-refresh-failed|payout-readiness-webhook-ignored|payout-request-blocked-by-setup|payout-failed|money-movement-webhook-ignored\"}[15m]))",
-      "canaryQuery": "sum(rate(chase_sets_settlement_operations_total{environment=\"production\",release=\"canary\",kind=~\"payout-setup-session-failed|payout-account-management-session-failed|payout-readiness-refresh-failed|payout-readiness-webhook-ignored|payout-request-blocked-by-setup|payout-failed|money-movement-webhook-ignored\"}[15m]))",
+      "baselineQuery": "vector(0)",
+      "canaryQuery": "sum(rate(chase_sets_settlement_operations_total{kind=~\"payout-setup-session-failed|payout-account-management-session-failed|payout-readiness-refresh-failed|payout-readiness-webhook-ignored|payout-request-blocked-by-setup|payout-failed|money-movement-webhook-ignored\"}[15m]))",
       "maxIncrease": 0,
-      "threshold": "canary settlement payout/setup failures must not exceed baseline"
+      "threshold": "production settlement payout/setup failures must remain zero"
     }
   ]
 }

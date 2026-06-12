@@ -47,7 +47,7 @@ describe("canary evidence collector", () => {
     expect(analysis.passesCanaryAnalysisGate).toBe(true);
   });
 
-  it("marks unsupported required signals missing so analysis fails closed", () => {
+  it("keeps unsupported optional signals visible while required signals fail closed", () => {
     const evidence = buildCanaryEvidence({
       releaseCommit,
       checkedAt: "2026-05-31T12:00:00.000Z",
@@ -60,11 +60,23 @@ describe("canary evidence collector", () => {
     const analysis = evaluateCanaryAnalysis(evidence);
 
     expect(evidence.signals.find((signal) => signal.name === "route-error-rate")).toMatchObject({
+      required: false,
       status: "missing",
       source: "HTTP telemetry by route and host",
     });
+    expect(evidence.signals.find((signal) => signal.name === "observability-transport")).toMatchObject({
+      required: true,
+      status: "missing",
+      source: "Prometheus scrape health for the production OpenTelemetry Collector",
+    });
+    expect(evidence.signals.find((signal) => signal.name === "projection-lag-poison-events")).toMatchObject({
+      required: true,
+      status: "missing",
+      source: "projection operation snapshots and poison-event telemetry",
+    });
     expect(analysis.passesCanaryAnalysisGate).toBe(false);
-    expect(analysis.errors).toContain("Required canary signal route-error-rate did not pass: missing.");
+    expect(analysis.errors).not.toContain("Required canary signal route-error-rate did not pass: missing.");
+    expect(analysis.errors).toContain("Required canary signal projection-lag-poison-events did not pass: missing.");
   });
 
   it("keeps threshold failures visible after collecting source files", async () => {
@@ -76,8 +88,8 @@ describe("canary evidence collector", () => {
         signal.name,
         {
           baseline: 0,
-          canary: signal.name === "route-latency-p95" ? 75 : 0,
-          maxIncrease: signal.name === "route-latency-p95" ? 50 : signal.maxIncrease,
+          canary: signal.name === "settlement-payout-errors" ? 1 : 0,
+          maxIncrease: signal.name === "settlement-payout-errors" ? 0 : signal.maxIncrease,
           source: signal.source,
         },
       ]),
@@ -93,7 +105,7 @@ describe("canary evidence collector", () => {
     });
 
     expect(result.analysis.passesCanaryAnalysisGate).toBe(false);
-    expect(result.analysis.errors).toContain("Required canary signal route-latency-p95 did not pass: fail.");
+    expect(result.analysis.errors).toContain("Required canary signal settlement-payout-errors did not pass: fail.");
     expect(JSON.parse(await readFile(outFile, "utf8")).signals).toEqual(result.evidence.signals);
   });
 
@@ -229,22 +241,51 @@ describe("canary evidence collector", () => {
     );
   });
 
-  it("merges Prometheus telemetry into canary evidence and still fails missing required signals closed", async () => {
+  it("merges Prometheus telemetry into canary evidence and keeps missing optional signals out of the gate", async () => {
     const directory = await mkdtemp(join(tmpdir(), "chase-sets-canary-prometheus-merge-"));
     const queryFile = join(directory, "queries.json");
+    const sourceFile = join(directory, "source.json");
     await writeFile(
       queryFile,
       `${JSON.stringify({
         signals: [
           {
-            name: "route-latency-p95",
-            owner: "platform-runtime/route-owner",
-            source: "Prometheus route latency p95 by release cohort",
-            baselineQuery: "baseline_latency",
-            canaryQuery: "canary_latency",
-            maxIncrease: 50,
+            name: "observability-transport",
+            owner: "infrastructure/observability",
+            source: "Prometheus scrape health for the production OpenTelemetry Collector",
+            baselineQuery: "transport_baseline",
+            canaryQuery: "transport_canary",
+            maxIncrease: 0,
+          },
+          {
+            name: "projection-lag-poison-events",
+            owner: "owning-bounded-context/platform-operations",
+            source: "Prometheus checkout projection freshness pending and error telemetry",
+            baselineQuery: "baseline_projection",
+            canaryQuery: "canary_projection",
+            maxIncrease: 0,
+          },
+          {
+            name: "settlement-payout-errors",
+            owner: "settlement",
+            source: "Prometheus settlement operation failures",
+            baselineQuery: "baseline_settlement",
+            canaryQuery: "canary_settlement",
+            maxIncrease: 0,
           },
         ],
+      })}\n`,
+    );
+    await writeFile(
+      sourceFile,
+      `${JSON.stringify({
+        signals: {
+          "app-platform-deployment-phase": {
+            owner: "infrastructure/deployment-workflow",
+            source: "GitHub Actions Stage 1 production canary",
+            status: "pass",
+          },
+        },
       })}\n`,
     );
 
@@ -252,22 +293,25 @@ describe("canary evidence collector", () => {
       releaseCommit,
       checkedAt: "2026-06-01T12:00:00.000Z",
       observationWindowSeconds: 300,
-      sourceFiles: [],
+      sourceFiles: [sourceFile],
       prometheusBaseUrl: "https://prometheus.example",
       prometheusQueryFile: queryFile,
       fetchImpl: async () => ({
         ok: true,
-        json: async () => ({ status: "success", data: { resultType: "scalar", result: [1_802_000_000, "25"] } }),
+        json: async () => ({ status: "success", data: { resultType: "scalar", result: [1_802_000_000, "0"] } }),
       }),
     });
 
-    expect(result.evidence.signals.find((signal) => signal.name === "route-latency-p95")).toMatchObject({
-      baseline: 25,
-      canary: 25,
+    expect(result.evidence.signals.find((signal) => signal.name === "route-error-rate")).toMatchObject({
+      required: false,
+      status: "missing",
+    });
+    expect(result.evidence.signals.find((signal) => signal.name === "projection-lag-poison-events")).toMatchObject({
+      baseline: 0,
+      canary: 0,
       currentState: "available-now",
     });
-    expect(result.analysis.passesCanaryAnalysisGate).toBe(false);
-    expect(result.analysis.errors).toContain("Required canary signal route-error-rate did not pass: missing.");
+    expect(result.analysis.passesCanaryAnalysisGate).toBe(true);
   });
 
   it("validates Prometheus signal ownership and thresholds before querying", () => {
@@ -287,8 +331,14 @@ describe("canary evidence collector", () => {
         name: "route-error-rate",
         baselineQuery: "baseline",
         canaryQuery: "canary",
+        required: "sometimes",
       }),
-    ).toEqual(["owner is required.", "source is required.", "maxIncrease must be a non-negative number."]);
+    ).toEqual([
+      "owner is required.",
+      "source is required.",
+      "maxIncrease must be a non-negative number.",
+      "required must be a boolean when provided.",
+    ]);
   });
 
   it("keeps the production Prometheus query file valid for required canary gates", async () => {
@@ -302,13 +352,30 @@ describe("canary evidence collector", () => {
 
     expect(signals.map((signal) => signal.name)).toEqual(
       expect.arrayContaining([
-        "app-platform-deployment-phase",
+        "observability-transport",
         "route-error-rate",
         "route-latency-p95",
+        "projection-lag-poison-events",
         "checkout-order-payment-errors",
         "settlement-payout-errors",
       ]),
     );
     expect(signals.flatMap(validatePrometheusSignalConfig)).toEqual([]);
+    expect(signals.find((signal) => signal.name === "observability-transport")).toMatchObject({
+      required: true,
+      currentState: "available-now",
+    });
+    expect(signals.find((signal) => signal.name === "projection-lag-poison-events")).toMatchObject({
+      required: true,
+      currentState: "available-now",
+    });
+    expect(signals.find((signal) => signal.name === "route-error-rate")).toMatchObject({
+      required: false,
+      currentState: "needs-instrumentation",
+    });
+    expect(signals.find((signal) => signal.name === "checkout-order-payment-errors")).toMatchObject({
+      required: false,
+      currentState: "needs-instrumentation",
+    });
   });
 });
