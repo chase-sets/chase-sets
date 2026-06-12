@@ -141,6 +141,9 @@ importers:
       '@chase-sets/bounded-context-runtime':
         specifier: workspace:*
         version: link:../../infrastructure/bounded-context-runtime
+      '@chase-sets/catalog-seed':
+        specifier: workspace:*
+        version: link:../../contracts/catalog-seed
       '@chase-sets/design-system':
         specifier: workspace:*
         version: link:../../packages/design-system
@@ -183,9 +186,9 @@ importers:
       '@chase-sets/bounded-context-module':
         specifier: workspace:*
         version: link:../../contracts/bounded-context-module
-      '@chase-sets/catalog':
+      '@chase-sets/catalog-seed':
         specifier: workspace:*
-        version: link:../catalog
+        version: link:../../contracts/catalog-seed
       '@chase-sets/design-system':
         specifier: workspace:*
         version: link:../../packages/design-system
@@ -284,9 +287,6 @@ importers:
       '@chase-sets/bounded-context-runtime':
         specifier: workspace:*
         version: link:../../infrastructure/bounded-context-runtime
-      '@chase-sets/catalog':
-        specifier: workspace:*
-        version: link:../catalog
       '@chase-sets/checkout':
         specifier: workspace:*
         version: link:../checkout
@@ -330,6 +330,9 @@ importers:
         specifier: ^4.12.12
         version: 4.12.18
     devDependencies:
+      '@chase-sets/catalog':
+        specifier: workspace:*
+        version: link:../catalog
       '@chase-sets/commercial-terms':
         specifier: workspace:*
         version: link:../commercial-terms
@@ -443,9 +446,9 @@ importers:
       '@chase-sets/bounded-context-runtime':
         specifier: workspace:*
         version: link:../../infrastructure/bounded-context-runtime
-      '@chase-sets/catalog':
+      '@chase-sets/catalog-seed':
         specifier: workspace:*
-        version: link:../catalog
+        version: link:../../contracts/catalog-seed
       '@chase-sets/design-system':
         specifier: workspace:*
         version: link:../../packages/design-system
@@ -477,6 +480,9 @@ importers:
         specifier: ^4.12.12
         version: 4.12.18
     devDependencies:
+      '@chase-sets/catalog':
+        specifier: workspace:*
+        version: link:../catalog
       '@chase-sets/commercial-terms':
         specifier: workspace:*
         version: link:../commercial-terms
@@ -492,9 +498,9 @@ importers:
       '@chase-sets/bounded-context-module':
         specifier: workspace:*
         version: link:../../contracts/bounded-context-module
-      '@chase-sets/catalog':
+      '@chase-sets/catalog-seed':
         specifier: workspace:*
-        version: link:../catalog
+        version: link:../../contracts/catalog-seed
       '@chase-sets/commercial-terms':
         specifier: workspace:*
         version: link:../commercial-terms
@@ -605,9 +611,9 @@ importers:
       '@chase-sets/bounded-context-module':
         specifier: workspace:*
         version: link:../../contracts/bounded-context-module
-      '@chase-sets/catalog':
+      '@chase-sets/catalog-seed':
         specifier: workspace:*
-        version: link:../catalog
+        version: link:../../contracts/catalog-seed
       '@chase-sets/communications-email':
         specifier: workspace:*
         version: link:../../contracts/communications-email
@@ -1022,6 +1028,15 @@ importers:
       '@chase-sets/event-core':
         specifier: workspace:*
         version: link:../event-core
+
+  contracts/catalog-seed:
+    dependencies:
+      '@chase-sets/primitives':
+        specifier: workspace:*
+        version: link:../primitives
+      '@chase-sets/product-measures':
+        specifier: workspace:*
+        version: link:../product-measures
 
   contracts/communications-email:
     dependencies:

@@ -1,5 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import type { CatalogRepresentativeCatalogUsageCandidate } from "@chase-sets/catalog/server";
+import type { CatalogRepresentativeCatalogUsageCandidate } from "@chase-sets/catalog-seed";
 import { describe, expect, it } from "vitest";
 import {
   acceptRepresentativeOffers,

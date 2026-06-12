@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { catalogSeedIds } from "../../../support/seed-support/ids";
+import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import {
   tcgdexPokemonTcgProviderProfile,
   tcgplayerAutomationClientProviderProfile,

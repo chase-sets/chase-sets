@@ -1,4 +1,4 @@
-import type { CatalogRepresentativeCatalogUsageCandidate } from "@chase-sets/catalog/server";
+import type { CatalogRepresentativeCatalogUsageCandidate } from "@chase-sets/catalog-seed";
 import { describe, expect, it } from "vitest";
 import {
   reconcileRepresentativeInventoryCatalogItems,

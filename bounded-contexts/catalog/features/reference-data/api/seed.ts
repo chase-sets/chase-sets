@@ -1,6 +1,6 @@
 import { localizedTextMapFromEnglish } from "@chase-sets/localization";
 import type { CatalogValue } from "../../../support/runtime-support/common";
-import { catalogSeedIds } from "../../../support/seed-support/ids";
+import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import type { CatalogServices } from "../../../support/authoring-support/services";
 import { sendSeedCommand } from "../../../support/seed-support/context";
 import type { ReferenceRecordId, ReferenceTypeId } from "../../../ids";

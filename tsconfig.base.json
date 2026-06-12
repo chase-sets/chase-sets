@@ -60,14 +60,14 @@
       "@chase-sets/catalog": [
         "./bounded-contexts/catalog/index.ts"
       ],
+      "@chase-sets/catalog-seed": [
+        "./contracts/catalog-seed/index.ts"
+      ],
       "@chase-sets/catalog/context": [
         "./bounded-contexts/catalog/context.json"
       ],
       "@chase-sets/catalog/routes/*": [
         "./bounded-contexts/catalog/routes/*.tsx"
-      ],
-      "@chase-sets/catalog/seed-support/*": [
-        "./bounded-contexts/catalog/support/seed-support/*.ts"
       ],
       "@chase-sets/catalog/server": [
         "./bounded-contexts/catalog/server.ts"

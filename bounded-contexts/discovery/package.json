@@ -25,7 +25,6 @@
     "@chase-sets/bounded-context-module": "workspace:*",
     "@chase-sets/bounded-context-runtime": "workspace:*",
     "@chase-sets/auth-context": "workspace:*",
-    "@chase-sets/catalog": "workspace:*",
     "@chase-sets/checkout": "workspace:*",
     "@chase-sets/design-system": "workspace:*",
     "@chase-sets/event-core": "workspace:*",
@@ -43,6 +42,7 @@
   },
   "devDependencies": {
     "@chase-sets/bounded-context-runtime": "workspace:*",
+    "@chase-sets/catalog": "workspace:*",
     "@chase-sets/commercial-terms": "workspace:*",
     "@chase-sets/identity": "workspace:*",
     "@chase-sets/reputation": "workspace:*"

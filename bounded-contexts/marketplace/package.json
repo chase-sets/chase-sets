@@ -18,7 +18,7 @@
   "dependencies": {
     "@chase-sets/auth-context": "workspace:*",
     "@chase-sets/bounded-context-module": "workspace:*",
-    "@chase-sets/catalog": "workspace:*",
+    "@chase-sets/catalog-seed": "workspace:*",
     "@chase-sets/commercial-terms": "workspace:*",
     "@chase-sets/design-system": "workspace:*",
     "@chase-sets/event-core": "workspace:*",

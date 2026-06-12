@@ -8,7 +8,6 @@
   "allowedSupportDirectories": ["request-support", "realtime-support", "runtime-support", "seed-support"],
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
   "allowedContextDependencies": [
-    "@chase-sets/catalog",
     "@chase-sets/commercial-terms",
     "@chase-sets/identity",
     "@chase-sets/inventory",

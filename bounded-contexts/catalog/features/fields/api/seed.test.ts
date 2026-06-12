@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CatalogServices } from "../../../support/authoring-support/services";
-import { catalogSeedIds } from "../../../support/seed-support/ids";
+import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import { seedFields } from "./seed";
 
 describe("field seed", () => {

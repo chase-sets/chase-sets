@@ -1,5 +1,5 @@
 import type { JsonValue } from "@chase-sets/primitives/json";
-import { catalogSeedIds } from "../../../support/seed-support/ids";
+import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import type {
   CatalogProviderExecutableMappingContract,
   CatalogProviderMappingContractDiagnostic,
