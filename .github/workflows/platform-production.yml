@@ -1802,6 +1802,7 @@ jobs:
           always() &&
           steps.latest_main.outputs.should_deploy != 'false' &&
           steps.stage1_canary.outcome == 'success' &&
+          vars.CANARY_PROMETHEUS_ENABLED == 'true' &&
           vars.CANARY_PROMETHEUS_URL != '' &&
           vars.CANARY_PROMETHEUS_QUERY_FILE != ''
         env:
