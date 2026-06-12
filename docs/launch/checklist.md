@@ -72,7 +72,7 @@
 ## Security, privacy, legal
 
 - [ ] Security/privacy/legal review is signed off (#1124); no raw card data touches our servers; PII is redacted from logs and canary artifacts.
-- [ ] Terms, privacy, and refund policy are linked from checkout; guest data handling is reviewed.
+- [ ] Terms, privacy, and refund policy are linked from checkout; guest data handling is reviewed (checkout policy link baseline: PR #1509).
 - [ ] Internal-only helpers (proof modes, diagnostics) are permission-gated and unreachable by customers.
 
 ## Performance
