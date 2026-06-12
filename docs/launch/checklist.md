@@ -22,8 +22,8 @@
 
 - [ ] Signed-in sell: list review → readiness → checkout → explicit confirmation records the sale and Marketplace handoff (baseline: PR #1289 / deploy 27324899046).
 - [ ] Stale offer terms at final confirmation route the seller back to sell-list recovery with no listing/acceptance side effects (baseline: PR #1300).
-- [ ] Sell blockers (item eligibility, condition, ship-from, label, payout setup) are resolved in the sell list, never inside checkout.
-- [ ] Guest sell matches the launch decision: either fully supported end to end, or fails closed with customer-safe copy.
+- [ ] Sell blockers (item eligibility, condition, ship-from, label, payout setup) are resolved in the sell list, never inside checkout (guest registration-first entry baseline: PR #1497).
+- [ ] Guest sell is registration-first at launch: anonymous sellers can prepare a Sell List, but seller checkout routes through registration after readiness passes; missing, stale, or blocked readiness fails closed before seller-committing side effects (baseline: PR #1497).
 
 ## Checkout entry and readiness
 

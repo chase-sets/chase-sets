@@ -974,6 +974,70 @@ describe("checkout web routes: account sell list", () => {
     expect(mockCreateListing).not.toHaveBeenCalled();
   });
 
+  it("routes guest seller checkout to sign in when no anonymous Sell List exists", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      createGuestSellListReadiness: mockCreateGuestSellListReadiness,
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "review-sell-list-checkout");
+
+    const response = (await accountSellListAction({
+      request: new Request("http://localhost/account/sell-list", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never)) as Response;
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe(
+      "/sign-in?returnTo=%2Faccount%2Fsell-list%3FregistrationReturn%3Dseller-checkout",
+    );
+    expect(mockCreateGuestSellListReadiness).not.toHaveBeenCalled();
+    expectNoSellerCommitSideEffects();
+  });
+
+  it("keeps stale guest Sell List readiness in recovery before registration", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    mockCreateGuestSellListReadiness.mockResolvedValue({
+      readiness: {
+        ...readySellListReadinessResponse().readiness,
+        status: "blocked",
+        unresolvedLineIds: [],
+        customerSafeFacts: ["Offer terms changed. Review the Sell List before seller checkout."],
+      },
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      createGuestSellListReadiness: mockCreateGuestSellListReadiness,
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "review-sell-list-checkout");
+
+    const result = await accountSellListAction({
+      request: new Request("http://localhost/account/sell-list", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          cookie: "chase_sets_anonymous_sell_list=anon_sell_1",
+        },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(mockCreateGuestSellListReadiness).toHaveBeenCalledWith("anon_sell_1");
+    expect(result).toEqual({ error: "Resolve Sell List readiness before seller checkout starts." });
+    expectNoSellerCommitSideEffects();
+  });
+
   it("keeps guest seller checkout in Sell List recovery when readiness is blocked", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(null);
     mockCreateGuestSellListReadiness.mockResolvedValue({
