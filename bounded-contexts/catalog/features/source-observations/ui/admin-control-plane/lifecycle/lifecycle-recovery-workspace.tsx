@@ -1,14 +1,21 @@
 import {
   Badge,
+  BadgeCluster,
   Button,
   Checkbox,
   DataTable,
   EmptyState,
-  Form,
+  EvidenceStringList,
+  HiddenInput,
   KeyValueList,
   LinkButton,
   MetricStrip,
   OperationalStatusBanner,
+  StatusReasonList,
+  WorkbenchDataCell,
+  WorkbenchForm,
+  WorkbenchGrid,
+  WorkbenchStack,
   WorkflowModule,
   type DataColumn,
 } from "@chase-sets/design-system";
@@ -34,7 +41,7 @@ export function CatalogIntegrationLifecycleRecoveryWorkspace({
   const lifecycle = readModel.lifecycleRecovery;
 
   return (
-    <section className="grid min-w-0 gap-4" data-catalog-lifecycle-recovery-workspace="true">
+    <WorkbenchStack element="section" data-catalog-lifecycle-recovery-workspace="true">
       <WorkflowModule
         title={t("catalog.features.sourceObservations.ui.lifecycleRecovery.title")}
         description={t("catalog.features.sourceObservations.ui.lifecycleRecovery.description")}
@@ -47,7 +54,7 @@ export function CatalogIntegrationLifecycleRecoveryWorkspace({
         headingLevel={2}
         density="compact"
       >
-        <div className="grid gap-4">
+        <WorkbenchStack>
           <OperationalStatusBanner
             tone={lifecycle.status === "ready" ? "success" : lifecycle.status === "blocked" ? "danger" : "warning"}
             title={lifecycleBannerTitle(lifecycle)}
@@ -77,7 +84,7 @@ export function CatalogIntegrationLifecycleRecoveryWorkspace({
               },
             ]}
           />
-        </div>
+        </WorkbenchStack>
       </WorkflowModule>
 
       <WorkflowModule
@@ -98,11 +105,11 @@ export function CatalogIntegrationLifecycleRecoveryWorkspace({
         />
       </WorkflowModule>
 
-      <div className="grid min-w-0 gap-4 xl:grid-cols-2">
+      <WorkbenchGrid columns="two">
         {lifecycle.operations.map((operation) => (
           <LifecycleOperationModule key={operation.operation} readModel={readModel} operation={operation} />
         ))}
-      </div>
+      </WorkbenchGrid>
 
       <WorkflowModule
         title={t("catalog.features.sourceObservations.ui.lifecycleRecovery.strictRetirement.title")}
@@ -114,7 +121,7 @@ export function CatalogIntegrationLifecycleRecoveryWorkspace({
         }
         density="compact"
       >
-        <div className="grid gap-4">
+        <WorkbenchStack>
           <OperationalStatusBanner
             tone="danger"
             title={t("catalog.features.sourceObservations.ui.lifecycleRecovery.strictRetirement.ruleTitle")}
@@ -128,7 +135,7 @@ export function CatalogIntegrationLifecycleRecoveryWorkspace({
               { key: "Forbidden support paths", value: lifecycle.strictRetirement.forbiddenSupportPaths.join(", ") },
             ]}
           />
-        </div>
+        </WorkbenchStack>
       </WorkflowModule>
 
       <WorkflowModule
@@ -151,7 +158,7 @@ export function CatalogIntegrationLifecycleRecoveryWorkspace({
           />
         )}
       </WorkflowModule>
-    </section>
+    </WorkbenchStack>
   );
 }
 
@@ -171,7 +178,7 @@ function LifecycleOperationModule({
       status={<Badge tone={actionTone(operation.state)}>{stateLabel(operation.state)}</Badge>}
       density="compact"
     >
-      <div className="grid min-w-0 gap-4">
+      <WorkbenchStack>
         <KeyValueList
           density="compact"
           layout="grid"
@@ -236,11 +243,10 @@ function LifecycleOperationModule({
             {t("catalog.features.sourceObservations.ui.lifecycleRecovery.operation.activation.open")}
           </LinkButton>
         ) : (
-          <Form
-            spacing="none"
+          <WorkbenchForm
+            variant="plain"
             method="post"
             action={operation.submitHref}
-            className="grid gap-3 sm:max-w-md"
             data-catalog-lifecycle-command={operation.operation}
             data-catalog-primary-workbench-command={operation.commandKey}
           >
@@ -260,9 +266,9 @@ function LifecycleOperationModule({
             >
               {operation.label}
             </Button>
-          </Form>
+          </WorkbenchForm>
         )}
-      </div>
+      </WorkbenchStack>
     </WorkflowModule>
   );
 }
@@ -278,14 +284,14 @@ function LifecycleHiddenInputs({
 
   return (
     <>
-      <input type="hidden" name="_intent" value={operation.commandKey} />
-      <input type="hidden" name="providerKey" value={operation.providerKey ?? context.providerKey ?? ""} />
-      <input type="hidden" name="unitKey" value={context.unitKey ?? ""} />
-      <input type="hidden" name="importScope" value={context.importScope ?? ""} />
-      <input type="hidden" name="profileVersion" value={operation.profileVersion ?? context.profileVersion ?? ""} />
-      <input type="hidden" name="selectedObservationIds" value={context.selectedObservationIds.join(",")} />
-      <input type="hidden" name="jobId" value={context.jobId ?? ""} />
-      <input type="hidden" name="promotionPreviewId" value={context.promotionPreviewId ?? ""} />
+      <HiddenInput name="_intent" value={operation.commandKey} />
+      <HiddenInput name="providerKey" value={operation.providerKey ?? context.providerKey ?? ""} />
+      <HiddenInput name="unitKey" value={context.unitKey ?? ""} />
+      <HiddenInput name="importScope" value={context.importScope ?? ""} />
+      <HiddenInput name="profileVersion" value={operation.profileVersion ?? context.profileVersion ?? ""} />
+      <HiddenInput name="selectedObservationIds" value={context.selectedObservationIds.join(",")} />
+      <HiddenInput name="jobId" value={context.jobId ?? ""} />
+      <HiddenInput name="promotionPreviewId" value={context.promotionPreviewId ?? ""} />
     </>
   );
 }
@@ -296,12 +302,7 @@ const profileColumns: DataColumn<LifecycleProfile>[] = [
     header: t("catalog.features.sourceObservations.ui.lifecycleRecovery.table.profile"),
     sortable: true,
     cell: (profile) => (
-      <div className="grid min-w-0 gap-1">
-        <span className="text-sm font-semibold text-foreground">{profile.displayName}</span>
-        <span className="text-xs text-secondary">
-          {profile.profileKey}@{profile.profileVersion}
-        </span>
-      </div>
+      <WorkbenchDataCell title={profile.displayName} description={`${profile.profileKey}@${profile.profileVersion}`} />
     ),
   },
   {
@@ -309,14 +310,24 @@ const profileColumns: DataColumn<LifecycleProfile>[] = [
     header: t("catalog.features.sourceObservations.ui.lifecycleRecovery.table.lifecycle"),
     mobileLabel: t("catalog.features.sourceObservations.ui.lifecycleRecovery.table.lifecycle"),
     cell: (profile) => (
-      <div className="flex min-w-0 flex-wrap gap-1.5">
-        <Badge tone={profile.active ? "success" : lifecycleTone(profile.lifecycle)}>
-          {stateLabel(profile.lifecycle)}
-        </Badge>
-        {profile.active ? (
-          <Badge tone="accent">{t("catalog.features.sourceObservations.ui.lifecycleRecovery.badge.active")}</Badge>
-        ) : null}
-      </div>
+      <BadgeCluster
+        items={[
+          {
+            key: "lifecycle",
+            label: stateLabel(profile.lifecycle),
+            tone: profile.active ? "success" : lifecycleTone(profile.lifecycle),
+          },
+          ...(profile.active
+            ? [
+                {
+                  key: "active",
+                  label: t("catalog.features.sourceObservations.ui.lifecycleRecovery.badge.active"),
+                  tone: "accent" as const,
+                },
+              ]
+            : []),
+        ]}
+      />
     ),
   },
   {
@@ -343,12 +354,7 @@ const auditColumns: DataColumn<LifecycleAuditEvent>[] = [
     key: "event",
     header: t("catalog.features.sourceObservations.ui.lifecycleRecovery.table.event"),
     sortable: true,
-    cell: (event) => (
-      <div className="grid min-w-0 gap-1">
-        <span className="text-sm font-semibold text-foreground">{event.eventName}</span>
-        <span className="text-xs text-secondary">{event.summary}</span>
-      </div>
-    ),
+    cell: (event) => <WorkbenchDataCell title={event.eventName} description={event.summary} />,
   },
   {
     key: "profile",
@@ -370,38 +376,31 @@ function BlockerBadges({ blockers }: { blockers: readonly CatalogPrimaryWorkbenc
   }
 
   return (
-    <div className="grid min-w-0 gap-2">
-      <h3 className="text-sm font-semibold text-foreground">
-        {t("catalog.features.sourceObservations.ui.lifecycleRecovery.blockers.title")}
-      </h3>
-      <div className="grid min-w-0 gap-2">
-        {[...new Set(blockers)].map((blocker) => {
-          const copy = getCatalogPrimaryWorkbenchBlockerCopy(blocker);
-          return (
-            <div key={blocker} className="grid min-w-0 gap-1">
-              <Badge tone={blockerTone(blocker)}>{copy.label}</Badge>
-              <span className="text-xs leading-5 text-secondary">{copy.reason}</span>
-              <span className="text-xs leading-5 text-secondary">{copy.nextStep}</span>
-            </div>
-          );
-        })}
-      </div>
-    </div>
+    <StatusReasonList
+      nextStepPrefix={t("catalog.features.sourceObservations.ui.primaryWorkbench.copy.next.prefix")}
+      items={[...new Set(blockers)].map((blocker) => {
+        const copy = getCatalogPrimaryWorkbenchBlockerCopy(blocker);
+
+        return {
+          key: blocker,
+          label: copy.label,
+          reason: copy.reason,
+          nextStep: copy.nextStep,
+          tone: blockerTone(blocker),
+        };
+      })}
+    />
   );
 }
 
 function EvidenceList({ title, items }: Readonly<{ title: string; items: readonly string[] }>) {
   return (
-    <div className="grid min-w-0 gap-2">
-      <h3 className="text-sm font-semibold text-foreground">{title}</h3>
-      <ul className="grid min-w-0 gap-1 text-sm leading-6 text-secondary">
-        {items.map((item, index) => (
-          <li key={`${title}-${index}`} className="break-words">
-            {item}
-          </li>
-        ))}
-      </ul>
-    </div>
+    <EvidenceStringList
+      title={title}
+      items={items}
+      emptyLabel={t("catalog.features.sourceObservations.ui.primaryWorkbench.none")}
+      emptyTone="neutral"
+    />
   );
 }
 

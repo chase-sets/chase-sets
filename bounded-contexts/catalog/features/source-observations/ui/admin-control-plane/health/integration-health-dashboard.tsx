@@ -1,10 +1,14 @@
 import {
   Badge,
+  BadgeCluster,
   DataTable,
   KeyValueList,
   LinkButton,
   MetricStrip,
   OperationalStatusBanner,
+  WorkbenchDataCell,
+  WorkbenchStack,
+  WorkbenchText,
   WorkflowModule,
   type DataColumn,
 } from "@chase-sets/design-system";
@@ -122,12 +126,7 @@ const readModelColumns: DataColumn<CatalogPrimaryWorkbenchHealthTriageReadModelS
     key: "query",
     header: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.query"),
     mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.query"),
-    cell: (row) => (
-      <div className="grid min-w-0 gap-1">
-        <span className="text-sm font-semibold text-foreground">{row.queryKey}</span>
-        <span className="text-xs text-secondary">{row.statusMessage}</span>
-      </div>
-    ),
+    cell: (row) => <WorkbenchDataCell title={row.queryKey} description={row.statusMessage} />,
   },
   {
     key: "freshness",
@@ -155,13 +154,11 @@ const unitColumns: DataColumn<CatalogPrimaryWorkbenchHealthTriageUnit>[] = [
     header: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.unit"),
     sortable: true,
     cell: (row) => (
-      <div className="grid min-w-0 gap-1">
-        <span className="text-sm font-semibold text-foreground">{row.displayName}</span>
-        <span className="text-xs text-secondary">{row.unitKey}</span>
-        <span className="text-xs text-secondary">
-          {row.providerKey} · {row.productDomain}/{row.productForm}
-        </span>
-      </div>
+      <WorkbenchDataCell
+        title={row.displayName}
+        description={row.unitKey}
+        detail={`${row.providerKey} / ${row.productDomain}/${row.productForm}`}
+      />
     ),
   },
   {
@@ -169,11 +166,13 @@ const unitColumns: DataColumn<CatalogPrimaryWorkbenchHealthTriageUnit>[] = [
     header: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.catalog.semantic"),
     mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.catalog.semantic"),
     cell: (row) => (
-      <div className="flex min-w-0 flex-wrap gap-1.5">
-        <Badge tone={readinessTone(row.semanticReadiness)}>{row.semanticReadiness}</Badge>
-        <Badge tone={readinessTone(row.fixtureValidationStatus)}>{row.fixtureValidationStatus}</Badge>
-        <Badge tone={row.dryRunStatus === "completed" ? "success" : "danger"}>{row.dryRunStatus}</Badge>
-      </div>
+      <BadgeCluster
+        items={[
+          { key: "semantic", label: row.semanticReadiness, tone: readinessTone(row.semanticReadiness) },
+          { key: "fixture", label: row.fixtureValidationStatus, tone: readinessTone(row.fixtureValidationStatus) },
+          { key: "dry-run", label: row.dryRunStatus, tone: row.dryRunStatus === "completed" ? "success" : "danger" },
+        ]}
+      />
     ),
   },
   {
@@ -181,17 +180,19 @@ const unitColumns: DataColumn<CatalogPrimaryWorkbenchHealthTriageUnit>[] = [
     header: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.provider.transport"),
     mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.provider.transport"),
     cell: (row) => (
-      <div className="grid min-w-0 gap-1">
-        <div className="flex min-w-0 flex-wrap gap-1.5">
-          <Badge tone={readinessTone(row.transportReadiness)}>{row.transportReadiness}</Badge>
-          <Badge tone={readinessTone(row.credentialReadiness)}>{row.credentialReadinessState}</Badge>
-        </div>
-        <span className="text-xs text-secondary">
+      <WorkbenchStack gap="sm">
+        <BadgeCluster
+          items={[
+            { key: "transport", label: row.transportReadiness, tone: readinessTone(row.transportReadiness) },
+            { key: "credential", label: row.credentialReadinessState, tone: readinessTone(row.credentialReadiness) },
+          ]}
+        />
+        <WorkbenchText size="xs">
           {t("catalog.features.sourceObservations.ui.primaryWorkbench.health.observation.facts", {
             count: String(row.observationFacts),
           })}
-        </span>
-      </div>
+        </WorkbenchText>
+      </WorkbenchStack>
     ),
   },
   {
@@ -199,12 +200,12 @@ const unitColumns: DataColumn<CatalogPrimaryWorkbenchHealthTriageUnit>[] = [
     header: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.next.action"),
     mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.next.action"),
     cell: (row) => (
-      <div className="grid min-w-0 gap-1">
+      <WorkbenchStack gap="sm">
         <Badge tone={statusTone(row.status)}>{statusLabel(row.status)}</Badge>
-        <span className="text-sm text-foreground">{primaryActionLabel(row.affectedPrimaryAction)}</span>
-        <span className="text-xs text-secondary">{row.ownerMetricKey}</span>
-        <span className="text-xs leading-5 text-secondary">{row.nextAction}</span>
-      </div>
+        <WorkbenchText tone="foreground">{primaryActionLabel(row.affectedPrimaryAction)}</WorkbenchText>
+        <WorkbenchText size="xs">{row.ownerMetricKey}</WorkbenchText>
+        <WorkbenchText size="xs">{row.nextAction}</WorkbenchText>
+      </WorkbenchStack>
     ),
   },
   {
@@ -212,19 +213,18 @@ const unitColumns: DataColumn<CatalogPrimaryWorkbenchHealthTriageUnit>[] = [
     header: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.diagnostics"),
     mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.diagnostics"),
     cell: (row) => (
-      <div className="grid min-w-0 gap-1">
-        <span className="text-sm text-foreground">
-          {t("catalog.features.sourceObservations.ui.primaryWorkbench.health.diagnostic.counts", {
-            errors: String(row.diagnosticCounts.error),
-            warnings: String(row.diagnosticCounts.warning),
-            infos: String(row.diagnosticCounts.info),
-          })}
-        </span>
-        <span className="text-xs leading-5 text-secondary">
-          {row.latestDiagnosticText ??
-            t("catalog.features.sourceObservations.ui.primaryWorkbench.health.diagnostics.none")}
-        </span>
-      </div>
+      <WorkbenchDataCell
+        title={t("catalog.features.sourceObservations.ui.primaryWorkbench.health.diagnostic.counts", {
+          errors: String(row.diagnosticCounts.error),
+          warnings: String(row.diagnosticCounts.warning),
+          infos: String(row.diagnosticCounts.info),
+        })}
+        titleWeight="regular"
+        detail={
+          row.latestDiagnosticText ??
+          t("catalog.features.sourceObservations.ui.primaryWorkbench.health.diagnostics.none")
+        }
+      />
     ),
   },
 ];
@@ -235,15 +235,13 @@ const providerColumns: DataColumn<CatalogPrimaryWorkbenchHealthTriageProvider>[]
     header: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.provider"),
     sortable: true,
     cell: (row) => (
-      <div className="grid min-w-0 gap-1">
-        <span className="text-sm font-semibold text-foreground">{row.providerKey}</span>
-        <span className="text-xs text-secondary">{row.adapterKey}</span>
-        <span className="text-xs text-secondary">
-          {t("catalog.features.sourceObservations.ui.primaryWorkbench.health.affected.units", {
-            count: String(row.unitKeys.length),
-          })}
-        </span>
-      </div>
+      <WorkbenchDataCell
+        title={row.providerKey}
+        description={row.adapterKey}
+        detail={t("catalog.features.sourceObservations.ui.primaryWorkbench.health.affected.units", {
+          count: String(row.unitKeys.length),
+        })}
+      />
     ),
   },
   {
@@ -251,10 +249,12 @@ const providerColumns: DataColumn<CatalogPrimaryWorkbenchHealthTriageProvider>[]
     header: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.status"),
     mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.status"),
     cell: (row) => (
-      <div className="flex min-w-0 flex-wrap gap-1.5">
-        <Badge tone={statusTone(row.status)}>{statusLabel(row.status)}</Badge>
-        <Badge tone={readinessTone(row.credentialReadiness)}>{row.credentialReadinessState}</Badge>
-      </div>
+      <BadgeCluster
+        items={[
+          { key: "status", label: statusLabel(row.status), tone: statusTone(row.status) },
+          { key: "credential", label: row.credentialReadinessState, tone: readinessTone(row.credentialReadiness) },
+        ]}
+      />
     ),
   },
   {
@@ -290,14 +290,15 @@ const providerColumns: DataColumn<CatalogPrimaryWorkbenchHealthTriageProvider>[]
     header: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.next.action"),
     mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.next.action"),
     cell: (row) => (
-      <div className="grid min-w-0 gap-1">
-        <span className="text-xs text-secondary">{row.ownerMetricKey}</span>
-        <span className="text-sm leading-5 text-foreground">{row.nextAction}</span>
-        <span className="text-xs leading-5 text-secondary">
-          {row.latestDiagnosticText ??
-            t("catalog.features.sourceObservations.ui.primaryWorkbench.health.diagnostics.none")}
-        </span>
-      </div>
+      <WorkbenchDataCell
+        title={row.nextAction}
+        titleWeight="regular"
+        description={row.ownerMetricKey}
+        detail={
+          row.latestDiagnosticText ??
+          t("catalog.features.sourceObservations.ui.primaryWorkbench.health.diagnostics.none")
+        }
+      />
     ),
   },
 ];
@@ -320,7 +321,7 @@ function CatalogIntegrationRolloutTriage({
   }
 
   return (
-    <div className="grid gap-2">
+    <WorkbenchStack gap="sm">
       {activeControls.map((control) => (
         <OperationalStatusBanner
           key={control.controlId}
@@ -337,7 +338,7 @@ function CatalogIntegrationRolloutTriage({
           })}
         />
       ))}
-    </div>
+    </WorkbenchStack>
   );
 }
 
@@ -350,22 +351,17 @@ function CatalogIntegrationJobTriage({
     {
       key: "job",
       header: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.job"),
-      cell: (row) => (
-        <div className="grid min-w-0 gap-1">
-          <span className="text-sm font-semibold text-foreground">{row.jobId}</span>
-          <span className="text-xs text-secondary">{row.summary}</span>
-        </div>
-      ),
+      cell: (row) => <WorkbenchDataCell title={row.jobId} description={row.summary} />,
     },
     {
       key: "progress",
       header: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.progress"),
       mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.progress"),
       cell: (row) => (
-        <div className="grid min-w-0 gap-1">
+        <WorkbenchStack gap="sm">
           <Badge tone={row.phase === "failed" ? "danger" : "warning"}>{row.operatorStatus}</Badge>
-          <span className="text-xs text-secondary">{row.progressLabel}</span>
-        </div>
+          <WorkbenchText size="xs">{row.progressLabel}</WorkbenchText>
+        </WorkbenchStack>
       ),
     },
     {
@@ -373,10 +369,7 @@ function CatalogIntegrationJobTriage({
       header: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.next.action"),
       mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.next.action"),
       cell: (row) => (
-        <div className="grid min-w-0 gap-1">
-          <span className="text-xs text-secondary">{row.ownerMetricKey}</span>
-          <span className="text-sm text-foreground">{row.nextAction}</span>
-        </div>
+        <WorkbenchDataCell title={row.nextAction} titleWeight="regular" description={row.ownerMetricKey} />
       ),
     },
   ];
@@ -402,12 +395,7 @@ function CatalogIntegrationAuditTriage({
     {
       key: "event",
       header: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.audit.event"),
-      cell: (row) => (
-        <div className="grid min-w-0 gap-1">
-          <span className="text-sm font-semibold text-foreground">{row.eventName}</span>
-          <span className="text-xs text-secondary">{row.summary}</span>
-        </div>
-      ),
+      cell: (row) => <WorkbenchDataCell title={row.eventName} description={row.summary} />,
     },
     {
       key: "category",
@@ -431,7 +419,7 @@ function CatalogIntegrationAuditTriage({
   ];
 
   return (
-    <div className="grid gap-2">
+    <WorkbenchStack gap="sm">
       <OperationalStatusBanner
         tone={health.auditPreview.projectionStatus === "partial" ? "warning" : "danger"}
         title={t("catalog.features.sourceObservations.ui.primaryWorkbench.health.audit.status", {
@@ -447,7 +435,7 @@ function CatalogIntegrationAuditTriage({
         emptyTitle={t("catalog.features.sourceObservations.ui.primaryWorkbench.health.audit.empty")}
         emptyDescription={t("catalog.features.sourceObservations.ui.primaryWorkbench.health.audit.empty.detail")}
       />
-    </div>
+    </WorkbenchStack>
   );
 }
 

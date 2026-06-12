@@ -1,14 +1,26 @@
 import {
   Badge,
+  BadgeCluster,
   Button,
   DataTable,
   EmptyState,
-  Form,
+  EvidenceStringList,
+  HiddenInput,
   KeyValueList,
   LinkButton,
   MetricStrip,
   OperationalStatusBanner,
   SideSheet,
+  StatusReasonList,
+  Textarea,
+  TextInput,
+  WorkbenchDataCell,
+  WorkbenchDetailPanel,
+  WorkbenchForm,
+  WorkbenchGrid,
+  WorkbenchStack,
+  WorkbenchText,
+  WorkbenchValueList,
   WorkflowModule,
   WorkflowReadinessChecklist,
   type DataColumn,
@@ -35,7 +47,7 @@ export function CatalogIntegrationValidationReadinessWorkspace({
   const validation = readModel.validationReadiness;
 
   return (
-    <section className="grid min-w-0 gap-4" data-catalog-validation-readiness-workspace="true">
+    <WorkbenchStack element="section" data-catalog-validation-readiness-workspace="true">
       <WorkflowModule
         title={t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.title")}
         description={t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.description")}
@@ -48,7 +60,7 @@ export function CatalogIntegrationValidationReadinessWorkspace({
         headingLevel={2}
         density="compact"
       >
-        <div className="grid gap-4">
+        <WorkbenchStack>
           <OperationalStatusBanner
             tone={validation.status === "blocked" ? "danger" : validation.status === "ready" ? "success" : "warning"}
             title={validationBannerTitle(validation)}
@@ -83,7 +95,7 @@ export function CatalogIntegrationValidationReadinessWorkspace({
               },
             ]}
           />
-        </div>
+        </WorkbenchStack>
       </WorkflowModule>
 
       <WorkflowModule
@@ -142,7 +154,7 @@ export function CatalogIntegrationValidationReadinessWorkspace({
         }
         density="compact"
       >
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
+        <WorkbenchGrid columns="sidebar">
           <KeyValueList
             density="compact"
             variant="surface"
@@ -175,7 +187,7 @@ export function CatalogIntegrationValidationReadinessWorkspace({
               "catalog.features.sourceObservations.ui.primaryWorkbench.validation.compare.emptyDescription",
             )}
           />
-        </div>
+        </WorkbenchGrid>
         <UnchangedSections sections={validation.semanticCompare.unchangedSections} />
       </WorkflowModule>
 
@@ -201,15 +213,15 @@ export function CatalogIntegrationValidationReadinessWorkspace({
             { key: "Status", value: validation.activationReadiness.status },
           ]}
         />
-        <div className="grid gap-4 lg:grid-cols-2">
+        <WorkbenchGrid columns="two">
           {validation.activationReadiness.groups.map((group) => (
             <ActivationGroupChecklist key={group.domainConcept} group={group} />
           ))}
-        </div>
+        </WorkbenchGrid>
       </WorkflowModule>
 
       <ActivationDecisionModule readModel={readModel} />
-    </section>
+    </WorkbenchStack>
   );
 }
 
@@ -236,7 +248,7 @@ function ActivationDecisionModule({ readModel }: { readModel: CatalogPrimaryWork
       }
       density="compact"
     >
-      <div className="grid gap-4">
+      <WorkbenchStack>
         <OperationalStatusBanner
           tone={decision.status === "ready" ? "success" : decision.status === "blocked" ? "danger" : "warning"}
           title={activationDecisionTitle(decision)}
@@ -281,8 +293,8 @@ function ActivationDecisionModule({ readModel }: { readModel: CatalogPrimaryWork
           ]}
         />
 
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(20rem,26rem)]">
-          <div className="grid min-w-0 gap-4">
+        <WorkbenchGrid columns="detail">
+          <WorkbenchStack>
             <KeyValueList
               density="compact"
               layout="grid"
@@ -339,14 +351,14 @@ function ActivationDecisionModule({ readModel }: { readModel: CatalogPrimaryWork
               items={decision.affectedReferences.replayImplications}
             />
             <ActivationBlockerList decision={decision} />
-          </div>
+          </WorkbenchStack>
 
-          <div className="grid min-w-0 gap-4">
+          <WorkbenchStack>
             <MigrationEvidenceForm readModel={readModel} decision={decision} />
             <ActivateProfileForm readModel={readModel} decision={decision} />
-          </div>
-        </div>
-      </div>
+          </WorkbenchStack>
+        </WorkbenchGrid>
+      </WorkbenchStack>
     </WorkflowModule>
   );
 }
@@ -357,12 +369,7 @@ const fixtureColumns: DataColumn<FixtureFlow>[] = [
     header: t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.fixture.table.flow"),
     sortable: true,
     cell: (flow) => (
-      <div className="grid min-w-0 gap-1">
-        <span className="text-sm font-semibold text-foreground">{flow.label}</span>
-        <span className="break-words text-xs text-secondary">
-          {flow.payloadPath ?? flow.payloadFile ?? "no payload"}
-        </span>
-      </div>
+      <WorkbenchDataCell title={flow.label} description={flow.payloadPath ?? flow.payloadFile ?? "no payload"} />
     ),
   },
   {
@@ -376,21 +383,21 @@ const fixtureColumns: DataColumn<FixtureFlow>[] = [
     header: t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.fixture.table.expectedEvidence"),
     mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.fixture.table.expectedEvidence"),
     cell: (flow) => (
-      <div className="grid min-w-0 gap-1 text-xs text-secondary">
-        <span>{flow.expectedStatus ?? "not declared"}</span>
-        <span>
+      <WorkbenchValueList>
+        <WorkbenchText size="xs">{flow.expectedStatus ?? "not declared"}</WorkbenchText>
+        <WorkbenchText size="xs">
           {flow.expectedPromotionCommands.length}{" "}
           {t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.fixture.table.promotionCommands")}
-        </span>
-        <span>
+        </WorkbenchText>
+        <WorkbenchText size="xs">
           {flow.expectedHashEvidencePaths.length}{" "}
           {t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.fixture.table.hashPaths")}
-        </span>
-        <span>
+        </WorkbenchText>
+        <WorkbenchText size="xs">
           {flow.expectedMergeEvidencePaths.length}{" "}
           {t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.fixture.table.mergePaths")}
-        </span>
-      </div>
+        </WorkbenchText>
+      </WorkbenchValueList>
     ),
   },
   {
@@ -398,12 +405,11 @@ const fixtureColumns: DataColumn<FixtureFlow>[] = [
     header: t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.table.diagnostics"),
     mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.table.diagnostics"),
     cell: (flow) => (
-      <div className="grid min-w-0 gap-1">
-        <span className="text-sm text-foreground">{flow.diagnostics.length}</span>
-        <span className="break-words text-xs leading-5 text-secondary">
-          {flow.diagnostics[0]?.diagnosticText ?? "No diagnostics"}
-        </span>
-      </div>
+      <WorkbenchDataCell
+        title={flow.diagnostics.length}
+        titleWeight="regular"
+        detail={flow.diagnostics[0]?.diagnosticText ?? "No diagnostics"}
+      />
     ),
   },
   {
@@ -421,11 +427,11 @@ const dryRunColumns: DataColumn<DryRunEvidence>[] = [
     header: t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.dryRun.table.source"),
     sortable: true,
     cell: (evidence) => (
-      <div className="grid min-w-0 gap-1">
-        <span className="text-sm font-semibold text-foreground">{evidence.externalKey}</span>
-        <span className="break-words text-xs text-secondary">{evidence.sourceUrl ?? "no source URL"}</span>
-        <span className="break-words text-xs text-secondary">{evidence.sourceHash ?? "no source hash"}</span>
-      </div>
+      <WorkbenchDataCell
+        title={evidence.externalKey}
+        description={evidence.sourceUrl ?? "no source URL"}
+        detail={evidence.sourceHash ?? "no source hash"}
+      />
     ),
   },
   {
@@ -447,12 +453,11 @@ const dryRunColumns: DataColumn<DryRunEvidence>[] = [
     header: t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.table.diagnostics"),
     mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.table.diagnostics"),
     cell: (evidence) => (
-      <div className="grid min-w-0 gap-1">
-        <span className="text-sm text-foreground">{evidence.diagnostics.length}</span>
-        <span className="break-words text-xs leading-5 text-secondary">
-          {evidence.diagnostics[0]?.diagnosticText ?? "No diagnostics"}
-        </span>
-      </div>
+      <WorkbenchDataCell
+        title={evidence.diagnostics.length}
+        titleWeight="regular"
+        detail={evidence.diagnostics[0]?.diagnosticText ?? "No diagnostics"}
+      />
     ),
   },
   {
@@ -469,12 +474,7 @@ const semanticColumns: DataColumn<SemanticSection>[] = [
     key: "section",
     header: t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.compare.table.section"),
     sortable: true,
-    cell: (section) => (
-      <div className="grid min-w-0 gap-1">
-        <span className="text-sm font-semibold text-foreground">{section.domainConcept}</span>
-        <span className="break-words text-xs text-secondary">{section.sectionKey}</span>
-      </div>
-    ),
+    cell: (section) => <WorkbenchDataCell title={section.domainConcept} description={section.sectionKey} />,
   },
   {
     key: "status",
@@ -487,12 +487,11 @@ const semanticColumns: DataColumn<SemanticSection>[] = [
     header: t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.compare.table.changes"),
     mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.compare.table.changes"),
     cell: (section) => (
-      <div className="grid min-w-0 gap-1">
-        <span className="text-sm text-foreground">{section.changeCount}</span>
-        <span className="break-words text-xs leading-5 text-secondary">
-          {section.changes[0]?.activationImpact ?? "No activation-impacting changes"}
-        </span>
-      </div>
+      <WorkbenchDataCell
+        title={section.changeCount}
+        titleWeight="regular"
+        detail={section.changes[0]?.activationImpact ?? "No activation-impacting changes"}
+      />
     ),
   },
   {
@@ -519,7 +518,7 @@ function FixtureFlowSheet({ flow }: { flow: FixtureFlow }) {
         </Button>
       }
     >
-      <div className="grid gap-4">
+      <WorkbenchStack>
         <KeyValueList
           density="compact"
           items={[
@@ -550,7 +549,7 @@ function FixtureFlowSheet({ flow }: { flow: FixtureFlow }) {
         />
         <DiagnosticList diagnostics={flow.diagnostics} />
         <BlockerBadges blockers={flow.blockers} />
-      </div>
+      </WorkbenchStack>
     </SideSheet>
   );
 }
@@ -570,7 +569,7 @@ function DryRunEvidenceSheet({ evidence }: { evidence: DryRunEvidence }) {
         </Button>
       }
     >
-      <div className="grid gap-4">
+      <WorkbenchStack>
         <KeyValueList
           density="compact"
           layout="grid"
@@ -605,7 +604,7 @@ function DryRunEvidenceSheet({ evidence }: { evidence: DryRunEvidence }) {
           title={t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.metric.auditEvidence")}
           items={evidence.auditEvidence}
         />
-      </div>
+      </WorkbenchStack>
     </SideSheet>
   );
 }
@@ -625,7 +624,7 @@ function SemanticSectionSheet({ section }: { section: SemanticSection }) {
         </Button>
       }
     >
-      <div className="grid gap-4">
+      <WorkbenchStack>
         {section.changes.length === 0 ? (
           <EmptyState
             title={t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.compare.noChanges.title")}
@@ -649,7 +648,7 @@ function SemanticSectionSheet({ section }: { section: SemanticSection }) {
             />
           ))
         )}
-      </div>
+      </WorkbenchStack>
     </SideSheet>
   );
 }
@@ -662,21 +661,25 @@ function ActivationGroupChecklist({ group }: { group: ActivationGroup }) {
     statusLabel: check.status,
     description: check.remediation,
     meta: (
-      <>
-        <Badge tone="neutral">{check.code}</Badge>
-        <span className="break-words">{check.path}</span>
-      </>
+      <BadgeCluster
+        items={[
+          { key: "code", label: check.code, tone: "neutral" },
+          { key: "path", label: check.path, tone: "neutral" },
+        ]}
+      />
     ),
   }));
 
   return (
-    <div className="grid min-w-0 gap-2 rounded-md border border-border-subtle p-3">
-      <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold text-foreground">{group.domainConcept}</h3>
-        <Badge tone={group.status === "ready" ? "success" : "danger"}>{group.status}</Badge>
-      </div>
+    <WorkbenchDetailPanel>
+      <BadgeCluster
+        items={[
+          { key: "domain", label: group.domainConcept, tone: "neutral" },
+          { key: "status", label: group.status, tone: group.status === "ready" ? "success" : "danger" },
+        ]}
+      />
       <WorkflowReadinessChecklist items={items} emptyState="No readiness checks" />
-    </div>
+    </WorkbenchDetailPanel>
   );
 }
 
@@ -689,51 +692,39 @@ function MigrationEvidenceForm({
 }) {
   const disabled = !isDecisionActionAvailable(decision.saveEvidenceState);
   const evidence = decision.migrationEvidence;
-  const evidenceHelpId = "catalog-activation-migration-evidence-help";
-  const controlClassName =
-    "min-h-10 rounded-md border border-border-subtle bg-surface px-3 py-2 text-sm font-normal text-foreground disabled:bg-surface-muted disabled:text-secondary";
 
   return (
-    <Form
-      spacing="md"
-      method="post"
-      action={decision.workspaceHref}
-      data-catalog-validation-evidence-form="true"
-      className="grid min-w-0 gap-3 rounded-md border border-border-subtle p-4"
-    >
+    <WorkbenchForm method="post" action={decision.workspaceHref} data-catalog-validation-evidence-form="true">
       <ValidationContextHiddenInputs readModel={readModel} intent={decision.evidenceCommandKey} />
-      <input type="hidden" name="sectionKey" value="migration-evidence" />
-      <input type="hidden" name="migrationFingerprintBefore" value={evidence.mappingFingerprintBefore ?? ""} />
-      <input type="hidden" name="migrationFingerprintAfter" value={evidence.mappingFingerprintAfter ?? ""} />
-      <input type="hidden" name="migrationRecordedAt" value={evidence.recordedAt ?? readModel.generatedAt} />
-      <label className="grid gap-1 text-sm font-semibold text-foreground">
-        {t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.evidence.label")}
-        <textarea
-          className={`${controlClassName} min-h-28`}
-          name="migrationEvidenceText"
-          defaultValue={evidence.evidenceText}
-          disabled={disabled}
-          required={decision.affectedReferences.requiresMigrationEvidence}
-          aria-describedby={evidenceHelpId}
-        />
-      </label>
-      <span id={evidenceHelpId} className="text-xs leading-5 text-secondary">
-        {t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.evidence.help")}
-      </span>
-      <label className="grid gap-1 text-sm font-semibold text-foreground">
-        {t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.fixtureRun.label")}
-        <input
-          className={controlClassName}
-          name="migrationFixtureRunId"
-          defaultValue={evidence.fixtureRunId ?? ""}
-          disabled={disabled}
-        />
-      </label>
+      <HiddenInput name="sectionKey" value="migration-evidence" />
+      <HiddenInput name="migrationFingerprintBefore" value={evidence.mappingFingerprintBefore ?? ""} />
+      <HiddenInput name="migrationFingerprintAfter" value={evidence.mappingFingerprintAfter ?? ""} />
+      <HiddenInput name="migrationRecordedAt" value={evidence.recordedAt ?? readModel.generatedAt} />
+      <Textarea
+        label={t(
+          "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.evidence.label",
+        )}
+        description={t(
+          "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.evidence.help",
+        )}
+        name="migrationEvidenceText"
+        defaultValue={evidence.evidenceText}
+        disabled={disabled}
+        required={decision.affectedReferences.requiresMigrationEvidence}
+      />
+      <TextInput
+        label={t(
+          "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.fixtureRun.label",
+        )}
+        name="migrationFixtureRunId"
+        defaultValue={evidence.fixtureRunId ?? ""}
+        disabled={disabled}
+      />
       <Button type="submit" leadingIcon="check" disabled={disabled}>
         {t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.evidence.save")}
       </Button>
       <ActivationBlockerBadges blockers={decision.saveEvidenceBlockers} />
-    </Form>
+    </WorkbenchForm>
   );
 }
 
@@ -747,13 +738,7 @@ function ActivateProfileForm({
   const disabled = !isDecisionActionAvailable(decision.actionState);
 
   return (
-    <Form
-      spacing="md"
-      method="post"
-      action={decision.workspaceHref}
-      data-catalog-activate-profile-form="true"
-      className="grid min-w-0 gap-3 rounded-md border border-border-subtle p-4"
-    >
+    <WorkbenchForm method="post" action={decision.workspaceHref} data-catalog-activate-profile-form="true">
       <ValidationContextHiddenInputs readModel={readModel} intent={decision.activationCommandKey} />
       <KeyValueList
         density="compact"
@@ -774,7 +759,7 @@ function ActivateProfileForm({
         {t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.activate")}
       </Button>
       <ActivationBlockerBadges blockers={decision.blockers} />
-    </Form>
+    </WorkbenchForm>
   );
 }
 
@@ -790,14 +775,14 @@ function ValidationContextHiddenInputs({
 
   return (
     <>
-      <input type="hidden" name="_intent" value={intent} />
-      <input type="hidden" name="providerKey" value={decision.providerKey ?? context.providerKey ?? ""} />
-      <input type="hidden" name="unitKey" value={context.unitKey ?? ""} />
-      <input type="hidden" name="importScope" value={context.importScope ?? ""} />
-      <input type="hidden" name="profileVersion" value={decision.profileVersion ?? context.profileVersion ?? ""} />
-      <input type="hidden" name="selectedObservationIds" value={context.selectedObservationIds.join(",")} />
-      <input type="hidden" name="jobId" value={context.jobId ?? ""} />
-      <input type="hidden" name="promotionPreviewId" value={context.promotionPreviewId ?? ""} />
+      <HiddenInput name="_intent" value={intent} />
+      <HiddenInput name="providerKey" value={decision.providerKey ?? context.providerKey ?? ""} />
+      <HiddenInput name="unitKey" value={context.unitKey ?? ""} />
+      <HiddenInput name="importScope" value={context.importScope ?? ""} />
+      <HiddenInput name="profileVersion" value={decision.profileVersion ?? context.profileVersion ?? ""} />
+      <HiddenInput name="selectedObservationIds" value={context.selectedObservationIds.join(",")} />
+      <HiddenInput name="jobId" value={context.jobId ?? ""} />
+      <HiddenInput name="promotionPreviewId" value={context.promotionPreviewId ?? ""} />
     </>
   );
 }
@@ -812,12 +797,12 @@ function ActivationBlockerList({ decision }: { decision: ActivationDecision }) {
   }
 
   return (
-    <div className="grid min-w-0 gap-2">
-      <h3 className="text-sm font-semibold text-foreground">
+    <WorkbenchStack gap="sm">
+      <WorkbenchText tone="foreground" weight="semibold">
         {t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.blockers")}
-      </h3>
+      </WorkbenchText>
       <ActivationBlockerBadges blockers={[...new Set([...decision.blockers, ...decision.saveEvidenceBlockers])]} />
-    </div>
+    </WorkbenchStack>
   );
 }
 
@@ -827,23 +812,21 @@ function ActivationBlockerBadges({ blockers }: { blockers: ActivationDecision["b
   }
 
   return (
-    <div className="grid min-w-0 gap-1.5">
-      {blockers.map((blocker) => {
+    <StatusReasonList
+      compact
+      nextStepPrefix={t("catalog.features.sourceObservations.ui.primaryWorkbench.copy.next.prefix")}
+      items={blockers.map((blocker) => {
         const copy = getCatalogPrimaryWorkbenchBlockerCopy(blocker);
 
-        return (
-          <div key={blocker} className="grid min-w-0 gap-1">
-            <div className="flex min-w-0 flex-wrap gap-1.5">
-              <Badge tone="danger">{copy.label}</Badge>
-            </div>
-            <span className="text-xs leading-5 text-secondary">
-              {copy.reason} {t("catalog.features.sourceObservations.ui.primaryWorkbench.copy.next.prefix")}{" "}
-              {copy.nextStep}
-            </span>
-          </div>
-        );
+        return {
+          key: blocker,
+          label: copy.label,
+          reason: copy.reason,
+          nextStep: copy.nextStep,
+          tone: "danger",
+        } as const;
       })}
-    </div>
+    />
   );
 }
 
@@ -851,34 +834,38 @@ function FactPreview({ facts }: { facts: DryRunEvidence["normalizedFacts"] }) {
   const visibleFacts = facts.slice(0, 4);
   if (visibleFacts.length === 0) {
     return (
-      <span className="text-xs text-secondary">
+      <WorkbenchText size="xs">
         {t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.dryRun.noFacts")}
-      </span>
+      </WorkbenchText>
     );
   }
 
   return (
-    <div className="grid min-w-0 gap-1">
+    <WorkbenchStack gap="sm">
       {visibleFacts.map((fact) => (
-        <span key={fact.key} className="break-words text-xs leading-5 text-secondary">
+        <WorkbenchText key={fact.key} size="xs" wrap="break">
           {fact.key}: {fact.value}
-        </span>
+        </WorkbenchText>
       ))}
       {facts.length > visibleFacts.length ? (
-        <span className="text-xs text-tertiary">{facts.length - visibleFacts.length} more</span>
+        <WorkbenchText size="xs" tone="tertiary">
+          {facts.length - visibleFacts.length} more
+        </WorkbenchText>
       ) : null}
-    </div>
+    </WorkbenchStack>
   );
 }
 
 function EvidenceRows({ title, rows }: { title: string; rows: readonly EvidenceRow[] }) {
   return (
-    <div className="grid min-w-0 gap-2">
-      <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+    <WorkbenchStack gap="sm">
+      <WorkbenchText element="h3" tone="foreground" weight="semibold">
+        {title}
+      </WorkbenchText>
       {rows.length === 0 ? (
-        <span className="text-sm text-secondary">
+        <WorkbenchText>
           {t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.evidence.emptyRows")}
-        </span>
+        </WorkbenchText>
       ) : (
         rows.map((row) => (
           <KeyValueList
@@ -895,45 +882,47 @@ function EvidenceRows({ title, rows }: { title: string; rows: readonly EvidenceR
           />
         ))
       )}
-    </div>
+    </WorkbenchStack>
   );
 }
 
 function PromotionCommandPreview({ commands }: { commands: DryRunEvidence["promotionCommandPreview"] }) {
   return (
-    <div className="grid min-w-0 gap-2">
-      <h3 className="text-sm font-semibold text-foreground">
+    <WorkbenchStack gap="sm">
+      <WorkbenchText element="h3" tone="foreground" weight="semibold">
         {t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.dryRun.promotionCommandPreview")}
-      </h3>
+      </WorkbenchText>
       {commands.length === 0 ? (
-        <span className="text-sm text-secondary">
+        <WorkbenchText>
           {t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.dryRun.noPromotionCommands")}
-        </span>
+        </WorkbenchText>
       ) : (
         commands.map((command) => (
-          <div key={command.commandName} className="grid min-w-0 gap-2 rounded-md border border-border-subtle p-3">
-            <div className="text-sm font-semibold text-foreground">{command.commandName}</div>
+          <WorkbenchDetailPanel key={command.commandName}>
+            <WorkbenchText tone="foreground" weight="semibold">
+              {command.commandName}
+            </WorkbenchText>
             <EvidenceRows
               title={t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.dryRun.inputs")}
               rows={command.inputs}
             />
-          </div>
+          </WorkbenchDetailPanel>
         ))
       )}
-    </div>
+    </WorkbenchStack>
   );
 }
 
 function DryRunDiagnostics({ diagnostics }: { diagnostics: DryRunEvidence["diagnostics"] }) {
   return (
-    <div className="grid min-w-0 gap-2">
-      <h3 className="text-sm font-semibold text-foreground">
+    <WorkbenchStack gap="sm">
+      <WorkbenchText tone="foreground" weight="semibold">
         {t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.table.diagnostics")}
-      </h3>
+      </WorkbenchText>
       {diagnostics.length === 0 ? (
-        <span className="text-sm text-secondary">
+        <WorkbenchText>
           {t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.diagnostics.empty")}
-        </span>
+        </WorkbenchText>
       ) : (
         diagnostics.map((diagnostic) => (
           <KeyValueList
@@ -950,24 +939,24 @@ function DryRunDiagnostics({ diagnostics }: { diagnostics: DryRunEvidence["diagn
           />
         ))
       )}
-    </div>
+    </WorkbenchStack>
   );
 }
 
 function DiagnosticList({ diagnostics }: { diagnostics: FixtureFlow["diagnostics"] }) {
   if (diagnostics.length === 0) {
     return (
-      <span className="text-sm text-secondary">
+      <WorkbenchText>
         {t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.fixture.emptyDiagnostics")}
-      </span>
+      </WorkbenchText>
     );
   }
 
   return (
-    <div className="grid min-w-0 gap-2">
-      <h3 className="text-sm font-semibold text-foreground">
+    <WorkbenchStack gap="sm">
+      <WorkbenchText tone="foreground" weight="semibold">
         {t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.table.diagnostics")}
-      </h3>
+      </WorkbenchText>
       {diagnostics.map((diagnostic) => (
         <KeyValueList
           key={`${diagnostic.path}-${diagnostic.diagnosticText}`}
@@ -980,28 +969,18 @@ function DiagnosticList({ diagnostics }: { diagnostics: FixtureFlow["diagnostics
           ]}
         />
       ))}
-    </div>
+    </WorkbenchStack>
   );
 }
 
 function EvidenceList({ title, items }: { title: string; items: readonly string[] }) {
   return (
-    <div className="grid min-w-0 gap-2">
-      <h3 className="text-sm font-semibold text-foreground">{title}</h3>
-      {items.length === 0 ? (
-        <span className="text-sm text-secondary">
-          {t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.evidence.noneDeclared")}
-        </span>
-      ) : (
-        <div className="flex min-w-0 flex-wrap gap-1.5">
-          {items.map((item) => (
-            <Badge key={item} tone="neutral">
-              <span className="break-words">{item}</span>
-            </Badge>
-          ))}
-        </div>
-      )}
-    </div>
+    <EvidenceStringList
+      title={title}
+      items={items}
+      emptyLabel={t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.evidence.noneDeclared")}
+      emptyTone="neutral"
+    />
   );
 }
 
@@ -1014,15 +993,7 @@ function BlockerBadges({ blockers }: { blockers: readonly string[] }) {
     );
   }
 
-  return (
-    <div className="flex min-w-0 flex-wrap gap-1.5">
-      {blockers.map((blocker) => (
-        <Badge key={blocker} tone="danger">
-          {blocker}
-        </Badge>
-      ))}
-    </div>
-  );
+  return <BadgeCluster items={blockers.map((blocker) => ({ key: blocker, label: blocker, tone: "danger" }))} />;
 }
 
 function UnchangedSections({ sections }: { sections: ValidationReadiness["semanticCompare"]["unchangedSections"] }) {
@@ -1031,13 +1002,13 @@ function UnchangedSections({ sections }: { sections: ValidationReadiness["semant
   }
 
   return (
-    <div className="flex min-w-0 flex-wrap gap-1.5">
-      {sections.map((section) => (
-        <Badge key={section.sectionKey} tone="neutral">
-          {section.domainConcept}
-        </Badge>
-      ))}
-    </div>
+    <BadgeCluster
+      items={sections.map((section) => ({
+        key: section.sectionKey,
+        label: section.domainConcept,
+        tone: "neutral",
+      }))}
+    />
   );
 }
 

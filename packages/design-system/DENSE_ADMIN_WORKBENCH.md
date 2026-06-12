@@ -2,8 +2,11 @@
 
 Dense admin workbenches are for operator surfaces that need one primary workflow, supporting detours, high-density facts, and safe command surfaces in the same product area. They are not landing pages, unfocused all-in-one pages, or migrated legacy page collections.
 
-The canonical proof artifact is `DenseAdminWorkbenchProof` from `@chase-sets/design-system`. It composes existing primitives rather than introducing a parallel admin UI layer:
+The canonical proof artifact is `DenseAdminWorkbenchProof` from `@chase-sets/design-system`. Runtime workbenches should compose the exported dense-admin pattern primitives instead of local `className` stacks:
 
+- `DenseAdminWorkbench`, `DenseAdminWorkbenchHeader`, and `DenseAdminWorkbenchLayout` for the shell, heading, actions, and grouped navigation layout.
+- `WorkbenchStack`, `WorkbenchGrid`, `WorkbenchActionRow`, `WorkbenchDetailPanel`, `WorkbenchForm`, and `WorkbenchFormGrid` for dense layout and command surfaces.
+- `WorkbenchDataCell`, `WorkbenchValueList`, `WorkbenchText`, `WorkbenchLinkList`, `BadgeCluster`, `EvidencePanel`, `EvidenceList`, `EvidenceStringList`, `StatusReasonList`, and `EvidenceCodeBlock` for repeated table cells, facts, evidence, blockers, and diagnostics.
 - `SectionNavigation` for desktop grouped local navigation and the grouped mobile selector.
 - `MetricStrip` for compact operational status facts.
 - `WorkflowModule`, `WorkflowActionBar`, and `WorkflowReadinessChecklist` for cohesive workflow sections.
@@ -52,6 +55,8 @@ Every command surface must show what will happen and why it may be blocked:
 - stale, degraded, denied, provider-transport, security, privacy, and resilience states must fail closed for unsafe commands.
 
 `BulkActionBar` no longer supports the retired compatibility `actions` prop. Use `primaryActions`, `secondaryActions`, and `overflowActions` so action hierarchy stays explicit.
+
+Catalog control-plane routes must not rebuild dense-admin presentation with app-owned `className` values or raw layout/form/link elements. Promote missing presentation needs into this pattern module, then consume those exports from the bounded-context UI.
 
 ## Retirement Semantics
 

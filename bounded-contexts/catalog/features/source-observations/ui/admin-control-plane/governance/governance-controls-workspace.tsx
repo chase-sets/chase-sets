@@ -1,10 +1,18 @@
 import {
   Badge,
+  BadgeCluster,
   DataTable,
   KeyValueList,
   LinkButton,
+  LinkText,
   MetricStrip,
   OperationalStatusBanner,
+  StatusReasonList,
+  WorkbenchDataCell,
+  WorkbenchLinkList,
+  WorkbenchStack,
+  WorkbenchText,
+  WorkbenchValueList,
   WorkflowModule,
   type DataColumn,
 } from "@chase-sets/design-system";
@@ -31,7 +39,7 @@ export function CatalogIntegrationGovernanceControlsWorkspace({
   const governance = readModel.governanceControls;
 
   return (
-    <section className="grid min-w-0 gap-4" data-catalog-governance-controls-workspace="true">
+    <WorkbenchStack element="section" data-catalog-governance-controls-workspace="true">
       <WorkflowModule
         title={t("catalog.features.sourceObservations.ui.governanceControls.title")}
         description={t("catalog.features.sourceObservations.ui.governanceControls.description")}
@@ -44,7 +52,7 @@ export function CatalogIntegrationGovernanceControlsWorkspace({
         headingLevel={2}
         density="compact"
       >
-        <div className="grid gap-4">
+        <WorkbenchStack>
           <OperationalStatusBanner
             tone={governance.status === "blocked" ? "danger" : governance.status === "ready" ? "success" : "warning"}
             title={governanceBannerTitle(governance)}
@@ -94,7 +102,7 @@ export function CatalogIntegrationGovernanceControlsWorkspace({
               { key: "Reapply/replay kill switch", value: onOff(governance.rolloutMode.reapplyKillSwitchActive) },
             ]}
           />
-        </div>
+        </WorkbenchStack>
       </WorkflowModule>
 
       <WorkflowModule
@@ -167,7 +175,7 @@ export function CatalogIntegrationGovernanceControlsWorkspace({
         status={<Badge tone="danger">{governance.legacyRemovalEvidence.requiredDisposition}</Badge>}
         density="compact"
       >
-        <div className="grid gap-4">
+        <WorkbenchStack>
           <OperationalStatusBanner
             tone="danger"
             title={t("catalog.features.sourceObservations.ui.governanceControls.removal.bannerTitle")}
@@ -191,9 +199,9 @@ export function CatalogIntegrationGovernanceControlsWorkspace({
             getRowId={(row) => row.key}
             density="compact"
           />
-        </div>
+        </WorkbenchStack>
       </WorkflowModule>
-    </section>
+    </WorkbenchStack>
   );
 }
 
@@ -202,23 +210,17 @@ const controlColumns: DataColumn<GovernanceControl>[] = [
     key: "control",
     header: t("catalog.features.sourceObservations.ui.governanceControls.table.control"),
     sortable: true,
-    cell: (row) => (
-      <div className="grid min-w-0 gap-1">
-        <span className="text-sm font-semibold text-foreground">{row.label}</span>
-        <span className="text-xs text-secondary">{row.controlId}</span>
-        <span className="text-xs leading-5 text-secondary">{row.message}</span>
-      </div>
-    ),
+    cell: (row) => <WorkbenchDataCell title={row.label} description={row.controlId} detail={row.message} />,
   },
   {
     key: "status",
     header: t("catalog.features.sourceObservations.ui.governanceControls.table.status"),
     mobileLabel: t("catalog.features.sourceObservations.ui.governanceControls.table.status"),
     cell: (row) => (
-      <div className="grid gap-1">
+      <WorkbenchStack gap="sm">
         <Badge tone={controlTone(row.status)}>{stateLabel(row.status)}</Badge>
         <BlockerBadges blockers={row.blockers} />
-      </div>
+      </WorkbenchStack>
     ),
   },
   {
@@ -226,15 +228,16 @@ const controlColumns: DataColumn<GovernanceControl>[] = [
     header: t("catalog.features.sourceObservations.ui.governanceControls.table.ownerMetric"),
     mobileLabel: t("catalog.features.sourceObservations.ui.governanceControls.table.ownerMetric"),
     cell: (row) => (
-      <div className="grid min-w-0 gap-1">
-        <span className="text-sm text-foreground">{row.owner}</span>
-        <span className="text-xs text-secondary">{row.metricKey}</span>
-        <span className="text-xs text-secondary">
-          {row.ownerIssue
+      <WorkbenchDataCell
+        title={row.owner}
+        titleWeight="regular"
+        description={row.metricKey}
+        detail={
+          row.ownerIssue
             ? t("catalog.features.sourceObservations.ui.governanceControls.issue", { value: row.ownerIssue })
-            : t("catalog.features.sourceObservations.ui.governanceControls.noIssue")}
-        </span>
-      </div>
+            : t("catalog.features.sourceObservations.ui.governanceControls.noIssue")
+        }
+      />
     ),
   },
   {
@@ -242,11 +245,11 @@ const controlColumns: DataColumn<GovernanceControl>[] = [
     header: t("catalog.features.sourceObservations.ui.governanceControls.table.scope"),
     mobileLabel: t("catalog.features.sourceObservations.ui.governanceControls.table.scope"),
     cell: (row) => (
-      <div className="grid min-w-0 gap-1">
-        <span className="text-xs text-secondary">{row.commandKeys.join(", ") || "deletion evidence"}</span>
-        <span className="text-xs text-secondary">{row.providerKeys.join(", ") || "all providers"}</span>
-        <span className="text-xs text-secondary">{row.unitKeys.join(", ") || "all units"}</span>
-      </div>
+      <WorkbenchValueList>
+        <WorkbenchText size="xs">{row.commandKeys.join(", ") || "deletion evidence"}</WorkbenchText>
+        <WorkbenchText size="xs">{row.providerKeys.join(", ") || "all providers"}</WorkbenchText>
+        <WorkbenchText size="xs">{row.unitKeys.join(", ") || "all units"}</WorkbenchText>
+      </WorkbenchValueList>
     ),
   },
   {
@@ -255,9 +258,9 @@ const controlColumns: DataColumn<GovernanceControl>[] = [
     mobileLabel: t("catalog.features.sourceObservations.ui.governanceControls.table.evidence"),
     align: "right",
     cell: (row) => (
-      <a className="text-sm font-semibold text-accent hover:underline" href={row.evidenceUrl}>
+      <LinkText href={row.evidenceUrl}>
         {t("catalog.features.sourceObservations.ui.governanceControls.openEvidence")}
-      </a>
+      </LinkText>
     ),
   },
 ];
@@ -267,28 +270,25 @@ const rbacColumns: DataColumn<GovernanceRbacRow>[] = [
     key: "action",
     header: t("catalog.features.sourceObservations.ui.governanceControls.table.action"),
     sortable: true,
-    cell: (row) => (
-      <div className="grid min-w-0 gap-1">
-        <span className="text-sm font-semibold text-foreground">{row.actionKey}</span>
-        <span className="text-xs text-secondary">{row.routePattern}</span>
-      </div>
-    ),
+    cell: (row) => <WorkbenchDataCell title={row.actionKey} description={row.routePattern} />,
   },
   {
     key: "permission",
     header: t("catalog.features.sourceObservations.ui.governanceControls.table.permission"),
     mobileLabel: t("catalog.features.sourceObservations.ui.governanceControls.table.permission"),
     cell: (row) => (
-      <div className="flex min-w-0 flex-wrap gap-1.5">
-        <Badge tone="info">{row.requiredPermission}</Badge>
-        {row.confirmationRequired ? (
-          <Badge tone="warning">
-            {t("catalog.features.sourceObservations.ui.governanceControls.confirmationRequired")}
-          </Badge>
-        ) : (
-          <Badge tone="neutral">{t("catalog.features.sourceObservations.ui.governanceControls.noConfirmation")}</Badge>
-        )}
-      </div>
+      <BadgeCluster
+        items={[
+          { key: "permission", label: row.requiredPermission, tone: "info" },
+          {
+            key: "confirmation",
+            label: row.confirmationRequired
+              ? t("catalog.features.sourceObservations.ui.governanceControls.confirmationRequired")
+              : t("catalog.features.sourceObservations.ui.governanceControls.noConfirmation"),
+            tone: row.confirmationRequired ? "warning" : "neutral",
+          },
+        ]}
+      />
     ),
   },
   {
@@ -296,11 +296,11 @@ const rbacColumns: DataColumn<GovernanceRbacRow>[] = [
     header: t("catalog.features.sourceObservations.ui.governanceControls.table.state"),
     mobileLabel: t("catalog.features.sourceObservations.ui.governanceControls.table.state"),
     cell: (row) => (
-      <div className="grid gap-1">
+      <WorkbenchStack gap="sm">
         <Badge tone={actionTone(row.state)}>{stateLabel(row.state)}</Badge>
-        <span className="text-xs leading-5 text-secondary">{row.deniedCopy}</span>
+        <WorkbenchText size="xs">{row.deniedCopy}</WorkbenchText>
         <BlockerBadges blockers={row.blockers} />
-      </div>
+      </WorkbenchStack>
     ),
   },
 ];
@@ -310,36 +310,34 @@ const observabilityColumns: DataColumn<GovernanceSignal>[] = [
     key: "signal",
     header: t("catalog.features.sourceObservations.ui.governanceControls.table.signal"),
     sortable: true,
-    cell: (row) => (
-      <div className="grid min-w-0 gap-1">
-        <span className="text-sm font-semibold text-foreground">{row.label}</span>
-        <span className="text-xs text-secondary">{row.ownerMetricKey}</span>
-      </div>
-    ),
+    cell: (row) => <WorkbenchDataCell title={row.label} description={row.ownerMetricKey} />,
   },
   {
     key: "status",
     header: t("catalog.features.sourceObservations.ui.governanceControls.table.status"),
     mobileLabel: t("catalog.features.sourceObservations.ui.governanceControls.table.status"),
     cell: (row) => (
-      <div className="grid gap-1">
-        <Badge tone={statusTone(row.status)}>{stateLabel(row.status)}</Badge>
-        {row.stale ? (
-          <Badge tone="warning">{t("catalog.features.sourceObservations.ui.governanceControls.staleEvidence")}</Badge>
-        ) : null}
-      </div>
+      <BadgeCluster
+        items={[
+          { key: "status", label: stateLabel(row.status), tone: statusTone(row.status) },
+          ...(row.stale
+            ? [
+                {
+                  key: "stale",
+                  label: t("catalog.features.sourceObservations.ui.governanceControls.staleEvidence"),
+                  tone: "warning" as const,
+                },
+              ]
+            : []),
+        ]}
+      />
     ),
   },
   {
     key: "value",
     header: t("catalog.features.sourceObservations.ui.governanceControls.table.value"),
     mobileLabel: t("catalog.features.sourceObservations.ui.governanceControls.table.value"),
-    cell: (row) => (
-      <div className="grid min-w-0 gap-1">
-        <span className="text-sm text-foreground">{row.value}</span>
-        <span className="text-xs leading-5 text-secondary">{row.threshold}</span>
-      </div>
-    ),
+    cell: (row) => <WorkbenchDataCell title={row.value} titleWeight="regular" detail={row.threshold} />,
   },
   {
     key: "links",
@@ -347,13 +345,13 @@ const observabilityColumns: DataColumn<GovernanceSignal>[] = [
     mobileLabel: t("catalog.features.sourceObservations.ui.governanceControls.table.alertRunbook"),
     align: "right",
     cell: (row) => (
-      <div className="grid justify-items-end gap-1">
+      <WorkbenchLinkList align="end">
         {[...row.alertLinks, ...row.runbookLinks].map((link) => (
-          <a key={link.label} className="text-sm font-semibold text-accent hover:underline" href={link.href}>
+          <LinkText key={link.label} href={link.href}>
             {link.label}
-          </a>
+          </LinkText>
         ))}
-      </div>
+      </WorkbenchLinkList>
     ),
   },
 ];
@@ -363,12 +361,7 @@ const removalColumns: DataColumn<GovernanceRemovalEvidence>[] = [
     key: "surface",
     header: t("catalog.features.sourceObservations.ui.governanceControls.table.surface"),
     sortable: true,
-    cell: (row) => (
-      <div className="grid min-w-0 gap-1">
-        <span className="text-sm font-semibold text-foreground">{row.label}</span>
-        <span className="text-xs leading-5 text-secondary">{row.detail}</span>
-      </div>
-    ),
+    cell: (row) => <WorkbenchDataCell title={row.label} detail={row.detail} />,
   },
   {
     key: "status",
@@ -382,9 +375,9 @@ const removalColumns: DataColumn<GovernanceRemovalEvidence>[] = [
     mobileLabel: t("catalog.features.sourceObservations.ui.governanceControls.table.evidence"),
     align: "right",
     cell: (row) => (
-      <a className="text-sm font-semibold text-accent hover:underline" href={row.evidenceUrl}>
+      <LinkText href={row.evidenceUrl}>
         {t("catalog.features.sourceObservations.ui.governanceControls.openEvidence")}
-      </a>
+      </LinkText>
     ),
   },
 ];
@@ -395,13 +388,18 @@ function BlockerBadges({ blockers }: { blockers: readonly CatalogPrimaryWorkbenc
   }
 
   return (
-    <div className="flex min-w-0 flex-wrap gap-1.5">
-      {[...new Set(blockers)].map((blocker) => (
-        <Badge key={blocker} tone={blockerTone(blocker)}>
-          {getCatalogPrimaryWorkbenchBlockerCopy(blocker).label}
-        </Badge>
-      ))}
-    </div>
+    <StatusReasonList
+      compact
+      items={[...new Set(blockers)].map((blocker) => {
+        const copy = getCatalogPrimaryWorkbenchBlockerCopy(blocker);
+
+        return {
+          key: blocker,
+          label: copy.label,
+          tone: blockerTone(blocker),
+        };
+      })}
+    />
   );
 }
 

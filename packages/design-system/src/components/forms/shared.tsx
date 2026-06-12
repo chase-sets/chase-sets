@@ -117,11 +117,7 @@ export function FieldChrome({
           className={cx("block text-sm font-medium text-foreground", hideLabel && "sr-only")}
         >
           {label}
-          {required ? (
-            <span aria-hidden="true" className="ml-1 text-accent">
-              *
-            </span>
-          ) : null}
+          {required ? <span aria-hidden="true" className="ml-1 text-accent before:content-['*']" /> : null}
         </BaseField.Label>
       ) : null}
       {children}
