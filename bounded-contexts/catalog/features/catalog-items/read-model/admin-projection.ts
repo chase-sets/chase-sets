@@ -7,7 +7,7 @@ import {
   type FieldValue,
   loadNameMap,
 } from "../../../support/projection-support/read-model-support";
-import { resolveAndPersistCatalogItemDisplayIdentity } from "./display-identity";
+import { resolveAndPersistCatalogItemDisplayIdentities, type PersistedDisplayIdentityResult } from "./display-identity";
 import {
   enqueueAllCatalogItemDisplayIdentityRecomputeWork,
   enqueueCatalogItemDisplayIdentityRecomputeWork,
@@ -43,6 +43,7 @@ type BaseCatalogItemRow = Readonly<{
 }>;
 
 type ExternalProductReferenceRow = Readonly<{
+  catalog_item_id: string;
   provider_key: string;
   external_key: string;
   selected_options: unknown;
@@ -50,6 +51,7 @@ type ExternalProductReferenceRow = Readonly<{
 }>;
 
 type ExternalCatalogItemReferenceRow = Readonly<{
+  catalog_item_id: string;
   provider_key: string;
   external_key: string;
   updated_at: string;
@@ -82,21 +84,114 @@ type ReferenceRecordRef = Readonly<{
   status: string;
 }>;
 
-async function refreshCatalogAdminCatalogItemListPage(db: PgQueryable, itemId: string): Promise<void> {
-  const result = await db.query<BaseCatalogItemRow>(`SELECT * FROM catalog_items WHERE catalog_item_id = $1`, [itemId]);
+export async function refreshCatalogAdminCatalogItemPages(db: PgQueryable, itemId: string): Promise<void> {
+  await refreshCatalogAdminCatalogItemPagesForItems(db, [itemId]);
+}
 
-  const item = result.rows[0];
-
-  if (!item) {
-    await db.query(`DELETE FROM catalog_admin_catalog_item_list_pages WHERE catalog_item_id = $1`, [itemId]);
+async function refreshCatalogAdminCatalogItemPagesForItems(db: PgQueryable, itemIds: readonly string[]): Promise<void> {
+  const uniqueItemIds = [...new Set(itemIds)];
+  if (uniqueItemIds.length === 0) {
     return;
   }
 
-  const blueprintName = item.blueprint_id
-    ? (await loadNameMap(db, "catalog_blueprints", "blueprint_id", "name", [item.blueprint_id])).get(item.blueprint_id)
-    : undefined;
-  const displayIdentityResult = await resolveAndPersistCatalogItemDisplayIdentity(db, item, item.updated_at);
-  const { identity: displayIdentity } = displayIdentityResult;
+  const itemResult = await db.query<BaseCatalogItemRow>(`SELECT * FROM catalog_items WHERE catalog_item_id = ANY($1)`, [
+    uniqueItemIds,
+  ]);
+  const itemsById = new Map(itemResult.rows.map((item) => [item.catalog_item_id, item]));
+  const missingItemIds = uniqueItemIds.filter((itemId) => !itemsById.has(itemId));
+
+  if (missingItemIds.length > 0) {
+    await deleteCatalogAdminCatalogItemPages(db, missingItemIds);
+  }
+
+  const items = uniqueItemIds
+    .map((itemId) => itemsById.get(itemId))
+    .filter((item): item is BaseCatalogItemRow => Boolean(item));
+
+  if (items.length === 0) {
+    return;
+  }
+
+  const fieldValuesByItemId = new Map(
+    items.map((item) => [item.catalog_item_id, asArray<FieldValue>(item.field_values)] as const),
+  );
+  const categoryIdsByItemId = new Map(
+    items.map((item) => [item.catalog_item_id, asStringArray(item.category_ids)] as const),
+  );
+  const referenceIdsByItemId = new Map(
+    items.map((item) => {
+      const fieldValues = fieldValuesByItemId.get(item.catalog_item_id) ?? [];
+      return [
+        item.catalog_item_id,
+        fieldValues
+          .map((entry) => referenceIdFromValue(entry.value))
+          .filter((entry): entry is string => entry !== null),
+      ] as const;
+    }),
+  );
+  const blueprintIds = [
+    ...new Set(
+      items.map((item) => item.blueprint_id).filter((blueprintId): blueprintId is string => Boolean(blueprintId)),
+    ),
+  ];
+
+  const displayIdentityResults = await resolveAndPersistCatalogItemDisplayIdentities(
+    db,
+    items,
+    (item) => item.updated_at,
+  );
+  const blueprintNames = await loadNameMap(db, "catalog_blueprints", "blueprint_id", "name", blueprintIds);
+  const fieldNames = await loadNameMap(
+    db,
+    "catalog_fields",
+    "field_id",
+    "name",
+    items.flatMap((item) => (fieldValuesByItemId.get(item.catalog_item_id) ?? []).map((entry) => entry.fieldId)),
+  );
+  const categoryNames = await loadNameMap(
+    db,
+    "catalog_categories",
+    "category_id",
+    "name",
+    items.flatMap((item) => categoryIdsByItemId.get(item.catalog_item_id) ?? []),
+  );
+  const referenceRowsById = await loadReferenceRecordRowsByGraph(
+    db,
+    items.flatMap((item) => referenceIdsByItemId.get(item.catalog_item_id) ?? []),
+  );
+  const externalProductReferencesByItemId = await loadExternalProductReferencesByItemId(db, uniqueItemIds);
+  const externalCatalogItemReferencesByItemId = await loadExternalCatalogItemReferencesByItemId(db, uniqueItemIds);
+
+  await upsertCatalogAdminCatalogItemListPages(db, items, displayIdentityResults, blueprintNames);
+  await upsertCatalogAdminCatalogItemDetailPages(db, {
+    items,
+    displayIdentityResults,
+    blueprintNames,
+    fieldNames,
+    categoryNames,
+    fieldValuesByItemId,
+    categoryIdsByItemId,
+    referenceIdsByItemId,
+    referenceRowsById,
+    externalProductReferencesByItemId,
+    externalCatalogItemReferencesByItemId,
+  });
+}
+
+async function deleteCatalogAdminCatalogItemPages(db: PgQueryable, itemIds: readonly string[]): Promise<void> {
+  await db.query(`DELETE FROM catalog_admin_catalog_item_list_pages WHERE catalog_item_id = ANY($1)`, [itemIds]);
+  await db.query(`DELETE FROM catalog_admin_catalog_item_detail_pages WHERE catalog_item_id = ANY($1)`, [itemIds]);
+}
+
+async function upsertCatalogAdminCatalogItemListPages(
+  db: PgQueryable,
+  items: readonly BaseCatalogItemRow[],
+  displayIdentityResults: ReadonlyMap<string, PersistedDisplayIdentityResult>,
+  blueprintNames: ReadonlyMap<string, string>,
+): Promise<void> {
+  if (items.length === 0) {
+    return;
+  }
 
   await db.query(
     `INSERT INTO catalog_admin_catalog_item_list_pages (
@@ -114,7 +209,53 @@ async function refreshCatalogAdminCatalogItemListPage(db: PgQueryable, itemId: s
       status,
       tags,
       updated_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+    )
+    SELECT
+      input.catalog_item_id,
+      input.language_code,
+      input.title_i18n::jsonb,
+      input.title,
+      input.subtitle_i18n::jsonb,
+      input.subtitle,
+      input.display_template_key,
+      input.display_identity_hash,
+      input.display_identity_resolved_at,
+      input.blueprint_id,
+      input.blueprint::jsonb,
+      input.status,
+      input.tags::jsonb,
+      input.updated_at
+    FROM unnest(
+      $1::text[],
+      $2::text[],
+      $3::text[],
+      $4::text[],
+      $5::text[],
+      $6::text[],
+      $7::text[],
+      $8::text[],
+      $9::timestamptz[],
+      $10::text[],
+      $11::text[],
+      $12::text[],
+      $13::text[],
+      $14::timestamptz[]
+    ) AS input(
+      catalog_item_id,
+      language_code,
+      title_i18n,
+      title,
+      subtitle_i18n,
+      subtitle,
+      display_template_key,
+      display_identity_hash,
+      display_identity_resolved_at,
+      blueprint_id,
+      blueprint,
+      status,
+      tags,
+      updated_at
+    )
     ON CONFLICT (catalog_item_id) DO UPDATE SET
       language_code = EXCLUDED.language_code,
       title_i18n = EXCLUDED.title_i18n,
@@ -130,88 +271,52 @@ async function refreshCatalogAdminCatalogItemListPage(db: PgQueryable, itemId: s
       tags = EXCLUDED.tags,
       updated_at = EXCLUDED.updated_at`,
     [
-      item.catalog_item_id,
-      item.language_code,
-      JSON.stringify(item.title_i18n ?? { defaultLocale: "en", values: { en: item.title } }),
-      displayIdentity.title,
-      item.subtitle_i18n === null ? null : JSON.stringify(item.subtitle_i18n),
-      displayIdentity.subtitle,
-      displayIdentity.templateKey,
-      displayIdentity.hash,
-      displayIdentityResult.resolvedAt,
-      item.blueprint_id,
-      item.blueprint_id && blueprintName
-        ? JSON.stringify({ blueprintId: item.blueprint_id, name: blueprintName })
-        : null,
-      item.status,
-      JSON.stringify(asStringArray(item.tags)),
-      item.updated_at,
+      items.map((item) => item.catalog_item_id),
+      items.map((item) => item.language_code),
+      items.map((item) => JSON.stringify(item.title_i18n ?? { defaultLocale: "en", values: { en: item.title } })),
+      items.map((item) => displayIdentityFor(displayIdentityResults, item).identity.title),
+      items.map((item) => (item.subtitle_i18n === null ? null : JSON.stringify(item.subtitle_i18n))),
+      items.map((item) => displayIdentityFor(displayIdentityResults, item).identity.subtitle),
+      items.map((item) => displayIdentityFor(displayIdentityResults, item).identity.templateKey),
+      items.map((item) => displayIdentityFor(displayIdentityResults, item).identity.hash),
+      items.map((item) => displayIdentityFor(displayIdentityResults, item).resolvedAt),
+      items.map((item) => item.blueprint_id),
+      items.map((item) =>
+        item.blueprint_id && blueprintNames.get(item.blueprint_id)
+          ? JSON.stringify({ blueprintId: item.blueprint_id, name: blueprintNames.get(item.blueprint_id) })
+          : null,
+      ),
+      items.map((item) => item.status),
+      items.map((item) => JSON.stringify(asStringArray(item.tags))),
+      items.map((item) => item.updated_at),
     ],
   );
 }
 
-async function refreshCatalogAdminCatalogItemDetailPage(db: PgQueryable, itemId: string): Promise<void> {
-  const result = await db.query<BaseCatalogItemRow>(`SELECT * FROM catalog_items WHERE catalog_item_id = $1`, [itemId]);
+type CatalogAdminDetailPageBatchInput = Readonly<{
+  items: readonly BaseCatalogItemRow[];
+  displayIdentityResults: ReadonlyMap<string, PersistedDisplayIdentityResult>;
+  blueprintNames: ReadonlyMap<string, string>;
+  fieldNames: ReadonlyMap<string, string>;
+  categoryNames: ReadonlyMap<string, string>;
+  fieldValuesByItemId: ReadonlyMap<string, readonly FieldValue[]>;
+  categoryIdsByItemId: ReadonlyMap<string, readonly string[]>;
+  referenceIdsByItemId: ReadonlyMap<string, readonly string[]>;
+  referenceRowsById: ReadonlyMap<string, ReferenceRecordRow>;
+  externalProductReferencesByItemId: ReadonlyMap<string, readonly ExternalProductReferenceRow[]>;
+  externalCatalogItemReferencesByItemId: ReadonlyMap<string, readonly ExternalCatalogItemReferenceRow[]>;
+}>;
 
-  const item = result.rows[0];
-
-  if (!item) {
-    await db.query(`DELETE FROM catalog_admin_catalog_item_detail_pages WHERE catalog_item_id = $1`, [itemId]);
+async function upsertCatalogAdminCatalogItemDetailPages(
+  db: PgQueryable,
+  input: CatalogAdminDetailPageBatchInput,
+): Promise<void> {
+  const { items } = input;
+  if (items.length === 0) {
     return;
   }
 
-  const fieldValues = asArray<FieldValue>(item.field_values);
-  const displayIdentityResult = await resolveAndPersistCatalogItemDisplayIdentity(db, item, item.updated_at);
-  const { identity: displayIdentity } = displayIdentityResult;
-  const categoryIds = asStringArray(item.category_ids);
-  const fieldIds = fieldValues.map((entry) => entry.fieldId);
-  const referenceIds = fieldValues
-    .map((entry) => referenceIdFromValue(entry.value))
-    .filter((entry): entry is string => entry !== null);
-  const externalReferencesResult = await db.query<ExternalProductReferenceRow>(
-    `SELECT provider_key, external_key, selected_options, updated_at
-     FROM catalog_external_product_references
-     WHERE catalog_item_id = $1
-     ORDER BY provider_key ASC, external_key ASC`,
-    [itemId],
-  );
-  const externalCatalogItemReferencesResult = await db.query<ExternalCatalogItemReferenceRow>(
-    `SELECT provider_key, external_key, updated_at
-     FROM catalog_external_catalog_item_references
-     WHERE catalog_item_id = $1
-     ORDER BY provider_key ASC, external_key ASC`,
-    [itemId],
-  );
-
-  const fieldNames = await loadNameMap(db, "catalog_fields", "field_id", "name", fieldIds);
-  const categoryNames = await loadNameMap(db, "catalog_categories", "category_id", "name", categoryIds);
-  const blueprintNames = item.blueprint_id
-    ? await loadNameMap(db, "catalog_blueprints", "blueprint_id", "name", [item.blueprint_id])
-    : new Map<string, string>();
-  const references = await loadReferenceRecordMap(db, referenceIds);
-
-  const namedFieldValues = fieldValues.map((entry) => ({
-    fieldId: entry.fieldId,
-    fieldName: fieldNames.get(entry.fieldId) ?? entry.fieldId,
-    value: entry.value,
-    reference: references.get(referenceIdFromValue(entry.value) ?? "") ?? null,
-  }));
-
-  const namedCategories = categoryIds.map((categoryId) => ({
-    categoryId,
-    name: categoryNames.get(categoryId) ?? categoryId,
-  }));
-  const externalReferences = externalReferencesResult.rows.map((reference) => ({
-    providerKey: reference.provider_key,
-    externalKey: reference.external_key,
-    selectedOptions: Array.isArray(reference.selected_options) ? reference.selected_options : [],
-    updatedAt: reference.updated_at,
-  }));
-  const externalCatalogItemReferences = externalCatalogItemReferencesResult.rows.map((reference) => ({
-    providerKey: reference.provider_key,
-    externalKey: reference.external_key,
-    updatedAt: reference.updated_at,
-  }));
+  const detailRows = items.map((item) => buildCatalogAdminCatalogItemDetailPageRow(item, input));
 
   await db.query(
     `INSERT INTO catalog_admin_catalog_item_detail_pages (
@@ -238,7 +343,80 @@ async function refreshCatalogAdminCatalogItemDetailPage(db: PgQueryable, itemId:
       product_asset_sets,
       image_fallback,
       updated_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+    )
+    SELECT
+      input.catalog_item_id,
+      input.language_code,
+      input.title_i18n::jsonb,
+      input.title,
+      input.subtitle_i18n::jsonb,
+      input.subtitle,
+      input.display_template_key,
+      input.display_identity_hash,
+      input.display_identity_resolved_at,
+      input.description_i18n::jsonb,
+      input.description,
+      input.blueprint_id,
+      input.blueprint::jsonb,
+      input.status,
+      input.field_values::jsonb,
+      input.categories::jsonb,
+      input.external_catalog_item_references::jsonb,
+      input.external_product_references::jsonb,
+      input.tags::jsonb,
+      input.image_urls::jsonb,
+      input.product_asset_sets::jsonb,
+      input.image_fallback::jsonb,
+      input.updated_at
+    FROM unnest(
+      $1::text[],
+      $2::text[],
+      $3::text[],
+      $4::text[],
+      $5::text[],
+      $6::text[],
+      $7::text[],
+      $8::text[],
+      $9::timestamptz[],
+      $10::text[],
+      $11::text[],
+      $12::text[],
+      $13::text[],
+      $14::text[],
+      $15::text[],
+      $16::text[],
+      $17::text[],
+      $18::text[],
+      $19::text[],
+      $20::text[],
+      $21::text[],
+      $22::text[],
+      $23::timestamptz[]
+    ) AS input(
+      catalog_item_id,
+      language_code,
+      title_i18n,
+      title,
+      subtitle_i18n,
+      subtitle,
+      display_template_key,
+      display_identity_hash,
+      display_identity_resolved_at,
+      description_i18n,
+      description,
+      blueprint_id,
+      blueprint,
+      status,
+      field_values,
+      categories,
+      external_catalog_item_references,
+      external_product_references,
+      tags,
+      image_urls,
+      product_asset_sets,
+      image_fallback,
+      updated_at
+    )
     ON CONFLICT (catalog_item_id) DO UPDATE SET
       language_code = EXCLUDED.language_code,
       title_i18n = EXCLUDED.title_i18n,
@@ -263,41 +441,152 @@ async function refreshCatalogAdminCatalogItemDetailPage(db: PgQueryable, itemId:
       image_fallback = EXCLUDED.image_fallback,
       updated_at = EXCLUDED.updated_at`,
     [
-      item.catalog_item_id,
-      item.language_code,
-      JSON.stringify(item.title_i18n ?? { defaultLocale: "en", values: { en: item.title } }),
-      displayIdentity.title,
-      item.subtitle_i18n === null ? null : JSON.stringify(item.subtitle_i18n),
-      displayIdentity.subtitle,
-      displayIdentity.templateKey,
-      displayIdentity.hash,
-      displayIdentityResult.resolvedAt,
-      JSON.stringify(item.description_i18n ?? { defaultLocale: "en", values: { en: item.description } }),
-      item.description,
-      item.blueprint_id,
-      item.blueprint_id
-        ? JSON.stringify({
-            blueprintId: item.blueprint_id,
-            name: blueprintNames.get(item.blueprint_id) ?? item.blueprint_id,
-          })
-        : null,
-      item.status,
-      JSON.stringify(namedFieldValues),
-      JSON.stringify(namedCategories),
-      JSON.stringify(externalCatalogItemReferences),
-      JSON.stringify(externalReferences),
-      JSON.stringify(asStringArray(item.tags)),
-      JSON.stringify(asStringArray(item.image_urls)),
-      JSON.stringify(asArray(item.product_asset_sets)),
-      item.image_fallback === null ? null : JSON.stringify(item.image_fallback),
-      item.updated_at,
+      detailRows.map((row) => row.catalogItemId),
+      detailRows.map((row) => row.languageCode),
+      detailRows.map((row) => row.titleI18n),
+      detailRows.map((row) => row.title),
+      detailRows.map((row) => row.subtitleI18n),
+      detailRows.map((row) => row.subtitle),
+      detailRows.map((row) => row.displayTemplateKey),
+      detailRows.map((row) => row.displayIdentityHash),
+      detailRows.map((row) => row.displayIdentityResolvedAt),
+      detailRows.map((row) => row.descriptionI18n),
+      detailRows.map((row) => row.description),
+      detailRows.map((row) => row.blueprintId),
+      detailRows.map((row) => row.blueprint),
+      detailRows.map((row) => row.status),
+      detailRows.map((row) => row.fieldValues),
+      detailRows.map((row) => row.categories),
+      detailRows.map((row) => row.externalCatalogItemReferences),
+      detailRows.map((row) => row.externalProductReferences),
+      detailRows.map((row) => row.tags),
+      detailRows.map((row) => row.imageUrls),
+      detailRows.map((row) => row.productAssetSets),
+      detailRows.map((row) => row.imageFallback),
+      detailRows.map((row) => row.updatedAt),
     ],
   );
 }
 
-export async function refreshCatalogAdminCatalogItemPages(db: PgQueryable, itemId: string): Promise<void> {
-  await refreshCatalogAdminCatalogItemListPage(db, itemId);
-  await refreshCatalogAdminCatalogItemDetailPage(db, itemId);
+function buildCatalogAdminCatalogItemDetailPageRow(item: BaseCatalogItemRow, input: CatalogAdminDetailPageBatchInput) {
+  const displayIdentityResult = displayIdentityFor(input.displayIdentityResults, item);
+  const displayIdentity = displayIdentityResult.identity;
+  const fieldValues = input.fieldValuesByItemId.get(item.catalog_item_id) ?? [];
+  const categoryIds = input.categoryIdsByItemId.get(item.catalog_item_id) ?? [];
+  const references = buildReferenceRecordMap(
+    input.referenceIdsByItemId.get(item.catalog_item_id) ?? [],
+    input.referenceRowsById,
+  );
+  const namedFieldValues = fieldValues.map((entry) => ({
+    fieldId: entry.fieldId,
+    fieldName: input.fieldNames.get(entry.fieldId) ?? entry.fieldId,
+    value: entry.value,
+    reference: references.get(referenceIdFromValue(entry.value) ?? "") ?? null,
+  }));
+  const namedCategories = categoryIds.map((categoryId) => ({
+    categoryId,
+    name: input.categoryNames.get(categoryId) ?? categoryId,
+  }));
+  const externalReferences = (input.externalProductReferencesByItemId.get(item.catalog_item_id) ?? []).map(
+    (reference) => ({
+      providerKey: reference.provider_key,
+      externalKey: reference.external_key,
+      selectedOptions: Array.isArray(reference.selected_options) ? reference.selected_options : [],
+      updatedAt: reference.updated_at,
+    }),
+  );
+  const externalCatalogItemReferences = (
+    input.externalCatalogItemReferencesByItemId.get(item.catalog_item_id) ?? []
+  ).map((reference) => ({
+    providerKey: reference.provider_key,
+    externalKey: reference.external_key,
+    updatedAt: reference.updated_at,
+  }));
+
+  return {
+    catalogItemId: item.catalog_item_id,
+    languageCode: item.language_code,
+    titleI18n: JSON.stringify(item.title_i18n ?? { defaultLocale: "en", values: { en: item.title } }),
+    title: displayIdentity.title,
+    subtitleI18n: item.subtitle_i18n === null ? null : JSON.stringify(item.subtitle_i18n),
+    subtitle: displayIdentity.subtitle,
+    displayTemplateKey: displayIdentity.templateKey,
+    displayIdentityHash: displayIdentity.hash,
+    displayIdentityResolvedAt: displayIdentityResult.resolvedAt,
+    descriptionI18n: JSON.stringify(item.description_i18n ?? { defaultLocale: "en", values: { en: item.description } }),
+    description: item.description,
+    blueprintId: item.blueprint_id,
+    blueprint: item.blueprint_id
+      ? JSON.stringify({
+          blueprintId: item.blueprint_id,
+          name: input.blueprintNames.get(item.blueprint_id) ?? item.blueprint_id,
+        })
+      : null,
+    status: item.status,
+    fieldValues: JSON.stringify(namedFieldValues),
+    categories: JSON.stringify(namedCategories),
+    externalCatalogItemReferences: JSON.stringify(externalCatalogItemReferences),
+    externalProductReferences: JSON.stringify(externalReferences),
+    tags: JSON.stringify(asStringArray(item.tags)),
+    imageUrls: JSON.stringify(asStringArray(item.image_urls)),
+    productAssetSets: JSON.stringify(asArray(item.product_asset_sets)),
+    imageFallback: item.image_fallback === null ? null : JSON.stringify(item.image_fallback),
+    updatedAt: item.updated_at,
+  };
+}
+
+async function loadExternalProductReferencesByItemId(
+  db: PgQueryable,
+  itemIds: readonly string[],
+): Promise<Map<string, ExternalProductReferenceRow[]>> {
+  const result = await db.query<ExternalProductReferenceRow>(
+    `SELECT catalog_item_id, provider_key, external_key, selected_options, updated_at
+     FROM catalog_external_product_references
+     WHERE catalog_item_id = ANY($1)
+     ORDER BY catalog_item_id ASC, provider_key ASC, external_key ASC`,
+    [itemIds],
+  );
+
+  return groupByCatalogItemId(result.rows);
+}
+
+async function loadExternalCatalogItemReferencesByItemId(
+  db: PgQueryable,
+  itemIds: readonly string[],
+): Promise<Map<string, ExternalCatalogItemReferenceRow[]>> {
+  const result = await db.query<ExternalCatalogItemReferenceRow>(
+    `SELECT catalog_item_id, provider_key, external_key, updated_at
+     FROM catalog_external_catalog_item_references
+     WHERE catalog_item_id = ANY($1)
+     ORDER BY catalog_item_id ASC, provider_key ASC, external_key ASC`,
+    [itemIds],
+  );
+
+  return groupByCatalogItemId(result.rows);
+}
+
+function groupByCatalogItemId<Row extends { catalog_item_id: string }>(rows: readonly Row[]): Map<string, Row[]> {
+  const byItemId = new Map<string, Row[]>();
+
+  for (const row of rows) {
+    const itemRows = byItemId.get(row.catalog_item_id) ?? [];
+    itemRows.push(row);
+    byItemId.set(row.catalog_item_id, itemRows);
+  }
+
+  return byItemId;
+}
+
+function displayIdentityFor(
+  displayIdentityResults: ReadonlyMap<string, PersistedDisplayIdentityResult>,
+  item: BaseCatalogItemRow,
+): PersistedDisplayIdentityResult {
+  const result = displayIdentityResults.get(item.catalog_item_id);
+  if (!result) {
+    throw new Error(`Missing display identity result for Catalog Item ${item.catalog_item_id}.`);
+  }
+
+  return result;
 }
 
 async function findCatalogItemIdsByField(db: PgQueryable, fieldId: string): Promise<string[]> {
@@ -309,24 +598,64 @@ async function findCatalogItemIdsByField(db: PgQueryable, fieldId: string): Prom
   return result.rows.map((row) => row.catalog_item_id);
 }
 
-async function findCatalogItemIdsByReferenceRecord(db: PgQueryable, referenceRecordId: string): Promise<string[]> {
+async function findCatalogItemIdsByReferenceRecords(
+  db: PgQueryable,
+  referenceRecordIds: readonly string[],
+): Promise<string[]> {
+  const uniqueReferenceRecordIds = [...new Set(referenceRecordIds)];
+  if (uniqueReferenceRecordIds.length === 0) {
+    return [];
+  }
+
   const result = await db.query<{ catalog_item_id: string }>(
-    `SELECT DISTINCT catalog_item_id
-     FROM catalog_items, jsonb_array_elements(field_values) AS field_value
-     WHERE field_value->'value'->>'referenceId' = $1
-        OR field_value->'value'->>'reference_record_id' = $1`,
-    [referenceRecordId],
+    `WITH reference_frontier AS (
+       SELECT reference_record_id, ordinal
+       FROM unnest($1::text[]) WITH ORDINALITY AS input(reference_record_id, ordinal)
+     ),
+     matched_items AS (
+       SELECT item.catalog_item_id, MIN(reference_frontier.ordinal) AS reference_ordinal
+       FROM catalog_items AS item
+       CROSS JOIN LATERAL jsonb_array_elements(item.field_values) AS field_value
+       JOIN reference_frontier
+         ON field_value->'value'->>'referenceId' = reference_frontier.reference_record_id
+         OR field_value->'value'->>'reference_record_id' = reference_frontier.reference_record_id
+       GROUP BY item.catalog_item_id
+     )
+     SELECT catalog_item_id
+     FROM matched_items
+     ORDER BY reference_ordinal ASC, catalog_item_id ASC`,
+    [uniqueReferenceRecordIds],
   );
 
   return result.rows.map((row) => row.catalog_item_id);
 }
 
-async function findReferenceRecordIdsByRelatedReference(db: PgQueryable, referenceRecordId: string): Promise<string[]> {
+async function findReferenceRecordIdsByRelatedReferences(
+  db: PgQueryable,
+  referenceRecordIds: readonly string[],
+): Promise<string[]> {
+  const uniqueReferenceRecordIds = [...new Set(referenceRecordIds)];
+  if (uniqueReferenceRecordIds.length === 0) {
+    return [];
+  }
+
   const result = await db.query<{ reference_record_id: string }>(
-    `SELECT DISTINCT reference_record_id
-     FROM catalog_reference_records, jsonb_array_elements(relationships) AS relationship
-     WHERE relationship->>'referenceId' = $1`,
-    [referenceRecordId],
+    `WITH reference_frontier AS (
+       SELECT reference_record_id, ordinal
+       FROM unnest($1::text[]) WITH ORDINALITY AS input(reference_record_id, ordinal)
+     ),
+     matched_records AS (
+       SELECT record.reference_record_id, MIN(reference_frontier.ordinal) AS reference_ordinal
+       FROM catalog_reference_records AS record
+       CROSS JOIN LATERAL jsonb_array_elements(record.relationships) AS relationship
+       JOIN reference_frontier
+         ON relationship->>'referenceId' = reference_frontier.reference_record_id
+       GROUP BY record.reference_record_id
+     )
+     SELECT reference_record_id
+     FROM matched_records
+     ORDER BY reference_ordinal ASC, reference_record_id ASC`,
+    [uniqueReferenceRecordIds],
   );
 
   return result.rows.map((row) => row.reference_record_id);
@@ -340,11 +669,7 @@ async function findReferenceRecordIdsByRelatedReferenceGraph(
   let frontier = [referenceRecordId];
 
   for (let depth = 0; depth < MAX_REFERENCE_EXPANSION_DEPTH && frontier.length > 0; depth++) {
-    const relatedRecordIds: string[] = [];
-    for (const recordId of frontier) {
-      relatedRecordIds.push(...(await findReferenceRecordIdsByRelatedReference(db, recordId)));
-    }
-
+    const relatedRecordIds = await findReferenceRecordIdsByRelatedReferences(db, frontier);
     const next = [...new Set(relatedRecordIds)].filter((recordId) => !visited.has(recordId));
 
     for (const recordId of next) {
@@ -383,9 +708,7 @@ async function refreshCatalogItemIds(
 ): Promise<void> {
   await enqueueCatalogItemDisplayIdentityRecomputeWork(db, itemIds, reason, source);
 
-  for (const itemId of new Set(itemIds)) {
-    await refreshCatalogAdminCatalogItemPages(db, itemId);
-  }
+  await refreshCatalogAdminCatalogItemPagesForItems(db, [...new Set(itemIds)]);
 }
 
 async function enqueueItemAndRefresh(
@@ -420,11 +743,7 @@ export function buildCatalogAdminCatalogItemProjectionHandlers(db: PgQueryable):
 
   async function refreshReferenceDependents(referenceRecordId: string, source: DisplayIdentityRecomputeSource) {
     const relatedRecordIds = await findReferenceRecordIdsByRelatedReferenceGraph(db, referenceRecordId);
-    const itemIds = await findCatalogItemIdsByReferenceRecord(db, referenceRecordId);
-
-    for (const relatedRecordId of relatedRecordIds) {
-      itemIds.push(...(await findCatalogItemIdsByReferenceRecord(db, relatedRecordId)));
-    }
+    const itemIds = await findCatalogItemIdsByReferenceRecords(db, [referenceRecordId, ...relatedRecordIds]);
 
     await refreshCatalogItemIds(db, [...new Set(itemIds)], "reference-record-changed", source);
   }
@@ -671,7 +990,14 @@ async function loadReferenceRecordMap(
     return new Map();
   }
 
-  const rowsById = await loadReferenceRecordRowsByGraph(db, uniqueIds);
+  return buildReferenceRecordMap(uniqueIds, await loadReferenceRecordRowsByGraph(db, uniqueIds));
+}
+
+function buildReferenceRecordMap(
+  ids: readonly string[],
+  rowsById: ReadonlyMap<string, ReferenceRecordRow>,
+): Map<string, ReferenceRecordRef> {
+  const uniqueIds = [...new Set(ids)];
   const buildReference = (row: ReferenceRecordRow, depth: number, path: ReadonlySet<string>): ReferenceRecordRef => {
     const nextPath = new Set(path);
     nextPath.add(row.reference_record_id);

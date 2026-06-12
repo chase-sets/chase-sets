@@ -10,6 +10,28 @@ function event() {
   } as never;
 }
 
+function baseCatalogItemRow(catalogItemId: string) {
+  return {
+    catalog_item_id: catalogItemId,
+    language_code: "en",
+    title_i18n: { defaultLocale: "en", values: { en: "Pikachu" } },
+    title: "Pikachu",
+    subtitle_i18n: null,
+    subtitle: null,
+    description_i18n: { defaultLocale: "en", values: { en: "Mouse Pokemon" } },
+    description: "Mouse Pokemon",
+    blueprint_id: null,
+    status: "draft",
+    field_values: [],
+    category_ids: [],
+    tags: [],
+    image_urls: [],
+    product_asset_sets: [],
+    image_fallback: null,
+    updated_at: "2026-05-17T00:00:00.000Z",
+  };
+}
+
 function delayedAdminQuery(itemIds: readonly string[] = ["cat_1"]) {
   let activeQueries = 0;
   let maxActiveQueries = 0;
@@ -21,30 +43,9 @@ function delayedAdminQuery(itemIds: readonly string[] = ["cat_1"]) {
     await new Promise((resolve) => setTimeout(resolve, 1));
     activeQueries -= 1;
 
-    if (sql.includes("FROM catalog_items WHERE catalog_item_id = $1")) {
-      return {
-        rows: [
-          {
-            catalog_item_id: params?.[0] as string,
-            language_code: "en",
-            title_i18n: { defaultLocale: "en", values: { en: "Pikachu" } },
-            title: "Pikachu",
-            subtitle_i18n: null,
-            subtitle: null,
-            description_i18n: { defaultLocale: "en", values: { en: "Mouse Pokemon" } },
-            description: "Mouse Pokemon",
-            blueprint_id: null,
-            status: "draft",
-            field_values: [],
-            category_ids: [],
-            tags: [],
-            image_urls: [],
-            product_asset_sets: [],
-            image_fallback: null,
-            updated_at: "2026-05-17T00:00:00.000Z",
-          },
-        ],
-      };
+    if (sql.includes("FROM catalog_items WHERE catalog_item_id = ANY($1)")) {
+      const ids = Array.isArray(params?.[0]) ? (params[0] as string[]) : [];
+      return { rows: ids.map(baseCatalogItemRow) };
     }
 
     if (sql.includes("FROM catalog_items WHERE category_ids")) {
@@ -94,7 +95,7 @@ describe("Catalog Item projections", () => {
     expect(maxActiveQueries()).toBe(1);
   });
 
-  it("refreshes dependent admin item pages one item at a time", async () => {
+  it("batches dependent admin item page refreshes on one database connection", async () => {
     const { query, maxActiveQueries } = delayedAdminQuery(["cat_1", "cat_2"]);
     const handlers = buildCatalogAdminCatalogItemProjectionHandlers({ query });
 
@@ -104,7 +105,87 @@ describe("Catalog Item projections", () => {
       timing: { recordedAt: "2026-05-17T00:00:00.000Z" },
     } as never);
 
+    const itemLoads = query.mock.calls.filter(([sql]) =>
+      String(sql).includes("FROM catalog_items WHERE catalog_item_id = ANY($1)"),
+    );
+    expect(itemLoads).toHaveLength(1);
+    expect(itemLoads[0]?.[1]).toEqual([["cat_1", "cat_2"]]);
     expect(maxActiveQueries()).toBe(1);
+  });
+
+  it("batches multi-level reference graph fan-out by frontier", async () => {
+    const relationshipFrontiers: string[][] = [];
+    const itemReferenceFrontiers: string[][] = [];
+    const itemLoadBatches: string[][] = [];
+    const relatedRecordsByReference = new Map<string, string[]>([
+      ["ref_manufacturer", ["ref_line_a", "ref_line_b"]],
+      ["ref_line_a", ["ref_series_a"]],
+      ["ref_line_b", ["ref_series_b"]],
+      ["ref_series_a", ["ref_expansion_a"]],
+      ["ref_series_b", ["ref_expansion_b"]],
+    ]);
+    const itemIdsByReference = new Map<string, string[]>([
+      ["ref_expansion_a", ["cat_a", "cat_shared"]],
+      ["ref_expansion_b", ["cat_b", "cat_shared"]],
+    ]);
+    const query = vi.fn(async (sql: string, params?: readonly unknown[]) => {
+      if (sql.includes("jsonb_array_elements(record.relationships)")) {
+        const frontier = Array.isArray(params?.[0]) ? (params[0] as string[]) : [];
+        relationshipFrontiers.push(frontier);
+        return {
+          rows: frontier.flatMap((referenceId) =>
+            (relatedRecordsByReference.get(referenceId) ?? []).map((reference_record_id) => ({
+              reference_record_id,
+            })),
+          ),
+        };
+      }
+
+      if (sql.includes("jsonb_array_elements(item.field_values)")) {
+        const frontier = Array.isArray(params?.[0]) ? (params[0] as string[]) : [];
+        itemReferenceFrontiers.push(frontier);
+        return {
+          rows: [...new Set(frontier.flatMap((referenceId) => itemIdsByReference.get(referenceId) ?? []))].map(
+            (catalog_item_id) => ({ catalog_item_id }),
+          ),
+        };
+      }
+
+      if (sql.includes("FROM catalog_items WHERE catalog_item_id = ANY($1)")) {
+        const ids = Array.isArray(params?.[0]) ? (params[0] as string[]) : [];
+        itemLoadBatches.push(ids);
+        return { rows: ids.map(baseCatalogItemRow) };
+      }
+
+      return { rows: [] };
+    });
+    const handlers = buildCatalogAdminCatalogItemProjectionHandlers({ query });
+
+    await handlers["catalog.reference-record.revised"]?.({
+      type: "catalog.reference-record.revised",
+      streamId: "catalog.reference-record-ref_manufacturer",
+      data: {},
+      timing: { recordedAt: "2026-05-17T00:00:00.000Z" },
+    } as never);
+
+    expect(relationshipFrontiers).toEqual([
+      ["ref_manufacturer"],
+      ["ref_line_a", "ref_line_b"],
+      ["ref_series_a", "ref_series_b"],
+      ["ref_expansion_a", "ref_expansion_b"],
+    ]);
+    expect(itemReferenceFrontiers).toEqual([
+      [
+        "ref_manufacturer",
+        "ref_line_a",
+        "ref_line_b",
+        "ref_series_a",
+        "ref_series_b",
+        "ref_expansion_a",
+        "ref_expansion_b",
+      ],
+    ]);
+    expect(itemLoadBatches).toEqual([["cat_a", "cat_shared", "cat_b"]]);
   });
 
   it("enqueues display template recomputation without inline item refresh", async () => {
