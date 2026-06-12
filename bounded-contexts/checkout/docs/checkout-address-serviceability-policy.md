@@ -16,6 +16,12 @@ shipping, tax, label, payout, split-group, or risk facts.
 - Buyer delivery addresses require required-field validation, normalized
   evidence when a provider is used, serviceability decision, freshness key, and
   support-safe failure code before payment or order creation.
+- The Checkout runtime launch guard allows only supported US street-delivery
+  regions before buy order creation. APO/FPO, US territories, unsupported
+  countries, and PO box delivery lines fail closed with support-safe
+  `shipping_address_unsupported` or `shipping_address_restricted` codes before
+  Ordering, Payments, Fulfillment, Settlement, Notifications, Support, or
+  account-history side effects start.
 - Seller ship-from facts stay in Sell List readiness until Fulfillment,
   Settlement, Identity, Payments, and Marketplace dependencies are ready.
 - Shipping, tax, payout, label, split-group, and risk provider calls run only
@@ -59,6 +65,10 @@ shipping, tax, label, payout, split-group, or risk facts.
 
 ## Evidence Required Before #1127 Closes
 
+- Runtime evidence that trusted UI and UCP confirmation call the same
+  pre-Ordering delivery-address guard and that unsupported/PO-box failures do
+  not record created orders, remove cart lines, start payment, or emit raw
+  address telemetry.
 - Current-main or staging evidence for guest and signed-in buyer delivery
   validation, seller ship-from validation, malformed address, unsupported
   destination, PO box or restricted address, saved-address invalidation,

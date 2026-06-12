@@ -172,6 +172,17 @@ function createSessionPageRow(
   };
 }
 
+const serviceableShippingAddress = {
+  shippingAddressId: "adr_home" as never,
+  name: "Jane Smith",
+  line1: "100 Market Street",
+  line2: null,
+  city: "Chicago",
+  state: "IL",
+  postalCode: "60601",
+  country: "US",
+};
+
 describe("checkout session runtime", () => {
   it("keeps the session projection scoped to session streams with per-event checkpoints", () => {
     const { eventStore } = createInMemoryEventStore();
@@ -570,6 +581,152 @@ describe("checkout session runtime", () => {
       code: "readiness_snapshot_stale",
       message: "Cart readiness changed. Review your cart before checkout.",
     } satisfies Partial<CheckoutDomainError>);
+    expect(cart.removeLine).not.toHaveBeenCalled();
+    expect(cart.checkout).not.toHaveBeenCalled();
+  });
+
+  it("blocks unsupported delivery regions before order creation", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const cart = createCartServices([readyCartLine]);
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query: vi.fn(async () => ({ rows: [] })) },
+      cart: cart as never,
+    });
+    const readiness = createCartReadinessSnapshot([readyCartLine]);
+    const created = await services.createFromCart(
+      {
+        accountId: "acc_buyer" as never,
+        readinessSnapshotId: readiness.snapshotId,
+        readinessSourceRevision: readiness.sourceRevision,
+        sessionIdOverride: "chk_address_unsupported" as never,
+      },
+      context,
+    );
+    await services.setShippingAddress(
+      {
+        sessionId: created.sessionId,
+        accountId: "acc_buyer" as never,
+        shippingAddress: {
+          ...serviceableShippingAddress,
+          state: "PR",
+          postalCode: "00901",
+        },
+      },
+      context,
+    );
+
+    await expect(
+      services.assertReadyForOrderCreation({
+        sessionId: created.sessionId,
+        accountId: "acc_buyer" as never,
+      }),
+    ).rejects.toMatchObject({
+      code: "shipping_address_unsupported",
+      message: "This delivery region is not supported for checkout yet. Use a supported US delivery address.",
+    } satisfies Partial<CheckoutDomainError>);
+
+    await expect(
+      services.recordOrdersCreated(
+        {
+          sessionId: created.sessionId,
+          accountId: "acc_buyer" as never,
+          orderIds: ["ord_1"],
+          fulfilledLineKeys: ["cli_1"],
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({
+      code: "shipping_address_unsupported",
+    } satisfies Partial<CheckoutDomainError>);
+    expect(cart.removeLine).not.toHaveBeenCalled();
+    expect(cart.checkout).not.toHaveBeenCalled();
+  });
+
+  it("blocks unsupported delivery countries before order creation", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query: vi.fn(async () => ({ rows: [] })) },
+      cart: createCartServices([readyCartLine]) as never,
+    });
+    const readiness = createCartReadinessSnapshot([readyCartLine]);
+    const created = await services.createFromCart(
+      {
+        accountId: "acc_buyer" as never,
+        readinessSnapshotId: readiness.snapshotId,
+        readinessSourceRevision: readiness.sourceRevision,
+        sessionIdOverride: "chk_address_unsupported_country" as never,
+      },
+      context,
+    );
+    await services.setShippingAddress(
+      {
+        sessionId: created.sessionId,
+        accountId: "acc_buyer" as never,
+        shippingAddress: {
+          ...serviceableShippingAddress,
+          country: "CA",
+        },
+      },
+      context,
+    );
+
+    await expect(
+      services.assertReadyForOrderCreation({
+        sessionId: created.sessionId,
+        accountId: "acc_buyer" as never,
+      }),
+    ).rejects.toMatchObject({
+      code: "shipping_address_unsupported",
+      message: "This delivery region is not supported for checkout yet. Use a supported US delivery address.",
+    } satisfies Partial<CheckoutDomainError>);
+  });
+
+  it("blocks PO box delivery addresses before order creation", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const cart = createCartServices([readyCartLine]);
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query: vi.fn(async () => ({ rows: [] })) },
+      cart: cart as never,
+    });
+    const readiness = createCartReadinessSnapshot([readyCartLine]);
+    const created = await services.createFromCart(
+      {
+        accountId: "acc_buyer" as never,
+        readinessSnapshotId: readiness.snapshotId,
+        readinessSourceRevision: readiness.sourceRevision,
+        sessionIdOverride: "chk_address_restricted" as never,
+      },
+      context,
+    );
+    await services.setShippingAddress(
+      {
+        sessionId: created.sessionId,
+        accountId: "acc_buyer" as never,
+        shippingAddress: {
+          ...serviceableShippingAddress,
+          line1: "PO Box 100",
+        },
+      },
+      context,
+    );
+
+    await expect(
+      services.assertReadyForOrderCreation({
+        sessionId: created.sessionId,
+        accountId: "acc_buyer" as never,
+      }),
+    ).rejects.toMatchObject({
+      code: "shipping_address_restricted",
+      message:
+        "This delivery address is not supported for the selected shipping service. Use a street address before paying.",
+    } satisfies Partial<CheckoutDomainError>);
+
     expect(cart.removeLine).not.toHaveBeenCalled();
     expect(cart.checkout).not.toHaveBeenCalled();
   });

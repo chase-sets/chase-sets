@@ -12,6 +12,7 @@ import {
 } from "../../../support/request-support/checkout-confirmation";
 import { CheckoutDomainError } from "../../../support/runtime-support/common";
 import {
+  recordAddressServiceabilityFailure,
   recordActiveSessionStaleRecovery,
   recordBuyCheckoutReviewRendered,
   recordChangedEconomicsReview,
@@ -644,6 +645,7 @@ export function createAccountCheckoutSessionRoutes(
     } catch (error) {
       const code = errorCode(error);
       recordActiveSessionStaleRecovery(checkoutObservabilityTelemetry, access.actor, code);
+      recordAddressServiceabilityFailure(checkoutObservabilityTelemetry, access.actor, code);
       return c.json({ error: { code, message: errorMessage(error) } }, 400);
     }
   });

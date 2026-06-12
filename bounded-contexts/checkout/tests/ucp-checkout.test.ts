@@ -5,6 +5,7 @@ import type { UcpOperationHandlerInput } from "@chase-sets/platform-runtime/ucp"
 import { createCheckoutUcpHandlers } from "../support/ucp-support/checkout";
 import type { CheckoutSessionServices } from "../features/sessions/api/runtime";
 import type { CheckoutSessionRow } from "../features/sessions/read-model/queries";
+import { CheckoutDomainError } from "../support/runtime-support/common";
 
 const actor: ResolvedActor = {
   sessionId: "ses_1",
@@ -219,6 +220,60 @@ describe("checkout UCP handlers", () => {
 
     expect(response.ucp.status).toBe("requires_action");
     expect(response.messages).toEqual([expect.objectContaining({ code: "trusted_ui_required" })]);
+  });
+
+  it("does not complete headless checkout when delivery address serviceability fails", async () => {
+    const sessions = createSessions({
+      assertReadyForOrderCreation: vi.fn(async () => {
+        throw new CheckoutDomainError(
+          "This delivery address is not supported for the selected shipping service. Use a street address before paying.",
+          "shipping_address_restricted",
+        );
+      }),
+    });
+    const handlers = createCheckoutUcpHandlers(
+      {
+        sessions,
+      },
+      {
+        paymentHandoff: {
+          payment: { provider: "test" },
+          evaluateCompleteRequest: () => ({
+            kind: "headless-agentic-payment",
+            agenticPayment: {} as never,
+            evidence: { mandate: "verified" },
+          }),
+        },
+      },
+    );
+
+    const response = await handlers.restHandlers.complete_checkout(
+      input(
+        {
+          marketplace_checkout_fee_quote_fingerprint: "quote_1",
+          shipping_address: {
+            name: "Jane Smith",
+            line1: "PO Box 100",
+            city: "Chicago",
+            state: "IL",
+            postal_code: "60601",
+            country: "US",
+          },
+        },
+        { id: "chk_1" },
+      ),
+    );
+
+    expect(response.ucp.status).toBe("error");
+    expect(response.messages).toEqual([
+      expect.objectContaining({
+        code: "shipping_address_restricted",
+        message:
+          "This delivery address is not supported for the selected shipping service. Use a street address before paying.",
+      }),
+    ]);
+    expect(sessions.recordOrdersCreated).not.toHaveBeenCalled();
+    expect(sessions.recordPaymentStarted).not.toHaveBeenCalled();
   });
 
   it("requires a linked buyer account", async () => {

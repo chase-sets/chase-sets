@@ -96,6 +96,40 @@ export function recordActiveSessionStaleRecovery(
   });
 }
 
+export function recordAddressServiceabilityFailure(
+  checkoutObservabilityTelemetry: CheckoutObservabilityTelemetry | undefined,
+  actor: CheckoutActor,
+  code: string,
+) {
+  if (
+    code !== "shipping_address_required" &&
+    code !== "shipping_address_unsupported" &&
+    code !== "shipping_address_restricted"
+  ) {
+    return;
+  }
+
+  recordCheckoutObservabilityTelemetry(checkoutObservabilityTelemetry, {
+    state: "address-serviceability-failure",
+    entrySource: "active-session",
+    actorMode: checkoutActorMode(actor),
+    scenarioState: "blocked",
+    visibleState: "checkout-permanent-recovery-visible",
+    sideEffectStatus: "not-attempted",
+    readinessContract: "checkout.session-read-model",
+    readinessSnapshotState: "fresh",
+    sourceRevisionState: "current",
+    freshWriteReceiptPresence: "not-provided",
+    supportReferencePresent: false,
+    performanceBudgetId: "totals-refresh",
+    providerCategory: "fulfillment",
+    riskCategory: "none",
+    downstreamStatus: "not-started",
+    launchRegisterDecision: "blocked",
+    freshStateScanResult: "not-applicable",
+  });
+}
+
 export function recordChangedEconomicsReview(
   checkoutObservabilityTelemetry: CheckoutObservabilityTelemetry | undefined,
   actor: CheckoutActor,
