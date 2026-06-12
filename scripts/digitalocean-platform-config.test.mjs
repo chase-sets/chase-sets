@@ -1,7 +1,8 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ADMIN_WEB_API_DEPENDENCIES } from "./admin-shell-smoke-matrix.mjs";
+import { listContextManifests } from "./lib/repo.mjs";
 
 const platformMain = readFileSync(resolve("infrastructure/digitalocean/platform/main.tf"), "utf8");
 const platformLocals = readFileSync(resolve("infrastructure/digitalocean/platform/locals.tf"), "utf8");
@@ -98,14 +99,9 @@ function pathCoveredByPrefix(path, prefix) {
 }
 
 function platformApiContextNames() {
-  return readdirSync(resolve("bounded-contexts"), { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => entry.name)
-    .filter((contextName) => {
-      const manifest = JSON.parse(readFileSync(resolve("bounded-contexts", contextName, "context.json"), "utf8"));
-      return manifest.apiDeployables?.includes("platform-api");
-    })
-    .sort();
+  return listContextManifests()
+    .filter(({ manifest }) => manifest.apiDeployables?.includes("platform-api"))
+    .map(({ dirName }) => dirName);
 }
 
 describe("DigitalOcean platform configuration", () => {
