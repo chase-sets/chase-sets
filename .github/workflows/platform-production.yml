@@ -131,6 +131,23 @@ jobs:
           release_commit="${{ steps.release.outputs.release_commit }}"
           git fetch origin production || true
 
+          # Skip stale releases before any staging work starts: a newer main
+          # commit has its own deploy run queued behind this one (issue #1326).
+          if [ "${{ github.event_name }}" = "push" ]; then
+            git fetch origin main
+            latest_main="$(git rev-parse origin/main)"
+            if [ "$release_commit" != "$latest_main" ]; then
+              {
+                echo "deploy=false"
+                echo "exposure_posture_changed=false"
+                echo "exposure_posture_categories="
+                echo "exposure_posture_categories_json=[]"
+              } >> "$GITHUB_OUTPUT"
+              echo "Release commit ${release_commit} is no longer origin/main (${latest_main}); skipping stale deployment before staging."
+              exit 0
+            fi
+          fi
+
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.force_deploy }}" = "true" ]; then
             {
               echo "deploy=true"
@@ -161,11 +178,69 @@ jobs:
 
           node ./scripts/change-scope.mjs github-output --base="${base_commit}" --head="${release_commit}"
 
+  build-image:
+    name: Build Release Image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: resolve-release
+    if: needs.resolve-release.outputs.deployment_required == 'true'
+    # Builds the SHA-keyed release image in parallel with any in-flight deploy
+    # (no deploy concurrency group), so Deploy Staging reuses it instead of
+    # rebuilding inside the serialized deploy lane (issue #1326). The staging
+    # environment binding supplies the environment-scoped registry token.
+    environment: staging
+    env:
+      DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK: chase-sets
+      PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.resolve-release.outputs.release_commit }}
+
+      - uses: docker/setup-buildx-action@v4
+        id: buildx
+        continue-on-error: true
+
+      - uses: docker/setup-buildx-action@v4
+        if: steps.buildx.outcome == 'failure'
+
+      - uses: digitalocean/action-doctl@v2.5.2
+        env:
+          NODE_OPTIONS: --no-deprecation
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Build and push release image
+        run: |
+          set -euo pipefail
+          registry_name="$(doctl registry get --format Name --no-header 2>/dev/null | tr -d '[:space:]' || true)"
+          if [ -z "$registry_name" ]; then
+            doctl registry create "$DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK" --region nyc3
+            registry_name="$DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK"
+          fi
+
+          doctl registry login --expiry-seconds 3600
+          image="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}:${{ needs.resolve-release.outputs.release_commit }}"
+          if docker buildx imagetools inspect "$image" >/dev/null 2>&1; then
+            echo "Release image ${image} already exists; skipping rebuild."
+            exit 0
+          fi
+          docker buildx build \
+            --pull \
+            --cache-from type=gha,scope=platform-image \
+            --cache-to type=gha,scope=platform-image,mode=max \
+            --push \
+            --tag "$image" \
+            .
+          echo "Pushed release image ${image}"
+
   deploy-staging:
     name: Deploy Staging
     runs-on: ubuntu-latest
     timeout-minutes: 180
-    needs: resolve-release
+    needs:
+      - resolve-release
+      - build-image
     if: needs.resolve-release.outputs.deployment_required == 'true'
     environment: staging
     outputs:
@@ -413,13 +488,17 @@ jobs:
 
           doctl registry login --expiry-seconds 3600
           image="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}:${TF_VAR_platform_image_tag}"
-          docker buildx build \
-            --pull \
-            --cache-from type=gha,scope=platform-image \
-            --cache-to type=gha,scope=platform-image,mode=min \
-            --push \
-            --tag "$image" \
-            .
+          if docker buildx imagetools inspect "$image" >/dev/null 2>&1; then
+            echo "Reusing merge-queue validated image ${image}; skipping rebuild."
+          else
+            docker buildx build \
+              --pull \
+              --cache-from type=gha,scope=platform-image \
+              --cache-to type=gha,scope=platform-image,mode=max \
+              --push \
+              --tag "$image" \
+              .
+          fi
 
           digest="$(docker buildx imagetools inspect "$image" --format '{{.Manifest.Digest}}')"
           echo "image=${image}" >> "$GITHUB_OUTPUT"

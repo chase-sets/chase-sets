@@ -392,8 +392,8 @@ jobs:
         run: |
           docker buildx build \
             --pull \
-            --cache-from type=gha,scope=platform-image-pr \
-            --cache-to type=gha,scope=platform-image-pr,mode=min \
+            --cache-from type=gha,scope=platform-image \
+            --cache-to type=gha,scope=platform-image,mode=max \
             --load \
             --tag chase-sets-platform:pr-validation \
             .
@@ -839,8 +839,8 @@ jobs:
           image="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}:${TF_VAR_platform_image_tag}"
           docker buildx build \
             --pull \
-            --cache-from type=gha,scope=platform-image-preview \
-            --cache-to type=gha,scope=platform-image-preview,mode=min \
+            --cache-from type=gha,scope=platform-image \
+            --cache-to type=gha,scope=platform-image,mode=max \
             --push \
             --tag "$image" \
             .
