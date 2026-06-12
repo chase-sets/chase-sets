@@ -166,6 +166,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.ui.checkoutPage.none": "none",
   "checkout.features.sessions.ui.checkoutPage.not.required": "not required",
   "checkout.features.sessions.ui.checkoutPage.order.totals.created": "Order totals created",
+  "checkout.features.sessions.ui.checkoutPage.order.reference": "Order reference",
   "checkout.features.sessions.ui.checkoutPage.offer.submitted.after.review": "Offer submitted after review",
   "checkout.features.sessions.ui.checkoutPage.payment": "Payment",
   "checkout.features.sessions.ui.checkoutPage.payment.section.description":
@@ -206,7 +207,7 @@ export const checkoutEnglishTranslations = {
     "Shipping is saved with the intent so sellers can evaluate fulfillment before accepting. No order, tax quote, or payment is created today.",
   "checkout.features.sessions.ui.checkoutPage.purchase.intent.saved": "Purchase intent saved",
   "checkout.features.sessions.ui.checkoutPage.purchases.have.been.created.and.payment":
-    "Your order is ready to continue to payment.",
+    "Your order is ready to continue to payment. Account, fulfillment, notification, and support details update as their owning workflows finish.",
   "checkout.features.sessions.ui.checkoutPage.quantity": "Quantity",
   "checkout.features.sessions.ui.checkoutPage.ready.to.place.purchase.intent": "Ready to place purchase intent",
   "checkout.features.sessions.ui.checkoutPage.ready.to.review.payment": "Ready to review payment",
@@ -229,6 +230,16 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.ui.checkoutPage.secure.checkout": "Secure Checkout",
   "checkout.features.sessions.ui.checkoutPage.secure.checkout.context": "Secure payment starts after this review.",
   "checkout.features.sessions.ui.checkoutPage.secure.payment": "Secure Payment",
+  "checkout.features.sessions.ui.checkoutPage.payment.handoff.title": "Payment step",
+  "checkout.features.sessions.ui.checkoutPage.payment.handoff.description":
+    "Continue to the secure payment detail without resubmitting checkout.",
+  "checkout.features.sessions.ui.checkoutPage.account.fulfillment.pending.title": "Downstream details pending",
+  "checkout.features.sessions.ui.checkoutPage.account.fulfillment.pending.description":
+    "Order detail, fulfillment, notification, and account history stay pending until their owning workflows commit.",
+  "checkout.features.sessions.ui.checkoutPage.support.reference": "Support reference",
+  "checkout.features.sessions.ui.checkoutPage.support.reference.ready.title": "Support reference ready",
+  "checkout.features.sessions.ui.checkoutPage.support.reference.ready.description":
+    "Share the support reference if payment or order details need help.",
   "checkout.features.sessions.ui.checkoutPage.sellers.can.accept.purchase.intent.before.order":
     "Sellers can accept your purchase intent before an order and payment are created.",
   "checkout.features.sessions.ui.checkoutPage.shipping": "Shipping",
@@ -564,6 +575,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.guestSellCheckoutPage.confirmation.description":
     "Your sale review is ready for account setup. No seller-committing side effects have started.",
   "checkout.features.sellList.ui.guestSellCheckoutPage.confirmation.reference": "Review reference",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.confirmation.support.reference": "Support reference",
   "checkout.features.sellList.ui.guestSellCheckoutPage.confirmation.account.title": "Account setup",
   "checkout.features.sellList.ui.guestSellCheckoutPage.confirmation.account.description":
     "Create or sign in to attach verified seller and payout facts.",
@@ -687,6 +699,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.description":
     "Your sale confirmation was recorded and the reviewed marketplace handoffs are in progress.",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.reference": "Confirmation reference",
+  "checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.support.reference": "Support reference",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.sale.title": "Marketplace handoff",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.sale.description":
     "Accepted offers and reviewed fallback listings use the Sell List plan you confirmed.",

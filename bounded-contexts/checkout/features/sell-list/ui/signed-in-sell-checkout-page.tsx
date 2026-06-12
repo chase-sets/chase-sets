@@ -435,6 +435,10 @@ export function SignedInSellCheckoutPage({
             description={t("checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.description")}
             referenceLabel={t("checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.reference")}
             referenceValue={actionState.confirmation.referenceId}
+            supportReferenceLabel={t(
+              "checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.support.reference",
+            )}
+            supportReferenceValue={actionState.confirmation.referenceId}
             totalLabel={t("checkout.features.sellList.ui.signedInSellCheckoutPage.summary.estimated.payout")}
             total={actionState.confirmation.estimatedTotal}
             nextSteps={[
