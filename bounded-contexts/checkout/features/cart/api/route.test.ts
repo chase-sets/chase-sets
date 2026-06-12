@@ -1,4 +1,8 @@
-import { Hono } from "hono";
+import {
+  createAccountUserTestActor,
+  createTestApp,
+  type TestActorOverrides,
+} from "@chase-sets/bounded-context-runtime/test-support";
 import { describe, expect, it, vi } from "vitest";
 import type { CheckoutApiEnv } from "../../../api";
 import type {
@@ -15,29 +19,13 @@ function buildApp(
     checkoutObservabilityTelemetry?: CheckoutObservabilityTelemetry;
   }>,
 ) {
-  const app = new Hono<CheckoutApiEnv>();
-
-  app.use("*", async (c, next) => {
-    c.set("actor", options.actor);
-    c.set(
-      "context",
-      options.actor
-        ? {
-            tenantId: "tnt_identity" as never,
-            audit: {
-              performedByUserId: options.actor.userId as never,
-              forAccountId: options.actor.accountId as never,
-            },
-          }
-        : null,
-    );
-    await next();
+  return createTestApp<CheckoutApiEnv>({
+    actor: options.actor,
+    routes: (app) => {
+      app.route("/account", createAccountCartRoutes(options.services, options.checkoutObservabilityTelemetry));
+      app.route("/guest", createGuestCartRoutes(options.services, options.checkoutObservabilityTelemetry));
+    },
   });
-
-  app.route("/account", createAccountCartRoutes(options.services, options.checkoutObservabilityTelemetry));
-  app.route("/guest", createGuestCartRoutes(options.services, options.checkoutObservabilityTelemetry));
-
-  return app;
 }
 
 function createServices(): CheckoutCartServices {
@@ -83,16 +71,26 @@ function createServices(): CheckoutCartServices {
   } as unknown as CheckoutCartServices;
 }
 
-function guestCheckoutActor(): CheckoutApiEnv["Variables"]["actor"] {
-  return {
+function accountCartActor(overrides: TestActorOverrides = {}): NonNullable<CheckoutApiEnv["Variables"]["actor"]> {
+  return createAccountUserTestActor({
+    sessionId: "ses_1",
+    userId: "usr_1",
+    accountId: "acc_buyer",
+    membershipId: "mbr_1",
+    permissions: ["orders.view", "orders.manage"],
+    ...overrides,
+  }) as NonNullable<CheckoutApiEnv["Variables"]["actor"]>;
+}
+
+function guestCheckoutActor(): NonNullable<CheckoutApiEnv["Variables"]["actor"]> {
+  return createAccountUserTestActor({
     sessionId: "guest:tok_1",
-    tenantId: "tnt_identity",
     userId: "usr_guest_checkout",
     accountId: "acc_guest",
     membershipId: "guest:tok_1",
     roleKey: "guest-buyer",
     permissions: ["guest-checkout.manage"],
-  };
+  }) as NonNullable<CheckoutApiEnv["Variables"]["actor"]>;
 }
 
 function cartLine(index: number) {
@@ -126,15 +124,7 @@ describe("checkout cart routes", () => {
       { line_id: "cli_2", quantity: 3 },
     ] as never);
     const app = buildApp({
-      actor: {
-        sessionId: "ses_1",
-        tenantId: "tnt_identity",
-        userId: "usr_1",
-        accountId: "acc_buyer",
-        membershipId: "mbr_1",
-        roleKey: "owner",
-        permissions: ["orders.view", "orders.manage"],
-      },
+      actor: accountCartActor(),
       services,
     });
 
@@ -148,15 +138,7 @@ describe("checkout cart routes", () => {
   it("adds a browsed marketplace item to the current account cart", async () => {
     const services = createServices();
     const app = buildApp({
-      actor: {
-        sessionId: "ses_1",
-        tenantId: "tnt_identity",
-        userId: "usr_1",
-        accountId: "acc_buyer",
-        membershipId: "mbr_1",
-        roleKey: "owner",
-        permissions: ["orders.view", "orders.manage"],
-      },
+      actor: accountCartActor(),
       services,
     });
 
@@ -201,15 +183,7 @@ describe("checkout cart routes", () => {
   it("creates a signed-in cart readiness snapshot with customer decisions", async () => {
     const services = createServices();
     const app = buildApp({
-      actor: {
-        sessionId: "ses_1",
-        tenantId: "tnt_identity",
-        userId: "usr_1",
-        accountId: "acc_buyer",
-        membershipId: "mbr_1",
-        roleKey: "owner",
-        permissions: [],
-      },
+      actor: accountCartActor({ permissions: [] }),
       services,
     });
 
@@ -268,15 +242,11 @@ describe("checkout cart routes", () => {
     });
     const { events, telemetry } = collectCheckoutObservabilityEvents();
     const app = buildApp({
-      actor: {
+      actor: accountCartActor({
         sessionId: "ses_sensitive",
-        tenantId: "tnt_identity",
-        userId: "usr_1",
         accountId: "acc_buyer_sensitive",
-        membershipId: "mbr_1",
-        roleKey: "owner",
         permissions: [],
-      },
+      }),
       services,
       checkoutObservabilityTelemetry: telemetry,
     });
@@ -420,15 +390,7 @@ describe("checkout cart routes", () => {
   it("allows signed-in buyers without order-management permissions to use their account cart", async () => {
     const services = createServices();
     const app = buildApp({
-      actor: {
-        sessionId: "ses_1",
-        tenantId: "tnt_identity",
-        userId: "usr_1",
-        accountId: "acc_buyer",
-        membershipId: "mbr_1",
-        roleKey: "viewer",
-        permissions: [],
-      },
+      actor: accountCartActor({ roleKey: "viewer", permissions: [] }),
       services,
     });
 
@@ -700,15 +662,7 @@ describe("checkout cart routes", () => {
   it("adds multiple browsed marketplace products to the current account cart", async () => {
     const services = createServices();
     const app = buildApp({
-      actor: {
-        sessionId: "ses_1",
-        tenantId: "tnt_identity",
-        userId: "usr_1",
-        accountId: "acc_buyer",
-        membershipId: "mbr_1",
-        roleKey: "owner",
-        permissions: ["orders.view", "orders.manage"],
-      },
+      actor: accountCartActor(),
       services,
     });
 
@@ -800,15 +754,7 @@ describe("checkout cart routes", () => {
   it("locks an account cart line to a selected seller listing", async () => {
     const services = createServices();
     const app = buildApp({
-      actor: {
-        sessionId: "ses_1",
-        tenantId: "tnt_identity",
-        userId: "usr_1",
-        accountId: "acc_buyer",
-        membershipId: "mbr_1",
-        roleKey: "owner",
-        permissions: ["orders.view", "orders.manage"],
-      },
+      actor: accountCartActor(),
       services,
     });
 

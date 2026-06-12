@@ -1,5 +1,11 @@
-import { Hono } from "hono";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  createAnonymousTestActor,
+  createInternalSystemTestActor,
+  createTestApp,
+  createTestEventStoreContext,
+  useMockReset,
+} from "@chase-sets/bounded-context-runtime/test-support";
+import { describe, expect, it, vi } from "vitest";
 import type { AuthServices } from "../runtime-support/services";
 import { registerRegistrationRoutes } from "./register-routes";
 import type { AuthApiEnv } from "./support";
@@ -18,21 +24,22 @@ vi.mock("@chase-sets/identity/server", () => ({
 }));
 
 function buildApp(services: unknown) {
-  const app = new Hono<AuthApiEnv>();
-  app.use("*", async (c, next) => {
-    c.set("context", {
-      tenantId: "ten_test" as never,
-      audit: {
-        performedByUserId: "usr_test" as never,
-        forAccountId: "acc_test" as never,
+  return createTestApp<AuthApiEnv>({
+    actor: createAnonymousTestActor(),
+    context: createTestEventStoreContext(
+      createInternalSystemTestActor({
+        userId: "usr_test",
+        accountId: "acc_test",
+      }),
+      {
+        tenantId: "ten_test",
+        trace: {},
       },
-      trace: {},
-    });
-    c.set("actor", null);
-    await next();
+    ),
+    routes: (app) => {
+      registerRegistrationRoutes(app, services as AuthServices);
+    },
   });
-  registerRegistrationRoutes(app, services as AuthServices);
-  return app;
 }
 
 function createServices() {
@@ -50,9 +57,7 @@ function createServices() {
   };
 }
 
-afterEach(() => {
-  vi.clearAllMocks();
-});
+useMockReset();
 
 describe("registration auth routes", () => {
   it("writes the registered identity into the Auth mirrors before returning a session", async () => {

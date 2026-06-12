@@ -1,5 +1,11 @@
-import { Hono } from "hono";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  createAnonymousTestActor,
+  createInternalSystemTestActor,
+  createTestApp,
+  createTestEventStoreContext,
+  useMockReset,
+} from "@chase-sets/bounded-context-runtime/test-support";
+import { describe, expect, it, vi } from "vitest";
 import type { AuthServices } from "../runtime-support/services";
 import { registerGuestCheckoutRoutes } from "./guest-checkout-routes";
 import type { AuthApiEnv } from "./support";
@@ -14,9 +20,16 @@ vi.mock("@chase-sets/identity/server", () => ({
 }));
 
 function buildApp(services: Partial<AuthServices> & Pick<AuthServices, "auth" | "db" | "identity">) {
-  const app = new Hono<AuthApiEnv>();
-  registerGuestCheckoutRoutes(app, services as AuthServices);
-  return app;
+  return createTestApp<AuthApiEnv>({
+    actor: createAnonymousTestActor(),
+    context: createTestEventStoreContext(createInternalSystemTestActor(), {
+      tenantId: "ten_test",
+      trace: {},
+    }),
+    routes: (app) => {
+      registerGuestCheckoutRoutes(app, services as AuthServices);
+    },
+  });
 }
 
 function createServices(options: { existingUser?: { user_id: string } | null }) {
@@ -35,9 +48,7 @@ function createServices(options: { existingUser?: { user_id: string } | null }) 
   } as unknown as Pick<AuthServices, "auth" | "db" | "identity">;
 }
 
-afterEach(() => {
-  vi.clearAllMocks();
-});
+useMockReset();
 
 describe("guest checkout auth routes", () => {
   it("rejects guest checkout when the email already belongs to a user", async () => {

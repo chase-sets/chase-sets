@@ -1,29 +1,35 @@
-import { Hono } from "hono";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  createAnonymousTestActor,
+  createInternalSystemTestActor,
+  createTestApp,
+  createTestEventStoreContext,
+  useMockReset,
+} from "@chase-sets/bounded-context-runtime/test-support";
+import { describe, expect, it, vi } from "vitest";
 import type { AuthServices } from "../runtime-support/services";
 import { registerPhoneCodeRoutes } from "./phone-code-routes";
 import type { AuthApiEnv } from "./support";
 
 function buildApp(services: unknown) {
-  const app = new Hono<AuthApiEnv>();
-  app.use("*", async (c, next) => {
-    c.set("context", {
-      tenantId: "tnt_test" as never,
-      audit: {
-        performedByUserId: "usr_test" as never,
-        forAccountId: "acc_test" as never,
+  return createTestApp<AuthApiEnv>({
+    actor: createAnonymousTestActor(),
+    context: createTestEventStoreContext(
+      createInternalSystemTestActor({
+        userId: "usr_test",
+        accountId: "acc_test",
+      }),
+      {
+        tenantId: "tnt_test",
+        trace: { traceId: "trc_test" as never },
       },
-      trace: { traceId: "trc_test" as never },
-    });
-    await next();
+    ),
+    routes: (app) => {
+      registerPhoneCodeRoutes(app, services as AuthServices);
+    },
   });
-  registerPhoneCodeRoutes(app, services as AuthServices);
-  return app;
 }
 
-afterEach(() => {
-  vi.clearAllMocks();
-});
+useMockReset();
 
 describe("phone code auth routes", () => {
   it("normalizes phone numbers and enqueues an SMS security notification", async () => {
