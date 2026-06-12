@@ -43,7 +43,15 @@ vi.mock("../src/database-pools", () => ({
   closeAdminSupportApiPools: mocks.closeAdminSupportApiPools,
 }));
 
-const adminSupportContexts = ["auth", "catalog", "identity", "platform-operations", "public-presence"] as const;
+const adminSupportContexts = [
+  "auth",
+  "catalog",
+  "fulfillment",
+  "identity",
+  "ordering",
+  "platform-operations",
+  "public-presence",
+] as const;
 
 function createRuntime() {
   return {

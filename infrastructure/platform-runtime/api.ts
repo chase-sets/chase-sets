@@ -43,6 +43,7 @@ export const representativeCommerceStateDataProfiles: readonly EnvironmentDataPr
 export type ApiContextManifest = Readonly<{
   contextName: string;
   apiDeployables?: readonly string[];
+  sourceRuntimeDeployables?: readonly string[];
   hostPorts?: readonly BcHostPort[];
   seedRequirements?: readonly string[];
 }>;
@@ -79,7 +80,10 @@ export function getApiHostEntries<TRegistry extends ApiContextRegistry>(
   registry: TRegistry,
   hostName: ApiHostName,
 ): readonly ApiContextRegistryEntry[] {
-  return registry.filter((entry) => (entry.manifest as ApiContextManifest).apiDeployables?.includes(hostName));
+  return registry.filter((entry) => {
+    const manifest = entry.manifest as ApiContextManifest;
+    return manifest.apiDeployables?.includes(hostName) || manifest.sourceRuntimeDeployables?.includes(hostName);
+  });
 }
 
 export function getApiHostContextNames<TRegistry extends ApiContextRegistry>(
@@ -101,6 +105,10 @@ function getHostPortsForContext(manifest: ApiContextManifest, hostPorts: Readonl
   }
 
   return resolvedPorts;
+}
+
+function getApiHostMountRole(manifest: ApiContextManifest, hostName: ApiHostName): "active" | "source-only" {
+  return manifest.apiDeployables?.includes(hostName) ? "active" : "source-only";
 }
 
 export function createApiHost(
@@ -132,14 +140,16 @@ export function createApiHost(
   const mountedContexts = entries.map((entry) => {
     const pool = options.pools[entry.contextName];
     const contextServices = services[entry.contextName];
+    const mountRole = getApiHostMountRole(entry.manifest as ApiContextManifest, hostName);
 
     return {
       contextName: entry.contextName,
-      mountRole: "active" as const,
+      mountRole,
       module: entry.module,
       services: contextServices,
       pool,
-      projectionHandlerSets: entry.module.projectionHandlerSets?.(contextServices as never) ?? [],
+      projectionHandlerSets:
+        mountRole === "source-only" ? [] : (entry.module.projectionHandlerSets?.(contextServices as never) ?? []),
     };
   });
 
@@ -161,10 +171,12 @@ export function createApiHost(
 
 export function resolveApiHostMounts(runtime: ApiHostRuntime): readonly ApiHostMount[] {
   return runtime.mountedContexts.flatMap((entry) =>
-    resolveModuleApiMounts(entry.module, entry.services as never).map((mount) => ({
-      ...mount,
-      contextName: entry.contextName,
-    })),
+    entry.mountRole === "source-only"
+      ? []
+      : resolveModuleApiMounts(entry.module, entry.services as never).map((mount) => ({
+          ...mount,
+          contextName: entry.contextName,
+        })),
   );
 }
 
@@ -180,7 +192,10 @@ function getSeedDependencyNames(
 
 export function getApiHostSeedOrder(registry: ApiContextRegistry, hostName: ApiHostName): readonly string[] {
   const entries = getApiHostEntries(registry, hostName);
-  const activeNames = entries.map((entry) => entry.contextName);
+  const activeEntries = entries.filter(
+    (entry) => getApiHostMountRole(entry.manifest as ApiContextManifest, hostName) === "active",
+  );
+  const activeNames = activeEntries.map((entry) => entry.contextName);
   const byName = new Map(entries.map((entry) => [entry.contextName, entry]));
   const visited = new Set<string>();
   const inProgress = new Set<string>();

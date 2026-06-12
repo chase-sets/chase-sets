@@ -26,6 +26,7 @@ export type WorkerHostName = "platform-worker" | "admin-support-worker";
 export type WorkerContextManifest = Readonly<{
   contextName: string;
   runtimeDeployables?: readonly string[];
+  sourceRuntimeDeployables?: readonly string[];
   hostPorts?: readonly BcHostPort[];
 }>;
 
@@ -184,7 +185,11 @@ export function getWorkerHostEntries<TRegistry extends WorkerContextRegistry>(
   registry: TRegistry,
   hostName: WorkerHostName,
 ): readonly WorkerContextRegistryEntry[] {
-  return registry.filter((entry) => entry.manifest.runtimeDeployables?.includes(hostName));
+  return registry.filter(
+    (entry) =>
+      entry.manifest.runtimeDeployables?.includes(hostName) ||
+      entry.manifest.sourceRuntimeDeployables?.includes(hostName),
+  );
 }
 
 export function getWorkerHostContextNames<TRegistry extends WorkerContextRegistry>(
@@ -223,14 +228,16 @@ export function createWorkerHost(
   const mountedContexts = entries.map((entry) => {
     const pool = options.pools[entry.contextName];
     const contextServices = services[entry.contextName];
+    const mountRole = getWorkerHostMountRole(entry.manifest, hostName);
 
     return {
       contextName: entry.contextName,
-      mountRole: "active" as const,
+      mountRole,
       module: entry.module,
       services: contextServices,
       pool,
-      projectionHandlerSets: entry.module.projectionHandlerSets?.(contextServices as never) ?? [],
+      projectionHandlerSets:
+        mountRole === "source-only" ? [] : (entry.module.projectionHandlerSets?.(contextServices as never) ?? []),
     };
   });
   const subscriptionRunners = resolveModuleSubscriptions(mountedContexts);
@@ -1382,4 +1389,8 @@ function getHostPortsForContext(manifest: WorkerContextManifest, hostPorts: Read
   }
 
   return resolvedPorts;
+}
+
+function getWorkerHostMountRole(manifest: WorkerContextManifest, hostName: WorkerHostName): "active" | "source-only" {
+  return manifest.runtimeDeployables?.includes(hostName) ? "active" : "source-only";
 }

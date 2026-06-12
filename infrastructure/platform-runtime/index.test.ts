@@ -5,11 +5,12 @@ import {
   getApiHostSeedOrder,
   nonProductionDataProfiles,
   productionLikeDataProfiles,
+  resolveApiHostMounts,
   representativeCommerceStateDataProfiles,
   seedApiHostIfEmpty,
   type ApiContextRegistry,
 } from "./api";
-import { createWorkerRunnerLoop, type WorkerRunner } from "./worker";
+import { createWorkerHost, createWorkerRunnerLoop, type WorkerContextRegistry, type WorkerRunner } from "./worker";
 import { getWebHostSections, resolveWebHostNavItems, resolveWebHostRouteRecords, type WebContextRegistry } from "./web";
 import { resolveWebHostRouteConfigRecords, toRouteConfigEntry } from "./web-route-config";
 
@@ -46,6 +47,23 @@ function createCountingProjector() {
 function createModule(
   contextName: string,
   options: Readonly<{
+    apiMounts?: readonly { mountPath: string; kind: "primary" | "additional"; requiresAuth: boolean }[];
+    apiRouters?: readonly unknown[];
+    subscriptions?: readonly {
+      subscriptionName: string;
+      sourceContextName: string;
+      projectionName: string;
+      subscriptionVersion: number;
+      handlers: Readonly<Record<string, never>>;
+      eventTypes: readonly string[];
+      order: number;
+    }[];
+    projectionGroups?: readonly {
+      projectionName: string;
+      sourceContextNames: readonly string[];
+      ownedTables: readonly string[];
+      requiredDuringBootstrap: boolean;
+    }[];
     projectors?: readonly ReturnType<typeof createCountingProjector>["projector"][];
     seedProfiles?: readonly (
       | "critical-bootstrap"
@@ -61,12 +79,31 @@ function createModule(
     routePrefix: `/${contextName}`,
     streamPrefix: `${contextName}.`,
     schemaSql: "",
-    apiMounts: [],
+    apiMounts: options.apiMounts ?? [],
     createServices: () => ({ contextName }),
-    buildApis: () => [],
+    buildApis: () => options.apiRouters ?? [],
+    buildSubscriptions: () => options.subscriptions ?? [],
+    buildProjectionGroups: () => options.projectionGroups ?? [],
     projectors: () => options.projectors ?? [],
     seedProfiles: options.seedProfiles,
     seed: options.seed,
+  };
+}
+
+function createSubscription(
+  subscriptionName: string,
+  sourceContextName: string,
+  projectionName: string,
+  order: number,
+) {
+  return {
+    subscriptionName,
+    sourceContextName,
+    projectionName,
+    subscriptionVersion: 1,
+    handlers: {},
+    eventTypes: [],
+    order,
   };
 }
 
@@ -319,6 +356,60 @@ describe("platform host api registry", () => {
     ).toThrow(/missing a pool for context 'auth'/);
   });
 
+  it("mounts source runtime contexts without activating their APIs or subscriptions", () => {
+    const registry = [
+      {
+        contextName: "support",
+        packageName: "@test/support",
+        manifest: {
+          contextName: "support",
+          apiDeployables: ["admin-support-api"],
+        },
+        module: createModule("support", {
+          apiMounts: [{ mountPath: "/api/support", kind: "primary", requiresAuth: true }],
+          apiRouters: ["support-router"],
+          subscriptions: [createSubscription("support.order-source-projection", "ordering", "support-orders", 10)],
+          projectionGroups: [
+            {
+              projectionName: "support-orders",
+              sourceContextNames: ["ordering"],
+              ownedTables: [],
+              requiredDuringBootstrap: false,
+            },
+          ],
+        }),
+      },
+      {
+        contextName: "ordering",
+        packageName: "@test/ordering",
+        manifest: {
+          contextName: "ordering",
+          apiDeployables: ["platform-api"],
+          sourceRuntimeDeployables: ["admin-support-api"],
+        },
+        module: createModule("ordering", {
+          apiMounts: [{ mountPath: "/api/orders", kind: "primary", requiresAuth: true }],
+          apiRouters: ["ordering-router"],
+          subscriptions: [createSubscription("ordering.marketplace-source-projection", "marketplace", "orders", 20)],
+        }),
+      },
+    ] as const satisfies ApiContextRegistry;
+
+    const runtime = createApiHost(registry, "admin-support-api", {
+      pools: {
+        support: createPool() as never,
+        ordering: createPool() as never,
+      },
+    });
+
+    expect(runtime.mountedContexts.map((entry) => [entry.contextName, entry.mountRole])).toEqual([
+      ["support", "active"],
+      ["ordering", "source-only"],
+    ]);
+    expect(runtime.subscriptionRunners).toHaveLength(1);
+    expect(resolveApiHostMounts(runtime).map((mount) => mount.mountPath)).toEqual(["/api/support"]);
+  });
+
   it("keeps production-like bootstrap out of host-level projection drains", async () => {
     const identityProjector = createCountingProjector();
     const catalogProjector = createCountingProjector();
@@ -470,6 +561,64 @@ describe("platform host api registry", () => {
 
     expect(identitySeed).toHaveBeenCalledTimes(1);
     expect(marketplaceSeed).not.toHaveBeenCalled();
+  });
+});
+
+describe("platform host worker registry", () => {
+  it("mounts source runtime contexts without activating their subscriptions", () => {
+    const registry = [
+      {
+        contextName: "support",
+        packageName: "@test/support",
+        manifest: {
+          contextName: "support",
+          runtimeDeployables: ["admin-support-worker"],
+        },
+        module: createModule("support", {
+          subscriptions: [
+            createSubscription("support.fulfillment-source-projection", "fulfillment", "support-shipments", 10),
+          ],
+          projectionGroups: [
+            {
+              projectionName: "support-shipments",
+              sourceContextNames: ["fulfillment"],
+              ownedTables: [],
+              requiredDuringBootstrap: false,
+            },
+          ],
+        }),
+      },
+      {
+        contextName: "fulfillment",
+        packageName: "@test/fulfillment",
+        manifest: {
+          contextName: "fulfillment",
+          runtimeDeployables: ["platform-worker"],
+          sourceRuntimeDeployables: ["admin-support-worker"],
+        },
+        module: createModule("fulfillment", {
+          subscriptions: [
+            createSubscription("fulfillment.ordering-source-projection", "ordering", "fulfillment-orders", 20),
+          ],
+        }),
+      },
+    ] as const satisfies WorkerContextRegistry;
+
+    const runtime = createWorkerHost(registry, "admin-support-worker", {
+      pools: {
+        support: createPool() as never,
+        fulfillment: createPool() as never,
+      },
+    });
+
+    expect(runtime.mountedContexts.map((entry) => [entry.contextName, entry.mountRole])).toEqual([
+      ["support", "active"],
+      ["fulfillment", "source-only"],
+    ]);
+    expect(runtime.subscriptionRunners).toHaveLength(1);
+    expect(runtime.projectionGroups.map((group) => [group.targetContextName, group.projectionName])).toEqual([
+      ["support", "support-shipments"],
+    ]);
   });
 });
 

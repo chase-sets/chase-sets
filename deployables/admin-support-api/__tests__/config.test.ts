@@ -3,14 +3,22 @@ import { getApiHostContextNames } from "@chase-sets/platform-runtime/api";
 import { apiContextRegistry } from "../src/generated/api-context-registry";
 import { getContextDatabaseEnvName, loadConfig } from "../src/config";
 
-const adminSupportContextNames = ["auth", "catalog", "identity", "platform-operations", "public-presence"] as const;
+const adminSupportContextNames = [
+  "auth",
+  "catalog",
+  "fulfillment",
+  "identity",
+  "ordering",
+  "platform-operations",
+  "public-presence",
+] as const;
 
 describe("admin-support API configuration", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
   });
 
-  it("selects only the landing/admin-support bounded contexts", () => {
+  it("selects admin-support contexts and source-only projection inputs", () => {
     expect([...getApiHostContextNames(apiContextRegistry, "admin-support-api")].sort()).toEqual(
       [...adminSupportContextNames].sort(),
     );
@@ -70,6 +78,8 @@ describe("admin-support API configuration", () => {
       expect.objectContaining({
         auth: "postgres://auth",
         catalog: "postgres://catalog",
+        fulfillment: "postgres://fulfillment",
+        ordering: "postgres://ordering",
         "platform-operations": "postgres://platform-operations",
         identity: "postgres://identity",
         "public-presence": "postgres://public-presence",

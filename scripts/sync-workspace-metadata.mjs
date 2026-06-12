@@ -142,7 +142,11 @@ function toIdentifier(value) {
 }
 
 function buildApiRegistry(outputPath, hostName, contexts) {
-  const activeContexts = contexts.filter((context) => context.manifest.apiDeployables?.includes(hostName));
+  const activeContexts = contexts.filter(
+    (context) =>
+      context.manifest.apiDeployables?.includes(hostName) ||
+      context.manifest.sourceRuntimeDeployables?.includes(hostName),
+  );
   const contextImports = activeContexts.map((context) => {
     const identifier = toIdentifier(context.contextName);
     return `import { contextManifest as ${identifier}Manifest, module as ${identifier}Module } from "${context.packageName}";`;
@@ -167,7 +171,11 @@ ${entries.join("\n")}
 }
 
 function buildWorkerRegistry(outputPath, hostName, contexts) {
-  const activeContexts = contexts.filter((context) => context.manifest.runtimeDeployables?.includes(hostName));
+  const activeContexts = contexts.filter(
+    (context) =>
+      context.manifest.runtimeDeployables?.includes(hostName) ||
+      context.manifest.sourceRuntimeDeployables?.includes(hostName),
+  );
   const contextImports = activeContexts.map((context) => {
     const identifier = toIdentifier(context.contextName);
     return `import { contextManifest as ${identifier}Manifest, module as ${identifier}Module } from "${context.packageName}";`;
