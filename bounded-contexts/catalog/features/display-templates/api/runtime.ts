@@ -1,5 +1,5 @@
-import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
-import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
+import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
+import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
@@ -25,13 +25,10 @@ export type DisplayTemplateServices = Readonly<{
 }>;
 
 export function createDisplayTemplateRuntime(deps: CatalogRuntimeDeps): DisplayTemplateServices {
-  const commandHandler = createCommandHandler({
-    repository: createAggregateRepository({
-      eventStore: deps.eventStore,
-      codec: createPassthroughDomainEventCodec<DisplayTemplateEvent>(),
-      initialState: () => initialDisplayTemplateState,
-      evolve: evolveDisplayTemplate,
-    }),
+  const { commandHandler } = createAggregateCommandHandler({
+    eventStore: deps.eventStore,
+    codec: createPassthroughDomainEventCodec<DisplayTemplateEvent>(),
+    initialState: () => initialDisplayTemplateState,
     evolve: evolveDisplayTemplate,
     decide: decideDisplayTemplate,
   });

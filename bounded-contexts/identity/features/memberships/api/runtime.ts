@@ -1,6 +1,6 @@
-import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
+import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
-import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
+import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { IdentityRuntimeDeps } from "../../../support/runtime-support";
 import {
@@ -32,13 +32,10 @@ export type MembershipServices = Readonly<{
 }>;
 
 export function createMembershipRuntime(deps: IdentityRuntimeDeps): MembershipServices {
-  const commandHandler = createCommandHandler({
-    repository: createAggregateRepository({
-      eventStore: deps.eventStore,
-      codec: createPassthroughDomainEventCodec<MembershipEvent>(),
-      initialState: () => initialMembershipState,
-      evolve: evolveMembership,
-    }),
+  const { commandHandler } = createAggregateCommandHandler({
+    eventStore: deps.eventStore,
+    codec: createPassthroughDomainEventCodec<MembershipEvent>(),
+    initialState: () => initialMembershipState,
     evolve: evolveMembership,
     decide: decideMembership,
   });

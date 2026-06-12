@@ -1,8 +1,8 @@
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { createHash } from "node:crypto";
-import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
+import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
-import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
+import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AccountId, InventoryItemId } from "@chase-sets/primitives/typed-ids";
@@ -96,14 +96,10 @@ export function createInventoryItemRuntime(
   catalogItems: InventoryCatalogItemServices,
   storageLocations: StorageLocationServices,
 ): InventoryItemServices {
-  const repository = createAggregateRepository({
+  const { commandHandler, repository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: createPassthroughDomainEventCodec<InventoryItemEvent>(),
     initialState: () => initialInventoryItemState,
-    evolve: evolveInventoryItem,
-  });
-  const commandHandler = createCommandHandler({
-    repository,
     evolve: evolveInventoryItem,
     decide: decideInventoryItem,
   });

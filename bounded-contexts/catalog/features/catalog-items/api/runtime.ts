@@ -1,6 +1,6 @@
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
-import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
-import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
+import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
+import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
@@ -170,13 +170,10 @@ export type CatalogItemServices = Readonly<{
 }>;
 
 export function createCatalogItemRuntime(deps: CatalogRuntimeDeps): CatalogItemServices {
-  const commandHandler = createCommandHandler({
-    repository: createAggregateRepository({
-      eventStore: deps.eventStore,
-      codec: createPassthroughDomainEventCodec<CatalogItemEvent>(),
-      initialState: () => initialCatalogItemState,
-      evolve: evolveCatalogItem,
-    }),
+  const { commandHandler } = createAggregateCommandHandler({
+    eventStore: deps.eventStore,
+    codec: createPassthroughDomainEventCodec<CatalogItemEvent>(),
+    initialState: () => initialCatalogItemState,
     evolve: evolveCatalogItem,
     decide: decideCatalogItem,
   });

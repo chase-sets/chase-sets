@@ -1,6 +1,6 @@
-import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
+import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
-import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
+import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
@@ -152,13 +152,10 @@ export type ProductAlertServices = Readonly<{
 }>;
 
 export function createProductAlertRuntime(deps: DiscoveryRuntimeDeps): ProductAlertServices {
-  const commandHandler = createCommandHandler({
-    repository: createAggregateRepository({
-      eventStore: deps.eventStore,
-      codec: createPassthroughDomainEventCodec<ProductAlertEvent>(),
-      initialState: () => initialProductAlertState,
-      evolve: evolveProductAlert,
-    }),
+  const { commandHandler } = createAggregateCommandHandler({
+    eventStore: deps.eventStore,
+    codec: createPassthroughDomainEventCodec<ProductAlertEvent>(),
+    initialState: () => initialProductAlertState,
     evolve: evolveProductAlert,
     decide: decideProductAlert,
   });

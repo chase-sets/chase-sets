@@ -1,6 +1,6 @@
-import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
+import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
-import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
+import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { InventoryRuntimeDeps } from "../../../support/runtime-support";
 import {
@@ -22,15 +22,10 @@ export type InventoryReservationServices = Readonly<{
 }>;
 
 export function createInventoryReservationRuntime(deps: InventoryRuntimeDeps): InventoryReservationServices {
-  const repository = createAggregateRepository({
+  const { commandHandler, repository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: createPassthroughDomainEventCodec<InventoryReservationEvent>(),
     initialState: () => initialInventoryReservationState,
-    evolve: evolveInventoryReservation,
-  });
-
-  const commandHandler = createCommandHandler({
-    repository,
     evolve: evolveInventoryReservation,
     decide: decideInventoryReservation,
   });

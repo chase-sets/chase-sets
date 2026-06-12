@@ -1,6 +1,6 @@
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
-import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repository";
-import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
+import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
+import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import { withCatalogAdminRealtimeInvalidation } from "../../../support/projection-support/realtime-invalidation";
@@ -36,13 +36,10 @@ export type BlueprintServices = Readonly<{
 }>;
 
 export function createBlueprintRuntime(deps: CatalogRuntimeDeps): BlueprintServices {
-  const commandHandler = createCommandHandler({
-    repository: createAggregateRepository({
-      eventStore: deps.eventStore,
-      codec: createPassthroughDomainEventCodec<BlueprintEvent>(),
-      initialState: () => initialBlueprintState,
-      evolve: evolveBlueprint,
-    }),
+  const { commandHandler } = createAggregateCommandHandler({
+    eventStore: deps.eventStore,
+    codec: createPassthroughDomainEventCodec<BlueprintEvent>(),
+    initialState: () => initialBlueprintState,
     evolve: evolveBlueprint,
     decide: decideBlueprint,
   });
