@@ -29,6 +29,7 @@ describe("Catalog primary workbench admin contracts", () => {
       "promotion-result",
       "lifecycle-recovery",
       "governance-controls",
+      "clean-reset-release",
       "audit-evidence",
       "supporting-evidence",
     ];
@@ -437,6 +438,7 @@ describe("Catalog primary workbench admin contracts", () => {
       "#1042",
       "#1043",
       "#1044",
+      "#1045",
       "#1056",
       "#1038",
       "#1039",
@@ -785,6 +787,7 @@ describe("Catalog primary workbench admin contracts", () => {
       validationReadiness: validationReadinessFixture(),
       lifecycleRecovery: lifecycleRecoveryFixture(),
       governanceControls: governanceControlsFixture(),
+      cleanResetRelease: cleanResetReleaseFixture(),
       auditEvidence: auditEvidenceFixture(),
       importJobs: {
         freshness: "fresh",
@@ -1131,6 +1134,140 @@ function conflictResolutionFixture(): CatalogPrimaryWorkbenchReadModel["conflict
         summary: "Profile section edited before conflict review.",
       },
     ],
+  };
+}
+
+function cleanResetReleaseFixture(): CatalogPrimaryWorkbenchReadModel["cleanResetRelease"] {
+  const evidenceHref = "/catalog/integrations?providerKey=tcgdex&section=reset-release";
+
+  return {
+    status: "complete",
+    generatedAt: "2026-06-09T00:00:00.000Z",
+    environment: "production-prelaunch",
+    returnToPrimaryHref: "/catalog/integrations?providerKey=tcgdex&section=workbench",
+    auditEvidenceHref: "/catalog/integrations?providerKey=tcgdex&section=evidence",
+    summary: {
+      decisionCount: 6,
+      blockingDecisionCount: 0,
+      findingCount: 0,
+      p0FindingCount: 0,
+      targetTableCount: 10,
+      backfillRequiredCount: 0,
+      temporaryScaffoldingRemovalRequiredCount: 0,
+      completeRemovalEvidenceReady: true,
+    },
+    environmentPlan: {
+      mode: "pre-launch-wipe-and-rebuild",
+      destructiveResetDefault: true,
+      requiresBackupDecision: true,
+      requiresApprovalReference: true,
+      requiresStagingRehearsal: true,
+      requiresSmokeVerification: true,
+      unrelatedDataBoundary:
+        "Only production/prelaunch Catalog integration rows in named reset tables may be selected.",
+    },
+    decisions: [
+      cleanResetDecisionFixture("destructive-reset-policy", "#1054", "Destructive prelaunch reset/drop policy"),
+      cleanResetDecisionFixture("backup-or-data-loss", "#1054", "Backup or accepted data-loss decision"),
+      cleanResetDecisionFixture("deploy-skew-removal", "#1061", "Deploy-skew and temporary scaffolding removal"),
+      cleanResetDecisionFixture("backfill-clean-state", "#1054", "Backfill produces clean launch state"),
+      cleanResetDecisionFixture("release-acceptance", "#1061", "Release acceptance and smoke proof"),
+      cleanResetDecisionFixture("complete-old-surface-removal", "#1090", "Complete old-surface removal", {
+        evidence:
+          "Complete removal of code, patterns, documentation, tests, fixtures, screenshots, runbooks, release notes, and operator instructions is required before launch.",
+        requiredEvidence: [
+          "complete removal of code",
+          "complete removal of product and UX patterns",
+          "complete removal of documentation, runbooks, release notes, and operator instructions",
+          "no hidden flag, fallback branch, compatibility redirect, migration shim, alias, or support-only path",
+        ],
+      }),
+    ],
+    resetEvidence: {
+      targetTables: [
+        "catalog_source_observation_integration_work_units",
+        "catalog_source_observation_integration_job_events",
+        "catalog_source_observation_integration_durable_jobs",
+        "catalog_source_observation_bulk_review_work_units",
+        "catalog_source_observation_bulk_review_job_events",
+        "catalog_source_observation_bulk_review_jobs",
+        "catalog_source_observations",
+        "catalog_provider_option_query_cache",
+        "catalog_tcgplayer_automation_domain_rate_limits",
+        "catalog_provider_integration_profile_versions",
+      ],
+      findings: [],
+    },
+    backfill: [
+      cleanResetBackfillFixture("profile-section-projections"),
+      cleanResetBackfillFixture("source-observation-profile-references"),
+      cleanResetBackfillFixture("durable-job-profile-snapshots"),
+    ],
+    temporaryScaffolding: [
+      cleanResetScaffoldingFixture("reset-execution-scaffold", "Reset execution scaffold", evidenceHref),
+      cleanResetScaffoldingFixture("backfill-verification-scaffold", "Backfill verification scaffold", evidenceHref),
+      cleanResetScaffoldingFixture("deploy-skew-release-scaffold", "Deploy-skew release scaffold", evidenceHref),
+      cleanResetScaffoldingFixture("old-surface-removal-scaffold", "Old-surface removal scaffold", evidenceHref),
+    ],
+    releaseProofLinks: [
+      auditEvidenceLinkFixture({
+        key: "clean-reset:policy",
+        label: "Clean reset policy",
+        href: evidenceHref,
+        kind: "proof",
+        redactionState: "not-needed",
+        summary: "Prelaunch wipe and rebuild evidence is complete.",
+      }),
+    ],
+  };
+}
+
+function cleanResetDecisionFixture(
+  key: CatalogPrimaryWorkbenchReadModel["cleanResetRelease"]["decisions"][number]["key"],
+  ownerIssue: CatalogPrimaryWorkbenchReadModel["cleanResetRelease"]["decisions"][number]["ownerIssue"],
+  label: string,
+  overrides: Partial<CatalogPrimaryWorkbenchReadModel["cleanResetRelease"]["decisions"][number]> = {},
+): CatalogPrimaryWorkbenchReadModel["cleanResetRelease"]["decisions"][number] {
+  return {
+    key,
+    label,
+    status: "complete",
+    owner: ownerIssue === "#1054" ? "catalog-source-observations" : "ops-release",
+    ownerIssue,
+    evidence: `${label} evidence is complete.`,
+    requiredEvidence: ["approval reference", "release evidence"],
+    blocksRelease: false,
+    ...overrides,
+  };
+}
+
+function cleanResetBackfillFixture(
+  key: CatalogPrimaryWorkbenchReadModel["cleanResetRelease"]["backfill"][number]["key"],
+): CatalogPrimaryWorkbenchReadModel["cleanResetRelease"]["backfill"][number] {
+  return {
+    key,
+    required: false,
+    status: "skipped-clean-reset",
+    reason: "Clean prelaunch wipe leaves no retained compatibility data to backfill.",
+    evidence: "after report clean",
+    blocksRelease: false,
+  };
+}
+
+function cleanResetScaffoldingFixture(
+  key: string,
+  label: string,
+  evidenceUrl: string,
+): CatalogPrimaryWorkbenchReadModel["cleanResetRelease"]["temporaryScaffolding"][number] {
+  return {
+    key,
+    label,
+    status: "not-used",
+    ownerIssue: "#1061",
+    evidenceUrl,
+    deletionRequiredBeforeLaunch: true,
+    blocksRelease: false,
+    removalEvidence: "Not used; no support surface remains.",
   };
 }
 

@@ -8,6 +8,11 @@ import type {
   CatalogIntegrationAuditEvidenceRedactionState,
 } from "./catalog-integration-audit-evidence";
 import type {
+  CatalogIntegrationDataBackfillDecision,
+  CatalogIntegrationDataResetEnvironment,
+  CatalogIntegrationDataResetEvidenceFinding,
+} from "./catalog-integration-data-reset-evidence";
+import type {
   CatalogAdminControlPlaneQueryKey,
   CatalogAdminControlPlaneDiagnostic,
   CatalogAdminRollbackRetirementImpactSummaryReadModel,
@@ -31,6 +36,7 @@ export type CatalogPrimaryWorkbenchSectionKey =
   | "promotion-result"
   | "lifecycle-recovery"
   | "governance-controls"
+  | "clean-reset-release"
   | "audit-evidence"
   | "supporting-evidence";
 
@@ -193,6 +199,7 @@ export const catalogPrimaryWorkbenchRouteSections = [
   "conflict-resolution",
   "lifecycle-recovery",
   "governance-controls",
+  "clean-reset-release",
   "audit-evidence",
   "provider-scope-selection",
   "readiness",
@@ -288,6 +295,7 @@ export type CatalogPrimaryWorkbenchDownstreamIssueKey =
   | "#1042"
   | "#1043"
   | "#1044"
+  | "#1045"
   | "#1057"
   | "#1058"
   | "#1059"
@@ -313,6 +321,7 @@ export type CatalogPrimaryWorkbenchReadModel = Readonly<{
   validationReadiness: CatalogPrimaryWorkbenchValidationReadinessReadModel;
   lifecycleRecovery: CatalogPrimaryWorkbenchLifecycleRecoveryReadModel;
   governanceControls: CatalogPrimaryWorkbenchGovernanceControlsReadModel;
+  cleanResetRelease: CatalogPrimaryWorkbenchCleanResetReleaseReadModel;
   auditEvidence: CatalogPrimaryWorkbenchAuditEvidenceReadModel;
   importJobs: CatalogPrimaryWorkbenchImportJobsReadModel;
   sourceObservationReview: CatalogPrimaryWorkbenchSourceObservationReviewReadModel;
@@ -906,6 +915,85 @@ export type CatalogPrimaryWorkbenchReleaseEvidenceChecklistRow = Readonly<{
   residualDebt: readonly string[];
   releaseNote: string;
   blocksRelease: boolean;
+}>;
+
+export type CatalogPrimaryWorkbenchCleanResetReleaseStatus = "ready" | "partial" | "blocked" | "complete";
+
+export type CatalogPrimaryWorkbenchCleanResetReleaseDecisionKey =
+  | "destructive-reset-policy"
+  | "backup-or-data-loss"
+  | "deploy-skew-removal"
+  | "backfill-clean-state"
+  | "release-acceptance"
+  | "complete-old-surface-removal";
+
+export type CatalogPrimaryWorkbenchCleanResetReleaseDecisionStatus = "ready" | "missing" | "blocked" | "complete";
+
+export type CatalogPrimaryWorkbenchCleanResetReleaseScaffoldingStatus = "not-used" | "removal-required" | "removed";
+
+export type CatalogPrimaryWorkbenchCleanResetReleaseReadModel = Readonly<{
+  status: CatalogPrimaryWorkbenchCleanResetReleaseStatus;
+  generatedAt: string;
+  environment: CatalogIntegrationDataResetEnvironment;
+  returnToPrimaryHref: string;
+  auditEvidenceHref: string;
+  summary: Readonly<{
+    decisionCount: number;
+    blockingDecisionCount: number;
+    findingCount: number;
+    p0FindingCount: number;
+    targetTableCount: number;
+    backfillRequiredCount: number;
+    temporaryScaffoldingRemovalRequiredCount: number;
+    completeRemovalEvidenceReady: boolean;
+  }>;
+  environmentPlan: Readonly<{
+    mode: "pre-launch-wipe-and-rebuild";
+    destructiveResetDefault: true;
+    requiresBackupDecision: boolean;
+    requiresApprovalReference: boolean;
+    requiresStagingRehearsal: boolean;
+    requiresSmokeVerification: boolean;
+    unrelatedDataBoundary: string;
+  }>;
+  decisions: readonly Readonly<{
+    key: CatalogPrimaryWorkbenchCleanResetReleaseDecisionKey;
+    label: string;
+    status: CatalogPrimaryWorkbenchCleanResetReleaseDecisionStatus;
+    owner: "catalog-source-observations" | "ops-release";
+    ownerIssue: "#1054" | "#1061" | "#1090";
+    evidence: string;
+    requiredEvidence: readonly string[];
+    blocksRelease: boolean;
+  }>[];
+  resetEvidence: Readonly<{
+    targetTables: readonly string[];
+    findings: readonly Readonly<{
+      code: CatalogIntegrationDataResetEvidenceFinding["code"];
+      severity: CatalogIntegrationDataResetEvidenceFinding["severity"];
+      message: string;
+      blocksRelease: true;
+    }>[];
+  }>;
+  backfill: readonly Readonly<{
+    key: CatalogIntegrationDataBackfillDecision["key"];
+    required: boolean;
+    status: "skipped-clean-reset" | "required" | "blocked" | "complete";
+    reason: string;
+    evidence: string;
+    blocksRelease: boolean;
+  }>[];
+  temporaryScaffolding: readonly Readonly<{
+    key: string;
+    label: string;
+    status: CatalogPrimaryWorkbenchCleanResetReleaseScaffoldingStatus;
+    ownerIssue: "#1054" | "#1061" | "#1090";
+    evidenceUrl: string;
+    deletionRequiredBeforeLaunch: true;
+    blocksRelease: boolean;
+    removalEvidence: string;
+  }>[];
+  releaseProofLinks: readonly CatalogPrimaryWorkbenchAuditEvidenceLink[];
 }>;
 
 export type CatalogPrimaryWorkbenchHealthTriageRolloutControl = Readonly<{
@@ -1630,6 +1718,21 @@ export const catalogPrimaryWorkbenchSections = [
     routeContextKeys: ["section", "providerKey", "unitKey", "importScope", "profileVersion", "jobId", "returnPath"],
   }),
   section({
+    key: "clean-reset-release",
+    defaultVisible: false,
+    queryKeys: [
+      "integration-health-summary",
+      "import-job-progress-summary",
+      "source-observation-review-query",
+      "audit-evidence-timeline",
+      "rollback-retirement-impact-summary",
+    ],
+    commands: [],
+    freshnessStates: ["fresh", "stale", "lagging", "partial", "unavailable"],
+    pagination: "none",
+    routeContextKeys: ["section", "providerKey", "unitKey", "importScope", "profileVersion", "jobId", "returnPath"],
+  }),
+  section({
     key: "audit-evidence",
     defaultVisible: false,
     queryKeys: [
@@ -2127,6 +2230,19 @@ export const catalogPrimaryWorkbenchDownstreamContracts = [
     ],
   ),
   downstream(
+    "#1045",
+    ["clean-reset-release", "audit-evidence", "supporting-evidence"],
+    [
+      "cleanResetRelease.environmentPlan",
+      "cleanResetRelease.decisions",
+      "cleanResetRelease.resetEvidence",
+      "cleanResetRelease.backfill",
+      "cleanResetRelease.temporaryScaffolding",
+      "cleanResetRelease.releaseProofLinks",
+      "auditEvidence.releaseChecklist",
+    ],
+  ),
+  downstream(
     "#1056",
     [
       "provider-scope-selection",
@@ -2305,6 +2421,7 @@ export function validateCatalogPrimaryWorkbenchReadModelContract(
   assertPrimaryWorkbenchBlockers(value.promotionPreview?.blockers);
   assertPrimaryWorkbenchConflictResolution(value.conflictResolution);
   assertPrimaryWorkbenchGovernanceControls(value.governanceControls);
+  assertPrimaryWorkbenchCleanResetRelease(value.cleanResetRelease);
   assertPrimaryWorkbenchAuditEvidence(value.auditEvidence);
   assertPrimaryWorkbenchPromotionPreview(value.promotionPreview);
   assertPrimaryWorkbenchProfileAuthoring(value.profileAuthoring);
@@ -2554,6 +2671,112 @@ function assertPrimaryWorkbenchGovernanceControls(
   }
   if (/holding area/i.test(removalText)) {
     throw new Error("Primary workbench governance controls must not preserve a compatibility holding area.");
+  }
+}
+
+function assertPrimaryWorkbenchCleanResetRelease(
+  value: CatalogPrimaryWorkbenchReadModel["cleanResetRelease"] | undefined,
+): void {
+  if (!value) {
+    throw new Error("Primary workbench clean reset release evidence contract is required.");
+  }
+  if (!["ready", "partial", "blocked", "complete"].includes(value.status)) {
+    throw new Error("Primary workbench clean reset release status must be explicit.");
+  }
+  if (
+    !isSafePrimaryWorkbenchReturnPath(value.returnToPrimaryHref) ||
+    !isSafePrimaryWorkbenchReturnPath(value.auditEvidenceHref)
+  ) {
+    throw new Error("Primary workbench clean reset release links must target rebuilt workbench sections.");
+  }
+  if (value.environmentPlan.mode !== "pre-launch-wipe-and-rebuild" || !value.environmentPlan.destructiveResetDefault) {
+    throw new Error("Primary workbench clean reset release must default to pre-launch wipe and rebuild.");
+  }
+
+  const requiredDecisions: readonly CatalogPrimaryWorkbenchCleanResetReleaseDecisionKey[] = [
+    "destructive-reset-policy",
+    "backup-or-data-loss",
+    "deploy-skew-removal",
+    "backfill-clean-state",
+    "release-acceptance",
+    "complete-old-surface-removal",
+  ];
+  const decisionKeys = new Set(value.decisions.map((decision) => decision.key));
+  for (const decisionKey of requiredDecisions) {
+    if (!decisionKeys.has(decisionKey)) {
+      throw new Error(`Primary workbench clean reset release decision '${decisionKey}' is required.`);
+    }
+  }
+  for (const decision of value.decisions) {
+    if (!["ready", "missing", "blocked", "complete"].includes(decision.status)) {
+      throw new Error("Primary workbench clean reset release decisions need explicit status.");
+    }
+    if (!decision.evidence || decision.requiredEvidence.length === 0) {
+      throw new Error("Primary workbench clean reset release decisions require evidence and requirements.");
+    }
+    if (decision.status === "blocked" && !decision.blocksRelease) {
+      throw new Error("Primary workbench clean reset release blocked decisions must block release.");
+    }
+  }
+
+  for (const finding of value.resetEvidence.findings) {
+    if (!finding.code || !finding.message || finding.blocksRelease !== true) {
+      throw new Error("Primary workbench clean reset release findings must block release with a message.");
+    }
+  }
+  for (const backfill of value.backfill) {
+    if (backfill.required && backfill.status !== "complete" && !backfill.blocksRelease) {
+      throw new Error("Primary workbench clean reset release required backfill must block until complete.");
+    }
+  }
+  for (const scaffold of value.temporaryScaffolding) {
+    if (!isSafePrimaryWorkbenchReturnPath(scaffold.evidenceUrl)) {
+      throw new Error("Primary workbench clean reset release scaffolding evidence must target rebuilt workbench.");
+    }
+    if (scaffold.status === "removal-required" && !scaffold.blocksRelease) {
+      throw new Error("Primary workbench clean reset release temporary scaffolding must block until removed.");
+    }
+    if (scaffold.status !== "removed" && scaffold.status !== "not-used" && scaffold.status !== "removal-required") {
+      throw new Error("Primary workbench clean reset release scaffolding status must be explicit.");
+    }
+  }
+  for (const link of value.releaseProofLinks) {
+    assertPrimaryWorkbenchAuditEvidenceLink(link);
+  }
+
+  const blockingCount =
+    value.decisions.filter((decision) => decision.blocksRelease).length +
+    value.resetEvidence.findings.length +
+    value.backfill.filter((backfill) => backfill.blocksRelease).length +
+    value.temporaryScaffolding.filter((scaffold) => scaffold.blocksRelease).length;
+  if (blockingCount > 0 && value.status !== "blocked") {
+    throw new Error("Primary workbench clean reset release blocking evidence must report blocked status.");
+  }
+  if (value.status === "complete" && !value.summary.completeRemovalEvidenceReady) {
+    throw new Error("Primary workbench clean reset release cannot complete without complete-removal evidence.");
+  }
+
+  const evidenceText = JSON.stringify(value);
+  if (
+    /compatibility path accepted|migration shim accepted|fallback branch accepted|support-only path accepted/i.test(
+      evidenceText,
+    )
+  ) {
+    throw new Error("Primary workbench clean reset release must not accept compatibility behavior as launch evidence.");
+  }
+  const removalText = value.decisions
+    .filter((decision) => decision.key === "complete-old-surface-removal")
+    .map((decision) => `${decision.evidence} ${decision.requiredEvidence.join(" ")}`)
+    .join(" ");
+  if (
+    !/complete removal/i.test(removalText) ||
+    !/code/i.test(removalText) ||
+    !/patterns/i.test(removalText) ||
+    !/documentation/i.test(removalText)
+  ) {
+    throw new Error(
+      "Primary workbench clean reset release must require complete code, pattern, and documentation removal.",
+    );
   }
 }
 

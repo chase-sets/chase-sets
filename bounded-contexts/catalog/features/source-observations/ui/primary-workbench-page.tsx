@@ -36,6 +36,7 @@ import {
 } from "./admin-control-plane/information-architecture";
 import { CatalogIntegrationConflictResolutionWorkspace } from "./admin-control-plane/conflicts/conflict-resolution-workspace";
 import { CatalogIntegrationAuditEvidenceWorkspace } from "./admin-control-plane/evidence/audit-evidence-workspace";
+import { CatalogIntegrationCleanResetReleaseWorkspace } from "./admin-control-plane/evidence/clean-reset-release-workspace";
 import { CatalogIntegrationGovernanceControlsWorkspace } from "./admin-control-plane/governance/governance-controls-workspace";
 import { CatalogIntegrationHealthTriageDashboard } from "./admin-control-plane/health/integration-health-dashboard";
 import { CatalogIntegrationLifecycleRecoveryWorkspace } from "./admin-control-plane/lifecycle/lifecycle-recovery-workspace";
@@ -180,6 +181,8 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
       <CatalogIntegrationLifecycleRecoveryWorkspace readModel={readModel} />
     ) : activeSection === "governance-controls" ? (
       <CatalogIntegrationGovernanceControlsWorkspace readModel={readModel} />
+    ) : activeSection === "clean-reset-release" ? (
+      <CatalogIntegrationCleanResetReleaseWorkspace readModel={readModel} />
     ) : activeSection === "audit-evidence" ? (
       <CatalogIntegrationAuditEvidenceWorkspace readModel={readModel} />
     ) : null;

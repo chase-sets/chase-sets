@@ -51,6 +51,7 @@ export const catalogControlPlaneTelemetryDetourTargets = [
   "conflict-resolution",
   "lifecycle-recovery",
   "governance-controls",
+  "clean-reset-release",
   "audit-evidence",
   "none",
 ] as const;

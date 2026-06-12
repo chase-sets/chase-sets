@@ -29,6 +29,7 @@ export type CatalogNoConfusionUxWorkflowKey =
   | "preview-promotion"
   | "promote-to-catalog-items"
   | "verify-audit-release-evidence"
+  | "clean-reset-release-support"
   | "health-triage-support"
   | "profile-authoring-support"
   | "validation-readiness-support"
@@ -296,6 +297,7 @@ const catalogNoConfusionUxWorkflows = [
   "preview-promotion",
   "promote-to-catalog-items",
   "verify-audit-release-evidence",
+  "clean-reset-release-support",
   "health-triage-support",
   "profile-authoring-support",
   "validation-readiness-support",
@@ -558,9 +560,16 @@ function buildDefaultWorkflowEvidence(evidenceBase: string): readonly CatalogNoC
     workflow(
       "verify-audit-release-evidence",
       7,
-      ["promotion-result", "audit-evidence", "supporting-evidence"],
+      ["promotion-result", "clean-reset-release", "audit-evidence", "supporting-evidence"],
       [],
       "Audit/release evidence links provider scope, job, observation, promotion, and signoff facts.",
+    ),
+    workflow(
+      "clean-reset-release-support",
+      null,
+      ["clean-reset-release", "audit-evidence", "supporting-evidence"],
+      [],
+      "Clean reset/drop/backfill release evidence defaults to destructive prelaunch reset, blocks retained compatibility behavior, and requires temporary scaffolding deletion.",
     ),
     workflow(
       "health-triage-support",
