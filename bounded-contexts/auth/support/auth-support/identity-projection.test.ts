@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
+import type { TransportEvent } from "@chase-sets/event-core/transport";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { authIdentityProjectionSchemaSql, getActiveAuthMembershipForUserAccount } from "./identity-projection";
+import {
+  authIdentityProjectionSchemaSql,
+  buildAuthIdentityUserProjectionHandlers,
+  getActiveAuthMembershipForUserAccount,
+} from "./identity-projection";
 
 const activeMembershipRow = Object.freeze({
   membership_id: "mem_platform_admin",
@@ -11,6 +16,32 @@ const activeMembershipRow = Object.freeze({
   status: "active",
   updated_at: "2026-05-25T00:00:00.000Z",
 });
+
+function buildIdentityUserEvent(
+  type: string,
+  data: TransportEvent["data"],
+  recordedAt = "2026-06-12T12:00:00.000Z",
+): TransportEvent {
+  return {
+    id: "evt_contact_methods" as never,
+    type,
+    streamId: "identity.user-usr_contact" as never,
+    streamVersion: 1 as never,
+    globalPosition: 1 as never,
+    tenantId: "ten_test" as never,
+    data,
+    metadata: {},
+    audit: {
+      performedByUserId: "usr_actor" as never,
+      forAccountId: "acc_actor" as never,
+    },
+    trace: {},
+    timing: {
+      occurredAt: recordedAt as never,
+      recordedAt: recordedAt as never,
+    },
+  };
+}
 
 describe("auth identity membership reads", () => {
   it("resolves account membership from the user membership mirror used during sign-in", async () => {
@@ -46,5 +77,96 @@ describe("auth identity membership reads", () => {
     expect(authIdentityProjectionSchemaSql).toContain("auth_identity_user_memberships_user_status_idx");
     expect(authIdentityProjectionSchemaSql).toContain("auth_identity_user_memberships_user_account_status_idx");
     expect(authIdentityProjectionSchemaSql).toContain("auth_identity_memberships_user_account_status_idx");
+  });
+});
+
+describe("auth identity user projection contact methods", () => {
+  it("batches lookup inserts for identities with multiple contact methods", async () => {
+    const recordedAt = "2026-06-12T12:00:00.000Z";
+    const contactMethods = [
+      {
+        contactMethodId: "cm_email_primary",
+        type: "email",
+        value: " Primary@Example.COM ",
+        verifiedAt: "2026-06-11T12:00:00.000Z",
+      },
+      {
+        contactMethodId: "cm_email_backup",
+        type: "email",
+        value: " backup@example.com ",
+        verifiedAt: null,
+      },
+      {
+        contactMethodId: "cm_phone_primary",
+        type: "phone",
+        value: "(555) 111-2222",
+        verifiedAt: "2026-06-11T12:00:00.000Z",
+      },
+      {
+        contactMethodId: "cm_phone_backup",
+        type: "phone",
+        value: "555.333.4444",
+        verifiedAt: null,
+      },
+    ];
+    const query = vi.fn(async (sql: string, _params?: readonly unknown[]) => {
+      if (sql.includes("SELECT contact_methods")) {
+        return { rows: [{ contact_methods: contactMethods }] };
+      }
+
+      return { rows: [] };
+    });
+    const db = { query } as unknown as PgQueryable;
+    const handlers = buildAuthIdentityUserProjectionHandlers(db);
+
+    await handlers["identity.user.contact-method-verified"](
+      buildIdentityUserEvent(
+        "identity.user.contact-method-verified",
+        {
+          contactMethodId: "cm_phone_backup",
+          verifiedAt: "2026-06-12T11:00:00.000Z",
+        },
+        recordedAt,
+      ),
+    );
+
+    const emailInsertCalls = query.mock.calls.filter(([sql]) =>
+      String(sql).includes("INSERT INTO auth_identity_user_emails"),
+    );
+    const phoneInsertCalls = query.mock.calls.filter(([sql]) =>
+      String(sql).includes("INSERT INTO auth_identity_user_phones"),
+    );
+
+    expect(emailInsertCalls).toHaveLength(1);
+    expect(emailInsertCalls[0]?.[0]).toContain("VALUES ($1, $2, $3, $4, $5), ($6, $7, $8, $9, $10)");
+    expect(emailInsertCalls[0]?.[0]).toContain("ON CONFLICT (email) DO UPDATE");
+    expect(emailInsertCalls[0]?.[1]).toEqual([
+      "primary@example.com",
+      "usr_contact",
+      "cm_email_primary",
+      true,
+      recordedAt,
+      "backup@example.com",
+      "usr_contact",
+      "cm_email_backup",
+      false,
+      recordedAt,
+    ]);
+
+    expect(phoneInsertCalls).toHaveLength(1);
+    expect(phoneInsertCalls[0]?.[0]).toContain("VALUES ($1, $2, $3, $4, $5), ($6, $7, $8, $9, $10)");
+    expect(phoneInsertCalls[0]?.[0]).toContain("ON CONFLICT (phone) DO UPDATE");
+    expect(phoneInsertCalls[0]?.[1]).toEqual([
+      "+15551112222",
+      "usr_contact",
+      "cm_phone_primary",
+      true,
+      recordedAt,
+      "+15553334444",
+      "usr_contact",
+      "cm_phone_backup",
+      true,
+      recordedAt,
+    ]);
   });
 });
