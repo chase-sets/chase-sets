@@ -1,7 +1,15 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { extractIdFromStreamId } from "@chase-sets/event-core";
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import {
+  appendJsonbArrayElement,
+  patchJsonbArrayElement,
+  replaceJsonbArrayElement,
+  transitionStatus,
+  updateRow,
+  upsertRow,
+  type PgQueryable,
+} from "@chase-sets/event-core-postgres";
 import { type AccountId, type UserId } from "@chase-sets/primitives/typed-ids";
 import {
   AUTH_BOOTSTRAP_ACCOUNT_ID,
@@ -235,66 +243,67 @@ export function buildAuthIdentityAccountProjectionHandlers(db: PgQueryable): Pro
         displayName: string;
         accountType: string;
       };
-      await db.query(
-        `INSERT INTO auth_identity_accounts (
-           account_id,
-           name,
-           display_name,
-           account_type,
-           status,
-           updated_at
-         )
-         VALUES ($1, $2, $3, $4, 'active', $5)
-         ON CONFLICT (account_id) DO UPDATE
-         SET name = $2,
-             display_name = $3,
-             account_type = $4,
-             status = 'active',
-             updated_at = $5`,
-        [accountId, name, displayName, accountType, event.timing.recordedAt],
-      );
+      await upsertRow(db, {
+        table: "auth_identity_accounts",
+        insertColumns: ["account_id", "name", "display_name", "account_type", "status", "updated_at"],
+        conflictColumns: ["account_id"],
+        updateColumns: ["name", "display_name", "account_type", "status", "updated_at"],
+        values: {
+          account_id: accountId,
+          name,
+          display_name: displayName,
+          account_type: accountType,
+          status: "active",
+          updated_at: event.timing.recordedAt,
+        },
+      });
     },
     "identity.account.profile-updated": async (event) => {
       const accountId = extractIdFromStreamId(event.streamId, "identity.account-");
       const { name, displayName } = event.data as { name: string; displayName: string };
-      await db.query(
-        `UPDATE auth_identity_accounts
-         SET name = $2,
-             display_name = $3,
-             updated_at = $4
-         WHERE account_id = $1`,
-        [accountId, name, displayName, event.timing.recordedAt],
-      );
+      await updateRow(db, {
+        table: "auth_identity_accounts",
+        setColumns: ["name", "display_name", "updated_at"],
+        values: {
+          name,
+          display_name: displayName,
+          updated_at: event.timing.recordedAt,
+        },
+        where: {
+          columns: ["account_id"],
+          values: { account_id: accountId },
+        },
+      });
     },
     "identity.account.suspended": async (event) => {
       const accountId = extractIdFromStreamId(event.streamId, "identity.account-");
-      await db.query(
-        `UPDATE auth_identity_accounts
-         SET status = 'suspended',
-             updated_at = $2
-         WHERE account_id = $1`,
-        [accountId, event.timing.recordedAt],
-      );
+      await transitionStatus(db, {
+        table: "auth_identity_accounts",
+        idColumn: "account_id",
+        id: accountId,
+        status: "suspended",
+        updatedAt: event.timing.recordedAt,
+      });
     },
     "identity.account.reactivated": async (event) => {
       const accountId = extractIdFromStreamId(event.streamId, "identity.account-");
-      await db.query(
-        `UPDATE auth_identity_accounts
-         SET status = 'active',
-             updated_at = $2
-         WHERE account_id = $1`,
-        [accountId, event.timing.recordedAt],
-      );
+      await transitionStatus(db, {
+        table: "auth_identity_accounts",
+        idColumn: "account_id",
+        id: accountId,
+        status: "active",
+        updatedAt: event.timing.recordedAt,
+      });
     },
     "identity.account.closed": async (event) => {
       const accountId = extractIdFromStreamId(event.streamId, "identity.account-");
-      await db.query(
-        `UPDATE auth_identity_accounts
-         SET status = 'closed',
-             updated_at = $2
-         WHERE account_id = $1`,
-        [accountId, event.timing.recordedAt],
-      );
+      await transitionStatus(db, {
+        table: "auth_identity_accounts",
+        idColumn: "account_id",
+        id: accountId,
+        status: "closed",
+        updatedAt: event.timing.recordedAt,
+      });
     },
   };
 }
@@ -432,44 +441,55 @@ export async function upsertRegisteredAuthIdentityUserMirror(
       ]
     : [];
 
-  await db.query(
-    `INSERT INTO auth_identity_users (
-       user_id,
-       display_name,
-       given_name,
-       family_name,
-       primary_email,
-       status,
-       contact_methods,
-       auth_methods,
-       password_credential_id,
-       passkey_credential_ids,
-       social_login_links,
-       updated_at
-     )
-     VALUES ($1, $2, $3, $4, $5, 'active', $6::jsonb, $7::jsonb, $8, '[]'::jsonb, '[]'::jsonb, $9)
-     ON CONFLICT (user_id) DO UPDATE
-     SET display_name = $2,
-         given_name = $3,
-         family_name = $4,
-         primary_email = $5,
-         status = 'active',
-         contact_methods = $6::jsonb,
-         auth_methods = $7::jsonb,
-         password_credential_id = $8,
-         updated_at = $9`,
-    [
-      params.userId,
-      params.displayName,
-      params.givenName,
-      params.familyName,
-      normalizedEmail || null,
-      JSON.stringify(contactMethods),
-      JSON.stringify([...new Set(params.authMethods)].sort((left, right) => left.localeCompare(right))),
-      params.passwordCredentialId,
-      params.updatedAt,
+  await upsertRow(db, {
+    table: "auth_identity_users",
+    insertColumns: [
+      "user_id",
+      "display_name",
+      "given_name",
+      "family_name",
+      "primary_email",
+      "status",
+      "contact_methods",
+      "auth_methods",
+      "password_credential_id",
+      "passkey_credential_ids",
+      "social_login_links",
+      "updated_at",
     ],
-  );
+    conflictColumns: ["user_id"],
+    updateColumns: [
+      "display_name",
+      "given_name",
+      "family_name",
+      "primary_email",
+      "status",
+      "contact_methods",
+      "auth_methods",
+      "password_credential_id",
+      "updated_at",
+    ],
+    values: {
+      user_id: params.userId,
+      display_name: params.displayName,
+      given_name: params.givenName,
+      family_name: params.familyName,
+      primary_email: normalizedEmail || null,
+      status: "active",
+      contact_methods: contactMethods,
+      auth_methods: [...new Set(params.authMethods)].sort((left, right) => left.localeCompare(right)),
+      password_credential_id: params.passwordCredentialId,
+      passkey_credential_ids: [],
+      social_login_links: [],
+      updated_at: params.updatedAt,
+    },
+    casts: {
+      contact_methods: "jsonb",
+      auth_methods: "jsonb",
+      passkey_credential_ids: "jsonb",
+      social_login_links: "jsonb",
+    },
+  });
 
   await syncContactMethodLookups(db, params.userId, contactMethods, params.updatedAt);
 }
@@ -483,26 +503,21 @@ async function upsertMembershipMirror(
   status: string,
   updatedAt: string,
 ) {
-  await db.query(
-    `INSERT INTO auth_identity_user_memberships (
-       membership_id,
-       user_id,
-       account_id,
-       role_key,
-       role_permissions,
-       status,
-       updated_at
-     )
-     VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)
-     ON CONFLICT (membership_id) DO UPDATE
-     SET user_id = $2,
-         account_id = $3,
-         role_key = $4,
-         role_permissions = $5::jsonb,
-         status = $6,
-         updated_at = $7`,
-    [membershipId, userId, accountId, roleKey, JSON.stringify(AUTH_ROLE_PERMISSIONS[roleKey]), status, updatedAt],
-  );
+  await upsertRow(db, {
+    table: "auth_identity_user_memberships",
+    insertColumns: ["membership_id", "user_id", "account_id", "role_key", "role_permissions", "status", "updated_at"],
+    conflictColumns: ["membership_id"],
+    values: {
+      membership_id: membershipId,
+      user_id: userId,
+      account_id: accountId,
+      role_key: roleKey,
+      role_permissions: AUTH_ROLE_PERMISSIONS[roleKey],
+      status,
+      updated_at: updatedAt,
+    },
+    casts: { role_permissions: "jsonb" },
+  });
 }
 
 export async function upsertActiveAuthIdentityMembershipMirror(
@@ -550,40 +565,53 @@ export function buildAuthIdentityUserProjectionHandlers(db: PgQueryable): Projec
             ]
           : [];
 
-      await db.query(
-        `INSERT INTO auth_identity_users (
-           user_id,
-           display_name,
-           given_name,
-           family_name,
-           primary_email,
-           status,
-           contact_methods,
-           auth_methods,
-           password_credential_id,
-           passkey_credential_ids,
-           social_login_links,
-           updated_at
-         )
-         VALUES ($1, $2, $3, $4, $5, 'active', $6::jsonb, '[]'::jsonb, NULL, '[]'::jsonb, '[]'::jsonb, $7)
-         ON CONFLICT (user_id) DO UPDATE
-         SET display_name = $2,
-             given_name = $3,
-             family_name = $4,
-             primary_email = $5,
-             status = 'active',
-             contact_methods = $6::jsonb,
-             updated_at = $7`,
-        [
-          userId,
-          displayName,
-          givenName,
-          familyName,
-          primaryEmail,
-          JSON.stringify(contactMethods),
-          event.timing.recordedAt,
+      await upsertRow(db, {
+        table: "auth_identity_users",
+        insertColumns: [
+          "user_id",
+          "display_name",
+          "given_name",
+          "family_name",
+          "primary_email",
+          "status",
+          "contact_methods",
+          "auth_methods",
+          "password_credential_id",
+          "passkey_credential_ids",
+          "social_login_links",
+          "updated_at",
         ],
-      );
+        conflictColumns: ["user_id"],
+        updateColumns: [
+          "display_name",
+          "given_name",
+          "family_name",
+          "primary_email",
+          "status",
+          "contact_methods",
+          "updated_at",
+        ],
+        values: {
+          user_id: userId,
+          display_name: displayName,
+          given_name: givenName,
+          family_name: familyName,
+          primary_email: primaryEmail,
+          status: "active",
+          contact_methods: contactMethods,
+          auth_methods: [],
+          password_credential_id: null,
+          passkey_credential_ids: [],
+          social_login_links: [],
+          updated_at: event.timing.recordedAt,
+        },
+        casts: {
+          contact_methods: "jsonb",
+          auth_methods: "jsonb",
+          passkey_credential_ids: "jsonb",
+          social_login_links: "jsonb",
+        },
+      });
 
       await syncContactMethodLookups(db, userId, contactMethods, event.timing.recordedAt);
     },
@@ -595,115 +623,96 @@ export function buildAuthIdentityUserProjectionHandlers(db: PgQueryable): Projec
         familyName: string;
       };
 
-      await db.query(
-        `UPDATE auth_identity_users
-         SET display_name = $2,
-             given_name = $3,
-             family_name = $4,
-             updated_at = $5
-         WHERE user_id = $1`,
-        [userId, displayName, givenName, familyName, event.timing.recordedAt],
-      );
+      await updateRow(db, {
+        table: "auth_identity_users",
+        setColumns: ["display_name", "given_name", "family_name", "updated_at"],
+        values: {
+          display_name: displayName,
+          given_name: givenName,
+          family_name: familyName,
+          updated_at: event.timing.recordedAt,
+        },
+        where: {
+          columns: ["user_id"],
+          values: { user_id: userId },
+        },
+      });
     },
     "identity.user.contact-method-added": async (event) => {
       const userId = extractIdFromStreamId(event.streamId, "identity.user-");
-      const current = await db.query<{ contact_methods: unknown[] }>(
-        `SELECT contact_methods FROM auth_identity_users WHERE user_id = $1`,
-        [userId],
-      );
-      const contactMethods = [
-        ...((current.rows[0]?.contact_methods as never[]) ?? []),
-        {
-          contactMethodId: (event.data as { contactMethodId: string }).contactMethodId,
-          type: (event.data as { contactMethodType: string }).contactMethodType,
-          value: (event.data as { value: string }).value,
-          verifiedAt: null,
-        },
-      ] as ContactMethodRow[];
+      const contactMethod = {
+        contactMethodId: (event.data as { contactMethodId: string }).contactMethodId,
+        type: (event.data as { contactMethodType: string }).contactMethodType,
+        value: (event.data as { value: string }).value,
+        verifiedAt: null,
+      } satisfies ContactMethodRow;
+      const updated = await appendJsonbArrayElement(db, {
+        table: "auth_identity_users",
+        key: { column: "user_id", value: userId },
+        column: "contact_methods",
+        element: contactMethod,
+        updatedAt: { value: event.timing.recordedAt },
+        returning: ["contact_methods"],
+      });
+      const contactMethods = (updated.rows[0]?.contact_methods as ContactMethodRow[] | undefined) ?? [];
 
-      await db.query(
-        `UPDATE auth_identity_users
-         SET contact_methods = $2::jsonb,
-             updated_at = $3
-         WHERE user_id = $1`,
-        [userId, JSON.stringify(contactMethods), event.timing.recordedAt],
-      );
       await syncContactMethodLookups(db, userId, contactMethods, event.timing.recordedAt);
     },
     "identity.user.contact-method-verified": async (event) => {
       const userId = extractIdFromStreamId(event.streamId, "identity.user-");
-      const current = await db.query<{ contact_methods: unknown[] }>(
-        `SELECT contact_methods FROM auth_identity_users WHERE user_id = $1`,
-        [userId],
-      );
-      const contactMethods = (((current.rows[0]?.contact_methods as never[]) ?? []) as ContactMethodRow[]).map(
-        (method) =>
-          method.contactMethodId === (event.data as { contactMethodId: string }).contactMethodId
-            ? {
-                ...method,
-                verifiedAt: (event.data as { verifiedAt: string }).verifiedAt,
-              }
-            : method,
-      );
+      const data = event.data as { contactMethodId: string; verifiedAt: string };
+      const updated = await patchJsonbArrayElement(db, {
+        table: "auth_identity_users",
+        key: { column: "user_id", value: userId },
+        column: "contact_methods",
+        match: { kind: "pathText", path: ["contactMethodId"], value: data.contactMethodId },
+        patch: { verifiedAt: data.verifiedAt },
+        updatedAt: { value: event.timing.recordedAt },
+        returning: ["contact_methods"],
+      });
+      const contactMethods = (updated.rows[0]?.contact_methods as ContactMethodRow[] | undefined) ?? [];
 
-      await db.query(
-        `UPDATE auth_identity_users
-         SET contact_methods = $2::jsonb,
-             updated_at = $3
-         WHERE user_id = $1`,
-        [userId, JSON.stringify(contactMethods), event.timing.recordedAt],
-      );
       await syncContactMethodLookups(db, userId, contactMethods, event.timing.recordedAt);
     },
     "identity.user.auth-method-enabled": async (event) => {
       const userId = extractIdFromStreamId(event.streamId, "identity.user-");
-      const current = await db.query<{ auth_methods: string[] }>(
-        `SELECT auth_methods FROM auth_identity_users WHERE user_id = $1`,
-        [userId],
-      );
-      const authMethods = [
-        ...new Set([...(current.rows[0]?.auth_methods ?? []), (event.data as { authMethod: string }).authMethod]),
-      ].sort((left, right) => left.localeCompare(right));
-
-      await db.query(
-        `UPDATE auth_identity_users
-         SET auth_methods = $2::jsonb,
-             updated_at = $3
-         WHERE user_id = $1`,
-        [userId, JSON.stringify(authMethods), event.timing.recordedAt],
-      );
+      await appendJsonbArrayElement(db, {
+        table: "auth_identity_users",
+        key: { column: "user_id", value: userId },
+        column: "auth_methods",
+        element: (event.data as { authMethod: string }).authMethod,
+        unique: true,
+        orderBy: [{ kind: "text" }],
+        updatedAt: { value: event.timing.recordedAt },
+      });
     },
     "identity.user.password-credential-attached": async (event) => {
       const userId = extractIdFromStreamId(event.streamId, "identity.user-");
 
-      await db.query(
-        `UPDATE auth_identity_users
-         SET password_credential_id = $2,
-             updated_at = $3
-         WHERE user_id = $1`,
-        [userId, (event.data as { credentialId: string }).credentialId, event.timing.recordedAt],
-      );
+      await updateRow(db, {
+        table: "auth_identity_users",
+        setColumns: ["password_credential_id", "updated_at"],
+        values: {
+          password_credential_id: (event.data as { credentialId: string }).credentialId,
+          updated_at: event.timing.recordedAt,
+        },
+        where: {
+          columns: ["user_id"],
+          values: { user_id: userId },
+        },
+      });
     },
     "identity.user.passkey-registered": async (event) => {
       const userId = extractIdFromStreamId(event.streamId, "identity.user-");
-      const current = await db.query<{ passkey_credential_ids: string[] }>(
-        `SELECT passkey_credential_ids FROM auth_identity_users WHERE user_id = $1`,
-        [userId],
-      );
-      const passkeys = [
-        ...new Set([
-          ...(current.rows[0]?.passkey_credential_ids ?? []),
-          (event.data as { credentialId: string }).credentialId,
-        ]),
-      ].sort((left, right) => left.localeCompare(right));
-
-      await db.query(
-        `UPDATE auth_identity_users
-         SET passkey_credential_ids = $2::jsonb,
-             updated_at = $3
-         WHERE user_id = $1`,
-        [userId, JSON.stringify(passkeys), event.timing.recordedAt],
-      );
+      await appendJsonbArrayElement(db, {
+        table: "auth_identity_users",
+        key: { column: "user_id", value: userId },
+        column: "passkey_credential_ids",
+        element: (event.data as { credentialId: string }).credentialId,
+        unique: true,
+        orderBy: [{ kind: "text" }],
+        updatedAt: { value: event.timing.recordedAt },
+      });
     },
     "identity.user.social-login-linked": async (event) => {
       const userId = extractIdFromStreamId(event.streamId, "identity.user-");
@@ -713,72 +722,57 @@ export function buildAuthIdentityUserProjectionHandlers(db: PgQueryable): Projec
         email: string;
         linkedAt: string;
       };
-      const current = await db.query<{ social_login_links: unknown[] }>(
-        `SELECT social_login_links FROM auth_identity_users WHERE user_id = $1`,
-        [userId],
-      );
-      const currentLinks = (current.rows[0]?.social_login_links as SocialLoginLinkRow[] | undefined) ?? [];
-      const links = [
-        ...currentLinks.filter(
-          (currentLink) =>
-            currentLink.providerName !== link.providerName || currentLink.providerSubject !== link.providerSubject,
-        ),
-        link,
-      ].sort((left, right) =>
-        `${left.providerName}:${left.providerSubject}`.localeCompare(`${right.providerName}:${right.providerSubject}`),
-      );
-
-      await db.query(
-        `UPDATE auth_identity_users
-         SET social_login_links = $2::jsonb,
-             updated_at = $3
-         WHERE user_id = $1`,
-        [userId, JSON.stringify(links), event.timing.recordedAt],
-      );
-      await db.query(
-        `INSERT INTO auth_identity_user_social_login_links (
-           provider_name,
-           provider_subject,
-           user_id,
-           email,
-           linked_at,
-           updated_at
-         )
-         VALUES ($1, $2, $3, $4, $5, $6)
-         ON CONFLICT (provider_name, provider_subject) DO UPDATE
-         SET user_id = $3,
-             email = $4,
-             linked_at = $5,
-             updated_at = $6`,
-        [
-          link.providerName,
-          link.providerSubject,
-          userId,
-          normalizeAuthEmail(link.email),
-          link.linkedAt,
-          event.timing.recordedAt,
+      await replaceJsonbArrayElement(db, {
+        table: "auth_identity_users",
+        key: { column: "user_id", value: userId },
+        column: "social_login_links",
+        match: {
+          kind: "all",
+          matches: [
+            { kind: "pathText", path: ["providerName"], value: link.providerName },
+            { kind: "pathText", path: ["providerSubject"], value: link.providerSubject },
+          ],
+        },
+        element: link satisfies SocialLoginLinkRow,
+        orderBy: [
+          { kind: "pathText", path: ["providerName"] },
+          { kind: "pathText", path: ["providerSubject"] },
         ],
-      );
+        updatedAt: { value: event.timing.recordedAt },
+      });
+      await upsertRow(db, {
+        table: "auth_identity_user_social_login_links",
+        insertColumns: ["provider_name", "provider_subject", "user_id", "email", "linked_at", "updated_at"],
+        conflictColumns: ["provider_name", "provider_subject"],
+        values: {
+          provider_name: link.providerName,
+          provider_subject: link.providerSubject,
+          user_id: userId,
+          email: normalizeAuthEmail(link.email),
+          linked_at: link.linkedAt,
+          updated_at: event.timing.recordedAt,
+        },
+      });
     },
     "identity.user.suspended": async (event) => {
       const userId = extractIdFromStreamId(event.streamId, "identity.user-");
-      await db.query(
-        `UPDATE auth_identity_users
-         SET status = 'suspended',
-             updated_at = $2
-         WHERE user_id = $1`,
-        [userId, event.timing.recordedAt],
-      );
+      await transitionStatus(db, {
+        table: "auth_identity_users",
+        idColumn: "user_id",
+        id: userId,
+        status: "suspended",
+        updatedAt: event.timing.recordedAt,
+      });
     },
     "identity.user.reactivated": async (event) => {
       const userId = extractIdFromStreamId(event.streamId, "identity.user-");
-      await db.query(
-        `UPDATE auth_identity_users
-         SET status = 'active',
-             updated_at = $2
-         WHERE user_id = $1`,
-        [userId, event.timing.recordedAt],
-      );
+      await transitionStatus(db, {
+        table: "auth_identity_users",
+        idColumn: "user_id",
+        id: userId,
+        status: "active",
+        updatedAt: event.timing.recordedAt,
+      });
     },
   };
 }
@@ -792,33 +786,29 @@ export function buildAuthIdentityMembershipProjectionHandlers(db: PgQueryable): 
         accountId: string;
         roleKey: keyof typeof AUTH_ROLE_PERMISSIONS;
       };
-      await db.query(
-        `INSERT INTO auth_identity_memberships (
-           membership_id,
-           user_id,
-           account_id,
-           role_key,
-           role_permissions,
-           status,
-           updated_at
-         )
-         VALUES ($1, $2, $3, $4, $5::jsonb, 'active', $6)
-         ON CONFLICT (membership_id) DO UPDATE
-         SET user_id = $2,
-             account_id = $3,
-             role_key = $4,
-             role_permissions = $5::jsonb,
-             status = 'active',
-             updated_at = $6`,
-        [
-          membershipId,
-          userId,
-          accountId,
-          roleKey,
-          JSON.stringify(AUTH_ROLE_PERMISSIONS[roleKey]),
-          event.timing.recordedAt,
+      await upsertRow(db, {
+        table: "auth_identity_memberships",
+        insertColumns: [
+          "membership_id",
+          "user_id",
+          "account_id",
+          "role_key",
+          "role_permissions",
+          "status",
+          "updated_at",
         ],
-      );
+        conflictColumns: ["membership_id"],
+        values: {
+          membership_id: membershipId,
+          user_id: userId,
+          account_id: accountId,
+          role_key: roleKey,
+          role_permissions: AUTH_ROLE_PERMISSIONS[roleKey],
+          status: "active",
+          updated_at: event.timing.recordedAt,
+        },
+        casts: { role_permissions: "jsonb" },
+      });
       await upsertMembershipMirror(db, membershipId, userId, accountId, roleKey, "active", event.timing.recordedAt);
     },
     "identity.membership.role-changed": async (event) => {
@@ -832,14 +822,20 @@ export function buildAuthIdentityMembershipProjectionHandlers(db: PgQueryable): 
       );
       const row = existing.rows[0];
 
-      await db.query(
-        `UPDATE auth_identity_memberships
-         SET role_key = $2,
-             role_permissions = $3::jsonb,
-             updated_at = $4
-         WHERE membership_id = $1`,
-        [membershipId, roleKey, JSON.stringify(AUTH_ROLE_PERMISSIONS[roleKey]), event.timing.recordedAt],
-      );
+      await updateRow(db, {
+        table: "auth_identity_memberships",
+        setColumns: ["role_key", "role_permissions", "updated_at"],
+        values: {
+          role_key: roleKey,
+          role_permissions: AUTH_ROLE_PERMISSIONS[roleKey],
+          updated_at: event.timing.recordedAt,
+        },
+        casts: { role_permissions: "jsonb" },
+        where: {
+          columns: ["membership_id"],
+          values: { membership_id: membershipId },
+        },
+      });
 
       if (row) {
         await upsertMembershipMirror(
@@ -866,13 +862,13 @@ export function buildAuthIdentityMembershipProjectionHandlers(db: PgQueryable): 
         [membershipId],
       );
 
-      await db.query(
-        `UPDATE auth_identity_memberships
-         SET status = 'revoked',
-             updated_at = $2
-         WHERE membership_id = $1`,
-        [membershipId, event.timing.recordedAt],
-      );
+      await transitionStatus(db, {
+        table: "auth_identity_memberships",
+        idColumn: "membership_id",
+        id: membershipId,
+        status: "revoked",
+        updatedAt: event.timing.recordedAt,
+      });
 
       const row = existing.rows[0];
       if (row) {
@@ -900,13 +896,13 @@ export function buildAuthIdentityMembershipProjectionHandlers(db: PgQueryable): 
         [membershipId],
       );
 
-      await db.query(
-        `UPDATE auth_identity_memberships
-         SET status = 'active',
-             updated_at = $2
-         WHERE membership_id = $1`,
-        [membershipId, event.timing.recordedAt],
-      );
+      await transitionStatus(db, {
+        table: "auth_identity_memberships",
+        idColumn: "membership_id",
+        id: membershipId,
+        status: "active",
+        updatedAt: event.timing.recordedAt,
+      });
 
       const row = existing.rows[0];
       if (row) {
@@ -934,79 +930,91 @@ export function buildAuthIdentityInvitationProjectionHandlers(db: PgQueryable): 
         roleKey: string;
         expiresAt: string;
       };
-      await db.query(
-        `INSERT INTO auth_identity_invitations (
-           invitation_id,
-           account_id,
-           email,
-           role_key,
-           status,
-           expires_at,
-           accepted_by_user_id,
-           updated_at
-         )
-         VALUES ($1, $2, $3, $4, 'pending', $5, NULL, $6)
-         ON CONFLICT (invitation_id) DO UPDATE
-         SET account_id = $2,
-             email = $3,
-             role_key = $4,
-             status = 'pending',
-             expires_at = $5,
-             accepted_by_user_id = NULL,
-             updated_at = $6`,
-        [invitationId, accountId, normalizeAuthEmail(email), roleKey, expiresAt, event.timing.recordedAt],
-      );
+      await upsertRow(db, {
+        table: "auth_identity_invitations",
+        insertColumns: [
+          "invitation_id",
+          "account_id",
+          "email",
+          "role_key",
+          "status",
+          "expires_at",
+          "accepted_by_user_id",
+          "updated_at",
+        ],
+        conflictColumns: ["invitation_id"],
+        values: {
+          invitation_id: invitationId,
+          account_id: accountId,
+          email: normalizeAuthEmail(email),
+          role_key: roleKey,
+          status: "pending",
+          expires_at: expiresAt,
+          accepted_by_user_id: null,
+          updated_at: event.timing.recordedAt,
+        },
+      });
     },
     "identity.invitation.resent": async (event) => {
       const invitationId = extractIdFromStreamId(event.streamId, "identity.invitation-");
-      await db.query(
-        `UPDATE auth_identity_invitations
-         SET expires_at = $2,
-             updated_at = $3
-         WHERE invitation_id = $1`,
-        [invitationId, (event.data as { expiresAt: string }).expiresAt, event.timing.recordedAt],
-      );
+      await updateRow(db, {
+        table: "auth_identity_invitations",
+        setColumns: ["expires_at", "updated_at"],
+        values: {
+          expires_at: (event.data as { expiresAt: string }).expiresAt,
+          updated_at: event.timing.recordedAt,
+        },
+        where: {
+          columns: ["invitation_id"],
+          values: { invitation_id: invitationId },
+        },
+      });
     },
     "identity.invitation.cancelled": async (event) => {
       const invitationId = extractIdFromStreamId(event.streamId, "identity.invitation-");
-      await db.query(
-        `UPDATE auth_identity_invitations
-         SET status = 'cancelled',
-             updated_at = $2
-         WHERE invitation_id = $1`,
-        [invitationId, event.timing.recordedAt],
-      );
+      await transitionStatus(db, {
+        table: "auth_identity_invitations",
+        idColumn: "invitation_id",
+        id: invitationId,
+        status: "cancelled",
+        updatedAt: event.timing.recordedAt,
+      });
     },
     "identity.invitation.accepted": async (event) => {
       const invitationId = extractIdFromStreamId(event.streamId, "identity.invitation-");
-      await db.query(
-        `UPDATE auth_identity_invitations
-         SET status = 'accepted',
-             accepted_by_user_id = $2,
-             updated_at = $3
-         WHERE invitation_id = $1`,
-        [invitationId, (event.data as { userId: string }).userId, event.timing.recordedAt],
-      );
+      await updateRow(db, {
+        table: "auth_identity_invitations",
+        setColumns: ["status", "accepted_by_user_id", "updated_at"],
+        values: {
+          status: "accepted",
+          accepted_by_user_id: (event.data as { userId: string }).userId,
+          updated_at: event.timing.recordedAt,
+        },
+        where: {
+          columns: ["invitation_id"],
+          values: { invitation_id: invitationId },
+        },
+      });
     },
     "identity.invitation.declined": async (event) => {
       const invitationId = extractIdFromStreamId(event.streamId, "identity.invitation-");
-      await db.query(
-        `UPDATE auth_identity_invitations
-         SET status = 'declined',
-             updated_at = $2
-         WHERE invitation_id = $1`,
-        [invitationId, event.timing.recordedAt],
-      );
+      await transitionStatus(db, {
+        table: "auth_identity_invitations",
+        idColumn: "invitation_id",
+        id: invitationId,
+        status: "declined",
+        updatedAt: event.timing.recordedAt,
+      });
     },
     "identity.invitation.expired": async (event) => {
       const invitationId = extractIdFromStreamId(event.streamId, "identity.invitation-");
-      await db.query(
-        `UPDATE auth_identity_invitations
-         SET status = 'expired',
-             updated_at = $2
-         WHERE invitation_id = $1`,
-        [invitationId, event.timing.recordedAt],
-      );
+      await transitionStatus(db, {
+        table: "auth_identity_invitations",
+        idColumn: "invitation_id",
+        id: invitationId,
+        status: "expired",
+        updatedAt: event.timing.recordedAt,
+      });
     },
   };
 }
