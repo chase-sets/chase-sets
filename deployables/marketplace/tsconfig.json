@@ -1,6 +1,7 @@
 {
-  "extends": "../../tsconfig.base.json",
+  "extends": "../../tsconfig.vitest.json",
   "compilerOptions": {
+    // TypeScript replaces inherited types; this web project also needs Vite ambient types.
     "types": ["vite/client", "vitest/globals"]
   },
   "include": [

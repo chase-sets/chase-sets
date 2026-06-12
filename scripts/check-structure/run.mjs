@@ -7,6 +7,7 @@ import {
   runManifestValidation,
   writeStructureMetricsReport,
 } from "./phases.mjs";
+import { checkWorkspaceTsconfigExtends } from "../check-workspace-tsconfig-extends.mjs";
 import {
   findAccountCapabilityLanguageViolations,
   isAccountCapabilityLanguageGuardedFile,
@@ -2922,6 +2923,11 @@ export async function runStructureCheck(options = {}) {
   }
   for (const warning of readAfterWriteInventoryResult.warnings) {
     warnings.push(warning);
+  }
+
+  const workspaceTsconfigResult = await checkWorkspaceTsconfigExtends({ repoRoot });
+  for (const violation of workspaceTsconfigResult.violations) {
+    violations.push(violation);
   }
 
   writeStructureMetricsReport({
