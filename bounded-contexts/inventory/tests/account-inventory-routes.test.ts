@@ -1,16 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-  action as inventoryAction,
-  loader as inventoryLoader,
-} from "@chase-sets/inventory/routes/marketplace/account-inventory";
+import { action as inventoryAction, loader as inventoryLoader } from "../routes/marketplace/account-inventory";
 import {
   action as inventoryImportsAction,
   loader as inventoryImportsLoader,
-} from "@chase-sets/inventory/routes/marketplace/account-inventory-imports";
+} from "../routes/marketplace/account-inventory-imports";
 import {
   action as inventoryItemAction,
   loader as inventoryItemLoader,
-} from "@chase-sets/inventory/routes/marketplace/account-inventory-item";
+} from "../routes/marketplace/account-inventory-item";
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {

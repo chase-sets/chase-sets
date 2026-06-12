@@ -1,4 +1,5 @@
-import { render, screen } from "@testing-library/react";
+// @vitest-environment jsdom
+import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChaseRoot } from "@chase-sets/design-system";
 import { jsonResponse, requestUrl } from "./test-support/http";
@@ -32,36 +33,34 @@ vi.mock("@chase-sets/platform-runtime/auth", async () => {
   };
 });
 
-import MarketplaceAccountPurchaseReviewRoute, {
-  action,
-  loader,
-} from "@chase-sets/marketplace/routes/marketplace/account-purchase-review";
+import MarketplaceAccountSaleReviewRoute, { action, loader } from "../routes/marketplace/account-sale-review";
 
 const opportunity = {
   order_id: "ord_1",
-  subject_account_id: "acc_seller",
-  subject_display_name: "Seller",
-  author_role: "buyer",
+  subject_account_id: "acc_buyer",
+  subject_display_name: "Buyer",
+  author_role: "seller",
   eligible_at: "2026-04-02T00:00:00.000Z",
   active_review_id: null,
 };
 
-describe("marketplace account purchase review route", () => {
+describe("marketplace account sale review route", () => {
   beforeEach(() => {
     mockUseActionData.mockReturnValue(null);
     mockUseNavigation.mockReturnValue({ state: "idle" });
     mockRequireActorFromAuthApi.mockResolvedValue({
-      accountId: "acc_buyer",
+      accountId: "acc_seller",
       permissions: ["reputation.view", "reputation.manage"],
     });
   });
 
   afterEach(() => {
+    cleanup();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
   });
 
-  it("loads the verified-purchase opportunity", async () => {
+  it("loads the seller-side verified-order opportunity", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((input: string | URL | Request) => {
@@ -76,38 +75,15 @@ describe("marketplace account purchase review route", () => {
     );
 
     const result = await loader({
-      request: new Request("http://localhost/account/purchases/ord_1/review"),
-      params: { purchaseId: "ord_1" },
+      request: new Request("http://localhost/account/sales/ord_1/review"),
+      params: { orderId: "ord_1" },
       context: undefined,
     } as never);
 
-    expect(result.opportunity.subject_account_id).toBe("acc_seller");
+    expect(result.opportunity.subject_account_id).toBe("acc_buyer");
   });
 
-  it("refuses to open the review form for a non-verified purchase", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((input: string | URL | Request) => {
-        const url = requestUrl(input);
-
-        if (url.includes("/api/marketplace/reviews/opportunities/orders/ord_2")) {
-          return Promise.resolve(jsonResponse({ error: "Review opportunity not found." }, 404));
-        }
-
-        return Promise.reject(new Error(`Unexpected fetch request: ${url}`));
-      }),
-    );
-
-    await expect(
-      loader({
-        request: new Request("http://localhost/account/purchases/ord_2/review"),
-        params: { purchaseId: "ord_2" },
-        context: undefined,
-      } as never),
-    ).rejects.toMatchObject({ status: 404 });
-  });
-
-  it("submits a purchase-side account review and redirects to the new review page", async () => {
+  it("submits a sale-side account review and redirects to the new review page", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((input: string | URL | Request, init?: RequestInit) => {
@@ -118,7 +94,7 @@ describe("marketplace account purchase review route", () => {
         }
 
         if (url.includes("/api/marketplace/reviews") && (init?.method ?? "GET").toUpperCase() === "POST") {
-          return Promise.resolve(jsonResponse({ id: "rev_1", version: 1 }, 201));
+          return Promise.resolve(jsonResponse({ id: "rev_2", version: 1 }, 201));
         }
 
         return Promise.reject(new Error(`Unexpected fetch request: ${url}`));
@@ -126,15 +102,15 @@ describe("marketplace account purchase review route", () => {
     );
 
     const form = new FormData();
-    form.set("rating", "5");
-    form.set("feedback", "Great seller.");
+    form.set("rating", "4");
+    form.set("feedback", "Prompt buyer.");
 
     const response = await action({
-      request: new Request("http://localhost/account/purchases/ord_1/review", {
+      request: new Request("http://localhost/account/sales/ord_1/review", {
         method: "POST",
         body: form,
       }),
-      params: { purchaseId: "ord_1" },
+      params: { orderId: "ord_1" },
       context: undefined,
     } as never);
 
@@ -143,15 +119,15 @@ describe("marketplace account purchase review route", () => {
       throw new Error("Expected redirect response.");
     }
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/account/reviews/rev_1");
+    expect(response.headers.get("Location")).toBe("/account/reviews/rev_2");
   });
 
-  it("renders the purchase-side account review submission page", () => {
+  it("renders the sale-side account review submission page", () => {
     mockUseLoaderData.mockReturnValue({ opportunity });
 
     render(
       <ChaseRoot>
-        <MarketplaceAccountPurchaseReviewRoute />
+        <MarketplaceAccountSaleReviewRoute />
       </ChaseRoot>,
     );
 

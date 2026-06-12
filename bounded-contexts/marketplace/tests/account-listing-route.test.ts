@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { action as listingAction, loader as listingLoader } from "@chase-sets/marketplace/routes/account-listing";
+import { action as listingAction, loader as listingLoader } from "../routes/account-listing";
 import type { MarketplaceListingTermsPreview } from "@chase-sets/marketplace/server";
 
 function jsonResponse(body: unknown, status = 200) {

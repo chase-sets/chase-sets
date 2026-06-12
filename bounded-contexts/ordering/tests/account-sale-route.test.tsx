@@ -1,4 +1,5 @@
-import { render, screen } from "@testing-library/react";
+// @vitest-environment jsdom
+import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChaseRoot } from "@chase-sets/design-system";
 import { jsonResponse, requestUrl } from "./test-support/http";
@@ -30,7 +31,7 @@ vi.mock("@chase-sets/platform-runtime/auth", async () => {
   };
 });
 
-import MarketplaceAccountSaleRoute, { loader } from "@chase-sets/ordering/routes/account-sale";
+import MarketplaceAccountSaleRoute, { loader } from "../routes/account-sale";
 
 const order = {
   order_id: "ord_1",
@@ -67,6 +68,7 @@ describe("marketplace account sale route", () => {
   });
 
   afterEach(() => {
+    cleanup();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
   });

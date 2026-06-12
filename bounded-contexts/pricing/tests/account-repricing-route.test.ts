@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { loader as repricingLoader } from "@chase-sets/pricing/routes/marketplace/account-repricing";
+import { loader as repricingLoader } from "../routes/marketplace/account-repricing";
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
