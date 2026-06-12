@@ -18,6 +18,27 @@ export function normalizePath(value) {
   return value.replaceAll("\\", "/");
 }
 
+export function listContextManifests(options = {}) {
+  const rootDir = options.repoRoot ?? repoRoot;
+  const contextsDir = path.join(rootDir, "bounded-contexts");
+
+  return (
+    readDir(contextsDir)
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => ({
+        dirName: entry.name,
+        dir: path.join(contextsDir, entry.name),
+        manifestPath: path.join(contextsDir, entry.name, "context.json"),
+      }))
+      // Switching branches in a git worktree leaves ghost context directories
+      // behind when only ignored files (node_modules) remain inside them; a
+      // directory is a context only when its tracked manifest exists.
+      .filter((context) => existsSync(context.manifestPath))
+      .map((context) => ({ ...context, manifest: readJson(context.manifestPath) }))
+      .sort((left, right) => left.dirName.localeCompare(right.dirName, "en"))
+  );
+}
+
 export function normalizeRelative(filePath, fromRoot = repoRoot) {
   return normalizePath(path.relative(fromRoot, filePath));
 }
