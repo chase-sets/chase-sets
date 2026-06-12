@@ -210,7 +210,8 @@ jobs:
         with:
           token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
 
-      - name: Build and push release image
+      - name: Build release image
+        id: release_image
         run: |
           set -euo pipefail
           registry_name="$(doctl registry get --format Name --no-header 2>/dev/null | tr -d '[:space:]' || true)"
@@ -221,18 +222,75 @@ jobs:
 
           doctl registry login --expiry-seconds 3600
           image="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}:${{ needs.resolve-release.outputs.release_commit }}"
+          echo "image=${image}" >> "$GITHUB_OUTPUT"
           if docker buildx imagetools inspect "$image" >/dev/null 2>&1; then
             echo "Release image ${image} already exists; skipping rebuild."
+            echo "built=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           docker buildx build \
             --pull \
             --cache-from type=gha,scope=platform-image \
             --cache-to type=gha,scope=platform-image,mode=max \
-            --push \
+            --load \
             --tag "$image" \
             .
-          echo "Pushed release image ${image}"
+          echo "built=true" >> "$GITHUB_OUTPUT"
+
+      - name: Boot smoke release image
+        if: steps.release_image.outputs.built == 'true'
+        env:
+          RELEASE_IMAGE: ${{ steps.release_image.outputs.image }}
+        run: |
+          set -euo pipefail
+
+          # Build-time success does not prove runtime success (issue #1417):
+          # start each web component exactly as App Platform does (run_command
+          # and health_check from infrastructure/digitalocean/platform/main.tf)
+          # so a non-booting image fails this parallel job before the push and
+          # never reaches the deploy lane.
+          boot_smoke() {
+            component="$1"
+            workspace="$2"
+            health_path="$3"
+            host_port="$4"
+
+            container_id="$(docker run -d \
+              -e NODE_ENV=production \
+              -e PORT=8080 \
+              -p "${host_port}:8080" \
+              "$RELEASE_IMAGE" \
+              pnpm --filter "$workspace" run start)"
+
+            for _ in $(seq 1 30); do
+              if curl --fail --silent --output /dev/null "http://localhost:${host_port}${health_path}"; then
+                echo "Boot smoke passed for ${component} (${health_path})."
+                docker rm -f "$container_id" >/dev/null
+                return 0
+              fi
+              if [ "$(docker inspect --format '{{.State.Running}}' "$container_id")" != "true" ]; then
+                break
+              fi
+              sleep 1
+            done
+
+            echo "Boot smoke failed for ${component}: ${health_path} never became healthy." >&2
+            docker logs "$container_id" >&2 || true
+            docker rm -f "$container_id" >/dev/null || true
+            return 1
+          }
+
+          boot_smoke marketplace "@chase-sets/app-marketplace-web" /health/ready 18080
+          boot_smoke public-web "@chase-sets/app-public-web" / 18081
+
+      - name: Push release image
+        if: steps.release_image.outputs.built == 'true'
+        env:
+          RELEASE_IMAGE: ${{ steps.release_image.outputs.image }}
+        run: |
+          set -euo pipefail
+          docker push "$RELEASE_IMAGE"
+          echo "Pushed release image ${RELEASE_IMAGE}"
 
   deploy-staging:
     name: Deploy Staging
