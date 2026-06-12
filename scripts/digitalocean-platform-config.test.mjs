@@ -1130,6 +1130,46 @@ describe("DigitalOcean platform configuration", () => {
     );
   });
 
+  it("gates the release image push behind a runtime boot smoke", () => {
+    const buildStep = workflowStep(platformProductionWorkflow, "Build release image");
+    expect(buildStep).toContain("--load \\");
+    expect(buildStep).not.toContain("--push");
+    expect(buildStep).toContain('echo "built=true" >> "$GITHUB_OUTPUT"');
+
+    // The smoke mirrors App Platform run commands and health checks from
+    // infrastructure/digitalocean/platform/main.tf so a non-booting image
+    // fails the parallel build job instead of crashing the deploy lane
+    // (issue #1417).
+    const smokeStep = workflowStep(platformProductionWorkflow, "Boot smoke release image");
+    expect(smokeStep).toContain("if: steps.release_image.outputs.built == 'true'");
+    expect(smokeStep).toContain('boot_smoke marketplace "@chase-sets/app-marketplace-web" /health/ready');
+    expect(smokeStep).toContain('boot_smoke public-web "@chase-sets/app-public-web" /');
+
+    const pushStep = workflowStep(platformProductionWorkflow, "Push release image");
+    expect(pushStep).toContain('docker push "$RELEASE_IMAGE"');
+
+    const buildIndex = platformProductionWorkflow.indexOf("- name: Build release image");
+    const smokeIndex = platformProductionWorkflow.indexOf("- name: Boot smoke release image");
+    const pushIndex = platformProductionWorkflow.indexOf("- name: Push release image");
+    expect(buildIndex).toBeLessThan(smokeIndex);
+    expect(smokeIndex).toBeLessThan(pushIndex);
+  });
+
+  it("keeps the release image dependency layer cacheable without pnpm fetch", () => {
+    const dockerfile = readFileSync(resolve("Dockerfile"), "utf8");
+
+    // pnpm fetch over the lockfile looked equivalent but emitted bin shims
+    // without the NODE_PATH preamble, breaking sharp's platform binary
+    // resolution at runtime (issue #1417). The dependency layer must stay a
+    // real install keyed on manifests only, ahead of the source copies.
+    expect(dockerfile).not.toContain("RUN pnpm fetch");
+    expect(dockerfile).toContain("COPY --from=manifests /manifests ./");
+    expect(dockerfile).toContain("RUN pnpm install --frozen-lockfile");
+    expect(dockerfile.indexOf("RUN pnpm install --frozen-lockfile")).toBeLessThan(
+      dockerfile.indexOf("COPY bounded-contexts ./bounded-contexts"),
+    );
+  });
+
   it("delegates staging DNS so App Platform apex routing can coexist with mail records", () => {
     expect(environmentDnsVariables).toContain('condition     = var.environment == "staging"');
     expect(environmentDnsLocals).toContain('environment_zone = "${var.environment}.${var.root_domain}"');
