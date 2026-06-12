@@ -48,7 +48,7 @@ git -C <worktree> switch -c <branch> --track origin/main
 
 - One bounded self-review pass per PR before marking it ready: correctness, security of touched surfaces, simplicity, and test adequacy. Fix what you find; do not loop until perfection.
 - Comprehensive tech-debt review happens on a weekly repo-wide cadence, not per PR.
-- Milestone reviews (anti-ratchet): at most one comprehensive review per milestone per week, and each review must close or deliver something. Never amend new requirements into existing issues — a genuinely new gap becomes a new, fixed-scope issue. This applies to issue and milestone comments too: review passes and evidence ledgers must not relocate there.
+- Milestone reviews (anti-ratchet): at most one comprehensive review per milestone per week, and each review must close or deliver something. Never amend new requirements into existing issues — a genuinely new gap becomes a new, fixed-scope issue. This applies to issue and milestone comments too: review passes and evidence ledgers must not relocate there. The cadence is monitored by the weekly Review Cadence Digest workflow (advisory, never blocking).
 - Launch proof is monotonic (see `docs/launch/checklist.md`): evidence recorded against a main commit stays valid for its descendants unless the covered surface changed. Do not request or perform "current-main revalidation" passes, and record evidence rows only in the checklist via PR.
 
 ## PR Template

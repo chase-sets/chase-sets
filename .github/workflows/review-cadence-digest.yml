@@ -1,0 +1,29 @@
+name: Review Cadence Digest
+
+on:
+  schedule:
+    # Weekly, Monday 14:00 UTC (morning US Central).
+    - cron: "0 14 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: read
+
+jobs:
+  digest:
+    name: Review Cadence Digest
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+
+      # Advisory by design (issue #1415): a flagged week turns this scheduled
+      # run red and writes the digest to the job summary. Nothing blocks
+      # merges or deploys.
+      - name: Build digest
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node ./scripts/review-cadence-digest.mjs
