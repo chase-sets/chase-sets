@@ -39,6 +39,7 @@ import {
 } from "../domain/domain";
 import { buildCheckoutSessionProjectionHandlers } from "../read-model/projection";
 import { getCheckoutSession, type CheckoutSessionRow } from "../read-model/queries";
+import { assertCheckoutLinesHaveAssignedFulfillment, unresolvedFulfillmentError } from "./checkout-fulfillment-runtime";
 
 export type CheckoutSessionMutationResult = Readonly<{
   sessionId: string;
@@ -235,10 +236,6 @@ function readinessStaleError(code = "readiness_snapshot_stale") {
   return new CheckoutDomainError("Cart readiness changed. Review your cart before checkout.", code);
 }
 
-function unresolvedFulfillmentError() {
-  return new CheckoutDomainError("Resolve item availability before checkout starts.", "unresolved_fulfillment");
-}
-
 const unsupportedDeliveryRegions = new Set(["AA", "AE", "AP", "AS", "FM", "GU", "MH", "MP", "PR", "PW", "VI"]);
 
 function unsupportedDeliveryRegionError() {
@@ -305,6 +302,19 @@ function splitGroupHandoffMatches(
     JSON.stringify(normalizedFulfillmentGroups(handoff.groups)) ===
       JSON.stringify(normalizedFulfillmentGroups(currentGroups))
   );
+}
+
+function assertOrderableSessionFulfillmentAssigned(
+  state: Readonly<{
+    sourceType: "cart" | "buy-now" | "offer-intent" | null;
+    lines: readonly CheckoutSessionLine[];
+  }>,
+) {
+  if (state.sourceType === "offer-intent") {
+    return;
+  }
+
+  assertCheckoutLinesHaveAssignedFulfillment(state.lines);
 }
 
 async function assertCurrentCartReadinessForUncommittedSession(
@@ -552,8 +562,12 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
       );
     },
     createBuyNow: async (params, context) => {
-      const descriptor = await validateCatalogSelection(params);
       const lockedListingId = params.lockedListingId?.trim() || params.listingId.trim() || null;
+      if (!lockedListingId) {
+        throw unresolvedFulfillmentError();
+      }
+
+      const descriptor = await validateCatalogSelection(params);
       const fulfillmentMode =
         params.fulfillmentMode === "locked-listing" || lockedListingId ? "locked-listing" : "optimize";
       return startSession(
@@ -674,12 +688,14 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
     assertReadyForOrderCreation: async (params) => {
       const state = await loadSessionStateForBuyer(params.sessionId, params.accountId);
       await assertCurrentCartReadinessForUncommittedSession(state, params.accountId, deps.cart);
+      assertOrderableSessionFulfillmentAssigned(state);
       assertBuyerDeliveryAddressServiceable(state.shippingAddress);
       return stateToCheckoutSessionRow(state);
     },
     recordOrdersCreated: async (params, context) => {
       const state = await loadSessionStateForBuyer(params.sessionId, params.accountId);
       await assertCurrentCartReadinessForUncommittedSession(state, params.accountId, deps.cart);
+      assertOrderableSessionFulfillmentAssigned(state);
       assertBuyerDeliveryAddressServiceable(state.shippingAddress);
       const result = await applySessionCommandForBuyer(
         {

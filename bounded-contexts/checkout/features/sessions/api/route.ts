@@ -15,12 +15,14 @@ import {
   assertNoUnsupportedCustomerEconomicsInput,
   unsupportedCustomerEconomicsInputCode,
 } from "./checkout-economics-runtime";
+import { unresolvedFulfillmentError } from "./checkout-fulfillment-runtime";
 import {
   recordAddressServiceabilityFailure,
   recordActiveSessionStaleRecovery,
   recordBuyCheckoutReviewRendered,
   recordChangedEconomicsReview,
   recordConfirmationPendingHandoff,
+  recordUnassignedFulfillmentFailure,
   recordUnsupportedCustomerEconomicsInput,
 } from "./checkout-session-route-observability";
 import type { CheckoutObservabilityTelemetry } from "./checkout-observability-telemetry";
@@ -219,6 +221,11 @@ export function createAccountCheckoutSessionRoutes(
         return c.json(checkoutSessionStartedResponse(result), 201);
       }
 
+      const lockedListingId = String(source.lockedListingId ?? source.listingId ?? "").trim();
+      if (!lockedListingId) {
+        throw unresolvedFulfillmentError();
+      }
+
       const result = await services.createBuyNow(
         {
           accountId: access.actor.accountId as never,
@@ -234,15 +241,8 @@ export function createAccountCheckoutSessionRoutes(
               ? null
               : String(source.productSummary),
           quantity: Number(source.quantity ?? 0),
-          fulfillmentMode:
-            source.fulfillmentMode === "locked-listing" ||
-            String(source.lockedListingId ?? source.listingId ?? "").trim()
-              ? "locked-listing"
-              : "optimize",
-          lockedListingId:
-            source.lockedListingId === null || source.lockedListingId === undefined
-              ? String(source.listingId ?? "") || null
-              : String(source.lockedListingId || "") || null,
+          fulfillmentMode: "locked-listing",
+          lockedListingId,
           sellerPreferenceId:
             source.sellerPreferenceId === null || source.sellerPreferenceId === undefined
               ? null
@@ -254,7 +254,9 @@ export function createAccountCheckoutSessionRoutes(
       );
       return c.json(checkoutSessionStartedResponse(result), 201);
     } catch (error) {
-      return c.json({ error: { code: errorCode(error), message: errorMessage(error) } }, 400);
+      const code = errorCode(error);
+      recordUnassignedFulfillmentFailure(checkoutObservabilityTelemetry, access.actor, code);
+      return c.json({ error: { code, message: errorMessage(error) } }, 400);
     }
   });
 
@@ -652,6 +654,7 @@ export function createAccountCheckoutSessionRoutes(
       const code = errorCode(error);
       recordActiveSessionStaleRecovery(checkoutObservabilityTelemetry, access.actor, code);
       recordAddressServiceabilityFailure(checkoutObservabilityTelemetry, access.actor, code);
+      recordUnassignedFulfillmentFailure(checkoutObservabilityTelemetry, access.actor, code);
       recordUnsupportedCustomerEconomicsInput(checkoutObservabilityTelemetry, access.actor, code);
       return c.json(
         { error: { code, message: errorMessage(error) } },

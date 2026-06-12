@@ -376,6 +376,51 @@ describe("checkout session routes", () => {
     );
   });
 
+  it("rejects buy-now session creation without assigned fulfillment", async () => {
+    const checkoutObservabilityTelemetry = { recordCheckoutEvent: vi.fn() };
+    const services = createServices();
+    const app = buildApp(services, undefined, checkoutObservabilityTelemetry);
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source: {
+            type: "buy-now",
+            listingId: "",
+            catalogItemId: "cat_1",
+            productId: "cat_1::form:raw",
+            itemTitle: "Charizard",
+            selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+            quantity: 1,
+          },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "unresolved_fulfillment",
+        message: "Resolve item availability before checkout starts.",
+      },
+    });
+    expect(services.createBuyNow).not.toHaveBeenCalled();
+    expect(checkoutObservabilityTelemetry.recordCheckoutEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "checkout.readiness.unassigned_fulfillment",
+        scenarioState: "unassigned-fulfillment",
+        visibleState: "readiness-decision-visible",
+        sideEffectStatus: "not-attempted",
+        downstreamStatus: "not-started",
+      }),
+    );
+    const emitted = JSON.stringify(checkoutObservabilityTelemetry.recordCheckoutEvent.mock.calls[0]?.[0]);
+    expect(emitted).not.toContain("chk_");
+    expect(emitted).not.toContain("acc_buyer");
+  });
+
   it("normalizes offer-intent payloads into checkout-owned session creation", async () => {
     const services = createServices();
     const app = buildApp(services);
@@ -478,7 +523,7 @@ describe("checkout session routes", () => {
         body: JSON.stringify({
           source: {
             type: "buy-now",
-            listingId: "",
+            listingId: "lst_1",
             catalogItemId: "cat_1",
             productId: "cat_1::form:raw",
             itemTitle: "Charizard",
