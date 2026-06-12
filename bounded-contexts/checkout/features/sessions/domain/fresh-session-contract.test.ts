@@ -373,7 +373,7 @@ describe("fresh checkout session contract", () => {
       recovery: {
         reason: "invalid-address",
         command: "update-address",
-        returnPath: "/checkout/chk_01",
+        returnPath: "/checkout/buy/session/chk_01",
         customerSafeMessage: "Confirm the shipping address before paying.",
       },
     };
@@ -389,7 +389,7 @@ describe("fresh checkout session contract", () => {
       recovery: {
         reason: "stale-session",
         command: "refresh-totals",
-        returnPath: "/checkout/chk_01",
+        returnPath: "/checkout/buy/session/chk_01",
         customerSafeMessage: "Review updated fees and totals before paying.",
       },
     };
@@ -405,7 +405,7 @@ describe("fresh checkout session contract", () => {
       recovery: {
         reason: "provider-failure",
         command: "recover-provider-failure",
-        returnPath: "/checkout/chk_01",
+        returnPath: "/checkout/buy/session/chk_01",
         customerSafeMessage: "Refresh checkout before paying.",
       },
     };
@@ -434,7 +434,7 @@ describe("fresh checkout session contract", () => {
       recovery: {
         reason: "partial-completion",
         command: "recover-partial-completion",
-        returnPath: "/checkout/chk_01",
+        returnPath: "/checkout/buy/session/chk_01",
         customerSafeMessage: "We are finishing confirmation. Refresh for the latest status.",
       },
       reconciliation: {

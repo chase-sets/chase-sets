@@ -234,7 +234,7 @@ describe("marketplace root layout", () => {
     });
     vi.stubGlobal("fetch", fetch);
 
-    const data = await loader(createLoaderArgs("https://marketplace.chasesets.com/checkout/chk_1"));
+    const data = await loader(createLoaderArgs("https://marketplace.chasesets.com/checkout/buy/session/chk_1"));
 
     expect(data.actor?.roleKey).toBe("guest-buyer");
     expect(data.actorDisplay).toBeNull();

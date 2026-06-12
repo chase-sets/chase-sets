@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Use the `read-after-write.freshness` audit record to diagnose post-write reads that depend on projection-backed read models. The first target flow is guest Buy Now checkout, where a successful checkout-session write can redirect to `/checkout/:sessionId` before `checkout_session_pages` has caught up.
+Use the `read-after-write.freshness` audit record to diagnose post-write reads that depend on projection-backed read models. The first target flow is guest Buy Now checkout, where a successful checkout-session write can redirect to `/checkout/buy/session/:sessionId` before `checkout_session_pages` has caught up.
 
 The audit record is emitted by the API read consistency middleware. It is intentionally route-template based and must not contain guest emails, contact names, cookies, raw `afterWrite` tokens, checkout session ids, account ids, or event ids.
 
@@ -33,7 +33,7 @@ The audit record is emitted by the API read consistency middleware. It is intent
 For `/api/marketplace/account/checkout-sessions/:sessionId`:
 
 1. Find `type=read-after-write.freshness` and `routePaths` containing `/account/checkout-sessions/:sessionId`.
-2. If `outcome=missing-receipt`, the browser route reached the API without a usable commit receipt. Check the checkout-start redirect and server-side request forwarding.
+2. If `outcome=missing-receipt`, the browser route reached the API without a usable commit receipt. Check the buy-checkout-readiness redirect and server-side request forwarding.
 3. If `readTargetContextHeaderPresent=false`, the route client did not forward the read target context. On shared mounts this can broaden or misroute the wait.
 4. If `waitMode=target-context`, the route either did not match exact `readFreshnessRoutes` dependencies or an active rollout control broadened the wait. Check `READ_CONSISTENCY_EXACT_DEPENDENCY_MODE` and `READ_CONSISTENCY_ROUTE_TUNING_JSON`; for critical Checkout canaries this is acceptable only as a documented rollback state.
 5. If `outcome=timeout`, inspect `pending`:
@@ -109,7 +109,7 @@ Do not add labels or log filters for checkout session ids, account ids, event id
 ## Operator Triage
 
 1. Open Grafana > `Projection Freshness` and filter for `/account/checkout-sessions/:sessionId`.
-2. If `missing-receipt` is non-zero, inspect the checkout-start redirect, cookie-backed guest handoff, and server-side request forwarding. Do not change worker capacity for this class.
+2. If `missing-receipt` is non-zero, inspect the buy-checkout-readiness redirect, cookie-backed guest handoff, and server-side request forwarding. Do not change worker capacity for this class.
 3. If `target_context_header` is `missing` or `present_invalid`, inspect the request client and shared mount routing before changing projection code.
 4. If `wait_mode=target-context` on Checkout without an active rollback note, inspect `READ_CONSISTENCY_EXACT_DEPENDENCY_MODE`, `READ_CONSISTENCY_ROUTE_TUNING_JSON`, and the context manifest `readFreshnessRoutes`.
 5. If `outcome=timeout`, check `pending` labels. `projection=checkout.session-projection`, `source_context=checkout`, growing lag, or `last_error=present` points to worker capacity, poison, or projection handler health.

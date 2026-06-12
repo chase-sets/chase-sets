@@ -86,7 +86,7 @@ describe("item detail offer intent route", () => {
     const response = result as Response;
     expect(response.status).toBe(302);
     const location = response.headers.get("Location");
-    expect(location).toContain("/checkout/start?source=offer-intent");
+    expect(location).toContain("/checkout/buy/readiness?source=offer-intent");
     expect(location).toContain("catalogItemId=item-1");
     expect(location).toContain("offerPriceAmount=350.00");
     expect(location).toContain("quantity=1");

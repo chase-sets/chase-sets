@@ -45,7 +45,10 @@ function checkoutRecoveryAction(
   };
 }
 
-export function checkoutRecoveryForKind(kind: CheckoutRecoveryKind, currentPath = "/checkout/start"): CheckoutRecovery {
+export function checkoutRecoveryForKind(
+  kind: CheckoutRecoveryKind,
+  currentPath = "/checkout/buy/readiness",
+): CheckoutRecovery {
   const signInPath = `/sign-in?returnTo=${encodeURIComponent(currentPath)}`;
   const browseAction = checkoutRecoveryAction(
     "/search",
@@ -160,7 +163,7 @@ function errorBodyCode(error: CheckoutApiError) {
 export function checkoutRecoveryForError(
   error: unknown,
   actor: CheckoutActor,
-  currentPath = "/checkout/start",
+  currentPath = "/checkout/buy/readiness",
 ): CheckoutRecovery | null {
   if (!(error instanceof CheckoutApiError)) {
     return null;
@@ -196,7 +199,7 @@ export function checkoutRecoveryForFreshWriteError(
   error: unknown,
   actor: CheckoutActor,
   request: Request,
-  currentPath = "/checkout/start",
+  currentPath = "/checkout/buy/readiness",
 ): CheckoutRecovery | null {
   if (!(error instanceof CheckoutApiError)) {
     return checkoutRecoveryForError(error, actor, currentPath);

@@ -230,7 +230,7 @@ export function guestSellListLine(overrides: Record<string, unknown> = {}) {
   };
 }
 
-export function freshCheckoutRequest(path = "/checkout/chk_1") {
+export function freshCheckoutRequest(path = "/checkout/buy/session/chk_1") {
   return new Request(`http://localhost${appendFreshWriteToken(path, checkoutCommit("42", "evt_checkout"))}`);
 }
 

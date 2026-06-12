@@ -350,7 +350,7 @@ export function createCheckoutUcpHandlers(
           checkout: sessionToUcpCheckout(session, options),
           action: {
             type: "trusted_checkout_handoff",
-            url: `/checkout/${session.session_id}`,
+            url: `/checkout/buy/session/${session.session_id}`,
             reason:
               "Checkout completion requires buyer review in trusted UI until Payments enables production AP2 mandate verification and payment-handler handoff.",
           },

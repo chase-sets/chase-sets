@@ -116,14 +116,14 @@ When the same action also creates, rotates, clears, or switches an auth-like coo
 - Return a document-level redirect, such as `redirectDocument`, so the browser commits `Set-Cookie` before the destination loader runs.
 - Preserve the `afterWrite` token on the redirect if the destination loader reads projection-backed data.
 
-Guest Buy Now checkout is the canonical case. The contact submit action creates guest checkout state, starts a checkout session, sets `chase_sets_guest_checkout`, and redirects to `/checkout/:sessionId`. The redirect must be document-level for the cookie and must include `afterWrite` for `checkout_session_pages` freshness.
+Guest Buy Now checkout is the canonical case. The contact submit action creates guest checkout state, starts a checkout session, sets `chase_sets_guest_checkout`, and redirects to `/checkout/buy/session/:sessionId`. The redirect must be document-level for the cookie and must include `afterWrite` for `checkout_session_pages` freshness.
 
 ## Canonical Examples
 
 Checkout guest Buy Now:
 
-- Source route: `checkout-start`.
-- Destination route: `checkout-session`.
+- Source route: `buy-checkout-readiness`.
+- Destination route: `buy-checkout-session`.
 - API route: Checkout `/account/checkout-sessions/:sessionId`.
 - Dependency: `checkout_session_pages`, owned by `checkout.session-projection`.
 - Inventory id: `checkout.session-start-to-detail`.

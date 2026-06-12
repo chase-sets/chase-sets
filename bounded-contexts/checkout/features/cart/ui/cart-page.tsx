@@ -371,7 +371,7 @@ function CheckoutForm({
   decisions: CartReadinessDecisionInput | null;
 }) {
   return (
-    <Form spacing="none" method="post" action="/checkout/start">
+    <Form spacing="none" method="post" action="/checkout/buy/readiness">
       <HiddenInput type="hidden" name="source" value="cart" />
       {readinessHiddenFields(snapshot, decisions)}
       <Button type="submit" leadingIcon="lock" block>

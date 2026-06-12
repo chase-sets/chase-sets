@@ -119,7 +119,7 @@ describe("checkout web routes: guest checkout handoff", () => {
     form.set("source", "cart");
 
     const checkoutStartResponse = (await checkoutStartAction({
-      request: new Request("http://localhost/checkout/start", {
+      request: new Request("http://localhost/checkout/buy/readiness", {
         method: "POST",
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
@@ -194,7 +194,7 @@ describe("checkout web routes: guest checkout handoff", () => {
     });
 
     const checkoutSessionResult = await checkoutSessionLoader({
-      request: new Request("http://localhost/checkout/chk_guest", {
+      request: new Request("http://localhost/checkout/buy/session/chk_guest", {
         headers: {
           cookie: guestCheckoutCookie ?? "",
         },
@@ -318,7 +318,7 @@ describe("checkout web routes: guest checkout handoff", () => {
     form.set("quantity", "1");
 
     const checkoutStartResponse = (await checkoutStartAction({
-      request: new Request("http://localhost/checkout/start", {
+      request: new Request("http://localhost/checkout/buy/readiness", {
         method: "POST",
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
@@ -336,7 +336,7 @@ describe("checkout web routes: guest checkout handoff", () => {
 
     expect(checkoutStartResponse.headers.get("X-Remix-Reload-Document")).toBe("true");
     expect(guestCheckoutCookie).toContain("chase_sets_guest_checkout=guest_token");
-    expect(checkoutLocation).toContain("/checkout/chk_guest?afterWrite=");
+    expect(checkoutLocation).toContain("/checkout/buy/session/chk_guest?afterWrite=");
     expect(freshReceipt).toMatchObject({
       sources: [
         {

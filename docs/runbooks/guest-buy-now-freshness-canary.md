@@ -1,6 +1,6 @@
 # Guest Buy Now Freshness Canary
 
-This runbook owns the synthetic Buy Now → Checkout readiness canary for the projection freshness contract. It is the symptom-level guard for the checkout failure where a shopper reached `/checkout/:sessionId` before `checkout_session_pages` caught up and either saw permanent checkout-session-not-found recovery or waited well past the readiness budget (the original staging incident exceeded 15 seconds). Issue #1227 tightened this canary into a release gate for the push-first projection rollout (Milestone #19).
+This runbook owns the synthetic Buy Now → Checkout readiness canary for the projection freshness contract. It is the symptom-level guard for the checkout failure where a shopper reached `/checkout/buy/session/:sessionId` before `checkout_session_pages` caught up and either saw permanent checkout-session-not-found recovery or waited well past the readiness budget (the original staging incident exceeded 15 seconds). Issue #1227 tightened this canary into a release gate for the push-first projection rollout (Milestone #19).
 
 ## Gate
 
@@ -28,8 +28,8 @@ The workflow discovers the first active buyable item from `/api/marketplace/item
 
 | Flow | Identity | Handoff checks |
 | --- | --- | --- |
-| `guest` | Guest contact form on `/checkout/start`; canary-namespaced email | `afterWrite` receipt plus `chase_sets_guest_checkout` cookie |
-| `account` | `POST /api/auth/password-sign-in` with `GUEST_BUY_NOW_CANARY_ACCOUNT_EMAIL`/`PASSWORD` (falls back to `MARKETPLACE_E2E_EMAIL`/`PASSWORD`); on staging without configured credentials it registers a synthetic `buy-now-canary+account-*@chasesets.test` account | `afterWrite` receipt plus `chase_sets_session` cookie; signed-in Buy Now redirects straight to `/checkout/:sessionId` |
+| `guest` | Guest contact form on `/checkout/buy/readiness`; canary-namespaced email | `afterWrite` receipt plus `chase_sets_guest_checkout` cookie |
+| `account` | `POST /api/auth/password-sign-in` with `GUEST_BUY_NOW_CANARY_ACCOUNT_EMAIL`/`PASSWORD` (falls back to `MARKETPLACE_E2E_EMAIL`/`PASSWORD`); on staging without configured credentials it registers a synthetic `buy-now-canary+account-*@chasesets.test` account | `afterWrite` receipt plus `chase_sets_session` cookie; signed-in Buy Now redirects straight to `/checkout/buy/session/:sessionId` |
 
 ## States And Gate Decisions
 

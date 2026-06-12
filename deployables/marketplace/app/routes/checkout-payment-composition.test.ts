@@ -47,14 +47,14 @@ describe("marketplace checkout and payment composition", () => {
           sourceContext: "checkout",
         }),
         expect.objectContaining({
-          routeId: "checkout-start",
-          routePath: "checkout/start",
+          routeId: "buy-checkout-readiness",
+          routePath: "checkout/buy/readiness",
           fileExport: "./routes/checkout-start",
           sourceContext: "checkout",
         }),
         expect.objectContaining({
-          routeId: "checkout-session",
-          routePath: "checkout/:sessionId",
+          routeId: "buy-checkout-session",
+          routePath: "checkout/buy/session/:sessionId",
           fileExport: "./routes/checkout-session",
           sourceContext: "checkout",
         }),
@@ -86,6 +86,10 @@ describe("marketplace checkout and payment composition", () => {
     expect(routes.map((route) => route.routeId)).not.toContain("checkout-concept");
     expect(routes.map((route) => route.routePath)).not.toContain("checkout/concept");
     expect(routes.map((route) => route.fileExport)).not.toContain("./routes/checkout-concept");
+    expect(routes.map((route) => route.routeId)).not.toContain("checkout-start");
+    expect(routes.map((route) => route.routePath)).not.toContain("checkout/start");
+    expect(routes.map((route) => route.routeId)).not.toContain("checkout-session");
+    expect(routes.map((route) => route.routePath)).not.toContain("checkout/:sessionId");
   });
 
   it("carries the guest payment recovery error boundary on the checkout payment wrapper", () => {

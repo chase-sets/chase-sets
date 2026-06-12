@@ -76,7 +76,7 @@ function renderCheckoutSessionRoute(options: {
   const router = createMemoryRouter(
     [
       {
-        path: "/checkout/:sessionId",
+        path: "/checkout/buy/session/:sessionId",
         loader: options.loader,
         Component: ReadyCheckoutPage,
         ErrorBoundary: () => <RecoveryBoundary revalidationOptions={options.revalidationOptions} />,
@@ -91,7 +91,7 @@ function renderCheckoutSessionRoute(options: {
 
 describe("CheckoutSessionRecoveryPage", () => {
   it("revalidates the preparing recovery automatically until checkout becomes pay-ready", async () => {
-    const currentPath = appendFreshWriteToken("/checkout/chk_happy", checkoutCommit());
+    const currentPath = appendFreshWriteToken("/checkout/buy/session/chk_happy", checkoutCommit());
     let loaderCalls = 0;
     renderCheckoutSessionRoute({
       initialPath: currentPath,
@@ -119,7 +119,7 @@ describe("CheckoutSessionRecoveryPage", () => {
   it("degrades to the existing manual recovery when the fresh-write receipt expires", async () => {
     const startMs = Date.now();
     let nowMs = startMs;
-    const currentPath = appendFreshWriteToken("/checkout/chk_expiring", checkoutCommit(), startMs);
+    const currentPath = appendFreshWriteToken("/checkout/buy/session/chk_expiring", checkoutCommit(), startMs);
     let loaderCalls = 0;
     renderCheckoutSessionRoute({
       initialPath: currentPath,
@@ -151,7 +151,7 @@ describe("CheckoutSessionRecoveryPage", () => {
   });
 
   it("announces automatic checking in a live region while revalidating", async () => {
-    const currentPath = appendFreshWriteToken("/checkout/chk_announce", checkoutCommit());
+    const currentPath = appendFreshWriteToken("/checkout/buy/session/chk_announce", checkoutCommit());
     renderCheckoutSessionRoute({
       initialPath: currentPath,
       loader: () => {
@@ -170,7 +170,7 @@ describe("CheckoutSessionRecoveryPage", () => {
   });
 
   it("stops retrying after the bounded budget and keeps the manual recovery available", async () => {
-    const currentPath = appendFreshWriteToken("/checkout/chk_budget", checkoutCommit());
+    const currentPath = appendFreshWriteToken("/checkout/buy/session/chk_budget", checkoutCommit());
     let loaderCalls = 0;
     renderCheckoutSessionRoute({
       initialPath: currentPath,
@@ -212,15 +212,17 @@ describe("CheckoutSessionRecoveryPage", () => {
       const router = createMemoryRouter(
         [
           {
-            path: "/checkout/:sessionId",
+            path: "/checkout/buy/session/:sessionId",
             loader: () => {
-              throw createCheckoutRecoveryResponse(checkoutRecoveryForKind(recovery.kind, "/checkout/chk_real"));
+              throw createCheckoutRecoveryResponse(
+                checkoutRecoveryForKind(recovery.kind, "/checkout/buy/session/chk_real"),
+              );
             },
             Component: ReadyCheckoutPage,
             ErrorBoundary: CheckoutSessionRouteErrorBoundary,
           },
         ],
-        { initialEntries: ["/checkout/chk_real"] },
+        { initialEntries: ["/checkout/buy/session/chk_real"] },
       );
       render(<RouterProvider router={router} />);
 

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Critical read-after-write routes depend on projection workers keeping read models close to source events. This audit captures the platform worker topology and capacity posture for the first critical path: guest Buy Now checkout from `checkout-start` to `/checkout/:sessionId`, backed by `checkout.session-projection` and `checkout_session_pages`.
+Critical read-after-write routes depend on projection workers keeping read models close to source events. This audit captures the platform worker topology and capacity posture for the first critical path: guest Buy Now checkout from `buy-checkout-readiness` to `/checkout/buy/session/:sessionId`, backed by `checkout.session-projection` and `checkout_session_pages`.
 
 The historical staging incident cannot be attributed to a specific worker outage or backlog because the read-after-write audit fields were added after the failure. The strongest supported classification remains projection lag escaping as permanent not-found recovery. Current closure therefore depends on proving the present topology can meet the SLO and that operators can see worker absence, degraded projections, and lag.
 

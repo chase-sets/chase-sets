@@ -199,7 +199,9 @@ test.describe("marketplace critical flows", () => {
   test("signed-out checkout session access shows checkout recovery instead of root error @marketplace-checkout", async ({
     page,
   }) => {
-    const response = await page.goto("/checkout/chk_e2e_missing_access", { waitUntil: "domcontentloaded" });
+    const response = await page.goto("/checkout/buy/session/chk_e2e_missing_access", {
+      waitUntil: "domcontentloaded",
+    });
 
     expect(response, "checkout recovery should return a page response").not.toBeNull();
     expect(response!.status(), "missing checkout access should not be a server error").toBe(401);
@@ -211,7 +213,9 @@ test.describe("marketplace critical flows", () => {
   test("checkout recovery reentry follows a safe action instead of root error @marketplace-checkout", async ({
     page,
   }) => {
-    const recoveryResponse = await page.goto("/checkout/chk_e2e_missing_access", { waitUntil: "domcontentloaded" });
+    const recoveryResponse = await page.goto("/checkout/buy/session/chk_e2e_missing_access", {
+      waitUntil: "domcontentloaded",
+    });
 
     expect(recoveryResponse, "checkout recovery should return a page response").not.toBeNull();
     expect(recoveryResponse!.status(), "expected checkout access recovery should not be a server error").toBe(401);

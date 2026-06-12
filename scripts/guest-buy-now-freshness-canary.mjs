@@ -568,7 +568,7 @@ async function watchCheckoutReadiness(page, startedAt, readySloMs) {
 
 async function runNegativeProbe(page, baseUrl, options) {
   const nonce = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
-  const probeUrl = new URL(`/checkout/chk_canary_negative_probe_${nonce}`, baseUrl);
+  const probeUrl = new URL(`/checkout/buy/session/chk_canary_negative_probe_${nonce}`, baseUrl);
   const response = await page
     .goto(probeUrl.toString(), { waitUntil: "domcontentloaded", timeout: options.timeoutMs })
     .catch(() => null);

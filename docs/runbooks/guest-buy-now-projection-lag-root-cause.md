@@ -10,8 +10,8 @@ The user-facing contract failure was not that a guest cared whether a checkout s
 
 ## Evidence
 
-- Checkout owns the guest Buy Now start-to-detail handoff. The critical route inventory names `checkout.session-start-to-detail` as a critical read-after-write path from `checkout-start` to `checkout-session`, backed by `checkout_session_pages`.
-- Guest checkout submit creates guest checkout state, creates a Checkout Session, sets the `chase_sets_guest_checkout` cookie, and uses a document redirect to `/checkout/:sessionId` with an `afterWrite` receipt.
+- Checkout owns the guest Buy Now start-to-detail handoff. The critical route inventory names `checkout.session-start-to-detail` as a critical read-after-write path from `buy-checkout-readiness` to `buy-checkout-session`, backed by `checkout_session_pages`.
+- Guest checkout submit creates guest checkout state, creates a Checkout Session, sets the `chase_sets_guest_checkout` cookie, and uses a document redirect to `/checkout/buy/session/:sessionId` with an `afterWrite` receipt.
 - The Checkout Session loader calls `loadFreshlyWrittenResource` and reads the session through the Checkout request client. The request client forwards browser cookies, the `afterWrite` receipt as `Chase-Sets-Read-After-Write`, and `Chase-Sets-Read-Target-Context: checkout`.
 - The API route declaration for Checkout `/account/checkout-sessions/:sessionId` depends on `checkout_session_pages`, which is owned by `checkout.session-projection`.
 - `checkout_session_pages` has `session_id` as its primary key, and the loader query reads by `session_id` plus `buyer_account_id`; the immediate lookup is not a broad list scan.

@@ -115,7 +115,7 @@ describe("checkout web routes: checkout start", () => {
     );
 
     const response = (await checkoutStartAction({
-      request: new Request("http://localhost/checkout/start", {
+      request: new Request("http://localhost/checkout/buy/readiness", {
         method: "POST",
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
@@ -144,7 +144,7 @@ describe("checkout web routes: checkout start", () => {
       },
     });
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/checkout/chk_cart");
+    expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_cart");
     expect(response.headers.getSetCookie().join("; ")).toContain("chase_sets_anonymous_cart=");
   });
 
@@ -156,7 +156,7 @@ describe("checkout web routes: checkout start", () => {
     });
 
     const result = await checkoutStartLoader({
-      request: new Request("http://localhost/checkout/start"),
+      request: new Request("http://localhost/checkout/buy/readiness"),
       params: {},
       context: undefined,
     } as never);
@@ -166,7 +166,7 @@ describe("checkout web routes: checkout start", () => {
       isGuestBuyer: false,
       source: null,
       cartCount: 2,
-      signInPath: "/sign-in?returnTo=%2Fcheckout%2Fstart",
+      signInPath: "/sign-in?returnTo=%2Fcheckout%2Fbuy%2Freadiness",
     });
   });
 
@@ -175,7 +175,7 @@ describe("checkout web routes: checkout start", () => {
     mockCreateCheckoutRequestApiClient.mockReturnValue({});
 
     const result = await checkoutStartLoader({
-      request: new Request("http://localhost/checkout/start"),
+      request: new Request("http://localhost/checkout/buy/readiness"),
       params: {},
       context: undefined,
     } as never);
@@ -185,7 +185,7 @@ describe("checkout web routes: checkout start", () => {
       isGuestBuyer: true,
       source: null,
       cartCount: 0,
-      signInPath: "/sign-in?returnTo=%2Fcheckout%2Fstart",
+      signInPath: "/sign-in?returnTo=%2Fcheckout%2Fbuy%2Freadiness",
     });
   });
 
@@ -205,7 +205,7 @@ describe("checkout web routes: checkout start", () => {
     form.set("source", "cart");
 
     const result = await checkoutStartAction({
-      request: new Request("http://localhost/checkout/start", {
+      request: new Request("http://localhost/checkout/buy/readiness", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: form.toString(),
@@ -246,7 +246,7 @@ describe("checkout web routes: checkout start", () => {
     form.set("source", "cart");
 
     const result = await checkoutStartAction({
-      request: new Request("http://localhost/checkout/start", {
+      request: new Request("http://localhost/checkout/buy/readiness", {
         method: "POST",
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
@@ -280,7 +280,7 @@ describe("checkout web routes: checkout start", () => {
 
     await expect(
       checkoutStartAction({
-        request: new Request("http://localhost/checkout/start", {
+        request: new Request("http://localhost/checkout/buy/readiness", {
           method: "POST",
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
           body: form.toString(),
@@ -297,7 +297,7 @@ describe("checkout web routes: checkout start", () => {
 
     const result = await checkoutStartLoader({
       request: new Request(
-        "http://localhost/checkout/start?source=buy-now&listingId=lst_1&catalogItemId=cat_1&productId=prod_1&itemTitle=Charizard&quantity=1",
+        "http://localhost/checkout/buy/readiness?source=buy-now&listingId=lst_1&catalogItemId=cat_1&productId=prod_1&itemTitle=Charizard&quantity=1",
       ),
       params: {},
       context: undefined,
@@ -312,7 +312,7 @@ describe("checkout web routes: checkout start", () => {
       }),
     );
     expect(result.signInPath).toBe(
-      "/sign-in?returnTo=%2Fcheckout%2Fstart%3Fsource%3Dbuy-now%26listingId%3Dlst_1%26catalogItemId%3Dcat_1%26productId%3Dprod_1%26itemTitle%3DCharizard%26quantity%3D1",
+      "/sign-in?returnTo=%2Fcheckout%2Fbuy%2Freadiness%3Fsource%3Dbuy-now%26listingId%3Dlst_1%26catalogItemId%3Dcat_1%26productId%3Dprod_1%26itemTitle%3DCharizard%26quantity%3D1",
     );
   });
 
@@ -321,7 +321,7 @@ describe("checkout web routes: checkout start", () => {
     mockCreateCheckoutRequestApiClient.mockReturnValue({});
 
     const result = await checkoutStartLoader({
-      request: new Request("http://localhost/checkout/start"),
+      request: new Request("http://localhost/checkout/buy/readiness"),
       params: {},
       context: undefined,
     } as never);
@@ -331,7 +331,7 @@ describe("checkout web routes: checkout start", () => {
       isGuestBuyer: false,
       source: null,
       cartCount: 0,
-      signInPath: "/sign-in?returnTo=%2Fcheckout%2Fstart",
+      signInPath: "/sign-in?returnTo=%2Fcheckout%2Fbuy%2Freadiness",
     });
     expect(mockGetGuestCart).not.toHaveBeenCalled();
   });
@@ -356,7 +356,7 @@ describe("checkout web routes: checkout start", () => {
     form.set("quantity", "2");
 
     const response = (await checkoutStartAction({
-      request: new Request("http://localhost/checkout/start", {
+      request: new Request("http://localhost/checkout/buy/readiness", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: form.toString(),
@@ -386,7 +386,7 @@ describe("checkout web routes: checkout start", () => {
       },
     });
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/checkout/chk_buy_now");
+    expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_buy_now");
   });
 
   it("starts signed-in purchase-intent checkout from the preserved checkout start payload", async () => {
@@ -409,7 +409,7 @@ describe("checkout web routes: checkout start", () => {
     form.set("quantity", "2");
 
     const response = (await checkoutStartAction({
-      request: new Request("http://localhost/checkout/start", {
+      request: new Request("http://localhost/checkout/buy/readiness", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: form.toString(),
@@ -433,7 +433,7 @@ describe("checkout web routes: checkout start", () => {
       },
     });
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/checkout/chk_offer");
+    expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_offer");
   });
 
   it("starts signed-out cart checkout by creating a guest account and merging the anonymous cart", async () => {
@@ -462,7 +462,7 @@ describe("checkout web routes: checkout start", () => {
     form.set("source", "cart");
 
     const response = (await checkoutStartAction({
-      request: new Request("http://localhost/checkout/start", {
+      request: new Request("http://localhost/checkout/buy/readiness", {
         method: "POST",
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
@@ -489,7 +489,7 @@ describe("checkout web routes: checkout start", () => {
       },
     });
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/checkout/chk_guest");
+    expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_guest");
     expect(response.headers.get("X-Remix-Reload-Document")).toBe("true");
     expect(response.headers.getSetCookie().join("; ")).toContain("chase_sets_guest_checkout=guest_token");
   });
@@ -520,7 +520,7 @@ describe("checkout web routes: checkout start", () => {
     form.set("source", "cart");
 
     const response = (await checkoutStartAction({
-      request: new Request("https://staging.chasesets.com/checkout/start", {
+      request: new Request("https://staging.chasesets.com/checkout/buy/readiness", {
         method: "POST",
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
@@ -567,7 +567,7 @@ describe("checkout web routes: checkout start", () => {
     form.set("source", "cart");
 
     await checkoutStartAction({
-      request: new Request("http://localhost/checkout/start", {
+      request: new Request("http://localhost/checkout/buy/readiness", {
         method: "POST",
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
@@ -609,7 +609,7 @@ describe("checkout web routes: checkout start", () => {
     form.set("source", "cart");
 
     const result = await checkoutStartAction({
-      request: new Request("http://localhost/checkout/start", {
+      request: new Request("http://localhost/checkout/buy/readiness", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: form.toString(),
@@ -620,7 +620,7 @@ describe("checkout web routes: checkout start", () => {
 
     expect(result).toEqual({
       error: "Sign in to continue checkout with this email. Your Buy Cart will stay ready.",
-      signInPath: "/sign-in?returnTo=%2Fcheckout%2Fstart",
+      signInPath: "/sign-in?returnTo=%2Fcheckout%2Fbuy%2Freadiness",
     });
     expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
     expect(mockMergeGuestCartToAccount).not.toHaveBeenCalled();
@@ -636,7 +636,7 @@ describe("checkout web routes: checkout start", () => {
     form.set("source", "offer-intent");
 
     const result = await checkoutStartAction({
-      request: new Request("http://localhost/checkout/start?source=offer-intent", {
+      request: new Request("http://localhost/checkout/buy/readiness?source=offer-intent", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: form.toString(),
@@ -647,7 +647,7 @@ describe("checkout web routes: checkout start", () => {
 
     expect(result).toEqual({
       error: "Register or sign in to place purchase intent.",
-      signInPath: "/sign-in?returnTo=%2Fcheckout%2Fstart%3Fsource%3Doffer-intent",
+      signInPath: "/sign-in?returnTo=%2Fcheckout%2Fbuy%2Freadiness%3Fsource%3Doffer-intent",
     });
     expect(mockStartGuestCheckout).not.toHaveBeenCalled();
     expect(mockCreateCheckoutSession).not.toHaveBeenCalled();

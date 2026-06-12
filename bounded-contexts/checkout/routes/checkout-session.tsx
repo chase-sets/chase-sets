@@ -426,7 +426,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
       const result = await api.selectOptimizationGoal(params.sessionId, {
         optimizationGoal: formData.get("optimizationGoal") === "fewest-shipments" ? "fewest-shipments" : "lowest-total",
       });
-      return redirect(appendFreshWriteToken(`/checkout/${params.sessionId}`, result));
+      return redirect(appendFreshWriteToken(`/checkout/buy/session/${params.sessionId}`, result));
     }
 
     if (intent === "refresh-checkout-preview") {
@@ -441,7 +441,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
       const paymentMethodCategory = String(formData.get("previewPaymentMethodCategory") ?? "card");
       return redirect(
         appendFreshWriteTokenFromSources(
-          `/checkout/${params.sessionId}?paymentMethodCategory=${encodeURIComponent(paymentMethodCategory)}`,
+          `/checkout/buy/session/${params.sessionId}?paymentMethodCategory=${encodeURIComponent(paymentMethodCategory)}`,
           [shippingOptionResult, shippingAddressResult],
         ),
       );
@@ -495,7 +495,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
         const quoteReason = needsPaymentQuote ? "&quote=required" : "";
         return redirect(
           appendFreshWriteTokenFromSources(
-            `/checkout/${params.sessionId}?paymentMethodCategory=${encodeURIComponent(visiblePaymentMethodCategory)}&review=updated${quoteReason}`,
+            `/checkout/buy/session/${params.sessionId}?paymentMethodCategory=${encodeURIComponent(visiblePaymentMethodCategory)}&review=updated${quoteReason}`,
             [shippingOptionResult, shippingAddressResult],
           ),
         );
