@@ -3,6 +3,8 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import type { AccountId, OrderId, SupportRequestId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 import { createPlatformOperationsServices, type PlatformOperationsServices } from "./services";
+import { ExperienceDomainError } from "../../features/platform-feedback/domain/common";
+import { SupportDomainError } from "../../features/support-requests/domain/common";
 import { experienceSeedIds, supportSeedIds, supportSeedOrderSourceIds } from "../seed-support/ids";
 
 function isoDate(value: string) {
@@ -95,14 +97,24 @@ export async function seedPlatformFeedbackData(
   ];
 
   for (const sample of samples) {
-    await services.platformFeedback.commandHandler({
-      streamId: `experience.platform-feedback-${sample.feedbackId}`,
-      command: {
-        type: "SubmitPlatformFeedback",
-        ...sample,
-      },
-      context,
-    });
+    try {
+      await services.platformFeedback.commandHandler({
+        streamId: `experience.platform-feedback-${sample.feedbackId}`,
+        command: {
+          type: "SubmitPlatformFeedback",
+          ...sample,
+        },
+        context,
+      });
+    } catch (error) {
+      // Seed passes can repeat before the feedback projection catches up,
+      // so the table-count guard above can miss already-submitted streams.
+      if (error instanceof ExperienceDomainError) {
+        console.log(`Platform feedback ${sample.feedbackId} already submitted. Skipping.`);
+        continue;
+      }
+      throw error;
+    }
   }
 }
 
@@ -191,91 +203,110 @@ export async function seedSupportDatabase(
   const buyerContext = createSupportSeedContext(identitySeedIds.collector.accountId, identitySeedIds.collector.userId);
   const supportContext = createSupportSeedContext(identitySeedIds.demo.accountId, identitySeedIds.demo.userId);
 
-  if (!(await supportRequestExists(support, supportSeedIds.supportRequests.activeProductNotReceived))) {
-    await support.supportRequests.commandHandler({
-      streamId: `support.support-request-${supportSeedIds.supportRequests.activeProductNotReceived}`,
-      command: {
-        type: "OpenSupportRequest",
-        supportRequestId: supportSeedIds.supportRequests.activeProductNotReceived as SupportRequestId,
-        orderId: order.order_id as OrderId,
-        buyerAccountId: order.buyer_account_id as AccountId,
-        sellerAccountId: order.seller_account_id as AccountId,
-        flowType: "product-not-received",
-        openedByAccountId: order.buyer_account_id as AccountId,
-        openedByRole: "buyer",
-        openedAt: "2026-03-25T09:00:00.000Z",
-      },
-      context: buyerContext,
-    });
-    await support.supportRequests.commandHandler({
-      streamId: `support.support-request-${supportSeedIds.supportRequests.activeProductNotReceived}`,
-      command: {
-        type: "SubmitSupportEvidence",
-        evidenceId: supportSeedIds.evidence.activeBuyerAttestation,
-        submittedByAccountId: order.buyer_account_id as AccountId,
-        submittedByRole: "buyer",
-        evidenceType: "buyer-attestation",
-        summary: "Buyer reports the order has not arrived.",
-        submittedAt: "2026-03-25T09:02:00.000Z",
-      },
-      context: buyerContext,
-    });
+  // Seed passes can repeat before the support projection catches up, so the
+  // exists guards can miss already-opened streams; the domain duplicate error
+  // marks a block as already seeded.
+  try {
+    if (!(await supportRequestExists(support, supportSeedIds.supportRequests.activeProductNotReceived))) {
+      await support.supportRequests.commandHandler({
+        streamId: `support.support-request-${supportSeedIds.supportRequests.activeProductNotReceived}`,
+        command: {
+          type: "OpenSupportRequest",
+          supportRequestId: supportSeedIds.supportRequests.activeProductNotReceived as SupportRequestId,
+          orderId: order.order_id as OrderId,
+          buyerAccountId: order.buyer_account_id as AccountId,
+          sellerAccountId: order.seller_account_id as AccountId,
+          flowType: "product-not-received",
+          openedByAccountId: order.buyer_account_id as AccountId,
+          openedByRole: "buyer",
+          openedAt: "2026-03-25T09:00:00.000Z",
+        },
+        context: buyerContext,
+      });
+      await support.supportRequests.commandHandler({
+        streamId: `support.support-request-${supportSeedIds.supportRequests.activeProductNotReceived}`,
+        command: {
+          type: "SubmitSupportEvidence",
+          evidenceId: supportSeedIds.evidence.activeBuyerAttestation,
+          submittedByAccountId: order.buyer_account_id as AccountId,
+          submittedByRole: "buyer",
+          evidenceType: "buyer-attestation",
+          summary: "Buyer reports the order has not arrived.",
+          submittedAt: "2026-03-25T09:02:00.000Z",
+        },
+        context: buyerContext,
+      });
+    }
+  } catch (error) {
+    if (error instanceof SupportDomainError) {
+      console.log("Support request active-product-not-received already seeded. Skipping.");
+    } else {
+      throw error;
+    }
   }
 
-  if (!(await supportRequestExists(support, supportSeedIds.supportRequests.resolvedPartialRefund))) {
-    await support.supportRequests.commandHandler({
-      streamId: `support.support-request-${supportSeedIds.supportRequests.resolvedPartialRefund}`,
-      command: {
-        type: "OpenSupportRequest",
-        supportRequestId: supportSeedIds.supportRequests.resolvedPartialRefund as SupportRequestId,
-        orderId: order.order_id as OrderId,
-        buyerAccountId: order.buyer_account_id as AccountId,
-        sellerAccountId: order.seller_account_id as AccountId,
-        flowType: "product-damaged",
-        openedByAccountId: order.buyer_account_id as AccountId,
-        openedByRole: "buyer",
-        openedAt: "2026-03-25T10:00:00.000Z",
-      },
-      context: buyerContext,
-    });
-    await support.supportRequests.commandHandler({
-      streamId: `support.support-request-${supportSeedIds.supportRequests.resolvedPartialRefund}`,
-      command: {
-        type: "SubmitSupportEvidence",
-        evidenceId: supportSeedIds.evidence.resolvedBuyerAttestation,
-        submittedByAccountId: order.buyer_account_id as AccountId,
-        submittedByRole: "buyer",
-        evidenceType: "buyer-attestation",
-        summary: "Buyer reports edge wear from shipping damage.",
-        submittedAt: "2026-03-25T10:02:00.000Z",
-      },
-      context: buyerContext,
-    });
-    await support.supportRequests.commandHandler({
-      streamId: `support.support-request-${supportSeedIds.supportRequests.resolvedPartialRefund}`,
-      command: {
-        type: "SubmitSupportEvidence",
-        evidenceId: supportSeedIds.evidence.resolvedPhoto,
-        submittedByAccountId: order.buyer_account_id as AccountId,
-        submittedByRole: "buyer",
-        evidenceType: "photo",
-        summary: "Photo evidence shows the damaged corner.",
-        submittedAt: "2026-03-25T10:04:00.000Z",
-        attachments: ["seed://support/damaged-card-corner"],
-      },
-      context: buyerContext,
-    });
-    await support.supportRequests.commandHandler({
-      streamId: `support.support-request-${supportSeedIds.supportRequests.resolvedPartialRefund}`,
-      command: {
-        type: "ResolveSupportRequest",
-        resolutionType: "partial-refund",
-        summary: "Seeded support partial refund for shipping damage.",
-        refundAmount: "5.00",
-        resolvedByAccountId: identitySeedIds.demo.accountId,
-        resolvedAt: "2026-03-25T10:30:00.000Z",
-      },
-      context: supportContext,
-    });
+  try {
+    if (!(await supportRequestExists(support, supportSeedIds.supportRequests.resolvedPartialRefund))) {
+      await support.supportRequests.commandHandler({
+        streamId: `support.support-request-${supportSeedIds.supportRequests.resolvedPartialRefund}`,
+        command: {
+          type: "OpenSupportRequest",
+          supportRequestId: supportSeedIds.supportRequests.resolvedPartialRefund as SupportRequestId,
+          orderId: order.order_id as OrderId,
+          buyerAccountId: order.buyer_account_id as AccountId,
+          sellerAccountId: order.seller_account_id as AccountId,
+          flowType: "product-damaged",
+          openedByAccountId: order.buyer_account_id as AccountId,
+          openedByRole: "buyer",
+          openedAt: "2026-03-25T10:00:00.000Z",
+        },
+        context: buyerContext,
+      });
+      await support.supportRequests.commandHandler({
+        streamId: `support.support-request-${supportSeedIds.supportRequests.resolvedPartialRefund}`,
+        command: {
+          type: "SubmitSupportEvidence",
+          evidenceId: supportSeedIds.evidence.resolvedBuyerAttestation,
+          submittedByAccountId: order.buyer_account_id as AccountId,
+          submittedByRole: "buyer",
+          evidenceType: "buyer-attestation",
+          summary: "Buyer reports edge wear from shipping damage.",
+          submittedAt: "2026-03-25T10:02:00.000Z",
+        },
+        context: buyerContext,
+      });
+      await support.supportRequests.commandHandler({
+        streamId: `support.support-request-${supportSeedIds.supportRequests.resolvedPartialRefund}`,
+        command: {
+          type: "SubmitSupportEvidence",
+          evidenceId: supportSeedIds.evidence.resolvedPhoto,
+          submittedByAccountId: order.buyer_account_id as AccountId,
+          submittedByRole: "buyer",
+          evidenceType: "photo",
+          summary: "Photo evidence shows the damaged corner.",
+          submittedAt: "2026-03-25T10:04:00.000Z",
+          attachments: ["seed://support/damaged-card-corner"],
+        },
+        context: buyerContext,
+      });
+      await support.supportRequests.commandHandler({
+        streamId: `support.support-request-${supportSeedIds.supportRequests.resolvedPartialRefund}`,
+        command: {
+          type: "ResolveSupportRequest",
+          resolutionType: "partial-refund",
+          summary: "Seeded support partial refund for shipping damage.",
+          refundAmount: "5.00",
+          resolvedByAccountId: identitySeedIds.demo.accountId,
+          resolvedAt: "2026-03-25T10:30:00.000Z",
+        },
+        context: supportContext,
+      });
+    }
+  } catch (error) {
+    if (error instanceof SupportDomainError) {
+      console.log("Support request resolved-partial-refund already seeded. Skipping.");
+    } else {
+      throw error;
+    }
   }
 }

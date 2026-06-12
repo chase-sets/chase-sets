@@ -269,5 +269,18 @@ export async function seedApiHostIfEmpty(
 
   if (runFullDrain) {
     await drainContextRuntime(runtime);
+
+    // A final reconciliation pass lets seeds that depend on downstream facts
+    // (for example marketplace review seeds that need delivered fulfillment
+    // shipments) complete once every context has seeded and drained.
+    for (const contextName of getApiHostSeedOrder(registry, hostName)) {
+      const context = mountedContextsByName.get(contextName);
+      if (!context || !shouldRunContextSeed(context, options)) {
+        continue;
+      }
+      await seedApiModuleIfEmpty(context.module, context.pool, context.services, options);
+      await syncContextProjectionGroups(runtime, contextName);
+      await drainContextRuntime(runtime);
+    }
   }
 }
