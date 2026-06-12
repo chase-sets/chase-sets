@@ -184,6 +184,8 @@ export const checkoutEnglishTranslations = {
     "Up to {amount} {currency} wallet balance can be applied before payment starts.",
   "checkout.features.sessions.ui.checkoutPage.payment.starts.only.after.orders.are":
     "Payment starts only after final checkout review.",
+  "checkout.features.sessions.ui.checkoutPage.guest.data.description":
+    "Guest checkout contact and shipping details are used for this checkout, delivery, tax, fraud checks, and support. Raw card details stay with the payment provider.",
   "checkout.features.sessions.ui.checkoutPage.platform.credit.only": "Platform credit only",
   "checkout.features.sessions.ui.checkoutPage.postal.code": "Postal code",
   "checkout.features.sessions.ui.checkoutPage.processing.payment": "Processing payment...",
@@ -556,6 +558,8 @@ export const checkoutEnglishTranslations = {
     "Final sale, labels, payout setup, and settlement are confirmed only after account setup.",
   "checkout.features.sellList.ui.guestSellCheckoutPage.side.effect.boundary":
     "This page records a guest review state only. It does not accept offers, create listings, buy labels, start payout, send notifications, or write seller account history.",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.guest.data.description":
+    "Guest seller contact and ship-from details are used for this review, serviceability, account setup, and support. Sale, payout, and label commitments wait for account setup.",
   "checkout.features.sellList.ui.guestSellCheckoutPage.confirmation.title": "Sale review ready",
   "checkout.features.sellList.ui.guestSellCheckoutPage.confirmation.description":
     "Your sale review is ready for account setup. No seller-committing side effects have started.",
@@ -935,4 +939,9 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.ui.checkoutPage.saved.shipping.address": "Saved shipping address",
   "checkout.features.sessions.ui.checkoutPage.update.selected.address": "Update selected saved address",
   "checkout.features.sessions.ui.checkoutPage.use.for.this.checkout": "Use once for this checkout",
+  "checkout.shared.policyLinks.description": "Review the marketplace policies before continuing checkout.",
+  "checkout.shared.policyLinks.label": "Checkout policies",
+  "checkout.shared.policyLinks.privacy": "Privacy policy",
+  "checkout.shared.policyLinks.refunds": "Refunds and returns",
+  "checkout.shared.policyLinks.terms": "Terms of service",
 } as const;

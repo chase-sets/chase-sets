@@ -112,6 +112,14 @@ describe("signed-in sell checkout page", () => {
     expect(markup).toContain("Prepare a prepaid label");
     expect(markup).toContain("Review sale handoff");
     expect(markup).toContain("No label, payout, settlement, sale, notification, or account-history side effect starts");
+    expect(markup).toContain("Checkout policies");
+    expect(markup).toContain("Terms of service");
+    expect(markup).toContain('href="/terms"');
+    expect(markup).toContain("Privacy policy");
+    expect(markup).toContain('href="/privacy"');
+    expect(markup).toContain("Refunds and returns");
+    expect(markup).toContain('href="/refunds-and-returns"');
+    expect(markup).not.toContain("Guest seller contact and ship-from details are used");
     expect(markup).not.toContain("provider diagnostics");
     expect(markup).not.toContain("settlement internals");
   });
