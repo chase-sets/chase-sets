@@ -19,7 +19,7 @@ import {
   createProjectionOperationsRoutes,
   type ProjectionWakeStatusWorkSignalStore,
 } from "@chase-sets/platform-runtime/projection-operations-routes";
-import { errorHandler } from "@chase-sets/http/error-handler";
+import { errorHandler } from "@chase-sets/platform-runtime/error-handler";
 import { authenticationRequiredResponse, forbiddenResponse } from "@chase-sets/http/responses";
 import { apiContextRegistry } from "./generated/api-context-registry";
 import {

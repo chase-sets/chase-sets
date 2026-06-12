@@ -13,6 +13,7 @@
     "./durable-job-store": "./durable-job-store.ts",
     "./durable-job-work-units": "./durable-job-work-units.ts",
     "./durable-job-web": "./durable-job-web.ts",
+    "./error-handler": "./error-handler.ts",
     "./health": "./health.ts",
     "./http": "./http.ts",
     "./mcp": "./mcp.ts",
