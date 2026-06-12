@@ -9,6 +9,15 @@ The sandbox id and port block are derived from the worktree path, so the same
 worktree keeps stable URLs across restarts while different worktrees avoid the
 fixed-port conflicts that came from one shared local stack.
 
+## Add A Worktree
+
+Create pooled sibling worktrees through the validated helper so malformed names
+are rejected before Git runs:
+
+```bash
+pnpm run ops worktree:add <name> [branch]
+```
+
 ## Inspect A Sandbox
 
 ```bash
