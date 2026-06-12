@@ -1,0 +1,135 @@
+variable "digitalocean_token" {
+  type      = string
+  sensitive = true
+}
+
+variable "spaces_access_id" {
+  type      = string
+  sensitive = true
+}
+
+variable "spaces_secret_key" {
+  type      = string
+  sensitive = true
+}
+
+variable "environment" {
+  type        = string
+  description = "Long-lived observability environment to provision."
+
+  validation {
+    condition     = contains(["staging", "production"], var.environment)
+    error_message = "observability currently provisions only staging or production."
+  }
+}
+
+variable "root_domain" {
+  type    = string
+  default = "chasesets.com"
+}
+
+variable "region" {
+  type        = string
+  default     = "nyc3"
+  description = "DigitalOcean region for the observability Droplet and block volume."
+}
+
+variable "droplet_size" {
+  type        = string
+  default     = "s-2vcpu-4gb"
+  description = "Droplet size for the single-node observability stack."
+}
+
+variable "droplet_image" {
+  type        = string
+  default     = "ubuntu-24-04-x64"
+  description = "Base image used for the observability host."
+}
+
+variable "ssh_key_fingerprints" {
+  type        = list(string)
+  default     = []
+  description = "Optional DigitalOcean SSH key fingerprints or IDs authorized on the Droplet."
+}
+
+variable "ssh_source_addresses" {
+  type        = list(string)
+  default     = []
+  description = "Optional CIDR ranges allowed to reach SSH. Empty disables public SSH ingress."
+}
+
+variable "volume_size_gib" {
+  type        = number
+  default     = 100
+  description = "Persistent block volume size for Prometheus, Loki, Tempo, Grafana, and Caddy data."
+
+  validation {
+    condition     = var.volume_size_gib >= 50
+    error_message = "volume_size_gib must be at least 50 GiB for production observability data."
+  }
+}
+
+variable "grafana_admin_user" {
+  type        = string
+  default     = "chase-sets-admin"
+  description = "Initial Grafana admin username. Rotate through Grafana after first login."
+}
+
+variable "grafana_admin_password" {
+  type        = string
+  sensitive   = true
+  description = "Initial Grafana admin password."
+}
+
+variable "otel_write_token" {
+  type        = string
+  sensitive   = true
+  description = "Header token required by the public OTLP HTTP endpoint."
+}
+
+variable "prometheus_query_token" {
+  type        = string
+  sensitive   = true
+  description = "Header token required by the public Prometheus query endpoint used by release automation."
+}
+
+variable "acme_email" {
+  type        = string
+  default     = "ops@chasesets.com"
+  description = "Email address Caddy uses for ACME certificate registration."
+}
+
+variable "caddy_image" {
+  type    = string
+  default = "caddy:2.9.1"
+}
+
+variable "grafana_image" {
+  type    = string
+  default = "grafana/grafana:11.4.0"
+}
+
+variable "prometheus_image" {
+  type    = string
+  default = "prom/prometheus:v2.55.1"
+}
+
+variable "loki_image" {
+  type    = string
+  default = "grafana/loki:3.3.0"
+}
+
+variable "tempo_image" {
+  type    = string
+  default = "grafana/tempo:2.6.1"
+}
+
+variable "otel_collector_image" {
+  type    = string
+  default = "otel/opentelemetry-collector-contrib:0.114.0"
+}
+
+variable "prometheus_retention" {
+  type    = string
+  default = "30d"
+}

@@ -7,6 +7,17 @@ const platformMain = readFileSync(resolve("infrastructure/digitalocean/platform/
 const platformLocals = readFileSync(resolve("infrastructure/digitalocean/platform/locals.tf"), "utf8");
 const platformOutputs = readFileSync(resolve("infrastructure/digitalocean/platform/outputs.tf"), "utf8");
 const platformVariables = readFileSync(resolve("infrastructure/digitalocean/platform/variables.tf"), "utf8");
+const observabilityMain = readFileSync(resolve("infrastructure/digitalocean/observability/main.tf"), "utf8");
+const observabilityLocals = readFileSync(resolve("infrastructure/digitalocean/observability/locals.tf"), "utf8");
+const observabilityOutputs = readFileSync(resolve("infrastructure/digitalocean/observability/outputs.tf"), "utf8");
+const observabilityCaddyfile = readFileSync(
+  resolve("infrastructure/digitalocean/observability/templates/Caddyfile.tftpl"),
+  "utf8",
+);
+const observabilityCloudInit = readFileSync(
+  resolve("infrastructure/digitalocean/observability/templates/cloud-init.yml.tftpl"),
+  "utf8",
+);
 const catalogAssetsMain = readFileSync(resolve("infrastructure/digitalocean/catalog-assets/main.tf"), "utf8");
 const catalogAssetsLocals = readFileSync(resolve("infrastructure/digitalocean/catalog-assets/locals.tf"), "utf8");
 const environmentDnsMain = readFileSync(resolve("infrastructure/digitalocean/environment-dns/main.tf"), "utf8");
@@ -1106,6 +1117,47 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).toContain('reset-domain "$app_id" staging.chasesets.com');
     expect(platformStagingResetWorkflow).toContain("Reset stale staging root domain attachment");
     expect(platformStagingResetWorkflow).toContain('reset-domain "$app_id" staging.chasesets.com');
+  });
+
+  it("wires staging and production app telemetry to the secured observability stack", () => {
+    expect(platformVariables).toContain('variable "observability_enabled"');
+    expect(platformVariables).toContain('variable "observability_otlp_headers"');
+    expect(platformLocals).toContain("observability_runtime_env");
+    expect(platformLocals).toContain("OTEL_EXPORTER_OTLP_ENDPOINT = {");
+    expect(platformLocals).toContain("OTEL_EXPORTER_OTLP_HEADERS = {");
+    expect(platformMain).toContain('check "staging_production_observability_export"');
+    expect(occurrenceCount(platformMain, "for_each = local.observability_runtime_env")).toBe(6);
+    expect(platformProductionWorkflow).toContain(
+      "TF_VAR_observability_otlp_headers: ${{ secrets.OBSERVABILITY_OTLP_HEADERS || '' }}",
+    );
+    expect(platformProductionWorkflow).toContain(
+      "Staging observability requires OBSERVABILITY_OTLP_HEADERS secret or OBSERVABILITY_ENABLED=false.",
+    );
+    expect(platformProductionWorkflow).toContain(
+      "Production observability requires OBSERVABILITY_OTLP_HEADERS secret or OBSERVABILITY_ENABLED=false.",
+    );
+    expect(platformStagingResetWorkflow).toContain(
+      "TF_VAR_observability_otlp_headers: ${{ secrets.OBSERVABILITY_OTLP_HEADERS || '' }}",
+    );
+    expect(platformStagingResetWorkflow).toContain(
+      "Staging observability requires OBSERVABILITY_OTLP_HEADERS secret or OBSERVABILITY_ENABLED=false.",
+    );
+  });
+
+  it("provisions the checked-in observability stack behind scoped public endpoints", () => {
+    expect(observabilityMain).toContain('resource "digitalocean_droplet" "observability"');
+    expect(observabilityMain).toContain('resource "digitalocean_volume" "observability_data"');
+    expect(observabilityMain).toContain('resource "digitalocean_firewall" "observability"');
+    expect(observabilityMain).toContain('resource "digitalocean_record" "observability_a"');
+    expect(observabilityMain).toContain('port_range       = "80"');
+    expect(observabilityMain).toContain('port_range       = "443"');
+    expect(observabilityLocals).toContain("../../observability/stack");
+    expect(observabilityLocals).toContain("grafana/dashboards/projection-wake-pipeline.json");
+    expect(observabilityCaddyfile).toContain("@authorized header X-Chase-Sets-Observability-Token");
+    expect(observabilityCaddyfile).toContain("@authorized header X-Chase-Sets-Observability-Query");
+    expect(observabilityCloudInit).toContain("docker compose up -d --remove-orphans");
+    expect(observabilityOutputs).toContain('output "app_platform_otlp_headers"');
+    expect(observabilityOutputs).toContain('output "canary_prometheus_headers"');
   });
 
   it("splits app and data regions and manages uptime checks", () => {

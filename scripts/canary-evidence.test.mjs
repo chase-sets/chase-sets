@@ -7,6 +7,7 @@ import {
   buildCanaryEvidence,
   collectCanaryEvidence,
   collectPrometheusTelemetry,
+  readPrometheusHeaders,
   REQUIRED_CANARY_SIGNALS,
   validatePrometheusSignalConfig,
 } from "./canary-evidence.mjs";
@@ -149,6 +150,83 @@ describe("canary evidence collector", () => {
       source: "Prometheus route error rate by release cohort",
       threshold: "<= baseline + 0.005",
     });
+  });
+
+  it("passes protected Prometheus query headers without embedding credentials in the URL", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "chase-sets-canary-prometheus-headers-"));
+    const queryFile = join(directory, "queries.json");
+    await writeFile(
+      queryFile,
+      `${JSON.stringify({
+        signals: [
+          {
+            name: "route-error-rate",
+            owner: "platform-runtime/route-owner",
+            source: "Prometheus route error rate by release cohort",
+            baselineQuery: "baseline_errors",
+            canaryQuery: "canary_errors",
+            maxIncrease: 0.005,
+          },
+        ],
+      })}\n`,
+    );
+    const seenRequests = [];
+
+    await collectPrometheusTelemetry({
+      baseUrl: "https://prometheus.example",
+      queryFile,
+      headers: {
+        Authorization: "Bearer scoped-token",
+        "X-Scope-OrgID": "chase-sets-production",
+      },
+      fetchImpl: async (url, init) => {
+        seenRequests.push({ url: String(url), headers: init?.headers });
+        return {
+          ok: true,
+          json: async () => ({ status: "success", data: { resultType: "scalar", result: [1_802_000_000, "0"] } }),
+        };
+      },
+    });
+
+    expect(seenRequests).toEqual([
+      {
+        url: "https://prometheus.example/api/v1/query?query=baseline_errors",
+        headers: {
+          Authorization: "Bearer scoped-token",
+          "X-Scope-OrgID": "chase-sets-production",
+        },
+      },
+      {
+        url: "https://prometheus.example/api/v1/query?query=canary_errors",
+        headers: {
+          Authorization: "Bearer scoped-token",
+          "X-Scope-OrgID": "chase-sets-production",
+        },
+      },
+    ]);
+  });
+
+  it("parses Prometheus headers from JSON and repeated CLI options", () => {
+    expect(
+      readPrometheusHeaders({
+        headersJson: JSON.stringify({ Authorization: "Bearer secret", "X-Scope-OrgID": "production" }),
+        headerOptions: ["X-Extra: release-health"],
+      }),
+    ).toEqual({
+      Authorization: "Bearer secret",
+      "X-Scope-OrgID": "production",
+      "X-Extra": "release-health",
+    });
+
+    expect(() => readPrometheusHeaders({ headersJson: "not-json" })).toThrow(
+      "Prometheus headers must be a JSON object.",
+    );
+    expect(() => readPrometheusHeaders({ headerOptions: ["bad"] })).toThrow(
+      'Prometheus header must use "Name: value" format: bad',
+    );
+    expect(() => readPrometheusHeaders({ headerOptions: ["Bad Header: value"] })).toThrow(
+      "Invalid Prometheus header name: Bad Header",
+    );
   });
 
   it("merges Prometheus telemetry into canary evidence and still fails missing required signals closed", async () => {

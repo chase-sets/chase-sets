@@ -66,7 +66,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Email Operations](./runbooks/email-operations.md): Amazon SES identities, sender configuration, DNS requirements, and rollout checks.
 - [Tax Production Readiness](../bounded-contexts/tax/docs/production-tax-readiness.md): Tax readiness evidence, no-provider launch posture, and provider-required collection gating.
 - [Tax Nexus Tracking](../bounded-contexts/tax/docs/tax-nexus-tracking.md): state-by-state threshold tracking for when Chase Sets must prepare registration or start collecting sales tax.
-- [Observability](./runbooks/observability.md): local OpenTelemetry and LGTM stack.
+- [Observability](./runbooks/observability.md): local and production OpenTelemetry/LGTM stack, dashboard access, and release telemetry evidence.
 - [Catalog Integration Operations](./runbooks/catalog-integration-operations.md): provider adapter, option query, job, promotion/reapply, and read-model lag incident workflows.
 - [Release Process Evolution](./runbooks/release-process-evolution.md): release queue, production locks, canary path, rollout controls, health metrics, and gate categories.
 - [Deployment Transitions](./runbooks/deployment-transitions.md): graceful shutdown, resumable streams, worker cancellation, and durable cadence.
@@ -180,6 +180,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [ADR 0008: Admin Shell And IA Model](./adr/0008-admin-shell-and-ia-model.md)
 - [ADR 0009: Targeted Projection Catchup](./adr/0009-targeted-projection-catchup.md)
 - [ADR 0010: Push-Driven Projection Runtime](./adr/0010-push-driven-projection-runtime.md)
+- [ADR 0011: Production Observability Stack](./adr/0011-production-observability-stack.md)
 
 ## Maintenance
 

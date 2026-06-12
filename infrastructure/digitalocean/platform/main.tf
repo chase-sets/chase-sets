@@ -38,6 +38,16 @@ check "production_marketplace_proof" {
   }
 }
 
+check "staging_production_observability_export" {
+  assert {
+    condition = !(local.is_staging || local.is_production) || !var.observability_enabled || (
+      trimspace(local.observability_otlp_endpoint) != "" &&
+      trimspace(var.observability_otlp_headers) != ""
+    )
+    error_message = "Staging and production telemetry export requires an OTLP endpoint and observability_otlp_headers write credential."
+  }
+}
+
 check "production_marketplace_promotion" {
   assert {
     condition = !var.production_marketplace_public_enabled || (
@@ -467,9 +477,25 @@ resource "digitalocean_app" "platform" {
         scope = "RUN_AND_BUILD_TIME"
       }
 
+      dynamic "env" {
+        for_each = local.observability_runtime_env
+        content {
+          key   = env.key
+          value = env.value.value
+          type  = env.value.secret ? "SECRET" : "GENERAL"
+          scope = "RUN_TIME"
+        }
+      }
+
       env {
         key   = "PORT"
         value = "8080"
+        scope = "RUN_TIME"
+      }
+
+      env {
+        key   = "DEPLOYMENT_ENVIRONMENT"
+        value = var.environment
         scope = "RUN_TIME"
       }
 
@@ -528,9 +554,25 @@ resource "digitalocean_app" "platform" {
           scope = "RUN_AND_BUILD_TIME"
         }
 
+        dynamic "env" {
+          for_each = local.observability_runtime_env
+          content {
+            key   = env.key
+            value = env.value.value
+            type  = env.value.secret ? "SECRET" : "GENERAL"
+            scope = "RUN_TIME"
+          }
+        }
+
         env {
           key   = "PORT"
           value = "8080"
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "DEPLOYMENT_ENVIRONMENT"
+          value = var.environment
           scope = "RUN_TIME"
         }
 
@@ -640,6 +682,16 @@ resource "digitalocean_app" "platform" {
           key   = "NODE_ENV"
           value = "production"
           scope = "RUN_AND_BUILD_TIME"
+        }
+
+        dynamic "env" {
+          for_each = local.observability_runtime_env
+          content {
+            key   = env.key
+            value = env.value.value
+            type  = env.value.secret ? "SECRET" : "GENERAL"
+            scope = "RUN_TIME"
+          }
         }
 
         env {
@@ -912,6 +964,16 @@ resource "digitalocean_app" "platform" {
           scope = "RUN_AND_BUILD_TIME"
         }
 
+        dynamic "env" {
+          for_each = local.observability_runtime_env
+          content {
+            key   = env.key
+            value = env.value.value
+            type  = env.value.secret ? "SECRET" : "GENERAL"
+            scope = "RUN_TIME"
+          }
+        }
+
         env {
           key   = "PORT"
           value = "8080"
@@ -1064,6 +1126,16 @@ resource "digitalocean_app" "platform" {
           key   = "NODE_ENV"
           value = "production"
           scope = "RUN_AND_BUILD_TIME"
+        }
+
+        dynamic "env" {
+          for_each = local.observability_runtime_env
+          content {
+            key   = env.key
+            value = env.value.value
+            type  = env.value.secret ? "SECRET" : "GENERAL"
+            scope = "RUN_TIME"
+          }
         }
 
         env {
@@ -1500,6 +1572,16 @@ resource "digitalocean_app" "platform" {
           key   = "NODE_ENV"
           value = "production"
           scope = "RUN_AND_BUILD_TIME"
+        }
+
+        dynamic "env" {
+          for_each = local.observability_runtime_env
+          content {
+            key   = env.key
+            value = env.value.value
+            type  = env.value.secret ? "SECRET" : "GENERAL"
+            scope = "RUN_TIME"
+          }
         }
 
         env {

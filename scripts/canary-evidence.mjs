@@ -101,6 +101,14 @@ export const REQUIRED_CANARY_SIGNALS = [
 ];
 
 export function parseCanaryEvidenceArgs(argv, env = process.env) {
+  const prometheusHeaders = readPrometheusHeaders({
+    headerOptions: readRepeatedOptions(argv, "--prometheus-header"),
+    headersJson:
+      readOption(argv, "--prometheus-headers-json") ??
+      readEnv("CANARY_PROMETHEUS_HEADERS", env) ??
+      readEnv("PROMETHEUS_HEADERS", env),
+  });
+
   return {
     outPath: readOption(argv, "--out") ?? readEnv("CANARY_EVIDENCE_OUT", env),
     releaseCommit: readOption(argv, "--release-commit") ?? readEnv("RELEASE_COMMIT", env),
@@ -113,6 +121,7 @@ export function parseCanaryEvidenceArgs(argv, env = process.env) {
       readEnv("CANARY_PROMETHEUS_URL", env) ??
       readEnv("PROMETHEUS_URL", env),
     prometheusQueryFile: readOption(argv, "--prometheus-query-file") ?? readEnv("CANARY_PROMETHEUS_QUERY_FILE", env),
+    prometheusHeaders,
     checkedAt: readOption(argv, "--checked-at") ?? new Date().toISOString(),
   };
 }
@@ -125,6 +134,7 @@ export async function collectCanaryEvidence(options) {
           collectPrometheusTelemetry({
             baseUrl: options.prometheusBaseUrl,
             queryFile: options.prometheusQueryFile,
+            headers: options.prometheusHeaders,
             fetchImpl: options.fetchImpl ?? globalThis.fetch,
           }),
         ]
@@ -146,7 +156,7 @@ export async function collectCanaryEvidence(options) {
   return { evidence, analysis };
 }
 
-export async function collectPrometheusTelemetry({ baseUrl, queryFile, fetchImpl = globalThis.fetch }) {
+export async function collectPrometheusTelemetry({ baseUrl, queryFile, headers = {}, fetchImpl = globalThis.fetch }) {
   if (typeof fetchImpl !== "function") {
     throw new Error("A fetch implementation is required for Prometheus canary evidence.");
   }
@@ -160,8 +170,8 @@ export async function collectPrometheusTelemetry({ baseUrl, queryFile, fetchImpl
     }
 
     const [baseline, canary] = await Promise.all([
-      queryPrometheus({ baseUrl, query: signal.baselineQuery, fetchImpl }),
-      queryPrometheus({ baseUrl, query: signal.canaryQuery, fetchImpl }),
+      queryPrometheus({ baseUrl, query: signal.baselineQuery, headers, fetchImpl }),
+      queryPrometheus({ baseUrl, query: signal.canaryQuery, headers, fetchImpl }),
     ]);
 
     const source = normalizeString(signal.source) ?? `Prometheus: ${signal.canaryQuery}`;
@@ -188,6 +198,41 @@ export async function collectPrometheusTelemetry({ baseUrl, queryFile, fetchImpl
     });
   }
   return { signals };
+}
+
+export function readPrometheusHeaders({ headerOptions = [], headersJson } = {}) {
+  const headers = {};
+
+  if (headersJson) {
+    let parsed;
+    try {
+      parsed = JSON.parse(headersJson);
+    } catch {
+      throw new Error("Prometheus headers must be a JSON object.");
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("Prometheus headers must be a JSON object.");
+    }
+    for (const [name, value] of Object.entries(parsed)) {
+      const normalizedName = normalizeHeaderName(name);
+      if (normalizedName) {
+        headers[normalizedName] = String(value);
+      }
+    }
+  }
+
+  for (const option of headerOptions) {
+    const separatorIndex = option.indexOf(":");
+    if (separatorIndex <= 0) {
+      throw new Error(`Prometheus header must use "Name: value" format: ${option}`);
+    }
+    const normalizedName = normalizeHeaderName(option.slice(0, separatorIndex));
+    if (normalizedName) {
+      headers[normalizedName] = option.slice(separatorIndex + 1).trim();
+    }
+  }
+
+  return headers;
 }
 
 export function validatePrometheusSignalConfig(signal) {
@@ -260,10 +305,10 @@ async function readTelemetrySource(filePath) {
   return JSON.parse(await readFile(filePath, "utf8"));
 }
 
-async function queryPrometheus({ baseUrl, query, fetchImpl }) {
+async function queryPrometheus({ baseUrl, query, headers, fetchImpl }) {
   const url = new URL("/api/v1/query", baseUrl);
   url.searchParams.set("query", query);
-  const response = await fetchImpl(url);
+  const response = await fetchImpl(url, { headers });
   if (!response.ok) {
     throw new Error(`Prometheus query failed: ${response.status}`);
   }
@@ -344,6 +389,17 @@ async function main(argv, env = process.env) {
 function normalizeNonNegativeInteger(value) {
   const normalized = Number.parseInt(String(value), 10);
   return Number.isInteger(normalized) && normalized >= 0 ? normalized : 0;
+}
+
+function normalizeHeaderName(name) {
+  const normalized = normalizeString(name);
+  if (!normalized) {
+    return null;
+  }
+  if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(normalized)) {
+    throw new Error(`Invalid Prometheus header name: ${normalized}`);
+  }
+  return normalized;
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {

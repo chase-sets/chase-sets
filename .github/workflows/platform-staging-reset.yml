@@ -138,6 +138,9 @@ jobs:
           TF_VAR_ses_from_email: ${{ vars.SES_FROM_EMAIL || '' }}
           TF_VAR_ses_configuration_set_name: ${{ vars.SES_CONFIGURATION_SET_NAME || '' }}
           TF_VAR_ses_source_arn: ${{ secrets.SES_SOURCE_ARN || '' }}
+          TF_VAR_observability_enabled: ${{ vars.OBSERVABILITY_ENABLED == 'false' && 'false' || 'true' }}
+          TF_VAR_observability_otlp_endpoint: ${{ vars.OBSERVABILITY_OTLP_ENDPOINT || '' }}
+          TF_VAR_observability_otlp_headers: ${{ secrets.OBSERVABILITY_OTLP_HEADERS || '' }}
         run: |
           set -euo pipefail
           missing=()
@@ -162,6 +165,11 @@ jobs:
 
           if [ "${#missing[@]}" -gt 0 ]; then
             printf 'Missing required staging configuration: %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
+
+          if [ "${TF_VAR_observability_enabled:-true}" != "false" ] && [ -z "${TF_VAR_observability_otlp_headers:-}" ]; then
+            echo "Staging observability requires OBSERVABILITY_OTLP_HEADERS secret or OBSERVABILITY_ENABLED=false." >&2
             exit 1
           fi
 
@@ -326,6 +334,9 @@ jobs:
           TF_VAR_ses_from_email: ${{ vars.SES_FROM_EMAIL || '' }}
           TF_VAR_ses_configuration_set_name: ${{ vars.SES_CONFIGURATION_SET_NAME || '' }}
           TF_VAR_ses_source_arn: ${{ secrets.SES_SOURCE_ARN || '' }}
+          TF_VAR_observability_enabled: ${{ vars.OBSERVABILITY_ENABLED == 'false' && 'false' || 'true' }}
+          TF_VAR_observability_otlp_endpoint: ${{ vars.OBSERVABILITY_OTLP_ENDPOINT || '' }}
+          TF_VAR_observability_otlp_headers: ${{ secrets.OBSERVABILITY_OTLP_HEADERS || '' }}
         run: |
           set -euo pipefail
           zone="staging.chasesets.com"
@@ -407,6 +418,9 @@ jobs:
           TF_VAR_ses_from_email: ${{ vars.SES_FROM_EMAIL || '' }}
           TF_VAR_ses_configuration_set_name: ${{ vars.SES_CONFIGURATION_SET_NAME || '' }}
           TF_VAR_ses_source_arn: ${{ secrets.SES_SOURCE_ARN || '' }}
+          TF_VAR_observability_enabled: ${{ vars.OBSERVABILITY_ENABLED == 'false' && 'false' || 'true' }}
+          TF_VAR_observability_otlp_endpoint: ${{ vars.OBSERVABILITY_OTLP_ENDPOINT || '' }}
+          TF_VAR_observability_otlp_headers: ${{ secrets.OBSERVABILITY_OTLP_HEADERS || '' }}
         run: terraform destroy -auto-approve
 
       - name: Terraform init catalog assets
@@ -565,6 +579,9 @@ jobs:
           TF_VAR_ses_from_email: ${{ vars.SES_FROM_EMAIL || '' }}
           TF_VAR_ses_configuration_set_name: ${{ vars.SES_CONFIGURATION_SET_NAME || '' }}
           TF_VAR_ses_source_arn: ${{ secrets.SES_SOURCE_ARN || '' }}
+          TF_VAR_observability_enabled: ${{ vars.OBSERVABILITY_ENABLED == 'false' && 'false' || 'true' }}
+          TF_VAR_observability_otlp_endpoint: ${{ vars.OBSERVABILITY_OTLP_ENDPOINT || '' }}
+          TF_VAR_observability_otlp_headers: ${{ secrets.OBSERVABILITY_OTLP_HEADERS || '' }}
         run: terraform plan -out=tfplan
 
       - name: Terraform apply staging recreate
@@ -601,6 +618,9 @@ jobs:
           TF_VAR_ses_from_email: ${{ vars.SES_FROM_EMAIL || '' }}
           TF_VAR_ses_configuration_set_name: ${{ vars.SES_CONFIGURATION_SET_NAME || '' }}
           TF_VAR_ses_source_arn: ${{ secrets.SES_SOURCE_ARN || '' }}
+          TF_VAR_observability_enabled: ${{ vars.OBSERVABILITY_ENABLED == 'false' && 'false' || 'true' }}
+          TF_VAR_observability_otlp_endpoint: ${{ vars.OBSERVABILITY_OTLP_ENDPOINT || '' }}
+          TF_VAR_observability_otlp_headers: ${{ secrets.OBSERVABILITY_OTLP_HEADERS || '' }}
         run: terraform apply -auto-approve tfplan
 
       - name: Wait for Terraform App Platform deployment

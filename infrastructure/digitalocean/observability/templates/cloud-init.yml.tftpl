@@ -1,0 +1,80 @@
+#cloud-config
+package_update: true
+package_upgrade: true
+
+write_files:
+${write_files_yaml}
+
+runcmd:
+  - |
+    set -eux
+    apt-get install -y ca-certificates curl
+    install -m 0755 -d /etc/apt/keyrings
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+    chmod a+r /etc/apt/keyrings/docker.asc
+    . /etc/os-release
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $${VERSION_CODENAME} stable" > /etc/apt/sources.list.d/docker.list
+    apt-get update
+    apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+    systemctl enable --now docker
+
+    volume_device="/dev/disk/by-id/scsi-0DO_Volume_${volume_name}"
+    for attempt in $(seq 1 60); do
+      if [ -e "$${volume_device}" ]; then
+        break
+      fi
+      sleep 2
+    done
+
+    if [ ! -e "$${volume_device}" ]; then
+      echo "Persistent observability volume was not attached: $${volume_device}" >&2
+      exit 1
+    fi
+
+    if ! blkid "$${volume_device}" >/dev/null 2>&1; then
+      mkfs.ext4 -F "$${volume_device}"
+    fi
+
+    install -m 0755 -d /var/lib/chase-sets-observability
+    if ! grep -q "$${volume_device} /var/lib/chase-sets-observability" /etc/fstab; then
+      echo "$${volume_device} /var/lib/chase-sets-observability ext4 defaults,nofail,discard 0 2" >> /etc/fstab
+    fi
+    mount /var/lib/chase-sets-observability
+
+    install -m 0755 -d \
+      /var/lib/chase-sets-observability/app-logs \
+      /var/lib/chase-sets-observability/caddy-config \
+      /var/lib/chase-sets-observability/caddy-data \
+      /var/lib/chase-sets-observability/grafana \
+      /var/lib/chase-sets-observability/loki \
+      /var/lib/chase-sets-observability/prometheus \
+      /var/lib/chase-sets-observability/tempo
+    chown -R 472:472 /var/lib/chase-sets-observability/grafana
+    chown -R 65534:65534 /var/lib/chase-sets-observability/prometheus
+    chown -R 10001:10001 \
+      /var/lib/chase-sets-observability/loki \
+      /var/lib/chase-sets-observability/tempo
+    chmod 0750 /opt/chase-sets-observability
+    chmod 0600 /opt/chase-sets-observability/.env /opt/chase-sets-observability/Caddyfile
+
+    cat >/etc/systemd/system/chase-sets-observability.service <<'UNIT'
+    [Unit]
+    Description=Chase Sets observability stack
+    Requires=docker.service
+    After=docker.service
+
+    [Service]
+    Type=oneshot
+    RemainAfterExit=yes
+    WorkingDirectory=/opt/chase-sets-observability
+    ExecStart=/usr/bin/docker compose up -d --remove-orphans
+    ExecStop=/usr/bin/docker compose down
+    TimeoutStartSec=0
+
+    [Install]
+    WantedBy=multi-user.target
+    UNIT
+
+    systemctl daemon-reload
+    systemctl enable --now chase-sets-observability.service
+    docker image prune -af --filter until=72h || true

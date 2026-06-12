@@ -15,6 +15,7 @@ export type ObservabilityConfig = Readonly<{
   serviceVersion?: string;
   deploymentEnvironment: string;
   otlpEndpoint?: string;
+  otlpHeaders: Readonly<Record<string, string>>;
   tracesSampler: string;
   tracesSamplerArg?: string;
   logFilePath?: string;
@@ -42,6 +43,7 @@ export type ObservabilityRuntime = Readonly<{
 const DEFAULT_SERVICE_NAME = "platform-api";
 const DEFAULT_ENVIRONMENT = "local";
 const DEFAULT_OTLP_ENDPOINT = "http://localhost:4318";
+const HEADER_NAME_RE = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
 const SENSITIVE_FIELD_RE = /(authorization|cookie|token|secret|password|email|address|card|key|apiKey)/i;
 const LEVEL_PRIORITY = {
   debug: 10,
@@ -348,6 +350,7 @@ export function loadObservabilityConfig(
     serviceVersion: nonEmpty(env.OTEL_SERVICE_VERSION) ?? defaults.serviceVersion,
     deploymentEnvironment: nonEmpty(env.DEPLOYMENT_ENVIRONMENT) ?? DEFAULT_ENVIRONMENT,
     otlpEndpoint: nonEmpty(env.OTEL_EXPORTER_OTLP_ENDPOINT) ?? DEFAULT_OTLP_ENDPOINT,
+    otlpHeaders: parseOtlpHeaders(env.OTEL_EXPORTER_OTLP_HEADERS),
     tracesSampler: nonEmpty(env.OTEL_TRACES_SAMPLER) ?? "parentbased_traceidratio",
     tracesSamplerArg: nonEmpty(env.OTEL_TRACES_SAMPLER_ARG) ?? (env.NODE_ENV === "production" ? "0.1" : "1.0"),
     logFilePath: nonEmpty(env.LOG_FILE_PATH),
@@ -384,10 +387,12 @@ export function startObservability(config = loadObservabilityConfig()): Observab
     }),
     traceExporter: new OTLPTraceExporter({
       url: `${trimTrailingSlash(config.otlpEndpoint)}/v1/traces`,
+      headers: config.otlpHeaders,
     }),
     metricReader: new PeriodicExportingMetricReader({
       exporter: new OTLPMetricExporter({
         url: `${trimTrailingSlash(config.otlpEndpoint)}/v1/metrics`,
+        headers: config.otlpHeaders,
       }),
     }),
     instrumentations: [
@@ -453,6 +458,7 @@ export function createLogger(config = loadObservabilityConfig()): Logger {
     const line = JSON.stringify(entry);
 
     writeLogFile(config.logFilePath, line);
+    void exportStructuredLog(config, entry);
 
     if (level === "error") {
       console.error(line);
@@ -1219,6 +1225,40 @@ function parseResourceAttributes(value: string | undefined): Readonly<Record<str
   );
 }
 
+export function parseOtlpHeaders(value: string | undefined): Readonly<Record<string, string>> {
+  if (!value?.trim()) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    value
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .flatMap((entry) => {
+        const separatorIndex = entry.indexOf("=");
+        if (separatorIndex <= 0) {
+          return [];
+        }
+
+        const name = entry.slice(0, separatorIndex).trim();
+        if (!HEADER_NAME_RE.test(name)) {
+          return [];
+        }
+
+        return [[name, decodeOtlpHeaderValue(entry.slice(separatorIndex + 1).trim())]];
+      }),
+  );
+}
+
+function decodeOtlpHeaderValue(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
 function trimTrailingSlash(value: string | undefined): string {
   return (value ?? DEFAULT_OTLP_ENDPOINT).replace(/\/+$/, "");
 }
@@ -1254,6 +1294,7 @@ async function warnIfCollectorUnavailable(config: ObservabilityConfig, logger: L
     try {
       await fetch(config.otlpEndpoint, {
         method: "GET",
+        headers: config.otlpHeaders,
         signal: controller.signal,
       });
     } finally {
@@ -1266,6 +1307,123 @@ async function warnIfCollectorUnavailable(config: ObservabilityConfig, logger: L
       error,
     });
   }
+}
+
+async function exportStructuredLog(config: ObservabilityConfig, entry: LogFields): Promise<void> {
+  if (!config.enabled || !config.otlpEndpoint || typeof fetch !== "function") {
+    return;
+  }
+
+  const timestamp = typeof entry.timestamp === "string" ? entry.timestamp : new Date().toISOString();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 1000);
+
+  try {
+    await fetch(`${trimTrailingSlash(config.otlpEndpoint)}/v1/logs`, {
+      method: "POST",
+      headers: {
+        ...config.otlpHeaders,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(otlpLogPayload(config, entry, timestamp)),
+      signal: controller.signal,
+    });
+  } catch {
+    // Structured logging is best effort; application work must not wait on telemetry.
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function otlpLogPayload(config: ObservabilityConfig, entry: LogFields, timestamp: string) {
+  const level = typeof entry.level === "string" ? entry.level : "info";
+  const timeUnixNano = isoToUnixNano(timestamp);
+
+  return {
+    resourceLogs: [
+      {
+        resource: {
+          attributes: objectToOtlpAttributes({
+            "service.name": config.serviceName,
+            "deployment.environment": config.deploymentEnvironment,
+            ...(config.serviceVersion ? { "service.version": config.serviceVersion } : {}),
+            ...config.resourceAttributes,
+          }),
+        },
+        scopeLogs: [
+          {
+            scope: {
+              name: "@chase-sets/observability",
+            },
+            logRecords: [
+              {
+                timeUnixNano,
+                observedTimeUnixNano: timeUnixNano,
+                severityNumber: otlpSeverityNumber(level),
+                severityText: level.toUpperCase(),
+                body: {
+                  stringValue: JSON.stringify(entry),
+                },
+                traceId: typeof entry.traceId === "string" ? entry.traceId : undefined,
+                spanId: typeof entry.spanId === "string" ? entry.spanId : undefined,
+                attributes: objectToOtlpAttributes(entry),
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+}
+
+function isoToUnixNano(value: string): string {
+  const millis = Date.parse(value);
+  if (!Number.isFinite(millis)) {
+    return `${BigInt(Date.now()) * 1000000n}`;
+  }
+
+  return `${BigInt(millis) * 1000000n}`;
+}
+
+function otlpSeverityNumber(level: string): number {
+  switch (level) {
+    case "debug":
+      return 5;
+    case "warn":
+      return 13;
+    case "error":
+      return 17;
+    default:
+      return 9;
+  }
+}
+
+function objectToOtlpAttributes(fields: LogFields): ReadonlyArray<{
+  key: string;
+  value: ReturnType<typeof unknownToOtlpValue>;
+}> {
+  return Object.entries(fields)
+    .filter(([, value]) => value !== undefined)
+    .map(([key, value]) => ({
+      key,
+      value: unknownToOtlpValue(value),
+    }));
+}
+
+function unknownToOtlpValue(value: unknown) {
+  if (typeof value === "string") {
+    return { stringValue: value };
+  }
+
+  if (typeof value === "boolean") {
+    return { boolValue: value };
+  }
+
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Number.isInteger(value) ? { intValue: `${value}` } : { doubleValue: value };
+  }
+
+  return { stringValue: JSON.stringify(value) };
 }
 
 function normalizeRouteTemplate(pathname: string): string {

@@ -34,6 +34,7 @@ and OTLP URLs. Grafana uses local-only default credentials `admin` / `admin`.
 - `OTEL_SERVICE_NAME`: defaults to `platform-api`.
 - `OTEL_SERVICE_VERSION`: deployment version shown in traces and metrics.
 - `OTEL_EXPORTER_OTLP_ENDPOINT`: defaults to `http://localhost:4318`.
+- `OTEL_EXPORTER_OTLP_HEADERS`: comma-separated OTLP HTTP headers for protected collectors, for example `X-Chase-Sets-Observability-Token=<token>`.
 - `OTEL_TRACES_SAMPLER` and `OTEL_TRACES_SAMPLER_ARG`: default to full local sampling and low production ratio.
 - `DEPLOYMENT_ENVIRONMENT`: `local`, `staging`, or `production`.
 - `OTEL_RESOURCE_ATTRIBUTES`: comma-separated resource attributes such as `team=marketplace,region=us-central`.
@@ -46,7 +47,7 @@ The application must continue serving traffic if telemetry export is unavailable
 
 - Traces: Hono requests, Node HTTP/fetch/pg auto-instrumentation, event-store operations, projection/subscription runs, and worker loops.
 - Metrics: request count/duration, event-store operation count/duration, projection/subscription run count/duration, worker run count/duration, read-after-write projection freshness count/duration/pending lag, Catalog integration option-query/job counts, and UCP operation/security/idempotency counts.
-- Logs: JSON stdout with `traceId` and `spanId` when an active span exists. Local dev also mirrors logs to JSONL when `LOG_FILE_PATH` is set so the Collector can tail them into Loki.
+- Logs: JSON stdout with `traceId` and `spanId` when an active span exists. The shared logger also exports sanitized structured logs to OTLP `/v1/logs` when observability is enabled. Local dev can also mirror logs to JSONL when `LOG_FILE_PATH` is set so the Collector can tail them into Loki.
 
 Do not log request bodies, cookies, authorization headers, provider secrets, emails, addresses, card data, or raw customer payloads.
 
@@ -68,19 +69,66 @@ Starter alerts intentionally stay low-noise:
 
 Add SLO burn-rate alerts only after production traffic establishes realistic latency and availability baselines.
 
-## Production Notes
+## Staging And Production Access
 
-The checked-in stack uses short local retention. Production should set explicit persistent volumes, credentials, and retention:
+Production observability topology is owned by [ADR 0011: Production Observability Stack](../adr/0011-production-observability-stack.md).
+Staging rehearses the same shape before production enablement.
 
-- Prometheus/Mimir retention based on cost and operational needs;
-- Loki retention for incident review windows;
-- Tempo retention for trace sampling volume;
-- no anonymous Grafana access;
+Use Grafana for telemetry questions: request rates, latency, projection freshness metrics, push-wake pipeline latency, traces, and log correlation. Use Admin Platform Operations for application read models and operator actions:
+
+- Staging Grafana: `https://grafana.staging.chasesets.com`
+- Staging OTLP endpoint: `https://otel.staging.chasesets.com`
+- Staging Prometheus query endpoint: `https://prometheus.staging.chasesets.com`
+- Staging Projection Operations: `https://admin.staging.chasesets.com/platform/projections`
+- Staging Push Wakes: `https://admin.staging.chasesets.com/platform/projections?tab=wake`
+- Staging Release Dashboard: `https://admin.staging.chasesets.com/platform/release-dashboard`
+- Production Grafana: `https://grafana.chasesets.com`
+- Production OTLP endpoint: `https://otel.chasesets.com`
+- Production Prometheus query endpoint: `https://prometheus.chasesets.com`
+- Production Projection Operations: `https://admin.chasesets.com/platform/projections`
+- Production Push Wakes: `https://admin.chasesets.com/platform/projections?tab=wake`
+- Production Release Dashboard: `https://admin.chasesets.com/platform/release-dashboard`
+
+Grafana access requirements:
+
+- no anonymous access in staging or production;
+- no local `admin` / `admin` credentials outside local development;
+- credentials or SSO come from environment/secret management;
+- Prometheus-compatible query access for release automation uses a separate scoped credential;
+- OTLP ingestion uses a write credential and must not be publicly writable without authentication.
+
+The checked-in local stack uses short retention. Staging and production must set explicit persistent volumes, credentials, and retention:
+
+- Prometheus-compatible metrics retention based on cost and operational needs;
+- Loki-compatible log retention for the incident review window;
+- Tempo-compatible trace retention for sampling volume;
+- Grafana state persistence and backup/restore posture;
 - credentials supplied by environment or secret management.
+
+Provision staging and production with `infrastructure/digitalocean/observability` before enabling App Platform telemetry export. Use backend keys `observability/staging.tfstate` and `observability/production.tfstate`. The root outputs the exact GitHub values to set:
+
+- `app_platform_otlp_headers` -> `OBSERVABILITY_OTLP_HEADERS` secret in the matching GitHub environment.
+- `canary_prometheus_url` -> `CANARY_PROMETHEUS_URL` variable.
+- `canary_prometheus_headers` -> `CANARY_PROMETHEUS_HEADERS` secret.
+
+The platform deploy workflow defaults `OTEL_EXPORTER_OTLP_ENDPOINT` to `https://otel.staging.chasesets.com` or `https://otel.chasesets.com`. Set `OBSERVABILITY_OTLP_ENDPOINT` only when using a different endpoint.
+
+Missing telemetry is an operations incident. Do not page customer-facing route owners until you determine whether the application signal is actually degraded or the observability pipeline is missing data. First check whether the affected service still serves traffic, then inspect the collector/backend health, then verify the deployable's `OBSERVABILITY_ENABLED`, `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME`, `OTEL_SERVICE_VERSION`, `DEPLOYMENT_ENVIRONMENT`, sampler settings, and resource attributes.
 
 Metric labels must stay bounded: service, environment, route template, method, status class, context, event type, projector/subscription name, and provider. Never use account, user, listing, order, payment, shipment, or session ids as metric labels.
 
 Projection freshness metrics add only bounded labels: `mount_path`, `route_path`, `target_context`, `projection`, `source_context`, `outcome`, `wait_mode`, receipt/header status, runner state, and sanitized `last_error` presence. They must not include raw URLs, path parameters, checkout session ids, account ids, user ids, guest emails, cookies, event ids, or `afterWrite` token values.
+
+## Production Canary Queries
+
+Production release canary telemetry uses the Prometheus-compatible query endpoint selected by ADR 0011. Configure the production GitHub Environment with:
+
+- `CANARY_PROMETHEUS_URL`: base URL for the protected query endpoint.
+- `CANARY_PROMETHEUS_QUERY_FILE`: repository-relative query file, currently `bounded-contexts/platform-operations/features/release-dashboard/read-model/canary-prometheus-queries.json`.
+- `CANARY_OBSERVATION_WINDOW_SECONDS`: defaults to `300`.
+- `CANARY_PROMETHEUS_HEADERS` (secret): JSON object of query headers, for example `{"X-Chase-Sets-Observability-Query":"<token>"}`.
+
+Keep credentials out of `CANARY_PROMETHEUS_URL`; use `CANARY_PROMETHEUS_HEADERS` for bearer, basic, tenant, or gateway-specific query credentials. The canary collector fails closed when required signals are missing or above threshold.
 
 ## Projection Freshness Queries
 
