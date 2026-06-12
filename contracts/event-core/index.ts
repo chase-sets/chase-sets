@@ -6,4 +6,5 @@ export * from "./domain";
 export * from "./event-store";
 export * from "./projector";
 export * from "./storage";
+export * from "./stream-id";
 export * from "./transport";

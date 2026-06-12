@@ -1,6 +1,6 @@
 import { resolveProjectionDb, type ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { extractIdFromStreamId } from "../../../support/projection-support/extract-id-from-stream";
+import { extractIdFromStreamId } from "@chase-sets/event-core";
 import { resolveLocalizedTextMap, type LocalizedTextMap } from "../../../support/runtime-support/common";
 
 const STREAM_PREFIX = "catalog.display-template-";

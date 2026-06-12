@@ -1,9 +1,9 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import { extractIdFromStreamId } from "@chase-sets/event-core";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import {
   CATALOG_ITEM_STREAM_PREFIX,
   buildCatalogMirrorProjectionHandlers,
-  extractIdFromStreamId,
 } from "@chase-sets/event-core-postgres/catalog-mirror";
 
 export function buildInventoryCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {

@@ -1,5 +1,8 @@
+import { extractIdFromStreamId } from "@chase-sets/event-core";
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+
+const PRODUCT_ALERT_STREAM_PREFIX = "discovery.product-alert-";
 
 export function buildProductAlertPageProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
@@ -60,7 +63,7 @@ export function buildProductAlertPageProjectionHandlers(db: PgQueryable): Projec
          SET status = 'paused',
              updated_at = $2
          WHERE alert_id = $1`,
-        [alertIdFromStream(event.streamId), event.timing.recordedAt],
+        [extractIdFromStreamId(event.streamId, PRODUCT_ALERT_STREAM_PREFIX), event.timing.recordedAt],
       );
     },
     "discovery.product-alert.resumed": async (event) => {
@@ -69,7 +72,7 @@ export function buildProductAlertPageProjectionHandlers(db: PgQueryable): Projec
          SET status = 'active',
              updated_at = $2
          WHERE alert_id = $1`,
-        [alertIdFromStream(event.streamId), event.timing.recordedAt],
+        [extractIdFromStreamId(event.streamId, PRODUCT_ALERT_STREAM_PREFIX), event.timing.recordedAt],
       );
     },
     "discovery.product-alert.deleted": async (event) => {
@@ -78,16 +81,8 @@ export function buildProductAlertPageProjectionHandlers(db: PgQueryable): Projec
          SET status = 'deleted',
              updated_at = $2
          WHERE alert_id = $1`,
-        [alertIdFromStream(event.streamId), event.timing.recordedAt],
+        [extractIdFromStreamId(event.streamId, PRODUCT_ALERT_STREAM_PREFIX), event.timing.recordedAt],
       );
     },
   };
-}
-
-function alertIdFromStream(streamId: string) {
-  const prefix = "discovery.product-alert-";
-  if (!streamId.startsWith(prefix)) {
-    throw new Error(`Unexpected Product Alert stream id '${streamId}'.`);
-  }
-  return streamId.slice(prefix.length);
 }

@@ -1,6 +1,6 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { extractIdFromStreamId } from "../../../support/read-model-support/extract-id-from-stream";
+import { extractIdFromStreamId } from "@chase-sets/event-core";
 import { accountBadgeKeys, type AccountBadgeKey } from "../domain/domain";
 
 const STREAM_PREFIX = "identity.account-";

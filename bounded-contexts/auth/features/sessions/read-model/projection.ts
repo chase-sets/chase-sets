@@ -1,14 +1,7 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import { extractIdFromStreamId } from "@chase-sets/event-core";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { AUTH_SESSION_STREAM_PREFIX } from "../domain/auth-flow";
-
-function extractIdFromStreamId(streamId: string, prefix: string) {
-  if (!streamId.startsWith(prefix)) {
-    throw new Error(`Expected stream ID ${streamId} to start with ${prefix}.`);
-  }
-
-  return streamId.slice(prefix.length);
-}
 
 export function buildSessionProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {

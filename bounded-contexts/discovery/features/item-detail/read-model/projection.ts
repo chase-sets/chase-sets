@@ -1,11 +1,6 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
-import {
-  asArray,
-  asStringArray,
-  extractIdFromStreamId,
-  loadNameMap,
-  type PgQueryable,
-} from "@chase-sets/event-core-postgres";
+import { extractIdFromStreamId } from "@chase-sets/event-core";
+import { asArray, asStringArray, loadNameMap, type PgQueryable } from "@chase-sets/event-core-postgres";
 import { uniqueStrings } from "../../../support/item-support/unique-strings";
 import {
   findCatalogItemIdsByReferenceRecord,
