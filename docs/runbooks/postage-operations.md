@@ -136,7 +136,7 @@ The redacted [Marketplace Launch Evidence](./marketplace-launch-evidence.md) pac
 
 The rehearsal record must include:
 
-1. EasyPost production mode is configured for production promotion with a live EasyPost key, `EASYPOST_MODE=production`, `EASYPOST_WEBHOOK_SECRET`, and no non-default `EASYPOST_API_BASE_URL` unless the provider has approved it.
+1. EasyPost production mode is configured for production promotion with a live EasyPost key, `EASYPOST_MODE=production`, `EASYPOST_WEBHOOK_SECRET`, and no non-default `EASYPOST_API_BASE_URL` in production.
 2. A low-risk parcel label is purchased through the seller shipment workflow, using the Ordering-committed Package Plan as the default dimensions and weight.
 3. The shipment timeline and read model store provider-neutral label references, tracking identifiers, selected rate, label document URL, and provider metadata without leaking EasyPost internals into Ordering, Payments, or Settlement.
 4. The purchased label is voided through the Fulfillment workflow, provider refund metadata is retained, and the shipment returns to awaiting-label state.

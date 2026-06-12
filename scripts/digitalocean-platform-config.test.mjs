@@ -1030,6 +1030,12 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).toContain(
       "Production marketplace platform deployment requires EASYPOST_MODE=production.",
     );
+    expect(platformProductionWorkflow).toContain(
+      "Production marketplace platform deployment requires STRIPE_API_BASE_URL to be unset.",
+    );
+    expect(platformProductionWorkflow).toContain(
+      "Production marketplace platform deployment requires EASYPOST_API_BASE_URL to be unset.",
+    );
     expect(platformProductionWorkflow).toContain("Missing required production Google Workspace SSO configuration");
     expect(platformProductionWorkflow).toContain(
       "Production marketplace proof mode requires an evidence-collection approval reference.",

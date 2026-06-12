@@ -150,6 +150,7 @@ describe("marketplace production launch readiness", () => {
         variable("ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS", "example.com"),
         variable("SES_CONFIGURATION_SET_NAME", "transactional-staging"),
         variable("STRIPE_API_BASE_URL", "https://stripe.test"),
+        variable("EASYPOST_API_BASE_URL", "https://api.easypost.test"),
         variable("EASYPOST_MODE", "test"),
       ],
       secrets: REQUIRED_LAUNCH_SECRETS.map(secret),
@@ -171,9 +172,8 @@ describe("marketplace production launch readiness", () => {
       "SES_CONFIGURATION_SET_NAME must be transactional-production for final public launch readiness.",
     );
     expect(readiness.errors).toContain("EASYPOST_MODE must be production when set for final public launch readiness.");
-    expect(readiness.errors).toContain(
-      "STRIPE_API_BASE_URL must be unset for final public launch unless an approved provider exception exists.",
-    );
+    expect(readiness.errors).toContain("STRIPE_API_BASE_URL must be unset for final public launch.");
+    expect(readiness.errors).toContain("EASYPOST_API_BASE_URL must be unset for final public launch.");
   });
 
   it("resolves input paths from flags and environment", () => {

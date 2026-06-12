@@ -138,12 +138,10 @@ export function buildProductionProofReadiness(input) {
     errors.push("EASYPOST_MODE must be production when set for private production proof readiness.");
   }
   if (variables.STRIPE_API_BASE_URL) {
-    errors.push("STRIPE_API_BASE_URL must be unset for production proof unless an approved provider exception exists.");
+    errors.push("STRIPE_API_BASE_URL must be unset for production proof.");
   }
   if (variables.EASYPOST_API_BASE_URL) {
-    errors.push(
-      "EASYPOST_API_BASE_URL must be unset for production proof unless an approved provider exception exists.",
-    );
+    errors.push("EASYPOST_API_BASE_URL must be unset for production proof.");
   }
 
   return {

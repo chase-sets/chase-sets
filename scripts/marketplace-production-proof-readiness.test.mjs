@@ -266,6 +266,7 @@ describe("marketplace production proof readiness", () => {
         variable("ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS", "example.com"),
         variable("SES_CONFIGURATION_SET_NAME", "transactional-staging"),
         variable("STRIPE_API_BASE_URL", "https://stripe.test"),
+        variable("EASYPOST_API_BASE_URL", "https://api.easypost.test"),
         variable("EASYPOST_MODE", "test"),
       ],
       secrets: REQUIRED_PROOF_SECRETS.map(secret),
@@ -292,9 +293,8 @@ describe("marketplace production proof readiness", () => {
     expect(readiness.errors).toContain(
       "EASYPOST_MODE must be production when set for private production proof readiness.",
     );
-    expect(readiness.errors).toContain(
-      "STRIPE_API_BASE_URL must be unset for production proof unless an approved provider exception exists.",
-    );
+    expect(readiness.errors).toContain("STRIPE_API_BASE_URL must be unset for production proof.");
+    expect(readiness.errors).toContain("EASYPOST_API_BASE_URL must be unset for production proof.");
   });
 
   it("rejects short or launch-placeholder proof references", () => {
