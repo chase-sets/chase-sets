@@ -824,8 +824,17 @@ describe("DigitalOcean platform configuration", () => {
       "CANARY_PROMETHEUS_QUERY_FILE: ${{ vars.CANARY_PROMETHEUS_QUERY_FILE || '' }}",
     );
     expect(platformProductionWorkflow).toContain("vars.CANARY_PROMETHEUS_ENABLED == 'true'");
-    expect(platformProductionWorkflow).toContain(
-      "run: node ./scripts/canary-evidence.mjs --source-file artifacts/release-health/stage1-production-canary-telemetry.json",
+    const canaryEvidenceStep = workflowStep(
+      platformProductionWorkflow,
+      "Collect production canary observability evidence",
+    );
+    expect(canaryEvidenceStep).toContain("node ./scripts/canary-evidence.mjs");
+    expect(canaryEvidenceStep).toContain(
+      "--source-file artifacts/release-health/stage1-production-canary-telemetry.json",
+    );
+    expect(canaryEvidenceStep).toContain("--source-file artifacts/release-health/production-readiness-gate.json");
+    expect(canaryEvidenceStep).toContain(
+      "--source-file artifacts/release-health/production-settlement-provider-health-canary.json",
     );
     const settlementProviderHealthCanaryStep = workflowStep(
       platformProductionWorkflow,

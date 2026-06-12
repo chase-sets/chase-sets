@@ -351,6 +351,115 @@ describe("canary evidence collector", () => {
     expect(result.analysis.passesCanaryAnalysisGate).toBe(true);
   });
 
+  it("lets direct production proof artifacts satisfy required release-health signals", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "chase-sets-canary-direct-proof-"));
+    const queryFile = join(directory, "queries.json");
+    const stage1SourceFile = join(directory, "stage1.json");
+    const readinessSourceFile = join(directory, "readiness.json");
+    const settlementSourceFile = join(directory, "settlement.json");
+
+    await writeFile(
+      queryFile,
+      `${JSON.stringify({
+        signals: [
+          {
+            name: "observability-transport",
+            owner: "infrastructure/observability",
+            source: "Prometheus scrape health",
+            baselineQuery: "transport_baseline",
+            canaryQuery: "transport_canary",
+            maxIncrease: 0,
+          },
+          {
+            name: "projection-lag-poison-events",
+            owner: "owning-bounded-context/platform-operations",
+            source: "Prometheus projection telemetry",
+            baselineQuery: "projection_baseline",
+            canaryQuery: "projection_canary",
+            maxIncrease: 0,
+          },
+          {
+            name: "settlement-payout-errors",
+            owner: "settlement",
+            source: "Prometheus settlement telemetry",
+            baselineQuery: "settlement_baseline",
+            canaryQuery: "settlement_canary",
+            maxIncrease: 0,
+          },
+        ],
+      })}\n`,
+    );
+    await writeFile(
+      stage1SourceFile,
+      `${JSON.stringify({
+        signals: {
+          "app-platform-deployment-phase": {
+            owner: "infrastructure/deployment-workflow",
+            source: "GitHub Actions Stage 1 production canary",
+            status: "pass",
+          },
+        },
+      })}\n`,
+    );
+    await writeFile(
+      readinessSourceFile,
+      `${JSON.stringify({
+        schemaVersion: "production-readiness-gate/v1",
+        outcome: "ready",
+        readyAfterMs: 576,
+        sourceContexts: ["checkout"],
+      })}\n`,
+    );
+    await writeFile(
+      settlementSourceFile,
+      `${JSON.stringify({
+        schemaVersion: "production-settlement-provider-health-canary/v1",
+        status: "pass",
+        providerName: "stripe",
+        endpoint: "/api/settlement/provider-health",
+      })}\n`,
+    );
+
+    const result = await collectCanaryEvidence({
+      releaseCommit,
+      checkedAt: "2026-06-01T12:00:00.000Z",
+      observationWindowSeconds: 300,
+      sourceFiles: [stage1SourceFile, readinessSourceFile, settlementSourceFile],
+      prometheusBaseUrl: "https://prometheus.example",
+      prometheusQueryFile: queryFile,
+      fetchImpl: async (url) => {
+        const query = url.searchParams.get("query");
+        return {
+          ok: true,
+          json: async () => {
+            if (query === "settlement_canary") {
+              return { status: "success", data: { resultType: "vector", result: [] } };
+            }
+            return {
+              status: "success",
+              data: {
+                resultType: "scalar",
+                result: [1_802_000_000, query === "projection_canary" ? "0.1" : "0"],
+              },
+            };
+          },
+        };
+      },
+    });
+
+    expect(result.evidence.signals.find((signal) => signal.name === "projection-lag-poison-events")).toMatchObject({
+      status: "pass",
+      source: "Production post-deploy readiness gate",
+      detail: expect.stringContaining("checkout projections converged"),
+    });
+    expect(result.evidence.signals.find((signal) => signal.name === "settlement-payout-errors")).toMatchObject({
+      status: "pass",
+      source: "Production settlement provider-health telemetry canary",
+      detail: expect.stringContaining("/api/settlement/provider-health"),
+    });
+    expect(result.analysis.passesCanaryAnalysisGate).toBe(true);
+  });
+
   it("validates Prometheus signal ownership and thresholds before querying", () => {
     expect(
       validatePrometheusSignalConfig({
