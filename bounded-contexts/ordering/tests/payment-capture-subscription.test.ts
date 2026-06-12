@@ -25,7 +25,7 @@ function createServices(
 ): OrderingServices {
   return {
     db: {
-      query: async (text, values) => {
+      query: async (text: string, values?: readonly unknown[]) => {
         queryCalls.push({ text, values });
         return { rows: [], rowCount: 1 };
       },
@@ -38,9 +38,9 @@ function createServices(
 }
 
 function getPaymentCapturedHandler(services: OrderingServices) {
-  const subscription = orderingModule
-    .buildSubscriptions(services)
-    .find((candidate) => candidate.subscriptionName === "ordering.payment-capture");
+  const subscription = (orderingModule.buildSubscriptions?.(services) ?? []).find(
+    (candidate) => candidate.subscriptionName === "ordering.payment-capture",
+  );
   const handler = subscription?.handlers["payments.payment-captured"];
 
   if (!handler) {
@@ -83,7 +83,7 @@ function createPaymentCapturedEvent(orderIds: readonly string[]): TransportEvent
       occurredAt: capturedAt,
       recordedAt: capturedAt,
     },
-  } as TransportEvent;
+  } as unknown as TransportEvent;
 }
 
 describe("ordering payment-capture subscription", () => {
