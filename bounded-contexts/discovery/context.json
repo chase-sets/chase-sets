@@ -348,8 +348,7 @@
       "source": {
         "routeId": "item-detail",
         "actions": ["Add item detail product intent to Checkout"],
-        "command": "Checkout handoff from Discovery item detail",
-        "helperUses": ["appendFreshWriteToken"]
+        "command": "Checkout handoff from Discovery item detail"
       },
       "destination": {
         "routeId": "item-detail",
@@ -359,7 +358,9 @@
         "status": "not-post-write-read",
         "owner": "discovery",
         "reviewBy": "2026-07-31",
-        "reason": "The post-write destination is Checkout-owned and tracked by Checkout freshness entries; Discovery does not read its own just-written projection here."
+        "reason": "The post-write destination is Checkout-owned and tracked by Checkout freshness entries; Discovery does not read its own just-written projection here.",
+        "helperUses": ["appendFreshWriteToken"],
+        "files": ["bounded-contexts/discovery/support/request-support/item-detail/action.ts"]
       }
     }
   ],

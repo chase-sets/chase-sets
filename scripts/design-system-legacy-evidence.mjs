@@ -242,7 +242,7 @@ const surfaceChecks = [
   {
     id: "discovery-commerce-comparison-list",
     owner: "Discovery",
-    file: "bounded-contexts/discovery/features/item-detail/ui/item-detail-page.tsx",
+    file: "bounded-contexts/discovery/features/item-detail/ui/item-detail-market-book.tsx",
     visualEvidence: [
       "Listing and offer rows use design-system comparison-list primitives for responsive price/account/product/action layout.",
     ],
