@@ -109,9 +109,12 @@ describe("auth identity user projection contact methods", () => {
         verifiedAt: null,
       },
     ];
+    const verifiedContactMethods = contactMethods.map((method) =>
+      method.contactMethodId === "cm_phone_backup" ? { ...method, verifiedAt: "2026-06-12T11:00:00.000Z" } : method,
+    );
     const query = vi.fn(async (sql: string, _params?: readonly unknown[]) => {
-      if (sql.includes("SELECT contact_methods")) {
-        return { rows: [{ contact_methods: contactMethods }] };
+      if (sql.includes("RETURNING contact_methods")) {
+        return { rows: [{ contact_methods: verifiedContactMethods }] };
       }
 
       return { rows: [] };

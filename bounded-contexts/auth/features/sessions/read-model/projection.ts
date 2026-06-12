@@ -1,6 +1,6 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import { extractIdFromStreamId } from "@chase-sets/event-core";
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { transitionStatus, updateRow, upsertRow, type PgQueryable } from "@chase-sets/event-core-postgres";
 import { AUTH_SESSION_STREAM_PREFIX } from "../domain/auth-flow";
 
 export function buildSessionProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
@@ -15,87 +15,90 @@ export function buildSessionProjectionHandlers(db: PgQueryable): ProjectorHandle
           authenticationMethod: string;
           expiresAt: string;
         };
-      await db.query(
-        `INSERT INTO identity_sessions (
-           session_id,
-           user_id,
-           account_id,
-           available_account_ids,
-           authentication_method,
-           status,
-           expires_at,
-           updated_at
-         )
-         VALUES ($1, $2, $3, $4::jsonb, $5, 'active', $6, $7)
-         ON CONFLICT (session_id) DO UPDATE
-         SET user_id = $2,
-             account_id = $3,
-             available_account_ids = $4::jsonb,
-             authentication_method = $5,
-             status = 'active',
-             expires_at = $6,
-             updated_at = $7`,
-        [
-          sessionId,
-          userId,
-          accountId,
-          JSON.stringify(availableAccountIds),
-          authenticationMethod,
-          expiresAt,
-          event.timing.recordedAt,
+      await upsertRow(db, {
+        table: "identity_sessions",
+        insertColumns: [
+          "session_id",
+          "user_id",
+          "account_id",
+          "available_account_ids",
+          "authentication_method",
+          "status",
+          "expires_at",
+          "updated_at",
         ],
-      );
+        conflictColumns: ["session_id"],
+        values: {
+          session_id: sessionId,
+          user_id: userId,
+          account_id: accountId,
+          available_account_ids: availableAccountIds,
+          authentication_method: authenticationMethod,
+          status: "active",
+          expires_at: expiresAt,
+          updated_at: event.timing.recordedAt,
+        },
+        casts: { available_account_ids: "jsonb" },
+      });
     },
     "auth.session.account-switched": async (event) => {
       const sessionId = extractIdFromStreamId(event.streamId, AUTH_SESSION_STREAM_PREFIX);
-      await db.query(
-        `UPDATE identity_sessions
-         SET account_id = $2,
-             updated_at = $3
-         WHERE session_id = $1`,
-        [sessionId, (event.data as { accountId: string }).accountId, event.timing.recordedAt],
-      );
-      await db.query(
-        `UPDATE identity_session_lookup
-         SET account_id = $2,
-             updated_at = $3
-         WHERE session_id = $1`,
-        [sessionId, (event.data as { accountId: string }).accountId, event.timing.recordedAt],
-      );
+      const { accountId } = event.data as { accountId: string };
+      const values = {
+        account_id: accountId,
+        updated_at: event.timing.recordedAt,
+      };
+      const where = {
+        columns: ["session_id"],
+        values: { session_id: sessionId },
+      } as const;
+
+      await updateRow(db, {
+        table: "identity_sessions",
+        setColumns: ["account_id", "updated_at"],
+        values,
+        where,
+      });
+      await updateRow(db, {
+        table: "identity_session_lookup",
+        setColumns: ["account_id", "updated_at"],
+        values,
+        where,
+      });
     },
     "auth.session.revoked": async (event) => {
       const sessionId = extractIdFromStreamId(event.streamId, AUTH_SESSION_STREAM_PREFIX);
-      await db.query(
-        `UPDATE identity_sessions
-         SET status = 'revoked',
-             updated_at = $2
-         WHERE session_id = $1`,
-        [sessionId, event.timing.recordedAt],
-      );
-      await db.query(
-        `UPDATE identity_session_lookup
-         SET status = 'revoked',
-             updated_at = $2
-         WHERE session_id = $1`,
-        [sessionId, event.timing.recordedAt],
-      );
+      await transitionStatus(db, {
+        table: "identity_sessions",
+        idColumn: "session_id",
+        id: sessionId,
+        status: "revoked",
+        updatedAt: event.timing.recordedAt,
+      });
+      await transitionStatus(db, {
+        table: "identity_session_lookup",
+        idColumn: "session_id",
+        id: sessionId,
+        status: "revoked",
+        updatedAt: event.timing.recordedAt,
+      });
     },
     "auth.session.expired": async (event) => {
       const sessionId = extractIdFromStreamId(event.streamId, AUTH_SESSION_STREAM_PREFIX);
-      await db.query(
-        `UPDATE identity_sessions
-         SET status = 'expired',
-             updated_at = $2
-         WHERE session_id = $1`,
-        [sessionId, event.timing.recordedAt],
-      );
-      await db.query(
-        `UPDATE identity_session_lookup
-         SET status = 'expired',
-             updated_at = $2
-         WHERE session_id = $1`,
-        [sessionId, event.timing.recordedAt],
-      );
+      await transitionStatus(db, {
+        table: "identity_sessions",
+        idColumn: "session_id",
+        id: sessionId,
+        status: "expired",
+        updatedAt: event.timing.recordedAt,
+      });
+      await transitionStatus(db, {
+        table: "identity_session_lookup",
+        idColumn: "session_id",
+        id: sessionId,
+        status: "expired",
+        updatedAt: event.timing.recordedAt,
+      });
     },
   };
 }
