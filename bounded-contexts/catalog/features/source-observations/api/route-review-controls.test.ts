@@ -127,8 +127,10 @@ describe("source observation routes: review and control-plane reads", () => {
       ["/source-observations/obs_1/reject", { method: "POST", body: "{}" }],
     ];
 
-    for (const [path, init] of requests) {
-      const response = await app.request(path, init);
+    const responses = await Promise.all(
+      requests.map(async ([path, init]) => ({ path, response: await app.request(path, init) })),
+    );
+    for (const { path, response } of responses) {
       expect(response.status, path).toBe(403);
     }
     expect(services.enqueueIntegrationJob).not.toHaveBeenCalled();

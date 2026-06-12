@@ -40,7 +40,7 @@ function delayedAdminQuery(itemIds: readonly string[] = ["cat_1"]) {
     activeQueries += 1;
     maxActiveQueries = Math.max(maxActiveQueries, activeQueries);
 
-    await new Promise((resolve) => setTimeout(resolve, 1));
+    await Promise.resolve();
     activeQueries -= 1;
 
     if (sql.includes("FROM catalog_items WHERE catalog_item_id = ANY($1)")) {

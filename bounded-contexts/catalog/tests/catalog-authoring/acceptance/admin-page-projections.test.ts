@@ -804,25 +804,27 @@ describe("Admin page projections", () => {
       type: "PublishBlueprint",
     });
 
-    for (const itemId of [validItemId, invalidItemId]) {
-      await sendCommand(services.items.commandHandler, `catalog.item-${itemId}`, {
-        type: "CreateCatalogItem",
-        itemId: itemId as never,
-        title: l10n(itemId === validItemId ? "Valid Import" : "Invalid Import"),
-        subtitle: null,
-        description: l10n("Imported draft"),
-      });
-      await sendCommand(services.items.commandHandler, `catalog.item-${itemId}`, {
-        type: "AssignBlueprintToCatalogItem",
-        blueprintId,
-      });
-      await sendCommand(services.items.commandHandler, `catalog.item-${itemId}`, {
-        type: "LinkExternalProductReference",
-        providerKey: "tcgplayer",
-        externalKey: itemId,
-        selectedOptions: [],
-      });
-    }
+    await Promise.all(
+      [validItemId, invalidItemId].map(async (itemId) => {
+        await sendCommand(services.items.commandHandler, `catalog.item-${itemId}`, {
+          type: "CreateCatalogItem",
+          itemId: itemId as never,
+          title: l10n(itemId === validItemId ? "Valid Import" : "Invalid Import"),
+          subtitle: null,
+          description: l10n("Imported draft"),
+        });
+        await sendCommand(services.items.commandHandler, `catalog.item-${itemId}`, {
+          type: "AssignBlueprintToCatalogItem",
+          blueprintId,
+        });
+        await sendCommand(services.items.commandHandler, `catalog.item-${itemId}`, {
+          type: "LinkExternalProductReference",
+          providerKey: "tcgplayer",
+          externalKey: itemId,
+          selectedOptions: [],
+        });
+      }),
+    );
 
     await sendCommand(services.items.commandHandler, `catalog.item-${validItemId}`, {
       type: "SetCatalogItemFieldValue",
