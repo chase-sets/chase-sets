@@ -153,16 +153,17 @@ describe("DigitalOcean platform configuration", () => {
     const platformBootstrapJob = terraformJobBlock(platformMain, "platform-bootstrap");
     const adminSupportBootstrapJob = terraformJobBlock(platformMain, "admin-support-bootstrap");
 
+    expect(platformMain).toContain(
+      'dynamic "job" {\n      for_each = local.marketplace_platform_enabled ? [] : [1]\n      content {\n        name               = "admin-support-bootstrap"',
+    );
+    expect(platformMain).toContain("admin-support-bootstrap remains only for landing-only production");
     for (const key of ["PLATFORM_ADMIN_EMAIL", "PLATFORM_ADMIN_PASSWORD", "PLATFORM_ADMIN_DISPLAY_NAME"]) {
       expect(platformBootstrapJob).toContain(`key   = "${key}"`);
       expect(adminSupportBootstrapJob).toContain(`key   = "${key}"`);
     }
 
     expect(platformBootstrapJob).not.toContain("local.marketplace_platform_enabled ? [] : [1]");
-    expect(occurrenceCount(adminSupportBootstrapJob, "for_each = local.marketplace_platform_enabled ? [] : [1]")).toBe(
-      3,
-    );
-    expect(adminSupportBootstrapJob).toContain("it owns deterministic platform admin");
+    expect(adminSupportBootstrapJob).not.toContain("local.marketplace_platform_enabled ? [] : [1]");
   });
 
   it("keeps shared Catalog asset buckets and CDN domains in their own stable root", () => {
@@ -724,7 +725,7 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(platformMain).toContain("for_each = local.marketplace_platform_enabled ? [1] : []");
     expect(platformMain).toContain("for_each = local.marketplace_web_enabled ? [1] : []");
-    expect(platformMain).toContain("for_each = local.marketplace_public_enabled ? [] : [1]");
+    expect(platformMain).toContain("for_each = local.marketplace_platform_enabled ? [] : [1]");
     expect(platformMain).toContain("for_each = local.provider_webhook_ingress_routes");
     expect(platformMain).toContain("for_each = local.proof_api_ingress_routes");
     expect(platformMain).toContain("for_each = local.proof_admin_api_ingress_routes");

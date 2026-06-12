@@ -1833,8 +1833,10 @@ resource "digitalocean_app" "platform" {
       }
     }
 
+    # platform-bootstrap owns production marketplace proof/public bootstrapping.
+    # admin-support-bootstrap remains only for landing-only production.
     dynamic "job" {
-      for_each = local.marketplace_public_enabled ? [] : [1]
+      for_each = local.marketplace_platform_enabled ? [] : [1]
       content {
         name               = "admin-support-bootstrap"
         kind               = "PRE_DEPLOY"
@@ -1905,35 +1907,24 @@ resource "digitalocean_app" "platform" {
           scope = "RUN_TIME"
         }
 
-        # When platform-bootstrap is present, it owns deterministic platform admin
-        # reconciliation so concurrent PRE_DEPLOY jobs cannot race the same streams.
-        dynamic "env" {
-          for_each = local.marketplace_platform_enabled ? [] : [1]
-          content {
-            key   = "PLATFORM_ADMIN_EMAIL"
-            value = var.platform_admin_email
-            type  = "SECRET"
-            scope = "RUN_TIME"
-          }
+        env {
+          key   = "PLATFORM_ADMIN_EMAIL"
+          value = var.platform_admin_email
+          type  = "SECRET"
+          scope = "RUN_TIME"
         }
 
-        dynamic "env" {
-          for_each = local.marketplace_platform_enabled ? [] : [1]
-          content {
-            key   = "PLATFORM_ADMIN_PASSWORD"
-            value = var.platform_admin_password
-            type  = "SECRET"
-            scope = "RUN_TIME"
-          }
+        env {
+          key   = "PLATFORM_ADMIN_PASSWORD"
+          value = var.platform_admin_password
+          type  = "SECRET"
+          scope = "RUN_TIME"
         }
 
-        dynamic "env" {
-          for_each = local.marketplace_platform_enabled ? [] : [1]
-          content {
-            key   = "PLATFORM_ADMIN_DISPLAY_NAME"
-            value = var.platform_admin_display_name
-            scope = "RUN_TIME"
-          }
+        env {
+          key   = "PLATFORM_ADMIN_DISPLAY_NAME"
+          value = var.platform_admin_display_name
+          scope = "RUN_TIME"
         }
 
         env {
