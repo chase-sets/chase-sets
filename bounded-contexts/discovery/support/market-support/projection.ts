@@ -1,5 +1,5 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { extractIdFromStreamId, type PgQueryable } from "@chase-sets/event-core-postgres";
 import { recordRealtimeProjectionPatch, type RealtimeProjectionPatch } from "@chase-sets/platform-runtime/realtime";
 import {
   createDiscoveryAccountRemovePatch,
@@ -16,14 +16,6 @@ import { createMarketplaceSlug, rememberSlugRedirect } from "../runtime-support/
 
 const ACCOUNT_STREAM_PREFIX = "identity.account-";
 const MARKETPLACE_LISTING_STREAM_PREFIX = "marketplace.listing-";
-
-function extractIdFromStreamId(streamId: string, prefix: string): string {
-  if (!streamId.startsWith(prefix)) {
-    throw new Error(`Stream ID "${streamId}" does not start with prefix "${prefix}".`);
-  }
-
-  return streamId.slice(prefix.length);
-}
 
 async function loadRealtimeListing(db: PgQueryable, listingId: string) {
   const result = await db.query<{

@@ -1,5 +1,11 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import {
+  asArray,
+  asStringArray,
+  extractIdFromStreamId,
+  loadNameMap,
+  type PgQueryable,
+} from "@chase-sets/event-core-postgres";
 import { localizedTextMapValues } from "@chase-sets/localization";
 import { normalizeSimpleSearchText } from "../domain/normalization";
 import { uniqueStrings } from "../../../support/item-support/unique-strings";
@@ -76,41 +82,6 @@ type CatalogItemDisplayIdentityResolvedEventData = Readonly<{
   title: string;
   subtitle?: string | null;
 }>;
-
-function extractIdFromStreamId(streamId: string, prefix: string): string {
-  if (!streamId.startsWith(prefix)) {
-    throw new Error(`Stream ID "${streamId}" does not start with prefix "${prefix}".`);
-  }
-
-  return streamId.slice(prefix.length);
-}
-
-function asArray<T>(value: unknown): T[] {
-  return Array.isArray(value) ? (value as T[]) : [];
-}
-
-function asStringArray(value: unknown): string[] {
-  return asArray<unknown>(value).filter((entry): entry is string => typeof entry === "string");
-}
-
-async function loadNameMap(
-  db: PgQueryable,
-  table: string,
-  idColumn: string,
-  nameColumn: string,
-  ids: readonly string[],
-): Promise<Map<string, string>> {
-  if (ids.length === 0) {
-    return new Map();
-  }
-
-  const result = await db.query<Record<string, string>>(
-    `SELECT ${idColumn} AS id, ${nameColumn} AS name FROM ${table} WHERE ${idColumn} = ANY($1)`,
-    [ids],
-  );
-
-  return new Map(result.rows.map((row) => [row.id, row.name]));
-}
 
 async function loadCategoryMap(
   db: PgQueryable,
