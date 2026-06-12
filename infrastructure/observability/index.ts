@@ -6,7 +6,18 @@ import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-http";
 import { PeriodicExportingMetricReader } from "@opentelemetry/sdk-metrics";
 import { resourceFromAttributes } from "@opentelemetry/resources";
-import { SpanKind, SpanStatusCode, context, metrics, propagation, trace, type Attributes } from "@opentelemetry/api";
+import {
+  SpanKind,
+  SpanStatusCode,
+  context,
+  metrics,
+  propagation,
+  trace,
+  type Attributes,
+  type Counter,
+  type Histogram,
+  type UpDownCounter,
+} from "@opentelemetry/api";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 
 export type ObservabilityConfig = Readonly<{
@@ -52,106 +63,91 @@ const LEVEL_PRIORITY = {
   error: 40,
 } satisfies Record<LogLevel, number>;
 
-const tracer = trace.getTracer("@chase-sets/observability");
-const meter = metrics.getMeter("@chase-sets/observability");
-const requestCounter = meter.createCounter("chase_sets_http_server_requests_total");
-const requestDuration = meter.createHistogram("chase_sets_http_server_request_duration_ms", {
+const OBSERVABILITY_SCOPE_NAME = "@chase-sets/observability";
+const tracer = trace.getTracer(OBSERVABILITY_SCOPE_NAME);
+const requestCounter = lazyCounter("chase_sets_http_server_requests_total");
+const requestDuration = lazyHistogram("chase_sets_http_server_request_duration_ms", {
   unit: "ms",
 });
-const eventStoreCounter = meter.createCounter("chase_sets_event_store_operations_total");
-const eventStoreDuration = meter.createHistogram("chase_sets_event_store_operation_duration_ms", {
+const eventStoreCounter = lazyCounter("chase_sets_event_store_operations_total");
+const eventStoreDuration = lazyHistogram("chase_sets_event_store_operation_duration_ms", {
   unit: "ms",
 });
-const projectorCounter = meter.createCounter("chase_sets_projection_runs_total");
-const projectorDuration = meter.createHistogram("chase_sets_projection_run_duration_ms", {
+const projectorCounter = lazyCounter("chase_sets_projection_runs_total");
+const projectorDuration = lazyHistogram("chase_sets_projection_run_duration_ms", {
   unit: "ms",
 });
-const workerCounter = meter.createCounter("chase_sets_worker_runs_total");
-const workerDuration = meter.createHistogram("chase_sets_worker_run_duration_ms", {
+const workerCounter = lazyCounter("chase_sets_worker_runs_total");
+const workerDuration = lazyHistogram("chase_sets_worker_run_duration_ms", {
   unit: "ms",
 });
-const realtimeConnectionCounter = meter.createCounter("chase_sets_realtime_connections_total");
-const realtimeActiveConnections = meter.createUpDownCounter("chase_sets_realtime_active_connections");
-const realtimeStreamDuration = meter.createHistogram("chase_sets_realtime_stream_duration_ms", {
+const realtimeConnectionCounter = lazyCounter("chase_sets_realtime_connections_total");
+const realtimeActiveConnections = lazyUpDownCounter("chase_sets_realtime_active_connections");
+const realtimeStreamDuration = lazyHistogram("chase_sets_realtime_stream_duration_ms", {
   unit: "ms",
 });
-const realtimeAuthorizationRejectedCounter = meter.createCounter("chase_sets_realtime_authorization_rejected_total");
-const realtimeBatchSize = meter.createHistogram("chase_sets_realtime_batch_messages", {
+const realtimeAuthorizationRejectedCounter = lazyCounter("chase_sets_realtime_authorization_rejected_total");
+const realtimeBatchSize = lazyHistogram("chase_sets_realtime_batch_messages", {
   unit: "{message}",
 });
-const realtimeMessageCounter = meter.createCounter("chase_sets_realtime_messages_total");
-const realtimePayloadBytes = meter.createHistogram("chase_sets_realtime_payload_bytes", {
+const realtimeMessageCounter = lazyCounter("chase_sets_realtime_messages_total");
+const realtimePayloadBytes = lazyHistogram("chase_sets_realtime_payload_bytes", {
   unit: "By",
 });
-const realtimeSyncRequiredCounter = meter.createCounter("chase_sets_realtime_sync_required_total");
-const realtimeWakeCounter = meter.createCounter("chase_sets_realtime_wake_waits_total");
-const realtimeWakeNotificationCounter = meter.createCounter("chase_sets_realtime_wake_notifications_total");
-const realtimeReadHubCounter = meter.createCounter("chase_sets_realtime_read_hub_total");
-const realtimeTopicLag = meter.createHistogram("chase_sets_realtime_topic_lag", {
+const realtimeSyncRequiredCounter = lazyCounter("chase_sets_realtime_sync_required_total");
+const realtimeWakeCounter = lazyCounter("chase_sets_realtime_wake_waits_total");
+const realtimeWakeNotificationCounter = lazyCounter("chase_sets_realtime_wake_notifications_total");
+const realtimeReadHubCounter = lazyCounter("chase_sets_realtime_read_hub_total");
+const realtimeTopicLag = lazyHistogram("chase_sets_realtime_topic_lag", {
   unit: "{message}",
 });
-const ucpOperationCounter = meter.createCounter("chase_sets_ucp_operations_total");
-const ucpSignedWriteRejectedCounter = meter.createCounter("chase_sets_ucp_signed_write_rejected_total");
-const ucpSignatureVerificationFailedCounter = meter.createCounter("chase_sets_ucp_signature_verification_failed_total");
-const ucpIdempotencyCounter = meter.createCounter("chase_sets_ucp_idempotency_total");
-const publicPresenceWaitlistEventCounter = meter.createCounter("chase_sets_public_presence_waitlist_events_total");
-const itemDetailRailEventCounter = meter.createCounter("chase_sets_marketplace_item_detail_rail_events_total");
-const settlementOperationCounter = meter.createCounter("chase_sets_settlement_operations_total");
-const checkoutObservabilityEventCounter = meter.createCounter("chase_sets_checkout_observability_events_total");
-const catalogIntegrationOptionQueryCounter = meter.createCounter("chase_sets_catalog_integration_option_queries_total");
-const catalogIntegrationJobCounter = meter.createCounter("chase_sets_catalog_integration_jobs_total");
-const catalogControlPlaneEventCounter = meter.createCounter("chase_sets_catalog_control_plane_events_total");
-const projectionFreshnessEvaluationCounter = meter.createCounter("chase_sets_projection_freshness_evaluations_total");
-const projectionFreshnessWaitDuration = meter.createHistogram("chase_sets_projection_freshness_wait_duration_ms", {
+const ucpOperationCounter = lazyCounter("chase_sets_ucp_operations_total");
+const ucpSignedWriteRejectedCounter = lazyCounter("chase_sets_ucp_signed_write_rejected_total");
+const ucpSignatureVerificationFailedCounter = lazyCounter("chase_sets_ucp_signature_verification_failed_total");
+const ucpIdempotencyCounter = lazyCounter("chase_sets_ucp_idempotency_total");
+const publicPresenceWaitlistEventCounter = lazyCounter("chase_sets_public_presence_waitlist_events_total");
+const itemDetailRailEventCounter = lazyCounter("chase_sets_marketplace_item_detail_rail_events_total");
+const settlementOperationCounter = lazyCounter("chase_sets_settlement_operations_total");
+const checkoutObservabilityEventCounter = lazyCounter("chase_sets_checkout_observability_events_total");
+const catalogIntegrationOptionQueryCounter = lazyCounter("chase_sets_catalog_integration_option_queries_total");
+const catalogIntegrationJobCounter = lazyCounter("chase_sets_catalog_integration_jobs_total");
+const catalogControlPlaneEventCounter = lazyCounter("chase_sets_catalog_control_plane_events_total");
+const projectionFreshnessEvaluationCounter = lazyCounter("chase_sets_projection_freshness_evaluations_total");
+const projectionFreshnessWaitDuration = lazyHistogram("chase_sets_projection_freshness_wait_duration_ms", {
   unit: "ms",
 });
-const projectionFreshnessPendingCounter = meter.createCounter("chase_sets_projection_freshness_pending_total");
-const projectionFreshnessPendingLag = meter.createHistogram("chase_sets_projection_freshness_pending_lag", {
+const projectionFreshnessPendingCounter = lazyCounter("chase_sets_projection_freshness_pending_total");
+const projectionFreshnessPendingLag = lazyHistogram("chase_sets_projection_freshness_pending_lag", {
   unit: "{global_position}",
 });
-const projectionFreshnessWakeRequestCounter = meter.createCounter(
-  "chase_sets_projection_freshness_wake_requests_total",
-);
-const projectionFreshnessWorkSignalErrorCounter = meter.createCounter(
+const projectionFreshnessWakeRequestCounter = lazyCounter("chase_sets_projection_freshness_wake_requests_total");
+const projectionFreshnessWorkSignalErrorCounter = lazyCounter(
   "chase_sets_projection_freshness_work_signal_errors_total",
 );
-const projectionWakeNotificationCounter = meter.createCounter("chase_sets_projection_wake_notifications_total");
-const projectionWakeNotificationPayloadBytes = meter.createHistogram(
-  "chase_sets_projection_wake_notification_payload_bytes",
-  {
-    unit: "By",
-  },
-);
-const projectionWakeNotificationAge = meter.createHistogram("chase_sets_projection_wake_notification_age_ms", {
+const projectionWakeNotificationCounter = lazyCounter("chase_sets_projection_wake_notifications_total");
+const projectionWakeNotificationPayloadBytes = lazyHistogram("chase_sets_projection_wake_notification_payload_bytes", {
+  unit: "By",
+});
+const projectionWakeNotificationAge = lazyHistogram("chase_sets_projection_wake_notification_age_ms", {
   unit: "ms",
 });
-const projectionWakeRelayCatchUpCounter = meter.createCounter("chase_sets_projection_wake_relay_catch_up_total");
-const projectionWakeRelayCatchUpDuration = meter.createHistogram(
-  "chase_sets_projection_wake_relay_catch_up_duration_ms",
-  {
-    unit: "ms",
-  },
-);
-const projectionWakeRelayCatchUpEventsCounter = meter.createCounter(
-  "chase_sets_projection_wake_relay_catch_up_events_total",
-);
-const projectionWakeRelayFanOutCounter = meter.createCounter("chase_sets_projection_wake_relay_fan_out_total");
-const projectionWakeRelayFanOutIntentsCounter = meter.createCounter(
-  "chase_sets_projection_wake_relay_fan_out_intents_total",
-);
-const projectionWakeIntentCounter = meter.createCounter("chase_sets_projection_wake_intents_total");
-const projectionWakeIntentAttemptsExhaustedCounter = meter.createCounter(
+const projectionWakeRelayCatchUpCounter = lazyCounter("chase_sets_projection_wake_relay_catch_up_total");
+const projectionWakeRelayCatchUpDuration = lazyHistogram("chase_sets_projection_wake_relay_catch_up_duration_ms", {
+  unit: "ms",
+});
+const projectionWakeRelayCatchUpEventsCounter = lazyCounter("chase_sets_projection_wake_relay_catch_up_events_total");
+const projectionWakeRelayFanOutCounter = lazyCounter("chase_sets_projection_wake_relay_fan_out_total");
+const projectionWakeRelayFanOutIntentsCounter = lazyCounter("chase_sets_projection_wake_relay_fan_out_intents_total");
+const projectionWakeIntentCounter = lazyCounter("chase_sets_projection_wake_intents_total");
+const projectionWakeIntentAttemptsExhaustedCounter = lazyCounter(
   "chase_sets_projection_wake_intent_attempts_exhausted_total",
 );
-const projectionWakeIntentQueueAge = meter.createHistogram("chase_sets_projection_wake_intent_queue_age_ms", {
+const projectionWakeIntentQueueAge = lazyHistogram("chase_sets_projection_wake_intent_queue_age_ms", {
   unit: "ms",
 });
-const projectionWakeIntentProcessingDuration = meter.createHistogram(
-  "chase_sets_projection_wake_intent_processing_ms",
-  {
-    unit: "ms",
-  },
-);
+const projectionWakeIntentProcessingDuration = lazyHistogram("chase_sets_projection_wake_intent_processing_ms", {
+  unit: "ms",
+});
 
 export type PublicPresenceWaitlistAnalyticsSignal = Readonly<{
   event: string;
@@ -336,6 +332,47 @@ export type ProjectionWakeIntentOutcomeSignal = Readonly<{
 }>;
 
 let runtime: ObservabilityRuntime | null = null;
+
+type Meter = ReturnType<typeof metrics.getMeter>;
+type CounterOptions = Parameters<Meter["createCounter"]>[1];
+type HistogramOptions = Parameters<Meter["createHistogram"]>[1];
+type UpDownCounterOptions = Parameters<Meter["createUpDownCounter"]>[1];
+
+function lazyCounter(name: string, options?: CounterOptions): Counter {
+  let instrument: Counter | undefined;
+  return {
+    add(value, attributes, activeContext) {
+      const counter = runtime?.config.enabled
+        ? (instrument ??= metrics.getMeter(OBSERVABILITY_SCOPE_NAME).createCounter(name, options))
+        : metrics.getMeter(OBSERVABILITY_SCOPE_NAME).createCounter(name, options);
+      counter.add(value, attributes, activeContext);
+    },
+  };
+}
+
+function lazyHistogram(name: string, options?: HistogramOptions): Histogram {
+  let instrument: Histogram | undefined;
+  return {
+    record(value, attributes, activeContext) {
+      const histogram = runtime?.config.enabled
+        ? (instrument ??= metrics.getMeter(OBSERVABILITY_SCOPE_NAME).createHistogram(name, options))
+        : metrics.getMeter(OBSERVABILITY_SCOPE_NAME).createHistogram(name, options);
+      histogram.record(value, attributes, activeContext);
+    },
+  };
+}
+
+function lazyUpDownCounter(name: string, options?: UpDownCounterOptions): UpDownCounter {
+  let instrument: UpDownCounter | undefined;
+  return {
+    add(value, attributes, activeContext) {
+      const counter = runtime?.config.enabled
+        ? (instrument ??= metrics.getMeter(OBSERVABILITY_SCOPE_NAME).createUpDownCounter(name, options))
+        : metrics.getMeter(OBSERVABILITY_SCOPE_NAME).createUpDownCounter(name, options);
+      counter.add(value, attributes, activeContext);
+    },
+  };
+}
 
 export function loadObservabilityConfig(
   env: NodeJS.ProcessEnv = process.env,
@@ -1164,8 +1201,8 @@ async function observeOperation<T>(
   options: Readonly<{
     name: string;
     attributes: Attributes;
-    counter: ReturnType<typeof meter.createCounter>;
-    duration: ReturnType<typeof meter.createHistogram>;
+    counter: Counter;
+    duration: Histogram;
     work: () => Promise<T>;
   }>,
 ): Promise<T> {
