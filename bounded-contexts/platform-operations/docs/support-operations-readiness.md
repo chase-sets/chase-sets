@@ -23,6 +23,8 @@ The redacted [Marketplace Launch Evidence](../../../docs/runbooks/marketplace-la
 
 Use `pnpm run ops marketplace:support-operations-evidence` with the redacted staging rehearsal record to produce the `gates.supportOperations` fields for the launch evidence packet. The command fails the gate unless every required rehearsal proof is true, the rehearsal environment is `staging`, `rehearsalCompletedAt` is an ISO timestamp no later than `checkedAt` and no older than 30 days, buyer and seller support request ids are distinct concrete `sup_` identifiers, the refund-producing resolution is tied to the buyer `sup_` support request id, the downstream Payments ids use `sre_` and `rfd_`, the Settlement hold id uses `hold_`, the hold and hold-release evidence references are separate, and every cross-context evidence reference is present.
 
+Checkout-specific support triage lives in the [Checkout Support Operations](../../../docs/runbooks/checkout-support-operations.md) runbook. It maps stuck checkout, payment dispute, missing or failed downstream handoff, and refund request launch scenarios to the support flow catalog without creating fake order support requests for pre-confirmation checkout recovery.
+
 ## Operator Surface
 
 The admin Support operations route is contributed by the Support bounded context, not by the admin deployable. It lists urgent, overdue, and ready-for-support requests from the Support operations queue and can run the overdue escalation command. While production is still landing/admin-support and the Support API is not deployed there, the route reports the unavailable API instead of opening live support operations.
