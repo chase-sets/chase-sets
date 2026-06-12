@@ -19,6 +19,7 @@ import {
   createProjectionOperationsRoutes,
   type ProjectionWakeStatusWorkSignalStore,
 } from "@chase-sets/platform-runtime/projection-operations-routes";
+import { errorHandler } from "@chase-sets/platform-runtime/error-handler";
 import { authenticationRequiredResponse, forbiddenResponse } from "@chase-sets/http/responses";
 import { apiContextRegistry } from "./generated/api-context-registry";
 import {
@@ -27,7 +28,6 @@ import {
   type PlatformActorResolver,
   type TenantContextEnv,
 } from "./middleware/auth-context";
-import { errorHandler } from "./middleware/error-handler";
 import type { PlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
 
 export type PlatformIdentityServices = Readonly<{

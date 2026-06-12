@@ -1,54 +1,6 @@
 import type { ResolvedActor } from "@chase-sets/auth/server";
-import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { readAuthSessionToken } from "@chase-sets/auth-context";
 import type { PlatformIdentityServices } from "./app";
-
-const AUTH_SESSION_COOKIE_NAME = "chase_sets_session";
-
-function parseCookieHeader(cookieHeader: string | null) {
-  if (!cookieHeader) {
-    return new Map<string, string>();
-  }
-
-  return new Map(
-    cookieHeader
-      .split(";")
-      .map((part) => part.trim())
-      .filter(Boolean)
-      .map((part) => {
-        const separatorIndex = part.indexOf("=");
-        if (separatorIndex < 0) {
-          return [part, ""];
-        }
-
-        return [part.slice(0, separatorIndex), decodeURIComponent(part.slice(separatorIndex + 1))];
-      }),
-  );
-}
-
-function readAuthSessionToken(request: Request) {
-  const cookieToken = parseCookieHeader(request.headers.get("cookie")).get(AUTH_SESSION_COOKIE_NAME) ?? null;
-  if (cookieToken) {
-    return cookieToken;
-  }
-
-  const authorization = request.headers.get("authorization");
-  if (!authorization?.startsWith("Bearer ")) {
-    return null;
-  }
-
-  return authorization.slice("Bearer ".length).trim() || null;
-}
-
-export function createAuthBootstrapContext(services: PlatformIdentityServices["auth"]): EventStoreContext {
-  return {
-    tenantId: services.identity.bootstrapTenantId as never,
-    audit: {
-      performedByUserId: "usr_identity_system" as never,
-      forAccountId: "acc_identity_system" as never,
-    },
-    trace: {},
-  };
-}
 
 async function resolveActorFromSessionId(
   services: PlatformIdentityServices["auth"],

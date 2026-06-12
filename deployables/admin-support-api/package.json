@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@chase-sets/auth": "workspace:*",
+    "@chase-sets/auth-context": "workspace:*",
     "@chase-sets/bounded-context-runtime": "workspace:*",
     "@chase-sets/catalog": "workspace:*",
     "@chase-sets/event-core": "workspace:*",

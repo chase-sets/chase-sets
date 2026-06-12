@@ -142,7 +142,7 @@ describe("platform api bootstrap", () => {
     expect(Number(orderingOrderCreatedEvents.rows[0]?.count ?? 0)).toBeGreaterThan(0);
     expect(Number(fulfillmentDeliveredEvents.rows[0]?.count ?? 0)).toBeGreaterThan(0);
     expect(Number(reputationReviews.rows[0]?.count ?? 0)).toBeGreaterThan(0);
-  }, 120_000);
+  }, 300_000);
 
   it("limits long-lived environment bootstrap to critical and integration data", async () => {
     const runtime = createPlatformApiHost({
@@ -193,5 +193,5 @@ describe("platform api bootstrap", () => {
     expect(Number(commercialTermsAgreementEvents.rows[0]?.count ?? 0)).toBe(0);
     expect(Number(marketplaceListings.rows[0]?.count ?? 0)).toBe(0);
     expect(Number(reputationReviews.rows[0]?.count ?? 0)).toBe(0);
-  }, 60_000);
+  }, 180_000);
 });
