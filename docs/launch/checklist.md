@@ -60,9 +60,9 @@
 
 ## Reconciliation and reversal paths
 
-- [ ] Reconciliation can match payments → orders → payouts; an orphaned payment or missing order is detectable, not silent.
-- [ ] Refund, payment void, label cancellation, and payout hold/reversal each work, or are owner-approved launch deferrals with customer-safe copy and a support path.
-- [ ] Operator recovery actions are audited.
+- [ ] Reconciliation can match payments → orders → payouts; an orphaned payment or missing order is detectable, not silent (policy baseline: PR #1448).
+- [ ] Refund, payment void, label cancellation, and payout hold/reversal each work, or are owner-approved launch deferrals with customer-safe copy and a support path (policy baseline: PR #1449).
+- [ ] Operator recovery actions are audited (policy baseline: PR #1449).
 
 ## Kill switches and recovery
 
