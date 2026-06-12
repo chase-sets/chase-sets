@@ -239,6 +239,45 @@ function unresolvedFulfillmentError() {
   return new CheckoutDomainError("Resolve item availability before checkout starts.", "unresolved_fulfillment");
 }
 
+const unsupportedDeliveryRegions = new Set(["AA", "AE", "AP", "AS", "FM", "GU", "MH", "MP", "PR", "PW", "VI"]);
+
+function unsupportedDeliveryRegionError() {
+  return new CheckoutDomainError(
+    "This delivery region is not supported for checkout yet. Use a supported US delivery address.",
+    "shipping_address_unsupported",
+  );
+}
+
+function restrictedDeliveryAddressError() {
+  return new CheckoutDomainError(
+    "This delivery address is not supported for the selected shipping service. Use a street address before paying.",
+    "shipping_address_restricted",
+  );
+}
+
+function requiredDeliveryAddressError() {
+  return new CheckoutDomainError("Confirm the shipping address before creating orders.", "shipping_address_required");
+}
+
+function assertBuyerDeliveryAddressServiceable(address: CheckoutShippingAddress | null | undefined) {
+  if (!address) {
+    throw requiredDeliveryAddressError();
+  }
+
+  if (address.country.trim().toUpperCase() !== "US") {
+    throw unsupportedDeliveryRegionError();
+  }
+
+  if (unsupportedDeliveryRegions.has(address.state.trim().toUpperCase())) {
+    throw unsupportedDeliveryRegionError();
+  }
+
+  const streetLines = [address.line1, address.line2 ?? ""].join(" ");
+  if (/\bP(?:OST)?\.?\s*O(?:FFICE)?\.?\s*BOX\b/i.test(streetLines) || /\bP\.?\s*O\.?\s*BOX\b/i.test(streetLines)) {
+    throw restrictedDeliveryAddressError();
+  }
+}
+
 function normalizedFulfillmentGroups(groups: readonly CartReadinessFulfillmentGroup[]) {
   return groups
     .map((group) => ({
@@ -635,11 +674,13 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
     assertReadyForOrderCreation: async (params) => {
       const state = await loadSessionStateForBuyer(params.sessionId, params.accountId);
       await assertCurrentCartReadinessForUncommittedSession(state, params.accountId, deps.cart);
+      assertBuyerDeliveryAddressServiceable(state.shippingAddress);
       return stateToCheckoutSessionRow(state);
     },
     recordOrdersCreated: async (params, context) => {
       const state = await loadSessionStateForBuyer(params.sessionId, params.accountId);
       await assertCurrentCartReadinessForUncommittedSession(state, params.accountId, deps.cart);
+      assertBuyerDeliveryAddressServiceable(state.shippingAddress);
       const result = await applySessionCommandForBuyer(
         {
           sessionId: params.sessionId,

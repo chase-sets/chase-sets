@@ -687,6 +687,63 @@ describe("checkout session routes", () => {
     );
   });
 
+  it("rejects restricted delivery addresses before creating checkout orders", async () => {
+    const checkoutObservabilityTelemetry = { recordCheckoutEvent: vi.fn() };
+    const services = createServices({
+      getSession: vi.fn(async () => createSession()),
+      assertReadyForOrderCreation: vi.fn(async () => {
+        throw new CheckoutDomainError(
+          "This delivery address is not supported for the selected shipping service. Use a street address before paying.",
+          "shipping_address_restricted",
+        );
+      }),
+    });
+    const app = buildApp(services, undefined, checkoutObservabilityTelemetry);
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shippingAddress: { ...shippingAddress, line1: "PO Box 100" },
+          marketplaceCheckoutFeeQuoteFingerprint: "quote_1",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "shipping_address_restricted",
+        message:
+          "This delivery address is not supported for the selected shipping service. Use a street address before paying.",
+      },
+    });
+    expect(services.setShippingAddress).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: "chk_1", accountId: "acc_buyer" }),
+      expect.any(Object),
+    );
+    expect(mockCreateCheckoutOrdersThroughOrdering).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutPaymentThroughPayments).not.toHaveBeenCalled();
+    expect(services.recordOrdersCreated).not.toHaveBeenCalled();
+    expect(services.recordPaymentStarted).not.toHaveBeenCalled();
+    expect(checkoutObservabilityTelemetry.recordCheckoutEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "checkout.address.serviceability_failed",
+        scenarioState: "blocked",
+        visibleState: "checkout-permanent-recovery-visible",
+        sideEffectStatus: "not-attempted",
+        providerCategory: "fulfillment",
+        downstreamStatus: "not-started",
+      }),
+    );
+    const emitted = JSON.stringify(checkoutObservabilityTelemetry.recordCheckoutEvent.mock.calls[0]?.[0]);
+    expect(emitted).not.toContain("PO Box");
+    expect(emitted).not.toContain("100");
+    expect(emitted).not.toContain("chk_1");
+    expect(emitted).not.toContain("acc_buyer");
+  });
+
   it("emits changed economics telemetry before stale fulfillment confirmation can commit", async () => {
     const checkoutObservabilityTelemetry = { recordCheckoutEvent: vi.fn() };
     const services = createServices({

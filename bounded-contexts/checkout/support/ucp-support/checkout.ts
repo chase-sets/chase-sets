@@ -6,6 +6,7 @@ import {
   createCheckoutPaymentThroughPayments,
 } from "../request-support/checkout-confirmation";
 import type { CheckoutServices } from "../runtime-support/services";
+import { CheckoutDomainError } from "../runtime-support/common";
 import type { CheckoutSessionRow } from "../../features/sessions/read-model/queries";
 import type { CheckoutOptimizationGoal, CheckoutShippingAddress } from "../../features/sessions/domain/domain";
 import { parseCartReadinessDecisionInput, type CartReadinessDecisionInput } from "../../features/cart/domain/readiness";
@@ -705,7 +706,7 @@ function validationError(error: unknown) {
   return createUcpEnvelope("error", {}, [
     {
       severity: "error",
-      code: "validation_failed",
+      code: error instanceof CheckoutDomainError ? error.code : "validation_failed",
       message: error instanceof Error ? error.message : String(error),
     },
   ]);
