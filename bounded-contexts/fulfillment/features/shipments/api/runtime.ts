@@ -6,7 +6,7 @@ import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-se
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { createNoopTransactionalEmailOutbox, type TransactionalEmailOutbox } from "@chase-sets/communications-email";
+import { createNoopNotificationOutbox, type NotificationOutbox } from "@chase-sets/notifications";
 import {
   createNoopPostageProviderWebhookGateway,
   PostageLabelProviderError,
@@ -57,7 +57,7 @@ type ShipmentRuntimeDeps = Readonly<{
   db: PgQueryable;
   postageLabelProvider?: PostageLabelProvider;
   postageWebhookGateway?: PostageProviderWebhookGateway;
-  transactionalEmailOutbox?: TransactionalEmailOutbox;
+  notificationOutbox?: NotificationOutbox;
 }>;
 
 type ShipmentForPostageProviderEvent = Readonly<{
@@ -635,7 +635,7 @@ function postageLabelOperationRequest(
 export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): FulfillmentShipmentServices {
   const postageLabelProvider = deps.postageLabelProvider ?? createUnconfiguredPostageLabelProvider();
   const postageWebhookGateway = deps.postageWebhookGateway ?? createNoopPostageProviderWebhookGateway();
-  const transactionalEmailOutbox = deps.transactionalEmailOutbox ?? createNoopTransactionalEmailOutbox();
+  const notificationOutbox = deps.notificationOutbox ?? createNoopNotificationOutbox();
   const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
       eventStore: deps.eventStore,
@@ -1130,7 +1130,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
       createProjectionHandlerSet({
         projectionName: FULFILLMENT_TRANSACTIONAL_EMAIL_PROJECTION,
         handlers: buildFulfillmentTransactionalEmailProjectionHandlers(
-          transactionalEmailOutbox,
+          notificationOutbox,
           FULFILLMENT_TRANSACTIONAL_EMAIL_PROJECTION,
         ),
       }),

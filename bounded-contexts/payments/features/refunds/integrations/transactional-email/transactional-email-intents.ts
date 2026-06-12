@@ -1,4 +1,4 @@
-import type { TransactionalEmailMessage } from "@chase-sets/communications-email";
+import { createTransactionalEmailNotificationMessage, type NotificationMessage } from "@chase-sets/notifications";
 
 export type RefundEmailIntentInput = Readonly<{
   buyerEmail: string;
@@ -10,8 +10,8 @@ export type RefundEmailIntentInput = Readonly<{
   correlationId: string;
 }>;
 
-export function mapRefundIssuedToTransactionalEmail(input: RefundEmailIntentInput): TransactionalEmailMessage {
-  return {
+export function mapRefundIssuedToTransactionalEmail(input: RefundEmailIntentInput): NotificationMessage {
+  return createTransactionalEmailNotificationMessage({
     messageType: "payments.refund-issued",
     criticality: "commerce",
     to: [{ email: input.buyerEmail }],
@@ -29,11 +29,11 @@ export function mapRefundIssuedToTransactionalEmail(input: RefundEmailIntentInpu
     idempotencyKey: `payments:refund_issued:${input.refundId}`,
     correlationId: input.correlationId,
     actor: { userId: null, accountId: null },
-  };
+  });
 }
 
-export function mapRefundFailedToTransactionalEmail(input: RefundEmailIntentInput): TransactionalEmailMessage {
-  return {
+export function mapRefundFailedToTransactionalEmail(input: RefundEmailIntentInput): NotificationMessage {
+  return createTransactionalEmailNotificationMessage({
     messageType: "payments.refund-failed",
     criticality: "commerce",
     to: [{ email: input.buyerEmail }],
@@ -51,5 +51,5 @@ export function mapRefundFailedToTransactionalEmail(input: RefundEmailIntentInpu
     idempotencyKey: `payments:refund_failed:${input.refundId}`,
     correlationId: input.correlationId,
     actor: { userId: null, accountId: null },
-  };
+  });
 }

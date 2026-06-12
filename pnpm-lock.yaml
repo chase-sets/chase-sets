@@ -93,9 +93,6 @@ importers:
       '@chase-sets/bounded-context-runtime':
         specifier: workspace:*
         version: link:../../infrastructure/bounded-context-runtime
-      '@chase-sets/communications-email':
-        specifier: workspace:*
-        version: link:../../contracts/communications-email
       '@chase-sets/design-system':
         specifier: workspace:*
         version: link:../../packages/design-system
@@ -126,9 +123,6 @@ importers:
       '@chase-sets/primitives':
         specifier: workspace:*
         version: link:../../contracts/primitives
-      '@chase-sets/transactional-email-outbox':
-        specifier: workspace:*
-        version: link:../../infrastructure/transactional-email-outbox
       hono:
         specifier: ^4.12.12
         version: 4.12.18
@@ -348,9 +342,6 @@ importers:
       '@chase-sets/bounded-context-runtime':
         specifier: workspace:*
         version: link:../../infrastructure/bounded-context-runtime
-      '@chase-sets/communications-email':
-        specifier: workspace:*
-        version: link:../../contracts/communications-email
       '@chase-sets/design-system':
         specifier: workspace:*
         version: link:../../packages/design-system
@@ -369,6 +360,12 @@ importers:
       '@chase-sets/localization':
         specifier: workspace:*
         version: link:../../contracts/localization
+      '@chase-sets/notification-outbox':
+        specifier: workspace:*
+        version: link:../../infrastructure/notification-outbox
+      '@chase-sets/notifications':
+        specifier: workspace:*
+        version: link:../../contracts/notifications
       '@chase-sets/platform-runtime':
         specifier: workspace:*
         version: link:../../infrastructure/platform-runtime
@@ -381,9 +378,6 @@ importers:
       '@chase-sets/product-measures':
         specifier: workspace:*
         version: link:../../contracts/product-measures
-      '@chase-sets/transactional-email-outbox':
-        specifier: workspace:*
-        version: link:../../infrastructure/transactional-email-outbox
       hono:
         specifier: ^4.12.12
         version: 4.12.18
@@ -608,9 +602,6 @@ importers:
       '@chase-sets/catalog-seed':
         specifier: workspace:*
         version: link:../../contracts/catalog-seed
-      '@chase-sets/communications-email':
-        specifier: workspace:*
-        version: link:../../contracts/communications-email
       '@chase-sets/design-system':
         specifier: workspace:*
         version: link:../../packages/design-system
@@ -635,6 +626,12 @@ importers:
       '@chase-sets/marketplace':
         specifier: workspace:*
         version: link:../marketplace
+      '@chase-sets/notification-outbox':
+        specifier: workspace:*
+        version: link:../../infrastructure/notification-outbox
+      '@chase-sets/notifications':
+        specifier: workspace:*
+        version: link:../../contracts/notifications
       '@chase-sets/platform-runtime':
         specifier: workspace:*
         version: link:../../infrastructure/platform-runtime
@@ -644,9 +641,6 @@ importers:
       '@chase-sets/product-measures':
         specifier: workspace:*
         version: link:../../contracts/product-measures
-      '@chase-sets/transactional-email-outbox':
-        specifier: workspace:*
-        version: link:../../infrastructure/transactional-email-outbox
       hono:
         specifier: ^4.12.12
         version: 4.12.18
@@ -672,9 +666,6 @@ importers:
       '@chase-sets/checkout':
         specifier: workspace:*
         version: link:../checkout
-      '@chase-sets/communications-email':
-        specifier: workspace:*
-        version: link:../../contracts/communications-email
       '@chase-sets/design-system':
         specifier: workspace:*
         version: link:../../packages/design-system
@@ -696,6 +687,12 @@ importers:
       '@chase-sets/marketplace':
         specifier: workspace:*
         version: link:../marketplace
+      '@chase-sets/notification-outbox':
+        specifier: workspace:*
+        version: link:../../infrastructure/notification-outbox
+      '@chase-sets/notifications':
+        specifier: workspace:*
+        version: link:../../contracts/notifications
       '@chase-sets/ordering':
         specifier: workspace:*
         version: link:../ordering
@@ -714,9 +711,6 @@ importers:
       '@chase-sets/provider-webhook-inbox':
         specifier: workspace:*
         version: link:../../infrastructure/provider-webhook-inbox
-      '@chase-sets/transactional-email-outbox':
-        specifier: workspace:*
-        version: link:../../infrastructure/transactional-email-outbox
       hono:
         specifier: ^4.12.12
         version: 4.12.18
@@ -733,9 +727,6 @@ importers:
       '@chase-sets/bounded-context-module':
         specifier: workspace:*
         version: link:../../contracts/bounded-context-module
-      '@chase-sets/communications-email':
-        specifier: workspace:*
-        version: link:../../contracts/communications-email
       '@chase-sets/design-system':
         specifier: workspace:*
         version: link:../../packages/design-system
@@ -754,15 +745,18 @@ importers:
       '@chase-sets/localization':
         specifier: workspace:*
         version: link:../../contracts/localization
+      '@chase-sets/notification-outbox':
+        specifier: workspace:*
+        version: link:../../infrastructure/notification-outbox
+      '@chase-sets/notifications':
+        specifier: workspace:*
+        version: link:../../contracts/notifications
       '@chase-sets/platform-runtime':
         specifier: workspace:*
         version: link:../../infrastructure/platform-runtime
       '@chase-sets/primitives':
         specifier: workspace:*
         version: link:../../contracts/primitives
-      '@chase-sets/transactional-email-outbox':
-        specifier: workspace:*
-        version: link:../../infrastructure/transactional-email-outbox
       hono:
         specifier: ^4.12.12
         version: 4.12.18
@@ -830,9 +824,6 @@ importers:
       '@chase-sets/bounded-context-module':
         specifier: workspace:*
         version: link:../../contracts/bounded-context-module
-      '@chase-sets/communications-email':
-        specifier: workspace:*
-        version: link:../../contracts/communications-email
       '@chase-sets/design-system':
         specifier: workspace:*
         version: link:../../packages/design-system
@@ -848,15 +839,18 @@ importers:
       '@chase-sets/localization':
         specifier: workspace:*
         version: link:../../contracts/localization
+      '@chase-sets/notification-outbox':
+        specifier: workspace:*
+        version: link:../../infrastructure/notification-outbox
+      '@chase-sets/notifications':
+        specifier: workspace:*
+        version: link:../../contracts/notifications
       '@chase-sets/platform-runtime':
         specifier: workspace:*
         version: link:../../infrastructure/platform-runtime
       '@chase-sets/primitives':
         specifier: workspace:*
         version: link:../../contracts/primitives
-      '@chase-sets/transactional-email-outbox':
-        specifier: workspace:*
-        version: link:../../infrastructure/transactional-email-outbox
       hono:
         specifier: ^4.12.12
         version: 4.12.18
@@ -891,9 +885,6 @@ importers:
       '@chase-sets/bounded-context-runtime':
         specifier: workspace:*
         version: link:../../infrastructure/bounded-context-runtime
-      '@chase-sets/communications-email':
-        specifier: workspace:*
-        version: link:../../contracts/communications-email
       '@chase-sets/design-system':
         specifier: workspace:*
         version: link:../../packages/design-system
@@ -915,6 +906,12 @@ importers:
       '@chase-sets/money-movement':
         specifier: workspace:*
         version: link:../../contracts/money-movement
+      '@chase-sets/notification-outbox':
+        specifier: workspace:*
+        version: link:../../infrastructure/notification-outbox
+      '@chase-sets/notifications':
+        specifier: workspace:*
+        version: link:../../contracts/notifications
       '@chase-sets/payments':
         specifier: workspace:*
         version: link:../payments
@@ -927,9 +924,6 @@ importers:
       '@chase-sets/provider-webhook-inbox':
         specifier: workspace:*
         version: link:../../infrastructure/provider-webhook-inbox
-      '@chase-sets/transactional-email-outbox':
-        specifier: workspace:*
-        version: link:../../infrastructure/transactional-email-outbox
       '@stripe/connect-js':
         specifier: 3.4.5
         version: 3.4.5
@@ -971,16 +965,6 @@ importers:
       '@chase-sets/product-measures':
         specifier: workspace:*
         version: link:../product-measures
-    devDependencies:
-      vitest:
-        specifier: ^4.1.4
-        version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
-
-  contracts/communications-email:
-    dependencies:
-      '@chase-sets/primitives':
-        specifier: workspace:*
-        version: link:../primitives
     devDependencies:
       vitest:
         specifier: ^4.1.4
@@ -1540,9 +1524,6 @@ importers:
       '@chase-sets/commercial-terms':
         specifier: workspace:*
         version: link:../../bounded-contexts/commercial-terms
-      '@chase-sets/communications-email':
-        specifier: workspace:*
-        version: link:../../contracts/communications-email
       '@chase-sets/discovery':
         specifier: workspace:*
         version: link:../../bounded-contexts/discovery
@@ -1618,9 +1599,6 @@ importers:
       '@chase-sets/stripe-payments':
         specifier: workspace:*
         version: link:../../infrastructure/stripe-payments
-      '@chase-sets/transactional-email-outbox':
-        specifier: workspace:*
-        version: link:../../infrastructure/transactional-email-outbox
       '@chase-sets/web-notifications':
         specifier: workspace:*
         version: link:../../infrastructure/web-notifications
@@ -1752,9 +1730,6 @@ importers:
 
   infrastructure/local-email-capture:
     dependencies:
-      '@chase-sets/communications-email':
-        specifier: workspace:*
-        version: link:../../contracts/communications-email
       '@chase-sets/notifications':
         specifier: workspace:*
         version: link:../../contracts/notifications
@@ -1875,9 +1850,6 @@ importers:
       '@aws-sdk/client-sesv2':
         specifier: ^3.1045.0
         version: 3.1045.0
-      '@chase-sets/communications-email':
-        specifier: workspace:*
-        version: link:../../contracts/communications-email
       '@chase-sets/http':
         specifier: workspace:*
         version: link:../../contracts/http
@@ -1910,22 +1882,6 @@ importers:
       '@chase-sets/payment-processing':
         specifier: workspace:*
         version: link:../../contracts/payment-processing
-    devDependencies:
-      vitest:
-        specifier: ^4.1.4
-        version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
-
-  infrastructure/transactional-email-outbox:
-    dependencies:
-      '@chase-sets/communications-email':
-        specifier: workspace:*
-        version: link:../../contracts/communications-email
-      '@chase-sets/event-core':
-        specifier: workspace:*
-        version: link:../../contracts/event-core
-      '@chase-sets/event-core-postgres':
-        specifier: workspace:*
-        version: link:../event-core-postgres
     devDependencies:
       vitest:
         specifier: ^4.1.4

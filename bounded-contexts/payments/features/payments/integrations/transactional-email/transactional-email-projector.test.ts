@@ -6,7 +6,7 @@ describe("payments transactional email projector", () => {
     const db = {
       query: vi.fn(async () => ({ rows: [{ buyer_email: "buyer@example.com" }] })),
     };
-    const outbox = { enqueueTransactionalEmail: vi.fn(async (_input: unknown) => undefined) };
+    const outbox = { enqueueNotification: vi.fn(async (_input: unknown) => undefined) };
 
     await projectPaymentEventToTransactionalEmail(db, outbox, {
       id: "evt_pay",
@@ -17,11 +17,11 @@ describe("payments transactional email projector", () => {
       data: { paymentId: "pay_123", orderIds: ["ord_123"], amount: "20.00", currencyCode: "USD" },
     } as never);
 
-    expect(outbox.enqueueTransactionalEmail).toHaveBeenCalledOnce();
-    expect(outbox.enqueueTransactionalEmail.mock.calls[0]?.[0]).toMatchObject({
+    expect(outbox.enqueueNotification).toHaveBeenCalledOnce();
+    expect(outbox.enqueueNotification.mock.calls[0]?.[0]).toMatchObject({
       message: {
         messageType: "payments.payment-captured",
-        to: [{ email: "buyer@example.com" }],
+        channels: [{ channel: "email", to: [{ email: "buyer@example.com" }] }],
       },
       source: {
         sourceEventId: "evt_pay",
@@ -34,7 +34,7 @@ describe("payments transactional email projector", () => {
     const db = {
       query: vi.fn(async () => ({ rows: [{ buyer_email: "buyer@example.com" }] })),
     };
-    const outbox = { enqueueTransactionalEmail: vi.fn(async (_input: unknown) => undefined) };
+    const outbox = { enqueueNotification: vi.fn(async (_input: unknown) => undefined) };
 
     await projectPaymentEventToTransactionalEmail(db, outbox, {
       id: "evt_pay_failed",
@@ -45,12 +45,12 @@ describe("payments transactional email projector", () => {
       data: { paymentId: "pay_123", orderIds: ["ord_123"], amount: "20.00", currencyCode: "USD" },
     } as never);
 
-    expect(outbox.enqueueTransactionalEmail).toHaveBeenCalledOnce();
-    expect(outbox.enqueueTransactionalEmail.mock.calls[0]?.[0]).toMatchObject({
+    expect(outbox.enqueueNotification).toHaveBeenCalledOnce();
+    expect(outbox.enqueueNotification.mock.calls[0]?.[0]).toMatchObject({
       message: {
         messageType: "payments.payment-failed",
         templateId: "payment_failed",
-        to: [{ email: "buyer@example.com" }],
+        channels: [{ channel: "email", to: [{ email: "buyer@example.com" }] }],
       },
     });
   });
@@ -59,7 +59,7 @@ describe("payments transactional email projector", () => {
     const db = {
       query: vi.fn(async () => ({ rows: [{ buyer_email: null }] })),
     };
-    const outbox = { enqueueTransactionalEmail: vi.fn(async (_input: unknown) => undefined) };
+    const outbox = { enqueueNotification: vi.fn(async (_input: unknown) => undefined) };
 
     await projectPaymentEventToTransactionalEmail(db, outbox, {
       id: "evt_pay",
@@ -70,6 +70,6 @@ describe("payments transactional email projector", () => {
       data: { paymentId: "pay_123", orderIds: ["ord_123"], amount: "20.00", currencyCode: "USD" },
     } as never);
 
-    expect(outbox.enqueueTransactionalEmail).not.toHaveBeenCalled();
+    expect(outbox.enqueueNotification).not.toHaveBeenCalled();
   });
 });

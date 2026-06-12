@@ -30,10 +30,7 @@ export const module = defineBoundedContextModule<
         "public-presence.public-presence-waitlist-transactional-email-projection": {
           subscriptionName: "public-presence.waitlist-transactional-email",
           buildHandlers: (subscription) =>
-            buildWaitlistTransactionalEmailProjectionHandlers(
-              services.transactionalEmailOutbox,
-              subscription.projectionName,
-            ),
+            buildWaitlistTransactionalEmailProjectionHandlers(services.notificationOutbox, subscription.projectionName),
         },
       },
     }),

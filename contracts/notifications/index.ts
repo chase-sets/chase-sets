@@ -128,6 +128,90 @@ export type NotificationMessage = Readonly<{
   actor: NotificationActor;
 }>;
 
+export type TransactionalEmailChannel = "transactional";
+export type TransactionalEmailProviderName = "amazon-ses" | "local-capture";
+export type TransactionalEmailCriticality = NotificationCriticality;
+export type TransactionalEmailMessageType = NotificationMessageType;
+export type TransactionalEmailAddress = NotificationEmailAddress;
+
+export type TransactionalEmailMessage = Readonly<{
+  messageType: TransactionalEmailMessageType;
+  criticality: TransactionalEmailCriticality;
+  to: readonly [TransactionalEmailAddress, ...TransactionalEmailAddress[]];
+  cc?: readonly TransactionalEmailAddress[];
+  bcc?: readonly TransactionalEmailAddress[];
+  subject: string;
+  templateId: string;
+  templateVersion: number;
+  locale: string;
+  templateData: NotificationTemplateData;
+  idempotencyKey: string;
+  correlationId: string;
+  actor: NotificationActor;
+}>;
+
+export type RenderedTransactionalEmail = Readonly<{
+  subject: string;
+  htmlBody: string;
+  textBody: string;
+}>;
+
+export interface TransactionalEmailTemplateRenderer {
+  render(message: TransactionalEmailMessage): RenderedTransactionalEmail;
+}
+
+export type SentTransactionalEmailReceipt = Readonly<{
+  providerName: TransactionalEmailProviderName;
+  providerMessageId: string;
+  acceptedAt: string;
+  attemptCount: number;
+}>;
+
+export interface TransactionalEmailGateway {
+  sendTransactionalEmail(message: TransactionalEmailMessage): Promise<SentTransactionalEmailReceipt>;
+}
+
+export function createTransactionalEmailNotificationMessage(message: TransactionalEmailMessage): NotificationMessage {
+  return {
+    messageType: message.messageType,
+    criticality: message.criticality,
+    title: message.subject,
+    body: message.subject,
+    templateId: message.templateId,
+    templateVersion: message.templateVersion,
+    locale: message.locale,
+    templateData: message.templateData,
+    channels: [
+      {
+        channel: "email",
+        to: message.to,
+        ...(message.cc ? { cc: message.cc } : {}),
+        ...(message.bcc ? { bcc: message.bcc } : {}),
+        subject: message.subject,
+        templateId: message.templateId,
+        templateVersion: message.templateVersion,
+        templateData: message.templateData,
+      },
+    ],
+    idempotencyKey: message.idempotencyKey,
+    correlationId: message.correlationId,
+    actor: message.actor,
+  };
+}
+
+export function createNoopTransactionalEmailGateway(): TransactionalEmailGateway {
+  return {
+    async sendTransactionalEmail(message) {
+      return {
+        providerName: "amazon-ses",
+        providerMessageId: `noop:${message.idempotencyKey}`,
+        acceptedAt: new Date().toISOString(),
+        attemptCount: 0,
+      };
+    },
+  };
+}
+
 export type NotificationOutboxStatus = "pending" | "sending" | "sent" | "failed";
 
 export type NotificationOutboxSource = Readonly<{
@@ -335,10 +419,14 @@ export function applyNotificationChannelPreferences(
 }
 
 export function createNotificationDeliveryId(
-  message: Pick<NotificationMessage, "idempotencyKey">,
+  message: Pick<NotificationMessage, "idempotencyKey"> & Partial<Pick<NotificationMessage, "channels">>,
   channel: NotificationChannel,
   index: number,
 ) {
+  if (index === 0 && channel.channel === "email" && message.channels?.length === 1) {
+    return message.idempotencyKey;
+  }
+
   return `${message.idempotencyKey}:${channel.channel}:${index + 1}`;
 }
 

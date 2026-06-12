@@ -6,7 +6,7 @@ describe("refund transactional email projector", () => {
     const db = {
       query: vi.fn(async () => ({ rows: [{ buyer_email: "buyer@example.com" }] })),
     };
-    const outbox = { enqueueTransactionalEmail: vi.fn(async (_input: unknown) => undefined) };
+    const outbox = { enqueueNotification: vi.fn(async (_input: unknown) => undefined) };
 
     await projectRefundEventToTransactionalEmail(db, outbox, {
       id: "evt_refund",
@@ -23,11 +23,11 @@ describe("refund transactional email projector", () => {
       },
     } as never);
 
-    expect(outbox.enqueueTransactionalEmail).toHaveBeenCalledOnce();
-    expect(outbox.enqueueTransactionalEmail.mock.calls[0]?.[0]).toMatchObject({
+    expect(outbox.enqueueNotification).toHaveBeenCalledOnce();
+    expect(outbox.enqueueNotification.mock.calls[0]?.[0]).toMatchObject({
       message: {
         messageType: "payments.refund-issued",
-        to: [{ email: "buyer@example.com" }],
+        channels: [{ channel: "email", to: [{ email: "buyer@example.com" }] }],
       },
       source: {
         sourceEventId: "evt_refund",
@@ -40,7 +40,7 @@ describe("refund transactional email projector", () => {
     const db = {
       query: vi.fn(async () => ({ rows: [{ buyer_email: "buyer@example.com" }] })),
     };
-    const outbox = { enqueueTransactionalEmail: vi.fn(async (_input: unknown) => undefined) };
+    const outbox = { enqueueNotification: vi.fn(async (_input: unknown) => undefined) };
 
     await projectRefundEventToTransactionalEmail(db, outbox, {
       id: "evt_refund_failed",
@@ -57,12 +57,12 @@ describe("refund transactional email projector", () => {
       },
     } as never);
 
-    expect(outbox.enqueueTransactionalEmail).toHaveBeenCalledOnce();
-    expect(outbox.enqueueTransactionalEmail.mock.calls[0]?.[0]).toMatchObject({
+    expect(outbox.enqueueNotification).toHaveBeenCalledOnce();
+    expect(outbox.enqueueNotification.mock.calls[0]?.[0]).toMatchObject({
       message: {
         messageType: "payments.refund-failed",
         templateId: "refund_failed",
-        to: [{ email: "buyer@example.com" }],
+        channels: [{ channel: "email", to: [{ email: "buyer@example.com" }] }],
       },
     });
   });
@@ -71,7 +71,7 @@ describe("refund transactional email projector", () => {
     const db = {
       query: vi.fn(async () => ({ rows: [] })),
     };
-    const outbox = { enqueueTransactionalEmail: vi.fn(async (_input: unknown) => undefined) };
+    const outbox = { enqueueNotification: vi.fn(async (_input: unknown) => undefined) };
 
     await projectRefundEventToTransactionalEmail(db, outbox, {
       id: "evt_refund",
@@ -88,6 +88,6 @@ describe("refund transactional email projector", () => {
       },
     } as never);
 
-    expect(outbox.enqueueTransactionalEmail).not.toHaveBeenCalled();
+    expect(outbox.enqueueNotification).not.toHaveBeenCalled();
   });
 });

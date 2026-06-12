@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { TransactionalEmailMessage } from "@chase-sets/communications-email";
+import type { TransactionalEmailMessage } from "@chase-sets/notifications";
 import { platformEmailTemplateRenderer } from "../src/email-template-renderer";
 
 describe("platform email template renderer", () => {

@@ -1856,9 +1856,7 @@ describe("marketplace launch evidence verifier", () => {
     expect(result.errors).toContain(
       "Transactional email controlledSendProviderMessageId must be a concrete identifier, not a placeholder.",
     );
-    expect(result.errors).toContain(
-      "Transactional email outboxRowId must be a positive transactional_email_outbox row id.",
-    );
+    expect(result.errors).toContain("Transactional email outboxRowId must be a positive notification_outbox row id.");
     expect(result.errors).toContain("Transactional email deliveryProviderEventId must be a delivery provider event.");
     expect(result.errors).toContain(
       "Transactional email bounceProviderEventId provider message id must be a concrete identifier, not a placeholder.",

@@ -22,7 +22,6 @@
     "@chase-sets/bounded-context-module": "workspace:*",
     "@chase-sets/bounded-context-runtime": "workspace:*",
     "@chase-sets/checkout": "workspace:*",
-    "@chase-sets/communications-email": "workspace:*",
     "@chase-sets/design-system": "workspace:*",
     "@chase-sets/event-core": "workspace:*",
     "@chase-sets/event-core-postgres": "workspace:*",
@@ -31,12 +30,13 @@
     "@chase-sets/identity": "workspace:*",
     "@chase-sets/localization": "workspace:*",
     "@chase-sets/marketplace": "workspace:*",
+    "@chase-sets/notification-outbox": "workspace:*",
+    "@chase-sets/notifications": "workspace:*",
     "@chase-sets/ordering": "workspace:*",
     "@chase-sets/payment-processing": "workspace:*",
     "@chase-sets/platform-runtime": "workspace:*",
     "@chase-sets/primitives": "workspace:*",
     "@chase-sets/provider-webhook-inbox": "workspace:*",
-    "@chase-sets/transactional-email-outbox": "workspace:*",
     "hono": "^4.12.12"
   },
   "devDependencies": {

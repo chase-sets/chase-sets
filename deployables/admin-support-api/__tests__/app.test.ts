@@ -389,10 +389,6 @@ describe("admin-support API app", () => {
           disposition: "approved-exception",
         }),
         expect.objectContaining({
-          origin: "transactional-email-outbox",
-          disposition: "scheduled-exception",
-        }),
-        expect.objectContaining({
           origin: "notification-outbox",
           disposition: "scheduled-exception",
         }),

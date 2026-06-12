@@ -11,8 +11,11 @@ describe("waitlist transactional email intents", () => {
 
     expect(message.messageType).toBe("public-presence.waitlist-signup.recorded");
     expect(message.criticality).toBe("operational");
-    expect(message.to[0]?.email).toBe("collector@example.com");
-    expect(message.subject).toBe("Welcome to Chase Sets early access");
+    expect(message.channels[0]).toMatchObject({
+      channel: "email",
+      to: [{ email: "collector@example.com" }],
+      subject: "Welcome to Chase Sets early access",
+    });
     expect(message.templateId).toBe("waitlist_signup_confirmation");
     expect(message.templateData.headline).toBe("You are on the early access list.");
     expect(message.templateData.intro).toContain("lower seller fees");

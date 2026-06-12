@@ -6,8 +6,8 @@ import {
 } from "@chase-sets/event-core-postgres";
 import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
-import type { TransactionalEmailOutbox } from "@chase-sets/communications-email";
-import { createPostgresTransactionalEmailOutbox } from "@chase-sets/transactional-email-outbox";
+import type { NotificationOutbox } from "@chase-sets/notifications";
+import { createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
 import { createPaymentRuntime } from "../../features/payments/api/runtime";
 import { createRefundRuntime } from "../../features/refunds/api/runtime";
 import type { PaymentProcessorGateway, PaymentProcessorPublicConfig } from "@chase-sets/payment-processing";
@@ -16,7 +16,7 @@ import type { BalanceCreditResolver } from "../../features/payments/api/balance-
 export type PaymentsServiceOptions = Readonly<{
   processorGateway?: PaymentProcessorGateway;
   balanceCreditResolver?: BalanceCreditResolver;
-  transactionalEmailOutbox?: TransactionalEmailOutbox;
+  notificationOutbox?: NotificationOutbox;
 }>;
 
 export type PaymentsServices = Readonly<{
@@ -63,7 +63,7 @@ export function createPaymentsServices(
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
   const processorGateway = options.processorGateway ?? createMissingProcessorGateway();
-  const transactionalEmailOutbox = options.transactionalEmailOutbox ?? createPostgresTransactionalEmailOutbox({ db });
+  const notificationOutbox = options.notificationOutbox ?? createPostgresNotificationOutbox({ db });
 
   const payments = createPaymentRuntime({
     eventStore,
@@ -71,14 +71,14 @@ export function createPaymentsServices(
     db,
     processorGateway,
     balanceCreditResolver: options.balanceCreditResolver,
-    transactionalEmailOutbox,
+    notificationOutbox,
   });
   const refunds = createRefundRuntime({
     eventStore,
     checkpointStore,
     db,
     processorGateway,
-    transactionalEmailOutbox,
+    notificationOutbox,
   });
 
   return {

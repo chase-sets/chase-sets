@@ -23,7 +23,7 @@ import {
   type DurableJobWorkUnitRecord,
   type DurableJobWorkUnitSummary,
 } from "@chase-sets/platform-runtime/durable-job-work-units";
-import { createNoopTransactionalEmailOutbox, type TransactionalEmailOutbox } from "@chase-sets/communications-email";
+import { createNoopNotificationOutbox, type NotificationOutbox } from "@chase-sets/notifications";
 import { recordProviderWebhookEvent as recordProviderWebhookInboxEvent } from "@chase-sets/provider-webhook-inbox";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, LedgerEntryId, PayoutId } from "@chase-sets/primitives/typed-ids";
@@ -80,7 +80,7 @@ type PayoutRuntimeDeps = Readonly<{
   payoutReadiness: PayoutReadinessServices;
   moneyMovementGateway: MoneyMovementGateway;
   operationsRecorder?: SettlementOperationsRecorder;
-  transactionalEmailOutbox?: TransactionalEmailOutbox;
+  notificationOutbox?: NotificationOutbox;
 }>;
 
 export type PayoutReconciliationJobPayload = Readonly<{
@@ -329,7 +329,7 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
       workflowName: "settlement.payout-reconciliation",
     },
   );
-  const transactionalEmailOutbox = deps.transactionalEmailOutbox ?? createNoopTransactionalEmailOutbox();
+  const notificationOutbox = deps.notificationOutbox ?? createNoopNotificationOutbox();
   const operationsRecorder = deps.operationsRecorder ?? createNoopSettlementOperationsRecorder();
   const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
@@ -1360,7 +1360,7 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
       createProjectionHandlerSet({
         projectionName: SETTLEMENT_PAYOUT_TRANSACTIONAL_EMAIL_PROJECTION,
         handlers: buildSettlementPayoutTransactionalEmailProjectionHandlers(
-          transactionalEmailOutbox,
+          notificationOutbox,
           SETTLEMENT_PAYOUT_TRANSACTIONAL_EMAIL_PROJECTION,
         ),
       }),

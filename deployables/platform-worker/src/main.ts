@@ -2,16 +2,8 @@ import "./observability-prelude";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { createNoopNotificationAdapter, type NotificationChannelAdapter } from "@chase-sets/notifications";
-import { createNoopTransactionalEmailGateway, type TransactionalEmailGateway } from "@chase-sets/communications-email";
-import {
-  createSesEmailNotificationAdapter,
-  createSesSendRequest,
-  createSesTransactionalEmailGateway,
-} from "@chase-sets/ses-email";
-import {
-  createLocalEmailCaptureGateway,
-  createLocalEmailCaptureNotificationAdapter,
-} from "@chase-sets/local-email-capture";
+import { createSesEmailNotificationAdapter, createSesSendRequest } from "@chase-sets/ses-email";
+import { createLocalEmailCaptureNotificationAdapter } from "@chase-sets/local-email-capture";
 import { createStripePaymentProcessorGateway } from "@chase-sets/stripe-payments";
 import { createStripeConnectMoneyMovementGateway } from "@chase-sets/stripe-connect";
 import { createEasyPostPostageLabelProvider } from "@chase-sets/easypost-postage";
@@ -52,10 +44,6 @@ import { listSourceContextWakeRelayConfigs } from "@chase-sets/platform-runtime/
 import { createPostgresWorkSignalStore } from "@chase-sets/platform-runtime/work-signal-store";
 import { createPgPool, createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { assertRunnerCapacity, summarizeRunnerCapacity } from "@chase-sets/platform-runtime/worker-capacity";
-import {
-  createPostgresTransactionalEmailOutbox,
-  createTransactionalEmailOutboxDispatcher,
-} from "@chase-sets/transactional-email-outbox";
 import { createNotificationOutboxDispatcher, createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
 import { createPostgresWebNotificationAdapter } from "@chase-sets/web-notifications";
 import { createTwilioMessagingAdapter } from "@chase-sets/twilio-messaging";
@@ -149,7 +137,6 @@ const commercialTermsResolver = pools["commercial-terms"]
   ? createCommercialTermsResolver({ db: pools["commercial-terms"] })
   : undefined;
 const balanceCreditResolver = pools.settlement ? createSettlementBalanceCreditResolver(pools.settlement) : undefined;
-const transactionalEmailGateway = createPlatformTransactionalEmailGateway(config.notificationEmail);
 const emailNotificationAdapter = createPlatformEmailNotificationAdapter(config.notificationEmail);
 
 const runtime = createWorkerHost(workerContextRegistry, "platform-worker", {
@@ -185,11 +172,6 @@ const notificationDispatchRunners = createNotificationDispatchRunners(
   runtime,
   config.workerId,
   emailNotificationAdapter,
-);
-const transactionalEmailDispatchRunners = createTransactionalEmailDispatchRunners(
-  runtime,
-  config.workerId,
-  transactionalEmailGateway,
 );
 const scheduledJobRunners = [
   ...createScheduledJobRunners(runtime.services, config, controlPlane),
@@ -245,11 +227,7 @@ const projectionWakeRunners = config.projectionWakeScheduler.enabled
 const runnerGroups = [
   createRunnerGroup("projections", projectionRunners, config.projectionMaxConcurrentRunners),
   createRunnerGroup("jobs", bulkJobRunners, config.jobMaxConcurrentRunners),
-  createRunnerGroup(
-    "dispatch",
-    [...notificationDispatchRunners, ...transactionalEmailDispatchRunners],
-    config.dispatchMaxConcurrentRunners,
-  ),
+  createRunnerGroup("dispatch", notificationDispatchRunners, config.dispatchMaxConcurrentRunners),
   createRunnerGroup("scheduled", scheduledJobRunners, config.scheduledMaxConcurrentRunners),
   createRunnerGroup(
     "wakes",
@@ -1722,36 +1700,6 @@ function createGoogleShoppingMerchantClient(config: PlatformWorkerGoogleMerchant
   });
 }
 
-function createTransactionalEmailDispatchRunners(
-  runtime: WorkerHostRuntime,
-  workerId: string,
-  gateway: TransactionalEmailGateway,
-): readonly WorkerRunner[] {
-  const emailOutboxContextNames = new Set<string>(
-    workerContextRegistry
-      .filter((entry) =>
-        entry.manifest.hostPorts?.some((port: { portName: string }) => port.portName === "transactionalEmailOutbox"),
-      )
-      .map((entry) => entry.contextName),
-  );
-
-  return runtime.mountedContexts
-    .filter((context) => emailOutboxContextNames.has(context.contextName))
-    .map((context) => {
-      const dispatcher = createTransactionalEmailOutboxDispatcher({
-        outbox: createPostgresTransactionalEmailOutbox({ db: context.pool }),
-        gateway,
-        claimOwnerId: `${workerId}:${context.contextName}:transactional-email`,
-      });
-
-      return {
-        name: `${context.contextName}.transactional-email-dispatcher`,
-        kind: "job",
-        runOnce: dispatcher.runOnce,
-      };
-    });
-}
-
 function createNotificationDispatchRunners(
   runtime: WorkerHostRuntime,
   workerId: string,
@@ -1831,62 +1779,6 @@ function createScheduledJobRunner(
   };
 }
 
-function createPlatformTransactionalEmailGateway(
-  input: ReturnType<typeof loadConfig>["notificationEmail"],
-): TransactionalEmailGateway {
-  if (input.provider === "local-capture") {
-    return createLocalEmailCaptureGateway({
-      captureFilePath: input.localCapture.filePath,
-      templateRenderer: platformEmailTemplateRenderer,
-    });
-  }
-
-  if (input.provider !== "amazon-ses") {
-    return createNoopTransactionalEmailGateway();
-  }
-
-  const ses = requireCompleteSesConfig(input.ses);
-
-  return createSesTransactionalEmailGateway({
-    fromEmail: ses.fromEmail,
-    configurationSetName: ses.configurationSetName,
-    sourceArn: ses.sourceArn,
-    templateRenderer: platformEmailTemplateRenderer,
-    sendRequest: createSesSendRequest({
-      region: ses.region,
-      clientConfig: {
-        credentials: {
-          accessKeyId: ses.accessKeyId,
-          secretAccessKey: ses.secretAccessKey,
-        },
-      },
-    }),
-    onAttempt: (event) => {
-      logger.info("Transactional email send attempted.", {
-        type: "transactional-email.send.attempt",
-        provider: "amazon-ses",
-        messageType: event.messageType,
-        attempt: event.attempt,
-        correlationId: event.correlationId,
-      });
-    },
-    onResult: (event) => {
-      const payload = {
-        type: "transactional-email.send.result",
-        provider: "amazon-ses",
-        messageType: event.messageType,
-        success: event.success,
-        ...(event.error ? { error: event.error } : {}),
-      };
-      if (event.success) {
-        logger.info("Transactional email send accepted.", payload);
-      } else {
-        logger.warn("Transactional email send failed.", payload);
-      }
-    },
-  });
-}
-
 function createPlatformEmailNotificationAdapter(
   input: ReturnType<typeof loadConfig>["notificationEmail"],
 ): NotificationChannelAdapter {
@@ -1917,6 +1809,29 @@ function createPlatformEmailNotificationAdapter(
         },
       },
     }),
+    onAttempt: (event) => {
+      logger.info("Email notification send attempted.", {
+        type: "notification.email.send.attempt",
+        provider: "amazon-ses",
+        messageType: event.messageType,
+        attempt: event.attempt,
+        correlationId: event.correlationId,
+      });
+    },
+    onResult: (event) => {
+      const payload = {
+        type: "notification.email.send.result",
+        provider: "amazon-ses",
+        messageType: event.messageType,
+        success: event.success,
+        ...(event.error ? { error: event.error } : {}),
+      };
+      if (event.success) {
+        logger.info("Email notification send accepted.", payload);
+      } else {
+        logger.warn("Email notification send failed.", payload);
+      }
+    },
   });
 }
 

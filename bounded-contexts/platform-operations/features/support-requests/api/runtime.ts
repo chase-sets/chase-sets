@@ -6,7 +6,7 @@ import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-se
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { createNoopTransactionalEmailOutbox, type TransactionalEmailOutbox } from "@chase-sets/communications-email";
+import { createNoopNotificationOutbox, type NotificationOutbox } from "@chase-sets/notifications";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, OrderId, SupportRequestId } from "@chase-sets/primitives/typed-ids";
 import {
@@ -50,7 +50,7 @@ type SupportRequestRuntimeDeps = Readonly<{
   eventStore: EventStore;
   checkpointStore: ProjectionCheckpointStore;
   db: PgQueryable;
-  transactionalEmailOutbox?: TransactionalEmailOutbox;
+  notificationOutbox?: NotificationOutbox;
 }>;
 
 export type SupportOrderSource = Readonly<{
@@ -186,7 +186,7 @@ async function requireAccountSupportRequest(db: PgQueryable, supportRequestId: s
 }
 
 export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): SupportRequestServices {
-  const transactionalEmailOutbox = deps.transactionalEmailOutbox ?? createNoopTransactionalEmailOutbox();
+  const notificationOutbox = deps.notificationOutbox ?? createNoopNotificationOutbox();
   const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
       eventStore: deps.eventStore,
@@ -392,7 +392,7 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
         projectionName: SUPPORT_REQUEST_TRANSACTIONAL_EMAIL_PROJECTION,
         handlers: buildSupportRequestTransactionalEmailProjectionHandlers(
           deps.db,
-          transactionalEmailOutbox,
+          notificationOutbox,
           SUPPORT_REQUEST_TRANSACTIONAL_EMAIL_PROJECTION,
         ),
         streamPrefixes: ["support."],

@@ -40,16 +40,16 @@
     {
       "projectionName": "public-presence-waitlist-transactional-email-projection",
       "sourceContextNames": ["public-presence"],
-      "ownedTables": ["transactional_email_outbox"],
+      "ownedTables": ["notification_outbox"],
       "requiredDuringBootstrap": true,
       "resetStrategy": "append-only-no-reset"
     }
   ],
   "hostPorts": [
     {
-      "portName": "transactionalEmailOutbox",
+      "portName": "notificationOutbox",
       "providedBy": "platform-worker",
-      "purpose": "Durable transactional email outbox consumed only by event projectors."
+      "purpose": "Durable outbound notification outbox consumed only by event projectors."
     }
   ],
   "apiDeployables": ["admin-support-api", "platform-api"],

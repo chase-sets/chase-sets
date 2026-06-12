@@ -114,14 +114,9 @@
   ],
   "hostPorts": [
     {
-      "portName": "transactionalEmailOutbox",
-      "providedBy": "platform-worker",
-      "purpose": "Durable transactional email outbox consumed only by event projectors."
-    },
-    {
       "portName": "notificationOutbox",
       "providedBy": "platform-worker",
-      "purpose": "Durable notification outbox used for SMS sign-in codes and future Auth notification channels."
+      "purpose": "Durable outbound notification outbox used for magic-link email, SMS sign-in codes, and future Auth notification channels."
     },
     {
       "portName": "socialLoginProviders",

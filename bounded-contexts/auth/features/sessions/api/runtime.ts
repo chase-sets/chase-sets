@@ -2,7 +2,7 @@ import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repo
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
-import { createNoopTransactionalEmailOutbox, type TransactionalEmailOutbox } from "@chase-sets/communications-email";
+import { createNoopNotificationOutbox, type NotificationOutbox } from "@chase-sets/notifications";
 import type { AuthRuntimeDeps } from "./runtime-deps";
 import {
   decideSession,
@@ -32,11 +32,11 @@ export type SessionServices = Readonly<{
 export function createSessionRuntime(
   deps: AuthRuntimeDeps &
     Readonly<{
-      transactionalEmailOutbox?: TransactionalEmailOutbox;
+      notificationOutbox?: NotificationOutbox;
       magicLinkDeliveryTokens?: MagicLinkDeliveryTokenStore;
     }>,
 ): SessionServices {
-  const transactionalEmailOutbox = deps.transactionalEmailOutbox ?? createNoopTransactionalEmailOutbox();
+  const notificationOutbox = deps.notificationOutbox ?? createNoopNotificationOutbox();
   const magicLinkDeliveryTokens = deps.magicLinkDeliveryTokens ?? {
     getMagicLinkDeliveryToken: async () => null,
     clearMagicLinkDeliveryToken: async () => undefined,
@@ -69,7 +69,7 @@ export function createSessionRuntime(
       createProjectionHandlerSet({
         projectionName: AUTH_SESSION_TRANSACTIONAL_EMAIL_PROJECTION,
         handlers: buildAuthSessionTransactionalEmailProjectionHandlers(
-          transactionalEmailOutbox,
+          notificationOutbox,
           magicLinkDeliveryTokens,
           AUTH_SESSION_TRANSACTIONAL_EMAIL_PROJECTION,
         ),

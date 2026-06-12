@@ -6,8 +6,8 @@ import {
 } from "@chase-sets/event-core-postgres";
 import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
-import type { TransactionalEmailOutbox } from "@chase-sets/communications-email";
-import { createPostgresTransactionalEmailOutbox } from "@chase-sets/transactional-email-outbox";
+import type { NotificationOutbox } from "@chase-sets/notifications";
+import { createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
 import { createOrderingAccountRuntime } from "../account-support/runtime";
 import { createOrderingOrderRuntime } from "../../features/orders/api/runtime";
 import type { TaxQuoteResolver } from "../../features/orders/api/runtime";
@@ -17,7 +17,7 @@ import { defaultShippingQuotePolicy, type ShippingQuotePolicy } from "../../feat
 export type OrderingServiceOptions = Readonly<{
   shippingQuotePolicy?: ShippingQuotePolicy;
   taxQuoteResolver?: TaxQuoteResolver;
-  transactionalEmailOutbox?: TransactionalEmailOutbox;
+  notificationOutbox?: NotificationOutbox;
 }>;
 
 export type OrderingServices = Readonly<{
@@ -38,7 +38,7 @@ export function createOrderingServices(
   });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
-  const transactionalEmailOutbox = options.transactionalEmailOutbox ?? createPostgresTransactionalEmailOutbox({ db });
+  const notificationOutbox = options.notificationOutbox ?? createPostgresNotificationOutbox({ db });
   const accounts = createOrderingAccountRuntime({ eventStore, checkpointStore, db });
   const postagePolicies = createPostagePolicyRuntime({ eventStore, checkpointStore, db });
   const orders = createOrderingOrderRuntime({
@@ -48,7 +48,7 @@ export function createOrderingServices(
     shippingQuotePolicy: options.shippingQuotePolicy ?? defaultShippingQuotePolicy,
     postagePolicyResolver: postagePolicies.getActivePolicy,
     taxQuoteResolver: options.taxQuoteResolver,
-    transactionalEmailOutbox,
+    notificationOutbox,
   });
 
   return {

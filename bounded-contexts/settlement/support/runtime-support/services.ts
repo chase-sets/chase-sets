@@ -6,8 +6,8 @@ import {
 } from "@chase-sets/event-core-postgres";
 import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
-import type { TransactionalEmailOutbox } from "@chase-sets/communications-email";
-import { createPostgresTransactionalEmailOutbox } from "@chase-sets/transactional-email-outbox";
+import type { NotificationOutbox } from "@chase-sets/notifications";
+import { createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
 import { createWalletRuntime } from "../../features/wallets/api/runtime";
 import { createPayoutRuntime } from "../../features/payouts/api/runtime";
 import { createPayoutReadinessRuntime } from "../../features/payout-readiness/api/runtime";
@@ -17,7 +17,7 @@ import { createNoopSettlementOperationsRecorder, type SettlementOperationsRecord
 export type SettlementHostPorts = Readonly<{
   moneyMovementGateway?: MoneyMovementGateway;
   operationsRecorder?: SettlementOperationsRecorder;
-  transactionalEmailOutbox?: TransactionalEmailOutbox;
+  notificationOutbox?: NotificationOutbox;
 }>;
 
 export type SettlementServices = Readonly<{
@@ -62,7 +62,7 @@ export function createSettlementServices(
   });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
-  const transactionalEmailOutbox = ports.transactionalEmailOutbox ?? createPostgresTransactionalEmailOutbox({ db });
+  const notificationOutbox = ports.notificationOutbox ?? createPostgresNotificationOutbox({ db });
   const moneyMovementGateway = ports.moneyMovementGateway ?? createMissingMoneyMovementGateway();
   const operationsRecorder = ports.operationsRecorder ?? createNoopSettlementOperationsRecorder();
   const wallets = createWalletRuntime({
@@ -85,7 +85,7 @@ export function createSettlementServices(
     payoutReadiness,
     moneyMovementGateway,
     operationsRecorder,
-    transactionalEmailOutbox,
+    notificationOutbox,
   });
 
   return {

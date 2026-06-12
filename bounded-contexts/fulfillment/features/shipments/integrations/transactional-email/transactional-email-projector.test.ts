@@ -3,7 +3,7 @@ import { projectFulfillmentEventToTransactionalEmail } from "./transactional-ema
 
 describe("fulfillment transactional email projector", () => {
   it("enqueues when shipment.delivered events include a buyer email snapshot", async () => {
-    const outbox = { enqueueTransactionalEmail: vi.fn(async () => undefined) };
+    const outbox = { enqueueNotification: vi.fn(async () => undefined) };
     await projectFulfillmentEventToTransactionalEmail(outbox, {
       id: "evt_3",
       type: "fulfillment.shipment.delivered",
@@ -20,6 +20,6 @@ describe("fulfillment transactional email projector", () => {
         shippingDestinationSnapshot: { email: "buyer@example.com" },
       },
     } as never);
-    expect(outbox.enqueueTransactionalEmail).toHaveBeenCalledOnce();
+    expect(outbox.enqueueNotification).toHaveBeenCalledOnce();
   });
 });

@@ -66,9 +66,9 @@
       "purpose": "Verifies and normalizes postage provider webhook payloads before fulfillment records provider events and advances shipment state."
     },
     {
-      "portName": "transactionalEmailOutbox",
+      "portName": "notificationOutbox",
       "providedBy": "platform-worker",
-      "purpose": "Durable transactional email outbox consumed only by shipment event projectors."
+      "purpose": "Durable outbound notification outbox consumed only by shipment event projectors."
     }
   ],
   "apiDeployables": ["platform-api"],

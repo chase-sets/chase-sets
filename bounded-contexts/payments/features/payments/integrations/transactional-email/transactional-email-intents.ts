@@ -1,4 +1,4 @@
-import type { TransactionalEmailMessage } from "@chase-sets/communications-email";
+import { createTransactionalEmailNotificationMessage, type NotificationMessage } from "@chase-sets/notifications";
 
 export type PaymentEmailIntentInput = Readonly<{
   buyerEmail: string;
@@ -9,8 +9,8 @@ export type PaymentEmailIntentInput = Readonly<{
   correlationId: string;
 }>;
 
-export function mapPaymentCapturedToTransactionalEmail(input: PaymentEmailIntentInput): TransactionalEmailMessage {
-  return {
+export function mapPaymentCapturedToTransactionalEmail(input: PaymentEmailIntentInput): NotificationMessage {
+  return createTransactionalEmailNotificationMessage({
     messageType: "payments.payment-captured",
     criticality: "commerce",
     to: [{ email: input.buyerEmail }],
@@ -27,11 +27,11 @@ export function mapPaymentCapturedToTransactionalEmail(input: PaymentEmailIntent
     idempotencyKey: `payments:payment_captured:${input.paymentId}`,
     correlationId: input.correlationId,
     actor: { userId: null, accountId: null },
-  };
+  });
 }
 
-export function mapPaymentFailedToTransactionalEmail(input: PaymentEmailIntentInput): TransactionalEmailMessage {
-  return {
+export function mapPaymentFailedToTransactionalEmail(input: PaymentEmailIntentInput): NotificationMessage {
+  return createTransactionalEmailNotificationMessage({
     messageType: "payments.payment-failed",
     criticality: "commerce",
     to: [{ email: input.buyerEmail }],
@@ -48,5 +48,5 @@ export function mapPaymentFailedToTransactionalEmail(input: PaymentEmailIntentIn
     idempotencyKey: `payments:payment_failed:${input.paymentId}`,
     correlationId: input.correlationId,
     actor: { userId: null, accountId: null },
-  };
+  });
 }

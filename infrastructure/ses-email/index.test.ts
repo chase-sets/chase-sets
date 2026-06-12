@@ -8,7 +8,7 @@ import {
   parseSesNotificationEvent,
   type SesSendEmailRequest,
 } from ".";
-import type { TransactionalEmailMessage } from "@chase-sets/communications-email";
+import type { TransactionalEmailMessage } from "@chase-sets/notifications";
 
 describe("ses email adapter", () => {
   const templateRenderer = {

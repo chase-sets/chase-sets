@@ -6,7 +6,7 @@ import type {
   TransactionalEmailGateway,
   TransactionalEmailMessage,
   TransactionalEmailTemplateRenderer,
-} from "@chase-sets/communications-email";
+} from "@chase-sets/notifications";
 import type {
   EmailNotificationChannel,
   NotificationChannelAdapter,

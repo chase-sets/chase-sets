@@ -1,6 +1,5 @@
 import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres";
 import { notificationOutboxSchemaSql } from "@chase-sets/notification-outbox";
-import { transactionalEmailOutboxSchemaSql } from "@chase-sets/transactional-email-outbox";
 import { authIdentityProjectionSchemaSql } from "../auth-support/identity-projection";
 import { authUcpOAuthSchemaSql } from "../ucp-support/oauth";
 
@@ -146,7 +145,6 @@ CREATE TABLE IF NOT EXISTS identity_guest_checkout_claim_tokens (
 
 export const authSchemaSql = [
   eventCorePostgresSchemaSql,
-  transactionalEmailOutboxSchemaSql,
   notificationOutboxSchemaSql,
   authIdentityProjectionSchemaSql,
   authUcpOAuthSchemaSql,

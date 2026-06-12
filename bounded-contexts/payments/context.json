@@ -87,9 +87,9 @@
       "purpose": "Apply available settlement wallet balance as checkout credit without Payments querying Settlement storage."
     },
     {
-      "portName": "transactionalEmailOutbox",
+      "portName": "notificationOutbox",
       "providedBy": "platform-worker",
-      "purpose": "Durable transactional email outbox consumed only by payment and refund event projectors."
+      "purpose": "Durable outbound notification outbox consumed only by payment and refund event projectors."
     }
   ],
   "apiDeployables": ["platform-api"],

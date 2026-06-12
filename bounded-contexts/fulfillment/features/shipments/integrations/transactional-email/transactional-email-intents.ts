@@ -1,4 +1,4 @@
-import type { TransactionalEmailMessage } from "@chase-sets/communications-email";
+import { createTransactionalEmailNotificationMessage, type NotificationMessage } from "@chase-sets/notifications";
 
 export type ShipmentDeliveredEmailIntentInput = Readonly<{
   buyerEmail: string;
@@ -9,8 +9,8 @@ export type ShipmentDeliveredEmailIntentInput = Readonly<{
 
 export function mapShipmentDeliveredToTransactionalEmail(
   input: ShipmentDeliveredEmailIntentInput,
-): TransactionalEmailMessage {
-  return {
+): NotificationMessage {
+  return createTransactionalEmailNotificationMessage({
     messageType: "fulfillment.shipment.delivered",
     criticality: "operational",
     to: [{ email: input.buyerEmail }],
@@ -22,5 +22,5 @@ export function mapShipmentDeliveredToTransactionalEmail(
     idempotencyKey: `fulfillment:shipment_delivered:${input.orderId}:${input.trackingNumber}`,
     correlationId: input.correlationId,
     actor: { userId: null, accountId: null },
-  };
+  });
 }

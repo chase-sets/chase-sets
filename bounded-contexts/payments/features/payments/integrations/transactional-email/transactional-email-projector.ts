@@ -1,4 +1,4 @@
-import type { TransactionalEmailOutbox } from "@chase-sets/communications-email";
+import type { NotificationOutbox } from "@chase-sets/notifications";
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
@@ -38,7 +38,7 @@ async function findBuyerEmailForOrders(db: PgQueryable, orderIds: readonly strin
 
 export async function projectPaymentEventToTransactionalEmail(
   db: PgQueryable,
-  outbox: TransactionalEmailOutbox,
+  outbox: NotificationOutbox,
   event: TransportEvent,
   projectionName = PAYMENTS_PAYMENT_TRANSACTIONAL_EMAIL_PROJECTION,
 ) {
@@ -52,7 +52,7 @@ export async function projectPaymentEventToTransactionalEmail(
       ? mapPaymentCapturedToTransactionalEmail
       : mapPaymentFailedToTransactionalEmail;
 
-  await outbox.enqueueTransactionalEmail({
+  await outbox.enqueueNotification({
     message: mapper({
       buyerEmail,
       paymentId: data.paymentId,
@@ -72,7 +72,7 @@ export async function projectPaymentEventToTransactionalEmail(
 
 export function buildPaymentTransactionalEmailProjectionHandlers(
   db: PgQueryable,
-  outbox: TransactionalEmailOutbox,
+  outbox: NotificationOutbox,
   projectionName = PAYMENTS_PAYMENT_TRANSACTIONAL_EMAIL_PROJECTION,
 ): ProjectorHandlerMap {
   return {
