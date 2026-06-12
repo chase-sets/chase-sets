@@ -1229,12 +1229,12 @@ export const mcpServiceCatalog = [
     ...service(
       "reputation",
       "Reputation",
-      "bounded-contexts/reputation",
+      "bounded-contexts/marketplace",
       "Reviews, review summaries, and reputation signals for purchases and sales.",
       "reputation.view",
       ["review"],
       {
-        packageName: "@chase-sets/reputation",
+        packageName: "@chase-sets/marketplace",
       },
     ),
     tools: [

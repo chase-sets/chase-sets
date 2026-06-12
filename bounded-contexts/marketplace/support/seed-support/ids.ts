@@ -1,4 +1,4 @@
-import type { ListingId, OfferId } from "@chase-sets/primitives/typed-ids";
+import type { ListingId, OfferId, OrderId, ReviewId } from "@chase-sets/primitives/typed-ids";
 
 export const marketplaceReservedSeedIds = {
   listings: {
@@ -52,5 +52,20 @@ export const marketplaceReservedSeedIds = {
     twilightMasqueradeEliteTrainerSubmitted: "off_seed_twilight_masquerade_etb" as OfferId,
     twilightMasqueradeEliteTrainerBundle: "off_seed_twilight_masquerade_etb_bundle" as OfferId,
     twilightMasqueradeEliteTrainerFloor: "off_seed_twilight_masquerade_etb_floor" as OfferId,
+    twilightMasqueradeEliteTrainerEncore: "off_seed_twilight_masquerade_etb_encore" as OfferId,
+  },
+} as const;
+
+export const reputationReservedSeedIds = {
+  reviews: {
+    buyerToSellerActive: "rev_seed_buyer_to_seller_active" as ReviewId,
+    sellerToBuyerWithdrawn: "rev_seed_seller_to_buyer_withdrawn" as ReviewId,
+  },
+  orders: {
+    // Delivered seed order that never receives a support request, so review
+    // eligibility survives the support seed and the reviews slice always has a
+    // review-eligible delivered order to seed against. Ordering, payments, and
+    // fulfillment seed the order, payment capture, and delivered shipment.
+    reviewEligibleDelivered: "ord_seed_review_eligible" as OrderId,
   },
 } as const;

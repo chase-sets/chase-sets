@@ -106,3 +106,22 @@ A **Commerce Commitment Request** is the integration fact emitted when Marketpla
 ## Offer Acceptance
 
 **Offer Acceptance** is the selling-account action that ends marketplace-wide demand visibility for an offer and emits the fact Ordering uses to create an order.
+
+## Review
+
+A **Review** is the full post-transaction evaluation record one account records about another, scoped to a single order.
+
+Notes:
+
+- Reviews are transactional and require an `OrderId`.
+- A Review contains a numeric Review Rating (integer `1` through `5`) and optional written Feedback.
+- A review is always attached to an Order, never directly to a listing or shipment.
+- Only accounts that were counterparties on the same completed order may review each other, with at most one active review per order, per direction.
+
+## Review Eligibility
+
+**Review Eligibility** is the rule that determines when a review may be submitted for an order. Eligibility depends on completed commerce and is unlocked by delivery-complete signals by default.
+
+## Review Summary
+
+A **Review Summary** is the canonical aggregate snapshot for an account derived from active reviews, including average rating, review count, and distribution. Review summaries are projected read models, not emitted domain events.

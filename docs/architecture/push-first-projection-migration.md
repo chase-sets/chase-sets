@@ -49,7 +49,7 @@ Bold source contexts are staging-enabled in the registry (wave 1). `Enabled` cou
 | `discovery:discovery-category-projection` | Discovery | catalog | push-eligible | 0/1 |
 | `discovery:discovery-google-shopping-feed-row-projection` | Discovery | catalog | push-eligible | 0/1 |
 | `discovery:discovery-item-detail-projection` | Discovery | catalog | push-eligible | 0/1 |
-| `discovery:discovery-market-projection` | Discovery | identity, **marketplace**, reputation | push-eligible | 1/3 |
+| `discovery:discovery-market-projection` | Discovery | identity, **marketplace** | push-eligible | 1/2 |
 | `discovery:discovery-product-alert-notification-projection` | Discovery | **marketplace** | push-enabled | 1/1 |
 | `discovery:discovery-product-alert-page-projection` | Discovery | discovery | push-eligible | 0/1 |
 | `discovery:discovery-search-item-projection` | Discovery | catalog | push-eligible | 0/1 |
@@ -61,7 +61,7 @@ Bold source contexts are staging-enabled in the registry (wave 1). `Enabled` cou
 | `inventory:inventory-order-reservation-workflow` | Inventory | **ordering** | push-enabled | 1/1 |
 | `inventory:inventory-storage-location-projection` | Inventory | inventory | push-eligible | 0/1 |
 | `marketplace:marketplace-catalog-item-projection` | Marketplace | catalog | push-eligible | 0/1 |
-| `marketplace:marketplace-identity-account-projection` | Marketplace | identity, reputation | push-eligible | 0/2 |
+| `marketplace:marketplace-identity-account-projection` | Marketplace | identity, **marketplace** | push-eligible | 1/2 |
 | `marketplace:marketplace-inventory-supply-projection` | Marketplace | inventory | push-eligible | 0/1 |
 | `marketplace:marketplace-listing-projection` | Marketplace | **marketplace** | push-enabled | 1/1 |
 | `marketplace:marketplace-offer-projection` | Marketplace | **marketplace** | push-enabled | 1/1 |
@@ -85,11 +85,11 @@ Bold source contexts are staging-enabled in the registry (wave 1). `Enabled` cou
 | `pricing:pricing-order-input-projection` | Pricing | **ordering** | push-enabled | 1/1 |
 | `public-presence:public-presence-waitlist-projection` | Public Presence | public-presence | push-eligible | 0/1 |
 | `public-presence:public-presence-waitlist-transactional-email-projection` | Public Presence | public-presence | push-eligible | 0/1 |
-| `reputation:reputation-account-projection` | Reputation | identity | push-eligible | 0/1 |
-| `reputation:reputation-order-source-projection` | Reputation | **ordering** | push-enabled | 1/1 |
-| `reputation:reputation-shipment-source-projection` | Reputation | fulfillment | push-eligible | 0/1 |
-| `reputation:reputation-support-source-projection` | Reputation | support | push-eligible | 0/1 |
-| `settlement:settlement-account-risk-source-projection` | Settlement | identity, reputation | push-eligible | 0/2 |
+| `marketplace:reputation-account-projection` | Marketplace | identity | push-eligible | 0/1 |
+| `marketplace:reputation-order-source-projection` | Marketplace | **ordering** | push-enabled | 1/1 |
+| `marketplace:reputation-shipment-source-projection` | Marketplace | fulfillment | push-eligible | 0/1 |
+| `marketplace:reputation-support-source-projection` | Marketplace | platform-operations | push-eligible | 0/1 |
+| `settlement:settlement-account-risk-source-projection` | Settlement | identity, **marketplace** | push-eligible | 1/2 |
 | `settlement:settlement-fulfillment-source-projection` | Settlement | fulfillment | push-eligible | 0/1 |
 | `settlement:settlement-payment-input-projection` | Settlement | **payments** | push-enabled | 1/1 |
 | `settlement:settlement-support-hold-projection` | Settlement | platform-operations | push-eligible | 0/1 |
@@ -120,7 +120,7 @@ Every route inventory entry keeps its exact durable wait or carries an owner-app
 | `marketplace.submitted-offer-detail` | marketplace | important | exact wait | push-accelerated |
 | `payments.create-to-detail` | payments | critical | exact wait | push-accelerated |
 | `payments.detail-self-refresh` | payments | important | exact wait | push-accelerated |
-| `reputation.review-submit-to-detail` | reputation | important | accepted exception (reputation, review 2026-07-31, #1084) | poll-bounded until wave 3 |
+| `reputation.review-submit-to-detail` | marketplace | important | accepted exception (marketplace, review 2026-07-31, #1084) | push-accelerated |
 | `settlement.payout-request-to-detail` | settlement | important | accepted exception (settlement, review 2026-07-31, #1084) | poll-bounded until wave 3 |
 
 ## Rollout Waves: Staging First, Production Gated
@@ -130,7 +130,7 @@ Wave membership lives in the registry; this report records the enablement timeli
 - **Wave 1 (`checkout`, `marketplace`, `ordering`, `payments`)** — staging-enabled. `checkout` since 2026-06-10 (push-loop evidence in [Push-Wake SLO And Load Proof](./push-wake-slo-load-proof.md)); the wave-1 remainder enabled 2026-06-11 on the back of that evidence. The wave-1 listener URLs and the connection budget in `infrastructure/digitalocean/platform/locals.tf` already cover all four contexts in both staging and the production worst case, so these flips change no Terraform.
 - **Production follow** — production stays inert (`PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED=false`, `WORKER_PROJECTION_WAKE_RELAY_ENABLED=false`, `READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED=false`) until the production gates pass: a green steady-state production proof canary per the #1237 miss analysis and hold-then-gate action set in the SLO/load-proof doc, plus #1243 topology parity evidence. Flipping is a deliberate operator decision via the [rollout-controls runbook](../runbooks/push-wake-rollout-controls.md), not a registry side effect.
 - **Wave 2 (`catalog`, `fulfillment`, `identity`, `inventory`)** — eligible, not staging-enabled. Blocked on the listener/connection-budget expansion decision: `worker_listener_source_contexts` budgets exactly the four wave-1 listeners, and high-volume contexts (catalog, identity, inventory) additionally need the wake-store capacity evidence (#1246 gates in the registry doc) before enablement.
-- **Wave 3 (`discovery`, `public-presence`, `reputation`, `settlement`, `support`)** — eligible, follows wave 2 with owner approval.
+- **Wave 3 (`discovery`, `public-presence`, `settlement`, `support`)** — eligible, follows wave 2 with owner approval.
 - **Wave 4 (`auth`, `commercial-terms`, `experience`, `insights`, `notifications`, `platform-operations`, `pricing`, `tax`)** — no source-projection fan-out or route dependency requiring event-store wakes; these contexts emit nothing today and need no opt-out because nothing consumes from them.
 
 ## Documented Polling Exceptions

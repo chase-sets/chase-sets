@@ -250,6 +250,9 @@ export function createReviewRuntime(deps: ReviewRuntimeDeps): ReviewServices {
       createProjectionHandlerSet({
         projectionName: "reputation-review-projection",
         handlers: buildReviewProjectionHandlers(deps.db),
+        // Review events keep their durable reputation. stream prefix, so the
+        // marketplace default (`marketplace.`) must not apply.
+        streamPrefixes: ["reputation."],
       }),
     ],
   };

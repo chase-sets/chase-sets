@@ -456,21 +456,6 @@
       "@chase-sets/release-controls": [
         "./contracts/release-controls/index.ts"
       ],
-      "@chase-sets/reputation": [
-        "./bounded-contexts/reputation/index.ts"
-      ],
-      "@chase-sets/reputation/context": [
-        "./bounded-contexts/reputation/context.json"
-      ],
-      "@chase-sets/reputation/routes/*": [
-        "./bounded-contexts/reputation/routes/*.tsx"
-      ],
-      "@chase-sets/reputation/seed-support/*": [
-        "./bounded-contexts/reputation/support/seed-support/*.ts"
-      ],
-      "@chase-sets/reputation/server": [
-        "./bounded-contexts/reputation/server.ts"
-      ],
       "@chase-sets/ses-email": [
         "./infrastructure/ses-email/index.ts"
       ],

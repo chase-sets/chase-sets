@@ -1,7 +1,7 @@
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { catalogScenarioItems, catalogSeedIds } from "@chase-sets/catalog-seed";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
-import { marketplaceReservedSeedIds } from "@chase-sets/marketplace/seed-support/ids";
+import { marketplaceReservedSeedIds, reputationReservedSeedIds } from "@chase-sets/marketplace/seed-support/ids";
 import { defaultPostagePolicy } from "@chase-sets/product-measures";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import { orderingReservedSeedIds } from "../seed-support/ids";
@@ -48,6 +48,19 @@ const acceptedOfferSeed = {
   selectedOptions: [] as const,
   productSummary: null,
   priceAmount: "44.00",
+  quantityRequested: 1,
+} as const;
+
+// Backs the review-eligible delivered order: it never receives a support
+// request, so review eligibility survives for the marketplace reviews seed.
+const reviewEligibleOfferSeed = {
+  offerId: marketplaceReservedSeedIds.offers.twilightMasqueradeEliteTrainerEncore,
+  catalogItemId: catalogScenarioItems.twilightMasqueradeEliteTrainerBox,
+  itemTitle: "Twilight Masquerade Elite Trainer Box",
+  itemSubtitle: "Sealed elite trainer box",
+  selectedOptions: [] as const,
+  productSummary: null,
+  priceAmount: "44.50",
   quantityRequested: 1,
 } as const;
 
@@ -186,13 +199,16 @@ export async function seedOrderingDatabase(
   const buyerAccountId = identitySeedIds.collector.accountId;
 
   try {
-    const [hasCheckoutPending, cancelledOrderStatus, hasAcceptedOfferOrder] = await Promise.all([
-      hasOrderPage(ordering.db, orderingReservedSeedIds.orders.checkoutPending),
-      getOrderPageStatus(ordering.db, orderingReservedSeedIds.orders.cancelled),
-      hasOrderPage(ordering.db, orderingReservedSeedIds.orders.acceptedOfferReady),
-    ]);
+    const [hasCheckoutPending, cancelledOrderStatus, hasAcceptedOfferOrder, hasReviewEligibleOrder] = await Promise.all(
+      [
+        hasOrderPage(ordering.db, orderingReservedSeedIds.orders.checkoutPending),
+        getOrderPageStatus(ordering.db, orderingReservedSeedIds.orders.cancelled),
+        hasOrderPage(ordering.db, orderingReservedSeedIds.orders.acceptedOfferReady),
+        hasOrderPage(ordering.db, reputationReservedSeedIds.orders.reviewEligibleDelivered),
+      ],
+    );
 
-    if (hasCheckoutPending && cancelledOrderStatus === "cancelled" && hasAcceptedOfferOrder) {
+    if (hasCheckoutPending && cancelledOrderStatus === "cancelled" && hasAcceptedOfferOrder && hasReviewEligibleOrder) {
       console.log("Ordering already contains seed data. Skipping seed.");
       return;
     }
@@ -315,6 +331,44 @@ export async function seedOrderingDatabase(
         sellerContext,
       );
       console.log(`  Accepted-offer order seeded (${orderingReservedSeedIds.orders.acceptedOfferReady})`);
+    }
+  }
+
+  if (!(await hasOrderPage(ordering.db, reputationReservedSeedIds.orders.reviewEligibleDelivered))) {
+    const existingReviewEligibleOrderIds = await listOrderPagesForSource(
+      ordering.db,
+      "offer-acceptance",
+      reviewEligibleOfferSeed.offerId,
+    );
+    if (existingReviewEligibleOrderIds.length > 0) {
+      console.log(`  Review-eligible order already seeded (${existingReviewEligibleOrderIds.join(", ")})`);
+    } else {
+      const reviewEligibleOfferInput = await getAcceptedOfferInput(ordering, reviewEligibleOfferSeed.offerId);
+
+      await ordering.orders.createOrdersFromAcceptedOffer(
+        {
+          offerId: reviewEligibleOfferSeed.offerId,
+          buyerAccountId,
+          sellerAccountId: identitySeedIds.demo.accountId,
+          catalogItemId: reviewEligibleOfferSeed.catalogItemId,
+          productId: reviewEligibleOfferInput?.product_id ?? "",
+          itemTitle: reviewEligibleOfferSeed.itemTitle,
+          itemSubtitle: reviewEligibleOfferSeed.itemSubtitle,
+          selectedOptions: [...reviewEligibleOfferSeed.selectedOptions],
+          productSummary: reviewEligibleOfferSeed.productSummary,
+          priceAmount: reviewEligibleOfferSeed.priceAmount,
+          marketplaceSalesFeeUnitAmount: reviewEligibleOfferInput?.marketplace_sales_fee_unit_amount ?? "0.00",
+          sellerNetUnitAmount: reviewEligibleOfferInput?.seller_net_unit_amount ?? "44.50",
+          termsScheduleId: reviewEligibleOfferInput?.terms_schedule_id ?? null,
+          termsAgreementId: reviewEligibleOfferInput?.terms_agreement_id ?? null,
+          termsResolvedAt: reviewEligibleOfferInput?.terms_resolved_at ?? new Date().toISOString(),
+          shippingDestinationSnapshot: seedShippingAddress,
+          quantityRequested: reviewEligibleOfferSeed.quantityRequested,
+          orderIdsOverride: [reputationReservedSeedIds.orders.reviewEligibleDelivered],
+        },
+        sellerContext,
+      );
+      console.log(`  Review-eligible order seeded (${reputationReservedSeedIds.orders.reviewEligibleDelivered})`);
     }
   }
 

@@ -27,7 +27,7 @@
   "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support"],
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
   "allowedContextDependencies": [],
-  "seedRequirements": ["identity", "ordering", "fulfillment", "payments", "settlement", "reputation"],
+  "seedRequirements": ["identity", "ordering", "fulfillment", "payments", "settlement"],
   "eventSubscriptions": [
     {
       "sourceContextName": "ordering",

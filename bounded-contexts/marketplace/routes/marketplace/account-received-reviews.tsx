@@ -5,8 +5,8 @@ import { useLoaderData } from "react-router";
 import type { ListResponse } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import { type ReviewListItem } from "../../support/request-support/api-client";
-import { createReputationRequestApiClient } from "../../support/request-support/api-client";
+import { type ReviewListItem } from "../../support/request-support/reputation-api-client";
+import { createReputationRequestApiClient } from "../../support/request-support/reputation-api-client";
 import { ReviewListPage } from "../../features/reviews/ui/review-list-page";
 
 const DEFAULT_REVIEW_QUERY = "limit=100&offset=0";

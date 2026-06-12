@@ -8,5 +8,6 @@ export const fulfillmentReservedSeedIds = {
     dispatchedShipment: "shp_seed_dispatched" as ShipmentId,
     exceptionShipment: "shp_seed_exception" as ShipmentId,
     returnedShipment: "shp_seed_returned" as ShipmentId,
+    reviewEligibleDelivered: "shp_seed_review_eligible" as ShipmentId,
   },
 } as const;
