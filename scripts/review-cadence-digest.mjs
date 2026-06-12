@@ -58,7 +58,12 @@ export function buildCadenceDigest(comments, options = {}) {
     lines.push("Clean: cadence within limits.");
   }
 
-  return { flagged, reviewPassCount: reviewPasses.length, ledgerCommentCount: ledgerComments.length, markdown: lines.join("\n") };
+  return {
+    flagged,
+    reviewPassCount: reviewPasses.length,
+    ledgerCommentCount: ledgerComments.length,
+    markdown: lines.join("\n"),
+  };
 }
 
 async function fetchRecentIssueComments(repo, sinceIso, token) {
