@@ -1435,4 +1435,76 @@ describe("checkout session routes", () => {
     expect(mockCreateCheckoutOrdersThroughOrdering).not.toHaveBeenCalled();
     expect(mockCreateCheckoutPaymentThroughPayments).not.toHaveBeenCalled();
   });
+
+  it("retries payment without mutating shipping or creating duplicate orders after orders exist", async () => {
+    const orderedSession = createSession({
+      order_ids: ["ord_1"],
+      payment_id: null,
+      fulfillment_preview_revision: "fulfillment_preview_1",
+    });
+    const confirmedSession = createSession({
+      order_ids: ["ord_1"],
+      payment_id: "pay_existing",
+      fulfillment_preview_revision: "fulfillment_preview_1",
+    });
+    const services = createServices({
+      getSession: vi.fn(async () => orderedSession),
+      setShippingAddress: vi.fn(),
+      assertReadyForOrderCreation: vi.fn(),
+      recordOrdersCreated: vi.fn(),
+      recordPaymentStarted: vi.fn(async () => ({
+        sessionId: "chk_1" as never,
+        session: confirmedSession,
+      })),
+    });
+    mockCreateCheckoutPaymentThroughPayments.mockResolvedValue("pay_existing");
+    const app = buildApp(services);
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          marketplaceCheckoutFeeQuoteFingerprint: "quote_1",
+          paymentMethodCategory: "card",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      payment_id: "pay_existing",
+      order_ids: ["ord_1"],
+      status: "confirmed",
+      session: expect.objectContaining({
+        payment_id: "pay_existing",
+        order_ids: ["ord_1"],
+      }),
+    });
+    expect(services.setShippingAddress).not.toHaveBeenCalled();
+    expect(services.assertReadyForOrderCreation).not.toHaveBeenCalled();
+    expect(services.recordOrdersCreated).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutOrdersThroughOrdering).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutPaymentThroughPayments).toHaveBeenCalledWith(
+      expect.any(Request),
+      "chk_1",
+      ["ord_1"],
+      null,
+      "card",
+      "quote_1",
+      null,
+      false,
+      "/account/payments/:paymentId",
+    );
+    expect(services.recordPaymentStarted).toHaveBeenCalledWith(
+      {
+        sessionId: "chk_1",
+        accountId: "acc_buyer",
+        paymentId: "pay_existing",
+      },
+      expect.objectContaining({
+        tenantId: "tnt_identity",
+      }),
+    );
+  });
 });

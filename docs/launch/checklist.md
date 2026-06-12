@@ -16,7 +16,7 @@
 - [ ] Signed-in buy: saved contact/address/payment rows render, are editable, and checkout completes (UI baseline: PR #1256 / deploy 27255399723; runtime baseline: PR #1258 / deploy 27259042276).
 - [ ] Buy Now works for guest and signed-in and lands on checkout review or a checkout-owned "preparing" recovery, never a blank or platform error page (baseline: PR #1212).
 - [ ] A multi-seller cart presents one payment action and one confirmation; per-group orders are visible afterward in account history.
-- [ ] Reload, back/forward, and double-clicking the pay button during checkout never create duplicate payments or orders.
+- [ ] Reload, back/forward, and double-clicking the pay button during checkout never create duplicate payments or orders (buy confirmation retry baseline: PR #1499).
 
 ## Sell flows
 
@@ -42,7 +42,7 @@
 ## Payments / Stripe
 
 - [ ] A real production-mode Stripe payment succeeds; a declined card shows customer-safe recovery and leaves no partial order.
-- [ ] Webhook replays and payment retries do not duplicate charges, orders, or payouts.
+- [ ] Webhook replays and payment retries do not duplicate charges, orders, or payouts (buy payment retry source-reference baseline: PR #1499).
 - [ ] Customer-facing `deferPayment` is disabled; the internal proof-only helper remains permission-gated and audited (baseline: PR #1258).
 - [ ] Refund and void can be executed by an operator, or are recorded as owner-approved deferrals with a support runbook.
 
