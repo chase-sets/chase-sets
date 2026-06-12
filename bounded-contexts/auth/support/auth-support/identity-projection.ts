@@ -173,6 +173,58 @@ type SocialLoginLinkRow = Readonly<{
   linkedAt: string;
 }>;
 
+type ContactMethodLookupRow = Readonly<{
+  value: string;
+  userId: string;
+  contactMethodId: string;
+  isVerified: boolean;
+  updatedAt: string;
+}>;
+
+const CONTACT_METHOD_LOOKUP_COLUMN_COUNT = 5;
+
+function buildContactMethodLookupValuesSql(rowCount: number): string {
+  return Array.from({ length: rowCount }, (_, rowIndex) => {
+    const firstParameterIndex = rowIndex * CONTACT_METHOD_LOOKUP_COLUMN_COUNT + 1;
+    return `(${Array.from(
+      { length: CONTACT_METHOD_LOOKUP_COLUMN_COUNT },
+      (_, columnIndex) => `$${firstParameterIndex + columnIndex}`,
+    ).join(", ")})`;
+  }).join(", ");
+}
+
+function buildContactMethodLookupRows(
+  contactMethods: readonly ContactMethodRow[],
+  methodType: string,
+  normalizeValue: (value: string) => string,
+  userId: string,
+  updatedAt: string,
+): ContactMethodLookupRow[] {
+  const rowsByValue = new Map<string, ContactMethodLookupRow>();
+
+  for (const method of contactMethods) {
+    if (method.type !== methodType) {
+      continue;
+    }
+
+    const value = normalizeValue(method.value);
+    rowsByValue.delete(value);
+    rowsByValue.set(value, {
+      value,
+      userId,
+      contactMethodId: method.contactMethodId,
+      isVerified: method.verifiedAt !== null,
+      updatedAt,
+    });
+  }
+
+  return [...rowsByValue.values()];
+}
+
+function flattenContactMethodLookupRows(rows: readonly ContactMethodLookupRow[]): unknown[] {
+  return rows.flatMap((row) => [row.value, row.userId, row.contactMethodId, row.isVerified, row.updatedAt]);
+}
+
 export function buildAuthIdentityAccountProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "identity.account.created": async (event) => {
@@ -290,24 +342,27 @@ async function syncUserEmailLookups(
 ) {
   await db.query(`DELETE FROM auth_identity_user_emails WHERE user_id = $1`, [userId]);
 
-  for (const method of contactMethods.filter((entry) => entry.type === "email")) {
-    await db.query(
-      `INSERT INTO auth_identity_user_emails (
-         email,
-         user_id,
-         contact_method_id,
-         is_verified,
-         updated_at
-       )
-       VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT (email) DO UPDATE
-       SET user_id = $2,
-           contact_method_id = $3,
-           is_verified = $4,
-           updated_at = $5`,
-      [normalizeAuthEmail(method.value), userId, method.contactMethodId, method.verifiedAt !== null, updatedAt],
-    );
+  const emailRows = buildContactMethodLookupRows(contactMethods, "email", normalizeAuthEmail, userId, updatedAt);
+  if (emailRows.length === 0) {
+    return;
   }
+
+  await db.query(
+    `INSERT INTO auth_identity_user_emails (
+       email,
+       user_id,
+       contact_method_id,
+       is_verified,
+       updated_at
+     )
+     VALUES ${buildContactMethodLookupValuesSql(emailRows.length)}
+     ON CONFLICT (email) DO UPDATE
+     SET user_id = EXCLUDED.user_id,
+         contact_method_id = EXCLUDED.contact_method_id,
+         is_verified = EXCLUDED.is_verified,
+         updated_at = EXCLUDED.updated_at`,
+    flattenContactMethodLookupRows(emailRows),
+  );
 }
 
 async function syncUserPhoneLookups(
@@ -318,24 +373,27 @@ async function syncUserPhoneLookups(
 ) {
   await db.query(`DELETE FROM auth_identity_user_phones WHERE user_id = $1`, [userId]);
 
-  for (const method of contactMethods.filter((entry) => entry.type === "phone")) {
-    await db.query(
-      `INSERT INTO auth_identity_user_phones (
-         phone,
-         user_id,
-         contact_method_id,
-         is_verified,
-         updated_at
-       )
-       VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT (phone) DO UPDATE
-       SET user_id = $2,
-           contact_method_id = $3,
-           is_verified = $4,
-           updated_at = $5`,
-      [normalizeAuthPhoneNumber(method.value), userId, method.contactMethodId, method.verifiedAt !== null, updatedAt],
-    );
+  const phoneRows = buildContactMethodLookupRows(contactMethods, "phone", normalizeAuthPhoneNumber, userId, updatedAt);
+  if (phoneRows.length === 0) {
+    return;
   }
+
+  await db.query(
+    `INSERT INTO auth_identity_user_phones (
+       phone,
+       user_id,
+       contact_method_id,
+       is_verified,
+       updated_at
+     )
+     VALUES ${buildContactMethodLookupValuesSql(phoneRows.length)}
+     ON CONFLICT (phone) DO UPDATE
+     SET user_id = EXCLUDED.user_id,
+         contact_method_id = EXCLUDED.contact_method_id,
+         is_verified = EXCLUDED.is_verified,
+         updated_at = EXCLUDED.updated_at`,
+    flattenContactMethodLookupRows(phoneRows),
+  );
 }
 
 async function syncContactMethodLookups(
