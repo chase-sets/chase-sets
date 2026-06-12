@@ -69,6 +69,7 @@ describe("Catalog Control Plane information architecture", () => {
       "Validation, dry run, compare, and activation readiness",
       "Imports, jobs, Source Observation review, promotion, reapply, replay",
       "Conflict resolution and source precedence",
+      "Clean reset, backfill, and release evidence",
       "Lifecycle, rollout, RBAC, observability, and audit evidence",
     ]);
 

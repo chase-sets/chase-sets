@@ -217,6 +217,45 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.queryByText(/holding area/i)).toBeNull();
   });
 
+  it("renders clean reset release as a focused verification workspace", () => {
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&section=reset-release",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: controlPlaneOverview(),
+      temporaryReleaseScaffolding: [
+        {
+          key: "deploy-skew-release-scaffold",
+          label: "Deploy-skew release scaffold",
+          ownerIssue: "#1061",
+          status: "removal-required",
+          evidenceUrl: "/catalog/integrations?providerKey=tcgdex&section=reset-release",
+          removalEvidence: "Temporary deploy-skew support route must be completely deleted before launch.",
+        },
+      ],
+      canManageCatalog: true,
+    });
+
+    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+
+    expect(screen.getByRole("link", { name: /Clean reset release/i }).getAttribute("aria-current")).toBe("page");
+    expect(screen.getByRole("heading", { name: "Clean reset release" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Release decision checklist" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Reset evidence findings" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Backfill decision state" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Temporary scaffolding removal" })).toBeTruthy();
+    expect(screen.getAllByText("missing-operator").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Deploy-skew release scaffold").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/completely deleted before launch/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Complete removal of code, patterns, documentation/i).length).toBeGreaterThan(0);
+    expect(screen.getByRole("link", { name: "Open audit evidence" }).getAttribute("href")).toContain(
+      "section=evidence",
+    );
+    expect(screen.queryByText(/raw JSON/i)).toBeNull();
+    expect(screen.queryByText(/holding area/i)).toBeNull();
+  });
+
   it("renders profile authoring overview and draft creation as a focused support workspace", () => {
     const readModel = buildCatalogPrimaryWorkbenchReadModel({
       requestUrl:
