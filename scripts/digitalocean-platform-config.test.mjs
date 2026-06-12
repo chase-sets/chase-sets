@@ -842,7 +842,7 @@ describe("DigitalOcean platform configuration", () => {
       "artifacts/release-health/production-settlement-provider-health-canary.json",
     );
     expect(settlementProviderHealthCanaryStep).toContain(
-      "PRODUCTION_SETTLEMENT_CANARY_SCRAPE_WAIT_SECONDS: ${{ vars.PRODUCTION_SETTLEMENT_CANARY_SCRAPE_WAIT_SECONDS || '20' }}",
+      "PRODUCTION_SETTLEMENT_CANARY_SCRAPE_WAIT_SECONDS: ${{ vars.PRODUCTION_SETTLEMENT_CANARY_SCRAPE_WAIT_SECONDS || '90' }}",
     );
     expect(settlementProviderHealthCanaryStep).toContain('echo "started_at=${started_at}" >> "$GITHUB_OUTPUT"');
     expect(settlementProviderHealthCanaryStep).toContain('echo "completed_at=${completed_at}" >> "$GITHUB_OUTPUT"');

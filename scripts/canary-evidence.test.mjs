@@ -402,13 +402,19 @@ describe("canary evidence collector", () => {
       required: true,
       currentState: "available-now",
     });
-    expect(signals.find((signal) => signal.name === "projection-lag-poison-events")).toMatchObject({
+    const projectionLagPoisonSignal = signals.find((signal) => signal.name === "projection-lag-poison-events");
+    expect(projectionLagPoisonSignal).toMatchObject({
       required: true,
       currentState: "available-now",
+      source: "Prometheus checkout projection freshness last-error and work-signal telemetry",
+      threshold: "production projection freshness last-error/work-signal telemetry must remain zero",
     });
-    expect(signals.find((signal) => signal.name === "projection-lag-poison-events").canaryQuery).toContain(
-      "chase_sets_projection_freshness_evaluations_total",
+    expect(projectionLagPoisonSignal.canaryQuery).toContain("chase_sets_projection_freshness_evaluations_total");
+    expect(projectionLagPoisonSignal.canaryQuery).toContain(
+      'chase_sets_projection_freshness_pending_total{last_error="present"}',
     );
+    expect(projectionLagPoisonSignal.canaryQuery).toContain("chase_sets_projection_freshness_work_signal_errors_total");
+    expect(projectionLagPoisonSignal.canaryQuery).not.toContain("chase_sets_projection_freshness_pending_total[15m]");
     expect(signals.find((signal) => signal.name === "route-error-rate")).toMatchObject({
       required: false,
       currentState: "needs-instrumentation",
@@ -417,16 +423,16 @@ describe("canary evidence collector", () => {
       required: false,
       currentState: "needs-instrumentation",
     });
-    expect(signals.find((signal) => signal.name === "settlement-payout-errors")).toMatchObject({
+    const settlementPayoutErrorsSignal = signals.find((signal) => signal.name === "settlement-payout-errors");
+    expect(settlementPayoutErrorsSignal).toMatchObject({
       required: true,
       currentState: "available-now",
     });
-    expect(signals.find((signal) => signal.name === "settlement-payout-errors")).toMatchObject({
-      required: true,
-      currentState: "available-now",
-    });
-    expect(signals.find((signal) => signal.name === "settlement-payout-errors").canaryQuery).toContain(
-      'kind="provider-health-checked"',
+    expect(settlementPayoutErrorsSignal.canaryQuery).toContain(
+      'max_over_time(chase_sets_settlement_operations_total{kind="provider-health-checked"}[15m])',
+    );
+    expect(settlementPayoutErrorsSignal.canaryQuery).not.toContain(
+      'rate(chase_sets_settlement_operations_total{kind="provider-health-checked"}[15m])',
     );
     expect(signals.some((signal) => "emptyResultValue" in signal)).toBe(false);
   });

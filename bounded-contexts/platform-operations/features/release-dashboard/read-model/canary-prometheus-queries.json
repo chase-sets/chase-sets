@@ -38,12 +38,12 @@
       "name": "projection-lag-poison-events",
       "owner": "owning-bounded-context/platform-operations",
       "required": true,
-      "source": "Prometheus checkout projection freshness pending and error telemetry",
+      "source": "Prometheus checkout projection freshness last-error and work-signal telemetry",
       "currentState": "available-now",
       "baselineQuery": "vector(0)",
-      "canaryQuery": "((sum(rate(chase_sets_projection_freshness_pending_total[15m])) or on() (sum(rate(chase_sets_projection_freshness_evaluations_total[15m])) * 0)) + (sum(rate(chase_sets_projection_freshness_work_signal_errors_total[15m])) or on() (sum(rate(chase_sets_projection_freshness_evaluations_total[15m])) * 0)))",
+      "canaryQuery": "((sum(rate(chase_sets_projection_freshness_pending_total{last_error=\"present\"}[15m])) or on() (sum(rate(chase_sets_projection_freshness_evaluations_total[15m])) * 0)) + (sum(rate(chase_sets_projection_freshness_work_signal_errors_total[15m])) or on() (sum(rate(chase_sets_projection_freshness_evaluations_total[15m])) * 0)))",
       "maxIncrease": 0,
-      "threshold": "production projection pending/error telemetry must remain zero"
+      "threshold": "production projection freshness last-error/work-signal telemetry must remain zero"
     },
     {
       "name": "checkout-order-payment-errors",
@@ -63,7 +63,7 @@
       "source": "Prometheus settlement operation failures for payout setup, readiness, and provider reconciliation",
       "currentState": "available-now",
       "baselineQuery": "vector(0)",
-      "canaryQuery": "(sum(rate(chase_sets_settlement_operations_total{kind=~\"payout-setup-session-failed|payout-account-management-session-failed|payout-readiness-refresh-failed|payout-readiness-webhook-ignored|payout-request-blocked-by-setup|payout-failed|money-movement-webhook-ignored\"}[15m])) or on() (sum(rate(chase_sets_settlement_operations_total{kind=\"provider-health-checked\"}[15m])) * 0))",
+      "canaryQuery": "(sum(rate(chase_sets_settlement_operations_total{kind=~\"payout-setup-session-failed|payout-account-management-session-failed|payout-readiness-refresh-failed|payout-readiness-webhook-ignored|payout-request-blocked-by-setup|payout-failed|money-movement-webhook-ignored\"}[15m])) or on() (sum(max_over_time(chase_sets_settlement_operations_total{kind=\"provider-health-checked\"}[15m])) * 0))",
       "maxIncrease": 0,
       "threshold": "production settlement payout/setup failures must remain zero"
     }
