@@ -1,10 +1,6 @@
 export { default as contextManifest } from "./context.json";
 
-import type {
-  BcApiModule,
-  BcEventSubscriptionDeclaration,
-  BcProjectionGroupDeclaration,
-} from "@chase-sets/bounded-context-module";
+import { buildEventSubscriptionsFromManifest, defineBoundedContextModule } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
 import { buildCheckoutApi } from "./api";
@@ -17,52 +13,19 @@ import {
 import { checkoutSchemaSql } from "./support/runtime-support/schema";
 import { seedCheckoutDatabase } from "./support/runtime-support/seed";
 
-const eventSubscriptions = (contextManifest.eventSubscriptions ?? []) as readonly BcEventSubscriptionDeclaration[];
-const projectionGroups = (contextManifest.projectionGroups ?? []) as readonly BcProjectionGroupDeclaration[];
-
-function getEventSubscription(sourceContextName: string, projectionName: string): BcEventSubscriptionDeclaration {
-  const declaration = eventSubscriptions.find(
-    (entry) => entry.sourceContextName === sourceContextName && entry.projectionName === projectionName,
-  );
-
-  if (!declaration) {
-    throw new Error(
-      `Checkout is missing an eventSubscriptions declaration for '${sourceContextName}' -> '${projectionName}'.`,
-    );
-  }
-
-  return declaration;
-}
-
-export const module: BcApiModule<CheckoutServices, PgTransactionalPool, CheckoutHostPorts> = {
-  contextName: "checkout",
-  routePrefix: "/api/marketplace",
-  streamPrefix: "checkout.",
+export const module = defineBoundedContextModule<CheckoutServices, PgTransactionalPool, CheckoutHostPorts>({
+  manifest: contextManifest,
   schemaSql: checkoutSchemaSql,
-  apiMounts: contextManifest.apiMounts as BcApiModule<
-    CheckoutServices,
-    PgTransactionalPool,
-    CheckoutHostPorts
-  >["apiMounts"],
-  projectionGroups,
   createServices: (pool, options) => createCheckoutServices(pool, options),
   buildApis: (services) => [buildCheckoutApi(services)],
   projectionHandlerSets: (services) => services.projectors,
   seed: seedCheckoutDatabase,
-  buildSubscriptions: (services) => {
-    const catalogSubscription = getEventSubscription("catalog", "checkout-catalog-item-projection");
-
-    return [
-      {
-        subscriptionName: "checkout.catalog-item-projection",
-        sourceContextName: "catalog",
-        projectionName: catalogSubscription.projectionName,
-        subscriptionVersion: catalogSubscription.subscriptionVersion,
-        handlers: buildCheckoutCatalogProjectionHandlers(services.db),
-        eventTypes: catalogSubscription.eventTypes,
-        streamPrefixes: catalogSubscription.streamPrefixes,
-        order: catalogSubscription.order,
+  buildSubscriptions: (services) =>
+    buildEventSubscriptionsFromManifest({
+      contextName: "checkout",
+      manifest: contextManifest,
+      handlers: {
+        "catalog.checkout-catalog-item-projection": () => buildCheckoutCatalogProjectionHandlers(services.db),
       },
-    ];
-  },
-};
+    }),
+});

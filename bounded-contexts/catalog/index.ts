@@ -1,6 +1,6 @@
 export { default as contextManifest } from "./context.json";
 
-import type { BcApiModule } from "@chase-sets/bounded-context-module";
+import { defineBoundedContextModule } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
 import { buildCatalogAuthoringApi } from "./support/authoring-support";
@@ -9,19 +9,12 @@ import { createCatalogServices } from "./support/authoring-support";
 import { catalogAuthoringSchemaSql } from "./support/authoring-support";
 import { seedCatalogDatabase } from "./support/authoring-support";
 
-export const module: BcApiModule<CatalogServices, PgTransactionalPool, CatalogHostPorts> = {
-  contextName: "catalog",
-  routePrefix: "/api/catalog",
-  streamPrefix: "catalog.",
+export const module = defineBoundedContextModule<CatalogServices, PgTransactionalPool, CatalogHostPorts>({
+  manifest: contextManifest,
   schemaSql: catalogAuthoringSchemaSql,
-  apiMounts: contextManifest.apiMounts as BcApiModule<
-    CatalogServices,
-    PgTransactionalPool,
-    CatalogHostPorts
-  >["apiMounts"],
   createServices: (pool, ports) => createCatalogServices(pool, ports),
   buildApis: (services) => [buildCatalogAuthoringApi(services)],
   projectionHandlerSets: (services) => services.projectors,
   seedProfiles: ["catalog-integration-bootstrap", "scenario-seed"],
   seed: seedCatalogDatabase,
-};
+});

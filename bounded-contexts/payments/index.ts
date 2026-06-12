@@ -1,10 +1,6 @@
 export { default as contextManifest } from "./context.json";
 
-import type {
-  BcApiModule,
-  BcEventSubscriptionDeclaration,
-  BcProjectionGroupDeclaration,
-} from "@chase-sets/bounded-context-module";
+import { buildEventSubscriptionsFromManifest, defineBoundedContextModule } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
 import type { PaymentsServices, PaymentsServiceOptions } from "./support/runtime-support/services";
@@ -17,77 +13,23 @@ import { createPaymentsServices } from "./support/runtime-support/services";
 import { paymentsSchemaSql } from "./support/runtime-support/schema";
 import { seedPaymentsDatabase } from "./support/runtime-support/seed";
 
-const eventSubscriptions = (contextManifest.eventSubscriptions ?? []) as readonly BcEventSubscriptionDeclaration[];
-const projectionGroups = (contextManifest.projectionGroups ?? []) as readonly BcProjectionGroupDeclaration[];
-
-function getEventSubscription(sourceContextName: string, projectionName: string): BcEventSubscriptionDeclaration {
-  const declaration = eventSubscriptions.find(
-    (entry) => entry.sourceContextName === sourceContextName && entry.projectionName === projectionName,
-  );
-
-  if (!declaration) {
-    throw new Error(
-      `Payments is missing an eventSubscriptions declaration for '${sourceContextName}' -> '${projectionName}'.`,
-    );
-  }
-
-  return declaration;
-}
-
-export const module: BcApiModule<PaymentsServices, PgTransactionalPool, PaymentsServiceOptions> = {
-  contextName: "payments",
-  routePrefix: "/api/marketplace",
-  streamPrefix: "payments.",
+export const module = defineBoundedContextModule<PaymentsServices, PgTransactionalPool, PaymentsServiceOptions>({
+  manifest: contextManifest,
   schemaSql: paymentsSchemaSql,
-  apiMounts: contextManifest.apiMounts as BcApiModule<
-    PaymentsServices,
-    PgTransactionalPool,
-    PaymentsServiceOptions
-  >["apiMounts"],
-  projectionGroups,
   createServices: (pool, options) => createPaymentsServices(pool, options),
   buildApis: (services) => [buildPaymentsApi(services), createPaymentProcessorWebhookRoutes(services.payments)],
   projectionHandlerSets: (services) => services.projectors,
-  buildSubscriptions: (services) => {
-    const orderingSubscription = getEventSubscription("ordering", "payments-order-input-projection");
-    const supportSubscription = getEventSubscription("platform-operations", "payments-support-refund-effect");
-    const orderingCancellationSubscription = getEventSubscription(
-      "ordering",
-      "payments-order-cancellation-refund-effect",
-    );
-
-    return [
-      {
-        subscriptionName: "payments.order-input-projection",
-        sourceContextName: "ordering",
-        projectionName: orderingSubscription.projectionName,
-        subscriptionVersion: orderingSubscription.subscriptionVersion,
-        handlers: buildPaymentsOrderInputProjectionHandlers(services.db),
-        eventTypes: orderingSubscription.eventTypes,
-        streamPrefixes: orderingSubscription.streamPrefixes,
-        order: orderingSubscription.order,
+  buildSubscriptions: (services) =>
+    buildEventSubscriptionsFromManifest({
+      contextName: "payments",
+      manifest: contextManifest,
+      handlers: {
+        "ordering.payments-order-input-projection": () => buildPaymentsOrderInputProjectionHandlers(services.db),
+        "platform-operations.payments-support-refund-effect": () =>
+          buildPaymentsSupportRefundEffectHandlers(services.db, services.refunds),
+        "ordering.payments-order-cancellation-refund-effect": () =>
+          buildPaymentsOrderCancellationRefundEffectHandlers(services.db, services.refunds),
       },
-      {
-        subscriptionName: "payments.support-refund-effect",
-        sourceContextName: "platform-operations",
-        projectionName: supportSubscription.projectionName,
-        subscriptionVersion: supportSubscription.subscriptionVersion,
-        handlers: buildPaymentsSupportRefundEffectHandlers(services.db, services.refunds),
-        eventTypes: supportSubscription.eventTypes,
-        streamPrefixes: supportSubscription.streamPrefixes,
-        order: supportSubscription.order,
-      },
-      {
-        subscriptionName: "payments.order-cancellation-refund-effect",
-        sourceContextName: "ordering",
-        projectionName: orderingCancellationSubscription.projectionName,
-        subscriptionVersion: orderingCancellationSubscription.subscriptionVersion,
-        handlers: buildPaymentsOrderCancellationRefundEffectHandlers(services.db, services.refunds),
-        eventTypes: orderingCancellationSubscription.eventTypes,
-        streamPrefixes: orderingCancellationSubscription.streamPrefixes,
-        order: orderingCancellationSubscription.order,
-      },
-    ];
-  },
+    }),
   seed: seedPaymentsDatabase,
-};
+});
