@@ -102,6 +102,7 @@ Optional `preview`, `staging`, and `production` variables:
 
 Optional `production` variables for telemetry-backed canary analysis:
 
+- `CANARY_PROMETHEUS_ENABLED`: set to `true` only after the production Prometheus endpoint is reachable and every configured required canary signal is ready to gate promotion.
 - `CANARY_PROMETHEUS_URL`: production Prometheus base URL used by `pnpm run ops canary:evidence`.
 - `CANARY_PROMETHEUS_QUERY_FILE`: repository-relative query file that maps required canary signals to baseline and canary PromQL.
 - `CANARY_OBSERVATION_WINDOW_SECONDS`: canary analysis window; defaults to `300`.

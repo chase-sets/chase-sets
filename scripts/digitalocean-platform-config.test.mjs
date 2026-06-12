@@ -807,6 +807,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).toContain(
       "CANARY_PROMETHEUS_QUERY_FILE: ${{ vars.CANARY_PROMETHEUS_QUERY_FILE || '' }}",
     );
+    expect(platformProductionWorkflow).toContain("vars.CANARY_PROMETHEUS_ENABLED == 'true'");
     expect(platformProductionWorkflow).toContain("run: node ./scripts/canary-evidence.mjs");
     expect(platformProductionWorkflow).toContain("- name: Resolve CI retry metadata");
     expect(platformProductionWorkflow).toContain("node ./scripts/release-health-ci-metadata.mjs");
