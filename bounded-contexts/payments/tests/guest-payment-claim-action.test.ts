@@ -116,6 +116,74 @@ describe("guest payment claim action", () => {
     });
   });
 
+  it("loads a captured guest checkout payment without requiring a signed-in account", async () => {
+    const getGuestCheckoutClaimContext = vi.fn(async () => ({
+      contactName: "Jane Smith",
+      contactEmail: "jane@example.com",
+    }));
+    mockCreateInternalAuthRequestApiClient.mockReturnValue({
+      getGuestCheckoutClaimContext,
+    });
+    mockGetAccountPayment.mockResolvedValue({
+      payment_id: "pay_guest_1",
+      order_ids: ["ord_guest_1"],
+      status: "captured",
+      currency_code: "usd",
+      processor_amount: "27.10",
+      balance_credit_amount: "0.00",
+      payment_method_category: "card",
+    });
+    mockGetPurchase.mockResolvedValue({
+      order_id: "ord_guest_1",
+      status: "paid",
+      total_amount: "27.10",
+      seller_payout_amount: "25.00",
+      shipping_destination_snapshot: {
+        name: "Jane Smith",
+        line1: "100 Market Street",
+        city: "Chicago",
+        state: "IL",
+        postalCode: "60601",
+        country: "US",
+        email: "jane@example.com",
+      },
+    });
+    mockResolveActorFromAuthApi.mockResolvedValue(null);
+
+    const result = await loader({
+      request: new Request("http://localhost/checkout/payments/pay_guest_1", {
+        headers: { cookie: "chase_sets_guest_checkout=guest_token" },
+      }),
+      params: { paymentId: "pay_guest_1" },
+      context: undefined,
+    } as never);
+
+    expect(mockResolveActorFromAuthApi).toHaveBeenCalled();
+    expect(mockGetAccountPayment).toHaveBeenCalledWith("pay_guest_1");
+    expect(mockGetPurchase).toHaveBeenCalledWith("ord_guest_1");
+    expect(getGuestCheckoutClaimContext).toHaveBeenCalledWith({ paymentId: "pay_guest_1" });
+    expect(result).toEqual(
+      expect.objectContaining({
+        isGuestCheckoutPayment: true,
+        showSupportDetails: false,
+        payment: expect.objectContaining({
+          payment_id: "pay_guest_1",
+          status: "captured",
+        }),
+        orders: [
+          expect.objectContaining({
+            order_id: "ord_guest_1",
+            status: "paid",
+          }),
+        ],
+        guestClaimContext: {
+          contactName: "Jane Smith",
+          contactEmail: "jane@example.com",
+        },
+      }),
+    );
+  });
+
   it("requests a local email claim token for guest payment recovery", async () => {
     mockRequestGuestCheckoutClaimLink.mockResolvedValue({
       token: "magic_token",
