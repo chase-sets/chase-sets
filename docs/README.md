@@ -45,6 +45,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [ADR 0008: Admin Shell And IA Model](./adr/0008-admin-shell-and-ia-model.md): admin section taxonomy, Commercial Terms placement, shell navigation model, operations authorization, root hub, and admin page primitive direction.
 - [ADR 0009: Targeted Projection Catchup](./adr/0009-targeted-projection-catchup.md): no-go decision for route-time projection catchup, baseline freshness contract, and reopening criteria.
 - [ADR 0010: Push-Driven Projection Runtime](./adr/0010-push-driven-projection-runtime.md): worker-owned projection wake relay, durable control-plane wake store, and phased platform work-signal composite.
+- [ADR 0012: Unified Outbound Messaging](./adr/0012-unified-outbound-messaging.md): single notification outbox, retired transactional email outbox, and channel adapters behind one delivery contract.
 - [Checkout Fresh-State Route Strategy](../bounded-contexts/checkout/docs/fresh-state-route-strategy.md): Shopify-simple checkout route map, legacy route disposition, readiness guardrails, and kill-switch behavior.
 - [Checkout Fresh Session Contracts](../bounded-contexts/checkout/docs/fresh-checkout-session-contracts.md): Milestone #17 buy/sell checkout snapshot, commands, state machine, idempotency, guest merge, and fresh-state compatibility rules.
 - [Checkout Copy Policy](../bounded-contexts/checkout/docs/checkout-copy-policy.md): Milestone #17 customer-safe checkout copy, progressive-disclosure, policy language, support-reference, and launch cleanup contract.
@@ -187,6 +188,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [ADR 0009: Targeted Projection Catchup](./adr/0009-targeted-projection-catchup.md)
 - [ADR 0010: Push-Driven Projection Runtime](./adr/0010-push-driven-projection-runtime.md)
 - [ADR 0011: Production Observability Stack](./adr/0011-production-observability-stack.md)
+- [ADR 0012: Unified Outbound Messaging](./adr/0012-unified-outbound-messaging.md)
 
 ## Maintenance
 
