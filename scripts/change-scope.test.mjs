@@ -59,6 +59,80 @@ describe("change-scope", () => {
     expect(scope.exposurePostureCategories).toEqual([]);
   });
 
+  it("reruns tests for dev-dependents of runtime changes without fanning out to their dependents", () => {
+    const baseDir = path.join(process.cwd(), "repo");
+    const scope = classifyChanges({
+      baseDir,
+      changedFiles: ["bounded-contexts/catalog/features/catalog-items/domain/catalog-item.ts"],
+      workspaces: [
+        workspace(baseDir, "bounded-contexts", "catalog", "@test/catalog"),
+        {
+          ...workspace(baseDir, "bounded-contexts", "inventory", "@test/inventory"),
+          packageJson: {
+            name: "@test/inventory",
+            dependencies: {},
+            devDependencies: { "@test/catalog": "workspace:*" },
+            scripts: { "test:db": "test:db" },
+          },
+        },
+        workspace(baseDir, "bounded-contexts", "marketplace", "@test/marketplace", {
+          "@test/inventory": "workspace:*",
+        }),
+        workspace(baseDir, "deployables", "platform-api", "@test/platform-api", {
+          "@test/catalog": "workspace:*",
+        }),
+      ],
+    });
+
+    expect(scope.affectedWorkspaces).toEqual(["@test/catalog", "@test/inventory", "@test/platform-api"]);
+    expect(scope.runtimeAffectedWorkspaces).toEqual(["@test/catalog", "@test/platform-api"]);
+    expect(scope.devDependencyTestAffectedWorkspaces).toEqual(["@test/inventory"]);
+    expect(scope.unitTestsRequired).toBe(true);
+    expect(scope.dbTestsRequired).toBe(true);
+    expect(scope.buildRequired).toBe(true);
+  });
+
+  it("keeps a catalog-internal domain edit inside the catalog runtime boundary", () => {
+    const scope = classifyChanges({
+      changedFiles: ["bounded-contexts/catalog/features/catalog-items/domain/catalog-item.ts"],
+    });
+
+    expect(scope.affectedWorkspaces.length).toBeLessThanOrEqual(10);
+    expect(scope.affectedWorkspaces).toContain("@chase-sets/catalog");
+    for (const workspaceName of [
+      "@chase-sets/checkout",
+      "@chase-sets/payments",
+      "@chase-sets/settlement",
+      "@chase-sets/pricing",
+      "@chase-sets/marketplace",
+      "@chase-sets/ordering",
+    ]) {
+      expect(scope.affectedWorkspaces).not.toContain(workspaceName);
+    }
+    // Acceptance tests in inventory and discovery mount the catalog module, so
+    // their tests rerun without dragging their own dependents along.
+    expect(scope.devDependencyTestAffectedWorkspaces).toEqual(["@chase-sets/discovery", "@chase-sets/inventory"]);
+    expect(scope.dbTestsRequired).toBe(true);
+  });
+
+  it("fans a catalog-seed fixture edit out to every seed consumer", () => {
+    const scope = classifyChanges({
+      changedFiles: ["contracts/catalog-seed/ids.ts"],
+    });
+
+    for (const workspaceName of [
+      "@chase-sets/catalog",
+      "@chase-sets/catalog-seed",
+      "@chase-sets/checkout",
+      "@chase-sets/inventory",
+      "@chase-sets/marketplace",
+      "@chase-sets/marketplace-seed-testing",
+      "@chase-sets/ordering",
+    ]) {
+      expect(scope.affectedWorkspaces).toContain(workspaceName);
+    }
+  });
+
   it("detects DB tests only when an affected workspace publishes a DB test script", () => {
     const baseDir = path.join(process.cwd(), "repo");
     const fastScope = classifyChanges({

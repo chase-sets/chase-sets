@@ -1266,6 +1266,14 @@ export async function runStructureCheck(options = {}) {
         continue;
       }
 
+      if (dependency === "@chase-sets/catalog") {
+        addPathViolation(
+          `${root}/package.json`,
+          "non-catalog bounded contexts must not declare a runtime dependency on @chase-sets/catalog; seed fixtures live in @chase-sets/catalog-seed and test-only module mounts belong in devDependencies",
+        );
+        continue;
+      }
+
       const dependencyContextName = dependencyContext.manifest.contextName;
       const isAllowedDependency =
         (manifest.allowedContextDependencies ?? []).includes(dependency) ||
@@ -2095,6 +2103,24 @@ export async function runStructureCheck(options = {}) {
       (isDeployableSpecifier(normalized) || isDeployableSpecifier(resolvedSpecifier ?? ""))
     ) {
       addViolation(file, `bounded contexts must not import deployables (${specifier})`);
+    }
+
+    // Catalog is the largest and most-edited context. Its only legitimate
+    // cross-context surface is seed fixtures, which live in
+    // @chase-sets/catalog-seed. Keeping non-catalog runtime code off
+    // @chase-sets/catalog holds a catalog edit's change-scope blast radius to
+    // catalog plus the deployables that mount it; tests may still mount the
+    // catalog module for acceptance composition.
+    if (
+      importerContextRoot !== null &&
+      importerContext?.packageName !== "@chase-sets/catalog" &&
+      matchesPackageSpecifier(normalized, "@chase-sets/catalog") &&
+      !isTestFile(relativeFile)
+    ) {
+      addViolation(
+        file,
+        `non-catalog bounded contexts must not import @chase-sets/catalog outside tests; use @chase-sets/catalog-seed fixtures instead (${specifier})`,
+      );
     }
 
     if (

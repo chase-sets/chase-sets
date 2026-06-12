@@ -37,7 +37,7 @@
     "seed-support",
     "shell-support"
   ],
-  "publicExports": [".", "./context", "./seed-support/*", "./routes/*", "./server", "./web"],
+  "publicExports": [".", "./context", "./routes/*", "./server", "./web"],
   "allowedContextDependencies": [],
   "seedRequirements": [],
   "hostPorts": [
@@ -538,8 +538,7 @@
         "display-templates",
         "fields",
         "product-measures",
-        "reference-data",
-        "source-observations"
+        "reference-data"
       ],
       "justification": "seed-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "catalog workflows that span multiple features or public entrypoints.",

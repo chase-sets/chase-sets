@@ -1,4 +1,4 @@
-import { catalogSeedIds } from "../../../support/seed-support/ids";
+import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import type { CatalogServices } from "../../../support/authoring-support/services";
 import type { FieldId } from "../../../ids";
 import { sendSeedCommand } from "../../../support/seed-support/context";

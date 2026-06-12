@@ -1,5 +1,5 @@
 import { CatalogDomainError, localizedTextMapFromEnglish } from "../../../support/runtime-support/common";
-import { catalogSeedIds } from "../../../support/seed-support/ids";
+import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import { seedContext } from "../../../support/seed-support/context";
 import type { CatalogServices } from "../../../support/authoring-support";
 import { enqueueAllCatalogItemDisplayIdentityRecomputeWork } from "../../catalog-items/read-model/display-identity-recompute";

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { catalogSeedIds } from "../../../support/seed-support/ids";
+import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import { CatalogDomainError } from "../../../support/runtime-support/common";
 import { seedDisplayTemplates } from "./seed";
 

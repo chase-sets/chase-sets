@@ -1,5 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import type { CatalogRepresentativeCatalogUsageCandidate } from "@chase-sets/catalog/server";
+import type { CatalogRepresentativeCatalogUsageCandidate } from "@chase-sets/catalog-seed";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { AccountId, ListingId } from "@chase-sets/primitives/typed-ids";

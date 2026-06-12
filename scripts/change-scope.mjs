@@ -86,33 +86,45 @@ function isTestOnlyOrDocumentationFile(filePath) {
   );
 }
 
-function workspaceDependencyNames(workspace) {
-  const packageJson = workspace.packageJson;
-  const dependencyEntries = Object.entries({
-    ...packageJson.dependencies,
-    ...packageJson.devDependencies,
-    ...packageJson.peerDependencies,
-    ...packageJson.optionalDependencies,
-  });
-
-  return dependencyEntries
+function workspaceWorkspaceDependencyNames(dependencyRecord) {
+  return Object.entries(dependencyRecord ?? {})
     .filter(([, version]) => typeof version === "string" && version.startsWith("workspace:"))
     .map(([name]) => name);
 }
 
-function buildReverseDependencyGraph(workspaces) {
+function workspaceDependencyNamesByKind(workspace) {
+  const packageJson = workspace.packageJson;
+  const runtime = workspaceWorkspaceDependencyNames({
+    ...packageJson.dependencies,
+    ...packageJson.peerDependencies,
+    ...packageJson.optionalDependencies,
+  });
+  const runtimeNames = new Set(runtime);
+  const dev = workspaceWorkspaceDependencyNames(packageJson.devDependencies).filter((name) => !runtimeNames.has(name));
+
+  return { runtime, dev };
+}
+
+function buildReverseDependencyGraphs(workspaces) {
   const byName = new Map(workspaces.map((workspace) => [workspace.name, workspace]));
-  const reverse = new Map(workspaces.map((workspace) => [workspace.name, new Set()]));
+  const runtime = new Map(workspaces.map((workspace) => [workspace.name, new Set()]));
+  const dev = new Map(workspaces.map((workspace) => [workspace.name, new Set()]));
 
   for (const workspace of workspaces) {
-    for (const dependencyName of workspaceDependencyNames(workspace)) {
+    const dependencyNames = workspaceDependencyNamesByKind(workspace);
+    for (const dependencyName of dependencyNames.runtime) {
       if (byName.has(dependencyName)) {
-        reverse.get(dependencyName)?.add(workspace.name);
+        runtime.get(dependencyName)?.add(workspace.name);
+      }
+    }
+    for (const dependencyName of dependencyNames.dev) {
+      if (byName.has(dependencyName)) {
+        dev.get(dependencyName)?.add(workspace.name);
       }
     }
   }
 
-  return reverse;
+  return { runtime, dev };
 }
 
 function expandDependents(workspaceNames, reverseDependencyGraph) {
@@ -204,9 +216,28 @@ export function classifyChanges({
     }
   }
 
-  const reverseDependencyGraph = buildReverseDependencyGraph(workspaces);
-  const runtimeAffectedWorkspaceSet = expandDependents(directlyRuntimeAffectedWorkspaces, reverseDependencyGraph);
-  const affectedWorkspaceSet = new Set([...runtimeAffectedWorkspaceSet, ...directlyTestOnlyAffectedWorkspaces]);
+  const reverseDependencyGraphs = buildReverseDependencyGraphs(workspaces);
+  const runtimeAffectedWorkspaceSet = expandDependents(
+    directlyRuntimeAffectedWorkspaces,
+    reverseDependencyGraphs.runtime,
+  );
+  // A dev-only workspace edge (devDependencies) means the dependent's tests
+  // exercise the changed workspace, but its shipped runtime artifact does not
+  // include it. Rerun the direct dependent's tests without fanning out to the
+  // dependent's own dependents.
+  const devDependencyTestAffectedWorkspaceSet = new Set();
+  for (const workspaceName of runtimeAffectedWorkspaceSet) {
+    for (const dependent of reverseDependencyGraphs.dev.get(workspaceName) ?? []) {
+      if (!runtimeAffectedWorkspaceSet.has(dependent)) {
+        devDependencyTestAffectedWorkspaceSet.add(dependent);
+      }
+    }
+  }
+  const affectedWorkspaceSet = new Set([
+    ...runtimeAffectedWorkspaceSet,
+    ...devDependencyTestAffectedWorkspaceSet,
+    ...directlyTestOnlyAffectedWorkspaces,
+  ]);
   const affectedWorkspaces = workspaces
     .map((workspace) => workspace.name)
     .filter((workspaceName) => affectedWorkspaceSet.has(workspaceName));
@@ -243,7 +274,7 @@ export function classifyChanges({
 
   const unitTestsRequired = affectedWorkspaces.length > 0;
   const dbTestsRequired =
-    runtimeAffectedWorkspaces.some((workspaceName) => {
+    [...runtimeAffectedWorkspaceSet, ...devDependencyTestAffectedWorkspaceSet].some((workspaceName) => {
       const workspace = workspaces.find((entry) => entry.name === workspaceName);
       return typeof workspace?.packageJson.scripts?.["test:db"] === "string";
     }) || [...directlyTestOnlyAffectedWorkspaces].some(workspaceRequiresDbForTestOnlyChange);
@@ -254,6 +285,7 @@ export function classifyChanges({
     changedFiles: normalizedFiles,
     affectedWorkspaces,
     runtimeAffectedWorkspaces,
+    devDependencyTestAffectedWorkspaces: [...devDependencyTestAffectedWorkspaceSet].sort(),
     directlyAffectedWorkspaces: [
       ...new Set([...directlyRuntimeAffectedWorkspaces, ...directlyTestOnlyAffectedWorkspaces]),
     ].sort(),

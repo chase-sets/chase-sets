@@ -17,7 +17,7 @@ import { seedProductMeasures } from "../../features/product-measures/api/seed";
 import { seedReferenceData } from "../../features/reference-data/api/seed";
 import type { PokemonReferenceIds } from "../../features/reference-data/api/seed";
 import { seedCatalogProviderIntegrationProfileVersions } from "../../features/source-observations/api/provider-integration-profile-store";
-import { catalogSeedIds } from "../seed-support/ids";
+import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import type { BlueprintId, CategoryId, ComponentId, DimensionId, FieldId, OptionId } from "../../ids";
 
 export async function seedCatalogDatabase(pool: PgTransactionalPool, _services?: unknown, options?: BcSeedOptions) {
