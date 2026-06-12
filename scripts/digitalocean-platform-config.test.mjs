@@ -878,7 +878,9 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).toContain(
       "CANARY_RESULT: ${{ steps.proof_canary.outcome == 'failure' && 'failure' || steps.settlement_canary.outcome == 'failure' && 'failure' || steps.stage1_canary.outcome || 'skipped' }}",
     );
-    expect(platformProductionWorkflow).toContain("CANARY_EVIDENCE_RESULT: ${{ steps.canary_evidence.outcome || 'skipped' }}");
+    expect(platformProductionWorkflow).toContain(
+      "CANARY_EVIDENCE_RESULT: ${{ steps.canary_evidence.outcome || 'skipped' }}",
+    );
     expect(platformProductionWorkflow).toContain("CANARY_STARTED_AT: ${{ steps.stage1_canary.outputs.started_at }}");
     expect(platformProductionWorkflow).toContain(
       "CANARY_COMPLETED_AT: ${{ steps.settlement_canary.outputs.completed_at || steps.proof_canary.outputs.completed_at || steps.stage1_canary.outputs.completed_at }}",
