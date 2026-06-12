@@ -1,6 +1,6 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import { extractIdFromStreamId } from "@chase-sets/event-core";
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { transitionStatus, updateRow, upsertRow, type PgQueryable } from "@chase-sets/event-core-postgres";
 import { recordRealtimeProjectionPatch, type RealtimeProjectionPatch } from "@chase-sets/platform-runtime/realtime";
 import {
   createDiscoveryAccountRemovePatch,
@@ -17,6 +17,101 @@ import { createMarketplaceSlug, rememberSlugRedirect } from "../runtime-support/
 
 const ACCOUNT_STREAM_PREFIX = "identity.account-";
 const MARKETPLACE_LISTING_STREAM_PREFIX = "marketplace.listing-";
+const MARKET_ACCOUNTS_TABLE = "discovery_market_accounts";
+const MARKET_LISTINGS_TABLE = "discovery_market_listings";
+const OFFER_DEMAND_MATCHES_TABLE = "discovery_offer_demand_matches";
+const MARKET_ACCOUNT_CREATED_COLUMNS = [
+  "account_id",
+  "seller_slug",
+  "seller_display_name",
+  "seller_listing_availability_status",
+  "status",
+  "updated_at",
+] as const;
+const MARKET_ACCOUNT_AVAILABILITY_COLUMNS = [
+  "account_id",
+  "seller_listing_availability_status",
+  "seller_listing_availability_reason_category",
+  "seller_listing_available_again_on",
+  "updated_at",
+] as const;
+const MARKET_LISTING_CREATED_COLUMNS = [
+  "listing_id",
+  "listing_slug",
+  "product_slug",
+  "account_id",
+  "inventory_item_id",
+  "catalog_catalog_item_id",
+  "product_id",
+  "item_title",
+  "item_subtitle",
+  "selected_options",
+  "product_summary",
+  "storage_location_name",
+  "ship_from_code",
+  "price_amount",
+  "shipping_allowance_percentage_bps",
+  "quantity_cap",
+  "max_units_per_order",
+  "max_units_per_day",
+  "max_units_per_customer_account",
+  "status",
+  "created_at",
+  "updated_at",
+] as const;
+const MARKET_LISTING_CREATED_UPDATE_COLUMNS = [
+  "listing_slug",
+  "product_slug",
+  "account_id",
+  "inventory_item_id",
+  "catalog_catalog_item_id",
+  "product_id",
+  "item_title",
+  "item_subtitle",
+  "selected_options",
+  "product_summary",
+  "storage_location_name",
+  "ship_from_code",
+  "price_amount",
+  "shipping_allowance_percentage_bps",
+  "quantity_cap",
+  "max_units_per_order",
+  "max_units_per_day",
+  "max_units_per_customer_account",
+  "updated_at",
+] as const;
+const OFFER_DEMAND_MATCH_CREATED_COLUMNS = [
+  "offer_id",
+  "buyer_account_id",
+  "catalog_catalog_item_id",
+  "product_id",
+  "item_title",
+  "item_subtitle",
+  "selected_options",
+  "product_summary",
+  "price_amount",
+  "quantity_requested",
+  "status",
+  "accepted_seller_account_id",
+  "accepted_at",
+  "created_at",
+  "updated_at",
+] as const;
+const OFFER_DEMAND_MATCH_UPDATE_COLUMNS = [
+  "buyer_account_id",
+  "catalog_catalog_item_id",
+  "product_id",
+  "item_title",
+  "item_subtitle",
+  "selected_options",
+  "product_summary",
+  "price_amount",
+  "quantity_requested",
+  "status",
+  "accepted_seller_account_id",
+  "accepted_at",
+  "updated_at",
+] as const;
 
 async function loadRealtimeListing(db: PgQueryable, listingId: string) {
   const result = await db.query<{
@@ -255,23 +350,19 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
       };
       const sellerSlug = createMarketplaceSlug([displayName], accountId);
 
-      await db.query(
-        `INSERT INTO discovery_market_accounts (
-          account_id,
-          seller_slug,
-          seller_display_name,
-          seller_listing_availability_status,
-          status,
-          updated_at
-        ) VALUES ($1, $2, $3, 'available', 'active', $4)
-        ON CONFLICT (account_id) DO UPDATE SET
-            seller_slug = EXCLUDED.seller_slug,
-            seller_display_name = EXCLUDED.seller_display_name,
-            seller_listing_availability_status = EXCLUDED.seller_listing_availability_status,
-            status = EXCLUDED.status,
-          updated_at = EXCLUDED.updated_at`,
-        [accountId, sellerSlug, displayName, event.timing.recordedAt],
-      );
+      await upsertRow(db, {
+        table: MARKET_ACCOUNTS_TABLE,
+        insertColumns: MARKET_ACCOUNT_CREATED_COLUMNS,
+        conflictColumns: ["account_id"],
+        values: {
+          account_id: accountId,
+          seller_slug: sellerSlug,
+          seller_display_name: displayName,
+          seller_listing_availability_status: "available",
+          status: "active",
+          updated_at: event.timing.recordedAt,
+        },
+      });
       await emitRealtimeChanges(
         db,
         event,
@@ -338,14 +429,14 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
       );
     },
     "identity.account.suspended": async (event) => {
-      await db.query(
-        `UPDATE discovery_market_accounts
-         SET status = 'suspended',
-             updated_at = $2
-         WHERE account_id = $1`,
-        [extractIdFromStreamId(event.streamId, ACCOUNT_STREAM_PREFIX), event.timing.recordedAt],
-      );
       const accountId = extractIdFromStreamId(event.streamId, ACCOUNT_STREAM_PREFIX);
+      await transitionStatus(db, {
+        table: MARKET_ACCOUNTS_TABLE,
+        idColumn: "account_id",
+        id: accountId,
+        status: "suspended",
+        updatedAt: event.timing.recordedAt,
+      });
       await emitRealtimeChanges(
         db,
         event,
@@ -357,14 +448,14 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
       );
     },
     "identity.account.reactivated": async (event) => {
-      await db.query(
-        `UPDATE discovery_market_accounts
-         SET status = 'active',
-             updated_at = $2
-         WHERE account_id = $1`,
-        [extractIdFromStreamId(event.streamId, ACCOUNT_STREAM_PREFIX), event.timing.recordedAt],
-      );
       const accountId = extractIdFromStreamId(event.streamId, ACCOUNT_STREAM_PREFIX);
+      await transitionStatus(db, {
+        table: MARKET_ACCOUNTS_TABLE,
+        idColumn: "account_id",
+        id: accountId,
+        status: "active",
+        updatedAt: event.timing.recordedAt,
+      });
       await emitRealtimeChanges(
         db,
         event,
@@ -381,14 +472,14 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
       );
     },
     "identity.account.closed": async (event) => {
-      await db.query(
-        `UPDATE discovery_market_accounts
-         SET status = 'closed',
-             updated_at = $2
-         WHERE account_id = $1`,
-        [extractIdFromStreamId(event.streamId, ACCOUNT_STREAM_PREFIX), event.timing.recordedAt],
-      );
       const accountId = extractIdFromStreamId(event.streamId, ACCOUNT_STREAM_PREFIX);
+      await transitionStatus(db, {
+        table: MARKET_ACCOUNTS_TABLE,
+        idColumn: "account_id",
+        id: accountId,
+        status: "closed",
+        updatedAt: event.timing.recordedAt,
+      });
       await emitRealtimeChanges(
         db,
         event,
@@ -439,76 +530,37 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
         [data.listingId],
       );
 
-      await db.query(
-        `INSERT INTO discovery_market_listings (
-          listing_id,
-          listing_slug,
-          product_slug,
-          account_id,
-          inventory_item_id,
-          catalog_catalog_item_id,
-          product_id,
-          item_title,
-          item_subtitle,
-          selected_options,
-          product_summary,
-          storage_location_name,
-          ship_from_code,
-          price_amount,
-          shipping_allowance_percentage_bps,
-          quantity_cap,
-          max_units_per_order,
-          max_units_per_day,
-          max_units_per_customer_account,
-          status,
-          created_at,
-          updated_at
-        ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, 'draft', $20, $20
-        )
-        ON CONFLICT (listing_id) DO UPDATE SET
-          listing_slug = EXCLUDED.listing_slug,
-          product_slug = EXCLUDED.product_slug,
-          account_id = EXCLUDED.account_id,
-          inventory_item_id = EXCLUDED.inventory_item_id,
-          catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
-          product_id = EXCLUDED.product_id,
-          item_title = EXCLUDED.item_title,
-          item_subtitle = EXCLUDED.item_subtitle,
-          selected_options = EXCLUDED.selected_options,
-          product_summary = EXCLUDED.product_summary,
-          storage_location_name = EXCLUDED.storage_location_name,
-          ship_from_code = EXCLUDED.ship_from_code,
-          price_amount = EXCLUDED.price_amount,
-          shipping_allowance_percentage_bps = EXCLUDED.shipping_allowance_percentage_bps,
-          quantity_cap = EXCLUDED.quantity_cap,
-          max_units_per_order = EXCLUDED.max_units_per_order,
-          max_units_per_day = EXCLUDED.max_units_per_day,
-          max_units_per_customer_account = EXCLUDED.max_units_per_customer_account,
-          updated_at = EXCLUDED.updated_at`,
-        [
-          data.listingId,
-          listingSlug,
-          productSlug,
-          data.accountId,
-          data.inventoryItemId,
-          data.catalogItemId,
-          data.productId,
-          data.itemTitle,
-          data.itemSubtitle,
-          JSON.stringify(Array.isArray(data.selectedOptions) ? data.selectedOptions : []),
-          data.productSummary,
-          data.storageLocationName,
-          data.shipFromCode,
-          data.priceAmount,
-          data.shippingAllowancePercentageBps ?? 500,
-          data.quantityCap,
-          data.purchaseLimits?.maxUnitsPerOrder ?? null,
-          data.purchaseLimits?.maxUnitsPerDay ?? null,
-          data.purchaseLimits?.maxUnitsPerCustomerAccount ?? null,
-          event.timing.recordedAt,
-        ],
-      );
+      await upsertRow(db, {
+        table: MARKET_LISTINGS_TABLE,
+        insertColumns: MARKET_LISTING_CREATED_COLUMNS,
+        conflictColumns: ["listing_id"],
+        updateColumns: MARKET_LISTING_CREATED_UPDATE_COLUMNS,
+        values: {
+          listing_id: data.listingId,
+          listing_slug: listingSlug,
+          product_slug: productSlug,
+          account_id: data.accountId,
+          inventory_item_id: data.inventoryItemId,
+          catalog_catalog_item_id: data.catalogItemId,
+          product_id: data.productId,
+          item_title: data.itemTitle,
+          item_subtitle: data.itemSubtitle,
+          selected_options: Array.isArray(data.selectedOptions) ? data.selectedOptions : [],
+          product_summary: data.productSummary,
+          storage_location_name: data.storageLocationName,
+          ship_from_code: data.shipFromCode,
+          price_amount: data.priceAmount,
+          shipping_allowance_percentage_bps: data.shippingAllowancePercentageBps ?? 500,
+          quantity_cap: data.quantityCap,
+          max_units_per_order: data.purchaseLimits?.maxUnitsPerOrder ?? null,
+          max_units_per_day: data.purchaseLimits?.maxUnitsPerDay ?? null,
+          max_units_per_customer_account: data.purchaseLimits?.maxUnitsPerCustomerAccount ?? null,
+          status: "draft",
+          created_at: event.timing.recordedAt,
+          updated_at: event.timing.recordedAt,
+        },
+        casts: { selected_options: "jsonb" },
+      });
       await rememberSlugRedirect(db, {
         entityKind: "listing",
         entityId: data.listingId,
@@ -588,57 +640,53 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
           maxUnitsPerCustomerAccount: number | null;
         };
       };
-      await db.query(
-        `UPDATE discovery_market_listings
-         SET max_units_per_order = $2,
-             max_units_per_day = $3,
-             max_units_per_customer_account = $4,
-             updated_at = $5
-         WHERE listing_id = $1`,
-        [
-          listingId,
-          purchaseLimits.maxUnitsPerOrder,
-          purchaseLimits.maxUnitsPerDay,
-          purchaseLimits.maxUnitsPerCustomerAccount,
-          event.timing.recordedAt,
-        ],
-      );
+      await updateRow(db, {
+        table: MARKET_LISTINGS_TABLE,
+        setColumns: ["max_units_per_order", "max_units_per_day", "max_units_per_customer_account", "updated_at"],
+        values: {
+          max_units_per_order: purchaseLimits.maxUnitsPerOrder,
+          max_units_per_day: purchaseLimits.maxUnitsPerDay,
+          max_units_per_customer_account: purchaseLimits.maxUnitsPerCustomerAccount,
+          updated_at: event.timing.recordedAt,
+        },
+        where: { columns: ["listing_id"], values: { listing_id: listingId } },
+      });
       await refreshGoogleShoppingListing(db, event, listingId, "eligibility");
       await emitListingPatch(db, event, listingId);
     },
     "marketplace.listing.published": async (event) => {
       const listingId = extractIdFromStreamId(event.streamId, MARKETPLACE_LISTING_STREAM_PREFIX);
-      await db.query(
-        `UPDATE discovery_market_listings
-         SET status = 'active',
-             updated_at = $2
-         WHERE listing_id = $1`,
-        [listingId, event.timing.recordedAt],
-      );
+      await transitionStatus(db, {
+        table: MARKET_LISTINGS_TABLE,
+        idColumn: "listing_id",
+        id: listingId,
+        status: "active",
+        updatedAt: event.timing.recordedAt,
+      });
       await refreshGoogleShoppingListing(db, event, listingId, "visibility");
       await emitListingPatch(db, event, listingId);
     },
     "marketplace.listing.paused": async (event) => {
       const listingId = extractIdFromStreamId(event.streamId, MARKETPLACE_LISTING_STREAM_PREFIX);
-      await db.query(
-        `UPDATE discovery_market_listings
-         SET status = 'paused',
-             updated_at = $2
-         WHERE listing_id = $1`,
-        [listingId, event.timing.recordedAt],
-      );
+      await transitionStatus(db, {
+        table: MARKET_LISTINGS_TABLE,
+        idColumn: "listing_id",
+        id: listingId,
+        status: "paused",
+        updatedAt: event.timing.recordedAt,
+      });
       await refreshGoogleShoppingListing(db, event, listingId, "visibility");
       await emitListingPatch(db, event, listingId);
     },
     "marketplace.listing.withdrawn": async (event) => {
       const listingId = extractIdFromStreamId(event.streamId, MARKETPLACE_LISTING_STREAM_PREFIX);
-      await db.query(
-        `UPDATE discovery_market_listings
-         SET status = 'withdrawn',
-             updated_at = $2
-         WHERE listing_id = $1`,
-        [listingId, event.timing.recordedAt],
-      );
+      await transitionStatus(db, {
+        table: MARKET_LISTINGS_TABLE,
+        idColumn: "listing_id",
+        id: listingId,
+        status: "withdrawn",
+        updatedAt: event.timing.recordedAt,
+      });
       await refreshGoogleShoppingListing(db, event, listingId, "visibility");
       await emitListingPatch(db, event, listingId);
     },
@@ -649,42 +697,36 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
         availableAgainOn: string | null;
       };
 
-      await db.query(
-        `INSERT INTO discovery_market_accounts (
-           account_id,
-           seller_listing_availability_status,
-           seller_listing_availability_reason_category,
-           seller_listing_available_again_on,
-           updated_at
-         ) VALUES ($1, 'unavailable', $2, $3, $4)
-         ON CONFLICT (account_id) DO UPDATE SET
-           seller_listing_availability_status = EXCLUDED.seller_listing_availability_status,
-           seller_listing_availability_reason_category = EXCLUDED.seller_listing_availability_reason_category,
-           seller_listing_available_again_on = EXCLUDED.seller_listing_available_again_on,
-           updated_at = EXCLUDED.updated_at`,
-        [data.accountId, data.reasonCategory, data.availableAgainOn, event.timing.recordedAt],
-      );
+      await upsertRow(db, {
+        table: MARKET_ACCOUNTS_TABLE,
+        insertColumns: MARKET_ACCOUNT_AVAILABILITY_COLUMNS,
+        conflictColumns: ["account_id"],
+        values: {
+          account_id: data.accountId,
+          seller_listing_availability_status: "unavailable",
+          seller_listing_availability_reason_category: data.reasonCategory,
+          seller_listing_available_again_on: data.availableAgainOn,
+          updated_at: event.timing.recordedAt,
+        },
+      });
       await refreshGoogleShoppingSellerListings(db, event, data.accountId, "seller-availability");
       await emitSellerListingPatches(db, event, data.accountId);
     },
     "marketplace.seller-listing-availability.enabled": async (event) => {
       const data = event.data as { accountId: string };
 
-      await db.query(
-        `INSERT INTO discovery_market_accounts (
-           account_id,
-           seller_listing_availability_status,
-           seller_listing_availability_reason_category,
-           seller_listing_available_again_on,
-           updated_at
-         ) VALUES ($1, 'available', NULL, NULL, $2)
-         ON CONFLICT (account_id) DO UPDATE SET
-           seller_listing_availability_status = EXCLUDED.seller_listing_availability_status,
-           seller_listing_availability_reason_category = EXCLUDED.seller_listing_availability_reason_category,
-           seller_listing_available_again_on = EXCLUDED.seller_listing_available_again_on,
-           updated_at = EXCLUDED.updated_at`,
-        [data.accountId, event.timing.recordedAt],
-      );
+      await upsertRow(db, {
+        table: MARKET_ACCOUNTS_TABLE,
+        insertColumns: MARKET_ACCOUNT_AVAILABILITY_COLUMNS,
+        conflictColumns: ["account_id"],
+        values: {
+          account_id: data.accountId,
+          seller_listing_availability_status: "available",
+          seller_listing_availability_reason_category: null,
+          seller_listing_available_again_on: null,
+          updated_at: event.timing.recordedAt,
+        },
+      });
       await refreshGoogleShoppingSellerListings(db, event, data.accountId, "seller-availability");
       await emitSellerListingPatches(db, event, data.accountId);
     },
@@ -702,54 +744,30 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
         quantityRequested: number;
       };
 
-      await db.query(
-        `INSERT INTO discovery_offer_demand_matches (
-          offer_id,
-          buyer_account_id,
-          catalog_catalog_item_id,
-          product_id,
-          item_title,
-          item_subtitle,
-          selected_options,
-          product_summary,
-          price_amount,
-          quantity_requested,
-          status,
-          accepted_seller_account_id,
-          accepted_at,
-          created_at,
-          updated_at
-        ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'submitted', NULL, NULL, $11, $11
-        )
-        ON CONFLICT (offer_id) DO UPDATE SET
-          buyer_account_id = EXCLUDED.buyer_account_id,
-          catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
-          product_id = EXCLUDED.product_id,
-          item_title = EXCLUDED.item_title,
-          item_subtitle = EXCLUDED.item_subtitle,
-          selected_options = EXCLUDED.selected_options,
-          product_summary = EXCLUDED.product_summary,
-          price_amount = EXCLUDED.price_amount,
-          quantity_requested = EXCLUDED.quantity_requested,
-          status = EXCLUDED.status,
-          accepted_seller_account_id = EXCLUDED.accepted_seller_account_id,
-          accepted_at = EXCLUDED.accepted_at,
-          updated_at = EXCLUDED.updated_at`,
-        [
-          data.offerId,
-          data.buyerAccountId,
-          data.catalogItemId,
-          data.productId,
-          data.itemTitle,
-          data.itemSubtitle,
-          JSON.stringify(Array.isArray(data.selectedOptions) ? data.selectedOptions : []),
-          data.productSummary,
-          data.priceAmount,
-          data.quantityRequested,
-          event.timing.recordedAt,
-        ],
-      );
+      await upsertRow(db, {
+        table: OFFER_DEMAND_MATCHES_TABLE,
+        insertColumns: OFFER_DEMAND_MATCH_CREATED_COLUMNS,
+        conflictColumns: ["offer_id"],
+        updateColumns: OFFER_DEMAND_MATCH_UPDATE_COLUMNS,
+        values: {
+          offer_id: data.offerId,
+          buyer_account_id: data.buyerAccountId,
+          catalog_catalog_item_id: data.catalogItemId,
+          product_id: data.productId,
+          item_title: data.itemTitle,
+          item_subtitle: data.itemSubtitle,
+          selected_options: Array.isArray(data.selectedOptions) ? data.selectedOptions : [],
+          product_summary: data.productSummary,
+          price_amount: data.priceAmount,
+          quantity_requested: data.quantityRequested,
+          status: "submitted",
+          accepted_seller_account_id: null,
+          accepted_at: null,
+          created_at: event.timing.recordedAt,
+          updated_at: event.timing.recordedAt,
+        },
+        casts: { selected_options: "jsonb" },
+      });
       await emitOfferPatch(db, event, data.offerId);
     },
     "marketplace.offer.accepted": async (event) => {
@@ -759,15 +777,17 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
         acceptedAt: string;
       };
 
-      await db.query(
-        `UPDATE discovery_offer_demand_matches
-         SET status = 'accepted',
-             accepted_seller_account_id = $2,
-             accepted_at = $3,
-             updated_at = $3
-         WHERE offer_id = $1`,
-        [data.offerId, data.sellerAccountId, data.acceptedAt],
-      );
+      await updateRow(db, {
+        table: OFFER_DEMAND_MATCHES_TABLE,
+        setColumns: ["status", "accepted_seller_account_id", "accepted_at", "updated_at"],
+        values: {
+          status: "accepted",
+          accepted_seller_account_id: data.sellerAccountId,
+          accepted_at: data.acceptedAt,
+          updated_at: data.acceptedAt,
+        },
+        where: { columns: ["offer_id"], values: { offer_id: data.offerId } },
+      });
       await emitOfferPatch(db, event, data.offerId);
     },
     "reputation.review.submitted": async (event) => {
@@ -822,17 +842,15 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
         feedback: string | null;
         updatedAt: string;
       };
-      const subjectResult = await db.query<{ subject_account_id: string }>(
-        `UPDATE discovery_market_account_reviews
-         SET rating = $2,
-             feedback = $3,
-             updated_at = $4
-         WHERE review_id = $1
-         RETURNING subject_account_id`,
-        [data.reviewId, data.rating, data.feedback, data.updatedAt],
-      );
+      const subjectResult = await updateRow(db, {
+        table: "discovery_market_account_reviews",
+        setColumns: ["rating", "feedback", "updated_at"],
+        values: { rating: data.rating, feedback: data.feedback, updated_at: data.updatedAt },
+        where: { columns: ["review_id"], values: { review_id: data.reviewId } },
+        returning: ["subject_account_id"],
+      });
       const subjectAccountId = subjectResult.rows[0]?.subject_account_id;
-      if (!subjectAccountId) {
+      if (typeof subjectAccountId !== "string") {
         return;
       }
 
@@ -844,16 +862,16 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
         reviewId: string;
         withdrawnAt: string;
       };
-      const subjectResult = await db.query<{ subject_account_id: string }>(
-        `UPDATE discovery_market_account_reviews
-         SET status = 'withdrawn',
-             updated_at = $2
-         WHERE review_id = $1
-         RETURNING subject_account_id`,
-        [data.reviewId, data.withdrawnAt],
-      );
+      const subjectResult = await transitionStatus(db, {
+        table: "discovery_market_account_reviews",
+        idColumn: "review_id",
+        id: data.reviewId,
+        status: "withdrawn",
+        updatedAt: data.withdrawnAt,
+        returning: ["subject_account_id"],
+      });
       const subjectAccountId = subjectResult.rows[0]?.subject_account_id;
-      if (!subjectAccountId) {
+      if (typeof subjectAccountId !== "string") {
         return;
       }
 

@@ -1,6 +1,17 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import { extractIdFromStreamId } from "@chase-sets/event-core";
-import { asArray, asStringArray, loadNameMap, type PgQueryable } from "@chase-sets/event-core-postgres";
+import {
+  appendJsonbArrayElement,
+  asArray,
+  asStringArray,
+  loadNameMap,
+  removeJsonbArrayElement,
+  replaceJsonbArrayElement,
+  transitionStatus,
+  updateRow,
+  upsertRow,
+  type PgQueryable,
+} from "@chase-sets/event-core-postgres";
 import { localizedTextMapValues } from "@chase-sets/localization";
 import { normalizeSimpleSearchText } from "../domain/normalization";
 import { uniqueStrings } from "../../../support/item-support/unique-strings";
@@ -24,6 +35,76 @@ const DIMENSION_STREAM_PREFIX = "catalog.dimension-";
 const REFERENCE_RECORD_STREAM_PREFIX = "catalog.reference-record-";
 const SEARCH_REFERENCE_RECORDS_TABLE = "discovery_search_catalog_reference_records";
 const SEARCH_CATALOG_ITEMS_TABLE = "discovery_search_catalog_items";
+const SEARCH_CATALOG_ITEM_CREATED_COLUMNS = [
+  "catalog_item_id",
+  "slug",
+  "language_code",
+  "title_i18n",
+  "title",
+  "subtitle_i18n",
+  "subtitle",
+  "description_i18n",
+  "description",
+  "status",
+  "updated_at",
+] as const;
+const SEARCH_CATALOG_ITEM_CREATED_UPDATE_COLUMNS = [
+  "slug",
+  "language_code",
+  "title_i18n",
+  "title",
+  "subtitle_i18n",
+  "subtitle",
+  "description_i18n",
+  "description",
+  "updated_at",
+] as const;
+const SEARCH_CATALOG_FIELD_COLUMNS = [
+  "field_id",
+  "name",
+  "value_type",
+  "filterable",
+  "searchable",
+  "sortable",
+  "updated_at",
+] as const;
+const SEARCH_REFERENCE_RECORD_CREATED_COLUMNS = [
+  "reference_record_id",
+  "type_key",
+  "key",
+  "name",
+  "attributes",
+  "relationships",
+  "status",
+  "updated_at",
+] as const;
+const SEARCH_REFERENCE_RECORD_REVISED_COLUMNS = [
+  "reference_record_id",
+  "type_key",
+  "key",
+  "name",
+  "attributes",
+  "relationships",
+  "updated_at",
+] as const;
+const SEARCH_REFERENCE_RECORD_UPDATE_COLUMNS = [
+  "type_key",
+  "key",
+  "name",
+  "attributes",
+  "relationships",
+  "updated_at",
+] as const;
+const SEARCH_DIMENSION_OPTION_COLUMNS = [
+  "option_id",
+  "dimension_id",
+  "code",
+  "label",
+  "display_order",
+  "numeric_value",
+  "status",
+  "updated_at",
+] as const;
 
 type FieldValue = Readonly<{ fieldId: string; value: unknown }>;
 type SearchFieldDefinition = Readonly<{
@@ -77,6 +158,162 @@ type CatalogItemDisplayIdentityResolvedEventData = Readonly<{
   title: string;
   subtitle?: string | null;
 }>;
+
+async function upsertSearchCatalogBlueprint(
+  db: PgQueryable,
+  input: Readonly<{ blueprintId: string; name: string; updatedAt: string }>,
+): Promise<void> {
+  await upsertRow(db, {
+    table: "discovery_search_catalog_blueprints",
+    insertColumns: ["blueprint_id", "name", "updated_at"],
+    conflictColumns: ["blueprint_id"],
+    values: { blueprint_id: input.blueprintId, name: input.name, updated_at: input.updatedAt },
+  });
+}
+
+async function upsertSearchCatalogField(
+  db: PgQueryable,
+  input: Readonly<{
+    fieldId: string;
+    name: string;
+    valueType: string;
+    filterable: boolean;
+    searchable: boolean;
+    sortable: boolean;
+    updatedAt: string;
+  }>,
+): Promise<void> {
+  await upsertRow(db, {
+    table: "discovery_search_catalog_fields",
+    insertColumns: SEARCH_CATALOG_FIELD_COLUMNS,
+    conflictColumns: ["field_id"],
+    values: {
+      field_id: input.fieldId,
+      name: input.name,
+      value_type: input.valueType,
+      filterable: input.filterable,
+      searchable: input.searchable,
+      sortable: input.sortable,
+      updated_at: input.updatedAt,
+    },
+  });
+}
+
+async function upsertSearchReferenceRecord(
+  db: PgQueryable,
+  input: Readonly<{
+    referenceRecordId: string;
+    typeKey: string;
+    key: string;
+    name: string;
+    attributes: unknown;
+    relationships: unknown;
+    status?: string;
+    updatedAt: string;
+  }>,
+): Promise<void> {
+  if (input.status) {
+    await upsertRow(db, {
+      table: SEARCH_REFERENCE_RECORDS_TABLE,
+      insertColumns: SEARCH_REFERENCE_RECORD_CREATED_COLUMNS,
+      conflictColumns: ["reference_record_id"],
+      updateColumns: SEARCH_REFERENCE_RECORD_UPDATE_COLUMNS,
+      values: {
+        reference_record_id: input.referenceRecordId,
+        type_key: input.typeKey,
+        key: input.key,
+        name: input.name,
+        attributes: input.attributes,
+        relationships: input.relationships,
+        status: input.status,
+        updated_at: input.updatedAt,
+      },
+      casts: { attributes: "jsonb", relationships: "jsonb" },
+    });
+    return;
+  }
+
+  await upsertRow(db, {
+    table: SEARCH_REFERENCE_RECORDS_TABLE,
+    insertColumns: SEARCH_REFERENCE_RECORD_REVISED_COLUMNS,
+    conflictColumns: ["reference_record_id"],
+    updateColumns: SEARCH_REFERENCE_RECORD_UPDATE_COLUMNS,
+    values: {
+      reference_record_id: input.referenceRecordId,
+      type_key: input.typeKey,
+      key: input.key,
+      name: input.name,
+      attributes: input.attributes,
+      relationships: input.relationships,
+      updated_at: input.updatedAt,
+    },
+    casts: { attributes: "jsonb", relationships: "jsonb" },
+  });
+}
+
+async function upsertSearchCatalogDimension(
+  db: PgQueryable,
+  input: Readonly<{ dimensionId: string; name: string; valueKind: string; updatedAt: string }>,
+): Promise<void> {
+  await upsertRow(db, {
+    table: "discovery_search_catalog_dimensions",
+    insertColumns: ["dimension_id", "name", "value_kind", "updated_at"],
+    conflictColumns: ["dimension_id"],
+    values: {
+      dimension_id: input.dimensionId,
+      name: input.name,
+      value_kind: input.valueKind,
+      updated_at: input.updatedAt,
+    },
+  });
+}
+
+async function upsertSearchDimensionOption(
+  db: PgQueryable,
+  input: Readonly<{
+    optionId: string;
+    dimensionId: string;
+    code: string;
+    label: string;
+    displayOrder: number;
+    numericValue: number | null;
+    status: string;
+    updatedAt: string;
+  }>,
+): Promise<void> {
+  await upsertRow(db, {
+    table: "discovery_search_catalog_dimension_options",
+    insertColumns: SEARCH_DIMENSION_OPTION_COLUMNS,
+    conflictColumns: ["option_id"],
+    values: {
+      option_id: input.optionId,
+      dimension_id: input.dimensionId,
+      code: input.code,
+      label: input.label,
+      display_order: input.displayOrder,
+      numeric_value: input.numericValue,
+      status: input.status,
+      updated_at: input.updatedAt,
+    },
+  });
+}
+
+async function upsertSearchCategory(
+  db: PgQueryable,
+  input: Readonly<{ categoryId: string; slug: string; name: string; updatedAt: string }>,
+): Promise<void> {
+  await upsertRow(db, {
+    table: "discovery_search_catalog_categories",
+    insertColumns: ["category_id", "slug", "name", "updated_at"],
+    conflictColumns: ["category_id"],
+    values: {
+      category_id: input.categoryId,
+      slug: input.slug,
+      name: input.name,
+      updated_at: input.updatedAt,
+    },
+  });
+}
 
 async function loadCategoryMap(
   db: PgQueryable,
@@ -501,9 +738,7 @@ export async function rebuildDiscoverySearchIndex(db: PgQueryable): Promise<void
     `SELECT catalog_item_id FROM discovery_search_catalog_items ORDER BY catalog_item_id ASC`,
   );
 
-  for (const row of result.rows) {
-    await refreshDiscoverySearchItem(db, row.catalog_item_id);
-  }
+  await Promise.all(result.rows.map((row) => refreshDiscoverySearchItem(db, row.catalog_item_id)));
 }
 
 async function refreshItemsByBlueprint(db: PgQueryable, blueprintId: string): Promise<void> {
@@ -610,43 +845,26 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
       const resolvedDescription = resolveLocalizedText(descriptionI18n);
       const slug = createMarketplaceSlug([resolvedTitle, resolvedSubtitle], itemId);
 
-      await db.query(
-        `INSERT INTO discovery_search_catalog_items (
-          catalog_item_id,
+      await upsertRow(db, {
+        table: SEARCH_CATALOG_ITEMS_TABLE,
+        insertColumns: SEARCH_CATALOG_ITEM_CREATED_COLUMNS,
+        conflictColumns: ["catalog_item_id"],
+        updateColumns: SEARCH_CATALOG_ITEM_CREATED_UPDATE_COLUMNS,
+        values: {
+          catalog_item_id: itemId,
           slug,
-          language_code,
-          title_i18n,
-          title,
-          subtitle_i18n,
-          subtitle,
-          description_i18n,
-          description,
-          status,
-          updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'draft', $10)
-        ON CONFLICT (catalog_item_id) DO UPDATE SET
-          slug = EXCLUDED.slug,
-          language_code = EXCLUDED.language_code,
-          title_i18n = EXCLUDED.title_i18n,
-          title = EXCLUDED.title,
-          subtitle_i18n = EXCLUDED.subtitle_i18n,
-          subtitle = EXCLUDED.subtitle,
-          description_i18n = EXCLUDED.description_i18n,
-          description = EXCLUDED.description,
-          updated_at = EXCLUDED.updated_at`,
-        [
-          itemId,
-          slug,
-          languageCode ?? "en",
-          JSON.stringify(titleI18n),
-          resolvedTitle,
-          subtitleI18n ? JSON.stringify(subtitleI18n) : null,
-          resolvedSubtitle,
-          JSON.stringify(descriptionI18n),
-          resolvedDescription,
-          event.timing.recordedAt,
-        ],
-      );
+          language_code: languageCode ?? "en",
+          title_i18n: titleI18n,
+          title: resolvedTitle,
+          subtitle_i18n: subtitleI18n,
+          subtitle: resolvedSubtitle,
+          description_i18n: descriptionI18n,
+          description: resolvedDescription,
+          status: "draft",
+          updated_at: event.timing.recordedAt,
+        },
+        casts: { title_i18n: "jsonb", description_i18n: "jsonb" },
+      });
 
       await refreshDiscoverySearchItem(db, itemId);
     },
@@ -654,12 +872,12 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
       const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
       const { blueprintId } = event.data as { blueprintId: string };
 
-      await db.query(
-        `UPDATE discovery_search_catalog_items
-         SET blueprint_id = $2, updated_at = $3
-         WHERE catalog_item_id = $1`,
-        [itemId, blueprintId, event.timing.recordedAt],
-      );
+      await updateRow(db, {
+        table: SEARCH_CATALOG_ITEMS_TABLE,
+        setColumns: ["blueprint_id", "updated_at"],
+        values: { blueprint_id: blueprintId, updated_at: event.timing.recordedAt },
+        where: { columns: ["catalog_item_id"], values: { catalog_item_id: itemId } },
+      });
 
       await refreshDiscoverySearchItem(db, itemId);
     },
@@ -667,17 +885,14 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
       const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
       const { fieldId, value } = event.data as { fieldId: string; value: unknown };
 
-      await db.query(
-        `UPDATE discovery_search_catalog_items
-         SET field_values = (
-           SELECT COALESCE(jsonb_agg(field_value), '[]'::jsonb)
-           FROM jsonb_array_elements(field_values) AS field_value
-           WHERE field_value->>'fieldId' != $2
-         ) || $3::jsonb,
-         updated_at = $4
-         WHERE catalog_item_id = $1`,
-        [itemId, fieldId, JSON.stringify([{ fieldId, value }]), event.timing.recordedAt],
-      );
+      await replaceJsonbArrayElement(db, {
+        table: SEARCH_CATALOG_ITEMS_TABLE,
+        key: { column: "catalog_item_id", value: itemId },
+        column: "field_values",
+        match: { kind: "pathText", path: ["fieldId"], value: fieldId },
+        element: { fieldId, value },
+        updatedAt: { value: event.timing.recordedAt },
+      });
 
       await refreshDiscoverySearchItem(db, itemId);
     },
@@ -685,17 +900,13 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
       const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
       const { fieldId } = event.data as { fieldId: string };
 
-      await db.query(
-        `UPDATE discovery_search_catalog_items
-         SET field_values = (
-           SELECT COALESCE(jsonb_agg(field_value), '[]'::jsonb)
-           FROM jsonb_array_elements(field_values) AS field_value
-           WHERE field_value->>'fieldId' != $2
-         ),
-         updated_at = $3
-         WHERE catalog_item_id = $1`,
-        [itemId, fieldId, event.timing.recordedAt],
-      );
+      await removeJsonbArrayElement(db, {
+        table: SEARCH_CATALOG_ITEMS_TABLE,
+        key: { column: "catalog_item_id", value: itemId },
+        column: "field_values",
+        match: { kind: "pathText", path: ["fieldId"], value: fieldId },
+        updatedAt: { value: event.timing.recordedAt },
+      });
 
       await refreshDiscoverySearchItem(db, itemId);
     },
@@ -703,16 +914,14 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
       const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
       const { categoryId } = event.data as { categoryId: string };
 
-      await db.query(
-        `UPDATE discovery_search_catalog_items
-         SET category_ids = CASE
-               WHEN category_ids @> $2::jsonb THEN category_ids
-               ELSE category_ids || $2::jsonb
-             END,
-         updated_at = $3
-         WHERE catalog_item_id = $1`,
-        [itemId, JSON.stringify([categoryId]), event.timing.recordedAt],
-      );
+      await appendJsonbArrayElement(db, {
+        table: SEARCH_CATALOG_ITEMS_TABLE,
+        key: { column: "catalog_item_id", value: itemId },
+        column: "category_ids",
+        element: categoryId,
+        unique: true,
+        updatedAt: { value: event.timing.recordedAt },
+      });
 
       await refreshDiscoverySearchItem(db, itemId);
     },
@@ -720,29 +929,26 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
       const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
       const { categoryId } = event.data as { categoryId: string };
 
-      await db.query(
-        `UPDATE discovery_search_catalog_items
-         SET category_ids = (
-           SELECT COALESCE(jsonb_agg(category_id), '[]'::jsonb)
-           FROM jsonb_array_elements(category_ids) AS category_id
-           WHERE category_id #>> '{}' != $2
-         ),
-         updated_at = $3
-         WHERE catalog_item_id = $1`,
-        [itemId, categoryId, event.timing.recordedAt],
-      );
+      await removeJsonbArrayElement(db, {
+        table: SEARCH_CATALOG_ITEMS_TABLE,
+        key: { column: "catalog_item_id", value: itemId },
+        column: "category_ids",
+        match: { kind: "value", value: categoryId },
+        updatedAt: { value: event.timing.recordedAt },
+      });
 
       await refreshDiscoverySearchItem(db, itemId);
     },
     "catalog.catalog-item.published": async (event) => {
       const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
 
-      await db.query(
-        `UPDATE discovery_search_catalog_items
-         SET status = 'active', updated_at = $2
-         WHERE catalog_item_id = $1`,
-        [itemId, event.timing.recordedAt],
-      );
+      await transitionStatus(db, {
+        table: SEARCH_CATALOG_ITEMS_TABLE,
+        idColumn: "catalog_item_id",
+        id: itemId,
+        status: "active",
+        updatedAt: event.timing.recordedAt,
+      });
 
       await refreshDiscoverySearchItem(db, itemId);
     },
@@ -761,14 +967,17 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
       const descriptionI18n = coerceLocalizedTextMap(description);
       const resolvedDescription = resolveLocalizedText(descriptionI18n);
 
-      await db.query(
-        `UPDATE discovery_search_catalog_items
-         SET description_i18n = $2,
-             description = $3,
-             updated_at = $4
-         WHERE catalog_item_id = $1`,
-        [itemId, JSON.stringify(descriptionI18n), resolvedDescription, event.timing.recordedAt],
-      );
+      await updateRow(db, {
+        table: SEARCH_CATALOG_ITEMS_TABLE,
+        setColumns: ["description_i18n", "description", "updated_at"],
+        values: {
+          description_i18n: descriptionI18n,
+          description: resolvedDescription,
+          updated_at: event.timing.recordedAt,
+        },
+        casts: { description_i18n: "jsonb" },
+        where: { columns: ["catalog_item_id"], values: { catalog_item_id: itemId } },
+      });
 
       await refreshDiscoverySearchItem(db, itemId);
     },
@@ -776,13 +985,13 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
       const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
       const { tags } = event.data as { tags: string[] };
 
-      await db.query(
-        `UPDATE discovery_search_catalog_items
-         SET tags = $2,
-             updated_at = $3
-         WHERE catalog_item_id = $1`,
-        [itemId, JSON.stringify(tags), event.timing.recordedAt],
-      );
+      await updateRow(db, {
+        table: SEARCH_CATALOG_ITEMS_TABLE,
+        setColumns: ["tags", "updated_at"],
+        values: { tags, updated_at: event.timing.recordedAt },
+        casts: { tags: "jsonb" },
+        where: { columns: ["catalog_item_id"], values: { catalog_item_id: itemId } },
+      });
 
       await refreshDiscoverySearchItem(db, itemId);
     },
@@ -790,13 +999,13 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
       const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
       const { imageUrls } = event.data as { imageUrls: string[] };
 
-      await db.query(
-        `UPDATE discovery_search_catalog_items
-         SET image_urls = $2,
-             updated_at = $3
-         WHERE catalog_item_id = $1`,
-        [itemId, JSON.stringify(imageUrls), event.timing.recordedAt],
-      );
+      await updateRow(db, {
+        table: SEARCH_CATALOG_ITEMS_TABLE,
+        setColumns: ["image_urls", "updated_at"],
+        values: { image_urls: imageUrls, updated_at: event.timing.recordedAt },
+        casts: { image_urls: "jsonb" },
+        where: { columns: ["catalog_item_id"], values: { catalog_item_id: itemId } },
+      });
 
       await refreshDiscoverySearchItem(db, itemId);
     },
@@ -804,13 +1013,16 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
       const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
       const { productAssetSets } = event.data as { productAssetSets: unknown };
 
-      await db.query(
-        `UPDATE discovery_search_catalog_items
-         SET product_asset_sets = $2,
-             updated_at = $3
-         WHERE catalog_item_id = $1`,
-        [itemId, JSON.stringify(Array.isArray(productAssetSets) ? productAssetSets : []), event.timing.recordedAt],
-      );
+      await updateRow(db, {
+        table: SEARCH_CATALOG_ITEMS_TABLE,
+        setColumns: ["product_asset_sets", "updated_at"],
+        values: {
+          product_asset_sets: Array.isArray(productAssetSets) ? productAssetSets : [],
+          updated_at: event.timing.recordedAt,
+        },
+        casts: { product_asset_sets: "jsonb" },
+        where: { columns: ["catalog_item_id"], values: { catalog_item_id: itemId } },
+      });
 
       await refreshDiscoverySearchItem(db, itemId);
     },
@@ -818,50 +1030,50 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
       const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
       const { imageFallback } = event.data as { imageFallback: unknown };
 
-      await db.query(
-        `UPDATE discovery_search_catalog_items
-         SET image_fallback = $2,
-             updated_at = $3
-         WHERE catalog_item_id = $1`,
-        [itemId, JSON.stringify(imageFallback), event.timing.recordedAt],
-      );
+      await updateRow(db, {
+        table: SEARCH_CATALOG_ITEMS_TABLE,
+        setColumns: ["image_fallback", "updated_at"],
+        values: { image_fallback: imageFallback, updated_at: event.timing.recordedAt },
+        where: { columns: ["catalog_item_id"], values: { catalog_item_id: itemId } },
+      });
 
       await refreshDiscoverySearchItem(db, itemId);
     },
     "catalog.catalog-item.image-fallback-cleared": async (event) => {
       const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
 
-      await db.query(
-        `UPDATE discovery_search_catalog_items
-         SET image_fallback = NULL,
-             updated_at = $2
-         WHERE catalog_item_id = $1`,
-        [itemId, event.timing.recordedAt],
-      );
+      await updateRow(db, {
+        table: SEARCH_CATALOG_ITEMS_TABLE,
+        setColumns: ["image_fallback", "updated_at"],
+        values: { image_fallback: null, updated_at: event.timing.recordedAt },
+        where: { columns: ["catalog_item_id"], values: { catalog_item_id: itemId } },
+      });
 
       await refreshDiscoverySearchItem(db, itemId);
     },
     "catalog.catalog-item.retired": async (event) => {
       const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
 
-      await db.query(
-        `UPDATE discovery_search_catalog_items
-         SET status = 'archived', updated_at = $2
-         WHERE catalog_item_id = $1`,
-        [itemId, event.timing.recordedAt],
-      );
+      await transitionStatus(db, {
+        table: SEARCH_CATALOG_ITEMS_TABLE,
+        idColumn: "catalog_item_id",
+        id: itemId,
+        status: "archived",
+        updatedAt: event.timing.recordedAt,
+      });
 
       await refreshDiscoverySearchItem(db, itemId);
     },
     "catalog.catalog-item.archived": async (event) => {
       const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
 
-      await db.query(
-        `UPDATE discovery_search_catalog_items
-         SET status = 'archived', updated_at = $2
-         WHERE catalog_item_id = $1`,
-        [itemId, event.timing.recordedAt],
-      );
+      await transitionStatus(db, {
+        table: SEARCH_CATALOG_ITEMS_TABLE,
+        idColumn: "catalog_item_id",
+        id: itemId,
+        status: "archived",
+        updatedAt: event.timing.recordedAt,
+      });
 
       await db.query(`DELETE FROM discovery_search_items WHERE catalog_item_id = $1`, [itemId]);
     },
@@ -870,28 +1082,22 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
       const { blueprintId, name } = event.data as { blueprintId: string; name: unknown };
       const resolvedName = resolveLocalizedText(coerceLocalizedTextMap(name));
 
-      await db.query(
-        `INSERT INTO discovery_search_catalog_blueprints (blueprint_id, name, updated_at)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (blueprint_id) DO UPDATE SET
-           name = EXCLUDED.name,
-           updated_at = EXCLUDED.updated_at`,
-        [blueprintId, resolvedName, event.timing.recordedAt],
-      );
+      await upsertSearchCatalogBlueprint(db, {
+        blueprintId,
+        name: resolvedName,
+        updatedAt: event.timing.recordedAt,
+      });
     },
     "catalog.blueprint.revised": async (event) => {
       const blueprintId = extractIdFromStreamId(event.streamId, BLUEPRINT_STREAM_PREFIX);
       const { name } = event.data as { name: unknown };
       const resolvedName = resolveLocalizedText(coerceLocalizedTextMap(name));
 
-      await db.query(
-        `INSERT INTO discovery_search_catalog_blueprints (blueprint_id, name, updated_at)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (blueprint_id) DO UPDATE SET
-           name = EXCLUDED.name,
-           updated_at = EXCLUDED.updated_at`,
-        [blueprintId, resolvedName, event.timing.recordedAt],
-      );
+      await upsertSearchCatalogBlueprint(db, {
+        blueprintId,
+        name: resolvedName,
+        updatedAt: event.timing.recordedAt,
+      });
 
       await refreshItemsByBlueprint(db, blueprintId);
     },
@@ -910,34 +1116,34 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
         blueprintId,
       ]);
 
-      for (const [index, rule] of dimensionRules.entries()) {
-        await db.query(
-          `INSERT INTO discovery_search_catalog_blueprint_dimensions (
-             blueprint_id,
-             dimension_id,
-             required,
-             allowed_option_ids,
-             applies_when,
-             display_order,
-             updated_at
-           ) VALUES ($1, $2, $3, $4, $5, $6, $7)
-           ON CONFLICT (blueprint_id, dimension_id) DO UPDATE SET
-             required = EXCLUDED.required,
-             allowed_option_ids = EXCLUDED.allowed_option_ids,
-             applies_when = EXCLUDED.applies_when,
-             display_order = EXCLUDED.display_order,
-             updated_at = EXCLUDED.updated_at`,
-          [
-            blueprintId,
-            rule.dimensionId,
-            Boolean(rule.required),
-            JSON.stringify(asStringArray(rule.allowedOptionIds)),
-            JSON.stringify(asArray(rule.appliesWhen)),
-            index,
-            event.timing.recordedAt,
-          ],
-        );
-      }
+      const latestRules = new Map(dimensionRules.map((rule, index) => [rule.dimensionId, { rule, index }] as const));
+      await Promise.all(
+        [...latestRules.values()].map(({ rule, index }) =>
+          upsertRow(db, {
+            table: "discovery_search_catalog_blueprint_dimensions",
+            insertColumns: [
+              "blueprint_id",
+              "dimension_id",
+              "required",
+              "allowed_option_ids",
+              "applies_when",
+              "display_order",
+              "updated_at",
+            ],
+            conflictColumns: ["blueprint_id", "dimension_id"],
+            values: {
+              blueprint_id: blueprintId,
+              dimension_id: rule.dimensionId,
+              required: Boolean(rule.required),
+              allowed_option_ids: asStringArray(rule.allowedOptionIds),
+              applies_when: asArray(rule.appliesWhen),
+              display_order: index,
+              updated_at: event.timing.recordedAt,
+            },
+            casts: { allowed_option_ids: "jsonb", applies_when: "jsonb" },
+          }),
+        ),
+      );
 
       await refreshItemsByBlueprint(db, blueprintId);
     },
@@ -951,33 +1157,15 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
       };
       const resolvedName = resolveLocalizedText(coerceLocalizedTextMap(name));
 
-      await db.query(
-        `INSERT INTO discovery_search_catalog_fields (
-           field_id,
-           name,
-           value_type,
-           filterable,
-           searchable,
-           sortable,
-           updated_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7)
-         ON CONFLICT (field_id) DO UPDATE SET
-           name = EXCLUDED.name,
-           value_type = EXCLUDED.value_type,
-           filterable = EXCLUDED.filterable,
-           searchable = EXCLUDED.searchable,
-           sortable = EXCLUDED.sortable,
-           updated_at = EXCLUDED.updated_at`,
-        [
-          fieldId,
-          resolvedName,
-          valueType ?? "string",
-          Boolean(behavior?.filterable),
-          Boolean(behavior?.searchable),
-          Boolean(behavior?.sortable),
-          event.timing.recordedAt,
-        ],
-      );
+      await upsertSearchCatalogField(db, {
+        fieldId,
+        name: resolvedName,
+        valueType: valueType ?? "string",
+        filterable: Boolean(behavior?.filterable),
+        searchable: Boolean(behavior?.searchable),
+        sortable: Boolean(behavior?.sortable),
+        updatedAt: event.timing.recordedAt,
+      });
 
       await refreshItemsByField(db, fieldId);
     },
@@ -990,33 +1178,15 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
       };
       const resolvedName = resolveLocalizedText(coerceLocalizedTextMap(name));
 
-      await db.query(
-        `INSERT INTO discovery_search_catalog_fields (
-           field_id,
-           name,
-           value_type,
-           filterable,
-           searchable,
-           sortable,
-           updated_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7)
-         ON CONFLICT (field_id) DO UPDATE SET
-           name = EXCLUDED.name,
-           value_type = EXCLUDED.value_type,
-           filterable = EXCLUDED.filterable,
-           searchable = EXCLUDED.searchable,
-           sortable = EXCLUDED.sortable,
-           updated_at = EXCLUDED.updated_at`,
-        [
-          fieldId,
-          resolvedName,
-          valueType ?? "string",
-          Boolean(behavior?.filterable),
-          Boolean(behavior?.searchable),
-          Boolean(behavior?.sortable),
-          event.timing.recordedAt,
-        ],
-      );
+      await upsertSearchCatalogField(db, {
+        fieldId,
+        name: resolvedName,
+        valueType: valueType ?? "string",
+        filterable: Boolean(behavior?.filterable),
+        searchable: Boolean(behavior?.searchable),
+        sortable: Boolean(behavior?.sortable),
+        updatedAt: event.timing.recordedAt,
+      });
 
       await refreshItemsByField(db, fieldId);
     },
@@ -1032,34 +1202,16 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
       };
       const resolvedName = resolveLocalizedText(coerceLocalizedTextMap(name));
 
-      await db.query(
-        `INSERT INTO ${SEARCH_REFERENCE_RECORDS_TABLE} (
-           reference_record_id,
-           type_key,
-           key,
-           name,
-           attributes,
-           relationships,
-           status,
-           updated_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, 'draft', $7)
-         ON CONFLICT (reference_record_id) DO UPDATE SET
-           type_key = EXCLUDED.type_key,
-           key = EXCLUDED.key,
-           name = EXCLUDED.name,
-           attributes = EXCLUDED.attributes,
-           relationships = EXCLUDED.relationships,
-           updated_at = EXCLUDED.updated_at`,
-        [
-          referenceRecordId,
-          typeKey,
-          key,
-          resolvedName,
-          JSON.stringify(attributes ?? {}),
-          JSON.stringify(Array.isArray(relationships) ? relationships : []),
-          event.timing.recordedAt,
-        ],
-      );
+      await upsertSearchReferenceRecord(db, {
+        referenceRecordId,
+        typeKey,
+        key,
+        name: resolvedName,
+        attributes: attributes ?? {},
+        relationships: Array.isArray(relationships) ? relationships : [],
+        status: "draft",
+        updatedAt: event.timing.recordedAt,
+      });
 
       await refreshItemsByReferenceRecord(db, referenceRecordId);
     },
@@ -1074,69 +1226,54 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
       };
       const resolvedName = resolveLocalizedText(coerceLocalizedTextMap(name));
 
-      await db.query(
-        `INSERT INTO ${SEARCH_REFERENCE_RECORDS_TABLE} (
-           reference_record_id,
-           type_key,
-           key,
-           name,
-           attributes,
-           relationships,
-           updated_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7)
-         ON CONFLICT (reference_record_id) DO UPDATE SET
-           type_key = EXCLUDED.type_key,
-           key = EXCLUDED.key,
-           name = EXCLUDED.name,
-           attributes = EXCLUDED.attributes,
-           relationships = EXCLUDED.relationships,
-           updated_at = EXCLUDED.updated_at`,
-        [
-          referenceRecordId,
-          typeKey,
-          key,
-          resolvedName,
-          JSON.stringify(attributes ?? {}),
-          JSON.stringify(Array.isArray(relationships) ? relationships : []),
-          event.timing.recordedAt,
-        ],
-      );
+      await upsertSearchReferenceRecord(db, {
+        referenceRecordId,
+        typeKey,
+        key,
+        name: resolvedName,
+        attributes: attributes ?? {},
+        relationships: Array.isArray(relationships) ? relationships : [],
+        updatedAt: event.timing.recordedAt,
+      });
 
       await refreshItemsByReferenceRecord(db, referenceRecordId);
     },
     "catalog.reference-record.published": async (event) => {
       const referenceRecordId = extractIdFromStreamId(event.streamId, REFERENCE_RECORD_STREAM_PREFIX);
 
-      await db.query(
-        `UPDATE ${SEARCH_REFERENCE_RECORDS_TABLE}
-         SET status = 'active', updated_at = $2
-         WHERE reference_record_id = $1`,
-        [referenceRecordId, event.timing.recordedAt],
-      );
+      await transitionStatus(db, {
+        table: SEARCH_REFERENCE_RECORDS_TABLE,
+        idColumn: "reference_record_id",
+        id: referenceRecordId,
+        status: "active",
+        updatedAt: event.timing.recordedAt,
+      });
 
       await refreshItemsByReferenceRecord(db, referenceRecordId);
     },
     "catalog.reference-record.deprecated": async (event) => {
       const referenceRecordId = extractIdFromStreamId(event.streamId, REFERENCE_RECORD_STREAM_PREFIX);
 
-      await db.query(
-        `UPDATE ${SEARCH_REFERENCE_RECORDS_TABLE}
-         SET status = 'deprecated', updated_at = $2
-         WHERE reference_record_id = $1`,
-        [referenceRecordId, event.timing.recordedAt],
-      );
+      await transitionStatus(db, {
+        table: SEARCH_REFERENCE_RECORDS_TABLE,
+        idColumn: "reference_record_id",
+        id: referenceRecordId,
+        status: "deprecated",
+        updatedAt: event.timing.recordedAt,
+      });
 
       await refreshItemsByReferenceRecord(db, referenceRecordId);
     },
     "catalog.reference-record.archived": async (event) => {
       const referenceRecordId = extractIdFromStreamId(event.streamId, REFERENCE_RECORD_STREAM_PREFIX);
 
-      await db.query(
-        `UPDATE ${SEARCH_REFERENCE_RECORDS_TABLE}
-         SET status = 'archived', updated_at = $2
-         WHERE reference_record_id = $1`,
-        [referenceRecordId, event.timing.recordedAt],
-      );
+      await transitionStatus(db, {
+        table: SEARCH_REFERENCE_RECORDS_TABLE,
+        idColumn: "reference_record_id",
+        id: referenceRecordId,
+        status: "archived",
+        updatedAt: event.timing.recordedAt,
+      });
 
       await refreshItemsByReferenceRecord(db, referenceRecordId);
     },
@@ -1149,15 +1286,12 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
       };
       const resolvedName = resolveLocalizedText(coerceLocalizedTextMap(name));
 
-      await db.query(
-        `INSERT INTO discovery_search_catalog_dimensions (dimension_id, name, value_kind, updated_at)
-         VALUES ($1, $2, $3, $4)
-         ON CONFLICT (dimension_id) DO UPDATE SET
-           name = EXCLUDED.name,
-           value_kind = EXCLUDED.value_kind,
-           updated_at = EXCLUDED.updated_at`,
-        [dimensionId, resolvedName, valueKind ?? "unordered", event.timing.recordedAt],
-      );
+      await upsertSearchCatalogDimension(db, {
+        dimensionId,
+        name: resolvedName,
+        valueKind: valueKind ?? "unordered",
+        updatedAt: event.timing.recordedAt,
+      });
 
       await refreshItemsByDimension(db, dimensionId);
     },
@@ -1166,15 +1300,12 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
       const { name, valueKind } = event.data as { name: unknown; valueKind?: string };
       const resolvedName = resolveLocalizedText(coerceLocalizedTextMap(name));
 
-      await db.query(
-        `INSERT INTO discovery_search_catalog_dimensions (dimension_id, name, value_kind, updated_at)
-         VALUES ($1, $2, $3, $4)
-         ON CONFLICT (dimension_id) DO UPDATE SET
-           name = EXCLUDED.name,
-           value_kind = EXCLUDED.value_kind,
-           updated_at = EXCLUDED.updated_at`,
-        [dimensionId, resolvedName, valueKind ?? "unordered", event.timing.recordedAt],
-      );
+      await upsertSearchCatalogDimension(db, {
+        dimensionId,
+        name: resolvedName,
+        valueKind: valueKind ?? "unordered",
+        updatedAt: event.timing.recordedAt,
+      });
 
       await refreshItemsByDimension(db, dimensionId);
     },
@@ -1190,36 +1321,16 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
       };
       const resolvedLabel = resolveLocalizedText(coerceLocalizedTextMap(label));
 
-      await db.query(
-        `INSERT INTO discovery_search_catalog_dimension_options (
-           option_id,
-           dimension_id,
-           code,
-           label,
-           display_order,
-           numeric_value,
-           status,
-           updated_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-         ON CONFLICT (option_id) DO UPDATE SET
-           dimension_id = EXCLUDED.dimension_id,
-           code = EXCLUDED.code,
-           label = EXCLUDED.label,
-           display_order = EXCLUDED.display_order,
-           numeric_value = EXCLUDED.numeric_value,
-           status = EXCLUDED.status,
-           updated_at = EXCLUDED.updated_at`,
-        [
-          optionId,
-          dimensionId,
-          code ?? "",
-          resolvedLabel,
-          displayOrder ?? 0,
-          numericValue ?? null,
-          status ?? "active",
-          event.timing.recordedAt,
-        ],
-      );
+      await upsertSearchDimensionOption(db, {
+        optionId,
+        dimensionId,
+        code: code ?? "",
+        label: resolvedLabel,
+        displayOrder: displayOrder ?? 0,
+        numericValue: numericValue ?? null,
+        status: status ?? "active",
+        updatedAt: event.timing.recordedAt,
+      });
 
       await refreshItemsByDimension(db, dimensionId);
     },
@@ -1235,36 +1346,16 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
       };
       const resolvedLabel = resolveLocalizedText(coerceLocalizedTextMap(label));
 
-      await db.query(
-        `INSERT INTO discovery_search_catalog_dimension_options (
-           option_id,
-           dimension_id,
-           code,
-           label,
-           display_order,
-           numeric_value,
-           status,
-           updated_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-         ON CONFLICT (option_id) DO UPDATE SET
-           dimension_id = EXCLUDED.dimension_id,
-           code = EXCLUDED.code,
-           label = EXCLUDED.label,
-           display_order = EXCLUDED.display_order,
-           numeric_value = EXCLUDED.numeric_value,
-           status = EXCLUDED.status,
-           updated_at = EXCLUDED.updated_at`,
-        [
-          optionId,
-          dimensionId,
-          code ?? "",
-          resolvedLabel,
-          displayOrder ?? 0,
-          numericValue ?? null,
-          status ?? "active",
-          event.timing.recordedAt,
-        ],
-      );
+      await upsertSearchDimensionOption(db, {
+        optionId,
+        dimensionId,
+        code: code ?? "",
+        label: resolvedLabel,
+        displayOrder: displayOrder ?? 0,
+        numericValue: numericValue ?? null,
+        status: status ?? "active",
+        updatedAt: event.timing.recordedAt,
+      });
 
       await refreshItemsByDimension(db, dimensionId);
     },
@@ -1272,14 +1363,20 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
       const dimensionId = extractIdFromStreamId(event.streamId, DIMENSION_STREAM_PREFIX);
       const { optionIds } = event.data as { optionIds: string[] };
 
-      for (let i = 0; i < optionIds.length; i++) {
-        await db.query(
-          `UPDATE discovery_search_catalog_dimension_options
-           SET display_order = $3, updated_at = $4
-           WHERE dimension_id = $1 AND option_id = $2`,
-          [dimensionId, optionIds[i], i, event.timing.recordedAt],
-        );
-      }
+      const latestOptionOrders = new Map(optionIds.map((optionId, index) => [optionId, index] as const));
+      await Promise.all(
+        [...latestOptionOrders.entries()].map(([optionId, index]) =>
+          updateRow(db, {
+            table: "discovery_search_catalog_dimension_options",
+            setColumns: ["display_order", "updated_at"],
+            values: { display_order: index, updated_at: event.timing.recordedAt },
+            where: {
+              columns: ["dimension_id", "option_id"],
+              values: { dimension_id: dimensionId, option_id: optionId },
+            },
+          }),
+        ),
+      );
 
       await refreshItemsByDimension(db, dimensionId);
     },
@@ -1289,15 +1386,12 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
       const resolvedName = resolveLocalizedText(coerceLocalizedTextMap(name));
       const slug = createMarketplaceSlug([resolvedName], categoryId);
 
-      await db.query(
-        `INSERT INTO discovery_search_catalog_categories (category_id, slug, name, updated_at)
-         VALUES ($1, $2, $3, $4)
-         ON CONFLICT (category_id) DO UPDATE SET
-           slug = EXCLUDED.slug,
-           name = EXCLUDED.name,
-           updated_at = EXCLUDED.updated_at`,
-        [categoryId, slug, resolvedName, event.timing.recordedAt],
-      );
+      await upsertSearchCategory(db, {
+        categoryId,
+        slug,
+        name: resolvedName,
+        updatedAt: event.timing.recordedAt,
+      });
     },
     "catalog.category.revised": async (event) => {
       const categoryId = extractIdFromStreamId(event.streamId, CATEGORY_STREAM_PREFIX);
@@ -1309,15 +1403,12 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
         [categoryId],
       );
 
-      await db.query(
-        `INSERT INTO discovery_search_catalog_categories (category_id, slug, name, updated_at)
-         VALUES ($1, $2, $3, $4)
-         ON CONFLICT (category_id) DO UPDATE SET
-           slug = EXCLUDED.slug,
-           name = EXCLUDED.name,
-           updated_at = EXCLUDED.updated_at`,
-        [categoryId, slug, resolvedName, event.timing.recordedAt],
-      );
+      await upsertSearchCategory(db, {
+        categoryId,
+        slug,
+        name: resolvedName,
+        updatedAt: event.timing.recordedAt,
+      });
       await rememberSlugRedirect(db, {
         entityKind: "category",
         entityId: categoryId,

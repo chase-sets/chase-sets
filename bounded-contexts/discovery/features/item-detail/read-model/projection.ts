@@ -1,6 +1,17 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import { extractIdFromStreamId } from "@chase-sets/event-core";
-import { asArray, asStringArray, loadNameMap, type PgQueryable } from "@chase-sets/event-core-postgres";
+import {
+  appendJsonbArrayElement,
+  asArray,
+  asStringArray,
+  loadNameMap,
+  removeJsonbArrayElement,
+  replaceJsonbArrayElement,
+  transitionStatus,
+  updateRow,
+  upsertRow,
+  type PgQueryable,
+} from "@chase-sets/event-core-postgres";
 import { uniqueStrings } from "../../../support/item-support/unique-strings";
 import {
   findCatalogItemIdsByReferenceRecord,
@@ -18,6 +29,90 @@ const DIMENSION_STREAM_PREFIX = "catalog.dimension-";
 const REFERENCE_RECORD_STREAM_PREFIX = "catalog.reference-record-";
 const ITEM_DETAIL_REFERENCE_RECORDS_TABLE = "discovery_item_detail_catalog_reference_records";
 const ITEM_DETAIL_CATALOG_ITEMS_TABLE = "discovery_item_detail_catalog_items";
+const ITEM_DETAIL_PAGE_TABLE = "discovery_item_detail_pages";
+const ITEM_DETAIL_CATALOG_ITEM_CREATED_COLUMNS = [
+  "catalog_item_id",
+  "slug",
+  "language_code",
+  "title_i18n",
+  "title",
+  "subtitle_i18n",
+  "subtitle",
+  "description_i18n",
+  "description",
+  "status",
+  "updated_at",
+] as const;
+const ITEM_DETAIL_CATALOG_ITEM_CREATED_UPDATE_COLUMNS = [
+  "slug",
+  "language_code",
+  "title_i18n",
+  "title",
+  "subtitle_i18n",
+  "subtitle",
+  "description_i18n",
+  "description",
+  "updated_at",
+] as const;
+const ITEM_DETAIL_PAGE_COLUMNS = [
+  "catalog_item_id",
+  "slug",
+  "language_code",
+  "title_i18n",
+  "title",
+  "subtitle_i18n",
+  "subtitle",
+  "description_i18n",
+  "description",
+  "blueprint_id",
+  "blueprint",
+  "status",
+  "field_values",
+  "categories",
+  "tags",
+  "image_urls",
+  "product_asset_sets",
+  "image_fallback",
+  "product_schema",
+  "updated_at",
+] as const;
+const ITEM_DETAIL_REFERENCE_RECORD_CREATED_COLUMNS = [
+  "reference_record_id",
+  "type_key",
+  "key",
+  "name",
+  "attributes",
+  "relationships",
+  "status",
+  "updated_at",
+] as const;
+const ITEM_DETAIL_REFERENCE_RECORD_REVISED_COLUMNS = [
+  "reference_record_id",
+  "type_key",
+  "key",
+  "name",
+  "attributes",
+  "relationships",
+  "updated_at",
+] as const;
+const ITEM_DETAIL_REFERENCE_RECORD_UPDATE_COLUMNS = [
+  "type_key",
+  "key",
+  "name",
+  "attributes",
+  "relationships",
+  "updated_at",
+] as const;
+const ITEM_DETAIL_DIMENSION_OPTION_COLUMNS = [
+  "option_id",
+  "dimension_id",
+  "code",
+  "label_i18n",
+  "label",
+  "display_order",
+  "numeric_value",
+  "updated_at",
+] as const;
 
 type FieldValue = Readonly<{ fieldId: string; value: unknown }>;
 type DimensionRule = Readonly<{
@@ -54,6 +149,130 @@ type CatalogItemDisplayIdentityResolvedEventData = Readonly<{
   title: string;
   subtitle?: string | null;
 }>;
+
+async function upsertItemDetailCatalogBlueprint(
+  db: PgQueryable,
+  input: Readonly<{ blueprintId: string; name: string; updatedAt: string }>,
+): Promise<void> {
+  await upsertRow(db, {
+    table: "discovery_item_detail_catalog_blueprints",
+    insertColumns: ["blueprint_id", "name", "updated_at"],
+    conflictColumns: ["blueprint_id"],
+    values: { blueprint_id: input.blueprintId, name: input.name, updated_at: input.updatedAt },
+  });
+}
+
+async function upsertItemDetailCategory(
+  db: PgQueryable,
+  input: Readonly<{ categoryId: string; slug: string; name: string; updatedAt: string }>,
+): Promise<void> {
+  await upsertRow(db, {
+    table: "discovery_item_detail_catalog_categories",
+    insertColumns: ["category_id", "slug", "name", "updated_at"],
+    conflictColumns: ["category_id"],
+    values: {
+      category_id: input.categoryId,
+      slug: input.slug,
+      name: input.name,
+      updated_at: input.updatedAt,
+    },
+  });
+}
+
+async function upsertItemDetailField(
+  db: PgQueryable,
+  input: Readonly<{ fieldId: string; name: string; updatedAt: string }>,
+): Promise<void> {
+  await upsertRow(db, {
+    table: "discovery_item_detail_catalog_fields",
+    insertColumns: ["field_id", "name", "updated_at"],
+    conflictColumns: ["field_id"],
+    values: { field_id: input.fieldId, name: input.name, updated_at: input.updatedAt },
+  });
+}
+
+async function upsertItemDetailReferenceRecord(
+  db: PgQueryable,
+  input: Readonly<{
+    referenceRecordId: string;
+    typeKey: string;
+    key: string;
+    name: string;
+    attributes: unknown;
+    relationships: unknown;
+    status?: string;
+    updatedAt: string;
+  }>,
+): Promise<void> {
+  if (input.status) {
+    await upsertRow(db, {
+      table: ITEM_DETAIL_REFERENCE_RECORDS_TABLE,
+      insertColumns: ITEM_DETAIL_REFERENCE_RECORD_CREATED_COLUMNS,
+      conflictColumns: ["reference_record_id"],
+      updateColumns: ITEM_DETAIL_REFERENCE_RECORD_UPDATE_COLUMNS,
+      values: {
+        reference_record_id: input.referenceRecordId,
+        type_key: input.typeKey,
+        key: input.key,
+        name: input.name,
+        attributes: input.attributes,
+        relationships: input.relationships,
+        status: input.status,
+        updated_at: input.updatedAt,
+      },
+      casts: { attributes: "jsonb", relationships: "jsonb" },
+    });
+    return;
+  }
+
+  await upsertRow(db, {
+    table: ITEM_DETAIL_REFERENCE_RECORDS_TABLE,
+    insertColumns: ITEM_DETAIL_REFERENCE_RECORD_REVISED_COLUMNS,
+    conflictColumns: ["reference_record_id"],
+    updateColumns: ITEM_DETAIL_REFERENCE_RECORD_UPDATE_COLUMNS,
+    values: {
+      reference_record_id: input.referenceRecordId,
+      type_key: input.typeKey,
+      key: input.key,
+      name: input.name,
+      attributes: input.attributes,
+      relationships: input.relationships,
+      updated_at: input.updatedAt,
+    },
+    casts: { attributes: "jsonb", relationships: "jsonb" },
+  });
+}
+
+async function upsertItemDetailDimensionOption(
+  db: PgQueryable,
+  input: Readonly<{
+    optionId: string;
+    dimensionId: string;
+    code: string;
+    labelI18n: LocalizedTextMap;
+    label: string;
+    displayOrder: number;
+    numericValue: number | null;
+    updatedAt: string;
+  }>,
+): Promise<void> {
+  await upsertRow(db, {
+    table: "discovery_item_detail_catalog_dimension_options",
+    insertColumns: ITEM_DETAIL_DIMENSION_OPTION_COLUMNS,
+    conflictColumns: ["option_id"],
+    values: {
+      option_id: input.optionId,
+      dimension_id: input.dimensionId,
+      code: input.code,
+      label_i18n: input.labelI18n,
+      label: input.label,
+      display_order: input.displayOrder,
+      numeric_value: input.numericValue,
+      updated_at: input.updatedAt,
+    },
+    casts: { label_i18n: "jsonb" },
+  });
+}
 
 type ItemDetailBlueprintRow = Readonly<{
   blueprint_id: string;
@@ -203,12 +422,13 @@ async function refreshDiscoveryItemDetailPage(db: PgQueryable, itemId: string): 
     .filter((referenceId): referenceId is string => referenceId !== null);
 
   if (categoryIds.length !== rawCategoryIds.length) {
-    await db.query(
-      `UPDATE discovery_item_detail_catalog_items
-       SET category_ids = $2
-       WHERE catalog_item_id = $1`,
-      [itemId, JSON.stringify(categoryIds)],
-    );
+    await updateRow(db, {
+      table: ITEM_DETAIL_CATALOG_ITEMS_TABLE,
+      setColumns: ["category_ids"],
+      values: { category_ids: categoryIds },
+      casts: { category_ids: "jsonb" },
+      where: { columns: ["catalog_item_id"], values: { catalog_item_id: itemId } },
+    });
   }
 
   const [fieldNames, categoryRefs, blueprintNames, references] = await Promise.all([
@@ -222,90 +442,56 @@ async function refreshDiscoveryItemDetailPage(db: PgQueryable, itemId: string): 
 
   const productSchema = item.blueprint_id ? await buildProductSchema(db, item.blueprint_id) : null;
 
-  await db.query(
-    `INSERT INTO discovery_item_detail_pages (
-      catalog_item_id,
-      slug,
-      language_code,
-      title_i18n,
-      title,
-      subtitle_i18n,
-      subtitle,
-      description_i18n,
-      description,
-      blueprint_id,
-      blueprint,
-      status,
-      field_values,
-      categories,
-      tags,
-      image_urls,
-      product_asset_sets,
-      image_fallback,
-      product_schema,
-      updated_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
-    ON CONFLICT (catalog_item_id) DO UPDATE SET
-      slug = EXCLUDED.slug,
-      language_code = EXCLUDED.language_code,
-      title_i18n = EXCLUDED.title_i18n,
-      title = EXCLUDED.title,
-      subtitle_i18n = EXCLUDED.subtitle_i18n,
-      subtitle = EXCLUDED.subtitle,
-      description_i18n = EXCLUDED.description_i18n,
-      description = EXCLUDED.description,
-      blueprint_id = EXCLUDED.blueprint_id,
-      blueprint = EXCLUDED.blueprint,
-      status = EXCLUDED.status,
-      field_values = EXCLUDED.field_values,
-      categories = EXCLUDED.categories,
-      tags = EXCLUDED.tags,
-      image_urls = EXCLUDED.image_urls,
-      product_asset_sets = EXCLUDED.product_asset_sets,
-      image_fallback = EXCLUDED.image_fallback,
-      product_schema = EXCLUDED.product_schema,
-      updated_at = EXCLUDED.updated_at`,
-    [
-      item.catalog_item_id,
-      item.slug,
-      item.language_code,
-      JSON.stringify(item.title_i18n ?? localizedTextMap(item.title)),
-      item.title,
-      item.subtitle_i18n === null ? null : JSON.stringify(item.subtitle_i18n),
-      item.subtitle,
-      JSON.stringify(item.description_i18n ?? localizedTextMap(item.description)),
-      item.description,
-      item.blueprint_id,
-      item.blueprint_id
-        ? JSON.stringify({
+  await upsertRow(db, {
+    table: ITEM_DETAIL_PAGE_TABLE,
+    insertColumns: ITEM_DETAIL_PAGE_COLUMNS,
+    conflictColumns: ["catalog_item_id"],
+    values: {
+      catalog_item_id: item.catalog_item_id,
+      slug: item.slug,
+      language_code: item.language_code,
+      title_i18n: item.title_i18n ?? localizedTextMap(item.title),
+      title: item.title,
+      subtitle_i18n: item.subtitle_i18n,
+      subtitle: item.subtitle,
+      description_i18n: item.description_i18n ?? localizedTextMap(item.description),
+      description: item.description,
+      blueprint_id: item.blueprint_id,
+      blueprint: item.blueprint_id
+        ? {
             blueprintId: item.blueprint_id,
             name: blueprintNames.get(item.blueprint_id) ?? item.blueprint_id,
-          })
+          }
         : null,
-      item.status,
-      JSON.stringify(
-        fieldValues.map((entry) => ({
-          fieldId: entry.fieldId,
-          fieldName: fieldNames.get(entry.fieldId) ?? entry.fieldId,
-          value: entry.value,
-          reference: references.get(referenceIdFromValue(entry.value) ?? "") ?? null,
-        })),
-      ),
-      JSON.stringify(
-        categoryIds.map((categoryId) => ({
-          categoryId,
-          slug: categoryRefs.get(categoryId)?.slug ?? categoryId,
-          name: categoryRefs.get(categoryId)?.name ?? categoryId,
-        })),
-      ),
-      JSON.stringify(tags),
-      JSON.stringify(imageUrls),
-      JSON.stringify(productAssetSets),
-      item.image_fallback === null ? null : JSON.stringify(item.image_fallback),
-      productSchema === null ? null : JSON.stringify(productSchema),
-      item.updated_at,
-    ],
-  );
+      status: item.status,
+      field_values: fieldValues.map((entry) => ({
+        fieldId: entry.fieldId,
+        fieldName: fieldNames.get(entry.fieldId) ?? entry.fieldId,
+        value: entry.value,
+        reference: references.get(referenceIdFromValue(entry.value) ?? "") ?? null,
+      })),
+      categories: categoryIds.map((categoryId) => ({
+        categoryId,
+        slug: categoryRefs.get(categoryId)?.slug ?? categoryId,
+        name: categoryRefs.get(categoryId)?.name ?? categoryId,
+      })),
+      tags,
+      image_urls: imageUrls,
+      product_asset_sets: productAssetSets,
+      image_fallback: item.image_fallback,
+      product_schema: productSchema,
+      updated_at: item.updated_at,
+    },
+    casts: {
+      title_i18n: "jsonb",
+      description_i18n: "jsonb",
+      field_values: "jsonb",
+      categories: "jsonb",
+      tags: "jsonb",
+      image_urls: "jsonb",
+      product_asset_sets: "jsonb",
+    },
+  });
 }
 
 async function refreshItemsByBlueprint(db: PgQueryable, blueprintId: string): Promise<void> {
@@ -416,43 +602,26 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
       const resolvedDescription = resolveLocalizedText(descriptionI18n);
       const slug = createMarketplaceSlug([resolvedTitle, resolvedSubtitle], itemId);
 
-      await db.query(
-        `INSERT INTO discovery_item_detail_catalog_items (
-          catalog_item_id,
+      await upsertRow(db, {
+        table: ITEM_DETAIL_CATALOG_ITEMS_TABLE,
+        insertColumns: ITEM_DETAIL_CATALOG_ITEM_CREATED_COLUMNS,
+        conflictColumns: ["catalog_item_id"],
+        updateColumns: ITEM_DETAIL_CATALOG_ITEM_CREATED_UPDATE_COLUMNS,
+        values: {
+          catalog_item_id: itemId,
           slug,
-          language_code,
-          title_i18n,
-          title,
-          subtitle_i18n,
-          subtitle,
-          description_i18n,
-          description,
-          status,
-          updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'draft', $10)
-        ON CONFLICT (catalog_item_id) DO UPDATE SET
-          slug = EXCLUDED.slug,
-          language_code = EXCLUDED.language_code,
-          title_i18n = EXCLUDED.title_i18n,
-          title = EXCLUDED.title,
-          subtitle_i18n = EXCLUDED.subtitle_i18n,
-          subtitle = EXCLUDED.subtitle,
-          description_i18n = EXCLUDED.description_i18n,
-          description = EXCLUDED.description,
-          updated_at = EXCLUDED.updated_at`,
-        [
-          itemId,
-          slug,
-          languageCode ?? "en",
-          JSON.stringify(titleI18n),
-          resolvedTitle,
-          subtitleI18n ? JSON.stringify(subtitleI18n) : null,
-          resolvedSubtitle,
-          JSON.stringify(descriptionI18n),
-          resolvedDescription,
-          event.timing.recordedAt,
-        ],
-      );
+          language_code: languageCode ?? "en",
+          title_i18n: titleI18n,
+          title: resolvedTitle,
+          subtitle_i18n: subtitleI18n,
+          subtitle: resolvedSubtitle,
+          description_i18n: descriptionI18n,
+          description: resolvedDescription,
+          status: "draft",
+          updated_at: event.timing.recordedAt,
+        },
+        casts: { title_i18n: "jsonb", description_i18n: "jsonb" },
+      });
 
       await refreshDiscoveryItemDetailPage(db, itemId);
     },
@@ -460,12 +629,12 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
       const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
       const { blueprintId } = event.data as { blueprintId: string };
 
-      await db.query(
-        `UPDATE discovery_item_detail_catalog_items
-         SET blueprint_id = $2, updated_at = $3
-         WHERE catalog_item_id = $1`,
-        [itemId, blueprintId, event.timing.recordedAt],
-      );
+      await updateRow(db, {
+        table: ITEM_DETAIL_CATALOG_ITEMS_TABLE,
+        setColumns: ["blueprint_id", "updated_at"],
+        values: { blueprint_id: blueprintId, updated_at: event.timing.recordedAt },
+        where: { columns: ["catalog_item_id"], values: { catalog_item_id: itemId } },
+      });
 
       await refreshDiscoveryItemDetailPage(db, itemId);
     },
@@ -473,17 +642,14 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
       const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
       const { fieldId, value } = event.data as { fieldId: string; value: unknown };
 
-      await db.query(
-        `UPDATE discovery_item_detail_catalog_items
-         SET field_values = (
-           SELECT COALESCE(jsonb_agg(field_value), '[]'::jsonb)
-           FROM jsonb_array_elements(field_values) AS field_value
-           WHERE field_value->>'fieldId' != $2
-         ) || $3::jsonb,
-         updated_at = $4
-         WHERE catalog_item_id = $1`,
-        [itemId, fieldId, JSON.stringify([{ fieldId, value }]), event.timing.recordedAt],
-      );
+      await replaceJsonbArrayElement(db, {
+        table: ITEM_DETAIL_CATALOG_ITEMS_TABLE,
+        key: { column: "catalog_item_id", value: itemId },
+        column: "field_values",
+        match: { kind: "pathText", path: ["fieldId"], value: fieldId },
+        element: { fieldId, value },
+        updatedAt: { value: event.timing.recordedAt },
+      });
 
       await refreshDiscoveryItemDetailPage(db, itemId);
     },
@@ -491,17 +657,13 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
       const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
       const { fieldId } = event.data as { fieldId: string };
 
-      await db.query(
-        `UPDATE discovery_item_detail_catalog_items
-         SET field_values = (
-           SELECT COALESCE(jsonb_agg(field_value), '[]'::jsonb)
-           FROM jsonb_array_elements(field_values) AS field_value
-           WHERE field_value->>'fieldId' != $2
-         ),
-         updated_at = $3
-         WHERE catalog_item_id = $1`,
-        [itemId, fieldId, event.timing.recordedAt],
-      );
+      await removeJsonbArrayElement(db, {
+        table: ITEM_DETAIL_CATALOG_ITEMS_TABLE,
+        key: { column: "catalog_item_id", value: itemId },
+        column: "field_values",
+        match: { kind: "pathText", path: ["fieldId"], value: fieldId },
+        updatedAt: { value: event.timing.recordedAt },
+      });
 
       await refreshDiscoveryItemDetailPage(db, itemId);
     },
@@ -509,16 +671,14 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
       const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
       const { categoryId } = event.data as { categoryId: string };
 
-      await db.query(
-        `UPDATE discovery_item_detail_catalog_items
-         SET category_ids = CASE
-               WHEN category_ids @> $2::jsonb THEN category_ids
-               ELSE category_ids || $2::jsonb
-             END,
-             updated_at = $3
-         WHERE catalog_item_id = $1`,
-        [itemId, JSON.stringify([categoryId]), event.timing.recordedAt],
-      );
+      await appendJsonbArrayElement(db, {
+        table: ITEM_DETAIL_CATALOG_ITEMS_TABLE,
+        key: { column: "catalog_item_id", value: itemId },
+        column: "category_ids",
+        element: categoryId,
+        unique: true,
+        updatedAt: { value: event.timing.recordedAt },
+      });
 
       await refreshDiscoveryItemDetailPage(db, itemId);
     },
@@ -526,29 +686,26 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
       const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
       const { categoryId } = event.data as { categoryId: string };
 
-      await db.query(
-        `UPDATE discovery_item_detail_catalog_items
-         SET category_ids = (
-           SELECT COALESCE(jsonb_agg(category_id), '[]'::jsonb)
-           FROM jsonb_array_elements(category_ids) AS category_id
-           WHERE category_id #>> '{}' != $2
-         ),
-         updated_at = $3
-         WHERE catalog_item_id = $1`,
-        [itemId, categoryId, event.timing.recordedAt],
-      );
+      await removeJsonbArrayElement(db, {
+        table: ITEM_DETAIL_CATALOG_ITEMS_TABLE,
+        key: { column: "catalog_item_id", value: itemId },
+        column: "category_ids",
+        match: { kind: "value", value: categoryId },
+        updatedAt: { value: event.timing.recordedAt },
+      });
 
       await refreshDiscoveryItemDetailPage(db, itemId);
     },
     "catalog.catalog-item.published": async (event) => {
       const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
 
-      await db.query(
-        `UPDATE discovery_item_detail_catalog_items
-         SET status = 'active', updated_at = $2
-         WHERE catalog_item_id = $1`,
-        [itemId, event.timing.recordedAt],
-      );
+      await transitionStatus(db, {
+        table: ITEM_DETAIL_CATALOG_ITEMS_TABLE,
+        idColumn: "catalog_item_id",
+        id: itemId,
+        status: "active",
+        updatedAt: event.timing.recordedAt,
+      });
 
       await refreshDiscoveryItemDetailPage(db, itemId);
     },
@@ -567,14 +724,17 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
       const descriptionI18n = coerceLocalizedTextMap(description);
       const resolvedDescription = resolveLocalizedText(descriptionI18n);
 
-      await db.query(
-        `UPDATE discovery_item_detail_catalog_items
-         SET description_i18n = $2,
-             description = $3,
-             updated_at = $4
-         WHERE catalog_item_id = $1`,
-        [itemId, JSON.stringify(descriptionI18n), resolvedDescription, event.timing.recordedAt],
-      );
+      await updateRow(db, {
+        table: ITEM_DETAIL_CATALOG_ITEMS_TABLE,
+        setColumns: ["description_i18n", "description", "updated_at"],
+        values: {
+          description_i18n: descriptionI18n,
+          description: resolvedDescription,
+          updated_at: event.timing.recordedAt,
+        },
+        casts: { description_i18n: "jsonb" },
+        where: { columns: ["catalog_item_id"], values: { catalog_item_id: itemId } },
+      });
 
       await refreshDiscoveryItemDetailPage(db, itemId);
     },
@@ -582,13 +742,13 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
       const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
       const { tags } = event.data as { tags: string[] };
 
-      await db.query(
-        `UPDATE discovery_item_detail_catalog_items
-         SET tags = $2,
-             updated_at = $3
-         WHERE catalog_item_id = $1`,
-        [itemId, JSON.stringify(tags), event.timing.recordedAt],
-      );
+      await updateRow(db, {
+        table: ITEM_DETAIL_CATALOG_ITEMS_TABLE,
+        setColumns: ["tags", "updated_at"],
+        values: { tags, updated_at: event.timing.recordedAt },
+        casts: { tags: "jsonb" },
+        where: { columns: ["catalog_item_id"], values: { catalog_item_id: itemId } },
+      });
 
       await refreshDiscoveryItemDetailPage(db, itemId);
     },
@@ -596,13 +756,13 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
       const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
       const { imageUrls } = event.data as { imageUrls: string[] };
 
-      await db.query(
-        `UPDATE discovery_item_detail_catalog_items
-         SET image_urls = $2,
-             updated_at = $3
-         WHERE catalog_item_id = $1`,
-        [itemId, JSON.stringify(imageUrls), event.timing.recordedAt],
-      );
+      await updateRow(db, {
+        table: ITEM_DETAIL_CATALOG_ITEMS_TABLE,
+        setColumns: ["image_urls", "updated_at"],
+        values: { image_urls: imageUrls, updated_at: event.timing.recordedAt },
+        casts: { image_urls: "jsonb" },
+        where: { columns: ["catalog_item_id"], values: { catalog_item_id: itemId } },
+      });
 
       await refreshDiscoveryItemDetailPage(db, itemId);
     },
@@ -610,13 +770,16 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
       const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
       const { productAssetSets } = event.data as { productAssetSets: unknown };
 
-      await db.query(
-        `UPDATE discovery_item_detail_catalog_items
-         SET product_asset_sets = $2,
-             updated_at = $3
-         WHERE catalog_item_id = $1`,
-        [itemId, JSON.stringify(Array.isArray(productAssetSets) ? productAssetSets : []), event.timing.recordedAt],
-      );
+      await updateRow(db, {
+        table: ITEM_DETAIL_CATALOG_ITEMS_TABLE,
+        setColumns: ["product_asset_sets", "updated_at"],
+        values: {
+          product_asset_sets: Array.isArray(productAssetSets) ? productAssetSets : [],
+          updated_at: event.timing.recordedAt,
+        },
+        casts: { product_asset_sets: "jsonb" },
+        where: { columns: ["catalog_item_id"], values: { catalog_item_id: itemId } },
+      });
 
       await refreshDiscoveryItemDetailPage(db, itemId);
     },
@@ -624,50 +787,50 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
       const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
       const { imageFallback } = event.data as { imageFallback: unknown };
 
-      await db.query(
-        `UPDATE discovery_item_detail_catalog_items
-         SET image_fallback = $2,
-             updated_at = $3
-         WHERE catalog_item_id = $1`,
-        [itemId, JSON.stringify(imageFallback), event.timing.recordedAt],
-      );
+      await updateRow(db, {
+        table: ITEM_DETAIL_CATALOG_ITEMS_TABLE,
+        setColumns: ["image_fallback", "updated_at"],
+        values: { image_fallback: imageFallback, updated_at: event.timing.recordedAt },
+        where: { columns: ["catalog_item_id"], values: { catalog_item_id: itemId } },
+      });
 
       await refreshDiscoveryItemDetailPage(db, itemId);
     },
     "catalog.catalog-item.image-fallback-cleared": async (event) => {
       const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
 
-      await db.query(
-        `UPDATE discovery_item_detail_catalog_items
-         SET image_fallback = NULL,
-             updated_at = $2
-         WHERE catalog_item_id = $1`,
-        [itemId, event.timing.recordedAt],
-      );
+      await updateRow(db, {
+        table: ITEM_DETAIL_CATALOG_ITEMS_TABLE,
+        setColumns: ["image_fallback", "updated_at"],
+        values: { image_fallback: null, updated_at: event.timing.recordedAt },
+        where: { columns: ["catalog_item_id"], values: { catalog_item_id: itemId } },
+      });
 
       await refreshDiscoveryItemDetailPage(db, itemId);
     },
     "catalog.catalog-item.retired": async (event) => {
       const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
 
-      await db.query(
-        `UPDATE discovery_item_detail_catalog_items
-         SET status = 'archived', updated_at = $2
-         WHERE catalog_item_id = $1`,
-        [itemId, event.timing.recordedAt],
-      );
+      await transitionStatus(db, {
+        table: ITEM_DETAIL_CATALOG_ITEMS_TABLE,
+        idColumn: "catalog_item_id",
+        id: itemId,
+        status: "archived",
+        updatedAt: event.timing.recordedAt,
+      });
 
       await refreshDiscoveryItemDetailPage(db, itemId);
     },
     "catalog.catalog-item.archived": async (event) => {
       const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
 
-      await db.query(
-        `UPDATE discovery_item_detail_catalog_items
-         SET status = 'archived', updated_at = $2
-         WHERE catalog_item_id = $1`,
-        [itemId, event.timing.recordedAt],
-      );
+      await transitionStatus(db, {
+        table: ITEM_DETAIL_CATALOG_ITEMS_TABLE,
+        idColumn: "catalog_item_id",
+        id: itemId,
+        status: "archived",
+        updatedAt: event.timing.recordedAt,
+      });
 
       await refreshDiscoveryItemDetailPage(db, itemId);
     },
@@ -676,34 +839,22 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
       const { blueprintId, name } = event.data as { blueprintId: string; name: unknown };
       const resolvedName = resolveLocalizedText(coerceLocalizedTextMap(name));
 
-      await db.query(
-        `INSERT INTO discovery_item_detail_catalog_blueprints (
-          blueprint_id,
-          name,
-          updated_at
-        ) VALUES ($1, $2, $3)
-        ON CONFLICT (blueprint_id) DO UPDATE SET
-          name = EXCLUDED.name,
-          updated_at = EXCLUDED.updated_at`,
-        [blueprintId, resolvedName, event.timing.recordedAt],
-      );
+      await upsertItemDetailCatalogBlueprint(db, {
+        blueprintId,
+        name: resolvedName,
+        updatedAt: event.timing.recordedAt,
+      });
     },
     "catalog.blueprint.revised": async (event) => {
       const blueprintId = extractIdFromStreamId(event.streamId, BLUEPRINT_STREAM_PREFIX);
       const { name } = event.data as { name: unknown };
       const resolvedName = resolveLocalizedText(coerceLocalizedTextMap(name));
 
-      await db.query(
-        `INSERT INTO discovery_item_detail_catalog_blueprints (
-          blueprint_id,
-          name,
-          updated_at
-        ) VALUES ($1, $2, $3)
-        ON CONFLICT (blueprint_id) DO UPDATE SET
-          name = EXCLUDED.name,
-          updated_at = EXCLUDED.updated_at`,
-        [blueprintId, resolvedName, event.timing.recordedAt],
-      );
+      await upsertItemDetailCatalogBlueprint(db, {
+        blueprintId,
+        name: resolvedName,
+        updatedAt: event.timing.recordedAt,
+      });
 
       await refreshItemsByBlueprint(db, blueprintId);
     },
@@ -764,15 +915,12 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
       const resolvedName = resolveLocalizedText(coerceLocalizedTextMap(name));
       const slug = createMarketplaceSlug([resolvedName], categoryId);
 
-      await db.query(
-        `INSERT INTO discovery_item_detail_catalog_categories (category_id, slug, name, updated_at)
-         VALUES ($1, $2, $3, $4)
-         ON CONFLICT (category_id) DO UPDATE SET
-           slug = EXCLUDED.slug,
-           name = EXCLUDED.name,
-           updated_at = EXCLUDED.updated_at`,
-        [categoryId, slug, resolvedName, event.timing.recordedAt],
-      );
+      await upsertItemDetailCategory(db, {
+        categoryId,
+        slug,
+        name: resolvedName,
+        updatedAt: event.timing.recordedAt,
+      });
     },
     "catalog.category.revised": async (event) => {
       const categoryId = extractIdFromStreamId(event.streamId, CATEGORY_STREAM_PREFIX);
@@ -784,15 +932,12 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
         [categoryId],
       );
 
-      await db.query(
-        `INSERT INTO discovery_item_detail_catalog_categories (category_id, slug, name, updated_at)
-         VALUES ($1, $2, $3, $4)
-         ON CONFLICT (category_id) DO UPDATE SET
-           slug = EXCLUDED.slug,
-           name = EXCLUDED.name,
-           updated_at = EXCLUDED.updated_at`,
-        [categoryId, slug, resolvedName, event.timing.recordedAt],
-      );
+      await upsertItemDetailCategory(db, {
+        categoryId,
+        slug,
+        name: resolvedName,
+        updatedAt: event.timing.recordedAt,
+      });
       await rememberSlugRedirect(db, {
         entityKind: "category",
         entityId: categoryId,
@@ -808,14 +953,11 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
       const { fieldId, name } = event.data as { fieldId: string; name: unknown };
       const resolvedName = resolveLocalizedText(coerceLocalizedTextMap(name));
 
-      await db.query(
-        `INSERT INTO discovery_item_detail_catalog_fields (field_id, name, updated_at)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (field_id) DO UPDATE SET
-           name = EXCLUDED.name,
-           updated_at = EXCLUDED.updated_at`,
-        [fieldId, resolvedName, event.timing.recordedAt],
-      );
+      await upsertItemDetailField(db, {
+        fieldId,
+        name: resolvedName,
+        updatedAt: event.timing.recordedAt,
+      });
 
       await refreshAllItems(db);
     },
@@ -824,14 +966,11 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
       const { name } = event.data as { name: unknown };
       const resolvedName = resolveLocalizedText(coerceLocalizedTextMap(name));
 
-      await db.query(
-        `INSERT INTO discovery_item_detail_catalog_fields (field_id, name, updated_at)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (field_id) DO UPDATE SET
-           name = EXCLUDED.name,
-           updated_at = EXCLUDED.updated_at`,
-        [fieldId, resolvedName, event.timing.recordedAt],
-      );
+      await upsertItemDetailField(db, {
+        fieldId,
+        name: resolvedName,
+        updatedAt: event.timing.recordedAt,
+      });
 
       await refreshAllItems(db);
     },
@@ -847,34 +986,16 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
       };
       const resolvedName = resolveLocalizedText(coerceLocalizedTextMap(name));
 
-      await db.query(
-        `INSERT INTO ${ITEM_DETAIL_REFERENCE_RECORDS_TABLE} (
-          reference_record_id,
-          type_key,
-          key,
-          name,
-          attributes,
-          relationships,
-          status,
-          updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, 'draft', $7)
-        ON CONFLICT (reference_record_id) DO UPDATE SET
-          type_key = EXCLUDED.type_key,
-          key = EXCLUDED.key,
-          name = EXCLUDED.name,
-          attributes = EXCLUDED.attributes,
-          relationships = EXCLUDED.relationships,
-          updated_at = EXCLUDED.updated_at`,
-        [
-          referenceRecordId,
-          typeKey,
-          key,
-          resolvedName,
-          JSON.stringify(attributes ?? {}),
-          JSON.stringify(Array.isArray(relationships) ? relationships : []),
-          event.timing.recordedAt,
-        ],
-      );
+      await upsertItemDetailReferenceRecord(db, {
+        referenceRecordId,
+        typeKey,
+        key,
+        name: resolvedName,
+        attributes: attributes ?? {},
+        relationships: Array.isArray(relationships) ? relationships : [],
+        status: "draft",
+        updatedAt: event.timing.recordedAt,
+      });
 
       await refreshItemsByReferenceRecord(db, referenceRecordId);
     },
@@ -889,69 +1010,54 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
       };
       const resolvedName = resolveLocalizedText(coerceLocalizedTextMap(name));
 
-      await db.query(
-        `INSERT INTO ${ITEM_DETAIL_REFERENCE_RECORDS_TABLE} (
-          reference_record_id,
-          type_key,
-          key,
-          name,
-          attributes,
-          relationships,
-          updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7)
-        ON CONFLICT (reference_record_id) DO UPDATE SET
-          type_key = EXCLUDED.type_key,
-          key = EXCLUDED.key,
-          name = EXCLUDED.name,
-          attributes = EXCLUDED.attributes,
-          relationships = EXCLUDED.relationships,
-          updated_at = EXCLUDED.updated_at`,
-        [
-          referenceRecordId,
-          typeKey,
-          key,
-          resolvedName,
-          JSON.stringify(attributes ?? {}),
-          JSON.stringify(Array.isArray(relationships) ? relationships : []),
-          event.timing.recordedAt,
-        ],
-      );
+      await upsertItemDetailReferenceRecord(db, {
+        referenceRecordId,
+        typeKey,
+        key,
+        name: resolvedName,
+        attributes: attributes ?? {},
+        relationships: Array.isArray(relationships) ? relationships : [],
+        updatedAt: event.timing.recordedAt,
+      });
 
       await refreshItemsByReferenceRecord(db, referenceRecordId);
     },
     "catalog.reference-record.published": async (event) => {
       const referenceRecordId = extractIdFromStreamId(event.streamId, REFERENCE_RECORD_STREAM_PREFIX);
 
-      await db.query(
-        `UPDATE ${ITEM_DETAIL_REFERENCE_RECORDS_TABLE}
-         SET status = 'active', updated_at = $2
-         WHERE reference_record_id = $1`,
-        [referenceRecordId, event.timing.recordedAt],
-      );
+      await transitionStatus(db, {
+        table: ITEM_DETAIL_REFERENCE_RECORDS_TABLE,
+        idColumn: "reference_record_id",
+        id: referenceRecordId,
+        status: "active",
+        updatedAt: event.timing.recordedAt,
+      });
 
       await refreshItemsByReferenceRecord(db, referenceRecordId);
     },
     "catalog.reference-record.deprecated": async (event) => {
       const referenceRecordId = extractIdFromStreamId(event.streamId, REFERENCE_RECORD_STREAM_PREFIX);
 
-      await db.query(
-        `UPDATE ${ITEM_DETAIL_REFERENCE_RECORDS_TABLE}
-         SET status = 'deprecated', updated_at = $2
-         WHERE reference_record_id = $1`,
-        [referenceRecordId, event.timing.recordedAt],
-      );
+      await transitionStatus(db, {
+        table: ITEM_DETAIL_REFERENCE_RECORDS_TABLE,
+        idColumn: "reference_record_id",
+        id: referenceRecordId,
+        status: "deprecated",
+        updatedAt: event.timing.recordedAt,
+      });
 
       await refreshItemsByReferenceRecord(db, referenceRecordId);
     },
     "catalog.reference-record.archived": async (event) => {
       const referenceRecordId = extractIdFromStreamId(event.streamId, REFERENCE_RECORD_STREAM_PREFIX);
 
-      await db.query(
-        `UPDATE ${ITEM_DETAIL_REFERENCE_RECORDS_TABLE}
-         SET status = 'archived', updated_at = $2
-         WHERE reference_record_id = $1`,
-        [referenceRecordId, event.timing.recordedAt],
-      );
+      await transitionStatus(db, {
+        table: ITEM_DETAIL_REFERENCE_RECORDS_TABLE,
+        idColumn: "reference_record_id",
+        id: referenceRecordId,
+        status: "archived",
+        updatedAt: event.timing.recordedAt,
+      });
 
       await refreshItemsByReferenceRecord(db, referenceRecordId);
     },
@@ -964,15 +1070,17 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
       };
       const nameI18n = coerceLocalizedTextMap(name);
 
-      await db.query(
-        `INSERT INTO discovery_item_detail_catalog_dimensions (dimension_id, name, value_kind, updated_at)
-         VALUES ($1, $2, COALESCE($3, 'unordered'), $4)
-         ON CONFLICT (dimension_id) DO UPDATE SET
-           name = EXCLUDED.name,
-           value_kind = COALESCE($3, discovery_item_detail_catalog_dimensions.value_kind),
-           updated_at = EXCLUDED.updated_at`,
-        [dimensionId, resolveLocalizedText(nameI18n), valueKind ?? "unordered", event.timing.recordedAt],
-      );
+      await upsertRow(db, {
+        table: "discovery_item_detail_catalog_dimensions",
+        insertColumns: ["dimension_id", "name", "value_kind", "updated_at"],
+        conflictColumns: ["dimension_id"],
+        values: {
+          dimension_id: dimensionId,
+          name: resolveLocalizedText(nameI18n),
+          value_kind: valueKind ?? "unordered",
+          updated_at: event.timing.recordedAt,
+        },
+      });
 
       await refreshAllItems(db);
     },
@@ -1008,36 +1116,16 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
       };
       const labelI18n = coerceDimensionOptionLabel(label ?? labels);
 
-      await db.query(
-        `INSERT INTO discovery_item_detail_catalog_dimension_options (
-          option_id,
-          dimension_id,
-          code,
-          label_i18n,
-          label,
-          display_order,
-          numeric_value,
-          updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        ON CONFLICT (option_id) DO UPDATE SET
-          dimension_id = EXCLUDED.dimension_id,
-          code = EXCLUDED.code,
-          label_i18n = EXCLUDED.label_i18n,
-          label = EXCLUDED.label,
-          display_order = EXCLUDED.display_order,
-          numeric_value = EXCLUDED.numeric_value,
-          updated_at = EXCLUDED.updated_at`,
-        [
-          optionId,
-          dimensionId,
-          code,
-          JSON.stringify(labelI18n),
-          resolveLocalizedText(labelI18n),
-          displayOrder ?? 0,
-          numericValue ?? null,
-          event.timing.recordedAt,
-        ],
-      );
+      await upsertItemDetailDimensionOption(db, {
+        optionId,
+        dimensionId,
+        code,
+        labelI18n,
+        label: resolveLocalizedText(labelI18n),
+        displayOrder: displayOrder ?? 0,
+        numericValue: numericValue ?? null,
+        updatedAt: event.timing.recordedAt,
+      });
 
       await refreshAllItems(db);
     },
@@ -1053,36 +1141,16 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
       };
       const labelI18n = coerceDimensionOptionLabel(label ?? labels);
 
-      await db.query(
-        `INSERT INTO discovery_item_detail_catalog_dimension_options (
-          option_id,
-          dimension_id,
-          code,
-          label_i18n,
-          label,
-          display_order,
-          numeric_value,
-          updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        ON CONFLICT (option_id) DO UPDATE SET
-          dimension_id = EXCLUDED.dimension_id,
-          code = EXCLUDED.code,
-          label_i18n = EXCLUDED.label_i18n,
-          label = EXCLUDED.label,
-          display_order = EXCLUDED.display_order,
-          numeric_value = EXCLUDED.numeric_value,
-          updated_at = EXCLUDED.updated_at`,
-        [
-          optionId,
-          dimensionId,
-          code,
-          JSON.stringify(labelI18n),
-          resolveLocalizedText(labelI18n),
-          displayOrder ?? 0,
-          numericValue ?? null,
-          event.timing.recordedAt,
-        ],
-      );
+      await upsertItemDetailDimensionOption(db, {
+        optionId,
+        dimensionId,
+        code,
+        labelI18n,
+        label: resolveLocalizedText(labelI18n),
+        displayOrder: displayOrder ?? 0,
+        numericValue: numericValue ?? null,
+        updatedAt: event.timing.recordedAt,
+      });
 
       await refreshAllItems(db);
     },
@@ -1090,14 +1158,20 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
       const dimensionId = extractIdFromStreamId(event.streamId, DIMENSION_STREAM_PREFIX);
       const { optionIds } = event.data as { optionIds: string[] };
 
-      for (let i = 0; i < optionIds.length; i++) {
-        await db.query(
-          `UPDATE discovery_item_detail_catalog_dimension_options
-           SET display_order = $3, updated_at = $4
-           WHERE dimension_id = $1 AND option_id = $2`,
-          [dimensionId, optionIds[i], i, event.timing.recordedAt],
-        );
-      }
+      const latestOptionOrders = new Map(optionIds.map((optionId, index) => [optionId, index] as const));
+      await Promise.all(
+        [...latestOptionOrders.entries()].map(([optionId, index]) =>
+          updateRow(db, {
+            table: "discovery_item_detail_catalog_dimension_options",
+            setColumns: ["display_order", "updated_at"],
+            values: { display_order: index, updated_at: event.timing.recordedAt },
+            where: {
+              columns: ["dimension_id", "option_id"],
+              values: { dimension_id: dimensionId, option_id: optionId },
+            },
+          }),
+        ),
+      );
 
       await refreshAllItems(db);
     },
