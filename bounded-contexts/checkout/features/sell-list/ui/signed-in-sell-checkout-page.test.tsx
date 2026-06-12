@@ -220,5 +220,10 @@ describe("signed-in sell checkout page", () => {
     expect(markup).toContain("Support can track pending or failed downstream work from this confirmation.");
     expect(markup).toContain("View seller activity");
     expect(markup).toContain("View committed sales");
+    expect(markup).not.toContain("Sale complete");
+    expect(markup).not.toContain("Label ready");
+    expect(markup).not.toContain("Payout ready");
+    expect(markup).not.toContain("Settlement complete");
+    expect(markup).not.toContain("Account history updated");
   });
 });

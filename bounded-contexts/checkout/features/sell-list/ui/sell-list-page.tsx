@@ -181,6 +181,21 @@ function sideEffectTone(status: string): "accent" | "success" | "warning" | "dan
   }
 }
 
+function hasPendingDownstreamSideEffects(
+  sideEffects: CheckoutSellListConfirmationRow["handoff_summary"]["sideEffects"],
+) {
+  return Object.values(sideEffects ?? {}).some((status) => status === "pending-downstream");
+}
+
+function lineOutcomeDisplayStatus(
+  outcome: NonNullable<CheckoutSellListConfirmationRow["handoff_summary"]["lineOutcomes"]>[number],
+  sideEffects: CheckoutSellListConfirmationRow["handoff_summary"]["sideEffects"],
+) {
+  return outcome.status === "completed" && hasPendingDownstreamSideEffects(sideEffects)
+    ? "handoff-recorded"
+    : outcome.status;
+}
+
 function confirmationReferenceSummary(
   outcome: NonNullable<CheckoutSellListConfirmationRow["handoff_summary"]["lineOutcomes"]>[number],
 ) {
@@ -867,49 +882,50 @@ function LatestSellListConfirmationPanel({ confirmation }: { confirmation: Check
               <Text weight="semibold">
                 {t("checkout.features.sellList.ui.sellListPage.latest.confirmation.line.outcomes")}
               </Text>
-              {lineOutcomes.map((outcome) => (
-                <Inset key={outcome.lineId} padding={3}>
-                  <Grid columns={{ base: 1, md: 3 }} gap={3}>
-                    <Stack gap={1}>
-                      <Inline gap={2}>
-                        <Badge tone={outcome.status === "completed" ? "success" : "warning"}>
-                          {formatStatus(outcome.status)}
-                        </Badge>
-                        <Text weight="semibold" wrap="anywhere">
-                          {outcome.itemTitle}
+              {lineOutcomes.map((outcome) => {
+                const displayStatus = lineOutcomeDisplayStatus(outcome, sideEffects);
+                return (
+                  <Inset key={outcome.lineId} padding={3}>
+                    <Grid columns={{ base: 1, md: 3 }} gap={3}>
+                      <Stack gap={1}>
+                        <Inline gap={2}>
+                          <Badge tone={sideEffectTone(displayStatus)}>{formatStatus(displayStatus)}</Badge>
+                          <Text weight="semibold" wrap="anywhere">
+                            {outcome.itemTitle}
+                          </Text>
+                        </Inline>
+                        <Text size="sm" tone="secondary">
+                          {outcome.detail}
                         </Text>
-                      </Inline>
-                      <Text size="sm" tone="secondary">
-                        {outcome.detail}
-                      </Text>
-                    </Stack>
-                    <KeyValueList
-                      density="compact"
-                      variant="plain"
-                      items={[
-                        {
-                          key: t("checkout.features.sellList.ui.sellListPage.latest.confirmation.action"),
-                          value: formatStatus(outcome.action),
-                        },
-                        {
-                          key: t("checkout.features.sellList.ui.sellListPage.latest.confirmation.quantity"),
-                          value: outcome.quantity,
-                        },
-                        {
-                          key: t("checkout.features.sellList.ui.sellListPage.latest.confirmation.remaining"),
-                          value: outcome.remainingQuantity,
-                        },
-                      ]}
-                    />
-                    <Stack gap={1}>
-                      <Text size="sm" tone="secondary">
-                        {t("checkout.features.sellList.ui.sellListPage.latest.confirmation.support.references")}
-                      </Text>
-                      <Text wrap="anywhere">{confirmationReferenceSummary(outcome)}</Text>
-                    </Stack>
-                  </Grid>
-                </Inset>
-              ))}
+                      </Stack>
+                      <KeyValueList
+                        density="compact"
+                        variant="plain"
+                        items={[
+                          {
+                            key: t("checkout.features.sellList.ui.sellListPage.latest.confirmation.action"),
+                            value: formatStatus(outcome.action),
+                          },
+                          {
+                            key: t("checkout.features.sellList.ui.sellListPage.latest.confirmation.quantity"),
+                            value: outcome.quantity,
+                          },
+                          {
+                            key: t("checkout.features.sellList.ui.sellListPage.latest.confirmation.remaining"),
+                            value: outcome.remainingQuantity,
+                          },
+                        ]}
+                      />
+                      <Stack gap={1}>
+                        <Text size="sm" tone="secondary">
+                          {t("checkout.features.sellList.ui.sellListPage.latest.confirmation.support.references")}
+                        </Text>
+                        <Text wrap="anywhere">{confirmationReferenceSummary(outcome)}</Text>
+                      </Stack>
+                    </Grid>
+                  </Inset>
+                );
+              })}
             </Stack>
           ) : null}
 
