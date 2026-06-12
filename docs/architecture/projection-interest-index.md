@@ -52,7 +52,7 @@ In the current deployment the worker builds the index once at startup from its h
 | --- | --- |
 | Worker `GET /internal/workers/status` → `projectionWakeRelay.interestIndex` | Full index summary: version, schema/payload versions, `generatedAt`, status + stale reason, entry/enabled/disabled counts, route-dependency count, enabled source contexts, per-source and per-lane enabled entry counts |
 | Worker status → `projectionWakeRelay.interestIndexVersion` | Loaded version (kept for runbook compatibility) |
-| Admin Push wakes tab / `GET .../projections/wake-status` | Index version per relay cursor; rollout state per source context; push-first migration status (owner, status, opt-out) per projection group |
+| `GET .../projections/wake-status` | Structural index version per relay cursor, rollout state per source context, and push-first migration status (owner, status, opt-out) per projection group. Grafana remains canonical for wake telemetry trends and alerts. |
 | `projection-wake-pipeline` dashboard | `chase_sets_projection_wake_relay_fan_out_total` by `status`/`reason` — no-interest skip counts, stale-index failures, fan-out successes; intents per lane |
 
 ## Honest Gaps

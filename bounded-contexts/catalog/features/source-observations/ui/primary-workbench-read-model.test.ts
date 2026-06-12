@@ -966,8 +966,12 @@ describe("Catalog primary workbench read model", () => {
     expect(readModel.actions.find((action) => action.key === "start-provider-import")?.blockers).toContain(
       "kill-switch-active",
     );
-    expect(readModel.governanceControls.observability.signals[0]?.alertLinks[0]?.href).toContain("section=evidence");
-    expect(readModel.governanceControls.observability.signals[0]?.runbookLinks[0]?.href).toContain("section=evidence");
+    expect(readModel.governanceControls.observability.signals[0]?.alertLinks[0]?.href).toBe(
+      "https://grafana.chasesets.com/d/chase-sets-catalog-integration-control-plane/catalog-integration-control-plane",
+    );
+    expect(readModel.governanceControls.observability.signals[0]?.runbookLinks[0]?.href).toBe(
+      "https://github.com/chase-sets/chase-sets/blob/main/docs/runbooks/catalog-integration-operations.md",
+    );
   });
 
   it("marks stale governance observability data as degraded or unavailable", () => {

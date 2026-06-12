@@ -143,6 +143,6 @@ Polling that remains by design, not as a migration gap:
 
 ## Operator Visibility
 
-- Admin console > Projection Operations > Push wakes tab (`/platform/projections?tab=wake`) shows this inventory live: migration status by projection group (owner, status, enabled/total sources, opt-out reason) alongside rollout state by source context.
+- `GET /api/platform/projections/wake-status` exposes the structural inventory live: migration status by projection group (owner, status, enabled/total sources, opt-out reason) alongside rollout state by source context. The Admin Push wakes handoff links operators to Grafana/runbooks and current attention items; it must not re-render the full telemetry inventory.
 - `GET /api/platform/projections/wake-status` exposes the same data structurally under `migration` for dashboards.
 - The worker status endpoint reports the loaded projection interest index summary, which carries the same owner/opt-out data into the relay's fan-out decisions (see [Projection Interest Index](./projection-interest-index.md)).

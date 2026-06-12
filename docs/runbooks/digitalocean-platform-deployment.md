@@ -113,7 +113,7 @@ Optional `production` variables for telemetry-backed canary analysis:
 
 - `CANARY_PROMETHEUS_ENABLED`: set to `true` only after the production Prometheus endpoint is reachable and every configured `required: true` canary signal is ready to gate promotion.
 - `CANARY_PROMETHEUS_URL`: production Prometheus base URL used by `pnpm run ops canary:evidence`.
-- `CANARY_PROMETHEUS_QUERY_FILE`: repository-relative query file that maps canary signals to baseline and canary PromQL plus an explicit `required` gate flag.
+- `CANARY_PROMETHEUS_QUERY_FILE`: repository-relative query file that maps canary signals to baseline and canary PromQL plus an explicit `required` gate flag; use `infrastructure/observability/release-canary-prometheus-queries.json`.
 - `CANARY_OBSERVATION_WINDOW_SECONDS`: canary analysis window; defaults to `300`.
 - `CANARY_PROMETHEUS_HEADERS` (secret): JSON object of scoped query headers for the protected Prometheus-compatible endpoint, for example `{"X-Chase-Sets-Observability-Query":"<token>"}`. Use this for credentials instead of embedding secrets in `CANARY_PROMETHEUS_URL`.
 

@@ -489,10 +489,7 @@ describe("canary evidence collector", () => {
 
   it("keeps the production Prometheus query file valid for required canary gates", async () => {
     const queryConfig = JSON.parse(
-      await readFile(
-        "bounded-contexts/platform-operations/features/release-dashboard/read-model/canary-prometheus-queries.json",
-        "utf8",
-      ),
+      await readFile("infrastructure/observability/release-canary-prometheus-queries.json", "utf8"),
     );
     const signals = queryConfig.signals ?? [];
 

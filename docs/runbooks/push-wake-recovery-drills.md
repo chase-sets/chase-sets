@@ -50,7 +50,7 @@ Honest status: drills 1-2 are fully executable from Actions on demand and produc
 
 1. Actions > Platform Staging Wake Drills > Run workflow. `drill: reconciliation`, confirm `run staging wake drills`.
 2. Pass criteria: run is green; evidence shows `verdict: pass`, `relayCursorGap: 0`, every checkpoint gap `<= 0`, and `convergedAfterMs` well inside the budget. The step summary table shows per-context gaps.
-3. Failure handling: `relay-cursor-behind-event-store-head` sustained past budget -> relay stage classes in [Push-Wake Operations](./push-wake-operations.md) (lease, listener, catch-up). `projection-checkpoint-behind-event-store-head` with a healthy cursor -> worker scheduling/projection execution classes. `relay-cursor-missing` -> the relay has never fanned out for that context in this environment; check rollout state on the wake panel.
+3. Failure handling: `relay-cursor-behind-event-store-head` sustained past budget -> relay stage classes in [Push-Wake Operations](./push-wake-operations.md) (lease, listener, catch-up). `projection-checkpoint-behind-event-store-head` with a healthy cursor -> worker scheduling/projection execution classes. `relay-cursor-missing` -> the relay has never fanned out for that context in this environment; check rollout state on the wake-status endpoint.
 4. Audit-only nuance (`skip_canary_write: true`): the relay catches up on startup, reconnect, and incoming notifications — there is no timer. On an idle environment a cursor gap can therefore be a quiescent missed-final-notification that the next write's catch-up will heal, not an outage. Re-run with the canary write enabled before escalating: the default drill (write + convergence) is the proof that missed positions are recovered without manual intervention.
 5. Cadence: run after any wake-pipeline change reaches staging, and weekly while Milestone #19 is open. Each run re-proves missed-fan-out detection without waiting for a real incident.
 
@@ -67,7 +67,7 @@ Goal: prove a standby worker takes the relay lease, runs durable catch-up from t
 
 1. Baseline: dispatch the reconciliation drill (or pull `wake-status`) and record `relay.lease.ownerId`, `fencingToken`, and per-source cursor positions.
 2. Restart the active worker (DigitalOcean console > staging app > platform-worker component > restart), or set `WORKER_PROJECTION_WAKE_RELAY_ENABLED=false` on that worker only. Worker drain bounds relay shutdown at 30 s and releases the lease.
-3. Expect: standby acquires the lease within ~15 s (+ catch-up). Verify on the wake panel / wake-status: new `ownerId`, **strictly higher** `fencingToken`, cursors advancing again; worker logs show `projection-wake-relay.catch_up.*` with reason `startup` before steady fan-out.
+3. Expect: standby acquires the lease within ~15 s (+ catch-up). Verify on the wake-status endpoint: new `ownerId`, **strictly higher** `fencingToken`, cursors advancing again; worker logs and Grafana show `projection-wake-relay.catch_up.*` with reason `startup` before steady fan-out.
 4. Re-run the reconciliation drill. Pass = convergence within budget under the new owner.
 5. Record: before/after wake-status snapshots (drill artifacts), the takeover log lines, and the drill run URLs. Failure (lease bouncing, cursors stuck) -> "Relay lease bouncing" class in Push-Wake Operations.
 
@@ -89,7 +89,7 @@ Goal: prove recovery rebuilds from durable event-store/checkpoint state when cur
 2. Simulate loss (staging control database only, never production without an incident): `DELETE FROM platform_projection_wake_relay_cursors WHERE source_context_name = 'checkout';`
 3. Force a catch-up pass: restart the active worker (drill 3). A missing cursor resumes from global position 0 by design: the relay re-reads all source events in bounded batches and re-fans-out; the interest index, intent coalescing, and TTLs bound the wake-store load, and projection idempotency makes re-wakes harmless. This is the documented bounded-load rebuild path — expect elevated catch-up duration (`chase_sets_projection_wake_relay_catch_up_duration_ms`) and fan-out counts while it replays.
 4. Verify: `projection-wake-relay.catch_up.*` logs show the replay; the cursor row is recreated and converges to head; the reconciliation drill passes; hot-lane queue age p95 alert stays quiet (small staging event volume) or is acknowledged as drill noise.
-5. Operator telemetry contract: a cursor rebuild is operator-visible via the catch-up logs/metrics and the cursor `lastAdvanceReason` metadata on the wake panel. If checkout's event volume ever makes a from-zero replay too expensive, the documented mitigation is seeding the cursor from a trusted checkpoint minimum before restart — record the decision in the drill log.
+5. Operator telemetry contract: a cursor rebuild is operator-visible via the catch-up logs/metrics and the cursor `lastAdvanceReason` metadata on the wake-status endpoint. If checkout's event volume ever makes a from-zero replay too expensive, the documented mitigation is seeding the cursor from a trusted checkpoint minimum before restart — record the decision in the drill log.
 
 ### 6. Listener outage during high-volume commits (operator-driven)
 

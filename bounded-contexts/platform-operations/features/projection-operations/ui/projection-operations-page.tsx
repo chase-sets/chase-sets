@@ -51,6 +51,10 @@ import type { WakeStatusSnapshot } from "../read-model/wake-status-contracts";
 import { buildWakeAttentionItems } from "../read-model/wake-status-contracts";
 
 const routeKey = "platformOperations.projectionOperations";
+const projectionWakeGrafanaHref =
+  "https://grafana.chasesets.com/d/chase-sets-projection-wake-pipeline/projection-wake-pipeline";
+const projectionWakeRunbookHref =
+  "https://github.com/chase-sets/chase-sets/blob/main/docs/runbooks/push-wake-operations.md";
 
 export function ProjectionOperationsPage({
   data,
@@ -776,423 +780,38 @@ function DiagnosticsPanel({ data }: Readonly<{ data: ProjectionOperationsSnapsho
 }
 
 function WakePipelinePanel({ wakeStatus }: Readonly<{ wakeStatus: WakeStatusSnapshot | null }>) {
-  if (!wakeStatus) {
-    return (
-      <Surface tone="subtle">
-        <Stack gap={1}>
-          <Text weight="semibold">{t(`${routeKey}.wakeUnavailable`)}</Text>
-          <Text tone="secondary">{t(`${routeKey}.wakeUnavailableDescription`)}</Text>
-        </Stack>
-      </Surface>
-    );
-  }
+  const wakeAttentionItems = buildWakeAttentionItems(wakeStatus);
 
   return (
     <Stack gap={4}>
-      <WakeQueueSection wakeStatus={wakeStatus} />
-      <Grid columns={{ base: 1, xl: 2 }} gap={4}>
-        <WakeRelaySection wakeStatus={wakeStatus} />
-        <WakeCheckpointSection wakeStatus={wakeStatus} />
-      </Grid>
-      <WakeRolloutSection wakeStatus={wakeStatus} />
-      <WakeMigrationSection wakeStatus={wakeStatus} />
+      <Surface tone="subtle">
+        <Stack gap={3}>
+          <Stack gap={1}>
+            <Text weight="semibold">{t(`${routeKey}.wakeObservabilityTitle`)}</Text>
+            <Text tone="secondary">{t(`${routeKey}.wakeObservabilityDescription`)}</Text>
+          </Stack>
+          <ActionBar>
+            <LinkButton href={projectionWakeGrafanaHref} tone="secondary" leadingIcon="externalLink">
+              {t(`${routeKey}.wakeOpenGrafana`)}
+            </LinkButton>
+            <LinkButton href={projectionWakeRunbookHref} tone="secondary" leadingIcon="externalLink">
+              {t(`${routeKey}.wakeOpenRunbook`)}
+            </LinkButton>
+          </ActionBar>
+        </Stack>
+      </Surface>
+      {wakeStatus ? (
+        <AttentionPanel items={wakeAttentionItems} />
+      ) : (
+        <Surface tone="subtle">
+          <Stack gap={1}>
+            <Text weight="semibold">{t(`${routeKey}.wakeUnavailable`)}</Text>
+            <Text tone="secondary">{t(`${routeKey}.wakeUnavailableDescription`)}</Text>
+          </Stack>
+        </Surface>
+      )}
     </Stack>
   );
-}
-
-function WakeQueueSection({ wakeStatus }: Readonly<{ wakeStatus: WakeStatusSnapshot }>) {
-  if (!wakeStatus.wakeStore.available) {
-    return (
-      <PageSection title={t(`${routeKey}.wakeQueue`)}>
-        <Text tone="secondary">{t(`${routeKey}.wakeStoreUnavailable`)}</Text>
-      </PageSection>
-    );
-  }
-
-  const summary = wakeStatus.wakeStore.intentSummary;
-  const breakdown = wakeStatus.wakeStore.intentBreakdown;
-
-  return (
-    <PageSection title={t(`${routeKey}.wakeQueue`)}>
-      <Stack gap={3}>
-        <StatGrid columns={{ base: 1, md: 4 }}>
-          <Stat label={t(`${routeKey}.wakeQueued`)} value={summary.queuedCount} />
-          <Stat label={t(`${routeKey}.wakeClaimed`)} value={summary.claimedCount} />
-          <Stat label={t(`${routeKey}.wakeFailedIntents`)} value={summary.failedCount} />
-          <Stat label={t(`${routeKey}.wakeExpiredIntents`)} value={summary.expiredCount} />
-          <Stat label={t(`${routeKey}.wakeStaleClaims`)} value={summary.staleClaimCount} />
-          <Stat label={t(`${routeKey}.wakeOldestQueuedAge`)} value={formatAgeMs(summary.oldestQueuedAgeMs)} />
-        </StatGrid>
-        <DataTable
-          density="compact"
-          rows={[...breakdown]}
-          getRowId={(row) => `${row.priorityLane}:${row.origin}:${row.state}`}
-          emptyTitle={t(`${routeKey}.wakeNoIntents`)}
-          emptyDescription={t(`${routeKey}.wakeNoIntentsDescription`)}
-          columns={[
-            { key: "lane", header: t(`${routeKey}.wakeLane`), cell: (row) => row.priorityLane },
-            { key: "origin", header: t(`${routeKey}.wakeOrigin`), cell: (row) => row.origin },
-            {
-              key: "state",
-              header: t(`${routeKey}.state`),
-              cell: (row) => <Badge tone={stateTone(row.state)}>{row.state}</Badge>,
-            },
-            { key: "count", header: t(`${routeKey}.count`), align: "right", cell: (row) => row.intentCount },
-            {
-              key: "oldest",
-              header: t(`${routeKey}.wakeOldestAge`),
-              align: "right",
-              cell: (row) => formatAgeMs(row.oldestAgeMs),
-            },
-            {
-              key: "attempts",
-              header: t(`${routeKey}.wakeMaxAttempts`),
-              align: "right",
-              cell: (row) => row.maxAttemptCount,
-            },
-          ]}
-        />
-      </Stack>
-    </PageSection>
-  );
-}
-
-function WakeRelaySection({ wakeStatus }: Readonly<{ wakeStatus: WakeStatusSnapshot }>) {
-  if (!wakeStatus.relay.available) {
-    return (
-      <PageSection title={t(`${routeKey}.wakeRelay`)}>
-        <Text tone="secondary">{t(`${routeKey}.wakeRelayUnavailable`)}</Text>
-      </PageSection>
-    );
-  }
-
-  const lease = wakeStatus.relay.lease;
-
-  return (
-    <PageSection title={t(`${routeKey}.wakeRelay`)}>
-      <Stack gap={3}>
-        <DetailPanel title={t(`${routeKey}.wakeRelayLease`)}>
-          {lease ? (
-            <Stack gap={2}>
-              <Inline gap={2}>
-                <Badge tone={stateTone(lease.state)}>{lease.state}</Badge>
-                <Text weight="semibold">{lease.ownerId}</Text>
-              </Inline>
-              <KeyValueList
-                items={[
-                  { key: t(`${routeKey}.wakeFencingToken`), value: lease.fencingToken },
-                  { key: t(`${routeKey}.wakeAcquiredAt`), value: formatDate(lease.acquiredAt ?? "") },
-                  { key: t(`${routeKey}.wakeRenewedAt`), value: formatDate(lease.renewedAt ?? "") },
-                  { key: t(`${routeKey}.wakeExpiresAt`), value: formatDate(lease.expiresAt ?? "") },
-                ]}
-              />
-            </Stack>
-          ) : (
-            <Stack gap={1}>
-              <Text weight="semibold">{t(`${routeKey}.wakeRelayNoLease`)}</Text>
-              <Text tone="secondary">{t(`${routeKey}.wakeRelayNoLeaseDescription`)}</Text>
-            </Stack>
-          )}
-        </DetailPanel>
-        <DataTable
-          density="compact"
-          rows={[...wakeStatus.relay.cursors]}
-          getRowId={(cursor) => cursor.sourceContextName}
-          emptyTitle={t(`${routeKey}.wakeNoCursors`)}
-          emptyDescription={t(`${routeKey}.wakeNoCursorsDescription`)}
-          columns={[
-            {
-              key: "source",
-              header: t(`${routeKey}.sourceContext`),
-              cell: (cursor) => cursor.sourceContextName,
-            },
-            {
-              key: "position",
-              header: t(`${routeKey}.wakeFanOutPosition`),
-              align: "right",
-              cell: (cursor) => formatDecimalCount(cursor.lastFanOutPosition),
-            },
-            {
-              key: "age",
-              header: t(`${routeKey}.wakeCursorAge`),
-              align: "right",
-              cell: (cursor) => formatAgeMs(cursor.updatedAgeMs),
-            },
-            {
-              key: "index",
-              header: t(`${routeKey}.wakeInterestIndex`),
-              cell: (cursor) => cursor.interestIndexVersion ?? t(`${routeKey}.notRecorded`),
-            },
-            {
-              key: "reason",
-              header: t(`${routeKey}.wakeLastAdvanceReason`),
-              cell: (cursor) => cursor.lastAdvanceReason ?? t(`${routeKey}.notRecorded`),
-            },
-          ]}
-        />
-      </Stack>
-    </PageSection>
-  );
-}
-
-function WakeCheckpointSection({ wakeStatus }: Readonly<{ wakeStatus: WakeStatusSnapshot }>) {
-  return (
-    <PageSection title={t(`${routeKey}.wakeCheckpoints`)}>
-      <Stack gap={3}>
-        {wakeStatus.wakeStore.available ? (
-          <KeyValueList
-            items={[
-              {
-                key: t(`${routeKey}.wakeReadinessRows`),
-                value: wakeStatus.wakeStore.checkpointSignals.readinessCount,
-              },
-              {
-                key: t(`${routeKey}.wakeExpiredReadiness`),
-                value: wakeStatus.wakeStore.checkpointSignals.expiredReadinessCount,
-              },
-              {
-                key: t(`${routeKey}.wakeLatestReadyAge`),
-                value: formatAgeMs(wakeStatus.wakeStore.checkpointSignals.latestReadyAgeMs),
-              },
-              {
-                key: t(`${routeKey}.wakePendingWaiters`),
-                value: wakeStatus.wakeStore.checkpointSignals.pendingWaiterCount,
-              },
-              {
-                key: t(`${routeKey}.wakeExpiredWaiters`),
-                value: wakeStatus.wakeStore.checkpointSignals.expiredPendingWaiterCount,
-              },
-              {
-                key: t(`${routeKey}.wakeSatisfiedWaiters`),
-                value: wakeStatus.wakeStore.checkpointSignals.satisfiedWaiterCount,
-              },
-              {
-                key: t(`${routeKey}.wakeOldestPendingWaiterAge`),
-                value: formatAgeMs(wakeStatus.wakeStore.checkpointSignals.oldestPendingWaiterAgeMs),
-              },
-              ...wakeStatus.wakeStore.checkpointSignals.pendingWaiterOrigins.map((entry) => ({
-                key: t(`${routeKey}.wakeWaiterOrigin`, { origin: entry.origin }),
-                value: entry.waiterCount,
-              })),
-            ]}
-          />
-        ) : (
-          <Text tone="secondary">{t(`${routeKey}.wakeStoreUnavailable`)}</Text>
-        )}
-        <DetailPanel title={t(`${routeKey}.wakeSchedulers`)}>
-          {wakeStatus.schedulers.available ? (
-            <DataTable
-              density="compact"
-              rows={[...wakeStatus.schedulers.workers]}
-              getRowId={(worker) => worker.workerId}
-              emptyTitle={t(`${routeKey}.wakeNoSchedulers`)}
-              emptyDescription={t(`${routeKey}.wakeNoSchedulersDescription`)}
-              columns={[
-                { key: "worker", header: t(`${routeKey}.workers`), cell: (worker) => worker.workerId },
-                {
-                  key: "state",
-                  header: t(`${routeKey}.state`),
-                  cell: (worker) => <Badge tone={stateTone(worker.workerState)}>{worker.workerState}</Badge>,
-                },
-                {
-                  key: "runners",
-                  header: t(`${routeKey}.wakeRunners`),
-                  align: "right",
-                  cell: (worker) =>
-                    t(`${routeKey}.wakeRunnerCapacity`, {
-                      count: worker.wakeRunnerCount ?? 0,
-                      max: worker.wakeMaxConcurrentRunners ?? 0,
-                    }),
-                },
-                {
-                  key: "heartbeat",
-                  header: t(`${routeKey}.wakeHeartbeatAge`),
-                  align: "right",
-                  cell: (worker) => formatAgeMs(worker.heartbeatAgeMs),
-                },
-              ]}
-            />
-          ) : (
-            <Text tone="secondary">{t(`${routeKey}.wakeSchedulersUnavailable`)}</Text>
-          )}
-        </DetailPanel>
-      </Stack>
-    </PageSection>
-  );
-}
-
-function WakeRolloutSection({ wakeStatus }: Readonly<{ wakeStatus: WakeStatusSnapshot }>) {
-  return (
-    <PageSection title={t(`${routeKey}.wakeRollout`)}>
-      <Stack gap={3}>
-        <Inline gap={2}>
-          <Badge tone={wakeStatus.rollout.eventStoreWakeEmissionEnabledOnHost ? "success" : "neutral"}>
-            {wakeStatus.rollout.eventStoreWakeEmissionEnabledOnHost
-              ? t(`${routeKey}.wakeEmissionEnabledOnHost`)
-              : t(`${routeKey}.wakeEmissionDisabledOnHost`)}
-          </Badge>
-          <Text size="sm" tone="secondary">
-            {t(`${routeKey}.wakeRolloutSummary`, {
-              active: wakeStatus.rollout.summary.activeEntryCount,
-              total: wakeStatus.rollout.summary.entryCount,
-              relay: wakeStatus.rollout.summary.enabledRelayFanOutContextCount,
-            })}
-          </Text>
-        </Inline>
-        <DataTable
-          density="compact"
-          rows={[...wakeStatus.rollout.sources]}
-          getRowId={(source) => source.sourceContextName}
-          emptyTitle={t(`${routeKey}.wakeNoRolloutSources`)}
-          emptyDescription={t(`${routeKey}.wakeNoRolloutSourcesDescription`)}
-          columns={[
-            {
-              key: "source",
-              header: t(`${routeKey}.sourceContext`),
-              cell: (source) => source.sourceContextName,
-            },
-            {
-              key: "state",
-              header: t(`${routeKey}.wakeRolloutState`),
-              cell: (source) => <Badge tone={rolloutStateTone(source.rolloutState)}>{source.rolloutState}</Badge>,
-            },
-            { key: "phase", header: t(`${routeKey}.wakePhase`), cell: (source) => source.phase },
-            { key: "lane", header: t(`${routeKey}.wakeLane`), cell: (source) => source.priorityLane },
-            {
-              key: "emission",
-              header: t(`${routeKey}.wakeEmission`),
-              cell: (source) =>
-                source.eventStoreWakeNotificationsEnabled
-                  ? t(`${routeKey}.wakeEnabled`)
-                  : t(`${routeKey}.wakeDisabled`),
-            },
-            {
-              key: "fanOut",
-              header: t(`${routeKey}.wakeFanOut`),
-              cell: (source) =>
-                source.relayFanOutEnabled ? t(`${routeKey}.wakeEnabled`) : t(`${routeKey}.wakeDisabled`),
-            },
-            {
-              key: "projections",
-              header: t(`${routeKey}.wakeAffectedProjections`),
-              align: "right",
-              cell: (source) => source.affectedProjectionNames.length,
-            },
-          ]}
-        />
-      </Stack>
-    </PageSection>
-  );
-}
-
-function WakeMigrationSection({ wakeStatus }: Readonly<{ wakeStatus: WakeStatusSnapshot }>) {
-  return (
-    <PageSection title={t(`${routeKey}.wakeMigration`)}>
-      <Stack gap={3}>
-        <Text size="sm" tone="secondary">
-          {t(`${routeKey}.wakeMigrationSummary`, {
-            projections: wakeStatus.migration.summary.projectionCount,
-            optOuts: wakeStatus.migration.summary.optOutCount,
-            pushEnabledRoutes: wakeStatus.migration.summary.pushEnabledRouteDependencyCount,
-            routes: wakeStatus.migration.summary.routeDependencyCount,
-          })}
-        </Text>
-        <DataTable
-          density="compact"
-          rows={[...wakeStatus.migration.projections]}
-          getRowId={(projection) => projection.projectionKey}
-          emptyTitle={t(`${routeKey}.wakeMigrationNoProjections`)}
-          emptyDescription={t(`${routeKey}.wakeMigrationNoProjectionsDescription`)}
-          columns={[
-            {
-              key: "projection",
-              header: t(`${routeKey}.projection`),
-              cell: (projection) => projection.projectionKey,
-            },
-            {
-              key: "owner",
-              header: t(`${routeKey}.wakeMigrationOwner`),
-              cell: (projection) => projection.owner,
-            },
-            {
-              key: "status",
-              header: t(`${routeKey}.wakeMigrationStatus`),
-              cell: (projection) => <Badge tone={migrationStatusTone(projection.status)}>{projection.status}</Badge>,
-            },
-            {
-              key: "sources",
-              header: t(`${routeKey}.wakeMigrationEnabledSources`),
-              align: "right",
-              cell: (projection) =>
-                t(`${routeKey}.wakeMigrationSourceRatio`, {
-                  enabled: projection.enabledSourceContextCount,
-                  total: projection.sourceContextCount,
-                }),
-            },
-            {
-              key: "optOut",
-              header: t(`${routeKey}.wakeMigrationOptOut`),
-              cell: (projection) =>
-                projection.optOutReason
-                  ? `${projection.optOutReason}${
-                      projection.optOutReviewBy
-                        ? ` (${t(`${routeKey}.wakeMigrationOptOutReview`, { reviewBy: projection.optOutReviewBy })})`
-                        : ""
-                    }`
-                  : t(`${routeKey}.notRecorded`),
-            },
-          ]}
-        />
-      </Stack>
-    </PageSection>
-  );
-}
-
-function migrationStatusTone(status: string) {
-  switch (status) {
-    case "push-enabled":
-      return "success" as const;
-    case "push-eligible":
-      return "accent" as const;
-    case "disabled":
-    case "opted-out":
-      return "warning" as const;
-    default:
-      return "neutral" as const;
-  }
-}
-
-function rolloutStateTone(rolloutState: string) {
-  switch (rolloutState) {
-    case "production-enabled":
-      return "success" as const;
-    case "staging-enabled":
-    case "production-proof":
-      return "accent" as const;
-    case "disabled":
-    case "opted-out":
-      return "warning" as const;
-    default:
-      return "neutral" as const;
-  }
-}
-
-function formatAgeMs(value: number | null) {
-  if (value === null) {
-    return t(`${routeKey}.notRecorded`);
-  }
-
-  const totalSeconds = Math.floor(value / 1000);
-  if (totalSeconds < 60) {
-    return t(`${routeKey}.wakeAgeSeconds`, { seconds: totalSeconds });
-  }
-
-  const totalMinutes = Math.floor(totalSeconds / 60);
-  if (totalMinutes < 60) {
-    return t(`${routeKey}.wakeAgeMinutes`, { minutes: totalMinutes, seconds: totalSeconds % 60 });
-  }
-
-  return t(`${routeKey}.wakeAgeHours`, { hours: Math.floor(totalMinutes / 60), minutes: totalMinutes % 60 });
 }
 
 function SelectedDetail({ detail }: Readonly<{ detail: SelectedRecord }>) {

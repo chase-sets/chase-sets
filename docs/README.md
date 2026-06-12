@@ -80,7 +80,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Projection Poison Events](./runbooks/projection-poison-events.md): triage and repair for degraded projection consumers.
 - [Projection Operations](./runbooks/projection-operations.md): backlog, worker capacity, retry, and rebuild triage.
 - [Push-Wake Rollout Controls](./runbooks/push-wake-rollout-controls.md): kill-switch matrix, rollback recipes, verification, and scope assessment for the push-first projection wake runtime.
-- [Push-Wake Operations](./runbooks/push-wake-operations.md): incident playbook for the push-wake pipeline — latency stage map, operator console wake panel, failure classes, Checkout triage, and safe inspection commands.
+- [Push-Wake Operations](./runbooks/push-wake-operations.md): incident playbook for the push-wake pipeline — Grafana-first latency stage map, structural status inspection, failure classes, Checkout triage, and safe inspection commands.
 - [Push-Wake Recovery Drills](./runbooks/push-wake-recovery-drills.md): disaster-recovery drill catalog — on-demand staging reconciliation/burst drill workflow, operator-driven failover/kill-switch/cursor-loss/failover procedures, and evidence rules.
 - [Projection Freshness Audit](./runbooks/projection-freshness-audit.md): read-after-write audit record fields, privacy rules, and guest Buy Now root-cause classification.
 - [Guest Buy Now Projection Lag Root Cause](./runbooks/guest-buy-now-projection-lag-root-cause.md): staging incident classification, evidence limits, failed contract, and follow-up mapping for Checkout projection lag.

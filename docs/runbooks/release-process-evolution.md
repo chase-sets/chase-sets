@@ -160,14 +160,14 @@ pnpm run ops canary:evidence --release-commit <40-char-sha> --observation-window
 Generate canary evidence from production Prometheus snapshots with:
 
 ```powershell
-pnpm run ops canary:evidence --release-commit <40-char-sha> --observation-window-seconds 300 --prometheus-base-url https://<prometheus-host> --prometheus-query-file .\bounded-contexts\platform-operations\features\release-dashboard\read-model\canary-prometheus-queries.json --out .\artifacts\release-health\canary-analysis.json
+pnpm run ops canary:evidence --release-commit <40-char-sha> --observation-window-seconds 300 --prometheus-base-url https://<prometheus-host> --prometheus-query-file .\infrastructure\observability\release-canary-prometheus-queries.json --out .\artifacts\release-health\canary-analysis.json
 ```
 
 The production deployment workflow runs the same collector before advancing the `production` marker when `CANARY_PROMETHEUS_ENABLED` is `true` and `CANARY_PROMETHEUS_URL` plus `CANARY_PROMETHEUS_QUERY_FILE` repository variables are configured. The Stage 1 production canary writes `artifacts/release-health/stage1-production-canary-telemetry.json` for the `app-platform-deployment-phase` source signal; the Prometheus query file maps live telemetry signal names to `baselineQuery`, `canaryQuery`, `owner`, `required`, and `maxIncrease`. Required zero-event counters must be anchored to a real scrapeable liveness counter in the query itself; absent Prometheus series remain `missing` and fail closed. Keep `CANARY_PROMETHEUS_ENABLED` unset or false until the Prometheus endpoint is reachable and every configured `required: true` signal is ready to gate promotion.
 
 The collector writes `schemaVersion: "canary-analysis/v1"`, a concrete `releaseCommit`, an `observationWindowSeconds`, and a `signals` array. Each signal includes `name`, `owner`, `source`, `currentState`, and either `status: "pass"` or numeric `baseline`, `canary`, and `maxIncrease` values. Required signals fail closed when telemetry is missing or above threshold; optional signals set `required: false`. Unsupported sources must be recorded as `status: "missing"`, never as pass.
 
-The Platform Operations-owned Prometheus query contract is `bounded-contexts/platform-operations/features/release-dashboard/read-model/canary-prometheus-queries.json`. Do not point `CANARY_PROMETHEUS_QUERY_FILE` at a different path unless the replacement includes the same owner, source, baseline query, canary query, and threshold metadata for every required signal.
+The Observability-owned Prometheus query contract is `infrastructure/observability/release-canary-prometheus-queries.json`. Do not point `CANARY_PROMETHEUS_QUERY_FILE` at a different path unless the replacement includes the same owner, source, baseline query, canary query, and threshold metadata for every required signal.
 
 Canary ownership starts with this matrix:
 
