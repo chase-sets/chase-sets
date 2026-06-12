@@ -536,6 +536,7 @@ export function createAccountCheckoutSessionRoutes(
       }
 
       if (
+        session.order_ids.length === 0 &&
         session.fulfillment_preview_revision &&
         fulfillmentPreviewRevision !== session.fulfillment_preview_revision &&
         !acknowledgedMaterialChanges
@@ -557,15 +558,17 @@ export function createAccountCheckoutSessionRoutes(
         );
       }
 
-      const shippingAddressResult = await services.setShippingAddress(
-        {
-          sessionId,
-          accountId: access.actor.accountId as never,
-          shippingAddress: parseShippingAddress(body.shippingAddress),
-        },
-        context,
-      );
-      session = shippingAddressResult.session;
+      if (session.order_ids.length === 0) {
+        const shippingAddressResult = await services.setShippingAddress(
+          {
+            sessionId,
+            accountId: access.actor.accountId as never,
+            shippingAddress: parseShippingAddress(body.shippingAddress),
+          },
+          context,
+        );
+        session = shippingAddressResult.session;
+      }
 
       if (session.source_type === "offer-intent") {
         const offerId = await submitPurchaseIntentThroughMarketplace(c.req.raw, session);
