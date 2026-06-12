@@ -53,6 +53,16 @@ class DiscoveryProjectionDb implements PgQueryable {
       return { rows: [], rowCount: 1 };
     }
 
+    if (sql.includes("UPDATE discovery_search_catalog_items") && sql.includes("description_i18n = $1::jsonb")) {
+      this.searchCatalogItems.set(String(values[3]), {
+        ...this.searchCatalogItems.get(String(values[3])),
+        description_i18n: JSON.parse(String(values[0])),
+        description: values[1],
+        updated_at: values[2],
+      });
+      return { rows: [], rowCount: 1 };
+    }
+
     if (sql.includes("UPDATE discovery_item_detail_catalog_items") && sql.includes("title = $5")) {
       this.detailCatalogItems.set(String(values[0]), {
         ...this.detailCatalogItems.get(String(values[0])),
@@ -73,6 +83,16 @@ class DiscoveryProjectionDb implements PgQueryable {
         description_i18n: JSON.parse(String(values[1])),
         description: values[2],
         updated_at: values[3],
+      });
+      return { rows: [], rowCount: 1 };
+    }
+
+    if (sql.includes("UPDATE discovery_item_detail_catalog_items") && sql.includes("description_i18n = $1::jsonb")) {
+      this.detailCatalogItems.set(String(values[3]), {
+        ...this.detailCatalogItems.get(String(values[3])),
+        description_i18n: JSON.parse(String(values[0])),
+        description: values[1],
+        updated_at: values[2],
       });
       return { rows: [], rowCount: 1 };
     }

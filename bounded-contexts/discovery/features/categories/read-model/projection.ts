@@ -1,11 +1,63 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import { extractIdFromStreamId } from "@chase-sets/event-core";
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import {
+  appendJsonbArrayElement,
+  removeJsonbArrayElement,
+  transitionStatus,
+  updateRow,
+  upsertRow,
+  type PgQueryable,
+} from "@chase-sets/event-core-postgres";
 import { coerceLocalizedTextMap, resolveLocalizedTextMap } from "@chase-sets/localization";
 import { createMarketplaceSlug, rememberSlugRedirect } from "../../../support/runtime-support/slugs";
 
 const CATEGORY_STREAM_PREFIX = "catalog.category-";
 const ITEM_STREAM_PREFIX = "catalog.item-";
+const CATEGORY_SOURCE_TABLE = "discovery_category_catalog_categories";
+const CATEGORY_ITEM_SOURCE_TABLE = "discovery_category_catalog_items";
+const CATEGORIES_TABLE = "discovery_categories";
+const CATEGORY_SOURCE_INSERT_COLUMNS = [
+  "category_id",
+  "key",
+  "slug",
+  "name",
+  "description",
+  "status",
+  "parent_category_id",
+  "display_order",
+  "updated_at",
+] as const;
+const CATEGORY_SOURCE_UPDATE_COLUMNS = [
+  "key",
+  "slug",
+  "name",
+  "description",
+  "parent_category_id",
+  "display_order",
+  "updated_at",
+] as const;
+const CATEGORY_SOURCE_REVISION_COLUMNS = [
+  "key",
+  "slug",
+  "name",
+  "description",
+  "parent_category_id",
+  "display_order",
+  "updated_at",
+] as const;
+const CATEGORY_PROJECTION_COLUMNS = [
+  "category_id",
+  "key",
+  "slug",
+  "name",
+  "description",
+  "status",
+  "parent_category_id",
+  "parent_category",
+  "display_order",
+  "item_count",
+  "updated_at",
+] as const;
 
 type CategorySourceRow = Readonly<{
   category_id: string;
@@ -49,50 +101,29 @@ async function refreshDiscoveryCategory(db: PgQueryable, categoryId: string): Pr
     [JSON.stringify([categoryId])],
   );
 
-  await db.query(
-    `INSERT INTO discovery_categories (
-      category_id,
-      key,
-      slug,
-      name,
-      description,
-      status,
-      parent_category_id,
-      parent_category,
-      display_order,
-      item_count,
-      updated_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-    ON CONFLICT (category_id) DO UPDATE SET
-      key = EXCLUDED.key,
-      slug = EXCLUDED.slug,
-      name = EXCLUDED.name,
-      description = EXCLUDED.description,
-      status = EXCLUDED.status,
-      parent_category_id = EXCLUDED.parent_category_id,
-      parent_category = EXCLUDED.parent_category,
-      display_order = EXCLUDED.display_order,
-      item_count = EXCLUDED.item_count,
-      updated_at = EXCLUDED.updated_at`,
-    [
-      category.category_id,
-      category.key,
-      category.slug,
-      category.name,
-      category.description,
-      category.status,
-      category.parent_category_id,
-      parentResult.rows[0]
-        ? JSON.stringify({
+  await upsertRow(db, {
+    table: CATEGORIES_TABLE,
+    insertColumns: CATEGORY_PROJECTION_COLUMNS,
+    conflictColumns: ["category_id"],
+    values: {
+      category_id: category.category_id,
+      key: category.key,
+      slug: category.slug,
+      name: category.name,
+      description: category.description,
+      status: category.status,
+      parent_category_id: category.parent_category_id,
+      parent_category: parentResult.rows[0]
+        ? {
             categoryId: parentResult.rows[0].category_id,
             name: parentResult.rows[0].name,
-          })
+          }
         : null,
-      category.display_order,
-      Number.parseInt(countResult.rows[0].count, 10),
-      category.updated_at,
-    ],
-  );
+      display_order: category.display_order,
+      item_count: Number.parseInt(countResult.rows[0].count, 10),
+      updated_at: category.updated_at,
+    },
+  });
 }
 
 async function refreshChildCategories(db: PgQueryable, parentCategoryId: string): Promise<void> {
@@ -136,37 +167,23 @@ export function buildDiscoveryCategoryProjectionHandlers(db: PgQueryable): Proje
       const resolvedDescription = resolveLocalizedTextMap(coerceLocalizedTextMap(description));
       const slug = createMarketplaceSlug([resolvedName], categoryId);
 
-      await db.query(
-        `INSERT INTO discovery_category_catalog_categories (
-          category_id,
+      await upsertRow(db, {
+        table: CATEGORY_SOURCE_TABLE,
+        insertColumns: CATEGORY_SOURCE_INSERT_COLUMNS,
+        conflictColumns: ["category_id"],
+        updateColumns: CATEGORY_SOURCE_UPDATE_COLUMNS,
+        values: {
+          category_id: categoryId,
           key,
           slug,
-          name,
-          description,
-          status,
-          parent_category_id,
-          display_order,
-          updated_at
-        ) VALUES ($1, $2, $3, $4, $5, 'draft', $6, $7, $8)
-        ON CONFLICT (category_id) DO UPDATE SET
-          key = EXCLUDED.key,
-          slug = EXCLUDED.slug,
-          name = EXCLUDED.name,
-          description = EXCLUDED.description,
-          parent_category_id = EXCLUDED.parent_category_id,
-          display_order = EXCLUDED.display_order,
-          updated_at = EXCLUDED.updated_at`,
-        [
-          categoryId,
-          key,
-          slug,
-          resolvedName,
-          resolvedDescription,
-          parentCategoryId ?? null,
-          displayOrder,
-          event.timing.recordedAt,
-        ],
-      );
+          name: resolvedName,
+          description: resolvedDescription,
+          status: "draft",
+          parent_category_id: parentCategoryId ?? null,
+          display_order: displayOrder,
+          updated_at: event.timing.recordedAt,
+        },
+      });
 
       await refreshDiscoveryCategory(db, categoryId);
     },
@@ -187,27 +204,23 @@ export function buildDiscoveryCategoryProjectionHandlers(db: PgQueryable): Proje
         [categoryId],
       );
 
-      await db.query(
-        `UPDATE discovery_category_catalog_categories
-         SET key = $2,
-             slug = $3,
-             name = $4,
-             description = $5,
-             parent_category_id = $6,
-             display_order = $7,
-             updated_at = $8
-         WHERE category_id = $1`,
-        [
-          categoryId,
+      await updateRow(db, {
+        table: CATEGORY_SOURCE_TABLE,
+        setColumns: CATEGORY_SOURCE_REVISION_COLUMNS,
+        values: {
           key,
           slug,
-          resolvedName,
-          resolvedDescription,
-          parentCategoryId ?? null,
-          displayOrder,
-          event.timing.recordedAt,
-        ],
-      );
+          name: resolvedName,
+          description: resolvedDescription,
+          parent_category_id: parentCategoryId ?? null,
+          display_order: displayOrder,
+          updated_at: event.timing.recordedAt,
+        },
+        where: {
+          columns: ["category_id"],
+          values: { category_id: categoryId },
+        },
+      });
       await rememberSlugRedirect(db, {
         entityKind: "category",
         entityId: categoryId,
@@ -222,12 +235,13 @@ export function buildDiscoveryCategoryProjectionHandlers(db: PgQueryable): Proje
     "catalog.category.published": async (event) => {
       const categoryId = extractIdFromStreamId(event.streamId, CATEGORY_STREAM_PREFIX);
 
-      await db.query(
-        `UPDATE discovery_category_catalog_categories
-         SET status = 'active', updated_at = $2
-         WHERE category_id = $1`,
-        [categoryId, event.timing.recordedAt],
-      );
+      await transitionStatus(db, {
+        table: CATEGORY_SOURCE_TABLE,
+        idColumn: "category_id",
+        id: categoryId,
+        status: "active",
+        updatedAt: event.timing.recordedAt,
+      });
 
       await refreshDiscoveryCategory(db, categoryId);
       await refreshChildCategories(db, categoryId);
@@ -235,12 +249,13 @@ export function buildDiscoveryCategoryProjectionHandlers(db: PgQueryable): Proje
     "catalog.category.deprecated": async (event) => {
       const categoryId = extractIdFromStreamId(event.streamId, CATEGORY_STREAM_PREFIX);
 
-      await db.query(
-        `UPDATE discovery_category_catalog_categories
-         SET status = 'deprecated', updated_at = $2
-         WHERE category_id = $1`,
-        [categoryId, event.timing.recordedAt],
-      );
+      await transitionStatus(db, {
+        table: CATEGORY_SOURCE_TABLE,
+        idColumn: "category_id",
+        id: categoryId,
+        status: "deprecated",
+        updatedAt: event.timing.recordedAt,
+      });
 
       await refreshDiscoveryCategory(db, categoryId);
       await refreshChildCategories(db, categoryId);
@@ -248,12 +263,13 @@ export function buildDiscoveryCategoryProjectionHandlers(db: PgQueryable): Proje
     "catalog.category.archived": async (event) => {
       const categoryId = extractIdFromStreamId(event.streamId, CATEGORY_STREAM_PREFIX);
 
-      await db.query(
-        `UPDATE discovery_category_catalog_categories
-         SET status = 'archived', updated_at = $2
-         WHERE category_id = $1`,
-        [categoryId, event.timing.recordedAt],
-      );
+      await transitionStatus(db, {
+        table: CATEGORY_SOURCE_TABLE,
+        idColumn: "category_id",
+        id: categoryId,
+        status: "archived",
+        updatedAt: event.timing.recordedAt,
+      });
 
       await refreshDiscoveryCategory(db, categoryId);
       await refreshChildCategories(db, categoryId);
@@ -262,24 +278,24 @@ export function buildDiscoveryCategoryProjectionHandlers(db: PgQueryable): Proje
     "catalog.catalog-item.created": async (event) => {
       const { itemId } = event.data as { itemId: string };
 
-      await db.query(
-        `INSERT INTO discovery_category_catalog_items (catalog_item_id, updated_at)
-         VALUES ($1, $2)
-         ON CONFLICT (catalog_item_id) DO UPDATE SET updated_at = EXCLUDED.updated_at`,
-        [itemId, event.timing.recordedAt],
-      );
+      await upsertRow(db, {
+        table: CATEGORY_ITEM_SOURCE_TABLE,
+        insertColumns: ["catalog_item_id", "updated_at"],
+        conflictColumns: ["catalog_item_id"],
+        values: { catalog_item_id: itemId, updated_at: event.timing.recordedAt },
+      });
     },
     "catalog.catalog-item.category-assigned": async (event) => {
       const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
       const { categoryId } = event.data as { categoryId: string };
 
-      await db.query(
-        `UPDATE discovery_category_catalog_items
-         SET category_ids = category_ids || $2::jsonb,
-             updated_at = $3
-         WHERE catalog_item_id = $1`,
-        [itemId, JSON.stringify([categoryId]), event.timing.recordedAt],
-      );
+      await appendJsonbArrayElement(db, {
+        table: CATEGORY_ITEM_SOURCE_TABLE,
+        key: { column: "catalog_item_id", value: itemId },
+        column: "category_ids",
+        element: categoryId,
+        updatedAt: { value: event.timing.recordedAt },
+      });
 
       await refreshDiscoveryCategory(db, categoryId);
     },
@@ -287,53 +303,52 @@ export function buildDiscoveryCategoryProjectionHandlers(db: PgQueryable): Proje
       const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
       const { categoryId } = event.data as { categoryId: string };
 
-      await db.query(
-        `UPDATE discovery_category_catalog_items
-         SET category_ids = (
-           SELECT COALESCE(jsonb_agg(category_id), '[]'::jsonb)
-           FROM jsonb_array_elements(category_ids) AS category_id
-           WHERE category_id #>> '{}' != $2
-         ),
-         updated_at = $3
-         WHERE catalog_item_id = $1`,
-        [itemId, categoryId, event.timing.recordedAt],
-      );
+      await removeJsonbArrayElement(db, {
+        table: CATEGORY_ITEM_SOURCE_TABLE,
+        key: { column: "catalog_item_id", value: itemId },
+        column: "category_ids",
+        match: { kind: "value", value: categoryId },
+        updatedAt: { value: event.timing.recordedAt },
+      });
 
       await refreshDiscoveryCategory(db, categoryId);
     },
     "catalog.catalog-item.published": async (event) => {
       const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
 
-      await db.query(
-        `UPDATE discovery_category_catalog_items
-         SET status = 'active', updated_at = $2
-         WHERE catalog_item_id = $1`,
-        [itemId, event.timing.recordedAt],
-      );
+      await transitionStatus(db, {
+        table: CATEGORY_ITEM_SOURCE_TABLE,
+        idColumn: "catalog_item_id",
+        id: itemId,
+        status: "active",
+        updatedAt: event.timing.recordedAt,
+      });
 
       await refreshCategoriesForItem(db, itemId);
     },
     "catalog.catalog-item.retired": async (event) => {
       const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
 
-      await db.query(
-        `UPDATE discovery_category_catalog_items
-         SET status = 'archived', updated_at = $2
-         WHERE catalog_item_id = $1`,
-        [itemId, event.timing.recordedAt],
-      );
+      await transitionStatus(db, {
+        table: CATEGORY_ITEM_SOURCE_TABLE,
+        idColumn: "catalog_item_id",
+        id: itemId,
+        status: "archived",
+        updatedAt: event.timing.recordedAt,
+      });
 
       await refreshCategoriesForItem(db, itemId);
     },
     "catalog.catalog-item.archived": async (event) => {
       const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
 
-      await db.query(
-        `UPDATE discovery_category_catalog_items
-         SET status = 'archived', updated_at = $2
-         WHERE catalog_item_id = $1`,
-        [itemId, event.timing.recordedAt],
-      );
+      await transitionStatus(db, {
+        table: CATEGORY_ITEM_SOURCE_TABLE,
+        idColumn: "catalog_item_id",
+        id: itemId,
+        status: "archived",
+        updatedAt: event.timing.recordedAt,
+      });
 
       await refreshCategoriesForItem(db, itemId);
     },

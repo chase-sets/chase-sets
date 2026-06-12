@@ -103,10 +103,22 @@ describe("item detail offer matches", () => {
       "Raw",
       "350.00",
       1,
+      "submitted",
+      null,
+      null,
+      "2026-04-28T00:00:00.000Z",
       "2026-04-28T00:00:00.000Z",
     ]);
-    const acceptedOfferUpdate = calls.find((call) => call.sql.includes("SET status = 'accepted'"));
-    expect(acceptedOfferUpdate?.params).toEqual(["offer_charizard", "seller_1", "2026-04-28T01:00:00.000Z"]);
+    const acceptedOfferUpdate = calls.find(
+      (call) => call.sql.includes("UPDATE discovery_offer_demand_matches") && call.sql.includes("accepted_at"),
+    );
+    expect(acceptedOfferUpdate?.params).toEqual([
+      "accepted",
+      "seller_1",
+      "2026-04-28T01:00:00.000Z",
+      "2026-04-28T01:00:00.000Z",
+      "offer_charizard",
+    ]);
   });
 
   it("returns submitted public offer demand on item detail payloads", async () => {
