@@ -267,6 +267,9 @@ export function createPlatformFeedbackRuntime(deps: PlatformFeedbackRuntimeDeps)
       createProjectionHandlerSet({
         projectionName: "experience-platform-feedback-projection",
         handlers: buildPlatformFeedbackProjectionHandlers(deps.db),
+        // Feedback events keep their durable experience. stream prefix, so the
+        // platform-operations default (`platform-operations.`) must not apply.
+        streamPrefixes: ["experience."],
       }),
     ],
   };

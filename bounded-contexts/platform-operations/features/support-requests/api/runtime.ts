@@ -384,6 +384,9 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
       createProjectionHandlerSet({
         projectionName: "support-request-projection",
         handlers: buildSupportRequestProjectionHandlers(deps.db),
+        // Support events keep their durable support. stream prefix, so the
+        // platform-operations default (`platform-operations.`) must not apply.
+        streamPrefixes: ["support."],
       }),
       createProjectionHandlerSet({
         projectionName: SUPPORT_REQUEST_TRANSACTIONAL_EMAIL_PROJECTION,
@@ -392,6 +395,7 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
           transactionalEmailOutbox,
           SUPPORT_REQUEST_TRANSACTIONAL_EMAIL_PROJECTION,
         ),
+        streamPrefixes: ["support."],
       }),
     ],
   };
