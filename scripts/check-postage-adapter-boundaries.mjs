@@ -5,7 +5,11 @@ import { repoRoot } from "./lib/repo.mjs";
 
 const fulfillmentRoot = path.join(repoRoot, "bounded-contexts", "fulfillment");
 const checkedExtensions = new Set([".json", ".ts", ".tsx"]);
-const forbiddenPatterns = ["@chase-sets/easypost-postage", "@chase-sets/postage-labels-testing", "api.easypost.com"];
+const forbiddenPatterns = [
+  "@chase-sets/easypost-postage",
+  "@chase-sets/postage-labels/test-support",
+  "api.easypost.com",
+];
 const violations = [];
 
 for (const filePath of await collectFiles(fulfillmentRoot, {

@@ -28,7 +28,6 @@
     "@chase-sets/identity": "workspace:*",
     "@chase-sets/localization": "workspace:*",
     "@chase-sets/money-movement": "workspace:*",
-    "@chase-sets/money-movement-testing": "workspace:*",
     "@chase-sets/payments": "workspace:*",
     "@chase-sets/platform-runtime": "workspace:*",
     "@chase-sets/primitives": "workspace:*",

@@ -24,7 +24,8 @@ import { module as paymentsModule } from "@chase-sets/payments";
 import { module as pricingModule } from "@chase-sets/pricing";
 import { module as settlementModule } from "@chase-sets/settlement";
 import { module as platformOperationsModule } from "@chase-sets/platform-operations";
-import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing-testing";
+import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing/test-support";
+import { createFakeMoneyMovementGateway } from "@chase-sets/money-movement/test-support";
 
 export const marketplaceSeedContextNames = [
   "catalog",
@@ -175,7 +176,9 @@ export function createMarketplaceSeedRuntime(pools: MarketplaceSeedRuntimePools)
       contextName: "settlement",
       module: settlementModule,
       pool: pools.settlement,
-      ports: undefined,
+      ports: {
+        moneyMovementGateway: createFakeMoneyMovementGateway(),
+      },
     },
     {
       contextName: "platform-operations",

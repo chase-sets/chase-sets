@@ -23,7 +23,10 @@ function createSeedContext(): EventStoreContext {
 }
 
 export async function seedSettlementDatabase(pool: PgTransactionalPool) {
-  const services = createSettlementServices(pool);
+  const { createFakeMoneyMovementGateway } = await import("@chase-sets/money-movement/test-support");
+  const services = createSettlementServices(pool, {
+    moneyMovementGateway: createFakeMoneyMovementGateway(),
+  });
 
   try {
     const existing = await services.db.query("SELECT COUNT(*) AS count FROM settlement_payout_pages");

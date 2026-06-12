@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createFakePaymentProcessorGateway } from ".";
+import { createFakePaymentProcessorGateway } from "./test-support";
 
 describe("fake payment processor gateway", () => {
   it("implements the payment processor port", async () => {

@@ -4,7 +4,6 @@ import { marketplaceReservedSeedIds, reputationReservedSeedIds } from "@chase-se
 import { orderingReservedSeedIds } from "@chase-sets/ordering/seed-support/ids";
 import { paymentsReservedSeedIds } from "@chase-sets/payments/seed-support/ids";
 import { createPaymentsServices } from "./services";
-import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing-testing";
 import type { PaymentId } from "@chase-sets/primitives/typed-ids";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { RefundId } from "./common";
@@ -260,6 +259,7 @@ async function seedSavedCheckoutInstruments(pool: PgTransactionalPool) {
 }
 
 export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
+  const { createFakePaymentProcessorGateway } = await import("@chase-sets/payment-processing/test-support");
   const processorGateway = createFakePaymentProcessorGateway();
   const services = createPaymentsServices(pool, {
     processorGateway,

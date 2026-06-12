@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { MoneyMovementGateway } from "@chase-sets/money-movement";
-import { createFakeMoneyMovementGateway } from "./index";
+import type { MoneyMovementGateway } from "./index";
+import { createFakeMoneyMovementGateway } from "./test-support";
 
 function expectGateway(_gateway: MoneyMovementGateway) {
   return true;

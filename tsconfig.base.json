@@ -238,8 +238,8 @@
       "@chase-sets/money-movement": [
         "./contracts/money-movement/index.ts"
       ],
-      "@chase-sets/money-movement-testing": [
-        "./infrastructure/money-movement-testing/index.ts"
+      "@chase-sets/money-movement/test-support": [
+        "./contracts/money-movement/test-support.ts"
       ],
       "@chase-sets/notification-center": [
         "./bounded-contexts/notifications/index.ts"
@@ -286,8 +286,8 @@
       "@chase-sets/payment-processing": [
         "./contracts/payment-processing/index.ts"
       ],
-      "@chase-sets/payment-processing-testing": [
-        "./infrastructure/payment-processing-testing/index.ts"
+      "@chase-sets/payment-processing/test-support": [
+        "./contracts/payment-processing/test-support.ts"
       ],
       "@chase-sets/payments": [
         "./bounded-contexts/payments/index.ts"
@@ -418,8 +418,8 @@
       "@chase-sets/postage-labels": [
         "./contracts/postage-labels/index.ts"
       ],
-      "@chase-sets/postage-labels-testing": [
-        "./infrastructure/postage-labels-testing/index.ts"
+      "@chase-sets/postage-labels/test-support": [
+        "./contracts/postage-labels/test-support.ts"
       ],
       "@chase-sets/pricing": [
         "./bounded-contexts/pricing/index.ts"

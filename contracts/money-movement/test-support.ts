@@ -11,7 +11,7 @@ import type {
   ProviderPayoutReadiness,
   ProviderPlatformBalance,
   RetrievedProviderPayout,
-} from "@chase-sets/money-movement";
+} from "./index";
 
 export type FakeMoneyMovementGatewayOptions = Readonly<{
   availableAmount?: string;

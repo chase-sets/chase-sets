@@ -1,4 +1,4 @@
-import type { PostageLabelProvider } from "@chase-sets/postage-labels";
+import type { PostageLabelProvider } from "./index";
 
 export function createSandboxPostageLabelProvider(): PostageLabelProvider {
   return {

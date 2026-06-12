@@ -11,7 +11,7 @@ import {
   productionLikeDataProfiles,
   seedApiHostIfEmpty,
 } from "@chase-sets/platform-runtime/api";
-import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing-testing";
+import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing/test-support";
 import type { ListingPhotoStorage } from "@chase-sets/marketplace/server";
 import { createPlatformApiHost } from "../src/app";
 import { closePlatformApiPools, createPlatformApiPools } from "../src/database-pools";

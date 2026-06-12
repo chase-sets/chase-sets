@@ -12,7 +12,6 @@ import { createWalletRuntime } from "../../features/wallets/api/runtime";
 import { createPayoutRuntime } from "../../features/payouts/api/runtime";
 import { createPayoutReadinessRuntime } from "../../features/payout-readiness/api/runtime";
 import type { MoneyMovementGateway } from "@chase-sets/money-movement";
-import { createFakeMoneyMovementGateway } from "@chase-sets/money-movement-testing";
 import { createNoopSettlementOperationsRecorder, type SettlementOperationsRecorder } from "./operations";
 
 export type SettlementHostPorts = Readonly<{
@@ -30,6 +29,29 @@ export type SettlementServices = Readonly<{
   db: PgQueryable;
 }>;
 
+function createMissingMoneyMovementGateway(): MoneyMovementGateway {
+  const fail = () => {
+    throw new Error(
+      "Settlement requires a money movement gateway for payout setup, payout, and provider webhook flows.",
+    );
+  };
+
+  return {
+    providerName: "unconfigured",
+    ensurePayoutAccount: async () => fail(),
+    createOnboardingSession: async () => fail(),
+    createAccountManagementSession: async () => fail(),
+    createPayoutSetupSession: async () => fail(),
+    createPayoutAccountManagementSession: async () => fail(),
+    refreshPayoutReadiness: async () => fail(),
+    retrievePlatformBalance: async () => fail(),
+    transferPlatformBalanceToConnectedAccount: async () => fail(),
+    createConnectedAccountPayout: async () => fail(),
+    retrieveConnectedAccountPayout: async () => fail(),
+    parseMoneyMovementWebhook: async () => fail(),
+  };
+}
+
 export function createSettlementServices(
   pool: PgTransactionalPool,
   ports: SettlementHostPorts = {},
@@ -41,7 +63,7 @@ export function createSettlementServices(
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
   const transactionalEmailOutbox = ports.transactionalEmailOutbox ?? createPostgresTransactionalEmailOutbox({ db });
-  const moneyMovementGateway = ports.moneyMovementGateway ?? createFakeMoneyMovementGateway();
+  const moneyMovementGateway = ports.moneyMovementGateway ?? createMissingMoneyMovementGateway();
   const operationsRecorder = ports.operationsRecorder ?? createNoopSettlementOperationsRecorder();
   const wallets = createWalletRuntime({
     eventStore,

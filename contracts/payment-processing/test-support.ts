@@ -6,7 +6,7 @@ import type {
   PaymentProcessorGateway,
   PaymentProcessorWebhookEvent,
   ProcessorSavedPaymentMethod,
-} from "@chase-sets/payment-processing";
+} from "./index";
 
 type FakeWebhookEnvelope = Readonly<{
   eventId?: string;
