@@ -157,13 +157,18 @@ async function loadSeedOrderSource(services: PlatformOperationsServices): Promis
   );
   const order = reservedOrder.rows[0];
   if (!order) {
+    // Seed orders identify by ready_for_fulfillment_at (the payments seed
+    // fixes it via payment-capture timestamps): support targets the
+    // earliest-ready order, never the latest-ready review-eligible order,
+    // because opening a support request deletes the review eligibility the
+    // marketplace reviews seed depends on.
     const reconciledOrder = await services.db.query<SupportSeedOrderSource>(
       `SELECT order_id, buyer_account_id, seller_account_id, status
        FROM support_order_sources
        WHERE buyer_account_id = $1
          AND seller_account_id = $2
          AND status = 'ready-for-fulfillment'
-       ORDER BY updated_at DESC, order_id ASC
+       ORDER BY ready_for_fulfillment_at ASC NULLS LAST, order_id ASC
        LIMIT 1`,
       [identitySeedIds.collector.accountId, identitySeedIds.demo.accountId],
     );

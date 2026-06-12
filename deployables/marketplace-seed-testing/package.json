@@ -28,7 +28,6 @@
     "@chase-sets/payment-processing-testing": "workspace:*",
     "@chase-sets/payments": "workspace:*",
     "@chase-sets/pricing": "workspace:*",
-    "@chase-sets/reputation": "workspace:*",
     "@chase-sets/settlement": "workspace:*",
     "@chase-sets/platform-operations": "workspace:*"
   },

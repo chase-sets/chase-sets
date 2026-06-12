@@ -1,6 +1,6 @@
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
-import { marketplaceReservedSeedIds } from "@chase-sets/marketplace/seed-support/ids";
+import { marketplaceReservedSeedIds, reputationReservedSeedIds } from "@chase-sets/marketplace/seed-support/ids";
 import { orderingReservedSeedIds } from "@chase-sets/ordering/seed-support/ids";
 import { paymentsReservedSeedIds } from "@chase-sets/payments/seed-support/ids";
 import { createPaymentsServices } from "./services";
@@ -147,6 +147,35 @@ async function getAcceptedOfferSeedOrder(pool: PgTransactionalPool): Promise<Ord
   }
 }
 
+async function getReviewEligibleSeedOrder(pool: PgTransactionalPool): Promise<OrderRow> {
+  try {
+    return await getSeedOrder(
+      pool,
+      reputationReservedSeedIds.orders.reviewEligibleDelivered,
+      identitySeedIds.collector.accountId,
+    );
+  } catch (error) {
+    if (!(error instanceof SeedOrderMissingError)) {
+      throw error;
+    }
+
+    const sourceType = "offer-acceptance";
+    const sourceReferenceId = marketplaceReservedSeedIds.offers.twilightMasqueradeEliteTrainerEncore;
+    const sourceOrder = await getSeedOrderForSource(
+      pool,
+      sourceType,
+      sourceReferenceId,
+      identitySeedIds.collector.accountId,
+    );
+
+    if (!sourceOrder) {
+      throw error;
+    }
+
+    return sourceOrder;
+  }
+}
+
 async function seedSavedCheckoutInstruments(pool: PgTransactionalPool) {
   await pool.query(
     `INSERT INTO payments_provider_customers (
@@ -254,6 +283,7 @@ export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
     identitySeedIds.collector.accountId,
   );
   const acceptedOfferOrder = await getAcceptedOfferSeedOrder(pool);
+  const reviewEligibleOrder = await getReviewEligibleSeedOrder(pool);
   const buyerContext = createSeedContext(identitySeedIds.collector.accountId, identitySeedIds.collector.userId);
   const sellerContext = createSeedContext(identitySeedIds.demo.accountId, identitySeedIds.demo.userId);
 
@@ -372,6 +402,21 @@ export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
       type: "RecordPaymentCapture",
       processorStatus: "succeeded",
       capturedAt: "2026-03-20T11:05:00.000Z",
+    },
+    context: buyerContext,
+  });
+
+  await createPayment(
+    paymentsReservedSeedIds.payments.reviewEligibleCaptured,
+    reviewEligibleOrder,
+    "2026-03-20T11:30:00.000Z",
+  );
+  await services.payments.commandHandler({
+    streamId: `payments.payment-${paymentsReservedSeedIds.payments.reviewEligibleCaptured}`,
+    command: {
+      type: "RecordPaymentCapture",
+      processorStatus: "succeeded",
+      capturedAt: "2026-03-20T11:35:00.000Z",
     },
     context: buyerContext,
   });

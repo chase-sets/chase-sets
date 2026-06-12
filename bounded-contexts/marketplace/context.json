@@ -1,11 +1,17 @@
 {
   "contextName": "marketplace",
   "packageName": "@chase-sets/marketplace",
-  "ownedNouns": ["listing", "offer", "seller-listing-availability"],
+  "ownedNouns": ["listing", "offer", "seller-listing-availability", "review", "review-summary"],
   "streamPrefix": "marketplace.",
   "apiBasePath": "/api/marketplace",
-  "slices": ["listings", "offers"],
-  "allowedSupportDirectories": ["request-support", "realtime-support", "runtime-support", "seed-support"],
+  "slices": ["listings", "offers", "reviews"],
+  "allowedSupportDirectories": [
+    "request-support",
+    "realtime-support",
+    "route-support",
+    "runtime-support",
+    "seed-support"
+  ],
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
   "allowedContextDependencies": [
     "@chase-sets/commercial-terms",
@@ -73,12 +79,65 @@
       "projectionHandlerSetNames": ["marketplace-inventory-supply-projection"]
     },
     {
-      "sourceContextName": "reputation",
+      "sourceContextName": "marketplace",
       "projectionName": "marketplace-identity-account-projection",
       "subscriptionVersion": 1,
       "eventTypes": ["reputation.review.submitted", "reputation.review.updated", "reputation.review.withdrawn"],
       "order": 40,
       "projectionHandlerSetNames": ["marketplace-identity-account-projection"]
+    },
+    {
+      "sourceContextName": "identity",
+      "projectionName": "reputation-account-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": [
+        "identity.account.created",
+        "identity.account.profile-updated",
+        "identity.account.suspended",
+        "identity.account.reactivated",
+        "identity.account.closed"
+      ],
+      "order": 50,
+      "projectionHandlerSetNames": ["reputation-account-projection"]
+    },
+    {
+      "sourceContextName": "ordering",
+      "projectionName": "reputation-order-source-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": [
+        "ordering.order.created",
+        "ordering.order.pending-payment-recorded",
+        "ordering.order.cancelled",
+        "ordering.order.ready-for-fulfillment-recorded"
+      ],
+      "order": 60,
+      "projectionHandlerSetNames": ["reputation-order-source-projection"]
+    },
+    {
+      "sourceContextName": "fulfillment",
+      "projectionName": "reputation-shipment-source-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": [
+        "fulfillment.shipment.created",
+        "fulfillment.shipment.dispatched",
+        "fulfillment.shipment.delivered",
+        "fulfillment.shipment.returned",
+        "fulfillment.shipment.exception-raised"
+      ],
+      "order": 70,
+      "projectionHandlerSetNames": ["reputation-shipment-source-projection"]
+    },
+    {
+      "sourceContextName": "platform-operations",
+      "projectionName": "reputation-support-source-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": [
+        "support.support-request.opened",
+        "support.support-request.resolved",
+        "support.support-request.cancelled"
+      ],
+      "order": 90,
+      "projectionHandlerSetNames": ["reputation-support-source-projection"]
     }
   ],
   "projectionGroups": [
@@ -96,7 +155,7 @@
     },
     {
       "projectionName": "marketplace-identity-account-projection",
-      "sourceContextNames": ["identity", "reputation"],
+      "sourceContextNames": ["identity", "marketplace"],
       "ownedTables": ["marketplace_account_pages", "marketplace_account_reviews"],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
@@ -121,6 +180,34 @@
       "ownedTables": ["marketplace_offer_pages"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "reputation-account-projection",
+      "sourceContextNames": ["identity"],
+      "ownedTables": ["reputation_account_pages"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "reputation-order-source-projection",
+      "sourceContextNames": ["ordering"],
+      "ownedTables": ["reputation_order_sources"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "reputation-shipment-source-projection",
+      "sourceContextNames": ["fulfillment"],
+      "ownedTables": ["reputation_shipment_sources"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "reputation-support-source-projection",
+      "sourceContextNames": ["platform-operations"],
+      "ownedTables": ["reputation_review_eligibility_pages"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
     }
   ],
   "hostPorts": [
@@ -161,6 +248,11 @@
           ]
         }
       ]
+    },
+    {
+      "mountPath": "/api/marketplace",
+      "kind": "additional",
+      "requiresAuth": true
     }
   ],
   "readAfterWriteRouteInventory": [
@@ -226,6 +318,29 @@
         "helperUses": ["loadFreshlyWrittenResource"],
         "transientRecovery": "Submitted Offer detail uses exact Marketplace offer-page freshness and bounded fresh-write not-found retry."
       }
+    },
+    {
+      "id": "reputation.review-submit-to-detail",
+      "owner": "marketplace",
+      "risk": "important",
+      "source": {
+        "routeIds": ["account-purchase-review", "account-sale-review"],
+        "actions": ["Submit purchase review", "Submit sale review"],
+        "command": "SubmitReview"
+      },
+      "destination": {
+        "routeId": "account-review",
+        "helperUses": ["loadFreshlyWrittenResource"],
+        "transientRecovery": "Review detail uses compatibility fresh-write recovery while exact review read-model dependencies are audited."
+      },
+      "exception": {
+        "status": "accepted",
+        "owner": "marketplace",
+        "reviewBy": "2026-07-31",
+        "reason": "Review detail projection dependency and shared route-support helper migration is tracked by #1084.",
+        "files": ["bounded-contexts/marketplace/support/route-support/review-submission-route.tsx"],
+        "helperUses": ["appendFreshWriteToken"]
+      }
     }
   ],
   "deployableContributions": [
@@ -273,11 +388,75 @@
           "fileExport": "./routes/account-offers-submitted",
           "routeType": "route",
           "sourceContext": "marketplace"
+        },
+        {
+          "routeId": "account-purchase-review",
+          "routePath": "account/purchases/:purchaseId/review",
+          "fileExport": "./routes/marketplace/account-purchase-review",
+          "routeType": "route",
+          "sourceContext": "marketplace"
+        },
+        {
+          "routeId": "account-received-reviews",
+          "routePath": "account/reviews/received",
+          "fileExport": "./routes/marketplace/account-received-reviews",
+          "routeType": "route",
+          "sourceContext": "marketplace"
+        },
+        {
+          "routeId": "account-review-summary",
+          "routePath": "account/reviews",
+          "fileExport": "./routes/marketplace/account-review-summary",
+          "routeType": "route",
+          "sourceContext": "marketplace"
+        },
+        {
+          "routeId": "account-review",
+          "routePath": "account/reviews/:reviewId",
+          "fileExport": "./routes/marketplace/account-review",
+          "routeType": "route",
+          "sourceContext": "marketplace"
+        },
+        {
+          "routeId": "account-sale-review",
+          "routePath": "account/sales/:orderId/review",
+          "fileExport": "./routes/marketplace/account-sale-review",
+          "routeType": "route",
+          "sourceContext": "marketplace"
+        },
+        {
+          "routeId": "account-written-reviews",
+          "routePath": "account/reviews/written",
+          "fileExport": "./routes/marketplace/account-written-reviews",
+          "routeType": "route",
+          "sourceContext": "marketplace"
         }
       ]
     }
   ],
   "shellContributions": [
+    {
+      "deployable": "marketplace-web",
+      "slot": "top-nav",
+      "key": "reviews",
+      "label": "Reviews",
+      "icon": "star",
+      "href": "/account/reviews",
+      "order": 160,
+      "visibility": "signed-in",
+      "requiredPermissions": ["reputation.view"]
+    },
+    {
+      "deployable": "marketplace-web",
+      "slot": "bottom-nav",
+      "key": "reviews",
+      "label": "Reviews",
+      "icon": "star",
+      "href": "/account/reviews",
+      "order": 160,
+      "visibility": "signed-in",
+      "requiredPermissions": ["reputation.view"]
+    },
     {
       "deployable": "marketplace-web",
       "slot": "top-nav",
@@ -327,6 +506,21 @@
       "purpose": "Own offers feature behavior, read models, and UI contracts for the marketplace context.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
       "expectedConsumers": ["Internal marketplace module composition"]
+    },
+    "reviews": {
+      "classification": "slice",
+      "purpose": "Own post-transaction review behavior, review-summary read models, review eligibility, and UI contracts for the marketplace context.",
+      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
+      "expectedConsumers": ["Internal marketplace module composition"]
+    },
+    "route-support": {
+      "classification": "support",
+      "purpose": "Provide reusable route-support assets shared by marketplace-owned review submission route modules.",
+      "allowedWhen": "Allowed only when route-layer behavior is duplicated across marketplace-owned deployable routes.",
+      "expectedConsumers": ["routes"],
+      "justification": "route-support centralizes route composition for the shared review-submission workflow.",
+      "createdFor": "purchase and sale review submission routes that differ only by entry-point path and not-found copy.",
+      "sunsetWhen": "Remove when the route modules no longer share meaningful request and rendering behavior."
     },
     "request-support": {
       "classification": "support",

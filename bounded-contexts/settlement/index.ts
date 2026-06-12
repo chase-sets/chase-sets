@@ -56,7 +56,7 @@ export const module: BcApiModule<SettlementServices, PgTransactionalPool, Settle
     const supportSubscription = getEventSubscription("platform-operations", "settlement-support-hold-projection");
     const fulfillmentSubscription = getEventSubscription("fulfillment", "settlement-fulfillment-source-projection");
     const identityRiskSubscription = getEventSubscription("identity", "settlement-account-risk-source-projection");
-    const reputationRiskSubscription = getEventSubscription("reputation", "settlement-account-risk-source-projection");
+    const reputationRiskSubscription = getEventSubscription("marketplace", "settlement-account-risk-source-projection");
 
     return [
       {
@@ -101,7 +101,7 @@ export const module: BcApiModule<SettlementServices, PgTransactionalPool, Settle
       },
       {
         subscriptionName: "settlement.reputation-account-risk-source-projection",
-        sourceContextName: "reputation",
+        sourceContextName: "marketplace",
         projectionName: reputationRiskSubscription.projectionName,
         subscriptionVersion: reputationRiskSubscription.subscriptionVersion,
         handlers: buildSettlementReputationAccountRiskSourceProjectionHandlers(services.db),

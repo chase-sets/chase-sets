@@ -111,6 +111,10 @@ export function buildReputationOrderProjectionHandlers(db: PgQueryable): Project
            cancelled_at = EXCLUDED.cancelled_at`,
         [data.orderId, data.buyerAccountId, data.sellerAccountId, event.timing.recordedAt],
       );
+
+      // The shipment projection drops the eligibility upsert when the order
+      // source row has not landed yet, so heal that race once the order shows up.
+      await restoreEligibilityIfDelivered(db, data.orderId, event.timing.recordedAt);
     },
     "ordering.order.pending-payment-recorded": async (event) => {
       const data = event.data as {

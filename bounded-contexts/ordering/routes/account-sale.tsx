@@ -8,7 +8,7 @@ import {
   OrderingApiError,
   type SaleDetail,
 } from "../support/request-support/api-client";
-import { createReputationRequestApiClient, type ReviewOpportunity } from "@chase-sets/reputation/server";
+import { createReputationRequestApiClient, type ReviewOpportunity } from "@chase-sets/marketplace/server";
 import { OrderingOrderDetailPage } from "../features/orders/ui/order-detail-page";
 import { OrderReviewOpportunityCallout } from "../features/orders/ui/order-review-opportunity-callout";
 

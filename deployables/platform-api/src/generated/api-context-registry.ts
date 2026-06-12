@@ -15,7 +15,6 @@ import { contextManifest as paymentsManifest, module as paymentsModule } from "@
 import { contextManifest as platformOperationsManifest, module as platformOperationsModule } from "@chase-sets/platform-operations";
 import { contextManifest as pricingManifest, module as pricingModule } from "@chase-sets/pricing";
 import { contextManifest as publicPresenceManifest, module as publicPresenceModule } from "@chase-sets/public-presence";
-import { contextManifest as reputationManifest, module as reputationModule } from "@chase-sets/reputation";
 import { contextManifest as settlementManifest, module as settlementModule } from "@chase-sets/settlement";
 
 export const apiContextRegistry = [
@@ -108,12 +107,6 @@ export const apiContextRegistry = [
     packageName: "@chase-sets/public-presence",
     manifest: publicPresenceManifest,
     module: publicPresenceModule,
-  },
-  {
-    contextName: "reputation",
-    packageName: "@chase-sets/reputation",
-    manifest: reputationManifest,
-    module: reputationModule,
   },
   {
     contextName: "settlement",

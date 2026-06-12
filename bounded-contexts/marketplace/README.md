@@ -24,6 +24,7 @@ If an item uses a `condition` dimension, that condition is part of the selected 
 - Seller Listing Availability
 - Marketplace-wide demand visibility for matching seller supply
 - Source liquidity lists that let sellers send selected offers to Checkout Sell List
+- Post-transaction reviews, ratings, written feedback, review eligibility, and canonical review summaries (`features/reviews`)
 
 ## Does Not Own
 
@@ -75,7 +76,16 @@ Offer Matches is a Marketplace source list. It can surface matching demand and p
 3. Submitted offers remain marketplace-wide demand until a seller accepts one.
 4. Offer submission is a signed-in account capability, not a seller workflow capability.
 5. Buyer and Seller are transaction roles played by accounts, not Marketplace-specific entities or account classes.
+6. A review is always attached to an Order; only counterparties on the same completed order may review each other, with at most one active review per order, per direction.
+7. The canonical review summary is derived only from active reviews, and review flows stay downstream of commerce execution without blocking ordering, payment, or fulfillment.
+
+## Reviews
+
+Marketplace hosts the former Reputation bounded context as the `reviews` slice. Reviews are post-transaction evaluations tied to completed commerce: Identity provides author and subject account references, Ordering provides order references and counterparty pairing, Fulfillment delivery-complete signals unlock review eligibility, and support-request outcomes can suspend eligibility. Durable `reputation.*` event streams and `reputation_*`/`review_*` read-model tables keep their names.
+
+Marketplace's seed slot runs before Ordering and Fulfillment, so the reviews seed cannot see a delivered shipment on its first pass; it skips and completes during the host's final seed reconciliation pass. The seed dataset therefore contains two delivered orders: the earliest-ready one receives the support-request seeds (which delete review eligibility), and the latest-ready one never does, so seeded reviews always have a review-eligible delivered order to attach to. Seed orders identify by `ready_for_fulfillment_at` (fixed by the payments seed's capture timestamps) because accepted-offer orders can be auto-created with generated ids before the ordering seed pins `reputationReservedSeedIds.orders.reviewEligibleDelivered`.
 
 ## Open Extraction Candidates
 
 - Auctions or advanced market-making can be extracted later if they introduce distinct pricing and negotiation rules.
+- Trust and safety or moderation can be extracted later if review content governance becomes materially more complex.
