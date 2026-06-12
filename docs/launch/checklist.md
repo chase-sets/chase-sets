@@ -28,16 +28,16 @@
 ## Checkout entry and readiness
 
 - [ ] Checkout can only start from a fresh readiness snapshot; missing, stale, partial, or legacy-shaped state fails closed back to cart/list recovery (buy baseline: PR #1193; sell baseline: PR #1202).
-- [ ] Items without a fulfillment assignment stay out of checkout and are resolved in cart or the pre-checkout step.
+- [ ] Items without a fulfillment assignment stay out of checkout and are resolved in cart or the pre-checkout step (cart readiness baseline: PR #1193; buy runtime baseline: PR #1456).
 - [ ] Optional savings optimization is offered before checkout, and both accepted and declined decisions carry into checkout correctly.
-- [ ] An active checkout session revalidates freshness (readiness, prices, address, risk, provider state) on return/reload/provider-return and before final confirmation; stale sessions route back to cart/list with no side effects.
+- [ ] An active checkout session revalidates freshness (readiness, prices, address, risk, provider state) on return/reload/provider-return and before final confirmation; stale sessions route back to cart/list with no side effects (split-group handoff baseline: PR #1453; address/serviceability baseline: PR #1454; deferred economics input baseline: PR #1455).
 
 ## Confirmation and downstream handoff
 
 - [ ] Confirmation shows order/sale reference, totals, and a support-safe reference for both buy and sell.
 - [ ] Buyer orders appear in account history; seller confirmations appear as pending activity until Ordering/Fulfillment/Settlement commit their own facts (baseline: PR #1296 / deploy 27330007592).
 - [ ] No surface ever shows a pending confirmation as a completed sale, order, label, payout, or settlement.
-- [ ] No money, order, label, payout, or notification side effects start before explicit final confirmation.
+- [ ] No money, order, label, payout, or notification side effects start before explicit final confirmation (runtime guard baselines: PR #1453, PR #1454, PR #1455, PR #1456).
 
 ## Payments / Stripe
 
