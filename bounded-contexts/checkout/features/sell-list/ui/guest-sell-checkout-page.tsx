@@ -311,6 +311,8 @@ export function GuestSellCheckoutPage({
             description={t("checkout.features.sellList.ui.guestSellCheckoutPage.confirmation.description")}
             referenceLabel={t("checkout.features.sellList.ui.guestSellCheckoutPage.confirmation.reference")}
             referenceValue={actionState.confirmation.referenceId}
+            supportReferenceLabel={t("checkout.features.sellList.ui.guestSellCheckoutPage.confirmation.support.reference")}
+            supportReferenceValue={actionState.confirmation.referenceId}
             totalLabel={t("checkout.features.sellList.ui.guestSellCheckoutPage.summary.estimated.payout")}
             total={actionState.confirmation.estimatedTotal}
             nextSteps={[

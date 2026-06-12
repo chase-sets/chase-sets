@@ -167,8 +167,10 @@ describe("guest sell checkout page", () => {
 
     expect(markup).toContain("Sale review ready");
     expect(markup).toContain("guest-sell-chk_sell_1");
+    expect(markup).toContain("Support reference");
     expect(markup).toContain("No seller-committing side effects have started.");
     expect(markup).toContain("Sale, payout, label, notification, and account-history work stay pending.");
     expect(markup).toContain("Create account");
+    expect(markup).not.toContain("execution receipt");
   });
 });

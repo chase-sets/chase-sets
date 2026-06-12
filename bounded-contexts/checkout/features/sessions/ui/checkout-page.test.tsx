@@ -284,6 +284,55 @@ describe("checkout session page", () => {
     expect(markup).not.toContain("Guest checkout contact and shipping details are used");
   });
 
+  it("renders buy confirmation references without implying downstream completion", () => {
+    const markup = renderToString(
+      <CheckoutSessionPage
+        session={{
+          ...readySession,
+          order_ids: ["ord_1"],
+          payment_id: "pay_1",
+          split_group_handoff: {
+            status: "ready",
+            supportReference: "CS-CR_READY",
+            groups: [
+              {
+                groupId: "csg_card_vault",
+                lineIds: ["cli_opt", "cli_locked"],
+                listingIds: ["lst_card_vault_charizard", "lst_card_vault_blastoise"],
+                sellerAccountId: "acc_card_vault",
+                sellerDisplayName: "Card Vault",
+                itemCount: 2,
+                packageCount: 1,
+                deliveryPromise: "Estimated delivery 5-8 days after purchase",
+                shippingAmount: null,
+                supportReference: "CSG-CARDVAULT",
+                downstreamReferenceStatus: "not-started",
+              },
+            ],
+          },
+        }}
+        fulfillmentPreview={readyFulfillmentPreview}
+        paymentPreview={paymentPreview}
+      />,
+    );
+
+    expect(markup).toContain("Payment ready");
+    expect(markup).toContain("Order reference");
+    expect(markup).toContain("ord_1");
+    expect(markup).toContain("Support reference");
+    expect(markup).toContain("CS-CR_READY");
+    expect(markup).toContain("Payable total");
+    expect(markup).toContain("$503.67");
+    expect(markup).toContain("Downstream details pending");
+    expect(markup).toContain("Continue to the secure payment detail without resubmitting checkout.");
+    expect(markup).toContain("Order detail, fulfillment, notification, and account history stay pending");
+    expect(markup).not.toContain("Sale complete");
+    expect(markup).not.toContain("Label ready");
+    expect(markup).not.toContain("Payout ready");
+    expect(markup).not.toContain("provider payload");
+    expect(markup).not.toContain("execution receipt");
+  });
+
   it("renders purchase intent checkout without payment controls or purchase-creation copy", () => {
     const markup = renderToString(
       <CheckoutSessionPage

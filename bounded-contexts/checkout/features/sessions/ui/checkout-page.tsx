@@ -6,6 +6,7 @@ import {
   Badge,
   Button,
   Checkbox,
+  CheckoutConfirmationPanel,
   CheckoutSavedInfoGroup,
   CheckoutSavedInfoRow,
   OrderProtectionModule,
@@ -165,6 +166,23 @@ function formatMoney(value: string | null | undefined) {
   return value ? `$${value}` : t("checkout.features.sessions.ui.checkoutPage.pending");
 }
 
+function formatReferenceList(values: readonly string[]) {
+  return values.length ? values.join(", ") : t("checkout.features.sessions.ui.checkoutPage.pending");
+}
+
+function supportReferenceForSession(session: CheckoutSessionRow) {
+  const splitGroupSupportReference = session.split_group_handoff?.supportReference.trim();
+  if (splitGroupSupportReference) {
+    return splitGroupSupportReference;
+  }
+
+  const readinessGroupSupportReference = session.cart_readiness_snapshot?.fulfillmentGroups
+    .find((group) => group.supportReference.trim().length > 0)
+    ?.supportReference.trim();
+
+  return readinessGroupSupportReference || t("checkout.features.sessions.ui.checkoutPage.pending");
+}
+
 function previewLineForSessionLine(
   line: CheckoutSessionRow["lines"][number],
   previewLines: readonly CheckoutFulfillmentPreview["sellerGroups"][number]["lines"][number][],
@@ -286,6 +304,8 @@ export function CheckoutSessionPage({
           email: "",
         };
   const previewPayableTotal = payment?.marketplace_checkout_fee.total_amount ?? preview?.totals.totalAmount ?? null;
+  const orderReferenceValue = formatReferenceList(session.order_ids);
+  const buySupportReferenceValue = supportReferenceForSession(session);
   const readySavedPaymentInstruments = savedCheckoutInstruments.filter(
     (instrument) => instrument.readiness === "ready",
   );
@@ -609,17 +629,40 @@ export function CheckoutSessionPage({
             ) : null}
             {session.payment_id ? (
               <PageSection title={t("checkout.features.sessions.ui.checkoutPage.payment")}>
-                <Surface elevated glow>
-                  <Stack gap={3}>
-                    <Badge tone="success">{t("checkout.features.sessions.ui.checkoutPage.payment.ready.2")}</Badge>
-                    <Text>
-                      {t("checkout.features.sessions.ui.checkoutPage.purchases.have.been.created.and.payment")}
-                    </Text>
+                <CheckoutConfirmationPanel
+                  title={t("checkout.features.sessions.ui.checkoutPage.payment.ready.2")}
+                  description={t("checkout.features.sessions.ui.checkoutPage.purchases.have.been.created.and.payment")}
+                  referenceLabel={t("checkout.features.sessions.ui.checkoutPage.order.reference")}
+                  referenceValue={orderReferenceValue}
+                  supportReferenceLabel={t("checkout.features.sessions.ui.checkoutPage.support.reference")}
+                  supportReferenceValue={buySupportReferenceValue}
+                  totalLabel={t("checkout.features.sessions.ui.checkoutPage.payable.total")}
+                  total={formatMoney(previewPayableTotal)}
+                  nextSteps={[
+                    {
+                      title: t("checkout.features.sessions.ui.checkoutPage.payment.handoff.title"),
+                      description: t("checkout.features.sessions.ui.checkoutPage.payment.handoff.description"),
+                      icon: "lock",
+                    },
+                    {
+                      title: t("checkout.features.sessions.ui.checkoutPage.account.fulfillment.pending.title"),
+                      description: t(
+                        "checkout.features.sessions.ui.checkoutPage.account.fulfillment.pending.description",
+                      ),
+                      icon: "truck",
+                    },
+                    {
+                      title: t("checkout.features.sessions.ui.checkoutPage.support.reference.ready.title"),
+                      description: t("checkout.features.sessions.ui.checkoutPage.support.reference.ready.description"),
+                      icon: "shield",
+                    },
+                  ]}
+                  actions={
                     <LinkButton href={`/account/payments/${session.payment_id}`}>
                       {t("checkout.features.sessions.ui.checkoutPage.continue.to.payment")}
                     </LinkButton>
-                  </Stack>
-                </Surface>
+                  }
+                />
               </PageSection>
             ) : (
               <Form spacing="none" id="checkout-confirmation-form" method="post">

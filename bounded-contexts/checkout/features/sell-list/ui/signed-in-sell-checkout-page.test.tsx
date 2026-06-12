@@ -223,6 +223,7 @@ describe("signed-in sell checkout page", () => {
 
     expect(markup).toContain("Sale review ready");
     expect(markup).toContain("signed-in-sell-chk_sell_1");
+    expect(markup).toContain("Support reference");
     expect(markup).toContain("Your sale confirmation was recorded");
     expect(markup).toContain("Marketplace handoff");
     expect(markup).toContain("Support can track pending or failed downstream work from this confirmation.");

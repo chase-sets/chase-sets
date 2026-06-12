@@ -438,6 +438,8 @@ export interface CheckoutConfirmationPanelProps extends Omit<
   description?: ReactNode;
   referenceLabel?: ReactNode;
   referenceValue?: ReactNode;
+  supportReferenceLabel?: ReactNode;
+  supportReferenceValue?: ReactNode;
   totalLabel?: ReactNode;
   total?: ReactNode;
   nextSteps?: Array<{ title: ReactNode; description: ReactNode; icon?: IconName }>;
@@ -450,6 +452,8 @@ export function CheckoutConfirmationPanel({
   description,
   referenceLabel,
   referenceValue,
+  supportReferenceLabel,
+  supportReferenceValue,
   totalLabel,
   total,
   nextSteps = [],
@@ -462,18 +466,26 @@ export function CheckoutConfirmationPanel({
       <div className="grid gap-3">
         <CheckoutStatusBadge tone={tone}>{title}</CheckoutStatusBadge>
         {description ? <p className="m-0 text-sm leading-5 text-secondary">{description}</p> : null}
-        {referenceLabel || totalLabel ? (
+        {referenceLabel || supportReferenceLabel || totalLabel ? (
           <dl className="grid gap-2 rounded-tokenMd border border-muted bg-background p-3 text-sm">
             {referenceLabel ? (
               <div className="flex justify-between gap-4">
                 <dt className="text-secondary">{referenceLabel}</dt>
-                <dd className="font-semibold text-foreground">{referenceValue}</dd>
+                <dd className="min-w-0 break-words text-right font-semibold text-foreground">{referenceValue}</dd>
+              </div>
+            ) : null}
+            {supportReferenceLabel ? (
+              <div className="flex justify-between gap-4">
+                <dt className="text-secondary">{supportReferenceLabel}</dt>
+                <dd className="min-w-0 break-words text-right font-semibold text-foreground">
+                  {supportReferenceValue}
+                </dd>
               </div>
             ) : null}
             {totalLabel ? (
               <div className="flex justify-between gap-4">
                 <dt className="text-secondary">{totalLabel}</dt>
-                <dd className="font-bold tabular-nums text-foreground">{total}</dd>
+                <dd className="min-w-0 break-words text-right font-bold tabular-nums text-foreground">{total}</dd>
               </div>
             ) : null}
           </dl>
