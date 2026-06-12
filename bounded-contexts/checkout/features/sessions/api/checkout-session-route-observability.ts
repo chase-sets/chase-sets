@@ -191,6 +191,36 @@ export function recordUnsupportedCustomerEconomicsInput(
   });
 }
 
+export function recordDisabledSavedInstrumentFailure(
+  checkoutObservabilityTelemetry: CheckoutObservabilityTelemetry | undefined,
+  actor: CheckoutActor,
+  code: string,
+) {
+  if (code !== "saved_checkout_instrument_unavailable") {
+    return;
+  }
+
+  recordCheckoutObservabilityTelemetry(checkoutObservabilityTelemetry, {
+    state: "disabled-accelerated-saved-instrument",
+    entrySource: "active-session",
+    actorMode: checkoutActorMode(actor),
+    scenarioState: "disabled-capability",
+    visibleState: "checkout-review-visible",
+    sideEffectStatus: "not-attempted",
+    readinessContract: "checkout.session-read-model",
+    readinessSnapshotState: "not-applicable",
+    sourceRevisionState: "current",
+    freshWriteReceiptPresence: "not-provided",
+    supportReferencePresent: false,
+    performanceBudgetId: "totals-refresh",
+    providerCategory: "payments",
+    riskCategory: "none",
+    downstreamStatus: "not-started",
+    launchRegisterDecision: "blocked",
+    freshStateScanResult: "blocked-before-checkout",
+  });
+}
+
 export function recordChangedEconomicsReview(
   checkoutObservabilityTelemetry: CheckoutObservabilityTelemetry | undefined,
   actor: CheckoutActor,
