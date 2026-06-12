@@ -34,7 +34,7 @@
 
 ## Confirmation and downstream handoff
 
-- [ ] Confirmation shows order/sale reference, totals, and a support-safe reference for both buy and sell.
+- [ ] Confirmation shows order/sale reference, totals, and a support-safe reference for both buy and sell (baseline: PR #1528).
 - [ ] Buyer orders appear in account history; seller confirmations appear as pending activity until Ordering/Fulfillment/Settlement commit their own facts (baseline: PR #1296 / deploy 27330007592).
 - [ ] No surface ever shows a pending confirmation as a completed sale, order, label, payout, or settlement (seller pending confirmation surfaces baseline: PR #1504).
 - [ ] No money, order, label, payout, or notification side effects start before explicit final confirmation (runtime guard baselines: PR #1453, PR #1454, PR #1455, PR #1456, PR #1458, PR #1485).
