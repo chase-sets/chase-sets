@@ -4,12 +4,7 @@ WORKDIR /app
 
 RUN npm install -g pnpm@11.0.9
 
-# Dependency layer: only lockfile/workspace-config changes invalidate the
-# pnpm fetch, so source-only changes reuse the downloaded store from cache.
-COPY pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
-RUN pnpm fetch
-
-COPY package.json tsconfig.json tsconfig.base.json tailwind.config.ts ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc tsconfig.json tsconfig.base.json tailwind.config.ts ./
 COPY scripts ./scripts
 COPY contracts ./contracts
 COPY infrastructure ./infrastructure
@@ -17,7 +12,7 @@ COPY packages ./packages
 COPY bounded-contexts ./bounded-contexts
 COPY deployables ./deployables
 
-RUN pnpm install --frozen-lockfile --prefer-offline \
+RUN pnpm install --frozen-lockfile \
   && pnpm run sync:workspace-metadata \
   && pnpm --filter @chase-sets/app-public-web run build \
   && pnpm --filter @chase-sets/app-marketplace-web run build \
