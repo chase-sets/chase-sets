@@ -22,6 +22,7 @@ import {
   mockPreviewCheckoutStatus,
   mockRequireActorFromAuthApi,
   mockResolveActorFromAuthApi,
+  mockSelectShippingOption,
   mockStartGuestCheckout,
 } from "../tests/support/checkout-route-test-harness";
 
@@ -82,7 +83,7 @@ vi.mock("@chase-sets/settlement/server", () => ({
 }));
 
 import { action as checkoutStartAction } from "./checkout-start";
-import { loader as checkoutSessionLoader } from "./checkout-session";
+import { action as checkoutSessionAction, loader as checkoutSessionLoader } from "./checkout-session";
 
 describe("checkout web routes: guest checkout handoff", () => {
   beforeEach(() => {
@@ -93,7 +94,7 @@ describe("checkout web routes: guest checkout handoff", () => {
     vi.clearAllMocks();
   });
 
-  it("loads the checkout session after a fresh signed-out guest checkout handoff", async () => {
+  it("proves guest cart checkout reaches payment without requiring a signed-in account", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(null);
     mockStartGuestCheckout.mockResolvedValue({
       accountId: "acc_guest",
@@ -180,7 +181,7 @@ describe("checkout web routes: guest checkout handoff", () => {
     });
     mockPreviewCheckoutStatus.mockResolvedValue({
       amount: "26.00",
-      marketplace_checkout_fee: { total_amount: "27.10" },
+      marketplace_checkout_fee: { total_amount: "27.10", quote_fingerprint: "quote_card_1" },
       wallet_credit: { applied_amount: "0.00" },
     });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
@@ -215,6 +216,140 @@ describe("checkout web routes: guest checkout handoff", () => {
         }),
       }),
     );
+
+    mockSelectShippingOption.mockResolvedValue({});
+    mockConfirmCheckoutSession.mockResolvedValue({
+      payment_id: "pay_guest_1",
+      order_ids: ["ord_guest_1"],
+      status: "confirmed",
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      selectShippingOption: mockSelectShippingOption,
+      confirmCheckoutSession: mockConfirmCheckoutSession,
+    });
+
+    const confirmationForm = new URLSearchParams();
+    confirmationForm.set("intent", "confirm-checkout");
+    confirmationForm.set("sourceType", "cart");
+    confirmationForm.set("shippingOption", "standard");
+    confirmationForm.set("paymentMethodCategory", "card");
+    confirmationForm.set("previewPaymentMethodCategory", "card");
+    confirmationForm.set("marketplaceCheckoutFeeQuoteFingerprint", "quote_card_1");
+    confirmationForm.set("shippingName", "Jane Smith");
+    confirmationForm.set("shippingLine1", "100 Market Street");
+    confirmationForm.set("shippingCity", "Chicago");
+    confirmationForm.set("shippingState", "IL");
+    confirmationForm.set("shippingPostalCode", "60601");
+    confirmationForm.set("shippingCountry", "US");
+    confirmationForm.set("shippingEmail", "jane@example.com");
+
+    const confirmationResponse = (await checkoutSessionAction({
+      request: new Request("http://localhost/checkout/buy/session/chk_guest", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          cookie: guestCheckoutCookie ?? "",
+        },
+        body: confirmationForm.toString(),
+      }),
+      params: { sessionId: "chk_guest" },
+      context: undefined,
+    } as never)) as Response;
+
+    expect(confirmationResponse.status).toBe(302);
+    expect(confirmationResponse.headers.get("Location")).toBe("/checkout/payments/pay_guest_1");
+    expect(confirmationResponse.headers.get("Location")).not.toContain("/account/payments");
+    expect(mockSelectShippingOption).toHaveBeenCalledWith("chk_guest", {
+      shippingOption: "standard",
+    });
+    expect(mockConfirmCheckoutSession).toHaveBeenCalledWith("chk_guest", {
+      requestedBalanceCreditAmount: null,
+      paymentMethodCategory: "card",
+      marketplaceCheckoutFeeQuoteFingerprint: "quote_card_1",
+      savedCheckoutInstrumentId: null,
+      savePaymentMethodForFuture: false,
+      fulfillmentPreviewRevision: null,
+      acknowledgedMaterialChanges: false,
+      deferPayment: false,
+      shippingAddress: {
+        shippingAddressId: null,
+        name: "Jane Smith",
+        company: null,
+        line1: "100 Market Street",
+        line2: null,
+        city: "Chicago",
+        state: "IL",
+        postalCode: "60601",
+        country: "US",
+        phone: null,
+        email: "jane@example.com",
+      },
+    });
+    expect(mockCreateIdentityRequestApiClient).not.toHaveBeenCalled();
+    expect(JSON.stringify(mockConfirmCheckoutSession.mock.calls)).not.toContain("4242");
+  });
+
+  it("fails closed to cart recovery when guest cart readiness is stale before checkout", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    mockStartGuestCheckout.mockResolvedValue({
+      accountId: "acc_guest",
+      guestToken: "guest_token",
+      expiresAt: "2026-04-02T00:00:00.000Z",
+    });
+    mockCreateAuthRequestApiClient.mockReturnValue({
+      startGuestCheckout: mockStartGuestCheckout,
+    });
+    mockCreateCheckoutSession.mockRejectedValue(
+      new MockCheckoutApiError(400, {
+        error: {
+          code: "readiness_snapshot_stale",
+          message: "Cart readiness changed. Review your cart before checkout.",
+        },
+      }),
+    );
+    mockMergeGuestCartToAccount.mockResolvedValue({ status: "merged" });
+    mockGetGuestCart.mockResolvedValue({ items: [], count: 1 });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getGuestCart: mockGetGuestCart,
+      createCartReadiness: mockCreateCartReadiness,
+      createCheckoutSession: mockCreateCheckoutSession,
+      mergeGuestCartToAccount: mockMergeGuestCartToAccount,
+    });
+
+    const form = new URLSearchParams();
+    form.set("contactName", "Jane Smith");
+    form.set("email", "jane@example.com");
+    form.set("source", "cart");
+
+    const result = await checkoutStartAction({
+      request: new Request("http://localhost/checkout/buy/readiness", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          cookie: "chase_sets_anonymous_cart=anon_cart_1",
+        },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result).toEqual({
+      recovery: expect.objectContaining({
+        kind: "request-validation",
+        primaryAction: expect.objectContaining({ href: "/account/cart" }),
+        trustCue: "Your payment has not started.",
+      }),
+    });
+    expect(mockCreateCheckoutSession).toHaveBeenCalledWith({
+      source: {
+        type: "cart",
+        readinessSnapshotId: "cr_ready",
+        readinessSourceRevision: "cr_source",
+        readinessDecisions: null,
+      },
+    });
+    expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
   });
 
   function checkoutSessionPageRow(overrides: Record<string, unknown> = {}) {
