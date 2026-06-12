@@ -58,6 +58,7 @@ Platform Worker reads these environment variables:
 | `GOOGLE_SHOPPING_REFRESH_WINDOW_DAYS` | No | Defaults to 25 days so accepted/submitted products refresh before the 30-day Merchant freshness window. |
 | `GOOGLE_SHOPPING_DIAGNOSTICS_INTERVAL_MS` | No | Defaults to 24 hours. Set to `0` to disable scheduled processed-product diagnostics refresh. |
 | `GOOGLE_SHOPPING_DIAGNOSTICS_BATCH_SIZE` | No | Defaults to 100 submitted rows per diagnostics refresh job. |
+| `GOOGLE_SHOPPING_DIAGNOSTICS_PREVIOUS_ISSUE_CHUNK_SIZE` | No | Defaults to 100 previous diagnostic issues per reconciliation chunk. |
 
 Startup fails when sync is enabled without complete required config.
 

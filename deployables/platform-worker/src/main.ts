@@ -1435,7 +1435,10 @@ function createInventoryJobRunners(
 
 function createGoogleShoppingJobRunners(
   services: Readonly<Record<string, unknown>>,
-  input: Pick<ReturnType<typeof loadConfig>, "workerId" | "leaseTtlMs" | "googleMerchant">,
+  input: Pick<
+    ReturnType<typeof loadConfig>,
+    "workerId" | "leaseTtlMs" | "googleMerchant" | "googleShoppingDiagnosticsPreviousIssueChunkSize"
+  >,
 ): readonly WorkerRunner[] {
   const discovery = services.discovery as
     | {
@@ -1458,6 +1461,7 @@ function createGoogleShoppingJobRunners(
           processNextDiagnosticsRefreshJob?: (input: {
             claimOwnerId: string;
             claimTtlMs: number;
+            previousIssueChunkSize?: number;
             merchantClientForMode: (mode: GoogleShoppingSyncMode) => ReturnType<typeof createGoogleMerchantApiClient>;
             signal?: AbortSignal;
             throwIfLeaseLost?: () => void;
@@ -1515,6 +1519,7 @@ function createGoogleShoppingJobRunners(
             processed: await processNextDiagnosticsRefreshJob({
               claimOwnerId: `${input.workerId}:${lane.laneName}`,
               claimTtlMs: input.leaseTtlMs * 4,
+              previousIssueChunkSize: input.googleShoppingDiagnosticsPreviousIssueChunkSize,
               merchantClientForMode: (mode) => createGoogleShoppingMerchantClient(input.googleMerchant, mode),
               signal: lane.runnerContext?.signal,
               throwIfLeaseLost: lane.runnerContext?.throwIfLeaseLost,
