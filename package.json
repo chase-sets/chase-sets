@@ -52,6 +52,7 @@
     "test:db": "pnpm run verify:test-db",
     "coverage": "pnpm run coverage:fast",
     "coverage:clean": "node ./scripts/clean-coverage.mjs",
+    "clean:logs": "node ./scripts/clean-logs.mjs",
     "coverage:fast": "node ./scripts/run-workspaces.mjs test --exclude-test-profile=db --concurrency=4 -- --coverage --coverage.reporter=text --coverage.reporter=lcov && node ./scripts/run-workspaces.mjs test:unit --test-profile=db --concurrency=4 -- --coverage --coverage.reporter=text --coverage.reporter=lcov",
     "coverage:db": "node ./scripts/run-workspaces.mjs test:db --concurrency=2 -- --coverage --coverage.reporter=text --coverage.reporter=lcov",
     "coverage:ci": "pnpm run coverage:clean && pnpm run coverage:fast && pnpm run coverage:db && pnpm run coverage:summary",
