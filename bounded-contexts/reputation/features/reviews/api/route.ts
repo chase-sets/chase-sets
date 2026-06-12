@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
-import type { ReputationApiEnv } from "./http";
+import type { ReputationApiEnv } from "../../../api";
 import type { ReviewServices } from "./runtime";
 
 function requireReviewAccess(

@@ -7,7 +7,7 @@
   "slices": ["orders", "postage-policies", "tax-quotes", "tax-nexus"],
   "allowedSupportDirectories": ["account-support", "request-support", "runtime-support", "seed-support", "ucp-support"],
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
-  "allowedContextDependencies": ["@chase-sets/marketplace"],
+  "allowedContextDependencies": ["@chase-sets/reputation"],
   "seedRequirements": ["catalog", "identity", "inventory", "marketplace"],
   "eventSubscriptions": [
     {

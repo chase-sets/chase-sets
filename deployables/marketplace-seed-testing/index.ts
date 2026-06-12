@@ -22,6 +22,7 @@ import type { ListingPhotoStorage } from "@chase-sets/marketplace/server";
 import { module as orderingModule } from "@chase-sets/ordering";
 import { module as paymentsModule } from "@chase-sets/payments";
 import { module as pricingModule } from "@chase-sets/pricing";
+import { module as reputationModule } from "@chase-sets/reputation";
 import { module as settlementModule } from "@chase-sets/settlement";
 import { module as platformOperationsModule } from "@chase-sets/platform-operations";
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing-testing";
@@ -38,6 +39,7 @@ export const marketplaceSeedContextNames = [
   "ordering",
   "payments",
   "pricing",
+  "reputation",
   "settlement",
   "platform-operations",
 ] as const;
@@ -56,9 +58,7 @@ export const marketplaceSeedLifecycleContextOrder = [
   "payments",
   "fulfillment",
   "pricing",
-  // Marketplace runs a second pass after fulfillment so the reviews slice can
-  // seed from delivered-shipment review eligibility.
-  "marketplace",
+  "reputation",
   "settlement",
   "platform-operations",
 ] as const;
@@ -171,6 +171,12 @@ export function createMarketplaceSeedRuntime(pools: MarketplaceSeedRuntimePools)
       },
     },
     { contextName: "pricing", module: pricingModule, pool: pools.pricing, ports: undefined },
+    {
+      contextName: "reputation",
+      module: reputationModule,
+      pool: pools.reputation,
+      ports: undefined,
+    },
     {
       contextName: "settlement",
       module: settlementModule,

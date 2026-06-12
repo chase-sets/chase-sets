@@ -30,7 +30,7 @@ vi.mock("@chase-sets/platform-runtime/auth", async () => {
 
 import MarketplaceAccountReviewSummaryRoute, {
   loader,
-} from "@chase-sets/marketplace/routes/marketplace/account-review-summary";
+} from "@chase-sets/reputation/routes/marketplace/account-review-summary";
 
 describe("marketplace account review summary route", () => {
   beforeEach(() => {

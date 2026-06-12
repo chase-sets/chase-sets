@@ -66,7 +66,7 @@
       "projectionHandlerSetNames": ["settlement-account-risk-source-projection"]
     },
     {
-      "sourceContextName": "marketplace",
+      "sourceContextName": "reputation",
       "projectionName": "settlement-account-risk-source-projection",
       "subscriptionVersion": 1,
       "eventTypes": ["reputation.review.submitted", "reputation.review.updated", "reputation.review.withdrawn"],
@@ -98,7 +98,7 @@
     },
     {
       "projectionName": "settlement-account-risk-source-projection",
-      "sourceContextNames": ["identity", "marketplace"],
+      "sourceContextNames": ["identity", "reputation"],
       "ownedTables": ["settlement_account_risk_sources", "settlement_account_review_sources"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"

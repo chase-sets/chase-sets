@@ -6,7 +6,7 @@ import {
   createReputationRequestApiClient,
   ReputationApiError,
   type ReviewOpportunity,
-} from "../request-support/reputation-api-client";
+} from "../request-support/api-client";
 import { ReviewSubmissionPage } from "../../features/reviews/ui/review-submission-page";
 
 type ReviewSubmissionActionData = Readonly<{

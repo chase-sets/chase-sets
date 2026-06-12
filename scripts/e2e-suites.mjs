@@ -73,6 +73,7 @@ const contextSuiteOwnership = new Map([
   ["platform-operations", ["marketplace_account"]],
   ["pricing", ["marketplace_browse"]],
   ["public-presence", ["marketplace_browse"]],
+  ["reputation", ["marketplace_account"]],
   ["settlement", ["marketplace_account", "marketplace_seller"]],
 ]);
 
@@ -128,11 +129,11 @@ const boundedContextRouteSuiteOwnership = [
     suites: ["marketplace_account"],
   },
   {
-    pattern: /^bounded-contexts\/marketplace\/routes\/marketplace\//,
+    pattern: /^bounded-contexts\/reputation\/routes\/marketplace\//,
     suites: ["marketplace_account"],
   },
   {
-    pattern: /^bounded-contexts\/platform-operations\/routes\/marketplace\//,
+    pattern: /^bounded-contexts\/support\/routes\/marketplace\//,
     suites: ["marketplace_account"],
   },
   {

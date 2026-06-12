@@ -53,11 +53,12 @@ Each context has its own `README.md` and `GLOSSARY.md` where useful. Treat those
 - `fulfillment`: ship-from locations, shipments, packages, and shipping method selection.
 - `identity`: users, accounts, memberships, and roles.
 - `inventory`: account-held stock, storage, availability, and resolved product inventory.
-- `marketplace`: listings, offers, product-scoped supply, product-scoped demand before orders exist, and post-transaction reviews and review summaries.
+- `marketplace`: listings, offers, product-scoped supply, and product-scoped demand before orders exist.
 - `ordering`: commercial commitments between purchasing and selling accounts after checkout creates orders, including provider-agnostic tax quotes and order tax snapshots.
 - `payments`: external charge, authorization, capture, refund, and payment processor references.
 - `pricing`: product-scoped value estimation, repricing intelligence, and liquidity modeling.
 - `public-presence`: public product pages, prelaunch policy surfaces, waitlist behavior, and internal waitlist review.
+- `reputation`: post-transaction reviews, ratings, feedback, and account review summaries.
 - `settlement`: ledger truth, balances, wallets, payouts, fees, and rebates.
 
 ## Deployables

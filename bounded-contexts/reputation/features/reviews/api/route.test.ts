@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
-import type { ReputationApiEnv } from "./http";
+import type { ReputationApiEnv } from "../../../api";
 import { createAccountReviewRoutes, createPublicReputationRoutes } from "./route";
 import type { ReviewServices } from "./runtime";
 

@@ -48,7 +48,7 @@ Do not rename durable event fields, persisted columns, provider metadata, or tra
 | Package Plan | [Fulfillment](../bounded-contexts/fulfillment/GLOSSARY.md) | Immutable package dimensions, weight, mailpiece class, and measurement-version snapshot executed by Fulfillment. |
 | Letter Mailpiece | [Fulfillment](../bounded-contexts/fulfillment/GLOSSARY.md) | Non-parcel shipment path for eligible low-risk raw-card orders. |
 | Cancellation Cutoff | [Fulfillment](../bounded-contexts/fulfillment/GLOSSARY.md) | Shipment state boundary that closes self-service purchase cancellation. |
-| Review | [Marketplace](../bounded-contexts/marketplace/GLOSSARY.md) | Post-transaction account evaluation. |
+| Review | [Reputation](../bounded-contexts/reputation/GLOSSARY.md) | Post-transaction account evaluation. |
 | Payment | [Payments](../bounded-contexts/payments/GLOSSARY.md) | External charge or refund workflow. |
 | Buyer-Paid Share | [Payments](../bounded-contexts/payments/GLOSSARY.md) | Captured payment amount attributable to a cancelled order, including allocated checkout fee. |
 | Wallet | [Settlement](../bounded-contexts/settlement/GLOSSARY.md) | Marketplace ledger balance container. |
