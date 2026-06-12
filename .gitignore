@@ -14,10 +14,12 @@ coverage/
 # Local dev logs
 *.log
 .codex*.log
+tmp-public-web.log*
 
 # Local runtime and test output
 *.jsonl
 *.pid
+/.tmp/
 *.tmp
 *.temp
 *.tsbuildinfo
