@@ -72,6 +72,7 @@
     }
   ],
   "apiDeployables": ["platform-api"],
+  "sourceRuntimeDeployables": ["admin-support-api", "admin-support-worker"],
   "apiMounts": [
     {
       "mountPath": "/api/marketplace",

@@ -836,6 +836,13 @@ async function loadContextManifests() {
       );
     }
 
+    if ("sourceRuntimeDeployables" in manifest && !isStringArray(manifest.sourceRuntimeDeployables)) {
+      addPathViolation(
+        `${relativeRoot}/context.json`,
+        "sourceRuntimeDeployables must be an array of deployable names when provided",
+      );
+    }
+
     if (!Array.isArray(manifest.apiMounts)) {
       addPathViolation(`${relativeRoot}/context.json`, "apiMounts must be an array");
     }
@@ -1286,6 +1293,15 @@ export async function runStructureCheck(options = {}) {
         addPathViolation(
           `${root}/context.json`,
           `runtimeDeployables must be one of ${[...knownRuntimeDeployables].join(", ")}`,
+        );
+      }
+    }
+
+    for (const deployable of manifest.sourceRuntimeDeployables ?? []) {
+      if (!knownLifecycleDeployables.has(deployable)) {
+        addPathViolation(
+          `${root}/context.json`,
+          `sourceRuntimeDeployables must be one of ${[...knownLifecycleDeployables].join(", ")}`,
         );
       }
     }

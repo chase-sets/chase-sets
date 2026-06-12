@@ -2,7 +2,9 @@
 
 import { contextManifest as authManifest, module as authModule } from "@chase-sets/auth";
 import { contextManifest as catalogManifest, module as catalogModule } from "@chase-sets/catalog";
+import { contextManifest as fulfillmentManifest, module as fulfillmentModule } from "@chase-sets/fulfillment";
 import { contextManifest as identityManifest, module as identityModule } from "@chase-sets/identity";
+import { contextManifest as orderingManifest, module as orderingModule } from "@chase-sets/ordering";
 import { contextManifest as platformOperationsManifest, module as platformOperationsModule } from "@chase-sets/platform-operations";
 import { contextManifest as publicPresenceManifest, module as publicPresenceModule } from "@chase-sets/public-presence";
 
@@ -20,10 +22,22 @@ export const apiContextRegistry = [
     module: catalogModule,
   },
   {
+    contextName: "fulfillment",
+    packageName: "@chase-sets/fulfillment",
+    manifest: fulfillmentManifest,
+    module: fulfillmentModule,
+  },
+  {
     contextName: "identity",
     packageName: "@chase-sets/identity",
     manifest: identityManifest,
     module: identityModule,
+  },
+  {
+    contextName: "ordering",
+    packageName: "@chase-sets/ordering",
+    manifest: orderingManifest,
+    module: orderingModule,
   },
   {
     contextName: "platform-operations",
