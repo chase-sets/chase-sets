@@ -130,7 +130,7 @@ Symptoms: durable-job SSE progress or realtime patches arrive on poll cadence in
 
 ## Checkout Incident Triage (the Milestone #19 origin pattern)
 
-Pattern: guest Buy Now writes a checkout session, redirects to `/checkout/:sessionId`, and the page 503s or shows stale state because `checkout` projections lag ([root cause](./guest-buy-now-projection-lag-root-cause.md)).
+Pattern: guest Buy Now writes a checkout session, redirects to `/checkout/buy/session/:sessionId`, and the page 503s or shows stale state because `checkout` projections lag ([root cause](./guest-buy-now-projection-lag-root-cause.md)).
 
 1. **Classify the read**: pull `read-after-write.freshness` audits for `/account/checkout-sessions/:sessionId` (fields and Loki queries in the [freshness audit runbook](./projection-freshness-audit.md)). `outcome=timeout` with valid receipt -> projection-side lag; missing receipt/dependency -> route wiring bug.
 2. **Localize the stage** with Grafana `Projection Wake Pipeline`:
@@ -138,7 +138,7 @@ Pattern: guest Buy Now writes a checkout session, redirects to `/checkout/:sessi
    - Hot-lane `api-wait`/`relay` queue age grows -> worker scheduling (class 1).
    - Relay catch-up duration or fan-out failures spike for `checkout` -> relay/listener/control-plane store (classes 2-3).
    - Intents complete but waits still time out -> projection execution or checkpoint readiness (classes 5-6); check the `checkout` group's lag and blocked streams in the console.
-3. **Verify worker capacity**: `/internal/workers/status` wake controls and `projections` group heartbeats; [Projection Freshness Worker Capacity](../architecture/projection-freshness-worker-capacity.md) audit for the checkout-session route.
+3. **Verify worker capacity**: `/internal/workers/status` wake controls and `projections` group heartbeats; [Projection Freshness Worker Capacity](../architecture/projection-freshness-worker-capacity.md) audit for the buy-checkout-session route.
 4. **Mitigate**: projection repair (retry blocked stream / rebuild) for execution failures; kill switches (rollout-controls runbook) if the wake pipeline itself is misbehaving — checkout stays correct on exact waits + polling within its 900 ms route budget, and the page's preparing-checkout recovery covers the rest.
 5. **Prove recovery**: run the [Guest Buy Now Freshness Canary](./guest-buy-now-freshness-canary.md) (`pnpm run guest-buy-now:freshness-canary`) and re-check the checkout-session freshness p95 query from the audit runbook.
 

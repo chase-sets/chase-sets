@@ -58,7 +58,7 @@ Every cookie-backed continuation should have tests covering:
 
 ## Guest Checkout Example
 
-Guest checkout contact submit creates a guest checkout token and checkout session, then redirects to `/checkout/:sessionId`. The checkout-session loader depends on the `chase_sets_guest_checkout` cookie to resolve the guest actor and read the session.
+Guest checkout contact submit creates a guest checkout token and checkout session, then redirects to `/checkout/buy/session/:sessionId`. The checkout-session loader depends on the `chase_sets_guest_checkout` cookie to resolve the guest actor and read the session.
 
 The route action must use document-level redirect after setting `chase_sets_guest_checkout`. The checkout-session loader must handle missing, expired, wrong-account, and not-found cases with checkout-owned recovery UI. Before checkout confirmation, recovery copy may say payment has not started.
 

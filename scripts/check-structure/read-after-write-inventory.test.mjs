@@ -90,13 +90,13 @@ function createContextManifest(root, overrides = {}) {
         deployable: "marketplace-web",
         routes: [
           {
-            routeId: "checkout-start",
-            routePath: "checkout/start",
+            routeId: "buy-checkout-readiness",
+            routePath: "checkout/buy/readiness",
             fileExport: "./routes/checkout-start",
           },
           {
-            routeId: "checkout-session",
-            routePath: "checkout/:sessionId",
+            routeId: "buy-checkout-session",
+            routePath: "checkout/buy/session/:sessionId",
             fileExport: "./routes/checkout-session",
           },
         ],
@@ -108,11 +108,11 @@ function createContextManifest(root, overrides = {}) {
         owner: "checkout",
         risk: "critical",
         source: {
-          routeId: "checkout-start",
+          routeId: "buy-checkout-readiness",
           helperUses: ["appendFreshWriteToken"],
         },
         destination: {
-          routeId: "checkout-session",
+          routeId: "buy-checkout-session",
           apiContextName: "checkout",
           apiRoutePath: "/account/checkout-sessions/:sessionId",
           readModelTables: ["checkout_session_pages"],
@@ -176,7 +176,7 @@ describe("read-after-write route inventory guard", () => {
     );
 
     expect(result.violations).toContain(
-      "bounded-contexts/checkout/routes/checkout-start.tsx: fresh-write helper(s) appendFreshWriteToken on route 'checkout-start' must be declared in readAfterWriteRouteInventory or an exception",
+      "bounded-contexts/checkout/routes/checkout-start.tsx: fresh-write helper(s) appendFreshWriteToken on route 'buy-checkout-readiness' must be declared in readAfterWriteRouteInventory or an exception",
     );
   });
 
@@ -222,7 +222,7 @@ describe("read-after-write route inventory guard", () => {
     const result = await validate(root, createContextManifest(root));
 
     expect(result.violations).toContain(
-      "bounded-contexts/checkout/context.json readAfterWriteRouteInventory[0]: destination.helperUses claims 'loadFreshlyWrittenResource' on route 'checkout-session' but no production route module for that route uses it",
+      "bounded-contexts/checkout/context.json readAfterWriteRouteInventory[0]: destination.helperUses claims 'loadFreshlyWrittenResource' on route 'buy-checkout-session' but no production route module for that route uses it",
     );
   });
 
@@ -258,11 +258,11 @@ describe("read-after-write route inventory guard", () => {
             owner: "checkout",
             risk: "important",
             source: {
-              routeId: "checkout-start",
+              routeId: "buy-checkout-readiness",
               helperUses: ["appendFreshWriteToken"],
             },
             destination: {
-              routeId: "checkout-session",
+              routeId: "buy-checkout-session",
               transientRecovery: "Destination freshness is owned by another context.",
             },
             exception: {
@@ -346,11 +346,11 @@ describe("read-after-write route inventory guard", () => {
             owner: "checkout",
             risk: "critical",
             source: {
-              routeId: "checkout-start",
+              routeId: "buy-checkout-readiness",
               helperUses: ["appendFreshWriteToken"],
             },
             destination: {
-              routeId: "checkout-session",
+              routeId: "buy-checkout-session",
               apiContextName: "checkout",
               apiRoutePath: "/account/missing/:id",
               readModelTables: ["checkout_session_pages"],

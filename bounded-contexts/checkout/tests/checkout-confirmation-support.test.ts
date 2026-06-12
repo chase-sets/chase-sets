@@ -33,7 +33,7 @@ describe("checkout confirmation support", () => {
       orderIds: ["ord_1"],
     });
 
-    await createCheckoutOrdersThroughOrdering(new Request("https://checkout.test/checkout/chk_1"), {
+    await createCheckoutOrdersThroughOrdering(new Request("https://checkout.test/checkout/buy/session/chk_1"), {
       session_id: "chk_1",
       source_type: "cart",
       shipping_option: "standard",

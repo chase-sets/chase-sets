@@ -50,7 +50,7 @@ describe("useCheckoutPreparingRevalidation", () => {
 
   it("revalidates the current fresh-write path on the bounded schedule while the receipt is valid", () => {
     const nowMs = Date.now();
-    const currentPath = appendFreshWriteToken("/checkout/chk_1", checkoutCommit(), nowMs);
+    const currentPath = appendFreshWriteToken("/checkout/buy/session/chk_1", checkoutCommit(), nowMs);
 
     render(<Probe enabled currentPath={currentPath} intervalMs={25} nowMs={() => nowMs} />);
 
@@ -73,7 +73,7 @@ describe("useCheckoutPreparingRevalidation", () => {
   it("issues exactly one final revalidation when the receipt expires, then stops", () => {
     const startMs = Date.now();
     let nowMs = startMs;
-    const currentPath = appendFreshWriteToken("/checkout/chk_1", checkoutCommit(), startMs);
+    const currentPath = appendFreshWriteToken("/checkout/buy/session/chk_1", checkoutCommit(), startMs);
 
     render(<Probe enabled currentPath={currentPath} intervalMs={25} nowMs={() => nowMs} />);
 
@@ -97,7 +97,7 @@ describe("useCheckoutPreparingRevalidation", () => {
 
   it("runs only the final revalidation when the receipt is already expired on mount", () => {
     const startMs = Date.now();
-    const currentPath = appendFreshWriteToken("/checkout/chk_1", checkoutCommit(), startMs - 31_000);
+    const currentPath = appendFreshWriteToken("/checkout/buy/session/chk_1", checkoutCommit(), startMs - 31_000);
 
     render(<Probe enabled currentPath={currentPath} intervalMs={25} nowMs={() => startMs} />);
 
@@ -112,7 +112,7 @@ describe("useCheckoutPreparingRevalidation", () => {
 
   it("stops after the attempt budget even while the receipt stays valid", () => {
     const nowMs = Date.now();
-    const currentPath = appendFreshWriteToken("/checkout/chk_1", checkoutCommit(), nowMs);
+    const currentPath = appendFreshWriteToken("/checkout/buy/session/chk_1", checkoutCommit(), nowMs);
 
     render(<Probe enabled currentPath={currentPath} intervalMs={25} maxRevalidations={2} nowMs={() => nowMs} />);
 
@@ -125,7 +125,7 @@ describe("useCheckoutPreparingRevalidation", () => {
 
   it("skips a tick without consuming the attempt budget while a revalidation is in flight", () => {
     const nowMs = Date.now();
-    const currentPath = appendFreshWriteToken("/checkout/chk_1", checkoutCommit(), nowMs);
+    const currentPath = appendFreshWriteToken("/checkout/buy/session/chk_1", checkoutCommit(), nowMs);
 
     mocks.navigationState = "loading";
     const { rerender } = render(
@@ -148,7 +148,7 @@ describe("useCheckoutPreparingRevalidation", () => {
 
   it("does nothing for non-preparing recovery states or token-less paths", () => {
     const nowMs = Date.now();
-    const freshPath = appendFreshWriteToken("/checkout/chk_1", checkoutCommit(), nowMs);
+    const freshPath = appendFreshWriteToken("/checkout/buy/session/chk_1", checkoutCommit(), nowMs);
 
     const { unmount } = render(<Probe enabled={false} currentPath={freshPath} intervalMs={25} nowMs={() => nowMs} />);
     act(() => {
@@ -158,7 +158,7 @@ describe("useCheckoutPreparingRevalidation", () => {
     expect(screen.getByText("manual")).toBeTruthy();
     unmount();
 
-    render(<Probe enabled currentPath="/checkout/chk_1" intervalMs={25} nowMs={() => nowMs} />);
+    render(<Probe enabled currentPath="/checkout/buy/session/chk_1" intervalMs={25} nowMs={() => nowMs} />);
     act(() => {
       vi.advanceTimersByTime(5_000);
     });

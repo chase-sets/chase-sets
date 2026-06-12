@@ -122,7 +122,7 @@ describe("checkout web routes: checkout session loader", () => {
     });
 
     const result = await checkoutSessionLoader({
-      request: new Request("http://localhost/checkout/chk_1"),
+      request: new Request("http://localhost/checkout/buy/session/chk_1"),
       params: { sessionId: "chk_1" },
       context: undefined,
     } as never);
@@ -189,7 +189,7 @@ describe("checkout web routes: checkout session loader", () => {
     });
 
     const result = await checkoutSessionLoader({
-      request: new Request("http://localhost/checkout/chk_1?edit=delivery"),
+      request: new Request("http://localhost/checkout/buy/session/chk_1?edit=delivery"),
       params: { sessionId: "chk_1" },
       context: undefined,
     } as never);
@@ -245,7 +245,7 @@ describe("checkout web routes: checkout session loader", () => {
     });
 
     const result = await checkoutSessionLoader({
-      request: new Request("http://localhost/checkout/chk_1?edit=provider-payload"),
+      request: new Request("http://localhost/checkout/buy/session/chk_1?edit=provider-payload"),
       params: { sessionId: "chk_1" },
       context: undefined,
     } as never);
@@ -310,7 +310,7 @@ describe("checkout web routes: checkout session loader", () => {
     });
 
     const result = await checkoutSessionLoader({
-      request: new Request("http://localhost/checkout/chk_1"),
+      request: new Request("http://localhost/checkout/buy/session/chk_1"),
       params: { sessionId: "chk_1" },
       context: undefined,
     } as never);
@@ -341,7 +341,7 @@ describe("checkout web routes: checkout session loader", () => {
     let recoveryResponse: Response | null = null;
     try {
       await checkoutSessionLoader({
-        request: new Request("http://localhost/checkout/chk_1"),
+        request: new Request("http://localhost/checkout/buy/session/chk_1"),
         params: { sessionId: "chk_1" },
         context: undefined,
       } as never);
@@ -367,7 +367,7 @@ describe("checkout web routes: checkout session loader", () => {
     let recoveryResponse: Response | null = null;
     try {
       await checkoutSessionLoader({
-        request: new Request("http://localhost/checkout/chk_1"),
+        request: new Request("http://localhost/checkout/buy/session/chk_1"),
         params: { sessionId: "chk_1" },
         context: undefined,
       } as never);
@@ -393,7 +393,7 @@ describe("checkout web routes: checkout session loader", () => {
     let recoveryResponse: Response | null = null;
     try {
       await checkoutSessionLoader({
-        request: new Request("http://localhost/checkout/chk_1"),
+        request: new Request("http://localhost/checkout/buy/session/chk_1"),
         params: { sessionId: "chk_1" },
         context: undefined,
       } as never);
@@ -419,7 +419,7 @@ describe("checkout web routes: checkout session loader", () => {
     let recoveryResponse: Response | null = null;
     try {
       await checkoutSessionLoader({
-        request: new Request("http://localhost/checkout/chk_1"),
+        request: new Request("http://localhost/checkout/buy/session/chk_1"),
         params: { sessionId: "chk_1" },
         context: undefined,
       } as never);
@@ -453,7 +453,7 @@ describe("checkout web routes: checkout session loader", () => {
     let recoveryResponse: Response | null = null;
     try {
       await checkoutSessionLoader({
-        request: new Request("http://localhost/checkout/chk_1"),
+        request: new Request("http://localhost/checkout/buy/session/chk_1"),
         params: { sessionId: "chk_1" },
         context: undefined,
       } as never);
@@ -487,7 +487,7 @@ describe("checkout web routes: checkout session loader", () => {
         });
       }),
     });
-    const expiredPath = appendFreshWriteToken("/checkout/chk_1", checkoutCommit("42", "evt_checkout"), 1);
+    const expiredPath = appendFreshWriteToken("/checkout/buy/session/chk_1", checkoutCommit("42", "evt_checkout"), 1);
 
     let recoveryResponse: Response | null = null;
     try {
@@ -527,7 +527,7 @@ describe("checkout web routes: checkout session loader", () => {
     let recoveryResponse: Response | null = null;
     try {
       await checkoutSessionLoader({
-        request: new Request("http://localhost/checkout/chk_1?afterWrite=%7Bnot-json"),
+        request: new Request("http://localhost/checkout/buy/session/chk_1?afterWrite=%7Bnot-json"),
         params: { sessionId: "chk_1" },
         context: undefined,
       } as never);
@@ -574,7 +574,7 @@ describe("checkout web routes: checkout session loader", () => {
     };
     expect(recoveryBody.description).toContain("getting your checkout ready");
     expect(recoveryBody.trustCue).toBe("Your payment has not started.");
-    expect(recoveryBody.primaryAction?.href).toContain("/checkout/chk_1?afterWrite=");
+    expect(recoveryBody.primaryAction?.href).toContain("/checkout/buy/session/chk_1?afterWrite=");
     expect(recoveryBody.primaryAction?.label).toBe("Refresh checkout");
   });
 
@@ -632,7 +632,7 @@ describe("checkout web routes: checkout session loader", () => {
       primaryAction?: { href?: string; label?: string };
       trustCue?: string;
     };
-    expect(recoveryBody.primaryAction?.href).toContain("/checkout/chk_1?afterWrite=");
+    expect(recoveryBody.primaryAction?.href).toContain("/checkout/buy/session/chk_1?afterWrite=");
     expect(recoveryBody.primaryAction?.label).toBe("Refresh checkout");
     expect(recoveryBody.trustCue).toBe("Your payment has not started.");
   });
@@ -701,7 +701,7 @@ describe("checkout web routes: checkout session loader", () => {
     let redirectResponse: Response | null = null;
     try {
       await checkoutSessionLoader({
-        request: new Request("http://localhost/checkout/chk_1"),
+        request: new Request("http://localhost/checkout/buy/session/chk_1"),
         params: { sessionId: "chk_1" },
         context: undefined,
       } as never);
@@ -733,7 +733,7 @@ describe("checkout web routes: checkout session loader", () => {
     let redirectResponse: Response | null = null;
     try {
       await checkoutSessionLoader({
-        request: new Request("http://localhost/checkout/chk_1"),
+        request: new Request("http://localhost/checkout/buy/session/chk_1"),
         params: { sessionId: "chk_1" },
         context: undefined,
       } as never);
@@ -766,7 +766,7 @@ describe("checkout web routes: checkout session loader", () => {
     let redirectResponse: Response | null = null;
     try {
       await checkoutSessionLoader({
-        request: new Request("http://localhost/checkout/chk_1"),
+        request: new Request("http://localhost/checkout/buy/session/chk_1"),
         params: { sessionId: "chk_1" },
         context: undefined,
       } as never);

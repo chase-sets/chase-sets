@@ -761,7 +761,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
         quantity: String(quantity),
       });
 
-      return redirect(`/checkout/start?${query.toString()}`);
+      return redirect(`/checkout/buy/readiness?${query.toString()}`);
     }
 
     if (intent === "add-to-cart") {
@@ -867,14 +867,14 @@ export async function action({ request, params }: ActionFunctionArgs) {
             : "",
           fulfillment: t("discovery.routes.itemDetail.confirmed.at.checkout"),
         });
-        return redirect(`/checkout/start?${query.toString()}`);
+        return redirect(`/checkout/buy/readiness?${query.toString()}`);
       }
 
       const session = await checkoutApi.createCheckoutSession({
         source,
       });
 
-      return redirect(appendFreshWriteToken(`/checkout/${session.session_id}`, session));
+      return redirect(appendFreshWriteToken(`/checkout/buy/session/${session.session_id}`, session));
     }
 
     if (intent === "sell-now") {

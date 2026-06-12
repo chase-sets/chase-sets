@@ -112,7 +112,7 @@ function checkoutStartHref(listing: DiscoveryPublicListing) {
     params.set("productSummary", listing.product_summary);
   }
 
-  return `/checkout/start?${params.toString()}`;
+  return `/checkout/buy/readiness?${params.toString()}`;
 }
 
 type ProductJsonLd = Readonly<{

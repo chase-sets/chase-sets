@@ -353,7 +353,7 @@ export async function action({ request }: ActionFunctionArgs) {
         forceRefresh: forceReadinessRefresh,
       });
       const session = await api.createCheckoutSession(sessionRequest);
-      const response = redirect(appendFreshWriteToken(`/checkout/${session.session_id}`, session));
+      const response = redirect(appendFreshWriteToken(`/checkout/buy/session/${session.session_id}`, session));
       if (anonymousCartId) {
         appendClearedAnonymousCartCookie(response.headers, request);
       }
@@ -426,7 +426,7 @@ export async function action({ request }: ActionFunctionArgs) {
       forceRefresh: forceReadinessRefresh,
     });
     const session = await guestApi.createCheckoutSession(sessionRequest);
-    const response = redirectDocument(appendFreshWriteToken(`/checkout/${session.session_id}`, session));
+    const response = redirectDocument(appendFreshWriteToken(`/checkout/buy/session/${session.session_id}`, session));
     appendGuestCheckoutCookie(response.headers, guest.guestToken, request);
     appendClearedAnonymousCartCookie(response.headers, request);
 
@@ -445,7 +445,8 @@ export default function CheckoutStartRoute() {
     isSignedIn: data.isSignedIn,
     isOfferIntent,
   });
-  const signInReturnTo = new URLSearchParams(data.signInPath.split("?")[1] ?? "").get("returnTo") ?? "/checkout/start";
+  const signInReturnTo =
+    new URLSearchParams(data.signInPath.split("?")[1] ?? "").get("returnTo") ?? "/checkout/buy/readiness";
   const registerPath = `/register?returnTo=${encodeURIComponent(signInReturnTo)}`;
   const sourceFields = source ? (
     <>

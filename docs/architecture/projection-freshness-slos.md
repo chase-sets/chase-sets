@@ -4,7 +4,7 @@
 
 Critical post-write reads must feel synchronous to the customer even though Chase Sets keeps read models eventually consistent. The platform contract is receipt propagation plus bounded projection checkpoint gating, not synchronous write-drain.
 
-This document defines the shared SLOs and rollout gates for read-model-backed routes reached immediately after a write. The first critical flow is guest Buy Now checkout: `checkout-start` creates a Checkout Session, redirects to `/checkout/:sessionId` with `afterWrite`, and the destination reads `checkout_session_pages` through Checkout `/account/checkout-sessions/:sessionId`.
+This document defines the shared SLOs and rollout gates for read-model-backed routes reached immediately after a write. The first critical flow is guest Buy Now checkout: `buy-checkout-readiness` creates a Checkout Session, redirects to `/checkout/buy/session/:sessionId` with `afterWrite`, and the destination reads `checkout_session_pages` through Checkout `/account/checkout-sessions/:sessionId`.
 
 Since the push-first projection runtime (ADR 0010, Milestone #19), the waits these SLOs gate are wake-accelerated where the environment enables push: write-to-ready time decomposes into the push segments commit-to-notify, notify-to-relay, relay-to-control-plane-store, control-plane-claim-to-worker, checkpoint-readiness, and route-wait. The polling-era description of these waits as poll-bounded only is superseded: polling is now the documented fallback bound, not the primary path, in push-enabled environments. Per-segment instrumentation, live evidence, and ratification status are consolidated in [Push-Wake SLO And Load Proof](./push-wake-slo-load-proof.md).
 
@@ -22,8 +22,8 @@ New route inventory entries must classify the flow. Critical entries cannot clos
 
 The first enforced target is Checkout `checkout.session-start-to-detail`:
 
-- Source route: `checkout-start`.
-- Destination route: `checkout-session`.
+- Source route: `buy-checkout-readiness`.
+- Destination route: `buy-checkout-session`.
 - API route: `/api/marketplace/account/checkout-sessions/:sessionId`.
 - Read model: `checkout_session_pages`.
 - Projection group: `checkout.session-projection`.

@@ -285,7 +285,7 @@ describe("item detail buy now checkout actions", () => {
     expect(mockRequireActorFromAuthApi).not.toHaveBeenCalled();
     expect(response.status).toBe(302);
     const redirectUrl = new URL(response.headers.get("Location")!, "http://localhost");
-    expect(redirectUrl.pathname).toBe("/checkout/start");
+    expect(redirectUrl.pathname).toBe("/checkout/buy/readiness");
     expect(redirectUrl.searchParams.get("source")).toBe("offer-intent");
     expect(redirectUrl.searchParams.get("catalogItemId")).toBe("cat_charizard");
     expect(redirectUrl.searchParams.get("productId")).toBe("cat_charizard::form:raw");
@@ -339,7 +339,7 @@ describe("item detail buy now checkout actions", () => {
 
     expect(response.status).toBe(302);
     const redirectUrl = new URL(response.headers.get("Location")!, "http://localhost");
-    expect(redirectUrl.pathname).toBe("/checkout/start");
+    expect(redirectUrl.pathname).toBe("/checkout/buy/readiness");
     expect(redirectUrl.searchParams.get("source")).toBe("offer-intent");
     expect(redirectUrl.searchParams.get("productId")).toBe("cat_charizard::form:raw");
     expect(redirectUrl.searchParams.get("selectedOptions")).toBe(
@@ -406,7 +406,7 @@ describe("item detail buy now checkout actions", () => {
       },
     });
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/checkout/chk_buy_now");
+    expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_buy_now");
     expect(mockAddCartLine).not.toHaveBeenCalled();
   });
 
@@ -820,7 +820,7 @@ describe("item detail buy now checkout actions", () => {
     const redirectUrl = new URL(location, "http://localhost");
 
     expect(response.status).toBe(302);
-    expect(redirectUrl.pathname).toBe("/checkout/start");
+    expect(redirectUrl.pathname).toBe("/checkout/buy/readiness");
     expect(redirectUrl.searchParams.get("source")).toBe("buy-now");
     expect(redirectUrl.searchParams.get("listingId")).toBe("");
     expect(redirectUrl.searchParams.get("fulfillmentMode")).toBe("optimize");
@@ -886,7 +886,7 @@ describe("item detail buy now checkout actions", () => {
 
     const redirectUrl = new URL(response.headers.get("Location") ?? "", "http://localhost");
     expect(response.status).toBe(302);
-    expect(redirectUrl.pathname).toBe("/checkout/start");
+    expect(redirectUrl.pathname).toBe("/checkout/buy/readiness");
     expect(redirectUrl.searchParams.get("fulfillmentMode")).toBe("locked-listing");
     expect(redirectUrl.searchParams.get("lockedListingId")).toBe("lst_charizard");
     expect(redirectUrl.searchParams.get("priceAmount")).toBe("380.00");
@@ -1050,7 +1050,7 @@ describe("item detail buy now checkout actions", () => {
       }),
     });
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/checkout/chk_buy_now");
+    expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_buy_now");
     expect(mockAddGuestCartLine).not.toHaveBeenCalled();
   });
 
@@ -1111,7 +1111,7 @@ describe("item detail buy now checkout actions", () => {
       }),
     });
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/checkout/chk_locked");
+    expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_locked");
     expect(mockAddGuestCartLine).not.toHaveBeenCalled();
   });
 });

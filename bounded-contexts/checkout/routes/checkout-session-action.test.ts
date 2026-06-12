@@ -112,7 +112,7 @@ describe("checkout web routes: checkout session action", () => {
     form.set("marketplaceCheckoutFeeQuoteFingerprint", "quote_bank_1");
 
     const response = (await checkoutSessionAction({
-      request: new Request("http://localhost/checkout/chk_1", {
+      request: new Request("http://localhost/checkout/buy/session/chk_1", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: form.toString(),
@@ -176,7 +176,7 @@ describe("checkout web routes: checkout session action", () => {
     form.set("shippingCountry", "US");
 
     const response = (await checkoutSessionAction({
-      request: new Request("http://localhost/checkout/chk_1", {
+      request: new Request("http://localhost/checkout/buy/session/chk_1", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: form.toString(),
@@ -221,7 +221,7 @@ describe("checkout web routes: checkout session action", () => {
     form.set("shippingCountry", "US");
 
     const response = (await checkoutSessionAction({
-      request: new Request("http://localhost/checkout/chk_1", {
+      request: new Request("http://localhost/checkout/buy/session/chk_1", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: form.toString(),
@@ -268,7 +268,7 @@ describe("checkout web routes: checkout session action", () => {
     form.set("shippingCountry", "US");
 
     const response = (await checkoutSessionAction({
-      request: new Request("http://localhost/checkout/chk_1", {
+      request: new Request("http://localhost/checkout/buy/session/chk_1", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: form.toString(),
@@ -310,7 +310,7 @@ describe("checkout web routes: checkout session action", () => {
     form.set("shippingCountry", "US");
 
     const response = (await checkoutSessionAction({
-      request: new Request("http://localhost/checkout/chk_1", {
+      request: new Request("http://localhost/checkout/buy/session/chk_1", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: form.toString(),
@@ -352,7 +352,7 @@ describe("checkout web routes: checkout session action", () => {
     form.set("shippingCountry", "US");
 
     const response = (await checkoutSessionAction({
-      request: new Request("http://localhost/checkout/chk_1", {
+      request: new Request("http://localhost/checkout/buy/session/chk_1", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: form.toString(),
@@ -367,7 +367,7 @@ describe("checkout web routes: checkout session action", () => {
     });
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe(
-      "/checkout/chk_1?paymentMethodCategory=card&review=updated&quote=required",
+      "/checkout/buy/session/chk_1?paymentMethodCategory=card&review=updated&quote=required",
     );
   });
 
@@ -393,7 +393,7 @@ describe("checkout web routes: checkout session action", () => {
     form.set("previewPaymentMethodCategory", "bank-account");
 
     const response = (await checkoutSessionAction({
-      request: new Request("http://localhost/checkout/chk_1", {
+      request: new Request("http://localhost/checkout/buy/session/chk_1", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: form.toString(),
@@ -413,7 +413,7 @@ describe("checkout web routes: checkout session action", () => {
     });
     expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/checkout/chk_1?paymentMethodCategory=bank-account");
+    expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_1?paymentMethodCategory=bank-account");
   });
 
   it("refreshes guest checkout totals with a fresh-write redirect token", async () => {
@@ -438,7 +438,7 @@ describe("checkout web routes: checkout session action", () => {
     form.set("previewPaymentMethodCategory", "card");
 
     const response = (await checkoutSessionAction({
-      request: new Request("http://localhost/checkout/chk_1", {
+      request: new Request("http://localhost/checkout/buy/session/chk_1", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: form.toString(),
@@ -450,7 +450,7 @@ describe("checkout web routes: checkout session action", () => {
     const receipt = readFreshWriteToken(location);
 
     expect(response.status).toBe(302);
-    expect(location).toContain("/checkout/chk_1?paymentMethodCategory=card&afterWrite=");
+    expect(location).toContain("/checkout/buy/session/chk_1?paymentMethodCategory=card&afterWrite=");
     expect(receipt?.commitPosition).toBe("42");
     expect(receipt?.sources).toEqual([
       {
@@ -485,7 +485,7 @@ describe("checkout web routes: checkout session action", () => {
     form.set("shippingCountry", "US");
 
     const response = (await checkoutSessionAction({
-      request: new Request("http://localhost/checkout/chk_1", {
+      request: new Request("http://localhost/checkout/buy/session/chk_1", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: form.toString(),
@@ -499,7 +499,9 @@ describe("checkout web routes: checkout session action", () => {
       shippingAddress: expect.objectContaining({ postalCode: "60601" }),
     });
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/checkout/chk_1?paymentMethodCategory=bank-account&review=updated");
+    expect(response.headers.get("Location")).toBe(
+      "/checkout/buy/session/chk_1?paymentMethodCategory=bank-account&review=updated",
+    );
   });
 
   it("refreshes checkout review instead of confirming when submitted shipping differs from the visible preview", async () => {
@@ -528,7 +530,7 @@ describe("checkout web routes: checkout session action", () => {
     form.set("shippingCountry", "US");
 
     const response = (await checkoutSessionAction({
-      request: new Request("http://localhost/checkout/chk_1", {
+      request: new Request("http://localhost/checkout/buy/session/chk_1", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: form.toString(),
@@ -548,7 +550,9 @@ describe("checkout web routes: checkout session action", () => {
     });
     expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/checkout/chk_1?paymentMethodCategory=card&review=updated");
+    expect(response.headers.get("Location")).toBe(
+      "/checkout/buy/session/chk_1?paymentMethodCategory=card&review=updated",
+    );
   });
 
   it("keeps checkout review refresh fallback freshness-aware", async () => {
@@ -579,7 +583,7 @@ describe("checkout web routes: checkout session action", () => {
     form.set("shippingCountry", "US");
 
     const response = (await checkoutSessionAction({
-      request: new Request("http://localhost/checkout/chk_1", {
+      request: new Request("http://localhost/checkout/buy/session/chk_1", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: form.toString(),
@@ -591,7 +595,7 @@ describe("checkout web routes: checkout session action", () => {
     const receipt = readFreshWriteToken(location);
 
     expect(response.status).toBe(302);
-    expect(location).toContain("/checkout/chk_1?paymentMethodCategory=card&review=updated&afterWrite=");
+    expect(location).toContain("/checkout/buy/session/chk_1?paymentMethodCategory=card&review=updated&afterWrite=");
     expect(receipt?.commitPosition).toBe("44");
     expect(receipt?.sources).toEqual([
       {
@@ -624,7 +628,7 @@ describe("checkout web routes: checkout session action", () => {
     form.set("shippingCountry", "US");
 
     const response = (await checkoutSessionAction({
-      request: new Request("http://localhost/checkout/chk_1", {
+      request: new Request("http://localhost/checkout/buy/session/chk_1", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: form.toString(),
@@ -663,7 +667,7 @@ describe("checkout web routes: checkout session action", () => {
     form.set("shippingCountry", "US");
 
     const response = (await checkoutSessionAction({
-      request: new Request("http://localhost/checkout/chk_1", {
+      request: new Request("http://localhost/checkout/buy/session/chk_1", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: form.toString(),

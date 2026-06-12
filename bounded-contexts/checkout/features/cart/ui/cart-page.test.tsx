@@ -74,7 +74,7 @@ describe("checkout cart page", () => {
     expect(markup).toContain("Calculated at checkout");
     expect(markup).toContain("Taxes and shipping are calculated at checkout.");
     expect(markup).toContain("Check out");
-    expect(markup).toContain('action="/checkout/start"');
+    expect(markup).toContain('action="/checkout/buy/readiness"');
     expect(markup).toContain('name="readinessSnapshotId"');
     expect(markup).toContain('name="readinessSourceRevision"');
     expect(markup).toContain('name="readinessDecisions"');
@@ -148,7 +148,7 @@ describe("checkout cart page", () => {
     expect(markup).toContain("Resolve items");
     expect(markup).toContain('href="/checkout/buy/readiness"');
     expect(markup).toContain("Resolve item availability before payment starts.");
-    expect(markup).not.toContain('action="/checkout/start"');
+    expect(markup).not.toContain('action="/checkout/buy/readiness"');
     expect(markup).not.toContain("Check out");
   });
 
