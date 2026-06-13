@@ -38,6 +38,7 @@ import {
   type CheckoutSessionState,
   type CheckoutSplitGroupHandoff,
 } from "../domain/domain";
+import { checkoutDeliveryServiceabilityIssue } from "../domain/delivery-serviceability";
 import { buildCheckoutSessionProjectionHandlers } from "../read-model/projection";
 import { getCheckoutSession, type CheckoutSessionRow } from "../read-model/queries";
 import { assertCheckoutLinesHaveAssignedFulfillment, unresolvedFulfillmentError } from "./checkout-fulfillment-runtime";
@@ -237,42 +238,10 @@ function readinessStaleError(code = "readiness_snapshot_stale") {
   return new CheckoutDomainError("Cart readiness changed. Review your cart before checkout.", code);
 }
 
-const unsupportedDeliveryRegions = new Set(["AA", "AE", "AP", "AS", "FM", "GU", "MH", "MP", "PR", "PW", "VI"]);
-
-function unsupportedDeliveryRegionError() {
-  return new CheckoutDomainError(
-    "This delivery region is not supported for checkout yet. Use a supported US delivery address.",
-    "shipping_address_unsupported",
-  );
-}
-
-function restrictedDeliveryAddressError() {
-  return new CheckoutDomainError(
-    "This delivery address is not supported for the selected shipping service. Use a street address before paying.",
-    "shipping_address_restricted",
-  );
-}
-
-function requiredDeliveryAddressError() {
-  return new CheckoutDomainError("Confirm the shipping address before creating orders.", "shipping_address_required");
-}
-
 function assertBuyerDeliveryAddressServiceable(address: CheckoutShippingAddress | null | undefined) {
-  if (!address) {
-    throw requiredDeliveryAddressError();
-  }
-
-  if (address.country.trim().toUpperCase() !== "US") {
-    throw unsupportedDeliveryRegionError();
-  }
-
-  if (unsupportedDeliveryRegions.has(address.state.trim().toUpperCase())) {
-    throw unsupportedDeliveryRegionError();
-  }
-
-  const streetLines = [address.line1, address.line2 ?? ""].join(" ");
-  if (/\bP(?:OST)?\.?\s*O(?:FFICE)?\.?\s*BOX\b/i.test(streetLines) || /\bP\.?\s*O\.?\s*BOX\b/i.test(streetLines)) {
-    throw restrictedDeliveryAddressError();
+  const issue = checkoutDeliveryServiceabilityIssue(address);
+  if (issue) {
+    throw new CheckoutDomainError(issue.message, issue.code);
   }
 }
 
