@@ -1,12 +1,23 @@
-import type { AnchorHTMLAttributes, HTMLAttributes, ImgHTMLAttributes, LabelHTMLAttributes, ReactNode } from "react";
+import {
+  forwardRef,
+  type AnchorHTMLAttributes,
+  type ElementType,
+  type HTMLAttributes,
+  type ImgHTMLAttributes,
+  type LabelHTMLAttributes,
+  type ReactNode,
+  type Ref,
+} from "react";
 import { Icon, type IconName } from "../icons";
 import { cx } from "../utils/cx";
 import { resolveTextAlignClass, type TextAlignValue } from "../utils/system";
 import { AspectRatio, Center, Surface } from "./layout";
+import type { PolymorphicPrimitive, PolymorphicProps } from "./polymorphic";
 
 type TextElement = "p" | "span" | "strong" | "em" | "div";
 
 type FrameProps = Omit<HTMLAttributes<HTMLElement>, "className" | "style">;
+type HeadingLevel = 1 | 2 | 3 | 4 | 5 | 6;
 
 const textSizeClasses = {
   xs: "text-xs",
@@ -30,7 +41,7 @@ const textToneClasses = {
   danger: "text-danger",
 } as const;
 
-export interface TextProps extends FrameProps {
+export interface TextOwnProps {
   children?: ReactNode;
   element?: TextElement;
   size?: keyof typeof textSizeClasses;
@@ -41,22 +52,30 @@ export interface TextProps extends FrameProps {
   wrap?: "normal" | "break" | "anywhere";
 }
 
-export function Text({
-  children,
-  element = "p",
-  size = "md",
-  tone = "primary",
-  weight = "regular",
-  align,
-  truncate = false,
-  wrap = "normal",
-  ...rest
-}: TextProps) {
-  const Component = element;
+export type TextProps<TTarget extends ElementType = "p"> = PolymorphicProps<TTarget, TextOwnProps>;
+
+export const Text = forwardRef(function Text(
+  {
+    children,
+    as,
+    render,
+    element = "p",
+    size = "md",
+    tone = "primary",
+    weight = "regular",
+    align,
+    truncate = false,
+    wrap = "normal",
+    ...rest
+  }: TextProps<ElementType>,
+  ref: Ref<unknown>,
+) {
+  const Component = (as ?? render ?? element) as ElementType;
 
   return (
     <Component
       {...rest}
+      ref={ref}
       className={cx(
         "leading-relaxed",
         textSizeClasses[size],
@@ -71,15 +90,16 @@ export function Text({
       {children}
     </Component>
   );
-}
+}) as PolymorphicPrimitive<TextOwnProps, "p">;
 
 export interface HeadingProps extends FrameProps {
   children?: ReactNode;
-  level?: 1 | 2 | 3 | 4 | 5 | 6;
+  level?: HeadingLevel;
+  visualSize?: HeadingLevel;
   align?: TextAlignValue;
 }
 
-const headingClasses: Record<NonNullable<HeadingProps["level"]>, string> = {
+const headingClasses: Record<HeadingLevel, string> = {
   1: "font-display text-4xl font-semibold leading-tight md:text-5xl md:leading-[1.15]",
   2: "font-heading text-3xl font-semibold leading-tight md:text-4xl md:leading-tight",
   3: "font-heading text-2xl font-semibold leading-snug md:text-3xl md:leading-tight",
@@ -88,11 +108,11 @@ const headingClasses: Record<NonNullable<HeadingProps["level"]>, string> = {
   6: "font-heading text-base font-semibold leading-snug",
 };
 
-export function Heading({ children, level = 2, align, ...rest }: HeadingProps) {
+export function Heading({ children, level = 2, visualSize = level, align, ...rest }: HeadingProps) {
   const Component = `h${level}` as const;
 
   return (
-    <Component {...rest} className={cx(headingClasses[level], resolveTextAlignClass(align))}>
+    <Component {...rest} className={cx(headingClasses[visualSize], resolveTextAlignClass(align))}>
       {children}
     </Component>
   );
@@ -125,9 +145,9 @@ export function Label({ muted = false, ...rest }: LabelProps) {
   return <label {...rest} className={cx("text-sm font-medium", muted ? "text-secondary" : "text-foreground")} />;
 }
 
-export interface CaptionProps extends TextProps {}
+export type CaptionProps<TTarget extends ElementType = "p"> = TextProps<TTarget>;
 
-export function Caption(props: CaptionProps) {
+export function Caption<TTarget extends ElementType = "p">(props: CaptionProps<TTarget>) {
   return <Text {...props} size={props.size ?? "xs"} tone={props.tone ?? "secondary"} />;
 }
 
