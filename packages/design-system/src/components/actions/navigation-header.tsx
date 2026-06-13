@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
-import { cn } from "../../lib/utils";
-import { Badge } from "./badge";
+import { cx } from "../../utils/cx";
+import { Badge } from "../feedback/badge";
 
 export interface NavigationHeaderItem {
   label: ReactNode;
@@ -33,8 +33,8 @@ export function NavigationHeader({
 }: NavigationHeaderProps) {
   return (
     <header
-      className={cn(
-        "z-40 border-b border-[var(--muted)] bg-[color-mix(in_srgb,var(--background)_88%,transparent)] backdrop-blur",
+      className={cx(
+        "z-40 border-b border-muted bg-background/overlay backdrop-blur",
         sticky && "sticky top-0",
         className,
       )}
@@ -42,16 +42,20 @@ export function NavigationHeader({
       <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-4 md:flex-row md:items-center md:justify-between">
         <div className="flex min-w-0 items-center gap-3">
           {logo ? (
-            <div className="grid h-12 w-12 shrink-0 place-items-center rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--card)] shadow-[var(--shadow-sm)]">
+            <div className="grid h-12 w-12 shrink-0 place-items-center rounded-tokenLg border border-border bg-surface shadow-tokenSm">
               {logo}
             </div>
           ) : null}
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <strong className="ds-display truncate text-2xl">{brand}</strong>
-              {badge ? <Badge variant="secondary">{badge}</Badge> : null}
+              {badge ? (
+                <Badge variant="solid" tone="neutral">
+                  {badge}
+                </Badge>
+              ) : null}
             </div>
-            {description ? <p className="m-0 text-sm text-[var(--muted-foreground)]">{description}</p> : null}
+            {description ? <p className="m-0 text-sm text-secondary">{description}</p> : null}
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -61,11 +65,11 @@ export function NavigationHeader({
                 key={item.href}
                 href={item.href}
                 aria-current={item.active ? "page" : undefined}
-                className={cn(
-                  "rounded-[var(--radius)] px-3 py-2 text-sm font-semibold transition-colors",
+                className={cx(
+                  "rounded-tokenMd px-3 py-2 text-sm font-semibold transition-colors",
                   item.active
-                    ? "bg-[var(--primary)] text-[var(--primary-foreground)] shadow-[var(--shadow-sm)]"
-                    : "text-[var(--muted-foreground)] hover:bg-[var(--secondary)] hover:text-[var(--foreground)]",
+                    ? "bg-accent text-accent-contrast shadow-tokenSm"
+                    : "text-secondary hover:bg-surface-2 hover:text-foreground",
                 )}
               >
                 {item.label}

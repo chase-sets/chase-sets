@@ -304,9 +304,6 @@
       "@chase-sets/design-system/typography": [
         "./packages/design-system/src/primitives/typography.tsx"
       ],
-      "@chase-sets/design-system/utils": [
-        "./packages/design-system/src/lib/utils.ts"
-      ],
       "@chase-sets/design-system/utils/cx": [
         "./packages/design-system/src/utils/cx.ts"
       ],

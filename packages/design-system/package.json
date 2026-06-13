@@ -70,7 +70,6 @@
     "./toolbar": "./src/components/actions/toolbar.tsx",
     "./tooltip": "./src/components/feedback/tooltip.tsx",
     "./typography": "./src/primitives/typography.tsx",
-    "./utils": "./src/lib/utils.ts",
     "./utils/cx": "./src/utils/cx.ts",
     "./utils/system": "./src/utils/system.ts"
   },

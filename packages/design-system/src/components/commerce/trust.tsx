@@ -1,9 +1,8 @@
 import type { MouseEventHandler, ReactNode } from "react";
 import { Icon, type IconName } from "../../icons";
 import { cx } from "../../utils/cx";
-import { Badge } from "../feedback";
+import { Badge, Progress } from "../feedback";
 import { Card } from "../data-display/card";
-import { Progress } from "../compat/progress";
 import { hasReviewCount, normalizeRatingValue, type TrustTone } from "./shared";
 
 export interface TrustBadgeProps {

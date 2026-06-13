@@ -48,7 +48,6 @@ const canonicalReserveZeroConsumerExports = [
   "CheckoutTotals",
   "CheckoutTrustPanel",
   "clearFieldError",
-  "cn",
   "ColorModeToggle",
   "CommentsSheet",
   "ComparisonModule",

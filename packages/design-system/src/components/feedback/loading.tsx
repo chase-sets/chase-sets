@@ -66,6 +66,39 @@ export function ProgressBar({
   );
 }
 
+export type ProgressTone = "neutral" | "active" | "success" | "blocked";
+
+export interface ProgressProps {
+  value: number;
+  tone?: ProgressTone;
+  className?: string;
+}
+
+export function Progress({ value, tone = "active", className }: ProgressProps) {
+  const percentage = Math.max(0, Math.min(100, value));
+
+  return (
+    <div
+      className={cx("h-2 overflow-hidden rounded-tokenFull bg-muted", className)}
+      role="progressbar"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={value}
+    >
+      <div
+        className={cx(
+          "h-full rounded-tokenFull transition-all",
+          tone === "neutral" && "bg-secondary",
+          tone === "active" && "bg-accent",
+          tone === "success" && "bg-success",
+          tone === "blocked" && "bg-danger",
+        )}
+        style={{ width: `${percentage}%` }}
+      />
+    </div>
+  );
+}
+
 export interface SkeletonProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
   height?: "sm" | "md" | "lg";
 }

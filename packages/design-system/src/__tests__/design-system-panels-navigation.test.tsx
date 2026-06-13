@@ -3,6 +3,7 @@ import { type MouseEvent } from "react";
 import userEvent from "@testing-library/user-event";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
+import * as DesignSystem from "../index";
 import {
   BottomSheet,
   BottomNav,
@@ -54,6 +55,17 @@ import {
 } from "../index";
 
 describe("design system panels, navigation, and shells", () => {
+  it("keeps promoted survivors on the root surface and removed compat helpers off it", () => {
+    const surface = DesignSystem as Record<string, unknown>;
+
+    expect(surface.NavigationHeader).toBe(NavigationHeader);
+    expect(surface.Progress).toBeTypeOf("function");
+    expect(surface.ThemeToggle).toBe(ThemeToggle);
+    expect(surface.cn).toBeUndefined();
+    expect(surface.UiBadge).toBeUndefined();
+    expect(surface.UiCard).toBeUndefined();
+  });
+
   it("renders canonical panel interaction components", async () => {
     const user = userEvent.setup();
 
