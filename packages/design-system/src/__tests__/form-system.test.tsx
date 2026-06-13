@@ -486,7 +486,9 @@ describe("form system", () => {
   it("hides decorative currency prefixes while naming the currency", () => {
     const { container } = render(<CurrencyInput id="price" label="Price" />);
 
-    expect(screen.getByRole("spinbutton", { name: /Price.*US dollars/ })).toBeTruthy();
+    const input = screen.getByRole("spinbutton", { name: "Price" });
+    expect(input).toBeTruthy();
+    expect(screen.getByRole("spinbutton", { description: /US dollars/ })).toBe(input);
 
     const prefix = container.querySelector("span[aria-hidden='true']");
 

@@ -81,18 +81,17 @@ export function CurrencyInput({
 }: CurrencyInputProps) {
   const fallbackId = useId();
   const inputId = id ?? fallbackId;
+  const currencyDescription = (
+    <>
+      {description}
+      <span className="sr-only"> Amount in {currencyLabel}.</span>
+    </>
+  );
 
   return (
     <FieldChrome
-      label={
-        label ? (
-          <>
-            {label}
-            <span className="sr-only"> ({currencyLabel})</span>
-          </>
-        ) : undefined
-      }
-      description={description}
+      label={label}
+      description={currencyDescription}
       error={error}
       status={status}
       counter={counter}
@@ -113,10 +112,10 @@ export function CurrencyInput({
           required={required}
           type="number"
           inputMode="decimal"
-          aria-label={ariaLabel ? `${ariaLabel} (${currencyLabel})` : undefined}
+          aria-label={ariaLabel}
           aria-describedby={fieldDescribedBy({
             inputId,
-            description,
+            description: currencyDescription,
             error,
             status,
             counter,
