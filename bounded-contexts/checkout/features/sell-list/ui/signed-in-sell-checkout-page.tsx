@@ -2,7 +2,6 @@ import { useState } from "react";
 import {
   Button,
   Checkbox,
-  CheckoutConfirmationPanel,
   CheckoutFlowShell,
   CheckoutFormSection,
   CheckoutMobileSummaryDisclosure,
@@ -90,27 +89,6 @@ export type SignedInSellCheckoutFormValues = Readonly<{
 
 export type SignedInSellCheckoutFieldErrors = Partial<Record<keyof SignedInSellCheckoutFormValues | "form", string>>;
 
-export type SignedInSellCheckoutSideEffectStatus =
-  | "not-attempted"
-  | "not-applicable"
-  | "handoff-recorded"
-  | "pending-downstream"
-  | "failed";
-
-export type SignedInSellCheckoutConfirmation = Readonly<{
-  referenceId: string;
-  sellerName: string;
-  estimatedTotal: string;
-  sideEffects: Readonly<{
-    sale: SignedInSellCheckoutSideEffectStatus;
-    label: SignedInSellCheckoutSideEffectStatus;
-    payout: SignedInSellCheckoutSideEffectStatus;
-    settlement: SignedInSellCheckoutSideEffectStatus;
-    notification: SignedInSellCheckoutSideEffectStatus;
-    accountHistory: SignedInSellCheckoutSideEffectStatus;
-  }>;
-}>;
-
 export type SignedInSellCheckoutActionState =
   | Readonly<{
       status: "idle";
@@ -120,11 +98,6 @@ export type SignedInSellCheckoutActionState =
       values: SignedInSellCheckoutFormValues;
       fieldErrors: SignedInSellCheckoutFieldErrors;
       recovery?: SignedInSellCheckoutRecovery | null;
-    }>
-  | Readonly<{
-      status: "confirmed";
-      values: SignedInSellCheckoutFormValues;
-      confirmation: SignedInSellCheckoutConfirmation;
     }>;
 
 export type SignedInSellCheckoutEditSection = "contact" | "ship-from" | "payout" | "label";
@@ -381,8 +354,7 @@ export function SignedInSellCheckoutPage({
   initialEditSection = null,
 }: SignedInSellCheckoutPageProps) {
   const [editingSection, setEditingSection] = useState<SignedInSellCheckoutEditSection | null>(initialEditSection);
-  const values =
-    actionState?.status === "error" || actionState?.status === "confirmed" ? actionState.values : defaultValues;
+  const values = actionState?.status === "error" ? actionState.values : defaultValues;
   const fieldErrors = actionState?.status === "error" ? actionState.fieldErrors : {};
   const activeRecovery = actionState?.status === "error" && actionState.recovery ? actionState.recovery : recovery;
   const estimatedTotal = formatMoney(totalLineValue(lines));
@@ -425,50 +397,6 @@ export function SignedInSellCheckoutPage({
               <LinkButton href="/account/sell-list">
                 {t("checkout.features.sellList.ui.signedInSellCheckoutPage.review.sell.list")}
               </LinkButton>
-            }
-          />
-        ) : null}
-
-        {actionState?.status === "confirmed" ? (
-          <CheckoutConfirmationPanel
-            title={t("checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.title")}
-            description={t("checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.description")}
-            referenceLabel={t("checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.reference")}
-            referenceValue={actionState.confirmation.referenceId}
-            supportReferenceLabel={t(
-              "checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.support.reference",
-            )}
-            supportReferenceValue={actionState.confirmation.referenceId}
-            totalLabel={t("checkout.features.sellList.ui.signedInSellCheckoutPage.summary.estimated.payout")}
-            total={actionState.confirmation.estimatedTotal}
-            nextSteps={[
-              {
-                title: t("checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.sale.title"),
-                description: t("checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.sale.description"),
-                icon: "check",
-              },
-              {
-                title: t("checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.label.title"),
-                description: t("checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.label.description"),
-                icon: "truck",
-              },
-              {
-                title: t("checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.side.effects.title"),
-                description: t(
-                  "checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.side.effects.description",
-                ),
-                icon: "shield",
-              },
-            ]}
-            actions={
-              <Stack gap={2} direction={{ base: "column", sm: "row" }}>
-                <LinkButton href="/account/sell-list">
-                  {t("checkout.features.sellList.ui.signedInSellCheckoutPage.view.seller.activity")}
-                </LinkButton>
-                <LinkButton href="/account/sales" tone="secondary">
-                  {t("checkout.features.sellList.ui.signedInSellCheckoutPage.view.committed.sales")}
-                </LinkButton>
-              </Stack>
             }
           />
         ) : null}
