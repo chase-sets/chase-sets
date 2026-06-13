@@ -34,6 +34,7 @@ import {
   productOptionsFromSummary,
 } from "@chase-sets/design-system";
 import type { CheckoutFulfillmentPreview, CheckoutSessionRow } from "../../../support/request-support/api-client";
+import { buyCheckoutSupportReference, formatBuyCheckoutReferenceList } from "./buy-checkout-confirmation-formatting";
 import { CheckoutPolicyLinks } from "./checkout-policy-links";
 
 type CheckoutPaymentPreview = Readonly<{
@@ -166,23 +167,6 @@ function formatMoney(value: string | null | undefined) {
   return value ? `$${value}` : t("checkout.features.sessions.ui.checkoutPage.pending");
 }
 
-function formatReferenceList(values: readonly string[]) {
-  return values.length ? values.join(", ") : t("checkout.features.sessions.ui.checkoutPage.pending");
-}
-
-function supportReferenceForSession(session: CheckoutSessionRow) {
-  const splitGroupSupportReference = session.split_group_handoff?.supportReference.trim();
-  if (splitGroupSupportReference) {
-    return splitGroupSupportReference;
-  }
-
-  const readinessGroupSupportReference = session.cart_readiness_snapshot?.fulfillmentGroups
-    .find((group) => group.supportReference.trim().length > 0)
-    ?.supportReference.trim();
-
-  return readinessGroupSupportReference || t("checkout.features.sessions.ui.checkoutPage.pending");
-}
-
 function previewLineForSessionLine(
   line: CheckoutSessionRow["lines"][number],
   previewLines: readonly CheckoutFulfillmentPreview["sellerGroups"][number]["lines"][number][],
@@ -304,8 +288,8 @@ export function CheckoutSessionPage({
           email: "",
         };
   const previewPayableTotal = payment?.marketplace_checkout_fee.total_amount ?? preview?.totals.totalAmount ?? null;
-  const orderReferenceValue = formatReferenceList(session.order_ids);
-  const buySupportReferenceValue = supportReferenceForSession(session);
+  const orderReferenceValue = formatBuyCheckoutReferenceList(session.order_ids);
+  const buySupportReferenceValue = buyCheckoutSupportReference(session);
   const readySavedPaymentInstruments = savedCheckoutInstruments.filter(
     (instrument) => instrument.readiness === "ready",
   );

@@ -233,6 +233,10 @@ function paymentPathForActor(actor: Awaited<ReturnType<typeof resolveActorFromAu
     : `/checkout/payments/${paymentId}`;
 }
 
+function confirmationPathForSession(sessionId: string) {
+  return `/checkout/buy/session/${sessionId}/confirmation`;
+}
+
 function currentPathWithSearch(request: Request) {
   const url = new URL(request.url);
   return `${url.pathname}${url.search}`;
@@ -531,7 +535,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
       if (!result.payment_id) {
         throw new Error("Checkout confirmation did not return payment or purchases.");
       }
-      return redirect(appendFreshWriteToken(paymentPathForActor(actor, result.payment_id), result));
+      return redirect(appendFreshWriteToken(confirmationPathForSession(params.sessionId), result));
     }
 
     return null;

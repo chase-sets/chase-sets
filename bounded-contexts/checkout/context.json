@@ -128,14 +128,12 @@
         "helperUses": ["appendFreshWriteToken"]
       },
       "destination": {
-        "routeId": "account-payment",
-        "transientRecovery": "Payments payment detail owns exact payment-page freshness and shared fresh-write transient recovery."
-      },
-      "exception": {
-        "status": "accepted",
-        "owner": "checkout",
-        "reviewBy": "2026-07-31",
-        "reason": "Checkout only originates the cross-context payment handoff; exact destination freshness is owned by payments.create-to-detail in the Payments context."
+        "routeId": "buy-checkout-confirmation",
+        "apiContextName": "checkout",
+        "apiRoutePath": "/account/checkout-sessions/:sessionId",
+        "readModelTables": ["checkout_session_pages"],
+        "helperUses": ["loadFreshlyWrittenResource"],
+        "transientRecovery": "Checkout confirmation reads the freshly confirmed checkout session before exposing the payment continuation. Payment detail freshness remains owned by Payments when the buyer follows the preserved fresh-write payment link."
       }
     },
     {
@@ -278,6 +276,13 @@
           "routeId": "buy-checkout-session",
           "routePath": "checkout/buy/session/:sessionId",
           "fileExport": "./routes/checkout-session",
+          "routeType": "route",
+          "sourceContext": "checkout"
+        },
+        {
+          "routeId": "buy-checkout-confirmation",
+          "routePath": "checkout/buy/session/:sessionId/confirmation",
+          "fileExport": "./routes/buy-checkout-confirmation",
           "routeType": "route",
           "sourceContext": "checkout"
         }

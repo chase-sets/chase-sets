@@ -108,6 +108,11 @@ describe("fresh checkout read-model schemas", () => {
           fileExport: "./routes/checkout-session",
         }),
         expect.objectContaining({
+          routeId: "buy-checkout-confirmation",
+          routePath: "checkout/buy/session/:sessionId/confirmation",
+          fileExport: "./routes/buy-checkout-confirmation",
+        }),
+        expect.objectContaining({
           routeId: "sell-checkout-session",
           routePath: "checkout/sell/session/:sessionId",
         }),
