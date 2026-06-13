@@ -1096,7 +1096,6 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         accountId,
         paymentId,
         idempotencyKey: providerIdempotencyKey,
-        request: providerRequest,
         createdAt,
       });
 
