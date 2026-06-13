@@ -8,6 +8,7 @@ import {
   type MarketplaceListingPhotoUpload,
   type MarketplaceListingServices,
 } from "./runtime";
+import { parseGradedCardSnapshot, parseShipFromAddressSnapshot } from "./listing-snapshot-parsers";
 
 const ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 const ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_MAX = 30;
@@ -160,9 +161,7 @@ function parseInventorySnapshot(body: Record<string, unknown>) {
   }
 
   const source = snapshot as Record<string, unknown>;
-  // Dynamic draft snapshot ship-from address still needs an AddressSnapshot parser.
-  const shipFromAddress =
-    source.shipFromAddress && typeof source.shipFromAddress === "object" ? (source.shipFromAddress as never) : null;
+  const shipFromAddress = parseShipFromAddressSnapshot(source.shipFromAddress);
 
   if (!shipFromAddress) {
     return null;
@@ -173,8 +172,7 @@ function parseInventorySnapshot(body: Record<string, unknown>) {
     catalogItemId: String(source.catalogItemId ?? ""),
     productId: String(source.productId ?? ""),
     selectedOptions: parseSelectedOptions(source.selectedOptions),
-    // Dynamic draft snapshot graded-card shape still needs a dedicated parser.
-    gradedCard: source.gradedCard && typeof source.gradedCard === "object" ? (source.gradedCard as never) : null,
+    gradedCard: parseGradedCardSnapshot(source.gradedCard),
     storageLocationId: String(source.storageLocationId ?? ""),
     storageLocationName: String(source.storageLocationName ?? ""),
     shipFromCode: String(source.shipFromCode ?? ""),

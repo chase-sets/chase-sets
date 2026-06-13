@@ -4,6 +4,7 @@ import type { InventoryApiEnv } from "../../../api";
 import type { InventoryHoldServices } from "../../holds/api/runtime";
 import type { InventoryItemServices } from "./runtime";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
+import { parseGradedCardShape } from "./graded-card-shape";
 
 function parseSelectedOptions(value: unknown) {
   return Array.isArray(value)
@@ -99,9 +100,7 @@ export function inventoryItemRoutes(items: InventoryItemServices, holds: Invento
           accountId: actor.accountId as AccountId,
           catalogItemId: String(body.catalogItemId ?? ""),
           selectedOptions: parseSelectedOptions(body.selectedOptions),
-          // Dynamic API body graded-card shape still needs a dedicated request parser.
-          gradedCard:
-            typeof body.gradedCard === "object" && body.gradedCard !== null ? (body.gradedCard as never) : null,
+          gradedCard: parseGradedCardShape(body.gradedCard),
           quantity: Number(body.quantity ?? body.quantityCap ?? 0),
           shipFromCode: typeof body.shipFromCode === "string" ? body.shipFromCode : null,
           shipFromAddress: parseShipFromAddress(body.shipFromAddress),
