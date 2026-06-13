@@ -53,20 +53,20 @@ describe("Checkout economics policy", () => {
     expect(sellerPayout?.deterministicOrder).toEqual(checkoutSellerPayoutEstimateOrder);
   });
 
-  it("keeps promo and gift-card customer input disabled unless launch-disabled", () => {
-    const promo = checkoutEconomicsPolicyEntries.find((entry) => entry.control === "promo-code-launch-decision");
+  it("keeps promo and gift-card customer input outside checkout until owner rules exist", () => {
+    const promo = checkoutEconomicsPolicyEntries.find((entry) => entry.control === "promo-code-capability-status");
     const giftCard = checkoutEconomicsPolicyEntries.find(
-      (entry) => entry.control === "gift-card-store-credit-launch-decision",
+      (entry) => entry.control === "gift-card-store-credit-capability-status",
     );
 
     for (const entry of [promo, giftCard]) {
-      expect(entry?.launchPosture, entry?.control).toBe("launch-disabled");
+      expect(entry?.capabilityStatus, entry?.control).toBe("owner-rule-required");
       expect(entry?.customerInputAllowed, entry?.control).toBe(false);
-      expect(entry?.launchDecisionRequired, entry?.control).toBe(true);
+      expect(entry?.ownerRuleRequired, entry?.control).toBe(true);
       expect(entry?.noSideEffectBeforeCommitRequired, entry?.control).toBe(true);
     }
-    expect(promo?.evidenceExpectation).toMatch(/not shown in the launch checkout/i);
-    expect(giftCard?.evidenceExpectation).toMatch(/disabled or launch-disabled/i);
+    expect(promo?.customerSafeOutcome).toMatch(/stay out of checkout/i);
+    expect(giftCard?.customerSafeOutcome).toMatch(/stay disabled until Payments owns/i);
   });
 
   it("requires wallet credit and marketplace checkout fee freshness before payment", () => {
@@ -82,7 +82,7 @@ describe("Checkout economics policy", () => {
     expect(walletCredit?.finalConfirmationRevalidationRequired).toBe(true);
     expect(checkoutFee?.ownerContext).toBe("Payments");
     expect(checkoutFee?.freshnessKeyShape).toContain("fee-quote-fingerprint");
-    expect(checkoutFee?.evidenceExpectation).toMatch(/rejected when the fee quote fingerprint is stale/i);
+    expect(checkoutFee?.customerSafeOutcome).toMatch(/rejected when the fee quote fingerprint is stale/i);
   });
 
   it("keeps optional fulfillment savings and seller fee choices before checkout repair", () => {
@@ -103,8 +103,8 @@ describe("Checkout economics policy", () => {
     const optimization = checkoutEconomicsPolicyEntries.find(
       (entry) => entry.control === "optional-fulfillment-optimization-savings",
     );
-    expect(optimization?.evidenceExpectation).toMatch(/without rerunning optimization/i);
-    expect(optimization?.evidenceExpectation).toMatch(/allocation machinery/i);
+    expect(optimization?.customerSafeOutcome).toMatch(/without rerunning optimization/i);
+    expect(optimization?.customerSafeOutcome).toMatch(/allocation machinery/i);
   });
 
   it("requires changed economics to recover with no side effects", () => {
@@ -113,10 +113,10 @@ describe("Checkout economics policy", () => {
     );
 
     expect(changed?.noSideEffectBeforeCommitRequired).toBe(true);
-    expect(changed?.launchDecisionRequired).toBe(true);
+    expect(changed?.ownerRuleRequired).toBe(true);
     expect(changed?.supportReferenceRequired).toBe(true);
-    expect(changed?.evidenceExpectation).toMatch(/no payment, order, sale, label, payout/i);
-    expect(changed?.evidenceExpectation).toMatch(/refund, void, or reversal/i);
+    expect(changed?.customerSafeOutcome).toMatch(/no payment, order, sale, label, payout/i);
+    expect(changed?.customerSafeOutcome).toMatch(/refund, void, or reversal/i);
   });
 
   it("forbids old compatibility and hidden economics repair mechanisms", () => {
@@ -127,15 +127,16 @@ describe("Checkout economics policy", () => {
     }
   });
 
-  it("documents launch decision, support, and reversal economics coverage", () => {
+  it("documents capability status, support, and reversal economics coverage", () => {
     const reversal = checkoutEconomicsPolicyEntries.find((entry) => entry.control === "reversal-economics-linkage");
     const support = checkoutEconomicsPolicyEntries.find((entry) => entry.control === "support-safe-economics-failure");
     const cleanup = checkoutEconomicsPolicyEntries.find((entry) => entry.control === "fresh-state-economics-cleanup");
 
-    expect(reversal?.launchPosture).toBe("launch-disabled");
+    expect(reversal?.capabilityStatus).toBe("owner-rule-required");
     expect(reversal?.amountComponents).toEqual(expect.arrayContaining(["refund", "void", "reversal", "adjustment"]));
-    expect(support?.evidenceExpectation).toMatch(/masked economics category/i);
-    expect(cleanup?.evidenceExpectation).toMatch(/stale cached totals/i);
+    expect(support?.customerSafeOutcome).toMatch(/masked economics category/i);
+    expect(cleanup?.capabilityStatus).toBe("internal-only");
+    expect(cleanup?.customerSafeOutcome).toMatch(/stale cached totals/i);
   });
 
   it("documents the executable economics policy", () => {
@@ -148,7 +149,7 @@ describe("Checkout economics policy", () => {
     expect(doc).toMatch(
       /The executable contract lives in\s+`bounded-contexts\/checkout\/features\/sessions\/api\/checkout-economics-policy\.ts`\./,
     );
-    expect(doc).toMatch(/Customer-entered promo codes are not shown in the launch checkout/i);
+    expect(doc).toMatch(/Customer-entered promo codes stay out of checkout/i);
     expect(doc).toMatch(/reject customer-entered\s+promo, coupon, discount, gift-card, and store-credit fields/i);
     expect(checkoutReadme).toContain("./docs/checkout-economics-policy.md");
     expect(docsIndex).toContain("../bounded-contexts/checkout/docs/checkout-economics-policy.md");
