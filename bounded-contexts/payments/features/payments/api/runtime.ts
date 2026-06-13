@@ -38,7 +38,6 @@ import {
   getAccountPayment,
   getPaymentById,
   getPaymentByProcessorReference,
-  getPaymentProviderEvent,
   getSavedCheckoutInstrument,
   getSavedCheckoutInstrumentByProviderReference,
   getProviderCustomer,
@@ -46,7 +45,6 @@ import {
   getSavedCheckoutSetupSessionBySetupReference,
   listPaymentProviderEvents,
   listPaymentProviderIdempotencyKeys,
-  listPaymentReconciliationRuns,
   listPaymentsNeedingReconciliation,
   listSavedCheckoutInstruments,
   completeSavedCheckoutSetupSession,
@@ -63,8 +61,6 @@ import {
   upsertSavedCheckoutInstrument,
   getPaymentBySource,
   type PaymentDetailRow,
-  type PaymentProviderIdempotencyKeyRow,
-  type PaymentReconciliationRunRow,
   type PaymentProviderEventRow,
   type SavedCheckoutInstrumentRow,
   type ProviderCustomerRow,
@@ -688,16 +684,9 @@ export type PaymentServices = Readonly<{
     }>,
   ) => Promise<CheckoutStatusResult>;
   getMarketplaceCheckoutFeePolicy: () => Promise<MarketplaceCheckoutFeePolicy>;
-  getProviderEvent: (
-    params: Readonly<{ providerEventId: string; accountId: string }>,
-  ) => Promise<PaymentProviderEventRow | null>;
-  listProviderIdempotencyKeys: (
-    params: Readonly<{ accountId: string; limit?: number }>,
-  ) => Promise<PaymentProviderIdempotencyKeyRow[]>;
   listPaymentsNeedingReconciliation: (
     params?: Readonly<{ limit?: number; claimOwnerId?: string; claimTtlMs?: number }>,
   ) => Promise<PaymentDetailRow[]>;
-  listReconciliationRuns: (params?: Readonly<{ limit?: number }>) => Promise<PaymentReconciliationRunRow[]>;
   getProviderHealth: () => Promise<
     Readonly<{
       provider_name: string;
@@ -1432,10 +1421,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         items,
       };
     },
-    getProviderEvent: (params) => getPaymentProviderEvent(deps.db, params),
-    listProviderIdempotencyKeys: (params) => listPaymentProviderIdempotencyKeys(deps.db, params),
     listPaymentsNeedingReconciliation: (params) => listPaymentsNeedingReconciliation(deps.db, params),
-    listReconciliationRuns: (params) => listPaymentReconciliationRuns(deps.db, params),
     async getProviderHealth() {
       return {
         provider_name: publicConfig.processorName,

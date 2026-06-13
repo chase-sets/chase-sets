@@ -75,10 +75,7 @@ function createSmokeFetch(calls) {
     if (path === "/api/settlement/provider-health") {
       return jsonResponse({ provider_name: "stripe" });
     }
-    if (
-      path === "/api/marketplace/account/provider-idempotency" ||
-      path === "/api/settlement/payouts/provider-idempotency"
-    ) {
+    if (path === "/api/settlement/payouts/provider-idempotency") {
       return jsonResponse({ items: [], total: 0, count: 0 });
     }
     if (path === "/api/settlement/payouts/platform-balance-forecast") {

@@ -112,9 +112,6 @@
     "/api/marketplace/account/payments/{id}": { "get": { "tags": ["Payments and Settlement"], "summary": "Get payment detail.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
     "/api/marketplace/account/payments/{id}/timeline": { "get": { "tags": ["Payments and Settlement"], "summary": "Get payment money timeline.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
     "/api/marketplace/account/payments/{paymentId}/refunds": { "post": { "tags": ["Payments and Settlement"], "summary": "Issue an order-visible refund.", "responses": { "201": { "$ref": "#/components/responses/Command" } } } },
-    "/api/marketplace/account/provider-events/{providerEventId}": { "get": { "tags": ["Payments and Settlement"], "summary": "Get payment provider event.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
-    "/api/marketplace/account/provider-idempotency": { "get": { "tags": ["Payments and Settlement"], "summary": "List payment provider idempotency keys.", "responses": { "200": { "$ref": "#/components/responses/List" } } } },
-    "/api/marketplace/account/reconciliation/runs": { "get": { "tags": ["Payments and Settlement"], "summary": "List payment reconciliation runs.", "responses": { "200": { "$ref": "#/components/responses/List" } } } },
     "/api/marketplace/account/provider-health": { "get": { "tags": ["Payments and Settlement"], "summary": "Get payment provider health.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
 
     "/api/marketplace/accounts/{accountId}/review-summary": { "get": { "tags": ["Reputation"], "summary": "Get public account review summary.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },

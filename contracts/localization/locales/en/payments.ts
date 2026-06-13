@@ -9,7 +9,6 @@ export const paymentsEnglishTranslations = {
   "payments.features.payments.api.route.saved.payment.method.not.found.2": "Saved payment method not found.",
   "payments.features.payments.api.route.marketplace.checkout.fee.quote.stale":
     "Marketplace checkout fee quote is stale.",
-  "payments.features.payments.api.route.provider.event.not.found": "Provider event not found.",
   "payments.features.payments.api.route.request.failed": "Request failed.",
   "payments.features.payments.api.runtime.payment.captured": "Payment captured",
   "payments.features.payments.api.runtime.payment.failed": "Payment failed",

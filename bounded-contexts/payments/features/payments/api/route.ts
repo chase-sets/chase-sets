@@ -543,53 +543,6 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
     return c.json(timeline);
   });
 
-  app.get("/provider-events/:providerEventId", async (c) => {
-    const access = requirePaymentAccess(c, "orders.manage");
-    if (access.response) {
-      return access.response;
-    }
-
-    const event = await services.getProviderEvent({
-      providerEventId: c.req.param("providerEventId"),
-      accountId: access.actor.accountId,
-    });
-    if (!event) {
-      return c.json(
-        { error: { code: "not_found", message: t("payments.features.payments.api.route.provider.event.not.found") } },
-        404,
-      );
-    }
-
-    return c.json(event);
-  });
-
-  app.get("/provider-idempotency", async (c) => {
-    const access = requirePaymentAccess(c, "orders.manage");
-    if (access.response) {
-      return access.response;
-    }
-
-    return c.json({
-      items: await services.listProviderIdempotencyKeys({
-        accountId: access.actor.accountId,
-        limit: Number(c.req.query("limit") ?? 25),
-      }),
-    });
-  });
-
-  app.get("/reconciliation/runs", async (c) => {
-    const access = requirePaymentAccess(c, "orders.manage");
-    if (access.response) {
-      return access.response;
-    }
-
-    const items = await services.listReconciliationRuns({
-      limit: Number(c.req.query("limit") ?? 25),
-    });
-
-    return c.json({ items, total: items.length, count: items.length });
-  });
-
   app.get("/provider-health", async (c) => {
     const access = requirePaymentAccess(c, "orders.manage");
     if (access.response) {

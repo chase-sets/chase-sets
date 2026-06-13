@@ -8,7 +8,6 @@ import type {
   PaymentsCheckoutRecoveryOptions,
   PaymentsMarketplaceCheckoutFeePolicy,
   PaymentsPaymentDetail,
-  PaymentsProviderEvent,
 } from "./features/payments/api/contracts";
 
 type PaymentsApiApp = ReturnType<typeof buildPaymentsApi>;
@@ -289,14 +288,6 @@ export function createPaymentsApiClient({
         }),
       );
     },
-    async getProviderEvent(providerEventId: string): Promise<PaymentsProviderEvent> {
-      return parseJsonResponse(
-        await client.account["provider-events"][":providerEventId"].$get({
-          param: { providerEventId },
-          header: headers,
-        }),
-      );
-    },
   };
 }
 
@@ -305,6 +296,5 @@ export type {
   PaymentsCheckoutRecoveryOptions,
   PaymentsMarketplaceCheckoutFeePolicy,
   PaymentsPaymentDetail,
-  PaymentsProviderEvent,
 } from "./features/payments/api/contracts";
 export const paymentsApi = createPaymentsApiClient();

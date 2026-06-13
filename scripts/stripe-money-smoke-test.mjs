@@ -722,12 +722,6 @@ export async function runSellerFlow(baseUrl, options = {}) {
 
   await getJsonOk(
     fetchImpl,
-    `${baseUrl}/api/marketplace/account/provider-idempotency`,
-    headers,
-    "payment provider idempotency",
-  );
-  await getJsonOk(
-    fetchImpl,
     `${baseUrl}/api/settlement/payouts/provider-idempotency`,
     headers,
     "payout provider idempotency",

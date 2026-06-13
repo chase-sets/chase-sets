@@ -228,10 +228,7 @@ function createServices(): PaymentServices {
         unavailable_reason_details: [],
       },
     })),
-    getProviderEvent: vi.fn(async () => null),
-    listProviderIdempotencyKeys: vi.fn(async () => []),
     listPaymentsNeedingReconciliation: vi.fn(async () => []),
-    listReconciliationRuns: vi.fn(async () => []),
     getProviderHealth: vi.fn(async () => ({
       provider_name: "stripe",
       confirmation_experience: "processor-managed-form",
@@ -679,5 +676,28 @@ describe("payments routes", () => {
       sensitive_payment_details_handled_by_provider: true,
       webhook_signature_required: true,
     });
+  });
+
+  it("does not expose standalone provider diagnostics to account callers", async () => {
+    const app = buildAccountApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_1",
+        accountId: "acc_buyer",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["orders.manage"],
+      },
+      services: createServices(),
+    });
+
+    const routes = ["/account/provider-idempotency", "/account/provider-events/evt_1", "/account/reconciliation/runs"];
+
+    for (const route of routes) {
+      const response = await app.fetch(new Request(`http://payments.test${route}`));
+
+      expect(response.status).toBe(404);
+    }
   });
 });

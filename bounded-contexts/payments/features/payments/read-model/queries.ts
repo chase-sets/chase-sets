@@ -107,17 +107,6 @@ export type PaymentProviderIdempotencyKeyRow = Readonly<{
   created_at: string;
 }>;
 
-export type PaymentReconciliationRunRow = Readonly<{
-  reconciliation_run_id: string;
-  kind: string;
-  checked_count: number;
-  attention_count: number;
-  status: string;
-  summary: unknown;
-  started_at: string;
-  completed_at: string;
-}>;
-
 type PaymentPageRow = Omit<PaymentDetailRow, "order_ids" | "seller_payouts"> &
   Readonly<{
     order_ids: unknown;
@@ -736,32 +725,6 @@ export async function listPaymentProviderEvents(
   return result.rows;
 }
 
-export async function getPaymentProviderEvent(
-  db: PgQueryable,
-  params: Readonly<{ providerEventId: string; accountId: string }>,
-): Promise<PaymentProviderEventRow | null> {
-  const result = await db.query<PaymentProviderEventRow>(
-    `SELECT
-       event.provider_event_id,
-       event.provider_name,
-       event.event_kind,
-       event.provider_object_reference,
-       event.received_at
-     FROM payments_provider_webhook_events event
-     LEFT JOIN payments_payment_pages payment
-       ON payment.processor_name = event.provider_name
-      AND (
-        payment.processor_payment_reference = event.provider_object_reference
-        OR payment.payment_id = event.provider_object_reference
-      )
-     WHERE event.provider_event_id = $1
-       AND payment.buyer_account_id = $2`,
-    [params.providerEventId, params.accountId],
-  );
-
-  return result.rows[0] ?? null;
-}
-
 export async function recordPaymentProviderIdempotencyKey(
   db: PgQueryable,
   entry: Readonly<{
@@ -1023,28 +986,4 @@ export async function recordPaymentReconciliationRun(
       run.completedAt,
     ],
   );
-}
-
-export async function listPaymentReconciliationRuns(
-  db: PgQueryable,
-  params: Readonly<{ limit?: number }> = {},
-): Promise<PaymentReconciliationRunRow[]> {
-  const limit = Math.max(1, Math.min(params.limit ?? 25, 100));
-  const result = await db.query<PaymentReconciliationRunRow>(
-    `SELECT
-       reconciliation_run_id,
-       kind,
-       checked_count,
-       attention_count,
-       status,
-       summary,
-       started_at,
-       completed_at
-     FROM payments_reconciliation_runs
-     ORDER BY completed_at DESC, reconciliation_run_id DESC
-     LIMIT $1`,
-    [limit],
-  );
-
-  return result.rows;
 }
