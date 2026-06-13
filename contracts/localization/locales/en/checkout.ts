@@ -130,11 +130,10 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.ui.checkoutPage.delivery": "Delivery",
   "checkout.features.sessions.ui.checkoutPage.delivery.basis": "Delivery basis",
   "checkout.features.sessions.ui.checkoutPage.delivery.promise": "Delivery promise",
-  "checkout.features.sessions.ui.checkoutPage.delivery.promise.preview":
-    "Fulfillment-owned preview, carrier promise pending",
+  "checkout.features.sessions.ui.checkoutPage.delivery.promise.preview": "Delivery preview, carrier promise pending",
   "checkout.features.sessions.ui.checkoutPage.fulfillment.cutoff": "Fulfillment cutoff",
   "checkout.features.sessions.ui.checkoutPage.fulfillment.cutoff.value":
-    "{cutoffTime} local cutoff; packing starts {packingStartDate}; carrier handoff {carrierHandoffDate}",
+    "{cutoffTime} local cutoff; packing starts {packingStartDate}; carrier pickup {carrierHandoffDate}",
   "checkout.features.sessions.ui.checkoutPage.shipping.service": "Shipping service",
   "checkout.features.sessions.ui.checkoutPage.estimated.days.after.purchase":
     "Estimated delivery {minimumDays}-{maximumDays} days after purchase",
@@ -162,9 +161,9 @@ export const checkoutEnglishTranslations = {
     "Cart review resolves fulfillment before checkout starts.",
   "checkout.features.sessions.ui.checkoutPage.items": "Items",
   "checkout.features.sessions.ui.checkoutPage.lines": "Lines",
-  "checkout.features.sessions.ui.checkoutPage.marketplace.checkout.fee": "Marketplace checkout fee",
+  "checkout.features.sessions.ui.checkoutPage.marketplace.checkout.fee": "Checkout service fee",
   "checkout.features.sessions.ui.checkoutPage.marketplace.checkout.fee.description":
-    "Marketplace Checkout Fee covers payment costs and order protection, and may be reduced by eligible lower-cost payment methods.",
+    "Covers secure payment and order protection, and may be reduced by eligible lower-cost payment methods.",
   "checkout.features.sessions.ui.checkoutPage.none": "none",
   "checkout.features.sessions.ui.checkoutPage.not.required": "not required",
   "checkout.features.sessions.ui.checkoutPage.order.totals.created": "Order totals created",
@@ -179,7 +178,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.ui.checkoutPage.payment.ready.2": "Payment ready",
   "checkout.features.sessions.ui.checkoutPage.payment.quote.required": "Review the latest payable total",
   "checkout.features.sessions.ui.checkoutPage.payment.quote.required.description":
-    "Payment does not start until the marketplace checkout fee, wallet credit, and final payable total are visible on this page.",
+    "Payment does not start until fees, credits, and the final payable total are visible on this page.",
   "checkout.features.sessions.ui.checkoutPage.payment.review.next": "Payment review comes next",
   "checkout.features.sessions.ui.checkoutPage.payment.review.next.description":
     "Review the latest total before payment starts.",
@@ -188,16 +187,16 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.ui.checkoutPage.payment.starts.only.after.orders.are":
     "Payment starts only after final checkout review.",
   "checkout.features.sessions.ui.checkoutPage.guest.data.description":
-    "Guest checkout contact and shipping details are used for this checkout, delivery, tax, fraud checks, and support. Raw card details stay with the payment provider.",
+    "Guest checkout contact and shipping details are used for this checkout, delivery, tax, security checks, and support. Card details stay in the secure payment step.",
   "checkout.features.sessions.ui.checkoutPage.platform.credit.only": "Platform credit only",
   "checkout.features.sessions.ui.checkoutPage.postal.code": "Postal code",
   "checkout.features.sessions.ui.checkoutPage.processing.payment": "Processing payment...",
   "checkout.features.sessions.ui.buyCheckoutConfirmationPage.eyebrow": "Secure checkout",
   "checkout.features.sessions.ui.buyCheckoutConfirmationPage.title": "Checkout received",
   "checkout.features.sessions.ui.buyCheckoutConfirmationPage.description":
-    "Your checkout is ready for secure payment. Order details, delivery, notifications, and account history stay pending until they finish.",
+    "Your checkout is ready for secure payment. Delivery and receipt updates appear after payment is complete.",
   "checkout.features.sessions.ui.buyCheckoutConfirmationPage.order.status": "Order status",
-  "checkout.features.sessions.ui.buyCheckoutConfirmationPage.order.status.created": "Created for payment",
+  "checkout.features.sessions.ui.buyCheckoutConfirmationPage.order.status.created": "Ready for payment",
   "checkout.features.sessions.ui.buyCheckoutConfirmationPage.order.status.pending": "Pending",
   "checkout.features.sessions.ui.buyCheckoutConfirmationPage.payment.handoff": "Secure payment",
   "checkout.features.sessions.ui.buyCheckoutConfirmationPage.payment.reference": "Payment reference",
@@ -230,7 +229,7 @@ export const checkoutEnglishTranslations = {
     "Shipping is saved with the intent so sellers can evaluate fulfillment before accepting. No order, tax quote, or payment is created today.",
   "checkout.features.sessions.ui.checkoutPage.purchase.intent.saved": "Purchase intent saved",
   "checkout.features.sessions.ui.checkoutPage.purchases.have.been.created.and.payment":
-    "Your order is ready for payment. Delivery, notifications, support, and account details stay pending until they finish.",
+    "Your order is ready for payment. Delivery and receipt updates appear after payment is complete.",
   "checkout.features.sessions.ui.checkoutPage.quantity": "Quantity",
   "checkout.features.sessions.ui.checkoutPage.ready.to.place.purchase.intent": "Ready to place purchase intent",
   "checkout.features.sessions.ui.checkoutPage.ready.to.review.payment": "Ready to review payment",
@@ -258,7 +257,7 @@ export const checkoutEnglishTranslations = {
     "Continue to secure payment without resubmitting checkout.",
   "checkout.features.sessions.ui.checkoutPage.account.fulfillment.pending.title": "Next steps pending",
   "checkout.features.sessions.ui.checkoutPage.account.fulfillment.pending.description":
-    "Order details, delivery, notifications, and account history stay pending until they finish.",
+    "Delivery and receipt updates appear after payment is complete.",
   "checkout.features.sessions.ui.checkoutPage.support.reference": "Support reference",
   "checkout.features.sessions.ui.checkoutPage.support.reference.ready.title": "Support reference ready",
   "checkout.features.sessions.ui.checkoutPage.support.reference.ready.description":
@@ -382,14 +381,14 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.line.outcomes": "Confirmed items",
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.listings.published": "Listings published",
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.notice.description":
-    "Keep this reference while sale actions, labels, payouts, settlement, and notifications finish.",
-  "checkout.features.sellList.ui.sellListPage.latest.confirmation.notice.title": "Seller confirmation recorded",
+    "Keep this reference while your sale, label, payout, and updates finish.",
+  "checkout.features.sellList.ui.sellListPage.latest.confirmation.notice.title": "Seller confirmation saved",
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.open.support": "Open support",
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.quantity": "Quantity",
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.recorded": "Recorded",
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.reference": "Confirmation",
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.reference.downstream":
-    "Related sale references are available to support.",
+    "Related sale references are available if support needs them.",
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.reference.pending": "reference pending",
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.remaining": "Remaining",
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.side.effect.account.history": "Account history",
@@ -402,7 +401,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.status.accepted.smart.match": "Accepted Smart Match",
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.status.completed": "Completed",
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.status.failed": "Failed",
-  "checkout.features.sellList.ui.sellListPage.latest.confirmation.status.handoff.recorded": "Sale review recorded",
+  "checkout.features.sellList.ui.sellListPage.latest.confirmation.status.handoff.recorded": "Sale review saved",
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.status.kept.in.sell.list": "Kept in Sell List",
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.status.mixed": "Mixed",
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.status.not.attempted": "Not attempted",
@@ -412,7 +411,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.status.skipped": "Skipped",
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.support.references": "Support references",
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.title": "Latest seller confirmation",
-  "checkout.features.sellList.ui.sellListPage.latest.confirmation.view.committed.sales": "View committed sales",
+  "checkout.features.sellList.ui.sellListPage.latest.confirmation.view.committed.sales": "View sales",
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.view.sale.shipments": "View sale shipments",
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.view.seller.activity": "View seller activity",
   "checkout.features.sellList.ui.sellListPage.line.readiness": "Line readiness",
@@ -555,7 +554,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.guestSellCheckoutPage.summary.needs.review": "Needs review",
   "checkout.features.sellList.ui.guestSellCheckoutPage.summary.estimated.payout": "Estimated payout",
   "checkout.features.sellList.ui.guestSellCheckoutPage.summary.reassurance":
-    "No label, payout, settlement, sale, notification, or account-history side effect starts in this guest review.",
+    "Offers, listings, labels, payout, notifications, and seller history wait until account setup is complete.",
   "checkout.features.sellList.ui.guestSellCheckoutPage.mobile.summary": "Sale summary",
   "checkout.features.sellList.ui.guestSellCheckoutPage.mobile.summary.collapsed": "{count} ready line(s)",
   "checkout.features.sellList.ui.guestSellCheckoutPage.sticky.context": "Final sale steps come after account setup.",
@@ -583,7 +582,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.guestSellCheckoutPage.payout.create.account": "Create account and set up payout",
   "checkout.features.sellList.ui.guestSellCheckoutPage.label.title": "Label",
   "checkout.features.sellList.ui.guestSellCheckoutPage.label.description":
-    "Choose how label preparation should be handed off after account setup.",
+    "Choose how label preparation should be handled after account setup.",
   "checkout.features.sellList.ui.guestSellCheckoutPage.label.preference": "Label preference",
   "checkout.features.sellList.ui.guestSellCheckoutPage.label.prepaid": "Prepare a prepaid label after account setup",
   "checkout.features.sellList.ui.guestSellCheckoutPage.label.later": "Review label after account setup",
@@ -594,9 +593,9 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.guestSellCheckoutPage.terms.accept.description":
     "Final sale, labels, payout setup, and settlement are confirmed only after account setup.",
   "checkout.features.sellList.ui.guestSellCheckoutPage.side.effect.boundary":
-    "This page records a guest review state only. It does not accept offers, create listings, buy labels, start payout, send notifications, or write seller account history.",
+    "You are only reviewing these sale details. Offers, listings, labels, payout, notifications, and seller history wait until account setup is complete.",
   "checkout.features.sellList.ui.guestSellCheckoutPage.guest.data.description":
-    "Guest seller contact and ship-from details are used for this review, serviceability, account setup, and support. Sale, payout, and label commitments wait for account setup.",
+    "Guest seller contact and ship-from details are used for this review, serviceability, account setup, and support. Sale, payout, and label steps wait for account setup.",
   "checkout.features.sellList.ui.guestSellCheckoutPage.recovery.missing.sell.list": "Sell List access expired",
   "checkout.features.sellList.ui.guestSellCheckoutPage.recovery.missing.sell.list.description":
     "Return to your Sell List to start seller checkout again.",
@@ -642,8 +641,8 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.signedInSellCheckoutPage.summary.needs.review": "Needs review",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.summary.estimated.payout": "Estimated payout",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.summary.reassurance":
-    "{quantity} item(s). No label, payout, settlement, sale, notification, or account-history side effect starts in this review.",
-  "checkout.features.sellList.ui.signedInSellCheckoutPage.view.committed.sales": "View committed sales",
+    "{quantity} item(s). Offers, listings, labels, payout, notifications, and seller history wait until you confirm.",
+  "checkout.features.sellList.ui.signedInSellCheckoutPage.view.committed.sales": "View sales",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.view.seller.activity": "View seller activity",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.mobile.summary": "Sale summary",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.mobile.summary.collapsed": "{count} ready line(s)",
@@ -692,7 +691,7 @@ export const checkoutEnglishTranslations = {
     "Risk and account status are checked before the final sale step.",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.label.title": "Label",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.label.description":
-    "Choose how label preparation should be handed off after review.",
+    "Choose how label preparation should be handled after review.",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.label.row.supporting":
     "Label serviceability is checked before purchase.",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.label.preference": "Label preference",
@@ -704,12 +703,12 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.signedInSellCheckoutPage.terms.accept":
     "I reviewed the final seller terms, payout, ship-from, and sale details",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.terms.accept.description":
-    "Offer acceptance, listing publication, labels, payout, settlement, and notifications stay blocked until this fresh review is confirmed.",
+    "Offer acceptance, listing publication, labels, payout, settlement, and notifications start only after you confirm this review.",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.side.effect.boundary":
-    "This review does not accept offers, create listings, buy labels, start payout, send notifications, or write seller account history.",
-  "checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.title": "Sale review ready",
+    "You are only reviewing sale details. Offers, listings, labels, payout, notifications, and seller history wait until confirmation.",
+  "checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.title": "Sale review saved",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.description":
-    "Your sale confirmation was recorded and the reviewed sale actions are in progress.",
+    "Your reviewed sale actions are saved. We will update labels, payout, and sales activity as they finish.",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.reference": "Confirmation reference",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.support.reference": "Support reference",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.sale.title": "Sale actions",
@@ -717,10 +716,10 @@ export const checkoutEnglishTranslations = {
     "Accepted offers and reviewed fallback listings use the Sell List plan you confirmed.",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.label.title": "Next steps",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.label.description":
-    "Labels, payout, settlement, notifications, and account history stay pending until they finish.",
+    "We will update labels, payout, and sales activity as they finish.",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.side.effects.title": "Support reference ready",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.side.effects.description":
-    "Support can track pending or failed next steps from this confirmation.",
+    "Use this reference if any next step needs help.",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.recovery.access.required": "Sign in required",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.recovery.access.required.description":
     "Sign in with the seller account that started this checkout.",
@@ -973,7 +972,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.ui.checkoutPage.saved.shipping.address": "Saved shipping address",
   "checkout.features.sessions.ui.checkoutPage.update.selected.address": "Update selected saved address",
   "checkout.features.sessions.ui.checkoutPage.use.for.this.checkout": "Use once for this checkout",
-  "checkout.shared.policyLinks.description": "Review the marketplace policies before continuing checkout.",
+  "checkout.shared.policyLinks.description": "Review checkout policies before continuing.",
   "checkout.shared.policyLinks.label": "Checkout policies",
   "checkout.shared.policyLinks.privacy": "Privacy policy",
   "checkout.shared.policyLinks.refunds": "Refunds and returns",

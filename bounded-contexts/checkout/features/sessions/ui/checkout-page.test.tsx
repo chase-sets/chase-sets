@@ -257,7 +257,7 @@ describe("checkout session page", () => {
     expect(markup).toContain("Order summary");
     expect(markup).toContain("Review your buy cart first");
     expect(markup).toContain("Review buy cart");
-    expect(markup).toContain("Marketplace checkout fee");
+    expect(markup).toContain("Checkout service fee");
     expect(markup).toContain("Delivery estimate");
     expect(markup).toContain("Payment review comes next");
     expect(markup).toContain("Terms of service");
@@ -267,7 +267,7 @@ describe("checkout session page", () => {
     expect(markup).toContain("Refunds and returns");
     expect(markup).toContain('href="/refunds-and-returns"');
     expect(markup).toContain("Guest checkout contact and shipping details are used");
-    expect(markup).toContain("Raw card details stay with the payment provider.");
+    expect(markup).toContain("Card details stay in the secure payment step.");
     expect(markup).not.toContain("Recalculate fulfillment");
     expect(markup).not.toContain("Card Vault");
     expect(markup).not.toContain("Optimized seller listing");
@@ -410,7 +410,7 @@ describe("checkout session page", () => {
     expect(markup).toContain("$503.67");
     expect(markup).toContain("Next steps pending");
     expect(markup).toContain("Continue to secure payment without resubmitting checkout.");
-    expect(markup).toContain("Order details, delivery, notifications, and account history stay pending");
+    expect(markup).toContain("Delivery and receipt updates appear after payment is complete.");
     expect(markup).not.toContain("Downstream details pending");
     expect(markup).not.toContain("owning workflows");
     expect(markup).not.toContain("Sale complete");

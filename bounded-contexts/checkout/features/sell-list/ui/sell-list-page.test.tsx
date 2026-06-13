@@ -78,7 +78,7 @@ const latestConfirmation: CheckoutSellListConfirmationRow = {
         action: "mixed",
         quantity: 2,
         remainingQuantity: 0,
-        detail: "Sale review recorded. Labels, payout, settlement, and notifications are still pending.",
+        detail: "Sale review saved. Labels, payout, and updates are still pending.",
         references: {
           offerIds: ["off_charizard"],
           listingId: "lst_charizard",
@@ -276,11 +276,11 @@ describe("checkout sell list page", () => {
     );
 
     expect(markup).toContain("Latest seller confirmation");
-    expect(markup).toContain("Seller confirmation recorded");
+    expect(markup).toContain("Seller confirmation saved");
     expect(markup).toContain("CS-SL-CHK_SELL_1");
-    expect(markup).toContain("Sale review recorded");
+    expect(markup).toContain("Sale review saved");
     expect(markup).toContain("Next steps pending");
-    expect(markup).toContain("Related sale references are available to support.");
+    expect(markup).toContain("Related sale references are available if support needs them.");
     expect(markup).not.toContain("slc_chk_sell_1");
     expect(markup).not.toContain("off_charizard");
     expect(markup).not.toContain("lst_charizard");
@@ -288,7 +288,7 @@ describe("checkout sell list page", () => {
     expect(markup).not.toContain("Pending downstream");
     expect(markup).not.toContain("Downstream references");
     expect(markup).toContain("View seller activity");
-    expect(markup).toContain("View committed sales");
+    expect(markup).toContain("View sales");
     expect(markup).toContain("View sale shipments");
     expect(markup).not.toContain("Sale complete");
     expect(markup).not.toContain("Completed");
