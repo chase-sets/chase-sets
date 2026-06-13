@@ -3,5 +3,4 @@ export type {
   PaymentsCheckoutRecoveryOptions,
   PaymentsMarketplaceCheckoutFeePolicy,
   PaymentsPaymentDetail,
-  PaymentsProviderEvent,
 } from "../ui/contracts";
