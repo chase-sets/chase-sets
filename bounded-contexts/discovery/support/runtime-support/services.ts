@@ -10,8 +10,11 @@ import type { NotificationOutbox } from "@chase-sets/notifications";
 import { createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
 import { createDiscoveryCategoryRuntime, type DiscoveryCategoryServices } from "../../features/categories/api/runtime";
 import { createProductAlertRuntime, type ProductAlertServices } from "../../features/product-alerts/api/runtime";
-import { buildGoogleShoppingFeedRowProjectionHandlers } from "../google-shopping-support/projection";
-import { createGoogleShoppingSyncRuntime, type GoogleShoppingSyncServices } from "../google-shopping-support/sync-job";
+import { buildGoogleShoppingFeedRowProjectionHandlers } from "../../features/google-shopping-operations/api/projection";
+import {
+  createGoogleShoppingSyncRuntime,
+  type GoogleShoppingSyncServices,
+} from "../../features/google-shopping-operations/api/sync-job";
 import { createDiscoveryItemRuntime, type DiscoveryItemsServices } from "../item-support/runtime";
 
 export type DiscoveryHostPorts = Readonly<{

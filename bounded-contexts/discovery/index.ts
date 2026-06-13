@@ -9,7 +9,7 @@ import { buildDiscoveryCategoryProjectionHandlers } from "./features/categories/
 import { buildDiscoveryItemDetailProjectionHandlers } from "./features/item-detail/read-model/projection";
 import { buildProductAlertNotificationProjectionHandlers } from "./features/product-alerts/integrations/notifications/notification-projector";
 import { buildProductAlertPageProjectionHandlers } from "./features/product-alerts/read-model/projection";
-import { buildGoogleShoppingFeedRowProjectionHandlers } from "./support/google-shopping-support/projection";
+import { buildGoogleShoppingFeedRowProjectionHandlers } from "./features/google-shopping-operations/api/projection";
 import { buildDiscoveryMarketProjectionHandlers } from "./support/market-support/projection";
 import { buildDiscoverySearchItemProjectionHandlers } from "./features/search/read-model/projection";
 import { createDiscoveryServices, type DiscoveryHostPorts } from "./support/runtime-support/services";

@@ -7,7 +7,6 @@
   "slices": ["categories", "google-shopping-operations", "item-detail", "product-alerts", "search"],
   "allowedSupportDirectories": [
     "client-support",
-    "google-shopping-support",
     "item-support",
     "market-support",
     "realtime-support",
@@ -492,12 +491,7 @@
     "client-support": {
       "classification": "support",
       "purpose": "Provide reusable client-support assets shared by discovery-owned features and composition seams.",
-      "expectedConsumers": ["item-detail", "search"]
-    },
-    "google-shopping-support": {
-      "classification": "support",
-      "purpose": "Provide Discovery-owned Google Shopping export projection schema, row identity, eligibility, and payload hashing for provider-facing rows.",
-      "expectedConsumers": ["google-shopping-operations"]
+      "expectedConsumers": ["google-shopping-operations", "item-detail", "search"]
     },
     "item-support": {
       "classification": "support",

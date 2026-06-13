@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { createDurableJobEventStream } from "@chase-sets/platform-runtime/durable-job-events";
-import type { DiscoveryApiEnv } from "../../api";
+import { t } from "@chase-sets/localization";
+import type { DiscoveryApiEnv } from "../../../api";
 import {
   toGoogleShoppingFullSyncJobStatus,
   type GoogleShoppingFeedRowFilter,
@@ -183,7 +184,10 @@ export function createGoogleShoppingSyncRoutes(services: GoogleShoppingSyncServi
 
     const job = await services.getFullSyncJob(c.req.param("jobId"));
     if (!job) {
-      return c.json({ error: { code: "not_found", message: "Google Shopping sync job not found." } }, 404);
+      return c.json(
+        { error: { code: "not_found", message: t("discovery.googleShoppingOperations.api.syncJob.notFound") } },
+        404,
+      );
     }
 
     return c.json(toGoogleShoppingFullSyncJobStatus(job));
@@ -198,7 +202,10 @@ export function createGoogleShoppingSyncRoutes(services: GoogleShoppingSyncServi
     const jobId = c.req.param("jobId");
     const job = await services.getFullSyncJob(jobId);
     if (!job) {
-      return c.json({ error: { code: "not_found", message: "Google Shopping sync job not found." } }, 404);
+      return c.json(
+        { error: { code: "not_found", message: t("discovery.googleShoppingOperations.api.syncJob.notFound") } },
+        404,
+      );
     }
 
     return createDurableJobEventStream({
@@ -233,7 +240,9 @@ function requireGoogleShoppingSyncAccess(c: {
     return {
       context: null,
       response: Response.json(
-        { error: { code: "authentication_required", message: "Authentication is required." } },
+        {
+          error: { code: "authentication_required", message: t("discovery.googleShoppingOperations.api.authRequired") },
+        },
         { status: 401 },
       ),
     };
@@ -244,7 +253,10 @@ function requireGoogleShoppingSyncAccess(c: {
       context: null,
       response: Response.json(
         {
-          error: { code: "authorization_forbidden", message: "Google Shopping sync requires Google Shopping access." },
+          error: {
+            code: "authorization_forbidden",
+            message: t("discovery.googleShoppingOperations.api.accessRequired"),
+          },
         },
         { status: 403 },
       ),
@@ -256,7 +268,12 @@ function requireGoogleShoppingSyncAccess(c: {
     return {
       context: null,
       response: Response.json(
-        { error: { code: "authentication_required", message: "Authentication context is required." } },
+        {
+          error: {
+            code: "authentication_required",
+            message: t("discovery.googleShoppingOperations.api.authContextRequired"),
+          },
+        },
         { status: 401 },
       ),
     };

@@ -4,7 +4,7 @@ import {
   drainDueGoogleShoppingIncrementalSyncRequests,
   isGoogleShoppingListingLandingPageCrawlable,
   refreshGoogleShoppingFeedRowForListing,
-} from "../support/google-shopping-support/feed-row-projection";
+} from "../features/google-shopping-operations/api/feed-row-projection";
 
 describe("google shopping feed row projection", () => {
   afterEach(() => {

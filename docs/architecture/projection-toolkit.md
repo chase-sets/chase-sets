@@ -34,7 +34,7 @@ distinct projection files.
 | --- | --- | ---: | --- |
 | `INSERT ... SELECT ... ON CONFLICT` derived-row upsert | `bounded-contexts/discovery/support/market-support/projection.ts` | 1 | Declined; below threshold. |
 | COALESCE/conditional `UPDATE ... WHERE` | `bounded-contexts/discovery/support/market-support/projection.ts`, `bounded-contexts/discovery/features/item-detail/read-model/projection.ts` | 2 | Declined; below threshold. |
-| Cascade read feeding batch refresh | `bounded-contexts/discovery/features/categories/read-model/projection.ts`, `bounded-contexts/discovery/features/search/read-model/projection.ts`, `bounded-contexts/discovery/features/item-detail/read-model/projection.ts`, `bounded-contexts/discovery/support/market-support/projection.ts`, `bounded-contexts/discovery/support/google-shopping-support/feed-row-projection.ts` | 5 | Built as `refreshAffectedRows`. |
+| Cascade read feeding batch refresh | `bounded-contexts/discovery/features/categories/read-model/projection.ts`, `bounded-contexts/discovery/features/search/read-model/projection.ts`, `bounded-contexts/discovery/features/item-detail/read-model/projection.ts`, `bounded-contexts/discovery/support/market-support/projection.ts`, `bounded-contexts/discovery/features/google-shopping-operations/api/feed-row-projection.ts` | 5 | Built as `refreshAffectedRows`. |
 
 ## Helper Mapping
 

@@ -4,7 +4,7 @@ import type {
   GoogleShoppingFeedRowListItem,
   GoogleShoppingFullSyncJobStatus,
   GoogleShoppingMaintenancePreview,
-} from "../../../support/google-shopping-support/sync-job";
+} from "../api/sync-job";
 
 export type {
   GoogleShoppingFeedRowFilter,
