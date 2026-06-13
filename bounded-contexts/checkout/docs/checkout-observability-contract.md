@@ -1,43 +1,42 @@
 # Checkout Observability Contract
 
-Milestone #17 uses this contract to turn launch-matrix `observability-event` evidence into named, redacted Checkout telemetry. It keeps customer-facing checkout simple while giving support, operations, and launch reviewers enough signal to distinguish readiness, checkout entry, confirmation, downstream handoff, recovery, and cleanup states.
+Milestone #17 uses this contract to keep Checkout telemetry named, bounded, and redacted. It keeps customer-facing checkout simple while giving support and operations enough signal to distinguish readiness, checkout entry, confirmation, downstream handoff, and recovery states.
 
 The executable contract lives in `bounded-contexts/checkout/features/sessions/api/checkout-observability-contract.ts`.
 The runtime recorder lives in `infrastructure/observability/index.ts` as `recordCheckoutObservabilityEvent`.
 Checkout receives that recorder through the `checkoutObservabilityTelemetry` host port so the context can emit
 contracted events without importing infrastructure observability directly.
 
-## Evidence Rules
+## Telemetry Rules
 
-- Every launch evidence row has one `checkout.*` observability profile with entry source, actor mode, scenario state, visible state, and side-effect status dimensions.
+- Every required visual target has one `checkout.*` observability profile with entry source, actor mode, scenario state, visible state, and side-effect status dimensions.
 - Runtime metrics use `chase_sets_checkout_observability_events_total`. Dashboard and alert queries must use the typed profile event names and bounded label values only.
 - Unassigned fulfillment and optional savings optimization emit readiness telemetry before checkout. Checkout telemetry may consume the accepted or declined decision, but must not record checkout-time allocation or optimization repair.
-- Launch decision rows emit `launch-decision-decision` and appear in release health evidence so enabled, disabled, deferred, provider-limited, risk-held, kill-switched, and cleanup states are reviewable.
-- Support-visible states emit support-safe references only. No raw `afterWrite`, cookies, emails, addresses, provider payloads, checkout session ids, account ids, event ids, full URLs, card data, bank data, secrets, or sensitive risk signals belong in telemetry, dashboards, launch evidence, or GitHub issue comments.
+- Launch decision rows emit `launch-decision-decision` so enabled, disabled, deferred, provider-limited, risk-held, and kill-switched states are operable.
+- Support-visible states emit support-safe references only. No raw `afterWrite`, cookies, emails, addresses, provider payloads, checkout session ids, account ids, event ids, full URLs, card data, bank data, secrets, or sensitive risk signals belong in telemetry, dashboards, or GitHub issue comments.
 - Pending downstream rows emit `downstream-status` so confirmation, Marketplace handoff, notification, account history, reconciliation, and reversal states cannot imply completed Ordering, Fulfillment, Settlement, Notifications, Support, or Payments facts before the owning context commits them.
-- Fresh-state cleanup telemetry emits `fresh-state-scan-result` and fails the launch evidence if old routes, payload adapters, compatibility shims, hidden repair, migration/backfill helpers, dual writes, stale fixtures, cached read models, provider sandbox leftovers, localization keys, docs, runbooks, canaries, smoke data, or browser artifacts make checkout appear successful.
 
 ## Dashboard Contract
 
 Grafana provisions `infrastructure/observability/stack/grafana/dashboards/checkout-launch-observability.json` as the launch dashboard for this contract. It has panels for:
 
 - checkout launch events by telemetry and alert class;
-- release-health required rows by launch decision and release run;
-- fresh-state, provider, support, and launch alert classes;
-- no-side-effect recovery proof;
+- release-health required states by launch decision;
+- provider, support, and launch alert classes;
+- no-side-effect recovery status;
 - pending versus committed downstream handoff boundaries;
-- selected event dimensions such as performance budget, canary final state, and promotion decision;
+- selected event dimensions such as performance budget and provider category;
 - redacted checkout observability logs from platform services.
 
 Starter alerts live in `infrastructure/observability/stack/grafana/provisioning/alerting/platform-api-alerts.yml` for launch/fresh-state/provider alert events and side-effect boundary violations.
 
-This dashboard is the query and alert baseline. `recordCheckoutObservabilityEvent` is the runtime emission primitive: it whitelists bounded launch labels, converts support references to presence, and does not accept raw checkout ids, account ids, emails, addresses, provider payloads, `afterWrite` tokens, card data, bank data, full URLs, secrets, or sensitive risk details as metric attributes. The first Checkout route call sites emit buy review render, active-session stale recovery, changed-economics review, and confirmation handoff pending-downstream events. #1114 remains open until remaining launch-supported states and staging/launch evidence prove these panels receive redacted events.
+This dashboard is the query and alert baseline. `recordCheckoutObservabilityEvent` is the runtime emission primitive: it whitelists bounded launch labels, converts support references to presence, and does not accept raw checkout ids, account ids, emails, addresses, provider payloads, `afterWrite` tokens, card data, bank data, full URLs, secrets, or sensitive risk details as metric attributes. The first Checkout route call sites emit buy review render, active-session stale recovery, changed-economics review, and confirmation handoff pending-downstream events. #1114 remains open until remaining launch-supported states and staging checks show these panels receive redacted events.
 
 ## Required Dimensions
 
 Every profile includes `entry-source`, `actor-mode`, `scenario-state`, `visible-state`, `side-effect-status`, and `support-safe-reference`.
 
-Rows add focused dimensions such as `readiness-contract`, `readiness-snapshot-version`, `source-revision`, `fresh-write-receipt-presence`, `support-safe-reference`, `performance-budget-id`, `latency-ms`, `provider-category`, `risk-category`, `downstream-status`, `launch-decision-decision`, `fresh-state-scan-result`, `canary-final-state`, `promotion-decision`, and `release-run-id`.
+Rows add focused dimensions such as `readiness-contract`, `readiness-snapshot-version`, `source-revision`, `fresh-write-receipt-presence`, `support-safe-reference`, `performance-budget-id`, `latency-ms`, `provider-category`, `risk-category`, `downstream-status`, `launch-decision-decision`, and bounded provider/recovery dimensions.
 
 ## Profiles
 
@@ -60,15 +59,13 @@ Rows add focused dimensions such as `readiness-contract`, `readiness-snapshot-ve
 | Split package summary | `checkout.buy.split_group_summary_rendered` | checkout-entry | launch-alert | Yes | Split-group telemetry preserves readiness-produced group references without checkout-time regrouping. |
 | Checkout unavailable | `checkout.launch.kill_switch_unavailable` | launch-governance | launch-alert | Yes | Kill-switch telemetry proves checkout failed closed without legacy fallback. |
 | Temporary recovery loading | `checkout.entry.temporary_recovery_visible` | checkout-entry | fresh-state-alert | Yes | Temporary recovery telemetry distinguishes safe waiting from ambiguous no-state renders. |
-| Production proof Buy Now readiness | `checkout.launch.production_proof_buy_now` | launch-governance | launch-alert | Yes | Production proof telemetry records pay-ready success or checkout-ready SLO failure without side effects. |
 | Disabled accelerated or saved instrument | `checkout.capability.accelerated_or_saved_disabled` | launch-governance | launch-alert | Yes | Capability telemetry proves shortcuts cannot bypass readiness or final review. |
 | Promo, credit, gift card, and fee state | `checkout.capability.promo_credit_gift_card_state` | launch-governance | launch-alert | Yes | Promo and credit telemetry records explicit enabled, disabled, or deferred launch state. |
 | Notification expectation and support reference | `checkout.notification.expectation_recorded` | handoff | support-alert | Yes | Notification telemetry records expectation and support reference without implying delivery. |
 | Account history handoff | `checkout.account_history.handoff_visible` | handoff | support-alert | Yes | Account-history telemetry links only committed downstream records and support-safe source references. |
 | Reconciliation pending | `checkout.reconciliation.pending_visible` | handoff | support-alert | Yes | Reconciliation telemetry distinguishes pending recovery from committed downstream facts. |
 | Reversal and adjustment recovery | `checkout.reversal_or_adjustment.status_visible` | handoff | support-alert | Yes | Reversal telemetry is audited, support-safe, and separated from completed refund or payout facts. |
-| Fresh-state cleanup absence | `checkout.launch.fresh_state_cleanup_verified` | fresh-state-cleanup | fresh-state-alert | Yes | Cleanup telemetry proves old routes, payloads, shims, fixtures, docs, and runbooks cannot satisfy launch. |
 
-## Launch Consumption
+## Acceptance Use
 
-#1114 owns this contract as the observability baseline. #1115 should attach route, E2E, visual, accessibility, and canary artifacts that prove the profiles emit for launch-supported states. #1548 should attach release-health references for rows marked as release-health required. #1122 should consume support-safe references and runbook-safe dimensions. #1124 should review the forbidden field set and any future dimension additions before launch.
+#1114 owns this contract as the observability baseline. #1115 should cover launch-supported states with focused route, E2E, visual, mobile, and accessibility checks. #1122 consumes support-safe references and runbook-safe dimensions. #1124 reviews the forbidden field set and any future dimension additions before launch.

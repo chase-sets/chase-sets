@@ -70,26 +70,6 @@ function errorCode(error: unknown) {
   return "validation_failed";
 }
 
-const PLACEHOLDER_EVIDENCE_REFERENCE_PATTERN =
-  /^(?:tbd|todo|none|null|n\/a|na|placeholder|example|sample|test|ticket|record|launch-000)$/i;
-
-function normalizeProofReference(value: unknown) {
-  return typeof value === "string" ? value.trim() : "";
-}
-
-function isValidProofReference(value: string) {
-  return value.length >= 6 && !PLACEHOLDER_EVIDENCE_REFERENCE_PATTERN.test(value);
-}
-
-function canDeferCheckoutPayment(actor: CheckoutApiEnv["Variables"]["actor"], proofReference: string) {
-  return (
-    actor?.roleKey !== "guest-buyer" &&
-    Array.isArray(actor?.permissions) &&
-    actor.permissions.includes("security.manage") &&
-    isValidProofReference(proofReference)
-  );
-}
-
 const savedCheckoutInstrumentUnavailableCode = "saved_checkout_instrument_unavailable" as const;
 
 function normalizeSavedCheckoutInstrumentId(value: unknown) {
@@ -463,25 +443,9 @@ export function createAccountCheckoutSessionRoutes(
     const fulfillmentPreviewRevision =
       typeof body.fulfillmentPreviewRevision === "string" ? body.fulfillmentPreviewRevision : null;
     const acknowledgedMaterialChanges = body.acknowledgedMaterialChanges === true;
-    const requestedDeferredPayment = body.deferPayment === true;
-    const deferredCheckoutOrderProofReference = normalizeProofReference(body.deferredCheckoutOrderProofReference);
-    const deferPayment =
-      requestedDeferredPayment && canDeferCheckoutPayment(access.actor, deferredCheckoutOrderProofReference);
     const savePaymentMethodForFuture =
       body.savePaymentMethodForFuture === true && access.actor.roleKey !== "guest-buyer" && !savedCheckoutInstrumentId;
     const requestedSavePaymentMethodForFuture = body.savePaymentMethodForFuture === true;
-
-    if (requestedDeferredPayment && !deferPayment) {
-      return c.json(
-        {
-          error: {
-            code: "deferred_checkout_order_proof_required",
-            message: t("checkout.features.sessions.api.route.deferred.checkout.order.proof.required"),
-          },
-        },
-        403,
-      );
-    }
 
     try {
       assertNoUnsupportedCustomerEconomicsInput(body);
@@ -510,20 +474,6 @@ export function createAccountCheckoutSessionRoutes(
           payment_id: session.payment_id,
           order_ids: session.order_ids,
           status: "confirmed",
-        });
-      }
-
-      if (deferPayment && session.order_ids.length > 0) {
-        recordConfirmationPendingHandoff(
-          checkoutObservabilityTelemetry,
-          access.actor,
-          session,
-          "orders-created-payment-deferred",
-        );
-        return c.json({
-          order_ids: session.order_ids,
-          status: "orders-created",
-          session,
         });
       }
 
@@ -588,7 +538,7 @@ export function createAccountCheckoutSessionRoutes(
         });
       }
 
-      if (!deferPayment && !marketplaceCheckoutFeeQuoteFingerprint) {
+      if (!marketplaceCheckoutFeeQuoteFingerprint) {
         return c.json(
           {
             error: {
@@ -621,32 +571,6 @@ export function createAccountCheckoutSessionRoutes(
           context,
         );
         session = ordersResult.session;
-      }
-
-      if (deferPayment) {
-        recordConfirmationPendingHandoff(
-          checkoutObservabilityTelemetry,
-          access.actor,
-          session,
-          "orders-created-payment-deferred",
-        );
-        return c.json({
-          order_ids: orderIds,
-          status: "orders-created",
-          session,
-        });
-      }
-
-      if (!marketplaceCheckoutFeeQuoteFingerprint) {
-        return c.json(
-          {
-            error: {
-              code: "payment_quote_required",
-              message: t("checkout.features.sessions.api.route.payment.quote.required"),
-            },
-          },
-          409,
-        );
       }
 
       const paymentId = await createCheckoutPaymentThroughPayments(

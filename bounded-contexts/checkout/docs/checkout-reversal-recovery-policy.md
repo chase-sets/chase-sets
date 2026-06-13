@@ -27,7 +27,7 @@ fact that the owning context has not committed.
   releases inventory from old session payloads or stale read models.
 - Tax, marketplace fee, wallet credit, promotion, gift-card, label-fee, payout,
   and settlement adjustments link to Payments or Settlement owner facts, or to a
-  #1548 launch-decision deferral.
+  owner-scoped launch deferral.
 - Seller pending activity or Marketplace handoff recorded without committed
   downstream facts produces pending, deferred, or no-side-effect status. It does
   not create fake label, payout, settlement, notification, account-history, or
@@ -76,7 +76,7 @@ fact that the owning context has not committed.
 | Provider replay and webhook reconciliation | Payments | provider-callback, background-retry, operator-recovery | payment-void, payment-refund, label-refund, payout-reversal, dispute-hold | supported, webhook-delayed, failed, recovered, duplicate-suppressed | Provider refund, void, dispute, label refund, and payout webhook replay is signature-checked, metadata-correlated, redacted, and reconciled without duplicate owner effects. |
 | Support-approved operator recovery | Support | operator-recovery, launch-decision | support-review, payment-refund, order-cancel, label-cancel, payout-hold, settlement-adjustment | support-only, pending, failed, recovered, held, deferred | Approved operator recovery uses support permissions, audited owner actions, support-safe references, and launch-decision deferrals; support never edits rows or uses provider dashboards as the source of truth. |
 | Return, dispute, and chargeback launch posture | Support | operator-recovery, provider-callback, launch-decision | support-review, payment-refund, dispute-hold, settlement-adjustment, notification-correction | support-only, disabled, deferred, unsupported, held, partial | Buyer returns, payment disputes, chargebacks, provider-initiated reversals, partial refunds, and unsupported provider capabilities are explicitly supported, disabled, or deferred with copy, visual, support, observability, and follow-up evidence. |
-| Launch decision reversal states | Platform | launch-decision, operator-recovery | payment-void, payment-refund, order-cancel, label-cancel, payout-hold, payout-reversal, settlement-adjustment, support-review | support-only, disabled, deferred, unsupported, provider-outage, webhook-delayed, failed, held, partial, no-side-effect | Supported, disabled, deferred, unsupported, provider-outage, webhook-delayed, support-only, pending, failed, recovered, held, duplicate, partial, and no-side-effect reversal states have #1548 launch-decision coverage where launch-visible. |
+| Launch decision reversal states | Platform | launch-decision, operator-recovery | payment-void, payment-refund, order-cancel, label-cancel, payout-hold, payout-reversal, settlement-adjustment, support-review | support-only, disabled, deferred, unsupported, provider-outage, webhook-delayed, failed, held, partial, no-side-effect | Supported, disabled, deferred, unsupported, provider-outage, webhook-delayed, support-only, pending, failed, recovered, held, duplicate, partial, and no-side-effect reversal states have owner-scoped launch handling where launch-visible. |
 | Observability redaction | Checkout | pre-confirmation, provider-callback, background-retry, operator-recovery, launch-decision | payment-void, payment-refund, order-cancel, label-cancel, payout-reversal, settlement-adjustment, notification-correction, account-history-correction | supported, pending, committed, failed, held, duplicate-suppressed, no-side-effect | Reversal telemetry reports owner, state, effect kind, duplicate-prevention outcome, support-safe reference, and launch-decision state without raw provider payloads, card data, bank data, addresses, or risk signals. |
 | Fresh-state reversal cleanup | Platform | pre-confirmation, operator-recovery, launch-decision | no-side-effect, payment-void, payment-refund, order-cancel, label-cancel, payout-reversal, settlement-adjustment | supported, disabled, deferred, unsupported, no-side-effect | Fresh-state scans prove cancellation, refund, void, reversal, and adjustment paths cannot succeed through old routes, old payload adapters, old sell execution ids, old receipt rows, migrations, hidden repair, stale fixtures/read models, provider-dashboard-only recovery, or dense checkout fallback. |
 
@@ -94,7 +94,7 @@ fact that the owning context has not committed.
 - Notification and account-history evidence for canceled, refunded, voided,
   reversed, adjusted, label-canceled, payout-held, payout-reversed, pending, and
   failed states.
-- Explicit #1548 launch-decision rows for disabled, deferred, unsupported,
+- Explicit owner-scoped launch handling for disabled, deferred, unsupported,
   provider-outage, webhook-delayed, support-only, held, partial, failed, and
   no-side-effect reversal states.
 - #1102 copy and #1112 visual mappings for customer-visible cancellation,

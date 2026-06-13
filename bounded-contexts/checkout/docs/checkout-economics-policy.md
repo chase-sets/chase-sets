@@ -40,8 +40,8 @@ with stale fee, tax, credit, payout, or promotion facts.
   confirmation before side effects start.
 - Changed, expired, invalid, exhausted, stale, disabled, deferred, unsupported,
   provider-unavailable, or risk-held economics states need customer-safe copy,
-  visual target, support path, observability, launch owner, and #1548
-  launch-decision rows where launch-visible.
+  visual target, support path, observability, launch owner, and launch cleanup
+  launch decisions where launch-visible.
 - Changed economics blocks must prove no payment, order, sale, label, payout,
   settlement, notification, support, account-history, refund, void, or reversal
   side effect started.
@@ -78,7 +78,7 @@ with stale fee, tax, credit, payout, or promotion facts.
   freshness, seller sales fee snapshot freshness, seller adjustment changes,
   active-session economics revalidation, changed economics recovery, and
   optional optimization accepted/declined states.
-- Explicit launch-decision rows for promo codes, gift cards, store credit,
+- Explicit launch decisions for promo codes, gift cards, store credit,
   reversal economics, provider-unavailable economics, disabled/deferred
   economics, exhausted credits, and unsupported customer-entered economics,
   with runtime evidence that unsupported input fails closed before checkout

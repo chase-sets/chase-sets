@@ -44,7 +44,6 @@ Repo path: `bounded-contexts/checkout/docs/visual-targets/checkout-visual-target
 - Desktop checkout uses a focused two-column form plus summary.
 - Mobile checkout uses a single column, collapsible summary, and sticky primary action/total behavior.
 - Signed-in checkout compresses saved information into editable rows.
-- Production proof-mode Buy Now must show the pay-ready checkout review within the ready SLO. Temporary recovery is a safe waiting state, not promotion evidence.
 - Recovery states use customer-safe language and show no-side-effect facts when no payment, order, label, payout, settlement, notification, account-history, support, reconciliation, refund, void, or reversal work started.
 - Confirmation and account/history visuals distinguish pending Checkout activity from committed downstream facts.
 - Visual targets forbid dense checkout panels, allocation controls, provider diagnostics, old-route recovery, legacy payload wording, hidden repair, nested card stacks, migration/backfill wording, and fake downstream completion.
@@ -70,27 +69,22 @@ Repo path: `bounded-contexts/checkout/docs/visual-targets/checkout-visual-target
 | Split package summary | `checkout-visual-targets-recovery-launch.png` | 5 Split-group summary desktop | `split-group-summary` | `checkout-entry-review-render` | Required |
 | Checkout unavailable | `checkout-visual-targets-recovery-launch.png` | 6 Launch kill switch/checkout unavailable mobile | `kill-switch-disabled-checkout` | `checkout-entry-permanent-recovery-render` | Required |
 | Temporary recovery loading | `checkout-visual-targets-recovery-launch.png` | 1 Active-session stale recovery desktop | `checkout-temporary-recovery` | `checkout-entry-temporary-recovery-render` | Required |
-| Production proof Buy Now readiness | `checkout-visual-targets-buy-flow.png` | 3 Desktop Guest Buy Checkout | `checkout-review` | `checkout-entry-review-render` | Required |
 | Disabled accelerated or saved instrument | `checkout-visual-targets-capability-states.png` | 2 Disabled accelerated checkout/saved instrument fallback mobile | `accelerated-saved-instrument-fallback` | `payment-payout-setup-handoff` | Required |
 | Promo, credit, gift card, and fee state | `checkout-visual-targets-capability-states.png` | 3 Promo, credit, gift-card, and fee state desktop | `economics-discount-credit-promo` | `totals-refresh` | Required |
 | Notification expectation and support reference | `checkout-visual-targets-capability-states.png` | 4 Notification expectation and support reference mobile | `notification-expectation` | `final-confirmation-visible-state` | Required |
 | Account history handoff | `checkout-visual-targets-capability-states.png` | 5 Account history handoff desktop | `account-history-handoff` | `account-history-handoff` | Required |
 | Reconciliation pending | `checkout-visual-targets-capability-states.png` | 5 Account history handoff desktop | `account-history-handoff` | `support-lookup` | Required |
 | Reversal and adjustment recovery | `checkout-visual-targets-capability-states.png` | 6 Reversal and adjustment recovery mobile | `cancellation-refund-reversal` | `reversal-recovery-status-refresh` | Required |
-| Fresh-state cleanup absence | `checkout-visual-targets-recovery-launch.png` | 6 Launch kill switch/checkout unavailable mobile | `fresh-state-localization-cleanup` | `checkout-entry-permanent-recovery-render` | Required |
 
 ## Delta Register
 
-These targets are ready for design review but not final launch proof.
+These targets are ready for design review; implementation can either match them or document a focused delta.
 
 | Delta | Owner | Exit condition |
 | --- | --- | --- |
-| UI implementation must attach screenshots or match an approved image target. | #1115 | Desktop and mobile evidence rows link the image target or explicit delta. |
+| UI implementation must attach screenshots or match an approved image target. | #1115 | Desktop and mobile checks link the image target or explicit delta. |
 | Customer-visible copy must map to the copy-policy surface. | #1102 | Localization keys and visual/copy deltas are reviewed together. |
-| Disabled, deferred, unsupported, and provider-dependent states must land in the launch decision. | #1548 | Each row has owner, customer-safe copy, support path, observability, support path, no-side-effect proof, and fresh-state cleanup evidence. |
-| Production proof-mode Buy Now must reach pay-ready checkout within the ready SLO. | #1548, #1123, #1227, #1237 | The production proof canary links a release artifact where checkout review is visible within SLO; temporary recovery-only runs stay launch blockers. |
 | Pending states must stay separate from committed downstream records. | #1135, #1130, #1122 | Account/history/support visuals distinguish pending activity from committed order, sale, label, payout, settlement, notification, fulfillment, support, reconciliation, and reversal facts. |
-| Final launch visuals must prove legacy dense checkout absence. | #1548 | Fresh-state scans show no old routes, old payload adapters, compatibility shims, hidden repair, migration/backfill, old docs/runbooks/localization, stale read models, or dense checkout fallback. |
 
 ## Review Use
 

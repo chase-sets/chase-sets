@@ -8,12 +8,11 @@ export type CheckoutVisualViewport = "desktop" | "mobile";
 
 export type CheckoutVisualArtifactKey = "buy-flow" | "sell-flow" | "recovery-launch" | "capability-states";
 
-export type CheckoutVisualEvidenceSource =
+export type CheckoutVisualReviewSource =
   | "generated-image"
   | "supplied-shopify-reference"
   | "implemented-baseline"
-  | "pr-attached-screenshot"
-  | "launch-evidence-row";
+  | "pr-attached-screenshot";
 
 export type CheckoutVisualLayoutRequirement =
   | "desktop-two-column-checkout"
@@ -66,14 +65,12 @@ export type CheckoutVisualTargetKey =
   | "split-group-summary"
   | "kill-switch-checkout-unavailable"
   | "temporary-recovery-loading"
-  | "production-proof-buy-now-readiness"
   | "disabled-accelerated-saved-instrument"
   | "promo-credit-gift-card-state"
   | "notification-support-reference"
   | "account-history-handoff"
   | "reconciliation-pending"
-  | "reversal-recovery-status"
-  | "fresh-state-cleanup-absence";
+  | "reversal-recovery-status";
 
 export type CheckoutVisualArtifact = Readonly<{
   key: CheckoutVisualArtifactKey;
@@ -88,7 +85,7 @@ export type CheckoutVisualTarget = Readonly<{
   surface: CheckoutVisualTargetKey;
   docLabel: string;
   ownerIssues: readonly CheckoutVisualOwnerIssue[];
-  evidenceSources: readonly CheckoutVisualEvidenceSource[];
+  reviewSources: readonly CheckoutVisualReviewSource[];
   artifact: CheckoutVisualArtifactKey;
   frames: readonly string[];
   viewports: readonly CheckoutVisualViewport[];
@@ -99,10 +96,10 @@ export type CheckoutVisualTarget = Readonly<{
   layoutRequirements: readonly CheckoutVisualLayoutRequirement[];
   forbiddenPatterns: readonly CheckoutVisualForbiddenPattern[];
   readinessBeforeCheckout: boolean;
-  noSideEffectEvidenceRequired: boolean;
+  noSideEffectCopyRequired: boolean;
   pendingDownstreamBoundaryRequired: boolean;
   deltaOwnerIssues: readonly CheckoutVisualOwnerIssue[];
-  exitEvidence: string;
+  acceptanceNote: string;
 }>;
 
 export const checkoutVisualTargetArtifacts = [
@@ -179,7 +176,7 @@ export const checkoutVisualTargets = [
     surface: "buy-cart-review-ready",
     docLabel: "Buy Cart review ready",
     ownerIssues: ["#1112", "#1104", "#1117", "#1118"],
-    evidenceSources: ["generated-image", "supplied-shopify-reference", "implemented-baseline"],
+    reviewSources: ["generated-image", "supplied-shopify-reference", "implemented-baseline"],
     artifact: "buy-flow",
     frames: ["1 Desktop Buy Cart review"],
     viewports: ["desktop"],
@@ -190,16 +187,16 @@ export const checkoutVisualTargets = [
     layoutRequirements: ["cart-list-before-checkout", "no-horizontal-overflow"],
     forbiddenPatterns: universalForbiddenPatterns,
     readinessBeforeCheckout: true,
-    noSideEffectEvidenceRequired: false,
+    noSideEffectCopyRequired: false,
     pendingDownstreamBoundaryRequired: false,
-    deltaOwnerIssues: ["#1115", "#1548"],
-    exitEvidence: "Desktop Buy Cart can remain simple while showing readiness before checkout starts.",
+    deltaOwnerIssues: ["#1115"],
+    acceptanceNote: "Desktop Buy Cart can remain simple while showing readiness before checkout starts.",
   }),
   visualTarget({
     surface: "buy-readiness-unassigned-fulfillment",
     docLabel: "Buy readiness attention",
-    ownerIssues: ["#1112", "#1117", "#1118", "#1119", "#1548"],
-    evidenceSources: ["generated-image"],
+    ownerIssues: ["#1112", "#1117", "#1118", "#1119"],
+    reviewSources: ["generated-image"],
     artifact: "buy-flow",
     frames: ["2 Mobile Buy Cart readiness and savings"],
     viewports: ["mobile"],
@@ -210,16 +207,16 @@ export const checkoutVisualTargets = [
     layoutRequirements: ["cart-list-before-checkout", "mobile-single-column-checkout", "no-horizontal-overflow"],
     forbiddenPatterns: universalForbiddenPatterns,
     readinessBeforeCheckout: true,
-    noSideEffectEvidenceRequired: true,
+    noSideEffectCopyRequired: true,
     pendingDownstreamBoundaryRequired: false,
-    deltaOwnerIssues: ["#1102", "#1115", "#1548"],
-    exitEvidence: "Unassigned fulfillment is shown as cart/readiness attention, not checkout form repair.",
+    deltaOwnerIssues: ["#1102", "#1115"],
+    acceptanceNote: "Unassigned fulfillment is shown as cart/readiness attention, not checkout form repair.",
   }),
   visualTarget({
     surface: "buy-readiness-optimization",
     docLabel: "Buy readiness savings optimization",
-    ownerIssues: ["#1112", "#1117", "#1128", "#1548"],
-    evidenceSources: ["generated-image"],
+    ownerIssues: ["#1112", "#1117", "#1128"],
+    reviewSources: ["generated-image"],
     artifact: "buy-flow",
     frames: ["2 Mobile Buy Cart readiness and savings"],
     viewports: ["mobile"],
@@ -230,16 +227,16 @@ export const checkoutVisualTargets = [
     layoutRequirements: ["cart-list-before-checkout", "mobile-single-column-checkout", "no-horizontal-overflow"],
     forbiddenPatterns: universalForbiddenPatterns,
     readinessBeforeCheckout: true,
-    noSideEffectEvidenceRequired: true,
+    noSideEffectCopyRequired: true,
     pendingDownstreamBoundaryRequired: false,
     deltaOwnerIssues: ["#1102", "#1115"],
-    exitEvidence: "Optional savings appear before checkout with accept and keep-current decisions visible.",
+    acceptanceNote: "Optional savings appear before checkout with accept and keep-current decisions visible.",
   }),
   visualTarget({
     surface: "guest-buy-checkout",
     docLabel: "Guest Buy Checkout",
     ownerIssues: ["#1112", "#1105", "#1107", "#1127", "#1128"],
-    evidenceSources: ["generated-image", "supplied-shopify-reference", "implemented-baseline"],
+    reviewSources: ["generated-image", "supplied-shopify-reference", "implemented-baseline"],
     artifact: "buy-flow",
     frames: ["3 Desktop Guest Buy Checkout"],
     viewports: ["desktop"],
@@ -250,16 +247,16 @@ export const checkoutVisualTargets = [
     layoutRequirements: desktopCheckoutLayout,
     forbiddenPatterns: universalForbiddenPatterns,
     readinessBeforeCheckout: false,
-    noSideEffectEvidenceRequired: false,
+    noSideEffectCopyRequired: false,
     pendingDownstreamBoundaryRequired: false,
-    deltaOwnerIssues: ["#1102", "#1115", "#1548"],
-    exitEvidence: "Guest buy checkout follows the Shopify-simple two-column form and summary target.",
+    deltaOwnerIssues: ["#1102", "#1115"],
+    acceptanceNote: "Guest buy checkout follows the Shopify-simple two-column form and summary target.",
   }),
   visualTarget({
     surface: "signed-in-buy-checkout",
     docLabel: "Signed-in Buy Checkout",
     ownerIssues: ["#1112", "#1106", "#1121", "#1113"],
-    evidenceSources: ["generated-image", "supplied-shopify-reference", "implemented-baseline"],
+    reviewSources: ["generated-image", "supplied-shopify-reference", "implemented-baseline"],
     artifact: "buy-flow",
     frames: ["4 Mobile Signed-in Buy Checkout"],
     viewports: ["mobile"],
@@ -270,16 +267,16 @@ export const checkoutVisualTargets = [
     layoutRequirements: ["saved-info-editable-rows", ...mobileCheckoutLayout],
     forbiddenPatterns: universalForbiddenPatterns,
     readinessBeforeCheckout: false,
-    noSideEffectEvidenceRequired: false,
+    noSideEffectCopyRequired: false,
     pendingDownstreamBoundaryRequired: false,
-    deltaOwnerIssues: ["#1102", "#1115", "#1548"],
-    exitEvidence: "Signed-in buy checkout uses concise editable saved rows with a sticky mobile primary action.",
+    deltaOwnerIssues: ["#1102", "#1115"],
+    acceptanceNote: "Signed-in buy checkout uses concise editable saved rows with a sticky mobile primary action.",
   }),
   visualTarget({
     surface: "sell-list-review-ready",
     docLabel: "Sell List review ready",
     ownerIssues: ["#1112", "#1108", "#1118"],
-    evidenceSources: ["generated-image", "implemented-baseline"],
+    reviewSources: ["generated-image", "implemented-baseline"],
     artifact: "sell-flow",
     frames: ["1 Desktop Sell List review"],
     viewports: ["desktop"],
@@ -290,16 +287,16 @@ export const checkoutVisualTargets = [
     layoutRequirements: ["cart-list-before-checkout", "no-horizontal-overflow"],
     forbiddenPatterns: universalForbiddenPatterns,
     readinessBeforeCheckout: true,
-    noSideEffectEvidenceRequired: false,
+    noSideEffectCopyRequired: false,
     pendingDownstreamBoundaryRequired: false,
-    deltaOwnerIssues: ["#1115", "#1548"],
-    exitEvidence: "Sell List review stays role-specific and avoids checkout machinery.",
+    deltaOwnerIssues: ["#1115"],
+    acceptanceNote: "Sell List review stays role-specific and avoids checkout machinery.",
   }),
   visualTarget({
     surface: "sell-list-readiness-blocked",
     docLabel: "Sell List readiness blocked",
-    ownerIssues: ["#1112", "#1117", "#1118", "#1119", "#1121", "#1131", "#1548"],
-    evidenceSources: ["generated-image"],
+    ownerIssues: ["#1112", "#1117", "#1118", "#1119", "#1121", "#1131"],
+    reviewSources: ["generated-image"],
     artifact: "sell-flow",
     frames: ["2 Mobile Sell List readiness"],
     viewports: ["mobile"],
@@ -310,16 +307,16 @@ export const checkoutVisualTargets = [
     layoutRequirements: ["cart-list-before-checkout", "mobile-single-column-checkout", "no-horizontal-overflow"],
     forbiddenPatterns: universalForbiddenPatterns,
     readinessBeforeCheckout: true,
-    noSideEffectEvidenceRequired: true,
+    noSideEffectCopyRequired: true,
     pendingDownstreamBoundaryRequired: false,
-    deltaOwnerIssues: ["#1102", "#1115", "#1548"],
-    exitEvidence: "Ship-from, payout, and label blockers stay in Sell List readiness before seller checkout.",
+    deltaOwnerIssues: ["#1102", "#1115"],
+    acceptanceNote: "Ship-from, payout, and label blockers stay in Sell List readiness before seller checkout.",
   }),
   visualTarget({
     surface: "guest-sell-checkout",
     docLabel: "Guest Sell Checkout",
     ownerIssues: ["#1112", "#1109", "#1121", "#1113"],
-    evidenceSources: ["generated-image"],
+    reviewSources: ["generated-image"],
     artifact: "capability-states",
     frames: ["1 Guest Sell Checkout desktop"],
     viewports: ["desktop"],
@@ -330,16 +327,16 @@ export const checkoutVisualTargets = [
     layoutRequirements: desktopCheckoutLayout,
     forbiddenPatterns: universalForbiddenPatterns,
     readinessBeforeCheckout: false,
-    noSideEffectEvidenceRequired: false,
+    noSideEffectCopyRequired: false,
     pendingDownstreamBoundaryRequired: false,
-    deltaOwnerIssues: ["#1102", "#1115", "#1548"],
-    exitEvidence: "Guest seller checkout remains a form-first path without settlement internals.",
+    deltaOwnerIssues: ["#1102", "#1115"],
+    acceptanceNote: "Guest seller checkout remains a form-first path without settlement internals.",
   }),
   visualTarget({
     surface: "signed-in-sell-checkout",
     docLabel: "Signed-in Sell Checkout",
     ownerIssues: ["#1112", "#1110", "#1111", "#1121", "#1113"],
-    evidenceSources: ["generated-image", "implemented-baseline"],
+    reviewSources: ["generated-image", "implemented-baseline"],
     artifact: "sell-flow",
     frames: ["3 Desktop Signed-in Seller Checkout"],
     viewports: ["desktop"],
@@ -350,17 +347,17 @@ export const checkoutVisualTargets = [
     layoutRequirements: ["saved-info-editable-rows", ...desktopCheckoutLayout],
     forbiddenPatterns: universalForbiddenPatterns,
     readinessBeforeCheckout: false,
-    noSideEffectEvidenceRequired: false,
+    noSideEffectCopyRequired: false,
     pendingDownstreamBoundaryRequired: false,
-    deltaOwnerIssues: ["#1102", "#1115", "#1548"],
-    exitEvidence:
+    deltaOwnerIssues: ["#1102", "#1115"],
+    acceptanceNote:
       "Signed-in seller checkout compresses ship-from, payout, label service, and plan facts into editable rows.",
   }),
   visualTarget({
     surface: "seller-confirmation-activity",
     docLabel: "Seller confirmation activity",
-    ownerIssues: ["#1112", "#1120", "#1135", "#1129", "#1548"],
-    evidenceSources: ["generated-image", "implemented-baseline", "launch-evidence-row"],
+    ownerIssues: ["#1112", "#1120", "#1135", "#1129"],
+    reviewSources: ["generated-image", "implemented-baseline"],
     artifact: "sell-flow",
     frames: ["4 Mobile Seller confirmation/activity"],
     viewports: ["mobile"],
@@ -371,16 +368,16 @@ export const checkoutVisualTargets = [
     layoutRequirements: ["pending-vs-committed-separated", "support-safe-reference-visible", ...mobileCheckoutLayout],
     forbiddenPatterns: universalForbiddenPatterns,
     readinessBeforeCheckout: false,
-    noSideEffectEvidenceRequired: false,
+    noSideEffectCopyRequired: false,
     pendingDownstreamBoundaryRequired: true,
-    deltaOwnerIssues: ["#1102", "#1115", "#1548"],
-    exitEvidence: "Seller activity can be recorded while label, payout, notification, and settlement remain pending.",
+    deltaOwnerIssues: ["#1102", "#1115"],
+    acceptanceNote: "Seller activity can be recorded while label, payout, notification, and settlement remain pending.",
   }),
   visualTarget({
     surface: "active-session-stale-recovery",
     docLabel: "Active-session stale recovery",
-    ownerIssues: ["#1112", "#1118", "#1119", "#1122", "#1548"],
-    evidenceSources: ["generated-image", "launch-evidence-row"],
+    ownerIssues: ["#1112", "#1118", "#1119", "#1122"],
+    reviewSources: ["generated-image"],
     artifact: "recovery-launch",
     frames: ["1 Active-session stale recovery desktop"],
     viewports: ["desktop"],
@@ -391,16 +388,16 @@ export const checkoutVisualTargets = [
     layoutRequirements: ["support-safe-reference-visible", "no-horizontal-overflow"],
     forbiddenPatterns: universalForbiddenPatterns,
     readinessBeforeCheckout: false,
-    noSideEffectEvidenceRequired: true,
+    noSideEffectCopyRequired: true,
     pendingDownstreamBoundaryRequired: false,
-    deltaOwnerIssues: ["#1102", "#1115", "#1548"],
-    exitEvidence: "Already-open checkout sessions route back to current review facts when source data changes.",
+    deltaOwnerIssues: ["#1102", "#1115"],
+    acceptanceNote: "Already-open checkout sessions route back to current review facts when source data changes.",
   }),
   visualTarget({
     surface: "address-serviceability-failure",
     docLabel: "Address or serviceability failure",
-    ownerIssues: ["#1112", "#1127", "#1121", "#1122", "#1548"],
-    evidenceSources: ["generated-image"],
+    ownerIssues: ["#1112", "#1127", "#1121", "#1122"],
+    reviewSources: ["generated-image"],
     artifact: "recovery-launch",
     frames: ["2 Address/serviceability failure mobile"],
     viewports: ["mobile"],
@@ -411,16 +408,16 @@ export const checkoutVisualTargets = [
     layoutRequirements: mobileCheckoutLayout,
     forbiddenPatterns: universalForbiddenPatterns,
     readinessBeforeCheckout: false,
-    noSideEffectEvidenceRequired: true,
+    noSideEffectCopyRequired: true,
     pendingDownstreamBoundaryRequired: false,
-    deltaOwnerIssues: ["#1102", "#1115", "#1548"],
-    exitEvidence: "Address recovery stays inline, customer-safe, and visible with the total and next action.",
+    deltaOwnerIssues: ["#1102", "#1115"],
+    acceptanceNote: "Address recovery stays inline, customer-safe, and visible with the total and next action.",
   }),
   visualTarget({
     surface: "changed-economics-review",
     docLabel: "Changed economics review",
-    ownerIssues: ["#1112", "#1119", "#1128", "#1130", "#1548"],
-    evidenceSources: ["generated-image"],
+    ownerIssues: ["#1112", "#1119", "#1128", "#1130"],
+    reviewSources: ["generated-image"],
     artifact: "recovery-launch",
     frames: ["3 Changed economics desktop"],
     viewports: ["desktop"],
@@ -431,16 +428,16 @@ export const checkoutVisualTargets = [
     layoutRequirements: desktopCheckoutLayout,
     forbiddenPatterns: universalForbiddenPatterns,
     readinessBeforeCheckout: false,
-    noSideEffectEvidenceRequired: true,
+    noSideEffectCopyRequired: true,
     pendingDownstreamBoundaryRequired: false,
-    deltaOwnerIssues: ["#1102", "#1115", "#1548"],
-    exitEvidence: "Changed totals require customer review before commitment and show that payment has not started.",
+    deltaOwnerIssues: ["#1102", "#1115"],
+    acceptanceNote: "Changed totals require customer review before commitment and show that payment has not started.",
   }),
   visualTarget({
     surface: "risk-hold-provider-return-failure",
     docLabel: "Risk hold or provider-return failure",
-    ownerIssues: ["#1112", "#1113", "#1131", "#1134", "#1124", "#1548"],
-    evidenceSources: ["generated-image"],
+    ownerIssues: ["#1112", "#1113", "#1131", "#1134", "#1124"],
+    reviewSources: ["generated-image"],
     artifact: "recovery-launch",
     frames: ["4 Risk hold/provider return failure mobile"],
     viewports: ["mobile"],
@@ -451,16 +448,16 @@ export const checkoutVisualTargets = [
     layoutRequirements: ["support-safe-reference-visible", ...mobileCheckoutLayout],
     forbiddenPatterns: universalForbiddenPatterns,
     readinessBeforeCheckout: false,
-    noSideEffectEvidenceRequired: true,
+    noSideEffectCopyRequired: true,
     pendingDownstreamBoundaryRequired: false,
-    deltaOwnerIssues: ["#1102", "#1115", "#1548"],
-    exitEvidence: "Risk and provider failures keep sensitive signals hidden and provide a support-safe next step.",
+    deltaOwnerIssues: ["#1102", "#1115"],
+    acceptanceNote: "Risk and provider failures keep sensitive signals hidden and provide a support-safe next step.",
   }),
   visualTarget({
     surface: "split-group-summary",
     docLabel: "Split package summary",
-    ownerIssues: ["#1112", "#1164", "#1120", "#1130", "#1548"],
-    evidenceSources: ["generated-image"],
+    ownerIssues: ["#1112", "#1164", "#1120", "#1130"],
+    reviewSources: ["generated-image"],
     artifact: "recovery-launch",
     frames: ["5 Split-group summary desktop"],
     viewports: ["desktop"],
@@ -471,16 +468,16 @@ export const checkoutVisualTargets = [
     layoutRequirements: desktopCheckoutLayout,
     forbiddenPatterns: universalForbiddenPatterns,
     readinessBeforeCheckout: false,
-    noSideEffectEvidenceRequired: false,
+    noSideEffectCopyRequired: false,
     pendingDownstreamBoundaryRequired: false,
-    deltaOwnerIssues: ["#1102", "#1115", "#1548"],
-    exitEvidence: "Split packages preserve one customer-facing payment action and avoid seller allocation controls.",
+    deltaOwnerIssues: ["#1102", "#1115"],
+    acceptanceNote: "Split packages preserve one customer-facing payment action and avoid seller allocation controls.",
   }),
   visualTarget({
     surface: "kill-switch-checkout-unavailable",
     docLabel: "Checkout unavailable",
-    ownerIssues: ["#1112", "#1103", "#1548"],
-    evidenceSources: ["generated-image", "launch-evidence-row"],
+    ownerIssues: ["#1112", "#1103"],
+    reviewSources: ["generated-image"],
     artifact: "recovery-launch",
     frames: ["6 Launch kill switch/checkout unavailable mobile"],
     viewports: ["mobile"],
@@ -491,16 +488,16 @@ export const checkoutVisualTargets = [
     layoutRequirements: mobileCheckoutLayout,
     forbiddenPatterns: universalForbiddenPatterns,
     readinessBeforeCheckout: false,
-    noSideEffectEvidenceRequired: true,
+    noSideEffectCopyRequired: true,
     pendingDownstreamBoundaryRequired: false,
-    deltaOwnerIssues: ["#1102", "#1115", "#1548"],
-    exitEvidence: "Kill switches fail closed to review without restoring old checkout surfaces.",
+    deltaOwnerIssues: ["#1102", "#1115"],
+    acceptanceNote: "Kill switches fail closed to review without restoring old checkout surfaces.",
   }),
   visualTarget({
     surface: "temporary-recovery-loading",
     docLabel: "Temporary recovery loading",
-    ownerIssues: ["#1112", "#1123", "#1206", "#1114", "#1548"],
-    evidenceSources: ["generated-image", "launch-evidence-row"],
+    ownerIssues: ["#1112", "#1123", "#1206", "#1114"],
+    reviewSources: ["generated-image"],
     artifact: "recovery-launch",
     frames: ["1 Active-session stale recovery desktop"],
     viewports: ["desktop"],
@@ -511,37 +508,16 @@ export const checkoutVisualTargets = [
     layoutRequirements: ["support-safe-reference-visible", "no-horizontal-overflow"],
     forbiddenPatterns: universalForbiddenPatterns,
     readinessBeforeCheckout: false,
-    noSideEffectEvidenceRequired: true,
+    noSideEffectCopyRequired: true,
     pendingDownstreamBoundaryRequired: false,
-    deltaOwnerIssues: ["#1102", "#1115", "#1548"],
-    exitEvidence: "Temporary recovery remains a known Checkout-owned state rather than an ambiguous platform error.",
-  }),
-  visualTarget({
-    surface: "production-proof-buy-now-readiness",
-    docLabel: "Production proof Buy Now readiness",
-    ownerIssues: ["#1112", "#1114", "#1115", "#1548", "#1123", "#1206"],
-    evidenceSources: ["generated-image", "implemented-baseline", "launch-evidence-row"],
-    artifact: "buy-flow",
-    frames: ["3 Desktop Guest Buy Checkout"],
-    viewports: ["desktop"],
-    copySurface: "checkout-review",
-    performanceSurface: "checkout-entry-review-render",
-    visibleState: "checkout-review-visible",
-    launchDecisionStatus: "required",
-    layoutRequirements: desktopCheckoutLayout,
-    forbiddenPatterns: universalForbiddenPatterns,
-    readinessBeforeCheckout: false,
-    noSideEffectEvidenceRequired: true,
-    pendingDownstreamBoundaryRequired: false,
-    deltaOwnerIssues: ["#1115", "#1548"],
-    exitEvidence:
-      "Production proof-mode Buy Now must reach pay-ready checkout within the ready SLO; temporary recovery is safety evidence only.",
+    deltaOwnerIssues: ["#1102", "#1115"],
+    acceptanceNote: "Temporary recovery remains a known Checkout-owned state rather than an ambiguous platform error.",
   }),
   visualTarget({
     surface: "disabled-accelerated-saved-instrument",
     docLabel: "Disabled accelerated or saved instrument",
-    ownerIssues: ["#1112", "#1113", "#1121", "#1124", "#1548"],
-    evidenceSources: ["generated-image"],
+    ownerIssues: ["#1112", "#1113", "#1121", "#1124"],
+    reviewSources: ["generated-image"],
     artifact: "capability-states",
     frames: ["2 Disabled accelerated checkout/saved instrument fallback mobile"],
     viewports: ["mobile"],
@@ -552,17 +528,17 @@ export const checkoutVisualTargets = [
     layoutRequirements: mobileCheckoutLayout,
     forbiddenPatterns: universalForbiddenPatterns,
     readinessBeforeCheckout: false,
-    noSideEffectEvidenceRequired: true,
+    noSideEffectCopyRequired: true,
     pendingDownstreamBoundaryRequired: false,
-    deltaOwnerIssues: ["#1102", "#1115", "#1548"],
-    exitEvidence:
+    deltaOwnerIssues: ["#1102", "#1115"],
+    acceptanceNote:
       "Convenience methods can be disabled without blocking the simple checkout path or bypassing readiness.",
   }),
   visualTarget({
     surface: "promo-credit-gift-card-state",
     docLabel: "Promo, credit, gift card, and fee state",
-    ownerIssues: ["#1112", "#1128", "#1124", "#1548"],
-    evidenceSources: ["generated-image"],
+    ownerIssues: ["#1112", "#1128", "#1124"],
+    reviewSources: ["generated-image"],
     artifact: "capability-states",
     frames: ["3 Promo, credit, gift-card, and fee state desktop"],
     viewports: ["desktop"],
@@ -573,16 +549,16 @@ export const checkoutVisualTargets = [
     layoutRequirements: desktopCheckoutLayout,
     forbiddenPatterns: universalForbiddenPatterns,
     readinessBeforeCheckout: false,
-    noSideEffectEvidenceRequired: true,
+    noSideEffectCopyRequired: true,
     pendingDownstreamBoundaryRequired: false,
-    deltaOwnerIssues: ["#1102", "#1115", "#1548"],
-    exitEvidence: "Supported and unavailable economics remain visible before the customer commits.",
+    deltaOwnerIssues: ["#1102", "#1115"],
+    acceptanceNote: "Supported and unavailable economics remain visible before the customer commits.",
   }),
   visualTarget({
     surface: "notification-support-reference",
     docLabel: "Notification expectation and support reference",
-    ownerIssues: ["#1112", "#1129", "#1122", "#1120", "#1548"],
-    evidenceSources: ["generated-image"],
+    ownerIssues: ["#1112", "#1129", "#1122", "#1120"],
+    reviewSources: ["generated-image"],
     artifact: "capability-states",
     frames: ["4 Notification expectation and support reference mobile"],
     viewports: ["mobile"],
@@ -593,16 +569,16 @@ export const checkoutVisualTargets = [
     layoutRequirements: ["pending-vs-committed-separated", "support-safe-reference-visible", ...mobileCheckoutLayout],
     forbiddenPatterns: universalForbiddenPatterns,
     readinessBeforeCheckout: false,
-    noSideEffectEvidenceRequired: false,
+    noSideEffectCopyRequired: false,
     pendingDownstreamBoundaryRequired: true,
-    deltaOwnerIssues: ["#1102", "#1115", "#1548"],
-    exitEvidence: "Notification copy says updates will be sent when ready without promising early delivery.",
+    deltaOwnerIssues: ["#1102", "#1115"],
+    acceptanceNote: "Notification copy says updates will be sent when ready without promising early delivery.",
   }),
   visualTarget({
     surface: "account-history-handoff",
     docLabel: "Account history handoff",
-    ownerIssues: ["#1112", "#1135", "#1120", "#1122", "#1548"],
-    evidenceSources: ["generated-image", "implemented-baseline", "launch-evidence-row"],
+    ownerIssues: ["#1112", "#1135", "#1120", "#1122"],
+    reviewSources: ["generated-image", "implemented-baseline"],
     artifact: "capability-states",
     frames: ["5 Account history handoff desktop"],
     viewports: ["desktop"],
@@ -613,16 +589,16 @@ export const checkoutVisualTargets = [
     layoutRequirements: ["pending-vs-committed-separated", "support-safe-reference-visible", "no-horizontal-overflow"],
     forbiddenPatterns: universalForbiddenPatterns,
     readinessBeforeCheckout: false,
-    noSideEffectEvidenceRequired: false,
+    noSideEffectCopyRequired: false,
     pendingDownstreamBoundaryRequired: true,
-    deltaOwnerIssues: ["#1102", "#1115", "#1548"],
-    exitEvidence: "Pending Checkout activity and committed downstream detail appear as separate destinations.",
+    deltaOwnerIssues: ["#1102", "#1115"],
+    acceptanceNote: "Pending Checkout activity and committed downstream detail appear as separate destinations.",
   }),
   visualTarget({
     surface: "reconciliation-pending",
     docLabel: "Reconciliation pending",
-    ownerIssues: ["#1112", "#1130", "#1122", "#1548"],
-    evidenceSources: ["generated-image", "launch-evidence-row"],
+    ownerIssues: ["#1112", "#1130", "#1122"],
+    reviewSources: ["generated-image"],
     artifact: "capability-states",
     frames: ["5 Account history handoff desktop"],
     viewports: ["desktop"],
@@ -633,16 +609,16 @@ export const checkoutVisualTargets = [
     layoutRequirements: ["pending-vs-committed-separated", "support-safe-reference-visible", "no-horizontal-overflow"],
     forbiddenPatterns: universalForbiddenPatterns,
     readinessBeforeCheckout: false,
-    noSideEffectEvidenceRequired: false,
+    noSideEffectCopyRequired: false,
     pendingDownstreamBoundaryRequired: true,
-    deltaOwnerIssues: ["#1102", "#1115", "#1548"],
-    exitEvidence: "Reconciliation pending states stay support-safe and do not synthesize completed downstream facts.",
+    deltaOwnerIssues: ["#1102", "#1115"],
+    acceptanceNote: "Reconciliation pending states stay support-safe and do not synthesize completed downstream facts.",
   }),
   visualTarget({
     surface: "reversal-recovery-status",
     docLabel: "Reversal and adjustment recovery",
-    ownerIssues: ["#1112", "#1165", "#1130", "#1122", "#1548"],
-    evidenceSources: ["generated-image"],
+    ownerIssues: ["#1112", "#1165", "#1130", "#1122"],
+    reviewSources: ["generated-image"],
     artifact: "capability-states",
     frames: ["6 Reversal and adjustment recovery mobile"],
     viewports: ["mobile"],
@@ -653,30 +629,10 @@ export const checkoutVisualTargets = [
     layoutRequirements: ["pending-vs-committed-separated", "support-safe-reference-visible", ...mobileCheckoutLayout],
     forbiddenPatterns: universalForbiddenPatterns,
     readinessBeforeCheckout: false,
-    noSideEffectEvidenceRequired: false,
+    noSideEffectCopyRequired: false,
     pendingDownstreamBoundaryRequired: true,
-    deltaOwnerIssues: ["#1102", "#1115", "#1548"],
-    exitEvidence: "Recovery status rows distinguish pending, held, and adjusted facts without provider internals.",
-  }),
-  visualTarget({
-    surface: "fresh-state-cleanup-absence",
-    docLabel: "Fresh-state cleanup absence",
-    ownerIssues: ["#1112", "#1548", "#1132"],
-    evidenceSources: ["generated-image", "launch-evidence-row"],
-    artifact: "recovery-launch",
-    frames: ["6 Launch kill switch/checkout unavailable mobile"],
-    viewports: ["mobile"],
-    copySurface: "fresh-state-localization-cleanup",
-    performanceSurface: "checkout-entry-permanent-recovery-render",
-    visibleState: "checkout-permanent-recovery-visible",
-    launchDecisionStatus: "required",
-    layoutRequirements: ["cart-list-before-checkout", ...mobileCheckoutLayout],
-    forbiddenPatterns: universalForbiddenPatterns,
-    readinessBeforeCheckout: true,
-    noSideEffectEvidenceRequired: true,
-    pendingDownstreamBoundaryRequired: false,
-    deltaOwnerIssues: ["#1102", "#1115", "#1548"],
-    exitEvidence: "Final visual targets include no dense legacy checkout, old route recovery, or compatibility UI.",
+    deltaOwnerIssues: ["#1102", "#1115"],
+    acceptanceNote: "Recovery status rows distinguish pending, held, and adjusted facts without provider internals.",
   }),
 ] as const satisfies readonly CheckoutVisualTarget[];
 
@@ -698,14 +654,12 @@ export const checkoutVisualRequiredTargets = [
   "split-group-summary",
   "kill-switch-checkout-unavailable",
   "temporary-recovery-loading",
-  "production-proof-buy-now-readiness",
   "disabled-accelerated-saved-instrument",
   "promo-credit-gift-card-state",
   "notification-support-reference",
   "account-history-handoff",
   "reconciliation-pending",
   "reversal-recovery-status",
-  "fresh-state-cleanup-absence",
 ] as const satisfies readonly CheckoutVisualTargetKey[];
 
 export function assertCheckoutVisualTargetCoverage(): void {
@@ -755,19 +709,16 @@ export function assertCheckoutVisualTargetCoverage(): void {
         throw new Error(`Checkout visual target '${target.surface}' must forbid ${pattern}.`);
       }
     }
-    if (target.launchDecisionStatus === "required" && !target.ownerIssues.includes("#1548")) {
-      throw new Error(`Checkout visual target '${target.surface}' needs #1548 when launch decision is required.`);
+    if (target.launchDecisionStatus === "required" && !target.deltaOwnerIssues.includes("#1115")) {
+      throw new Error(
+        `Checkout visual target '${target.surface}' needs #1115 acceptance coverage when launch decision is required.`,
+      );
     }
     if (target.copySurface.length === 0 || target.performanceSurface.length === 0) {
       throw new Error(`Checkout visual target '${target.surface}' needs copy and performance mappings.`);
     }
-    if (
-      target.noSideEffectEvidenceRequired &&
-      !target.ownerIssues.some((issue) => issue === "#1548" || issue === "#1122")
-    ) {
-      throw new Error(
-        `Checkout visual target '${target.surface}' needs launch/support ownership for no-side-effect proof.`,
-      );
+    if (target.noSideEffectCopyRequired && !target.deltaOwnerIssues.includes("#1115")) {
+      throw new Error(`Checkout visual target '${target.surface}' needs acceptance coverage for no-side-effect copy.`);
     }
     if (
       target.pendingDownstreamBoundaryRequired &&

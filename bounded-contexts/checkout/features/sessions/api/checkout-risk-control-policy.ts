@@ -48,7 +48,7 @@ export type CheckoutRiskSurface =
   | "provider-return-recovery"
   | "confirmation-hold"
   | "support-runbook"
-  | "launch-evidence"
+  | "launch-status"
   | "none";
 
 export type CheckoutRiskLaunchDecision = "required-for-launch" | "launch-decision-required" | "not-customer-facing";
@@ -73,7 +73,6 @@ export type CheckoutRiskOwnerIssue =
   | "#1113"
   | "#1114"
   | "#1115"
-  | "#1548"
   | "#1117"
   | "#1118"
   | "#1119"
@@ -435,7 +434,7 @@ export const checkoutRiskControlPolicyEntries = [
   riskControl({
     control: "launch-decision-risk-states",
     docLabel: "Launch decision risk states",
-    ownerIssues: ["#1131", "#1548", "#1102", "#1112"],
+    ownerIssues: ["#1131", "#1102", "#1112"],
     ownerContext: "Platform",
     checkpoints: ["cart-list-readiness", "provider-or-wallet-return", "final-confirmation", "operator-support"],
     protectedActions: [
@@ -456,7 +455,7 @@ export const checkoutRiskControlPolicyEntries = [
       "provider-unavailable",
       "no-side-effect",
     ],
-    customerSurface: "launch-evidence",
+    customerSurface: "launch-status",
     launchDecision: "launch-decision-required",
     supportReferenceRequired: true,
     observabilityRequired: true,
@@ -484,7 +483,7 @@ export const checkoutRiskControlPolicyEntries = [
     ],
     audiences: allAudiences,
     outcomeStates: ["allowed", "blocked", "held", "challenged", "provider-unavailable", "no-side-effect"],
-    customerSurface: "launch-evidence",
+    customerSurface: "launch-status",
     launchDecision: "required-for-launch",
     supportReferenceRequired: true,
     observabilityRequired: true,
@@ -500,7 +499,7 @@ export const checkoutRiskControlPolicyEntries = [
   riskControl({
     control: "no-side-effect-risk-blocks",
     docLabel: "No-side-effect risk blocks",
-    ownerIssues: ["#1131", "#1548", "#1119", "#1130"],
+    ownerIssues: ["#1131", "#1119", "#1130"],
     ownerContext: "Checkout",
     checkpoints: ["cart-list-readiness", "checkout-session-create", "final-confirmation"],
     protectedActions: [
@@ -528,7 +527,7 @@ export const checkoutRiskControlPolicyEntries = [
   riskControl({
     control: "fresh-state-risk-cleanup",
     docLabel: "Fresh-state risk cleanup",
-    ownerIssues: ["#1131", "#1548", "#1124"],
+    ownerIssues: ["#1131", "#1124"],
     ownerContext: "Platform",
     checkpoints: ["cart-list-readiness", "checkout-session-create", "final-confirmation", "operator-support"],
     protectedActions: [
@@ -540,7 +539,7 @@ export const checkoutRiskControlPolicyEntries = [
     ],
     audiences: allAudiences,
     outcomeStates: ["blocked", "disabled", "unsupported", "no-side-effect"],
-    customerSurface: "launch-evidence",
+    customerSurface: "launch-status",
     launchDecision: "required-for-launch",
     supportReferenceRequired: true,
     observabilityRequired: true,

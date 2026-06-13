@@ -81,7 +81,7 @@ export type CheckoutReconciliationSourceFact =
   | "notification-message"
   | "account-history-record"
   | "support-safe-reference"
-  | "launch-decision-row"
+  | "launch-decision"
   | "none-before-confirmation";
 
 export type CheckoutReconciliationLookupStart =
@@ -100,7 +100,7 @@ export type CheckoutReconciliationLookupStart =
   | "settlement-id"
   | "notification-id"
   | "account-history-id"
-  | "launch-decision-row-id";
+  | "launch-decision-reference";
 
 export type CheckoutReconciliationOwnerIssue =
   | "#1102"
@@ -108,7 +108,6 @@ export type CheckoutReconciliationOwnerIssue =
   | "#1113"
   | "#1114"
   | "#1115"
-  | "#1548"
   | "#1118"
   | "#1119"
   | "#1120"
@@ -152,7 +151,7 @@ export type CheckoutReconciliationBoundary =
   | "checkout-confirmation"
   | "post-confirmation"
   | "operator-support"
-  | "launch-evidence";
+  | "launch-status";
 
 export type CheckoutReconciliationPolicyEntry = Readonly<{
   control: CheckoutReconciliationControlKey;
@@ -254,7 +253,7 @@ export const checkoutReconciliationPolicyEntries = [
   reconciliationPolicy({
     control: "pre-confirmation-no-side-effect-recovery",
     docLabel: "Pre-confirmation no-side-effect recovery",
-    ownerIssues: ["#1130", "#1118", "#1119", "#1122", "#1548"],
+    ownerIssues: ["#1130", "#1118", "#1119", "#1122"],
     ownerContext: "Checkout",
     checkpoints: ["cart-list-readiness", "checkout-session-create", "customer-reload", "duplicate-submit"],
     audiences: allCustomerAudiences,
@@ -294,14 +293,14 @@ export const checkoutReconciliationPolicyEntries = [
   reconciliationPolicy({
     control: "unassigned-fulfillment-readiness-reconciliation",
     docLabel: "Unassigned fulfillment readiness reconciliation",
-    ownerIssues: ["#1130", "#1119", "#1127", "#1131", "#1164", "#1548"],
+    ownerIssues: ["#1130", "#1119", "#1127", "#1131", "#1164"],
     ownerContext: "Checkout",
     checkpoints: ["cart-list-readiness", "conditional-pre-checkout", "launch-decision"],
     audiences: allCustomerAudiences,
     effects: ["checkout-confirmation", "payment", "order", "inventory-reservation", "label", "payout", "settlement"],
     states: ["no-side-effect", "downstream-not-created-yet", "unsupported", "deferred"],
-    sourceFacts: ["readiness-snapshot", "launch-decision-row", "support-safe-reference", "none-before-confirmation"],
-    lookupStarts: ["readiness-snapshot-version", "support-safe-reference", "launch-decision-row-id"],
+    sourceFacts: ["readiness-snapshot", "launch-decision", "support-safe-reference", "none-before-confirmation"],
+    lookupStarts: ["readiness-snapshot-version", "support-safe-reference", "launch-decision-reference"],
     boundary: "before-checkout",
     idempotencyKeyShape: "checkout:unassigned_fulfillment:<line-or-group-ref>:<readiness-version>",
     supportReferenceRequired: true,
@@ -344,7 +343,7 @@ export const checkoutReconciliationPolicyEntries = [
   reconciliationPolicy({
     control: "checkout-confirmation-handoff-ledger",
     docLabel: "Checkout confirmation handoff ledger",
-    ownerIssues: ["#1130", "#1120", "#1135", "#1114", "#1115", "#1548"],
+    ownerIssues: ["#1130", "#1120", "#1135", "#1114", "#1115"],
     ownerContext: "Checkout",
     checkpoints: ["confirmation-handoff-recorded", "customer-reload", "background-retry"],
     audiences: allCustomerAudiences,
@@ -462,8 +461,8 @@ export const checkoutReconciliationPolicyEntries = [
     audiences: sellerAudiences,
     effects: ["label", "inventory-reservation", "notification", "account-history", "reversal"],
     states: ["downstream-pending", "downstream-committed", "downstream-failed", "recovered", "reversed", "deferred"],
-    sourceFacts: ["checkout-confirmation", "fulfillment-label", "support-safe-reference", "launch-decision-row"],
-    lookupStarts: ["seller-confirmation-id", "label-id", "support-safe-reference", "launch-decision-row-id"],
+    sourceFacts: ["checkout-confirmation", "fulfillment-label", "support-safe-reference", "launch-decision"],
+    lookupStarts: ["seller-confirmation-id", "label-id", "support-safe-reference", "launch-decision-reference"],
     boundary: "post-confirmation",
     idempotencyKeyShape: "fulfillment:label:<label-id-or-shipment-id>:<status>",
     supportReferenceRequired: true,
@@ -531,7 +530,7 @@ export const checkoutReconciliationPolicyEntries = [
   reconciliationPolicy({
     control: "account-history-reconciliation",
     docLabel: "Account history reconciliation",
-    ownerIssues: ["#1130", "#1135", "#1120", "#1122", "#1548"],
+    ownerIssues: ["#1130", "#1135", "#1120", "#1122"],
     ownerContext: "Account History",
     checkpoints: ["confirmation-handoff-recorded", "downstream-owner-commit", "background-retry", "customer-reload"],
     audiences: allCustomerAudiences,
@@ -630,7 +629,7 @@ export const checkoutReconciliationPolicyEntries = [
   reconciliationPolicy({
     control: "operator-recovery-reconciliation",
     docLabel: "Operator recovery reconciliation",
-    ownerIssues: ["#1130", "#1122", "#1114", "#1124", "#1548"],
+    ownerIssues: ["#1130", "#1122", "#1114", "#1124"],
     ownerContext: "Support",
     checkpoints: ["operator-recovery", "launch-decision"],
     audiences: ["support-operator"],
@@ -649,8 +648,8 @@ export const checkoutReconciliationPolicyEntries = [
       "adjustment",
     ],
     states: ["downstream-pending", "downstream-failed", "recovered", "held", "deferred", "unsupported"],
-    sourceFacts: ["support-safe-reference", "checkout-confirmation", "launch-decision-row"],
-    lookupStarts: ["support-safe-reference", "checkout-confirmation-id", "launch-decision-row-id"],
+    sourceFacts: ["support-safe-reference", "checkout-confirmation", "launch-decision"],
+    lookupStarts: ["support-safe-reference", "checkout-confirmation-id", "launch-decision-reference"],
     boundary: "operator-support",
     idempotencyKeyShape: "support:reconciliation:<support-safe-reference>:<status-or-action>",
     supportReferenceRequired: true,
@@ -699,7 +698,7 @@ export const checkoutReconciliationPolicyEntries = [
     audiences: allCustomerAudiences,
     effects: ["checkout-confirmation", "order", "label", "payout", "settlement", "notification", "account-history"],
     states: ["confirmation-recorded", "downstream-not-created-yet", "downstream-pending", "downstream-failed"],
-    sourceFacts: ["checkout-confirmation", "support-safe-reference", "launch-decision-row"],
+    sourceFacts: ["checkout-confirmation", "support-safe-reference", "launch-decision"],
     lookupStarts: ["checkout-confirmation-id", "seller-confirmation-id", "support-safe-reference"],
     boundary: "post-confirmation",
     idempotencyKeyShape: "checkout:pending_downstream:<confirmation-id>:<owner-context>",
@@ -785,7 +784,7 @@ export const checkoutReconciliationPolicyEntries = [
   reconciliationPolicy({
     control: "launch-decision-reconciliation-states",
     docLabel: "Launch decision reconciliation states",
-    ownerIssues: ["#1130", "#1548", "#1102", "#1112", "#1114", "#1115", "#1122", "#1124"],
+    ownerIssues: ["#1130", "#1102", "#1112", "#1114", "#1115", "#1122", "#1124"],
     ownerContext: "Platform",
     checkpoints: ["launch-decision", "operator-recovery"],
     audiences: allAudiences,
@@ -814,9 +813,9 @@ export const checkoutReconciliationPolicyEntries = [
       "provider-outage",
       "stale-active-session",
     ],
-    sourceFacts: ["launch-decision-row", "support-safe-reference"],
-    lookupStarts: ["launch-decision-row-id", "support-safe-reference"],
-    boundary: "launch-evidence",
+    sourceFacts: ["launch-decision", "support-safe-reference"],
+    lookupStarts: ["launch-decision-reference", "support-safe-reference"],
+    boundary: "launch-status",
     idempotencyKeyShape: "launch-decision:reconciliation:<capability>:<state>",
     supportReferenceRequired: true,
     observabilityRequired: true,
@@ -828,7 +827,7 @@ export const checkoutReconciliationPolicyEntries = [
     redactsProviderAndPaymentData: true,
     forbiddenSources: checkoutReconciliationForbiddenSources,
     evidenceExpectation:
-      "Disabled, deferred, unsupported, provider-outage, stale active-session, split-group, pending downstream, missing downstream, notification failure, support lookup, refund, void, reversal, adjustment, and no-side-effect states require #1548 launch-decision rows.",
+      "Disabled, deferred, unsupported, provider-outage, stale active-session, split-group, pending downstream, missing downstream, notification failure, support lookup, refund, void, reversal, adjustment, and no-side-effect states require owner-scoped launch handling.",
   }),
   reconciliationPolicy({
     control: "observability-redaction",
@@ -876,7 +875,7 @@ export const checkoutReconciliationPolicyEntries = [
       "account-history-record",
     ],
     lookupStarts: ["checkout-confirmation-id", "support-safe-reference"],
-    boundary: "launch-evidence",
+    boundary: "launch-status",
     idempotencyKeyShape: "checkout:reconciliation_observability:<event-name>:<support-safe-reference>",
     supportReferenceRequired: true,
     observabilityRequired: true,
@@ -893,7 +892,7 @@ export const checkoutReconciliationPolicyEntries = [
   reconciliationPolicy({
     control: "fresh-state-reconciliation-cleanup",
     docLabel: "Fresh-state reconciliation cleanup",
-    ownerIssues: ["#1130", "#1548", "#1124", "#1115"],
+    ownerIssues: ["#1130", "#1124", "#1115"],
     ownerContext: "Platform",
     checkpoints: ["cart-list-readiness", "checkout-session-create", "operator-recovery", "launch-decision"],
     audiences: allAudiences,
@@ -914,9 +913,9 @@ export const checkoutReconciliationPolicyEntries = [
       "adjustment",
     ],
     states: ["no-side-effect", "disabled", "unsupported", "deferred"],
-    sourceFacts: ["launch-decision-row", "support-safe-reference", "none-before-confirmation"],
-    lookupStarts: ["support-safe-reference", "launch-decision-row-id"],
-    boundary: "launch-evidence",
+    sourceFacts: ["launch-decision", "support-safe-reference", "none-before-confirmation"],
+    lookupStarts: ["support-safe-reference", "launch-decision-reference"],
+    boundary: "launch-status",
     idempotencyKeyShape: "checkout:reconciliation_fresh_state:<scan-or-route-id>:<result>",
     supportReferenceRequired: true,
     observabilityRequired: true,

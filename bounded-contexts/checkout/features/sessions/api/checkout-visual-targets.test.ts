@@ -53,18 +53,17 @@ describe("Checkout visual targets", () => {
 
       expect(target?.readinessBeforeCheckout, surface).toBe(true);
       expect(target?.layoutRequirements, surface).toContain("cart-list-before-checkout");
-      expect(target?.noSideEffectEvidenceRequired, surface).toBe(true);
+      expect(target?.noSideEffectCopyRequired, surface).toBe(true);
       expect(target?.forbiddenPatterns, surface).toEqual(
         expect.arrayContaining(["allocation-control", "provider-diagnostic", "dense-checkout-panel"]),
       );
     }
   });
 
-  it("requires Shopify-simple responsive layout evidence for checkout screens", () => {
+  it("requires Shopify-simple responsive layout coverage for checkout screens", () => {
     const desktopCheckoutTargets = checkoutVisualTargets.filter(
       (target) =>
         target.surface === "guest-buy-checkout" ||
-        target.surface === "production-proof-buy-now-readiness" ||
         target.surface === "guest-sell-checkout" ||
         target.surface === "signed-in-sell-checkout" ||
         target.surface === "split-group-summary",
@@ -83,25 +82,11 @@ describe("Checkout visual targets", () => {
           target.visibleState === "reversal-or-recovery-status-visible"),
     );
 
-    expect(mobileCheckoutTargets.length).toBeGreaterThanOrEqual(6);
+    expect(mobileCheckoutTargets.length).toBeGreaterThanOrEqual(5);
     for (const target of mobileCheckoutTargets) {
       expect(target.layoutRequirements, target.surface).toContain("mobile-single-column-checkout");
       expect(target.layoutRequirements, target.surface).toContain("no-horizontal-overflow");
     }
-  });
-
-  it("anchors production proof Buy Now readiness to pay-ready checkout review", () => {
-    const target = checkoutVisualTargets.find((entry) => entry.surface === "production-proof-buy-now-readiness");
-
-    expect(target).toBeDefined();
-    expect(target?.launchDecisionStatus).toBe("required");
-    expect(target?.readinessBeforeCheckout).toBe(false);
-    expect(target?.copySurface).toBe("checkout-review");
-    expect(target?.performanceSurface).toBe("checkout-entry-review-render");
-    expect(target?.visibleState).toBe("checkout-review-visible");
-    expect(target?.noSideEffectEvidenceRequired).toBe(true);
-    expect(target?.exitEvidence).toMatch(/ready SLO/i);
-    expect(target?.exitEvidence).toMatch(/temporary recovery/i);
   });
 
   it("separates pending activity from committed downstream facts", () => {
@@ -123,17 +108,13 @@ describe("Checkout visual targets", () => {
     }
   });
 
-  it("links visual targets to copy, performance, coverage, and launch evidence", () => {
+  it("links visual targets to copy, performance, and acceptance coverage", () => {
     for (const target of checkoutVisualTargets) {
       expect(target.copySurface, target.surface).not.toHaveLength(0);
       expect(target.performanceSurface, target.surface).not.toHaveLength(0);
       expect(target.ownerIssues, target.surface).toContain("#1112");
       expect(target.deltaOwnerIssues, target.surface).toEqual(expect.arrayContaining(["#1115"]));
-      expect(target.exitEvidence, target.surface).not.toMatch(/\b(todo|tbd)\b/i);
-
-      if (target.launchDecisionStatus === "required") {
-        expect(target.ownerIssues, target.surface).toContain("#1548");
-      }
+      expect(target.acceptanceNote, target.surface).not.toMatch(/\b(todo|tbd)\b/i);
     }
   });
 

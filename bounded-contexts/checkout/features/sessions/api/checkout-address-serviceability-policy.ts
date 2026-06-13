@@ -52,7 +52,7 @@ export type CheckoutAddressSurface =
   | "checkout-recovery"
   | "provider-return-recovery"
   | "support-runbook"
-  | "launch-evidence";
+  | "launch-status";
 
 export type CheckoutAddressLaunchDecision = "required-for-launch" | "launch-decision-required" | "not-customer-facing";
 
@@ -71,7 +71,6 @@ export type CheckoutAddressOwnerIssue =
   | "#1113"
   | "#1114"
   | "#1115"
-  | "#1548"
   | "#1118"
   | "#1119"
   | "#1121"
@@ -289,7 +288,7 @@ export const checkoutAddressServiceabilityPolicyEntries = [
   addressPolicy({
     control: "unsupported-country-region-postal",
     docLabel: "Unsupported country, region, or postal code",
-    ownerIssues: ["#1127", "#1102", "#1112", "#1548"],
+    ownerIssues: ["#1127", "#1102", "#1112"],
     ownerContext: "Fulfillment",
     checkpoints: ["cart-list-readiness", "manual-address-edit", "final-confirmation"],
     audiences: allCustomerAudiences,
@@ -313,7 +312,7 @@ export const checkoutAddressServiceabilityPolicyEntries = [
   addressPolicy({
     control: "po-box-or-restricted-address",
     docLabel: "PO box or restricted address",
-    ownerIssues: ["#1127", "#1102", "#1112", "#1548"],
+    ownerIssues: ["#1127", "#1102", "#1112"],
     ownerContext: "Fulfillment",
     checkpoints: ["manual-address-edit", "final-confirmation"],
     audiences: buyerAudiences,
@@ -337,7 +336,7 @@ export const checkoutAddressServiceabilityPolicyEntries = [
   addressPolicy({
     control: "military-remote-or-special-destination",
     docLabel: "Military, remote, or special destination",
-    ownerIssues: ["#1127", "#1548", "#1164"],
+    ownerIssues: ["#1127", "#1164"],
     ownerContext: "Fulfillment",
     checkpoints: ["cart-list-readiness", "manual-address-edit", "final-confirmation"],
     audiences: buyerAudiences,
@@ -481,12 +480,12 @@ export const checkoutAddressServiceabilityPolicyEntries = [
   addressPolicy({
     control: "quote-unavailable-or-provider-outage",
     docLabel: "Quote unavailable or provider outage",
-    ownerIssues: ["#1127", "#1548", "#1134", "#1122"],
+    ownerIssues: ["#1127", "#1134", "#1122"],
     ownerContext: "Platform",
     checkpoints: ["manual-address-edit", "wallet-or-express-return", "final-confirmation", "operator-support"],
     audiences: allAudiences,
     outcomes: ["quote-unavailable", "provider-outage", "disabled", "deferred", "unsupported", "no-side-effect"],
-    surface: "launch-evidence",
+    surface: "launch-status",
     launchDecision: "launch-decision-required",
     quoteDependencies: ["shipping-quote", "tax-quote", "payout-quote", "label-service", "risk-check"],
     normalizedEvidenceRequired: true,
@@ -529,7 +528,7 @@ export const checkoutAddressServiceabilityPolicyEntries = [
   addressPolicy({
     control: "no-side-effect-address-blocks",
     docLabel: "No-side-effect address blocks",
-    ownerIssues: ["#1127", "#1548", "#1130", "#1135"],
+    ownerIssues: ["#1127", "#1130", "#1135"],
     ownerContext: "Checkout",
     checkpoints: ["checkout-session-create", "active-session-return", "final-confirmation"],
     audiences: allCustomerAudiences,
@@ -560,12 +559,12 @@ export const checkoutAddressServiceabilityPolicyEntries = [
   addressPolicy({
     control: "fresh-state-address-cleanup",
     docLabel: "Fresh-state address cleanup",
-    ownerIssues: ["#1127", "#1548", "#1124"],
+    ownerIssues: ["#1127", "#1124"],
     ownerContext: "Platform",
     checkpoints: ["checkout-session-create", "active-session-return", "final-confirmation", "operator-support"],
     audiences: allAudiences,
     outcomes: ["disabled", "unsupported", "no-side-effect"],
-    surface: "launch-evidence",
+    surface: "launch-status",
     launchDecision: "required-for-launch",
     quoteDependencies: ["none"],
     normalizedEvidenceRequired: false,

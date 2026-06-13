@@ -162,7 +162,6 @@ describe("checkout web routes: checkout session action", () => {
       savePaymentMethodForFuture: false,
       fulfillmentPreviewRevision: null,
       acknowledgedMaterialChanges: false,
-      deferPayment: false,
       shippingAddress: {
         shippingAddressId: null,
         name: "Jane Smith",
@@ -220,7 +219,6 @@ describe("checkout web routes: checkout session action", () => {
       expect.objectContaining({
         marketplaceCheckoutFeeQuoteFingerprint: "quote_1",
         savedCheckoutInstrumentId: "sci_card_1",
-        deferPayment: false,
       }),
     );
     expect(response.status).toBe(302);
@@ -266,7 +264,6 @@ describe("checkout web routes: checkout session action", () => {
         paymentMethodCategory: "bank-account",
         marketplaceCheckoutFeeQuoteFingerprint: "quote_bank_1",
         savedCheckoutInstrumentId: "sci_bank_1",
-        deferPayment: false,
       }),
     );
     expect(response.status).toBe(302);
@@ -669,12 +666,7 @@ describe("checkout web routes: checkout session action", () => {
 
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("/checkout/payments/pay_1");
-    expect(mockConfirmCheckoutSession).toHaveBeenCalledWith(
-      "chk_1",
-      expect.objectContaining({
-        deferPayment: false,
-      }),
-    );
+    expect(mockConfirmCheckoutSession).toHaveBeenCalledWith("chk_1", expect.objectContaining({}));
   });
 
   it("redirects confirmed purchase intent to the submitted offer", async () => {

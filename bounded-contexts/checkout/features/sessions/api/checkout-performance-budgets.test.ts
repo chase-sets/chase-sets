@@ -59,7 +59,7 @@ describe("Checkout performance budgets", () => {
     for (const budget of checkoutPerformanceBudgets) {
       expect(budget.environments, budget.surface).toEqual(expect.arrayContaining([...allEnvironments]));
       expect(budget.verification.length, budget.surface).toBeGreaterThan(0);
-      expect(budget.exitEvidence, budget.surface).not.toMatch(/\b(todo|tbd)\b/i);
+      expect(budget.acceptanceNote, budget.surface).not.toMatch(/\b(todo|tbd)\b/i);
     }
   });
 

@@ -10,19 +10,18 @@ import {
   checkoutObservabilityProfiles,
   checkoutObservabilityRequiredDimensions,
 } from "./checkout-observability-contract";
-import { checkoutLaunchEvidenceRows } from "./checkout-launch-evidence-matrix";
+import { checkoutVisualRequiredTargets } from "./checkout-visual-targets";
 
 describe("Checkout observability contract", () => {
   it("passes the executable coverage assertion", () => {
     expect(() => assertCheckoutObservabilityContractCoverage()).not.toThrow();
   });
 
-  it("defines one observability profile for every launch evidence row", () => {
-    const matrixStates = checkoutLaunchEvidenceRows.map((row) => row.state);
+  it("defines one observability profile for every required visual target", () => {
     const profileStates = checkoutObservabilityProfiles.map((profile) => profile.state);
 
     expect(new Set(profileStates).size).toBe(profileStates.length);
-    expect(profileStates).toEqual(expect.arrayContaining(matrixStates));
+    expect(profileStates).toEqual(expect.arrayContaining([...checkoutVisualRequiredTargets]));
   });
 
   it("uses the shared base dimensions and redaction set for every event", () => {
@@ -38,28 +37,14 @@ describe("Checkout observability contract", () => {
     }
   });
 
-  it("adds required dimensions for launch decision, support, downstream, and cleanup states", () => {
-    for (const row of checkoutLaunchEvidenceRows) {
-      const profile = checkoutObservabilityProfiles.find((candidate) => candidate.state === row.state);
-
-      expect(profile, row.state).toBeDefined();
-
-      if (row.launchDecisionStatus === "required") {
-        expect(profile?.dimensions, row.state).toContain("launch-decision-decision");
-        expect(profile?.releaseHealthRequired, row.state).toBe(true);
+  it("adds required dimensions for release-health and downstream states", () => {
+    for (const profile of checkoutObservabilityProfiles) {
+      if (profile.releaseHealthRequired) {
+        expect(profile.dimensions, profile.state).toContain("launch-decision-decision");
       }
 
-      if (row.supportReferenceRequired) {
-        expect(profile?.dimensions, row.state).toContain("support-safe-reference");
-      }
-
-      if (row.pendingDownstreamBoundaryRequired) {
-        expect(profile?.dimensions, row.state).toContain("downstream-status");
-      }
-
-      if (row.state === "fresh-state-cleanup-absence") {
-        expect(profile?.dimensions, row.state).toContain("fresh-state-scan-result");
-        expect(profile?.alertClass, row.state).toBe("fresh-state-alert");
+      if (profile.scenarioStates.includes("pending-downstream")) {
+        expect(profile.dimensions, profile.state).toContain("downstream-status");
       }
     }
   });

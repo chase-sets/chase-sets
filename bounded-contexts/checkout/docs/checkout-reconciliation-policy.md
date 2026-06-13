@@ -32,7 +32,7 @@ Support, and Account History remain the owners of their committed records.
   provider callback id, order/group id, seller confirmation id, reviewed
   line/action key, Marketplace handoff id, label id, payout/hold id, settlement
   id, notification id, account-history id, support-safe reference, or
-  launch-decision row.
+  launch decision.
 - Reload, duplicate submit, redirect return, provider webhook replay,
   background retry, and operator recovery share stable idempotency keys and
   return the current state instead of duplicating money movement, orders, labels,
@@ -44,7 +44,7 @@ Support, and Account History remain the owners of their committed records.
 - Disabled, deferred, unsupported, provider-outage, stale active-session,
   split-group, pending downstream, missing downstream record, notification
   failure, support lookup, refund, void, reversal, adjustment, and no-side-effect
-  states require #1548 launch-decision rows when launch-visible.
+  states require owner-scoped launch handling when launch-visible.
 - Fresh-state scans must prove old checkout payloads, old session payload
   adapters, old sell execution ids, old receipt rows, legacy migrations,
   migration/backfill helpers, dual writes, hidden repair, manual database edits,
@@ -72,9 +72,9 @@ Support, and Account History remain the owners of their committed records.
 | Refund, void, reversal, and adjustment reconciliation | Payments | post-confirmation | provider-callback, downstream-owner-commit, background-retry, operator-recovery | refund, void, reversal, adjustment, payment, order, label, payout, settlement | Refunds, voids, reversals, label cancellations, payout holds, fee/tax/credit adjustments, and notification updates are idempotent and link to #1165 owner facts or launch deferrals. |
 | Pending downstream boundary | Checkout | post-confirmation | confirmation-handoff-recorded, customer-reload, background-retry, launch-decision | checkout-confirmation, order, label, payout, settlement, notification, account-history | Checkout may explain confirmation recorded and downstream pending, delayed, failed, deferred, or owner-action-required states, but it cannot synthesize completed downstream facts. |
 | Support-safe reconciliation lookup | Support | operator-support | operator-recovery, customer-reload, background-retry | checkout-confirmation, payment, order, marketplace-handoff, label, payout, settlement, notification, account-history, refund, void, reversal | Support lookup can start from any customer-safe reference and resolve the current owner/status while masking provider payloads, address detail, card data, bank data, and raw risk signals. |
-| Launch decision reconciliation states | Platform | launch-evidence | launch-decision, operator-recovery | checkout-confirmation, payment, order, label, payout, settlement, notification, account-history, refund, void, reversal, adjustment | Disabled, deferred, unsupported, provider-outage, stale active-session, split-group, pending downstream, missing downstream, notification failure, support lookup, refund, void, reversal, adjustment, and no-side-effect states require #1548 launch-decision rows. |
-| Observability redaction | Checkout | launch-evidence | cart-list-readiness, confirmation-handoff-recorded, provider-callback, background-retry, operator-recovery | checkout-confirmation, payment, order, label, payout, settlement, notification, account-history, refund, void, reversal | Telemetry uses owner, state, effect, idempotency outcome, support-safe reference, and redacted source type only; it never logs raw provider payloads, addresses, cards, banks, or risk signals. |
-| Fresh-state reconciliation cleanup | Platform | launch-evidence | cart-list-readiness, checkout-session-create, operator-recovery, launch-decision | checkout-confirmation, payment, order, marketplace-handoff, label, payout, settlement, notification, account-history, support, refund, void, reversal, adjustment | Fresh-state scans prove stale fixtures, cached read models, provider sandbox leftovers, dual writes, migration/backfill helpers, old receipt fallback reads, old session payloads, manual database repair, and dense checkout fallback cannot make reconciliation succeed. |
+| Launch decision reconciliation states | Platform | launch-status | launch-decision, operator-recovery | checkout-confirmation, payment, order, label, payout, settlement, notification, account-history, refund, void, reversal, adjustment | Disabled, deferred, unsupported, provider-outage, stale active-session, split-group, pending downstream, missing downstream, notification failure, support lookup, refund, void, reversal, adjustment, and no-side-effect states require owner-scoped launch handling. |
+| Observability redaction | Checkout | launch-status | cart-list-readiness, confirmation-handoff-recorded, provider-callback, background-retry, operator-recovery | checkout-confirmation, payment, order, label, payout, settlement, notification, account-history, refund, void, reversal | Telemetry uses owner, state, effect, idempotency outcome, support-safe reference, and redacted source type only; it never logs raw provider payloads, addresses, cards, banks, or risk signals. |
+| Fresh-state reconciliation cleanup | Platform | launch-status | cart-list-readiness, checkout-session-create, operator-recovery, launch-decision | checkout-confirmation, payment, order, marketplace-handoff, label, payout, settlement, notification, account-history, support, refund, void, reversal, adjustment | Fresh-state scans prove stale fixtures, cached read models, provider sandbox leftovers, dual writes, migration/backfill helpers, old receipt fallback reads, old session payloads, manual database repair, and dense checkout fallback cannot make reconciliation succeed. |
 
 ## Evidence Required Before #1130 Closes
 

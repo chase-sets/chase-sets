@@ -45,14 +45,14 @@ message delivery consequences.
 | Refund issued | Payments | after-owning-context-commit | required-for-launch | transactional-email, support-evidence | `payments.refund-issued` | Refund issued communication is idempotent by refund id and does not duplicate across provider webhook replay or support recovery. |
 | Refund failed | Payments | failure-recovery | required-for-launch | transactional-email, support-evidence | `payments.refund-failed` | Refund failed communication is support-safe and does not claim refund completion before Payments records it. |
 | Missing contact fallback | Checkout | failure-recovery | required-for-launch | support-evidence | none | Missing contact evidence routes to account/support surfaces and never falls back to old checkout recovery emails or raw provider/customer data. |
-| Duplicate prevention | Notifications | after-owning-context-commit | required-for-launch | support-evidence | none | Launch evidence covers reload, duplicate submit, job retry, provider webhook replay, and operator recovery without duplicate messages. |
+| Duplicate prevention | Notifications | after-owning-context-commit | required-for-launch | support-evidence | none | Launch checks cover reload, duplicate submit, job retry, provider webhook replay, and operator recovery without duplicate messages. |
 
 ## Evidence Required Before #1129 Closes
 
 - Release run or staging evidence for buy order confirmation, payment
   captured, payment failed, refund issued, refund failed, support opened, and
   support resolved message idempotency.
-- Explicit launch-decision rows for seller sale committed and label or shipping
+- Explicit launch decisions for seller sale committed and label or shipping
   next-step communication while those remain deferred.
 - Guest receipt behavior proving support-safe lookup and the account-claim
   launch decision.

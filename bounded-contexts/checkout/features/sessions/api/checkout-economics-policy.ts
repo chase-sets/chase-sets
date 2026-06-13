@@ -61,7 +61,7 @@ export type CheckoutEconomicsSurface =
   | "checkout-recovery"
   | "confirmation"
   | "support-runbook"
-  | "launch-evidence";
+  | "launch-status";
 
 export type CheckoutEconomicsAmountComponent =
   | "item-subtotal"
@@ -89,7 +89,6 @@ export type CheckoutEconomicsOwnerIssue =
   | "#1113"
   | "#1114"
   | "#1115"
-  | "#1548"
   | "#1117"
   | "#1118"
   | "#1119"
@@ -337,12 +336,12 @@ export const checkoutEconomicsPolicyEntries = [
   economicsPolicy({
     control: "promo-code-launch-decision",
     docLabel: "Promo code launch decision",
-    ownerIssues: ["#1128", "#1102", "#1548"],
+    ownerIssues: ["#1128", "#1102"],
     ownerContext: "Checkout",
     checkpoints: ["cart-list-readiness", "checkout-render", "final-confirmation"],
     audiences: buyerAudiences,
     outcomes: ["disabled", "deferred", "unsupported", "no-side-effect"],
-    surface: "launch-evidence",
+    surface: "launch-status",
     launchPosture: "launch-disabled",
     amountComponents: ["promo", "payable-total"],
     deterministicOrder: checkoutBuyPayableTotalOrder,
@@ -362,12 +361,12 @@ export const checkoutEconomicsPolicyEntries = [
   economicsPolicy({
     control: "gift-card-store-credit-launch-decision",
     docLabel: "Gift card and store credit launch decision",
-    ownerIssues: ["#1128", "#1102", "#1548", "#1124"],
+    ownerIssues: ["#1128", "#1102", "#1124"],
     ownerContext: "Payments",
     checkpoints: ["cart-list-readiness", "checkout-render", "final-confirmation"],
     audiences: buyerAudiences,
     outcomes: ["disabled", "deferred", "unsupported", "no-side-effect"],
-    surface: "launch-evidence",
+    surface: "launch-status",
     launchPosture: "launch-disabled",
     amountComponents: ["gift-card", "payable-total", "refund", "reversal"],
     deterministicOrder: [...checkoutBuyPayableTotalOrder, "refund", "reversal"],
@@ -553,7 +552,7 @@ export const checkoutEconomicsPolicyEntries = [
   economicsPolicy({
     control: "changed-economics-no-side-effect-recovery",
     docLabel: "Changed economics no-side-effect recovery",
-    ownerIssues: ["#1128", "#1548", "#1130"],
+    ownerIssues: ["#1128", "#1130"],
     ownerContext: "Checkout",
     checkpoints: ["checkout-render", "active-session-return", "final-confirmation"],
     audiences: allCustomerAudiences,
@@ -666,12 +665,12 @@ export const checkoutEconomicsPolicyEntries = [
   economicsPolicy({
     control: "fresh-state-economics-cleanup",
     docLabel: "Fresh-state economics cleanup",
-    ownerIssues: ["#1128", "#1548", "#1124"],
+    ownerIssues: ["#1128", "#1124"],
     ownerContext: "Platform",
     checkpoints: ["checkout-session-create", "checkout-render", "final-confirmation", "operator-support"],
     audiences: allAudiences,
     outcomes: ["disabled", "deferred", "unsupported", "no-side-effect"],
-    surface: "launch-evidence",
+    surface: "launch-status",
     launchPosture: "supported-for-launch",
     amountComponents: ["discount", "promo", "gift-card", "wallet-credit", "payable-total", "seller-payout"],
     deterministicOrder: [],

@@ -521,7 +521,6 @@ export async function action({ request, params }: ActionFunctionArgs) {
         savePaymentMethodForFuture,
         fulfillmentPreviewRevision: String(formData.get("fulfillmentPreviewRevision") ?? "") || null,
         acknowledgedMaterialChanges: String(formData.get("acknowledgedMaterialChanges") ?? "") === "true",
-        deferPayment: false,
         shippingAddress,
       });
       if (result.offer_id) {
