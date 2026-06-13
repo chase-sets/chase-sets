@@ -52,7 +52,7 @@ const session: CheckoutSessionRow = {
 };
 
 describe("buy checkout confirmation page", () => {
-  it("renders a buyer handoff without implying downstream completion", () => {
+  it("renders buyer confirmation without implying next-step completion", () => {
     const markup = renderToString(
       <BuyCheckoutConfirmationPage session={session} paymentPath="/account/payments/pay_1" />,
     );
@@ -65,9 +65,16 @@ describe("buy checkout confirmation page", () => {
     expect(markup).toContain("ord_1, ord_2");
     expect(markup).toContain("Support reference");
     expect(markup).toContain("CS-CR_READY");
-    expect(markup).toContain("Downstream details pending");
+    expect(markup).toContain("Secure payment");
+    expect(markup).toContain("Support summary");
+    expect(markup).toContain("Next steps pending");
+    expect(markup).toContain("Order details, delivery, notifications, and account history stay pending");
     expect(markup).toContain("Continue to payment");
     expect(markup).toContain('href="/account/payments/pay_1"');
+    expect(markup).not.toContain("checkout handoff");
+    expect(markup).not.toContain("Payment handoff");
+    expect(markup).not.toContain("Handoff summary");
+    expect(markup).not.toContain("Downstream details pending");
     expect(markup).not.toContain("Sale complete");
     expect(markup).not.toContain("Label ready");
     expect(markup).not.toContain("Payout ready");

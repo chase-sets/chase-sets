@@ -195,12 +195,12 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.ui.buyCheckoutConfirmationPage.eyebrow": "Secure checkout",
   "checkout.features.sessions.ui.buyCheckoutConfirmationPage.title": "Checkout received",
   "checkout.features.sessions.ui.buyCheckoutConfirmationPage.description":
-    "Your checkout handoff is recorded. Continue to payment to finish securely; order detail, fulfillment, notifications, and account history update as their owning workflows commit.",
-  "checkout.features.sessions.ui.buyCheckoutConfirmationPage.payment.handoff": "Payment handoff",
+    "Your checkout is ready for secure payment. Order details, delivery, notifications, and account history stay pending until they finish.",
+  "checkout.features.sessions.ui.buyCheckoutConfirmationPage.payment.handoff": "Secure payment",
   "checkout.features.sessions.ui.buyCheckoutConfirmationPage.payment.reference": "Payment reference",
-  "checkout.features.sessions.ui.buyCheckoutConfirmationPage.summary": "Handoff summary",
+  "checkout.features.sessions.ui.buyCheckoutConfirmationPage.summary": "Support summary",
   "checkout.features.sessions.ui.buyCheckoutConfirmationPage.summary.description":
-    "These references connect support to the checkout handoff without exposing payment provider details.",
+    "These references help support find this checkout without exposing payment details.",
   "checkout.features.sessions.ui.checkoutPage.package.plan": "Package plan",
   "checkout.features.sessions.ui.checkoutPage.package.plan.value":
     "{packageCount} package{packagePlural} - {serviceLevel}",
@@ -218,7 +218,7 @@ export const checkoutEnglishTranslations = {
     "Shipping is saved with the intent so sellers can evaluate fulfillment before accepting. No order, tax quote, or payment is created today.",
   "checkout.features.sessions.ui.checkoutPage.purchase.intent.saved": "Purchase intent saved",
   "checkout.features.sessions.ui.checkoutPage.purchases.have.been.created.and.payment":
-    "Your order is ready to continue to payment. Account, fulfillment, notification, and support details update as their owning workflows finish.",
+    "Your order is ready for payment. Delivery, notifications, support, and account details stay pending until they finish.",
   "checkout.features.sessions.ui.checkoutPage.quantity": "Quantity",
   "checkout.features.sessions.ui.checkoutPage.ready.to.place.purchase.intent": "Ready to place purchase intent",
   "checkout.features.sessions.ui.checkoutPage.ready.to.review.payment": "Ready to review payment",
@@ -243,10 +243,10 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.ui.checkoutPage.secure.payment": "Secure Payment",
   "checkout.features.sessions.ui.checkoutPage.payment.handoff.title": "Payment step",
   "checkout.features.sessions.ui.checkoutPage.payment.handoff.description":
-    "Continue to the secure payment detail without resubmitting checkout.",
-  "checkout.features.sessions.ui.checkoutPage.account.fulfillment.pending.title": "Downstream details pending",
+    "Continue to secure payment without resubmitting checkout.",
+  "checkout.features.sessions.ui.checkoutPage.account.fulfillment.pending.title": "Next steps pending",
   "checkout.features.sessions.ui.checkoutPage.account.fulfillment.pending.description":
-    "Order detail, fulfillment, notification, and account history stay pending until their owning workflows commit.",
+    "Order details, delivery, notifications, and account history stay pending until they finish.",
   "checkout.features.sessions.ui.checkoutPage.support.reference": "Support reference",
   "checkout.features.sessions.ui.checkoutPage.support.reference.ready.title": "Support reference ready",
   "checkout.features.sessions.ui.checkoutPage.support.reference.ready.description":
@@ -864,7 +864,7 @@ export const checkoutEnglishTranslations = {
   "checkout.routes.checkoutStart.continue.as.guest.only.if.you.do":
     "Continue as guest only if you do not already have an account. We will use this email for your receipt and order recovery.",
   "checkout.routes.checkoutStart.continue.as.guest.fast.path":
-    "Use the fast checkout path. We will use this email for your receipt, order recovery, and payment handoff.",
+    "Use the fast checkout path. We will use this email for your receipt, order recovery, and payment step.",
   "checkout.routes.checkoutStart.continue.checkout": "Continue checkout",
   "checkout.routes.checkoutStart.continue.to.checkout": "Continue to checkout",
   "checkout.routes.checkoutStart.continue.with.your.account.any.saved.guest":
