@@ -4,8 +4,8 @@
 
 This index is generated from the root `@chase-sets/design-system` export surface and the production consumer inventory used by `scripts/check-design-system-dead-exports.mjs`.
 
-- Runtime exports indexed: 331
-- Source modules covered: 101
+- Runtime exports indexed: 333
+- Source modules covered: 102
 - Example consumers scan: production files under `bounded-contexts/` and `deployables/`, excluding tests
 
 | Component/export | Module | One-line purpose | Example consumer file |
@@ -43,6 +43,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `BulkActionSurface` | `packages/design-system/src/components/data-display/filter.tsx` | Purpose not documented; symbol name suggests: Bulk Action Surface. | `bounded-contexts/catalog/features/source-observations/ui/primary-workbench-page.tsx` |
 | `Button` | `packages/design-system/src/components/actions/button.tsx` | Purpose not documented; symbol name suggests: Button. | `bounded-contexts/auth/features/account-selection/ui/account-selection-page.tsx` |
 | `ButtonGroup` | `packages/design-system/src/components/actions/button.tsx` | Purpose not documented; symbol name suggests: Button Group. | `No production consumer yet.` |
+| `Calendar` | `packages/design-system/src/components/forms/date-picker.tsx` | An accessible month-grid calendar with full keyboard navigation. | `No production consumer yet.` |
 | `Caption` | `packages/design-system/src/primitives/typography.tsx` | Purpose not documented; symbol name suggests: Caption. | `No production consumer yet.` |
 | `Card` | `packages/design-system/src/components/data-display/card.tsx` | Canonical card surface with a compound slot API. | `bounded-contexts/auth/features/account-selection/ui/account-selection-page.tsx` |
 | `CategoryTile` | `packages/design-system/src/patterns/app-shells/product-cards.tsx` | Purpose not documented; symbol name suggests: Category Tile. | `No production consumer yet.` |
@@ -94,6 +95,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `cx` | `packages/design-system/src/utils/cx.ts` | Purpose not documented; symbol name only: cx. | `No production consumer yet.` |
 | `DataTable` | `packages/design-system/src/components/data-display/data-table.tsx` | Purpose not documented; symbol name suggests: Data Table. | `bounded-contexts/auth/features/sessions/ui/admin-pages.tsx` |
 | `DateInput` | `packages/design-system/src/components/forms/text-input.tsx` | Purpose not documented; symbol name suggests: Date Input. | `bounded-contexts/identity/features/invitations/ui/invitation-detail-page.tsx` |
+| `DatePicker` | `packages/design-system/src/components/forms/date-picker.tsx` | A date field rendered as a popover-backed calendar. | `No production consumer yet.` |
 | `defaultToastManager` | `packages/design-system/src/components/feedback/toast.tsx` | Purpose not documented; symbol name suggests: default Toast Manager. | `No production consumer yet.` |
 | `DenseAdminWorkbench` | `packages/design-system/src/patterns/dense-admin-workbench.tsx` | Purpose not documented; symbol name suggests: Dense Admin Workbench. | `bounded-contexts/catalog/features/source-observations/ui/primary-workbench-page.tsx` |
 | `DenseAdminWorkbenchHeader` | `packages/design-system/src/patterns/dense-admin-workbench.tsx` | Purpose not documented; symbol name suggests: Dense Admin Workbench Header. | `bounded-contexts/catalog/features/source-observations/ui/primary-workbench-page.tsx` |
