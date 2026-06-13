@@ -3,13 +3,12 @@ import {
   authorizeRealtimeTopics,
   createRealtimeStatusSnapshot,
   createRealtimeRoutes,
-  decodeRealtimeCursor,
-  encodeRealtimeCursor,
   inspectRealtimeTopicNormalization,
   matchesRealtimeTopicPattern,
   parseRealtimeTopics,
   selectRealtimeStoresForTopics,
 } from "./realtime";
+import { decodeRealtimeCursor, encodeRealtimeCursor } from "./realtime-cursor";
 
 const actor = {
   sessionId: "sess_1",
