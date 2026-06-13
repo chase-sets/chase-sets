@@ -203,8 +203,8 @@ export const checkoutReconciliationForbiddenSources = [
   "old sell execution id",
   "old receipt row",
   "old payload migration",
-  "migration/backfill compatibility",
-  "dual-write compatibility",
+  "migration/backfill helper",
+  "dual-write helper",
   "hidden repair",
   "manual database edit",
   "stale fixture bypass",
@@ -927,7 +927,7 @@ export const checkoutReconciliationPolicyEntries = [
     redactsProviderAndPaymentData: true,
     forbiddenSources: checkoutReconciliationForbiddenSources,
     customerSafeOutcome:
-      "Fresh-state scans prove stale fixtures, cached read models, provider sandbox leftovers, dual writes, migration/backfill helpers, old receipt fallback reads, old session payloads, manual database repair, and dense checkout fallback cannot make reconciliation succeed.",
+      "Fresh-state scans show stale fixtures, cached read models, provider sandbox leftovers, dual writes, migration/backfill helpers, old receipt fallback reads, old session payloads, manual database repair, and dense checkout fallback cannot make reconciliation succeed.",
   }),
 ] as const satisfies readonly CheckoutReconciliationPolicyEntry[];
 

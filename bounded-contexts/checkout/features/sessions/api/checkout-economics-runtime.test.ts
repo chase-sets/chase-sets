@@ -25,7 +25,7 @@ describe("checkout economics runtime", () => {
     expect(findUnsupportedCustomerEconomicsInput(["SAVE10"])).toBeNull();
   });
 
-  it("throws a launch-domain error for unsupported customer economics input", () => {
+  it("throws a checkout-domain error for unsupported customer economics input", () => {
     expect(() => assertNoUnsupportedCustomerEconomicsInput({ gift_card_code: "GC123" })).toThrow(CheckoutDomainError);
 
     try {

@@ -17,7 +17,7 @@ export const unsupportedCustomerEconomicsInputKeys = [
 
 export const unsupportedCustomerEconomicsInputCode = "checkout_economics_unsupported" as const;
 export const unsupportedCustomerEconomicsInputMessage =
-  "Promo codes, gift cards, and store credit are not available in launch checkout.";
+  "Promo codes, gift cards, and store credit are not available in checkout yet.";
 
 export function findUnsupportedCustomerEconomicsInput(body: unknown): string | null {
   const source = body && typeof body === "object" && !Array.isArray(body) ? (body as Record<string, unknown>) : {};

@@ -319,7 +319,7 @@ describe("fresh checkout session contract", () => {
     ).toBe(false);
   });
 
-  it("names every fresh command and excludes legacy compatibility commands", () => {
+  it("names every fresh command and excludes old-session commands", () => {
     expect(freshCheckoutCommandTypes).toEqual([
       "update-contact",
       "update-address",
@@ -340,7 +340,7 @@ describe("fresh checkout session contract", () => {
     expect(isFreshCheckoutCommandType("confirm")).toBe(true);
     expect(isFreshCheckoutCommandType("adapt-old-checkout-payload")).toBe(false);
     expect(hasForbiddenFreshCheckoutCommand(freshCheckoutCommandTypes)).toBe(false);
-    expect(hasForbiddenFreshCheckoutCommand(["confirm", "dual-write-legacy-session"])).toBe(true);
+    expect(hasForbiddenFreshCheckoutCommand(["confirm", "dual-write-old-session"])).toBe(true);
   });
 
   it("defines lifecycle transitions for the fresh state machine", () => {

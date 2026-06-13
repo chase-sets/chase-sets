@@ -387,7 +387,7 @@
     {
       "portName": "checkoutObservabilityTelemetry",
       "providedBy": "platform-api",
-      "purpose": "Emits bounded, redacted Milestone #17 Checkout launch observability events through the platform observability runtime."
+      "purpose": "Emits bounded, redacted Milestone #17 Checkout observability events through the platform observability runtime."
     }
   ],
   "runtimeDeployables": ["platform-worker"]

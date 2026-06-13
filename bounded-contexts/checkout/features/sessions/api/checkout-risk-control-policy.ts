@@ -149,9 +149,9 @@ export const checkoutRiskForbiddenMechanisms = [
   "old sell execution replay",
   "old receipt-row repair",
   "dense checkout fallback",
-  "legacy route recovery",
-  "migration/backfill compatibility",
-  "dual-write compatibility",
+  "old route recovery",
+  "migration/backfill helper",
+  "dual-write helper",
   "hidden repair",
   "manual database edit",
   "provider-dashboard-only fix",
@@ -550,7 +550,7 @@ export const checkoutRiskControlPolicyEntries = [
     idempotencyKeyShape: "checkout:risk_fresh_state:<scan-or-route-id>:<result>",
     forbiddenMechanisms: checkoutRiskForbiddenMechanisms,
     customerSafeOutcome:
-      "Fresh-state scans prove risk handling cannot succeed through old routes, payload adapters, migration/backfill helpers, dual writes, hidden repair, stale fixtures, or dense checkout fallback.",
+      "Fresh-state scans show risk handling cannot succeed through old routes, payload adapters, migration/backfill helpers, dual writes, hidden repair, stale fixtures, or dense checkout fallback.",
   }),
 ] as const satisfies readonly CheckoutRiskControlPolicyEntry[];
 

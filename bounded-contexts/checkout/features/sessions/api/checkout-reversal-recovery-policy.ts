@@ -738,7 +738,7 @@ export const checkoutReversalPolicyEntries = [
     freshStateOnly: true,
     forbiddenSources: checkoutReversalForbiddenSources,
     customerSafeOutcome:
-      "Fresh-state scans prove cancellation, refund, void, reversal, and adjustment paths cannot succeed through old routes, old payload adapters, old sell execution ids, old receipt rows, migrations, hidden repair, stale fixtures/read models, provider-dashboard-only recovery, or dense checkout fallback.",
+      "Fresh-state scans show cancellation, refund, void, reversal, and adjustment paths cannot succeed through old routes, old payload adapters, old sell execution ids, old receipt rows, migrations, hidden repair, stale fixtures/read models, provider-dashboard-only recovery, or dense checkout fallback.",
   }),
 ] as const satisfies readonly CheckoutReversalPolicyEntry[];
 
