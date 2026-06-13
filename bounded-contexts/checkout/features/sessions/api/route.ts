@@ -23,6 +23,7 @@ import {
   recordChangedEconomicsReview,
   recordConfirmationPendingHandoff,
   recordDisabledSavedInstrumentFailure,
+  recordSplitGroupSummaryRendered,
   recordUnassignedFulfillmentFailure,
   recordUnsupportedCustomerEconomicsInput,
 } from "./checkout-session-route-observability";
@@ -334,6 +335,7 @@ export function createAccountCheckoutSessionRoutes(
     }
 
     recordBuyCheckoutReviewRendered(checkoutObservabilityTelemetry, access.actor, session);
+    recordSplitGroupSummaryRendered(checkoutObservabilityTelemetry, access.actor, session);
     return c.json(session);
   });
 

@@ -259,6 +259,77 @@ describe("checkout session routes", () => {
     expect(emitted).not.toContain("cr_ready");
   });
 
+  it("emits split-group summary telemetry without raw group references", async () => {
+    const checkoutObservabilityTelemetry = { recordCheckoutEvent: vi.fn() };
+    const services = createServices({
+      getSession: vi.fn(async () =>
+        createSession({
+          cart_readiness_snapshot: { snapshotId: "cr_multi", sourceRevision: "cart_rev_1" } as never,
+          split_group_handoff: {
+            status: "ready",
+            supportReference: "CS-CR_MULTI",
+            groups: [
+              {
+                groupId: "cfg_card_vault",
+                lineIds: ["cli_card_vault"],
+                listingIds: ["lst_card_vault"],
+                sellerAccountId: "acc_card_vault",
+                sellerDisplayName: "Card Vault",
+                itemCount: 1,
+                packageCount: 1,
+                deliveryPromise: null,
+                shippingAmount: null,
+                supportReference: "CSG-CARDVAULT",
+                downstreamReferenceStatus: "not-started",
+              },
+              {
+                groupId: "cfg_second_seller",
+                lineIds: ["cli_second_seller"],
+                listingIds: ["lst_second_seller"],
+                sellerAccountId: "acc_second_seller",
+                sellerDisplayName: "Second Seller",
+                itemCount: 1,
+                packageCount: 1,
+                deliveryPromise: null,
+                shippingAmount: null,
+                supportReference: "CSG-SECONDSELLER",
+                downstreamReferenceStatus: "not-started",
+              },
+            ],
+          },
+        }),
+      ),
+    });
+    const app = buildApp(services, undefined, checkoutObservabilityTelemetry);
+
+    const response = await app.fetch(new Request("http://checkout.test/account/checkout-sessions/chk_1"));
+
+    expect(response.status).toBe(200);
+    expect(checkoutObservabilityTelemetry.recordCheckoutEvent).toHaveBeenCalledTimes(2);
+    expect(checkoutObservabilityTelemetry.recordCheckoutEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "checkout.buy.split_group_summary_rendered",
+        actorMode: "signed-in",
+        entrySource: "buy-cart-readiness",
+        scenarioState: "split-group",
+        visibleState: "checkout-review-visible",
+        sideEffectStatus: "forbidden-before-confirm",
+        readinessContract: "checkout.cart-readiness.v1",
+        readinessSnapshotState: "fresh",
+        sourceRevisionState: "current",
+        supportReferencePresent: true,
+        downstreamStatus: "not-started",
+        capabilityDecision: "enabled",
+      }),
+    );
+    const emitted = JSON.stringify(checkoutObservabilityTelemetry.recordCheckoutEvent.mock.calls);
+    expect(emitted).not.toContain("chk_1");
+    expect(emitted).not.toContain("acc_card_vault");
+    expect(emitted).not.toContain("cfg_card_vault");
+    expect(emitted).not.toContain("CSG-CARDVAULT");
+    expect(emitted).not.toContain("CS-CR_MULTI");
+  });
+
   it("emits guest buy-now checkout review telemetry", async () => {
     const checkoutObservabilityTelemetry = { recordCheckoutEvent: vi.fn() };
     const services = createServices({
