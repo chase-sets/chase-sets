@@ -252,6 +252,30 @@ describe("form system", () => {
     expect(new FormData(form).get("readonly_opt_in")).toBeNull();
   });
 
+  it("exposes radio options by their visible labels", () => {
+    render(
+      <RadioGroup
+        id="shipping-options"
+        name="shipping_speed"
+        label="Shipping speed"
+        description="Choose the buyer-facing delivery promise."
+        defaultValue="standard"
+        items={[
+          { value: "standard", label: "Standard", description: "3-5 business days." },
+          { value: "express", label: "Express", description: "1-2 business days." },
+        ]}
+      />,
+    );
+
+    const standard = screen.getByRole("radio", { name: "Standard" });
+    const express = screen.getByRole("radio", { name: "Express" });
+
+    expect(standard.getAttribute("aria-describedby")).toBe("shipping-options-option-0-description");
+    expect(express.getAttribute("aria-describedby")).toBe("shipping-options-option-1-description");
+    expect(screen.getByText("3-5 business days.").getAttribute("id")).toBe("shipping-options-option-0-description");
+    expect(screen.getByText("1-2 business days.").getAttribute("id")).toBe("shipping-options-option-1-description");
+  });
+
   it("serializes composite field values through native FormData", () => {
     const { container } = render(
       <Form id="advanced-listing-form">
