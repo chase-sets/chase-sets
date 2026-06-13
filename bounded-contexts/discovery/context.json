@@ -12,6 +12,7 @@
     "market-support",
     "realtime-support",
     "request-support",
+    "route-support",
     "runtime-support",
     "shell-support",
     "ui-support",
@@ -360,7 +361,7 @@
         "reviewBy": "2026-07-31",
         "reason": "The post-write destination is Checkout-owned and tracked by Checkout freshness entries; Discovery does not read its own just-written projection here.",
         "helperUses": ["appendFreshWriteToken"],
-        "files": ["bounded-contexts/discovery/support/request-support/item-detail/action.ts"]
+        "files": ["bounded-contexts/discovery/support/route-support/item-detail/action.ts"]
       }
     }
   ],
@@ -532,13 +533,22 @@
     },
     "request-support": {
       "classification": "support",
-      "purpose": "Provide reusable request-support assets shared by discovery-owned features and composition seams.",
+      "purpose": "Provide reusable request parsing and context-local API client assets shared by discovery-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
       "expectedConsumers": ["Multiple discovery slices", "Deployable composition for discovery"],
       "justification": "request-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "discovery workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules.",
       "crossCuttingRuntimeComposition": true
+    },
+    "route-support": {
+      "classification": "support",
+      "purpose": "Provide the item-detail route adapter modules (loader, action, commerce builder, and route types) that orchestrate Discovery item detail route behavior.",
+      "allowedWhen": "Allowed only when route-layer behavior cannot stay inside the thin route module or a feature folder.",
+      "expectedConsumers": ["routes"],
+      "justification": "route-support centralizes the item-detail route's loader/action orchestration and cross-context server-surface composition without mixing route adapter behavior into request support.",
+      "createdFor": "the item-detail route, which composes Discovery item reads with Marketplace, Inventory, and Checkout server clients during loader and action handling.",
+      "sunsetWhen": "Remove when the item-detail route no longer needs extracted loader/action modules."
     },
     "realtime-support": {
       "classification": "support",

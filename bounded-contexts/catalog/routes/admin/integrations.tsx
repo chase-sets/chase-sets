@@ -4,10 +4,10 @@ import { useLoaderData, useRouteLoaderData } from "react-router";
 import { useMemo } from "react";
 import { CatalogPrimaryWorkbenchPage } from "../../features/source-observations/ui/primary-workbench-page";
 import { buildCatalogPrimaryWorkbenchReadModel } from "../../features/source-observations/ui/primary-workbench-read-model";
-import { loader } from "../../support/shell-support/admin-integrations/integrations-loader";
+import { loader } from "../../support/route-support/admin-integrations/integrations-loader";
 
-export { action } from "../../support/shell-support/admin-integrations/integrations-action";
-export { loader } from "../../support/shell-support/admin-integrations/integrations-loader";
+export { action } from "../../support/route-support/admin-integrations/integrations-action";
+export { loader } from "../../support/route-support/admin-integrations/integrations-loader";
 
 export const meta: MetaFunction = () => [
   { title: t("catalog.routes.admin.integrations.catalog.integrations.catalog.admin") },

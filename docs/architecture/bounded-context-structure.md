@@ -58,6 +58,7 @@ Top-level directory intent:
 Naming standard for support directories:
 
 - Keep reusable technical helpers in `*-support` folders, for example `request-support`, `route-support`, `shell-support`, `seed-support`, or `projection-support`.
+- Route-owned loader, action, form, route type, and route helper modules belong under `support/route-support/<route-name>/`; keep `routes/` modules as thin adapters and keep `request-support` for request parsing or API-client concerns that are not route-specific.
 - `tests/` is the non-`*-support` root bucket exception for acceptance or structure tests that span multiple slices.
 - `docs/` is the non-runtime documentation bucket for context-owned supporting notes.
 - Do not place ambiguous folders like `shell`, `helpers`, or `utils` directly at the bounded-context root; keep them under `features/` or `support/`.

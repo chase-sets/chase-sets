@@ -58,7 +58,7 @@
     "coverage:ci": "pnpm run coverage:clean && pnpm run coverage:fast && pnpm run coverage:db && pnpm run coverage:summary",
     "coverage:summary": "node ./scripts/coverage-summary.mjs",
     "build": "node ./scripts/run-workspaces.mjs build",
-    "test:structure": "vitest run scripts/check-structure/account-capability-language.test.mjs scripts/check-structure/retired-freshness-forwarding.test.mjs scripts/check-structure/read-after-write-inventory.test.mjs scripts/check-structure/work-signal-primitives.test.mjs",
+    "test:structure": "vitest run scripts/check-structure/account-capability-language.test.mjs scripts/check-structure/retired-freshness-forwarding.test.mjs scripts/check-structure/read-after-write-inventory.test.mjs scripts/check-structure/route-support-placement.test.mjs scripts/check-structure/work-signal-primitives.test.mjs",
     "test:remote-dev": "vitest run scripts/remote-dev.test.mjs",
     "test:local-env": "vitest run scripts/local-env.test.mjs",
     "test:process": "vitest run scripts/process.test.mjs",
