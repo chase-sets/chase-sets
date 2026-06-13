@@ -1,9 +1,9 @@
 import { useState, type ImgHTMLAttributes, type ReactNode } from "react";
-import { ImageIcon, Truck } from "lucide-react";
-import { cn } from "../../lib/utils";
+import { Icon } from "../../icons";
+import { cx } from "../../utils/cx";
 import { IconButton } from "../actions";
 import { ProductMediaImage, type ResponsiveImageSource } from "../data-display/product-media";
-import { Badge } from "../compat/badge";
+import { Badge } from "../feedback";
 import { AccountReputationSummary, OrderProtectionBadge, TrustBadge, VerifiedAccountBadge } from "./trust";
 import {
   densityClasses,
@@ -171,12 +171,12 @@ export function ListingCard({
               className="min-w-0"
             />
           ) : sellerName ? (
-            <span className="min-w-0 truncate font-semibold leading-5 text-[var(--foreground)]">{sellerName}</span>
+            <span className="min-w-0 truncate font-semibold leading-5 text-foreground">{sellerName}</span>
           ) : null}
           {resolvedSellerTrust}
         </div>
         {sellerMeta || sellerFeedbackAction ? (
-          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm text-[var(--text-secondary)]">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm text-secondary">
             {sellerMeta ? <span>{sellerMeta}</span> : null}
             {sellerFeedbackAction}
           </div>
@@ -217,12 +217,12 @@ export function ListingCard({
     : "absolute inset-0 max-h-72 min-h-44 sm:h-auto sm:max-h-80 sm:min-h-0";
   const contentClassName = isSearchResultLayout
     ? "gap-2.5 py-3 pl-1 pr-3 md:gap-2.5 md:py-4 md:pl-1 md:pr-4"
-    : cn("gap-3", densityClasses[density]);
+    : cx("gap-3", densityClasses[density]);
 
   return (
     <article
-      className={cn(
-        "group relative grid overflow-hidden rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] shadow-[var(--shadow-sm)] transition-colors hover:border-[color-mix(in_srgb,var(--primary)_38%,var(--border))] focus-within:border-[var(--primary)]",
+      className={cx(
+        "group relative grid overflow-hidden rounded-tokenMd border border-border bg-surface shadow-tokenSm transition-colors hover:border-[color-mix(in_srgb,var(--primary)_38%,var(--border))] focus-within:border-accent",
         hasMediaFrame
           ? isSearchResultLayout
             ? "grid-cols-[minmax(7.5rem,8.25rem)_minmax(0,1fr)] md:grid-cols-[minmax(10.5rem,12.5rem)_minmax(0,1fr)]"
@@ -239,14 +239,14 @@ export function ListingCard({
         <a
           href={href}
           aria-label={`View details for ${title}`}
-          className="focus-ring absolute inset-0 z-10 rounded-[var(--radius)]"
+          className="focus-ring absolute inset-0 z-10 rounded-tokenMd"
         />
       ) : null}
       {hasMediaFrame ? (
         <div
-          className={cn(
+          className={cx(
             mediaContainerClassName,
-            resolvedImageSrc || showFallbackPreview ? "bg-transparent" : "bg-[var(--surface-2)]",
+            resolvedImageSrc || showFallbackPreview ? "bg-transparent" : "bg-surface-2",
             isLinked && "z-20 pointer-events-none",
           )}
         >
@@ -258,7 +258,7 @@ export function ListingCard({
               fetchPriority={imageFetchPriority}
               loading={imageLoading}
               decoding={imageDecoding}
-              className={cn(fallbackPreviewImageClassName, productMediaSlotClassName)}
+              className={cx(fallbackPreviewImageClassName, productMediaSlotClassName)}
               aria-hidden="true"
             />
           ) : null}
@@ -272,12 +272,12 @@ export function ListingCard({
               fetchPriority={imageFetchPriority}
               onLoad={() => setImageLoaded(true)}
               onError={() => setImageFailed(true)}
-              className={cn(mediaImageClassName, productMediaSlotClassName)}
+              className={cx(mediaImageClassName, productMediaSlotClassName)}
             />
           ) : (
-            <div className="grid h-full min-h-36 place-items-center text-sm font-semibold text-[var(--muted-foreground)]">
+            <div className="grid h-full min-h-36 place-items-center text-sm font-semibold text-tertiary">
               {isSearchResultLayout ? (
-                <ImageIcon className="h-8 w-8 text-[var(--muted-foreground)]" aria-hidden="true" />
+                <Icon name="image" size="lg" tone="tertiary" aria-hidden="true" />
               ) : (
                 modelLabels[model]
               )}
@@ -297,29 +297,29 @@ export function ListingCard({
         </div>
       ) : null}
 
-      <div className={cn("grid content-start", contentClassName, isLinked && "z-20 pointer-events-none")}>
+      <div className={cx("grid content-start", contentClassName, isLinked && "z-20 pointer-events-none")}>
         <div className="grid gap-1.5">
           {condition || availability ? (
             <div className="flex flex-wrap items-center gap-2">
-              {condition ? <Badge variant="outline">{condition}</Badge> : null}
-              {availability ? (
-                <span className="text-xs font-medium text-[var(--text-secondary)]">{availability}</span>
+              {condition ? (
+                <Badge variant="outline" tone="neutral">
+                  {condition}
+                </Badge>
               ) : null}
+              {availability ? <span className="text-xs font-medium text-secondary">{availability}</span> : null}
             </div>
           ) : null}
           <h3
-            className={cn(
-              "m-0 line-clamp-2 font-semibold text-[var(--foreground)]",
+            className={cx(
+              "m-0 line-clamp-2 font-semibold text-foreground",
               isSearchResultLayout ? "text-sm leading-5 md:text-base md:leading-6" : "text-base leading-6",
             )}
           >
             {title}
           </h3>
-          {subtitle ? <p className="m-0 text-sm font-medium leading-5 text-[var(--foreground)]">{subtitle}</p> : null}
+          {subtitle ? <p className="m-0 text-sm font-medium leading-5 text-foreground">{subtitle}</p> : null}
           {valueCue ? (
-            <p className={cn("m-0 text-sm leading-5 text-[var(--text-secondary)]", truncateValueCue && "line-clamp-2")}>
-              {valueCue}
-            </p>
+            <p className={cx("m-0 text-sm leading-5 text-secondary", truncateValueCue && "line-clamp-2")}>{valueCue}</p>
           ) : null}
         </div>
 
@@ -328,32 +328,28 @@ export function ListingCard({
             <div className="grid gap-1">
               {hasPrice ? (
                 <div
-                  className={cn(
-                    "font-bold tabular-nums text-[var(--foreground)]",
+                  className={cx(
+                    "font-bold tabular-nums text-foreground",
                     isSearchResultLayout ? "text-lg leading-6" : "text-xl leading-7",
                   )}
                 >
                   {price}
                 </div>
               ) : null}
-              {priceDetail ? (
-                <div className="text-xs leading-4 text-[var(--muted-foreground)]">{priceDetail}</div>
-              ) : null}
-              {priceExplanation ? (
-                <div className="text-xs leading-4 text-[var(--text-secondary)]">{priceExplanation}</div>
-              ) : null}
+              {priceDetail ? <div className="text-xs leading-4 text-tertiary">{priceDetail}</div> : null}
+              {priceExplanation ? <div className="text-xs leading-4 text-secondary">{priceExplanation}</div> : null}
             </div>
           </div>
         ) : null}
 
         {hasMarketSignals ? (
-          <div className="grid gap-2 text-sm text-[var(--text-secondary)]">
+          <div className="grid gap-2 text-sm text-secondary">
             {sellerTrustSummary}
             {fulfillment || resolvedProtection || returnPolicy ? (
               <div className="flex flex-wrap gap-2">
                 {fulfillment ? (
                   <span className="inline-flex items-center gap-1.5">
-                    <Truck className="h-4 w-4 text-trust" aria-hidden="true" />
+                    <Icon name="truck" size="sm" tone="trust" aria-hidden="true" />
                     {fulfillment}
                   </span>
                 ) : null}
@@ -365,13 +361,13 @@ export function ListingCard({
         ) : null}
 
         {recommendationReason ? (
-          <div className="rounded-[var(--radius)] bg-[var(--surface-2)] px-3 py-2 text-xs leading-4 text-[var(--text-secondary)]">
+          <div className="rounded-tokenMd bg-surface-2 px-3 py-2 text-xs leading-4 text-secondary">
             {recommendationReason}
           </div>
         ) : null}
 
         <div
-          className={cn("flex flex-wrap items-center gap-2 pt-1", isLinked && "pointer-events-auto relative z-30")}
+          className={cx("flex flex-wrap items-center gap-2 pt-1", isLinked && "pointer-events-auto relative z-30")}
           data-primary-action-count="1"
         >
           {primaryAction}

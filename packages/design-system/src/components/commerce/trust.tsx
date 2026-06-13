@@ -1,19 +1,8 @@
 import type { MouseEventHandler, ReactNode } from "react";
-import {
-  AlertTriangle,
-  BadgeCheck,
-  Clock,
-  CreditCard,
-  HelpCircle,
-  Lock,
-  MapPin,
-  PackageCheck,
-  ShieldCheck,
-  Star,
-} from "lucide-react";
-import { cn } from "../../lib/utils";
-import { Badge } from "../compat/badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../compat/card";
+import { Icon, type IconName } from "../../icons";
+import { cx } from "../../utils/cx";
+import { Badge } from "../feedback";
+import { Card } from "../data-display/card";
 import { Progress } from "../compat/progress";
 import { hasReviewCount, normalizeRatingValue, type TrustTone } from "./shared";
 
@@ -24,8 +13,8 @@ export interface TrustBadgeProps {
 }
 
 export function TrustBadge({ children, tone = "verified", className }: TrustBadgeProps) {
-  const Icon =
-    tone === "warning" ? AlertTriangle : tone === "secure" ? Lock : tone === "policy" ? HelpCircle : ShieldCheck;
+  const iconName: IconName =
+    tone === "warning" ? "warning" : tone === "secure" ? "lockClosed" : tone === "policy" ? "help" : "shield";
   const toneClass =
     tone === "warning"
       ? "border-warning-soft bg-warning-soft text-warning"
@@ -33,13 +22,13 @@ export function TrustBadge({ children, tone = "verified", className }: TrustBadg
 
   return (
     <span
-      className={cn(
+      className={cx(
         "inline-flex max-w-full items-center gap-1.5 rounded-tokenFull border px-2.5 py-1 text-xs font-semibold leading-4",
         toneClass,
         className,
       )}
     >
-      <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+      <Icon name={iconName} size="sm" tone="inherit" aria-hidden="true" />
       <span className="min-w-0 break-words">{children}</span>
     </span>
   );
@@ -77,11 +66,13 @@ export interface PlatformCredibilityCueProps {
 
 export function PlatformCredibilityCue({ title, description }: PlatformCredibilityCueProps) {
   return (
-    <div className="flex gap-3 rounded-[var(--radius)] border border-trust-soft bg-trust-soft p-4">
-      <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-trust" aria-hidden="true" />
+    <div className="flex gap-3 rounded-tokenMd border border-trust-soft bg-trust-soft p-4">
+      <span className="mt-0.5 shrink-0">
+        <Icon name="shield" size="md" tone="trust" aria-hidden="true" />
+      </span>
       <div>
-        <div className="font-semibold text-[var(--foreground)]">{title}</div>
-        <div className="text-sm leading-5 text-[var(--text-secondary)]">{description}</div>
+        <div className="font-semibold text-foreground">{title}</div>
+        <div className="text-sm leading-5 text-secondary">{description}</div>
       </div>
     </div>
   );
@@ -97,11 +88,11 @@ export interface RatingSummaryProps {
 export function RatingSummary({ value, count, label, compact = false }: RatingSummaryProps) {
   return (
     <span
-      className={cn("inline-flex items-center gap-1.5 text-[var(--text-secondary)]", compact ? "text-xs" : "text-sm")}
+      className={cx("inline-flex items-center gap-1.5 text-secondary", compact ? "text-xs" : "text-sm")}
       aria-label={label ?? `${value} rating${count ? ` from ${count} reviews` : ""}`}
     >
-      <Star className="h-4 w-4 fill-rating text-rating" aria-hidden="true" />
-      <span className="font-semibold tabular-nums text-[var(--foreground)]">{value.toFixed(1)}</span>
+      <Icon name="star" size="sm" tone="rating" aria-hidden="true" />
+      <span className="font-semibold tabular-nums text-foreground">{value.toFixed(1)}</span>
       {count ? <span className="tabular-nums">({count})</span> : null}
     </span>
   );
@@ -140,18 +131,18 @@ export function AccountReputationSummary({
     <a
       href={href}
       onClick={onLinkClick}
-      className="ds-focus inline-block min-w-0 max-w-full truncate font-semibold leading-5 text-[var(--foreground)] underline-offset-2 transition hover:text-[var(--primary)] hover:underline"
+      className="ds-focus inline-block min-w-0 max-w-full truncate font-semibold leading-5 text-foreground underline-offset-2 transition hover:text-accent hover:underline"
     >
       {accountName}
     </a>
   ) : (
-    <span className="min-w-0 truncate font-semibold leading-5 text-[var(--foreground)]">{accountName}</span>
+    <span className="min-w-0 truncate font-semibold leading-5 text-foreground">{accountName}</span>
   );
   const reputationNode = hasReputation ? (
     <RatingSummary value={rating} count={reviewCount} label={ratingLabel} compact />
   ) : (
     <span
-      className="text-xs font-medium leading-4 text-[var(--muted-foreground)]"
+      className="text-xs font-medium leading-4 text-tertiary"
       aria-label={emptyAccessibleLabel}
       title={emptyAccessibleLabel}
     >
@@ -161,12 +152,10 @@ export function AccountReputationSummary({
 
   return (
     <span
-      className={cn(
+      className={cx(
         "inline-flex min-w-0 max-w-full flex-col items-start gap-0.5 text-left",
         align === "end" && "items-end text-right",
-        variant === "framed"
-          ? "rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-2 shadow-[var(--shadow-sm)]"
-          : null,
+        variant === "framed" ? "rounded-tokenSm border border-border bg-surface-2 px-2.5 py-2 shadow-tokenSm" : null,
         className,
       )}
     >
@@ -202,28 +191,34 @@ export function AccountTrustCard({
   actions,
 }: AccountTrustCardProps) {
   const facts = [
-    completedSales ? { icon: PackageCheck, label: "Completed", value: completedSales } : null,
-    responseTime ? { icon: Clock, label: "Response", value: responseTime } : null,
-    shipsFrom ? { icon: MapPin, label: "Ships from", value: shipsFrom } : null,
-    joined ? { icon: BadgeCheck, label: "Account since", value: joined } : null,
-  ].filter(Boolean) as Array<{ icon: typeof PackageCheck; label: string; value: ReactNode }>;
+    completedSales ? { icon: "packageCheck" as const, label: "Completed", value: completedSales } : null,
+    responseTime ? { icon: "clock" as const, label: "Response", value: responseTime } : null,
+    shipsFrom ? { icon: "mapPin" as const, label: "Ships from", value: shipsFrom } : null,
+    joined ? { icon: "badgeCheck" as const, label: "Account since", value: joined } : null,
+  ].filter(Boolean) as Array<{ icon: IconName; label: string; value: ReactNode }>;
   const reputationRating = normalizeRatingValue(rating);
   const hasReputation = reputationRating !== null && hasReviewCount(reviewCount);
 
   return (
-    <Card className="p-0">
-      <CardHeader>
+    <Card>
+      <Card.Header>
         <div className="flex items-start justify-between gap-3">
           <div className="grid min-w-0 gap-2">
             <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-              <CardTitle>{name}</CardTitle>
-              {verified ? <TrustBadge>Verified account</TrustBadge> : <Badge variant="outline">New account</Badge>}
+              <Card.Title>{name}</Card.Title>
+              {verified ? (
+                <TrustBadge>Verified account</TrustBadge>
+              ) : (
+                <Badge variant="outline" tone="neutral">
+                  New account
+                </Badge>
+              )}
             </div>
             {hasReputation ? (
               <RatingSummary value={reputationRating} count={reviewCount} compact />
             ) : (
               <span
-                className="text-xs font-medium leading-4 text-[var(--muted-foreground)]"
+                className="text-xs font-medium leading-4 text-tertiary"
                 aria-label="No feedback yet"
                 title="No feedback yet"
               >
@@ -233,18 +228,17 @@ export function AccountTrustCard({
           </div>
           {actions}
         </div>
-      </CardHeader>
-      <CardContent>
+      </Card.Header>
+      <Card.Body>
         <div className="grid gap-3 sm:grid-cols-2">
           {facts.map((fact) => (
-            <div
-              key={fact.label}
-              className="flex gap-2 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-2)] p-3"
-            >
-              <fact.icon className="mt-0.5 h-4 w-4 text-trust" aria-hidden="true" />
+            <div key={fact.label} className="flex gap-2 rounded-tokenMd border border-border bg-surface-2 p-3">
+              <span className="mt-0.5">
+                <Icon name={fact.icon} size="sm" tone="trust" aria-hidden="true" />
+              </span>
               <div>
-                <div className="text-xs font-medium text-[var(--muted-foreground)]">{fact.label}</div>
-                <div className="text-sm font-semibold text-[var(--foreground)]">{fact.value}</div>
+                <div className="text-xs font-medium text-tertiary">{fact.label}</div>
+                <div className="text-sm font-semibold text-foreground">{fact.value}</div>
               </div>
             </div>
           ))}
@@ -253,13 +247,13 @@ export function AccountTrustCard({
           <div className="mt-4 grid gap-2">
             {policies.map((policy) => (
               <div key={policy.label} className="flex items-center justify-between gap-3 text-sm">
-                <span className="text-[var(--text-secondary)]">{policy.label}</span>
-                <span className="font-semibold text-[var(--foreground)]">{policy.value}</span>
+                <span className="text-secondary">{policy.label}</span>
+                <span className="font-semibold text-foreground">{policy.value}</span>
               </div>
             ))}
           </div>
         ) : null}
-      </CardContent>
+      </Card.Body>
     </Card>
   );
 }
@@ -275,23 +269,23 @@ export interface RatingDistributionProps {
 export function RatingDistribution({ title, average, count, rows, starLabel }: RatingDistributionProps) {
   return (
     <Card>
-      <CardHeader>
-        {title ? <CardTitle>{title}</CardTitle> : null}
-        <CardDescription>
+      <Card.Header>
+        {title ? <Card.Title>{title}</Card.Title> : null}
+        <Card.Description>
           <RatingSummary value={average} count={count} />
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
+        </Card.Description>
+      </Card.Header>
+      <Card.Body>
         <div className="grid gap-2">
           {rows.map((row) => (
             <div key={row.stars} className="grid grid-cols-[3rem_1fr_3rem] items-center gap-3 text-sm">
               <span className="font-medium">{starLabel ? starLabel(row.stars) : row.stars}</span>
               <Progress value={row.value} className="h-2" />
-              <span className="text-right tabular-nums text-[var(--muted-foreground)]">{row.value}%</span>
+              <span className="text-right tabular-nums text-tertiary">{row.value}%</span>
             </div>
           ))}
         </div>
-      </CardContent>
+      </Card.Body>
     </Card>
   );
 }
@@ -299,7 +293,7 @@ export function RatingDistribution({ title, average, count, rows, starLabel }: R
 export function SecurePaymentIndicator({ label }: { label?: ReactNode }) {
   return (
     <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-trust">
-      <CreditCard className="h-4 w-4" aria-hidden="true" />
+      <Icon name="creditCard" size="sm" tone="inherit" aria-hidden="true" />
       {label}
     </span>
   );
