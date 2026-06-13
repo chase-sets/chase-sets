@@ -1,74 +1,31 @@
 import { t } from "@chase-sets/localization";
-import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import { createInMemoryRateLimiter } from "@chase-sets/http/rate-limit";
 import { Hono } from "hono";
 import type { SellListLineId } from "../../../support/runtime-support/common";
 import type { CheckoutApiEnv } from "../../../api";
+import {
+  anonymousRailRateLimitedResponse,
+  createAnonymousRailCaptureRateLimiter,
+  createCheckoutAccessGuard,
+  createGuestCheckoutContext,
+} from "../../../support/request-support/checkout-route-guard";
 import type { SellListConfirmationSummary, SellListSellerConfirmationEvidence } from "../domain/domain";
 import { parseSellListReadinessDecisionInput } from "../domain/readiness";
 import type { CheckoutSellListServices } from "./runtime";
-import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
+import type { AccountId, UserId } from "@chase-sets/primitives/typed-ids";
 
 const MAX_ANONYMOUS_SELL_LIST_LINES = 50;
-const ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
-const ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_MAX = 30;
-const anonymousSellListCaptureRateLimiter = createInMemoryRateLimiter({
-  keyPrefix: "checkout:anonymous-sell-list-capture",
-  max: ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_MAX,
-  windowMs: ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_WINDOW_MS,
+const anonymousSellListCaptureRateLimiter = createAnonymousRailCaptureRateLimiter(
+  "checkout:anonymous-sell-list-capture",
+);
+const requireSellListAccess = createCheckoutAccessGuard({
+  authenticationRequiredMessage: t("checkout.features.cart.api.route.authentication.required"),
+  authorizationForbiddenMessage: t("checkout.features.sellList.api.route.sell.list.review.requires.seller.account"),
 });
-
-function requireSellListAccess(c: { get(key: "actor"): CheckoutApiEnv["Variables"]["actor"] }) {
-  const actor = c.get("actor");
-  if (!actor) {
-    return {
-      actor: null,
-      response: new Response(
-        JSON.stringify({
-          error: {
-            code: "authentication_required",
-            message: t("checkout.features.cart.api.route.authentication.required"),
-          },
-        }),
-        {
-          status: 401,
-          headers: { "Content-Type": "application/json" },
-        },
-      ),
-    };
-  }
-
-  if (actor.permissions.includes("guest-checkout.manage")) {
-    return {
-      actor: null,
-      response: new Response(
-        JSON.stringify({
-          error: {
-            code: "authorization_forbidden",
-            message: t("checkout.features.sellList.api.route.sell.list.review.requires.seller.account"),
-          },
-        }),
-        {
-          status: 403,
-          headers: { "Content-Type": "application/json" },
-        },
-      ),
-    };
-  }
-
-  return { actor, response: null };
-}
-
-function createGuestSellListContext(): EventStoreContext {
-  return {
-    tenantId: "tnt_identity" as TenantId,
-    audit: {
-      performedByUserId: "usr_anonymous_sell_list" as UserId,
-      forAccountId: "acc_anonymous_sell_list" as AccountId,
-    },
-    trace: {},
-  };
-}
+const createGuestSellListContext = () =>
+  createGuestCheckoutContext({
+    performedByUserId: "usr_anonymous_sell_list" as UserId,
+    forAccountId: "acc_anonymous_sell_list" as AccountId,
+  });
 
 function requireAnonymousSellListId(c: { req: { header: (name: string) => string | undefined } }) {
   const ownerId = c.req.header("x-checkout-anonymous-sell-list-id")?.trim() ?? "";
@@ -144,18 +101,6 @@ function isExistingSellListLine(
     line.fallback_mode === body.fallbackMode &&
     (line.minimum_listing_price_amount ?? null) === (body.minimumListingPriceAmount ?? null)
   );
-}
-
-function anonymousRailRateLimitedResponse(retryAfterSeconds: number) {
-  return {
-    body: {
-      error: {
-        code: "anonymous_rail_rate_limited",
-        message: t("checkout.features.sellList.api.route.anonymous.rail.rate.limited"),
-      },
-    },
-    headers: { "Retry-After": String(retryAfterSeconds) },
-  };
 }
 
 function parseLineOutcomeStatus(value: unknown): "completed" | "partial" | "skipped" {
@@ -634,7 +579,10 @@ export function createGuestSellListRoutes(services: CheckoutSellListServices) {
 
     const rateLimit = anonymousSellListCaptureRateLimiter.check(c.req.raw);
     if (rateLimit.limited) {
-      const response = anonymousRailRateLimitedResponse(rateLimit.retryAfterSeconds);
+      const response = anonymousRailRateLimitedResponse(
+        t("checkout.features.sellList.api.route.anonymous.rail.rate.limited"),
+        rateLimit.retryAfterSeconds,
+      );
       return c.json(response.body, 429, response.headers);
     }
 

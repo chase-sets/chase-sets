@@ -1,66 +1,25 @@
 import { t } from "@chase-sets/localization";
-import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import { createInMemoryRateLimiter } from "@chase-sets/http/rate-limit";
 import { Hono } from "hono";
 import type { CheckoutApiEnv } from "../../../api";
+import {
+  anonymousRailRateLimitedResponse,
+  createAnonymousRailCaptureRateLimiter,
+  createCheckoutAccessGuard,
+  createGuestCheckoutContext,
+} from "../../../support/request-support/checkout-route-guard";
 import type { CartLineId } from "../../../support/runtime-support/common";
 import type { CheckoutObservabilityTelemetry } from "../../sessions/api/checkout-observability-telemetry";
 import { recordCartReadinessObservability } from "./cart-readiness-observability";
 import { parseCartReadinessDecisionInput } from "../domain/readiness";
 import type { CheckoutCartServices } from "./runtime";
-import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
+import type { AccountId, UserId } from "@chase-sets/primitives/typed-ids";
 
 const MAX_ANONYMOUS_CART_LINES = 50;
-const ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
-const ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_MAX = 30;
-const anonymousCartCaptureRateLimiter = createInMemoryRateLimiter({
-  keyPrefix: "checkout:anonymous-cart-capture",
-  max: ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_MAX,
-  windowMs: ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_WINDOW_MS,
+const anonymousCartCaptureRateLimiter = createAnonymousRailCaptureRateLimiter("checkout:anonymous-cart-capture");
+const requireCartAccess = createCheckoutAccessGuard({
+  authenticationRequiredMessage: t("checkout.features.cart.api.route.authentication.required"),
+  authorizationForbiddenMessage: t("checkout.features.cart.api.route.forbidden"),
 });
-
-function requireCartAccess(
-  c: {
-    get(key: "actor"): CheckoutApiEnv["Variables"]["actor"];
-  },
-  options: Readonly<{ allowGuestCheckout?: boolean }> = {},
-) {
-  const actor = c.get("actor");
-  if (!actor) {
-    return {
-      actor: null,
-      response: new Response(
-        JSON.stringify({
-          error: {
-            code: "authentication_required",
-            message: t("checkout.features.cart.api.route.authentication.required"),
-          },
-        }),
-        {
-          status: 401,
-          headers: { "Content-Type": "application/json" },
-        },
-      ),
-    };
-  }
-
-  if (actor.permissions.includes("guest-checkout.manage") && !options.allowGuestCheckout) {
-    return {
-      actor: null,
-      response: new Response(
-        JSON.stringify({
-          error: { code: "authorization_forbidden", message: t("checkout.features.cart.api.route.forbidden") },
-        }),
-        {
-          status: 403,
-          headers: { "Content-Type": "application/json" },
-        },
-      ),
-    };
-  }
-
-  return { actor, response: null };
-}
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("checkout.features.cart.api.route.request.failed");
@@ -70,16 +29,11 @@ function optionalBodyString(value: unknown): string | null {
   return value === null || value === undefined ? null : String(value);
 }
 
-function createGuestCheckoutContext(): EventStoreContext {
-  return {
-    tenantId: "tnt_identity" as TenantId,
-    audit: {
-      performedByUserId: "usr_guest_checkout" as UserId,
-      forAccountId: "acc_guest_checkout" as AccountId,
-    },
-    trace: {},
-  };
-}
+const createGuestCartContext = () =>
+  createGuestCheckoutContext({
+    performedByUserId: "usr_guest_checkout" as UserId,
+    forAccountId: "acc_guest_checkout" as AccountId,
+  });
 
 function parseVersionSelection(value: unknown) {
   return Array.isArray(value)
@@ -192,18 +146,6 @@ function anonymousCartLimitExceededResponse() {
         limit: MAX_ANONYMOUS_CART_LINES,
       }),
     },
-  };
-}
-
-function anonymousRailRateLimitedResponse(retryAfterSeconds: number) {
-  return {
-    body: {
-      error: {
-        code: "anonymous_rail_rate_limited",
-        message: t("checkout.features.cart.api.route.anonymous.rail.rate.limited"),
-      },
-    },
-    headers: { "Retry-After": String(retryAfterSeconds) },
   };
 }
 
@@ -506,11 +448,14 @@ export function createGuestCartRoutes(
 
     const rateLimit = anonymousCartCaptureRateLimiter.check(c.req.raw);
     if (rateLimit.limited) {
-      const response = anonymousRailRateLimitedResponse(rateLimit.retryAfterSeconds);
+      const response = anonymousRailRateLimitedResponse(
+        t("checkout.features.cart.api.route.anonymous.rail.rate.limited"),
+        rateLimit.retryAfterSeconds,
+      );
       return c.json(response.body, 429, response.headers);
     }
 
-    const context = c.get("context") ?? createGuestCheckoutContext();
+    const context = c.get("context") ?? createGuestCartContext();
 
     const body = await c.req.json();
     const line = parseCartLineBody(body);
@@ -554,11 +499,14 @@ export function createGuestCartRoutes(
 
     const rateLimit = anonymousCartCaptureRateLimiter.check(c.req.raw);
     if (rateLimit.limited) {
-      const response = anonymousRailRateLimitedResponse(rateLimit.retryAfterSeconds);
+      const response = anonymousRailRateLimitedResponse(
+        t("checkout.features.cart.api.route.anonymous.rail.rate.limited"),
+        rateLimit.retryAfterSeconds,
+      );
       return c.json(response.body, 429, response.headers);
     }
 
-    const context = c.get("context") ?? createGuestCheckoutContext();
+    const context = c.get("context") ?? createGuestCartContext();
     const body = await c.req.json<Record<string, unknown>>();
     const rawLines: unknown[] = Array.isArray(body.lines) ? body.lines : [];
     const lines = rawLines
@@ -599,7 +547,7 @@ export function createGuestCartRoutes(
       );
     }
 
-    const context = c.get("context") ?? createGuestCheckoutContext();
+    const context = c.get("context") ?? createGuestCartContext();
     const body = await c.req.json();
 
     try {
@@ -632,7 +580,7 @@ export function createGuestCartRoutes(
       );
     }
 
-    const context = c.get("context") ?? createGuestCheckoutContext();
+    const context = c.get("context") ?? createGuestCartContext();
     const body = await c.req.json();
     const fulfillment = parseFulfillmentMode(body);
 
@@ -672,7 +620,7 @@ export function createGuestCartRoutes(
       );
     }
 
-    const context = c.get("context") ?? createGuestCheckoutContext();
+    const context = c.get("context") ?? createGuestCartContext();
 
     try {
       const result = await services.removeLine(

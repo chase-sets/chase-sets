@@ -1,3 +1,5 @@
+import { parseReadinessDecisionInputBase } from "../../../support/request-support/readiness-decision-parser";
+
 export type SellListReadinessLine = Readonly<{
   seller_account_id: string;
   line_id: string;
@@ -49,55 +51,13 @@ export type SellListReadinessSnapshot = Readonly<{
   customerSafeFacts: readonly string[];
 }>;
 
-function objectValue(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
-}
-
-function stringValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : "";
-}
-
 export function parseSellListReadinessDecisionInput(value: unknown): SellListReadinessDecisionInput {
-  const source = objectValue(value) ?? {};
-  const rawLineOutcomes = source.lineOutcomes ?? source.line_outcomes;
-  const lineOutcomes = Array.isArray(rawLineOutcomes)
-    ? rawLineOutcomes
-        .map(objectValue)
-        .filter((entry): entry is Record<string, unknown> => entry !== null)
-        .map((entry) => {
-          const outcome = stringValue(entry.outcome);
-          return outcome === "removed" || outcome === "keep-in-list"
-            ? {
-                lineId: stringValue(entry.lineId ?? entry.line_id),
-                outcome,
-              }
-            : null;
-        })
-        .filter(
-          (entry): entry is Readonly<{ lineId: string; outcome: Exclude<SellListReadinessLineOutcome, "checkout"> }> =>
-            Boolean(entry?.lineId),
-        )
-    : [];
-  const rawLineActions = source.lineActions ?? source.line_actions;
-  const lineActions = Array.isArray(rawLineActions)
-    ? rawLineActions
-        .map(objectValue)
-        .filter((entry): entry is Record<string, unknown> => entry !== null)
-        .map((entry) => {
-          const action = stringValue(entry.action);
-          return action === "selected-offer" || action === "smart-match" || action === "fallback-listing"
-            ? {
-                lineId: stringValue(entry.lineId ?? entry.line_id),
-                action,
-              }
-            : null;
-        })
-        .filter((entry): entry is Readonly<{ lineId: string; action: SellListReadinessLineAction }> =>
-          Boolean(entry?.lineId),
-        )
-    : [];
+  const parsed = parseReadinessDecisionInputBase(value, {
+    lineOutcomeValues: ["removed", "keep-in-list"] as const,
+    lineActionValues: ["selected-offer", "smart-match", "fallback-listing"] as const,
+  });
 
-  return { lineOutcomes, lineActions };
+  return { lineOutcomes: parsed.lineOutcomes, lineActions: parsed.lineActions };
 }
 
 function stableStringify(value: unknown): string {

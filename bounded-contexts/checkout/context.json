@@ -353,7 +353,7 @@
       "classification": "support",
       "purpose": "Provide checkout request API clients and request-time Ordering/Payments orchestration adapters used by checkout sessions and external purchase-intent entry points.",
       "allowedWhen": "Allowed for route/server request adapters and cross-context server-surface orchestration that cannot live inside a feature folder.",
-      "expectedConsumers": ["sessions"],
+      "expectedConsumers": ["cart", "sell-list", "sessions"],
       "justification": "request-support centralizes context-local request client composition and the Checkout-owned confirmation adapter into Ordering and Payments.",
       "createdFor": "checkout routes, Discovery purchase-intent forms, and checkout confirmation that need authenticated API calls.",
       "sunsetWhen": "Remove when route modules no longer share request client behavior.",
