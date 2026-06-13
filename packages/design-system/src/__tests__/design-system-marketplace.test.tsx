@@ -96,6 +96,36 @@ describe("design system marketplace patterns", () => {
     expect(Object.keys(designSystem).filter((exportName) => /^Ui[A-Z]/.test(exportName))).toEqual([]);
   });
 
+  it("exposes the canonical commerce surface at the package root", () => {
+    const canonicalCommerceExports = [
+      "TrustBadge",
+      "VerifiedAccountBadge",
+      "AccountReputationSummary",
+      "AccountTrustCard",
+      "ListingCard",
+      "MarketplaceCartLineItem",
+      "SearchFilterPanel",
+      "PriceBreakdown",
+      "ListingPurchasePanel",
+      "OrderProtectionModule",
+      "OfferCard",
+      "MarketplaceDashboardPanel",
+      "formatMarketplaceNumber",
+    ];
+
+    for (const exportName of canonicalCommerceExports) {
+      expect(designSystem).toHaveProperty(exportName);
+    }
+  });
+
+  it("drops the unified commerce duplicates from the package root", () => {
+    const removedDuplicateExports = ["MarketplaceMetricStrip", "OrderSummary"];
+
+    for (const exportName of removedDuplicateExports) {
+      expect(designSystem).not.toHaveProperty(exportName);
+    }
+  });
+
   it("layers dropdown and popover panels above modal panels", () => {
     const layers = chaseTheme.zIndex;
 
