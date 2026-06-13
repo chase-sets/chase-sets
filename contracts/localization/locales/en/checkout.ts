@@ -827,6 +827,8 @@ export const checkoutEnglishTranslations = {
     "Use a supported US delivery address before continuing to payment.",
   "checkout.routes.checkoutSession.delivery.address.restricted":
     "Use a street address before continuing to payment. PO boxes are not supported for this shipping service.",
+  "checkout.routes.checkoutSession.shipping.option.unavailable":
+    "Choose an available shipping method before continuing.",
   "checkout.routes.checkoutSession.fulfillment.preview.temporarily.unavailable":
     "Checkout totals are temporarily unavailable. Refresh before confirming payment.",
   "checkout.routes.checkoutSession.payment.has.not.started": "Your payment has not started.",
