@@ -31,7 +31,7 @@ Use this together with:
 
 Do not open a fake order or sale support request for a checkout that has not
 confirmed. If no order source exists yet, treat the case as Checkout-owned
-recovery or launch incident triage using the support-safe checkout reference.
+recovery or checkout incident triage using the support-safe checkout reference.
 
 ## Safety Rules
 
@@ -64,7 +64,7 @@ recovery or launch incident triage using the support-safe checkout reference.
 
 | Scenario | First owner | Support flow when an order source exists | Required evidence |
 | --- | --- | --- | --- |
-| Stuck checkout before confirmation | Checkout | Do not open an order support request; record launch incident or support note against the support-safe checkout reference. | Checkout recovery state, readiness snapshot status, release-health or dashboard link, no-side-effect evidence. |
+| Stuck checkout before confirmation | Checkout | Do not open an order support request; record checkout incident or support note against the support-safe checkout reference. | Checkout recovery state, readiness snapshot status, dashboard link, no-side-effect evidence. |
 | Stuck checkout after confirmation but before downstream commit | Checkout plus downstream owner | Use `payment-problem`, `seller-cannot-fulfill`, or `shipping-label-or-tracking` only when the committed order source exists. | Confirmation id/reference, pending handoff status, owning-context status, support-safe reference. |
 | Payment failure, dispute, or duplicate charge concern | Payments | `payment-problem` for active payment issue; `refund-status` for existing refund follow-up. | Payment-owned status, support-safe provider category, refund/dispute reference when available, no raw provider payload. |
 | Missing or failed order/sale/account-history handoff | Checkout plus Ordering or Settlement | Open the narrow flow that matches the committed order issue; otherwise keep pending handoff as a Checkout support-safe lookup. | Confirmation id, Marketplace handoff id, downstream pending/failed/recovered status, no synthesized completed fact. |
