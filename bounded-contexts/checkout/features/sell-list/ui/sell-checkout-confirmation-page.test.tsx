@@ -49,8 +49,10 @@ describe("sell checkout confirmation page", () => {
     expect(markup).not.toContain("slc_chk_sell_1");
     expect(markup).toContain("Support reference");
     expect(markup).toContain("Your sale confirmation was recorded");
-    expect(markup).toContain("Marketplace handoff");
-    expect(markup).toContain("Support can track pending or failed downstream work from this confirmation.");
+    expect(markup).toContain("Sale actions");
+    expect(markup).toContain("Support can track pending or failed next steps from this confirmation.");
+    expect(markup).not.toContain("Marketplace handoff");
+    expect(markup).not.toContain("downstream work");
     expect(markup).toContain("Acerola&#x27;s Mischief");
     expect(markup).toContain("Mixed");
     expect(markup).toContain("Partial");

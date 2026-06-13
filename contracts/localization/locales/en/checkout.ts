@@ -325,7 +325,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.api.route.sell.list.request.failed": "Sell List request failed.",
   "checkout.features.sellList.api.route.sell.list.confirmation.not.found": "Sell List confirmation not found.",
   "checkout.features.sellList.api.route.sell.list.confirmation.evidence.required":
-    "Sell List confirmation requires current readiness, seller, and handoff evidence.",
+    "Sell List confirmation requires current readiness, seller, and reviewed sale details.",
   "checkout.features.sellList.api.route.sell.list.readiness.snapshot.required":
     "Sell List readiness snapshot is required.",
   "checkout.features.sellList.api.route.sell.list.review.requires.seller.account":
@@ -341,7 +341,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.checkout": "Checkout",
   "checkout.features.sellList.ui.sellListPage.checkout.issue": "Sell List issue",
   "checkout.features.sellList.ui.sellListPage.checkout.unavailable.description":
-    "Seller checkout is temporarily unavailable. Your Sell List is still saved, and no sale, label, payout, or listing handoff has started.",
+    "Seller checkout is temporarily unavailable. Your Sell List is still saved, and no sale, label, payout, or listing work has started.",
   "checkout.features.sellList.ui.sellListPage.checkout.unavailable.title": "Seller checkout is temporarily unavailable",
   "checkout.features.sellList.ui.sellListPage.choose.sale.action.before.checkout":
     "Choose a ready offer or listing action before seller checkout.",
@@ -367,17 +367,17 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.keep.remaining.in.sell.list": "Keep remaining quantity in Sell List",
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.accepted.offers": "Accepted offers",
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.action": "Action",
-  "checkout.features.sellList.ui.sellListPage.latest.confirmation.line.outcomes": "Confirmed line outcomes",
+  "checkout.features.sellList.ui.sellListPage.latest.confirmation.line.outcomes": "Confirmed items",
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.listings.published": "Listings published",
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.notice.description":
-    "Keep this reference while downstream sale, label, payout, settlement, and notification work completes in the owning systems.",
+    "Keep this reference while sale actions, labels, payouts, settlement, and notifications finish.",
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.notice.title": "Seller confirmation recorded",
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.open.support": "Open support",
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.quantity": "Quantity",
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.recorded": "Recorded",
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.reference": "Confirmation",
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.reference.downstream":
-    "Downstream references are available through support.",
+    "Related sale references are available to support.",
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.reference.pending": "reference pending",
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.remaining": "Remaining",
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.side.effect.account.history": "Account history",
@@ -390,12 +390,12 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.status.accepted.smart.match": "Accepted Smart Match",
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.status.completed": "Completed",
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.status.failed": "Failed",
-  "checkout.features.sellList.ui.sellListPage.latest.confirmation.status.handoff.recorded": "Handoff recorded",
+  "checkout.features.sellList.ui.sellListPage.latest.confirmation.status.handoff.recorded": "Sale review recorded",
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.status.kept.in.sell.list": "Kept in Sell List",
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.status.mixed": "Mixed",
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.status.not.attempted": "Not attempted",
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.status.partial": "Partial",
-  "checkout.features.sellList.ui.sellListPage.latest.confirmation.status.pending.downstream": "Pending downstream",
+  "checkout.features.sellList.ui.sellListPage.latest.confirmation.status.pending.downstream": "Next steps pending",
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.status.published.listing": "Published listing",
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.status.skipped": "Skipped",
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.support.references": "Support references",
@@ -607,7 +607,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.signedInSellCheckoutPage.back.to.sell.list": "Back to Sell List",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.back": "Back",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.review.sell.list": "Review Sell List",
-  "checkout.features.sellList.ui.signedInSellCheckoutPage.review.sale": "Review sale handoff",
+  "checkout.features.sellList.ui.signedInSellCheckoutPage.review.sale": "Review sale details",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.fix.details": "Fix seller checkout details",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.ready": "Ready",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.review.required": "Review required",
@@ -697,18 +697,18 @@ export const checkoutEnglishTranslations = {
     "This review does not accept offers, create listings, buy labels, start payout, send notifications, or write seller account history.",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.title": "Sale review ready",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.description":
-    "Your sale confirmation was recorded and the reviewed marketplace handoffs are in progress.",
+    "Your sale confirmation was recorded and the reviewed sale actions are in progress.",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.reference": "Confirmation reference",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.support.reference": "Support reference",
-  "checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.sale.title": "Marketplace handoff",
+  "checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.sale.title": "Sale actions",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.sale.description":
     "Accepted offers and reviewed fallback listings use the Sell List plan you confirmed.",
-  "checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.label.title": "Downstream steps",
+  "checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.label.title": "Next steps",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.label.description":
-    "Label, payout, settlement, notifications, and account history stay with their owning workflows.",
+    "Labels, payout, settlement, notifications, and account history stay pending until they finish.",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.side.effects.title": "Support reference ready",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.side.effects.description":
-    "Support can track pending or failed downstream work from this confirmation.",
+    "Support can track pending or failed next steps from this confirmation.",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.recovery.access.required": "Sign in required",
   "checkout.features.sellList.ui.signedInSellCheckoutPage.recovery.access.required.description":
     "Sign in with the seller account that started this checkout.",
@@ -802,9 +802,9 @@ export const checkoutEnglishTranslations = {
     "Seller checkout readiness is no longer current.",
   "checkout.routes.sellCheckoutSession.validation.review.plan.required":
     "Return to the Sell List and refresh the reviewed sale plan before confirming.",
-  "checkout.routes.sellCheckoutSession.confirmation.line.completed": "{itemTitle}: handoff recorded.",
+  "checkout.routes.sellCheckoutSession.confirmation.line.completed": "{itemTitle}: sale review recorded.",
   "checkout.routes.sellCheckoutSession.confirmation.line.partial":
-    "{itemTitle}: handoff recorded for part of the line; remaining quantity stays in the Sell List.",
+    "{itemTitle}: sale review recorded for part of the line; remaining quantity stays in the Sell List.",
   "checkout.routes.checkoutSession.checkout.marketplace": "Checkout | Marketplace",
   "checkout.routes.checkoutSession.checkout.session.not.found": "Checkout session not found.",
   "checkout.routes.checkoutSession.checkout.session.not.found.2": "Checkout session not found.",

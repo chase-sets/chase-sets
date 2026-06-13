@@ -484,7 +484,7 @@ describe("checkout web routes: sell checkout session", () => {
     expectNoSellerCommitSideEffects();
   });
 
-  it("redirects to seller confirmation after recording Marketplace handoff evidence", async () => {
+  it("redirects to seller confirmation after recording reviewed sale details", async () => {
     mockSignedInSellCheckoutState();
 
     const result = await sellCheckoutSessionAction({
@@ -693,7 +693,7 @@ describe("checkout web routes: sell checkout session", () => {
     expectNoSellerCommitSideEffects();
   });
 
-  it("records fallback-only listing handoff without claiming sale or payout side effects", async () => {
+  it("records fallback-only listing work without claiming sale or payout side effects", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(signedInSellerActor());
     mockCreateSellListReadiness.mockResolvedValue({
       readiness: {
@@ -877,7 +877,7 @@ describe("checkout web routes: sell checkout session", () => {
     expectNoSellerCommitSideEffects();
   });
 
-  it("records Smart Match and fallback listing handoffs with remaining Sell List quantity on publish replay", async () => {
+  it("records Smart Match and fallback listing work with remaining Sell List quantity on publish replay", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(signedInSellerActor());
     mockCreateSellListReadiness.mockResolvedValue({
       readiness: {
