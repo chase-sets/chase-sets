@@ -84,7 +84,7 @@ function renderStatus(item: SectionNavigationItem) {
       {status ? (
         <span
           className={cx(
-            "inline-flex max-w-[8rem] items-center gap-1 truncate rounded-full border px-2 py-0.5 text-[0.6875rem] font-semibold leading-4",
+            "inline-flex max-w-[8rem] items-center gap-1 truncate rounded-full border px-2 py-0.5 text-2xs font-semibold leading-badge",
             stateClasses[state],
           )}
         >
@@ -93,7 +93,7 @@ function renderStatus(item: SectionNavigationItem) {
         </span>
       ) : null}
       {item.count === undefined ? null : (
-        <span className="rounded-full border border-border bg-surface px-2 py-0.5 text-[0.6875rem] font-semibold leading-4 text-secondary">
+        <span className="rounded-full border border-border bg-surface px-2 py-0.5 text-2xs font-semibold leading-badge text-secondary">
           {item.count}
         </span>
       )}

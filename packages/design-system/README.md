@@ -37,6 +37,16 @@ Use layout primitives (`Stack`, `Grid`, `Inline`, `Cluster`, `Inset`, `Surface`,
 
 The scale is intentionally numeric instead of maintaining parallel aliases such as `xs` or `md`; one token value must mean the same size in TypeScript props, CSS variables, Tailwind utilities, and docs.
 
+## Type Scale
+
+The canonical type scale lives in `src/styles/styles.css`, is mirrored through `ThemeTokens.typography`, and is exposed to Tailwind in `tailwind.config.ts`.
+
+- Font sizes: `text-3xs`, `text-2xs`, `text-xs`, `text-sm`, `text-base`, `text-lg`, `text-xl`, `text-2xl`, `text-3xl`, `text-4xl`, `text-5xl`.
+- Line heights: size defaults for each font-size step plus `leading-none`, `leading-tight`, `leading-snug`, `leading-normal`, `leading-relaxed`, `leading-display`, `leading-hero`, `leading-badge`.
+- Letter spacing: `tracking-none`, `tracking-normal`, `tracking-wide`, `tracking-label`.
+
+Use `text-2xs` for compact labels, pills, and dense secondary metadata that previously drifted into `0.6875rem` to `0.72rem` one-offs. Use `text-3xs` only for constrained counters or badges that need a smaller numeric mark. Design-system components must use these named scale steps instead of arbitrary local font-size or line-height literals.
+
 ## Composition Rules
 
 - `ChaseRoot` must wrap every application root.

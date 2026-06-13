@@ -37,7 +37,7 @@ function renderNavigationItem(
       ) : null}
       <span className={cx(orientation === "rail" && "text-xs")}>{item.label}</span>
       {item.badge ? (
-        <span className="rounded-full bg-accent px-2 py-0.5 text-[0.7rem] font-semibold text-accent-contrast">
+        <span className="rounded-full bg-accent px-2 py-0.5 text-2xs font-semibold text-accent-contrast">
           {item.badge}
         </span>
       ) : null}
@@ -166,13 +166,13 @@ function renderBottomNavigationItem(
         {item.badge ? (
           <span
             aria-hidden="true"
-            className="absolute -right-2 -top-2 inline-flex min-h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[0.65rem] font-semibold leading-none text-accent-contrast shadow-tokenSm"
+            className="absolute -right-2 -top-2 inline-flex min-h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-3xs font-semibold leading-none text-accent-contrast shadow-tokenSm"
           >
             {item.badge}
           </span>
         ) : null}
       </span>
-      <span className="max-w-full text-center text-[0.72rem] leading-tight [overflow-wrap:anywhere]">{item.label}</span>
+      <span className="max-w-full text-center text-2xs leading-tight [overflow-wrap:anywhere]">{item.label}</span>
       {item.badge ? <span className="sr-only">{` ${item.badge}`}</span> : null}
     </>
   );

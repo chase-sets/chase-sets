@@ -68,7 +68,7 @@ export function AccountMenu({
       <Icon name="user" size="sm" tone="secondary" />
       <span className="min-w-0 flex-1 leading-tight">
         <span className="block truncate text-xs font-semibold text-foreground">{accountName}</span>
-        <span className="block truncate text-[0.72rem] text-secondary">{roleName}</span>
+        <span className="block truncate text-2xs text-secondary">{roleName}</span>
       </span>
       <Icon name="chevronDown" size="sm" tone="secondary" />
     </>
