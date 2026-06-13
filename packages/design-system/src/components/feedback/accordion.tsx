@@ -230,11 +230,11 @@ export function Accordion({
               isSectionList &&
                 isOpen &&
                 edgeMode !== "panel" &&
-                "bg-accent/5 before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-accent",
+                "bg-accent-soft before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-accent",
               isSectionList &&
                 isOpen &&
                 edgeMode === "panel" &&
-                "bg-accent/10 before:absolute before:inset-y-0 before:left-0 before:w-1 before:bg-accent",
+                "bg-accent-soft before:absolute before:inset-y-0 before:left-0 before:w-1 before:bg-accent",
             )}
           >
             <AccordionPrimitive.Header>

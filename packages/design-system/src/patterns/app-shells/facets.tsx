@@ -353,7 +353,7 @@ export function MarketplaceFacetChoiceGroup({
       {count == null ? null : (
         <span
           className={cx(
-            "shrink-0 rounded-full px-2 py-0.5 text-xs tabular-nums",
+            "shrink-0 rounded-tokenFull px-2 py-0.5 text-xs tabular-nums",
             selected ? "bg-accent-contrast/20 text-inverse" : "bg-surface-2 text-secondary",
           )}
         >

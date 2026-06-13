@@ -64,10 +64,10 @@ export function Slider({
           className="relative flex h-6 w-full items-center"
         >
           <SliderPrimitive.Control className="relative flex h-6 w-full items-center">
-            <SliderPrimitive.Track className="relative h-2 w-full rounded-full bg-muted">
-              <SliderPrimitive.Indicator className="absolute h-full rounded-full bg-accent" />
+            <SliderPrimitive.Track className="relative h-2 w-full rounded-tokenFull bg-muted">
+              <SliderPrimitive.Indicator className="absolute h-full rounded-tokenFull bg-accent" />
             </SliderPrimitive.Track>
-            <SliderPrimitive.Thumb className="focus-ring block h-5 w-5 rounded-full border border-accent bg-elevated shadow-tokenSm" />
+            <SliderPrimitive.Thumb className="focus-ring block h-5 w-5 rounded-tokenFull border border-accent bg-elevated shadow-tokenSm" />
           </SliderPrimitive.Control>
         </SliderPrimitive.Root>
         <div className="flex justify-between text-xs text-secondary">

@@ -45,7 +45,7 @@ export function Tag({ children, tone = "neutral", onRemove, ...rest }: TagProps)
       {onRemove ? (
         <button
           type="button"
-          className="focus-ring rounded-full"
+          className="focus-ring rounded-tokenFull"
           onClick={onRemove}
           aria-label={`Remove ${typeof children === "string" ? children : "tag"}`}
         >

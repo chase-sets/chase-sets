@@ -15,7 +15,7 @@ export function Timeline({ items, ...rest }: TimelineProps) {
     <ol {...rest} className="modern-surface space-y-4 rounded-tokenLg border border-muted p-4 shadow-tokenSm">
       {items.map((item, index) => (
         <li key={index} className="flex gap-3">
-          <span className="mt-1 inline-flex h-3 w-3 shrink-0 rounded-full bg-accent" />
+          <span className="mt-1 inline-flex h-3 w-3 shrink-0 rounded-tokenFull bg-accent" />
           <div className="space-y-1">
             <div className="text-sm font-semibold text-foreground">{item.title}</div>
             {item.description ? <div className="text-sm text-secondary">{item.description}</div> : null}

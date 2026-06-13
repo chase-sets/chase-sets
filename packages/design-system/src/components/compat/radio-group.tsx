@@ -55,8 +55,8 @@ export function RadioGroup({
               }
               render={<button type="button" />}
             >
-              <span className="ds-focus mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--card)]">
-                <Radio.Indicator className="h-2.5 w-2.5 rounded-full bg-[var(--primary)]" />
+              <span className="ds-focus mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-tokenFull border border-[var(--border)] bg-[var(--card)]">
+                <Radio.Indicator className="h-2.5 w-2.5 rounded-tokenFull bg-[var(--primary)]" />
               </span>
               <span className="grid gap-1">
                 <span id={itemLabelId} className="text-sm font-medium">

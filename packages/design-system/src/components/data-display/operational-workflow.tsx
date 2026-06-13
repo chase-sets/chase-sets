@@ -69,11 +69,11 @@ export function OperationalStatusBanner({
         <div className="flex min-w-0 gap-3">
           <span
             className={cx(
-              "mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
-              tone === "info" && "bg-info text-inverse",
-              tone === "success" && "bg-success text-inverse",
-              tone === "warning" && "bg-warning text-inverse",
-              tone === "danger" && "bg-danger text-inverse",
+              "mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-tokenFull",
+              tone === "info" && "bg-info text-info-contrast",
+              tone === "success" && "bg-success text-success-contrast",
+              tone === "warning" && "bg-warning text-warning-contrast",
+              tone === "danger" && "bg-danger text-danger-contrast",
             )}
           >
             <Icon
@@ -107,7 +107,7 @@ export function OperationalLockBanner({ title, description, action, ...rest }: O
     <div {...rest} className="rounded-tokenMd border border-warning bg-elevated p-4 shadow-tokenSm">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex min-w-0 gap-3">
-          <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-warning text-inverse">
+          <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-tokenFull bg-warning text-warning-contrast">
             <Icon name="lock" size="sm" tone="inverse" />
           </span>
           <div className="grid gap-1">
@@ -227,7 +227,7 @@ export function WorkflowReadinessChecklist({ items, emptyState, ...rest }: Workf
           )}
         >
           <div className="flex min-w-0 gap-2">
-            <span className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-background">
+            <span className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-tokenFull bg-background">
               <Icon name={workflowReadinessIcon(item.status)} size="sm" tone={workflowReadinessIconTone(item.status)} />
             </span>
             <div className="grid min-w-0 gap-1">
@@ -604,8 +604,8 @@ export function TaskLineItem({
       <button
         type="button"
         className={cx(
-          "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border bg-background transition-shadow focus-visible:shadow-[0_0_0_2px_var(--ring),0_0_0_5px_color-mix(in_srgb,var(--ring)_18%,transparent)]",
-          checked && "border-success bg-success text-inverse",
+          "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-tokenFull border border-border bg-background transition-shadow focus-visible:shadow-[0_0_0_2px_var(--ring),0_0_0_5px_color-mix(in_srgb,var(--ring)_18%,transparent)]",
+          checked && "border-success bg-success text-success-contrast",
           !onCheckedChange && "pointer-events-none",
         )}
         aria-pressed={checked}

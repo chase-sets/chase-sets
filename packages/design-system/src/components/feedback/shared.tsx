@@ -6,19 +6,19 @@ export type Tone = "neutral" | "accent" | "success" | "warning" | "danger" | "in
 export const toneClasses: Record<Tone, string> = {
   neutral: "border-muted bg-background text-secondary",
   accent: "border-accent bg-accent text-accent-contrast",
-  success: "border-success bg-success text-inverse",
-  warning: "border-warning bg-warning text-inverse",
-  danger: "border-danger bg-danger text-inverse",
-  info: "border-info bg-info text-inverse",
+  success: "border-success bg-success text-success-contrast",
+  warning: "border-warning bg-warning text-warning-contrast",
+  danger: "border-danger bg-danger text-danger-contrast",
+  info: "border-info bg-info text-info-contrast",
 };
 
 export const softToneClasses: Record<Tone, string> = {
   neutral: "border-muted bg-background text-secondary",
-  accent: "border-accent/40 bg-accent/8 text-accent",
-  success: "border-success/40 bg-success/8 text-success",
-  warning: "border-warning/40 bg-warning/8 text-warning",
-  danger: "border-danger/40 bg-danger/8 text-danger",
-  info: "border-info/40 bg-info/8 text-info",
+  accent: "border-accent-soft bg-accent-soft text-accent",
+  success: "border-success-soft bg-success-soft text-success",
+  warning: "border-warning-soft bg-warning-soft text-warning",
+  danger: "border-danger-soft bg-danger-soft text-danger",
+  info: "border-info-soft bg-info-soft text-info",
 };
 
 export function toneIcon(tone: Tone): IconName {

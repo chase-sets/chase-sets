@@ -25,7 +25,7 @@ function actionItemClassName(destructive?: boolean, disabled?: boolean) {
     controlHeightClasses.md,
     controlPaddingClasses.md,
     controlTextClasses.md,
-    disabled && "cursor-not-allowed opacity-50",
+    disabled && "cursor-not-allowed opacity-disabled",
     destructive ? "text-danger" : "text-foreground",
   );
 }

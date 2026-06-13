@@ -26,9 +26,9 @@ export interface TokenSwatchProps {
 const tokenSwatchClasses: Record<TokenSwatchProps["color"], string> = {
   brandPrimary: "bg-accent",
   brandSecondary: "bg-accent-2",
-  trust: "bg-[var(--trust)]",
-  deal: "bg-[var(--deal)]",
-  rating: "bg-[var(--rating)]",
+  trust: "bg-trust",
+  deal: "bg-deal",
+  rating: "bg-rating",
   background: "bg-background",
   surface: "bg-surface",
   surface2: "bg-surface-2",

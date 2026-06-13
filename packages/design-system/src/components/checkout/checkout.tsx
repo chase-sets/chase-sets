@@ -27,10 +27,10 @@ export interface CheckoutSummaryItem {
 
 const toneClasses: Record<CheckoutPrimitiveTone, string> = {
   neutral: "border-muted bg-surface-2 text-secondary",
-  info: "border-info/30 bg-info-soft text-info",
-  success: "border-success/30 bg-success-soft text-success",
-  warning: "border-warning/35 bg-warning-soft text-warning",
-  danger: "border-destructive/30 bg-error-soft text-destructive",
+  info: "border-info-soft bg-info-soft text-info",
+  success: "border-success-soft bg-success-soft text-success",
+  warning: "border-warning-soft bg-warning-soft text-warning",
+  danger: "border-danger-soft bg-danger-soft text-danger",
 };
 
 function CheckoutStatusBadge({ tone = "neutral", children }: { tone?: CheckoutPrimitiveTone; children: ReactNode }) {
@@ -63,7 +63,7 @@ export function CheckoutSummaryLineItem({ item, ...rest }: CheckoutSummaryLineIt
             </span>
           ))}
         {item.quantity ? (
-          <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-foreground px-1.5 py-0.5 text-center text-xs font-bold leading-none text-background">
+          <span className="absolute -right-1 -top-1 min-w-5 rounded-tokenFull bg-foreground px-1.5 py-0.5 text-center text-xs font-bold leading-none text-background">
             {item.quantity}
           </span>
         ) : null}
@@ -163,7 +163,7 @@ export function CheckoutSummaryPanel({
         <CheckoutTotals lines={totals} totalLabel={totalLabel} total={total} currency={currency} />
       </div>
       {reassurance ? (
-        <div className="mt-4 rounded-tokenMd border border-success/25 bg-success-soft p-3 text-sm font-medium leading-5 text-success">
+        <div className="mt-4 rounded-tokenMd border border-success-soft bg-success-soft p-3 text-sm font-medium leading-5 text-success">
           {reassurance}
         </div>
       ) : null}
@@ -535,7 +535,7 @@ export function CheckoutStickyActionBar({
     <div
       {...rest}
       className={cx(
-        "sticky z-sticky rounded-tokenLg border border-muted bg-background/92 px-3 py-2 shadow-tokenLg backdrop-blur-xl md:hidden",
+        "sticky z-sticky rounded-tokenLg border border-muted bg-background/overlay px-3 py-2 shadow-tokenLg backdrop-blur-xl md:hidden",
         mobileOffset === "navigation" ? "bottom-[calc(5.5rem+env(safe-area-inset-bottom))]" : "bottom-0",
       )}
     >

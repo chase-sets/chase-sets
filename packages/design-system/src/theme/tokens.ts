@@ -64,26 +64,40 @@ export interface ThemeTokens {
     accent: string;
     accentForeground: string;
     accent2: string;
+    accentSoft: string;
     accentContrast: string;
     accentHover: string;
+    accentActive: string;
     brandPrimary: string;
     brandSecondary: string;
     success: string;
     successSoft: string;
+    successHover: string;
+    successActive: string;
+    successContrast: string;
     warning: string;
     warningSoft: string;
+    warningHover: string;
+    warningActive: string;
+    warningContrast: string;
     danger: string;
     dangerSoft: string;
     dangerHover: string;
+    dangerActive: string;
+    dangerContrast: string;
     destructiveForeground: string;
     info: string;
     infoSoft: string;
+    infoHover: string;
+    infoActive: string;
+    infoContrast: string;
     focusRing: string;
     trust: string;
     trustSoft: string;
     deal: string;
     dealSoft: string;
     rating: string;
+    ratingSoft: string;
     chaseLogoStart: string;
     chaseLogoMid: string;
     chaseLogoEnd: string;
@@ -106,6 +120,17 @@ export interface ThemeTokens {
     md: string;
     lg: string;
     xl: string;
+    full: string;
+  };
+  borderWidth: {
+    none: string;
+    sm: string;
+    md: string;
+    lg: string;
+  };
+  opacity: {
+    disabled: string;
+    overlay: string;
   };
   spacing: Record<SpaceToken, string>;
   shadows: {
@@ -139,6 +164,8 @@ export interface ThemeOverrides {
     letterSpacing?: Partial<ThemeTokens["typography"]["letterSpacing"]>;
   };
   radius?: Partial<ThemeTokens["radius"]>;
+  borderWidth?: Partial<ThemeTokens["borderWidth"]>;
+  opacity?: Partial<ThemeTokens["opacity"]>;
   spacing?: Partial<ThemeTokens["spacing"]>;
   shadows?: Partial<ThemeTokens["shadows"]>;
   zIndex?: Partial<ThemeTokens["zIndex"]>;
@@ -179,26 +206,40 @@ export const chaseTheme: ThemeTokens = {
     accent: "var(--primary)",
     accentForeground: "var(--accent-foreground)",
     accent2: "var(--trust)",
+    accentSoft: "var(--primary-soft)",
     accentContrast: "var(--primary-foreground)",
     accentHover: "var(--primary-hover)",
+    accentActive: "var(--primary-active)",
     brandPrimary: "var(--primary)",
     brandSecondary: "var(--trust)",
     success: "var(--success)",
     successSoft: "var(--success-soft)",
+    successHover: "var(--success-hover)",
+    successActive: "var(--success-active)",
+    successContrast: "var(--success-contrast)",
     warning: "var(--warning)",
     warningSoft: "var(--warning-soft)",
+    warningHover: "var(--warning-hover)",
+    warningActive: "var(--warning-active)",
+    warningContrast: "var(--warning-contrast)",
     danger: "var(--destructive)",
     dangerSoft: "var(--error-soft)",
-    dangerHover: "var(--color-danger-hover)",
+    dangerHover: "var(--danger-hover)",
+    dangerActive: "var(--danger-active)",
+    dangerContrast: "var(--danger-contrast)",
     destructiveForeground: "var(--destructive-foreground)",
     info: "var(--info)",
     infoSoft: "var(--info-soft)",
+    infoHover: "var(--info-hover)",
+    infoActive: "var(--info-active)",
+    infoContrast: "var(--info-contrast)",
     focusRing: "var(--ring)",
     trust: "var(--trust)",
     trustSoft: "var(--trust-soft)",
     deal: "var(--deal)",
     dealSoft: "var(--deal-soft)",
     rating: "var(--rating)",
+    ratingSoft: "var(--rating-soft)",
     chaseLogoStart: "var(--chase-logo-start)",
     chaseLogoMid: "var(--chase-logo-mid)",
     chaseLogoEnd: "var(--chase-logo-end)",
@@ -258,6 +299,17 @@ export const chaseTheme: ThemeTokens = {
     md: "var(--radius, 0.5rem)",
     lg: "var(--radius-lg, 0.75rem)",
     xl: "var(--radius-xl, 1rem)",
+    full: "var(--radius-full, 9999px)",
+  },
+  borderWidth: {
+    none: "var(--border-width-0, 0)",
+    sm: "var(--border-width-sm, 1px)",
+    md: "var(--border-width-md, 2px)",
+    lg: "var(--border-width-lg, 4px)",
+  },
+  opacity: {
+    disabled: "var(--opacity-disabled, 0.5)",
+    overlay: "var(--opacity-overlay, 0.88)",
   },
   spacing: {
     0: "var(--space-0)",
@@ -336,6 +388,14 @@ export function resolveTheme(theme?: ThemeOverrides, baseTheme: ThemeTokens = ch
       ...baseTheme.radius,
       ...theme.radius,
     },
+    borderWidth: {
+      ...baseTheme.borderWidth,
+      ...theme.borderWidth,
+    },
+    opacity: {
+      ...baseTheme.opacity,
+      ...theme.opacity,
+    },
     spacing: {
       ...baseTheme.spacing,
       ...theme.spacing,
@@ -400,31 +460,69 @@ const tokenMap: [string, (theme: ThemeTokens | ThemeOverrides) => string | undef
   ["--accent-foreground", (t) => t.colors?.accentForeground],
   ["--color-accent", (t) => t.colors?.accent],
   ["--color-accent-2", (t) => t.colors?.accent2],
+  ["--color-accent-soft", (t) => t.colors?.accentSoft],
   ["--color-accent-contrast", (t) => t.colors?.accentContrast],
   ["--color-accent-hover", (t) => t.colors?.accentHover],
+  ["--color-accent-active", (t) => t.colors?.accentActive],
   ["--color-brand-primary", (t) => t.colors?.brandPrimary],
   ["--color-brand-secondary", (t) => t.colors?.brandSecondary],
   ["--success", (t) => t.colors?.success],
   ["--color-success", (t) => t.colors?.success],
   ["--success-soft", (t) => t.colors?.successSoft],
+  ["--color-success-soft", (t) => t.colors?.successSoft],
+  ["--success-hover", (t) => t.colors?.successHover],
+  ["--color-success-hover", (t) => t.colors?.successHover],
+  ["--success-active", (t) => t.colors?.successActive],
+  ["--color-success-active", (t) => t.colors?.successActive],
+  ["--success-contrast", (t) => t.colors?.successContrast],
+  ["--color-success-contrast", (t) => t.colors?.successContrast],
   ["--warning", (t) => t.colors?.warning],
   ["--color-warning", (t) => t.colors?.warning],
   ["--warning-soft", (t) => t.colors?.warningSoft],
+  ["--color-warning-soft", (t) => t.colors?.warningSoft],
+  ["--warning-hover", (t) => t.colors?.warningHover],
+  ["--color-warning-hover", (t) => t.colors?.warningHover],
+  ["--warning-active", (t) => t.colors?.warningActive],
+  ["--color-warning-active", (t) => t.colors?.warningActive],
+  ["--warning-contrast", (t) => t.colors?.warningContrast],
+  ["--color-warning-contrast", (t) => t.colors?.warningContrast],
+  ["--danger", (t) => t.colors?.danger],
   ["--destructive", (t) => t.colors?.danger],
   ["--color-danger", (t) => t.colors?.danger],
+  ["--danger-soft", (t) => t.colors?.dangerSoft],
   ["--error-soft", (t) => t.colors?.dangerSoft],
+  ["--color-danger-soft", (t) => t.colors?.dangerSoft],
+  ["--danger-hover", (t) => t.colors?.dangerHover],
   ["--color-danger-hover", (t) => t.colors?.dangerHover],
+  ["--danger-active", (t) => t.colors?.dangerActive],
+  ["--color-danger-active", (t) => t.colors?.dangerActive],
+  ["--danger-contrast", (t) => t.colors?.dangerContrast],
+  ["--color-danger-contrast", (t) => t.colors?.dangerContrast],
   ["--destructive-foreground", (t) => t.colors?.destructiveForeground],
   ["--info", (t) => t.colors?.info],
   ["--color-info", (t) => t.colors?.info],
   ["--info-soft", (t) => t.colors?.infoSoft],
+  ["--color-info-soft", (t) => t.colors?.infoSoft],
+  ["--info-hover", (t) => t.colors?.infoHover],
+  ["--color-info-hover", (t) => t.colors?.infoHover],
+  ["--info-active", (t) => t.colors?.infoActive],
+  ["--color-info-active", (t) => t.colors?.infoActive],
+  ["--info-contrast", (t) => t.colors?.infoContrast],
+  ["--color-info-contrast", (t) => t.colors?.infoContrast],
   ["--ring", (t) => t.colors?.focusRing],
   ["--color-focus-ring", (t) => t.colors?.focusRing],
   ["--trust", (t) => t.colors?.trust],
+  ["--color-trust", (t) => t.colors?.trust],
   ["--trust-soft", (t) => t.colors?.trustSoft],
+  ["--color-trust-soft", (t) => t.colors?.trustSoft],
   ["--deal", (t) => t.colors?.deal],
+  ["--color-deal", (t) => t.colors?.deal],
   ["--deal-soft", (t) => t.colors?.dealSoft],
+  ["--color-deal-soft", (t) => t.colors?.dealSoft],
   ["--rating", (t) => t.colors?.rating],
+  ["--color-rating", (t) => t.colors?.rating],
+  ["--rating-soft", (t) => t.colors?.ratingSoft],
+  ["--color-rating-soft", (t) => t.colors?.ratingSoft],
   ["--chase-logo-start", (t) => t.colors?.chaseLogoStart],
   ["--chase-logo-mid", (t) => t.colors?.chaseLogoMid],
   ["--chase-logo-end", (t) => t.colors?.chaseLogoEnd],
@@ -478,6 +576,13 @@ const tokenMap: [string, (theme: ThemeTokens | ThemeOverrides) => string | undef
   ["--radius-md", (t) => t.radius?.md],
   ["--radius-lg", (t) => t.radius?.lg],
   ["--radius-xl", (t) => t.radius?.xl],
+  ["--radius-full", (t) => t.radius?.full],
+  ["--border-width-0", (t) => t.borderWidth?.none],
+  ["--border-width-sm", (t) => t.borderWidth?.sm],
+  ["--border-width-md", (t) => t.borderWidth?.md],
+  ["--border-width-lg", (t) => t.borderWidth?.lg],
+  ["--opacity-disabled", (t) => t.opacity?.disabled],
+  ["--opacity-overlay", (t) => t.opacity?.overlay],
   ["--space-0", (t) => t.spacing?.[0]],
   ["--space-1", (t) => t.spacing?.[1]],
   ["--space-2", (t) => t.spacing?.[2]],

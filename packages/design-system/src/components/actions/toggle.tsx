@@ -45,7 +45,7 @@ export function Toggle({
           state.pressed
             ? "border-accent bg-accent text-accent-contrast"
             : "border-border bg-surface-2 text-secondary hover:border-accent hover:text-accent",
-          state.disabled && "cursor-not-allowed opacity-50 shadow-none",
+          state.disabled && "cursor-not-allowed opacity-disabled shadow-none",
         )
       }
     >
@@ -109,7 +109,7 @@ export function ToggleGroup({
               state.pressed
                 ? "border-accent bg-elevated text-accent shadow-tokenSm"
                 : "border-transparent bg-transparent text-secondary shadow-none hover:bg-elevated hover:text-foreground",
-              state.disabled && "cursor-not-allowed opacity-50",
+              state.disabled && "cursor-not-allowed opacity-disabled",
             )
           }
         >

@@ -121,9 +121,7 @@ export function DetailConfidenceModule({ title, description, items }: DetailConf
               key={item.label}
               className="flex gap-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-2)] p-3"
             >
-              <div
-                className={cn("mt-0.5", item.tone ? statusClasses[item.tone].split(" ").at(-1) : "text-[var(--trust)]")}
-              >
+              <div className={cn("mt-0.5", item.tone ? statusClasses[item.tone].split(" ").at(-1) : "text-trust")}>
                 {item.icon ?? <CheckCircle2 className="h-5 w-5" aria-hidden="true" />}
               </div>
               <div>

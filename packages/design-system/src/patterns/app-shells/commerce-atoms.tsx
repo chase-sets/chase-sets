@@ -54,7 +54,7 @@ export function SellerBadge({ logo, name, verified = false, ...rest }: SellerBad
   return (
     <div
       {...rest}
-      className="inline-flex items-center gap-2 rounded-full border border-muted bg-elevated px-3 py-1.5 text-sm font-medium text-foreground shadow-tokenSm"
+      className="inline-flex items-center gap-2 rounded-tokenFull border border-muted bg-elevated px-3 py-1.5 text-sm font-medium text-foreground shadow-tokenSm"
     >
       <span className="inline-flex min-w-0 items-center gap-0">
         {resolvedLogo ? (

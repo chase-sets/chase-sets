@@ -284,14 +284,14 @@ export function ListingCard({
             </div>
           )}
           {promotion && !isSearchResultLayout ? (
-            <div className="absolute left-2 top-2 rounded-full bg-[var(--deal-soft)] px-2 py-1 text-xs font-semibold text-[var(--deal)]">
+            <div className="absolute left-2 top-2 rounded-tokenFull bg-deal-soft px-2 py-1 text-xs font-semibold text-deal">
               {promotion}
             </div>
           ) : null}
         </div>
       ) : promotion && !isSearchResultLayout ? (
         <div className="px-3 pt-3">
-          <div className="inline-flex rounded-full bg-[var(--deal-soft)] px-2 py-1 text-xs font-semibold text-[var(--deal)]">
+          <div className="inline-flex rounded-tokenFull bg-deal-soft px-2 py-1 text-xs font-semibold text-deal">
             {promotion}
           </div>
         </div>
@@ -353,7 +353,7 @@ export function ListingCard({
               <div className="flex flex-wrap gap-2">
                 {fulfillment ? (
                   <span className="inline-flex items-center gap-1.5">
-                    <Truck className="h-4 w-4 text-[var(--trust)]" aria-hidden="true" />
+                    <Truck className="h-4 w-4 text-trust" aria-hidden="true" />
                     {fulfillment}
                   </span>
                 ) : null}

@@ -73,7 +73,9 @@ export function MarketplaceStatusTimeline({ steps }: MarketplaceStatusTimelinePr
             key={step.label}
             className="flex gap-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] p-3"
           >
-            <span className={cn("grid h-8 w-8 shrink-0 place-items-center rounded-full border", statusClasses[tone])}>
+            <span
+              className={cn("grid h-8 w-8 shrink-0 place-items-center rounded-tokenFull border", statusClasses[tone])}
+            >
               <Icon className="h-4 w-4" aria-hidden="true" />
             </span>
             <div>

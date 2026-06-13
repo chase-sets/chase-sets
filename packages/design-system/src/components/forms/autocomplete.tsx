@@ -115,7 +115,7 @@ export function Autocomplete({
                       cx(
                         "focus-ring cursor-pointer rounded-tokenMd px-3 py-2 text-left text-sm text-foreground",
                         state.highlighted && "bg-background",
-                        state.disabled && "cursor-not-allowed opacity-50",
+                        state.disabled && "cursor-not-allowed opacity-disabled",
                       )
                     }
                   >

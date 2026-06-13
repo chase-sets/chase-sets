@@ -116,7 +116,7 @@ export function Combobox({
           <ComboboxPrimitive.Trigger
             disabled={disabled}
             className={cx(
-              "focus-ring inline-flex items-center justify-center rounded-tokenSm disabled:cursor-not-allowed disabled:opacity-50",
+              "focus-ring inline-flex items-center justify-center rounded-tokenSm disabled:cursor-not-allowed disabled:opacity-disabled",
               controlIconButtonSizeClasses.md,
             )}
           >
@@ -148,7 +148,7 @@ export function Combobox({
                         cx(
                           "focus-ring flex w-full cursor-pointer items-center justify-between gap-3 rounded-tokenMd px-3 py-2 text-left text-sm text-foreground",
                           state.highlighted && "bg-background",
-                          state.disabled && "cursor-not-allowed opacity-50",
+                          state.disabled && "cursor-not-allowed opacity-disabled",
                         )
                       }
                     >

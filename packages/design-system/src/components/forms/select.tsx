@@ -169,7 +169,7 @@ export function Select({
                     className={(state) =>
                       cx(
                         "focus-ring relative flex cursor-pointer select-none items-center rounded-tokenMd px-3 py-2 text-sm text-foreground outline-none",
-                        state.disabled && "cursor-not-allowed opacity-50",
+                        state.disabled && "cursor-not-allowed opacity-disabled",
                         state.highlighted && "bg-background",
                       )
                     }

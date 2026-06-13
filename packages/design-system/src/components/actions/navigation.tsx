@@ -37,7 +37,7 @@ function renderNavigationItem(
       ) : null}
       <span className={cx(orientation === "rail" && "text-xs")}>{item.label}</span>
       {item.badge ? (
-        <span className="rounded-full bg-accent px-2 py-0.5 text-2xs font-semibold text-accent-contrast">
+        <span className="rounded-tokenFull bg-accent px-2 py-0.5 text-2xs font-semibold text-accent-contrast">
           {item.badge}
         </span>
       ) : null}
@@ -166,7 +166,7 @@ function renderBottomNavigationItem(
         {item.badge ? (
           <span
             aria-hidden="true"
-            className="absolute -right-2 -top-2 inline-flex min-h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-3xs font-semibold leading-none text-accent-contrast shadow-tokenSm"
+            className="absolute -right-2 -top-2 inline-flex min-h-4 min-w-4 items-center justify-center rounded-tokenFull bg-accent px-1 text-3xs font-semibold leading-none text-accent-contrast shadow-tokenSm"
           >
             {item.badge}
           </span>
@@ -354,7 +354,7 @@ export function TopNav({
     <nav
       {...rest}
       aria-label={navLabel}
-      className="sticky top-0 z-sticky border-b border-muted bg-background/88 px-4 py-3 shadow-tokenSm backdrop-blur-xl"
+      className="sticky top-0 z-sticky border-b border-muted bg-background/overlay px-4 py-3 shadow-tokenSm backdrop-blur-xl"
     >
       <div className={cx("mx-auto flex w-full items-center justify-between gap-4", layoutWidthClasses[width])}>
         <div className="flex items-center gap-4">
@@ -478,7 +478,7 @@ export function BottomNav({ items, activeKey, onSelect, width = "full", ...rest 
   return (
     <nav
       {...rest}
-      className="fixed inset-x-0 bottom-0 z-sticky border-t border-muted bg-background/88 px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-tokenLg backdrop-blur-xl md:hidden"
+      className="fixed inset-x-0 bottom-0 z-sticky border-t border-muted bg-background/overlay px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-tokenLg backdrop-blur-xl md:hidden"
     >
       <LayoutGroup id={groupId}>
         <div className={cx("mx-auto grid w-full gap-2", gridColumnsClass, layoutWidthClasses[width])}>

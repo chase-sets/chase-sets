@@ -25,9 +25,9 @@ export interface PromoBarProps extends Omit<HTMLAttributes<HTMLElement>, "classN
 }
 
 const toneClasses: Record<PromoBarTone, string> = {
-  info: "border-info/25 bg-info/10 text-foreground",
-  success: "border-success/25 bg-success/10 text-foreground",
-  warning: "border-warning/30 bg-warning/10 text-foreground",
+  info: "border-info-soft bg-info-soft text-foreground",
+  success: "border-success-soft bg-success-soft text-foreground",
+  warning: "border-warning-soft bg-warning-soft text-foreground",
 };
 
 const iconTone: Record<PromoBarTone, "info" | "success" | "warning"> = {

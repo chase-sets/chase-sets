@@ -91,7 +91,7 @@ export function AccountCredibilityHeader({
         <div className="grid gap-2 border-t border-[var(--border)] pt-4 sm:grid-cols-2">
           {policies.map((policy) => (
             <div key={String(policy.label)} className="flex gap-2 text-sm">
-              <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-[var(--trust)]" aria-hidden="true" />
+              <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-trust" aria-hidden="true" />
               <div>
                 <div className="font-semibold text-[var(--foreground)]">{policy.label}</div>
                 <div className="text-[var(--text-secondary)]">{policy.value}</div>

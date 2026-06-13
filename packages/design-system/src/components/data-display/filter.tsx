@@ -278,7 +278,7 @@ export function BulkActionBar({
     >
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex min-w-0 items-center gap-3">
-          <span aria-hidden="true" className="h-2.5 w-2.5 shrink-0 rounded-full bg-accent" />
+          <span aria-hidden="true" className="h-2.5 w-2.5 shrink-0 rounded-tokenFull bg-accent" />
           <div className="min-w-0 text-sm font-semibold text-foreground">{formatSelectedLabel(count)}</div>
         </div>
         {hasActions ? (

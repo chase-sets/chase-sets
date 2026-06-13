@@ -101,7 +101,7 @@ function ToastRegionItem({
       className="modern-surface rounded-tokenLg border border-muted shadow-overlay"
     >
       <ToastPrimitive.Content className="grid grid-cols-[auto_1fr_auto] items-start gap-3 p-4">
-        <div className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-background">
+        <div className="inline-flex h-10 w-10 items-center justify-center rounded-tokenFull bg-background">
           <Icon name={toneIcon(tone)} size="sm" tone={tone} />
         </div>
         <div className="min-w-0 space-y-1">
