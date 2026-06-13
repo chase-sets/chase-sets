@@ -10,6 +10,7 @@ import type { CartReadinessFulfillmentGroup, CartReadinessSnapshot } from "../..
 import {
   assert,
   assertNever,
+  CheckoutDomainError,
   ensurePositiveInteger,
   normalizeOptionalText,
   normalizeRequiredText,
@@ -366,17 +367,25 @@ function normalizeSplitGroupHandoff(
 function normalizeShippingAddress(address: CheckoutShippingAddress): CheckoutShippingAddress {
   return {
     shippingAddressId: normalizeOptionalText(address.shippingAddressId) as ShippingAddressId | null,
-    name: normalizeRequiredText(address.name, "Shipping name is required."),
+    name: normalizeRequiredShippingAddressText(address.name),
     company: normalizeOptionalText(address.company),
-    line1: normalizeRequiredText(address.line1, "Shipping address line 1 is required."),
+    line1: normalizeRequiredShippingAddressText(address.line1),
     line2: normalizeOptionalText(address.line2),
-    city: normalizeRequiredText(address.city, "Shipping city is required."),
-    state: normalizeRequiredText(address.state, "Shipping state is required.").toUpperCase(),
-    postalCode: normalizeRequiredText(address.postalCode, "Shipping postal code is required."),
-    country: normalizeRequiredText(address.country, "Shipping country is required.").toUpperCase(),
+    city: normalizeRequiredShippingAddressText(address.city),
+    state: normalizeRequiredShippingAddressText(address.state).toUpperCase(),
+    postalCode: normalizeRequiredShippingAddressText(address.postalCode),
+    country: normalizeRequiredShippingAddressText(address.country).toUpperCase(),
     phone: normalizeOptionalText(address.phone),
     email: normalizeOptionalText(address.email),
   };
+}
+
+function normalizeRequiredShippingAddressText(value: string): string {
+  const normalized = value.trim();
+  if (normalized.length === 0) {
+    throw new CheckoutDomainError("Confirm the shipping address before creating orders.", "shipping_address_required");
+  }
+  return normalized;
 }
 
 function normalizeOrderIds(orderIds: readonly OrderId[]) {
