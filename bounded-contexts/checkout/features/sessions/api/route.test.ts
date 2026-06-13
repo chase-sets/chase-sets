@@ -789,6 +789,166 @@ describe("checkout session routes", () => {
     expect(emitted).not.toContain("pay_1");
   });
 
+  it("confirms a multi-seller buy checkout with one payment action and support-safe group references", async () => {
+    const checkoutObservabilityTelemetry = { recordCheckoutEvent: vi.fn() };
+    const multiSellerSession = createSession({
+      session_id: "chk_multi_seller",
+      lines: [
+        {
+          listingId: "lst_card_vault",
+          cartLineId: "cli_card_vault",
+          catalogItemId: "cat_charizard",
+          productId: "cat_charizard::form:raw",
+          itemTitle: "Charizard",
+          itemSubtitle: null,
+          selectedOptions: [],
+          productSummary: "Raw",
+          quantity: 1,
+          fulfillmentMode: "locked-listing",
+          lockedListingId: "lst_card_vault",
+          sellerPreferenceId: null,
+          availabilityState: "available",
+        },
+        {
+          listingId: "lst_second_seller",
+          cartLineId: "cli_second_seller",
+          catalogItemId: "cat_blastoise",
+          productId: "cat_blastoise::form:raw",
+          itemTitle: "Blastoise",
+          itemSubtitle: null,
+          selectedOptions: [],
+          productSummary: "Raw",
+          quantity: 1,
+          fulfillmentMode: "locked-listing",
+          lockedListingId: "lst_second_seller",
+          sellerPreferenceId: null,
+          availabilityState: "available",
+        },
+      ],
+      split_group_handoff: {
+        status: "ready",
+        supportReference: "CS-CR_MULTI",
+        groups: [
+          {
+            groupId: "cfg_card_vault",
+            lineIds: ["cli_card_vault"],
+            listingIds: ["lst_card_vault"],
+            sellerAccountId: "acc_card_vault",
+            sellerDisplayName: "Card Vault",
+            itemCount: 1,
+            packageCount: 1,
+            deliveryPromise: null,
+            shippingAmount: null,
+            supportReference: "CSG-CARDVAULT",
+            downstreamReferenceStatus: "not-started",
+          },
+          {
+            groupId: "cfg_second_seller",
+            lineIds: ["cli_second_seller"],
+            listingIds: ["lst_second_seller"],
+            sellerAccountId: "acc_second_seller",
+            sellerDisplayName: "Second Seller",
+            itemCount: 1,
+            packageCount: 1,
+            deliveryPromise: null,
+            shippingAmount: null,
+            supportReference: "CSG-SECONDSELLER",
+            downstreamReferenceStatus: "not-started",
+          },
+        ],
+      },
+    });
+    mockCreateCheckoutOrdersThroughOrdering.mockResolvedValue({
+      orderIds: ["ord_card_vault", "ord_second_seller"],
+      readyLineKeys: ["cli_card_vault", "cli_second_seller"],
+    });
+    mockCreateCheckoutPaymentThroughPayments.mockResolvedValue("pay_multi_seller");
+    const services = createServices({
+      getSession: vi.fn(async () => multiSellerSession),
+      setShippingAddress: vi.fn(async () => ({ sessionId: "chk_multi_seller", session: multiSellerSession })),
+      assertReadyForOrderCreation: vi.fn(async () => multiSellerSession),
+      recordOrdersCreated: vi.fn(async () => ({
+        sessionId: "chk_multi_seller",
+        session: createSession({
+          ...multiSellerSession,
+          order_ids: ["ord_card_vault", "ord_second_seller"],
+        }),
+      })),
+      recordPaymentStarted: vi.fn(async () => ({
+        sessionId: "chk_multi_seller",
+        session: createSession({
+          ...multiSellerSession,
+          order_ids: ["ord_card_vault", "ord_second_seller"],
+          payment_id: "pay_multi_seller",
+        }),
+      })),
+    });
+    const app = buildApp(services, undefined, checkoutObservabilityTelemetry);
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_multi_seller/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shippingAddress, marketplaceCheckoutFeeQuoteFingerprint: "quote_multi" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      payment_id: "pay_multi_seller",
+      order_ids: ["ord_card_vault", "ord_second_seller"],
+      status: "confirmed",
+    });
+    expect(mockCreateCheckoutOrdersThroughOrdering).toHaveBeenCalledTimes(1);
+    expect(mockCreateCheckoutOrdersThroughOrdering).toHaveBeenCalledWith(
+      expect.any(Request),
+      expect.objectContaining({
+        session_id: "chk_multi_seller",
+        split_group_handoff: expect.objectContaining({
+          supportReference: "CS-CR_MULTI",
+          groups: expect.arrayContaining([
+            expect.objectContaining({ supportReference: "CSG-CARDVAULT" }),
+            expect.objectContaining({ supportReference: "CSG-SECONDSELLER" }),
+          ]),
+        }),
+      }),
+      expect.any(Object),
+    );
+    expect(services.recordOrdersCreated).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: "chk_multi_seller",
+        orderIds: ["ord_card_vault", "ord_second_seller"],
+        fulfilledLineKeys: ["cli_card_vault", "cli_second_seller"],
+      }),
+      expect.any(Object),
+    );
+    expect(mockCreateCheckoutPaymentThroughPayments).toHaveBeenCalledTimes(1);
+    expect(mockCreateCheckoutPaymentThroughPayments).toHaveBeenCalledWith(
+      expect.any(Request),
+      "chk_multi_seller",
+      ["ord_card_vault", "ord_second_seller"],
+      null,
+      "card",
+      "quote_multi",
+      null,
+      false,
+      "/account/payments/:paymentId",
+    );
+    expect(checkoutObservabilityTelemetry.recordCheckoutEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "checkout.reconciliation.pending_visible",
+        sideEffectStatus: "pending-downstream",
+        downstreamStatus: "payment-started",
+        supportReferencePresent: true,
+      }),
+    );
+    const emitted = JSON.stringify(checkoutObservabilityTelemetry.recordCheckoutEvent.mock.calls[0]?.[0]);
+    expect(emitted).not.toContain("chk_multi_seller");
+    expect(emitted).not.toContain("ord_card_vault");
+    expect(emitted).not.toContain("pay_multi_seller");
+    expect(emitted).not.toContain("CSG-CARDVAULT");
+  });
+
   it("rejects stale active-session readiness before committing orders or payment", async () => {
     const checkoutObservabilityTelemetry = { recordCheckoutEvent: vi.fn() };
     const services = createServices({

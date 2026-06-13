@@ -140,6 +140,25 @@ const optimizationCartLine: CheckoutCartLineRow = {
   ],
 };
 
+const secondSellerCartLine: CheckoutCartLineRow = {
+  ...readyCartLine,
+  line_id: "cli_second",
+  catalog_catalog_item_id: "cat_2",
+  product_id: "cat_2::",
+  item_title: "Blastoise",
+  locked_listing_id: "lst_second",
+  seller_options: [
+    {
+      ...readyCartLine.seller_options[0]!,
+      listing_id: "lst_second",
+      seller_account_id: "acc_second_seller",
+      seller_slug: "second-seller",
+      seller_display_name: "Second Seller",
+      price_amount: "10.00",
+    },
+  ],
+};
+
 function createCartServices(lines: readonly CheckoutCartLineRow[] = [readyCartLine]) {
   return {
     listCartLines: vi.fn(async () => lines),
@@ -280,6 +299,66 @@ describe("checkout session runtime", () => {
       ],
     });
     expect(db.query).not.toHaveBeenCalled();
+  });
+
+  it("starts multi-seller cart checkout as one session with readiness-produced support groups", async () => {
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const cartLines = [readyCartLine, secondSellerCartLine];
+    const cart = createCartServices(cartLines);
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query: vi.fn(async () => ({ rows: [] })) },
+      cart: cart as never,
+    });
+    const readiness = createCartReadinessSnapshot(cartLines);
+
+    const created = await services.createFromCart(
+      {
+        accountId: "acc_buyer" as never,
+        shippingOption: "standard",
+        readinessSnapshotId: readiness.snapshotId,
+        readinessSourceRevision: readiness.sourceRevision,
+        sessionIdOverride: "chk_multi_seller" as never,
+      },
+      context,
+    );
+    const result = await services.selectShippingOption(
+      {
+        sessionId: created.sessionId,
+        accountId: "acc_buyer" as never,
+        shippingOption: "priority",
+      },
+      context,
+    );
+
+    expect(allEvents.filter((event) => event.eventType === "checkout.session.started")).toHaveLength(1);
+    expect(result.session.session_id).toBe("chk_multi_seller");
+    expect(result.session.lines.map((line) => line.cartLineId).sort()).toEqual(["cli_1", "cli_second"]);
+    expect(result.session.split_group_handoff).toMatchObject({
+      status: "ready",
+      supportReference: `CS-${readiness.snapshotId.toUpperCase()}`,
+    });
+    expect(result.session.split_group_handoff?.groups).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          lineIds: ["cli_1"],
+          listingIds: ["lst_1"],
+          sellerAccountId: "acc_seller",
+          sellerDisplayName: "Card Vault",
+          downstreamReferenceStatus: "not-started",
+          supportReference: expect.stringMatching(/^CSG-/),
+        }),
+        expect.objectContaining({
+          lineIds: ["cli_second"],
+          listingIds: ["lst_second"],
+          sellerAccountId: "acc_second_seller",
+          sellerDisplayName: "Second Seller",
+          downstreamReferenceStatus: "not-started",
+          supportReference: expect.stringMatching(/^CSG-/),
+        }),
+      ]),
+    );
   });
 
   it("can update a just-created Buy Now session before checkout_session_pages has projected it", async () => {
