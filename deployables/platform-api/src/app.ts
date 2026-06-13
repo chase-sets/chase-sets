@@ -360,7 +360,6 @@ function isPaymentProcessorPublicConfig(value: unknown): value is Parameters<typ
     typeof value === "object" &&
     value !== null &&
     typeof (value as { processorName?: unknown }).processorName === "string" &&
-    ((value as { confirmationExperience?: unknown }).confirmationExperience === "processor-managed-form" ||
-      (value as { confirmationExperience?: unknown }).confirmationExperience === "processor-hosted-page")
+    (value as { confirmationExperience?: unknown }).confirmationExperience === "processor-managed-form"
   );
 }

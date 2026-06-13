@@ -28,7 +28,6 @@ export type StripePaymentProcessorGatewayOptions = Readonly<{
   publishableKey: string;
   webhookSecret: string;
   apiBaseUrl?: string;
-  checkoutUiMode?: "elements" | "hosted";
   webhookToleranceSeconds?: number;
 }>;
 
@@ -619,12 +618,11 @@ export function createStripePaymentProcessorGateway(
   const apiBaseUrl = options.apiBaseUrl?.trim() || "https://api.stripe.com";
   const authorization = `Basic ${encodeBasicAuth(options.secretKey)}`;
   const webhookToleranceSeconds = options.webhookToleranceSeconds ?? 300;
-  const checkoutUiMode = options.checkoutUiMode ?? "elements";
 
   const publicConfiguration: PaymentProcessorPublicConfig = {
     processorName: "stripe",
     publishableKey: options.publishableKey,
-    confirmationExperience: checkoutUiMode === "hosted" ? "processor-hosted-page" : "processor-managed-form",
+    confirmationExperience: "processor-managed-form",
     dynamicPaymentMethods: false,
     sensitivePaymentDetailsHandledByProcessor: true,
     agenticPaymentHandlers: [
@@ -843,17 +841,6 @@ export function createStripePaymentProcessorGateway(
       }
 
       const paymentReturnUrl = normalizeOptionalText(input.returnUrl) ?? "http://localhost/account/payments";
-      const sessionNavigation: Record<string, string> =
-        checkoutUiMode === "hosted"
-          ? {
-              ui_mode: "hosted",
-              success_url: paymentReturnUrl,
-              cancel_url: paymentReturnUrl,
-            }
-          : {
-              ui_mode: "elements",
-              return_url: paymentReturnUrl,
-            };
       const paymentMethodType = input.paymentMethodCategory === "bank-account" ? "us_bank_account" : "card";
       const body = await stripeRequest<StripeCheckoutSessionResponse>(
         "/v1/checkout/sessions",
@@ -861,7 +848,8 @@ export function createStripePaymentProcessorGateway(
           method: "POST",
           body: toFormBody({
             mode: "payment",
-            ...sessionNavigation,
+            ui_mode: "elements",
+            return_url: paymentReturnUrl,
             "payment_method_types[0]": paymentMethodType,
             client_reference_id: input.paymentId,
             "line_items[0][quantity]": "1",

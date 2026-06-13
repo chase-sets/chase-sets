@@ -9,7 +9,7 @@ export type ProcessorSavedPaymentReadiness = "ready" | "setup-required" | "remov
 export type PaymentProcessorPublicConfig = Readonly<{
   processorName: PaymentProcessorName;
   publishableKey: string | null;
-  confirmationExperience: "processor-managed-form" | "processor-hosted-page";
+  confirmationExperience: "processor-managed-form";
   dynamicPaymentMethods: boolean;
   sensitivePaymentDetailsHandledByProcessor: boolean;
   agenticPaymentHandlers?: readonly AgenticPaymentHandlerDeclaration[];

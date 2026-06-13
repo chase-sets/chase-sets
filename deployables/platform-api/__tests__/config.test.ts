@@ -25,7 +25,6 @@ function resetConfigEnv() {
   delete process.env.STRIPE_WEBHOOK_SECRET;
   delete process.env.STRIPE_CONNECT_WEBHOOK_SECRET;
   delete process.env.STRIPE_API_BASE_URL;
-  delete process.env.STRIPE_CHECKOUT_UI_MODE;
   delete process.env.EASYPOST_API_KEY;
   delete process.env.EASYPOST_WEBHOOK_SECRET;
   delete process.env.EASYPOST_API_BASE_URL;
@@ -274,7 +273,6 @@ describe("platform api config", () => {
     process.env.STRIPE_WEBHOOK_SECRET = "whsec_shared";
     process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_shared";
     process.env.STRIPE_API_BASE_URL = "https://stripe.shared.test";
-    process.env.STRIPE_CHECKOUT_UI_MODE = "hosted";
     process.env.EASYPOST_API_KEY = "EZAK_shared";
     process.env.EASYPOST_WEBHOOK_SECRET = "whsec_easypost_shared";
     process.env.EASYPOST_API_BASE_URL = "https://api.easypost.shared.test/v2";
@@ -324,7 +322,6 @@ describe("platform api config", () => {
         publishableKey: "pk_test_shared",
         webhookSecret: "whsec_shared",
         apiBaseUrl: "https://stripe.shared.test",
-        checkoutUiMode: "hosted",
       },
       moneyMovement: {
         kind: "stripe",
@@ -576,19 +573,6 @@ describe("platform api config", () => {
     expect(() => loadConfig()).toThrow(
       `${PLATFORM_INTERNAL_AUTH_SECRET_ENV} is required for internal platform API capabilities in production.`,
     );
-  });
-
-  it("loads hosted Checkout fallback configuration", () => {
-    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
-    process.env.STRIPE_SECRET_KEY = "sk_test_123";
-    process.env.STRIPE_PUBLISHABLE_KEY = "pk_test_123";
-    process.env.STRIPE_WEBHOOK_SECRET = "whsec_test";
-    process.env.STRIPE_CHECKOUT_UI_MODE = "hosted";
-
-    expect(loadConfig().paymentProcessor).toMatchObject({
-      kind: "stripe",
-      checkoutUiMode: "hosted",
-    });
   });
 
   it("loads UCP business signing keys from environment variables", () => {

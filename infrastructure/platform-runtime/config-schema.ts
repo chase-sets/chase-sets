@@ -31,7 +31,6 @@ export type PlatformPaymentProcessorConfig =
       publishableKey: string;
       webhookSecret: string;
       apiBaseUrl?: string;
-      checkoutUiMode?: "elements" | "hosted";
     }>;
 
 export type PlatformMoneyMovementConfig =
@@ -78,7 +77,6 @@ export type PlatformStripeProviderConfig = Readonly<{
   connectWebhookSecret: string | null;
   resolvedConnectWebhookSecret: string | undefined;
   apiBaseUrl: string | undefined;
-  checkoutUiMode: string | null;
 }>;
 
 export function getOptionalEnv(name: string) {
@@ -289,7 +287,6 @@ export function loadStripeProviderConfig(input: {
   const webhookSecret = getOptionalEnv("STRIPE_WEBHOOK_SECRET");
   const connectWebhookSecret = getOptionalEnv("STRIPE_CONNECT_WEBHOOK_SECRET");
   const apiBaseUrl = getOptionalEnv("STRIPE_API_BASE_URL") ?? undefined;
-  const checkoutUiMode = getOptionalEnv("STRIPE_CHECKOUT_UI_MODE");
   const resolvedConnectWebhookSecret =
     connectWebhookSecret ?? (!input.productionLike ? (webhookSecret ?? undefined) : undefined);
 
@@ -304,7 +301,6 @@ export function loadStripeProviderConfig(input: {
     connectWebhookSecret,
     resolvedConnectWebhookSecret,
     apiBaseUrl,
-    checkoutUiMode,
     paymentProcessor:
       secretKey && publishableKey && webhookSecret
         ? {
@@ -313,7 +309,6 @@ export function loadStripeProviderConfig(input: {
             publishableKey,
             webhookSecret,
             apiBaseUrl,
-            checkoutUiMode: checkoutUiMode === "hosted" ? "hosted" : "elements",
           }
         : { kind: "fake" },
     moneyMovement:
