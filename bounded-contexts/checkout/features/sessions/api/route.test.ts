@@ -1245,6 +1245,35 @@ describe("checkout session routes", () => {
     expect(mockCreateCheckoutPaymentThroughPayments).not.toHaveBeenCalled();
   });
 
+  it("rejects mismatched payment method and fee quote before committing orders", async () => {
+    const services = createServices({
+      getSession: vi.fn(async () => createSession()),
+    });
+    const app = buildApp(services);
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shippingAddress,
+          paymentMethodCategory: "bank-account",
+          marketplaceCheckoutFeeQuoteFingerprint:
+            "marketplace-checkout-fee-v1|card|489.00|0.00|489.00|14.67|503.67|503.67",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "payment_quote_required",
+        message: "Review the latest payable total before payment starts.",
+      },
+    });
+    expectNoCheckoutConfirmSideEffects(services);
+  });
+
   it("retries payment recording without recreating orders", async () => {
     mockCreateCheckoutPaymentThroughPayments.mockResolvedValue("pay_existing");
     const sessionWithOrders = createSession({ order_ids: ["ord_existing"], payment_id: null });
