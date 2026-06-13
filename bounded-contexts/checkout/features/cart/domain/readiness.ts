@@ -1,3 +1,5 @@
+import { parseReadinessDecisionInputBase } from "../../../support/request-support/readiness-decision-parser";
+
 export type CartReadinessAvailabilityState = "available" | "unavailable" | "changed" | "waiting-for-supply";
 
 export type CartReadinessSellerOption = Readonly<{
@@ -81,49 +83,15 @@ export type CartReadinessSnapshot = Readonly<{
   customerSafeFacts: readonly string[];
 }>;
 
-function objectValue(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
-}
-
-function stringValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : "";
-}
-
 export function parseCartReadinessDecisionInput(value: unknown): CartReadinessDecisionInput {
-  const source = objectValue(value) ?? {};
-  const rawLineOutcomes = source.lineOutcomes ?? source.line_outcomes;
-  const lineOutcomes = Array.isArray(rawLineOutcomes)
-    ? rawLineOutcomes
-        .map(objectValue)
-        .filter((entry): entry is Record<string, unknown> => entry !== null)
-        .map((entry) => {
-          const outcome = stringValue(entry.outcome);
-          return outcome === "removed" || outcome === "save-for-later"
-            ? {
-                lineId: stringValue(entry.lineId ?? entry.line_id),
-                outcome,
-              }
-            : null;
-        })
-        .filter(
-          (entry): entry is Readonly<{ lineId: string; outcome: Exclude<CartReadinessLineOutcome, "checkout"> }> =>
-            Boolean(entry?.lineId),
-        )
-    : [];
-  const optimizationSource = objectValue(source.optimization);
-  const optimizationDecision = stringValue(optimizationSource?.decision);
-  const optimization: CartReadinessDecisionInput["optimization"] =
-    optimizationDecision === "accepted" || optimizationDecision === "declined"
-      ? {
-          decision: optimizationDecision as "accepted" | "declined",
-          lineId: stringValue(optimizationSource?.lineId ?? optimizationSource?.line_id),
-          listingId: stringValue(optimizationSource?.listingId ?? optimizationSource?.listing_id),
-        }
-      : null;
+  const parsed = parseReadinessDecisionInputBase(value, {
+    lineOutcomeValues: ["removed", "save-for-later"] as const,
+    optimizationDecisionValues: ["accepted", "declined"] as const,
+  });
 
   return {
-    lineOutcomes,
-    optimization: optimization?.lineId && optimization.listingId ? optimization : null,
+    lineOutcomes: parsed.lineOutcomes,
+    optimization: parsed.optimization,
   };
 }
 
