@@ -269,6 +269,26 @@ describe("checkout session page", () => {
     expect(markup).not.toContain("acc_card_vault");
   });
 
+  it("keeps saved payment affordances signed-in only even when instruments are supplied", () => {
+    const markup = renderToString(
+      <CheckoutSessionPage
+        session={readySession}
+        fulfillmentPreview={readyFulfillmentPreview}
+        paymentPreview={paymentPreview}
+        savedCheckoutInstruments={[savedCard]}
+      />,
+    );
+
+    expect(markup).toContain("Payment");
+    expect(markup).toContain("Card");
+    expect(markup).toContain("Final totals are shown before payment.");
+    expect(markup).not.toContain("Visa ending in 4242");
+    expect(markup).not.toContain("Saved payment");
+    expect(markup).not.toContain('name="savedCheckoutInstrumentId"');
+    expect(markup).not.toContain('name="savePaymentMethodForFuture"');
+    expect(markup).not.toContain("Pay now with Visa ending in 4242");
+  });
+
   it("keeps signed-in checkout policy links without guest data copy", () => {
     const markup = renderToString(
       <CheckoutSessionPage
@@ -452,6 +472,7 @@ describe("checkout session page", () => {
         session={readySession}
         fulfillmentPreview={readyFulfillmentPreview}
         paymentPreview={paymentPreview}
+        isSignedInBuyer
         savedShippingAddresses={[savedAddress]}
         savedCheckoutInstruments={[
           {
@@ -471,6 +492,7 @@ describe("checkout session page", () => {
         session={readySession}
         fulfillmentPreview={readyFulfillmentPreview}
         paymentPreview={paymentPreview}
+        isSignedInBuyer
         savedShippingAddresses={[savedAddress]}
         savedCheckoutInstruments={[
           {
@@ -486,11 +508,16 @@ describe("checkout session page", () => {
       />,
     );
 
-    expect(acceleratedMarkup).toContain("Fast checkout ready");
+    expect(acceleratedMarkup).toContain("Checkout details");
+    expect(acceleratedMarkup).toContain("Visa ending in 4242");
+    expect(acceleratedMarkup).toContain("Ready for secure one-step payment.");
     expect(acceleratedMarkup).toContain("Pay now with Visa ending in 4242");
-    expect(providerStepMarkup).toContain("Saved payment ready");
+    expect(acceleratedMarkup).not.toContain("Fast checkout ready");
+    expect(providerStepMarkup).toContain("Checkout details");
+    expect(providerStepMarkup).toContain("Bank account");
     expect(providerStepMarkup).toContain("secure payment step before authorization");
     expect(providerStepMarkup).toContain("Pay now");
+    expect(providerStepMarkup).not.toContain("Saved payment ready");
     expect(providerStepMarkup).not.toContain("Pay now with Bank account");
   });
 

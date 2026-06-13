@@ -290,9 +290,9 @@ export function CheckoutSessionPage({
   const previewPayableTotal = payment?.marketplace_checkout_fee.total_amount ?? preview?.totals.totalAmount ?? null;
   const orderReferenceValue = formatBuyCheckoutReferenceList(session.order_ids);
   const buySupportReferenceValue = buyCheckoutSupportReference(session);
-  const readySavedPaymentInstruments = savedCheckoutInstruments.filter(
-    (instrument) => instrument.readiness === "ready",
-  );
+  const readySavedPaymentInstruments = signedInBuyCheckout
+    ? savedCheckoutInstruments.filter((instrument) => instrument.readiness === "ready")
+    : [];
   const savedPaymentInstrumentsForSelectedMethod = readySavedPaymentInstruments.filter(
     (instrument) => instrument.payment_method_category === selectedPaymentMethodCategory,
   );
