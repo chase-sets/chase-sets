@@ -7,6 +7,13 @@ import {
 } from "./work-signal-store";
 
 const NOW = new Date("2026-06-10T12:00:00.000Z");
+const WAKE_REQUEST = {
+  sourceContextName: "marketplace",
+  targetContextName: "checkout",
+  projectionName: "checkout-session-pages",
+  checkpointKey: "checkout-session-pages:marketplace:v1",
+  requiredPosition: "42",
+};
 
 describe("work signal store", () => {
   it("defines durable wake, readiness, and waiter tables in the control database", () => {
@@ -311,7 +318,7 @@ describe("work signal store", () => {
           // Scheduler readiness metadata (projection-wake-scheduler.ts).
           recordedBy: "projection-wake-scheduler",
           wakeIntentId: "projection-wake-1",
-          // api-wait gateway metadata (read-consistency-work-signals.ts).
+          // API wait gateway metadata (work-signal-store.ts).
           requestedBy: "read-consistency",
           mountPath: "/api/marketplace",
           routePaths: ["/orders/:orderId"],
@@ -723,6 +730,128 @@ describe("work signal store", () => {
     expect(calls.map((call) => call.sql).join("\n")).not.toContain("metadata");
     expect(calls[2].sql).toContain("WHERE satisfied_at IS NULL");
     expect(calls[2].sql).toContain("GROUP BY origin");
+  });
+});
+
+describe("work signal store read-consistency gateway", () => {
+  it("enqueues hot-lane api-wait wake intents for each request when enabled", async () => {
+    const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
+    const store = createPostgresWorkSignalStore(
+      {
+        query: async (sql: string, values: readonly unknown[] = []) => {
+          calls.push({ sql, values });
+          return {
+            rows: [
+              wakeIntentRow({
+                source_context_name: String(values[2]),
+                target_context_name: String(values[3]),
+                projection_name: String(values[4]),
+                checkpoint_key: String(values[5]),
+                required_position: String(values[6]),
+                priority_lane: values[8],
+                origin: values[9],
+                metadata: JSON.parse(String(values[13])),
+              }),
+            ],
+            rowCount: 1,
+          };
+        },
+      },
+      {
+        readConsistencyGateway: {},
+        now: () => NOW,
+      },
+    );
+
+    await expect(
+      store.readConsistencyGateway?.requestWake?.({
+        requests: [WAKE_REQUEST],
+        metadata: { mountPath: "/api/marketplace" },
+      }),
+    ).resolves.toBe(1);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].values[8]).toBe("hot");
+    expect(calls[0].values[9]).toBe("api-wait");
+    expect(JSON.parse(String(calls[0].values[13]))).toEqual({
+      requestedBy: "read-consistency",
+      mountPath: "/api/marketplace",
+    });
+  });
+
+  it("omits the read-consistency gateway unless the store factory option enables it", () => {
+    const store = createPostgresWorkSignalStore({
+      query: async () => ({ rows: [], rowCount: 0 }),
+    });
+
+    expect(store.readConsistencyGateway).toBeUndefined();
+  });
+
+  it("omits waiter registration by default because no consumer exists yet", () => {
+    const store = createPostgresWorkSignalStore(
+      {
+        query: async () => ({ rows: [], rowCount: 0 }),
+      },
+      {
+        readConsistencyGateway: {},
+      },
+    );
+
+    expect(store.readConsistencyGateway?.registerWaiters).toBeUndefined();
+  });
+
+  it("registers checkpoint waiters with a bounded expiry when explicitly enabled", async () => {
+    const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
+    let waiterExpiresAt = NOW.toISOString();
+    const store = createPostgresWorkSignalStore(
+      {
+        query: async (sql: string, values: readonly unknown[] = []) => {
+          calls.push({ sql, values });
+          if (sql.includes("INSERT INTO platform_projection_checkpoint_waiters")) {
+            waiterExpiresAt = String(values[11]);
+          }
+          if (sql.includes("SELECT")) {
+            return {
+              rows: [
+                checkpointWaiterRow({
+                  checkpoint_key: "checkout-session-pages:marketplace:v1",
+                  source_context_name: "marketplace",
+                  target_context_name: "checkout",
+                  projection_name: "checkout-session-pages",
+                  required_position: "42",
+                  origin: "api-wait",
+                  metadata: JSON.parse(String(calls[0].values[9])),
+                  expires_at: waiterExpiresAt,
+                }),
+              ],
+              rowCount: 1,
+            };
+          }
+          return { rows: [], rowCount: 1 };
+        },
+      },
+      {
+        readConsistencyGateway: {
+          registerWaiters: true,
+          waiterTtlSlackMs: 5_000,
+        },
+        now: () => NOW,
+      },
+    );
+
+    await store.readConsistencyGateway?.registerWaiters?.({
+      requests: [WAKE_REQUEST],
+      timeoutMs: 2_500,
+    });
+
+    expect(calls[0].values[0]).toMatch(/^projection-checkpoint-waiter-/);
+    expect(calls[0].values[1]).toBe("checkout-session-pages:marketplace:v1");
+    expect(calls[0].values[2]).toBe("marketplace");
+    expect(calls[0].values[3]).toBe("checkout");
+    expect(calls[0].values[4]).toBe("checkout-session-pages");
+    expect(calls[0].values[5]).toBe("42");
+    expect(calls[0].values[7]).toBe("api-wait");
+    expect(calls[0].values[11]).toBe(new Date(NOW.getTime() + 7_500).toISOString());
   });
 });
 

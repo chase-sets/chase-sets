@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import type { ReadConsistencyWakeRequest, ReadConsistencyWorkSignalGateway } from "@chase-sets/bounded-context-runtime";
 import { withPgTransaction, type PgQueryable, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 
 export const platformWorkSignalStoreSchemaSql = `
@@ -273,10 +274,26 @@ export type CleanupExpiredWorkSignalsInput = Readonly<{
   limit?: number;
 }>;
 
+const DEFAULT_READ_CONSISTENCY_WAITER_TTL_SLACK_MS = 5_000;
+const READ_CONSISTENCY_WORK_SIGNAL_REQUESTED_BY = "read-consistency";
+
+export type WorkSignalReadConsistencyGatewayOptions = Readonly<{
+  priorityLane?: WorkSignalPriorityLane;
+  /**
+   * Waiter rows currently have no API-side consumer (the read-consistency
+   * middleware polls durable checkpoints). Registration stays off by default
+   * until the readiness-notification wait path lands, so request traffic does
+   * not write rows that influence nothing.
+   */
+  registerWaiters?: boolean;
+  waiterTtlSlackMs?: number;
+}>;
+
 export type WorkSignalStoreOptions = Readonly<{
   defaultWakeTtlMs?: number;
   defaultReadinessTtlMs?: number;
   defaultWaiterTtlMs?: number;
+  readConsistencyGateway?: WorkSignalReadConsistencyGatewayOptions;
   now?: () => Date;
 }>;
 
@@ -294,6 +311,7 @@ export type PostgresWorkSignalStore = Readonly<{
   summarizeProjectionWakeIntents(): Promise<ProjectionWakeIntentSummary>;
   summarizeProjectionWakeIntentBreakdown(): Promise<readonly ProjectionWakeIntentBreakdownEntry[]>;
   summarizeCheckpointSignals(): Promise<CheckpointSignalSummary>;
+  readConsistencyGateway?: ReadConsistencyWorkSignalGateway;
 }>;
 
 const DEFAULT_WAKE_TTL_MS = 5 * 60 * 1000;
@@ -326,7 +344,7 @@ function isSensitiveWorkSignalMetadataKey(key: string): boolean {
   return SENSITIVE_WORK_SIGNAL_METADATA_KEY_PATTERN.test(normalized);
 }
 
-export function assertSafeWorkSignalStoreMetadata(value: unknown, path: readonly string[] = ["metadata"]): void {
+function assertSafeWorkSignalStoreMetadata(value: unknown, path: readonly string[] = ["metadata"]): void {
   if (value === undefined || value === null) {
     return;
   }
@@ -354,7 +372,7 @@ export function assertSafeWorkSignalStoreMetadata(value: unknown, path: readonly
  * failure paths that are already unwinding), so offending keys are redacted
  * instead of rejected.
  */
-export function redactSensitiveWorkSignalErrorFields(value: JsonRecord | null | undefined): JsonRecord {
+function redactSensitiveWorkSignalErrorFields(value: JsonRecord | null | undefined): JsonRecord {
   if (!value) {
     return {};
   }
@@ -453,7 +471,7 @@ export function createPostgresWorkSignalStore(
   const defaultReadinessTtlMs = options.defaultReadinessTtlMs ?? DEFAULT_READINESS_TTL_MS;
   const defaultWaiterTtlMs = options.defaultWaiterTtlMs ?? DEFAULT_WAITER_TTL_MS;
 
-  return {
+  const store: PostgresWorkSignalStore = {
     async enqueueProjectionWakeIntent(input) {
       assertSafeWorkSignalStoreMetadata(input.metadata);
       const createdAt = now();
@@ -1122,9 +1140,98 @@ export function createPostgresWorkSignalStore(
       };
     },
   };
+
+  return options.readConsistencyGateway
+    ? {
+        ...store,
+        readConsistencyGateway: createWorkSignalReadConsistencyGateway(store, {
+          ...options.readConsistencyGateway,
+          now,
+        }),
+      }
+    : store;
 }
 
-export function createProjectionWakeIntentCoalescingKey(input: {
+type WorkSignalReadConsistencyGatewayFactoryOptions = WorkSignalReadConsistencyGatewayOptions &
+  Readonly<{
+    now: () => Date;
+  }>;
+
+/**
+ * Adapts the read-consistency middleware's wake-before-wait hooks onto the
+ * durable control-plane work-signal store. API processes only write wake
+ * intents and waiter rows through pooled queries; they never hold listener
+ * connections, and the middleware's bounded durable poll remains the
+ * unconditional freshness fallback.
+ */
+function createWorkSignalReadConsistencyGateway(
+  workSignalStore: Pick<PostgresWorkSignalStore, "enqueueProjectionWakeIntent" | "addCheckpointWaiter">,
+  options: WorkSignalReadConsistencyGatewayFactoryOptions,
+): ReadConsistencyWorkSignalGateway {
+  const priorityLane = options.priorityLane ?? "hot";
+  const waiterTtlSlackMs = Math.max(
+    0,
+    Math.floor(options.waiterTtlSlackMs ?? DEFAULT_READ_CONSISTENCY_WAITER_TTL_SLACK_MS),
+  );
+
+  return {
+    requestWake: async (input) => {
+      let enqueuedCount = 0;
+      for (const request of input.requests) {
+        await workSignalStore.enqueueProjectionWakeIntent({
+          ...wakeRequestTarget(request),
+          requiredPosition: request.requiredPosition,
+          priorityLane,
+          origin: "api-wait",
+          metadata: wakeRequestMetadata(input.metadata),
+        });
+        enqueuedCount += 1;
+      }
+
+      return enqueuedCount;
+    },
+    ...(options.registerWaiters
+      ? {
+          registerWaiters: async (
+            input: Readonly<{
+              requests: readonly ReadConsistencyWakeRequest[];
+              timeoutMs: number;
+              metadata?: Readonly<Record<string, unknown>>;
+            }>,
+          ) => {
+            const expiresAt = new Date(options.now().getTime() + Math.max(0, input.timeoutMs) + waiterTtlSlackMs);
+            for (const request of input.requests) {
+              await workSignalStore.addCheckpointWaiter({
+                ...wakeRequestTarget(request),
+                requiredPosition: request.requiredPosition,
+                origin: "api-wait",
+                metadata: wakeRequestMetadata(input.metadata),
+                expiresAt,
+              });
+            }
+          },
+        }
+      : {}),
+  };
+}
+
+function wakeRequestTarget(request: ReadConsistencyWakeRequest) {
+  return {
+    sourceContextName: request.sourceContextName,
+    targetContextName: request.targetContextName,
+    projectionName: request.projectionName,
+    checkpointKey: request.checkpointKey,
+  };
+}
+
+function wakeRequestMetadata(metadata: Readonly<Record<string, unknown>> | undefined) {
+  return {
+    requestedBy: READ_CONSISTENCY_WORK_SIGNAL_REQUESTED_BY,
+    ...metadata,
+  };
+}
+
+function createProjectionWakeIntentCoalescingKey(input: {
   sourceContextName: string;
   targetContextName: string;
   projectionName: string;

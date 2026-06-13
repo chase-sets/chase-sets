@@ -34,11 +34,11 @@ import type {
   WorkSignalPriorityLane,
 } from "./work-signal-store";
 
-export const PROJECTION_WAKE_RELAY_FAN_OUT_SCHEMA_VERSION = 1;
-export const PROJECTION_WAKE_RELAY_FAN_OUT_METADATA_VERSION = 1;
+const PROJECTION_WAKE_RELAY_FAN_OUT_SCHEMA_VERSION = 1;
+const PROJECTION_WAKE_RELAY_FAN_OUT_METADATA_VERSION = 1;
 export const PROJECTION_WAKE_RELAY_ACTIVE_LEASE_NAME = "projection-wake-relay:active";
-export const DEFAULT_PROJECTION_WAKE_RELAY_CATCH_UP_BATCH_SIZE = 100;
-export const DEFAULT_PROJECTION_WAKE_RELAY_RECONNECT_BACKOFF_MS = 1_000;
+const DEFAULT_PROJECTION_WAKE_RELAY_CATCH_UP_BATCH_SIZE = 100;
+const DEFAULT_PROJECTION_WAKE_RELAY_RECONNECT_BACKOFF_MS = 1_000;
 
 export type ProjectionWakeRelayFanOutStatus = "enqueued" | "skipped";
 export type ProjectionWakeRelaySkippedReason = "source-disabled" | "no-interests";

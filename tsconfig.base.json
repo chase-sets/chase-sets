@@ -403,9 +403,6 @@
       "@chase-sets/platform-runtime/projection-wake-scheduler": [
         "./infrastructure/platform-runtime/projection-wake-scheduler.ts"
       ],
-      "@chase-sets/platform-runtime/read-consistency-work-signals": [
-        "./infrastructure/platform-runtime/read-consistency-work-signals.ts"
-      ],
       "@chase-sets/platform-runtime/realtime": [
         "./infrastructure/platform-runtime/realtime.ts"
       ],
@@ -426,9 +423,6 @@
       ],
       "@chase-sets/platform-runtime/web-route-config": [
         "./infrastructure/platform-runtime/web-route-config.ts"
-      ],
-      "@chase-sets/platform-runtime/work-signal-composite": [
-        "./infrastructure/platform-runtime/work-signal-composite.ts"
       ],
       "@chase-sets/platform-runtime/work-signal-store": [
         "./infrastructure/platform-runtime/work-signal-store.ts"

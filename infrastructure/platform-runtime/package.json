@@ -24,7 +24,6 @@
     "./projection-push-migration": "./projection-push-migration.ts",
     "./projection-wake-relay": "./projection-wake-relay.ts",
     "./projection-wake-scheduler": "./projection-wake-scheduler.ts",
-    "./read-consistency-work-signals": "./read-consistency-work-signals.ts",
     "./source-context-wake-registry": "./source-context-wake-registry.ts",
     "./ucp": "./ucp.ts",
     "./meta": "./meta.ts",
@@ -33,7 +32,6 @@
     "./realtime-web": "./realtime-web.ts",
     "./web": "./web.ts",
     "./web-route-config": "./web-route-config.ts",
-    "./work-signal-composite": "./work-signal-composite.ts",
     "./work-signal-store": "./work-signal-store.ts",
     "./worker": "./worker.ts",
     "./worker-capacity": "./worker-capacity.ts"
