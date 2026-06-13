@@ -4,8 +4,8 @@
 
 This index is generated from the root `@chase-sets/design-system` export surface and the production consumer inventory used by `scripts/check-design-system-dead-exports.mjs`.
 
-- Runtime exports indexed: 333
-- Source modules covered: 102
+- Runtime exports indexed: 335
+- Source modules covered: 103
 - Example consumers scan: production files under `bounded-contexts/` and `deployables/`, excluding tests
 
 | Component/export | Module | One-line purpose | Example consumer file |
@@ -33,6 +33,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `Badge` | `packages/design-system/src/components/feedback/badge.tsx` | Purpose not documented; symbol name suggests: Badge. | `bounded-contexts/auth/features/registration/ui/register-page.tsx` |
 | `BadgeCluster` | `packages/design-system/src/patterns/dense-admin-workbench.tsx` | Purpose not documented; symbol name suggests: Badge Cluster. | `bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/governance/governance-controls-workspace.tsx` |
 | `Banner` | `packages/design-system/src/components/feedback/banner.tsx` | Purpose not documented; symbol name suggests: Banner. | `bounded-contexts/auth/features/registration/ui/register-page.tsx` |
+| `Bleed` | `packages/design-system/src/primitives/layout.tsx` | Negative-margin primitive that lets edge-to-edge media break out of a padded `Container`/`Surface`/`Page`. | `No production consumer yet.` |
 | `BottomNav` | `packages/design-system/src/components/actions/navigation.tsx` | Purpose not documented; symbol name suggests: Bottom Nav. | `No production consumer yet.` |
 | `BottomSheet` | `packages/design-system/src/components/feedback/panel-interactions.tsx` | Purpose not documented; symbol name suggests: Bottom Sheet. | `No production consumer yet.` |
 | `Box` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name only: Box. | `No production consumer yet.` |
@@ -138,6 +139,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `HoneypotInput` | `packages/design-system/src/components/forms/hidden-input.tsx` | Purpose not documented; symbol name suggests: Honeypot Input. | `bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx` |
 | `Icon` | `packages/design-system/src/icons/index.tsx` | Purpose not documented; symbol name suggests: Icon. | `bounded-contexts/checkout/features/sell-list/ui/signed-in-sell-checkout-page.tsx` |
 | `IconButton` | `packages/design-system/src/components/actions/button.tsx` | Purpose not documented; symbol name suggests: Icon Button. | `No production consumer yet.` |
+| `Image` | `packages/design-system/src/components/data-display/image.tsx` | Design-system `<img>` replacement with native lazy loading, a skeleton placeholder while the image streams in, and graceful fallback handling when a source fails. | `No production consumer yet.` |
 | `ImageGallery` | `packages/design-system/src/components/data-display/image-gallery.tsx` | Purpose not documented; symbol name suggests: Image Gallery. | `bounded-contexts/discovery/features/item-detail/ui/item-detail-page.tsx` |
 | `Inline` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: Inline. | `bounded-contexts/auth/features/registration/ui/register-page.tsx` |
 | `InlineMessage` | `packages/design-system/src/components/forms/field.tsx` | Purpose not documented; symbol name suggests: Inline Message. | `No production consumer yet.` |

@@ -296,11 +296,19 @@ export const Inset = forwardRef(function Inset(
 
 export interface CenterProps extends PropsWithChildren, Omit<FrameProps, "children"> {
   inline?: boolean;
+  /** Which axes to center on. Defaults to both. */
+  axis?: "both" | "horizontal" | "vertical";
 }
 
-export function Center({ children, inline = false, ...rest }: CenterProps) {
+const centerAxisClasses: Record<NonNullable<CenterProps["axis"]>, string> = {
+  both: "items-center justify-center",
+  horizontal: "justify-center",
+  vertical: "items-center",
+};
+
+export function Center({ children, inline = false, axis = "both", ...rest }: CenterProps) {
   return (
-    <div {...rest} className={cx(inline ? "inline-flex" : "flex", "items-center justify-center")}>
+    <div {...rest} className={cx(inline ? "inline-flex" : "flex", centerAxisClasses[axis])}>
       {children}
     </div>
   );
@@ -336,11 +344,54 @@ export function MobileStickyInset({ children, ...rest }: MobileStickyInsetProps)
 
 export interface AspectRatioProps extends PropsWithChildren, Omit<FrameProps, "children"> {
   ratio?: number;
+  /** Object-fit applied to media children (`<img>`/`<video>`) that fill the frame. */
+  fit?: "cover" | "contain" | "fill" | "none";
+  /** Clip overflow to the ratio box. Defaults to `true` so media never escapes the frame. */
+  clip?: boolean;
 }
 
-export function AspectRatio({ children, ratio = 1, ...rest }: AspectRatioProps) {
+const aspectRatioFitClasses: Record<NonNullable<AspectRatioProps["fit"]>, string> = {
+  cover: "[&>img]:h-full [&>img]:w-full [&>img]:object-cover [&>video]:h-full [&>video]:w-full [&>video]:object-cover",
+  contain:
+    "[&>img]:h-full [&>img]:w-full [&>img]:object-contain [&>video]:h-full [&>video]:w-full [&>video]:object-contain",
+  fill: "[&>img]:h-full [&>img]:w-full [&>img]:object-fill [&>video]:h-full [&>video]:w-full [&>video]:object-fill",
+  none: "",
+};
+
+export function AspectRatio({ children, ratio = 1, fit = "none", clip = true, ...rest }: AspectRatioProps) {
   return (
-    <div {...rest} style={{ aspectRatio: ratio }}>
+    <div
+      {...rest}
+      style={{ aspectRatio: ratio }}
+      className={cx(clip && "overflow-hidden", fit !== "none" && aspectRatioFitClasses[fit])}
+    >
+      {children}
+    </div>
+  );
+}
+
+export interface BleedProps extends PropsWithChildren, Omit<FrameProps, "children"> {
+  /** Spacing token to pull against on each chosen axis. Matches the padding of the enclosing container. */
+  space?: SpaceToken;
+  /** Which axes to bleed. Defaults to horizontal, the common edge-to-edge media case. */
+  axis?: "horizontal" | "vertical" | "both";
+}
+
+/**
+ * Negative-margin primitive that lets edge-to-edge media break out of a padded
+ * `Container`/`Surface`/`Page`. Pass the same spacing token the parent pads with so
+ * the child reaches the container edges, then `max-w-none` keeps it full width.
+ */
+export function Bleed({ children, space = 4, axis = "horizontal", ...rest }: BleedProps) {
+  return (
+    <div
+      {...rest}
+      className={cx(
+        "max-w-none",
+        (axis === "horizontal" || axis === "both") && resolveSpaceClass("-mx", space),
+        (axis === "vertical" || axis === "both") && resolveSpaceClass("-my", space),
+      )}
+    >
       {children}
     </div>
   );

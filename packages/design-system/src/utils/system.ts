@@ -175,7 +175,7 @@ const columnsClasses: BreakpointClassMap<ColumnCount> = {
   },
 };
 
-type SpacePrefix = "p" | "px" | "py" | "m" | "mx" | "my" | "gap";
+type SpacePrefix = "p" | "px" | "py" | "m" | "mx" | "my" | "-mx" | "-my" | "gap";
 
 const spaceClasses: Record<SpacePrefix, Record<ThemeSpaceToken, string>> = {
   p: {
@@ -267,6 +267,36 @@ const spaceClasses: Record<SpacePrefix, Record<ThemeSpaceToken, string>> = {
     10: "my-10",
     11: "my-11",
     12: "my-12",
+  },
+  "-mx": {
+    0: "-mx-0",
+    1: "-mx-1",
+    2: "-mx-2",
+    3: "-mx-3",
+    4: "-mx-4",
+    5: "-mx-5",
+    6: "-mx-6",
+    7: "-mx-7",
+    8: "-mx-8",
+    9: "-mx-9",
+    10: "-mx-10",
+    11: "-mx-11",
+    12: "-mx-12",
+  },
+  "-my": {
+    0: "-my-0",
+    1: "-my-1",
+    2: "-my-2",
+    3: "-my-3",
+    4: "-my-4",
+    5: "-my-5",
+    6: "-my-6",
+    7: "-my-7",
+    8: "-my-8",
+    9: "-my-9",
+    10: "-my-10",
+    11: "-my-11",
+    12: "-my-12",
   },
   gap: {
     0: "gap-0",

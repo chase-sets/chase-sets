@@ -41,6 +41,7 @@ export {
   DetailPanel,
   type DetailPanelProps,
 } from "./card";
+export { Image, type ImageProps } from "./image";
 export { ProductMediaImage, type ProductMediaImageProps, type ResponsiveImageSource } from "./product-media";
 export {
   ProductOptions,
