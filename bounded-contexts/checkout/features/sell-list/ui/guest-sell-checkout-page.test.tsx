@@ -65,7 +65,7 @@ describe("guest sell checkout page", () => {
     expect(markup).toContain("Ship from");
     expect(markup).toContain("Payout");
     expect(markup).toContain("Label");
-    expect(markup).toContain("Review sale intent");
+    expect(markup).toContain("Continue to account setup");
     expect(markup).toContain("Acerola&#x27;s Mischief");
     expect(markup).toContain("$38.00");
     expect(markup).toContain('id="guest-sell-checkout-form"');
@@ -128,32 +128,10 @@ describe("guest sell checkout page", () => {
     expect(markup).toContain("Fix seller checkout details");
     expect(markup).toContain("The payout estimate changed.");
     expect(markup).toContain("Enter a valid email address.");
-    expect(markup).toContain("Review sale intent");
+    expect(markup).toContain("Continue to account setup");
   });
 
-  it("renders a confirmation handoff that states side effects have not started", () => {
-    const actionState: GuestSellCheckoutActionState = {
-      status: "confirmed",
-      values: {
-        ...guestSellCheckoutDefaultValues,
-        sellerName: "Jane Seller",
-        email: "jane@example.com",
-      },
-      confirmation: {
-        referenceId: "guest-sell-chk_sell_1",
-        sellerName: "Jane Seller",
-        estimatedTotal: "$38.00",
-        sideEffects: {
-          sale: "not-attempted",
-          label: "not-attempted",
-          payout: "not-attempted",
-          settlement: "not-attempted",
-          notification: "not-attempted",
-          accountHistory: "not-attempted",
-        },
-      },
-    };
-
+  it("keeps guest seller checkout registration-first without confirmation chrome", () => {
     const markup = renderToString(
       <GuestSellCheckoutPage
         sessionId="chk_sell_1"
@@ -161,16 +139,14 @@ describe("guest sell checkout page", () => {
         readiness={readyReadiness}
         recovery={null}
         defaultValues={guestSellCheckoutDefaultValues}
-        actionState={actionState}
       />,
     );
 
-    expect(markup).toContain("Sale review ready");
-    expect(markup).toContain("guest-sell-chk_sell_1");
-    expect(markup).toContain("Support reference");
-    expect(markup).toContain("No seller-committing side effects have started.");
-    expect(markup).toContain("Sale, payout, label, notification, and account-history work stay pending.");
-    expect(markup).toContain("Create account");
+    expect(markup).toContain("Final sale steps come after account setup.");
+    expect(markup).toContain("Continue to account setup");
+    expect(markup).not.toContain("Sale review ready");
+    expect(markup).not.toContain("Support reference");
+    expect(markup).not.toContain("Review reference");
     expect(markup).not.toContain("execution receipt");
   });
 });

@@ -21,7 +21,6 @@ import {
   buildSellerEvidence,
   confirmationSideEffects,
   performMarketplaceHandoff,
-  sideEffectsNotAttempted,
 } from "./sell-checkout-handoff";
 import {
   canUseSignedInSellCheckout,
@@ -36,6 +35,7 @@ import {
   reviewedLinesForConfirmation,
 } from "./sell-checkout-readiness";
 import { SellListReviewPlanStaleError, type SellListConfirmResponse } from "./sell-checkout-types";
+import { SELLER_CHECKOUT_REGISTER_HREF } from "../../../features/sell-list/ui/registration-return";
 
 function estimatedTotalFor(
   lines: readonly {
@@ -208,14 +208,5 @@ export async function action({
     };
   }
 
-  return {
-    status: "confirmed",
-    values,
-    confirmation: {
-      referenceId: `guest-sell-${state.sessionId}`,
-      sellerName: values.sellerName,
-      estimatedTotal: estimatedTotalFor(state.lines),
-      sideEffects: sideEffectsNotAttempted(),
-    },
-  };
+  return redirect(SELLER_CHECKOUT_REGISTER_HREF);
 }

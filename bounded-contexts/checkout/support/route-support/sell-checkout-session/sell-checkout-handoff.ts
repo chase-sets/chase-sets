@@ -19,17 +19,6 @@ import {
   type SellListReviewedLine,
 } from "./sell-checkout-types";
 
-export function sideEffectsNotAttempted() {
-  return {
-    sale: "not-attempted",
-    label: "not-attempted",
-    payout: "not-attempted",
-    settlement: "not-attempted",
-    notification: "not-attempted",
-    accountHistory: "not-attempted",
-  } as const;
-}
-
 function sideEffectsForMarketplaceHandoff(
   acceptedOfferCount: number,
   publishedListingCount: number,

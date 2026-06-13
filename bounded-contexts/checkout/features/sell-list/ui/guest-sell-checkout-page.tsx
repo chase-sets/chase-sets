@@ -1,7 +1,6 @@
 import {
   Button,
   Checkbox,
-  CheckoutConfirmationPanel,
   CheckoutFlowShell,
   CheckoutFormSection,
   CheckoutMobileSummaryDisclosure,
@@ -61,20 +60,6 @@ export type GuestSellCheckoutFormValues = Readonly<{
 
 export type GuestSellCheckoutFieldErrors = Partial<Record<keyof GuestSellCheckoutFormValues | "form", string>>;
 
-export type GuestSellCheckoutConfirmation = Readonly<{
-  referenceId: string;
-  sellerName: string;
-  estimatedTotal: string;
-  sideEffects: Readonly<{
-    sale: "not-attempted";
-    label: "not-attempted";
-    payout: "not-attempted";
-    settlement: "not-attempted";
-    notification: "not-attempted";
-    accountHistory: "not-attempted";
-  }>;
-}>;
-
 export type GuestSellCheckoutActionState =
   | Readonly<{
       status: "idle";
@@ -84,11 +69,6 @@ export type GuestSellCheckoutActionState =
       values: GuestSellCheckoutFormValues;
       fieldErrors: GuestSellCheckoutFieldErrors;
       recovery?: GuestSellCheckoutRecovery | null;
-    }>
-  | Readonly<{
-      status: "confirmed";
-      values: GuestSellCheckoutFormValues;
-      confirmation: GuestSellCheckoutConfirmation;
     }>;
 
 export type GuestSellCheckoutPageProps = Readonly<{
@@ -266,8 +246,7 @@ export function GuestSellCheckoutPage({
   defaultValues,
   actionState = { status: "idle" },
 }: GuestSellCheckoutPageProps) {
-  const values =
-    actionState?.status === "error" || actionState?.status === "confirmed" ? actionState.values : defaultValues;
+  const values = actionState?.status === "error" ? actionState.values : defaultValues;
   const fieldErrors = actionState?.status === "error" ? actionState.fieldErrors : {};
   const activeRecovery = actionState?.status === "error" && actionState.recovery ? actionState.recovery : recovery;
   const estimatedTotal = formatMoney(totalLineValue(lines));
@@ -300,45 +279,6 @@ export function GuestSellCheckoutPage({
             action={
               <LinkButton href="/account/sell-list">
                 {t("checkout.features.sellList.ui.guestSellCheckoutPage.review.sell.list")}
-              </LinkButton>
-            }
-          />
-        ) : null}
-
-        {actionState?.status === "confirmed" ? (
-          <CheckoutConfirmationPanel
-            title={t("checkout.features.sellList.ui.guestSellCheckoutPage.confirmation.title")}
-            description={t("checkout.features.sellList.ui.guestSellCheckoutPage.confirmation.description")}
-            referenceLabel={t("checkout.features.sellList.ui.guestSellCheckoutPage.confirmation.reference")}
-            referenceValue={actionState.confirmation.referenceId}
-            supportReferenceLabel={t(
-              "checkout.features.sellList.ui.guestSellCheckoutPage.confirmation.support.reference",
-            )}
-            supportReferenceValue={actionState.confirmation.referenceId}
-            totalLabel={t("checkout.features.sellList.ui.guestSellCheckoutPage.summary.estimated.payout")}
-            total={actionState.confirmation.estimatedTotal}
-            nextSteps={[
-              {
-                title: t("checkout.features.sellList.ui.guestSellCheckoutPage.confirmation.account.title"),
-                description: t("checkout.features.sellList.ui.guestSellCheckoutPage.confirmation.account.description"),
-                icon: "user",
-              },
-              {
-                title: t("checkout.features.sellList.ui.guestSellCheckoutPage.confirmation.label.title"),
-                description: t("checkout.features.sellList.ui.guestSellCheckoutPage.confirmation.label.description"),
-                icon: "truck",
-              },
-              {
-                title: t("checkout.features.sellList.ui.guestSellCheckoutPage.confirmation.side.effects.title"),
-                description: t(
-                  "checkout.features.sellList.ui.guestSellCheckoutPage.confirmation.side.effects.description",
-                ),
-                icon: "shield",
-              },
-            ]}
-            actions={
-              <LinkButton href="/register?returnTo=%2Faccount%2Fsell-list">
-                {t("checkout.features.sellList.ui.guestSellCheckoutPage.create.account")}
               </LinkButton>
             }
           />
