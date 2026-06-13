@@ -28,9 +28,6 @@ export const checkoutEnglishTranslations = {
   "checkout.features.cart.ui.cartPage.buy.cart": "Buy cart",
   "checkout.features.cart.ui.cartPage.checkout": "Checkout",
   "checkout.features.cart.ui.cartPage.checkout.issue": "Checkout issue",
-  "checkout.features.cart.ui.cartPage.checkout.unavailable.description":
-    "Checkout is temporarily unavailable. Your cart is still saved, and no payment or order work has started.",
-  "checkout.features.cart.ui.cartPage.checkout.unavailable.title": "Checkout is temporarily unavailable",
   "checkout.features.cart.ui.cartPage.decrease": "Decrease",
   "checkout.features.cart.ui.cartPage.empty.cart.protection.description":
     "When you add items, checkout will show final shipping, tax, and payment details before you pay.",
@@ -351,9 +348,6 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.buyer": "Buyer",
   "checkout.features.sellList.ui.sellListPage.checkout": "Checkout",
   "checkout.features.sellList.ui.sellListPage.checkout.issue": "Sell List issue",
-  "checkout.features.sellList.ui.sellListPage.checkout.unavailable.description":
-    "Seller checkout is temporarily unavailable. Your Sell List is still saved, and no sale, label, payout, or listing work has started.",
-  "checkout.features.sellList.ui.sellListPage.checkout.unavailable.title": "Seller checkout is temporarily unavailable",
   "checkout.features.sellList.ui.sellListPage.choose.sale.action.before.checkout":
     "Choose a ready offer or listing action before seller checkout.",
   "checkout.features.sellList.ui.sellListPage.create.account": "Create account",

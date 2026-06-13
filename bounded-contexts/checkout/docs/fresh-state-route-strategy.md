@@ -38,22 +38,9 @@ Checkout forms accept only checkout-ready sessions. If any line lacks an assigne
 
 Checkout may show the resulting delivery promise and total impact, but it must not resolve seller allocation or fulfillment assignment inside the main checkout form.
 
-## Kill Switch
+## Fresh-State Guardrail
 
-Use Platform Operations release controls with feature key `checkout.shopify-simple`.
-Use `CHASE_SETS_CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE=true` as the hard marketplace-web runtime switch when all traffic, including anonymous and guest traffic, must fail closed before checkout entry/session work.
-
-When disabled:
-
-- Buy entry redirects to `/account/cart?checkout=disabled`.
-- Sell entry redirects to `/account/sell-list?checkout=disabled`.
-- Active buy sessions redirect to `/account/cart?checkout=disabled` before session, payment, fulfillment preview, order, or support calls.
-- Active sell sessions redirect to `/account/sell-list?checkout=disabled` before readiness, sale, label, payout, listing, or support handoff calls.
-- Cart and Sell List remain reachable so customers can review or remove intent.
-- The old dense checkout is not restored as a fallback path.
-- `checkout.capability.kill_switch_unavailable` telemetry records bounded capability state and excludes raw URLs, checkout session ids, account ids, contact data, provider payloads, card data, bank data, and secrets.
-
-The kill switches are for operational disablement and smoke validation. They are not public rollout selectors between old and new checkout experiences.
+The product has not launched, so checkout does not carry rollout switches, old-path compatibility, or release-control metadata. Availability is governed by the current route map plus readiness, ownership, and current-fact validation. If checkout is not ready, the customer remains in Buy Cart, Sell List, or the matching readiness surface instead of entering a disabled checkout path.
 
 ## Route Test Expectations
 
@@ -64,7 +51,7 @@ Route tests must show:
 - unresolved fulfillment is accepted only by cart/list and readiness routes
 - checkout and confirmation routes require checkout-ready sessions
 - old checkout paths are removed or hard-disabled, with the deleted concept route absent from customer route composition
-- disabling `checkout.shopify-simple` redirects to cart/list without restoring old checkout
+- the customer route map does not reserve rollout or disablement metadata
 
 ## Implementation Order
 
@@ -72,4 +59,4 @@ Route tests must show:
 2. Build readiness routes before replacing checkout forms.
 3. Replace buy checkout and sell checkout under the namespaced route paths.
 4. Remove old route modules or hard-disable old session entry, then update route composition tests.
-5. Update runbooks and release notes with activation, disablement, and smoke validation steps.
+5. Keep smoke validation focused on the shipped fresh routes and readiness guards.

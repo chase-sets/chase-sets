@@ -4,7 +4,6 @@ import { createMarketplaceRequestApiClient } from "@chase-sets/marketplace/serve
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { redirect, type ActionFunctionArgs } from "react-router";
 import { CheckoutApiError, createCheckoutRequestApiClient } from "../../request-support/api-client";
-import { resolveCheckoutShopifySimpleUnavailableState } from "../../request-support/checkout-release-control";
 import type { GuestSellCheckoutActionState } from "../../../features/sell-list/ui/guest-sell-checkout-page";
 import type { SignedInSellCheckoutActionState } from "../../../features/sell-list/ui/signed-in-sell-checkout-page";
 import {
@@ -55,11 +54,6 @@ export async function action({
   params,
 }: ActionFunctionArgs): Promise<GuestSellCheckoutActionState | SignedInSellCheckoutActionState | Response> {
   const actor = await resolveActorFromAuthApi({ request });
-  const unavailable = await resolveCheckoutShopifySimpleUnavailableState(request, actor, "sell");
-  if (unavailable) {
-    return redirect(unavailable.redirectPath);
-  }
-
   const formData = await request.formData();
   if (canUseSignedInSellCheckout(actor)) {
     const api = createCheckoutRequestApiClient(request);

@@ -94,42 +94,6 @@ describe("checkout web routes: sell checkout session", () => {
     vi.unstubAllEnvs();
   });
 
-  it("blocks active sell checkout sessions while the Shopify-simple kill switch is active", async () => {
-    vi.stubEnv("CHASE_SETS_CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE", "true");
-    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
-    mockCreateCheckoutRequestApiClient.mockReturnValue({
-      getGuestSellList: mockGetGuestSellList,
-      createGuestSellListReadiness: mockCreateGuestSellListReadiness,
-      createSellListReadiness: mockCreateSellListReadiness,
-      confirmSellListCheckout: mockConfirmSellListCheckout,
-    });
-
-    const loaderRedirect = (await sellCheckoutSessionLoader({
-      request: new Request("http://localhost/checkout/sell/session/chk_sell_1"),
-      params: { sessionId: "chk_sell_1" },
-      context: undefined,
-    } as never).catch((error) => error)) as Response;
-
-    const actionRedirect = (await sellCheckoutSessionAction({
-      request: new Request("http://localhost/checkout/sell/session/chk_sell_1", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams().toString(),
-      }),
-      params: { sessionId: "chk_sell_1" },
-      context: undefined,
-    } as never)) as Response;
-
-    expect(loaderRedirect.status).toBe(302);
-    expect(loaderRedirect.headers.get("Location")).toBe("/account/sell-list?checkout=disabled");
-    expect(actionRedirect.status).toBe(302);
-    expect(actionRedirect.headers.get("Location")).toBe("/account/sell-list?checkout=disabled");
-    expect(mockGetGuestSellList).not.toHaveBeenCalled();
-    expect(mockCreateGuestSellListReadiness).not.toHaveBeenCalled();
-    expect(mockCreateSellListReadiness).not.toHaveBeenCalled();
-    expectNoSellerCommitSideEffects();
-  });
-
   it("loads guest seller checkout only when Sell List readiness still matches", async () => {
     mockGetGuestSellList.mockResolvedValue({ items: [guestSellListLine()], count: 1 });
     mockCreateCheckoutRequestApiClient.mockReturnValue({

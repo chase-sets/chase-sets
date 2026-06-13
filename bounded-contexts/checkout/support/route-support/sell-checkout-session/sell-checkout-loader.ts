@@ -5,7 +5,6 @@ import { createSettlementRequestApiClient, type SettlementPayoutReadinessRow } f
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { redirect, type LoaderFunctionArgs } from "react-router";
 import { createCheckoutRequestApiClient, type SellListReadinessDecisionInput } from "../../request-support/api-client";
-import { resolveCheckoutShopifySimpleUnavailableState } from "../../request-support/checkout-release-control";
 import { readAnonymousSellListId } from "../../request-support/guest-checkout";
 import { signedInSellCheckoutDefaultValues } from "../../../features/sell-list/ui/signed-in-sell-checkout-page";
 import type {
@@ -326,10 +325,6 @@ export async function loader({ request, params }: LoaderFunctionArgs): Promise<S
   const url = new URL(request.url);
   const sessionId = params.sessionId ?? createId("chk");
   const actor = await resolveActorFromAuthApi({ request });
-  const unavailable = await resolveCheckoutShopifySimpleUnavailableState(request, actor, "sell");
-  if (unavailable) {
-    throw redirect(unavailable.redirectPath);
-  }
 
   if (canUseSignedInSellCheckout(actor)) {
     const readinessDecisions = parseSellListReadinessDecisions(

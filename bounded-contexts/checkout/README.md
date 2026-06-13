@@ -42,7 +42,7 @@ This is a greenfield codebase, so local development environments should reset/bo
 
 ## Supporting Decisions
 
-- [Fresh-State Route Strategy](./docs/fresh-state-route-strategy.md): Shopify-simple Buy Cart, Sell List, readiness, checkout, confirmation, old route disposition, and kill-switch route strategy.
+- [Fresh-State Route Strategy](./docs/fresh-state-route-strategy.md): Shopify-simple Buy Cart, Sell List, readiness, checkout, confirmation, old route disposition, and fresh-state guardrails.
 - [Checkout Visual Targets](./docs/checkout-visual-targets.md): image-first design references for buy/sell checkout, readiness, recovery, capability, and support states.
 - [Checkout Session Projection Performance](./docs/checkout-session-projection-performance.md): guest Buy Now freshness path, session read-model indexes, projection transaction behavior, and platform freshness gates.
 - [Checkout Observability Contract](./docs/checkout-observability-contract.md): redacted telemetry profiles consumed by checkout observability code.

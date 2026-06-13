@@ -107,26 +107,9 @@ describe("checkout web routes: account cart", () => {
       context: undefined,
     } as never);
 
-    expect(result).toEqual({ cart: { items: [], count: 0 }, checkoutUnavailable: false });
+    expect(result).toEqual({ cart: { items: [], count: 0 } });
     expect(mockGetGuestCart).toHaveBeenCalledWith("anon_cart_1");
     expect(mockGetCart).not.toHaveBeenCalled();
-  });
-
-  it("keeps cart reachable with an unavailable checkout state", async () => {
-    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["checkout.manage"] });
-    mockGetCart.mockResolvedValue({ items: [], count: 0 });
-    mockCreateCheckoutRequestApiClient.mockReturnValue({
-      getCart: mockGetCart,
-    });
-
-    const result = await accountCartLoader({
-      request: new Request("http://localhost/account/cart?checkout=disabled"),
-      params: {},
-      context: undefined,
-    } as never);
-
-    expect(result).toEqual({ cart: { items: [], count: 0 }, checkoutUnavailable: true });
-    expect(mockGetCart).toHaveBeenCalled();
   });
 
   it("updates the primary grouped cart line and removes duplicate line ids", async () => {

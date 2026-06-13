@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  checkoutFreshStateFeatureKey,
-  checkoutFreshStateKillSwitch,
   checkoutFreshStateRoutes,
   checkoutOldRouteDispositions,
   findFreshStateRouteCollisions,
@@ -79,13 +77,8 @@ describe("fresh-state checkout route strategy", () => {
     ]);
   });
 
-  it("uses release controls as a kill switch without restoring old checkout", () => {
-    expect(checkoutFreshStateFeatureKey).toBe("checkout.shopify-simple");
-    expect(checkoutFreshStateKillSwitch).toEqual({
-      featureKey: "checkout.shopify-simple",
-      disabledBuyEntryRedirectPath: "/account/cart?checkout=disabled",
-      disabledSellEntryRedirectPath: "/account/sell-list?checkout=disabled",
-      restoresOldCheckout: false,
-    });
+  it("does not reserve rollout or disablement metadata in the customer route map", () => {
+    expect(checkoutFreshStateRoutes.every((route) => !("disabledRedirectPath" in route))).toBe(true);
+    expect(JSON.stringify(checkoutFreshStateRoutes)).not.toContain("disabledRedirectPath");
   });
 });

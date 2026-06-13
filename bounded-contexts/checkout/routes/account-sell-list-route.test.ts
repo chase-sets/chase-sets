@@ -226,37 +226,6 @@ describe("checkout web routes: account sell list", () => {
     };
   }
 
-  it("blocks Sell List checkout review while the Shopify-simple kill switch is active", async () => {
-    vi.stubEnv("CHASE_SETS_CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE", "true");
-    const getSellList = vi.fn(async () => ({ items: [], count: 0 }));
-    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
-    mockCreateCheckoutRequestApiClient.mockReturnValue({
-      getSellList,
-      createSellListReadiness: mockCreateSellListReadiness,
-      createGuestSellListReadiness: mockCreateGuestSellListReadiness,
-    });
-
-    const form = new URLSearchParams();
-    form.set("intent", "review-sell-list-checkout");
-
-    const response = (await accountSellListAction({
-      request: new Request("http://localhost/account/sell-list", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: form.toString(),
-      }),
-      params: {},
-      context: undefined,
-    } as never)) as Response;
-
-    expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/account/sell-list?checkout=disabled");
-    expect(getSellList).not.toHaveBeenCalled();
-    expect(mockCreateSellListReadiness).not.toHaveBeenCalled();
-    expect(mockCreateGuestSellListReadiness).not.toHaveBeenCalled();
-    expectNoSellerCommitSideEffects();
-  });
-
   it("starts signed-in seller checkout from Sell List readiness without sale side effects", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
     const sellListLine = {
@@ -662,7 +631,6 @@ describe("checkout web routes: account sell list", () => {
       registrationReturn: null,
       mergedLineCount: 0,
       mergeError: null,
-      checkoutUnavailable: false,
       sellList: { items: [{ line_id: "sll_1", quantity: 1 }], count: 1 },
       offerReviews: [],
     });
@@ -716,7 +684,6 @@ describe("checkout web routes: account sell list", () => {
       registrationReturn: null,
       mergedLineCount: 0,
       mergeError: null,
-      checkoutUnavailable: false,
       sellList: {
         items: [
           {

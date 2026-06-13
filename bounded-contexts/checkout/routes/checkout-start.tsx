@@ -45,7 +45,6 @@ import {
   CHECKOUT_GUEST_COOKIE_NAME,
   readAnonymousCartId,
 } from "../support/request-support/guest-checkout";
-import { resolveCheckoutShopifySimpleUnavailableState } from "../support/request-support/checkout-release-control";
 
 const ACCOUNT_SIGN_IN_REQUIRED_CODE = "account_sign_in_required";
 
@@ -303,11 +302,6 @@ function isAccountSignInRequiredError(error: unknown) {
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const actor = await resolveActorFromAuthApi({ request });
-  const unavailable = await resolveCheckoutShopifySimpleUnavailableState(request, actor, "buy");
-  if (unavailable) {
-    throw redirect(unavailable.redirectPath);
-  }
-
   const url = new URL(request.url);
   const source = sourceFromUrl(url);
   const api = createCheckoutRequestApiClient(request);
@@ -343,11 +337,6 @@ function recoverCheckoutStartError(
 
 export async function action({ request }: ActionFunctionArgs) {
   const actor = await resolveActorFromAuthApi({ request });
-  const unavailable = await resolveCheckoutShopifySimpleUnavailableState(request, actor, "buy");
-  if (unavailable) {
-    return redirect(unavailable.redirectPath);
-  }
-
   const api = createCheckoutRequestApiClient(request);
   const formData = await request.formData();
   const anonymousCartId = readAnonymousCartId(request);

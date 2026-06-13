@@ -55,5 +55,5 @@
 - [ ] No raw card, bank, provider secret, webhook signature, cookie, session token, full URL, or unnecessary PII is stored or exposed in UI, logs, support views, or operational artifacts.
 - [ ] Terms, privacy, refund policy, guest data handling, payment, payout, shipping, and support expectations are linked or explained where needed (covered by PR #1509).
 - [ ] Checkout meets the performance budgets for Buy Now, cart checkout entry, sell-list entry, checkout render, and slow/degraded recovery (covered by PR #1303).
-- [ ] The checkout kill switch blocks entry with customer-safe unavailable/recovery states and never restores dense checkout or old payload paths (covered by PR #1542).
+- [ ] Checkout availability is governed by fresh route, readiness, ownership, and current-fact validation with no rollout switch or dense checkout fallback.
 - [ ] Legacy dense checkout routes, UI, copy, old links, old session payloads, stale fixtures/read models, and provider sandbox leftovers cannot make new checkout succeed (covered by PR #1535).

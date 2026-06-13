@@ -72,8 +72,7 @@ export type CheckoutScenarioState =
   | "notification"
   | "support"
   | "reconciliation"
-  | "reversal-recovery"
-  | "kill-switch";
+  | "reversal-recovery";
 
 export const checkoutObservabilityRequiredStates = [
   "buy-cart-review-ready",
@@ -91,7 +90,6 @@ export const checkoutObservabilityRequiredStates = [
   "changed-economics-review",
   "risk-hold-provider-return-failure",
   "split-group-summary",
-  "kill-switch-checkout-unavailable",
   "temporary-recovery-loading",
   "disabled-accelerated-saved-instrument",
   "promo-credit-gift-card-state",
@@ -344,18 +342,6 @@ export const checkoutObservabilityProfiles = [
     operatorSignalRequired: true,
     expectation:
       "Split-group telemetry preserves readiness-produced group references without checkout-time regrouping.",
-  }),
-  profile({
-    state: "kill-switch-checkout-unavailable",
-    eventName: "checkout.capability.kill_switch_unavailable",
-    docLabel: "Checkout unavailable",
-    ownerIssues: ["#1114", "#1115", "#1103"],
-    telemetryClass: "capability-state",
-    scenarioStates: ["kill-switch"],
-    dimensions: ["capability-decision", "support-safe-reference"],
-    alertClass: "operator-alert",
-    operatorSignalRequired: true,
-    expectation: "Kill-switch telemetry shows checkout failed closed without old fallback.",
   }),
   profile({
     state: "temporary-recovery-loading",

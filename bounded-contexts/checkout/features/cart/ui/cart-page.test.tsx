@@ -87,18 +87,6 @@ describe("checkout cart page", () => {
     expect(markup).not.toContain("Early landed-cost signal");
   });
 
-  it("shows customer-safe unavailable copy without removing cart recovery actions", () => {
-    const markup = renderToString(<CheckoutCartPage cartLines={[cartLine]} checkoutUnavailable />);
-
-    expect(markup).toContain("Checkout is temporarily unavailable");
-    expect(markup).toContain("Your cart is still saved, and no payment or order work has started.");
-    expect(markup).toContain("Review cart");
-    expect(markup).toContain("Keep shopping");
-    expect(markup).toContain("Charizard");
-    expect(markup).not.toContain("/checkout/start");
-    expect(markup).not.toContain("/checkout/chk");
-  });
-
   it("groups duplicate product intent as one quantity-controlled cart line", () => {
     const duplicateLine: CheckoutCartLine = {
       ...cartLine,
