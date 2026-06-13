@@ -27,7 +27,7 @@ describe("Checkout visual targets", () => {
 
   it("persists generated image-first artifacts under Checkout docs", () => {
     expect(checkoutVisualTargetArtifacts.map((artifact) => artifact.key)).toEqual(
-      expect.arrayContaining(["buy-flow", "sell-flow", "recovery-launch", "capability-states"]),
+      expect.arrayContaining(["buy-flow", "sell-flow", "recovery-states", "capability-states"]),
     );
 
     for (const artifact of checkoutVisualTargetArtifacts) {
@@ -108,13 +108,13 @@ describe("Checkout visual targets", () => {
     }
   });
 
-  it("links visual targets to copy, performance, and acceptance coverage", () => {
+  it("links visual targets to copy, performance, and design coverage", () => {
     for (const target of checkoutVisualTargets) {
       expect(target.copySurface, target.surface).not.toHaveLength(0);
       expect(target.performanceSurface, target.surface).not.toHaveLength(0);
       expect(target.ownerIssues, target.surface).toContain("#1112");
       expect(target.deltaOwnerIssues, target.surface).toEqual(expect.arrayContaining(["#1115"]));
-      expect(target.acceptanceNote, target.surface).not.toMatch(/\b(todo|tbd)\b/i);
+      expect(target.customerSafeOutcome, target.surface).not.toMatch(/\b(todo|tbd)\b/i);
     }
   });
 

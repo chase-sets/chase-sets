@@ -28,9 +28,9 @@ Repo path: `bounded-contexts/checkout/docs/visual-targets/checkout-visual-target
 
 Repo path: `bounded-contexts/checkout/docs/visual-targets/checkout-visual-targets-sell-flow.png`
 
-![Recovery and launch visual targets](./visual-targets/checkout-visual-targets-recovery-launch.png)
+![Recovery visual targets](./visual-targets/checkout-visual-targets-recovery-states.png)
 
-Repo path: `bounded-contexts/checkout/docs/visual-targets/checkout-visual-targets-recovery-launch.png`
+Repo path: `bounded-contexts/checkout/docs/visual-targets/checkout-visual-targets-recovery-states.png`
 
 ![Capability visual targets](./visual-targets/checkout-visual-targets-capability-states.png)
 
@@ -46,11 +46,11 @@ Repo path: `bounded-contexts/checkout/docs/visual-targets/checkout-visual-target
 - Signed-in checkout compresses saved information into editable rows.
 - Recovery states use customer-safe language and show no-side-effect facts when no payment, order, label, payout, settlement, notification, account-history, support, reconciliation, refund, void, or reversal work started.
 - Confirmation and account/history visuals distinguish pending Checkout activity from committed downstream facts.
-- Visual targets forbid dense checkout panels, allocation controls, provider diagnostics, old-route recovery, legacy payload wording, hidden repair, nested card stacks, migration/backfill wording, and fake downstream completion.
+- Visual targets forbid dense checkout panels, allocation controls, provider diagnostics, old-route recovery, old payload wording, hidden repair, nested card stacks, migration/backfill wording, and fake downstream completion.
 
 ## Visual Inventory
 
-| Target | Image artifact | Frames | Copy surface | Performance surface | Launch decision |
+| Target | Image artifact | Frames | Copy surface | Performance surface | Design coverage |
 | --- | --- | --- | --- | --- | --- |
 | Buy Cart review ready | `checkout-visual-targets-buy-flow.png` | 1 Desktop Buy Cart review | `cart-list-review` | `cart-list-initial-render` | Not required |
 | Buy readiness attention | `checkout-visual-targets-buy-flow.png` | 2 Mobile Buy Cart readiness and savings | `readiness-unassigned-fulfillment` | `buy-cart-readiness-evaluation` | Required |
@@ -62,13 +62,13 @@ Repo path: `bounded-contexts/checkout/docs/visual-targets/checkout-visual-target
 | Guest Sell Checkout | `checkout-visual-targets-capability-states.png` | 1 Guest Sell Checkout desktop | `checkout-review` | `checkout-entry-review-render` | Not required |
 | Signed-in Sell Checkout | `checkout-visual-targets-sell-flow.png` | 3 Desktop Signed-in Seller Checkout | `checkout-saved-info-rows` | `checkout-entry-review-render` | Not required |
 | Seller confirmation activity | `checkout-visual-targets-sell-flow.png` | 4 Mobile Seller confirmation/activity | `seller-pending-activity` | `final-confirmation-visible-state` | Required |
-| Active-session stale recovery | `checkout-visual-targets-recovery-launch.png` | 1 Active-session stale recovery desktop | `active-session-stale-recovery` | `active-session-reload` | Required |
-| Address or serviceability failure | `checkout-visual-targets-recovery-launch.png` | 2 Address/serviceability failure mobile | `address-correction` | `totals-refresh` | Required |
-| Changed economics review | `checkout-visual-targets-recovery-launch.png` | 3 Changed economics desktop | `economics-discount-credit-promo` | `totals-refresh` | Required |
-| Risk hold or provider-return failure | `checkout-visual-targets-recovery-launch.png` | 4 Risk hold/provider return failure mobile | `risk-hold-or-block` | `provider-return-confirmation` | Required |
-| Split package summary | `checkout-visual-targets-recovery-launch.png` | 5 Split-group summary desktop | `split-group-summary` | `checkout-entry-review-render` | Required |
-| Checkout unavailable | `checkout-visual-targets-recovery-launch.png` | 6 Launch kill switch/checkout unavailable mobile | `kill-switch-disabled-checkout` | `checkout-entry-permanent-recovery-render` | Required |
-| Temporary recovery loading | `checkout-visual-targets-recovery-launch.png` | 1 Active-session stale recovery desktop | `checkout-temporary-recovery` | `checkout-entry-temporary-recovery-render` | Required |
+| Active-session stale recovery | `checkout-visual-targets-recovery-states.png` | 1 Active-session stale recovery desktop | `active-session-stale-recovery` | `active-session-reload` | Required |
+| Address or serviceability failure | `checkout-visual-targets-recovery-states.png` | 2 Address/serviceability failure mobile | `address-correction` | `totals-refresh` | Required |
+| Changed economics review | `checkout-visual-targets-recovery-states.png` | 3 Changed economics desktop | `economics-discount-credit-promo` | `totals-refresh` | Required |
+| Risk hold or provider-return failure | `checkout-visual-targets-recovery-states.png` | 4 Risk hold/provider return failure mobile | `risk-hold-or-block` | `provider-return-confirmation` | Required |
+| Split package summary | `checkout-visual-targets-recovery-states.png` | 5 Split-group summary desktop | `split-group-summary` | `checkout-entry-review-render` | Required |
+| Checkout unavailable | `checkout-visual-targets-recovery-states.png` | 6 Checkout unavailable mobile | `kill-switch-disabled-checkout` | `checkout-entry-permanent-recovery-render` | Required |
+| Temporary recovery loading | `checkout-visual-targets-recovery-states.png` | 1 Active-session stale recovery desktop | `checkout-temporary-recovery` | `checkout-entry-temporary-recovery-render` | Required |
 | Disabled accelerated or saved instrument | `checkout-visual-targets-capability-states.png` | 2 Disabled accelerated checkout/saved instrument fallback mobile | `accelerated-saved-instrument-fallback` | `payment-payout-setup-handoff` | Required |
 | Promo, credit, gift card, and fee state | `checkout-visual-targets-capability-states.png` | 3 Promo, credit, gift-card, and fee state desktop | `economics-discount-credit-promo` | `totals-refresh` | Required |
 | Notification expectation and support reference | `checkout-visual-targets-capability-states.png` | 4 Notification expectation and support reference mobile | `notification-expectation` | `final-confirmation-visible-state` | Required |
@@ -95,4 +95,4 @@ Use these images as the first visual target set for #1112. Future implementation
 - readiness before checkout;
 - no side effects before valid confirmation;
 - pending Checkout activity separated from committed downstream facts;
-- no old checkout compatibility surfaces.
+- no old checkout fallback surfaces.

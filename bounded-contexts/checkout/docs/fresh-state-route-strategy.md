@@ -1,6 +1,6 @@
 # Fresh-State Route Strategy
 
-Milestone #17 uses this route strategy for the Shopify-simple Buy Cart and Sell List checkout rebuild. Chase Sets has not launched, so this is a fresh-state route map, not a compatibility migration.
+Milestone #17 uses this route strategy for the Shopify-simple Buy Cart and Sell List checkout rebuild. Chase Sets is unreleased, so this is a fresh-state route map, not a migration.
 
 ## Route Map
 
@@ -17,15 +17,15 @@ Milestone #17 uses this route strategy for the Shopify-simple Buy Cart and Sell 
 
 The `checkout/buy/session/:sessionId` and `checkout/sell/session/:sessionId` namespaces avoid the broad `checkout/:sessionId` dynamic segment. Static readiness routes cannot be captured as session IDs, and buy/sell routes cannot collide with each other.
 
-## Legacy Disposition
+## Old Route Disposition
 
-| Legacy route ID | Legacy path | Disposition | Replacement |
+| Old route ID | Old path | Disposition | Replacement |
 | --- | --- | --- | --- |
-| `checkout-start` | `/checkout/start` | Remove before launch | `buy-checkout-readiness` for cart and buy-now entry; sell flows start from Sell List readiness |
-| `checkout-session` | `/checkout/:sessionId` | Hard-disable before launch | `buy-checkout-session` or `sell-checkout-session`, depending on mode |
+| `checkout-start` | `/checkout/start` | Remove before customer use | `buy-checkout-readiness` for cart and buy-now entry; sell flows start from Sell List readiness |
+| `checkout-session` | `/checkout/:sessionId` | Hard-disable before customer use | `buy-checkout-session` or `sell-checkout-session`, depending on mode |
 | `checkout-concept` | `/checkout/concept` | Removed from the customer route manifest | None |
 
-There is no customer-facing old/new switch, old checkout URL support, old session adapter, or stale dense checkout compatibility route.
+There is no customer-facing old/new switch, old checkout URL support, old session adapter, or stale dense checkout fallback route.
 
 ## Fulfillment Guardrail
 
@@ -57,19 +57,19 @@ The kill switches are for operational disablement and smoke validation. They are
 
 ## Route Test Expectations
 
-Route tests must prove:
+Route tests must show:
 
 - the fresh-state route map has no dynamic collisions
 - no fresh customer checkout route uses `checkout/:sessionId`
 - unresolved fulfillment is accepted only by cart/list and readiness routes
 - checkout and confirmation routes require checkout-ready sessions
-- legacy checkout paths are removed or hard-disabled, with the deleted concept route absent from customer route composition
-- disabling `checkout.shopify-simple` redirects to cart/list without restoring legacy checkout
+- old checkout paths are removed or hard-disabled, with the deleted concept route absent from customer route composition
+- disabling `checkout.shopify-simple` redirects to cart/list without restoring old checkout
 
 ## Implementation Order
 
 1. Ship the route strategy contract and tests.
 2. Build readiness routes before replacing checkout forms.
 3. Replace buy checkout and sell checkout under the namespaced route paths.
-4. Remove legacy route modules or hard-disable legacy session entry, then update route composition tests.
+4. Remove old route modules or hard-disable old session entry, then update route composition tests.
 5. Update runbooks and release notes with activation, disablement, and smoke validation steps.

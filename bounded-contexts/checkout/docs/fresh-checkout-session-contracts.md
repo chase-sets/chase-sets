@@ -1,6 +1,6 @@
 # Fresh Checkout Session Contracts
 
-Milestone #17 uses this contract shape for Shopify-simple buy and sell checkout. It is a fresh pre-launch contract, not an adapter for dense checkout session payloads.
+Milestone #17 uses this contract shape for Shopify-simple buy and sell checkout. It is a fresh contract, not an adapter for dense checkout session payloads.
 
 ## Contract Owner
 
@@ -82,7 +82,7 @@ Fresh checkout supports only explicit new-flow commands:
 - `merge-guest-session`
 - `return-to-source-list`
 
-The contract intentionally forbids old-session commands such as `start-legacy-checkout`, `load-dense-checkout-session`, `adapt-old-checkout-payload`, and `dual-write-legacy-session`.
+The contract intentionally forbids old-session commands such as `start-old-checkout`, `load-dense-checkout-session`, `adapt-old-checkout-payload`, and `dual-write-old-session`.
 
 ## State Machine
 
@@ -195,7 +195,7 @@ Guest checkout uses `actorMode: guest`, `accountId: null`, and `guestMerge`. Whe
 
 ## Customer Copy Rules
 
-Fresh snapshots are allowed to expose customer-safe item titles, subtitles, delivery promises, saved-info rows, recovery messages, and provider status messages. They must not expose implementation language such as projections, read models, allocations, provider payloads, internal processing, dual writes, or legacy checkout.
+Fresh snapshots are allowed to expose customer-safe item titles, subtitles, delivery promises, saved-info rows, recovery messages, and provider status messages. They must not expose implementation language such as projections, read models, allocations, provider payloads, internal processing, dual writes, or old checkout.
 
 ## Sensitive Data Rules
 
@@ -210,25 +210,24 @@ Provider, payment, payout, tax, and identity state must be support-safe:
 - customer-safe recovery messages
 - stable correlation IDs
 
-## Compatibility Rules
+## Fresh-State Rules
 
-This product has not launched, so there is no old checkout payload compatibility requirement. The fresh contract does not support:
+This product is unreleased, so there is no old checkout payload support requirement. The fresh contract does not support:
 
 - old checkout URL recovery as a customer path
 - dense checkout session payload adapters
 - old/new dual writes
-- migration backfills for abandoned pre-launch sessions
-- customer-facing compatibility toggles
+- migration backfills for abandoned unreleased sessions
+- customer-facing fallback toggles
 
-Legacy state can be reset or regenerated through #1132 as implementation replaces the old session model. Runtime
+Old state can be reset or regenerated through #1132 as implementation replaces the old session model. Runtime
 schema bootstrap may still use narrow, additive `checkout_session_pages` column guards for the final fresh-session
-columns so long-lived staging and proof databases converge during normal deploys. Those guards are deploy-safety
-plumbing only; they must not introduce old-session adapters, dual-write payloads, or customer-facing compatibility
-states.
+columns so long-lived staging databases converge during normal deploys. Those guards are deploy-safety plumbing
+only; they must not introduce old-session adapters, dual-write payloads, or customer-facing fallback states.
 
 ## Test Expectations
 
-Contract tests must prove:
+Contract tests must show:
 
 - buy and sell snapshots render from one shared summary shape
 - buy totals and sell payout totals stay mode-specific
