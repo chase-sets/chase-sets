@@ -7,6 +7,7 @@ import {
   loadNameMap,
   removeJsonbArrayElement,
   replaceJsonbArrayElement,
+  refreshAffectedRows,
   transitionStatus,
   updateRow,
   upsertRow,
@@ -495,29 +496,30 @@ async function refreshDiscoveryItemDetailPage(db: PgQueryable, itemId: string): 
 }
 
 async function refreshItemsByBlueprint(db: PgQueryable, blueprintId: string): Promise<void> {
-  const result = await db.query<{ catalog_item_id: string }>(
-    `SELECT catalog_item_id FROM discovery_item_detail_catalog_items WHERE blueprint_id = $1`,
-    [blueprintId],
-  );
-
-  await Promise.all(result.rows.map((row) => refreshDiscoveryItemDetailPage(db, row.catalog_item_id)));
+  await refreshAffectedRows(db, {
+    select: { column: "catalog_item_id" },
+    from: { table: ITEM_DETAIL_CATALOG_ITEMS_TABLE },
+    where: [{ column: "blueprint_id", value: blueprintId }],
+    refresh: (itemId) => refreshDiscoveryItemDetailPage(db, itemId),
+  });
 }
 
 async function refreshItemsByCategory(db: PgQueryable, categoryId: string): Promise<void> {
-  const result = await db.query<{ catalog_item_id: string }>(
-    `SELECT catalog_item_id FROM discovery_item_detail_catalog_items WHERE category_ids @> $1::jsonb`,
-    [JSON.stringify([categoryId])],
-  );
-
-  await Promise.all(result.rows.map((row) => refreshDiscoveryItemDetailPage(db, row.catalog_item_id)));
+  await refreshAffectedRows(db, {
+    select: { column: "catalog_item_id" },
+    from: { table: ITEM_DETAIL_CATALOG_ITEMS_TABLE },
+    where: [{ column: "category_ids", operator: "@>", cast: "jsonb", value: [categoryId] }],
+    refresh: (itemId) => refreshDiscoveryItemDetailPage(db, itemId),
+  });
 }
 
 async function refreshAllItems(db: PgQueryable): Promise<void> {
-  const result = await db.query<{ catalog_item_id: string }>(
-    `SELECT catalog_item_id FROM discovery_item_detail_catalog_items ORDER BY catalog_item_id ASC`,
-  );
-
-  await Promise.all(result.rows.map((row) => refreshDiscoveryItemDetailPage(db, row.catalog_item_id)));
+  await refreshAffectedRows(db, {
+    select: { column: "catalog_item_id" },
+    from: { table: ITEM_DETAIL_CATALOG_ITEMS_TABLE },
+    orderBy: [{ column: "catalog_item_id" }],
+    refresh: (itemId) => refreshDiscoveryItemDetailPage(db, itemId),
+  });
 }
 
 async function refreshItemsByReferenceRecord(db: PgQueryable, referenceRecordId: string): Promise<void> {

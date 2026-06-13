@@ -1,4 +1,4 @@
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { refreshAffectedRows, type PgQueryable } from "@chase-sets/event-core-postgres";
 import {
   buildGoogleShoppingMappedFeedRow,
   type GoogleShoppingExclusionReason,
@@ -144,17 +144,15 @@ export async function refreshGoogleShoppingFeedRowsForCatalogItem(
   catalogItemId: string,
   options: GoogleShoppingRefreshOptions,
 ): Promise<number> {
-  const result = await db.query<{ listing_id: string }>(
-    `SELECT listing_id
-     FROM discovery_market_listings
-     WHERE catalog_catalog_item_id = $1
-     ORDER BY listing_id ASC`,
-    [catalogItemId],
-  );
+  const listingIds = await refreshAffectedRows(db, {
+    select: { column: "listing_id" },
+    from: { table: "discovery_market_listings" },
+    where: [{ column: "catalog_catalog_item_id", value: catalogItemId }],
+    orderBy: [{ column: "listing_id" }],
+    refresh: (listingId) => refreshGoogleShoppingFeedRowForListing(db, listingId, options),
+  });
 
-  await Promise.all(result.rows.map((row) => refreshGoogleShoppingFeedRowForListing(db, row.listing_id, options)));
-
-  return result.rows.length;
+  return listingIds.length;
 }
 
 export async function enqueueGoogleShoppingIncrementalSyncRequest(

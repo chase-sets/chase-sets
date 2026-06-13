@@ -7,6 +7,7 @@ import {
   loadNameMap,
   removeJsonbArrayElement,
   replaceJsonbArrayElement,
+  refreshAffectedRows,
   transitionStatus,
   updateRow,
   upsertRow,
@@ -734,53 +735,60 @@ async function refreshItemsByReferenceRecord(db: PgQueryable, referenceRecordId:
 export async function rebuildDiscoverySearchIndex(db: PgQueryable): Promise<void> {
   await db.query(`TRUNCATE discovery_search_items`);
 
-  const result = await db.query<{ catalog_item_id: string }>(
-    `SELECT catalog_item_id FROM discovery_search_catalog_items ORDER BY catalog_item_id ASC`,
-  );
-
-  await Promise.all(result.rows.map((row) => refreshDiscoverySearchItem(db, row.catalog_item_id)));
+  await refreshAffectedRows(db, {
+    select: { column: "catalog_item_id" },
+    from: { table: SEARCH_CATALOG_ITEMS_TABLE },
+    orderBy: [{ column: "catalog_item_id" }],
+    refresh: (itemId) => refreshDiscoverySearchItem(db, itemId),
+  });
 }
 
 async function refreshItemsByBlueprint(db: PgQueryable, blueprintId: string): Promise<void> {
-  const result = await db.query<{ catalog_item_id: string }>(
-    `SELECT catalog_item_id FROM discovery_search_catalog_items WHERE blueprint_id = $1`,
-    [blueprintId],
-  );
-
-  await Promise.all(result.rows.map((row) => refreshDiscoverySearchItem(db, row.catalog_item_id)));
+  await refreshAffectedRows(db, {
+    select: { column: "catalog_item_id" },
+    from: { table: SEARCH_CATALOG_ITEMS_TABLE },
+    where: [{ column: "blueprint_id", value: blueprintId }],
+    refresh: (itemId) => refreshDiscoverySearchItem(db, itemId),
+  });
 }
 
 async function refreshItemsByField(db: PgQueryable, fieldId: string): Promise<void> {
-  const result = await db.query<{ catalog_item_id: string }>(
-    `SELECT catalog_item_id
-     FROM discovery_search_catalog_items
-     WHERE field_values @> $1::jsonb`,
-    [JSON.stringify([{ fieldId }])],
-  );
-
-  await Promise.all(result.rows.map((row) => refreshDiscoverySearchItem(db, row.catalog_item_id)));
+  await refreshAffectedRows(db, {
+    select: { column: "catalog_item_id" },
+    from: { table: SEARCH_CATALOG_ITEMS_TABLE },
+    where: [{ column: "field_values", operator: "@>", cast: "jsonb", value: [{ fieldId }] }],
+    refresh: (itemId) => refreshDiscoverySearchItem(db, itemId),
+  });
 }
 
 async function refreshItemsByDimension(db: PgQueryable, dimensionId: string): Promise<void> {
-  const result = await db.query<{ catalog_item_id: string }>(
-    `SELECT item.catalog_item_id
-     FROM discovery_search_catalog_items AS item
-     INNER JOIN discovery_search_catalog_blueprint_dimensions AS rule
-       ON rule.blueprint_id = item.blueprint_id
-     WHERE rule.dimension_id = $1`,
-    [dimensionId],
-  );
-
-  await Promise.all(result.rows.map((row) => refreshDiscoverySearchItem(db, row.catalog_item_id)));
+  await refreshAffectedRows(db, {
+    select: { tableAlias: "item", column: "catalog_item_id", distinct: true },
+    from: { table: SEARCH_CATALOG_ITEMS_TABLE, alias: "item" },
+    joins: [
+      {
+        table: "discovery_search_catalog_blueprint_dimensions",
+        alias: "rule",
+        on: [
+          {
+            left: { tableAlias: "rule", column: "blueprint_id" },
+            right: { tableAlias: "item", column: "blueprint_id" },
+          },
+        ],
+      },
+    ],
+    where: [{ tableAlias: "rule", column: "dimension_id", value: dimensionId }],
+    refresh: (itemId) => refreshDiscoverySearchItem(db, itemId),
+  });
 }
 
 async function refreshItemsByCategory(db: PgQueryable, categoryId: string): Promise<void> {
-  const result = await db.query<{ catalog_item_id: string }>(
-    `SELECT catalog_item_id FROM discovery_search_catalog_items WHERE category_ids @> $1::jsonb`,
-    [JSON.stringify([categoryId])],
-  );
-
-  await Promise.all(result.rows.map((row) => refreshDiscoverySearchItem(db, row.catalog_item_id)));
+  await refreshAffectedRows(db, {
+    select: { column: "catalog_item_id" },
+    from: { table: SEARCH_CATALOG_ITEMS_TABLE },
+    where: [{ column: "category_ids", operator: "@>", cast: "jsonb", value: [categoryId] }],
+    refresh: (itemId) => refreshDiscoverySearchItem(db, itemId),
+  });
 }
 
 async function applyCatalogItemDisplayIdentity(

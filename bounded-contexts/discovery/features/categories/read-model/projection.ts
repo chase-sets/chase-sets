@@ -2,6 +2,7 @@ import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import { extractIdFromStreamId } from "@chase-sets/event-core";
 import {
   appendJsonbArrayElement,
+  refreshAffectedRows,
   removeJsonbArrayElement,
   transitionStatus,
   updateRow,
@@ -127,29 +128,22 @@ async function refreshDiscoveryCategory(db: PgQueryable, categoryId: string): Pr
 }
 
 async function refreshChildCategories(db: PgQueryable, parentCategoryId: string): Promise<void> {
-  const result = await db.query<{ category_id: string }>(
-    `SELECT category_id
-     FROM discovery_category_catalog_categories
-     WHERE parent_category_id = $1`,
-    [parentCategoryId],
-  );
-
-  await Promise.all(result.rows.map((row) => refreshDiscoveryCategory(db, row.category_id)));
+  await refreshAffectedRows(db, {
+    select: { column: "category_id" },
+    from: { table: CATEGORY_SOURCE_TABLE },
+    where: [{ column: "parent_category_id", value: parentCategoryId }],
+    refresh: (categoryId) => refreshDiscoveryCategory(db, categoryId),
+  });
 }
 
 async function refreshCategoriesForItem(db: PgQueryable, itemId: string): Promise<void> {
-  const result = await db.query<{ category_ids: unknown }>(
-    `SELECT category_ids FROM discovery_category_catalog_items WHERE catalog_item_id = $1`,
-    [itemId],
-  );
-
-  if (result.rows.length === 0) {
-    return;
-  }
-
-  const categoryIds = Array.isArray(result.rows[0].category_ids) ? (result.rows[0].category_ids as string[]) : [];
-
-  await Promise.all(categoryIds.map((categoryId) => refreshDiscoveryCategory(db, categoryId)));
+  await refreshAffectedRows(db, {
+    select: { column: "category_ids" },
+    from: { table: CATEGORY_ITEM_SOURCE_TABLE },
+    where: [{ column: "catalog_item_id", value: itemId }],
+    idsFromRow: (row) => (Array.isArray(row.category_ids) ? row.category_ids.filter(isString) : []),
+    refresh: (categoryId) => refreshDiscoveryCategory(db, categoryId),
+  });
 }
 
 export function buildDiscoveryCategoryProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
@@ -353,4 +347,8 @@ export function buildDiscoveryCategoryProjectionHandlers(db: PgQueryable): Proje
       await refreshCategoriesForItem(db, itemId);
     },
   };
+}
+
+function isString(value: unknown): value is string {
+  return typeof value === "string";
 }
