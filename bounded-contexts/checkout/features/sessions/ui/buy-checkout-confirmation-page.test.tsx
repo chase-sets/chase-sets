@@ -54,15 +54,24 @@ const session: CheckoutSessionRow = {
 describe("buy checkout confirmation page", () => {
   it("renders buyer confirmation without implying next-step completion", () => {
     const markup = renderToString(
-      <BuyCheckoutConfirmationPage session={session} paymentPath="/account/payments/pay_1" />,
+      <BuyCheckoutConfirmationPage
+        session={session}
+        paymentPath="/account/payments/pay_1"
+        paymentSummary={{ amount: "27.29", currencyCode: "usd", status: "pending-confirmation" }}
+      />,
     );
 
     expect(markup).toContain("Checkout received");
     expect(markup).toContain("Payment ready");
     expect(markup).toContain("Payment reference");
     expect(markup).toContain("pay_1");
+    expect(markup).toContain("Payment status");
+    expect(markup).toContain("Payment total");
+    expect(markup).toContain("$27.29");
     expect(markup).toContain("Order reference");
     expect(markup).toContain("ord_1, ord_2");
+    expect(markup).toContain("Order status");
+    expect(markup).toContain("Created for payment");
     expect(markup).toContain("Support reference");
     expect(markup).toContain("CS-CR_READY");
     expect(markup).toContain("Secure payment");
@@ -79,5 +88,17 @@ describe("buy checkout confirmation page", () => {
     expect(markup).not.toContain("Label ready");
     expect(markup).not.toContain("Payout ready");
     expect(markup).not.toContain("provider payload");
+  });
+
+  it("keeps confirmation available while the payment total is still projecting", () => {
+    const markup = renderToString(
+      <BuyCheckoutConfirmationPage session={session} paymentPath="/account/payments/pay_1" paymentSummary={null} />,
+    );
+
+    expect(markup).toContain("Payment status");
+    expect(markup).toContain("Preparing payment");
+    expect(markup).toContain("Payment total");
+    expect(markup).toContain("Pending");
+    expect(markup).toContain("Continue to payment");
   });
 });
