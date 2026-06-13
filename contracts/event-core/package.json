@@ -9,7 +9,17 @@
   },
   "exports": {
     ".": "./index.ts",
-    "./*": "./*.ts"
+    "./aggregate-command-handler": "./aggregate-command-handler.ts",
+    "./codec": "./codec.ts",
+    "./command-handler": "./command-handler.ts",
+    "./consistency": "./consistency.ts",
+    "./domain": "./domain.ts",
+    "./event-store": "./event-store.ts",
+    "./projector": "./projector.ts",
+    "./public-event-payloads": "./public-event-payloads.ts",
+    "./storage": "./storage.ts",
+    "./stream-id": "./stream-id.ts",
+    "./transport": "./transport.ts"
   },
   "types": "./index.ts"
 }

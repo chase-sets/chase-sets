@@ -1,12 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { RealtimeCursor } from "./realtime-outbox-store";
-
-export type RealtimeCursorSigningKeySet =
-  | string
-  | Readonly<{
-      current: string;
-      previous?: readonly string[];
-    }>;
+import type { RealtimeCursorSigningKeySet } from "./realtime";
 
 type RealtimeCursorEnvelope = Readonly<{
   v: 1;

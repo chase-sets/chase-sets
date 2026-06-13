@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createCommandHandler } from "./command-handler";
+import { createCommandHandler } from "./command-handler-internal";
 import type { AggregateRepository } from "./aggregate-repository";
 import type { DomainEvent } from "./domain";
 import type { StoredEvent } from "./storage";

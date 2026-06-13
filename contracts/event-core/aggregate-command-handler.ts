@@ -1,9 +1,7 @@
-import {
-  createAggregateRepository,
-  type AggregateRepository,
-  type AggregateRepositoryConfig,
-} from "./aggregate-repository";
-import { createCommandHandler, type CommandHandler } from "./command-handler";
+import { type AggregateRepository, type AggregateRepositoryConfig } from "./aggregate-repository";
+import { createAggregateRepository } from "./aggregate-repository-internal";
+import type { CommandHandler } from "./command-handler";
+import { createCommandHandler } from "./command-handler-internal";
 import type { AggregateDecider, DomainEvent } from "./domain";
 
 export type AggregateCommandHandlerConfig<State, Command, Event extends DomainEvent> = AggregateRepositoryConfig<

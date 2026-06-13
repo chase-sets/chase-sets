@@ -9,7 +9,7 @@ import {
   type WorkSignalNotificationReceivedEvent,
 } from "./work-signal-composite";
 import type { ResolvedActor } from "./auth";
-import { decodeRealtimeCursor, encodeRealtimeCursor, type RealtimeCursorSigningKeySet } from "./realtime-cursor";
+import { decodeRealtimeCursor, encodeRealtimeCursor } from "./realtime-cursor";
 import { createRealtimeReadHub, type RealtimeReadHub } from "./realtime-read-hub";
 import {
   createInMemoryRealtimeStreamLimiter,
@@ -61,6 +61,13 @@ const DEFAULT_HEARTBEAT_INTERVAL_MS = 15_000;
 const DEFAULT_RETENTION_PRUNE_INTERVAL_MS = 60_000;
 const DEFAULT_MAX_CONSECUTIVE_FULL_BATCHES = 3;
 
+export type RealtimeCursorSigningKeySet =
+  | string
+  | Readonly<{
+      current: string;
+      previous?: readonly string[];
+    }>;
+
 export {
   authorizeRealtimeTopics,
   compactRealtimeReplayMessages,
@@ -84,8 +91,6 @@ export {
   runRealtimeProjectionTransaction,
   selectRealtimeStoresForTopics,
 };
-export { decodeRealtimeCursor, encodeRealtimeCursor, type RealtimeCursorSigningKeySet } from "./realtime-cursor";
-export { createRealtimeReadHub, type RealtimeReadHub } from "./realtime-read-hub";
 export {
   createInMemoryRealtimeStreamLimiter,
   createPostgresRealtimeStreamLimiter,

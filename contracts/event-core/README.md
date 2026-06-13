@@ -53,7 +53,7 @@ Apply `infrastructure/event-core-postgres/schema.sql` before using Postgres adap
 Core contracts and composition helpers:
 
 ```ts
-import { createCommandHandler, createProjector } from "@chase-sets/event-core";
+import { createAggregateCommandHandler, createProjector } from "@chase-sets/event-core";
 ```
 
 Postgres adapters:

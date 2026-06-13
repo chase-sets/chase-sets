@@ -8,7 +8,6 @@ import {
   createPostgresRealtimeStreamLimiter,
   createRealtimeOutboxPartitionName,
   createRealtimeOutboxPartitionMaintainer,
-  createRealtimeReadHub,
   createRealtimeRoutes,
   createRealtimeRetentionSweeper,
   createRedisRealtimeStreamLimiter,
@@ -23,6 +22,7 @@ import {
   resolveRealtimeRouteConfig,
   runRealtimeProjectionTransaction,
 } from "./realtime";
+import { createRealtimeReadHub } from "./realtime-read-hub";
 import {
   createWorkSignalEnvelope,
   parseWorkSignalEnvelope,
