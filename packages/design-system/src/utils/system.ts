@@ -175,7 +175,7 @@ const columnsClasses: BreakpointClassMap<ColumnCount> = {
   },
 };
 
-type SpacePrefix = "p" | "px" | "py" | "m" | "mx" | "my" | "-mx" | "-my" | "gap";
+type SpacePrefix = "p" | "px" | "py" | "mx" | "my" | "-mx" | "-my" | "gap";
 
 const spaceClasses: Record<SpacePrefix, Record<ThemeSpaceToken, string>> = {
   p: {
@@ -223,21 +223,8 @@ const spaceClasses: Record<SpacePrefix, Record<ThemeSpaceToken, string>> = {
     11: "py-11",
     12: "py-12",
   },
-  m: {
-    0: "m-0",
-    1: "m-1",
-    2: "m-2",
-    3: "m-3",
-    4: "m-4",
-    5: "m-5",
-    6: "m-6",
-    7: "m-7",
-    8: "m-8",
-    9: "m-9",
-    10: "m-10",
-    11: "m-11",
-    12: "m-12",
-  },
+  // Positive margins are intentionally limited to Spacer. Layout primitives
+  // should compose with gap/padding so spacing stays container-owned.
   mx: {
     0: "mx-0",
     1: "mx-1",

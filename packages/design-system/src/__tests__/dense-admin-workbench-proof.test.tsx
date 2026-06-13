@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { DenseAdminWorkbenchProof } from "../index";
+import { DenseAdminWorkbenchProof, WorkbenchGrid, WorkbenchStack } from "../index";
 
 describe("DenseAdminWorkbenchProof", () => {
   it("keeps provider import to Source Observation promotion as the primary workflow", () => {
@@ -124,5 +124,13 @@ describe("DenseAdminWorkbenchProof", () => {
     expect(markup).toContain("md:hidden");
     expect(markup).toContain("hidden md:block");
     expect(markup).not.toContain("/admin/catalog/integrations");
+  });
+
+  it("keeps dense workbench gap labels mapped to canonical SpaceToken classes", () => {
+    expect(renderToString(<WorkbenchStack gap="sm">Compact</WorkbenchStack>)).toContain("gap-2");
+    expect(renderToString(<WorkbenchStack gap="md">Default</WorkbenchStack>)).toContain("gap-4");
+    expect(renderToString(<WorkbenchStack gap="lg">Roomy</WorkbenchStack>)).toContain("gap-5");
+    expect(renderToString(<WorkbenchGrid>Default grid</WorkbenchGrid>)).toContain("gap-4");
+    expect(renderToString(<WorkbenchGrid gap="lg">Roomy grid</WorkbenchGrid>)).toContain("gap-5");
   });
 });

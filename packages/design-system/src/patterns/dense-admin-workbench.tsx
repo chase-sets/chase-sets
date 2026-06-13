@@ -3,6 +3,7 @@ import { SectionNavigation, type SectionNavigationGroup } from "../components/ac
 import { Badge, type BadgeProps } from "../components/feedback";
 import { Form, type FormProps } from "../components/forms";
 import { cx } from "../utils/cx";
+import { resolveSpaceClass, type SpaceToken } from "../utils/system";
 
 type FrameProps<T extends HTMLElement = HTMLElement> = Omit<HTMLAttributes<T>, "className" | "style">;
 type TitledFrameProps<T extends HTMLElement = HTMLElement> = Omit<FrameProps<T>, "title">;
@@ -94,10 +95,22 @@ export interface WorkbenchStackProps extends FrameProps<HTMLDivElement> {
   element?: "div" | "section";
 }
 
-const stackGapClasses: Record<NonNullable<WorkbenchStackProps["gap"]>, string> = {
-  sm: "gap-2",
-  md: "gap-4",
-  lg: "gap-5",
+type WorkbenchGap = NonNullable<WorkbenchStackProps["gap"]>;
+
+const workbenchGapTokens = {
+  sm: 2,
+  md: 4,
+  lg: 5,
+} as const satisfies Record<WorkbenchGap, SpaceToken>;
+
+function resolveWorkbenchGapClass(gap: WorkbenchGap): string {
+  return resolveSpaceClass("gap", workbenchGapTokens[gap]);
+}
+
+const stackGapClasses: Record<WorkbenchGap, string> = {
+  sm: resolveWorkbenchGapClass("sm"),
+  md: resolveWorkbenchGapClass("md"),
+  lg: resolveWorkbenchGapClass("lg"),
 };
 
 export function WorkbenchStack({ children, gap = "md", element = "div", ...rest }: WorkbenchStackProps) {
@@ -113,6 +126,7 @@ export function WorkbenchStack({ children, gap = "md", element = "div", ...rest 
 export interface WorkbenchGridProps extends FrameProps<HTMLDivElement> {
   children?: ReactNode;
   columns?: "two" | "three" | "detail" | "sidebar" | "equalDetail";
+  gap?: WorkbenchGap;
 }
 
 const workbenchGridColumnClasses: Record<NonNullable<WorkbenchGridProps["columns"]>, string> = {
@@ -123,9 +137,9 @@ const workbenchGridColumnClasses: Record<NonNullable<WorkbenchGridProps["columns
   equalDetail: "xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(18rem,24rem)]",
 };
 
-export function WorkbenchGrid({ children, columns = "two", ...rest }: WorkbenchGridProps) {
+export function WorkbenchGrid({ children, columns = "two", gap = "md", ...rest }: WorkbenchGridProps) {
   return (
-    <div {...rest} className={cx("grid min-w-0 gap-4", workbenchGridColumnClasses[columns])}>
+    <div {...rest} className={cx("grid min-w-0", resolveWorkbenchGapClass(gap), workbenchGridColumnClasses[columns])}>
       {children}
     </div>
   );
