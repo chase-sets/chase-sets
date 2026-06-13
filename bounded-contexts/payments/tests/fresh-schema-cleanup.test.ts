@@ -16,6 +16,7 @@ describe("fresh payments schemas", () => {
       expect(schema).not.toMatch(/ADD COLUMN IF NOT EXISTS/i);
       expect(schema).not.toMatch(/DROP CONSTRAINT/i);
       expect(schema).not.toMatch(/regexp_replace\(support_request_id/i);
+      expect(schema).not.toMatch(/request_json/i);
     }
 
     expect(paymentsPaymentSchemaSql).toContain("balance_credit_amount numeric(12, 2) NOT NULL DEFAULT 0");

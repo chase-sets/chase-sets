@@ -811,7 +811,6 @@ export async function recordPaymentProviderOperationPending(
     accountId?: string | null;
     paymentId?: string | null;
     idempotencyKey: string;
-    request?: unknown;
     createdAt?: string;
   }>,
 ) {
@@ -824,18 +823,16 @@ export async function recordPaymentProviderOperationPending(
        account_id,
        payment_id,
        idempotency_key,
-       request_json,
        status,
        created_at,
        updated_at
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, 'pending', $8, $8)
+     ) VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, $7)
      ON CONFLICT (operation_key) DO UPDATE
      SET provider_name = EXCLUDED.provider_name,
          operation_kind = EXCLUDED.operation_kind,
          account_id = EXCLUDED.account_id,
          payment_id = EXCLUDED.payment_id,
          idempotency_key = EXCLUDED.idempotency_key,
-         request_json = EXCLUDED.request_json,
          updated_at = EXCLUDED.updated_at`,
     [
       operation.operationKey,
@@ -844,7 +841,6 @@ export async function recordPaymentProviderOperationPending(
       operation.accountId ?? null,
       operation.paymentId ?? null,
       operation.idempotencyKey,
-      JSON.stringify(operation.request ?? {}),
       timestamp,
     ],
   );

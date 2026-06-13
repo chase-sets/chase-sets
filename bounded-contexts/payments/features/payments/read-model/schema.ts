@@ -68,7 +68,6 @@ CREATE TABLE IF NOT EXISTS payments_provider_operations (
   account_id text NULL,
   payment_id text NULL,
   idempotency_key text NOT NULL,
-  request_json jsonb NOT NULL DEFAULT '{}'::jsonb,
   status text NOT NULL CHECK (status IN ('pending', 'succeeded', 'failed')),
   provider_object_reference text NULL,
   error_message text NULL,

@@ -340,6 +340,11 @@ describe("payment runtime", () => {
       String(sql).includes("INSERT INTO payments_provider_operations"),
     );
     expect(providerOperationCall).toBeTruthy();
+    expect(String(providerOperationCall![0])).not.toContain("request_json");
+    const providerOperationParams = providerOperationCall![1] as readonly unknown[];
+    expect(providerOperationParams).toHaveLength(7);
+    expect(JSON.stringify(providerOperationParams)).not.toContain("clientRiskContext");
+    expect(JSON.stringify(providerOperationParams)).not.toContain("savedCheckoutInstrument");
     expect(db.query.mock.invocationCallOrder[db.query.mock.calls.indexOf(providerOperationCall!)]).toBeLessThan(
       processorGateway.createPaymentSession.mock.invocationCallOrder[0],
     );
