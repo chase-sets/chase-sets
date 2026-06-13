@@ -106,7 +106,8 @@ describe("signed-in sell checkout page", () => {
     expect(markup).toContain("Saved payout setup");
     expect(markup).toContain("Seller account ready");
     expect(markup).toContain("Prepare a prepaid label");
-    expect(markup).toContain("Review sale handoff");
+    expect(markup).toContain("Review sale details");
+    expect(markup).not.toContain("Review sale handoff");
     expect(markup).toContain("No label, payout, settlement, sale, notification, or account-history side effect starts");
     expect(markup).toContain("Checkout policies");
     expect(markup).toContain("Terms of service");

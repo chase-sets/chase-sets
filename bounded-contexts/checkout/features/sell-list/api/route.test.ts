@@ -457,7 +457,7 @@ describe("checkout sell list routes", () => {
     );
   });
 
-  it("rejects Sell List confirmation without readiness, seller, and handoff evidence", async () => {
+  it("rejects Sell List confirmation without readiness, seller, and reviewed sale details", async () => {
     const services = createServices();
     const app = buildApp({ actor: sellerActor(), services });
 
@@ -473,7 +473,7 @@ describe("checkout sell list routes", () => {
     await expect(response.json()).resolves.toMatchObject({
       error: {
         code: "validation_failed",
-        message: "Sell List confirmation requires current readiness, seller, and handoff evidence.",
+        message: "Sell List confirmation requires current readiness, seller, and reviewed sale details.",
       },
     });
     expect(services.confirmSellListCheckout).not.toHaveBeenCalled();
@@ -505,7 +505,7 @@ describe("checkout sell list routes", () => {
     await expect(response.json()).resolves.toMatchObject({
       error: {
         code: "validation_failed",
-        message: "Sell List confirmation requires current readiness, seller, and handoff evidence.",
+        message: "Sell List confirmation requires current readiness, seller, and reviewed sale details.",
       },
     });
     expect(services.confirmSellListCheckout).not.toHaveBeenCalled();

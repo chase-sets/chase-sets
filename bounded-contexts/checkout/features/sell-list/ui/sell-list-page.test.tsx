@@ -78,8 +78,7 @@ const latestConfirmation: CheckoutSellListConfirmationRow = {
         action: "mixed",
         quantity: 2,
         remainingQuantity: 0,
-        detail:
-          "Marketplace handoff recorded. Downstream sale, label, payout, settlement, and notification work is pending.",
+        detail: "Sale review recorded. Labels, payout, settlement, and notifications are still pending.",
         references: {
           offerIds: ["off_charizard"],
           listingId: "lst_charizard",
@@ -181,7 +180,8 @@ describe("checkout sell list page", () => {
     );
 
     expect(markup).toContain("Seller checkout is temporarily unavailable");
-    expect(markup).toContain("no sale, label, payout, or listing handoff has started");
+    expect(markup).toContain("no sale, label, payout, or listing work has started");
+    expect(markup).not.toContain("listing handoff");
     expect(markup).toContain("Review Sell List");
     expect(markup).toContain("Browse products");
     expect(markup).toContain("Charizard");
@@ -278,12 +278,15 @@ describe("checkout sell list page", () => {
     expect(markup).toContain("Latest seller confirmation");
     expect(markup).toContain("Seller confirmation recorded");
     expect(markup).toContain("CS-SL-CHK_SELL_1");
-    expect(markup).toContain("Marketplace handoff recorded");
-    expect(markup).toContain("Pending downstream");
-    expect(markup).toContain("Downstream references are available through support.");
+    expect(markup).toContain("Sale review recorded");
+    expect(markup).toContain("Next steps pending");
+    expect(markup).toContain("Related sale references are available to support.");
     expect(markup).not.toContain("slc_chk_sell_1");
     expect(markup).not.toContain("off_charizard");
     expect(markup).not.toContain("lst_charizard");
+    expect(markup).not.toContain("Marketplace handoff");
+    expect(markup).not.toContain("Pending downstream");
+    expect(markup).not.toContain("Downstream references");
     expect(markup).toContain("View seller activity");
     expect(markup).toContain("View committed sales");
     expect(markup).toContain("View sale shipments");
