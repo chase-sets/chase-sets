@@ -42,7 +42,7 @@ This is a greenfield codebase, so local development environments should reset/bo
 
 ## Supporting Decisions
 
-- [Fresh-State Route Strategy](./docs/fresh-state-route-strategy.md): Shopify-simple Buy Cart, Sell List, readiness, checkout, confirmation, legacy route disposition, and kill-switch route strategy.
+- [Fresh-State Route Strategy](./docs/fresh-state-route-strategy.md): Shopify-simple Buy Cart, Sell List, readiness, checkout, confirmation, old route disposition, and kill-switch route strategy.
 - [Fresh Checkout Session Contracts](./docs/fresh-checkout-session-contracts.md): shared buy/sell snapshot, command, state-machine, recovery, idempotency, guest-merge, and fresh-state rules for Milestone #17.
 - [Checkout Copy Policy](./docs/checkout-copy-policy.md): Milestone #17 customer-safe checkout copy, progressive-disclosure, policy language, and support-reference rules.
 - [Checkout Visual Targets](./docs/checkout-visual-targets.md): image-first Milestone #17 visual targets for buy/sell checkout, readiness, recovery, capability, and support states.
