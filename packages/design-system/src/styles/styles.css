@@ -454,8 +454,10 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
+    .animate-spin,
+    .animate-pulse,
     .ds-reveal {
-      animation: none;
+      animation: none !important;
     }
   }
 
