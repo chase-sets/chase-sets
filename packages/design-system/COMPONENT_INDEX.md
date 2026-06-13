@@ -44,7 +44,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `Button` | `packages/design-system/src/components/actions/button.tsx` | Purpose not documented; symbol name suggests: Button. | `bounded-contexts/auth/features/account-selection/ui/account-selection-page.tsx` |
 | `ButtonGroup` | `packages/design-system/src/components/actions/button.tsx` | Purpose not documented; symbol name suggests: Button Group. | `No production consumer yet.` |
 | `Caption` | `packages/design-system/src/primitives/typography.tsx` | Purpose not documented; symbol name suggests: Caption. | `No production consumer yet.` |
-| `Card` | `packages/design-system/src/components/data-display/card.tsx` | Purpose not documented; symbol name suggests: Card. | `bounded-contexts/auth/features/account-selection/ui/account-selection-page.tsx` |
+| `Card` | `packages/design-system/src/components/data-display/card.tsx` | Canonical card surface with a compound slot API. | `bounded-contexts/auth/features/account-selection/ui/account-selection-page.tsx` |
 | `CategoryTile` | `packages/design-system/src/patterns/app-shells/product-cards.tsx` | Purpose not documented; symbol name suggests: Category Tile. | `No production consumer yet.` |
 | `Center` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: Center. | `No production consumer yet.` |
 | `chaseDarkTheme` | `packages/design-system/src/theme/tokens.ts` | Purpose not documented; symbol name suggests: chase Dark Theme. | `No production consumer yet.` |
