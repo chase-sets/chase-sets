@@ -44,7 +44,7 @@ Cross-context outcomes stay with the context that owns the consequence:
 
 Buyer cancellation after Fulfillment records package preparation uses the `buyer-cancel-request` flow. Before package preparation, Ordering owns self-service purchase cancellation and support must not create a parallel workflow. Refund-style outcomes keep settlement funds held until the money movement and seller-ledger reconciliation have completed.
 
-Support operations readiness evidence lives in [Support operations readiness](docs/support-operations-readiness.md).
+Support operations readiness lives in [Support operations readiness](docs/support-operations-readiness.md).
 
 ## Boundary Notes
 

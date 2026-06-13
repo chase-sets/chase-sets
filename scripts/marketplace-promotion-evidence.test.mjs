@@ -57,7 +57,7 @@ function input(overrides = {}) {
 }
 
 describe("marketplace promotion evidence", () => {
-  it("builds the launch packet promotion and UCP/AP2 gates from a complete review", () => {
+  it("builds the marketplace promotion and UCP/AP2 gates from a complete review", () => {
     expect(buildPromotionEvidence(input())).toEqual({
       schemaVersion: MARKETPLACE_PROMOTION_EVIDENCE_VERSION,
       passesPromotionGate: true,

@@ -74,7 +74,7 @@ function input(overrides = {}) {
 }
 
 describe("marketplace fulfillment postage evidence", () => {
-  it("builds the launch packet gate from complete production EasyPost proof", () => {
+  it("builds the approval gate from complete production EasyPost proof", () => {
     expect(buildFulfillmentPostageEvidence(input())).toEqual({
       schemaVersion: MARKETPLACE_FULFILLMENT_POSTAGE_EVIDENCE_VERSION,
       approved: true,

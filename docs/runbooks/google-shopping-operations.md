@@ -4,7 +4,7 @@ This runbook owns the operator checklist for Chase Sets Google Merchant Center /
 
 ## Operator Surface And Evidence Links
 
-The launch evidence output from `pnpm run ops google-shopping:launch-readiness-evidence` includes this runbook path as `runbook.path`. Store that JSON output or its private evidence reference with the launch packet so release reviewers can jump from the machine gate to the human operating guide.
+The launch evidence output from `pnpm run ops google-shopping:launch-readiness-evidence` includes this runbook path as `runbook.path`. Store that JSON output or its private evidence reference with the Google Shopping readiness record so release reviewers can jump from the machine gate to the human operating guide.
 
 The Google Shopping admin/operator surface should link to this runbook with the label `Google Shopping Operations` near sync status, diagnostics, and pause/rollback controls. The surface should not copy credentials, private Merchant Center screenshots, or raw provider payloads into the UI; it should show redacted status, row identifiers, evidence references, and the next operator action from this runbook.
 
@@ -122,7 +122,7 @@ Use `--expected-mode disabled` when proving that Google Shopping submission is i
 The redacted readiness report should include:
 
 - production environment values for `GOOGLE_MERCHANT_SYNC_ENABLED`, `GOOGLE_MERCHANT_DRY_RUN`, `CHASE_SETS_MARKETPLACE_INDEXING`, and the required Merchant account/data-source/target/feed/credential-secret variable names;
-- this runbook reference, either from `runbook.path` in the launch evidence output or from the private launch packet index;
+- this runbook reference, either from `runbook.path` in the launch evidence output or from the private Google Shopping readiness record;
 - feed quality counts: total, eligible, excluded, exclusion reasons, image eligibility counts, blocking issue counts, representative sample payloads, and sampled image HTTP checks;
 - crawl posture output from `google-shopping:crawl-posture-evidence`;
 - policy references for Merchant account approval, API data source, policy review, Merchant shipping settings, Merchant returns settings, Tax readiness, public shipping URL, public returns URL, and return policy label;

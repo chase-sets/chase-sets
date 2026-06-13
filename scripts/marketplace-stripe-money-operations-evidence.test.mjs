@@ -113,7 +113,7 @@ function input(overrides = {}) {
 }
 
 describe("marketplace stripe money operations evidence", () => {
-  it("builds the launch packet gate from complete live Stripe proof", () => {
+  it("builds the approval gate from complete live Stripe proof", () => {
     expect(buildStripeMoneyOperationsEvidence(input())).toEqual({
       schemaVersion: MARKETPLACE_STRIPE_MONEY_OPERATIONS_EVIDENCE_VERSION,
       approved: true,

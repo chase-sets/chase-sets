@@ -164,7 +164,7 @@ variable "production_support_operations_approved" {
 variable "production_support_operations_reference" {
   type        = string
   default     = ""
-  description = "Support-owned evidence reference for approved production support operations readiness, such as a staging rehearsal record or launch review ticket."
+  description = "Support-owned approval reference for production support operations readiness."
 
   validation {
     condition     = !var.production_support_operations_approved || trimspace(var.production_support_operations_reference) != ""
