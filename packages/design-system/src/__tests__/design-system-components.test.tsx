@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useState } from "react";
+import { act, useState } from "react";
+import { hydrateRoot, type Root } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -120,6 +121,39 @@ function MotionStatus() {
   );
 }
 
+function mockReducedMotionPreference(matches: boolean) {
+  const previousMatchMedia = window.matchMedia;
+  const mediaQueryList = {
+    matches,
+    media: "(prefers-reduced-motion: reduce)",
+    onchange: null,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    dispatchEvent: vi.fn(() => false),
+  } as MediaQueryList;
+
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    writable: true,
+    value: vi.fn(() => mediaQueryList),
+  });
+
+  return () => {
+    if (previousMatchMedia) {
+      Object.defineProperty(window, "matchMedia", {
+        configurable: true,
+        writable: true,
+        value: previousMatchMedia,
+      });
+      return;
+    }
+
+    Reflect.deleteProperty(window, "matchMedia");
+  };
+}
+
 function DialogInteractionHarness({ title }: { title: string }) {
   const [open, setOpen] = useState(true);
 
@@ -179,25 +213,71 @@ describe("design system components", () => {
     expect(screen.getByText("always")).toBeTruthy();
   });
 
-  it("resolves the user reduced motion policy from matchMedia", () => {
-    Object.defineProperty(window, "matchMedia", {
-      configurable: true,
-      writable: true,
-      value: () => ({
-        matches: true,
-        addEventListener: () => {},
-        removeEventListener: () => {},
-      }),
-    });
+  it("resolves the user reduced motion policy from matchMedia", async () => {
+    const restoreMatchMedia = mockReducedMotionPreference(true);
 
-    render(
+    try {
+      render(
+        <ChaseRoot>
+          <MotionStatus />
+        </ChaseRoot>,
+      );
+
+      expect(await screen.findByText("reduced")).toBeTruthy();
+      expect(screen.getByText("user")).toBeTruthy();
+    } finally {
+      restoreMatchMedia();
+    }
+  });
+
+  it("hydrates reduced-motion user preference without a data attribute mismatch", async () => {
+    const restoreMatchMedia = mockReducedMotionPreference(true);
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const markup = renderToString(
       <ChaseRoot>
         <MotionStatus />
       </ChaseRoot>,
     );
+    const container = document.createElement("div");
+    let root: Root | undefined;
 
-    expect(screen.getByText("reduced")).toBeTruthy();
-    expect(screen.getByText("user")).toBeTruthy();
+    expect(markup).toContain('data-reduced-motion="false"');
+
+    container.innerHTML = markup;
+    document.body.appendChild(container);
+
+    try {
+      await act(async () => {
+        root = hydrateRoot(
+          container,
+          <ChaseRoot>
+            <MotionStatus />
+          </ChaseRoot>,
+        );
+      });
+
+      expect(
+        consoleError.mock.calls.some((call) =>
+          call.some((entry) => {
+            const message = String(entry).toLowerCase();
+
+            return message.includes("data-reduced-motion") || message.includes("hydration");
+          }),
+        ),
+      ).toBe(false);
+
+      await waitFor(() => {
+        expect(container.querySelector("[data-reduced-motion]")?.getAttribute("data-reduced-motion")).toBe("true");
+      });
+      expect(within(container).getByText("reduced")).toBeTruthy();
+    } finally {
+      await act(async () => {
+        root?.unmount();
+      });
+      container.remove();
+      consoleError.mockRestore();
+      restoreMatchMedia();
+    }
   });
 
   it("renders empty state for empty data tables", () => {
