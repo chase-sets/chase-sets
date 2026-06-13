@@ -48,8 +48,8 @@ export type {
   ToastRegionProps,
 } from "./toast";
 
-export { LoadingSpinner, ProgressBar, Skeleton } from "./loading";
-export type { LoadingSpinnerProps, ProgressBarProps, SkeletonProps } from "./loading";
+export { LoadingSpinner, Progress, ProgressBar, Skeleton } from "./loading";
+export type { LoadingSpinnerProps, ProgressProps, ProgressBarProps, ProgressTone, SkeletonProps } from "./loading";
 
 export { EmptyState } from "./empty-state";
 export type { EmptyStateProps } from "./empty-state";

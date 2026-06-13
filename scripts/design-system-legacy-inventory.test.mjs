@@ -97,13 +97,13 @@ export function ProductCard() {
     ]);
   });
 
-  it("keeps relocated Ui compatibility exports visible until removal", async () => {
+  it("keeps Ui alias exports visible until removal", async () => {
     const rootDir = createRepo();
     writeSource(
       rootDir,
       "packages/design-system/src/index.ts",
       `
-export { Badge as UiBadge } from "./components/compat/badge";
+export { Badge as UiBadge } from "./components/feedback/badge";
 export { Card } from "./components/data-display/card";
 `,
     );

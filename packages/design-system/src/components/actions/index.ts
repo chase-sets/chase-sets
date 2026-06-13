@@ -22,6 +22,9 @@ export type { ToolbarProps, ToolbarButtonProps, ToolbarInputProps } from "./tool
 export { NavigationMenu } from "./navigation-menu";
 export type { NavigationMenuItem, NavigationMenuProps } from "./navigation-menu";
 
+export { NavigationHeader } from "./navigation-header";
+export type { NavigationHeaderItem, NavigationHeaderProps } from "./navigation-header";
+
 export { SectionNavigation } from "./section-navigation";
 export type {
   SectionNavigationGroup,

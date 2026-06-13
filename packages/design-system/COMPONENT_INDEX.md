@@ -4,8 +4,8 @@
 
 This index is generated from the root `@chase-sets/design-system` export surface and the production consumer inventory used by `scripts/check-design-system-dead-exports.mjs`.
 
-- Runtime exports indexed: 335
-- Source modules covered: 103
+- Runtime exports indexed: 334
+- Source modules covered: 101
 - Example consumers scan: production files under `bounded-contexts/` and `deployables/`, excluding tests
 
 | Component/export | Module | One-line purpose | Example consumer file |
@@ -74,7 +74,6 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `CheckoutTrustPanel` | `packages/design-system/src/patterns/app-shells/checkout-panels.tsx` | Purpose not documented; symbol name suggests: Checkout Trust Panel. | `No production consumer yet.` |
 | `clearFieldError` | `packages/design-system/src/components/forms/form-state.ts` | Purpose not documented; symbol name suggests: clear Field Error. | `No production consumer yet.` |
 | `Cluster` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: Cluster. | `bounded-contexts/discovery/features/google-shopping-operations/ui/google-shopping-operations-page.tsx` |
-| `cn` | `packages/design-system/src/lib/utils.ts` | Purpose not documented; symbol name only: cn. | `No production consumer yet.` |
 | `CodeText` | `packages/design-system/src/primitives/typography.tsx` | Purpose not documented; symbol name suggests: Code Text. | `bounded-contexts/platform-operations/features/release-controls/ui/release-controls-page.tsx` |
 | `ColorModeToggle` | `packages/design-system/src/theme/provider.tsx` | Purpose not documented; symbol name suggests: Color Mode Toggle. | `No production consumer yet.` |
 | `Combobox` | `packages/design-system/src/components/forms/combobox.tsx` | Purpose not documented; symbol name suggests: Combobox. | `bounded-contexts/catalog/features/catalog-items/ui/catalog-item-detail-page.tsx` |
@@ -185,7 +184,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `ModalDialog` | `packages/design-system/src/components/feedback/panel-interactions.tsx` | Purpose not documented; symbol name suggests: Modal Dialog. | `bounded-contexts/identity/features/shipping-addresses/ui/shipping-address-page.tsx` |
 | `NativeSelect` | `packages/design-system/src/components/forms/select.tsx` | Purpose not documented; symbol name suggests: Native Select. | `bounded-contexts/auth/features/sessions/ui/session-detail-page.tsx` |
 | `NavigationDrawer` | `packages/design-system/src/components/feedback/panel-interactions.tsx` | Purpose not documented; symbol name suggests: Navigation Drawer. | `No production consumer yet.` |
-| `NavigationHeader` | `packages/design-system/src/components/compat/navigation-header.tsx` | Purpose not documented; symbol name suggests: Navigation Header. | `No production consumer yet.` |
+| `NavigationHeader` | `packages/design-system/src/components/actions/navigation-header.tsx` | Purpose not documented; symbol name suggests: Navigation Header. | `No production consumer yet.` |
 | `NavigationMenu` | `packages/design-system/src/components/actions/navigation-menu.tsx` | Purpose not documented; symbol name suggests: Navigation Menu. | `No production consumer yet.` |
 | `NavRail` | `packages/design-system/src/components/actions/navigation.tsx` | Purpose not documented; symbol name suggests: Nav Rail. | `No production consumer yet.` |
 | `NoResultsRecovery` | `packages/design-system/src/components/commerce/search.tsx` | Purpose not documented; symbol name suggests: No Results Recovery. | `bounded-contexts/discovery/features/search/ui/search-page.tsx` |
@@ -218,7 +217,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `ProductMediaModule` | `packages/design-system/src/components/commerce/detail.tsx` | Purpose not documented; symbol name suggests: Product Media Module. | `No production consumer yet.` |
 | `ProductOptions` | `packages/design-system/src/components/data-display/product-options.tsx` | Purpose not documented; symbol name suggests: Product Options. | `bounded-contexts/checkout/features/cart/ui/add-to-cart-section.tsx` |
 | `productOptionsFromSummary` | `packages/design-system/src/components/data-display/product-options.tsx` | Purpose not documented; symbol name suggests: product Options From Summary. | `bounded-contexts/checkout/features/cart/ui/add-to-cart-section.tsx` |
-| `Progress` | `packages/design-system/src/components/compat/progress.tsx` | Purpose not documented; symbol name suggests: Progress. | `No production consumer yet.` |
+| `Progress` | `packages/design-system/src/components/feedback/loading.tsx` | Purpose not documented; symbol name suggests: Progress. | `No production consumer yet.` |
 | `ProgressBar` | `packages/design-system/src/components/feedback/loading.tsx` | Purpose not documented; symbol name suggests: Progress Bar. | `No production consumer yet.` |
 | `ProgressiveDisclosure` | `packages/design-system/src/components/feedback/disclosure.tsx` | Purpose not documented; symbol name suggests: Progressive Disclosure. | `bounded-contexts/catalog/features/blueprints/ui/blueprint-detail-page.tsx` |
 | `ProgressiveDisclosureGroup` | `packages/design-system/src/components/feedback/disclosure.tsx` | Purpose not documented; symbol name suggests: Progressive Disclosure Group. | `No production consumer yet.` |
@@ -299,7 +298,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `Textarea` | `packages/design-system/src/components/forms/textarea.tsx` | Purpose not documented; symbol name suggests: Textarea. | `bounded-contexts/catalog/features/catalog-items/ui/catalog-item-detail-page.tsx` |
 | `TextInput` | `packages/design-system/src/components/forms/text-input.tsx` | Purpose not documented; symbol name suggests: Text Input. | `bounded-contexts/auth/features/registration/ui/register-page.tsx` |
 | `ThemeScope` | `packages/design-system/src/theme/provider.tsx` | Purpose not documented; symbol name suggests: Theme Scope. | `No production consumer yet.` |
-| `ThemeToggle` | `packages/design-system/src/components/compat/theme-toggle.tsx` | Purpose not documented; symbol name suggests: Theme Toggle. | `No production consumer yet.` |
+| `ThemeToggle` | `packages/design-system/src/theme/theme-toggle.tsx` | Purpose not documented; symbol name suggests: Theme Toggle. | `No production consumer yet.` |
 | `Thumbnail` | `packages/design-system/src/primitives/typography.tsx` | Purpose not documented; symbol name suggests: Thumbnail. | `No production consumer yet.` |
 | `Timeline` | `packages/design-system/src/components/data-display/timeline.tsx` | Purpose not documented; symbol name suggests: Timeline. | `No production consumer yet.` |
 | `toastManager` | `packages/design-system/src/components/feedback/toast.tsx` | Purpose not documented; symbol name suggests: toast Manager. | `No production consumer yet.` |

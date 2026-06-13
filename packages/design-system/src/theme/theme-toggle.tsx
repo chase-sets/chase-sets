@@ -1,6 +1,6 @@
 import { Monitor, Moon, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
-import { cn } from "../../lib/utils";
+import { cx } from "../utils/cx";
 
 export type ThemePreference = "system" | "light" | "dark";
 type ResolvedTheme = "light" | "dark";
@@ -107,10 +107,7 @@ export function ThemeToggle({ className }: ThemeToggleProps) {
 
   return (
     <fieldset
-      className={cn(
-        "inline-flex rounded-[var(--radius-lg)] border border-[var(--muted)] bg-[var(--card)] p-1 shadow-[var(--shadow-sm)]",
-        className,
-      )}
+      className={cx("inline-flex rounded-tokenLg border border-muted bg-surface p-1 shadow-tokenSm", className)}
       aria-label="Color theme"
     >
       <legend className="sr-only">Color theme</legend>
@@ -128,7 +125,7 @@ export function ThemeToggle({ className }: ThemeToggleProps) {
               checked={preference === option.value}
               onChange={() => selectThemePreference(option.value)}
             />
-            <span className="ds-focus inline-flex h-9 items-center gap-1.5 rounded-[var(--radius)] px-2.5 text-xs font-semibold text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--foreground)] peer-checked:bg-[var(--primary)] peer-checked:text-[var(--primary-foreground)]">
+            <span className="ds-focus inline-flex h-9 items-center gap-1.5 rounded-tokenMd px-2.5 text-xs font-semibold text-secondary transition-colors hover:bg-surface-2 hover:text-foreground peer-checked:bg-accent peer-checked:text-accent-contrast">
               <Icon className="h-3.5 w-3.5" aria-hidden="true" />
               {option.label}
             </span>

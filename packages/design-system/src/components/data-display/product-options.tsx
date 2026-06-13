@@ -1,5 +1,5 @@
 import { type ReactNode } from "react";
-import { cn } from "../../lib/utils";
+import { cx } from "../../utils/cx";
 
 export interface ProductOptionDisplayValue {
   dimensionLabel?: ReactNode;
@@ -103,7 +103,7 @@ export function ProductOptions({
 
   if (options.length === 0) {
     return (
-      <span className={cn("text-[var(--text-secondary)]", className)} aria-label={label}>
+      <span className={cx("text-[var(--text-secondary)]", className)} aria-label={label}>
         {emptyLabel}
       </span>
     );
@@ -111,7 +111,7 @@ export function ProductOptions({
 
   if (variant === "chips") {
     return (
-      <span className={cn("inline-flex flex-wrap items-center gap-1.5", className)} aria-label={label}>
+      <span className={cx("inline-flex flex-wrap items-center gap-1.5", className)} aria-label={label}>
         {options.map((option, index) => (
           <span
             key={`${textFromNode(option.dimensionLabel)}-${textFromNode(option.optionLabel)}-${index}`}
@@ -127,9 +127,9 @@ export function ProductOptions({
 
   return (
     <span
-      className={cn(
+      className={cx(
         variant === "compact"
-          ? cn(
+          ? cx(
               "inline min-w-0 font-semibold text-[var(--foreground)]",
               size === "sm" ? "text-sm leading-5" : "text-xs leading-4",
             )
