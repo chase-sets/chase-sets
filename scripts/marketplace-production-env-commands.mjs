@@ -2,10 +2,10 @@
 import { readFile } from "node:fs/promises";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { validateMarketplaceLaunchEvidence } from "./marketplace-launch-evidence.mjs";
 import {
   OPTIONAL_LAUNCH_ENV_VARIABLES,
   REQUIRED_LAUNCH_ENV_VARIABLES,
+  buildProductionEnvSnapshot,
 } from "./marketplace-production-env-snapshot.mjs";
 import { readEnv, readOption } from "./lib/cli-options.mjs";
 
@@ -13,25 +13,29 @@ export const MARKETPLACE_PRODUCTION_ENV_COMMANDS_VERSION = "marketplace-producti
 
 export function parseProductionEnvCommandsArgs(argv, env = process.env) {
   return {
-    packetPath: readOption(argv, "--file") ?? readEnv("MARKETPLACE_LAUNCH_EVIDENCE_PACKET", env),
+    productionEnvironmentPath: readOption(argv, "--file") ?? readEnv("MARKETPLACE_PRODUCTION_ENVIRONMENT_JSON", env),
     environmentName: readOption(argv, "--environment") ?? readEnv("GITHUB_ENVIRONMENT_NAME", env) ?? "production",
   };
 }
 
 export async function runProductionEnvCommands(options) {
-  const packet = JSON.parse(await readFile(options.packetPath, "utf8"));
-  const validation = validateMarketplaceLaunchEvidence(packet);
-  if (!validation.ok) {
+  const input = JSON.parse(await readFile(options.productionEnvironmentPath, "utf8"));
+  const productionEnvironment = extractProductionEnvironment(input);
+  const validation = buildProductionEnvSnapshot({
+    variables: Object.entries(productionEnvironment).map(([name, value]) => ({ name, value })),
+    environmentName: options.environmentName,
+  });
+  if (!validation.passesProductionEnvSnapshotGate) {
     throw new Error(
       [
-        "Marketplace launch evidence packet must pass before producing GitHub Environment commands.",
+        "Production environment JSON must satisfy public launch readiness before producing GitHub Environment commands.",
         ...validation.errors.map((error) => `- ${error}`),
       ].join("\n"),
     );
   }
 
   return buildProductionEnvCommands({
-    productionEnvironment: packet.productionEnvironment,
+    productionEnvironment,
     environmentName: options.environmentName,
   });
 }
@@ -90,10 +94,17 @@ async function main(argv, env = process.env) {
 
 function validateOptions(options) {
   const errors = [];
-  if (!isNonEmptyString(options.packetPath)) {
-    errors.push("MARKETPLACE_LAUNCH_EVIDENCE_PACKET or --file is required.");
+  if (!isNonEmptyString(options.productionEnvironmentPath)) {
+    errors.push("MARKETPLACE_PRODUCTION_ENVIRONMENT_JSON or --file is required.");
   }
   return errors;
+}
+
+function extractProductionEnvironment(value) {
+  if (isRecord(value?.productionEnvironment)) {
+    return value.productionEnvironment;
+  }
+  return requireRecord(value, "productionEnvironment");
 }
 
 function requireRecord(value, label) {

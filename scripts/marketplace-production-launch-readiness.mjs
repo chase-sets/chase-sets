@@ -149,10 +149,9 @@ export async function readJsonInput(path, readStdinImpl = readStdin) {
 
 function buildOperatorSetup({ missingSecrets }) {
   return {
-    packetCommand:
-      "pnpm run ops marketplace:launch-packet --public-enabled true --launch-evidence-reference <passing-packet-reference> ...",
-    environmentCommand:
-      "pnpm run ops marketplace:production-env-commands --file <redacted-marketplace-launch-evidence.json>",
+    variableSnapshotCommand:
+      "pnpm run ops marketplace:production-env-snapshot --variables <github-environment-variables.json>",
+    environmentCommand: "pnpm run ops marketplace:production-env-commands --file <production-environment.json>",
     secretCommands: missingSecrets.map((name) => `gh secret set ${name} --env production`),
     googleSocialLoginOAuthSetup: buildGoogleSocialLoginOAuthSetup({
       marketplaceUrl: "https://marketplace.chasesets.com",
@@ -160,7 +159,7 @@ function buildOperatorSetup({ missingSecrets }) {
       publicUrl: "https://chasesets.com",
     }),
     notes: [
-      "Generate launch variables from the passing Marketplace Launch Evidence packet; do not hand-set approval booleans.",
+      "Set public launch variables from the domain-owned approval records; do not assemble a separate meta-packet.",
       "Run secret commands interactively or pipe values from a private password manager; never commit secret values.",
       "Complete googleSocialLoginOAuthSetup before smoke-testing production marketplace Google sign-in or admin Google Workspace SSO.",
       "Run this readiness command again after setting variables and secret names, before triggering production promotion.",

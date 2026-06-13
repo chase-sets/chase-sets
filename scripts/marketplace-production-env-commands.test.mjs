@@ -8,7 +8,6 @@ import {
 function productionEnvironment(overrides = {}) {
   return {
     PRODUCTION_MARKETPLACE_PUBLIC_ENABLED: "true",
-    PRODUCTION_MARKETPLACE_LAUNCH_EVIDENCE_REFERENCE: "MARKETPLACE-LAUNCH-EVIDENCE-2026-05-30",
     PRODUCTION_MARKETPLACE_PROMOTION_APPROVED: "true",
     PRODUCTION_MARKETPLACE_PROMOTION_REFERENCE: "LAUNCH-REVIEW-2026-05-30",
     PRODUCTION_MARKETPLACE_CHECKOUT_FEE_APPROVED: "true",
@@ -49,8 +48,11 @@ describe("marketplace production environment commands", () => {
       'gh variable set PRODUCTION_MARKETPLACE_PUBLIC_ENABLED --env "production" --body "true"',
     );
     expect(result.commands[1]).toBe(
-      'gh variable set PRODUCTION_MARKETPLACE_LAUNCH_EVIDENCE_REFERENCE --env "production" --body "MARKETPLACE-LAUNCH-EVIDENCE-2026-05-30"',
+      'gh variable set PRODUCTION_MARKETPLACE_PROMOTION_APPROVED --env "production" --body "true"',
     );
+    expect(
+      result.commands.some((command) => command.includes("PRODUCTION_MARKETPLACE_LAUNCH_EVIDENCE_REFERENCE")),
+    ).toBe(false);
     expect(result.commands).toContain(
       'gh variable set PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_REFERENCE --env "production" --body "CHECKOUT-LAUNCH-2026-05-30"',
     );
@@ -78,19 +80,21 @@ describe("marketplace production environment commands", () => {
     );
   });
 
-  it("parses packet path and environment from flags or environment", () => {
-    expect(parseProductionEnvCommandsArgs(["--file", "packet.json", "--environment", "production"], {})).toMatchObject({
-      packetPath: "packet.json",
+  it("parses production environment path and environment from flags or environment", () => {
+    expect(
+      parseProductionEnvCommandsArgs(["--file", "production-env.json", "--environment", "production"], {}),
+    ).toMatchObject({
+      productionEnvironmentPath: "production-env.json",
       environmentName: "production",
     });
 
     expect(
       parseProductionEnvCommandsArgs([], {
-        MARKETPLACE_LAUNCH_EVIDENCE_PACKET: "secure/packet.json",
+        MARKETPLACE_PRODUCTION_ENVIRONMENT_JSON: "secure/production-env.json",
         GITHUB_ENVIRONMENT_NAME: "production",
       }),
     ).toMatchObject({
-      packetPath: "secure/packet.json",
+      productionEnvironmentPath: "secure/production-env.json",
       environmentName: "production",
     });
   });

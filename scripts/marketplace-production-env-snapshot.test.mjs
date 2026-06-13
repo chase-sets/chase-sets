@@ -12,7 +12,6 @@ function variable(name, value) {
 const completeVariables = [
   variable("PRODUCTION_MARKETPLACE_PUBLIC_ENABLED", "false"),
   variable("PRODUCTION_MARKETPLACE_PROOF_ENABLED", "false"),
-  variable("PRODUCTION_MARKETPLACE_LAUNCH_EVIDENCE_REFERENCE", "MARKETPLACE-LAUNCH-EVIDENCE-2026-05-30"),
   variable("PRODUCTION_MARKETPLACE_PROMOTION_APPROVED", "true"),
   variable("PRODUCTION_MARKETPLACE_PROMOTION_REFERENCE", "LAUNCH-REVIEW-2026-05-30"),
   variable("PRODUCTION_MARKETPLACE_CHECKOUT_FEE_APPROVED", "true"),
@@ -49,7 +48,6 @@ describe("marketplace production environment snapshot", () => {
       passesProductionEnvSnapshotGate: true,
       productionEnvironment: {
         PRODUCTION_MARKETPLACE_PUBLIC_ENABLED: "false",
-        PRODUCTION_MARKETPLACE_LAUNCH_EVIDENCE_REFERENCE: "MARKETPLACE-LAUNCH-EVIDENCE-2026-05-30",
         PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_REFERENCE: "CHECKOUT-LAUNCH-2026-05-30",
         PRODUCTION_STRIPE_MONEY_OPERATIONS_REFERENCE: "STRIPE-MONEY-2026-05-30",
         TAX_PROVIDER_BACKED_QUOTES_REQUIRED: "false",
@@ -62,8 +60,8 @@ describe("marketplace production environment snapshot", () => {
   it("rejects placeholder production evidence references", () => {
     const snapshot = buildProductionEnvSnapshot({
       variables: [
-        ...completeVariables.filter((row) => row.name !== "PRODUCTION_MARKETPLACE_LAUNCH_EVIDENCE_REFERENCE"),
-        variable("PRODUCTION_MARKETPLACE_LAUNCH_EVIDENCE_REFERENCE", "TBD"),
+        ...completeVariables.filter((row) => row.name !== "PRODUCTION_STRIPE_MONEY_OPERATIONS_REFERENCE"),
+        variable("PRODUCTION_STRIPE_MONEY_OPERATIONS_REFERENCE", "TBD"),
       ],
       environmentName: "production",
       checkedAt: "2026-05-30T12:00:00.000Z",
@@ -71,7 +69,7 @@ describe("marketplace production environment snapshot", () => {
 
     expect(snapshot.passesProductionEnvSnapshotGate).toBe(false);
     expect(snapshot.errors).toContain(
-      "PRODUCTION_MARKETPLACE_LAUNCH_EVIDENCE_REFERENCE must point to a real external evidence record, not a placeholder.",
+      "PRODUCTION_STRIPE_MONEY_OPERATIONS_REFERENCE must point to a real external evidence record, not a placeholder.",
     );
   });
 
@@ -87,15 +85,15 @@ describe("marketplace production environment snapshot", () => {
 
     expect(snapshot.passesProductionEnvSnapshotGate).toBe(false);
     expect(snapshot.errors).toContain(
-      "Production GitHub Environment variable PRODUCTION_STRIPE_MONEY_OPERATIONS_REFERENCE is required for launch evidence.",
+      "Production GitHub Environment variable PRODUCTION_STRIPE_MONEY_OPERATIONS_REFERENCE is required for public launch readiness.",
     );
     expect(snapshot.errors).toContain(
-      "Marketplace launch production environment snapshot must come from the production GitHub Environment.",
+      "Marketplace public launch environment snapshot must come from the production GitHub Environment.",
     );
     expect(snapshot.errors).toContain("PRODUCTION_MARKETPLACE_PUBLIC_ENABLED must be the string true or false.");
   });
 
-  it("requires production EasyPost mode in launch environment evidence", () => {
+  it("requires production EasyPost mode in public launch readiness", () => {
     const snapshot = buildProductionEnvSnapshot({
       variables: [
         ...completeVariables.filter((row) => row.name !== "EASYPOST_MODE"),
@@ -106,7 +104,7 @@ describe("marketplace production environment snapshot", () => {
     });
 
     expect(snapshot.passesProductionEnvSnapshotGate).toBe(false);
-    expect(snapshot.errors).toContain("EASYPOST_MODE must be production for marketplace launch evidence.");
+    expect(snapshot.errors).toContain("EASYPOST_MODE must be production for marketplace public launch readiness.");
   });
 
   it("requires proof reference when proof mode is enabled", () => {

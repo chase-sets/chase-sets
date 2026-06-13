@@ -9,7 +9,6 @@ export const MARKETPLACE_PRODUCTION_ENV_SNAPSHOT_VERSION = "marketplace-producti
 
 export const REQUIRED_LAUNCH_ENV_VARIABLES = [
   "PRODUCTION_MARKETPLACE_PUBLIC_ENABLED",
-  "PRODUCTION_MARKETPLACE_LAUNCH_EVIDENCE_REFERENCE",
   "PRODUCTION_MARKETPLACE_PROMOTION_APPROVED",
   "PRODUCTION_MARKETPLACE_PROMOTION_REFERENCE",
   "PRODUCTION_MARKETPLACE_CHECKOUT_FEE_APPROVED",
@@ -67,7 +66,7 @@ export function buildProductionEnvSnapshot(input) {
 
   for (const name of REQUIRED_LAUNCH_ENV_VARIABLES) {
     if (!isNonEmptyString(variableMap[name])) {
-      errors.push(`Production GitHub Environment variable ${name} is required for launch evidence.`);
+      errors.push(`Production GitHub Environment variable ${name} is required for public launch readiness.`);
       continue;
     }
     productionEnvironment[name] = variableMap[name];
@@ -80,7 +79,7 @@ export function buildProductionEnvSnapshot(input) {
   }
 
   if (input.environmentName !== "production") {
-    errors.push("Marketplace launch production environment snapshot must come from the production GitHub Environment.");
+    errors.push("Marketplace public launch environment snapshot must come from the production GitHub Environment.");
   }
 
   validateBooleanVariables(productionEnvironment, errors);
@@ -210,7 +209,7 @@ function validateProofModePublicSwitch(productionEnvironment, errors) {
 
 function validateProductionRuntimeModes(productionEnvironment, errors) {
   if (productionEnvironment.EASYPOST_MODE && productionEnvironment.EASYPOST_MODE !== "production") {
-    errors.push("EASYPOST_MODE must be production for marketplace launch evidence.");
+    errors.push("EASYPOST_MODE must be production for marketplace public launch readiness.");
   }
 }
 

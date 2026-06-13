@@ -132,7 +132,6 @@ Run `pnpm run ops marketplace:production-proof-readiness` before EasyPost dashbo
 ## Production EasyPost Proof
 
 Before production marketplace promotion, Fulfillment must approve production postage readiness with `PRODUCTION_FULFILLMENT_POSTAGE_APPROVED=true` and a non-empty `PRODUCTION_FULFILLMENT_POSTAGE_REFERENCE` in the production GitHub Environment. The reference must point to the Fulfillment-owned rehearsal record. Keep approval unset while production remains landing/admin-support only or until every production-mode EasyPost proof below is complete.
-The redacted [Marketplace Launch Evidence](./marketplace-launch-evidence.md) packet must carry the same approval and reference before operators set the production GitHub Environment values.
 
 The rehearsal record must include:
 
@@ -157,7 +156,7 @@ pnpm run marketplace:provider-proof-status -- --environment production --payment
 
 The report summarizes `fulfillment_postage_provider_events`, postage label operations, and shipment label status rows so operators can see whether tracking, refund, purchase, and void evidence exists before running the launch gate command. It is status evidence only and does not replace `pnpm run ops marketplace:fulfillment-postage-evidence`.
 
-Build the redacted launch-packet gate from the production EasyPost proof record instead of hand-editing `gates.fulfillmentPostage`. The proof record must include `proofCompletedAt`; rerun the production postage proof when the proof is older than 30 days at launch review.
+Build the redacted Fulfillment postage approval record from the production EasyPost proof record. The proof record must include `proofCompletedAt`; rerun the production postage proof when the proof is older than 30 days at launch review.
 
 ```powershell
 pnpm run ops marketplace:fulfillment-postage-evidence --proof .\secure\fulfillment-postage-2026-05-30.json --reference FULFILLMENT-POSTAGE-2026-05-30

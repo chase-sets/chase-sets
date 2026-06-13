@@ -72,7 +72,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Money Operations](./runbooks/money-operations.md): checkout, wallet, Stripe payments, Connect payouts, launch checks, and smoke tests.
 - [Checkout Fresh-State Release](./runbooks/checkout-fresh-state-release.md): Shopify-simple checkout route activation, disablement, smoke validation, and release-note template.
 - [Checkout Support Operations](./runbooks/checkout-support-operations.md): support playbook for stuck checkout, payment dispute, downstream handoff, and refund request launch scenarios.
-- [Marketplace Launch Evidence](./runbooks/marketplace-launch-evidence.md): redacted launch evidence packet, verifier, Tax posture, provider rehearsals, and launch-supply measurement proof.
+- [Marketplace Production Promotion](./runbooks/marketplace-production-promotion.md): public promotion gates, proof mode, owner approval variables, and final readiness preflight.
 - [Email Operations](./runbooks/email-operations.md): Amazon SES identities, sender configuration, DNS requirements, and rollout checks.
 - [Tax Production Readiness](../bounded-contexts/ordering/docs/production-tax-readiness.md): Tax readiness evidence, no-provider launch posture, and provider-required collection gating.
 - [Tax Nexus Tracking](../bounded-contexts/ordering/docs/tax-nexus-tracking.md): state-by-state threshold tracking for when Chase Sets must prepare registration or start collecting sales tax.

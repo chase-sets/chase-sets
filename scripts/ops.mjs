@@ -1,6 +1,5 @@
 #!/usr/bin/env node
-// Single entry point for the operational evidence/readiness/canary/launch
-// scripts (issue #1331). Usage:
+// Single entry point for operational evidence/readiness/canary scripts. Usage:
 //
 //   node ./scripts/ops.mjs <subcommand> [args...]
 //   pnpm run ops <subcommand> [args...]
@@ -64,14 +63,6 @@ export const SUBCOMMANDS = {
   "marketplace:fulfillment-postage-evidence": {
     script: "marketplace-fulfillment-postage-evidence.mjs",
     description: "Fulfillment postage launch gate evidence.",
-  },
-  "marketplace:launch-evidence": {
-    script: "marketplace-launch-evidence.mjs",
-    description: "Verify the redacted marketplace launch evidence packet.",
-  },
-  "marketplace:launch-packet": {
-    script: "marketplace-launch-packet.mjs",
-    description: "Assemble the marketplace launch packet.",
   },
   "marketplace:launch-supply-measurement": {
     script: "marketplace-launch-supply-measurement.mjs",

@@ -52,7 +52,7 @@ function input(overrides = {}) {
 }
 
 describe("marketplace tax readiness evidence", () => {
-  it("builds a launch-packet gate for approved no-collection posture", () => {
+  it("builds a public launch gate for approved no-collection posture", () => {
     expect(buildTaxReadinessEvidence(input())).toEqual({
       schemaVersion: MARKETPLACE_TAX_READINESS_EVIDENCE_VERSION,
       approved: true,

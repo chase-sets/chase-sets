@@ -1289,7 +1289,6 @@ jobs:
       TF_VAR_platform_image_repository: chase-sets-platform
       TF_VAR_platform_image_tag: ${{ needs.resolve-release.outputs.release_commit }}
       TF_VAR_production_marketplace_public_enabled: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED || 'false' }}
-      TF_VAR_production_marketplace_launch_evidence_reference: ${{ vars.PRODUCTION_MARKETPLACE_LAUNCH_EVIDENCE_REFERENCE || '' }}
       TF_VAR_production_marketplace_proof_enabled: ${{ vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true' && 'true' || 'false' }}
       TF_VAR_production_marketplace_proof_reference: ${{ vars.PRODUCTION_MARKETPLACE_PROOF_REFERENCE || '' }}
       TF_VAR_production_marketplace_promotion_approved: ${{ vars.PRODUCTION_MARKETPLACE_PROMOTION_APPROVED == 'true' && 'true' || 'false' }}
@@ -1496,25 +1495,8 @@ jobs:
           fi
 
           if [ "${TF_VAR_production_marketplace_public_enabled:-false}" = "true" ]; then
-            if [ -z "${TF_VAR_production_marketplace_launch_evidence_reference:-}" ]; then
-              echo "Production marketplace promotion requires a Marketplace Launch Evidence packet reference." >&2
-              exit 1
-            fi
-
-            if [ "${#TF_VAR_production_marketplace_launch_evidence_reference}" -lt 6 ]; then
-              echo "Production marketplace promotion requires a real Marketplace Launch Evidence packet reference, not a placeholder." >&2
-              exit 1
-            fi
-
-            case "${TF_VAR_production_marketplace_launch_evidence_reference,,}" in
-              tbd|todo|none|null|n/a|na|placeholder|example|sample|test|ticket|record|launch-000)
-                echo "Production marketplace promotion requires a real Marketplace Launch Evidence packet reference, not a placeholder." >&2
-                exit 1
-                ;;
-            esac
-
             if [ "${TF_VAR_production_marketplace_promotion_approved:-false}" != "true" ] || [ -z "${TF_VAR_production_marketplace_promotion_reference:-}" ]; then
-              echo "Production marketplace promotion requires approved launch evidence." >&2
+              echo "Production marketplace promotion requires an approved marketplace promotion record." >&2
               exit 1
             fi
 

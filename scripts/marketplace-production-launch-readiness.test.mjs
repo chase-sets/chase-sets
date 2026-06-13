@@ -18,7 +18,6 @@ function secret(name) {
 const completeVariables = [
   variable("PRODUCTION_MARKETPLACE_PUBLIC_ENABLED", "true"),
   variable("PRODUCTION_MARKETPLACE_PROOF_ENABLED", "false"),
-  variable("PRODUCTION_MARKETPLACE_LAUNCH_EVIDENCE_REFERENCE", "MARKETPLACE-LAUNCH-EVIDENCE-2026-05-30"),
   variable("PRODUCTION_MARKETPLACE_PROMOTION_APPROVED", "true"),
   variable("PRODUCTION_MARKETPLACE_PROMOTION_REFERENCE", "LAUNCH-REVIEW-2026-05-30"),
   variable("PRODUCTION_MARKETPLACE_CHECKOUT_FEE_APPROVED", "true"),
@@ -62,7 +61,7 @@ describe("marketplace production launch readiness", () => {
       missingSecrets: [],
       productionEnvironment: {
         PRODUCTION_MARKETPLACE_PUBLIC_ENABLED: "true",
-        PRODUCTION_MARKETPLACE_LAUNCH_EVIDENCE_REFERENCE: "MARKETPLACE-LAUNCH-EVIDENCE-2026-05-30",
+        PRODUCTION_MARKETPLACE_PROMOTION_REFERENCE: "LAUNCH-REVIEW-2026-05-30",
       },
       operatorSetup: {
         secretCommands: [],
@@ -106,7 +105,6 @@ describe("marketplace production launch readiness", () => {
     expect(readiness.passesProductionLaunchReadinessGate).toBe(false);
     expect(readiness.missingVariables).toEqual(
       expect.arrayContaining([
-        "PRODUCTION_MARKETPLACE_LAUNCH_EVIDENCE_REFERENCE",
         "PRODUCTION_STRIPE_MONEY_OPERATIONS_REFERENCE",
         "PRODUCTION_TAX_READINESS_REFERENCE",
         "EASYPOST_MODE",
