@@ -205,7 +205,7 @@ describe("checkout session routes", () => {
         readinessSnapshotState: "stale",
         sourceRevisionState: "stale",
         supportReferencePresent: false,
-        launchRegisterDecision: "blocked",
+        launchDecision: "blocked",
       }),
     );
   });
@@ -622,7 +622,7 @@ describe("checkout session routes", () => {
         readinessContract: "downstream-owned-fact",
         downstreamStatus: "payment-started",
         supportReferencePresent: true,
-        launchRegisterDecision: "enabled",
+        launchDecision: "enabled",
       }),
     );
     const emitted = JSON.stringify(checkoutObservabilityTelemetry.recordCheckoutEvent.mock.calls[0]?.[0]);
@@ -815,7 +815,7 @@ describe("checkout session routes", () => {
         scenarioState: "deferred-capability",
         visibleState: "checkout-review-visible",
         sideEffectStatus: "not-attempted",
-        launchRegisterDecision: "deferred",
+        launchDecision: "deferred",
         downstreamStatus: "not-started",
       }),
     );
@@ -868,7 +868,7 @@ describe("checkout session routes", () => {
         readinessSnapshotState: "fresh",
         sourceRevisionState: "fulfillment-preview-stale",
         supportReferencePresent: false,
-        launchRegisterDecision: "blocked",
+        launchDecision: "blocked",
       }),
     );
   });
@@ -1004,7 +1004,7 @@ describe("checkout session routes", () => {
         supportReferencePresent: true,
         providerCategory: "payments",
         downstreamStatus: "orders-created-payment-deferred",
-        launchRegisterDecision: "enabled",
+        launchDecision: "enabled",
       }),
     );
     const emitted = JSON.stringify(checkoutObservabilityTelemetry.recordCheckoutEvent.mock.calls[0]?.[0]);
@@ -1156,7 +1156,7 @@ describe("checkout session routes", () => {
         visibleState: "checkout-review-visible",
         sideEffectStatus: "not-attempted",
         providerCategory: "payments",
-        launchRegisterDecision: "blocked",
+        launchDecision: "blocked",
         downstreamStatus: "not-started",
       }),
     );

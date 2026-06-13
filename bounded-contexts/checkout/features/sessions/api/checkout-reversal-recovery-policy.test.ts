@@ -51,7 +51,7 @@ describe("Checkout reversal recovery policy", () => {
       (entry) => entry.control === "return-dispute-chargeback-launch-posture",
     );
     expect(exceptionPosture?.states).toEqual(expect.arrayContaining(["support-only", "disabled", "deferred"]));
-    expect(exceptionPosture?.launchRegisterRequired).toBe(true);
+    expect(exceptionPosture?.launchDecisionRequired).toBe(true);
     expect(exceptionPosture?.evidenceExpectation).toMatch(/supported, disabled, or deferred/i);
   });
 
@@ -159,7 +159,7 @@ describe("Checkout reversal recovery policy", () => {
     expect(providerReplay?.evidenceExpectation).toMatch(/signature-checked/i);
   });
 
-  it("launch-registers customer-impacting reversal states", () => {
+  it("launch-decisions customer-impacting reversal states", () => {
     const customerImpactingStates = [
       "support-only",
       "disabled",
@@ -177,15 +177,15 @@ describe("Checkout reversal recovery policy", () => {
 
     expect(impactedEntries.length).toBeGreaterThan(0);
     for (const entry of impactedEntries) {
-      expect(entry.launchRegisterRequired, entry.control).toBe(true);
+      expect(entry.launchDecisionRequired, entry.control).toBe(true);
       expect(entry.supportReferenceRequired, entry.control).toBe(true);
     }
 
-    const launchRegister = checkoutReversalPolicyEntries.find(
-      (entry) => entry.control === "launch-register-reversal-states",
+    const launchDecision = checkoutReversalPolicyEntries.find(
+      (entry) => entry.control === "launch-decision-reversal-states",
     );
-    expect(launchRegister?.ownerIssues).toEqual(expect.arrayContaining(["#1102", "#1112", "#1114", "#1115"]));
-    expect(launchRegister?.evidenceExpectation).toMatch(/#1116 launch-register coverage/i);
+    expect(launchDecision?.ownerIssues).toEqual(expect.arrayContaining(["#1102", "#1112", "#1114", "#1115"]));
+    expect(launchDecision?.evidenceExpectation).toMatch(/#1548 launch-decision coverage/i);
   });
 
   it("forbids legacy repair, stale data, dashboard-only recovery, and dense checkout fallback", () => {

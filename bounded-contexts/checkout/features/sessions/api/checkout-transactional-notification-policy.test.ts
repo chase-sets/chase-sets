@@ -41,7 +41,7 @@ describe("Checkout transactional notification policy", () => {
     );
 
     expect(sellConfirmation?.sourceOwner).toBe("Checkout");
-    expect(sellConfirmation?.launchDecision).toBe("deferred-with-launch-register");
+    expect(sellConfirmation?.launchDecision).toBe("launch-disabled");
     expect(sellConfirmation?.messageTypes).toEqual([]);
     expect(sellConfirmation?.pendingDownstreamBoundaryRequired).toBe(true);
     expect(sellConfirmation?.evidenceExpectation).toMatch(/does not send sale-complete/i);
@@ -79,7 +79,7 @@ describe("Checkout transactional notification policy", () => {
       (entry) => entry.trigger === "duplicate-prevention",
     );
 
-    expect(guestReceipt?.accountClaimBehavior).toBe("deferred-with-launch-register");
+    expect(guestReceipt?.accountClaimBehavior).toBe("launch-disabled");
     expect(guestReceipt?.messageTypes).toContain("ordering.order.created");
     expect(missingContact?.missingContactFallback).toBe("support-runbook");
     expect(missingContact?.messageTypes).toEqual([]);

@@ -80,13 +80,13 @@ describe("Checkout launch evidence matrix", () => {
     ).toEqual(expect.arrayContaining(["optimization-accepted", "optimization-declined"]));
   });
 
-  it("requires launch-register evidence for constrained, recovery, downstream, and cleanup rows", () => {
-    const launchRows = checkoutLaunchEvidenceRows.filter((row) => row.launchRegisterStatus === "required");
+  it("requires launch-decision evidence for constrained, recovery, downstream, and cleanup rows", () => {
+    const launchRows = checkoutLaunchEvidenceRows.filter((row) => row.launchDecisionStatus === "required");
 
     expect(launchRows.length).toBeGreaterThanOrEqual(19);
     for (const row of launchRows) {
-      expect(row.ownerIssues, row.state).toContain("#1116");
-      expect(row.requiredEvidence, row.state).toContain("launch-register");
+      expect(row.ownerIssues, row.state).toContain("#1548");
+      expect(row.requiredEvidence, row.state).toContain("launch-decision");
       expect(row.launchEvidenceExpectation, row.state).not.toMatch(/\b(todo|tbd)\b/i);
     }
   });
@@ -108,7 +108,7 @@ describe("Checkout launch evidence matrix", () => {
         "metrics",
         "observability-event",
         "support-runbook",
-        "launch-register",
+        "launch-decision",
         "fresh-state-scan",
       ]),
     );

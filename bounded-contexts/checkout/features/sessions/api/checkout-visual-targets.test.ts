@@ -94,7 +94,7 @@ describe("Checkout visual targets", () => {
     const target = checkoutVisualTargets.find((entry) => entry.surface === "production-proof-buy-now-readiness");
 
     expect(target).toBeDefined();
-    expect(target?.launchRegisterStatus).toBe("required");
+    expect(target?.launchDecisionStatus).toBe("required");
     expect(target?.readinessBeforeCheckout).toBe(false);
     expect(target?.copySurface).toBe("checkout-review");
     expect(target?.performanceSurface).toBe("checkout-entry-review-render");
@@ -131,8 +131,8 @@ describe("Checkout visual targets", () => {
       expect(target.deltaOwnerIssues, target.surface).toEqual(expect.arrayContaining(["#1115"]));
       expect(target.exitEvidence, target.surface).not.toMatch(/\b(todo|tbd)\b/i);
 
-      if (target.launchRegisterStatus === "required") {
-        expect(target.ownerIssues, target.surface).toContain("#1116");
+      if (target.launchDecisionStatus === "required") {
+        expect(target.ownerIssues, target.surface).toContain("#1548");
       }
     }
   });

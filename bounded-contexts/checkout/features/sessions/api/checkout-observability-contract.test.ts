@@ -38,14 +38,14 @@ describe("Checkout observability contract", () => {
     }
   });
 
-  it("adds required dimensions for launch register, support, downstream, and cleanup states", () => {
+  it("adds required dimensions for launch decision, support, downstream, and cleanup states", () => {
     for (const row of checkoutLaunchEvidenceRows) {
       const profile = checkoutObservabilityProfiles.find((candidate) => candidate.state === row.state);
 
       expect(profile, row.state).toBeDefined();
 
-      if (row.launchRegisterStatus === "required") {
-        expect(profile?.dimensions, row.state).toContain("launch-register-decision");
+      if (row.launchDecisionStatus === "required") {
+        expect(profile?.dimensions, row.state).toContain("launch-decision-decision");
         expect(profile?.releaseHealthRequired, row.state).toBe(true);
       }
 

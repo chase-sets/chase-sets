@@ -36,7 +36,7 @@ export type CheckoutEconomicsCheckpoint =
 
 export type CheckoutEconomicsLaunchPosture =
   | "supported-for-launch"
-  | "deferred-with-launch-register"
+  | "launch-disabled"
   | "unavailable-at-launch"
   | "not-customer-facing";
 
@@ -89,7 +89,7 @@ export type CheckoutEconomicsOwnerIssue =
   | "#1113"
   | "#1114"
   | "#1115"
-  | "#1116"
+  | "#1548"
   | "#1117"
   | "#1118"
   | "#1119"
@@ -138,7 +138,7 @@ export type CheckoutEconomicsPolicyEntry = Readonly<{
   deterministicOrder: readonly CheckoutEconomicsAmountComponent[];
   snapshotRequired: boolean;
   finalConfirmationRevalidationRequired: boolean;
-  launchRegisterRequired: boolean;
+  launchDecisionRequired: boolean;
   supportReferenceRequired: boolean;
   observabilityRequired: boolean;
   noSideEffectBeforeCommitRequired: boolean;
@@ -248,7 +248,7 @@ export const checkoutEconomicsPolicyEntries = [
     deterministicOrder: checkoutBuyPayableTotalOrder,
     snapshotRequired: true,
     finalConfirmationRevalidationRequired: true,
-    launchRegisterRequired: true,
+    launchDecisionRequired: true,
     supportReferenceRequired: true,
     observabilityRequired: true,
     noSideEffectBeforeCommitRequired: true,
@@ -273,7 +273,7 @@ export const checkoutEconomicsPolicyEntries = [
     deterministicOrder: checkoutSellerPayoutEstimateOrder,
     snapshotRequired: true,
     finalConfirmationRevalidationRequired: true,
-    launchRegisterRequired: true,
+    launchDecisionRequired: true,
     supportReferenceRequired: true,
     observabilityRequired: true,
     noSideEffectBeforeCommitRequired: true,
@@ -298,7 +298,7 @@ export const checkoutEconomicsPolicyEntries = [
     deterministicOrder: [...checkoutBuyPayableTotalOrder, "refund", "reversal"],
     snapshotRequired: true,
     finalConfirmationRevalidationRequired: true,
-    launchRegisterRequired: true,
+    launchDecisionRequired: true,
     supportReferenceRequired: true,
     observabilityRequired: true,
     noSideEffectBeforeCommitRequired: true,
@@ -323,7 +323,7 @@ export const checkoutEconomicsPolicyEntries = [
     deterministicOrder: checkoutBuyPayableTotalOrder,
     snapshotRequired: true,
     finalConfirmationRevalidationRequired: true,
-    launchRegisterRequired: true,
+    launchDecisionRequired: true,
     supportReferenceRequired: true,
     observabilityRequired: true,
     noSideEffectBeforeCommitRequired: true,
@@ -337,24 +337,24 @@ export const checkoutEconomicsPolicyEntries = [
   economicsPolicy({
     control: "promo-code-launch-decision",
     docLabel: "Promo code launch decision",
-    ownerIssues: ["#1128", "#1102", "#1116"],
+    ownerIssues: ["#1128", "#1102", "#1548"],
     ownerContext: "Checkout",
     checkpoints: ["cart-list-readiness", "checkout-render", "final-confirmation"],
     audiences: buyerAudiences,
     outcomes: ["disabled", "deferred", "unsupported", "no-side-effect"],
     surface: "launch-evidence",
-    launchPosture: "deferred-with-launch-register",
+    launchPosture: "launch-disabled",
     amountComponents: ["promo", "payable-total"],
     deterministicOrder: checkoutBuyPayableTotalOrder,
     snapshotRequired: false,
     finalConfirmationRevalidationRequired: true,
-    launchRegisterRequired: true,
+    launchDecisionRequired: true,
     supportReferenceRequired: true,
     observabilityRequired: true,
     noSideEffectBeforeCommitRequired: true,
     readinessOnlyDecision: true,
     customerInputAllowed: false,
-    freshnessKeyShape: "launch-register:promo_code:<capability-state>",
+    freshnessKeyShape: "launch-decision:promo_code:<capability-state>",
     forbiddenMechanisms: checkoutEconomicsForbiddenMechanisms,
     evidenceExpectation:
       "Customer-entered promo codes are not shown in the launch checkout unless a fresh-state capability is approved; unavailable promo entry is explicit before payment.",
@@ -362,27 +362,27 @@ export const checkoutEconomicsPolicyEntries = [
   economicsPolicy({
     control: "gift-card-store-credit-launch-decision",
     docLabel: "Gift card and store credit launch decision",
-    ownerIssues: ["#1128", "#1102", "#1116", "#1124"],
+    ownerIssues: ["#1128", "#1102", "#1548", "#1124"],
     ownerContext: "Payments",
     checkpoints: ["cart-list-readiness", "checkout-render", "final-confirmation"],
     audiences: buyerAudiences,
     outcomes: ["disabled", "deferred", "unsupported", "no-side-effect"],
     surface: "launch-evidence",
-    launchPosture: "deferred-with-launch-register",
+    launchPosture: "launch-disabled",
     amountComponents: ["gift-card", "payable-total", "refund", "reversal"],
     deterministicOrder: [...checkoutBuyPayableTotalOrder, "refund", "reversal"],
     snapshotRequired: false,
     finalConfirmationRevalidationRequired: true,
-    launchRegisterRequired: true,
+    launchDecisionRequired: true,
     supportReferenceRequired: true,
     observabilityRequired: true,
     noSideEffectBeforeCommitRequired: true,
     readinessOnlyDecision: false,
     customerInputAllowed: false,
-    freshnessKeyShape: "launch-register:gift_card_store_credit:<capability-state>",
+    freshnessKeyShape: "launch-decision:gift_card_store_credit:<capability-state>",
     forbiddenMechanisms: checkoutEconomicsForbiddenMechanisms,
     evidenceExpectation:
-      "Gift cards and store credit remain disabled or launch-registered until Payments owns issuance, redemption, refund, and reversal rules.",
+      "Gift cards and store credit remain disabled or launch-disabled until Payments owns issuance, redemption, refund, and reversal rules.",
   }),
   economicsPolicy({
     control: "supported-discount-revalidation",
@@ -398,7 +398,7 @@ export const checkoutEconomicsPolicyEntries = [
     deterministicOrder: checkoutBuyPayableTotalOrder,
     snapshotRequired: true,
     finalConfirmationRevalidationRequired: true,
-    launchRegisterRequired: true,
+    launchDecisionRequired: true,
     supportReferenceRequired: true,
     observabilityRequired: true,
     noSideEffectBeforeCommitRequired: true,
@@ -423,7 +423,7 @@ export const checkoutEconomicsPolicyEntries = [
     deterministicOrder: checkoutSellerPayoutEstimateOrder,
     snapshotRequired: true,
     finalConfirmationRevalidationRequired: true,
-    launchRegisterRequired: true,
+    launchDecisionRequired: true,
     supportReferenceRequired: true,
     observabilityRequired: true,
     noSideEffectBeforeCommitRequired: true,
@@ -448,7 +448,7 @@ export const checkoutEconomicsPolicyEntries = [
     deterministicOrder: [...checkoutSellerPayoutEstimateOrder, "reversal", "adjustment"],
     snapshotRequired: true,
     finalConfirmationRevalidationRequired: true,
-    launchRegisterRequired: true,
+    launchDecisionRequired: true,
     supportReferenceRequired: true,
     observabilityRequired: true,
     noSideEffectBeforeCommitRequired: true,
@@ -473,7 +473,7 @@ export const checkoutEconomicsPolicyEntries = [
     deterministicOrder: ["item-subtotal", "optional-fulfillment-savings", ...checkoutBuyPayableTotalOrder],
     snapshotRequired: true,
     finalConfirmationRevalidationRequired: true,
-    launchRegisterRequired: true,
+    launchDecisionRequired: true,
     supportReferenceRequired: true,
     observabilityRequired: true,
     noSideEffectBeforeCommitRequired: true,
@@ -498,7 +498,7 @@ export const checkoutEconomicsPolicyEntries = [
     deterministicOrder: checkoutBuyPayableTotalOrder,
     snapshotRequired: true,
     finalConfirmationRevalidationRequired: true,
-    launchRegisterRequired: true,
+    launchDecisionRequired: true,
     supportReferenceRequired: true,
     observabilityRequired: true,
     noSideEffectBeforeCommitRequired: true,
@@ -539,7 +539,7 @@ export const checkoutEconomicsPolicyEntries = [
     deterministicOrder: [...checkoutBuyPayableTotalOrder, ...checkoutSellerPayoutEstimateOrder],
     snapshotRequired: true,
     finalConfirmationRevalidationRequired: true,
-    launchRegisterRequired: true,
+    launchDecisionRequired: true,
     supportReferenceRequired: true,
     observabilityRequired: true,
     noSideEffectBeforeCommitRequired: true,
@@ -553,7 +553,7 @@ export const checkoutEconomicsPolicyEntries = [
   economicsPolicy({
     control: "changed-economics-no-side-effect-recovery",
     docLabel: "Changed economics no-side-effect recovery",
-    ownerIssues: ["#1128", "#1116", "#1130"],
+    ownerIssues: ["#1128", "#1548", "#1130"],
     ownerContext: "Checkout",
     checkpoints: ["checkout-render", "active-session-return", "final-confirmation"],
     audiences: allCustomerAudiences,
@@ -572,7 +572,7 @@ export const checkoutEconomicsPolicyEntries = [
     deterministicOrder: [...checkoutBuyPayableTotalOrder, ...checkoutSellerPayoutEstimateOrder],
     snapshotRequired: true,
     finalConfirmationRevalidationRequired: true,
-    launchRegisterRequired: true,
+    launchDecisionRequired: true,
     supportReferenceRequired: true,
     observabilityRequired: true,
     noSideEffectBeforeCommitRequired: true,
@@ -592,7 +592,7 @@ export const checkoutEconomicsPolicyEntries = [
     audiences: allCustomerAudiences,
     outcomes: ["valid", "changed", "deferred", "unsupported", "recovered"],
     surface: "confirmation",
-    launchPosture: "deferred-with-launch-register",
+    launchPosture: "launch-disabled",
     amountComponents: [
       "refund",
       "void",
@@ -619,7 +619,7 @@ export const checkoutEconomicsPolicyEntries = [
     ],
     snapshotRequired: true,
     finalConfirmationRevalidationRequired: false,
-    launchRegisterRequired: true,
+    launchDecisionRequired: true,
     supportReferenceRequired: true,
     observabilityRequired: true,
     noSideEffectBeforeCommitRequired: true,
@@ -652,7 +652,7 @@ export const checkoutEconomicsPolicyEntries = [
     deterministicOrder: [],
     snapshotRequired: true,
     finalConfirmationRevalidationRequired: true,
-    launchRegisterRequired: true,
+    launchDecisionRequired: true,
     supportReferenceRequired: true,
     observabilityRequired: true,
     noSideEffectBeforeCommitRequired: true,
@@ -666,7 +666,7 @@ export const checkoutEconomicsPolicyEntries = [
   economicsPolicy({
     control: "fresh-state-economics-cleanup",
     docLabel: "Fresh-state economics cleanup",
-    ownerIssues: ["#1128", "#1116", "#1124"],
+    ownerIssues: ["#1128", "#1548", "#1124"],
     ownerContext: "Platform",
     checkpoints: ["checkout-session-create", "checkout-render", "final-confirmation", "operator-support"],
     audiences: allAudiences,
@@ -677,7 +677,7 @@ export const checkoutEconomicsPolicyEntries = [
     deterministicOrder: [],
     snapshotRequired: false,
     finalConfirmationRevalidationRequired: true,
-    launchRegisterRequired: true,
+    launchDecisionRequired: true,
     supportReferenceRequired: true,
     observabilityRequired: true,
     noSideEffectBeforeCommitRequired: true,
@@ -725,9 +725,9 @@ export function assertCheckoutEconomicsPolicyCoverage(): void {
     }
     if (
       entry.outcomes.some((state) => checkoutEconomicsLaunchRegisterOutcomeStates.includes(state)) &&
-      (!entry.launchRegisterRequired || !entry.supportReferenceRequired)
+      (!entry.launchDecisionRequired || !entry.supportReferenceRequired)
     ) {
-      throw new Error(`Checkout economics policy '${entry.control}' must launch-register customer-impacting states.`);
+      throw new Error(`Checkout economics policy '${entry.control}' must launch-decision customer-impacting states.`);
     }
     if (
       entry.launchPosture !== "not-customer-facing" &&

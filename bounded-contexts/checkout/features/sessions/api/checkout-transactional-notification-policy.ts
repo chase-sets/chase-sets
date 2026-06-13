@@ -19,10 +19,7 @@ export type CheckoutNotificationSourceOwner =
 
 export type CheckoutNotificationChannel = "transactional-email" | "notification-center" | "support-evidence" | "none";
 
-export type CheckoutNotificationLaunchDecision =
-  | "required-for-launch"
-  | "deferred-with-launch-register"
-  | "not-customer-facing";
+export type CheckoutNotificationLaunchDecision = "required-for-launch" | "launch-disabled" | "not-customer-facing";
 
 export type CheckoutNotificationTriggerTiming =
   | "before-confirmation"
@@ -34,7 +31,7 @@ export type CheckoutNotificationTriggerTiming =
 export type CheckoutNotificationOwnerIssue =
   | "#1114"
   | "#1115"
-  | "#1116"
+  | "#1548"
   | "#1117"
   | "#1118"
   | "#1119"
@@ -81,7 +78,7 @@ export type CheckoutTransactionalNotificationPolicyEntry = Readonly<{
   noCustomerCommittingSideEffectBeforeConfirmation: boolean;
   duplicatePreventionRequired: boolean;
   missingContactFallback: "web-only" | "support-runbook" | "not-applicable";
-  accountClaimBehavior: "order-receipt-only" | "deferred-with-launch-register" | "not-applicable";
+  accountClaimBehavior: "order-receipt-only" | "launch-disabled" | "not-applicable";
   evidenceExpectation: string;
 }>;
 
@@ -116,7 +113,7 @@ export const checkoutTransactionalNotificationPolicyEntries = [
   notificationPolicy({
     trigger: "pre-confirmation-recovery-no-send",
     docLabel: "Pre-confirmation recovery does not send",
-    ownerIssues: ["#1129", "#1117", "#1119", "#1116"],
+    ownerIssues: ["#1129", "#1117", "#1119", "#1548"],
     sourceOwner: "Checkout",
     sourceFact:
       "Readiness, active-session, provider-return, kill-switch, or stale-session recovery before confirmation.",
@@ -215,9 +212,9 @@ export const checkoutTransactionalNotificationPolicyEntries = [
     noCustomerCommittingSideEffectBeforeConfirmation: true,
     duplicatePreventionRequired: true,
     missingContactFallback: "support-runbook",
-    accountClaimBehavior: "deferred-with-launch-register",
+    accountClaimBehavior: "launch-disabled",
     evidenceExpectation:
-      "Guest receipts use order confirmation and support-safe lookup; account claim/link behavior is launch-registered if not enabled.",
+      "Guest receipts use order confirmation and support-safe lookup; account claim/link behavior is launch-disabled if not enabled.",
   }),
   notificationPolicy({
     trigger: "sell-confirmation-recorded",
@@ -226,7 +223,7 @@ export const checkoutTransactionalNotificationPolicyEntries = [
     sourceOwner: "Checkout",
     sourceFact: "Checkout-owned sell confirmation and Marketplace handoff recorded with downstream status pending.",
     timing: "on-checkout-confirmation",
-    launchDecision: "deferred-with-launch-register",
+    launchDecision: "launch-disabled",
     audiences: sellerAudiences,
     channels: ["support-evidence"],
     messageTypes: [],
@@ -247,7 +244,7 @@ export const checkoutTransactionalNotificationPolicyEntries = [
     sourceOwner: "Settlement",
     sourceFact: "Downstream sale, payout, and settlement status committed by owning contexts.",
     timing: "after-owning-context-commit",
-    launchDecision: "deferred-with-launch-register",
+    launchDecision: "launch-disabled",
     audiences: sellerAudiences,
     channels: ["support-evidence"],
     messageTypes: [],
@@ -259,7 +256,7 @@ export const checkoutTransactionalNotificationPolicyEntries = [
     missingContactFallback: "support-runbook",
     accountClaimBehavior: "not-applicable",
     evidenceExpectation:
-      "Seller sale communication needs owner-approved launch status before public launch; until then account activity/support evidence must not imply completed downstream facts.",
+      "Seller sale communication needs owned launch status before public launch; until then account activity/support evidence must not imply completed downstream facts.",
   }),
   notificationPolicy({
     trigger: "label-or-shipping-next-step",
@@ -268,7 +265,7 @@ export const checkoutTransactionalNotificationPolicyEntries = [
     sourceOwner: "Fulfillment",
     sourceFact: "Fulfillment-owned label, tracking, or shipment status fact.",
     timing: "after-owning-context-commit",
-    launchDecision: "deferred-with-launch-register",
+    launchDecision: "launch-disabled",
     audiences: sellerAudiences,
     channels: ["support-evidence"],
     messageTypes: [],

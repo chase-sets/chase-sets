@@ -90,15 +90,15 @@ describe("Checkout risk control policy", () => {
     }
   });
 
-  it("documents launch register, observability, and fresh-state requirements", () => {
-    const launchRegister = checkoutRiskControlPolicyEntries.find(
-      (entry) => entry.control === "launch-register-risk-states",
+  it("documents launch decision, observability, and fresh-state requirements", () => {
+    const launchDecision = checkoutRiskControlPolicyEntries.find(
+      (entry) => entry.control === "launch-decision-risk-states",
     );
     const observability = checkoutRiskControlPolicyEntries.find((entry) => entry.control === "observability-redaction");
     const cleanup = checkoutRiskControlPolicyEntries.find((entry) => entry.control === "fresh-state-risk-cleanup");
 
-    expect(launchRegister?.launchRegisterRequired).toBe(true);
-    expect(launchRegister?.evidenceExpectation).toMatch(/owner, copy, support path, observability/i);
+    expect(launchDecision?.launchDecisionRequired).toBe(true);
+    expect(launchDecision?.evidenceExpectation).toMatch(/owner, copy, support path, observability/i);
     expect(observability?.evidenceExpectation).toMatch(/sensitive risk signals/i);
     expect(cleanup?.evidenceExpectation).toMatch(/old routes, payload adapters/i);
   });

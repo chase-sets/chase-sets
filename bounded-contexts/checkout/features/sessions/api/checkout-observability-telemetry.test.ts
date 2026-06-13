@@ -22,7 +22,7 @@ const reviewRenderedInput = {
   providerCategory: "none",
   riskCategory: "none",
   downstreamStatus: "not-started",
-  launchRegisterDecision: "not-required",
+  launchDecision: "not-required",
   freshStateScanResult: "not-applicable",
 } satisfies CheckoutObservabilityTelemetryInput;
 

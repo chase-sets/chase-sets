@@ -1,6 +1,6 @@
 # Checkout Launch Evidence Matrix
 
-Milestone #17 uses this matrix to prove the Shopify-simple checkout as a composite launch system. It joins the deployed copy policy, image-first visual targets, and performance budgets into the row structure #1115 and #1116 need for current-main launch evidence.
+Milestone #17 uses this matrix to prove the Shopify-simple checkout as a composite launch system. It joins the deployed copy policy, image-first visual targets, and performance budgets into the row structure #1115 and #1548 need for release launch evidence.
 
 The executable contract lives in `bounded-contexts/checkout/features/sessions/api/checkout-launch-evidence-matrix.ts`.
 
@@ -20,7 +20,7 @@ The matrix covers normal, loading, slow-budget, active-session stale, blocked, p
 
 ## Matrix
 
-| State | Scenarios | Copy surface | Visual target | Performance surface | Launch register | Evidence expectation |
+| State | Scenarios | Copy surface | Visual target | Performance surface | Launch decision | Evidence expectation |
 | --- | --- | --- | --- | --- | --- | --- |
 | Buy Cart review ready | normal | `cart-list-review` | `buy-cart-review-ready` | `cart-list-initial-render` | Not required | Buy Cart review shows mutable intent and no checkout repair machinery. |
 | Buy readiness attention | blocked, unassigned-fulfillment | `readiness-unassigned-fulfillment` | `buy-readiness-unassigned-fulfillment` | `buy-cart-readiness-evaluation` | Required | Unassigned fulfillment is resolved or removed before checkout starts. |
@@ -29,7 +29,7 @@ The matrix covers normal, loading, slow-budget, active-session stale, blocked, p
 | Signed-in Buy Checkout | normal | `checkout-saved-info-rows` | `signed-in-buy-checkout` | `mobile-sticky-action-interaction` | Not required | Signed-in buy checkout uses editable saved rows without stale account facts. |
 | Sell List review ready | normal | `cart-list-review` | `sell-list-review-ready` | `cart-list-initial-render` | Not required | Sell List review shows seller intent before sale action commitment. |
 | Sell List readiness blocked | blocked | `readiness-blocked-or-unavailable` | `sell-list-readiness-blocked` | `sell-list-readiness-evaluation` | Required | Seller eligibility, sale action, payout, label, and provider blockers stay in readiness. |
-| Guest Sell Checkout | normal, deferred-capability | `checkout-review` | `guest-sell-checkout` | `checkout-entry-review-render` | Required | Guest sell checkout is launch-registered if seller account or payout setup is deferred. |
+| Guest Sell Checkout | normal, deferred-capability | `checkout-review` | `guest-sell-checkout` | `checkout-entry-review-render` | Required | Guest sell checkout is launch-disabled if seller account or payout setup is deferred. |
 | Signed-in Sell Checkout | normal | `checkout-saved-info-rows` | `signed-in-sell-checkout` | `checkout-entry-review-render` | Not required | Signed-in sell checkout consumes seller readiness without rebuilding provider diagnostics. |
 | Seller confirmation activity | pending-downstream | `seller-pending-activity` | `seller-confirmation-activity` | `final-confirmation-visible-state` | Required | Seller activity says confirmation is recorded without implying downstream completion. |
 | Active-session stale recovery | active-session-stale, blocked | `active-session-stale-recovery` | `active-session-stale-recovery` | `active-session-reload` | Required | Reload, provider return, guest merge, and final submit revalidate source facts before side effects. |
@@ -52,6 +52,6 @@ The matrix covers normal, loading, slow-budget, active-session stale, blocked, p
 
 #1115 should use this table as the acceptance matrix seed for E2E, visual, mobile, accessibility, localization, no-side-effect, no-compatibility, and measured performance evidence.
 
-#1116 should use rows with a required launch register to attach owner, launch decision, customer-safe copy, support path, observability, expiration or follow-up, current-main no-side-effect proof, and fresh-state cleanup proof.
+#1548 should use rows with a required launch decision to attach owner, launch decision, customer-safe copy, support path, observability, support path, release no-side-effect proof, and fresh-state cleanup proof.
 
 #1227, #1228, and #1237 should be linked from the production proof Buy Now readiness evidence when projection runtime, checkout readiness freshness, or proof-mode canary behavior affects whether the pay-ready SLO passed. A temporary recovery artifact can close safe-recovery work, but it cannot satisfy this promotion row unless the same production proof run also reaches checkout review within the ready SLO.

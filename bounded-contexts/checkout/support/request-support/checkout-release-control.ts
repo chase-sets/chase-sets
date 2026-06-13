@@ -117,7 +117,7 @@ export function checkoutShopifySimpleUnavailableTelemetryEvent(
     providerCategory: decision.source,
     riskCategory: "none",
     downstreamStatus: "not-started",
-    launchRegisterDecision: "blocked",
+    launchDecision: "blocked",
     freshStateScanResult: "blocked-before-checkout",
     promotionDecision: decision.reason,
     releaseRunId: null,
