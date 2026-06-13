@@ -1,13 +1,27 @@
 import { getWorkerHostContextNames, type WorkerHostContextName } from "@chase-sets/platform-runtime/worker";
+import {
+  getBooleanEnv,
+  getContextDatabaseEnvName as getSharedContextDatabaseEnvName,
+  getOptionalEnv,
+  getOptionalPositiveNumberEnv,
+  getPositiveNumberEnv,
+  loadCatalogAssetStorageConfig,
+  loadPlatformDatabaseConfig,
+  loadPoolConfig,
+  loadPostageConfig,
+  loadStripeProviderConfig,
+  resolveMobileMessagingProvider,
+  type PlatformCatalogAssetStorageConfig,
+  type PlatformMoneyMovementConfig,
+  type PlatformPaymentProcessorConfig,
+  type PlatformPoolConfig,
+  type PlatformPostageConfig,
+} from "@chase-sets/platform-runtime/config-schema";
 import { workerContextRegistry } from "./generated/worker-context-registry";
 
 export type PlatformWorkerContextName = WorkerHostContextName<typeof workerContextRegistry>;
 
-export type PlatformWorkerPoolConfig = Readonly<{
-  max: number;
-  idleTimeoutMillis: number;
-  connectionTimeoutMillis: number;
-}>;
+export type PlatformWorkerPoolConfig = PlatformPoolConfig;
 
 export type PlatformWorkerConfig = Readonly<{
   sharedDatabaseUrl: string | null;
@@ -88,53 +102,13 @@ export type PlatformWorkerProjectionWakeRelayConfig = Readonly<{
   failureBackoffMaxMs: number;
 }>;
 
-export type PlatformWorkerCatalogAssetStorageConfig =
-  | Readonly<{
-      kind: "filesystem";
-      rootDir: string;
-      publicBaseUrl: string;
-    }>
-  | Readonly<{
-      kind: "s3";
-      bucket: string;
-      region: string;
-      publicBaseUrl: string;
-      endpoint?: string;
-      accessKeyId?: string;
-      secretAccessKey?: string;
-      forcePathStyle?: boolean;
-    }>;
+export type PlatformWorkerCatalogAssetStorageConfig = PlatformCatalogAssetStorageConfig;
 
-export type PlatformWorkerPaymentProcessorConfig =
-  | Readonly<{ kind: "fake" }>
-  | Readonly<{
-      kind: "stripe";
-      secretKey: string;
-      publishableKey: string;
-      webhookSecret: string;
-      apiBaseUrl?: string;
-      checkoutUiMode?: "elements" | "hosted";
-    }>;
+export type PlatformWorkerPaymentProcessorConfig = PlatformPaymentProcessorConfig;
 
-export type PlatformWorkerMoneyMovementConfig =
-  | Readonly<{ kind: "fake" }>
-  | Readonly<{
-      kind: "stripe";
-      secretKey: string;
-      webhookSecret: string;
-      apiBaseUrl?: string;
-      onboardingReturnUrl?: string;
-      onboardingRefreshUrl?: string;
-    }>;
+export type PlatformWorkerMoneyMovementConfig = PlatformMoneyMovementConfig;
 
-export type PlatformWorkerPostageConfig =
-  | Readonly<{ kind: "sandbox" }>
-  | Readonly<{
-      kind: "easypost";
-      apiKey: string;
-      apiBaseUrl?: string;
-      mode: "test" | "production";
-    }>;
+export type PlatformWorkerPostageConfig = PlatformPostageConfig<false>;
 
 export type PlatformWorkerGoogleMerchantConfig =
   | Readonly<{
@@ -181,7 +155,7 @@ export type PlatformWorkerNotificationEmailConfig = Readonly<{
 const workerContexts = getWorkerHostContextNames(workerContextRegistry, "platform-worker");
 
 export function getContextDatabaseEnvName(contextName: PlatformWorkerContextName) {
-  return `DATABASE_URL_${contextName.replaceAll("-", "_").toUpperCase()}`;
+  return getSharedContextDatabaseEnvName(contextName);
 }
 
 export function getContextListenerDatabaseEnvName(contextName: PlatformWorkerContextName) {
@@ -189,41 +163,14 @@ export function getContextListenerDatabaseEnvName(contextName: PlatformWorkerCon
 }
 
 export function loadConfig(): PlatformWorkerConfig {
-  const sharedDatabaseUrl = getOptionalEnv("DATABASE_URL");
-  const controlDatabaseUrl = getOptionalEnv("PLATFORM_CONTROL_DATABASE_URL") ?? sharedDatabaseUrl;
-  if (!controlDatabaseUrl) {
-    throw new Error("PLATFORM_CONTROL_DATABASE_URL or DATABASE_URL is required.");
-  }
-
-  const contextDatabaseUrls = Object.fromEntries(
-    workerContexts.flatMap((contextName) => {
-      const databaseUrl = getOptionalEnv(getContextDatabaseEnvName(contextName));
-      return databaseUrl ? [[contextName, databaseUrl]] : [];
-    }),
-  ) as Readonly<Partial<Record<PlatformWorkerContextName, string>>>;
-  const missingContextNames = workerContexts.filter(
-    (contextName) => !sharedDatabaseUrl && !contextDatabaseUrls[contextName],
-  );
-  if (missingContextNames.length > 0) {
-    throw new Error(
-      `DATABASE_URL or per-context database URLs are required. Missing: ${missingContextNames
-        .map((contextName) => getContextDatabaseEnvName(contextName))
-        .join(", ")}.`,
-    );
-  }
+  const productionLike = process.env.NODE_ENV === "production";
+  const databaseConfig = loadPlatformDatabaseConfig({
+    contextNames: workerContexts,
+    missingControlDatabaseUrlError: "PLATFORM_CONTROL_DATABASE_URL or DATABASE_URL is required.",
+  });
 
   const port = Number(process.env.PORT ?? 6183);
-  const stripeSecretKey = getOptionalEnv("STRIPE_SECRET_KEY");
-  const stripePublishableKey = getOptionalEnv("STRIPE_PUBLISHABLE_KEY");
-  const stripeWebhookSecret = getOptionalEnv("STRIPE_WEBHOOK_SECRET");
-  const stripeConnectWebhookSecret = getOptionalEnv("STRIPE_CONNECT_WEBHOOK_SECRET");
-  const stripeApiBaseUrl = getOptionalEnv("STRIPE_API_BASE_URL") ?? undefined;
-  const stripeCheckoutUiMode = getOptionalEnv("STRIPE_CHECKOUT_UI_MODE");
-  const stripeConnectReturnUrl = getOptionalEnv("STRIPE_CONNECT_RETURN_URL") ?? undefined;
-  const stripeConnectRefreshUrl = getOptionalEnv("STRIPE_CONNECT_REFRESH_URL") ?? undefined;
   const easyPostApiKey = getOptionalEnv("EASYPOST_API_KEY");
-  const easyPostApiBaseUrl = getOptionalEnv("EASYPOST_API_BASE_URL") ?? undefined;
-  const easyPostMode = getOptionalEnv("EASYPOST_MODE") === "production" ? "production" : "test";
   const googleMerchantSyncEnabled = getBooleanEnv("GOOGLE_MERCHANT_SYNC_ENABLED", false);
   const googleMerchantDryRun = getBooleanEnv("GOOGLE_MERCHANT_DRY_RUN", true);
   const googleMerchantAccountId = getOptionalEnv("GOOGLE_MERCHANT_ACCOUNT_ID");
@@ -232,15 +179,17 @@ export function loadConfig(): PlatformWorkerConfig {
   const googleMerchantContentLanguage = getOptionalEnv("GOOGLE_MERCHANT_CONTENT_LANGUAGE") ?? "en";
   const googleMerchantFeedLabel = getOptionalEnv("GOOGLE_MERCHANT_FEED_LABEL") ?? googleMerchantTargetCountry;
   const googleMerchantCredentialSecretName = getOptionalEnv("GOOGLE_MERCHANT_CREDENTIAL_SECRET_NAME");
-  const mobileMessagingProvider = getOptionalEnv("MOBILE_MESSAGING_PROVIDER");
+  const mobileMessagingProvider = resolveMobileMessagingProvider(getOptionalEnv("MOBILE_MESSAGING_PROVIDER"));
   const twilioAccountSid = getOptionalEnv("TWILIO_ACCOUNT_SID");
   const twilioAuthToken = getOptionalEnv("TWILIO_AUTH_TOKEN");
   const twilioMessagingServiceSid = getOptionalEnv("TWILIO_MESSAGING_SERVICE_SID");
   const twilioApiBaseUrl = getOptionalEnv("TWILIO_API_BASE_URL") ?? undefined;
   const twilioStatusCallbackBaseUrl = getOptionalEnv("TWILIO_STATUS_CALLBACK_BASE_URL") ?? undefined;
-  const productionLike = process.env.NODE_ENV === "production";
-  const resolvedStripeConnectWebhookSecret =
-    stripeConnectWebhookSecret ?? (!productionLike ? stripeWebhookSecret : undefined);
+  const stripeProvider = loadStripeProviderConfig({
+    productionLike,
+    productionMissingConfigError:
+      "STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, STRIPE_WEBHOOK_SECRET, and STRIPE_CONNECT_WEBHOOK_SECRET are required for platform worker payment processing and money movement in production.",
+  });
   const notificationEmailProvider = resolveNotificationEmailProvider(getOptionalEnv("NOTIFICATION_EMAIL_PROVIDER"));
   const sesAwsRegion = getOptionalEnv("SES_AWS_REGION") ?? undefined;
   const sesAwsAccessKeyId = getOptionalEnv("SES_AWS_ACCESS_KEY_ID") ?? undefined;
@@ -251,14 +200,6 @@ export function loadConfig(): PlatformWorkerConfig {
   const localEmailCaptureFile =
     getOptionalEnv("LOCAL_EMAIL_CAPTURE_FILE") ?? "artifacts/notifications/local-email-capture.jsonl";
 
-  if (
-    productionLike &&
-    (!stripeSecretKey || !stripePublishableKey || !stripeWebhookSecret || !stripeConnectWebhookSecret)
-  ) {
-    throw new Error(
-      "STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, STRIPE_WEBHOOK_SECRET, and STRIPE_CONNECT_WEBHOOK_SECRET are required for platform worker payment processing and money movement in production.",
-    );
-  }
   if (productionLike && !easyPostApiKey) {
     throw new Error("EASYPOST_API_KEY is required for platform worker postage label work in production.");
   }
@@ -287,15 +228,16 @@ export function loadConfig(): PlatformWorkerConfig {
   const maxConcurrentRunners = getPositiveNumberEnv("WORKER_MAX_CONCURRENT_RUNNERS", 4);
 
   return {
-    sharedDatabaseUrl,
-    controlDatabaseUrl,
-    contextDatabaseUrls,
-    pool: {
-      max: getPositiveNumberEnv("DATABASE_POOL_MAX", 10),
-      idleTimeoutMillis: getPositiveNumberEnv("DATABASE_POOL_IDLE_TIMEOUT_MS", 30_000),
-      connectionTimeoutMillis: getPositiveNumberEnv("DATABASE_POOL_CONNECTION_TIMEOUT_MS", 5_000),
-    },
-    catalogAssetStorage: loadCatalogAssetStorageConfig(port, productionLike),
+    ...databaseConfig,
+    pool: loadPoolConfig(),
+    catalogAssetStorage: loadCatalogAssetStorageConfig({
+      port,
+      productionLike,
+      defaultPublicBaseUrl: `${(getOptionalEnv("PLATFORM_API_URL") ?? `http://localhost:${port}`).replace(
+        /\/$/,
+        "",
+      )}/catalog-assets`,
+    }),
     port,
     workerId: getOptionalEnv("WORKER_ID") ?? `platform-worker-${process.pid}-${Date.now().toString(36)}`,
     maxConcurrentRunners,
@@ -415,28 +357,8 @@ export function loadConfig(): PlatformWorkerConfig {
       "GOOGLE_SHOPPING_DIAGNOSTICS_PREVIOUS_ISSUE_CHUNK_SIZE",
       100,
     ),
-    paymentProcessor:
-      stripeSecretKey && stripePublishableKey && stripeWebhookSecret
-        ? {
-            kind: "stripe",
-            secretKey: stripeSecretKey,
-            publishableKey: stripePublishableKey,
-            webhookSecret: stripeWebhookSecret,
-            apiBaseUrl: stripeApiBaseUrl,
-            checkoutUiMode: stripeCheckoutUiMode === "hosted" ? "hosted" : "elements",
-          }
-        : { kind: "fake" },
-    moneyMovement:
-      stripeSecretKey && resolvedStripeConnectWebhookSecret
-        ? {
-            kind: "stripe",
-            secretKey: stripeSecretKey,
-            webhookSecret: resolvedStripeConnectWebhookSecret,
-            apiBaseUrl: stripeApiBaseUrl,
-            ...(stripeConnectReturnUrl ? { onboardingReturnUrl: stripeConnectReturnUrl } : {}),
-            ...(stripeConnectRefreshUrl ? { onboardingRefreshUrl: stripeConnectRefreshUrl } : {}),
-          }
-        : { kind: "fake" },
+    paymentProcessor: stripeProvider.paymentProcessor,
+    moneyMovement: stripeProvider.moneyMovement,
     mobileMessaging:
       mobileMessagingProvider === "twilio"
         ? {
@@ -448,14 +370,12 @@ export function loadConfig(): PlatformWorkerConfig {
             statusCallbackBaseUrl: twilioStatusCallbackBaseUrl,
           }
         : { kind: "noop" },
-    postage: easyPostApiKey
-      ? {
-          kind: "easypost",
-          apiKey: easyPostApiKey,
-          apiBaseUrl: easyPostApiBaseUrl,
-          mode: easyPostMode,
-        }
-      : { kind: "sandbox" },
+    postage: loadPostageConfig({
+      productionLike,
+      productionMissingApiKeyError:
+        "EASYPOST_API_KEY is required for platform worker postage label work in production.",
+      includeWebhookSecret: false,
+    }),
     googleMerchant: loadGoogleMerchantConfig({
       syncEnabled: googleMerchantSyncEnabled,
       dryRun: googleMerchantDryRun,
@@ -557,79 +477,6 @@ function resolveNotificationEmailProvider(value: string | null): PlatformWorkerN
   }
 
   return "noop";
-}
-
-function loadCatalogAssetStorageConfig(port: number, productionLike: boolean): PlatformWorkerCatalogAssetStorageConfig {
-  const kind = getOptionalEnv("CATALOG_ASSET_STORAGE_KIND") ?? (productionLike ? "s3" : "filesystem");
-
-  if (kind === "filesystem") {
-    if (productionLike) {
-      throw new Error("CATALOG_ASSET_STORAGE_KIND=s3 is required for Catalog asset storage in production.");
-    }
-
-    return {
-      kind: "filesystem",
-      rootDir: getOptionalEnv("CATALOG_ASSET_LOCAL_ROOT") ?? "artifacts/catalog-assets",
-      publicBaseUrl:
-        getOptionalEnv("CATALOG_ASSET_PUBLIC_BASE_URL") ??
-        `${(getOptionalEnv("PLATFORM_API_URL") ?? `http://localhost:${port}`).replace(/\/$/, "")}/catalog-assets`,
-    };
-  }
-
-  if (kind !== "s3") {
-    throw new Error("CATALOG_ASSET_STORAGE_KIND must be filesystem or s3.");
-  }
-
-  const bucket = getOptionalEnv("CATALOG_ASSET_S3_BUCKET");
-  const region = getOptionalEnv("CATALOG_ASSET_S3_REGION");
-  const publicBaseUrl = getOptionalEnv("CATALOG_ASSET_PUBLIC_BASE_URL");
-  const accessKeyId = getOptionalEnv("CATALOG_ASSET_S3_ACCESS_KEY_ID");
-  const secretAccessKey = getOptionalEnv("CATALOG_ASSET_S3_SECRET_ACCESS_KEY");
-
-  if (!bucket || !region || !publicBaseUrl) {
-    throw new Error(
-      "CATALOG_ASSET_S3_BUCKET, CATALOG_ASSET_S3_REGION, and CATALOG_ASSET_PUBLIC_BASE_URL are required when CATALOG_ASSET_STORAGE_KIND=s3.",
-    );
-  }
-  if (Boolean(accessKeyId) !== Boolean(secretAccessKey)) {
-    throw new Error(
-      "CATALOG_ASSET_S3_ACCESS_KEY_ID and CATALOG_ASSET_S3_SECRET_ACCESS_KEY must be configured together.",
-    );
-  }
-
-  return {
-    kind: "s3",
-    bucket,
-    region,
-    publicBaseUrl,
-    endpoint: getOptionalEnv("CATALOG_ASSET_S3_ENDPOINT") ?? undefined,
-    accessKeyId: accessKeyId ?? undefined,
-    secretAccessKey: secretAccessKey ?? undefined,
-    forcePathStyle: getBooleanEnv("CATALOG_ASSET_S3_FORCE_PATH_STYLE", false),
-  };
-}
-
-function getOptionalEnv(name: string) {
-  const value = process.env[name];
-  return value?.trim() ? value.trim() : null;
-}
-
-function getBooleanEnv(name: string, defaultValue: boolean) {
-  const value = getOptionalEnv(name);
-  if (!value) {
-    return defaultValue;
-  }
-
-  return ["1", "true", "yes", "on"].includes(value.toLowerCase());
-}
-
-function getOptionalPositiveNumberEnv(name: string, defaultValue: number) {
-  const parsed = Number(process.env[name] ?? defaultValue);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-}
-
-function getPositiveNumberEnv(name: string, defaultValue: number) {
-  return getOptionalPositiveNumberEnv(name, defaultValue) ?? defaultValue;
 }
 
 function getNonNegativeNumberEnv(name: string, defaultValue: number) {

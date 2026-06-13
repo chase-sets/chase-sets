@@ -266,6 +266,91 @@ describe("platform api config", () => {
     expect(loadConfig().taxProviderBackedQuotesRequired).toBe(false);
   });
 
+  it("matches the pre-extraction shared config shape for a representative environment", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.DATABASE_POOL_MAX = "18";
+    process.env.DATABASE_POOL_IDLE_TIMEOUT_MS = "45000";
+    process.env.DATABASE_POOL_CONNECTION_TIMEOUT_MS = "7000";
+    process.env.STRIPE_SECRET_KEY = "sk_test_shared";
+    process.env.STRIPE_PUBLISHABLE_KEY = "pk_test_shared";
+    process.env.STRIPE_WEBHOOK_SECRET = "whsec_shared";
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_shared";
+    process.env.STRIPE_API_BASE_URL = "https://stripe.shared.test";
+    process.env.STRIPE_CHECKOUT_UI_MODE = "hosted";
+    process.env.STRIPE_CONNECT_RETURN_URL = "https://marketplace.test/return";
+    process.env.STRIPE_CONNECT_REFRESH_URL = "https://marketplace.test/refresh";
+    process.env.EASYPOST_API_KEY = "EZAK_shared";
+    process.env.EASYPOST_WEBHOOK_SECRET = "whsec_easypost_shared";
+    process.env.EASYPOST_API_BASE_URL = "https://api.easypost.shared.test/v2";
+    process.env.EASYPOST_MODE = "production";
+    process.env.PAYMENT_RECONCILIATION_INTERVAL_MS = "600000";
+    process.env.SELLER_FUNDS_RELEASE_INTERVAL_MS = "900000";
+    process.env.PAYOUT_RECONCILIATION_INTERVAL_MS = "1200000";
+    process.env.CATALOG_ASSET_STORAGE_KIND = "s3";
+    process.env.CATALOG_ASSET_S3_BUCKET = "catalog-assets";
+    process.env.CATALOG_ASSET_S3_REGION = "nyc3";
+    process.env.CATALOG_ASSET_S3_ENDPOINT = "https://nyc3.digitaloceanspaces.com";
+    process.env.CATALOG_ASSET_PUBLIC_BASE_URL = "https://assets.chasesets.test";
+    process.env.CATALOG_ASSET_S3_ACCESS_KEY_ID = "spaces-key";
+    process.env.CATALOG_ASSET_S3_SECRET_ACCESS_KEY = "spaces-secret";
+    process.env.CATALOG_ASSET_S3_FORCE_PATH_STYLE = "true";
+
+    const config = loadConfig();
+
+    expect({
+      pool: config.pool,
+      catalogAssetStorage: config.catalogAssetStorage,
+      paymentProcessor: config.paymentProcessor,
+      moneyMovement: config.moneyMovement,
+      postage: config.postage,
+      paymentReconciliationIntervalMs: config.paymentReconciliationIntervalMs,
+      sellerFundsReleaseIntervalMs: config.sellerFundsReleaseIntervalMs,
+      payoutReconciliationIntervalMs: config.payoutReconciliationIntervalMs,
+    }).toEqual({
+      pool: {
+        max: 18,
+        idleTimeoutMillis: 45_000,
+        connectionTimeoutMillis: 7_000,
+      },
+      catalogAssetStorage: {
+        kind: "s3",
+        bucket: "catalog-assets",
+        region: "nyc3",
+        publicBaseUrl: "https://assets.chasesets.test",
+        endpoint: "https://nyc3.digitaloceanspaces.com",
+        accessKeyId: "spaces-key",
+        secretAccessKey: "spaces-secret",
+        forcePathStyle: true,
+      },
+      paymentProcessor: {
+        kind: "stripe",
+        secretKey: "sk_test_shared",
+        publishableKey: "pk_test_shared",
+        webhookSecret: "whsec_shared",
+        apiBaseUrl: "https://stripe.shared.test",
+        checkoutUiMode: "hosted",
+      },
+      moneyMovement: {
+        kind: "stripe",
+        secretKey: "sk_test_shared",
+        webhookSecret: "whsec_connect_shared",
+        apiBaseUrl: "https://stripe.shared.test",
+        onboardingReturnUrl: "https://marketplace.test/return",
+        onboardingRefreshUrl: "https://marketplace.test/refresh",
+      },
+      postage: {
+        kind: "easypost",
+        apiKey: "EZAK_shared",
+        webhookSecret: "whsec_easypost_shared",
+        apiBaseUrl: "https://api.easypost.shared.test/v2",
+        mode: "production",
+      },
+      paymentReconciliationIntervalMs: 600_000,
+      sellerFundsReleaseIntervalMs: 900_000,
+      payoutReconciliationIntervalMs: 1_200_000,
+    });
+  });
+
   it("loads the tax provider-backed quote gate from environment variables", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
     process.env.TAX_PROVIDER_BACKED_QUOTES_REQUIRED = "true";
