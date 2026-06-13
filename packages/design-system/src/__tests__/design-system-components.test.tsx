@@ -59,7 +59,6 @@ import {
   MarketplaceProductCard,
   MarketplaceShell,
   NotificationCenterSheet,
-  OrderSummary,
   ProductCard,
   ResponsiveEditSheet,
   SellerBadge,
@@ -1476,14 +1475,5 @@ describe("design system components", () => {
     );
     expect(within(topNav).getAllByRole("link", { name: "Platform" })[1]?.getAttribute("aria-current")).toBe("page");
     expect(within(topNav).getAllByRole("button", { name: "Sign out" })).toHaveLength(2);
-  });
-
-  it("renders i18n props with custom labels", () => {
-    const markup = renderToString(
-      <OrderSummary lines={[{ label: "Subtotal", value: "$10" }]} total="$10" totalLabel="Grand Total" />,
-    );
-
-    expect(markup).toContain("Grand Total");
-    expect(markup).not.toContain(">Total<");
   });
 });

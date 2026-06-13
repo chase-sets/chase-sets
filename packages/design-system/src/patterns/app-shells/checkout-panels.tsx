@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 import { DetailPanel, KeyValueList, Stat, StatGrid } from "../../components/data-display";
 import { Icon, type IconName } from "../../icons";
-import type { OrderSummaryLine } from "./commerce-atoms";
 
 export interface CheckoutTrustPanelProps {
   title?: ReactNode;
@@ -32,30 +31,6 @@ export function CheckoutTrustPanel({ title = "Order Protection", items }: Checko
             </div>
           </div>
         ))}
-      </div>
-    </DetailPanel>
-  );
-}
-
-export interface OrderSummaryProps {
-  title?: ReactNode;
-  lines: OrderSummaryLine[];
-  total: ReactNode;
-  totalLabel?: ReactNode;
-}
-
-export function OrderSummary({ title = "Order summary", lines, total, totalLabel = "Total" }: OrderSummaryProps) {
-  return (
-    <DetailPanel title={title}>
-      <KeyValueList
-        items={lines.map((line) => ({
-          key: line.label,
-          value: line.value,
-        }))}
-      />
-      <div className="flex items-center justify-between border-t border-muted pt-4">
-        <span className="text-sm font-semibold text-foreground">{totalLabel}</span>
-        <span className="font-heading text-2xl font-semibold text-foreground">{total}</span>
       </div>
     </DetailPanel>
   );
