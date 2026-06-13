@@ -4,7 +4,7 @@
   "ownedNouns": ["cart", "sell list", "checkout session"],
   "streamPrefix": "checkout.",
   "apiBasePath": "/api/marketplace",
-  "slices": ["cart", "sell-list", "sessions"],
+  "slices": ["cart", "sell-list", "sessions", "support-lookup"],
   "allowedSupportDirectories": ["request-support", "route-support", "runtime-support", "seed-support", "ucp-support"],
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
   "allowedContextDependencies": [
@@ -344,6 +344,11 @@
     "sessions": {
       "classification": "slice",
       "purpose": "Own checkout session lifecycle, review state, selected shipping, and orchestration status.",
+      "expectedConsumers": ["Internal checkout module composition"]
+    },
+    "support-lookup": {
+      "classification": "slice",
+      "purpose": "Own support-safe lookup of Checkout-owned pending and committed checkout facts.",
       "expectedConsumers": ["Internal checkout module composition"]
     },
     "request-support": {

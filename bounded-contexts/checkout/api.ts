@@ -4,6 +4,7 @@ import type { CheckoutServices } from "./support/runtime-support/services";
 import { createAccountCartRoutes, createGuestCartRoutes } from "./features/cart/api/route";
 import { createAccountSellListRoutes, createGuestSellListRoutes } from "./features/sell-list/api/route";
 import { createAccountCheckoutSessionRoutes } from "./features/sessions/api/route";
+import { createCheckoutSupportLookupRoutes } from "./features/support-lookup/api/route";
 
 export type CheckoutApiEnv = AuthenticatedApiEnv;
 
@@ -15,6 +16,7 @@ export function buildCheckoutApi(services: CheckoutServices) {
   app.route("/account", createAccountCheckoutSessionRoutes(services.sessions, services.checkoutObservabilityTelemetry));
   app.route("/guest", createGuestCartRoutes(services.cart, services.checkoutObservabilityTelemetry));
   app.route("/guest", createGuestSellListRoutes(services.sellList));
+  app.route("/support", createCheckoutSupportLookupRoutes(services.supportLookup));
 
   return app;
 }

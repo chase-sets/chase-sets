@@ -1,14 +1,12 @@
 # Checkout Support Operations
 
-This runbook covers the support workflows required by Milestone #17 for the
-Shopify-simple Buy Cart and Sell List checkout. It turns the launch checklist
-support items into operator steps for stuck checkout, payment dispute, missing
-or failed downstream handoff, and refund request scenarios.
+This runbook covers the support workflows for the Shopify-simple Buy Cart and
+Sell List checkout: stuck checkout, payment dispute, missing or failed
+downstream handoff, and refund request scenarios.
 
 Use this together with:
 
 - [Checkout Fresh-State Release](./checkout-fresh-state-release.md)
-- [Marketplace Launch Evidence](./marketplace-launch-evidence.md)
 - [Money Operations](./money-operations.md)
 - [Support Operations Readiness](../../bounded-contexts/platform-operations/docs/support-operations-readiness.md)
 
@@ -59,10 +57,8 @@ recovery or launch incident triage using the support-safe checkout reference.
 - Admin actor with `support.manage`.
 - Support operations page: `/support/requests`.
 - Support API routes mounted under `/api/marketplace/support-requests`.
-- Release evidence access to production or staging `production-release-health`
-  and checkout observability artifacts.
-- Private launch evidence workspace for screenshots, support request ids, and
-  provider references that cannot be committed.
+- Checkout support lookup API:
+  `/api/marketplace/support/checkout-references/:supportReference`.
 
 ## Scenario Triage Matrix
 
@@ -79,7 +75,8 @@ recovery or launch incident triage using the support-safe checkout reference.
 ## Stuck Checkout Procedure
 
 1. Ask for the support-safe checkout reference, not a URL or raw session id.
-2. Check whether the customer reached confirmation.
+2. Look up the reference in the Checkout support lookup API and check whether
+   the customer reached confirmation.
 3. If not confirmed:
    - verify the checkout-visible state is review, preparing, stale recovery,
      disabled, or permanent recovery;
@@ -88,8 +85,7 @@ recovery or launch incident triage using the support-safe checkout reference.
      effect was attempted;
    - route the customer back to Buy Cart, Sell List, or readiness recovery when
      the state is stale, blocked, or unresolved;
-   - capture release-health or dashboard evidence if the state indicates a
-     launch incident.
+   - capture dashboard evidence if the state indicates a service incident.
 4. If confirmed but downstream handoff is pending:
    - keep the customer-facing status pending;
    - inspect the Checkout confirmation/handoff evidence first;
