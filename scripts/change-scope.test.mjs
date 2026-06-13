@@ -513,6 +513,27 @@ describe("change-scope", () => {
     expect(adminScope.e2eSuiteIds).toEqual([]);
   });
 
+  it("routes milestone-25 decomposed routes to their owning E2E suites", () => {
+    const baseDir = path.join(process.cwd(), "repo");
+    const scope = classifyChanges({
+      baseDir,
+      changedFiles: [
+        "bounded-contexts/discovery/routes/item-detail.tsx",
+        "bounded-contexts/checkout/routes/sell-checkout-session.tsx",
+        "bounded-contexts/payments/routes/marketplace/account-payment.tsx",
+        "bounded-contexts/payments/routes/marketplace/checkout-payment.tsx",
+      ],
+      workspaces: [
+        workspace(baseDir, "bounded-contexts", "discovery", "@test/discovery"),
+        workspace(baseDir, "bounded-contexts", "checkout", "@test/checkout"),
+        workspace(baseDir, "bounded-contexts", "payments", "@test/payments"),
+      ],
+    });
+
+    expect(scope.e2eTestsRequired).toBe(true);
+    expect(scope.e2eSuiteIds).toEqual(["marketplace_browse", "marketplace_checkout"]);
+  });
+
   it("routes context changes to the consolidated marketplace seed DB acceptance suite", () => {
     const baseDir = path.join(process.cwd(), "repo");
     const scope = classifyChanges({
