@@ -23,6 +23,7 @@ export const authEnglishTranslations = {
   "auth.features.registration.ui.registerPage.magic.link": "Magic Link",
   "auth.features.registration.ui.registerPage.magic.link.copy":
     "We will email a sign-in link and create your account when you continue.",
+  "auth.features.registration.ui.registerPage.method": "Registration method",
   "auth.features.registration.ui.registerPage.passkey": "Passkey",
   "auth.features.registration.ui.registerPage.passkey.added": "Passkey added",
   "auth.features.registration.ui.registerPage.passkey.recommended.copy":
@@ -90,6 +91,7 @@ export const authEnglishTranslations = {
     "Magic link ready. Check your email to continue.",
   "auth.features.signIn.ui.signInPage.magic.link.sent": "Magic link sent",
   "auth.features.signIn.ui.signInPage.magic.link.token": "Magic Link Token",
+  "auth.features.signIn.ui.signInPage.method": "Sign-in method",
   "auth.features.signIn.ui.signInPage.no.compatible.methods": "No sign-in method available",
   "auth.features.signIn.ui.signInPage.passkey": "Passkey",
   "auth.features.signIn.ui.signInPage.passkey.sign.in.failed": "Passkey sign-in failed.",

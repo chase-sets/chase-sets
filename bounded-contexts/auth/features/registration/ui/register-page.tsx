@@ -342,7 +342,7 @@ export function RegisterPage(props: RegistrationPageProps) {
 
       <SegmentedControl
         fullWidth
-        label="Registration method"
+        label={t("auth.features.registration.ui.registerPage.method")}
         value={method}
         onValueChange={(value) => selectMethod(value as RegistrationMethod)}
         items={REGISTRATION_METHOD_OPTIONS.map((option) => ({
