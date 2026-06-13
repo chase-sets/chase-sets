@@ -197,6 +197,18 @@ const paymentPreview = {
   },
 };
 
+const paymentPreviewWithBank = {
+  ...paymentPreview,
+  payment_method_quotes: [
+    ...paymentPreview.payment_method_quotes,
+    {
+      payment_method_category: "bank-account" as const,
+      marketplace_checkout_fee_amount: "2.45",
+      total_amount: "491.45",
+    },
+  ],
+};
+
 const savedAddress = {
   shipping_address_id: "adr_home",
   label: "Home",
@@ -309,6 +321,33 @@ describe("checkout session page", () => {
     expect(markup).not.toContain("Address preferences");
     expect(markup).not.toContain('name="shippingAddressId" value="adr_home"');
     expect(markup).not.toContain('name="addressBookAction"');
+  });
+
+  it("shows only payment methods supported by the current quote", () => {
+    const cardOnlyMarkup = renderToString(
+      <CheckoutSessionPage
+        session={readySession}
+        fulfillmentPreview={readyFulfillmentPreview}
+        paymentPreview={paymentPreview}
+        selectedPaymentMethodCategory="bank-account"
+      />,
+    );
+    const bankSupportedMarkup = renderToString(
+      <CheckoutSessionPage
+        session={readySession}
+        fulfillmentPreview={readyFulfillmentPreview}
+        paymentPreview={paymentPreviewWithBank}
+        selectedPaymentMethodCategory="bank-account"
+      />,
+    );
+
+    expect(cardOnlyMarkup).toContain("Payment method");
+    expect(cardOnlyMarkup).toContain("Card");
+    expect(cardOnlyMarkup).toContain('name="paymentMethodCategory" value="card"');
+    expect(cardOnlyMarkup).not.toContain("Bank account");
+    expect(cardOnlyMarkup).not.toContain('value="bank-account"');
+    expect(bankSupportedMarkup).toContain("Bank account");
+    expect(bankSupportedMarkup).toContain('name="paymentMethodCategory" value="bank-account"');
   });
 
   it("keeps signed-in checkout policy links without guest data copy", () => {
@@ -515,7 +554,7 @@ describe("checkout session page", () => {
       <CheckoutSessionPage
         session={readySession}
         fulfillmentPreview={readyFulfillmentPreview}
-        paymentPreview={paymentPreview}
+        paymentPreview={paymentPreviewWithBank}
         isSignedInBuyer
         savedShippingAddresses={[savedAddress]}
         savedCheckoutInstruments={[

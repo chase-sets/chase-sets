@@ -59,6 +59,10 @@ type CheckoutPaymentPreview = Readonly<{
   }>;
 }>;
 
+const checkoutPaymentMethodCategories = ["card", "bank-account", "platform-credit"] as const;
+
+type CheckoutPaymentMethodCategory = (typeof checkoutPaymentMethodCategories)[number];
+
 export type CheckoutSavedShippingAddress = Readonly<{
   shipping_address_id: string;
   label: string;
@@ -121,6 +125,21 @@ function addressSummary(
   return [address.line1, address.line2, locality, address.country]
     .filter((value) => value.trim().length > 0)
     .join(", ");
+}
+
+function isCheckoutPaymentMethodCategory(value: string): value is CheckoutPaymentMethodCategory {
+  return checkoutPaymentMethodCategories.includes(value as CheckoutPaymentMethodCategory);
+}
+
+function paymentMethodCategoryLabel(category: CheckoutPaymentMethodCategory) {
+  switch (category) {
+    case "bank-account":
+      return t("checkout.features.sessions.ui.checkoutPage.bank.account");
+    case "platform-credit":
+      return t("checkout.features.sessions.ui.checkoutPage.platform.credit.only");
+    default:
+      return t("checkout.features.sessions.ui.checkoutPage.card");
+  }
 }
 
 function contactSupportingText(phone: string) {
@@ -292,11 +311,30 @@ export function CheckoutSessionPage({
   const previewPayableTotal = payment?.marketplace_checkout_fee.total_amount ?? preview?.totals.totalAmount ?? null;
   const orderReferenceValue = formatBuyCheckoutReferenceList(session.order_ids);
   const buySupportReferenceValue = buyCheckoutSupportReference(session);
+  const quotedPaymentMethodCategories = payment
+    ? Array.from(new Set(payment.payment_method_quotes.map((quote) => quote.payment_method_category)))
+    : [];
+  const supportedPaymentMethodCategories =
+    quotedPaymentMethodCategories.length > 0
+      ? quotedPaymentMethodCategories
+      : (["card", "bank-account"] satisfies CheckoutPaymentMethodCategory[]);
+  const normalizedSelectedPaymentMethodCategory = isCheckoutPaymentMethodCategory(selectedPaymentMethodCategory)
+    ? selectedPaymentMethodCategory
+    : "card";
+  const selectedPaymentMethodCategoryForCheckout = supportedPaymentMethodCategories.includes(
+    normalizedSelectedPaymentMethodCategory,
+  )
+    ? normalizedSelectedPaymentMethodCategory
+    : (supportedPaymentMethodCategories[0] ?? "card");
   const readySavedPaymentInstruments = signedInBuyCheckout
-    ? savedCheckoutInstruments.filter((instrument) => instrument.readiness === "ready")
+    ? savedCheckoutInstruments.filter(
+        (instrument) =>
+          instrument.readiness === "ready" &&
+          supportedPaymentMethodCategories.includes(instrument.payment_method_category),
+      )
     : [];
   const savedPaymentInstrumentsForSelectedMethod = readySavedPaymentInstruments.filter(
-    (instrument) => instrument.payment_method_category === selectedPaymentMethodCategory,
+    (instrument) => instrument.payment_method_category === selectedPaymentMethodCategoryForCheckout,
   );
   const selectedSavedPaymentInstrument =
     savedPaymentInstrumentsForSelectedMethod.find((instrument) => instrument.is_default) ??
@@ -305,7 +343,7 @@ export function CheckoutSessionPage({
     readySavedPaymentInstruments[0] ??
     null;
   const effectivePaymentMethodCategory =
-    selectedSavedPaymentInstrument?.payment_method_category ?? selectedPaymentMethodCategory;
+    selectedSavedPaymentInstrument?.payment_method_category ?? selectedPaymentMethodCategoryForCheckout;
   const savedPaymentInstrumentsForEffectiveMethod = readySavedPaymentInstruments.filter(
     (instrument) => instrument.payment_method_category === effectivePaymentMethodCategory,
   );
@@ -1031,13 +1069,10 @@ export function CheckoutSessionPage({
                             name="previewPaymentMethodCategory"
                             defaultValue={effectivePaymentMethodCategory}
                             onChange={markReviewStale}
-                            items={[
-                              { value: "card", label: t("checkout.features.sessions.ui.checkoutPage.card") },
-                              {
-                                value: "bank-account",
-                                label: t("checkout.features.sessions.ui.checkoutPage.bank.account"),
-                              },
-                            ]}
+                            items={supportedPaymentMethodCategories.map((category) => ({
+                              value: category,
+                              label: paymentMethodCategoryLabel(category),
+                            }))}
                           />
                           {!isOfferIntent && savedPaymentInstrumentsForEffectiveMethod.length > 0 ? (
                             <NativeSelect
