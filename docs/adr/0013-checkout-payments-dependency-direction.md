@@ -64,3 +64,22 @@ Rejected. Copying cookie names and serialization into Payments removes the packa
 - Cross-context event facts belong in `@chase-sets/event-core/public-event-payloads`.
 - Consumer-specific query needs belong in the consumer's projected read model.
 - Deployables stay composition roots and must not become the place where checkout/payment behavior is decided.
+
+## Addendum: Inventory Ordering Marketplace Cycle
+
+Issue #1568 applied the same rule to the Inventory, Ordering, and Marketplace workspace cycle. No new ownership question was introduced; the cuts are mechanical applications of the invariant that the cycle is the problem, not every dependency.
+
+The mapped package edges were:
+
+- Inventory -> Ordering: `bounded-contexts/inventory/tests/acceptance/inventory-api.test.ts` imported Ordering's module only to mount an Ordering source context for Inventory reservation workflow tests. Runtime flow: Inventory consumes `ordering.order.created` and `ordering.order.cancelled` event facts to place or release Inventory holds.
+- Ordering -> Inventory: `bounded-contexts/ordering/package.json` declared `@chase-sets/inventory`, but Ordering had no source imports from Inventory. Runtime flow is event-driven through Ordering-owned projections of Inventory item, hold, and reservation outcome facts.
+- Ordering -> Marketplace: `bounded-contexts/ordering/routes/account-purchase.tsx` and `bounded-contexts/ordering/routes/account-sale.tsx` call Marketplace's Reviews API for review opportunities on order detail pages; `bounded-contexts/ordering/support/runtime-support/seed.ts` imports Marketplace and Reputation seed ids. Runtime flow: Ordering owns the order page, Marketplace owns review eligibility and seed identifiers used by accepted-offer/review seed data.
+- Marketplace -> Inventory: `bounded-contexts/marketplace/routes/account-listings.tsx` called Inventory's request API, and `bounded-contexts/marketplace/support/runtime-support/seed.ts` imports Inventory seed ids. Runtime flow: Marketplace owns listing creation, Inventory owns stock creation and publishes inventory/storage-location facts that Marketplace projects for seller supply.
+
+The cuts are:
+
+- Inventory no longer imports Ordering for acceptance tests. The test mounts a source-only Ordering event-store fixture and Inventory consumes `OrderingOrderCreatedPayload` / `OrderingOrderCancelledPayload` from `@chase-sets/event-core/public-event-payloads`.
+- Ordering no longer declares the stale `@chase-sets/inventory` package dependency. Ordering continues to consume Inventory facts through event subscriptions and Ordering-owned read models.
+- Marketplace no longer reads seller inventory list or Listing stock location state through Inventory's server client on the listings route. It reads those from Marketplace-owned projections of Inventory facts. The remaining Marketplace -> Inventory request-time call is the Inventory-owned `ensureListingStock` command used when Marketplace creates a listing from new stock.
+
+The resulting bounded-context package direction is a DAG for this group: Ordering -> Marketplace -> Inventory. Inventory has no package dependency on Ordering or Marketplace. Ordering may continue to depend on Marketplace for Marketplace-owned review eligibility and seed ids, and Marketplace may continue to depend on Inventory for Inventory-owned stock creation and seed ids.
