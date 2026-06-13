@@ -66,6 +66,40 @@ export function recordBuyCheckoutReviewRendered(
   });
 }
 
+export function recordSplitGroupSummaryRendered(
+  checkoutObservabilityTelemetry: CheckoutObservabilityTelemetry | undefined,
+  actor: CheckoutActor,
+  session: CheckoutSessionRow,
+) {
+  const splitGroupHandoff = session.split_group_handoff;
+  const groups = splitGroupHandoff?.groups ?? [];
+  if (session.source_type !== "cart" || groups.length < 2) {
+    return;
+  }
+
+  recordCheckoutObservabilityTelemetry(checkoutObservabilityTelemetry, {
+    state: "split-group-summary",
+    entrySource: checkoutEntrySource(session),
+    actorMode: checkoutActorMode(actor),
+    scenarioState: "split-group",
+    visibleState: "checkout-review-visible",
+    sideEffectStatus: "forbidden-before-confirm",
+    readinessContract: checkoutReadinessContract(session),
+    readinessSnapshotState: checkoutReadinessSnapshotState(session),
+    sourceRevisionState: "current",
+    freshWriteReceiptPresence: "not-provided",
+    supportReferencePresent:
+      Boolean(splitGroupHandoff?.supportReference.trim()) ||
+      groups.some((group) => Boolean(group.supportReference.trim())),
+    performanceBudgetId: "checkout-entry-review-render",
+    providerCategory: "none",
+    riskCategory: "none",
+    downstreamStatus: "not-started",
+    capabilityDecision: "enabled",
+    freshStateScanResult: "not-applicable",
+  });
+}
+
 export function recordActiveSessionStaleRecovery(
   checkoutObservabilityTelemetry: CheckoutObservabilityTelemetry | undefined,
   actor: CheckoutActor,
