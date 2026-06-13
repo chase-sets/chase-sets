@@ -91,7 +91,6 @@ export async function runRepresentativeCommerceState(): Promise<void> {
                 publishableKey: config.paymentProcessor.publishableKey,
                 webhookSecret: config.paymentProcessor.webhookSecret,
                 apiBaseUrl: config.paymentProcessor.apiBaseUrl,
-                checkoutUiMode: config.paymentProcessor.checkoutUiMode,
               })
             : createFakePaymentProcessorGateway(),
         moneyMovementGateway:

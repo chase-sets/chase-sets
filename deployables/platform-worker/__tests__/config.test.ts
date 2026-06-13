@@ -11,7 +11,6 @@ const envNames = [
   "STRIPE_WEBHOOK_SECRET",
   "STRIPE_CONNECT_WEBHOOK_SECRET",
   "STRIPE_API_BASE_URL",
-  "STRIPE_CHECKOUT_UI_MODE",
   "EASYPOST_API_KEY",
   "EASYPOST_API_BASE_URL",
   "EASYPOST_MODE",
@@ -219,7 +218,6 @@ describe("platform worker config", () => {
     process.env.STRIPE_WEBHOOK_SECRET = "whsec_shared";
     process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_shared";
     process.env.STRIPE_API_BASE_URL = "https://stripe.shared.test";
-    process.env.STRIPE_CHECKOUT_UI_MODE = "hosted";
     process.env.EASYPOST_API_KEY = "EZAK_shared";
     process.env.EASYPOST_API_BASE_URL = "https://api.easypost.shared.test/v2";
     process.env.EASYPOST_MODE = "production";
@@ -268,7 +266,6 @@ describe("platform worker config", () => {
         publishableKey: "pk_test_shared",
         webhookSecret: "whsec_shared",
         apiBaseUrl: "https://stripe.shared.test",
-        checkoutUiMode: "hosted",
       },
       moneyMovement: {
         kind: "stripe",

@@ -13,8 +13,7 @@ This runbook covers checkout, wallet, Stripe payments, Connect payouts, transfer
 
 ## Charge And Funds Strategy
 
-- Checkout creates one provider-managed payment session per internal payment, with wallet balance credit applied before the external payment amount is sent to the processor.
-- Checkout defaults to embedded processor-managed confirmation and can fall back to hosted Checkout with `STRIPE_CHECKOUT_UI_MODE=hosted`.
+- Checkout creates one embedded provider-managed payment session per internal payment, with wallet balance credit applied before the external payment amount is sent to the processor.
 - Platform-held funds are intentional for v1: purchase payments settle to the platform balance, settlement records sale wallet credit, and money moves to the connected payout account only when the account requests an on-demand payout.
 - Sale and shipping allowance credits are pending first. Settlement releases them only after the payment is captured, Fulfillment has recorded delivery, no active support hold exists, and the applicable risk hold has elapsed.
 - Standard release is the later of capture plus two days and delivery plus two days. New, unrated, untrusted, high-dollar, or manual-review accounts use delivery plus seven days. Returned shipments, fulfillment exceptions, and open support requests keep proceeds pending.

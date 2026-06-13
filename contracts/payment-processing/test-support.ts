@@ -20,7 +20,6 @@ type FakeWebhookEnvelope = Readonly<{
 
 export type FakePaymentProcessorGatewayOptions = Readonly<{
   publishableKey?: string | null;
-  confirmationExperience?: "processor-managed-form" | "processor-hosted-page";
 }>;
 
 function createPaymentReference(input: CreateProcessorPaymentInput) {
@@ -55,7 +54,7 @@ export function createFakePaymentProcessorGateway(
       return {
         processorName: "stripe",
         publishableKey: options.publishableKey ?? "pk_seed_offline",
-        confirmationExperience: options.confirmationExperience ?? "processor-managed-form",
+        confirmationExperience: "processor-managed-form",
         dynamicPaymentMethods: true,
         sensitivePaymentDetailsHandledByProcessor: true,
       };
@@ -106,11 +105,7 @@ export function createFakePaymentProcessorGateway(
         processorClientSecret: input.savedCheckoutInstrument
           ? `pi_seed_${input.paymentId}_secret_seed`
           : `cs_seed_${input.paymentId}_secret_seed`,
-        processorRedirectUrl: input.savedCheckoutInstrument
-          ? null
-          : options.confirmationExperience === "processor-hosted-page"
-            ? `https://checkout.stripe.test/pay/${input.paymentId}`
-            : null,
+        processorRedirectUrl: null,
         processorStatus: input.savedCheckoutInstrument ? "succeeded" : "open",
       };
     },
