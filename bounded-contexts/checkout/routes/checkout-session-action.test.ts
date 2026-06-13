@@ -453,6 +453,123 @@ describe("checkout web routes: checkout session action", () => {
     );
   });
 
+  it("returns cart recovery when active checkout readiness is stale during review refresh", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
+    mockSelectShippingOption.mockRejectedValue(
+      new MockCheckoutApiError(400, {
+        error: {
+          code: "readiness_snapshot_stale",
+          message: "Cart readiness changed. Review your cart before checkout.",
+        },
+      }),
+    );
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      selectShippingOption: mockSelectShippingOption,
+      selectShippingAddress: mockSelectShippingAddress,
+      confirmCheckoutSession: mockConfirmCheckoutSession,
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "refresh-checkout-preview");
+    form.set("shippingOption", "standard");
+    form.set("shippingName", "Jane Smith");
+    form.set("shippingLine1", "100 Market Street");
+    form.set("shippingCity", "Chicago");
+    form.set("shippingState", "IL");
+    form.set("shippingPostalCode", "60601");
+    form.set("shippingCountry", "US");
+
+    let recoveryResponse: Response | null = null;
+    try {
+      await checkoutSessionAction({
+        request: new Request("http://localhost/checkout/buy/session/chk_1", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: form.toString(),
+        }),
+        params: { sessionId: "chk_1" },
+        context: undefined,
+      } as never);
+    } catch (error) {
+      recoveryResponse = error as Response;
+    }
+
+    expect(recoveryResponse?.status).toBe(400);
+    expect(recoveryResponse?.statusText).toBe("Checkout needs attention");
+    const recoveryBody = JSON.parse((await recoveryResponse?.text()) ?? "{}") as {
+      kind?: string;
+      primaryAction?: { href?: string; label?: string };
+      trustCue?: string;
+    };
+    expect(recoveryBody.kind).toBe("request-validation");
+    expect(recoveryBody.primaryAction?.href).toBe("/account/cart");
+    expect(recoveryBody.primaryAction?.label).toBe("View Buy Cart");
+    expect(recoveryBody.trustCue).toBe("Your payment has not started.");
+    expect(mockSelectShippingAddress).not.toHaveBeenCalled();
+    expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
+  });
+
+  it("returns cart recovery when split-group handoff is stale during confirmation", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
+    mockSelectShippingOption.mockResolvedValue({});
+    mockConfirmCheckoutSession.mockRejectedValue(
+      new MockCheckoutApiError(400, {
+        error: {
+          code: "split_group_handoff_stale",
+          message: "Checkout groups changed. Review your cart before checkout.",
+        },
+      }),
+    );
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      selectShippingOption: mockSelectShippingOption,
+      confirmCheckoutSession: mockConfirmCheckoutSession,
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "confirm-checkout");
+    form.set("shippingOption", "standard");
+    form.set("paymentMethodCategory", "card");
+    form.set("previewPaymentMethodCategory", "card");
+    form.set("marketplaceCheckoutFeeQuoteFingerprint", "quote_1");
+    form.set("shippingName", "Jane Smith");
+    form.set("shippingLine1", "100 Market Street");
+    form.set("shippingCity", "Chicago");
+    form.set("shippingState", "IL");
+    form.set("shippingPostalCode", "60601");
+    form.set("shippingCountry", "US");
+
+    let recoveryResponse: Response | null = null;
+    try {
+      await checkoutSessionAction({
+        request: new Request("http://localhost/checkout/buy/session/chk_1", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: form.toString(),
+        }),
+        params: { sessionId: "chk_1" },
+        context: undefined,
+      } as never);
+    } catch (error) {
+      recoveryResponse = error as Response;
+    }
+
+    expect(recoveryResponse?.status).toBe(400);
+    const recoveryBody = JSON.parse((await recoveryResponse?.text()) ?? "{}") as {
+      kind?: string;
+      primaryAction?: { href?: string };
+      trustCue?: string;
+    };
+    expect(recoveryBody.kind).toBe("request-validation");
+    expect(recoveryBody.primaryAction?.href).toBe("/account/cart");
+    expect(recoveryBody.trustCue).toBe("Your payment has not started.");
+    expect(mockConfirmCheckoutSession).toHaveBeenCalledWith(
+      "chk_1",
+      expect.objectContaining({
+        marketplaceCheckoutFeeQuoteFingerprint: "quote_1",
+      }),
+    );
+  });
+
   it("refreshes checkout review when confirmation is missing the payment quote", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
     mockSelectShippingOption.mockResolvedValue({});
