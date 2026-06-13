@@ -487,7 +487,7 @@ export function createWorkSignalCleanupRunner(
   };
 }
 
-export function createProjectionGroupKey(targetContextName: string, projectionName: string): string {
+function createProjectionGroupKey(targetContextName: string, projectionName: string): string {
   return `${targetContextName}.${projectionName}`;
 }
 

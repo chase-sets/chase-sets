@@ -6,9 +6,9 @@ import {
 
 import type { WorkSignalPriorityLane } from "./work-signal-store";
 
-export const SOURCE_CONTEXT_WAKE_REGISTRY_SCHEMA_VERSION = 1;
+const SOURCE_CONTEXT_WAKE_REGISTRY_SCHEMA_VERSION = 1;
 
-export const SOURCE_CONTEXT_WAKE_ROLLOUT_STATES = [
+const SOURCE_CONTEXT_WAKE_ROLLOUT_STATES = [
   "not-eligible",
   "eligible",
   "staging-enabled",
@@ -18,20 +18,20 @@ export const SOURCE_CONTEXT_WAKE_ROLLOUT_STATES = [
   "opted-out",
 ] as const;
 
-export const SOURCE_CONTEXT_WAKE_PHASES = [
+const SOURCE_CONTEXT_WAKE_PHASES = [
   "phase-1-checkout-hot-path",
   "phase-2-composite-migration",
   "phase-3-expansion",
 ] as const;
 
-export const SOURCE_CONTEXT_WAKE_ROLLOUT_WAVES = [
+const SOURCE_CONTEXT_WAKE_ROLLOUT_WAVES = [
   "wave-1-checkout-hot-path",
   "wave-2-commerce-dependencies",
   "wave-3-platform-expansion",
   "wave-4-deferred-or-not-eligible",
 ] as const;
 
-export const SOURCE_CONTEXT_WAKE_LOAD_ESTIMATES = ["none", "low", "medium", "high", "unknown"] as const;
+const SOURCE_CONTEXT_WAKE_LOAD_ESTIMATES = ["none", "low", "medium", "high", "unknown"] as const;
 
 export const SOURCE_CONTEXT_WAKE_PRODUCTION_GATE_ISSUES = [1243, 1244, 1246, 1249] as const;
 
@@ -470,7 +470,7 @@ export function listSourceContextWakeRegistryEntries(
   );
 }
 
-export function getSourceContextWakeRegistryEntry(
+function getSourceContextWakeRegistryEntry(
   sourceContextName: string,
   registry: readonly SourceContextWakeRegistryEntry[] = sourceContextWakeRegistry,
 ): SourceContextWakeRegistryEntry | null {
@@ -565,7 +565,7 @@ export function summarizeSourceContextWakeRegistry(
   };
 }
 
-export function isSourceContextWakeActive(entry: Pick<SourceContextWakeRegistryEntry, "rolloutState">): boolean {
+function isSourceContextWakeActive(entry: Pick<SourceContextWakeRegistryEntry, "rolloutState">): boolean {
   return (
     entry.rolloutState === "staging-enabled" ||
     entry.rolloutState === "production-proof" ||

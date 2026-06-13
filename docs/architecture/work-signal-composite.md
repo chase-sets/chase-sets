@@ -1,10 +1,10 @@
 # Platform Work-Signal Composite
 
-The platform work-signal composite is the single supported runtime surface for Postgres wake notifications: one
-envelope contract, one emitter, one listener/waiter implementation, and one disposition inventory for every wake family
-(#1248, #1238). It exists so projection wakes, checkpoint readiness, durable job events, projection operation events,
-realtime SSE wakes, and future scheduled/manual or reconciliation triggers share emission, waiting, fallback,
-redaction, and metrics behavior instead of growing parallel `pg_notify`/`LISTEN` patterns.
+The platform work-signal composite is the internal runtime surface for Postgres wake notifications: one envelope
+contract, one emitter, one listener/waiter implementation, and one disposition inventory for every wake family (#1248,
+#1238). It exists so projection wakes, checkpoint readiness, durable job events, projection operation events, realtime
+SSE wakes, and future scheduled/manual or reconciliation triggers share emission, waiting, fallback, redaction, and
+metrics behavior instead of growing parallel `pg_notify`/`LISTEN` patterns.
 
 Governing decision: [ADR 0010: Push-Driven Projection Runtime](../adr/0010-push-driven-projection-runtime.md).
 Connection accounting: [Push-Wake Connection Budget](./push-wake-connection-budget.md).

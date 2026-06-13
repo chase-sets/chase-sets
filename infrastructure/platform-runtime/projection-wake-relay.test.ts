@@ -27,7 +27,6 @@ import {
   type SourceContextWakeRegistryEntry,
 } from "./source-context-wake-registry";
 import {
-  createProjectionWakeIntentCoalescingKey,
   type EnqueueProjectionWakeIntentInput,
   type ProjectionWakeIntentRecord,
   type WorkSignalPriorityLane,
@@ -851,6 +850,23 @@ function recordingWorkSignalStore(options: { failOnEnqueue?: boolean } = {}) {
       },
     },
   };
+}
+
+function createProjectionWakeIntentCoalescingKey(input: {
+  sourceContextName: string;
+  targetContextName: string;
+  projectionName: string;
+  checkpointKey: string;
+  priorityLane: WorkSignalPriorityLane;
+}): string {
+  return [
+    "projection-wake",
+    input.sourceContextName,
+    input.targetContextName,
+    input.projectionName,
+    input.checkpointKey,
+    input.priorityLane,
+  ].join(":");
 }
 
 function recordingRelayControlPlane(options: { rejectCursorAdvance?: boolean; missLease?: boolean } = {}) {
