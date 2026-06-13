@@ -57,10 +57,6 @@ export const SUBCOMMANDS = {
     script: "marketplace-checkout-fee-evidence.mjs",
     description: "Checkout fee policy approval evidence.",
   },
-  "marketplace:deferred-checkout-order-proof": {
-    script: "marketplace-deferred-checkout-order-proof.mjs",
-    description: "Deferred checkout order proof from a live checkout request.",
-  },
   "marketplace:easypost-refund-event-replay": {
     script: "easypost-refund-event-replay.mjs",
     description: "Replay EasyPost refund events into fulfillment.",

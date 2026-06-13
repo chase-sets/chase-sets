@@ -5,7 +5,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 ## Core References
 
 - [Product Brief](./PRODUCT.md): product vision, users, and marketplace economics.
-- [Launch Checklist](./launch/checklist.md): single launch checklist for the Shopify-simple checkout; replaces per-PR ledgers and is reviewed once at launch.
+- [Launch Checklist](./launch/checklist.md): single pre-public safety checklist for the Shopify-simple checkout.
 - [Marketplace Glossary](./GLOSSARY.md): canonical marketplace language and account-role naming rules.
 - [Bounded Context Map](../bounded-contexts/README.md): strategic ownership and integration relationships.
 - [Bounded Context Structure](./architecture/bounded-context-structure.md): directory, manifest, export, import-boundary, deployable-composition, and structure-gate failure rules.
@@ -50,19 +50,17 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [ADR 0013: Checkout Payments Dependency Direction](./adr/0013-checkout-payments-dependency-direction.md): Checkout-owned payment handoff, published session/payment linkage fact, and package-cycle cut rule.
 - [Checkout Fresh-State Route Strategy](../bounded-contexts/checkout/docs/fresh-state-route-strategy.md): Shopify-simple checkout route map, legacy route disposition, readiness guardrails, and kill-switch behavior.
 - [Checkout Fresh Session Contracts](../bounded-contexts/checkout/docs/fresh-checkout-session-contracts.md): Milestone #17 buy/sell checkout snapshot, commands, state machine, idempotency, guest merge, and fresh-state rules.
-- [Checkout Copy Policy](../bounded-contexts/checkout/docs/checkout-copy-policy.md): Milestone #17 customer-safe checkout copy, progressive-disclosure, policy language, support-reference, and launch readiness contract.
-- [Checkout Visual Targets](../bounded-contexts/checkout/docs/checkout-visual-targets.md): image-first Milestone #17 visual target register for buy/sell checkout, readiness, recovery, capability, and launch states.
+- [Checkout Copy Policy](../bounded-contexts/checkout/docs/checkout-copy-policy.md): Milestone #17 customer-safe checkout copy, progressive-disclosure, policy language, and support-reference rules.
+- [Checkout Visual Targets](../bounded-contexts/checkout/docs/checkout-visual-targets.md): image-first Milestone #17 visual targets for buy/sell checkout, readiness, recovery, capability, and support states.
 - [Checkout Session Projection Performance](../bounded-contexts/checkout/docs/checkout-session-projection-performance.md): guest Buy Now checkout freshness path, supporting indexes, projection transaction behavior, and remaining platform evidence gates.
 - [Checkout Performance Budgets](../bounded-contexts/checkout/docs/checkout-performance-budgets.md): Milestone #17 cart/list, readiness, checkout entry, confirmation, mobile, support, and recovery performance budgets.
-- [Fresh-State Launch Exception Register](../bounded-contexts/checkout/docs/fresh-state-launch-exception-register.md): Milestone #17 retained internal artifact register and customer-facing legacy cleanup guard.
-- [Internal Helper Security Guard](../bounded-contexts/checkout/docs/internal-helper-security-guard.md): Milestone #17 permission, customer reachability, audit, and redaction guard for retained internal helper families.
-- [Checkout Observability Contract](../bounded-contexts/checkout/docs/checkout-observability-contract.md): Milestone #17 redacted telemetry profiles for launch-supported states, support-safe references, side-effect status, and release-health signals.
+- [Checkout Observability Contract](../bounded-contexts/checkout/docs/checkout-observability-contract.md): Milestone #17 redacted telemetry profiles for current checkout states, support-safe references, side-effect status, and operator signals.
 - [Checkout Transactional Notification Policy](../bounded-contexts/checkout/docs/checkout-transactional-notifications.md): Milestone #17 buy/sell notification trigger inventory, launch decisions, idempotency, and support-safe fallback behavior.
 - [Checkout Risk Control Policy](../bounded-contexts/checkout/docs/checkout-risk-control-policy.md): Milestone #17 fraud, abuse, inventory-hoarding, provider-risk, support-safe hold, observability, and fresh-state cleanup contract.
 - [Checkout Address And Serviceability Policy](../bounded-contexts/checkout/docs/checkout-address-serviceability-policy.md): Milestone #17 address validation, serviceability, delivery restrictions, quote readiness, support-safe recovery, and fresh-state cleanup contract.
 - [Checkout Economics Policy](../bounded-contexts/checkout/docs/checkout-economics-policy.md): Milestone #17 discounts, credits, gift cards, fees, promotions, payout estimates, changed economics, reversal linkage, and fresh-state cleanup contract.
 - [Checkout Reconciliation Policy](../bounded-contexts/checkout/docs/checkout-reconciliation-policy.md): Milestone #17 payment, order, label, payout, settlement, notification, account-history, support, reversal, idempotency, and fresh-state reconciliation contract.
-- [Checkout Reversal Recovery Policy](../bounded-contexts/checkout/docs/checkout-reversal-recovery-policy.md): Milestone #17 cancellation, refund, void, reversal, adjustment, support-approved recovery, and fresh-state launch posture contract.
+- [Checkout Reversal Recovery Policy](../bounded-contexts/checkout/docs/checkout-reversal-recovery-policy.md): Milestone #17 cancellation, refund, void, reversal, adjustment, support-approved recovery, and fresh-state recovery contract.
 - [Guest Buy Now Freshness Verification](../bounded-contexts/checkout/docs/guest-buy-now-freshness-verification.md): signed-out Buy Now freshness contract, shared test/canary states, fixture ownership, and no-payment/no-order side-effect rules.
 - [Discovery Google Shopping Feed Mapping](../bounded-contexts/discovery/docs/google-shopping-feed-mapping.md): product, offer, image, condition, shipping, returns, and eligibility mapping for Google Shopping rows.
 - [Marketplace API](./api/marketplace-api.md): human-readable API guide.

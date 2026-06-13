@@ -10,9 +10,6 @@ import { checkoutSessionSchemaSql } from "../features/sessions/read-model/schema
 
 const checkoutRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = resolve(checkoutRoot, "..", "..");
-const exceptionRegisterPath = join(checkoutRoot, "docs", "fresh-state-launch-exception-register.md");
-const internalHelperGuardPath = join(checkoutRoot, "docs", "internal-helper-security-guard.md");
-
 type ForbiddenPattern = Readonly<{
   label: string;
   pattern: RegExp;
@@ -179,49 +176,6 @@ describe("fresh checkout read-model schemas", () => {
     ];
 
     assertNoPatterns(currentFlowDocs, oldRoutePatterns);
-  });
-
-  it("keeps retained launch exceptions internal-only and explicit", () => {
-    const register = readText(exceptionRegisterPath);
-
-    expect(register).toContain("No customer-facing retained legacy checkout artifact is approved for launch.");
-    expect(register).toContain(
-      "| Artifact | Owner | Customer reachable | Permission gate | Rationale | No-side-effect guarantee | Expiration/follow-up |",
-    );
-    expect(register).toContain("`checkout-session-deploy-safe-convergence`");
-    expect(register).not.toContain("`deferred-checkout-order-proof`");
-    expect(register).not.toMatch(/\|\s*`[^`]+`\s*\|\s*Checkout\s*\|\s*Yes\s*\|/);
-  });
-
-  it("keeps retained internal helper guard permission-gated and not customer reachable", () => {
-    const guard = readText(internalHelperGuardPath);
-    const requiredHelpers = [
-      "`marketplace-production-proof-access`",
-      "`admin-support-projection-diagnostics`",
-      "`catalog-provider-diagnostics-and-test-utilities`",
-      "`support-lookup-and-recovery-diagnostics`",
-      "`provider-webhook-replay-and-reconciliation`",
-    ];
-
-    for (const helper of requiredHelpers) {
-      expect(guard).toContain(helper);
-    }
-
-    expect(guard).not.toContain("`deferred-checkout-order-proof`");
-    expect(guard).toContain("`security.manage`");
-    expect(guard).toContain("`catalog.view`");
-    expect(guard).toContain("`catalog.manage`");
-    expect(guard).toContain("signature-checked");
-    expect(guard).toContain("Confirmation requires the normal payment quote path");
-
-    const helperRows = guard
-      .split("\n")
-      .filter((line) => line.startsWith("| `"))
-      .map((line) => line.split("|").map((cell) => cell.trim()));
-    expect(helperRows).toHaveLength(requiredHelpers.length);
-    for (const row of helperRows) {
-      expect(row[5]).toBe("No");
-    }
   });
 
   it("does not keep checkout deferred-payment helper localization", () => {
