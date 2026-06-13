@@ -11,6 +11,14 @@ import type { WorkSignalPriorityLane } from "./work-signal-store";
 /**
  * Push-first migration inventory (#1224).
  *
+ * Sunset condition for deleting this module: every projection group derived
+ * from the source-context wake registry must classify as `push-enabled`, with
+ * zero `disabled` and zero `opted-out` groups. As of the 2026-06-13 #1565
+ * disposition check, wave 2 (`catalog`, `fulfillment`, `identity`,
+ * `inventory`) and wave 3 (`discovery`, `platform-operations`,
+ * `public-presence`, `settlement`) still have registry `eligible` rows with
+ * relay fan-out disabled, leaving 38 projection groups `push-eligible`.
+ *
  * Derives a push-first disposition for every projection group and every
  * read-after-write route inventory entry from the source-context wake
  * registry (#1245), which is itself test-pinned to the bounded-context
