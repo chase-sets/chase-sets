@@ -12,7 +12,7 @@ export interface CardProps extends Omit<HTMLAttributes<HTMLDivElement>, "classNa
   glow?: boolean;
 }
 
-export function Card({ children, media, interactive = false, variant = "default", glow = false, ...rest }: CardProps) {
+function CardSurface({ children, media, interactive = false, variant = "default", glow = false, ...rest }: CardProps) {
   const motionSettings = useChaseMotion();
   const interactiveMotion =
     interactive && !motionSettings.reducedMotion
@@ -49,6 +49,83 @@ export function Card({ children, media, interactive = false, variant = "default"
     </motion.div>
   );
 }
+
+export interface CardHeaderProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
+  children?: ReactNode;
+}
+
+function CardHeader({ children, ...rest }: CardHeaderProps) {
+  return (
+    <div {...rest} className="mb-4 grid gap-1.5">
+      {children}
+    </div>
+  );
+}
+
+export interface CardTitleProps extends Omit<HTMLAttributes<HTMLHeadingElement>, "className" | "style"> {
+  children?: ReactNode;
+}
+
+function CardTitle({ children, ...rest }: CardTitleProps) {
+  return (
+    <h3 {...rest} className="font-heading text-balance text-xl font-semibold leading-tight text-foreground">
+      {children}
+    </h3>
+  );
+}
+
+export interface CardDescriptionProps extends Omit<HTMLAttributes<HTMLParagraphElement>, "className" | "style"> {
+  children?: ReactNode;
+}
+
+function CardDescription({ children, ...rest }: CardDescriptionProps) {
+  return (
+    <p {...rest} className="text-sm leading-6 text-secondary">
+      {children}
+    </p>
+  );
+}
+
+export interface CardBodyProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
+  children?: ReactNode;
+}
+
+function CardBody({ children, ...rest }: CardBodyProps) {
+  return (
+    <div {...rest} className="grid gap-4">
+      {children}
+    </div>
+  );
+}
+
+export interface CardFooterProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
+  children?: ReactNode;
+}
+
+function CardFooter({ children, ...rest }: CardFooterProps) {
+  return (
+    <div {...rest} className="mt-6 flex flex-wrap items-center gap-2">
+      {children}
+    </div>
+  );
+}
+
+/**
+ * Canonical card surface with a compound slot API.
+ *
+ * Use the `media`/`children` props for the closed media-over-body layout, or
+ * compose `Card.Header`, `Card.Title`, `Card.Description`, `Card.Body`, and
+ * `Card.Footer` for header/body/footer structure. The compound slots mirror the
+ * compat `Card`/`CardHeader`/`CardTitle`/`CardContent`/`CardFooter` ergonomics so
+ * commerce surfaces can migrate off the compat dialect with a mechanical swap.
+ */
+export const Card = Object.assign(CardSurface, {
+  Header: CardHeader,
+  Title: CardTitle,
+  Description: CardDescription,
+  Body: CardBody,
+  Footer: CardFooter,
+});
 
 export interface DetailPanelProps extends Omit<CardProps, "title"> {
   title: ReactNode;

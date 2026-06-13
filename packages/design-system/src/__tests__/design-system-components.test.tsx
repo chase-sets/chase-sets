@@ -1203,6 +1203,39 @@ describe("design system components", () => {
     expect(markup).toContain('alt="Card"');
   });
 
+  it("exposes a compound Card slot API for header, body, and footer composition", () => {
+    expect(typeof Card.Header).toBe("function");
+    expect(typeof Card.Title).toBe("function");
+    expect(typeof Card.Description).toBe("function");
+    expect(typeof Card.Body).toBe("function");
+    expect(typeof Card.Footer).toBe("function");
+
+    const markup = renderToString(
+      <Card>
+        <Card.Header>
+          <Card.Title>Listing summary</Card.Title>
+          <Card.Description>Raw / Near Mint</Card.Description>
+        </Card.Header>
+        <Card.Body>
+          <div>Quantity available: 3</div>
+        </Card.Body>
+        <Card.Footer>
+          <button type="button">Buy now</button>
+        </Card.Footer>
+      </Card>,
+    );
+
+    expect(markup).toContain("Listing summary");
+    expect(markup).toContain("Raw / Near Mint");
+    expect(markup).toContain("Quantity available: 3");
+    expect(markup).toContain("Buy now");
+    // Canonical conventions: semantic title heading and secondary description tone, no raw var() passthrough.
+    expect(markup).toContain("<h3");
+    expect(markup).toContain("font-heading");
+    expect(markup).toContain("text-secondary");
+    expect(markup).not.toContain("var(--muted-foreground)");
+  });
+
   it("renders ProductCard with contained image fit", () => {
     const markup = renderToString(
       <ProductCard

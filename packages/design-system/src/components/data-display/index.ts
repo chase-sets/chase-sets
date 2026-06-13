@@ -30,7 +30,17 @@ export {
   type ActivityItem,
   type ActivityListProps,
 } from "./timeline";
-export { Card, type CardProps, DetailPanel, type DetailPanelProps } from "./card";
+export {
+  Card,
+  type CardProps,
+  type CardHeaderProps,
+  type CardTitleProps,
+  type CardDescriptionProps,
+  type CardBodyProps,
+  type CardFooterProps,
+  DetailPanel,
+  type DetailPanelProps,
+} from "./card";
 export { ProductMediaImage, type ProductMediaImageProps, type ResponsiveImageSource } from "./product-media";
 export {
   ProductOptions,
