@@ -9,19 +9,19 @@ import {
   checkoutObservabilityMetricName,
   checkoutObservabilityProfiles,
   checkoutObservabilityRequiredDimensions,
+  checkoutObservabilityRequiredStates,
 } from "./checkout-observability-contract";
-import { checkoutVisualRequiredTargets } from "./checkout-visual-targets";
 
 describe("Checkout observability contract", () => {
   it("passes the executable coverage assertion", () => {
     expect(() => assertCheckoutObservabilityContractCoverage()).not.toThrow();
   });
 
-  it("defines one observability profile for every required visual target", () => {
+  it("defines one observability profile for every required checkout state", () => {
     const profileStates = checkoutObservabilityProfiles.map((profile) => profile.state);
 
     expect(new Set(profileStates).size).toBe(profileStates.length);
-    expect(profileStates).toEqual(expect.arrayContaining([...checkoutVisualRequiredTargets]));
+    expect(profileStates).toEqual(expect.arrayContaining([...checkoutObservabilityRequiredStates]));
   });
 
   it("uses the shared base dimensions and redaction set for every event", () => {

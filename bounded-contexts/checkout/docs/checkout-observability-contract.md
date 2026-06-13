@@ -9,7 +9,7 @@ contracted events without importing infrastructure observability directly.
 
 ## Telemetry Rules
 
-- Every required visual target has one `checkout.*` observability profile with entry source, actor mode, scenario state, visible state, and side-effect status dimensions.
+- Every supported checkout state has one `checkout.*` observability profile with entry source, actor mode, scenario state, visible state, and side-effect status dimensions.
 - Runtime metrics use `chase_sets_checkout_observability_events_total`. Operator queries must use the typed profile event names and bounded label values only.
 - Unassigned fulfillment and optional savings optimization emit readiness telemetry before checkout. Checkout telemetry may consume the accepted or declined decision, but must not record checkout-time allocation or optimization repair.
 - Operator-signal rows emit `capability-decision` so enabled, disabled, deferred, provider-limited, risk-held, and kill-switched states are operable.

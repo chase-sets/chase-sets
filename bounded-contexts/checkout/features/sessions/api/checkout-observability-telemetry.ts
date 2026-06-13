@@ -1,10 +1,10 @@
 import {
   checkoutObservabilityProfiles,
   type CheckoutObservabilityAlertClass,
+  type CheckoutObservabilityState,
   type CheckoutObservabilityTelemetryClass,
   type CheckoutScenarioState,
 } from "./checkout-observability-contract";
-import type { CheckoutVisualTargetKey } from "./checkout-visual-targets";
 
 export type CheckoutObservabilityTelemetryEvent = Readonly<{
   eventName: `checkout.${string}`;
@@ -38,7 +38,7 @@ export type CheckoutObservabilityTelemetryInput = Omit<
   "eventName" | "telemetryClass" | "alertClass" | "operatorSignalRequired"
 > &
   Readonly<{
-    state: CheckoutVisualTargetKey;
+    state: CheckoutObservabilityState;
   }>;
 
 const checkoutObservabilityProfileByState = new Map(

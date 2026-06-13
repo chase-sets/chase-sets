@@ -1,8 +1,6 @@
 # Checkout Visual Targets
 
-Milestone #17 uses image-first visual targets for the Shopify-simple Buy Cart and Sell List checkout rebuild. These targets are review artifacts, not production UI. Implementation PRs should either match an approved image target or attach a desktop/mobile screenshot with an explicit delta decision.
-
-The executable contract lives in `bounded-contexts/checkout/features/sessions/api/checkout-visual-targets.ts`.
+Milestone #17 uses image-first visual targets for the Shopify-simple Buy Cart and Sell List checkout rebuild. These images are design references, not production UI or an executable checklist. Implementation should preserve the simple hierarchy and use product tests around the actual slice being shipped.
 
 ## Source References
 
@@ -48,44 +46,6 @@ Repo path: `bounded-contexts/checkout/docs/visual-targets/checkout-visual-target
 - Confirmation and account/history visuals distinguish pending Checkout activity from committed downstream facts.
 - Visual targets forbid dense checkout panels, allocation controls, provider diagnostics, old-route recovery, old payload wording, hidden repair, nested card stacks, migration/backfill wording, and fake downstream completion.
 
-## Visual Inventory
-
-| Target | Image artifact | Frames | Copy surface | Performance surface | Design coverage |
-| --- | --- | --- | --- | --- | --- |
-| Buy Cart review ready | `checkout-visual-targets-buy-flow.png` | 1 Desktop Buy Cart review | `cart-list-review` | `cart-list-initial-render` | Not required |
-| Buy readiness attention | `checkout-visual-targets-buy-flow.png` | 2 Mobile Buy Cart readiness and savings | `readiness-unassigned-fulfillment` | `buy-cart-readiness-evaluation` | Required |
-| Buy readiness savings optimization | `checkout-visual-targets-buy-flow.png` | 2 Mobile Buy Cart readiness and savings | `readiness-optimization-offer` | `fulfillment-optimization-decision` | Not required |
-| Guest Buy Checkout | `checkout-visual-targets-buy-flow.png` | 3 Desktop Guest Buy Checkout | `checkout-review` | `checkout-entry-review-render` | Not required |
-| Signed-in Buy Checkout | `checkout-visual-targets-buy-flow.png` | 4 Mobile Signed-in Buy Checkout | `checkout-saved-info-rows` | `mobile-sticky-action-interaction` | Not required |
-| Sell List review ready | `checkout-visual-targets-sell-flow.png` | 1 Desktop Sell List review | `cart-list-review` | `cart-list-initial-render` | Not required |
-| Sell List readiness blocked | `checkout-visual-targets-sell-flow.png` | 2 Mobile Sell List readiness | `readiness-blocked-or-unavailable` | `sell-list-readiness-evaluation` | Required |
-| Guest Sell Checkout | `checkout-visual-targets-capability-states.png` | 1 Guest Sell Checkout desktop | `checkout-review` | `checkout-entry-review-render` | Not required |
-| Signed-in Sell Checkout | `checkout-visual-targets-sell-flow.png` | 3 Desktop Signed-in Seller Checkout | `checkout-saved-info-rows` | `checkout-entry-review-render` | Not required |
-| Seller confirmation activity | `checkout-visual-targets-sell-flow.png` | 4 Mobile Seller confirmation/activity | `seller-pending-activity` | `final-confirmation-visible-state` | Required |
-| Active-session stale recovery | `checkout-visual-targets-recovery-states.png` | 1 Active-session stale recovery desktop | `active-session-stale-recovery` | `active-session-reload` | Required |
-| Address or serviceability failure | `checkout-visual-targets-recovery-states.png` | 2 Address/serviceability failure mobile | `address-correction` | `totals-refresh` | Required |
-| Changed economics review | `checkout-visual-targets-recovery-states.png` | 3 Changed economics desktop | `economics-discount-credit-promo` | `totals-refresh` | Required |
-| Risk hold or provider-return failure | `checkout-visual-targets-recovery-states.png` | 4 Risk hold/provider return failure mobile | `risk-hold-or-block` | `provider-return-confirmation` | Required |
-| Split package summary | `checkout-visual-targets-recovery-states.png` | 5 Split-group summary desktop | `split-group-summary` | `checkout-entry-review-render` | Required |
-| Checkout unavailable | `checkout-visual-targets-recovery-states.png` | 6 Checkout unavailable mobile | `kill-switch-disabled-checkout` | `checkout-entry-permanent-recovery-render` | Required |
-| Temporary recovery loading | `checkout-visual-targets-recovery-states.png` | 1 Active-session stale recovery desktop | `checkout-temporary-recovery` | `checkout-entry-temporary-recovery-render` | Required |
-| Disabled accelerated or saved instrument | `checkout-visual-targets-capability-states.png` | 2 Disabled accelerated checkout/saved instrument fallback mobile | `accelerated-saved-instrument-fallback` | `payment-payout-setup-handoff` | Required |
-| Promo, credit, gift card, and fee state | `checkout-visual-targets-capability-states.png` | 3 Promo, credit, gift-card, and fee state desktop | `economics-discount-credit-promo` | `totals-refresh` | Required |
-| Notification expectation and support reference | `checkout-visual-targets-capability-states.png` | 4 Notification expectation and support reference mobile | `notification-expectation` | `final-confirmation-visible-state` | Required |
-| Account history handoff | `checkout-visual-targets-capability-states.png` | 5 Account history handoff desktop | `account-history-handoff` | `account-history-handoff` | Required |
-| Reconciliation pending | `checkout-visual-targets-capability-states.png` | 5 Account history handoff desktop | `account-history-handoff` | `support-lookup` | Required |
-| Reversal and adjustment recovery | `checkout-visual-targets-capability-states.png` | 6 Reversal and adjustment recovery mobile | `cancellation-refund-reversal` | `reversal-recovery-status-refresh` | Required |
-
-## Delta Register
-
-These targets are ready for design review; implementation can either match them or document a focused delta.
-
-| Delta | Owner | Exit condition |
-| --- | --- | --- |
-| UI implementation must attach screenshots or match an approved image target. | #1115 | Desktop and mobile checks link the image target or explicit delta. |
-| Customer-visible copy must map to the copy-policy surface. | #1102 | Localization keys and visual/copy deltas are reviewed together. |
-| Pending states must stay separate from committed downstream records. | #1135, #1130, #1122 | Account/history/support visuals distinguish pending activity from committed order, sale, label, payout, settlement, notification, fulfillment, support, reconciliation, and reversal facts. |
-
 ## Review Use
 
 Use these images as the first visual target set for #1112. Future implementation PRs should preserve the intent even when exact content changes:
@@ -96,3 +56,5 @@ Use these images as the first visual target set for #1112. Future implementation
 - no side effects before valid confirmation;
 - pending Checkout activity separated from committed downstream facts;
 - no old checkout fallback surfaces.
+
+Attach focused screenshots to UI implementation PRs when a customer-visible checkout surface changes. Keep deltas local to the slice being shipped rather than creating a separate tracking matrix.

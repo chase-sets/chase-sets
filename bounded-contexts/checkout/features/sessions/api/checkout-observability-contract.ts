@@ -1,9 +1,3 @@
-import {
-  checkoutVisualRequiredTargets,
-  type CheckoutVisualOwnerIssue,
-  type CheckoutVisualTargetKey,
-} from "./checkout-visual-targets";
-
 export const checkoutObservabilityContractDocPath =
   "bounded-contexts/checkout/docs/checkout-observability-contract.md" as const;
 
@@ -81,11 +75,40 @@ export type CheckoutScenarioState =
   | "reversal-recovery"
   | "kill-switch";
 
+export const checkoutObservabilityRequiredStates = [
+  "buy-cart-review-ready",
+  "buy-readiness-unassigned-fulfillment",
+  "buy-readiness-optimization",
+  "guest-buy-checkout",
+  "signed-in-buy-checkout",
+  "sell-list-review-ready",
+  "sell-list-readiness-blocked",
+  "guest-sell-checkout",
+  "signed-in-sell-checkout",
+  "seller-confirmation-activity",
+  "active-session-stale-recovery",
+  "address-serviceability-failure",
+  "changed-economics-review",
+  "risk-hold-provider-return-failure",
+  "split-group-summary",
+  "kill-switch-checkout-unavailable",
+  "temporary-recovery-loading",
+  "disabled-accelerated-saved-instrument",
+  "promo-credit-gift-card-state",
+  "notification-support-reference",
+  "account-history-handoff",
+  "reconciliation-pending",
+  "reversal-recovery-status",
+] as const;
+
+export type CheckoutObservabilityState = (typeof checkoutObservabilityRequiredStates)[number];
+export type CheckoutObservabilityOwnerIssue = `#${number}`;
+
 export type CheckoutObservabilityProfile = Readonly<{
-  state: CheckoutVisualTargetKey;
+  state: CheckoutObservabilityState;
   eventName: `checkout.${string}`;
   docLabel: string;
-  ownerIssues: readonly CheckoutVisualOwnerIssue[];
+  ownerIssues: readonly CheckoutObservabilityOwnerIssue[];
   telemetryClass: CheckoutObservabilityTelemetryClass;
   scenarioStates: readonly CheckoutScenarioState[];
   dimensions: readonly CheckoutObservabilityDimension[];
@@ -437,9 +460,9 @@ export function assertCheckoutObservabilityContractCoverage(): void {
     throw new Error("Checkout observability profiles must be unique by state.");
   }
 
-  for (const requiredTarget of checkoutVisualRequiredTargets) {
-    if (!profileByState.has(requiredTarget)) {
-      throw new Error(`Missing checkout observability profile for visual target '${requiredTarget}'.`);
+  for (const requiredState of checkoutObservabilityRequiredStates) {
+    if (!profileByState.has(requiredState)) {
+      throw new Error(`Missing checkout observability profile for state '${requiredState}'.`);
     }
   }
 
