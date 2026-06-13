@@ -1,6 +1,8 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
+export const structureRulesDocPath = "docs/architecture/bounded-context-structure.md#rules-the-structure-gate-enforces";
+
 export async function runManifestValidation(options) {
   const {
     contextManifests,
@@ -59,6 +61,7 @@ export function reportStructureCheckResults(options) {
     for (const violation of violations.sort()) {
       console.error(`- ${violation}`);
     }
+    console.error(`\nSee ${structureRulesDocPath} for the enforced rules and fixes.`);
     return false;
   }
 
