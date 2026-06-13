@@ -687,15 +687,6 @@ export type PaymentServices = Readonly<{
   listPaymentsNeedingReconciliation: (
     params?: Readonly<{ limit?: number; claimOwnerId?: string; claimTtlMs?: number }>,
   ) => Promise<PaymentDetailRow[]>;
-  getProviderHealth: () => Promise<
-    Readonly<{
-      provider_name: string;
-      confirmation_experience: PaymentProcessorPublicConfig["confirmationExperience"];
-      dynamic_payment_methods: boolean;
-      sensitive_payment_details_handled_by_provider: boolean;
-      webhook_signature_required: boolean;
-    }>
-  >;
   scanPaymentsNeedingReconciliation: (
     params?: Readonly<{ limit?: number; claimOwnerId?: string; claimTtlMs?: number }>,
   ) => Promise<Readonly<{ checked: number; attention: number; payment_ids: readonly string[] }>>;
@@ -1422,15 +1413,6 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
       };
     },
     listPaymentsNeedingReconciliation: (params) => listPaymentsNeedingReconciliation(deps.db, params),
-    async getProviderHealth() {
-      return {
-        provider_name: publicConfig.processorName,
-        confirmation_experience: publicConfig.confirmationExperience,
-        dynamic_payment_methods: publicConfig.dynamicPaymentMethods,
-        sensitive_payment_details_handled_by_provider: publicConfig.sensitivePaymentDetailsHandledByProcessor,
-        webhook_signature_required: true,
-      };
-    },
     async scanPaymentsNeedingReconciliation(params) {
       const startedAt = new Date().toISOString();
       const payments = await listPaymentsNeedingReconciliation(deps.db, params);

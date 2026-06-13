@@ -699,21 +699,11 @@ export async function runSellerFlow(baseUrl, options = {}) {
     headers,
     "marketplace checkout fee policy",
   );
-  const paymentProviderHealth = await getJsonOk(
-    fetchImpl,
-    `${baseUrl}/api/marketplace/account/provider-health`,
-    headers,
-    "payment provider health",
-  );
   const settlementProviderHealth = await getJsonOk(
     fetchImpl,
     `${baseUrl}/api/settlement/provider-health`,
     headers,
     "settlement provider health",
-  );
-  assert(
-    paymentProviderHealth.provider_name === "stripe",
-    `Expected Stripe payment provider health, got ${paymentProviderHealth.provider_name}.`,
   );
   assert(
     settlementProviderHealth.provider_name === "stripe",
@@ -791,7 +781,6 @@ export async function runSellerFlow(baseUrl, options = {}) {
   return {
     accountStatus: "ok",
     walletBalanceCreditAvailable: accountStatus.wallet.can_use_balance_credit,
-    paymentProviderHealth: "ok",
     settlementProviderHealth: "ok",
     providerIdempotencySurfaces: "ok",
     platformBalanceForecast: "ok",

@@ -229,13 +229,6 @@ function createServices(): PaymentServices {
       },
     })),
     listPaymentsNeedingReconciliation: vi.fn(async () => []),
-    getProviderHealth: vi.fn(async () => ({
-      provider_name: "stripe",
-      confirmation_experience: "processor-managed-form",
-      dynamic_payment_methods: true,
-      sensitive_payment_details_handled_by_provider: true,
-      webhook_signature_required: true,
-    })),
     scanPaymentsNeedingReconciliation: vi.fn(async () => ({
       checked: 0,
       attention: 0,
@@ -654,30 +647,6 @@ describe("payments routes", () => {
     });
   });
 
-  it("returns provider health only for order managers", async () => {
-    const services = createServices();
-    const app = buildAccountApp({
-      actor: {
-        sessionId: "ses_1",
-        tenantId: "tnt_identity",
-        userId: "usr_1",
-        accountId: "acc_buyer",
-        membershipId: "mbr_1",
-        roleKey: "owner",
-        permissions: ["orders.manage"],
-      },
-      services,
-    });
-
-    const response = await app.fetch(new Request("http://payments.test/account/provider-health"));
-
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
-      sensitive_payment_details_handled_by_provider: true,
-      webhook_signature_required: true,
-    });
-  });
-
   it("does not expose standalone provider diagnostics to account callers", async () => {
     const app = buildAccountApp({
       actor: {
@@ -692,7 +661,12 @@ describe("payments routes", () => {
       services: createServices(),
     });
 
-    const routes = ["/account/provider-idempotency", "/account/provider-events/evt_1", "/account/reconciliation/runs"];
+    const routes = [
+      "/account/provider-health",
+      "/account/provider-idempotency",
+      "/account/provider-events/evt_1",
+      "/account/reconciliation/runs",
+    ];
 
     for (const route of routes) {
       const response = await app.fetch(new Request(`http://payments.test${route}`));

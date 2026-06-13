@@ -69,9 +69,6 @@ function createSmokeFetch(calls) {
     if (path === "/api/marketplace/account/marketplace-checkout-fee-policy") {
       return jsonResponse({ policy_version: "marketplace-checkout-fee-v1" });
     }
-    if (path === "/api/marketplace/account/provider-health") {
-      return jsonResponse({ provider_name: "stripe" });
-    }
     if (path === "/api/settlement/provider-health") {
       return jsonResponse({ provider_name: "stripe" });
     }
@@ -363,7 +360,6 @@ describe("stripe money smoke test", () => {
 
     expect(result).toMatchObject({
       walletBalanceCreditAvailable: true,
-      paymentProviderHealth: "ok",
       settlementProviderHealth: "ok",
       providerIdempotencySurfaces: "ok",
       checkout: {

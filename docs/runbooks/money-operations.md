@@ -212,8 +212,8 @@ Expected results:
 
 - `/health` returns `200`.
 - Unsigned payment and money movement webhooks return `400`.
-- Payment and settlement provider health both report Stripe.
-- Payment and payout provider idempotency surfaces return successfully.
+- Settlement provider health reports Stripe.
+- Payout provider idempotency surfaces return successfully.
 - Settlement account status reports whether wallet balance credit can be used.
 - Marketplace Checkout Fee policy returns successfully.
 - When `SMOKE_ORDER_IDS` is set, checkout status returns wallet credit and Marketplace Checkout Fee details.
@@ -347,7 +347,7 @@ When `PRODUCTION_MARKETPLACE_PROOF_ENABLED=true` and `PRODUCTION_MARKETPLACE_PUB
 
 ## Provider Outage
 
-1. Check provider health endpoints and Stripe status.
+1. Check Settlement provider health and Stripe status.
 2. Disable payout submissions before disabling webhook processing.
 3. Keep accepting webhooks if signature verification is healthy.
 4. Run reconciliation after recovery.

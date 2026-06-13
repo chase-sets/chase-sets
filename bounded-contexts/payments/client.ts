@@ -278,9 +278,6 @@ export function createPaymentsApiClient({
         }),
       );
     },
-    async getProviderHealth() {
-      return parseJsonResponse(await client.account["provider-health"].$get({ header: headers }));
-    },
     async getMarketplaceCheckoutFeePolicy(): Promise<PaymentsMarketplaceCheckoutFeePolicy> {
       return parseJsonResponse(
         await client.account["marketplace-checkout-fee-policy"].$get({
