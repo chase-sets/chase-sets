@@ -85,7 +85,7 @@ export function recordCartReadinessObservability(
       scenarioState: unassignedScenario,
       visibleState:
         snapshot.status === "blocked" ? "cart-readiness-blocked-visible" : "cart-readiness-recovery-visible",
-      launchDecision: "blocked",
+      capabilityDecision: "blocked",
     });
   }
 
@@ -96,7 +96,7 @@ export function recordCartReadinessObservability(
       state: "buy-readiness-optimization",
       scenarioState: optimizationScenario,
       visibleState: "cart-readiness-optimization-visible",
-      launchDecision: "enabled",
+      capabilityDecision: "enabled",
     });
   }
 }

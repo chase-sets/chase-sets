@@ -16,7 +16,7 @@ export type CheckoutObservabilityTelemetryClass =
   | "confirmation"
   | "handoff"
   | "recovery"
-  | "launch-governance";
+  | "capability-state";
 
 export type CheckoutObservabilityDimension =
   | "entry-source"
@@ -34,7 +34,7 @@ export type CheckoutObservabilityDimension =
   | "provider-category"
   | "risk-category"
   | "downstream-status"
-  | "launch-decision-decision";
+  | "capability-decision";
 
 export type CheckoutObservabilityForbiddenField =
   | "raw-after-write"
@@ -52,8 +52,8 @@ export type CheckoutObservabilityForbiddenField =
   | "sensitive-risk-signal";
 
 export type CheckoutObservabilityAlertClass =
-  | "dashboard-only"
-  | "launch-alert"
+  | "event-only"
+  | "operator-alert"
   | "provider-alert"
   | "support-alert"
   | "fresh-state-alert";
@@ -91,7 +91,7 @@ export type CheckoutObservabilityProfile = Readonly<{
   dimensions: readonly CheckoutObservabilityDimension[];
   forbiddenFields: readonly CheckoutObservabilityForbiddenField[];
   alertClass: CheckoutObservabilityAlertClass;
-  releaseHealthRequired: boolean;
+  operatorSignalRequired: boolean;
   expectation: string;
 }>;
 
@@ -129,8 +129,8 @@ export const checkoutObservabilityProfiles = [
     telemetryClass: "funnel",
     scenarioStates: ["normal"],
     dimensions: ["readiness-contract", "source-revision", "performance-budget-id", "latency-ms"],
-    alertClass: "dashboard-only",
-    releaseHealthRequired: false,
+    alertClass: "event-only",
+    operatorSignalRequired: false,
     expectation: "Cart review telemetry proves mutable intent rendered without checkout repair machinery.",
   }),
   profile({
@@ -140,9 +140,9 @@ export const checkoutObservabilityProfiles = [
     ownerIssues: ["#1114", "#1115", "#1117"],
     telemetryClass: "readiness",
     scenarioStates: ["blocked", "unassigned-fulfillment"],
-    dimensions: ["readiness-contract", "readiness-snapshot-version", "source-revision", "launch-decision-decision"],
+    dimensions: ["readiness-contract", "readiness-snapshot-version", "source-revision", "capability-decision"],
     alertClass: "support-alert",
-    releaseHealthRequired: true,
+    operatorSignalRequired: true,
     expectation: "Unassigned fulfillment telemetry stays in readiness and proves no downstream side effects started.",
   }),
   profile({
@@ -153,8 +153,8 @@ export const checkoutObservabilityProfiles = [
     telemetryClass: "readiness",
     scenarioStates: ["optimization-available", "optimization-accepted", "optimization-declined"],
     dimensions: ["readiness-contract", "readiness-snapshot-version", "source-revision", "performance-budget-id"],
-    alertClass: "dashboard-only",
-    releaseHealthRequired: false,
+    alertClass: "event-only",
+    operatorSignalRequired: false,
     expectation: "Optimization telemetry records accepted or declined savings before checkout entry.",
   }),
   profile({
@@ -165,8 +165,8 @@ export const checkoutObservabilityProfiles = [
     telemetryClass: "checkout-entry",
     scenarioStates: ["normal"],
     dimensions: ["readiness-contract", "readiness-snapshot-version", "performance-budget-id", "latency-ms"],
-    alertClass: "dashboard-only",
-    releaseHealthRequired: false,
+    alertClass: "event-only",
+    operatorSignalRequired: false,
     expectation: "Guest buy checkout telemetry proves form-first review rendered from current readiness only.",
   }),
   profile({
@@ -177,8 +177,8 @@ export const checkoutObservabilityProfiles = [
     telemetryClass: "checkout-entry",
     scenarioStates: ["normal"],
     dimensions: ["readiness-contract", "readiness-snapshot-version", "source-revision", "performance-budget-id"],
-    alertClass: "dashboard-only",
-    releaseHealthRequired: false,
+    alertClass: "event-only",
+    operatorSignalRequired: false,
     expectation: "Signed-in buy telemetry proves saved rows rendered with fresh account facts.",
   }),
   profile({
@@ -189,8 +189,8 @@ export const checkoutObservabilityProfiles = [
     telemetryClass: "funnel",
     scenarioStates: ["normal"],
     dimensions: ["readiness-contract", "source-revision", "performance-budget-id", "latency-ms"],
-    alertClass: "dashboard-only",
-    releaseHealthRequired: false,
+    alertClass: "event-only",
+    operatorSignalRequired: false,
     expectation: "Sell List review telemetry proves seller intent rendered before sale action commitment.",
   }),
   profile({
@@ -200,9 +200,9 @@ export const checkoutObservabilityProfiles = [
     ownerIssues: ["#1114", "#1115"],
     telemetryClass: "readiness",
     scenarioStates: ["blocked"],
-    dimensions: ["readiness-contract", "readiness-snapshot-version", "provider-category", "launch-decision-decision"],
+    dimensions: ["readiness-contract", "readiness-snapshot-version", "provider-category", "capability-decision"],
     alertClass: "support-alert",
-    releaseHealthRequired: true,
+    operatorSignalRequired: true,
     expectation: "Seller readiness telemetry keeps eligibility, payout, label, and provider blockers before checkout.",
   }),
   profile({
@@ -212,9 +212,9 @@ export const checkoutObservabilityProfiles = [
     ownerIssues: ["#1114", "#1115", "#1113"],
     telemetryClass: "checkout-entry",
     scenarioStates: ["normal", "deferred-capability"],
-    dimensions: ["readiness-contract", "readiness-snapshot-version", "launch-decision-decision", "provider-category"],
-    alertClass: "launch-alert",
-    releaseHealthRequired: true,
+    dimensions: ["readiness-contract", "readiness-snapshot-version", "capability-decision", "provider-category"],
+    alertClass: "operator-alert",
+    operatorSignalRequired: true,
     expectation:
       "Guest sell telemetry records whether seller account or payout setup is enabled, disabled, or deferred.",
   }),
@@ -226,8 +226,8 @@ export const checkoutObservabilityProfiles = [
     telemetryClass: "checkout-entry",
     scenarioStates: ["normal"],
     dimensions: ["readiness-contract", "readiness-snapshot-version", "provider-category", "performance-budget-id"],
-    alertClass: "dashboard-only",
-    releaseHealthRequired: false,
+    alertClass: "event-only",
+    operatorSignalRequired: false,
     expectation: "Signed-in sell telemetry proves provider-ready facts were consumed without rebuilding diagnostics.",
   }),
   profile({
@@ -242,10 +242,10 @@ export const checkoutObservabilityProfiles = [
       "readiness-snapshot-version",
       "downstream-status",
       "support-safe-reference",
-      "launch-decision-decision",
+      "capability-decision",
     ],
     alertClass: "support-alert",
-    releaseHealthRequired: true,
+    operatorSignalRequired: true,
     expectation: "Seller confirmation telemetry separates recorded handoff from downstream completion.",
   }),
   profile({
@@ -261,10 +261,10 @@ export const checkoutObservabilityProfiles = [
       "source-revision",
       "fresh-write-receipt-presence",
       "support-safe-reference",
-      "launch-decision-decision",
+      "capability-decision",
     ],
     alertClass: "fresh-state-alert",
-    releaseHealthRequired: true,
+    operatorSignalRequired: true,
     expectation: "Active-session recovery telemetry proves source revalidation failed closed before side effects.",
   }),
   profile({
@@ -274,9 +274,9 @@ export const checkoutObservabilityProfiles = [
     ownerIssues: ["#1114", "#1115", "#1127"],
     telemetryClass: "recovery",
     scenarioStates: ["blocked"],
-    dimensions: ["readiness-contract", "provider-category", "support-safe-reference", "launch-decision-decision"],
+    dimensions: ["readiness-contract", "provider-category", "support-safe-reference", "capability-decision"],
     alertClass: "support-alert",
-    releaseHealthRequired: true,
+    operatorSignalRequired: true,
     expectation: "Address telemetry proves serviceability failed safely without exposing address contents.",
   }),
   profile({
@@ -286,9 +286,9 @@ export const checkoutObservabilityProfiles = [
     ownerIssues: ["#1114", "#1115", "#1128"],
     telemetryClass: "recovery",
     scenarioStates: ["blocked"],
-    dimensions: ["readiness-contract", "source-revision", "support-safe-reference", "launch-decision-decision"],
+    dimensions: ["readiness-contract", "source-revision", "support-safe-reference", "capability-decision"],
     alertClass: "support-alert",
-    releaseHealthRequired: true,
+    operatorSignalRequired: true,
     expectation: "Economics telemetry proves changed totals require review before confirmation.",
   }),
   profile({
@@ -298,9 +298,9 @@ export const checkoutObservabilityProfiles = [
     ownerIssues: ["#1114", "#1115", "#1131", "#1134"],
     telemetryClass: "recovery",
     scenarioStates: ["risk-hold", "provider-outage", "blocked"],
-    dimensions: ["provider-category", "risk-category", "support-safe-reference", "launch-decision-decision"],
+    dimensions: ["provider-category", "risk-category", "support-safe-reference", "capability-decision"],
     alertClass: "provider-alert",
-    releaseHealthRequired: true,
+    operatorSignalRequired: true,
     expectation: "Provider and risk telemetry gives support-safe status without sensitive provider or risk details.",
   }),
   profile({
@@ -315,23 +315,23 @@ export const checkoutObservabilityProfiles = [
       "readiness-snapshot-version",
       "support-safe-reference",
       "performance-budget-id",
-      "launch-decision-decision",
+      "capability-decision",
     ],
-    alertClass: "launch-alert",
-    releaseHealthRequired: true,
+    alertClass: "operator-alert",
+    operatorSignalRequired: true,
     expectation:
       "Split-group telemetry preserves readiness-produced group references without checkout-time regrouping.",
   }),
   profile({
     state: "kill-switch-checkout-unavailable",
-    eventName: "checkout.launch.kill_switch_unavailable",
+    eventName: "checkout.capability.kill_switch_unavailable",
     docLabel: "Checkout unavailable",
     ownerIssues: ["#1114", "#1115", "#1103"],
-    telemetryClass: "launch-governance",
+    telemetryClass: "capability-state",
     scenarioStates: ["kill-switch"],
-    dimensions: ["launch-decision-decision", "support-safe-reference"],
-    alertClass: "launch-alert",
-    releaseHealthRequired: true,
+    dimensions: ["capability-decision", "support-safe-reference"],
+    alertClass: "operator-alert",
+    operatorSignalRequired: true,
     expectation: "Kill-switch telemetry proves checkout failed closed without legacy fallback.",
   }),
   profile({
@@ -341,9 +341,9 @@ export const checkoutObservabilityProfiles = [
     ownerIssues: ["#1114", "#1115", "#1206"],
     telemetryClass: "checkout-entry",
     scenarioStates: ["loading", "slow-budget"],
-    dimensions: ["fresh-write-receipt-presence", "performance-budget-id", "latency-ms", "launch-decision-decision"],
+    dimensions: ["fresh-write-receipt-presence", "performance-budget-id", "latency-ms", "capability-decision"],
     alertClass: "fresh-state-alert",
-    releaseHealthRequired: true,
+    operatorSignalRequired: true,
     expectation: "Temporary recovery telemetry distinguishes safe waiting from ambiguous no-state renders.",
   }),
   profile({
@@ -351,11 +351,11 @@ export const checkoutObservabilityProfiles = [
     eventName: "checkout.capability.accelerated_or_saved_disabled",
     docLabel: "Disabled accelerated or saved instrument",
     ownerIssues: ["#1114", "#1115", "#1113"],
-    telemetryClass: "launch-governance",
+    telemetryClass: "capability-state",
     scenarioStates: ["disabled-capability", "deferred-capability"],
-    dimensions: ["provider-category", "launch-decision-decision", "support-safe-reference"],
-    alertClass: "launch-alert",
-    releaseHealthRequired: true,
+    dimensions: ["provider-category", "capability-decision", "support-safe-reference"],
+    alertClass: "operator-alert",
+    operatorSignalRequired: true,
     expectation: "Capability telemetry proves shortcuts cannot bypass readiness or final review.",
   }),
   profile({
@@ -363,11 +363,11 @@ export const checkoutObservabilityProfiles = [
     eventName: "checkout.capability.promo_credit_gift_card_state",
     docLabel: "Promo, credit, gift card, and fee state",
     ownerIssues: ["#1114", "#1115", "#1128"],
-    telemetryClass: "launch-governance",
+    telemetryClass: "capability-state",
     scenarioStates: ["deferred-capability", "blocked"],
-    dimensions: ["source-revision", "launch-decision-decision", "support-safe-reference"],
-    alertClass: "launch-alert",
-    releaseHealthRequired: true,
+    dimensions: ["source-revision", "capability-decision", "support-safe-reference"],
+    alertClass: "operator-alert",
+    operatorSignalRequired: true,
     expectation: "Promo and credit telemetry records explicit enabled, disabled, or deferred launch state.",
   }),
   profile({
@@ -377,9 +377,9 @@ export const checkoutObservabilityProfiles = [
     ownerIssues: ["#1114", "#1115", "#1129"],
     telemetryClass: "handoff",
     scenarioStates: ["notification", "support", "pending-downstream"],
-    dimensions: ["downstream-status", "support-safe-reference", "launch-decision-decision"],
+    dimensions: ["downstream-status", "support-safe-reference", "capability-decision"],
     alertClass: "support-alert",
-    releaseHealthRequired: true,
+    operatorSignalRequired: true,
     expectation: "Notification telemetry records expectation and support reference without implying delivery.",
   }),
   profile({
@@ -389,9 +389,9 @@ export const checkoutObservabilityProfiles = [
     ownerIssues: ["#1114", "#1115", "#1135"],
     telemetryClass: "handoff",
     scenarioStates: ["committed-downstream", "support"],
-    dimensions: ["downstream-status", "support-safe-reference", "performance-budget-id", "launch-decision-decision"],
+    dimensions: ["downstream-status", "support-safe-reference", "performance-budget-id", "capability-decision"],
     alertClass: "support-alert",
-    releaseHealthRequired: true,
+    operatorSignalRequired: true,
     expectation:
       "Account-history telemetry links only committed downstream records and support-safe source references.",
   }),
@@ -402,9 +402,9 @@ export const checkoutObservabilityProfiles = [
     ownerIssues: ["#1114", "#1115", "#1130"],
     telemetryClass: "handoff",
     scenarioStates: ["reconciliation", "pending-downstream"],
-    dimensions: ["downstream-status", "support-safe-reference", "performance-budget-id", "launch-decision-decision"],
+    dimensions: ["downstream-status", "support-safe-reference", "performance-budget-id", "capability-decision"],
     alertClass: "support-alert",
-    releaseHealthRequired: true,
+    operatorSignalRequired: true,
     expectation: "Reconciliation telemetry distinguishes pending recovery from committed downstream facts.",
   }),
   profile({
@@ -414,9 +414,9 @@ export const checkoutObservabilityProfiles = [
     ownerIssues: ["#1114", "#1115", "#1165"],
     telemetryClass: "handoff",
     scenarioStates: ["reversal-recovery", "support"],
-    dimensions: ["downstream-status", "support-safe-reference", "performance-budget-id", "launch-decision-decision"],
+    dimensions: ["downstream-status", "support-safe-reference", "performance-budget-id", "capability-decision"],
     alertClass: "support-alert",
-    releaseHealthRequired: true,
+    operatorSignalRequired: true,
     expectation: "Reversal telemetry is audited, support-safe, and separated from completed refund or payout facts.",
   }),
 ] as const satisfies readonly CheckoutObservabilityProfile[];
@@ -454,8 +454,8 @@ export function assertCheckoutObservabilityContractCoverage(): void {
       }
     }
 
-    if (profile.releaseHealthRequired && !profile.dimensions.includes("launch-decision-decision")) {
-      throw new Error(`Release-health profile '${profile.state}' must emit launch-decision-decision.`);
+    if (profile.operatorSignalRequired && !profile.dimensions.includes("capability-decision")) {
+      throw new Error(`Release-health profile '${profile.state}' must emit capability-decision.`);
     }
 
     if (profile.scenarioStates.includes("pending-downstream") && !profile.dimensions.includes("downstream-status")) {

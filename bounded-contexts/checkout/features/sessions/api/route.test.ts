@@ -205,7 +205,7 @@ describe("checkout session routes", () => {
         readinessSnapshotState: "stale",
         sourceRevisionState: "stale",
         supportReferencePresent: false,
-        launchDecision: "blocked",
+        capabilityDecision: "blocked",
       }),
     );
   });
@@ -779,7 +779,7 @@ describe("checkout session routes", () => {
         readinessContract: "downstream-owned-fact",
         downstreamStatus: "payment-started",
         supportReferencePresent: true,
-        launchDecision: "enabled",
+        capabilityDecision: "enabled",
       }),
     );
     const emitted = JSON.stringify(checkoutObservabilityTelemetry.recordCheckoutEvent.mock.calls[0]?.[0]);
@@ -1132,7 +1132,7 @@ describe("checkout session routes", () => {
         scenarioState: "deferred-capability",
         visibleState: "checkout-review-visible",
         sideEffectStatus: "not-attempted",
-        launchDecision: "deferred",
+        capabilityDecision: "deferred",
         downstreamStatus: "not-started",
       }),
     );
@@ -1185,7 +1185,7 @@ describe("checkout session routes", () => {
         readinessSnapshotState: "fresh",
         sourceRevisionState: "fulfillment-preview-stale",
         supportReferencePresent: false,
-        launchDecision: "blocked",
+        capabilityDecision: "blocked",
       }),
     );
   });
@@ -1361,7 +1361,7 @@ describe("checkout session routes", () => {
         visibleState: "checkout-review-visible",
         sideEffectStatus: "not-attempted",
         providerCategory: "payments",
-        launchDecision: "blocked",
+        capabilityDecision: "blocked",
         downstreamStatus: "not-started",
       }),
     );

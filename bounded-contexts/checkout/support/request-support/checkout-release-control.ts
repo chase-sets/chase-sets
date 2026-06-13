@@ -117,10 +117,8 @@ export function checkoutShopifySimpleUnavailableTelemetryEvent(
     providerCategory: decision.source,
     riskCategory: "none",
     downstreamStatus: "not-started",
-    launchDecision: "blocked",
+    capabilityDecision: "blocked",
     freshStateScanResult: "blocked-before-checkout",
-    promotionDecision: decision.reason,
-    releaseRunId: null,
   });
 }
 

@@ -52,9 +52,9 @@
       "source": "Prometheus checkout command, order, payment, and provider-health failure counters",
       "currentState": "needs-instrumentation",
       "baselineQuery": "vector(0)",
-      "canaryQuery": "sum(rate(chase_sets_checkout_observability_events_total{release_health_required=\"true\",alert_class=~\"launch-alert|provider-alert|side-effect-boundary\"}[15m]))",
+      "canaryQuery": "sum(rate(chase_sets_checkout_observability_events_total{operator_signal_required=\"true\",alert_class=~\"operator-alert|provider-alert|side-effect-boundary\"}[15m]))",
       "maxIncrease": 0,
-      "threshold": "production checkout/payment release-health alert events must remain zero"
+      "threshold": "production checkout/payment operator-signal alert events must remain zero"
     },
     {
       "name": "settlement-payout-errors",

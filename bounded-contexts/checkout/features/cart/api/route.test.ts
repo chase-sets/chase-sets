@@ -276,8 +276,8 @@ describe("checkout cart routes", () => {
       performanceBudgetId: "buy-cart-readiness-evaluation",
       providerCategory: "fulfillment",
       downstreamStatus: "not-started",
-      launchDecision: "blocked",
-      releaseHealthRequired: true,
+      capabilityDecision: "blocked",
+      operatorSignalRequired: true,
     });
     expect(JSON.stringify(events)).not.toContain("acc_buyer_sensitive");
     expect(JSON.stringify(events)).not.toContain("ses_sensitive");
@@ -361,7 +361,7 @@ describe("checkout cart routes", () => {
       expect(events[0]).toMatchObject({
         eventName: "checkout.readiness.optimization_decision",
         telemetryClass: "readiness",
-        alertClass: "dashboard-only",
+        alertClass: "event-only",
         entrySource: "buy-cart-readiness",
         actorMode: "guest",
         scenarioState: `optimization-${decision}`,
@@ -373,8 +373,8 @@ describe("checkout cart routes", () => {
         performanceBudgetId: "buy-cart-readiness-evaluation",
         providerCategory: "fulfillment",
         downstreamStatus: "not-started",
-        launchDecision: "enabled",
-        releaseHealthRequired: false,
+        capabilityDecision: "enabled",
+        operatorSignalRequired: false,
       });
       expect(JSON.stringify(events)).not.toContain("anon_cart_sensitive");
       expect(JSON.stringify(events)).not.toContain("cr_optimization_sensitive");

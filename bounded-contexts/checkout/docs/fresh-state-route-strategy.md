@@ -51,7 +51,7 @@ When disabled:
 - Active sell sessions redirect to `/account/sell-list?checkout=disabled` before readiness, sale, label, payout, listing, or support handoff calls.
 - Cart and Sell List remain reachable so customers can review or remove intent.
 - The old dense checkout is not restored as a fallback path.
-- `checkout.launch.kill_switch_unavailable` telemetry records bounded launch-governance evidence and excludes raw URLs, checkout session ids, account ids, contact data, provider payloads, card data, bank data, and secrets.
+- `checkout.capability.kill_switch_unavailable` telemetry records bounded capability state and excludes raw URLs, checkout session ids, account ids, contact data, provider payloads, card data, bank data, and secrets.
 
 The kill switches are for operational disablement and smoke validation. They are not public rollout selectors between old and new checkout experiences.
 

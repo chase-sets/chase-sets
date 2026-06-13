@@ -234,17 +234,17 @@ describe("request metrics", () => {
   });
 });
 
-describe("checkout launch observability", () => {
-  const productionProofEvent = {
-    eventName: "checkout.launch.production_proof_buy_now",
-    telemetryClass: "launch-governance",
-    alertClass: "launch-alert",
+describe("checkout observability", () => {
+  const operatorSignalEvent = {
+    eventName: "checkout.capability.kill_switch_unavailable",
+    telemetryClass: "capability-state",
+    alertClass: "operator-alert",
     entrySource: "buy-now",
     actorMode: "guest",
-    scenarioState: "production-proof-readiness",
+    scenarioState: "kill-switch",
     visibleState: "checkout-review",
     sideEffectStatus: "not-attempted",
-    releaseHealthRequired: true,
+    operatorSignalRequired: true,
     readinessContract: "checkout.cart-readiness.v1",
     readinessSnapshotState: "fresh",
     sourceRevisionState: "current",
@@ -254,25 +254,22 @@ describe("checkout launch observability", () => {
     providerCategory: "none",
     riskCategory: "none",
     downstreamStatus: "not-started",
-    launchRegisterDecision: "enabled",
+    capabilityDecision: "enabled",
     freshStateScanResult: "not-applicable",
-    canaryFinalState: "pay-ready",
-    promotionDecision: "promote",
-    releaseRunId: "github-27375620810-production-proof",
   } satisfies CheckoutObservabilityEventSignal;
 
-  it("maps checkout launch events to bounded dashboard labels", () => {
-    expect(checkoutObservabilityEventAttributes(productionProofEvent)).toEqual({
+  it("maps checkout events to bounded operator labels", () => {
+    expect(checkoutObservabilityEventAttributes(operatorSignalEvent)).toEqual({
       context: "checkout",
-      event_name: "checkout.launch.production_proof_buy_now",
-      telemetry_class: "launch-governance",
-      alert_class: "launch-alert",
+      event_name: "checkout.capability.kill_switch_unavailable",
+      telemetry_class: "capability-state",
+      alert_class: "operator-alert",
       entry_source: "buy-now",
       actor_mode: "guest",
-      scenario_state: "production-proof-readiness",
+      scenario_state: "kill-switch",
       visible_state: "checkout-review",
       side_effect_status: "not-attempted",
-      release_health_required: "true",
+      operator_signal_required: "true",
       readiness_contract: "checkout.cart-readiness.v1",
       readiness_snapshot_state: "fresh",
       source_revision_state: "current",
@@ -282,17 +279,14 @@ describe("checkout launch observability", () => {
       provider_category: "none",
       risk_category: "none",
       downstream_status: "not-started",
-      launch_register_decision: "enabled",
+      capability_decision: "enabled",
       fresh_state_scan_result: "not-applicable",
-      canary_final_state: "pay-ready",
-      promotion_decision: "promote",
-      release_run_id: "github-27375620810-production-proof",
     });
   });
 
   it("whitelists redacted checkout labels instead of raw checkout data", () => {
     const attributes = checkoutObservabilityEventAttributes({
-      ...productionProofEvent,
+      ...operatorSignalEvent,
       checkoutSessionId: "cs_raw_123",
       accountId: "acct_raw_123",
       email: "buyer@example.com",
@@ -317,7 +311,7 @@ describe("checkout launch observability", () => {
   });
 
   it("records checkout events through the shared metric without requiring raw ids", () => {
-    expect(() => recordCheckoutObservabilityEvent(productionProofEvent)).not.toThrow();
+    expect(() => recordCheckoutObservabilityEvent(operatorSignalEvent)).not.toThrow();
   });
 });
 

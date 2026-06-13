@@ -37,10 +37,10 @@ describe("Checkout observability contract", () => {
     }
   });
 
-  it("adds required dimensions for release-health and downstream states", () => {
+  it("adds required dimensions for operator-signal and downstream states", () => {
     for (const profile of checkoutObservabilityProfiles) {
-      if (profile.releaseHealthRequired) {
-        expect(profile.dimensions, profile.state).toContain("launch-decision-decision");
+      if (profile.operatorSignalRequired) {
+        expect(profile.dimensions, profile.state).toContain("capability-decision");
       }
 
       if (profile.scenarioStates.includes("pending-downstream")) {
@@ -61,7 +61,7 @@ describe("Checkout observability contract", () => {
     expect(checkoutObservabilityMetricName).toBe("chase_sets_checkout_observability_events_total");
     expect(doc).toContain("chase_sets_checkout_observability_events_total");
     expect(doc).toContain("recordCheckoutObservabilityEvent");
-    expect(doc).toContain("checkout-launch-observability.json");
+    expect(doc).toContain("checkout-observability.json");
     expect(doc).toContain(
       "The executable contract lives in `bounded-contexts/checkout/features/sessions/api/checkout-observability-contract.ts`.",
     );

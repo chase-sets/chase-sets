@@ -33,12 +33,12 @@ describe("checkout Shopify-simple release control", () => {
     });
     expect(state?.telemetryEvent).toEqual(
       expect.objectContaining({
-        eventName: "checkout.launch.kill_switch_unavailable",
+        eventName: "checkout.capability.kill_switch_unavailable",
         entrySource: "buy-cart-readiness",
         actorMode: "anonymous",
         scenarioState: "kill-switch",
         sideEffectStatus: "not-attempted",
-        launchDecision: "blocked",
+        capabilityDecision: "blocked",
         freshStateScanResult: "blocked-before-checkout",
       }),
     );
@@ -140,10 +140,10 @@ describe("checkout Shopify-simple release control", () => {
 
     expect(event).toEqual(
       expect.objectContaining({
-        eventName: "checkout.launch.kill_switch_unavailable",
+        eventName: "checkout.capability.kill_switch_unavailable",
         entrySource: "sell-list-readiness",
         actorMode: "signed-in",
-        releaseHealthRequired: true,
+        operatorSignalRequired: true,
         downstreamStatus: "not-started",
         providerCategory: "platform-operations",
       }),

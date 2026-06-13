@@ -134,7 +134,7 @@ groups:
         for: 2m
         labels:
           severity: warning
-      - uid: checkout-launch-alert-events
+      - uid: checkout-operator-alert-events
         title: Checkout launch observability alert events
         condition: C
         data:
@@ -144,7 +144,7 @@ groups:
               from: 300
               to: 0
             model:
-              expr: sum by (event_name, alert_class, scenario_state, visible_state) (rate(chase_sets_checkout_observability_events_total{alert_class=~"launch-alert|provider-alert|fresh-state-alert"}[5m]))
+              expr: sum by (event_name, alert_class, scenario_state, visible_state) (rate(chase_sets_checkout_observability_events_total{alert_class=~"operator-alert|provider-alert|fresh-state-alert"}[5m]))
               instant: true
               refId: A
           - refId: C
