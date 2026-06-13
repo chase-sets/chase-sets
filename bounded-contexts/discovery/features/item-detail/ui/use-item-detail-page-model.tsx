@@ -1,9 +1,8 @@
 import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Badge, Banner, Inline, Stack } from "@chase-sets/design-system";
 import type {
   DiscoveryItemDetail,
-  DiscoveryMarketListing,
   DiscoveryOffer,
   DiscoveryAccountOfferMatch,
   DiscoveryReferenceRecordRef,
@@ -18,14 +17,12 @@ import {
   summarizeSelections,
 } from "../domain/product-resolution";
 import {
-  applyOptionFilter,
   buildProductOptionSummaries,
   formatCompactProductSummary,
   formatListingAvailability,
   formatUpdatedAt,
   getBestAccountOfferMatch,
   getBestOffer,
-  getInitialSelections,
   getListingAvailableQuantity,
   getLowestPrice,
   itemDetailRailAnalyticsSelection,
@@ -34,13 +31,9 @@ import {
   type MarketIntent,
   type MarketSelectionSource,
   matchesSelectedOptions,
-  readExplicitSelectionId,
-  readMarketIntentFromSearch,
-  selectionsFromListing,
   sortAccountOfferMatchesForReview,
   sortListingsByBuyerPrice,
   sortOffersBySellerPrice,
-  updateExplicitSelectionUrl,
 } from "../domain/item-detail-market";
 import { buildReferenceDetailRows } from "./reference-detail-rows";
 import { ReferenceValueCue } from "./item-detail-references";
@@ -48,6 +41,7 @@ import { trackItemDetailRailEvent } from "../../../support/ui-support/item-detai
 import { buildItemDetailImages } from "./item-detail-images";
 import { buildItemDetailPageView } from "./item-detail-page-view";
 import type { ItemDetailCommerceSections, ItemDetailMarketplaceSectionContext } from "./item-detail-page-types";
+import { useItemDetailMarketState } from "./use-item-detail-market-state";
 
 export type LoadedItemDetailPageProps = {
   data: DiscoveryItemDetail;
@@ -72,51 +66,30 @@ export function useItemDetailPageModel({
   hasInitialSelectedOptionFilters,
   renderCommerce,
 }: LoadedItemDetailPageProps) {
-  const initialSelectedOptionsKey = JSON.stringify(initialSelectedOptions);
   const [selectedReference, setSelectedReference] = useState<DiscoveryReferenceRecordRef | null>(null);
-  const [selections, setSelections] = useState<Record<string, string>>(() =>
-    getInitialSelections(
-      data,
-      initialMarketIntent,
-      initialSelectedOptions,
-      hasInitialSelectedOptionFilters,
-      initialSelectedListingId,
-      initialSelectedOfferId,
-    ),
-  );
-  const [selectedListingId, setSelectedListingId] = useState<string | null>(initialSelectedListingId);
-  const [selectedOfferId, setSelectedOfferId] = useState<string | null>(initialSelectedOfferId);
-  const [marketIntent, setMarketIntent] = useState<MarketIntent>(initialMarketIntent);
-  const [activeMobileCommerce, setActiveMobileCommerce] = useState<"buy" | "sell" | "watch" | null>(null);
-  const [marketBookTab, setMarketBookTab] = useState<MarketBookTab>(
-    initialMarketIntent === "sell" ? "offers" : "listings",
-  );
-
-  useEffect(() => {
-    setSelections(
-      getInitialSelections(
-        data,
-        initialMarketIntent,
-        initialSelectedOptions,
-        hasInitialSelectedOptionFilters,
-        initialSelectedListingId,
-        initialSelectedOfferId,
-      ),
-    );
-    setSelectedListingId(initialSelectedListingId);
-    setSelectedOfferId(initialSelectedOfferId);
-    setMarketIntent(initialMarketIntent);
-    setMarketBookTab(initialMarketIntent === "sell" ? "offers" : "listings");
-    setActiveMobileCommerce(null);
-  }, [
+  const {
+    selections,
+    selectedListingId,
+    selectedOfferId,
+    marketIntent,
+    setMarketIntent,
+    activeMobileCommerce,
+    setActiveMobileCommerce,
+    marketBookTab,
+    setMarketBookTab,
+    clearProductFilters,
+    handleProductSelectionChange,
+    selectMarketListing,
+    selectMarketOffer,
+  } = useItemDetailMarketState({
     data,
-    data.catalog_item_id,
+    viewerAccountId,
     initialMarketIntent,
     initialSelectedListingId,
     initialSelectedOfferId,
-    initialSelectedOptionsKey,
+    initialSelectedOptions,
     hasInitialSelectedOptionFilters,
-  ]);
+  });
 
   const images = buildItemDetailImages(data);
   const imageFallback = data.image_fallback ?? {
@@ -157,55 +130,6 @@ export function useItemDetailPageModel({
   const itemOfferDemandMatches = (data.offer_demand_matches ?? []).filter(
     (offer) => offer.catalog_catalog_item_id === data.catalog_item_id,
   );
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    const applyUrlState = () => {
-      const url = new URL(window.location.href);
-      const nextMarketIntent = readMarketIntentFromSearch(url.searchParams);
-      const nextSelectedListingId = readExplicitSelectionId(url.searchParams, "listing");
-      const nextSelectedOfferId = readExplicitSelectionId(url.searchParams, "offer");
-      const selectedListingEntry = nextSelectedListingId
-        ? data.market_listings.find(
-            (listing) =>
-              listing.catalog_catalog_item_id === data.catalog_item_id && listing.listing_id === nextSelectedListingId,
-          )
-        : null;
-      const selectedOfferEntry = nextSelectedOfferId
-        ? data.offer_demand_matches.find(
-            (offer) => offer.catalog_catalog_item_id === data.catalog_item_id && offer.offer_id === nextSelectedOfferId,
-          )
-        : null;
-      const explicitEntry =
-        nextMarketIntent === "sell"
-          ? (selectedOfferEntry ?? selectedListingEntry)
-          : (selectedListingEntry ?? selectedOfferEntry);
-
-      setMarketIntent(nextMarketIntent);
-      setMarketBookTab(nextMarketIntent === "sell" ? "offers" : "listings");
-      setSelectedListingId(nextSelectedListingId);
-      setSelectedOfferId(nextSelectedOfferId);
-      setSelections(
-        data.product_schema && explicitEntry
-          ? normalizeProductSearchOptionsForSchema(data.product_schema, selectionsFromListing(explicitEntry))
-          : getInitialSelections(
-              data,
-              nextMarketIntent,
-              initialSelectedOptions,
-              hasInitialSelectedOptionFilters,
-              nextSelectedListingId,
-              nextSelectedOfferId,
-            ),
-      );
-    };
-
-    window.addEventListener("popstate", applyUrlState);
-
-    return () => window.removeEventListener("popstate", applyUrlState);
-  }, [data, initialSelectedOptionsKey, hasInitialSelectedOptionFilters]);
 
   const categories = [...new Map(data.categories.map((category) => [category.categoryId, category] as const)).values()];
   const tags = uniqueDisplayValues(data.tags);
@@ -449,54 +373,6 @@ export function useItemDetailPageModel({
       surface,
     });
   };
-  const clearExplicitMarketSelection = (mode: "push" | "replace" = "push") => {
-    setSelectedListingId(null);
-    setSelectedOfferId(null);
-    updateExplicitSelectionUrl({ listingId: null, offerId: null }, mode);
-  };
-  const clearProductFilters = () => {
-    clearExplicitMarketSelection();
-    setSelections({});
-  };
-  const handleProductSelectionChange = (dimensionId: string, optionId: string) => {
-    clearExplicitMarketSelection();
-    setSelections((current) =>
-      normalizeProductSearchOptionsForSchema(data.product_schema!, applyOptionFilter(current, dimensionId, optionId)),
-    );
-  };
-  const selectMarketListing = (listing: DiscoveryMarketListing) => {
-    setSelectedListingId(listing.listing_id);
-    setSelectedOfferId(null);
-    updateExplicitSelectionUrl({ listingId: listing.listing_id, offerId: null });
-    trackItemDetailRailEvent("workflow_selected", {
-      intent: "buy",
-      workflow: "selected_listing",
-      selection: "explicit",
-      viewer: viewerAccountId ? "signed_in" : "guest",
-      surface: "market_book",
-    });
-
-    if (data.product_schema) {
-      setSelections(normalizeProductSearchOptionsForSchema(data.product_schema, selectionsFromListing(listing)));
-    }
-  };
-  const selectMarketOffer = (offer: DiscoveryOffer) => {
-    setSelectedOfferId(offer.offer_id);
-    setSelectedListingId(null);
-    updateExplicitSelectionUrl({ listingId: null, offerId: offer.offer_id });
-    trackItemDetailRailEvent("workflow_selected", {
-      intent: "sell",
-      workflow: "selected_offer",
-      selection: "explicit",
-      viewer: viewerAccountId ? "signed_in" : "guest",
-      surface: "market_book",
-    });
-
-    if (data.product_schema) {
-      setSelections(normalizeProductSearchOptionsForSchema(data.product_schema, selectionsFromListing(offer)));
-    }
-  };
-
   const {
     commerce,
     marketNote,
