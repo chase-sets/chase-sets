@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { LinkButton, MarketplaceEmptyState, Page, PageSection } from "@chase-sets/design-system";
-import type { CheckoutRecoveryAction, CheckoutRecoveryKind } from "../../../support/request-support/checkout-recovery";
+import type { CheckoutRecoveryAction, CheckoutRecoveryKind } from "../api/checkout-recovery";
 import {
   useCheckoutPreparingRevalidation,
   type CheckoutPreparingRevalidationOptions,
