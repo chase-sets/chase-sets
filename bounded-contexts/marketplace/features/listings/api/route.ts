@@ -312,6 +312,23 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
     });
   });
 
+  app.get("/supply-locations/exists", async (c) => {
+    const access = requireListingAccess(c, "listings.view");
+    if (access.response) {
+      return access.response;
+    }
+
+    const name = String(c.req.query("name") ?? "").trim();
+    const exists = name
+      ? await services.hasSellerSupplyLocationNamed({
+          accountId: access.actor.accountId,
+          name,
+        })
+      : false;
+
+    return c.json({ exists });
+  });
+
   app.get("/listing-availability", async (c) => {
     const access = requireListingAccess(c, "listings.view");
     if (access.response) {

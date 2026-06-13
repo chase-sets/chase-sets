@@ -30,7 +30,7 @@ describe("marketplace listing routes", () => {
           return Promise.resolve(jsonResponse({ actor: sellerActor }));
         }
 
-        if (url.includes("/api/inventory/items")) {
+        if (url.includes("/api/marketplace/account/listing-inventory")) {
           return Promise.resolve(
             jsonResponse({
               items: [
@@ -43,21 +43,29 @@ describe("marketplace listing routes", () => {
                   item_subtitle: null,
                   selected_options: [{ dimensionId: "dim_condition", optionId: "near_mint" }],
                   product_summary: "Condition: Near Mint",
-                  storage_location_id: "loc_1",
+                  product_measure_snapshot: null,
+                  graded_card: null,
                   storage_location_name: "North shelf",
                   ship_from_code: "CHI-WH-1",
-                  total_quantity: 8,
-                  held_quantity: 1,
+                  ship_from_address: {
+                    name: "Seller",
+                    line1: "100 Market St",
+                    city: "Chicago",
+                    state: "IL",
+                    postalCode: "60601",
+                    country: "US",
+                  },
                   available_quantity: 7,
-                  acquisition_cost_amount: "4.25",
-                  created_at: "2026-03-31T00:00:00.000Z",
-                  updated_at: "2026-03-31T00:00:00.000Z",
                 },
               ],
               total: 1,
               count: 1,
             }),
           );
+        }
+
+        if (url.includes("/api/marketplace/account/supply-locations/exists")) {
+          return Promise.resolve(jsonResponse({ exists: false }));
         }
 
         return Promise.resolve(jsonResponse({ items: [], total: 0, count: 0 }));

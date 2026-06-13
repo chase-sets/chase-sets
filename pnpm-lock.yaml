@@ -474,12 +474,6 @@ importers:
       '@chase-sets/catalog':
         specifier: workspace:*
         version: link:../catalog
-      '@chase-sets/commercial-terms':
-        specifier: workspace:*
-        version: link:../commercial-terms
-      '@chase-sets/ordering':
-        specifier: workspace:*
-        version: link:../ordering
 
   bounded-contexts/marketplace:
     dependencies:
@@ -623,9 +617,6 @@ importers:
       '@chase-sets/identity':
         specifier: workspace:*
         version: link:../identity
-      '@chase-sets/inventory':
-        specifier: workspace:*
-        version: link:../inventory
       '@chase-sets/localization':
         specifier: workspace:*
         version: link:../../contracts/localization

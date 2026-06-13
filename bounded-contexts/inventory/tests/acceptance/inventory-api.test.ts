@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { Hono } from "hono";
+import type { BcApiModule } from "@chase-sets/bounded-context-module";
 import {
   bootstrapContextDatabase,
   type ContextProjectionGroup,
@@ -23,8 +24,6 @@ import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import { demoIdentitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { inventorySeedIds } from "@chase-sets/inventory/seed-support/ids";
 import { module as catalogModule } from "@chase-sets/catalog";
-import { createNoopCommercialTermsResolver } from "@chase-sets/commercial-terms/server";
-import { module as orderingModule } from "@chase-sets/ordering";
 import { type InventoryApiEnv, buildInventoryApi } from "../../api";
 import { InventoryDomainError } from "../../support/runtime-support/common";
 import { createInventoryServices } from "../../support/runtime-support/services";
@@ -37,6 +36,16 @@ type InventoryAcceptanceRuntime = {
   subscriptionRunners: readonly ContextSubscriptionRunner[];
   projectionGroups: readonly ContextProjectionGroup[];
 };
+
+const orderingSourceModule = {
+  contextName: "ordering",
+  routePrefix: "/api/marketplace",
+  streamPrefix: "ordering.",
+  schemaSql: "",
+  apiMounts: [],
+  createServices: () => ({}),
+  buildApis: () => [],
+} satisfies BcApiModule<Record<string, never>, PgTransactionalPool, Record<string, never>>;
 
 function requireDatabaseBaseUrl(): string {
   if (!databaseBaseUrl) {
@@ -91,9 +100,6 @@ describe("inventory api", () => {
     await ensureMultiContextTestDatabases(requireDatabaseBaseUrl(), databaseUrls);
     pools = createMultiContextTestPools(databaseUrls);
     const catalogServices = catalogModule.createServices(pools.catalog, {});
-    const orderingServices = orderingModule.createServices(pools.ordering, {
-      commercialTermsResolver: createNoopCommercialTermsResolver(),
-    } as never);
     services = createInventoryServices(pools.inventory);
     runtime = {
       mountedContexts: [
@@ -107,8 +113,8 @@ describe("inventory api", () => {
         {
           contextName: "ordering",
           mountRole: "source-only",
-          module: orderingModule,
-          services: orderingServices,
+          module: orderingSourceModule,
+          services: {},
           pool: pools.ordering,
           projectionHandlerSets: [],
         },
@@ -166,7 +172,7 @@ describe("inventory api", () => {
   beforeEach(async () => {
     await resetMultiContextTestSchemas(pools);
     await bootstrapContextDatabase(catalogModule, pools.catalog);
-    await bootstrapContextDatabase(orderingModule, pools.ordering);
+    await bootstrapContextDatabase(orderingSourceModule, pools.ordering);
     await bootstrapContextDatabase(inventoryModule, pools.inventory);
     await catalogModule.seed?.(pools.catalog);
     await syncContextProjectionGroups(runtime, "inventory", { requiredOnly: true });
@@ -427,7 +433,7 @@ describe("inventory api", () => {
   it("creates deterministic cross-context seed data and stays idempotent", async () => {
     await resetMultiContextTestSchemas(pools);
     await bootstrapContextDatabase(catalogModule, pools.catalog);
-    await bootstrapContextDatabase(orderingModule, pools.ordering);
+    await bootstrapContextDatabase(orderingSourceModule, pools.ordering);
     await bootstrapContextDatabase(inventoryModule, pools.inventory);
     await catalogModule.seed?.(pools.catalog);
     await syncContextProjectionGroups(runtime, "inventory", { requiredOnly: true });

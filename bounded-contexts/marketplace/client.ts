@@ -201,6 +201,14 @@ export function createMarketplaceApiClient({
         }),
       );
     },
+    async hasSellerSupplyLocationNamed(name: string): Promise<boolean> {
+      const response = await client.account["supply-locations"].exists.$get({
+        query: { name },
+        header: headers,
+      });
+      const body = await parseJsonResponse<{ exists: boolean }>(response);
+      return body.exists;
+    },
     async getSellerListingAvailability(): Promise<MarketplaceSellerListingAvailability> {
       return parseJsonResponse(
         await client.account["listing-availability"].$get({

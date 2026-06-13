@@ -452,6 +452,24 @@ export async function listSellerInventoryItemSupply(
   };
 }
 
+export async function hasSellerSupplyLocationNamed(
+  db: PgQueryable,
+  params: Readonly<{ accountId: string; name: string }>,
+): Promise<boolean> {
+  const result = await db.query<{ exists: boolean }>(
+    `SELECT EXISTS(
+       SELECT 1
+       FROM marketplace_supply_locations
+       WHERE account_id = $1
+         AND name = $2
+         AND is_archived = false
+     ) AS exists`,
+    [params.accountId, params.name],
+  );
+
+  return result.rows[0]?.exists ?? false;
+}
+
 export async function getActiveQuantityCapForInventoryItem(
   db: PgQueryable,
   inventoryItemId: string,

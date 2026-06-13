@@ -16,7 +16,7 @@ import {
   type MarketplaceListingTermsPreview,
 } from "../support/request-support/api-client";
 import { readAnonymousListingDraftOwnerId } from "../support/request-support/anonymous-listing-draft";
-import { createInventoryRequestApiClient, type InventoryItemListItem } from "@chase-sets/inventory/server";
+import { createInventoryRequestApiClient } from "@chase-sets/inventory/server";
 import { MarketplaceListingListPage } from "../features/listings/ui/listing-list-page";
 import { applyMarketplaceListPatch } from "../support/realtime-support/patches";
 import { marketplaceRealtimeRouteTopics } from "../support/realtime-support/topics";
@@ -25,32 +25,6 @@ const DEFAULT_LISTING_QUERY = "limit=100&offset=0";
 const DEFAULT_ITEM_QUERY = "limit=100&offset=0";
 const LISTING_STOCK_LOCATION_NAME = "Listing stock";
 const MARKETPLACE_DESCRIPTION = t("marketplace.routes.accountListings.manage.active.draft.paused.and.withdrawn");
-
-function toInventoryOption(inventoryItem: InventoryItemListItem): MarketplaceListingInventoryItemOption {
-  return {
-    item_id: inventoryItem.item_id,
-    catalog_catalog_item_id: inventoryItem.catalog_catalog_item_id,
-    product_id: inventoryItem.product_id,
-    item_language_code: inventoryItem.language_code,
-    item_title: inventoryItem.item_title,
-    item_subtitle: inventoryItem.item_subtitle,
-    selected_options: inventoryItem.selected_options,
-    product_summary: inventoryItem.product_summary,
-    product_measure_snapshot: null,
-    graded_card: inventoryItem.graded_card,
-    storage_location_name: inventoryItem.storage_location_name,
-    ship_from_code: inventoryItem.ship_from_code,
-    ship_from_address: {
-      name: "",
-      line1: "",
-      city: "",
-      state: "",
-      postalCode: "",
-      country: "US",
-    },
-    available_quantity: inventoryItem.available_quantity,
-  };
-}
 
 function optionalLimit(value: FormDataEntryValue | null) {
   const text = String(value ?? "").trim();
@@ -135,7 +109,6 @@ function createFormFromClaimedDraft(draft: MarketplaceAnonymousListingDraftInten
 export async function loader({ request }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({ request, permission: "listings.view" });
   const marketplaceApi = createMarketplaceRequestApiClient(request);
-  const inventoryApi = createInventoryRequestApiClient(request);
   const searchParams = new URL(request.url).searchParams;
   const selectedInventoryItemId = searchParams.get("inventoryItemId");
   const selectedCatalogItemId = searchParams.get("catalogItemId");
@@ -144,11 +117,11 @@ export async function loader({ request }: LoaderFunctionArgs) {
   let claimedDraft: MarketplaceAnonymousListingDraftIntent | null = null;
   let claimError: string | null = null;
 
-  const [listings, feeLockReport, items, storageLocations] = await Promise.all([
+  const [listings, feeLockReport, inventoryItemsResponse, hasListingStockLocation] = await Promise.all([
     marketplaceApi.listSellerListings(DEFAULT_LISTING_QUERY),
     marketplaceApi.listSellerListingFeeLockReport(DEFAULT_LISTING_QUERY),
-    inventoryApi.listItems(DEFAULT_ITEM_QUERY),
-    inventoryApi.listStorageLocations("limit=100&offset=0"),
+    marketplaceApi.listSellerListingInventory(DEFAULT_ITEM_QUERY),
+    marketplaceApi.hasSellerSupplyLocationNamed(LISTING_STOCK_LOCATION_NAME),
   ]);
 
   if (claimListingIntentId) {
@@ -166,9 +139,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   }
 
   const listingAvailability = await marketplaceApi.getSellerListingAvailability();
-  const inventoryItems = (items.items as InventoryItemListItem[])
-    .filter((inventoryItem) => inventoryItem.available_quantity > 0)
-    .map(toInventoryOption);
+  const inventoryItems = inventoryItemsResponse.items as MarketplaceListingInventoryItemOption[];
   const selectedInventoryItem = selectedInventoryItemId
     ? inventoryItems.find((inventoryItem) => inventoryItem.item_id === selectedInventoryItemId)
     : selectedCatalogItemId
@@ -180,7 +151,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     feeLockReport,
     listingAvailability,
     inventoryItems,
-    hasListingStockLocation: storageLocations.items.some((location) => location.name === LISTING_STOCK_LOCATION_NAME),
+    hasListingStockLocation,
     claimError,
     createForm: claimedDraft
       ? createFormFromClaimedDraft(claimedDraft)

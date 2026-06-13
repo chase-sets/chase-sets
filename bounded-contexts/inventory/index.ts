@@ -6,6 +6,10 @@ import {
   type BcEventSubscriptionHandler,
 } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import type {
+  OrderingOrderCancelledPayload,
+  OrderingOrderCreatedPayload,
+} from "@chase-sets/event-core/public-event-payloads";
 import contextManifest from "./context.json";
 import type { InventoryHostPorts, InventoryServices } from "./support/runtime-support/services";
 import { buildInventoryApi } from "./api";
@@ -30,15 +34,7 @@ export const module = defineBoundedContextModule<InventoryServices, PgTransactio
         "catalog.inventory-catalog-item-projection": () => buildInventoryCatalogItemProjectionHandlers(services.db),
         "ordering.inventory-order-reservation-workflow": () => ({
           "ordering.order.created": async (event: Parameters<BcEventSubscriptionHandler>[0]) => {
-            const data = event.data as {
-              orderId: string;
-              reservationRequests: Array<{
-                reservationRequestId: string;
-                inventoryItemId: string;
-                sellerAccountId: string;
-                quantity: number;
-              }>;
-            };
+            const data = event.data as OrderingOrderCreatedPayload;
 
             for (const request of data.reservationRequests ?? []) {
               const existingState = await services.reservations.getReservationState(request.reservationRequestId);
@@ -98,15 +94,7 @@ export const module = defineBoundedContextModule<InventoryServices, PgTransactio
             }
           },
           "ordering.order.cancelled": async (event: Parameters<BcEventSubscriptionHandler>[0]) => {
-            const data = event.data as {
-              reservationRequests: Array<{
-                reservationRequestId: string;
-                sellerAccountId: string;
-                holdId: string | null;
-                status: string;
-              }>;
-              cancelledAt: string;
-            };
+            const data = event.data as OrderingOrderCancelledPayload;
             const context = {
               tenantId: event.tenantId,
               audit: event.audit,
