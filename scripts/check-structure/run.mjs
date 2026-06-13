@@ -8,6 +8,7 @@ import {
   writeStructureMetricsReport,
 } from "./phases.mjs";
 import { checkWorkspaceTsconfigExtends } from "../check-workspace-tsconfig-extends.mjs";
+import { checkDesignSystemDeadExports } from "../check-design-system-dead-exports.mjs";
 import {
   findAccountCapabilityLanguageViolations,
   isAccountCapabilityLanguageGuardedFile,
@@ -2927,6 +2928,11 @@ export async function runStructureCheck(options = {}) {
 
   const workspaceTsconfigResult = await checkWorkspaceTsconfigExtends({ repoRoot });
   for (const violation of workspaceTsconfigResult.violations) {
+    violations.push(violation);
+  }
+
+  const designSystemDeadExportResult = await checkDesignSystemDeadExports({ repoRoot });
+  for (const violation of designSystemDeadExportResult.violations) {
     violations.push(violation);
   }
 
