@@ -498,72 +498,48 @@
     "listings": {
       "classification": "slice",
       "purpose": "Own listings feature behavior, read models, and UI contracts for the marketplace context.",
-      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
       "expectedConsumers": ["Internal marketplace module composition"]
     },
     "offers": {
       "classification": "slice",
       "purpose": "Own offers feature behavior, read models, and UI contracts for the marketplace context.",
-      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
       "expectedConsumers": ["Internal marketplace module composition"]
     },
     "reviews": {
       "classification": "slice",
       "purpose": "Own post-transaction review behavior, review-summary read models, review eligibility, and UI contracts for the marketplace context.",
-      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
       "expectedConsumers": ["Internal marketplace module composition"]
     },
     "route-support": {
       "classification": "support",
-      "purpose": "Provide reusable route-support assets shared by marketplace-owned review submission route modules.",
-      "allowedWhen": "Allowed only when route-layer behavior is duplicated across marketplace-owned deployable routes.",
-      "expectedConsumers": ["routes"],
-      "justification": "route-support centralizes route composition for the shared review-submission workflow.",
-      "createdFor": "purchase and sale review submission routes that differ only by entry-point path and not-found copy.",
-      "sunsetWhen": "Remove when the route modules no longer share meaningful request and rendering behavior."
+      "purpose": "Provide shared Marketplace review-submission route composition for purchase and sale routes that differ only by entry path and not-found copy.",
+      "expectedConsumers": ["routes"]
     },
     "request-support": {
       "classification": "support",
       "purpose": "Provide reusable request-support assets shared by marketplace-owned features and composition seams.",
-      "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
       "expectedConsumers": ["listings", "offers"],
-      "justification": "request-support centralizes context-local composition that should not duplicate across features.",
-      "createdFor": "marketplace workflows that span multiple features or public entrypoints.",
-      "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules.",
       "crossCuttingRuntimeComposition": true
     },
     "realtime-support": {
       "classification": "support",
-      "purpose": "Provide marketplace-owned client realtime patch helpers shared by route modules.",
-      "allowedWhen": "Allowed only for route-level realtime composition that cannot live inside one feature route.",
-      "expectedConsumers": ["listings", "offers"],
-      "justification": "realtime-support centralizes small patch helpers shared by listings and offers routes.",
-      "createdFor": "SSE projection patch handling on marketplace account pages.",
-      "sunsetWhen": "Remove when route modules no longer share realtime client behavior."
+      "purpose": "Provide Marketplace-owned realtime patch helpers shared by listings and offers account route modules.",
+      "expectedConsumers": ["listings", "offers"]
     },
     "runtime-support": {
       "classification": "support",
       "purpose": "Provide reusable runtime-support assets shared by marketplace-owned features and composition seams.",
-      "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": ["listings", "offers"],
-      "justification": "runtime-support centralizes context-local composition that should not duplicate across features.",
-      "createdFor": "marketplace workflows that span multiple features or public entrypoints.",
-      "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
+      "expectedConsumers": ["listings", "offers"]
     },
     "seed-support": {
       "classification": "support",
       "purpose": "Provide reusable seed-support assets shared by marketplace-owned features and composition seams.",
-      "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
       "expectedConsumers": ["Multiple marketplace slices", "Deployable composition for marketplace"],
-      "justification": "seed-support centralizes context-local composition that should not duplicate across features.",
-      "createdFor": "marketplace workflows that span multiple features or public entrypoints.",
-      "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules.",
       "crossCuttingRuntimeComposition": true
     },
     "routes": {
       "classification": "routes",
       "purpose": "Expose marketplace-owned route modules consumed by generated deployable adapters.",
-      "allowedWhen": "Required whenever the context contributes routes to any deployable.",
       "expectedConsumers": ["Generated deployable route adapters"]
     }
   },

@@ -260,13 +260,11 @@
     "projection-operations": {
       "classification": "slice",
       "purpose": "Own projection-operations operator workflow, UI contracts, and admin console language for Platform Operations.",
-      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
       "expectedConsumers": ["Internal platform-operations module composition", "Admin web route contribution"]
     },
     "release-controls": {
       "classification": "slice",
-      "purpose": "Own operator-facing release-lock and feature-rollout evaluation language plus kill-switch policy for cross-context platform capabilities.",
-      "allowedWhen": "Required when release automation or feature exposure is controlled by Platform Operations instead of a single business context.",
+      "purpose": "Own Platform Operations release-lock, feature-rollout evaluation, and kill-switch policy for cross-context platform capabilities.",
       "expectedConsumers": [
         "Production deployment workflow checks",
         "Bounded-context capability guards",
@@ -275,20 +273,17 @@
     },
     "release-dashboard": {
       "classification": "slice",
-      "purpose": "Own operator-facing release health, production currency, canary status, and release-dashboard language for Platform Operations.",
-      "allowedWhen": "Required when release-health artifacts and release-control policy need a single read-only operations surface.",
+      "purpose": "Own Platform Operations release health, production currency, canary status, and release-dashboard language.",
       "expectedConsumers": ["Admin web route contribution", "Release process operators"]
     },
     "insights-dashboards": {
       "classification": "slice",
-      "purpose": "Own cross-context analytical dashboard-read-model contracts, KPI projection behavior, and dashboard query language for Platform Operations reporting.",
-      "allowedWhen": "Required when marketplace reporting needs read-only KPI projections without a transactional owner.",
+      "purpose": "Own platform-operations analytical dashboard contracts, KPI projection behavior, and reporting query language.",
       "expectedConsumers": ["Internal platform-operations module composition", "Future operator reporting surfaces"]
     },
     "platform-feedback": {
       "classification": "slice",
       "purpose": "Own platform-feedback behavior, read models, UI contracts, and admin review surfaces.",
-      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
       "expectedConsumers": [
         "Internal platform-operations module composition",
         "Marketplace contextual feedback prompts"
@@ -297,7 +292,6 @@
     "support-requests": {
       "classification": "slice",
       "purpose": "Own support-request workflow behavior, read models, API contracts, marketplace-facing support terminology, and operator queue UI.",
-      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
       "expectedConsumers": [
         "Internal platform-operations module composition",
         "Marketplace account support route",
@@ -306,37 +300,24 @@
     },
     "request-support": {
       "classification": "support",
-      "purpose": "Provide request API clients shared by platform-feedback and support-requests route modules and prompt UI.",
-      "allowedWhen": "Allowed only for context-local request composition.",
+      "purpose": "Provide Platform Operations request API clients shared by platform-feedback and support-requests route modules and prompt UI.",
       "expectedConsumers": ["platform-feedback"],
-      "justification": "request-support centralizes the platform-feedback and support-request API clients for route modules and browser prompt UI.",
-      "createdFor": "platform-feedback and support-requests routes and contextual prompt submissions.",
-      "sunsetWhen": "Remove when all consumers can move behavior back into feature-local modules.",
       "crossCuttingRuntimeComposition": true
     },
     "seed-support": {
       "classification": "support",
-      "purpose": "Provide deterministic platform-feedback and support-request seed identifiers.",
-      "allowedWhen": "Allowed for bootstrap and test data.",
+      "purpose": "Provide deterministic platform-feedback and support-request seed identifiers for bootstrap and tests.",
       "expectedConsumers": ["platform-feedback", "support-requests", "Deployable composition for platform-operations"],
-      "justification": "seed-support centralizes deterministic identifiers for sample platform feedback and support requests.",
-      "createdFor": "platform-feedback and support-requests bootstrap and test data flows.",
-      "sunsetWhen": "Remove when sample platform feedback and support requests are no longer seeded.",
       "crossCuttingRuntimeComposition": true
     },
     "runtime-support": {
       "classification": "support",
-      "purpose": "Provide reusable runtime-support assets shared by Platform Operations release-controls API composition.",
-      "allowedWhen": "Allowed only when policy runtime composition cannot stay inside one release-controls feature file.",
-      "expectedConsumers": ["Root platform-operations composition"],
-      "justification": "runtime-support centralizes event-store-backed Platform Operations services for API composition.",
-      "createdFor": "release-controls policy API persistence",
-      "sunsetWhen": "Remove when Platform Operations has no API-backed runtime services."
+      "purpose": "Provide Platform Operations event-store-backed runtime services for release-controls policy API composition.",
+      "expectedConsumers": ["Root platform-operations composition"]
     },
     "routes": {
       "classification": "routes",
       "purpose": "Expose platform-operations route modules consumed by generated deployable adapters.",
-      "allowedWhen": "Required whenever Platform Operations contributes routes to a deployable.",
       "expectedConsumers": ["Generated deployable route adapters"]
     }
   },

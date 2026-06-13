@@ -187,56 +187,37 @@
     "waitlist": {
       "classification": "slice",
       "purpose": "Own prelaunch waitlist behavior, read models, and admin review surfaces.",
-      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
       "expectedConsumers": ["Internal public-presence module composition", "Public web routes", "Admin review routes"]
     },
     "request-support": {
       "classification": "support",
-      "purpose": "Provide public-presence API clients shared by route modules.",
-      "allowedWhen": "Allowed only for context-local request composition.",
+      "purpose": "Provide Public Presence API clients shared by waitlist submission and review route modules.",
       "expectedConsumers": ["Public web routes", "Admin waitlist route"],
-      "justification": "request-support centralizes the Public Presence API client for route modules.",
-      "createdFor": "Waitlist submission and review routes.",
-      "sunsetWhen": "Remove when all consumers can move behavior back into feature-local modules.",
       "crossCuttingRuntimeComposition": true
     },
     "runtime-support": {
       "classification": "support",
-      "purpose": "Provide event-store, schema, and projector composition for the public-presence context.",
-      "allowedWhen": "Allowed only for context runtime composition.",
-      "expectedConsumers": ["waitlist"],
-      "justification": "runtime-support centralizes event-store composition for the waitlist slice.",
-      "createdFor": "public-presence API and worker runtime.",
-      "sunsetWhen": "Remove when public presence no longer needs runtime composition."
+      "purpose": "Provide public-presence event-store, schema, and projector composition for API and worker runtime.",
+      "expectedConsumers": ["waitlist"]
     },
     "shell-support": {
       "classification": "support",
-      "purpose": "Provide deployable-facing public-presence page shell exports for waitlist routes.",
-      "allowedWhen": "Allowed only for shell composition consumed by context web exports.",
-      "expectedConsumers": ["waitlist"],
-      "justification": "shell-support keeps deployable-facing page shell exports out of feature internals.",
-      "createdFor": "public-presence waitlist page shell composition.",
-      "sunsetWhen": "Remove when public presence no longer exports deployable-facing shell modules."
+      "purpose": "Provide deployable-facing Public Presence page shell exports for waitlist routes outside feature internals.",
+      "expectedConsumers": ["waitlist"]
     },
     "ui-support": {
       "classification": "support",
-      "purpose": "Expose browser-safe Public Presence UI contracts and scoped translation helpers without moving waitlist behavior out of the slice.",
-      "allowedWhen": "Allowed only for browser-safe Public Presence UI contracts consumed through the context web export or waitlist UI.",
-      "expectedConsumers": ["waitlist"],
-      "justification": "The waitlist slice owns analytics event names and public-page UI vocabulary; public-web needs the event allowlist and scoped translator without duplicating bounded-context terms or importing unrelated localization namespaces.",
-      "createdFor": "Public Presence waitlist analytics capture and public-page localization.",
-      "sunsetWhen": "Remove if analytics capture and public-page translation move fully into feature-local browser entrypoints or an approved experimentation context."
+      "purpose": "Expose browser-safe Public Presence analytics allowlists and scoped translation helpers without moving waitlist behavior out of the slice.",
+      "expectedConsumers": ["waitlist"]
     },
     "promo-bar": {
       "classification": "slice",
       "purpose": "Own public marketplace promo-bar-message management, read models, and public rendering contracts.",
-      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
       "expectedConsumers": ["Public marketplace page shell", "Admin promo bar route"]
     },
     "routes": {
       "classification": "routes",
       "purpose": "Expose public-presence-owned route modules consumed by generated deployable adapters.",
-      "allowedWhen": "Required whenever the context contributes routes to any deployable.",
       "expectedConsumers": ["Generated deployable route adapters"]
     }
   },

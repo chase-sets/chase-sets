@@ -108,7 +108,6 @@
     "notification-center": {
       "classification": "slice",
       "purpose": "Own notification-center feed behavior, read state, APIs, and marketplace shell UI contracts.",
-      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
       "expectedConsumers": [
         "Internal notifications module composition",
         "Marketplace shell notification side sheet and bottom sheet"
@@ -117,31 +116,21 @@
     "preferences": {
       "classification": "slice",
       "purpose": "Own account notification preferences and settings behavior.",
-      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
       "expectedConsumers": ["notification-center"]
     },
     "runtime-support": {
       "classification": "support",
-      "purpose": "Provide schema and service composition for the Notifications context.",
-      "allowedWhen": "Allowed only for context runtime composition.",
-      "expectedConsumers": ["notification-center"],
-      "justification": "runtime-support centralizes Notifications database adapters and service composition.",
-      "createdFor": "Notifications API and worker runtime.",
-      "sunsetWhen": "Remove when Notifications no longer needs runtime composition."
+      "purpose": "Provide Notifications schema, database adapter, and service composition for API and worker runtime.",
+      "expectedConsumers": ["notification-center"]
     },
     "shell-support": {
       "classification": "support",
-      "purpose": "Provide Notifications marketplace shell composition for deployable layout routes.",
-      "allowedWhen": "Allowed only for marketplace-web shell composition.",
-      "expectedConsumers": ["marketplace-web"],
-      "justification": "shell-support keeps Notification Center sheet composition outside feature route modules.",
-      "createdFor": "Notifications marketplace Notification Center side sheet and mobile bottom sheet.",
-      "sunsetWhen": "Remove if Notifications no longer contributes marketplace-web shell behavior."
+      "purpose": "Provide Notifications marketplace-web Notification Center shell composition outside feature route modules.",
+      "expectedConsumers": ["marketplace-web"]
     },
     "routes": {
       "classification": "routes",
-      "purpose": "Reserve notifications-owned route metadata for future deployable route contributions.",
-      "allowedWhen": "Required by bounded-context structure metadata even when the context does not yet contribute page routes.",
+      "purpose": "Reserve Notifications route metadata for future deployable page route contributions.",
       "expectedConsumers": ["Future generated deployable route adapters"]
     }
   },

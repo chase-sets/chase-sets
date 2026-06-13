@@ -343,49 +343,41 @@
     "blueprints": {
       "classification": "slice",
       "purpose": "Own blueprints feature behavior, read models, and UI contracts for the catalog context.",
-      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
       "expectedConsumers": ["Internal catalog module composition"]
     },
     "catalog-items": {
       "classification": "slice",
       "purpose": "Own catalog-items feature behavior, read models, and UI contracts for the catalog context.",
-      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
       "expectedConsumers": ["Internal catalog module composition"]
     },
     "categories": {
       "classification": "slice",
       "purpose": "Own categories feature behavior, read models, and UI contracts for the catalog context.",
-      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
       "expectedConsumers": ["Internal catalog module composition"]
     },
     "components": {
       "classification": "slice",
       "purpose": "Own components feature behavior, read models, and UI contracts for the catalog context.",
-      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
       "expectedConsumers": ["Internal catalog module composition"]
     },
     "dimensions": {
       "classification": "slice",
       "purpose": "Own dimensions feature behavior, read models, and UI contracts for the catalog context.",
-      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
       "expectedConsumers": ["Internal catalog module composition"]
     },
     "fields": {
       "classification": "slice",
       "purpose": "Own fields feature behavior, read models, and UI contracts for the catalog context.",
-      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
       "expectedConsumers": ["Internal catalog module composition"]
     },
     "display-templates": {
       "classification": "slice",
-      "purpose": "Own Catalog display title and subtitle template policy, resolution metadata, and authoring APIs.",
-      "allowedWhen": "Required when Catalog display identity must be generated from Fields, Reference Records, Categories, Blueprints, and scoped overrides instead of repeated item strings.",
+      "purpose": "Own Catalog display title and subtitle template policy so display identity derives from Fields, Reference Records, Categories, Blueprints, and scoped overrides.",
       "expectedConsumers": ["catalog-items", "source-observations", "Internal catalog module composition"]
     },
     "product-measures": {
       "classification": "slice",
-      "purpose": "Own reusable product-measure-profile rules, item/product measurement overrides, and resolved product measure read models for shipping-aware downstream contexts.",
-      "allowedWhen": "Required when Catalog product truth must include physical measurement facts for shipping quotes and fulfillment package planning.",
+      "purpose": "Own Catalog product measurement profiles and overrides that provide shipping-aware physical facts to downstream contexts.",
       "expectedConsumers": [
         "Internal catalog module composition",
         "Ordering product measure projections",
@@ -394,20 +386,17 @@
     },
     "source-observations": {
       "classification": "slice",
-      "purpose": "Own provider source observations, review workflow, and promotion into canonical Catalog Items.",
-      "allowedWhen": "Required when external catalog providers can feed candidate Catalog facts.",
+      "purpose": "Own provider source observations, review workflow, and promotion of candidate provider facts into canonical Catalog Items.",
       "expectedConsumers": ["Internal catalog module composition"]
     },
     "reference-data": {
       "classification": "slice",
       "purpose": "Own reference types and reference records that attach rich reusable facts to catalog item field values.",
-      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
       "expectedConsumers": ["Internal catalog module composition"]
     },
     "authoring-support": {
       "classification": "support",
       "purpose": "Provide reusable authoring-support assets shared by catalog-owned features and composition seams.",
-      "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
       "expectedConsumers": [
         "blueprints",
         "catalog-items",
@@ -419,15 +408,11 @@
         "product-measures",
         "reference-data",
         "source-observations"
-      ],
-      "justification": "authoring-support centralizes context-local composition that should not duplicate across features.",
-      "createdFor": "catalog workflows that span multiple features or public entrypoints.",
-      "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
+      ]
     },
     "client-support": {
       "classification": "support",
       "purpose": "Provide reusable client-support assets shared by catalog-owned features and composition seams.",
-      "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
       "expectedConsumers": [
         "blueprints",
         "catalog-items",
@@ -439,15 +424,11 @@
         "product-measures",
         "reference-data",
         "source-observations"
-      ],
-      "justification": "client-support centralizes context-local composition that should not duplicate across features.",
-      "createdFor": "catalog workflows that span multiple features or public entrypoints.",
-      "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
+      ]
     },
     "projection-support": {
       "classification": "support",
       "purpose": "Provide reusable projection-support assets shared by catalog-owned features and composition seams.",
-      "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
       "expectedConsumers": [
         "blueprints",
         "catalog-items",
@@ -458,43 +439,27 @@
         "fields",
         "reference-data",
         "source-observations"
-      ],
-      "justification": "projection-support centralizes context-local composition that should not duplicate across features.",
-      "createdFor": "catalog workflows that span multiple features or public entrypoints.",
-      "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
+      ]
     },
     "realtime-support": {
       "classification": "support",
-      "purpose": "Provide Catalog-owned realtime topic contracts and projection patch factories for admin projection refresh.",
-      "allowedWhen": "Allowed only for Catalog-owned SSE projection patch routing and topic construction that spans multiple admin slices.",
-      "expectedConsumers": ["projection-support", "routes", "Deployable realtime composition for Catalog"],
-      "justification": "realtime-support keeps Catalog admin topic ownership in the Catalog bounded context instead of deployables.",
-      "createdFor": "SSE projection refresh on Catalog admin list surfaces.",
-      "sunsetWhen": "Remove when Catalog no longer publishes or consumes realtime projection patches."
+      "purpose": "Provide Catalog-owned SSE topic contracts and projection patch factories for admin projection refresh outside deployables.",
+      "expectedConsumers": ["projection-support", "routes", "Deployable realtime composition for Catalog"]
     },
     "request-support": {
       "classification": "support",
       "purpose": "Provide reusable request parsing and context-local API client assets shared by catalog-owned features and composition seams.",
-      "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
       "expectedConsumers": ["Multiple catalog slices", "Deployable composition for catalog"],
-      "justification": "request-support centralizes context-local composition that should not duplicate across features.",
-      "createdFor": "catalog workflows that span multiple features or public entrypoints.",
-      "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules.",
       "crossCuttingRuntimeComposition": true
     },
     "route-support": {
       "classification": "support",
-      "purpose": "Provide the admin integrations route adapter modules (loader, action, form values, and command context) that orchestrate Catalog source observation workflows for the admin route.",
-      "allowedWhen": "Allowed only when route-layer behavior cannot stay inside the thin route module or a feature folder.",
-      "expectedConsumers": ["routes"],
-      "justification": "route-support centralizes the admin integrations route's loader/action orchestration without mixing route adapter behavior into shell support.",
-      "createdFor": "the catalog admin integrations route, which composes source observation workflows during loader and action handling.",
-      "sunsetWhen": "Remove when the admin integrations route no longer needs extracted loader/action modules."
+      "purpose": "Provide admin integrations route loader/action modules that orchestrate Catalog source observation workflows without mixing route adapters into shell support.",
+      "expectedConsumers": ["routes"]
     },
     "runtime-support": {
       "classification": "support",
       "purpose": "Provide reusable runtime-support assets shared by catalog-owned features and composition seams.",
-      "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
       "expectedConsumers": [
         "blueprints",
         "catalog-items",
@@ -505,15 +470,11 @@
         "fields",
         "reference-data",
         "source-observations"
-      ],
-      "justification": "runtime-support centralizes context-local composition that should not duplicate across features.",
-      "createdFor": "catalog workflows that span multiple features or public entrypoints.",
-      "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
+      ]
     },
     "shell-support": {
       "classification": "support",
       "purpose": "Provide reusable shell-support assets shared by catalog-owned features and admin shell composition.",
-      "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
       "expectedConsumers": [
         "blueprints",
         "catalog-items",
@@ -524,21 +485,16 @@
         "fields",
         "reference-data",
         "source-observations"
-      ],
-      "justification": "shell-support centralizes context-local composition that should not duplicate across features.",
-      "createdFor": "catalog workflows that span multiple features or public entrypoints.",
-      "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
+      ]
     },
     "routes": {
       "classification": "routes",
       "purpose": "Expose catalog-owned route modules consumed by generated deployable adapters.",
-      "allowedWhen": "Required whenever the context contributes routes to any deployable.",
       "expectedConsumers": ["Generated deployable route adapters"]
     },
     "seed-support": {
       "classification": "support",
       "purpose": "Provide reusable seed-support assets shared by catalog-owned features and composition seams.",
-      "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
       "expectedConsumers": [
         "blueprints",
         "catalog-items",
@@ -550,9 +506,6 @@
         "product-measures",
         "reference-data"
       ],
-      "justification": "seed-support centralizes context-local composition that should not duplicate across features.",
-      "createdFor": "catalog workflows that span multiple features or public entrypoints.",
-      "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules.",
       "crossCuttingRuntimeComposition": true
     }
   }

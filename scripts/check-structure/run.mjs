@@ -45,8 +45,13 @@ const retiredPanelDrawerNames = [
   "NotificationCenterDrawer",
 ];
 const retiredPanelDrawerPattern = new RegExp(`\\b(?:${retiredPanelDrawerNames.join("|")})\\b`);
-const supportLifecycleRequiredFields = ["justification", "createdFor", "sunsetWhen"];
-const intentPlaceholderGuardFields = ["purpose", "allowedWhen", "justification", "createdFor", "sunsetWhen"];
+const directoryIntentAllowedFields = new Set([
+  "classification",
+  "crossCuttingRuntimeComposition",
+  "expectedConsumers",
+  "purpose",
+]);
+const intentPlaceholderGuardFields = ["purpose"];
 const placeholderFieldTokens = new Set([
   "bd",
   "fixme",
@@ -332,6 +337,73 @@ function hasSpecificityTerm(value, specificityTerms) {
   }
 
   return false;
+}
+
+export function validateDirectoryIntentEntry({ manifest, relativeRoot, directoryName, intent }) {
+  const violations = [];
+  const warnings = [];
+  const intentLabel = `${relativeRoot}/context.json directoryIntent.${directoryName}`;
+  const intentFieldPath = (fieldName) => `${relativeRoot}/context.json directoryIntent.${directoryName}.${fieldName}`;
+  const addEntryViolation = (path, message) => violations.push({ path, message });
+  const addEntryWarning = (path, message) => warnings.push({ path, message });
+
+  if (!isPlainObject(intent)) {
+    addEntryViolation(intentLabel, "intent metadata must be an object");
+    return { violations, warnings };
+  }
+
+  for (const field of Object.keys(intent)) {
+    if (!directoryIntentAllowedFields.has(field)) {
+      addEntryViolation(
+        intentFieldPath(field),
+        `field is not part of the directoryIntent schema; allowed fields: ${formatSetValues(directoryIntentAllowedFields)}`,
+      );
+    }
+  }
+
+  if (!isValidDirectoryClassification(intent.classification)) {
+    addEntryViolation(intentFieldPath("classification"), "classification must be one of: slice, support, routes");
+  }
+
+  if (typeof intent.purpose !== "string" || intent.purpose.trim().length === 0) {
+    addEntryViolation(intentFieldPath("purpose"), "purpose must be a non-empty string");
+  }
+
+  if (!isStringArray(intent.expectedConsumers) || intent.expectedConsumers.length === 0) {
+    addEntryViolation(intentFieldPath("expectedConsumers"), "expectedConsumers must be a non-empty array of strings");
+  }
+
+  if (Array.isArray(intent.expectedConsumers)) {
+    const uniqueExpectedConsumers = new Set(intent.expectedConsumers);
+    if (uniqueExpectedConsumers.size !== intent.expectedConsumers.length) {
+      addEntryViolation(intentFieldPath("expectedConsumers"), "expectedConsumers must not contain duplicates");
+    }
+  }
+
+  for (const field of intentPlaceholderGuardFields) {
+    if (typeof intent[field] !== "string" || intent[field].trim().length === 0) {
+      continue;
+    }
+
+    if (containsPlaceholderToken(intent[field])) {
+      addEntryViolation(
+        intentFieldPath(field),
+        `must not use placeholder values (forbidden tokens: ${formatSetValues(placeholderFieldTokens)})`,
+      );
+    }
+  }
+
+  const specificityTerms = collectSpecificityTerms(manifest);
+  if (typeof intent.purpose === "string" && intent.purpose.trim().length > 0) {
+    if (!hasSpecificityTerm(intent.purpose, specificityTerms)) {
+      addEntryWarning(
+        intentFieldPath("purpose"),
+        "should reference at least one bounded-context term or slice name from context.json (contextName, ownedNouns, or slices)",
+      );
+    }
+  }
+
+  return { violations, warnings };
 }
 
 function isTmpFile(file) {
@@ -678,66 +750,13 @@ async function loadContextManifests() {
     if (!isPlainObject(manifest.directoryIntent)) {
       addPathViolation(`${relativeRoot}/context.json`, "directoryIntent must be an object");
     } else {
-      const specificityTerms = collectSpecificityTerms(manifest);
       for (const [directoryName, intent] of Object.entries(manifest.directoryIntent)) {
-        const intentLabel = `${relativeRoot}/context.json directoryIntent.${directoryName}`;
-        const intentFieldPath = (fieldName) =>
-          `${relativeRoot}/context.json directoryIntent.${directoryName}.${fieldName}`;
-        if (!isPlainObject(intent)) {
-          addPathViolation(intentLabel, "intent metadata must be an object");
-          continue;
+        const diagnostics = validateDirectoryIntentEntry({ manifest, relativeRoot, directoryName, intent });
+        for (const violation of diagnostics.violations) {
+          addPathViolation(violation.path, violation.message);
         }
-
-        if (!isValidDirectoryClassification(intent.classification)) {
-          addPathViolation(intentFieldPath("classification"), "classification must be one of: slice, support, routes");
-        }
-
-        if (typeof intent.purpose !== "string" || intent.purpose.trim().length === 0) {
-          addPathViolation(intentFieldPath("purpose"), "purpose must be a non-empty string");
-        }
-
-        if (typeof intent.allowedWhen !== "string" || intent.allowedWhen.trim().length === 0) {
-          addPathViolation(intentFieldPath("allowedWhen"), "allowedWhen must be a non-empty string");
-        }
-
-        if (!isStringArray(intent.expectedConsumers) || intent.expectedConsumers.length === 0) {
-          addPathViolation(
-            intentFieldPath("expectedConsumers"),
-            "expectedConsumers must be a non-empty array of strings",
-          );
-        }
-
-        if (Array.isArray(intent.expectedConsumers)) {
-          const uniqueExpectedConsumers = new Set(intent.expectedConsumers);
-          if (uniqueExpectedConsumers.size !== intent.expectedConsumers.length) {
-            addPathViolation(intentFieldPath("expectedConsumers"), "expectedConsumers must not contain duplicates");
-          }
-        }
-
-        for (const field of intentPlaceholderGuardFields) {
-          if (typeof intent[field] !== "string" || intent[field].trim().length === 0) {
-            continue;
-          }
-
-          if (containsPlaceholderToken(intent[field])) {
-            addPathViolation(
-              intentFieldPath(field),
-              `must not use placeholder values (forbidden tokens: ${formatSetValues(placeholderFieldTokens)})`,
-            );
-          }
-        }
-
-        for (const field of ["purpose", "createdFor"]) {
-          if (typeof intent[field] !== "string" || intent[field].trim().length === 0) {
-            continue;
-          }
-
-          if (!hasSpecificityTerm(intent[field], specificityTerms)) {
-            addPathWarning(
-              intentFieldPath(field),
-              "should reference at least one bounded-context term or slice name from context.json (contextName, ownedNouns, or slices)",
-            );
-          }
+        for (const warning of diagnostics.warnings) {
+          addPathWarning(warning.path, warning.message);
         }
       }
     }
@@ -1686,12 +1705,6 @@ export async function runStructureCheck(options = {}) {
           `${root}/context.json`,
           `directoryIntent classification for ${supportDirectory} must be support`,
         );
-      }
-
-      for (const field of supportLifecycleRequiredFields) {
-        if (typeof intent[field] !== "string" || intent[field].trim().length === 0) {
-          addPathViolation(supportIntentFieldPath(field), "must be a non-empty string");
-        }
       }
 
       const expectedConsumers = Array.isArray(intent.expectedConsumers) ? intent.expectedConsumers : [];
