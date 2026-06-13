@@ -13,7 +13,7 @@ export type ButtonSize = "sm" | "md" | "lg";
 
 export const buttonToneClasses: Record<ButtonTone, string> = {
   primary:
-    "border-transparent bg-accent text-accent-contrast shadow-[0_0_22px_-12px_var(--glow-accent)] hover:bg-accent-hover hover:shadow-[0_0_30px_-12px_var(--glow-accent)]",
+    "border-transparent bg-accent text-accent-contrast shadow-tokenSm hover:bg-accent-hover hover:shadow-tokenMd",
   secondary: "border-border bg-surface-2 text-foreground hover:border-accent hover:text-accent",
   ghost:
     "border-transparent bg-transparent text-secondary hover:border-border hover:bg-surface-2 hover:text-foreground",

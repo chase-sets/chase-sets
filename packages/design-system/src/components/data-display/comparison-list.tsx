@@ -43,7 +43,7 @@ export function ComparisonListRow({ children, selected = false, ...rest }: Compa
       {...rest}
       className={cx(
         "glass-surface relative min-w-0 overflow-hidden rounded-tokenLg border p-3 shadow-tokenSm transition",
-        selected ? "border-accent bg-surface-2 shadow-[0_0_28px_-18px_var(--glow-accent)]" : "border-muted",
+        selected ? "border-accent bg-surface-2 shadow-tokenMd" : "border-muted",
       )}
     >
       {selected ? <span className="absolute inset-y-0 left-0 w-1 rounded-l-tokenLg bg-accent" /> : null}
