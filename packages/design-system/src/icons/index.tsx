@@ -8,6 +8,7 @@ import {
   BriefcaseBusiness,
   CalendarDays,
   Check,
+  CheckCircle2,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -26,16 +27,20 @@ import {
   Heart,
   Home,
   ImageIcon,
+  Inbox,
   Info,
   LayoutDashboard,
+  Lock,
   LockKeyhole,
   LogOut,
   Mail,
+  MapPin,
   Menu,
   MessageSquare,
   Minus,
   MoreVertical,
   Package,
+  PackageCheck,
   Pencil,
   Pause,
   Plus,
@@ -62,6 +67,7 @@ import {
   Users,
   WalletCards,
   X,
+  XCircle,
   type LucideIcon,
 } from "lucide-react";
 import { cx } from "../utils/cx";
@@ -81,6 +87,7 @@ export type IconName =
   | "menu"
   | "spark"
   | "package"
+  | "packageCheck"
   | "settings"
   | "user"
   | "info"
@@ -117,6 +124,7 @@ export type IconName =
   | "shirt"
   | "grid"
   | "lock"
+  | "lockClosed"
   | "logOut"
   | "creditCard"
   | "chart"
@@ -130,7 +138,11 @@ export type IconName =
   | "circle"
   | "wallet"
   | "bag"
-  | "store";
+  | "store"
+  | "mapPin"
+  | "checkCircle"
+  | "xCircle"
+  | "inbox";
 
 type IconSize = "sm" | "md" | "lg";
 type IconTone =
@@ -144,6 +156,9 @@ type IconTone =
   | "warning"
   | "danger"
   | "info"
+  | "trust"
+  | "deal"
+  | "rating"
   | "inverse";
 
 const iconMap: Record<IconName, LucideIcon> = {
@@ -161,6 +176,7 @@ const iconMap: Record<IconName, LucideIcon> = {
   menu: Menu,
   spark: Sparkles,
   package: Package,
+  packageCheck: PackageCheck,
   settings: Settings,
   user: User,
   info: Info,
@@ -197,6 +213,7 @@ const iconMap: Record<IconName, LucideIcon> = {
   shirt: Shirt,
   grid: Grid2X2,
   lock: LockKeyhole,
+  lockClosed: Lock,
   logOut: LogOut,
   creditCard: CreditCard,
   chart: BarChart3,
@@ -211,6 +228,10 @@ const iconMap: Record<IconName, LucideIcon> = {
   wallet: WalletCards,
   bag: BriefcaseBusiness,
   store: Store,
+  mapPin: MapPin,
+  checkCircle: CheckCircle2,
+  xCircle: XCircle,
+  inbox: Inbox,
 };
 
 const sizeClasses: Record<IconSize, string> = {
@@ -230,6 +251,9 @@ const toneClasses: Record<IconTone, string> = {
   warning: "text-warning",
   danger: "text-danger",
   info: "text-info",
+  trust: "text-trust",
+  deal: "text-deal",
+  rating: "text-rating",
   inverse: "text-inverse",
 };
 

@@ -1,6 +1,6 @@
 export { Badge, StatusPill, Tag } from "./badge";
-export type { BadgeProps, StatusPillProps, TagProps } from "./badge";
-export type { Tone } from "./shared";
+export type { BadgeProps, BadgeVariant, StatusPillProps, TagProps } from "./badge";
+export type { BadgeTone, CommerceAccentTone, Tone } from "./shared";
 
 export { Banner } from "./banner";
 export type { BannerProps } from "./banner";
