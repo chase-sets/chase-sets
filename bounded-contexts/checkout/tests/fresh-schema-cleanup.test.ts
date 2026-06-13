@@ -54,9 +54,11 @@ function assertNoPatterns(files: readonly string[], patterns: readonly Forbidden
 }
 
 describe("fresh checkout read-model schemas", () => {
-  it("keeps final checkout columns in base schemas with only deploy-safe session convergence", () => {
+  it("keeps final checkout columns in base schemas without add-column compatibility shims", () => {
     expect(checkoutCartSchemaSql).not.toMatch(/ADD COLUMN IF NOT EXISTS/i);
     expect(checkoutSellListSchemaSql).not.toMatch(/ADD COLUMN IF NOT EXISTS/i);
+    expect(checkoutSessionSchemaSql).not.toMatch(/ADD COLUMN IF NOT EXISTS/i);
+    expect(checkoutSessionSchemaSql).not.toMatch(/ALTER TABLE checkout_session_pages/i);
 
     expect(checkoutCartSchemaSql).toContain("item_image_url text NULL");
     expect(checkoutCartSchemaSql).toContain("fulfillment_mode text NOT NULL DEFAULT 'optimize'");
@@ -70,10 +72,7 @@ describe("fresh checkout read-model schemas", () => {
     expect(checkoutSessionSchemaSql).toContain("shipping_address_id text NULL");
     expect(checkoutSessionSchemaSql).toContain("fulfillment_preview_revision text NULL");
     expect(checkoutSessionSchemaSql).toContain("cart_readiness_snapshot jsonb NULL");
-    expect(checkoutSessionSchemaSql).toContain("ALTER TABLE checkout_session_pages");
-    expect(checkoutSessionSchemaSql).toContain("ADD COLUMN IF NOT EXISTS buyer_account_id text NOT NULL DEFAULT ''");
-    expect(checkoutSessionSchemaSql).toContain("ADD COLUMN IF NOT EXISTS cart_readiness_snapshot jsonb NULL");
-    expect(checkoutSessionSchemaSql).toContain("ADD COLUMN IF NOT EXISTS submitted_offer_id text NULL");
+    expect(checkoutSessionSchemaSql).toContain("submitted_offer_id text NULL");
   });
 
   it("uses the fresh Sell List confirmation read model without execution receipts", () => {
