@@ -249,10 +249,6 @@ function buildOperatorSetup({ checkedAt, missingVariables, missingSecrets, proof
       '$env:STRIPE_MONEY_SMOKE_ALLOW_LIVE="true"',
       `$env:PRODUCTION_MARKETPLACE_PROOF_REFERENCE="${suggestedProofReference}"`,
     ],
-    stripeMoneySmokeLegacyHostedCompatibilityCommands: [
-      `$env:STRIPE_CONNECT_RETURN_URL="${providerCallbackSetup.stripeConnectCustomSetup.legacyHostedCompatibility.privateProofReturnUrl}"`,
-      `$env:STRIPE_CONNECT_REFRESH_URL="${providerCallbackSetup.stripeConnectCustomSetup.legacyHostedCompatibility.privateProofRefreshUrl}"`,
-    ],
     stripeMoneySmokeAuthenticationOptions: [
       {
         kind: "existing bearer token",
@@ -291,7 +287,6 @@ function buildOperatorSetup({ checkedAt, missingVariables, missingSecrets, proof
       "Choose one stripeMoneySmokeAuthenticationOptions entry before running the seller-flow smoke command; the live proof command needs an authenticated account.",
       "Use stripeMoneySmokeEnvironmentCommands for private production proof only after topology evidence passes and live Stripe secrets are loaded into the shell.",
       "During proof mode, MARKETPLACE_WEB_BASE_URL uses marketplace.chasesets.com while chasesets.com remains the public landing host.",
-      "Run stripeMoneySmokeLegacyHostedCompatibilityCommands only when manually exercising legacy hosted Account Link compatibility.",
     ],
   };
 }
@@ -467,11 +462,6 @@ function buildProviderCallbackSetup({ baseUrl, marketplaceUrl }) {
       ],
       privateProofNote:
         "Use the embedded payout setup page for live seller setup proof. Do not approve production with hosted Connect onboarding or Express dashboard proof.",
-      legacyHostedCompatibility: {
-        privateProofReturnUrl: `${normalizedBaseUrl}/api/settlement/payout-setup/progress`,
-        privateProofRefreshUrl: `${normalizedBaseUrl}/api/settlement/payout-setup/progress`,
-        note: "Compatibility only for manual hosted Account Link checks; embedded setup smoke does not require these values.",
-      },
     },
   };
 }

@@ -39,8 +39,6 @@ function createMissingMoneyMovementGateway(): MoneyMovementGateway {
   return {
     providerName: "unconfigured",
     ensurePayoutAccount: async () => fail(),
-    createOnboardingSession: async () => fail(),
-    createAccountManagementSession: async () => fail(),
     createPayoutSetupSession: async () => fail(),
     createPayoutAccountManagementSession: async () => fail(),
     refreshPayoutReadiness: async () => fail(),

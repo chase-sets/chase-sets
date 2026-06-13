@@ -12,8 +12,6 @@ const envNames = [
   "STRIPE_CONNECT_WEBHOOK_SECRET",
   "STRIPE_API_BASE_URL",
   "STRIPE_CHECKOUT_UI_MODE",
-  "STRIPE_CONNECT_RETURN_URL",
-  "STRIPE_CONNECT_REFRESH_URL",
   "EASYPOST_API_KEY",
   "EASYPOST_API_BASE_URL",
   "EASYPOST_MODE",
@@ -222,8 +220,6 @@ describe("platform worker config", () => {
     process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_shared";
     process.env.STRIPE_API_BASE_URL = "https://stripe.shared.test";
     process.env.STRIPE_CHECKOUT_UI_MODE = "hosted";
-    process.env.STRIPE_CONNECT_RETURN_URL = "https://marketplace.test/return";
-    process.env.STRIPE_CONNECT_REFRESH_URL = "https://marketplace.test/refresh";
     process.env.EASYPOST_API_KEY = "EZAK_shared";
     process.env.EASYPOST_API_BASE_URL = "https://api.easypost.shared.test/v2";
     process.env.EASYPOST_MODE = "production";
@@ -279,8 +275,6 @@ describe("platform worker config", () => {
         secretKey: "sk_test_shared",
         webhookSecret: "whsec_connect_shared",
         apiBaseUrl: "https://stripe.shared.test",
-        onboardingReturnUrl: "https://marketplace.test/return",
-        onboardingRefreshUrl: "https://marketplace.test/refresh",
       },
       postage: {
         kind: "easypost",
@@ -526,8 +520,6 @@ describe("platform worker config", () => {
     const config = loadConfig();
 
     expect(config.moneyMovement).toMatchObject({ kind: "stripe" });
-    expect(config.moneyMovement).not.toHaveProperty("onboardingReturnUrl");
-    expect(config.moneyMovement).not.toHaveProperty("onboardingRefreshUrl");
   });
 
   it("loads production provider adapters when staging-style provider config is complete", () => {
@@ -552,27 +544,11 @@ describe("platform worker config", () => {
       kind: "stripe",
       webhookSecret: "whsec_connect_test",
     });
-    expect(config.moneyMovement).not.toHaveProperty("onboardingReturnUrl");
-    expect(config.moneyMovement).not.toHaveProperty("onboardingRefreshUrl");
     expect(config.postage).toEqual({
       kind: "easypost",
       apiKey: "EZTK_test",
       apiBaseUrl: undefined,
       mode: "test",
-    });
-  });
-
-  it("passes through legacy hosted setup URLs when explicitly configured", () => {
-    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
-    process.env.STRIPE_SECRET_KEY = "sk_test_123";
-    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_test";
-    process.env.STRIPE_CONNECT_RETURN_URL = "https://marketplace.staging.chasesets.com/account/payouts";
-    process.env.STRIPE_CONNECT_REFRESH_URL = "https://marketplace.staging.chasesets.com/account/payouts/setup";
-
-    expect(loadConfig().moneyMovement).toMatchObject({
-      kind: "stripe",
-      onboardingReturnUrl: "https://marketplace.staging.chasesets.com/account/payouts",
-      onboardingRefreshUrl: "https://marketplace.staging.chasesets.com/account/payouts/setup",
     });
   });
 

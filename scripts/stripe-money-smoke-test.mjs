@@ -260,8 +260,6 @@ export function envReport(env = process.env) {
     "SMOKE_PAYOUT_READINESS_RETRY_DELAY_MS",
     "SMOKE_PAYMENT_METHOD_CATEGORY",
     "SMOKE_REQUEST_PAYOUT",
-    "STRIPE_CONNECT_RETURN_URL",
-    "STRIPE_CONNECT_REFRESH_URL",
     "STRIPE_MONEY_SMOKE_ENVIRONMENT",
     "STRIPE_MONEY_SMOKE_REQUIRE_DELIVERED_WEBHOOKS",
     "STRIPE_MONEY_SMOKE_ALLOW_LIVE",
@@ -279,7 +277,6 @@ export function envReport(env = process.env) {
     presentOptional,
     stripeKeyMode,
     smokeEnvironment: readEnv("STRIPE_MONEY_SMOKE_ENVIRONMENT", env) ?? "unspecified",
-    connectRedirectsMatchApiOrigin: connectRedirectsMatchApiOrigin(env),
     testModeKeysLikely: stripeKeyMode === "test",
     liveModeKeysLikely: stripeKeyMode === "live",
     liveModeAllowed: liveModeSmokeAllowed(env),
@@ -393,22 +390,6 @@ function isProductionChaseSetsUrl(value) {
       url.protocol === "https:" &&
       ["chasesets.com", "admin.chasesets.com", "marketplace.chasesets.com"].includes(url.hostname)
     );
-  } catch {
-    return false;
-  }
-}
-
-function connectRedirectsMatchApiOrigin(env = process.env) {
-  const baseUrl = readEnv("PLATFORM_API_BASE_URL", env);
-  const returnUrl = readEnv("STRIPE_CONNECT_RETURN_URL", env);
-  const refreshUrl = readEnv("STRIPE_CONNECT_REFRESH_URL", env);
-  if (!baseUrl || !returnUrl || !refreshUrl) {
-    return false;
-  }
-
-  try {
-    const origin = new URL(baseUrl).origin;
-    return new URL(returnUrl).origin === origin && new URL(refreshUrl).origin === origin;
   } catch {
     return false;
   }

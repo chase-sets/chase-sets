@@ -25,7 +25,6 @@ export const REQUIRED_STRIPE_MONEY_OPERATION_PROOFS = [
   "connectAccountWebhookRowsProven",
   "connectNoSensitiveProviderDataStored",
   "connectCustomAccountProofProven",
-  "connectLegacyMigrationReportReviewed",
   "connectReleaseHardeningFindingsResolved",
   "stagingCustomConnectSandboxSmokeProven",
   "connectRollbackRehearsalProven",
@@ -50,7 +49,6 @@ export const REQUIRED_STRIPE_MONEY_OPERATION_REFERENCES = [
   "connectProviderReadinessRefreshReference",
   "connectAccountWebhookRowsReference",
   "connectSensitiveDataReviewReference",
-  "connectLegacyMigrationReportReference",
   "connectReleaseHardeningReference",
   "stagingCustomConnectSandboxSmokeReference",
   "connectRollbackRehearsalReference",
@@ -133,8 +131,6 @@ export function buildStripeMoneyOperationsEvidence(input) {
     connectConnectedAccountCount: proof.connectConnectedAccountCount,
     connectCustomDashboardNoneAccountCount: proof.connectCustomDashboardNoneAccountCount,
     connectEmbeddedSetupSessionCount: proof.connectEmbeddedSetupSessionCount,
-    connectLegacyHostedAccountCount: proof.connectLegacyHostedAccountCount,
-    connectLegacyPayoutReadyAccountCount: proof.connectLegacyPayoutReadyAccountCount,
     connectReleaseHardeningOpenP0P2FindingCount: proof.connectReleaseHardeningOpenP0P2FindingCount,
     sensitiveProviderDataStoredCount: proof.sensitiveProviderDataStoredCount,
     paymentProviderEventRowCount: proof.paymentProviderEventRowCount,
@@ -219,14 +215,6 @@ function normalizeStripeMoneyOperationsProof(proof) {
     connectEmbeddedSetupSessionCount: requireNonNegativeInteger(
       proof.connectEmbeddedSetupSessionCount,
       "Stripe connectEmbeddedSetupSessionCount",
-    ),
-    connectLegacyHostedAccountCount: requireNonNegativeInteger(
-      proof.connectLegacyHostedAccountCount,
-      "Stripe connectLegacyHostedAccountCount",
-    ),
-    connectLegacyPayoutReadyAccountCount: requireNonNegativeInteger(
-      proof.connectLegacyPayoutReadyAccountCount,
-      "Stripe connectLegacyPayoutReadyAccountCount",
     ),
     connectReleaseHardeningOpenP0P2FindingCount: requireNonNegativeInteger(
       proof.connectReleaseHardeningOpenP0P2FindingCount,
@@ -352,11 +340,6 @@ function validateStripeMoneyOperationsProof(proof, checkedAt) {
   }
   if (proof.connectEmbeddedSetupSessionCount < 2) {
     errors.push("Stripe money operations proof must include at least two fresh embedded setup sessions.");
-  }
-  if (proof.connectLegacyPayoutReadyAccountCount > proof.connectLegacyHostedAccountCount) {
-    errors.push(
-      "Stripe money operations proof cannot report more payout-ready legacy accounts than total legacy hosted accounts.",
-    );
   }
   if (proof.connectReleaseHardeningOpenP0P2FindingCount !== 0) {
     errors.push("Stripe money operations proof must resolve all P0-P2 custom Connect hardening findings.");

@@ -111,9 +111,6 @@ function createSmokeFetch(calls) {
         201,
       );
     }
-    if (path === "/api/settlement/payout-setup/onboarding-session") {
-      return jsonResponse({ error: { code: "legacy_hosted_setup_not_expected" } }, 410);
-    }
     if (path === "/api/settlement/payout-setup/embedded-session") {
       return jsonResponse(
         {
@@ -246,7 +243,6 @@ describe("stripe money smoke test", () => {
 
     expect(envReport(liveEnv)).toMatchObject({
       stripeKeyMode: "live",
-      connectRedirectsMatchApiOrigin: false,
       testModeKeysLikely: false,
       liveModeKeysLikely: true,
       liveModeAllowed: false,
@@ -266,16 +262,6 @@ describe("stripe money smoke test", () => {
         PRODUCTION_STRIPE_MONEY_OPERATIONS_REFERENCE: "STRIPE-LIVE-PROOF-2026-05-30",
       }),
     ).not.toThrow();
-    expect(
-      envReport({
-        ...liveEnv,
-        STRIPE_CONNECT_RETURN_URL: "https://chasesets.com/api/settlement/payout-setup/progress",
-        STRIPE_CONNECT_REFRESH_URL: "https://chasesets.com/api/settlement/payout-setup/progress",
-      }),
-    ).toMatchObject({
-      presentOptional: expect.arrayContaining(["STRIPE_CONNECT_RETURN_URL", "STRIPE_CONNECT_REFRESH_URL"]),
-      connectRedirectsMatchApiOrigin: true,
-    });
   });
 
   it("reports check-env readiness errors for live keys until all production proof safeguards are present", () => {
@@ -294,7 +280,6 @@ describe("stripe money smoke test", () => {
       readinessErrors: [],
       stripeKeyMode: "live",
       liveModeAllowed: true,
-      connectRedirectsMatchApiOrigin: false,
     });
 
     expect(
@@ -437,9 +422,6 @@ describe("stripe money smoke test", () => {
         "/api/settlement/payout-setup/embedded-session",
         "/api/settlement/payouts",
       ]),
-    );
-    expect(calls.map((call) => new URL(call.url).pathname)).not.toContain(
-      "/api/settlement/payout-setup/onboarding-session",
     );
     const refreshCall = calls.find((call) => new URL(call.url).pathname === "/api/settlement/payout-setup/refresh");
     expect(JSON.parse(refreshCall.init.body)).toMatchObject({

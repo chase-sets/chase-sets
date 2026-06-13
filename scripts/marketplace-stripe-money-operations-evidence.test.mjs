@@ -28,8 +28,6 @@ function proof(overrides = {}) {
     connectConnectedAccountCount: 1,
     connectCustomDashboardNoneAccountCount: 1,
     connectEmbeddedSetupSessionCount: 2,
-    connectLegacyHostedAccountCount: 0,
-    connectLegacyPayoutReadyAccountCount: 0,
     connectReleaseHardeningOpenP0P2FindingCount: 0,
     sensitiveProviderDataStoredCount: 0,
     paymentProviderEventRowCount: 5,
@@ -61,7 +59,6 @@ function proof(overrides = {}) {
     connectProviderReadinessRefreshReference: "STRIPE-CONNECT-READINESS-REFRESH-2026-05-30",
     connectAccountWebhookRowsReference: "STRIPE-CONNECT-WEBHOOK-ROWS-2026-05-30",
     connectSensitiveDataReviewReference: "STRIPE-CONNECT-SENSITIVE-DATA-REVIEW-2026-05-30",
-    connectLegacyMigrationReportReference: "STRIPE-CONNECT-MIGRATION-REPORT-2026-05-30",
     connectReleaseHardeningReference: "STRIPE-CONNECT-RELEASE-HARDENING-2026-05-30",
     stagingCustomConnectSandboxSmokeReference: "STRIPE-CONNECT-STAGING-SANDBOX-SMOKE-2026-05-30",
     connectRollbackRehearsalReference: "STRIPE-CONNECT-ROLLBACK-REHEARSAL-2026-05-30",
@@ -86,7 +83,6 @@ function proof(overrides = {}) {
     connectAccountWebhookRowsProven: true,
     connectNoSensitiveProviderDataStored: true,
     connectCustomAccountProofProven: true,
-    connectLegacyMigrationReportReviewed: true,
     connectReleaseHardeningFindingsResolved: true,
     stagingCustomConnectSandboxSmokeProven: true,
     connectRollbackRehearsalProven: true,
@@ -137,8 +133,6 @@ describe("marketplace stripe money operations evidence", () => {
       connectConnectedAccountCount: 1,
       connectCustomDashboardNoneAccountCount: 1,
       connectEmbeddedSetupSessionCount: 2,
-      connectLegacyHostedAccountCount: 0,
-      connectLegacyPayoutReadyAccountCount: 0,
       connectReleaseHardeningOpenP0P2FindingCount: 0,
       sensitiveProviderDataStoredCount: 0,
       paymentProviderEventRowCount: 5,
@@ -170,7 +164,6 @@ describe("marketplace stripe money operations evidence", () => {
       connectProviderReadinessRefreshReference: "STRIPE-CONNECT-READINESS-REFRESH-2026-05-30",
       connectAccountWebhookRowsReference: "STRIPE-CONNECT-WEBHOOK-ROWS-2026-05-30",
       connectSensitiveDataReviewReference: "STRIPE-CONNECT-SENSITIVE-DATA-REVIEW-2026-05-30",
-      connectLegacyMigrationReportReference: "STRIPE-CONNECT-MIGRATION-REPORT-2026-05-30",
       connectReleaseHardeningReference: "STRIPE-CONNECT-RELEASE-HARDENING-2026-05-30",
       stagingCustomConnectSandboxSmokeReference: "STRIPE-CONNECT-STAGING-SANDBOX-SMOKE-2026-05-30",
       connectRollbackRehearsalReference: "STRIPE-CONNECT-ROLLBACK-REHEARSAL-2026-05-30",
@@ -195,7 +188,6 @@ describe("marketplace stripe money operations evidence", () => {
       connectAccountWebhookRowsProven: true,
       connectNoSensitiveProviderDataStored: true,
       connectCustomAccountProofProven: true,
-      connectLegacyMigrationReportReviewed: true,
       connectReleaseHardeningFindingsResolved: true,
       stagingCustomConnectSandboxSmokeProven: true,
       connectRollbackRehearsalProven: true,
@@ -241,14 +233,12 @@ describe("marketplace stripe money operations evidence", () => {
     );
   });
 
-  it("fails when custom account proof and legacy migration counts are not supportable", () => {
+  it("fails when custom account proof is incomplete or stores sensitive provider data", () => {
     const evidence = buildStripeMoneyOperationsEvidence(
       input({
         proof: proof({
           connectCustomDashboardNoneAccountCount: 0,
           connectEmbeddedSetupSessionCount: 1,
-          connectLegacyHostedAccountCount: 1,
-          connectLegacyPayoutReadyAccountCount: 2,
           sensitiveProviderDataStoredCount: 1,
         }),
       }),
@@ -257,9 +247,6 @@ describe("marketplace stripe money operations evidence", () => {
     expect(evidence.approved).toBe(false);
     expect(evidence.errors).toContain(
       "Stripe money operations proof must include at least one live dashboard-none connected account.",
-    );
-    expect(evidence.errors).toContain(
-      "Stripe money operations proof cannot report more payout-ready legacy accounts than total legacy hosted accounts.",
     );
     expect(evidence.errors).toContain(
       "Stripe money operations proof must include at least two fresh embedded setup sessions.",
@@ -553,7 +540,6 @@ describe("marketplace stripe money operations evidence", () => {
       "connectAccountWebhookRowsProven",
       "connectNoSensitiveProviderDataStored",
       "connectCustomAccountProofProven",
-      "connectLegacyMigrationReportReviewed",
       "connectReleaseHardeningFindingsResolved",
       "stagingCustomConnectSandboxSmokeProven",
       "connectRollbackRehearsalProven",
@@ -577,7 +563,6 @@ describe("marketplace stripe money operations evidence", () => {
       "connectProviderReadinessRefreshReference",
       "connectAccountWebhookRowsReference",
       "connectSensitiveDataReviewReference",
-      "connectLegacyMigrationReportReference",
       "connectReleaseHardeningReference",
       "stagingCustomConnectSandboxSmokeReference",
       "connectRollbackRehearsalReference",
