@@ -4,6 +4,7 @@ import { isRouteErrorResponse, redirect, useLoaderData, useLocation, useRouteErr
 import { loadFreshlyWrittenResource } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
+import { createPaymentsRequestApiClient } from "@chase-sets/payments/server";
 import { CheckoutApiError, createCheckoutRequestApiClient } from "../support/request-support/api-client";
 import { resolveCheckoutShopifySimpleUnavailableState } from "../support/request-support/checkout-release-control";
 import {
@@ -30,6 +31,19 @@ function currentPathWithSearch(request: Request) {
 function paymentPathWithFreshWrite(request: Request, paymentPath: string) {
   const afterWrite = new URL(request.url).searchParams.get("afterWrite");
   return afterWrite ? `${paymentPath}?afterWrite=${encodeURIComponent(afterWrite)}` : paymentPath;
+}
+
+async function loadPaymentSummary(request: Request, paymentId: string) {
+  try {
+    const payment = await createPaymentsRequestApiClient(request).getAccountPayment(paymentId);
+    return {
+      amount: payment.amount,
+      status: payment.status,
+      currencyCode: payment.currency_code,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
@@ -71,6 +85,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   return {
     session,
     paymentPath: paymentPathWithFreshWrite(request, paymentPathForActor(actor, session.payment_id)),
+    paymentSummary: await loadPaymentSummary(request, session.payment_id),
   };
 }
 
@@ -83,7 +98,13 @@ export const meta: MetaFunction = () =>
 export default function BuyCheckoutConfirmationRoute() {
   const data = useLoaderData<typeof loader>();
 
-  return <BuyCheckoutConfirmationPage session={data.session} paymentPath={data.paymentPath} />;
+  return (
+    <BuyCheckoutConfirmationPage
+      session={data.session}
+      paymentPath={data.paymentPath}
+      paymentSummary={data.paymentSummary}
+    />
+  );
 }
 
 export function ErrorBoundary() {
