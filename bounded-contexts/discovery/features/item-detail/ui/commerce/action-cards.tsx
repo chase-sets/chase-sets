@@ -442,6 +442,7 @@ export function ItemCommercePanel({
     <Stack gap={3}>
       {showSellerTab ? (
         <SegmentedControl
+          label={t("discovery.features.itemDetail.ui.itemDetailPage.choose.market.intent")}
           items={[
             { value: "buy", label: t("discovery.routes.itemDetail.buy") },
             { value: "sell", label: t("discovery.routes.itemDetail.sell") },

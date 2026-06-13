@@ -171,11 +171,11 @@ describe("item detail commerce panel rendering and mobile sections", () => {
       />,
     );
 
-    expect(screen.getByRole("tab", { name: "Buy" })).toBeTruthy();
-    const sellTab = screen.getByRole("tab", { name: "Sell" });
-    expect(sellTab).toBeTruthy();
+    expect(screen.getByRole("radio", { name: "Buy" })).toBeTruthy();
+    const sellOption = screen.getByRole("radio", { name: "Sell" });
+    expect(sellOption).toBeTruthy();
 
-    fireEvent.click(sellTab);
+    fireEvent.click(sellOption);
 
     expect(screen.getByText("List this product")).toBeTruthy();
     expect(screen.getByText("Product")).toBeTruthy();
@@ -861,7 +861,7 @@ describe("item detail commerce panel rendering and mobile sections", () => {
       />,
     );
 
-    expect(screen.queryByRole("tablist", { name: "Choose mobile market intent" })).toBeNull();
+    expect(screen.queryByRole("radiogroup", { name: "Choose mobile market intent" })).toBeNull();
     expect(screen.getAllByRole("button", { name: "Buy" }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("button", { name: "Sell" }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("button", { name: "Watch" }).length).toBeGreaterThan(0);
@@ -969,7 +969,7 @@ describe("item detail commerce panel rendering and mobile sections", () => {
         .getAllByRole("link", { name: "Select options" })
         .every((link) => link.getAttribute("href") === "#select-options"),
     ).toBe(true);
-    expect(screen.queryByRole("tablist", { name: "Choose mobile market intent" })).toBeNull();
+    expect(screen.queryByRole("radiogroup", { name: "Choose mobile market intent" })).toBeNull();
     expect(
       screen
         .getAllByRole("link", { name: "Choose to sell" })
