@@ -1086,7 +1086,7 @@ describe("checkout web routes: sell checkout session", () => {
     expect(mockCreateListing).not.toHaveBeenCalled();
   });
 
-  it("returns a guest seller confirmation handoff with no seller-committing side effects", async () => {
+  it("routes guest seller checkout through registration before seller-committing side effects", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(null);
     mockGetGuestSellList.mockResolvedValue({ items: [guestSellListLine()], count: 1 });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
@@ -1107,23 +1107,13 @@ describe("checkout web routes: sell checkout session", () => {
       context: undefined,
     } as never);
 
-    expect(result).toEqual(
-      expect.objectContaining({
-        status: "confirmed",
-        confirmation: expect.objectContaining({
-          referenceId: "guest-sell-chk_sell_1",
-          sideEffects: {
-            label: "not-attempted",
-            payout: "not-attempted",
-            sale: "not-attempted",
-            settlement: "not-attempted",
-            notification: "not-attempted",
-            accountHistory: "not-attempted",
-          },
-        }),
-      }),
+    expect(result).toBeInstanceOf(Response);
+    expect((result as Response).status).toBe(302);
+    expect((result as Response).headers.get("Location")).toBe(
+      "/register?returnTo=%2Faccount%2Fsell-list%3FregistrationReturn%3Dseller-checkout",
     );
-    expect(mockAcceptOfferMatch).not.toHaveBeenCalled();
-    expect(mockCreateListing).not.toHaveBeenCalled();
+    expect(mockGetGuestSellList).toHaveBeenCalledWith("anon_sell_1");
+    expect(mockCreateGuestSellListReadiness).toHaveBeenCalledWith("anon_sell_1");
+    expectNoSellerCommitSideEffects();
   });
 });

@@ -520,9 +520,8 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.guestSellCheckoutPage.back.to.sell.list": "Back to Sell List",
   "checkout.features.sellList.ui.guestSellCheckoutPage.back": "Back",
   "checkout.features.sellList.ui.guestSellCheckoutPage.review.sell.list": "Review Sell List",
-  "checkout.features.sellList.ui.guestSellCheckoutPage.review.sale": "Review sale intent",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.review.sale": "Continue to account setup",
   "checkout.features.sellList.ui.guestSellCheckoutPage.fix.details": "Fix seller checkout details",
-  "checkout.features.sellList.ui.guestSellCheckoutPage.create.account": "Create account",
   "checkout.features.sellList.ui.guestSellCheckoutPage.standard": "Standard",
   "checkout.features.sellList.ui.guestSellCheckoutPage.summary.title": "Sale summary",
   "checkout.features.sellList.ui.guestSellCheckoutPage.summary.subtitle": "{count} ready line(s)",
@@ -578,20 +577,6 @@ export const checkoutEnglishTranslations = {
     "This page records a guest review state only. It does not accept offers, create listings, buy labels, start payout, send notifications, or write seller account history.",
   "checkout.features.sellList.ui.guestSellCheckoutPage.guest.data.description":
     "Guest seller contact and ship-from details are used for this review, serviceability, account setup, and support. Sale, payout, and label commitments wait for account setup.",
-  "checkout.features.sellList.ui.guestSellCheckoutPage.confirmation.title": "Sale review ready",
-  "checkout.features.sellList.ui.guestSellCheckoutPage.confirmation.description":
-    "Your sale review is ready for account setup. No seller-committing side effects have started.",
-  "checkout.features.sellList.ui.guestSellCheckoutPage.confirmation.reference": "Review reference",
-  "checkout.features.sellList.ui.guestSellCheckoutPage.confirmation.support.reference": "Support reference",
-  "checkout.features.sellList.ui.guestSellCheckoutPage.confirmation.account.title": "Account setup",
-  "checkout.features.sellList.ui.guestSellCheckoutPage.confirmation.account.description":
-    "Create or sign in to attach verified seller and payout facts.",
-  "checkout.features.sellList.ui.guestSellCheckoutPage.confirmation.label.title": "Label review",
-  "checkout.features.sellList.ui.guestSellCheckoutPage.confirmation.label.description":
-    "Label serviceability is confirmed before any label is purchased.",
-  "checkout.features.sellList.ui.guestSellCheckoutPage.confirmation.side.effects.title": "No commitment yet",
-  "checkout.features.sellList.ui.guestSellCheckoutPage.confirmation.side.effects.description":
-    "Sale, payout, label, notification, and account-history work stay pending.",
   "checkout.features.sellList.ui.guestSellCheckoutPage.recovery.missing.sell.list": "Sell List access expired",
   "checkout.features.sellList.ui.guestSellCheckoutPage.recovery.missing.sell.list.description":
     "Return to your Sell List to start seller checkout again.",
