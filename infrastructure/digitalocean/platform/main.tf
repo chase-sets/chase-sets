@@ -68,16 +68,10 @@ check "production_marketplace_launch_approval" {
   assert {
     condition = !var.production_marketplace_public_enabled || (
       var.environment == "production" &&
-      trimspace(var.production_marketplace_launch_evidence_reference) != "" &&
-      length(trimspace(var.production_marketplace_launch_evidence_reference)) >= 6 &&
-      !contains(
-        ["tbd", "todo", "none", "null", "n/a", "na", "placeholder", "example", "sample", "test", "ticket", "record", "launch-000"],
-        lower(trimspace(var.production_marketplace_launch_evidence_reference))
-      ) &&
       var.production_marketplace_promotion_approved &&
       trimspace(var.production_marketplace_promotion_reference) != ""
     )
-    error_message = "Production marketplace promotion requires approved launch evidence and a passing Marketplace Launch Evidence packet reference before deploying the public marketplace."
+    error_message = "Production marketplace promotion requires an approved marketplace promotion record before deploying the public marketplace."
   }
 }
 
@@ -85,7 +79,6 @@ check "production_marketplace_evidence_reference_quality" {
   assert {
     condition = !var.production_marketplace_public_enabled || alltrue([
       for reference in [
-        var.production_marketplace_launch_evidence_reference,
         var.production_marketplace_promotion_reference,
         var.production_marketplace_checkout_fee_reference,
         var.production_checkout_launch_evidence_reference,

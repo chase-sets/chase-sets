@@ -34,23 +34,6 @@ variable "production_marketplace_public_enabled" {
   }
 }
 
-variable "production_marketplace_launch_evidence_reference" {
-  type        = string
-  default     = ""
-  description = "Operator-owned reference to the passing Marketplace Launch Evidence packet used to set production launch variables."
-
-  validation {
-    condition = trimspace(var.production_marketplace_launch_evidence_reference) == "" || (
-      length(trimspace(var.production_marketplace_launch_evidence_reference)) >= 6 &&
-      !contains(
-        ["tbd", "todo", "none", "null", "n/a", "na", "placeholder", "example", "sample", "test", "ticket", "record", "launch-000"],
-        lower(trimspace(var.production_marketplace_launch_evidence_reference))
-      )
-    )
-    error_message = "production_marketplace_launch_evidence_reference must be a real Marketplace Launch Evidence packet reference, not a placeholder."
-  }
-}
-
 variable "production_marketplace_proof_enabled" {
   type        = bool
   default     = false

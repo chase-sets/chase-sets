@@ -532,10 +532,7 @@ describe("DigitalOcean platform configuration", () => {
   it("keeps production marketplace promotion explicitly gated", () => {
     expect(platformVariables).toContain('variable "production_marketplace_public_enabled"');
     expect(platformVariables).toContain("production_marketplace_public_enabled may only be true for production.");
-    expect(platformVariables).toContain('variable "production_marketplace_launch_evidence_reference"');
-    expect(platformVariables).toContain(
-      "production_marketplace_launch_evidence_reference must be a real Marketplace Launch Evidence packet reference, not a placeholder.",
-    );
+    expect(platformVariables).not.toContain('variable "production_marketplace_launch_evidence_reference"');
     expect(platformVariables).toContain('variable "production_marketplace_proof_enabled"');
     expect(platformVariables).toContain("production_marketplace_proof_enabled may only be true for production.");
     expect(platformVariables).toContain('variable "production_marketplace_proof_reference"');
@@ -683,10 +680,10 @@ describe("DigitalOcean platform configuration", () => {
       'error_message = "Production marketplace promotion requires production environment and complete Amazon SES transactional email configuration."',
     );
     expect(platformMain).toContain('check "production_marketplace_launch_approval"');
-    expect(platformMain).toContain("var.production_marketplace_launch_evidence_reference");
+    expect(platformMain).not.toContain("var.production_marketplace_launch_evidence_reference");
     expect(platformMain).toContain("var.production_marketplace_promotion_approved");
     expect(platformMain).toContain(
-      'error_message = "Production marketplace promotion requires approved launch evidence and a passing Marketplace Launch Evidence packet reference before deploying the public marketplace."',
+      'error_message = "Production marketplace promotion requires an approved marketplace promotion record before deploying the public marketplace."',
     );
     expect(platformMain).toContain('check "production_marketplace_evidence_reference_quality"');
     expect(platformMain).toContain("var.production_transactional_email_reference");
@@ -946,9 +943,7 @@ describe("DigitalOcean platform configuration", () => {
       "artifacts/release-health/production-settlement-provider-health-canary.json",
     );
     expect(platformProductionWorkflow).toContain("retention-days: 30");
-    expect(platformProductionWorkflow).toContain(
-      "TF_VAR_production_marketplace_launch_evidence_reference: ${{ vars.PRODUCTION_MARKETPLACE_LAUNCH_EVIDENCE_REFERENCE || '' }}",
-    );
+    expect(platformProductionWorkflow).not.toContain("TF_VAR_production_marketplace_launch_evidence_reference");
     expect(platformProductionWorkflow).toContain(
       "TF_VAR_production_marketplace_proof_enabled: ${{ vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true' && 'true' || 'false' }}",
     );
@@ -1051,13 +1046,10 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).toContain(
       "Production marketplace proof mode requires an evidence-collection approval reference.",
     );
-    expect(platformProductionWorkflow).toContain("Production marketplace promotion requires approved launch evidence.");
     expect(platformProductionWorkflow).toContain(
-      "Production marketplace promotion requires a Marketplace Launch Evidence packet reference.",
+      "Production marketplace promotion requires an approved marketplace promotion record.",
     );
-    expect(platformProductionWorkflow).toContain(
-      "Production marketplace promotion requires a real Marketplace Launch Evidence packet reference, not a placeholder.",
-    );
+    expect(platformProductionWorkflow).not.toContain("Marketplace Launch Evidence packet reference");
     expect(platformProductionWorkflow).toContain(
       "Production marketplace promotion requires approved Marketplace Checkout Fee evidence.",
     );

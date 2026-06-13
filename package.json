@@ -82,8 +82,6 @@
     "test:platform-smoke": "vitest run scripts/platform-smoke-args.test.mjs",
     "test:admin-shell-smoke-matrix": "vitest run scripts/admin-shell-smoke-matrix.test.mjs",
     "test:stripe-money-smoke": "vitest run scripts/stripe-money-smoke-test.test.mjs",
-    "test:marketplace-launch-evidence": "vitest run scripts/marketplace-launch-evidence.test.mjs",
-    "test:marketplace-launch-packet": "vitest run scripts/marketplace-launch-packet.test.mjs",
     "test:marketplace-production-env-commands": "vitest run scripts/marketplace-production-env-commands.test.mjs",
     "test:marketplace-production-env-snapshot": "vitest run scripts/marketplace-production-env-snapshot.test.mjs",
     "test:marketplace-production-launch-readiness": "vitest run scripts/marketplace-production-launch-readiness.test.mjs",

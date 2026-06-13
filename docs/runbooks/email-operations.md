@@ -118,7 +118,6 @@ Run `pnpm run ops marketplace:production-proof-readiness` before dashboard setup
 ## Production SES Proof
 
 Before production marketplace promotion, Notifications must approve transactional email readiness with `PRODUCTION_TRANSACTIONAL_EMAIL_APPROVED=true` and a non-empty `PRODUCTION_TRANSACTIONAL_EMAIL_REFERENCE` in the production GitHub Environment. The reference must point to the Notifications-owned rehearsal record. Keep approval unset while production remains landing/admin-support only or until every production Amazon SES proof below is complete.
-The redacted [Marketplace Launch Evidence](./marketplace-launch-evidence.md) packet must carry the same approval and reference before operators set the production GitHub Environment values.
 
 The rehearsal record must include:
 
@@ -135,4 +134,4 @@ The redacted proof record must also include `proofCompletedAt`, `providerEventRo
 
 Do not commit live emails, recipient addresses, provider message ids tied to private recipients, IAM keys, or SES console screenshots to the repository. Store the evidence in the approved launch record and reference it with `PRODUCTION_TRANSACTIONAL_EMAIL_REFERENCE`.
 
-Use `pnpm run ops marketplace:transactional-email-evidence` with the redacted production SES proof record to produce the `gates.transactionalEmail` fields for the launch evidence packet. The command fails the gate unless the proof is production-scoped, current, uses the `transactional-production` configuration set, points to the Notifications email provider webhook path on a production Chase Sets host, proves SES DNS, controlled send, outbox dispatch, SNS subscription confirmation, bounce/complaint parsing, delivery monitoring, includes provider event rows and concrete provider event ids for delivery/bounce/complaint coverage, carries the concrete evidence references above, and covers auth, orders, payments, fulfillment, refunds, support, and payouts templates.
+Use `pnpm run ops marketplace:transactional-email-evidence` with the redacted production SES proof record before setting `PRODUCTION_TRANSACTIONAL_EMAIL_APPROVED=true`. The command fails unless the proof is production-scoped, current, uses the `transactional-production` configuration set, points to the Notifications email provider webhook path on a production Chase Sets host, proves SES DNS, controlled send, outbox dispatch, SNS subscription confirmation, bounce/complaint parsing, delivery monitoring, includes provider event rows and concrete provider event ids for delivery/bounce/complaint coverage, carries the concrete evidence references above, and covers auth, orders, payments, fulfillment, refunds, support, and payouts templates.
