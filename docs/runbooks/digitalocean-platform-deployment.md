@@ -324,7 +324,7 @@ The preflight is intentionally secret-name-only. It proves that production has t
 
 If the preflight fails, the JSON output includes `operatorSetup.variableCommands` and `operatorSetup.secretCommands` for the missing values. Treat those commands as the deployment setup checklist; run the secret commands only through an interactive prompt or private password manager input.
 
-The same readiness output includes `providerCallbackSetup.dashboardDestinations`. Use those exact URLs for Stripe, Stripe Connect, SES/SNS, and EasyPost provider dashboards after proof topology passes. Use `providerCallbackSetup.stripeConnectCustomSetup.finalLaunchSetupPageUrl` for final Stripe money evidence and public launch proof. Use `operatorSetup.stripeMoneySmokeEnvironmentCommands` after topology passes, choose one `operatorSetup.stripeMoneySmokeAuthenticationOptions` entry, then run `operatorSetup.stripeMoneySmokeCheckCommand` before the live Stripe smoke command. `operatorSetup.stripeMoneySmokeLegacyHostedCompatibilityCommands` is only for manually exercising legacy hosted Account Link compatibility.
+The same readiness output includes `providerCallbackSetup.dashboardDestinations`. Use those exact URLs for Stripe, Stripe Connect, SES/SNS, and EasyPost provider dashboards after proof topology passes. Use `providerCallbackSetup.stripeConnectCustomSetup.finalLaunchSetupPageUrl` for final Stripe money evidence and public launch proof. Use `operatorSetup.stripeMoneySmokeEnvironmentCommands` after topology passes, choose one `operatorSetup.stripeMoneySmokeAuthenticationOptions` entry, then run `operatorSetup.stripeMoneySmokeCheckCommand` before the live Stripe smoke command.
 
 After proof mode deploys, run:
 

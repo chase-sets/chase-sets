@@ -37,18 +37,6 @@ function createApp(services: unknown, permissions: readonly string[] | null) {
 }
 
 describe("settlement payout setup routes", () => {
-  it("requires payout management permission for onboarding sessions", async () => {
-    const app = createApp({}, ["payouts.view"]);
-
-    const response = await app.request("/payout-setup/onboarding-session", {
-      method: "POST",
-      body: JSON.stringify({}),
-      headers: { "Content-Type": "application/json" },
-    });
-
-    expect(response.status).toBe(403);
-  });
-
   it("requires authentication for embedded setup sessions", async () => {
     const createPayoutSetupSession = vi.fn();
     const app = createApp({ createPayoutSetupSession }, null);
@@ -75,37 +63,6 @@ describe("settlement payout setup routes", () => {
 
     expect(response.status).toBe(403);
     expect(createPayoutSetupSession).not.toHaveBeenCalled();
-  });
-
-  it("creates onboarding sessions for sellers that can manage payouts", async () => {
-    const createOnboardingSession = vi.fn(async () => ({
-      providerReference: "acct_test",
-      url: "https://connect.test/setup",
-      expiresAt: null,
-    }));
-    const app = createApp({ createOnboardingSession }, ["payouts.setup"]);
-
-    const response = await app.request("https://example.test/payout-setup/onboarding-session", {
-      method: "POST",
-      body: JSON.stringify({
-        returnUrl: "https://example.test/return",
-        refreshUrl: "https://example.test/refresh",
-      }),
-      headers: { "Content-Type": "application/json" },
-    });
-
-    expect(response.status).toBe(201);
-    await expect(response.json()).resolves.toMatchObject({
-      url: "https://connect.test/setup",
-    });
-    expect(createOnboardingSession).toHaveBeenCalledWith(
-      expect.objectContaining({
-        accountId: "acc_seller",
-        returnUrl: "https://example.test/return",
-        refreshUrl: "https://example.test/refresh",
-      }),
-      context,
-    );
   });
 
   it("creates embedded payout setup sessions for sellers that can manage payouts", async () => {
@@ -173,94 +130,6 @@ describe("settlement payout setup routes", () => {
       steps: [expect.objectContaining({ id: "payout-setup" })],
     });
     expect(getPayoutSetupProgress).toHaveBeenCalledWith("acc_seller");
-  });
-
-  it("rejects payout setup redirects to another origin", async () => {
-    const createOnboardingSession = vi.fn(async () => ({
-      providerReference: "acct_test",
-      url: "https://connect.test/setup",
-      expiresAt: null,
-    }));
-    const app = createApp({ createOnboardingSession }, ["payouts.setup"]);
-
-    const response = await app.request("https://example.test/payout-setup/onboarding-session", {
-      method: "POST",
-      body: JSON.stringify({
-        returnUrl: "https://attacker.test/return",
-        refreshUrl: "https://example.test/refresh",
-      }),
-      headers: { "Content-Type": "application/json" },
-    });
-
-    expect(response.status).toBe(400);
-    await expect(response.json()).resolves.toMatchObject({
-      error: {
-        code: "validation_failed",
-        message: "Payout setup redirects must stay on this site.",
-      },
-    });
-    expect(createOnboardingSession).not.toHaveBeenCalled();
-  });
-
-  it("accepts payout setup redirects that match the forwarded public origin", async () => {
-    const createOnboardingSession = vi.fn(async () => ({
-      providerReference: "acct_test",
-      url: "https://connect.test/setup",
-      expiresAt: null,
-    }));
-    const app = createApp({ createOnboardingSession }, ["payouts.setup"]);
-
-    const response = await app.request("http://internal-app/payout-setup/onboarding-session", {
-      method: "POST",
-      body: JSON.stringify({
-        returnUrl: "https://marketplace.preview.test/account/payouts",
-        refreshUrl: "https://marketplace.preview.test/account/payouts/setup",
-      }),
-      headers: {
-        "Content-Type": "application/json",
-        "X-Forwarded-Host": "marketplace.preview.test",
-        "X-Forwarded-Proto": "https",
-      },
-    });
-
-    expect(response.status).toBe(201);
-    expect(createOnboardingSession).toHaveBeenCalledWith(
-      expect.objectContaining({
-        accountId: "acc_seller",
-        returnUrl: "https://marketplace.preview.test/account/payouts",
-        refreshUrl: "https://marketplace.preview.test/account/payouts/setup",
-      }),
-      context,
-    );
-  });
-
-  it("creates account management sessions through the payout adapter", async () => {
-    const createAccountManagementSession = vi.fn(async () => ({
-      providerReference: "acct_test",
-      url: "https://connect.test/dashboard",
-      expiresAt: null,
-    }));
-    const app = createApp({ createAccountManagementSession }, ["payouts.setup"]);
-
-    const response = await app.request("https://example.test/payout-setup/account-management-session", {
-      method: "POST",
-      body: JSON.stringify({
-        returnUrl: "https://example.test/account/payouts",
-      }),
-      headers: { "Content-Type": "application/json" },
-    });
-
-    expect(response.status).toBe(201);
-    await expect(response.json()).resolves.toMatchObject({
-      url: "https://connect.test/dashboard",
-    });
-    expect(createAccountManagementSession).toHaveBeenCalledWith(
-      expect.objectContaining({
-        accountId: "acc_seller",
-        returnUrl: "https://example.test/account/payouts",
-      }),
-      context,
-    );
   });
 
   it("requires payout setup permission for embedded account management sessions", async () => {

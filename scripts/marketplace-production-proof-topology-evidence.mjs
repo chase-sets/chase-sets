@@ -51,7 +51,6 @@ export const PRIVATE_PROOF_API_PATHS = [
   { method: "POST", path: "/api/marketplace/account/purchases/checkout/preview" },
   { method: "GET", path: "/api/settlement/account-status" },
   { method: "GET", path: "/api/settlement/payout-readiness" },
-  { method: "POST", path: "/api/settlement/payout-setup/onboarding-session" },
   { method: "GET", path: "/api/settlement/payout-setup/progress" },
   { method: "POST", path: "/api/settlement/payout-setup/refresh" },
   { method: "GET", path: "/api/settlement/payouts" },

@@ -4,10 +4,6 @@ export const settlementEnglishTranslations = {
   "settlement.features.payoutReadiness.api.route.authentication.context.missing.3": "Authentication context missing.",
   "settlement.features.payoutReadiness.api.route.authentication.required": "Authentication required.",
   "settlement.features.payoutReadiness.api.route.forbidden": "Forbidden.",
-  "settlement.features.payoutReadiness.api.route.payout.setup.redirects.must.stay.on":
-    "Payout setup redirects must stay on this site.",
-  "settlement.features.payoutReadiness.api.route.payout.setup.redirects.must.use.absolute":
-    "Payout setup redirects must use absolute URLs.",
   "settlement.features.payoutReadiness.api.route.request.failed": "Request failed.",
   "settlement.features.payoutReadiness.domain.setupProgress.a.payout.destination.is.ready":
     "A payout destination is ready.",

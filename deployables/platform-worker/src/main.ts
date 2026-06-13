@@ -104,8 +104,6 @@ const moneyMovementGateway =
         secretKey: config.moneyMovement.secretKey,
         webhookSecret: config.moneyMovement.webhookSecret,
         apiBaseUrl: config.moneyMovement.apiBaseUrl,
-        onboardingReturnUrl: config.moneyMovement.onboardingReturnUrl,
-        onboardingRefreshUrl: config.moneyMovement.onboardingRefreshUrl,
       })
     : createFakeMoneyMovementGateway();
 const settlementOperationsRecorder = {

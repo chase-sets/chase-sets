@@ -72,10 +72,6 @@ describe("marketplace production proof readiness", () => {
             "gates.stripeMoneyOperations.connectPayoutSetupPageUrl",
             "gates.stripeMoneyOperations.connectEmbeddedSetupSessionCount",
           ]),
-          legacyHostedCompatibility: {
-            privateProofReturnUrl: "https://marketplace.chasesets.com/api/settlement/payout-setup/progress",
-            privateProofRefreshUrl: "https://marketplace.chasesets.com/api/settlement/payout-setup/progress",
-          },
         },
       },
       operatorSetup: {
@@ -86,10 +82,6 @@ describe("marketplace production proof readiness", () => {
           '$env:MARKETPLACE_WEB_BASE_URL="https://marketplace.chasesets.com"',
           '$env:STRIPE_MONEY_SMOKE_ALLOW_LIVE="true"',
           '$env:PRODUCTION_MARKETPLACE_PROOF_REFERENCE="PRODUCTION-PROOF-2026-05-30"',
-        ],
-        stripeMoneySmokeLegacyHostedCompatibilityCommands: [
-          '$env:STRIPE_CONNECT_RETURN_URL="https://marketplace.chasesets.com/api/settlement/payout-setup/progress"',
-          '$env:STRIPE_CONNECT_REFRESH_URL="https://marketplace.chasesets.com/api/settlement/payout-setup/progress"',
         ],
         stripeMoneySmokeAuthenticationOptions: [
           {
@@ -250,11 +242,10 @@ describe("marketplace production proof readiness", () => {
       "Choose one stripeMoneySmokeAuthenticationOptions entry before running the seller-flow smoke command; the live proof command needs an authenticated account.",
     );
     expect(readiness.operatorSetup.notes).toContain(
-      "Run stripeMoneySmokeLegacyHostedCompatibilityCommands only when manually exercising legacy hosted Account Link compatibility.",
-    );
-    expect(readiness.operatorSetup.notes).toContain(
       "Use launchSupplyProofApiSetup only with operator-controlled proof seller accounts; it opens authenticated Inventory and Marketplace listing APIs, not public browse or marketplace web.",
     );
+    expect(readiness.operatorSetup).not.toHaveProperty("stripeMoneySmokeLegacyHostedCompatibilityCommands");
+    expect(readiness.providerCallbackSetup.stripeConnectCustomSetup).not.toHaveProperty("legacyHostedCompatibility");
   });
 
   it("fails unsafe production proof posture", () => {

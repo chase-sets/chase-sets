@@ -2,17 +2,17 @@
 
 ## Status
 
-Accepted
+Accepted and implemented for launch
 
 ## Context
 
-Chase Sets currently uses Stripe Connect Accounts v2 for recipient payout accounts, but the account experience is still Express-dashboard oriented. The Stripe adapter creates connected accounts with `dashboard: "express"`, creates hosted onboarding Account Links, and creates Express login links for account management. That kept the first payout flow small, but it gives Stripe the primary account-management surface and forces Chase Sets to treat payout setup as a redirect instead of a first-class account workflow.
+Chase Sets uses Stripe Connect Accounts v2 for recipient payout accounts. An earlier implementation kept the account experience Express-dashboard oriented through hosted onboarding Account Links and Express login links. Because the marketplace has not launched, Chase Sets does not need to preserve that compatibility path; payout setup can launch directly as a Chase Sets-owned embedded workflow.
 
 The marketplace is moving toward a seller experience where accounts can buy and sell from the same workspace, understand payout readiness in Chase Sets language, and recover from setup problems without leaving the account money area. That requires Chase Sets to provide the account-facing Stripe-related functionality when the connected account has no Stripe Dashboard access.
 
 Stripe's Accounts v2 model makes this an explicit responsibility decision rather than a legacy account type. A connected account with `dashboard: "none"` cannot access Stripe Dashboard or Express Dashboard, and the platform must provide the Stripe-related functionality the account needs. Stripe also documents that the platform becomes responsible for collecting KYC requirements only when the platform is responsible for losses and the dashboard is `none`; that state appears as `defaults.responsibilities.requirements_collector: "application"`.
 
-The migration must preserve the existing money movement strategy. Chase Sets intentionally holds purchase funds on the platform, posts seller wallet credit in Settlement, and moves funds to a connected payout account only when an eligible account requests an on-demand payout. The Connect account experience should change how accounts complete payout setup and account management, not silently change charge type, wallet ownership, payout release rules, or platform-balance funding assumptions.
+The launch implementation must preserve the existing money movement strategy. Chase Sets intentionally holds purchase funds on the platform, posts sale wallet credit in Settlement, and moves funds to a connected payout account only when an eligible account requests an on-demand payout. The Connect account experience changes how accounts complete payout setup and account management, not charge type, wallet ownership, payout release rules, or platform-balance funding assumptions.
 
 Relevant Stripe documentation:
 
@@ -24,7 +24,7 @@ Relevant Stripe documentation:
 
 ## Decision
 
-Chase Sets will migrate payout accounts to a custom embedded Connect account experience.
+Chase Sets launches payout accounts with a custom embedded Connect account experience.
 
 Chase Sets chooses Stripe embedded components over full raw API onboarding because the product needs a Chase Sets-owned account workflow, not a Chase Sets-owned verification system. Embedded components keep the account operator in Chase Sets while Stripe continues to render localized requirement collection, verification validation, document upload, service-agreement presentation, and payout destination handling. Full raw API onboarding would add materially more compliance, localization, validation, support, and data-handling responsibility without improving the core marketplace payout workflow.
 
@@ -46,7 +46,7 @@ Target account experience:
 - Marketplace Web renders Stripe's embedded `account_management` component for later requirement updates and payout destination maintenance.
 - Account Sessions are component-scoped to the current Chase Sets user role. Payout setup and account management sessions are available only to users with payout-management permission for the selected account.
 - Chase Sets updates Content Security Policy and runtime loading so Connect.js and Stripe embedded frames can render in preview, staging, and production.
-- Chase Sets does not expose Express Dashboard login links after the migration.
+- Chase Sets does not expose Express Dashboard login links for launch.
 
 Ownership split:
 
@@ -65,24 +65,23 @@ Data and security rules:
 - Embedded component access must fail closed if the account membership, selected account, or payout-management permission changes.
 - Provider webhooks remain idempotent and must update Settlement-owned readiness facts without trusting browser completion alone.
 
-Migration sequencing:
+Launch sequencing:
 
-- Existing Express-dashboard accounts remain supported until a migration issue defines whether they can be updated in place, must be recreated, or need a mixed-mode bridge.
-- The runtime adapter must not switch default account creation to `dashboard: "none"` until preview or staging can create a test payout account, render embedded onboarding, refresh readiness through webhooks and polling, and run a payout smoke path without hosted Account Links.
-- Hosted onboarding and Express login links may remain in code behind compatibility paths during migration, but new account-facing product copy should use `payout setup` and `payout account management`, not Express-dashboard terminology.
+- Preview and staging must create a test payout account, render embedded onboarding, refresh readiness through webhooks and polling, and run a payout smoke path without hosted Account Links.
+- Runtime account creation uses `dashboard: "none"` for launch connected payout accounts.
+- Hosted onboarding and Express login links are removed from the launch API and adapter. If provider posture reports `dashboard: "express"` or `dashboard: "full"`, Support and Operations resolve that account outside checkout before production money operations approval.
 
 Rollback strategy:
 
-- Before cutover, keep hosted Account Links and Express login links available only as compatibility paths for accounts that still require them.
-- If embedded setup fails in preview or staging, keep default account creation on `dashboard: "express"` and continue using the hosted setup routes while fixing Account Sessions, CSP, or webhook handling.
-- If embedded setup fails after a limited production rollout, disable creation of new `dashboard: "none"` payout accounts, keep webhook processing and reconciliation online, and route affected accounts through the compatibility path or support-led recovery defined by the migration issue.
-- Do not roll back by mutating ledger entries, payout release rules, wallet balances, payment charge strategy, or provider webhook storage. The fallback is account setup surface selection, not money movement semantics.
+- If embedded setup fails in preview or staging, fix Account Sessions, CSP, webhook handling, or account-role checks before production approval.
+- If embedded setup fails after launch, disable payout setup/session creation, keep webhook processing and reconciliation online, and route affected accounts through support-led recovery.
+- Do not roll back by mutating ledger entries, payout release rules, wallet balances, payment charge strategy, or provider webhook storage. The fallback is disabling payout setup/session creation while support resolves provider setup, not changing money movement semantics.
 
 ## Consequences
 
 - Chase Sets owns more compliance-adjacent product responsibility because accounts no longer have a Stripe-hosted dashboard fallback.
 - Embedded setup lets payout readiness, support escalation, and account money navigation use the same Chase Sets account language as wallets and payouts.
-- The Stripe adapter must add Account Session creation and stop assuming hosted setup URLs are the only payout setup surface.
+- The Stripe adapter creates Account Sessions and does not expose hosted setup URLs.
 - Preview and staging need complete Stripe test-mode setup for Connect embedded components, including Account Session endpoints, Connect.js CSP, webhook delivery, and account role checks.
 - Support and operations need recovery workflows for requirement updates, embedded component load failures, stale readiness, webhook delays, disabled accounts, and payout destination changes.
 - The existing platform-held, on-demand payout architecture remains intact, so this migration does not change seller wallet accounting or the charge strategy.

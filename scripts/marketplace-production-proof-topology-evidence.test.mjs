@@ -255,9 +255,6 @@ describe("marketplace production proof topology evidence", () => {
       "Production proof topology private API GET /api/settlement/payout-setup/progress must not return 404.",
     );
     expect(evidence.errors).toContain(
-      "Production proof topology private API POST /api/settlement/payout-setup/onboarding-session must not return 404.",
-    );
-    expect(evidence.errors).toContain(
       "Production proof topology private API POST /api/settlement/payouts/preview must not return 404.",
     );
     expect(evidence.errors).toContain(

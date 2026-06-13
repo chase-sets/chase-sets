@@ -14,8 +14,6 @@ export type StripeConnectMoneyMovementOptions = Readonly<{
   secretKey: string;
   webhookSecret: string;
   apiBaseUrl?: string;
-  onboardingReturnUrl?: string;
-  onboardingRefreshUrl?: string;
   webhookToleranceSeconds?: number;
 }>;
 
@@ -51,15 +49,6 @@ type StripeAccountResponse = Readonly<{
       }> | null;
     }> | null;
   }> | null;
-}>;
-
-type StripeAccountLinkResponse = Readonly<{
-  url?: string | null;
-  expires_at?: number | string | null;
-}>;
-
-type StripeLoginLinkResponse = Readonly<{
-  url?: string | null;
 }>;
 
 type StripeAccountSessionResponse = Readonly<{
@@ -171,26 +160,6 @@ function verifyStripeSignature(
   if (expectedBuffer.length !== receivedBuffer.length || !timingSafeEqual(expectedBuffer, receivedBuffer)) {
     throw new Error("Stripe webhook signature verification failed.");
   }
-}
-
-function validateHostedRedirectUrl(value: string | null | undefined, fieldName: string) {
-  if (!value) {
-    return null;
-  }
-
-  let parsed: URL;
-  try {
-    parsed = new URL(value);
-  } catch {
-    throw new Error(`${fieldName} must be an absolute URL.`);
-  }
-
-  const isLocalHttp = parsed.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname);
-  if (parsed.protocol !== "https:" && !isLocalHttp) {
-    throw new Error(`${fieldName} must use HTTPS.`);
-  }
-
-  return parsed.toString();
 }
 
 function statusToCapabilityStatus(status: string | null | undefined) {
@@ -452,81 +421,6 @@ export function createStripeConnectMoneyMovementGateway(
       await configureOnDemandPayouts(readiness.providerReference, `${input.idempotencyKey}:manual-payouts`);
 
       return readiness;
-    },
-    async createOnboardingSession(input) {
-      const returnUrl = validateHostedRedirectUrl(
-        input.returnUrl ?? options.onboardingReturnUrl,
-        "Payout setup return URL",
-      );
-      const refreshUrl = validateHostedRedirectUrl(
-        input.refreshUrl ?? options.onboardingRefreshUrl,
-        "Payout setup refresh URL",
-      );
-      if (!returnUrl || !refreshUrl) {
-        throw new Error("Payout setup return and refresh URLs are required.");
-      }
-
-      const accountLink = await stripeRequest<StripeAccountLinkResponse>("/v2/core/account_links", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          account: input.providerReference,
-          use_case: {
-            type: "account_onboarding",
-            account_onboarding: {
-              configurations: ["recipient"],
-              return_url: returnUrl,
-              refresh_url: refreshUrl,
-              collection_options: {
-                fields: "eventually_due",
-                future_requirements: "include",
-              },
-            },
-          },
-        }),
-        idempotencyKey: input.idempotencyKey,
-      });
-
-      if (!accountLink.url?.trim()) {
-        throw new Error("Stripe did not return an onboarding URL.");
-      }
-
-      const readiness = mapAccountReadiness(await retrieveAccount(input.providerReference));
-
-      return {
-        providerReference: input.providerReference,
-        url: accountLink.url,
-        expiresAt: expiresAtFromStripeTimestamp(accountLink.expires_at),
-        readiness,
-      };
-    },
-    async createAccountManagementSession(input) {
-      const returnUrl = validateHostedRedirectUrl(input.returnUrl, "Payout account return URL");
-      const loginLink = await stripeRequest<StripeLoginLinkResponse>(
-        `/v1/accounts/${encodeURIComponent(input.providerReference)}/login_links`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/x-www-form-urlencoded",
-          },
-          body: toFormBody({
-            redirect_url: returnUrl,
-          }),
-          idempotencyKey: input.idempotencyKey,
-        },
-      );
-
-      if (!loginLink.url?.trim()) {
-        throw new Error("Stripe did not return an account management URL.");
-      }
-
-      return {
-        providerReference: input.providerReference,
-        url: loginLink.url,
-        expiresAt: null,
-      };
     },
     async createPayoutSetupSession(input) {
       const session = await createEmbeddedAccountSession(

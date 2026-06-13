@@ -43,8 +43,6 @@ export type PlatformMoneyMovementConfig =
       secretKey: string;
       webhookSecret: string;
       apiBaseUrl?: string;
-      onboardingReturnUrl?: string;
-      onboardingRefreshUrl?: string;
     }>;
 
 export type PlatformPostageConfig<TIncludeWebhookSecret extends boolean = boolean> =
@@ -81,8 +79,6 @@ export type PlatformStripeProviderConfig = Readonly<{
   resolvedConnectWebhookSecret: string | undefined;
   apiBaseUrl: string | undefined;
   checkoutUiMode: string | null;
-  connectReturnUrl: string | undefined;
-  connectRefreshUrl: string | undefined;
 }>;
 
 export function getOptionalEnv(name: string) {
@@ -294,8 +290,6 @@ export function loadStripeProviderConfig(input: {
   const connectWebhookSecret = getOptionalEnv("STRIPE_CONNECT_WEBHOOK_SECRET");
   const apiBaseUrl = getOptionalEnv("STRIPE_API_BASE_URL") ?? undefined;
   const checkoutUiMode = getOptionalEnv("STRIPE_CHECKOUT_UI_MODE");
-  const connectReturnUrl = getOptionalEnv("STRIPE_CONNECT_RETURN_URL") ?? undefined;
-  const connectRefreshUrl = getOptionalEnv("STRIPE_CONNECT_REFRESH_URL") ?? undefined;
   const resolvedConnectWebhookSecret =
     connectWebhookSecret ?? (!input.productionLike ? (webhookSecret ?? undefined) : undefined);
 
@@ -311,8 +305,6 @@ export function loadStripeProviderConfig(input: {
     resolvedConnectWebhookSecret,
     apiBaseUrl,
     checkoutUiMode,
-    connectReturnUrl,
-    connectRefreshUrl,
     paymentProcessor:
       secretKey && publishableKey && webhookSecret
         ? {
@@ -331,8 +323,6 @@ export function loadStripeProviderConfig(input: {
             secretKey,
             webhookSecret: resolvedConnectWebhookSecret,
             apiBaseUrl,
-            ...(connectReturnUrl ? { onboardingReturnUrl: connectReturnUrl } : {}),
-            ...(connectRefreshUrl ? { onboardingRefreshUrl: connectRefreshUrl } : {}),
           }
         : { kind: "fake" },
   };

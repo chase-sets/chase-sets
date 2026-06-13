@@ -198,7 +198,6 @@ export type StripeGoLiveCheckReport = Readonly<{
   requiredWebhookEvents: readonly string[];
   paymentsConfigured: boolean;
   connectConfigured: boolean;
-  legacyHostedSetupUrlsConfigured: boolean;
   fakeFallbackAllowed: boolean;
   liveSecretKeyLikely: boolean;
 }>;
@@ -610,7 +609,6 @@ export function loadConfig(): PlatformApiConfig {
       requiredWebhookEvents: REQUIRED_STRIPE_WEBHOOK_EVENTS,
       paymentsConfigured: stripeProvider.paymentProcessor.kind === "stripe",
       connectConfigured: stripeProvider.moneyMovement.kind === "stripe",
-      legacyHostedSetupUrlsConfigured: Boolean(stripeProvider.connectReturnUrl && stripeProvider.connectRefreshUrl),
       fakeFallbackAllowed: !productionLike,
       liveSecretKeyLikely: Boolean(stripeProvider.secretKey?.startsWith("sk_live")),
     },

@@ -100,8 +100,6 @@ export async function runRepresentativeCommerceState(): Promise<void> {
                 secretKey: config.moneyMovement.secretKey,
                 webhookSecret: config.moneyMovement.webhookSecret,
                 apiBaseUrl: config.moneyMovement.apiBaseUrl,
-                onboardingReturnUrl: config.moneyMovement.onboardingReturnUrl,
-                onboardingRefreshUrl: config.moneyMovement.onboardingRefreshUrl,
               })
             : createFakeMoneyMovementGateway(),
         operationsRecorder: {

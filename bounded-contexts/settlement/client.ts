@@ -162,29 +162,9 @@ export function createSettlementApiClient({
     async getPayoutSetupProgress(): Promise<PayoutSetupProgress> {
       return parseJsonResponse(await client["payout-setup"].progress.$get({ header: headers }));
     },
-    async createPayoutSetupOnboardingSession(
-      body: Record<string, unknown> = {},
-    ): Promise<Readonly<{ url: string; providerReference: string; expiresAt: string | null }>> {
-      return parseJsonResponse(
-        await client["payout-setup"]["onboarding-session"].$post({
-          json: body,
-          header: headers,
-        }),
-      );
-    },
     async createPayoutSetupSession(body: Record<string, unknown> = {}): Promise<SettlementPayoutEmbeddedSession> {
       return parseJsonResponse(
         await client["payout-setup"]["embedded-session"].$post({
-          json: body,
-          header: headers,
-        }),
-      );
-    },
-    async createPayoutAccountManagementSession(
-      body: Record<string, unknown> = {},
-    ): Promise<Readonly<{ url: string; providerReference: string; expiresAt: string | null }>> {
-      return parseJsonResponse(
-        await client["payout-setup"]["account-management-session"].$post({
           json: body,
           header: headers,
         }),

@@ -140,10 +140,6 @@ export const SUBCOMMANDS = {
     script: "rollback-readiness.mjs",
     description: "Rollback readiness gate record.",
   },
-  "settlement:payout-account-migration-report": {
-    script: "settlement-payout-account-migration-report.mjs",
-    description: "Settlement payout account migration report.",
-  },
   "wake:drills": {
     script: "staging-wake-drills.mjs",
     description: "Run staging wake recovery drills.",

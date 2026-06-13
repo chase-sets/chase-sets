@@ -27,19 +27,6 @@ export type ProviderPlatformBalance = Readonly<{
   availableAmount: string;
 }>;
 
-export type CreatedOnboardingSession = Readonly<{
-  providerReference: string;
-  url: string;
-  expiresAt: string | null;
-  readiness: ProviderPayoutReadiness;
-}>;
-
-export type CreatedAccountManagementSession = Readonly<{
-  providerReference: string;
-  url: string;
-  expiresAt: string | null;
-}>;
-
 export type CreatedPayoutSetupSession = Readonly<{
   providerReference: string;
   clientSecret: string;
@@ -108,23 +95,6 @@ export type MoneyMovementGateway = Readonly<{
       idempotencyKey: string;
     }>,
   ) => Promise<ProviderPayoutReadiness>;
-  createOnboardingSession: (
-    input: Readonly<{
-      accountId: AccountId;
-      providerReference: string;
-      returnUrl?: string | null;
-      refreshUrl?: string | null;
-      idempotencyKey: string;
-    }>,
-  ) => Promise<CreatedOnboardingSession>;
-  createAccountManagementSession: (
-    input: Readonly<{
-      accountId: AccountId;
-      providerReference: string;
-      returnUrl?: string | null;
-      idempotencyKey: string;
-    }>,
-  ) => Promise<CreatedAccountManagementSession>;
   createPayoutSetupSession: (
     input: Readonly<{
       accountId: AccountId;

@@ -26,8 +26,6 @@ function resetConfigEnv() {
   delete process.env.STRIPE_CONNECT_WEBHOOK_SECRET;
   delete process.env.STRIPE_API_BASE_URL;
   delete process.env.STRIPE_CHECKOUT_UI_MODE;
-  delete process.env.STRIPE_CONNECT_RETURN_URL;
-  delete process.env.STRIPE_CONNECT_REFRESH_URL;
   delete process.env.EASYPOST_API_KEY;
   delete process.env.EASYPOST_WEBHOOK_SECRET;
   delete process.env.EASYPOST_API_BASE_URL;
@@ -277,8 +275,6 @@ describe("platform api config", () => {
     process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_shared";
     process.env.STRIPE_API_BASE_URL = "https://stripe.shared.test";
     process.env.STRIPE_CHECKOUT_UI_MODE = "hosted";
-    process.env.STRIPE_CONNECT_RETURN_URL = "https://marketplace.test/return";
-    process.env.STRIPE_CONNECT_REFRESH_URL = "https://marketplace.test/refresh";
     process.env.EASYPOST_API_KEY = "EZAK_shared";
     process.env.EASYPOST_WEBHOOK_SECRET = "whsec_easypost_shared";
     process.env.EASYPOST_API_BASE_URL = "https://api.easypost.shared.test/v2";
@@ -335,8 +331,6 @@ describe("platform api config", () => {
         secretKey: "sk_test_shared",
         webhookSecret: "whsec_connect_shared",
         apiBaseUrl: "https://stripe.shared.test",
-        onboardingReturnUrl: "https://marketplace.test/return",
-        onboardingRefreshUrl: "https://marketplace.test/refresh",
       },
       postage: {
         kind: "easypost",
@@ -423,16 +417,12 @@ describe("platform api config", () => {
     process.env.STRIPE_WEBHOOK_SECRET = "whsec_test";
     process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_test";
     process.env.STRIPE_API_BASE_URL = "https://stripe.test";
-    process.env.STRIPE_CONNECT_RETURN_URL = "https://example.test/return";
-    process.env.STRIPE_CONNECT_REFRESH_URL = "https://example.test/refresh";
 
     expect(loadConfig().moneyMovement).toEqual({
       kind: "stripe",
       secretKey: "sk_test",
       webhookSecret: "whsec_connect_test",
       apiBaseUrl: "https://stripe.test",
-      onboardingReturnUrl: "https://example.test/return",
-      onboardingRefreshUrl: "https://example.test/refresh",
     });
   });
 
@@ -469,9 +459,6 @@ describe("platform api config", () => {
     const config = loadConfig();
 
     expect(config.moneyMovement).toMatchObject({ kind: "stripe" });
-    expect(config.moneyMovement).not.toHaveProperty("onboardingReturnUrl");
-    expect(config.moneyMovement).not.toHaveProperty("onboardingRefreshUrl");
-    expect(config.stripeGoLive.legacyHostedSetupUrlsConfigured).toBe(false);
   });
 
   it("reports Stripe go-live checks", () => {
@@ -480,14 +467,11 @@ describe("platform api config", () => {
     process.env.STRIPE_PUBLISHABLE_KEY = "pk_live_123";
     process.env.STRIPE_WEBHOOK_SECRET = "whsec_live";
     process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_live";
-    process.env.STRIPE_CONNECT_RETURN_URL = "https://example.test/return";
-    process.env.STRIPE_CONNECT_REFRESH_URL = "https://example.test/refresh";
 
     expect(loadConfig().stripeGoLive).toMatchObject({
       apiVersion: "2026-03-25.dahlia",
       paymentsConfigured: true,
       connectConfigured: true,
-      legacyHostedSetupUrlsConfigured: true,
       fakeFallbackAllowed: true,
       liveSecretKeyLikely: true,
     });
@@ -540,7 +524,6 @@ describe("platform api config", () => {
     expect(config.stripeGoLive).toMatchObject({
       paymentsConfigured: true,
       connectConfigured: true,
-      legacyHostedSetupUrlsConfigured: false,
       fakeFallbackAllowed: false,
       liveSecretKeyLikely: true,
     });
