@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
-import { CheckCircle2, ImageIcon, MessageSquare } from "lucide-react";
+import { ImageIcon, MessageSquare } from "lucide-react";
+import { Icon, type IconName } from "../../icons";
 import { cn } from "../../lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../compat/card";
 import { statusClasses, type StatusTone } from "./shared";
@@ -104,7 +105,7 @@ export function ProductMediaModule({ title, media = [], badges }: ProductMediaMo
 export interface DetailConfidenceModuleProps {
   title: ReactNode;
   description?: ReactNode;
-  items: Array<{ label: string; value: ReactNode; icon?: ReactNode; tone?: StatusTone }>;
+  items: Array<{ label: string; value: ReactNode; icon?: IconName; tone?: StatusTone }>;
 }
 
 export function DetailConfidenceModule({ title, description, items }: DetailConfidenceModuleProps) {
@@ -122,7 +123,7 @@ export function DetailConfidenceModule({ title, description, items }: DetailConf
               className="flex gap-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-2)] p-3"
             >
               <div className={cn("mt-0.5", item.tone ? statusClasses[item.tone].split(" ").at(-1) : "text-trust")}>
-                {item.icon ?? <CheckCircle2 className="h-5 w-5" aria-hidden="true" />}
+                <Icon name={item.icon ?? "check"} size="md" tone="inherit" />
               </div>
               <div>
                 <div className="text-xs font-medium text-[var(--muted-foreground)]">{item.label}</div>

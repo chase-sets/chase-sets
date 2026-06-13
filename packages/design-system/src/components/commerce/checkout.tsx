@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { AlertTriangle, CheckCircle2, HelpCircle, ShieldCheck, XCircle } from "lucide-react";
+import { Icon, type IconName } from "../../icons";
 import { cn } from "../../lib/utils";
 import { Badge } from "../compat/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../compat/card";
@@ -180,7 +181,7 @@ export function OrderIntentSummary({
 
 export interface OrderProtectionModuleProps {
   title?: ReactNode;
-  items: Array<{ title: ReactNode; description: ReactNode; icon?: ReactNode }>;
+  items: Array<{ title: ReactNode; description: ReactNode; icon?: IconName }>;
 }
 
 export function OrderProtectionModule({ title, items }: OrderProtectionModuleProps) {
@@ -199,7 +200,7 @@ export function OrderProtectionModule({ title, items }: OrderProtectionModulePro
           {items.map((item) => (
             <div key={String(item.title)} className="flex min-w-0 gap-3">
               <div className="mt-0.5 shrink-0 text-trust">
-                {item.icon ?? <CheckCircle2 className="h-5 w-5" aria-hidden="true" />}
+                <Icon name={item.icon ?? "check"} size="md" tone="inherit" />
               </div>
               <div className="min-w-0">
                 <div className="font-semibold text-[var(--foreground)]">{item.title}</div>

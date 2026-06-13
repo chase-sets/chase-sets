@@ -1,4 +1,6 @@
 import type { HTMLAttributes, ReactNode } from "react";
+import type { IconName } from "../../icons";
+import { Icon } from "../../icons";
 import type { ResponsiveValue } from "../../theme/tokens";
 import { cx } from "../../utils/cx";
 import { resolveColumnsClass, type ColumnCount } from "../../utils/system";
@@ -7,7 +9,7 @@ export interface StatProps extends Omit<HTMLAttributes<HTMLDivElement>, "classNa
   label: ReactNode;
   value: ReactNode;
   trend?: ReactNode;
-  icon?: ReactNode;
+  icon?: IconName;
 }
 
 export function Stat({ label, value, trend, icon, ...rest }: StatProps) {
@@ -15,7 +17,7 @@ export function Stat({ label, value, trend, icon, ...rest }: StatProps) {
     <div {...rest} className="inset-surface rounded-tokenMd border p-4">
       <div className="flex items-center justify-between gap-3">
         <div className="text-xs font-semibold uppercase tracking-wide text-secondary">{label}</div>
-        {icon ? <div className="text-accent">{icon}</div> : null}
+        {icon ? <Icon name={icon} size="md" tone="accent" /> : null}
       </div>
       <div className="mt-2 font-heading text-3xl font-semibold text-foreground">{value}</div>
       {trend ? <div className="mt-2 text-sm text-secondary">{trend}</div> : null}
