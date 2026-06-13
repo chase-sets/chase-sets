@@ -6,7 +6,6 @@ import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { createPaymentsRequestApiClient } from "@chase-sets/payments/server";
 import { CheckoutApiError, createCheckoutRequestApiClient } from "../support/request-support/api-client";
-import { resolveCheckoutShopifySimpleUnavailableState } from "../support/request-support/checkout-release-control";
 import {
   checkoutRecoveryForFreshWriteError,
   createCheckoutRecoveryResponse,
@@ -50,11 +49,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const actor = await resolveActorFromAuthApi({ request });
   if (!params.sessionId) {
     throw new Response(t("checkout.routes.checkoutSession.checkout.session.not.found"), { status: 404 });
-  }
-
-  const unavailable = await resolveCheckoutShopifySimpleUnavailableState(request, actor, "buy");
-  if (unavailable) {
-    throw redirect(unavailable.redirectPath);
   }
 
   const api = createCheckoutRequestApiClient(request, {

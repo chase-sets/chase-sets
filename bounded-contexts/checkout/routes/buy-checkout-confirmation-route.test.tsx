@@ -77,24 +77,6 @@ describe("checkout web routes: buy checkout confirmation loader", () => {
     vi.unstubAllEnvs();
   });
 
-  it("blocks buy confirmation while the Shopify-simple kill switch is active", async () => {
-    vi.stubEnv("CHASE_SETS_CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE", "true");
-    mockResolveActorFromAuthApi.mockResolvedValue(null);
-    mockCreateCheckoutRequestApiClient.mockReturnValue({
-      getCheckoutSession: mockGetCheckoutSession,
-    });
-
-    const redirectResponse = (await buyCheckoutConfirmationLoader({
-      request: new Request("http://localhost/checkout/buy/session/chk_1/confirmation"),
-      params: { sessionId: "chk_1" },
-      context: undefined,
-    } as never).catch((error) => error)) as Response;
-
-    expect(redirectResponse.status).toBe(302);
-    expect(redirectResponse.headers.get("Location")).toBe("/account/cart?checkout=disabled");
-    expect(mockGetCheckoutSession).not.toHaveBeenCalled();
-  });
-
   it("shows signed-in buyers the confirmation handoff instead of redirecting to payment", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
     mockGetCheckoutSession.mockResolvedValue(confirmedSession());

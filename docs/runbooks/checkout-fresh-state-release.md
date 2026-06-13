@@ -1,15 +1,8 @@
 # Checkout Fresh-State Release
 
-This runbook covers Milestone #17 route activation, disablement, and smoke validation for the Shopify-simple checkout rebuild.
+This runbook covers Milestone #17 route and smoke validation for the Shopify-simple checkout rebuild. Chase Sets is unreleased, so this flow ships fresh-state only: no checkout rollout switch, disablement API, old route adapter, or dense checkout fallback.
 
-## Feature Key
-
-Use Platform Operations release controls with feature key `checkout.shopify-simple`.
-Use the marketplace runtime variable `CHASE_SETS_CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE=true` when all customer traffic, including anonymous cart/list traffic, must fail closed immediately.
-
-The kill switches disable fresh checkout entry. They must not restore legacy dense checkout routes or old session compatibility.
-
-## Activation
+## Route Validation
 
 1. Confirm the fresh-state route map is deployed:
    - `/account/cart`
@@ -24,22 +17,11 @@ The kill switches disable fresh checkout entry. They must not restore legacy den
    - `/checkout/start`
    - `/checkout/:sessionId`
    - `/checkout/concept` is deleted from customer route composition
-3. Set `checkout.shopify-simple` to enabled for the target environment and subject set.
-4. Run the smoke validation below before expanding exposure.
-
-## Disablement
-
-1. Set `checkout.shopify-simple` to disabled through Platform Operations release controls for signed-in rollout disablement.
-2. Set `CHASE_SETS_CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE=true` when anonymous, guest, and signed-in checkout entry must all fail closed.
-3. Confirm buy checkout entry and active buy sessions redirect to `/account/cart?checkout=disabled`.
-4. Confirm sell checkout entry and active sell sessions redirect to `/account/sell-list?checkout=disabled`.
-5. Confirm cart and Sell List remain reachable for review, removal, fulfillment resolution, or save-for-later actions.
-6. Confirm disabled entry does not redirect to `/checkout/start`, `/checkout/:sessionId`, the deleted `/checkout/concept` route, or any dense legacy checkout path.
-7. Confirm `checkout.launch.kill_switch_unavailable` telemetry remains bounded to entry source, actor mode, scenario state, visible state, side-effect status, launch-register decision, fresh-state scan result, and release run only.
+3. Run the smoke validation below before public exposure.
 
 ## Smoke Validation
 
-Run these checks after activation and after disablement:
+Run these checks against the shipped fresh-state routes:
 
 - Ready Buy Cart can enter buy checkout.
 - Buy Cart with unresolved fulfillment stays in cart or `/checkout/buy/readiness`.
@@ -50,7 +32,6 @@ Run these checks after activation and after disablement:
 - Buy confirmation creates or links the expected order, payment, and account-history handoff records.
 - Sell confirmation creates or links the expected sale, label, payout-readiness, and account-history handoff records.
 - Payment-owned guest handoff remains accessible only for valid guest payment recovery.
-- Kill-switched buy and sell entry returns to cart/list recovery and emits `checkout.launch.kill_switch_unavailable` without payment, order, label, payout, notification, account-history, support, sale, or listing side effects.
 - Legacy route probes are rejected, hard-disabled, or redirected to fresh recovery without compatibility adapters.
 
 ## Fresh-State Checks

@@ -18,7 +18,6 @@ export type CheckoutFreshStateRoute = {
   readonly customerFacing: true;
   readonly acceptsUnresolvedFulfillment: boolean;
   readonly requiresCheckoutReadySession: boolean;
-  readonly disabledRedirectPath: string;
 };
 
 export type CheckoutOldRouteDisposition = {
@@ -29,15 +28,6 @@ export type CheckoutOldRouteDisposition = {
   readonly replacementRouteId: string | null;
 };
 
-export const checkoutFreshStateFeatureKey = "checkout.shopify-simple";
-
-export const checkoutFreshStateKillSwitch = {
-  featureKey: checkoutFreshStateFeatureKey,
-  disabledBuyEntryRedirectPath: "/account/cart?checkout=disabled",
-  disabledSellEntryRedirectPath: "/account/sell-list?checkout=disabled",
-  restoresOldCheckout: false,
-} as const;
-
 export const checkoutFreshStateRoutes = [
   {
     routeId: "account-cart",
@@ -47,7 +37,6 @@ export const checkoutFreshStateRoutes = [
     customerFacing: true,
     acceptsUnresolvedFulfillment: true,
     requiresCheckoutReadySession: false,
-    disabledRedirectPath: "/account/cart?checkout=disabled",
   },
   {
     routeId: "buy-checkout-readiness",
@@ -57,7 +46,6 @@ export const checkoutFreshStateRoutes = [
     customerFacing: true,
     acceptsUnresolvedFulfillment: true,
     requiresCheckoutReadySession: false,
-    disabledRedirectPath: "/account/cart?checkout=disabled",
   },
   {
     routeId: "buy-checkout-session",
@@ -67,7 +55,6 @@ export const checkoutFreshStateRoutes = [
     customerFacing: true,
     acceptsUnresolvedFulfillment: false,
     requiresCheckoutReadySession: true,
-    disabledRedirectPath: "/account/cart?checkout=disabled",
   },
   {
     routeId: "buy-checkout-confirmation",
@@ -77,7 +64,6 @@ export const checkoutFreshStateRoutes = [
     customerFacing: true,
     acceptsUnresolvedFulfillment: false,
     requiresCheckoutReadySession: true,
-    disabledRedirectPath: "/account/cart?checkout=disabled",
   },
   {
     routeId: "account-sell-list",
@@ -87,7 +73,6 @@ export const checkoutFreshStateRoutes = [
     customerFacing: true,
     acceptsUnresolvedFulfillment: true,
     requiresCheckoutReadySession: false,
-    disabledRedirectPath: "/account/sell-list?checkout=disabled",
   },
   {
     routeId: "sell-checkout-readiness",
@@ -97,7 +82,6 @@ export const checkoutFreshStateRoutes = [
     customerFacing: true,
     acceptsUnresolvedFulfillment: true,
     requiresCheckoutReadySession: false,
-    disabledRedirectPath: "/account/sell-list?checkout=disabled",
   },
   {
     routeId: "sell-checkout-session",
@@ -107,7 +91,6 @@ export const checkoutFreshStateRoutes = [
     customerFacing: true,
     acceptsUnresolvedFulfillment: false,
     requiresCheckoutReadySession: true,
-    disabledRedirectPath: "/account/sell-list?checkout=disabled",
   },
   {
     routeId: "sell-checkout-confirmation",
@@ -117,7 +100,6 @@ export const checkoutFreshStateRoutes = [
     customerFacing: true,
     acceptsUnresolvedFulfillment: false,
     requiresCheckoutReadySession: true,
-    disabledRedirectPath: "/account/sell-list?checkout=disabled",
   },
 ] as const satisfies readonly CheckoutFreshStateRoute[];
 

@@ -4,7 +4,6 @@ import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
 import { CheckoutApiError, createCheckoutRequestApiClient } from "../support/request-support/api-client";
-import { resolveCheckoutShopifySimpleUnavailableState } from "../support/request-support/checkout-release-control";
 import { SELLER_CHECKOUT_REGISTER_HREF } from "../features/sell-list/ui/registration-return";
 import { SellCheckoutConfirmationPage } from "../features/sell-list/ui/sell-checkout-confirmation-page";
 import { canUseSignedInSellCheckout } from "../support/route-support/sell-checkout-session/sell-checkout-loader";
@@ -12,11 +11,6 @@ import { confirmationIdForSession } from "../support/route-support/sell-checkout
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const actor = await resolveActorFromAuthApi({ request });
-  const unavailable = await resolveCheckoutShopifySimpleUnavailableState(request, actor, "sell");
-  if (unavailable) {
-    throw redirect(unavailable.redirectPath);
-  }
-
   if (!canUseSignedInSellCheckout(actor)) {
     throw redirect(SELLER_CHECKOUT_REGISTER_HREF);
   }

@@ -170,25 +170,6 @@ describe("checkout sell list page", () => {
     expect(markup).not.toContain(">Execution<");
   });
 
-  it("shows customer-safe unavailable copy without starting seller checkout work", () => {
-    const markup = renderToString(
-      <CheckoutSellListPage
-        sellListLines={[selectedOfferLine]}
-        checkoutUnavailable
-        payoutReadiness={{ status: "ready", missing_requirements: [] }}
-      />,
-    );
-
-    expect(markup).toContain("Seller checkout is temporarily unavailable");
-    expect(markup).toContain("no sale, label, payout, or listing work has started");
-    expect(markup).not.toContain("listing handoff");
-    expect(markup).toContain("Review Sell List");
-    expect(markup).toContain("Browse products");
-    expect(markup).toContain("Charizard");
-    expect(markup).not.toContain("/checkout/start");
-    expect(markup).not.toContain("/checkout/chk");
-  });
-
   it("blocks seller checkout when payout or line readiness is unresolved", () => {
     const blockedProductLine: CheckoutSellListLineRow = {
       ...productLine,

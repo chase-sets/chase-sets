@@ -63,7 +63,7 @@ The readiness UI must stay customer-safe. It can describe item availability, shi
 
 1. Start gate: #1133 establishes ownership, dependency sequence, signoff, non-goals, and launch evidence mapping.
 2. Audit and cleanup: #1099 audits current surfaces; #1132 removes legacy checkout compatibility, dense routes, fixtures, data patterns, and fallback assumptions.
-3. Route and lifecycle foundation: #1103 defines fresh routes and kill switches; #1118 defines anonymous/signed-in cart, sell-list, guest merge, session recovery, and expiration.
+3. Route and lifecycle foundation: #1103 defines fresh routes and route disposition; #1118 defines anonymous/signed-in cart, sell-list, guest merge, session recovery, and expiration.
 4. Contracts and readiness: #1100 defines buy/sell session contracts; #1117 defines fulfillment readiness and optimization before checkout; #1119 defines freshness, availability, reservation, and estimate guards.
 5. Provider and policy readiness: #1134 configures credentials, webhooks, and sandbox proof; #1124 covers security/privacy/legal; #1128 covers discounts, credits, fees, gift cards, and promotions; #1127 covers address validation and serviceability.
 6. Visual target and shell: #1112 finalizes visual targets; #1101 builds shared design-system primitives; #1102 normalizes copy and progressive disclosure.
@@ -107,7 +107,7 @@ Broad implementation should not start until:
 - Design confirms final visual targets for desktop, mobile, guest, signed-in, buy, sell, readiness, optimization, confirmation, and error states.
 - Engineering confirms context owners, dependency order, route strategy, contract shape, and fresh-state cleanup scope.
 - Security/privacy/legal confirms payment, payout, tax, stored credential, guest receipt, communication, and data-retention posture.
-- Operations confirms provider sandbox/proof plan, webhook destinations, kill switches, launch smoke, support recovery, and rollback posture.
+- Operations confirms provider sandbox/proof plan, webhook destinations, launch smoke, support recovery, and rollback posture.
 - QA confirms visual, mobile, accessibility, e2e, freshness, provider failure, reconciliation, and performance coverage.
 
 ## Launch Evidence Index
@@ -117,7 +117,7 @@ Broad implementation should not start until:
 | Start-gate ownership and dependency map | #1133 |
 | Current-state audit and target comparison | #1099 |
 | Fresh-state cleanup and no-compatibility proof | #1132, #1116 |
-| Route strategy and kill switches | #1103, #1116 |
+| Route strategy and old-route disposition | #1103, #1116 |
 | Shared contracts and lifecycle | #1100, #1118 |
 | Fulfillment readiness and optimization before checkout | #1117, #1119 |
 | Visual targets, shell, copy, and progressive disclosure | #1112, #1101, #1102 |
