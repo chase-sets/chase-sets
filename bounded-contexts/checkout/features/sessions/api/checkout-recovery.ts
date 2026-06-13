@@ -1,6 +1,6 @@
 import { readApiErrorCode, readFreshWriteTokenState, recoverFreshWriteReadError } from "@chase-sets/http/responses";
 import { t } from "@chase-sets/localization";
-import { CheckoutApiError } from "./api-client";
+import { CheckoutApiError } from "../../../support/request-support/api-client";
 
 export type CheckoutRecoveryAction = Readonly<{
   href: string;

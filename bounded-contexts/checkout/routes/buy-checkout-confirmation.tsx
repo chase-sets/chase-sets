@@ -10,7 +10,7 @@ import {
   checkoutRecoveryForFreshWriteError,
   createCheckoutRecoveryResponse,
   isCheckoutRecovery,
-} from "../support/request-support/checkout-recovery";
+} from "../features/sessions/api/checkout-recovery";
 import { BuyCheckoutConfirmationPage } from "../features/sessions/ui/buy-checkout-confirmation-page";
 import { CheckoutSessionRecoveryPage } from "../features/sessions/ui/checkout-recovery-page";
 

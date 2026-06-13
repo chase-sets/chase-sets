@@ -10,11 +10,7 @@ import {
 } from "react-router";
 import { afterEach, describe, expect, it } from "vitest";
 import { appendFreshWriteToken, readFreshWriteTokenState } from "@chase-sets/http/responses";
-import {
-  checkoutRecoveryForKind,
-  createCheckoutRecoveryResponse,
-  isCheckoutRecovery,
-} from "../../../support/request-support/checkout-recovery";
+import { checkoutRecoveryForKind, createCheckoutRecoveryResponse, isCheckoutRecovery } from "../api/checkout-recovery";
 import { ErrorBoundary as CheckoutSessionRouteErrorBoundary } from "../../../routes/checkout-session";
 import { CheckoutSessionRecoveryPage, type CheckoutSessionRecoveryPageProps } from "./checkout-recovery-page";
 

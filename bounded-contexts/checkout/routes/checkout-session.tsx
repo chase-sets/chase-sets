@@ -25,7 +25,7 @@ import {
   checkoutRecoveryForFreshWriteError,
   createCheckoutRecoveryResponse,
   isCheckoutRecovery,
-} from "../support/request-support/checkout-recovery";
+} from "../features/sessions/api/checkout-recovery";
 import { createIdentityRequestApiClient, type ShippingAddress } from "@chase-sets/identity/server";
 import { createOrderingRequestApiClient } from "@chase-sets/ordering/server";
 import {

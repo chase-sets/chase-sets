@@ -38,7 +38,7 @@ import {
   checkoutRecoveryForError,
   checkoutRecoveryForKind,
   type CheckoutRecovery,
-} from "../support/request-support/checkout-recovery";
+} from "../features/sessions/api/checkout-recovery";
 import {
   appendClearedAnonymousCartCookie,
   appendGuestCheckoutCookie,
