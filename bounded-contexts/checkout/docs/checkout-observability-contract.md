@@ -12,7 +12,7 @@ contracted events without importing infrastructure observability directly.
 - Every supported checkout state has one `checkout.*` observability profile with entry source, actor mode, scenario state, visible state, and side-effect status dimensions.
 - Runtime metrics use `chase_sets_checkout_observability_events_total`. Operator queries must use the typed profile event names and bounded label values only.
 - Unassigned fulfillment and optional savings optimization emit readiness telemetry before checkout. Checkout telemetry may consume the accepted or declined decision, but must not record checkout-time allocation or optimization repair.
-- Operator-signal rows emit `capability-decision` so enabled, disabled, deferred, provider-limited, risk-held, and kill-switched states are operable.
+- Operator-signal rows emit `capability-decision` so enabled, disabled, unsupported, provider-limited, risk-held, and kill-switched states are operable.
 - Support-visible states emit support-safe references only. No raw `afterWrite`, cookies, emails, addresses, provider payloads, checkout session ids, account ids, event ids, full URLs, card data, bank data, secrets, or sensitive risk signals belong in telemetry, operator views, or GitHub issue comments.
 - Pending downstream rows emit `downstream-status` so confirmation, Marketplace handoff, notification, account history, reconciliation, and reversal states cannot imply completed Ordering, Fulfillment, Settlement, Notifications, Support, or Payments facts before the owning context commits them.
 
@@ -49,7 +49,7 @@ Rows add focused dimensions such as `readiness-contract`, `readiness-snapshot-ve
 | Signed-in Buy Checkout | `checkout.buy.signed_in_review_rendered` | checkout-entry | event-only | No | Signed-in buy telemetry shows saved rows rendered with fresh account facts. |
 | Sell List review ready | `checkout.sell_list.review_ready` | funnel | event-only | No | Sell List review telemetry shows seller intent rendered before sale action commitment. |
 | Sell List readiness blocked | `checkout.sell_list.readiness_blocked` | readiness | support-alert | Yes | Seller readiness telemetry keeps eligibility, payout, label, and provider blockers before checkout. |
-| Guest Sell Checkout | `checkout.sell.guest_review_rendered` | checkout-entry | operator-alert | Yes | Guest sell telemetry records whether seller account or payout setup is enabled, disabled, or deferred. |
+| Guest Sell Checkout | `checkout.sell.guest_review_rendered` | checkout-entry | operator-alert | Yes | Guest sell telemetry records whether seller account or payout setup is enabled, disabled, or unsupported. |
 | Signed-in Sell Checkout | `checkout.sell.signed_in_review_rendered` | checkout-entry | event-only | No | Signed-in sell telemetry shows provider-ready facts were consumed without rebuilding diagnostics. |
 | Seller confirmation activity | `checkout.sell.confirmation_activity_recorded` | confirmation | support-alert | Yes | Seller confirmation telemetry separates recorded handoff from downstream completion. |
 | Active-session stale recovery | `checkout.session.active_stale_recovery` | recovery | fresh-state-alert | Yes | Active-session recovery telemetry shows source refresh failed closed before side effects. |
@@ -60,7 +60,7 @@ Rows add focused dimensions such as `readiness-contract`, `readiness-snapshot-ve
 | Checkout unavailable | `checkout.capability.kill_switch_unavailable` | capability-state | operator-alert | Yes | Kill-switch telemetry shows checkout failed closed without old fallback. |
 | Temporary recovery loading | `checkout.entry.temporary_recovery_visible` | checkout-entry | fresh-state-alert | Yes | Temporary recovery telemetry distinguishes safe waiting from ambiguous no-state renders. |
 | Disabled accelerated or saved instrument | `checkout.capability.accelerated_or_saved_disabled` | capability-state | operator-alert | Yes | Capability telemetry shows shortcuts cannot bypass readiness or final review. |
-| Promo, credit, gift card, and fee state | `checkout.capability.promo_credit_gift_card_state` | capability-state | operator-alert | Yes | Promo and credit telemetry records explicit enabled, disabled, or deferred state. |
+| Promo, credit, gift card, and fee state | `checkout.capability.promo_credit_gift_card_state` | capability-state | operator-alert | Yes | Promo and credit telemetry records explicit enabled, disabled, or unsupported state. |
 | Notification expectation and support reference | `checkout.notification.expectation_recorded` | handoff | support-alert | Yes | Notification telemetry records expectation and support reference without implying delivery. |
 | Account history handoff | `checkout.account_history.handoff_visible` | handoff | support-alert | Yes | Account-history telemetry links only committed downstream records and support-safe source references. |
 | Reconciliation pending | `checkout.reconciliation.pending_visible` | handoff | support-alert | Yes | Reconciliation telemetry distinguishes pending recovery from committed downstream facts. |

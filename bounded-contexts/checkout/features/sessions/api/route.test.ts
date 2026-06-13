@@ -1096,7 +1096,7 @@ describe("checkout session routes", () => {
     expect(emitted).not.toContain("acc_buyer");
   });
 
-  it("rejects deferred customer economics input before checkout side effects", async () => {
+  it("rejects unsupported customer economics input before checkout side effects", async () => {
     const checkoutObservabilityTelemetry = { recordCheckoutEvent: vi.fn() };
     const services = createServices();
     const app = buildApp(services, undefined, checkoutObservabilityTelemetry);
@@ -1129,10 +1129,10 @@ describe("checkout session routes", () => {
     expect(checkoutObservabilityTelemetry.recordCheckoutEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         eventName: "checkout.capability.promo_credit_gift_card_state",
-        scenarioState: "deferred-capability",
+        scenarioState: "unsupported-capability",
         visibleState: "checkout-review-visible",
         sideEffectStatus: "not-attempted",
-        capabilityDecision: "deferred",
+        capabilityDecision: "blocked",
         downstreamStatus: "not-started",
       }),
     );
@@ -1190,7 +1190,7 @@ describe("checkout session routes", () => {
     );
   });
 
-  it("does not support deferred payment payloads before committing orders or payment", async () => {
+  it("does not support payment deferral payloads before committing orders or payment", async () => {
     const services = createServices({
       getSession: vi.fn(async () => createSession()),
     });
@@ -1220,7 +1220,7 @@ describe("checkout session routes", () => {
     expect(services.recordPaymentStarted).not.toHaveBeenCalled();
   });
 
-  it("rejects non-deferred payment confirmation before committing orders when fee quote is missing", async () => {
+  it("rejects payment confirmation before committing orders when fee quote is missing", async () => {
     const services = createServices({
       getSession: vi.fn(async () => createSession()),
     });

@@ -276,7 +276,7 @@ describe("checkout UCP handlers", () => {
     expect(sessions.recordPaymentStarted).not.toHaveBeenCalled();
   });
 
-  it("does not complete headless checkout with deferred customer economics input", async () => {
+  it("does not complete headless checkout with unsupported customer economics input", async () => {
     const sessions = createSessions();
     const handlers = createCheckoutUcpHandlers(
       {

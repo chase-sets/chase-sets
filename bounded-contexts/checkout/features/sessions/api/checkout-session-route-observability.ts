@@ -173,7 +173,7 @@ export function recordUnsupportedCustomerEconomicsInput(
     state: "promo-credit-gift-card-state",
     entrySource: "active-session",
     actorMode: checkoutActorMode(actor),
-    scenarioState: "deferred-capability",
+    scenarioState: "unsupported-capability",
     visibleState: "checkout-review-visible",
     sideEffectStatus: "not-attempted",
     readinessContract: "checkout.session-read-model",
@@ -185,7 +185,7 @@ export function recordUnsupportedCustomerEconomicsInput(
     providerCategory: "payments",
     riskCategory: "none",
     downstreamStatus: "not-started",
-    capabilityDecision: "deferred",
+    capabilityDecision: "blocked",
     freshStateScanResult: "not-applicable",
   });
 }
