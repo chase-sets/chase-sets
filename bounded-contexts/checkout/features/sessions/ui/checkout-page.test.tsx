@@ -289,6 +289,28 @@ describe("checkout session page", () => {
     expect(markup).not.toContain("Pay now with Visa ending in 4242");
   });
 
+  it("keeps saved address affordances signed-in only even when addresses are supplied", () => {
+    const markup = renderToString(
+      <CheckoutSessionPage
+        session={readySession}
+        fulfillmentPreview={readyFulfillmentPreview}
+        paymentPreview={paymentPreview}
+        canManageShippingAddresses
+        savedShippingAddresses={[savedAddress]}
+      />,
+    );
+
+    expect(markup).toContain("Delivery");
+    expect(markup).toContain("Recipient name");
+    expect(markup).toContain("Address line 1");
+    expect(markup).toContain("Guest checkout contact and shipping details are used");
+    expect(markup).not.toContain("Saved shipping address");
+    expect(markup).not.toContain("Home (default)");
+    expect(markup).not.toContain("Address preferences");
+    expect(markup).not.toContain('name="shippingAddressId" value="adr_home"');
+    expect(markup).not.toContain('name="addressBookAction"');
+  });
+
   it("keeps signed-in checkout policy links without guest data copy", () => {
     const markup = renderToString(
       <CheckoutSessionPage
@@ -454,8 +476,10 @@ describe("checkout session page", () => {
       <CheckoutSessionPage
         session={session}
         fulfillmentPreview={fulfillmentPreview}
+        isSignedInBuyer
         canManageShippingAddresses
         savedShippingAddresses={[savedAddress]}
+        initialEditSection="delivery"
       />,
     );
 
