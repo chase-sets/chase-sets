@@ -954,6 +954,36 @@ function isAllowedServerSurfaceConsumer(relativeFile) {
   );
 }
 
+const routeAdapterExportPattern =
+  /\bexport\s+(?:async\s+)?function\s+(?:loader|action)\b|\bexport\s+const\s+(?:loader|action)\b|\bexport\s*\{[^}]*\b(?:loader|action)\b[^}]*\}/;
+
+export function findRouteSupportPlacementViolation({ relativeFile, content, contextManifest, isTest = false }) {
+  if (isTest) {
+    return null;
+  }
+
+  const match = relativeFile.match(/^bounded-contexts\/[^/]+\/support\/([^/]+)\/.+\.[cm]?[jt]sx?$/);
+  if (!match) {
+    return null;
+  }
+
+  const supportDirectory = match[1];
+  if (supportDirectory === "route-support") {
+    return null;
+  }
+
+  const supportIntent = contextManifest?.directoryIntent?.[supportDirectory];
+  if (supportIntent?.crossCuttingRuntimeComposition === true) {
+    return null;
+  }
+
+  if (!routeAdapterExportPattern.test(content)) {
+    return null;
+  }
+
+  return `route loader/action modules must live under support/route-support/<route-name>/, not support/${supportDirectory}/`;
+}
+
 const catalogAdminMarker = ["catalog", "admin"].join("-");
 
 function resolveAdminWebSection(contextName, fileExportOrKey) {
@@ -2584,6 +2614,15 @@ export async function runStructureCheck(options = {}) {
       const routeOrShellSupportClassification = classifyRouteOrShellSupportFile(normalizedFile);
       const contextRoot = getContextRoot(normalizedFile);
       const contextName = contextRoot ? (contextManifests.get(contextRoot)?.manifest.contextName ?? null) : null;
+      const routeSupportPlacementViolation = findRouteSupportPlacementViolation({
+        relativeFile: normalizedFile,
+        content,
+        contextManifest: contextRoot ? contextManifests.get(contextRoot)?.manifest : null,
+        isTest: isTestFile(normalizedFile),
+      });
+      if (routeSupportPlacementViolation) {
+        addViolation(file, routeSupportPlacementViolation);
+      }
 
       if (contextName && !isTestFile(normalizedFile)) {
         for (const guard of crossContextSqlReadGuards) {

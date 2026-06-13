@@ -12,13 +12,13 @@ import {
   EMPTY_ITEM_DETAIL_RESULT,
   MARKETPLACE_DESCRIPTION,
   selectItemImageUrl,
-} from "../support/request-support/item-detail/support";
-import { loader } from "../support/request-support/item-detail/loader";
-import { buildItemDetailCommerce } from "../support/request-support/item-detail/commerce";
+} from "../support/route-support/item-detail/support";
+import { loader } from "../support/route-support/item-detail/loader";
+import { buildItemDetailCommerce } from "../support/route-support/item-detail/commerce";
 import type {
   DiscoveryItemDetailActionData,
   DiscoveryItemDetailRouteData,
-} from "../support/request-support/item-detail/types";
+} from "../support/route-support/item-detail/types";
 
 export {
   BuyActionCard,
@@ -34,12 +34,12 @@ export {
   WatchActionCard,
 } from "../features/item-detail/ui/commerce-sections";
 export type { AddToCartActionData, CommerceAccordionEdge } from "../features/item-detail/ui/commerce-sections";
-export { loader } from "../support/request-support/item-detail/loader";
-export { action } from "../support/request-support/item-detail/action";
+export { loader } from "../support/route-support/item-detail/loader";
+export { action } from "../support/route-support/item-detail/action";
 export {
   readExplicitMarketSelectionId,
   readInitialSelectedOptions,
-} from "../support/request-support/item-detail/support";
+} from "../support/route-support/item-detail/support";
 
 export const meta: MetaFunction<typeof loader> = ({ data }) => [
   ...buildOpenGraphMeta({

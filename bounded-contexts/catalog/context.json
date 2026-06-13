@@ -33,6 +33,7 @@
     "projection-support",
     "realtime-support",
     "request-support",
+    "route-support",
     "runtime-support",
     "seed-support",
     "shell-support"
@@ -473,13 +474,22 @@
     },
     "request-support": {
       "classification": "support",
-      "purpose": "Provide reusable request-support assets shared by catalog-owned features and composition seams.",
+      "purpose": "Provide reusable request parsing and context-local API client assets shared by catalog-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
       "expectedConsumers": ["Multiple catalog slices", "Deployable composition for catalog"],
       "justification": "request-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "catalog workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules.",
       "crossCuttingRuntimeComposition": true
+    },
+    "route-support": {
+      "classification": "support",
+      "purpose": "Provide the admin integrations route adapter modules (loader, action, form values, and command context) that orchestrate Catalog source observation workflows for the admin route.",
+      "allowedWhen": "Allowed only when route-layer behavior cannot stay inside the thin route module or a feature folder.",
+      "expectedConsumers": ["routes"],
+      "justification": "route-support centralizes the admin integrations route's loader/action orchestration without mixing route adapter behavior into shell support.",
+      "createdFor": "the catalog admin integrations route, which composes source observation workflows during loader and action handling.",
+      "sunsetWhen": "Remove when the admin integrations route no longer needs extracted loader/action modules."
     },
     "runtime-support": {
       "classification": "support",
@@ -502,7 +512,7 @@
     },
     "shell-support": {
       "classification": "support",
-      "purpose": "Provide reusable shell-support assets shared by catalog-owned features and composition seams.",
+      "purpose": "Provide reusable shell-support assets shared by catalog-owned features and admin shell composition.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
       "expectedConsumers": [
         "blueprints",
