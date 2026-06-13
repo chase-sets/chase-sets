@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import type { CheckoutApiEnv } from "../../../api";
 import type { SellListConfirmationSummary, SellListSellerConfirmationEvidence } from "../domain/domain";
+import type { CheckoutObservabilityTelemetry } from "../../sessions/api/checkout-observability-telemetry";
 import type { CheckoutSellListConfirmationRow } from "../read-model/queries";
 import { createAccountSellListRoutes, createGuestSellListRoutes } from "./route";
 import type { CheckoutSellListServices } from "./runtime";
@@ -10,6 +11,7 @@ function buildApp(
   options: Readonly<{
     actor: CheckoutApiEnv["Variables"]["actor"];
     services: CheckoutSellListServices;
+    checkoutObservabilityTelemetry?: CheckoutObservabilityTelemetry;
   }>,
 ) {
   const app = new Hono<CheckoutApiEnv>();
@@ -31,7 +33,7 @@ function buildApp(
     await next();
   });
 
-  app.route("/account", createAccountSellListRoutes(options.services));
+  app.route("/account", createAccountSellListRoutes(options.services, options.checkoutObservabilityTelemetry));
   app.route("/guest", createGuestSellListRoutes(options.services));
 
   return app;
@@ -364,6 +366,43 @@ describe("checkout sell list routes", () => {
       handoff_summary: { acceptedOfferCount: 1 },
     });
     expect(services.getConfirmation).toHaveBeenCalledWith("acc_seller", "slc_1");
+  });
+
+  it("emits support-safe seller confirmation activity without raw identifiers", async () => {
+    const services = createServices();
+    const checkoutObservabilityTelemetry = { recordCheckoutEvent: vi.fn() };
+    vi.mocked(services.getConfirmation).mockResolvedValue(confirmationRow());
+    const app = buildApp({ actor: sellerActor(), services, checkoutObservabilityTelemetry });
+
+    const response = await app.fetch(new Request("http://checkout.test/account/sell-list/confirmations/slc_1"));
+
+    expect(response.status).toBe(200);
+    expect(checkoutObservabilityTelemetry.recordCheckoutEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "checkout.sell.confirmation_activity_recorded",
+        telemetryClass: "confirmation",
+        alertClass: "support-alert",
+        operatorSignalRequired: true,
+        entrySource: "sell-list-readiness",
+        actorMode: "signed-in",
+        scenarioState: "pending-downstream",
+        visibleState: "seller-confirmation-visible",
+        sideEffectStatus: "pending-downstream",
+        readinessContract: "checkout.sell-list-readiness.v1",
+        readinessSnapshotState: "recorded",
+        sourceRevisionState: "recorded",
+        supportReferencePresent: true,
+        providerCategory: "marketplace",
+        downstreamStatus: "handoff-recorded-pending-downstream",
+        capabilityDecision: "enabled",
+      }),
+    );
+    const emitted = JSON.stringify(checkoutObservabilityTelemetry.recordCheckoutEvent.mock.calls[0]?.[0]);
+    expect(emitted).not.toContain("slc_1");
+    expect(emitted).not.toContain("acc_seller");
+    expect(emitted).not.toContain("sll_1");
+    expect(emitted).not.toContain("off_1");
+    expect(emitted).not.toContain("adr_seller");
   });
 
   it("records Sell List confirmation for a seller account", async () => {
