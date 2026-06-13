@@ -45,11 +45,11 @@ const standardizedReferenceInfoSurfaces = [
   },
   {
     name: "Discovery item reference data",
-    path: "bounded-contexts/discovery/features/item-detail/ui/item-detail-page.tsx",
+    path: "bounded-contexts/discovery/features/item-detail/ui/item-detail-references.tsx",
   },
   {
     name: "Discovery marketplace rail details",
-    path: "bounded-contexts/discovery/features/item-detail/ui/commerce-sections.tsx",
+    path: "bounded-contexts/discovery/features/item-detail/ui/commerce/commerce-primitives.tsx",
   },
   {
     name: "Checkout Sell List terms",
