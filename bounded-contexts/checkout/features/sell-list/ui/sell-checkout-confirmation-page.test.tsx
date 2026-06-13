@@ -44,14 +44,15 @@ describe("sell checkout confirmation page", () => {
   it("renders a reloadable seller confirmation with support-safe handoff copy", () => {
     const markup = renderToString(<SellCheckoutConfirmationPage confirmation={confirmation} />);
 
-    expect(markup).toContain("Sale review ready");
+    expect(markup).toContain("Sale review saved");
     expect(markup).toContain("CS-SL-CHK_SELL_1");
     expect(markup).not.toContain("slc_chk_sell_1");
     expect(markup).toContain("Support reference");
-    expect(markup).toContain("Your sale confirmation was recorded");
+    expect(markup).toContain("Your reviewed sale actions are saved");
     expect(markup).toContain("Sale actions");
-    expect(markup).toContain("Support can track pending or failed next steps from this confirmation.");
+    expect(markup).toContain("Use this reference if any next step needs help.");
     expect(markup).not.toContain("Marketplace handoff");
+    expect(markup).not.toContain("Support can track");
     expect(markup).not.toContain("downstream work");
     expect(markup).toContain("Acerola&#x27;s Mischief");
     expect(markup).toContain("Mixed");
@@ -59,7 +60,7 @@ describe("sell checkout confirmation page", () => {
     expect(markup).toContain("Accepted offers");
     expect(markup).toContain("Listings published");
     expect(markup).toContain("View seller activity");
-    expect(markup).toContain("View committed sales");
+    expect(markup).toContain("View sales");
     expect(markup).not.toContain("Sale complete");
     expect(markup).not.toContain("Label ready");
     expect(markup).not.toContain("Payout ready");

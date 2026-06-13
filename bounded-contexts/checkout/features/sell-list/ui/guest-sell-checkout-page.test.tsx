@@ -70,7 +70,7 @@ describe("guest sell checkout page", () => {
     expect(markup).toContain("$38.00");
     expect(markup).toContain('id="guest-sell-checkout-form"');
     expect(markup).toContain('name="readinessSnapshotId"');
-    expect(markup).toContain("This page records a guest review state only.");
+    expect(markup).toContain("You are only reviewing these sale details.");
     expect(markup).toContain("Checkout policies");
     expect(markup).toContain("Terms of service");
     expect(markup).toContain('href="/terms"');
@@ -145,6 +145,7 @@ describe("guest sell checkout page", () => {
     expect(markup).toContain("Final sale steps come after account setup.");
     expect(markup).toContain("Continue to account setup");
     expect(markup).not.toContain("Sale review ready");
+    expect(markup).not.toContain("Sale review saved");
     expect(markup).not.toContain("Support reference");
     expect(markup).not.toContain("Review reference");
     expect(markup).not.toContain("execution receipt");

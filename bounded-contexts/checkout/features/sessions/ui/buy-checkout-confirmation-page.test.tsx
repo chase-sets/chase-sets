@@ -71,13 +71,13 @@ describe("buy checkout confirmation page", () => {
     expect(markup).toContain("Order reference");
     expect(markup).toContain("ord_1, ord_2");
     expect(markup).toContain("Order status");
-    expect(markup).toContain("Created for payment");
+    expect(markup).toContain("Ready for payment");
     expect(markup).toContain("Support reference");
     expect(markup).toContain("CS-CR_READY");
     expect(markup).toContain("Secure payment");
     expect(markup).toContain("Support summary");
     expect(markup).toContain("Next steps pending");
-    expect(markup).toContain("Order details, delivery, notifications, and account history stay pending");
+    expect(markup).toContain("Delivery and receipt updates appear after payment is complete.");
     expect(markup).toContain("Continue to payment");
     expect(markup).toContain('href="/account/payments/pay_1"');
     expect(markup).not.toContain("checkout handoff");
