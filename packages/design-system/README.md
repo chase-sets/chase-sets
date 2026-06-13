@@ -29,6 +29,14 @@ Do not rebuild `deployables/design-system-showcase` as the default answer to com
 - Typography: IBM Plex Sans with tabular numerals for price, rating, quantity, fee, and total displays
 - Motion runtime: Motion for React, configured centrally through `ChaseRoot`
 
+## Spacing Scale
+
+Spacing uses a canonical 0.25rem base unit exposed as `--space-unit`. The design-system spacing vocabulary is `SpaceToken` `0` through `12`, matching CSS custom properties `--space-0` through `--space-12` and Tailwind spacing keys `0` through `12`.
+
+Use layout primitives (`Stack`, `Grid`, `Inline`, `Cluster`, `Inset`, `Surface`, and `Box`) with `gap`, `padding`, `paddingX`, or `paddingY` props before writing spacing utilities directly. When a direct utility is unavoidable inside a design-system component, use the same numeric vocabulary (`p-4`, `px-6`, `gap-3`, `space-y-2`); Tailwind resolves those keys through the `--space-*` tokens.
+
+The scale is intentionally numeric instead of maintaining parallel aliases such as `xs` or `md`; one token value must mean the same size in TypeScript props, CSS variables, Tailwind utilities, and docs.
+
 ## Composition Rules
 
 - `ChaseRoot` must wrap every application root.

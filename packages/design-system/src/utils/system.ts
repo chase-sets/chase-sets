@@ -1,7 +1,7 @@
-import type { ResponsiveValue } from "../theme/tokens";
+import type { ResponsiveValue, SpaceToken as ThemeSpaceToken } from "../theme/tokens";
 import { cx } from "./cx";
 
-export type SpaceToken = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12;
+export type { SpaceToken } from "../theme/tokens";
 
 export type AlignValue = "start" | "center" | "end" | "stretch";
 export type JustifyValue = "start" | "center" | "end" | "between" | "around";
@@ -12,10 +12,10 @@ type BreakpointKey = "base" | "sm" | "md" | "lg" | "xl" | "2xl";
 type BreakpointClassMap<T extends string | number> = Record<`${T}`, Record<BreakpointKey, string>>;
 
 export interface SystemProps {
-  padding?: SpaceToken;
-  paddingX?: SpaceToken;
-  paddingY?: SpaceToken;
-  gap?: SpaceToken;
+  padding?: ThemeSpaceToken;
+  paddingX?: ThemeSpaceToken;
+  paddingY?: ThemeSpaceToken;
+  gap?: ThemeSpaceToken;
   textAlign?: TextAlignValue;
 }
 
@@ -177,7 +177,7 @@ const columnsClasses: BreakpointClassMap<ColumnCount> = {
 
 type SpacePrefix = "p" | "px" | "py" | "m" | "mx" | "my" | "gap";
 
-const spaceClasses: Record<SpacePrefix, Record<SpaceToken, string>> = {
+const spaceClasses: Record<SpacePrefix, Record<ThemeSpaceToken, string>> = {
   p: {
     0: "p-0",
     1: "p-1",
@@ -285,7 +285,7 @@ const spaceClasses: Record<SpacePrefix, Record<SpaceToken, string>> = {
   },
 };
 
-export function resolveSpaceClass(prefix: SpacePrefix, value?: SpaceToken): string {
+export function resolveSpaceClass(prefix: SpacePrefix, value?: ThemeSpaceToken): string {
   if (value === undefined) {
     return "";
   }
