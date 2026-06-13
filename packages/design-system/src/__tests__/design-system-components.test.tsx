@@ -24,6 +24,7 @@ import {
   Accordion,
   AccordionOptionTrigger,
   Dialog,
+  LoadingSpinner,
   Menu,
   PanelSectionAccordion,
   ProgressiveDisclosure,
@@ -321,6 +322,63 @@ describe("design system components", () => {
     );
 
     expect(screen.getByText("Nothing to review")).toBeTruthy();
+  });
+
+  it("exposes DataTable loading state to assistive technology", () => {
+    const columns = [{ key: "name", header: "Name", cell: (row: { name: string }) => row.name }];
+    const { container, rerender } = render(<DataTable rows={[]} columns={columns} loading />);
+    const tableRoot = container.firstElementChild;
+
+    expect(tableRoot?.getAttribute("aria-busy")).toBe("true");
+    expect(screen.getByRole("status").textContent).toBe("Loading table data");
+
+    rerender(<DataTable rows={[{ name: "Alpha" }]} columns={columns} loading={false} />);
+
+    expect(tableRoot?.getAttribute("aria-busy")).toBe("false");
+    expect(screen.getByRole("status").textContent).toBe("Table data loaded");
+  });
+
+  it("exposes DataTable sort state on sortable column headers", () => {
+    const columns = [
+      { key: "name", header: "Name", cell: (row: { name: string; price: number }) => row.name, sortable: true },
+      { key: "price", header: "Price", cell: (row: { name: string; price: number }) => row.price, sortable: true },
+      { key: "stock", header: "Stock", cell: () => "Available" },
+    ];
+    const { rerender } = render(
+      <DataTable
+        rows={[{ name: "Alpha", price: 10 }]}
+        columns={columns}
+        sortKey="name"
+        sortDirection="asc"
+        onSortChange={() => {}}
+      />,
+    );
+
+    expect(screen.getByRole("columnheader", { name: "Name" }).getAttribute("aria-sort")).toBe("ascending");
+    expect(screen.getByRole("columnheader", { name: "Price" }).getAttribute("aria-sort")).toBe("none");
+    expect(screen.getByRole("columnheader", { name: "Stock" }).hasAttribute("aria-sort")).toBe(false);
+
+    rerender(
+      <DataTable
+        rows={[{ name: "Alpha", price: 10 }]}
+        columns={columns}
+        sortKey="price"
+        sortDirection="desc"
+        onSortChange={() => {}}
+      />,
+    );
+
+    expect(screen.getByRole("columnheader", { name: "Name" }).getAttribute("aria-sort")).toBe("none");
+    expect(screen.getByRole("columnheader", { name: "Price" }).getAttribute("aria-sort")).toBe("descending");
+  });
+
+  it("exposes LoadingSpinner updates as status text", () => {
+    render(<LoadingSpinner label="Refreshing inventory" />);
+
+    const status = screen.getByRole("status");
+
+    expect(status.textContent).toBe("Refreshing inventory");
+    expect(status.getAttribute("aria-live")).toBe("polite");
   });
 
   it("renders open dialogs", () => {
