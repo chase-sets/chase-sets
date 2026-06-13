@@ -54,9 +54,6 @@ export function DataTable<T>({
   const density = densityProp ?? useDensity();
   const cellPad = density === "compact" ? "px-3 py-2" : "px-4 py-3";
   const headPad = density === "compact" ? "px-3 py-2" : "px-4 py-3";
-  if (!loading && rows.length === 0) {
-    return <EmptyState title={emptyTitle} description={emptyDescription} />;
-  }
 
   const selectable = selectedKeys !== undefined && onSelectionChange !== undefined;
   const allIds = selectable
@@ -70,6 +67,7 @@ export function DataTable<T>({
     : [];
   const allSelected = selectable && allIds.length > 0 && allIds.every((id) => selectedKeys.has(id));
   const someSelected = selectable && allIds.some((id) => selectedKeys.has(id));
+  const loadingStatus = loading ? "Loading table data" : "Table data loaded";
 
   function handleSortClick(column: DataColumn<T>) {
     if (!column.sortable || !onSortChange) return;
@@ -106,6 +104,27 @@ export function DataTable<T>({
     return <Icon name={sortDirection === "asc" ? "chevronUp" : "chevronDown"} size="sm" tone="accent" />;
   }
 
+  function resolveSortState(column: DataColumn<T>) {
+    if (!column.sortable) return undefined;
+    if (sortKey !== column.key) return "none";
+    return sortDirection === "asc" ? "ascending" : "descending";
+  }
+
+  const status = (
+    <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+      {loadingStatus}
+    </span>
+  );
+
+  if (!loading && rows.length === 0) {
+    return (
+      <div {...rest} aria-busy={loading}>
+        {status}
+        <EmptyState title={emptyTitle} description={emptyDescription} />
+      </div>
+    );
+  }
+
   const table = (
     <div className="inset-surface overflow-x-auto rounded-tokenMd border">
       <table className="min-w-full border-collapse text-left text-sm">
@@ -124,6 +143,7 @@ export function DataTable<T>({
             {columns.map((column) => (
               <th
                 key={column.key}
+                aria-sort={resolveSortState(column)}
                 className={cx(headPad, "font-semibold text-foreground", column.align === "right" && "text-right")}
               >
                 {column.sortable ? (
@@ -272,7 +292,8 @@ export function DataTable<T>({
   );
 
   return (
-    <div {...rest}>
+    <div {...rest} aria-busy={loading}>
+      {status}
       {mobileMode === "stack" ? cards : null}
       <div className={mobileMode === "stack" ? "hidden md:block" : "block"}>{table}</div>
     </div>

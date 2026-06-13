@@ -11,7 +11,7 @@ export function LoadingSpinner({ label = "Loading", size = "md", ...rest }: Load
   const sizeClass = size === "sm" ? "h-4 w-4" : size === "lg" ? "h-8 w-8" : "h-6 w-6";
 
   return (
-    <div {...rest} className="inline-flex items-center gap-2 text-secondary">
+    <div {...rest} className="inline-flex items-center gap-2 text-secondary" role="status" aria-live="polite">
       <span
         aria-hidden="true"
         className={cx("inline-flex animate-spin rounded-full border-2 border-muted border-t-accent", sizeClass)}
