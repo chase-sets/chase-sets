@@ -45,7 +45,8 @@ describe("sell checkout confirmation page", () => {
     const markup = renderToString(<SellCheckoutConfirmationPage confirmation={confirmation} />);
 
     expect(markup).toContain("Sale review ready");
-    expect(markup).toContain("slc_chk_sell_1");
+    expect(markup).toContain("CS-SL-CHK_SELL_1");
+    expect(markup).not.toContain("slc_chk_sell_1");
     expect(markup).toContain("Support reference");
     expect(markup).toContain("Your sale confirmation was recorded");
     expect(markup).toContain("Marketplace handoff");

@@ -376,8 +376,8 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.quantity": "Quantity",
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.recorded": "Recorded",
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.reference": "Confirmation",
-  "checkout.features.sellList.ui.sellListPage.latest.confirmation.reference.listing": "listing {reference}",
-  "checkout.features.sellList.ui.sellListPage.latest.confirmation.reference.offer": "offer {reference}",
+  "checkout.features.sellList.ui.sellListPage.latest.confirmation.reference.downstream":
+    "Downstream references are available through support.",
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.reference.pending": "reference pending",
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.remaining": "Remaining",
   "checkout.features.sellList.ui.sellListPage.latest.confirmation.side.effect.account.history": "Account history",

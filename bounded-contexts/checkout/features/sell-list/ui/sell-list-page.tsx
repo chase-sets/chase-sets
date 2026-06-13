@@ -31,6 +31,7 @@ import {
 import { t } from "@chase-sets/localization";
 import { useState } from "react";
 import type { CheckoutSellListConfirmationRow, CheckoutSellListLineRow } from "../read-model/queries";
+import { sellListConfirmationSupportReference } from "../read-model/support-reference";
 import { SELLER_CHECKOUT_REGISTER_HREF, SELLER_CHECKOUT_SIGN_IN_HREF } from "./registration-return";
 
 type SellListOfferReview = Readonly<{
@@ -199,23 +200,8 @@ function lineOutcomeDisplayStatus(
 function confirmationReferenceSummary(
   outcome: NonNullable<CheckoutSellListConfirmationRow["handoff_summary"]["lineOutcomes"]>[number],
 ) {
-  const offerIds = outcome.references?.offerIds ?? [];
-  const listingId = outcome.references?.listingId;
-  const references = [
-    ...offerIds.map((offerId) =>
-      t("checkout.features.sellList.ui.sellListPage.latest.confirmation.reference.offer", { reference: offerId }),
-    ),
-    ...(listingId
-      ? [
-          t("checkout.features.sellList.ui.sellListPage.latest.confirmation.reference.listing", {
-            reference: listingId,
-          }),
-        ]
-      : []),
-  ];
-
-  return references.length > 0
-    ? references.join(", ")
+  return outcome.references
+    ? t("checkout.features.sellList.ui.sellListPage.latest.confirmation.reference.downstream")
     : t("checkout.features.sellList.ui.sellListPage.latest.confirmation.reference.pending");
 }
 
@@ -807,6 +793,7 @@ function LatestSellListConfirmationPanel({ confirmation }: { confirmation: Check
   const summary = confirmation.handoff_summary;
   const lineOutcomes = Array.isArray(summary.lineOutcomes) ? summary.lineOutcomes : [];
   const sideEffects = summary.sideEffects ?? {};
+  const supportReference = sellListConfirmationSupportReference(confirmation.confirmation_id);
   const sideEffectRows = [
     { key: "sale", label: t("checkout.features.sellList.ui.sellListPage.latest.confirmation.side.effect.sale") },
     {
@@ -840,7 +827,7 @@ function LatestSellListConfirmationPanel({ confirmation }: { confirmation: Check
                 {t("checkout.features.sellList.ui.sellListPage.latest.confirmation.reference")}
               </Text>
               <Text weight="semibold" wrap="anywhere">
-                {confirmation.confirmation_id}
+                {supportReference}
               </Text>
             </Stack>
             <Stack gap={1}>
