@@ -100,54 +100,38 @@
     "schedules": {
       "classification": "slice",
       "purpose": "Own commercial-terms schedule behavior, read models, and UI contracts.",
-      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
       "expectedConsumers": ["Internal commercial-terms module composition"]
     },
     "agreements": {
       "classification": "slice",
       "purpose": "Own commercial-agreement behavior, read models, and UI contracts for account-specific overrides.",
-      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
       "expectedConsumers": ["Internal commercial-terms module composition"]
     },
     "resolutions": {
       "classification": "slice",
       "purpose": "Own commercial-terms-resolution APIs, projections, and resolver queries.",
-      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
       "expectedConsumers": ["Internal commercial-terms module composition", "Downstream server resolution"]
     },
     "request-support": {
       "classification": "support",
-      "purpose": "Provide reusable request-support assets shared by commercial-terms features and route adapters.",
-      "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
+      "purpose": "Provide Commercial Terms request composition for admin routes that span schedules, agreements, and resolutions.",
       "expectedConsumers": ["agreements", "schedules"],
-      "justification": "request-support centralizes context-local request composition for admin routes.",
-      "createdFor": "commercial-terms admin workflows that span multiple features or public entrypoints.",
-      "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules.",
       "crossCuttingRuntimeComposition": true
     },
     "runtime-support": {
       "classification": "support",
-      "purpose": "Provide reusable runtime-support assets shared by commercial-terms-owned features and composition seams.",
-      "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": ["schedules", "agreements", "resolutions"],
-      "justification": "runtime-support centralizes event-store composition and common fee math.",
-      "createdFor": "commercial-terms workflows that span multiple features or public entrypoints.",
-      "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
+      "purpose": "Provide commercial-terms event-store composition and common fee math shared by runtime services.",
+      "expectedConsumers": ["schedules", "agreements", "resolutions"]
     },
     "seed-support": {
       "classification": "support",
-      "purpose": "Provide reusable seed-support assets shared by commercial-terms-owned features and composition seams.",
-      "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
+      "purpose": "Provide deterministic commercial-terms schedule and agreement identifiers for bootstrap and tests.",
       "expectedConsumers": ["Multiple commercial-terms slices", "Deployable composition for commercial-terms"],
-      "justification": "seed-support centralizes deterministic schedule and agreement identifiers for tests and bootstrap.",
-      "createdFor": "commercial-terms bootstrap and test flows.",
-      "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules.",
       "crossCuttingRuntimeComposition": true
     },
     "routes": {
       "classification": "routes",
       "purpose": "Expose commercial-terms-owned route modules consumed by generated deployable adapters.",
-      "allowedWhen": "Required whenever the context contributes routes to any deployable.",
       "expectedConsumers": ["Generated deployable route adapters"]
     }
   },

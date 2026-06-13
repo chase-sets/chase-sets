@@ -467,138 +467,87 @@
     "categories": {
       "classification": "slice",
       "purpose": "Own categories feature behavior, read models, and UI contracts for the discovery context.",
-      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
       "expectedConsumers": ["Internal discovery module composition"]
     },
     "item-detail": {
       "classification": "slice",
       "purpose": "Own item-detail feature behavior, read models, and UI contracts for the discovery context.",
-      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
       "expectedConsumers": ["Internal discovery module composition"]
     },
     "google-shopping-operations": {
       "classification": "slice",
-      "purpose": "Own the Discovery Google Shopping operator view, request client, filters, and route contracts for feed readiness diagnostics.",
-      "allowedWhen": "Allowed for admin-web operational surfaces that inspect Discovery-owned Google Shopping rows without exposing provider secrets.",
-      "expectedConsumers": ["Admin operations route", "Google Shopping operators"],
-      "createdFor": "Discovery Google Shopping Merchant Center integration milestone."
+      "purpose": "Own Discovery Google Shopping operator diagnostics for feed readiness without exposing provider secrets.",
+      "expectedConsumers": ["Admin operations route", "Google Shopping operators"]
     },
     "search": {
       "classification": "slice",
       "purpose": "Own search feature behavior, read models, and UI contracts for the discovery context.",
-      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
       "expectedConsumers": ["Internal discovery module composition"]
     },
     "product-alerts": {
       "classification": "slice",
       "purpose": "Own product-alerts behavior, read models, notification matching, APIs, and account UI for selected marketplace Products.",
-      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
       "expectedConsumers": ["Internal discovery module composition"]
     },
     "client-support": {
       "classification": "support",
       "purpose": "Provide reusable client-support assets shared by discovery-owned features and composition seams.",
-      "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": ["item-detail", "search"],
-      "justification": "client-support centralizes context-local composition that should not duplicate across features.",
-      "createdFor": "discovery workflows that span multiple features or public entrypoints.",
-      "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
+      "expectedConsumers": ["item-detail", "search"]
     },
     "google-shopping-support": {
       "classification": "support",
-      "purpose": "Provide Discovery-owned Google Shopping export projection schema, row identity, eligibility, and payload hashing contracts.",
-      "allowedWhen": "Allowed for public-discovery export behavior that projects Catalog and Marketplace facts into Google-facing rows without changing source ownership.",
-      "expectedConsumers": ["google-shopping-operations"],
-      "justification": "Google Shopping rows are a provider-facing public discovery export and need stable contracts shared by projection, sync, and diagnostics slices.",
-      "createdFor": "Discovery Google Shopping Merchant Center integration milestone.",
-      "sunsetWhen": "Remove when Google Shopping export support is retired or moved into a dedicated provider integration context by ADR."
+      "purpose": "Provide Discovery-owned Google Shopping export projection schema, row identity, eligibility, and payload hashing for provider-facing rows.",
+      "expectedConsumers": ["google-shopping-operations"]
     },
     "item-support": {
       "classification": "support",
       "purpose": "Provide reusable item-support assets shared by discovery-owned features and composition seams.",
-      "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": ["item-detail", "search"],
-      "justification": "item-support centralizes context-local composition that should not duplicate across features.",
-      "createdFor": "discovery workflows that span multiple features or public entrypoints.",
-      "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
+      "expectedConsumers": ["item-detail", "search"]
     },
     "market-support": {
       "classification": "support",
       "purpose": "Provide reusable market-support assets shared by discovery-owned features and composition seams.",
-      "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": ["item-detail", "search"],
-      "justification": "market-support centralizes context-local composition that should not duplicate across features.",
-      "createdFor": "discovery workflows that span multiple features or public entrypoints.",
-      "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
+      "expectedConsumers": ["item-detail", "search"]
     },
     "request-support": {
       "classification": "support",
       "purpose": "Provide reusable request parsing and context-local API client assets shared by discovery-owned features and composition seams.",
-      "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
       "expectedConsumers": ["Multiple discovery slices", "Deployable composition for discovery"],
-      "justification": "request-support centralizes context-local composition that should not duplicate across features.",
-      "createdFor": "discovery workflows that span multiple features or public entrypoints.",
-      "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules.",
       "crossCuttingRuntimeComposition": true
     },
     "route-support": {
       "classification": "support",
-      "purpose": "Provide the item-detail route adapter modules (loader, action, commerce builder, and route types) that orchestrate Discovery item detail route behavior.",
-      "allowedWhen": "Allowed only when route-layer behavior cannot stay inside the thin route module or a feature folder.",
-      "expectedConsumers": ["routes"],
-      "justification": "route-support centralizes the item-detail route's loader/action orchestration and cross-context server-surface composition without mixing route adapter behavior into request support.",
-      "createdFor": "the item-detail route, which composes Discovery item reads with Marketplace, Inventory, and Checkout server clients during loader and action handling.",
-      "sunsetWhen": "Remove when the item-detail route no longer needs extracted loader/action modules."
+      "purpose": "Provide item-detail route loader/action modules that compose Discovery item reads with Marketplace, Inventory, and Checkout server clients.",
+      "expectedConsumers": ["routes"]
     },
     "realtime-support": {
       "classification": "support",
-      "purpose": "Provide discovery-owned realtime topic contracts and registration metadata.",
-      "allowedWhen": "Allowed for SSE topic contracts shared by discovery projectors, routes, and platform composition.",
-      "expectedConsumers": ["Multiple discovery slices", "Deployable composition for discovery"],
-      "justification": "realtime-support keeps discovery topic ownership in the discovery bounded context instead of deployables.",
-      "createdFor": "SSE projection patch routing and topic construction for discovery marketplace surfaces.",
-      "sunsetWhen": "Remove when discovery no longer publishes or consumes realtime projection patches."
+      "purpose": "Provide Discovery-owned SSE topic contracts and registration metadata shared by projectors, routes, and platform composition.",
+      "expectedConsumers": ["Multiple discovery slices", "Deployable composition for discovery"]
     },
     "runtime-support": {
       "classification": "support",
       "purpose": "Provide reusable runtime-support assets shared by discovery-owned features and composition seams.",
-      "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": ["categories", "item-detail", "product-alerts", "search"],
-      "justification": "runtime-support centralizes context-local composition that should not duplicate across features.",
-      "createdFor": "discovery workflows that span multiple features or public entrypoints.",
-      "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
+      "expectedConsumers": ["categories", "item-detail", "product-alerts", "search"]
     },
     "shell-support": {
       "classification": "support",
       "purpose": "Provide reusable shell-support assets shared by discovery-owned features and composition seams.",
-      "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": ["Deployable composition for discovery"],
-      "justification": "shell-support centralizes context-local composition that should not duplicate across features.",
-      "createdFor": "discovery workflows that span multiple features or public entrypoints.",
-      "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
+      "expectedConsumers": ["Deployable composition for discovery"]
     },
     "ui-support": {
       "classification": "support",
-      "purpose": "Expose browser-safe Discovery UI contracts from feature-owned modules through the context web surface.",
-      "allowedWhen": "Allowed only for browser-safe Discovery UI contracts consumed through context web exports.",
-      "expectedConsumers": ["Deployable composition for discovery"],
-      "justification": "ui-support keeps deployable-facing web exports stable while item-detail owns rail analytics vocabulary.",
-      "createdFor": "item-detail action rail analytics capture.",
-      "sunsetWhen": "Remove if web exports can point directly at feature browser-entry modules."
+      "purpose": "Expose browser-safe Discovery UI contracts for item-detail action rail analytics through stable context web exports.",
+      "expectedConsumers": ["Deployable composition for discovery"]
     },
     "ucp-support": {
       "classification": "support",
-      "purpose": "Provide Discovery-owned Universal Commerce Protocol catalog adapters for public marketplace search and lookup.",
-      "allowedWhen": "Allowed for standards-facing protocol adapters that map UCP catalog operations to Discovery-owned read models.",
-      "expectedConsumers": ["platform-api UCP route composition"],
-      "justification": "ucp-support keeps catalog/search protocol mapping inside Discovery instead of deployables or a generic UCP bounded context.",
-      "createdFor": "UCP catalog search and lookup over Discovery read models.",
-      "sunsetWhen": "Remove when UCP catalog adapters move into generated context-owned transport composition."
+      "purpose": "Provide Discovery-owned UCP catalog search and lookup adapters over Discovery read models instead of deployable protocol mapping.",
+      "expectedConsumers": ["platform-api UCP route composition"]
     },
     "routes": {
       "classification": "routes",
       "purpose": "Expose discovery-owned route modules consumed by generated deployable adapters.",
-      "allowedWhen": "Required whenever the context contributes routes to any deployable.",
       "expectedConsumers": ["Generated deployable route adapters"]
     }
   },

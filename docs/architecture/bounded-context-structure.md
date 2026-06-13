@@ -50,8 +50,10 @@ Top-level directory intent:
 - Feature roots are directory-only seams. Keep slice code under `api/`, `domain/`, `read-model/`, `ui/`, `integrations/`, and slice-local `tests/` when needed.
 - Every implemented context must define `directoryIntent` in `context.json` for each logical slice or support directory.
 - `directoryIntent` is the manifest-first contract that classifies each logical directory as exactly one of `slice`, `support`, or `routes`.
-- `directoryIntent` entries must document `purpose`, `allowedWhen`, `expectedConsumers`, `justification`, `createdFor`, and `sunsetWhen`.
-- Support-directory `expectedConsumers` must describe the slices or composition seams that really consume the support module.
+- `directoryIntent` entries use the slim load-bearing schema: `classification`, `purpose`, `expectedConsumers`, and optional `crossCuttingRuntimeComposition`.
+- `purpose` is a short context-specific statement of the directory's responsibility; durable rationale belongs in the context README or architecture docs instead of manifest prose.
+- `expectedConsumers` must describe the slices or composition seams that really consume the directory; support-directory consumers are checked against actual imports.
+- `crossCuttingRuntimeComposition` defaults to `false` when absent and may be set to `true` only for approved runtime composition support directories.
 - Structure checks compare declared support-directory `expectedConsumers` with actual support file consumers and fail when they drift.
 - Structure checks fail when a declared slice is missing from `features/` or a declared support directory is missing from `support/`.
 

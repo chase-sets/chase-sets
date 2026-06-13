@@ -296,78 +296,53 @@
     "orders": {
       "classification": "slice",
       "purpose": "Own orders feature behavior, read models, and UI contracts for the ordering context.",
-      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
       "expectedConsumers": ["Internal ordering module composition"]
     },
     "postage-policies": {
       "classification": "slice",
       "purpose": "Own postage-policy behavior, active policy resolution, admin lifecycle commands, read models, and UI contracts for Ordering package-plan policy.",
-      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
       "expectedConsumers": ["Internal ordering module composition", "Ordering order creation"]
     },
     "tax-quotes": {
       "classification": "slice",
       "purpose": "Own provider-agnostic tax quote contracts, local quote behavior, and future provider integration shape used by Ordering order tax snapshots.",
-      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
       "expectedConsumers": ["Ordering order creation", "Platform API tax quote resolver composition"]
     },
     "tax-nexus": {
       "classification": "slice",
-      "purpose": "Own state-by-state sales tax nexus thresholds, collection-readiness posture, and provider-dependency tracking behind order tax quotes.",
-      "allowedWhen": "Required when marketplace launch needs to distinguish no-collection launch readiness from provider-backed tax collection readiness.",
+      "purpose": "Own sales tax nexus thresholds, collection-readiness posture, and provider-dependency tracking behind order tax quotes.",
       "expectedConsumers": ["Tax launch readiness review", "Platform API production tax quote gating"]
     },
     "account-support": {
       "classification": "support",
       "purpose": "Provide reusable account-support assets shared by ordering-owned features and composition seams.",
-      "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": ["orders"],
-      "justification": "account-support centralizes context-local composition that should not duplicate across features.",
-      "createdFor": "ordering workflows that span multiple features or public entrypoints.",
-      "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
+      "expectedConsumers": ["orders"]
     },
     "request-support": {
       "classification": "support",
       "purpose": "Provide reusable request-support assets shared by ordering-owned features and composition seams.",
-      "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
       "expectedConsumers": ["postage-policies"],
-      "justification": "request-support centralizes context-local composition that should not duplicate across features.",
-      "createdFor": "ordering workflows that span multiple features or public entrypoints.",
-      "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules.",
       "crossCuttingRuntimeComposition": true
     },
     "runtime-support": {
       "classification": "support",
       "purpose": "Provide reusable runtime-support assets shared by ordering-owned features and composition seams.",
-      "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": ["orders"],
-      "justification": "runtime-support centralizes context-local composition that should not duplicate across features.",
-      "createdFor": "ordering workflows that span multiple features or public entrypoints.",
-      "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
+      "expectedConsumers": ["orders"]
     },
     "seed-support": {
       "classification": "support",
       "purpose": "Provide reusable seed-support assets shared by ordering-owned features and composition seams.",
-      "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
       "expectedConsumers": ["Multiple ordering slices", "Deployable composition for ordering"],
-      "justification": "seed-support centralizes context-local composition that should not duplicate across features.",
-      "createdFor": "ordering workflows that span multiple features or public entrypoints.",
-      "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules.",
       "crossCuttingRuntimeComposition": true
     },
     "ucp-support": {
       "classification": "support",
-      "purpose": "Provide Ordering-owned UCP order read adapters over purchase and sale projections.",
-      "allowedWhen": "Allowed because UCP order reads are an external protocol entrypoint over Ordering-owned read models.",
-      "expectedConsumers": ["Platform UCP route composition"],
-      "justification": "Ordering owns Order, Purchase, and Sale state; UCP remains only a protocol facade.",
-      "createdFor": "UCP standalone order reads.",
-      "sunsetWhen": "Remove if UCP order reads move into an Ordering feature-local API slice."
+      "purpose": "Provide Ordering-owned UCP order read adapters over purchase and sale projections while UCP stays a protocol facade.",
+      "expectedConsumers": ["Platform UCP route composition"]
     },
     "routes": {
       "classification": "routes",
       "purpose": "Expose ordering-owned route modules consumed by generated deployable adapters.",
-      "allowedWhen": "Required whenever the context contributes routes to any deployable.",
       "expectedConsumers": ["Generated deployable route adapters"]
     }
   },
