@@ -6,7 +6,7 @@ import {
   type GoogleShoppingFeedRowFilter,
   type GoogleShoppingSyncMode,
   type GoogleShoppingSyncServices,
-} from "../../features/google-shopping-operations/api/sync-job";
+} from "./sync-job";
 
 type AccessResult =
   | Readonly<{ response: Response; context: null }>

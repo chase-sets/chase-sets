@@ -18,7 +18,7 @@ import { discoveryRealtimeTopics } from "../realtime-support/topics";
 import {
   refreshGoogleShoppingFeedRowForListing,
   type GoogleShoppingIncrementalSyncReason,
-} from "../../features/google-shopping-operations/api/feed-row-projection";
+} from "../google-shopping-support/feed-row-projection";
 import { createMarketplaceSlug, rememberSlugRedirect } from "../runtime-support/slugs";
 
 const ACCOUNT_STREAM_PREFIX = "identity.account-";
