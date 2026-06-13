@@ -48,10 +48,10 @@ export type CheckoutRiskSurface =
   | "provider-return-recovery"
   | "confirmation-hold"
   | "support-runbook"
-  | "launch-status"
+  | "operations-status"
   | "none";
 
-export type CheckoutRiskLaunchDecision = "required-for-launch" | "launch-decision-required" | "not-customer-facing";
+export type CheckoutRiskCapabilityStatus = "enabled" | "owner-rule-required" | "internal-only";
 
 export type CheckoutRiskProtectedAction =
   | "buy-cart-line-capture"
@@ -101,7 +101,7 @@ export type CheckoutRiskControlKey =
   | "guest-merge-abuse"
   | "duplicate-submit-idempotency"
   | "support-safe-risk-escalation"
-  | "launch-decision-risk-states"
+  | "owner-rule-risk-states"
   | "observability-redaction"
   | "no-side-effect-risk-blocks"
   | "fresh-state-risk-cleanup";
@@ -116,16 +116,16 @@ export type CheckoutRiskControlPolicyEntry = Readonly<{
   audiences: readonly CheckoutRiskAudience[];
   outcomeStates: readonly CheckoutRiskOutcome[];
   customerSurface: CheckoutRiskSurface;
-  launchDecision: CheckoutRiskLaunchDecision;
+  capabilityStatus: CheckoutRiskCapabilityStatus;
   supportReferenceRequired: boolean;
   observabilityRequired: boolean;
-  launchDecisionRequired: boolean;
+  ownerRuleRequired: boolean;
   noSideEffectBeforeCommitRequired: boolean;
   redactsSensitiveSignals: boolean;
   staysBeforeCheckout: boolean;
   idempotencyKeyShape: string;
   forbiddenMechanisms: readonly string[];
-  evidenceExpectation: string;
+  customerSafeOutcome: string;
 }>;
 
 const buyerAudiences = ["guest-buyer", "signed-in-buyer"] as const satisfies readonly CheckoutRiskAudience[];
@@ -172,7 +172,7 @@ export const checkoutRiskControlRequiredControls = [
   "guest-merge-abuse",
   "duplicate-submit-idempotency",
   "support-safe-risk-escalation",
-  "launch-decision-risk-states",
+  "owner-rule-risk-states",
   "observability-redaction",
   "no-side-effect-risk-blocks",
   "fresh-state-risk-cleanup",
@@ -189,16 +189,16 @@ export const checkoutRiskControlPolicyEntries = [
     audiences: ["guest-buyer"],
     outcomeStates: ["allowed", "blocked", "no-side-effect"],
     customerSurface: "cart-list-readiness",
-    launchDecision: "required-for-launch",
+    capabilityStatus: "enabled",
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: false,
+    ownerRuleRequired: false,
     noSideEffectBeforeCommitRequired: true,
     redactsSensitiveSignals: true,
     staysBeforeCheckout: true,
     idempotencyKeyShape: "checkout:risk:guest_velocity:<device-or-session-fingerprint>:<window>",
     forbiddenMechanisms: checkoutRiskForbiddenMechanisms,
-    evidenceExpectation:
+    customerSafeOutcome:
       "Guest buy velocity and bot limits block excessive line capture or checkout entry before any payment, order, support, notification, or reservation side effect starts.",
   }),
   riskControl({
@@ -216,16 +216,16 @@ export const checkoutRiskControlPolicyEntries = [
     audiences: ["signed-in-buyer", "signed-in-seller"],
     outcomeStates: ["allowed", "blocked", "recovered", "no-side-effect"],
     customerSurface: "checkout-recovery",
-    launchDecision: "required-for-launch",
+    capabilityStatus: "enabled",
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: false,
+    ownerRuleRequired: false,
     noSideEffectBeforeCommitRequired: true,
     redactsSensitiveSignals: true,
     staysBeforeCheckout: false,
     idempotencyKeyShape: "checkout:risk:account_velocity:<account-id-redacted>:<intent-id>:<purpose>",
     forbiddenMechanisms: checkoutRiskForbiddenMechanisms,
-    evidenceExpectation:
+    customerSafeOutcome:
       "Signed-in duplicate submit and repeated confirmation attempts are idempotent and cannot create duplicate payments, orders, sales, labels, payouts, notifications, support requests, or reversal work.",
   }),
   riskControl({
@@ -238,16 +238,16 @@ export const checkoutRiskControlPolicyEntries = [
     audiences: buyerAudiences,
     outcomeStates: ["allowed", "blocked", "deferred", "no-side-effect"],
     customerSurface: "cart-list-readiness",
-    launchDecision: "launch-decision-required",
+    capabilityStatus: "owner-rule-required",
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     noSideEffectBeforeCommitRequired: true,
     redactsSensitiveSignals: true,
     staysBeforeCheckout: true,
     idempotencyKeyShape: "inventory:reservation_risk:<item-or-group-id>:<actor-or-device>:<window>",
     forbiddenMechanisms: checkoutRiskForbiddenMechanisms,
-    evidenceExpectation:
+    customerSafeOutcome:
       "Reservation limits and expiration prevent supply starvation in readiness; checkout never assigns fulfillment, extends hidden holds, or repairs unassigned fulfillment during confirmation.",
   }),
   riskControl({
@@ -260,16 +260,16 @@ export const checkoutRiskControlPolicyEntries = [
     audiences: buyerAudiences,
     outcomeStates: ["allowed", "blocked", "held", "provider-unavailable", "no-side-effect"],
     customerSurface: "provider-return-recovery",
-    launchDecision: "required-for-launch",
+    capabilityStatus: "enabled",
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     noSideEffectBeforeCommitRequired: true,
     redactsSensitiveSignals: true,
     staysBeforeCheckout: false,
     idempotencyKeyShape: "payments:risk:<payment-intent-or-provider-ref>:<risk-outcome>",
     forbiddenMechanisms: checkoutRiskForbiddenMechanisms,
-    evidenceExpectation:
+    customerSafeOutcome:
       "Provider risk declines, holds, outages, and wallet return failures block or hold buy confirmation with customer-safe copy and no synthetic order/refund/reversal facts.",
   }),
   riskControl({
@@ -282,16 +282,16 @@ export const checkoutRiskControlPolicyEntries = [
     audiences: sellerAudiences,
     outcomeStates: ["allowed", "blocked", "held", "deferred", "provider-unavailable", "no-side-effect"],
     customerSurface: "cart-list-readiness",
-    launchDecision: "launch-decision-required",
+    capabilityStatus: "owner-rule-required",
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     noSideEffectBeforeCommitRequired: true,
     redactsSensitiveSignals: true,
     staysBeforeCheckout: true,
     idempotencyKeyShape: "settlement:payout_risk:<seller-account-ref>:<risk-outcome>",
     forbiddenMechanisms: checkoutRiskForbiddenMechanisms,
-    evidenceExpectation:
+    customerSafeOutcome:
       "Payout risk holds stay in Sell List readiness or owned hold states and cannot be bypassed by seller checkout confirmation.",
   }),
   riskControl({
@@ -304,16 +304,16 @@ export const checkoutRiskControlPolicyEntries = [
     audiences: sellerAudiences,
     outcomeStates: ["allowed", "blocked", "held", "no-side-effect"],
     customerSurface: "cart-list-readiness",
-    launchDecision: "required-for-launch",
+    capabilityStatus: "enabled",
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: false,
+    ownerRuleRequired: false,
     noSideEffectBeforeCommitRequired: true,
     redactsSensitiveSignals: true,
     staysBeforeCheckout: true,
     idempotencyKeyShape: "marketplace:seller_readiness_risk:<seller-ref>:<reviewed-line-or-action-key>",
     forbiddenMechanisms: checkoutRiskForbiddenMechanisms,
-    evidenceExpectation:
+    customerSafeOutcome:
       "Suspicious seller readiness, listing abuse, and offer-term risk stop in Sell List readiness before Marketplace handoff, fallback listing creation, sale, label, payout, notification, or account-history work starts.",
   }),
   riskControl({
@@ -331,16 +331,16 @@ export const checkoutRiskControlPolicyEntries = [
     audiences: allCustomerAudiences,
     outcomeStates: ["allowed", "blocked", "challenged", "held", "no-side-effect"],
     customerSurface: "checkout-recovery",
-    launchDecision: "required-for-launch",
+    capabilityStatus: "enabled",
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     noSideEffectBeforeCommitRequired: true,
     redactsSensitiveSignals: true,
     staysBeforeCheckout: false,
     idempotencyKeyShape: "identity:risk_mismatch:<actor-ref>:<source-revision>:<risk-outcome>",
     forbiddenMechanisms: checkoutRiskForbiddenMechanisms,
-    evidenceExpectation:
+    customerSafeOutcome:
       "Identity and instrument mismatch outcomes use customer-safe recovery or hold states and never expose addresses, emails, provider payloads, card/bank data, or raw risk signals.",
   }),
   riskControl({
@@ -353,16 +353,16 @@ export const checkoutRiskControlPolicyEntries = [
     audiences: allCustomerAudiences,
     outcomeStates: ["allowed", "blocked", "recovered", "no-side-effect"],
     customerSurface: "checkout-recovery",
-    launchDecision: "required-for-launch",
+    capabilityStatus: "enabled",
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: false,
+    ownerRuleRequired: false,
     noSideEffectBeforeCommitRequired: true,
     redactsSensitiveSignals: true,
     staysBeforeCheckout: false,
     idempotencyKeyShape: "checkout:risk_active_session:<session-ref-redacted>:<source-revision>:<checkpoint>",
     forbiddenMechanisms: checkoutRiskForbiddenMechanisms,
-    evidenceExpectation:
+    customerSafeOutcome:
       "Existing sessions revalidate current account, source, economics, provider, inventory, and risk facts on return and final confirmation instead of repairing stale state inside checkout.",
   }),
   riskControl({
@@ -375,16 +375,16 @@ export const checkoutRiskControlPolicyEntries = [
     audiences: ["guest-buyer", "signed-in-buyer"],
     outcomeStates: ["allowed", "blocked", "recovered", "no-side-effect"],
     customerSurface: "checkout-recovery",
-    launchDecision: "required-for-launch",
+    capabilityStatus: "enabled",
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: false,
+    ownerRuleRequired: false,
     noSideEffectBeforeCommitRequired: true,
     redactsSensitiveSignals: true,
     staysBeforeCheckout: false,
     idempotencyKeyShape: "identity:guest_merge_risk:<guest-source-ref>:<account-ref>:<source-revision>",
     forbiddenMechanisms: checkoutRiskForbiddenMechanisms,
-    evidenceExpectation:
+    customerSafeOutcome:
       "Guest-to-signed-in merge supersedes stale guest sessions and blocks mismatched source facts before payment, order, notification, support, or account-history side effects.",
   }),
   riskControl({
@@ -397,16 +397,16 @@ export const checkoutRiskControlPolicyEntries = [
     audiences: allCustomerAudiences,
     outcomeStates: ["allowed", "recovered", "no-side-effect"],
     customerSurface: "confirmation-hold",
-    launchDecision: "required-for-launch",
+    capabilityStatus: "enabled",
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: false,
+    ownerRuleRequired: false,
     noSideEffectBeforeCommitRequired: true,
     redactsSensitiveSignals: true,
     staysBeforeCheckout: false,
     idempotencyKeyShape: "checkout:confirm:<confirmation-id-or-source-revision>:<actor-mode>",
     forbiddenMechanisms: checkoutRiskForbiddenMechanisms,
-    evidenceExpectation:
+    customerSafeOutcome:
       "Duplicate submit, reload, provider retry, and background retry share stable confirmation idempotency and cannot duplicate downstream work.",
   }),
   riskControl({
@@ -419,21 +419,21 @@ export const checkoutRiskControlPolicyEntries = [
     audiences: ["support-operator"],
     outcomeStates: ["blocked", "held", "challenged", "recovered"],
     customerSurface: "support-runbook",
-    launchDecision: "required-for-launch",
+    capabilityStatus: "enabled",
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     noSideEffectBeforeCommitRequired: true,
     redactsSensitiveSignals: true,
     staysBeforeCheckout: false,
     idempotencyKeyShape: "support:risk_escalation:<support-safe-reference>:<risk-outcome>",
     forbiddenMechanisms: checkoutRiskForbiddenMechanisms,
-    evidenceExpectation:
+    customerSafeOutcome:
       "Support can distinguish customer error from risk hold using masked status, support-safe references, and owning-context escalation without raw signals or manual data edits.",
   }),
   riskControl({
-    control: "launch-decision-risk-states",
-    docLabel: "Launch decision risk states",
+    control: "owner-rule-risk-states",
+    docLabel: "Owner rule risk states",
     ownerIssues: ["#1131", "#1102", "#1112"],
     ownerContext: "Platform",
     checkpoints: ["cart-list-readiness", "provider-or-wallet-return", "final-confirmation", "operator-support"],
@@ -455,18 +455,18 @@ export const checkoutRiskControlPolicyEntries = [
       "provider-unavailable",
       "no-side-effect",
     ],
-    customerSurface: "launch-status",
-    launchDecision: "launch-decision-required",
+    customerSurface: "operations-status",
+    capabilityStatus: "owner-rule-required",
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     noSideEffectBeforeCommitRequired: true,
     redactsSensitiveSignals: true,
     staysBeforeCheckout: false,
-    idempotencyKeyShape: "launch-decision:risk:<capability-or-provider>:<state>",
+    idempotencyKeyShape: "risk-owner-rule:<capability-or-provider>:<state>",
     forbiddenMechanisms: checkoutRiskForbiddenMechanisms,
-    evidenceExpectation:
-      "Blocked, held, challenged, disabled, deferred, unsupported, and provider-unavailable risk states have owner, copy, support path, observability, support path, and visual target evidence.",
+    customerSafeOutcome:
+      "Blocked, held, challenged, disabled, deferred, unsupported, and provider-unavailable risk states have owner, copy, support path, observability, and visual target coverage.",
   }),
   riskControl({
     control: "observability-redaction",
@@ -483,17 +483,17 @@ export const checkoutRiskControlPolicyEntries = [
     ],
     audiences: allAudiences,
     outcomeStates: ["allowed", "blocked", "held", "challenged", "provider-unavailable", "no-side-effect"],
-    customerSurface: "launch-status",
-    launchDecision: "required-for-launch",
+    customerSurface: "operations-status",
+    capabilityStatus: "enabled",
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: false,
+    ownerRuleRequired: false,
     noSideEffectBeforeCommitRequired: true,
     redactsSensitiveSignals: true,
     staysBeforeCheckout: false,
     idempotencyKeyShape: "checkout:risk_observability:<event-name>:<support-safe-reference>",
     forbiddenMechanisms: checkoutRiskForbiddenMechanisms,
-    evidenceExpectation:
+    customerSafeOutcome:
       "Risk telemetry uses categories and support-safe references only; logs, metrics, canaries, and runbooks never expose raw addresses, emails, provider payloads, card/bank data, or sensitive risk signals.",
   }),
   riskControl({
@@ -512,16 +512,16 @@ export const checkoutRiskControlPolicyEntries = [
     audiences: allCustomerAudiences,
     outcomeStates: ["blocked", "held", "no-side-effect"],
     customerSurface: "checkout-recovery",
-    launchDecision: "required-for-launch",
+    capabilityStatus: "enabled",
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     noSideEffectBeforeCommitRequired: true,
     redactsSensitiveSignals: true,
     staysBeforeCheckout: false,
     idempotencyKeyShape: "checkout:risk_no_side_effect:<source-ref>:<checkpoint>:<risk-outcome>",
     forbiddenMechanisms: checkoutRiskForbiddenMechanisms,
-    evidenceExpectation:
+    customerSafeOutcome:
       "Risk blocks prove no payment, order, sale, label, payout, settlement, notification, support, account-history, refund, void, or reversal side effect started.",
   }),
   riskControl({
@@ -539,17 +539,17 @@ export const checkoutRiskControlPolicyEntries = [
     ],
     audiences: allAudiences,
     outcomeStates: ["blocked", "disabled", "unsupported", "no-side-effect"],
-    customerSurface: "launch-status",
-    launchDecision: "required-for-launch",
+    customerSurface: "operations-status",
+    capabilityStatus: "enabled",
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     noSideEffectBeforeCommitRequired: true,
     redactsSensitiveSignals: true,
     staysBeforeCheckout: false,
     idempotencyKeyShape: "checkout:risk_fresh_state:<scan-or-route-id>:<result>",
     forbiddenMechanisms: checkoutRiskForbiddenMechanisms,
-    evidenceExpectation:
+    customerSafeOutcome:
       "Fresh-state scans prove risk handling cannot succeed through old routes, payload adapters, migration/backfill helpers, dual writes, hidden repair, stale fixtures, or dense checkout fallback.",
   }),
 ] as const satisfies readonly CheckoutRiskControlPolicyEntry[];
@@ -571,7 +571,7 @@ export function assertCheckoutRiskControlPolicyCoverage(): void {
     if (!entry.ownerIssues.includes("#1131")) {
       throw new Error(`Checkout risk control '${entry.control}' must include #1131 as an owner issue.`);
     }
-    if (entry.docLabel.trim().length === 0 || entry.evidenceExpectation.trim().length === 0) {
+    if (entry.docLabel.trim().length === 0 || entry.customerSafeOutcome.trim().length === 0) {
       throw new Error(`Checkout risk control '${entry.control}' needs documentation text.`);
     }
     if (entry.audiences.length === 0 || entry.checkpoints.length === 0 || entry.protectedActions.length === 0) {
@@ -584,10 +584,10 @@ export function assertCheckoutRiskControlPolicyCoverage(): void {
       throw new Error(`Checkout risk control '${entry.control}' needs an idempotency/support key shape.`);
     }
     if (
-      entry.launchDecision === "launch-decision-required" &&
-      (!entry.launchDecisionRequired || !entry.supportReferenceRequired)
+      entry.capabilityStatus === "owner-rule-required" &&
+      (!entry.ownerRuleRequired || !entry.supportReferenceRequired)
     ) {
-      throw new Error(`Checkout risk control '${entry.control}' needs launch decision and support coverage.`);
+      throw new Error(`Checkout risk control '${entry.control}' needs owner rule and support coverage.`);
     }
     if (
       entry.outcomeStates.some((state) =>
