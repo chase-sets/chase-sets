@@ -140,6 +140,25 @@ const boundedContextRouteSuiteOwnership = [
     suites: ["marketplace_account", "marketplace_seller"],
   },
   {
+    // Milestone-25 decomposed route: browse -> item-detail commerce panel
+    // composition is owned by the marketplace_browse item-detail e2e spec.
+    pattern: /^bounded-contexts\/discovery\/routes\/item-detail\./,
+    suites: ["marketplace_browse"],
+  },
+  {
+    // Milestone-25 decomposed route: the sell-handoff composition + readiness
+    // redirect chain is owned by the marketplace_checkout sell-checkout-session spec.
+    pattern: /^bounded-contexts\/checkout\/routes\/sell-checkout-session\./,
+    suites: ["marketplace_checkout"],
+  },
+  {
+    // Milestone-25 decomposed routes: the signed-in payment confirmation surface
+    // and the guest checkout-payment claim entry point are owned by the
+    // marketplace_checkout account-payment spec.
+    pattern: /^bounded-contexts\/payments\/routes\/marketplace\/(?:account-payment|checkout-payment)\./,
+    suites: ["marketplace_checkout"],
+  },
+  {
     pattern: /^bounded-contexts\/public-presence\/routes\/marketplace\//,
     suites: ["marketplace_browse"],
   },
