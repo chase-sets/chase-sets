@@ -2,7 +2,7 @@
 
 This document defines the #1123 performance gate for Milestone #17. It covers the Shopify-simple Buy Cart, Sell List, readiness, checkout, confirmation, account-history handoff, support lookup, and recovery surfaces.
 
-These are launch acceptance budgets, not provider SLAs. A flow passes only when it reaches a known Checkout-owned visible state inside budget and records side-effect status. Fast generic platform errors, stale selectors, missing diagnostic fields, or ambiguous no-state renders fail this gate.
+These are checkout budgets, not provider SLAs. A flow passes only when it reaches a known Checkout-owned visible state inside budget and records side-effect status. Fast generic platform errors, stale selectors, missing diagnostic fields, or ambiguous no-state renders fail this gate.
 
 The executable contract lives in `bounded-contexts/checkout/features/sessions/api/checkout-performance-budgets.ts`.
 
@@ -26,7 +26,7 @@ Downstream contexts own their committed facts:
 - Notifications owns transactional communication delivery.
 - Support owns operator recovery workflows and support-safe lookup behavior.
 
-Checkout launch status checks may measure those downstream handoffs, but Checkout must not synthesize downstream completion to satisfy a performance budget.
+Checkout performance checks may measure those downstream handoffs, but Checkout must not synthesize downstream completion to satisfy a performance budget.
 
 ## Budget Rules
 
@@ -34,24 +34,24 @@ Checkout launch status checks may measure those downstream handoffs, but Checkou
 - Every timeout must leave headroom below the platform gateway timeout.
 - Every surface must name a known visible state.
 - Ambiguous no-state render is always a failure.
-- Local, staging, and production-like evidence are required.
-- Pre-confirmation surfaces must prove payment, order, label, payout, settlement, notification, account-history, and support side effects were not attempted.
-- Launch status checks must report Buy Now, Buy Cart readiness, and Sell List readiness separately for guest and signed-in actors.
-- Mobile evidence must cover sticky totals/actions, collapsible summaries, saved-row editing, no horizontal overflow, and no layout shift.
+- Local, staging, and production-like coverage are required.
+- Pre-confirmation surfaces must show payment, order, label, payout, settlement, notification, account-history, and support side effects were not attempted.
+- Performance checks must report Buy Now, Buy Cart readiness, and Sell List readiness separately for guest and signed-in actors.
+- Mobile checks must cover sticky totals/actions, collapsible summaries, saved-row editing, no horizontal overflow, and no layout shift.
 
-## Launch-Supported Shape
+## Supported Shape
 
-The launch budget supports:
+The budget supports:
 
 - up to 50 cart or Sell List lines;
 - up to 8 fulfillment or seller groups;
 - up to 80 summary, support, account-history, or recovery rows.
 
-Larger shapes require a new budget review before launch enablement.
+Larger shapes require a new budget review before shape limits increase.
 
 ## Performance Budget Matrix
 
-| Surface | p95 | Timeout | Visible state | Evidence |
+| Surface | p95 | Timeout | Visible state | Coverage |
 | --- | ---: | ---: | --- | --- |
 | Cart/list initial render | 900 ms | 3,000 ms | cart-or-list-review-visible | route, e2e, mobile, metrics |
 | Buy Cart readiness evaluation | 1,250 ms | 5,000 ms | readiness-decision-visible | unit, route, e2e, metrics |
@@ -72,13 +72,13 @@ Larger shapes require a new budget review before launch enablement.
 
 ## Checkout Entry Freshness
 
-Checkout entry evidence measures time to first known Checkout-owned state:
+Checkout entry coverage measures time to first known Checkout-owned state:
 
 - checkout review visible;
 - temporary checkout-preparing recovery visible;
 - customer-safe permanent recovery visible.
 
-The PR #1212 staging Buy Now baseline reached safe temporary recovery in 2,937 ms. That value is tracking evidence, not a universal SLA. Release launch checks must remeasure or explicitly revalidate Buy Now, Buy Cart readiness, and Sell List readiness after projection, work-signal, runtime, or sell-confirmation changes.
+The PR #1212 staging Buy Now baseline reached safe temporary recovery in 2,937 ms. That value is a tracking sample, not a universal SLA. Release checks must remeasure or explicitly revalidate Buy Now, Buy Cart readiness, and Sell List readiness after projection, work-signal, runtime, or sell-confirmation changes.
 
 Temporary recovery counts as safe only when:
 
@@ -98,9 +98,9 @@ Readiness and optional optimization stay before checkout:
 
 ## Confirmation And Downstream Handoff
 
-Final confirmation budgets start only after explicit customer confirmation with current readiness and freshness evidence.
+Final confirmation budgets start only after explicit customer confirmation with current readiness and freshness facts.
 
-Launch status checks must distinguish:
+Performance checks must distinguish:
 
 - confirmation recorded;
 - Marketplace handoff recorded;
@@ -111,9 +111,9 @@ Launch status checks must distinguish:
 
 Pending downstream state cannot be counted as completed downstream work.
 
-## Evidence Requirements
+## Coverage Requirements
 
-Each launch check must record:
+Each performance check must record:
 
 - entry source: Buy Now, Buy Cart readiness, or Sell List readiness;
 - actor: guest or signed-in;
@@ -122,10 +122,10 @@ Each launch check must record:
 - side-effect status;
 - support-safe reference where one exists;
 - observability event or metric source;
-- no-compatibility scan result;
-- release PR, test, deploy, canary, or runbook evidence.
+- fresh-state scan result;
+- release PR, test, deploy, canary, or runbook coverage.
 
-Production-like evidence can be synthetic only when it has an approved cleanup or isolation contract. Otherwise staging browser evidence remains the symptom-level proof for customer-visible freshness behavior.
+Production-like checks can be synthetic only when they have an approved cleanup or isolation contract. Otherwise staging browser checks remain the symptom-level coverage for customer-visible freshness behavior.
 
 ## Failure Rules
 

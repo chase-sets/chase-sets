@@ -55,11 +55,11 @@ describe("Checkout performance budgets", () => {
     }
   });
 
-  it("requires local, staging, and production-like evidence for every surface", () => {
+  it("requires local, staging, and production-like coverage for every surface", () => {
     for (const budget of checkoutPerformanceBudgets) {
       expect(budget.environments, budget.surface).toEqual(expect.arrayContaining([...allEnvironments]));
       expect(budget.verification.length, budget.surface).toBeGreaterThan(0);
-      expect(budget.acceptanceNote, budget.surface).not.toMatch(/\b(todo|tbd)\b/i);
+      expect(budget.coverageNote, budget.surface).not.toMatch(/\b(todo|tbd)\b/i);
     }
   });
 
@@ -85,7 +85,7 @@ describe("Checkout performance budgets", () => {
     }
   });
 
-  it("sets launch-supported line and group counts for composite buy and sell evidence", () => {
+  it("sets supported line and group counts for composite buy and sell coverage", () => {
     for (const budget of checkoutPerformanceBudgets) {
       expect(budget.maxLines, budget.surface).toBeGreaterThanOrEqual(50);
       expect(budget.maxFulfillmentGroups, budget.surface).toBeGreaterThanOrEqual(8);
@@ -99,7 +99,7 @@ describe("Checkout performance budgets", () => {
     ).toBeGreaterThanOrEqual(8);
   });
 
-  it("documents the executable budget contract and launch failure rules", () => {
+  it("documents the executable budget contract and failure rules", () => {
     const doc = readFileSync(new URL("../../../docs/checkout-performance-budgets.md", import.meta.url), "utf8");
     const checkoutReadme = readFileSync(new URL("../../../README.md", import.meta.url), "utf8");
     const docsIndex = readFileSync(new URL("../../../../../docs/README.md", import.meta.url), "utf8");
