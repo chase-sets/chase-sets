@@ -71,6 +71,10 @@ function errorCode(error: unknown) {
 }
 
 const savedCheckoutInstrumentUnavailableCode = "saved_checkout_instrument_unavailable" as const;
+const marketplaceCheckoutFeePolicyVersion = "marketplace-checkout-fee-v1";
+const checkoutPaymentMethodCategories = ["card", "bank-account", "platform-credit"] as const;
+
+type CheckoutPaymentMethodCategory = (typeof checkoutPaymentMethodCategories)[number];
 
 function normalizeSavedCheckoutInstrumentId(value: unknown) {
   if (value === null || value === undefined) {
@@ -79,6 +83,44 @@ function normalizeSavedCheckoutInstrumentId(value: unknown) {
 
   const normalized = String(value).trim();
   return normalized.length > 0 ? normalized : null;
+}
+
+function normalizeCheckoutPaymentMethodCategory(value: unknown): CheckoutPaymentMethodCategory {
+  return checkoutPaymentMethodCategories.includes(value as CheckoutPaymentMethodCategory)
+    ? (value as CheckoutPaymentMethodCategory)
+    : "card";
+}
+
+function paymentMethodCategoryFromQuoteFingerprint(fingerprint: string | null): CheckoutPaymentMethodCategory | null {
+  if (!fingerprint) {
+    return null;
+  }
+
+  const [policyVersion, paymentMethodCategory] = fingerprint.split("|");
+  if (policyVersion !== marketplaceCheckoutFeePolicyVersion) {
+    return null;
+  }
+
+  return checkoutPaymentMethodCategories.includes(paymentMethodCategory as CheckoutPaymentMethodCategory)
+    ? (paymentMethodCategory as CheckoutPaymentMethodCategory)
+    : null;
+}
+
+function selectedPaymentMethodMatchesQuote(
+  paymentMethodCategory: CheckoutPaymentMethodCategory,
+  marketplaceCheckoutFeeQuoteFingerprint: string | null,
+) {
+  const quotedPaymentMethodCategory = paymentMethodCategoryFromQuoteFingerprint(marketplaceCheckoutFeeQuoteFingerprint);
+  return !quotedPaymentMethodCategory || quotedPaymentMethodCategory === paymentMethodCategory;
+}
+
+function paymentQuoteRequiredResponse() {
+  return {
+    error: {
+      code: "payment_quote_required",
+      message: t("checkout.features.sessions.api.route.payment.quote.required"),
+    },
+  };
 }
 
 function assertSavedInstrumentAllowed(
@@ -434,7 +476,7 @@ export function createAccountCheckoutSessionRoutes(
     const sessionId = c.req.param("sessionId");
     const body = await c.req.json().catch(() => ({}));
     const requestedBalanceCreditAmount = normalizeRequestedBalanceCreditAmount(body.requestedBalanceCreditAmount);
-    const paymentMethodCategory = String(body.paymentMethodCategory ?? "card");
+    const paymentMethodCategory = normalizeCheckoutPaymentMethodCategory(body.paymentMethodCategory);
     const savedCheckoutInstrumentId = normalizeSavedCheckoutInstrumentId(body.savedCheckoutInstrumentId);
     const marketplaceCheckoutFeeQuoteFingerprint =
       typeof body.marketplaceCheckoutFeeQuoteFingerprint === "string"
@@ -450,6 +492,9 @@ export function createAccountCheckoutSessionRoutes(
     try {
       assertNoUnsupportedCustomerEconomicsInput(body);
       assertSavedInstrumentAllowed(access.actor, savedCheckoutInstrumentId, requestedSavePaymentMethodForFuture);
+      if (!selectedPaymentMethodMatchesQuote(paymentMethodCategory, marketplaceCheckoutFeeQuoteFingerprint)) {
+        return c.json(paymentQuoteRequiredResponse(), 409);
+      }
       let session = await services.getSession(sessionId, access.actor.accountId);
       if (!session) {
         return c.json(
@@ -539,15 +584,7 @@ export function createAccountCheckoutSessionRoutes(
       }
 
       if (!marketplaceCheckoutFeeQuoteFingerprint) {
-        return c.json(
-          {
-            error: {
-              code: "payment_quote_required",
-              message: t("checkout.features.sessions.api.route.payment.quote.required"),
-            },
-          },
-          409,
-        );
+        return c.json(paymentQuoteRequiredResponse(), 409);
       }
 
       let orderIds = [...session.order_ids];
