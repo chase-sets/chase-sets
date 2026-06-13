@@ -10,7 +10,7 @@
 
 - [ ] Guest buy: cart review -> checkout -> payment -> confirmation completes with no account required (baseline: PR #1549).
 - [ ] Signed-in buy: saved contact, address, and payment rows render, are editable, and checkout completes (baseline: PR #1550).
-- [ ] Buy Now works for guest and signed-in buyers, landing on checkout review or checkout-owned preparing recovery instead of a blank/platform/old-checkout page (baseline: PR #1212).
+- [ ] Buy Now works for guest and signed-in buyers, landing on checkout review or checkout-owned preparing recovery instead of a blank/platform/old-checkout page (baseline: PR #1212; proof: PR #1599).
 - [ ] A multi-seller cart still presents one payment action and one confirmation; group details remain available afterward for account history and support.
 - [ ] Reload, back/forward, and duplicate pay actions never create duplicate payments or orders (baseline: PR #1499).
 

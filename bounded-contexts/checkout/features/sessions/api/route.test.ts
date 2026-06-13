@@ -435,6 +435,61 @@ describe("checkout session routes", () => {
     );
   });
 
+  it("starts guest buy-now sessions directly without using the cart workaround", async () => {
+    const services = createServices({
+      createBuyNow: vi.fn(async () => ({
+        sessionId: "chk_guest_buy_now" as never,
+        commitPosition: "51",
+        commitEventIds: ["evt_guest_buy_now_started"],
+      })),
+    });
+    const app = buildApp(services, createGuestBuyerActor());
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source: {
+            type: "buy-now",
+            listingId: "lst_guest",
+            lockedListingId: "lst_guest",
+            catalogItemId: "cat_1",
+            productId: "cat_1::form:raw",
+            itemTitle: "Charizard",
+            selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+            quantity: 1,
+          },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toEqual({
+      session_id: "chk_guest_buy_now",
+      status: "started",
+      commitPosition: "51",
+      commitEventIds: ["evt_guest_buy_now_started"],
+    });
+    expect(services.createBuyNow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: "acc_guest",
+        listingId: "lst_guest",
+        lockedListingId: "lst_guest",
+        fulfillmentMode: "locked-listing",
+        productId: "cat_1::form:raw",
+      }),
+      expect.objectContaining({
+        audit: expect.objectContaining({
+          forAccountId: "acc_guest",
+          performedByUserId: "usr_guest_checkout",
+        }),
+      }),
+    );
+    expect(services.createFromCart).not.toHaveBeenCalled();
+    expect(services.createOfferIntent).not.toHaveBeenCalled();
+  });
+
   it("rejects buy-now session creation without assigned fulfillment", async () => {
     const checkoutObservabilityTelemetry = { recordCheckoutEvent: vi.fn() };
     const services = createServices();
@@ -478,6 +533,55 @@ describe("checkout session routes", () => {
     const emitted = JSON.stringify(checkoutObservabilityTelemetry.recordCheckoutEvent.mock.calls[0]?.[0]);
     expect(emitted).not.toContain("chk_");
     expect(emitted).not.toContain("acc_buyer");
+  });
+
+  it("rejects old-shaped buy-now payloads instead of adapting old checkout links", async () => {
+    const checkoutObservabilityTelemetry = { recordCheckoutEvent: vi.fn() };
+    const services = createServices();
+    const app = buildApp(services, createGuestBuyerActor(), checkoutObservabilityTelemetry);
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source: {
+            type: "buy-now",
+            checkoutId: "old_checkout_1",
+            checkoutSessionId: "old_session_1",
+            legacyCheckoutUrl: "/checkout/start?session=old_session_1",
+            catalogItemId: "cat_1",
+            productId: "cat_1::form:raw",
+            itemTitle: "Charizard",
+            selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+            quantity: 1,
+          },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "unresolved_fulfillment",
+        message: "Resolve item availability before checkout starts.",
+      },
+    });
+    expect(services.createBuyNow).not.toHaveBeenCalled();
+    expect(services.createFromCart).not.toHaveBeenCalled();
+    expect(services.createOfferIntent).not.toHaveBeenCalled();
+    expect(checkoutObservabilityTelemetry.recordCheckoutEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        entrySource: "buy-now",
+        actorMode: "guest",
+        sideEffectStatus: "not-attempted",
+        downstreamStatus: "not-started",
+      }),
+    );
+    const emitted = JSON.stringify(checkoutObservabilityTelemetry.recordCheckoutEvent.mock.calls[0]?.[0]);
+    expect(emitted).not.toContain("old_checkout_1");
+    expect(emitted).not.toContain("old_session_1");
+    expect(emitted).not.toContain("/checkout/start");
   });
 
   it("normalizes offer-intent payloads into checkout-owned session creation", async () => {
