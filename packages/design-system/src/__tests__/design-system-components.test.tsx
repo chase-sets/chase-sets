@@ -4,6 +4,7 @@ import { act, useState } from "react";
 import { hydrateRoot, type Root } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
+import tailwindConfig from "../../../../tailwind.config";
 import {
   Button,
   CopyButton,
@@ -70,8 +71,10 @@ import {
 } from "../patterns/app-shells";
 import { SkipLink } from "../primitives/layout";
 import { ChaseRoot, ColorModeToggle, useChaseMotion, useReducedMotion } from "../theme/provider";
-import { chaseTheme, resolveThemeOverrideStyle, resolveThemeStyle } from "../theme/tokens";
+import { chaseTheme, resolveThemeOverrideStyle, resolveThemeStyle, type SpaceToken } from "../theme/tokens";
 import { resolveResponsiveClass, resolveSpaceClass } from "../utils/system";
+
+const expectedSpacingTokens = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] satisfies SpaceToken[];
 
 function ControlledToastHarness() {
   const [open, setOpen] = useState(true);
@@ -188,6 +191,8 @@ describe("design system components", () => {
     expect(chaseTheme.typography.body).toContain("--body-font");
     expect(chaseTheme.typography.body).toContain("IBM Plex Sans");
     expect(chaseTheme.radius.md).toBe("var(--radius, 0.5rem)");
+    expect(chaseTheme.spacing[4]).toBe("var(--space-4)");
+    expect(expectedSpacingTokens).toHaveLength(13);
     expect(chaseTheme.motion.base).toBe("var(--motion-base, 150ms)");
     expect(chaseTheme.colors.trust).toBe("var(--trust)");
     expect(chaseTheme.colors.deal).toBe("var(--deal)");
@@ -211,9 +216,13 @@ describe("design system components", () => {
       typography: {
         body: "Instrument Sans",
       },
+      spacing: {
+        4: "1.125rem",
+      },
     });
 
     expect(style?.["--font-body" as never]).toBe("Instrument Sans");
+    expect(style?.["--space-4" as never]).toBe("1.125rem");
     expect(style?.["--color-background" as never]).toBeUndefined();
   });
 
@@ -1074,6 +1083,16 @@ describe("design system components", () => {
     expect(resolveSpaceClass("gap", 5)).toBe("gap-5");
     expect(resolveSpaceClass("p", 6)).toBe("p-6");
     expect(resolveSpaceClass("px", 12)).toBe("px-12");
+  });
+
+  it("keeps Tailwind spacing keys aligned to SpaceToken CSS variables", () => {
+    const spacing = tailwindConfig.theme?.extend?.spacing as Record<string, string> | undefined;
+
+    expect(spacing).toBeDefined();
+
+    for (const token of expectedSpacingTokens) {
+      expect(spacing?.[String(token)]).toBe(chaseTheme.spacing[token]);
+    }
   });
 
   it("renders Rating with correct number of stars", () => {

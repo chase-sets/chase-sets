@@ -2,6 +2,8 @@ import type { CSSProperties } from "react";
 
 export type BreakpointKey = "base" | "sm" | "md" | "lg" | "xl" | "2xl";
 export type ColorMode = "system" | "light" | "dark";
+const spacingTokens = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as const;
+export type SpaceToken = (typeof spacingTokens)[number];
 
 export type ResponsiveValue<T> =
   | T
@@ -90,6 +92,7 @@ export interface ThemeTokens {
     lg: string;
     xl: string;
   };
+  spacing: Record<SpaceToken, string>;
   shadows: {
     sm: string;
     md: string;
@@ -117,6 +120,7 @@ export interface ThemeOverrides {
   colors?: Partial<ThemeTokens["colors"]>;
   typography?: Partial<ThemeTokens["typography"]>;
   radius?: Partial<ThemeTokens["radius"]>;
+  spacing?: Partial<ThemeTokens["spacing"]>;
   shadows?: Partial<ThemeTokens["shadows"]>;
   zIndex?: Partial<ThemeTokens["zIndex"]>;
   motion?: Partial<ThemeTokens["motion"]>;
@@ -196,6 +200,21 @@ export const chaseTheme: ThemeTokens = {
     lg: "var(--radius-lg, 0.75rem)",
     xl: "var(--radius-xl, 1rem)",
   },
+  spacing: {
+    0: "var(--space-0)",
+    1: "var(--space-1)",
+    2: "var(--space-2)",
+    3: "var(--space-3)",
+    4: "var(--space-4)",
+    5: "var(--space-5)",
+    6: "var(--space-6)",
+    7: "var(--space-7)",
+    8: "var(--space-8)",
+    9: "var(--space-9)",
+    10: "var(--space-10)",
+    11: "var(--space-11)",
+    12: "var(--space-12)",
+  },
   shadows: {
     sm: "var(--shadow-sm)",
     md: "var(--shadow-md)",
@@ -245,6 +264,10 @@ export function resolveTheme(theme?: ThemeOverrides, baseTheme: ThemeTokens = ch
     radius: {
       ...baseTheme.radius,
       ...theme.radius,
+    },
+    spacing: {
+      ...baseTheme.spacing,
+      ...theme.spacing,
     },
     shadows: {
       ...baseTheme.shadows,
@@ -350,6 +373,19 @@ const tokenMap: [string, (theme: ThemeTokens | ThemeOverrides) => string | undef
   ["--radius-md", (t) => t.radius?.md],
   ["--radius-lg", (t) => t.radius?.lg],
   ["--radius-xl", (t) => t.radius?.xl],
+  ["--space-0", (t) => t.spacing?.[0]],
+  ["--space-1", (t) => t.spacing?.[1]],
+  ["--space-2", (t) => t.spacing?.[2]],
+  ["--space-3", (t) => t.spacing?.[3]],
+  ["--space-4", (t) => t.spacing?.[4]],
+  ["--space-5", (t) => t.spacing?.[5]],
+  ["--space-6", (t) => t.spacing?.[6]],
+  ["--space-7", (t) => t.spacing?.[7]],
+  ["--space-8", (t) => t.spacing?.[8]],
+  ["--space-9", (t) => t.spacing?.[9]],
+  ["--space-10", (t) => t.spacing?.[10]],
+  ["--space-11", (t) => t.spacing?.[11]],
+  ["--space-12", (t) => t.spacing?.[12]],
   ["--shadow-sm", (t) => t.shadows?.sm],
   ["--shadow-md", (t) => t.shadows?.md],
   ["--shadow-lg", (t) => t.shadows?.lg],
