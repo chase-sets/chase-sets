@@ -40,8 +40,8 @@ describe("Checkout risk control policy", () => {
     const inventory = checkoutRiskControlPolicyEntries.find(
       (entry) => entry.control === "inventory-hoarding-and-reservation-limits",
     );
-    expect(inventory?.evidenceExpectation).toMatch(/checkout never assigns fulfillment/i);
-    expect(inventory?.evidenceExpectation).toMatch(/unassigned fulfillment/i);
+    expect(inventory?.customerSafeOutcome).toMatch(/checkout never assigns fulfillment/i);
+    expect(inventory?.customerSafeOutcome).toMatch(/unassigned fulfillment/i);
   });
 
   it("requires blocked, held, challenged, deferred, and provider states to be support-safe", () => {
@@ -84,23 +84,23 @@ describe("Checkout risk control policy", () => {
     expect(finalConfirmationEntries.length).toBeGreaterThan(0);
     for (const entry of finalConfirmationEntries) {
       expect(entry.noSideEffectBeforeCommitRequired, entry.control).toBe(true);
-      expect(entry.evidenceExpectation, entry.control).toMatch(
+      expect(entry.customerSafeOutcome, entry.control).toMatch(
         /no |cannot|before|block|hold|idempotent|revalidate|stop|never/i,
       );
     }
   });
 
-  it("documents launch decision, observability, and fresh-state requirements", () => {
-    const launchDecision = checkoutRiskControlPolicyEntries.find(
-      (entry) => entry.control === "launch-decision-risk-states",
+  it("documents owner rule, observability, and fresh-state requirements", () => {
+    const capabilityStatus = checkoutRiskControlPolicyEntries.find(
+      (entry) => entry.control === "owner-rule-risk-states",
     );
     const observability = checkoutRiskControlPolicyEntries.find((entry) => entry.control === "observability-redaction");
     const cleanup = checkoutRiskControlPolicyEntries.find((entry) => entry.control === "fresh-state-risk-cleanup");
 
-    expect(launchDecision?.launchDecisionRequired).toBe(true);
-    expect(launchDecision?.evidenceExpectation).toMatch(/owner, copy, support path, observability/i);
-    expect(observability?.evidenceExpectation).toMatch(/sensitive risk signals/i);
-    expect(cleanup?.evidenceExpectation).toMatch(/old routes, payload adapters/i);
+    expect(capabilityStatus?.ownerRuleRequired).toBe(true);
+    expect(capabilityStatus?.customerSafeOutcome).toMatch(/owner, copy, support path, observability/i);
+    expect(observability?.customerSafeOutcome).toMatch(/sensitive risk signals/i);
+    expect(cleanup?.customerSafeOutcome).toMatch(/old routes, payload adapters/i);
   });
 
   it("documents the executable risk control policy", () => {
