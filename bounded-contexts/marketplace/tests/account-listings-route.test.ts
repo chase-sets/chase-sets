@@ -67,6 +67,8 @@ describe("account listings route", () => {
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
       listSellerListings: vi.fn().mockResolvedValue({ items: [], total: 0 }),
       listSellerListingFeeLockReport: vi.fn().mockResolvedValue({ items: [], total: 0 }),
+      listSellerListingInventory: vi.fn().mockResolvedValue({ items: [], total: 0 }),
+      hasSellerSupplyLocationNamed: vi.fn().mockResolvedValue(false),
       claimAnonymousListingDraftIntent: mockClaimAnonymousListingDraftIntent,
       getSellerListingAvailability: vi.fn().mockResolvedValue({
         account_id: "acc_seller",
@@ -78,10 +80,7 @@ describe("account listings route", () => {
         updated_at: "2026-04-17T00:00:00.000Z",
       }),
     });
-    mockCreateInventoryRequestApiClient.mockReturnValue({
-      listItems: vi.fn().mockResolvedValue({ items: [], total: 0 }),
-      listStorageLocations: vi.fn().mockResolvedValue({ items: [], total: 0 }),
-    });
+    mockCreateInventoryRequestApiClient.mockReturnValue({});
 
     const result = await loader({
       request: new Request("http://localhost/account/listings?claimListingIntent=ldi_1", {

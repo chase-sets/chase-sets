@@ -47,6 +47,7 @@ import {
   getMarketSummaryForItem,
   getSellerListing,
   getSellerListingAvailability,
+  hasSellerSupplyLocationNamed,
   listActiveListingsForInventoryItem,
   listItemListings,
   listSellerListingFeeLockReport,
@@ -247,6 +248,9 @@ export type MarketplaceListingServices = Readonly<{
   listSellerInventoryItemSupply: (
     params: Parameters<typeof listSellerInventoryItemSupply>[1],
   ) => ReturnType<typeof listSellerInventoryItemSupply>;
+  hasSellerSupplyLocationNamed: (
+    params: Parameters<typeof hasSellerSupplyLocationNamed>[1],
+  ) => ReturnType<typeof hasSellerSupplyLocationNamed>;
   getSellerListing: (listingId: string, accountId: string) => ReturnType<typeof getSellerListing>;
   listSellerListingFeeHistory: (
     params: Readonly<{ listingId: string; accountId: string }>,
@@ -1137,6 +1141,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     },
     listSellerListings: (params) => listSellerListings(deps.db, params),
     listSellerInventoryItemSupply: (params) => listSellerInventoryItemSupply(deps.db, params),
+    hasSellerSupplyLocationNamed: (params) => hasSellerSupplyLocationNamed(deps.db, params),
     getSellerListing: (listingId, accountId) => getSellerListing(deps.db, listingId, accountId),
     listSellerListingFeeHistory: async (params) => {
       await loadOwnedListingState(params.listingId, params.accountId);
