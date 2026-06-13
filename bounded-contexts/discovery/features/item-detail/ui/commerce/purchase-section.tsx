@@ -18,7 +18,7 @@ import {
   SecurePaymentCue,
   Text,
 } from "@chase-sets/design-system";
-import { trackItemDetailRailEvent } from "../../../../support/ui-support/item-detail-rail-analytics";
+import { trackItemDetailRailEvent } from "../item-detail-rail-analytics";
 import {
   formatMoneyAmount,
   getActionErrorMessage,

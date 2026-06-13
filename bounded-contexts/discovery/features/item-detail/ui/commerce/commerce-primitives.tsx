@@ -11,7 +11,7 @@ import {
   type AccordionSectionEdge,
 } from "@chase-sets/design-system";
 import type { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import { trackItemDetailRailEvent } from "../../../../support/ui-support/item-detail-rail-analytics";
+import { trackItemDetailRailEvent } from "../item-detail-rail-analytics";
 
 export type CommerceAccordionEdge = AccordionSectionEdge;
 

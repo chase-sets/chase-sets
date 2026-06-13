@@ -6,7 +6,7 @@ import { CatalogItemListPage } from "../../features/catalog-items/ui/catalog-ite
 import { createCatalogRequestApiClient } from "../../support/request-support/api-client";
 import { catalogRealtimeRouteTopics } from "../../support/realtime-support/topics";
 import { loadCatalogListRouteData } from "../../support/shell-support/list-query-state";
-import { CatalogRealtimeReloadActionBar } from "../../support/shell-support/ui/realtime-reload-action-bar";
+import { CatalogRealtimeReloadActionBar } from "../../features/catalog-items/ui/realtime-reload-action-bar";
 import { useCatalogRealtimeRevalidation } from "../../support/shell-support/ui/realtime-revalidation";
 
 export async function loader({ request }: LoaderFunctionArgs) {

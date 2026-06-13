@@ -7,7 +7,7 @@ import {
 } from "../../support/request-support/api-client";
 import { PublicPresenceHomePage } from "../../features/waitlist/ui/public-pages";
 import heroImageUrl from "../../features/waitlist/ui/assets/chase-sets-prelaunch-hero.webp?url";
-import { publicPresenceT as t } from "../../support/ui-support/public-presence-translator";
+import { publicPresenceT as t } from "../../features/waitlist/ui/public-presence-translator";
 
 const fallbackPublicOrigin = "https://chasesets.com";
 const faqStructuredDataEntries = [

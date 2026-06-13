@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { publicPresenceEnglishTranslations } from "@chase-sets/localization/locales/en/public-presence";
-import { publicPresenceHasTranslation, publicPresenceT } from "../support/ui-support/public-presence-translator";
+import { publicPresenceHasTranslation, publicPresenceT } from "../features/waitlist/ui/public-presence-translator";
 
 describe("public presence translator", () => {
   it("resolves public presence copy without the global localization runtime", () => {

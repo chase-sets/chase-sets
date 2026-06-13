@@ -579,12 +579,12 @@
     },
     "ui-support": {
       "classification": "support",
-      "purpose": "Expose browser-safe Discovery UI contracts for item-detail rail analytics without moving rail behavior out of the item-detail slice.",
-      "allowedWhen": "Allowed only for browser-safe Discovery UI contracts consumed through context web exports or item-detail UI.",
-      "expectedConsumers": ["item-detail"],
-      "justification": "The item-detail slice owns rail analytics vocabulary; the marketplace host needs the event allowlist without importing feature internals or duplicating bounded-context terms.",
+      "purpose": "Expose browser-safe Discovery UI contracts from feature-owned modules through the context web surface.",
+      "allowedWhen": "Allowed only for browser-safe Discovery UI contracts consumed through context web exports.",
+      "expectedConsumers": ["Deployable composition for discovery"],
+      "justification": "ui-support keeps deployable-facing web exports stable while item-detail owns rail analytics vocabulary.",
       "createdFor": "item-detail action rail analytics capture.",
-      "sunsetWhen": "Remove if rail analytics capture moves fully into deployable-owned instrumentation or an approved experimentation context."
+      "sunsetWhen": "Remove if web exports can point directly at feature browser-entry modules."
     },
     "ucp-support": {
       "classification": "support",

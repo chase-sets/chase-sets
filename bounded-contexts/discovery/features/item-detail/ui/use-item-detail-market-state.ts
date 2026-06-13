@@ -4,7 +4,7 @@ import type {
   DiscoveryMarketListing,
   DiscoveryOffer,
 } from "../../../support/client-support/contracts";
-import { trackItemDetailRailEvent } from "../../../support/ui-support/item-detail-rail-analytics";
+import { trackItemDetailRailEvent } from "./item-detail-rail-analytics";
 import { normalizeProductSearchOptionsForSchema } from "../domain/product-resolution";
 import {
   applyOptionFilter,

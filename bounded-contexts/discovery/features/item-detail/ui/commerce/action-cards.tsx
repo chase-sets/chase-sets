@@ -11,7 +11,7 @@ import {
   Text,
   type IconName,
 } from "@chase-sets/design-system";
-import { trackItemDetailRailEvent } from "../../../../support/ui-support/item-detail-rail-analytics";
+import { trackItemDetailRailEvent } from "../item-detail-rail-analytics";
 import {
   type CommerceAccordionEdge,
   type MarketSelectionSource,

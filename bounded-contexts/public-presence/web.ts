@@ -4,4 +4,4 @@ export {
   type WaitlistAnalyticsEventName,
   type WaitlistAnalyticsProperties,
 } from "./support/ui-support/waitlist-analytics";
-export { publicPresenceHasTranslation, publicPresenceT } from "./support/ui-support/public-presence-translator";
+export { publicPresenceHasTranslation, publicPresenceT } from "./support/ui-support";
