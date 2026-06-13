@@ -34,6 +34,7 @@ Do not rebuild `deployables/design-system-showcase` as the default answer to com
 - `ChaseRoot` must wrap every application root.
 - Application entrypoints must import `@chase-sets/design-system/styles.css` exactly once.
 - `ChaseRoot` owns reduced-motion policy through `reducedMotion="user" | "always" | "never"` and all component motion should flow through that root contract.
+- Interactive leaf controls forward refs to their focusable DOM node when callers may need focus management, native form submission, anchoring, measurement, or imperative integration. Layout, display, and pattern components that only expose prop bags do not forward refs unless a concrete consumer need exists; add the ref at the component's canonical design-system home instead of creating app-local wrappers.
 - Layout should be built from primitives such as `Page`, `Grid`, `Stack`, `SplitPane`, `Surface`, and shell components.
 - Do not nest cards or elevated surfaces. One nested child level is allowed only through `Inset`, which renders as a recessed cutout for metrics, fields, tables, and grouped controls. `Inset` must not contain another `Inset`, `Card`, `Surface`, or `DetailPanel`.
 - Read-only detail rows inside a card-like parent must stay visually flat. Use `KeyValueList`'s default plain rows or unframed row dividers; do not wrap static key/value rows in another rounded bordered frame that reads like a nested card.

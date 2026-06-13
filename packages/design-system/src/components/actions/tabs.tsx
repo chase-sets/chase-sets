@@ -4,6 +4,7 @@ import { Tabs as TabsPrimitive } from "@base-ui/react/tabs";
 import { AnimatePresence, LayoutGroup, motion } from "motion/react";
 import { renderActivePill } from "./shared";
 import { cx } from "../../utils/cx";
+import { useControllableValue } from "../controllable";
 import { controlHeightClasses, controlPaddingClasses, controlTextClasses } from "../control-sizing";
 
 export interface TabItem {
@@ -18,24 +19,14 @@ export interface TabsProps extends Omit<
   "children" | "className" | "style" | "onValueChange"
 > {
   items: TabItem[];
-  activationMode?: "automatic" | "manual";
   dir?: "ltr" | "rtl";
   onValueChange?: (value: string) => void;
 }
 
-export function Tabs({
-  items,
-  defaultValue,
-  value,
-  onValueChange,
-  orientation = "horizontal",
-  dir,
-  activationMode = "automatic",
-}: TabsProps) {
+export function Tabs({ items, defaultValue, value, onValueChange, orientation = "horizontal", dir }: TabsProps) {
   const resolvedValue = defaultValue ?? items[0]?.value;
-  const [internalValue, setInternalValue] = useState(resolvedValue);
+  const [currentValue, setCurrentValue] = useControllableValue(value, resolvedValue, onValueChange);
   const [reservedPanelHeight, setReservedPanelHeight] = useState<number | null>(null);
-  const currentValue = value ?? internalValue ?? resolvedValue;
   const groupId = useId();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const panelFrameRef = useRef<HTMLDivElement | null>(null);
@@ -87,10 +78,7 @@ export function Tabs({
     }
     scrollSnapshotRef.current = captureScrollSnapshot();
 
-    if (value === undefined) {
-      setInternalValue(nextValue);
-    }
-    onValueChange?.(nextValue);
+    setCurrentValue(nextValue);
   }
 
   function releaseReservedPanelHeight() {
@@ -110,6 +98,7 @@ export function Tabs({
       value={currentValue}
       onValueChange={handleValueChange}
       orientation={orientation}
+      dir={dir}
       className="space-y-4"
     >
       <LayoutGroup id={groupId}>
