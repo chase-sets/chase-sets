@@ -654,6 +654,20 @@ describe("design system panels, navigation, and shells", () => {
     expect(markup).toContain("[overflow-anchor:none]");
   });
 
+  it("wires action tab direction through to Base UI", () => {
+    const markup = renderToString(
+      <Tabs
+        dir="rtl"
+        items={[
+          { value: "listings", label: "Listings", content: <div>Listings content</div> },
+          { value: "offers", label: "Offers", content: <div>Offers content</div> },
+        ]}
+      />,
+    );
+
+    expect(markup).toContain('dir="rtl"');
+  });
+
   it("opens dialogs from triggers", async () => {
     const user = userEvent.setup();
 

@@ -1,5 +1,5 @@
-import { useState } from "react";
 import type { IconName } from "../../icons";
+import { useControllableValue } from "../controllable";
 
 export type Tone = "neutral" | "accent" | "success" | "warning" | "danger" | "info";
 
@@ -47,15 +47,5 @@ export function useControllableOpen(
   defaultOpen: boolean | undefined,
   onOpenChange?: (open: boolean) => void,
 ) {
-  const [internalOpen, setInternalOpen] = useState(defaultOpen ?? false);
-  const resolvedOpen = open ?? internalOpen;
-
-  function handleOpenChange(nextOpen: boolean) {
-    if (open === undefined) {
-      setInternalOpen(nextOpen);
-    }
-    onOpenChange?.(nextOpen);
-  }
-
-  return [resolvedOpen, handleOpenChange] as const;
+  return useControllableValue(open, defaultOpen ?? false, onOpenChange);
 }
