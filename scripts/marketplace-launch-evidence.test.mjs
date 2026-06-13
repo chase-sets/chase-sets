@@ -22,39 +22,18 @@ function checkoutLaunchGate(overrides = {}) {
     evidenceCompletedAt: "2026-05-30T10:55:00.000Z",
     environment: "production",
     releaseCommit: "f318fd3577b635959dabc23117f509ed45621268",
-    matrixReference: "CHECKOUT-MATRIX-2026-05-30",
-    matrixVersion: "checkout-launch-evidence-matrix/v1",
-    matrixRowCount: 25,
-    scenarioStateCount: 23,
-    launchRegisterRowCount: 19,
-    noSideEffectRowCount: 14,
-    pendingDownstreamBoundaryRowCount: 5,
-    freshStateCleanupRowCount: 25,
-    measuredPerformanceRowCount: 25,
-    visualSnapshotCount: 4,
-    mobileViewportCount: 2,
-    accessibilityScenarioCount: 12,
-    e2eScenarioCount: 12,
-    canaryArtifactCount: 4,
     entrySourcesCovered: ["buy-now", "buy-cart-readiness", "sell-list-readiness"],
     actorModesCovered: ["guest", "signed-in"],
     viewportsCovered: ["desktop", "mobile"],
-    copyPolicyReference: "CHECKOUT-COPY-POLICY-2026-05-30",
-    visualTargetsReference: "CHECKOUT-VISUAL-TARGETS-2026-05-30",
-    performanceBudgetReference: "CHECKOUT-PERFORMANCE-BUDGETS-2026-05-30",
     coverageArtifactReference: "CHECKOUT-COVERAGE-2026-05-30",
     performanceMeasurementReference: "CHECKOUT-PERFORMANCE-MEASUREMENTS-2026-05-30",
     productionProofCanaryReference: "CHECKOUT-PRODUCTION-PROOF-CANARY-2026-05-30",
     noSideEffectReference: "CHECKOUT-NO-SIDE-EFFECT-2026-05-30",
     noCompatibilityScanReference: "CHECKOUT-NO-COMPATIBILITY-SCAN-2026-05-30",
     freshStateCleanupReference: "CHECKOUT-FRESH-STATE-CLEANUP-2026-05-30",
-    launchRegisterReference: "CHECKOUT-LAUNCH-REGISTER-2026-05-30",
     observabilityReference: "CHECKOUT-OBSERVABILITY-2026-05-30",
     supportReference: "CHECKOUT-SUPPORT-2026-05-30",
     securityPolicyReference: "CHECKOUT-SECURITY-POLICY-2026-05-30",
-    stagingWorkflowRunReference: "platform-deploy-staging-26688444710",
-    productionWorkflowRunReference: "platform-deploy-production-26688444710",
-    currentMainRevalidated: true,
     buyGuestCovered: true,
     buySignedInCovered: true,
     sellGuestCovered: true,
@@ -448,20 +427,16 @@ describe("marketplace launch evidence verifier", () => {
     expect(result.errors).toContain("Checkout launch evidence gate is required at gates.checkoutLaunchEvidence.");
   });
 
-  it("fails checkout launch evidence that does not prove the full current-main matrix", () => {
+  it("fails checkout launch evidence that does not prove the product-critical launch paths", () => {
     const result = validateMarketplaceLaunchEvidence(
       validPacket({
         gates: {
           checkoutLaunchEvidence: checkoutLaunchGate({
-            currentMainRevalidated: false,
-            matrixVersion: "checkout-launch-matrix/v0",
-            matrixRowCount: 24,
-            measuredPerformanceRowCount: 3,
             productionProofCanaryReference: "placeholder",
             productionProofBuyNowReadyWithinSlo: false,
-            canaryArtifactCount: 3,
-            visualSnapshotCount: 4.5,
             noCompatibilityScanReference: "placeholder",
+            noCustomerCommittingSideEffectsBeforeConfirm: false,
+            freshStateCleanupPassed: false,
             entrySourcesCovered: ["buy-now"],
             actorModesCovered: ["guest"],
             viewportsCovered: ["desktop"],
@@ -472,18 +447,14 @@ describe("marketplace launch evidence verifier", () => {
     );
 
     expect(result.ok).toBe(false);
-    expect(result.errors).toContain("Checkout launch evidence must have currentMainRevalidated=true.");
-    expect(result.errors).toContain(
-      "Checkout launch evidence matrixVersion must be checkout-launch-evidence-matrix/v1.",
-    );
-    expect(result.errors).toContain("Checkout launch evidence matrixRowCount must be at least 25.");
-    expect(result.errors).toContain("Checkout launch evidence measuredPerformanceRowCount must be at least 25.");
     expect(result.errors).toContain("Checkout launch evidence must have productionProofBuyNowReadyWithinSlo=true.");
-    expect(result.errors).toContain("Checkout launch evidence canaryArtifactCount must be at least 4.");
+    expect(result.errors).toContain(
+      "Checkout launch evidence must have noCustomerCommittingSideEffectsBeforeConfirm=true.",
+    );
+    expect(result.errors).toContain("Checkout launch evidence must have freshStateCleanupPassed=true.");
     expect(result.errors).toContain(
       "Checkout launch evidence productionProofCanaryReference must point to a real external evidence record, not a placeholder.",
     );
-    expect(result.errors).toContain("Checkout launch evidence visualSnapshotCount must be an integer.");
     expect(result.errors).toContain(
       "Checkout launch evidence noCompatibilityScanReference must point to a real external evidence record, not a placeholder.",
     );

@@ -132,7 +132,7 @@ describe("Checkout reconciliation policy", () => {
     expect(replay?.evidenceExpectation).toMatch(/signature-checked/i);
   });
 
-  it("launch-registers customer-impacting reconciliation states", () => {
+  it("launch-decisions customer-impacting reconciliation states", () => {
     const customerImpactingStates = [
       "downstream-failed",
       "held",
@@ -148,16 +148,16 @@ describe("Checkout reconciliation policy", () => {
 
     expect(impactedEntries.length).toBeGreaterThan(0);
     for (const entry of impactedEntries) {
-      expect(entry.launchRegisterRequired, entry.control).toBe(true);
+      expect(entry.launchDecisionRequired, entry.control).toBe(true);
       expect(entry.supportReferenceRequired, entry.control).toBe(true);
       expect(entry.noSideEffectBeforeCommitRequired, entry.control).toBe(true);
     }
 
-    const launchRegister = checkoutReconciliationPolicyEntries.find(
-      (entry) => entry.control === "launch-register-reconciliation-states",
+    const launchDecision = checkoutReconciliationPolicyEntries.find(
+      (entry) => entry.control === "launch-decision-reconciliation-states",
     );
-    expect(launchRegister?.ownerIssues).toEqual(expect.arrayContaining(["#1102", "#1112", "#1114", "#1115"]));
-    expect(launchRegister?.evidenceExpectation).toMatch(/disabled, deferred, unsupported, provider-outage/i);
+    expect(launchDecision?.ownerIssues).toEqual(expect.arrayContaining(["#1102", "#1112", "#1114", "#1115"]));
+    expect(launchDecision?.evidenceExpectation).toMatch(/disabled, deferred, unsupported, provider-outage/i);
   });
 
   it("forbids legacy repair, stale data, provider-dashboard fixes, and synthetic completion", () => {

@@ -51,7 +51,7 @@ Repo path: `bounded-contexts/checkout/docs/visual-targets/checkout-visual-target
 
 ## Visual Inventory
 
-| Target | Image artifact | Frames | Copy surface | Performance surface | Launch register |
+| Target | Image artifact | Frames | Copy surface | Performance surface | Launch decision |
 | --- | --- | --- | --- | --- | --- |
 | Buy Cart review ready | `checkout-visual-targets-buy-flow.png` | 1 Desktop Buy Cart review | `cart-list-review` | `cart-list-initial-render` | Not required |
 | Buy readiness attention | `checkout-visual-targets-buy-flow.png` | 2 Mobile Buy Cart readiness and savings | `readiness-unassigned-fulfillment` | `buy-cart-readiness-evaluation` | Required |
@@ -87,10 +87,10 @@ These targets are ready for design review but not final launch proof.
 | --- | --- | --- |
 | UI implementation must attach screenshots or match an approved image target. | #1115 | Desktop and mobile evidence rows link the image target or explicit delta. |
 | Customer-visible copy must map to the copy-policy surface. | #1102 | Localization keys and visual/copy deltas are reviewed together. |
-| Disabled, deferred, unsupported, and provider-dependent states must land in the launch register. | #1116 | Each row has owner, customer-safe copy, support path, observability, expiration/follow-up, no-side-effect proof, and fresh-state cleanup evidence. |
-| Production proof-mode Buy Now must reach pay-ready checkout within the ready SLO. | #1116, #1123, #1227, #1237 | The production proof canary links a current-main artifact where checkout review is visible within SLO; temporary recovery-only runs stay launch blockers. |
+| Disabled, deferred, unsupported, and provider-dependent states must land in the launch decision. | #1548 | Each row has owner, customer-safe copy, support path, observability, support path, no-side-effect proof, and fresh-state cleanup evidence. |
+| Production proof-mode Buy Now must reach pay-ready checkout within the ready SLO. | #1548, #1123, #1227, #1237 | The production proof canary links a release artifact where checkout review is visible within SLO; temporary recovery-only runs stay launch blockers. |
 | Pending states must stay separate from committed downstream records. | #1135, #1130, #1122 | Account/history/support visuals distinguish pending activity from committed order, sale, label, payout, settlement, notification, fulfillment, support, reconciliation, and reversal facts. |
-| Final launch visuals must prove legacy dense checkout absence. | #1116 | Fresh-state scans show no old routes, old payload adapters, compatibility shims, hidden repair, migration/backfill, old docs/runbooks/localization, stale read models, or dense checkout fallback. |
+| Final launch visuals must prove legacy dense checkout absence. | #1548 | Fresh-state scans show no old routes, old payload adapters, compatibility shims, hidden repair, migration/backfill, old docs/runbooks/localization, stale read models, or dense checkout fallback. |
 
 ## Review Use
 

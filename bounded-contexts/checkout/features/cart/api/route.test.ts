@@ -276,7 +276,7 @@ describe("checkout cart routes", () => {
       performanceBudgetId: "buy-cart-readiness-evaluation",
       providerCategory: "fulfillment",
       downstreamStatus: "not-started",
-      launchRegisterDecision: "blocked",
+      launchDecision: "blocked",
       releaseHealthRequired: true,
     });
     expect(JSON.stringify(events)).not.toContain("acc_buyer_sensitive");
@@ -373,7 +373,7 @@ describe("checkout cart routes", () => {
         performanceBudgetId: "buy-cart-readiness-evaluation",
         providerCategory: "fulfillment",
         downstreamStatus: "not-started",
-        launchRegisterDecision: "enabled",
+        launchDecision: "enabled",
         releaseHealthRequired: false,
       });
       expect(JSON.stringify(events)).not.toContain("anon_cart_sensitive");

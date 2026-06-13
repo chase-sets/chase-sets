@@ -25,7 +25,7 @@ export type CheckoutObservabilityTelemetryEvent = Readonly<{
   providerCategory?: string | null;
   riskCategory?: string | null;
   downstreamStatus?: string | null;
-  launchRegisterDecision?: string | null;
+  launchDecision?: string | null;
   freshStateScanResult?: string | null;
   canaryFinalState?: string | null;
   promotionDecision?: string | null;
@@ -80,7 +80,7 @@ export function checkoutObservabilityTelemetryEvent(
     providerCategory: input.providerCategory ?? null,
     riskCategory: input.riskCategory ?? null,
     downstreamStatus: input.downstreamStatus ?? null,
-    launchRegisterDecision: input.launchRegisterDecision ?? null,
+    launchDecision: input.launchDecision ?? null,
     freshStateScanResult: input.freshStateScanResult ?? null,
     canaryFinalState: input.canaryFinalState ?? null,
     promotionDecision: input.promotionDecision ?? null,

@@ -74,7 +74,7 @@ Create these records before enabling the production marketplace switch:
 - `06 Tax Readiness`: counsel/accounting approval, state-by-state nexus posture, collection-required jurisdiction list, provider decision, and `TAX_PROVIDER_BACKED_QUOTES_REQUIRED` value.
 - `07 Support Operations`: account issue opening, admin queue review, overdue or urgent review, evidence/response/resolution/close/cancel endpoints, refund-producing resolution visibility, settlement hold coordination, and support notifications.
 - `08 Public Presence`: launch-mode copy review for home, terms, privacy, refunds and returns, order protection, sales fee, FAQ, contact, and confirmation that no uncertified UCP/AP2/headless-checkout claims are live.
-- `09 Checkout Launch`: current-main buy-now, buy-cart readiness, and sell-list readiness proof for guest and signed-in actors; production proof-mode Buy Now canary evidence that reaches pay-ready checkout within the ready SLO; desktop and mobile snapshots; accessibility and E2E evidence; no customer-committing side effects before confirmation; unassigned fulfillment and optional fulfillment-savings optimization kept outside checkout; pending downstream handoff boundaries; kill-switch fail-closed behavior; fresh-state cleanup; and no legacy checkout compatibility adapters.
+- `09 Checkout Launch`: buy-now, buy-cart readiness, and sell-list readiness proof for guest and signed-in actors; production proof-mode Buy Now canary evidence that reaches pay-ready checkout within the ready SLO; desktop/mobile coverage; no customer-committing side effects before confirmation; unassigned fulfillment and optional fulfillment-savings optimization kept outside checkout; pending downstream handoff boundaries; kill-switch fail-closed behavior; fresh-state cleanup; and no legacy checkout compatibility adapters.
 
 Use the Google Drive document URL or stable record identifier as each gate `reference`. Staging sandbox proof, provider webhook delivery ids, provider-row queries, screenshots, and other one-time launch facts belong in this private workspace and in redacted packet inputs, not in GitHub Environment variables. The redacted packet may be kept locally under `secure/` while working; `secure/` is ignored because it can contain sensitive evidence summaries even when screenshots are excluded.
 
@@ -126,13 +126,13 @@ Build the Checkout Launch gate from the Checkout-owned composite evidence record
 pnpm run ops marketplace:launch-packet --checkout-launch .\secure\checkout-launch-evidence-2026-05-30.json --promotion .\secure\marketplace-promotion-evidence-2026-05-30.json --checkout-fee .\secure\marketplace-checkout-fee-evidence-2026-05-30.json --stripe-money .\secure\stripe-money-operations-evidence-2026-05-30.json --support .\secure\support-operations-evidence-2026-05-30.json --fulfillment-postage .\secure\fulfillment-postage-evidence-2026-05-30.json --transactional-email .\secure\transactional-email-evidence-2026-05-30.json --launch-supply .\secure\launch-supply-measurement-2026-05-30.json --tax-readiness .\secure\tax-readiness-evidence-2026-05-30.json --public-enabled false --launch-evidence-reference MARKETPLACE-LAUNCH-EVIDENCE-2026-05-30 --launch-supply-reference CATALOG-MEASURES-2026-05-30
 ```
 
-The Checkout Launch JSON maps directly to `gates.checkoutLaunchEvidence`. It must include the standard gate fields (`approved: true`, `reference`, `owner: "Checkout"`, `checkedAt`) plus `evidenceCompletedAt`, `environment: "production"`, the release commit, `matrixVersion: "checkout-launch-evidence-matrix/v1"`, and real external references for the matrix, copy policy, visual targets, performance budget, coverage artifact, performance measurement, production proof canary, no-side-effect proof, no-compatibility scan, fresh-state cleanup, launch register, observability, support, security policy, staging workflow run, and production workflow run. Required coverage counts are `matrixRowCount >= 25`, `scenarioStateCount >= 23`, `launchRegisterRowCount >= 19`, `noSideEffectRowCount >= 14`, `pendingDownstreamBoundaryRowCount >= 5`, `freshStateCleanupRowCount >= 25`, `measuredPerformanceRowCount >= 25`, `visualSnapshotCount >= 4`, `mobileViewportCount >= 2`, `accessibilityScenarioCount >= 8`, `e2eScenarioCount >= 8`, and `canaryArtifactCount >= 4`.
+The Checkout Launch JSON maps directly to `gates.checkoutLaunchEvidence`. It must include the standard gate fields (`approved: true`, `reference`, `owner: "Checkout"`, `checkedAt`) plus `evidenceCompletedAt`, `environment: "production"`, the release commit, and real external references for coverage, performance measurement, production proof canary, no-side-effect proof, no-compatibility scan, fresh-state cleanup, observability, support, and security/privacy proof.
 
-Set these booleans to true only when the evidence proves them for the current release commit: `currentMainRevalidated`, `buyGuestCovered`, `buySignedInCovered`, `sellGuestCovered`, `sellSignedInCovered`, `productionProofBuyNowReadyWithinSlo`, `unassignedFulfillmentOutsideCheckoutProven`, `optimizationDecisionOutsideCheckoutProven`, `pendingDownstreamBoundaryProven`, `noCustomerCommittingSideEffectsBeforeConfirm`, `freshStateCleanupPassed`, `killSwitchFailClosedProven`, `legacyCompatibilityAbsent`, and `visualMobileAccessibilityPassed`. `entrySourcesCovered` must include `buy-now`, `buy-cart-readiness`, and `sell-list-readiness`; `actorModesCovered` must include `guest` and `signed-in`; `viewportsCovered` must include `desktop` and `mobile`.
+Set these booleans to true only when the evidence proves the product risk: `buyGuestCovered`, `buySignedInCovered`, `sellGuestCovered`, `sellSignedInCovered`, `productionProofBuyNowReadyWithinSlo`, `unassignedFulfillmentOutsideCheckoutProven`, `optimizationDecisionOutsideCheckoutProven`, `pendingDownstreamBoundaryProven`, `noCustomerCommittingSideEffectsBeforeConfirm`, `freshStateCleanupPassed`, `killSwitchFailClosedProven`, `legacyCompatibilityAbsent`, and `visualMobileAccessibilityPassed`. `entrySourcesCovered` must include `buy-now`, `buy-cart-readiness`, and `sell-list-readiness`; `actorModesCovered` must include `guest` and `signed-in`; `viewportsCovered` must include `desktop` and `mobile`.
 
-The production proof canary reference must be a current-main production proof-mode artifact where Buy Now reaches pay-ready checkout before the ready SLO. Temporary recovery visibility is safe recovery evidence only. A run that ends with `checkout-ready-slo-exceeded`, even with temporary recovery visible and no payment or order side effects, remains a launch blocker until projection freshness/runtime evidence from #1227, #1228, and #1237 is linked and a later proof run reaches pay-ready checkout.
+The production proof canary reference must show Buy Now reaches pay-ready checkout before the ready SLO for the release being promoted. Temporary recovery visibility is safe recovery evidence only. A run that ends with `checkout-ready-slo-exceeded`, even with temporary recovery visible and no payment or order side effects, remains a launch blocker until a later proof run reaches pay-ready checkout.
 
-Do not satisfy this gate by adding fulfillment assignment to checkout. Items without assigned fulfillment must remain in the cart, Sell List, or a conditional readiness step before checkout session creation. Checkout may display a savings optimization decision that says the customer can save by changing fulfillment before entering checkout, but the assignment and any offer rewrite must happen outside the payment form and before customer-committing side effects. The launch verifier rejects placeholder references, stale evidence, missing current-main revalidation, insufficient matrix coverage, or any packet that cannot prove legacy checkout compatibility is absent.
+Do not satisfy this gate by adding fulfillment assignment to checkout. Items without assigned fulfillment must remain in the cart, Sell List, or a conditional readiness step before checkout session creation. Checkout may display a savings optimization decision that says the customer can save by changing fulfillment before entering checkout, but the assignment and any offer rewrite must happen outside the payment form and before customer-committing side effects. The launch verifier rejects placeholder references, stale evidence, missing product-risk proof, or any packet that cannot prove legacy checkout compatibility is absent.
 
 Build the Stripe Money Operations gate from the live proof record:
 
@@ -545,39 +545,18 @@ Use `pnpm run ops marketplace:production-proof-topology-evidence` after enabling
       "evidenceCompletedAt": "2026-05-30T10:45:00.000Z",
       "environment": "production",
       "releaseCommit": "f318fd3577b635959dabc23117f509ed45621268",
-      "matrixReference": "CHECKOUT-MATRIX-2026-05-30",
-      "matrixVersion": "checkout-launch-evidence-matrix/v1",
-      "copyPolicyReference": "CHECKOUT-COPY-POLICY-2026-05-30",
-      "visualTargetsReference": "CHECKOUT-VISUAL-TARGETS-2026-05-30",
-      "performanceBudgetReference": "CHECKOUT-PERFORMANCE-BUDGET-2026-05-30",
       "coverageArtifactReference": "CHECKOUT-COVERAGE-2026-05-30",
       "performanceMeasurementReference": "CHECKOUT-PERFORMANCE-2026-05-30",
       "productionProofCanaryReference": "CHECKOUT-PRODUCTION-PROOF-CANARY-2026-05-30",
       "noSideEffectReference": "CHECKOUT-NO-SIDE-EFFECT-2026-05-30",
       "noCompatibilityScanReference": "CHECKOUT-NO-COMPATIBILITY-2026-05-30",
       "freshStateCleanupReference": "CHECKOUT-FRESH-STATE-2026-05-30",
-      "launchRegisterReference": "CHECKOUT-LAUNCH-REGISTER-2026-05-30",
       "observabilityReference": "CHECKOUT-OBSERVABILITY-2026-05-30",
       "supportReference": "CHECKOUT-SUPPORT-2026-05-30",
       "securityPolicyReference": "CHECKOUT-SECURITY-2026-05-30",
-      "stagingWorkflowRunReference": "https://github.com/chase-sets/chase-sets/actions/runs/123456789",
-      "productionWorkflowRunReference": "https://github.com/chase-sets/chase-sets/actions/runs/123456790",
-      "matrixRowCount": 25,
-      "scenarioStateCount": 23,
-      "launchRegisterRowCount": 19,
-      "noSideEffectRowCount": 14,
-      "pendingDownstreamBoundaryRowCount": 5,
-      "freshStateCleanupRowCount": 25,
-      "measuredPerformanceRowCount": 25,
-      "visualSnapshotCount": 4,
-      "mobileViewportCount": 2,
-      "accessibilityScenarioCount": 8,
-      "e2eScenarioCount": 8,
-      "canaryArtifactCount": 4,
       "entrySourcesCovered": ["buy-now", "buy-cart-readiness", "sell-list-readiness"],
       "actorModesCovered": ["guest", "signed-in"],
       "viewportsCovered": ["desktop", "mobile"],
-      "currentMainRevalidated": true,
       "buyGuestCovered": true,
       "buySignedInCovered": true,
       "sellGuestCovered": true,

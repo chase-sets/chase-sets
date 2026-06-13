@@ -58,18 +58,18 @@ export type CheckoutLaunchReadinessContract =
   | "checkout.session-read-model"
   | "checkout.sell-list-confirmation-pages"
   | "downstream-owned-fact"
-  | "launch-register"
+  | "launch-decision"
   | "production-proof-canary"
   | "fresh-state-cleanup";
 
-export type CheckoutLaunchRegisterStatus = "required" | "not-required";
+export type CheckoutLaunchDecisionStatus = "required" | "not-required";
 
 export type CheckoutLaunchSideEffectStatus =
   | "forbidden-before-confirm"
   | "not-attempted"
   | "pending-downstream"
   | "downstream-owned-committed"
-  | "owner-approved-deferred";
+  | "launch-disabled";
 
 export type CheckoutLaunchEvidenceKind =
   | CheckoutPerformanceVerificationKind
@@ -78,7 +78,7 @@ export type CheckoutLaunchEvidenceKind =
   | "observability-event"
   | "support-runbook"
   | "security-policy"
-  | "launch-register"
+  | "launch-decision"
   | "fresh-state-scan";
 
 export type CheckoutLaunchExternalEvidenceIssue = "#1227" | "#1228" | "#1237";
@@ -99,7 +99,7 @@ export type CheckoutLaunchEvidenceRow = Readonly<{
   performanceSurface: CheckoutPerformanceSurfaceKey;
   visibleState: CheckoutPerformanceVisibleState;
   requiredEvidence: readonly CheckoutLaunchEvidenceKind[];
-  launchRegisterStatus: CheckoutLaunchRegisterStatus;
+  launchDecisionStatus: CheckoutLaunchDecisionStatus;
   readinessBeforeCheckout: boolean;
   noSideEffectProofRequired: boolean;
   pendingDownstreamBoundaryRequired: boolean;
@@ -145,7 +145,7 @@ const launchEvidence = [
   "metrics",
   "observability-event",
   "support-runbook",
-  "launch-register",
+  "launch-decision",
 ] as const satisfies readonly CheckoutLaunchEvidenceKind[];
 
 export const checkoutLaunchEvidenceRequiredScenarioStates = [
@@ -178,7 +178,7 @@ export const checkoutLaunchEvidenceRows = [
   row({
     state: "buy-cart-review-ready",
     docLabel: "Buy Cart review ready",
-    ownerIssues: ["#1115", "#1116", "#1117"],
+    ownerIssues: ["#1115", "#1548", "#1117"],
     scenarioStates: ["normal"],
     phase: "cart-list-readiness",
     readinessContract: "checkout.cart-readiness.v1",
@@ -190,7 +190,7 @@ export const checkoutLaunchEvidenceRows = [
     performanceSurface: "cart-list-initial-render",
     visibleState: "cart-or-list-review-visible",
     requiredEvidence: [...visualCopyPerformanceEvidence, "route-test", "visual-mobile"],
-    launchRegisterStatus: "not-required",
+    launchDecisionStatus: "not-required",
     readinessBeforeCheckout: true,
     noSideEffectProofRequired: false,
     pendingDownstreamBoundaryRequired: false,
@@ -203,7 +203,7 @@ export const checkoutLaunchEvidenceRows = [
   row({
     state: "buy-readiness-unassigned-fulfillment",
     docLabel: "Buy readiness attention",
-    ownerIssues: ["#1115", "#1116", "#1117"],
+    ownerIssues: ["#1115", "#1548", "#1117"],
     scenarioStates: ["blocked", "unassigned-fulfillment"],
     phase: "cart-list-readiness",
     readinessContract: "checkout.cart-readiness.v1",
@@ -215,7 +215,7 @@ export const checkoutLaunchEvidenceRows = [
     performanceSurface: "buy-cart-readiness-evaluation",
     visibleState: "readiness-decision-visible",
     requiredEvidence: [...launchEvidence, "fresh-state-scan"],
-    launchRegisterStatus: "required",
+    launchDecisionStatus: "required",
     readinessBeforeCheckout: true,
     noSideEffectProofRequired: true,
     pendingDownstreamBoundaryRequired: false,
@@ -240,7 +240,7 @@ export const checkoutLaunchEvidenceRows = [
     performanceSurface: "fulfillment-optimization-decision",
     visibleState: "readiness-decision-visible",
     requiredEvidence: [...visualCopyPerformanceEvidence, "route-test", "e2e", "metrics"],
-    launchRegisterStatus: "not-required",
+    launchDecisionStatus: "not-required",
     readinessBeforeCheckout: true,
     noSideEffectProofRequired: true,
     pendingDownstreamBoundaryRequired: false,
@@ -254,7 +254,7 @@ export const checkoutLaunchEvidenceRows = [
   row({
     state: "guest-buy-checkout",
     docLabel: "Guest Buy Checkout",
-    ownerIssues: ["#1105", "#1107", "#1115", "#1116"],
+    ownerIssues: ["#1105", "#1107", "#1115", "#1548"],
     scenarioStates: ["normal"],
     phase: "checkout-review",
     readinessContract: "checkout.session-read-model",
@@ -266,7 +266,7 @@ export const checkoutLaunchEvidenceRows = [
     performanceSurface: "checkout-entry-review-render",
     visibleState: "checkout-review-visible",
     requiredEvidence: [...visualCopyPerformanceEvidence, "route-test", "e2e", "accessibility", "metrics"],
-    launchRegisterStatus: "not-required",
+    launchDecisionStatus: "not-required",
     readinessBeforeCheckout: false,
     noSideEffectProofRequired: false,
     pendingDownstreamBoundaryRequired: false,
@@ -292,7 +292,7 @@ export const checkoutLaunchEvidenceRows = [
     performanceSurface: "mobile-sticky-action-interaction",
     visibleState: "checkout-review-visible",
     requiredEvidence: [...visualCopyPerformanceEvidence, "e2e", "visual-mobile", "accessibility"],
-    launchRegisterStatus: "not-required",
+    launchDecisionStatus: "not-required",
     readinessBeforeCheckout: false,
     noSideEffectProofRequired: false,
     pendingDownstreamBoundaryRequired: false,
@@ -305,7 +305,7 @@ export const checkoutLaunchEvidenceRows = [
   row({
     state: "sell-list-review-ready",
     docLabel: "Sell List review ready",
-    ownerIssues: ["#1115", "#1116", "#1117"],
+    ownerIssues: ["#1115", "#1548", "#1117"],
     scenarioStates: ["normal"],
     phase: "cart-list-readiness",
     readinessContract: "checkout.sell-list-readiness.v1",
@@ -317,7 +317,7 @@ export const checkoutLaunchEvidenceRows = [
     performanceSurface: "cart-list-initial-render",
     visibleState: "cart-or-list-review-visible",
     requiredEvidence: [...visualCopyPerformanceEvidence, "route-test", "visual-mobile"],
-    launchRegisterStatus: "not-required",
+    launchDecisionStatus: "not-required",
     readinessBeforeCheckout: true,
     noSideEffectProofRequired: false,
     pendingDownstreamBoundaryRequired: false,
@@ -330,7 +330,7 @@ export const checkoutLaunchEvidenceRows = [
   row({
     state: "sell-list-readiness-blocked",
     docLabel: "Sell List readiness blocked",
-    ownerIssues: ["#1115", "#1116", "#1117"],
+    ownerIssues: ["#1115", "#1548", "#1117"],
     scenarioStates: ["blocked"],
     phase: "cart-list-readiness",
     readinessContract: "checkout.sell-list-readiness.v1",
@@ -342,7 +342,7 @@ export const checkoutLaunchEvidenceRows = [
     performanceSurface: "sell-list-readiness-evaluation",
     visibleState: "readiness-decision-visible",
     requiredEvidence: [...launchEvidence, "fresh-state-scan"],
-    launchRegisterStatus: "required",
+    launchDecisionStatus: "required",
     readinessBeforeCheckout: true,
     noSideEffectProofRequired: true,
     pendingDownstreamBoundaryRequired: false,
@@ -356,7 +356,7 @@ export const checkoutLaunchEvidenceRows = [
   row({
     state: "guest-sell-checkout",
     docLabel: "Guest Sell Checkout",
-    ownerIssues: ["#1109", "#1115", "#1116", "#1121"],
+    ownerIssues: ["#1109", "#1115", "#1548", "#1121"],
     scenarioStates: ["normal", "deferred-capability"],
     phase: "checkout-review",
     readinessContract: "checkout.sell-list-readiness.v1",
@@ -368,21 +368,20 @@ export const checkoutLaunchEvidenceRows = [
     performanceSurface: "checkout-entry-review-render",
     visibleState: "checkout-review-visible",
     requiredEvidence: [...launchEvidence, "security-policy"],
-    launchRegisterStatus: "required",
+    launchDecisionStatus: "required",
     readinessBeforeCheckout: false,
     noSideEffectProofRequired: true,
     pendingDownstreamBoundaryRequired: false,
     freshStateCleanupProofRequired: true,
-    sideEffectStatus: "owner-approved-deferred",
+    sideEffectStatus: "launch-disabled",
     sideEffectClasses: ["payout", "settlement", "support"],
     supportReferenceRequired: true,
-    launchEvidenceExpectation:
-      "Guest sell checkout is launch-registered if seller account or payout setup is deferred.",
+    launchEvidenceExpectation: "Guest sell checkout is launch-disabled if seller account or payout setup is deferred.",
   }),
   row({
     state: "signed-in-sell-checkout",
     docLabel: "Signed-in Sell Checkout",
-    ownerIssues: ["#1110", "#1111", "#1115", "#1116"],
+    ownerIssues: ["#1110", "#1111", "#1115", "#1548"],
     scenarioStates: ["normal"],
     phase: "checkout-review",
     readinessContract: "checkout.sell-list-readiness.v1",
@@ -394,7 +393,7 @@ export const checkoutLaunchEvidenceRows = [
     performanceSurface: "checkout-entry-review-render",
     visibleState: "checkout-review-visible",
     requiredEvidence: [...visualCopyPerformanceEvidence, "route-test", "e2e", "metrics"],
-    launchRegisterStatus: "not-required",
+    launchDecisionStatus: "not-required",
     readinessBeforeCheckout: false,
     noSideEffectProofRequired: false,
     pendingDownstreamBoundaryRequired: false,
@@ -408,7 +407,7 @@ export const checkoutLaunchEvidenceRows = [
   row({
     state: "seller-confirmation-activity",
     docLabel: "Seller confirmation activity",
-    ownerIssues: ["#1115", "#1116", "#1120", "#1135"],
+    ownerIssues: ["#1115", "#1548", "#1120", "#1135"],
     scenarioStates: ["pending-downstream"],
     phase: "confirmation",
     readinessContract: "checkout.sell-list-confirmation-pages",
@@ -420,7 +419,7 @@ export const checkoutLaunchEvidenceRows = [
     performanceSurface: "final-confirmation-visible-state",
     visibleState: "confirmation-visible",
     requiredEvidence: [...launchEvidence, "observability-event"],
-    launchRegisterStatus: "required",
+    launchDecisionStatus: "required",
     readinessBeforeCheckout: false,
     noSideEffectProofRequired: false,
     pendingDownstreamBoundaryRequired: true,
@@ -433,7 +432,7 @@ export const checkoutLaunchEvidenceRows = [
   row({
     state: "active-session-stale-recovery",
     docLabel: "Active-session stale recovery",
-    ownerIssues: ["#1115", "#1116", "#1118", "#1119"],
+    ownerIssues: ["#1115", "#1548", "#1118", "#1119"],
     scenarioStates: ["active-session-stale", "blocked"],
     phase: "recovery",
     readinessContract: "checkout.session-read-model",
@@ -445,7 +444,7 @@ export const checkoutLaunchEvidenceRows = [
     performanceSurface: "active-session-reload",
     visibleState: "checkout-permanent-recovery-visible",
     requiredEvidence: [...launchEvidence, "fresh-state-scan"],
-    launchRegisterStatus: "required",
+    launchDecisionStatus: "required",
     readinessBeforeCheckout: false,
     noSideEffectProofRequired: true,
     pendingDownstreamBoundaryRequired: false,
@@ -459,7 +458,7 @@ export const checkoutLaunchEvidenceRows = [
   row({
     state: "address-serviceability-failure",
     docLabel: "Address or serviceability failure",
-    ownerIssues: ["#1115", "#1116", "#1127"],
+    ownerIssues: ["#1115", "#1548", "#1127"],
     scenarioStates: ["blocked"],
     phase: "recovery",
     readinessContract: "checkout.session-read-model",
@@ -471,7 +470,7 @@ export const checkoutLaunchEvidenceRows = [
     performanceSurface: "totals-refresh",
     visibleState: "checkout-permanent-recovery-visible",
     requiredEvidence: [...launchEvidence, "security-policy"],
-    launchRegisterStatus: "required",
+    launchDecisionStatus: "required",
     readinessBeforeCheckout: false,
     noSideEffectProofRequired: true,
     pendingDownstreamBoundaryRequired: false,
@@ -485,7 +484,7 @@ export const checkoutLaunchEvidenceRows = [
   row({
     state: "changed-economics-review",
     docLabel: "Changed economics review",
-    ownerIssues: ["#1115", "#1116", "#1119", "#1128"],
+    ownerIssues: ["#1115", "#1548", "#1119", "#1128"],
     scenarioStates: ["blocked"],
     phase: "recovery",
     readinessContract: "checkout.session-read-model",
@@ -497,7 +496,7 @@ export const checkoutLaunchEvidenceRows = [
     performanceSurface: "totals-refresh",
     visibleState: "checkout-review-visible",
     requiredEvidence: [...launchEvidence, "security-policy"],
-    launchRegisterStatus: "required",
+    launchDecisionStatus: "required",
     readinessBeforeCheckout: false,
     noSideEffectProofRequired: true,
     pendingDownstreamBoundaryRequired: false,
@@ -511,10 +510,10 @@ export const checkoutLaunchEvidenceRows = [
   row({
     state: "risk-hold-provider-return-failure",
     docLabel: "Risk hold or provider-return failure",
-    ownerIssues: ["#1115", "#1116", "#1131", "#1134"],
+    ownerIssues: ["#1115", "#1548", "#1131", "#1134"],
     scenarioStates: ["risk-hold", "provider-outage", "blocked"],
     phase: "recovery",
-    readinessContract: "launch-register",
+    readinessContract: "launch-decision",
     entrySources: allSources,
     actorModes: allActorModes,
     viewports: ["mobile"],
@@ -523,7 +522,7 @@ export const checkoutLaunchEvidenceRows = [
     performanceSurface: "provider-return-confirmation",
     visibleState: "checkout-permanent-recovery-visible",
     requiredEvidence: [...launchEvidence, "security-policy", "fresh-state-scan"],
-    launchRegisterStatus: "required",
+    launchDecisionStatus: "required",
     readinessBeforeCheckout: false,
     noSideEffectProofRequired: true,
     pendingDownstreamBoundaryRequired: false,
@@ -536,7 +535,7 @@ export const checkoutLaunchEvidenceRows = [
   row({
     state: "split-group-summary",
     docLabel: "Split package summary",
-    ownerIssues: ["#1115", "#1116", "#1164"],
+    ownerIssues: ["#1115", "#1548", "#1164"],
     scenarioStates: ["split-group"],
     phase: "checkout-review",
     readinessContract: "checkout.session-read-model",
@@ -548,7 +547,7 @@ export const checkoutLaunchEvidenceRows = [
     performanceSurface: "checkout-entry-review-render",
     visibleState: "checkout-review-visible",
     requiredEvidence: [...launchEvidence, "metrics"],
-    launchRegisterStatus: "required",
+    launchDecisionStatus: "required",
     readinessBeforeCheckout: false,
     noSideEffectProofRequired: false,
     pendingDownstreamBoundaryRequired: false,
@@ -562,10 +561,10 @@ export const checkoutLaunchEvidenceRows = [
   row({
     state: "kill-switch-checkout-unavailable",
     docLabel: "Checkout unavailable",
-    ownerIssues: ["#1115", "#1116", "#1132"],
+    ownerIssues: ["#1115", "#1548", "#1132"],
     scenarioStates: ["kill-switch"],
     phase: "launch-governance",
-    readinessContract: "launch-register",
+    readinessContract: "launch-decision",
     entrySources: allSources,
     actorModes: allActorModes,
     viewports: ["mobile"],
@@ -574,7 +573,7 @@ export const checkoutLaunchEvidenceRows = [
     performanceSurface: "checkout-entry-permanent-recovery-render",
     visibleState: "checkout-permanent-recovery-visible",
     requiredEvidence: [...launchEvidence, "fresh-state-scan"],
-    launchRegisterStatus: "required",
+    launchDecisionStatus: "required",
     readinessBeforeCheckout: true,
     noSideEffectProofRequired: true,
     pendingDownstreamBoundaryRequired: false,
@@ -587,7 +586,7 @@ export const checkoutLaunchEvidenceRows = [
   row({
     state: "temporary-recovery-loading",
     docLabel: "Temporary recovery loading",
-    ownerIssues: ["#1115", "#1116", "#1123", "#1206"],
+    ownerIssues: ["#1115", "#1548", "#1123", "#1206"],
     scenarioStates: ["loading", "slow-budget"],
     phase: "recovery",
     readinessContract: "checkout.session-read-model",
@@ -599,7 +598,7 @@ export const checkoutLaunchEvidenceRows = [
     performanceSurface: "checkout-entry-temporary-recovery-render",
     visibleState: "checkout-temporary-recovery-visible",
     requiredEvidence: [...launchEvidence, "metrics"],
-    launchRegisterStatus: "required",
+    launchDecisionStatus: "required",
     readinessBeforeCheckout: false,
     noSideEffectProofRequired: true,
     pendingDownstreamBoundaryRequired: false,
@@ -613,7 +612,7 @@ export const checkoutLaunchEvidenceRows = [
   row({
     state: "production-proof-buy-now-readiness",
     docLabel: "Production proof Buy Now readiness",
-    ownerIssues: ["#1115", "#1116", "#1123", "#1206"],
+    ownerIssues: ["#1115", "#1548", "#1123", "#1206"],
     externalEvidenceIssues: ["#1227", "#1228", "#1237"],
     scenarioStates: ["production-proof-readiness", "slow-budget"],
     phase: "launch-governance",
@@ -635,10 +634,10 @@ export const checkoutLaunchEvidenceRows = [
       "metrics",
       "observability-event",
       "support-runbook",
-      "launch-register",
+      "launch-decision",
       "fresh-state-scan",
     ],
-    launchRegisterStatus: "required",
+    launchDecisionStatus: "required",
     readinessBeforeCheckout: false,
     noSideEffectProofRequired: true,
     pendingDownstreamBoundaryRequired: false,
@@ -652,10 +651,10 @@ export const checkoutLaunchEvidenceRows = [
   row({
     state: "disabled-accelerated-saved-instrument",
     docLabel: "Disabled accelerated or saved instrument",
-    ownerIssues: ["#1113", "#1115", "#1116", "#1121"],
+    ownerIssues: ["#1113", "#1115", "#1548", "#1121"],
     scenarioStates: ["disabled-capability", "deferred-capability"],
     phase: "checkout-review",
-    readinessContract: "launch-register",
+    readinessContract: "launch-decision",
     entrySources: allSources,
     actorModes: allActorModes,
     viewports: ["mobile"],
@@ -664,12 +663,12 @@ export const checkoutLaunchEvidenceRows = [
     performanceSurface: "payment-payout-setup-handoff",
     visibleState: "payment-or-payout-handoff-visible",
     requiredEvidence: [...launchEvidence, "security-policy"],
-    launchRegisterStatus: "required",
+    launchDecisionStatus: "required",
     readinessBeforeCheckout: false,
     noSideEffectProofRequired: true,
     pendingDownstreamBoundaryRequired: false,
     freshStateCleanupProofRequired: true,
-    sideEffectStatus: "owner-approved-deferred",
+    sideEffectStatus: "launch-disabled",
     sideEffectClasses: ["payment", "payout", "settlement"],
     supportReferenceRequired: true,
     launchEvidenceExpectation:
@@ -678,10 +677,10 @@ export const checkoutLaunchEvidenceRows = [
   row({
     state: "promo-credit-gift-card-state",
     docLabel: "Promo, credit, gift card, and fee state",
-    ownerIssues: ["#1115", "#1116", "#1128"],
+    ownerIssues: ["#1115", "#1548", "#1128"],
     scenarioStates: ["deferred-capability", "blocked"],
     phase: "checkout-review",
-    readinessContract: "launch-register",
+    readinessContract: "launch-decision",
     entrySources: buySources,
     actorModes: allActorModes,
     viewports: ["desktop"],
@@ -690,12 +689,12 @@ export const checkoutLaunchEvidenceRows = [
     performanceSurface: "totals-refresh",
     visibleState: "checkout-review-visible",
     requiredEvidence: [...launchEvidence, "security-policy"],
-    launchRegisterStatus: "required",
+    launchDecisionStatus: "required",
     readinessBeforeCheckout: false,
     noSideEffectProofRequired: true,
     pendingDownstreamBoundaryRequired: false,
     freshStateCleanupProofRequired: true,
-    sideEffectStatus: "owner-approved-deferred",
+    sideEffectStatus: "launch-disabled",
     sideEffectClasses: ["payment", "order", "settlement"],
     supportReferenceRequired: true,
     launchEvidenceExpectation:
@@ -704,7 +703,7 @@ export const checkoutLaunchEvidenceRows = [
   row({
     state: "notification-support-reference",
     docLabel: "Notification expectation and support reference",
-    ownerIssues: ["#1115", "#1116", "#1122", "#1129"],
+    ownerIssues: ["#1115", "#1548", "#1122", "#1129"],
     scenarioStates: ["notification", "support", "pending-downstream"],
     phase: "post-confirmation-handoff",
     readinessContract: "downstream-owned-fact",
@@ -716,7 +715,7 @@ export const checkoutLaunchEvidenceRows = [
     performanceSurface: "final-confirmation-visible-state",
     visibleState: "confirmation-visible",
     requiredEvidence: [...launchEvidence, "observability-event"],
-    launchRegisterStatus: "required",
+    launchDecisionStatus: "required",
     readinessBeforeCheckout: false,
     noSideEffectProofRequired: false,
     pendingDownstreamBoundaryRequired: true,
@@ -730,7 +729,7 @@ export const checkoutLaunchEvidenceRows = [
   row({
     state: "account-history-handoff",
     docLabel: "Account history handoff",
-    ownerIssues: ["#1115", "#1116", "#1135"],
+    ownerIssues: ["#1115", "#1548", "#1135"],
     scenarioStates: ["committed-downstream", "support"],
     phase: "post-confirmation-handoff",
     readinessContract: "downstream-owned-fact",
@@ -742,7 +741,7 @@ export const checkoutLaunchEvidenceRows = [
     performanceSurface: "account-history-handoff",
     visibleState: "account-history-handoff-visible",
     requiredEvidence: [...launchEvidence, "observability-event"],
-    launchRegisterStatus: "required",
+    launchDecisionStatus: "required",
     readinessBeforeCheckout: false,
     noSideEffectProofRequired: false,
     pendingDownstreamBoundaryRequired: true,
@@ -756,7 +755,7 @@ export const checkoutLaunchEvidenceRows = [
   row({
     state: "reconciliation-pending",
     docLabel: "Reconciliation pending",
-    ownerIssues: ["#1115", "#1116", "#1130"],
+    ownerIssues: ["#1115", "#1548", "#1130"],
     scenarioStates: ["reconciliation", "pending-downstream"],
     phase: "post-confirmation-handoff",
     readinessContract: "downstream-owned-fact",
@@ -768,7 +767,7 @@ export const checkoutLaunchEvidenceRows = [
     performanceSurface: "support-lookup",
     visibleState: "support-safe-status-visible",
     requiredEvidence: [...launchEvidence, "observability-event"],
-    launchRegisterStatus: "required",
+    launchDecisionStatus: "required",
     readinessBeforeCheckout: false,
     noSideEffectProofRequired: false,
     pendingDownstreamBoundaryRequired: true,
@@ -782,7 +781,7 @@ export const checkoutLaunchEvidenceRows = [
   row({
     state: "reversal-recovery-status",
     docLabel: "Reversal and adjustment recovery",
-    ownerIssues: ["#1115", "#1116", "#1165"],
+    ownerIssues: ["#1115", "#1548", "#1165"],
     scenarioStates: ["reversal-recovery", "support"],
     phase: "post-confirmation-handoff",
     readinessContract: "downstream-owned-fact",
@@ -794,7 +793,7 @@ export const checkoutLaunchEvidenceRows = [
     performanceSurface: "reversal-recovery-status-refresh",
     visibleState: "reversal-or-recovery-status-visible",
     requiredEvidence: [...launchEvidence, "observability-event", "security-policy"],
-    launchRegisterStatus: "required",
+    launchDecisionStatus: "required",
     readinessBeforeCheckout: false,
     noSideEffectProofRequired: false,
     pendingDownstreamBoundaryRequired: true,
@@ -808,7 +807,7 @@ export const checkoutLaunchEvidenceRows = [
   row({
     state: "fresh-state-cleanup-absence",
     docLabel: "Fresh-state cleanup absence",
-    ownerIssues: ["#1115", "#1116", "#1132"],
+    ownerIssues: ["#1115", "#1548", "#1132"],
     scenarioStates: ["fresh-state-cleanup", "kill-switch"],
     phase: "launch-governance",
     readinessContract: "fresh-state-cleanup",
@@ -820,7 +819,7 @@ export const checkoutLaunchEvidenceRows = [
     performanceSurface: "checkout-entry-permanent-recovery-render",
     visibleState: "checkout-permanent-recovery-visible",
     requiredEvidence: [...launchEvidence, "fresh-state-scan"],
-    launchRegisterStatus: "required",
+    launchDecisionStatus: "required",
     readinessBeforeCheckout: true,
     noSideEffectProofRequired: true,
     pendingDownstreamBoundaryRequired: false,
@@ -890,11 +889,11 @@ export function assertCheckoutLaunchEvidenceMatrixCoverage(): void {
     if (evidenceRow.ownerIssues.length === 0 || !evidenceRow.ownerIssues.includes("#1115")) {
       throw new Error(`Launch evidence row '${evidenceRow.state}' needs #1115 coverage ownership.`);
     }
-    if (evidenceRow.launchRegisterStatus === "required" && !evidenceRow.ownerIssues.includes("#1116")) {
-      throw new Error(`Launch evidence row '${evidenceRow.state}' needs #1116 launch ownership.`);
+    if (evidenceRow.launchDecisionStatus === "required" && !evidenceRow.ownerIssues.includes("#1548")) {
+      throw new Error(`Launch evidence row '${evidenceRow.state}' needs #1548 launch ownership.`);
     }
-    if (visualTarget.launchRegisterStatus === "required" && evidenceRow.launchRegisterStatus !== "required") {
-      throw new Error(`Launch evidence row '${evidenceRow.state}' must honor visual launch-register status.`);
+    if (visualTarget.launchDecisionStatus === "required" && evidenceRow.launchDecisionStatus !== "required") {
+      throw new Error(`Launch evidence row '${evidenceRow.state}' must honor visual launch-decision status.`);
     }
     if (
       !evidenceRow.requiredEvidence.includes("copy-policy") ||
@@ -926,17 +925,11 @@ export function assertCheckoutLaunchEvidenceMatrixCoverage(): void {
   const noSideEffectRows = checkoutLaunchEvidenceRows.filter((evidenceRow) => evidenceRow.noSideEffectProofRequired);
   for (const evidenceRow of noSideEffectRows) {
     for (const sideEffect of downstreamSideEffects) {
-      if (
-        !evidenceRow.sideEffectClasses.includes(sideEffect) &&
-        evidenceRow.sideEffectStatus !== "owner-approved-deferred"
-      ) {
+      if (!evidenceRow.sideEffectClasses.includes(sideEffect) && evidenceRow.sideEffectStatus !== "launch-disabled") {
         throw new Error(`No-side-effect row '${evidenceRow.state}' is missing ${sideEffect} coverage.`);
       }
     }
-    if (
-      evidenceRow.sideEffectStatus !== "not-attempted" &&
-      evidenceRow.sideEffectStatus !== "owner-approved-deferred"
-    ) {
+    if (evidenceRow.sideEffectStatus !== "not-attempted" && evidenceRow.sideEffectStatus !== "launch-disabled") {
       throw new Error(`No-side-effect row '${evidenceRow.state}' has an unsafe side-effect status.`);
     }
   }
@@ -982,7 +975,7 @@ export function assertCheckoutLaunchEvidenceMatrixCoverage(): void {
       "metrics",
       "observability-event",
       "support-runbook",
-      "launch-register",
+      "launch-decision",
       "fresh-state-scan",
     ] as const) {
       if (!evidenceRow.requiredEvidence.includes(requiredEvidence)) {

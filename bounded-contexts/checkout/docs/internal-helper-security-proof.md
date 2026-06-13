@@ -43,6 +43,6 @@ diagnostic, or operator details.
 ## Removal
 
 `deferred-checkout-order-proof` is the only Checkout-owned retained helper in this inventory. Remove it during final
-#1116 launch cleanup after production Stripe confirmation proof is complete, or convert it to an admin-support-only
+#1548 launch cleanup after production Stripe confirmation proof is complete, or convert it to an admin-support-only
 operation with a dedicated runbook before launch. Other helper families remain in their owning contexts and are not
 customer checkout capabilities.

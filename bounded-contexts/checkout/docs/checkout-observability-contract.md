@@ -12,7 +12,7 @@ contracted events without importing infrastructure observability directly.
 - Every launch evidence row has one `checkout.*` observability profile with entry source, actor mode, scenario state, visible state, and side-effect status dimensions.
 - Runtime metrics use `chase_sets_checkout_observability_events_total`. Dashboard and alert queries must use the typed profile event names and bounded label values only.
 - Unassigned fulfillment and optional savings optimization emit readiness telemetry before checkout. Checkout telemetry may consume the accepted or declined decision, but must not record checkout-time allocation or optimization repair.
-- Launch-register rows emit `launch-register-decision` and appear in release health evidence so enabled, disabled, deferred, provider-limited, risk-held, kill-switched, and cleanup states are reviewable.
+- Launch decision rows emit `launch-decision-decision` and appear in release health evidence so enabled, disabled, deferred, provider-limited, risk-held, kill-switched, and cleanup states are reviewable.
 - Support-visible states emit support-safe references only. No raw `afterWrite`, cookies, emails, addresses, provider payloads, checkout session ids, account ids, event ids, full URLs, card data, bank data, secrets, or sensitive risk signals belong in telemetry, dashboards, launch evidence, or GitHub issue comments.
 - Pending downstream rows emit `downstream-status` so confirmation, Marketplace handoff, notification, account history, reconciliation, and reversal states cannot imply completed Ordering, Fulfillment, Settlement, Notifications, Support, or Payments facts before the owning context commits them.
 - Fresh-state cleanup telemetry emits `fresh-state-scan-result` and fails the launch evidence if old routes, payload adapters, compatibility shims, hidden repair, migration/backfill helpers, dual writes, stale fixtures, cached read models, provider sandbox leftovers, localization keys, docs, runbooks, canaries, smoke data, or browser artifacts make checkout appear successful.
@@ -37,7 +37,7 @@ This dashboard is the query and alert baseline. `recordCheckoutObservabilityEven
 
 Every profile includes `entry-source`, `actor-mode`, `scenario-state`, `visible-state`, `side-effect-status`, and `support-safe-reference`.
 
-Rows add focused dimensions such as `readiness-contract`, `readiness-snapshot-version`, `source-revision`, `fresh-write-receipt-presence`, `support-safe-reference`, `performance-budget-id`, `latency-ms`, `provider-category`, `risk-category`, `downstream-status`, `launch-register-decision`, `fresh-state-scan-result`, `canary-final-state`, `promotion-decision`, and `release-run-id`.
+Rows add focused dimensions such as `readiness-contract`, `readiness-snapshot-version`, `source-revision`, `fresh-write-receipt-presence`, `support-safe-reference`, `performance-budget-id`, `latency-ms`, `provider-category`, `risk-category`, `downstream-status`, `launch-decision-decision`, `fresh-state-scan-result`, `canary-final-state`, `promotion-decision`, and `release-run-id`.
 
 ## Profiles
 
@@ -71,4 +71,4 @@ Rows add focused dimensions such as `readiness-contract`, `readiness-snapshot-ve
 
 ## Launch Consumption
 
-#1114 owns this contract as the observability baseline. #1115 should attach route, E2E, visual, accessibility, and canary artifacts that prove the profiles emit for launch-supported states. #1116 should attach release-health references for rows marked as release-health required. #1122 should consume support-safe references and runbook-safe dimensions. #1124 should review the forbidden field set and any future dimension additions before launch.
+#1114 owns this contract as the observability baseline. #1115 should attach route, E2E, visual, accessibility, and canary artifacts that prove the profiles emit for launch-supported states. #1548 should attach release-health references for rows marked as release-health required. #1122 should consume support-safe references and runbook-safe dimensions. #1124 should review the forbidden field set and any future dimension additions before launch.

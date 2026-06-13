@@ -52,7 +52,7 @@ describe("Checkout address serviceability policy", () => {
     }
   });
 
-  it("requires customer-impacting address failures to be launch-registered and support-safe", () => {
+  it("requires customer-impacting address failures to be launch-disabled and support-safe", () => {
     const customerImpactingStates = [
       "restricted",
       "unserviceable",
@@ -69,7 +69,7 @@ describe("Checkout address serviceability policy", () => {
 
     expect(impactedEntries.length).toBeGreaterThan(0);
     for (const entry of impactedEntries) {
-      expect(entry.launchRegisterRequired, entry.control).toBe(true);
+      expect(entry.launchDecisionRequired, entry.control).toBe(true);
       expect(entry.supportReferenceRequired, entry.control).toBe(true);
       expect(entry.noSideEffectBeforeCommitRequired, entry.control).toBe(true);
       expect(entry.redactsSensitiveAddressData, entry.control).toBe(true);

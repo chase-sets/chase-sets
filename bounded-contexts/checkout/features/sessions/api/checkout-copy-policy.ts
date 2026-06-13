@@ -49,7 +49,7 @@ export type CheckoutCopyOwnerIssue =
   | "#1113"
   | "#1114"
   | "#1115"
-  | "#1116"
+  | "#1548"
   | "#1117"
   | "#1118"
   | "#1119"
@@ -382,7 +382,7 @@ export const checkoutCopyPolicyEntries = [
   copyPolicy({
     surface: "checkout-permanent-recovery",
     docLabel: "Checkout permanent recovery",
-    ownerIssues: ["#1102", "#1118", "#1119", "#1122", "#1116"],
+    ownerIssues: ["#1102", "#1118", "#1119", "#1122", "#1548"],
     kind: "checkout-form",
     customerVisible: true,
     audiences: allCustomerAudiences,
@@ -732,7 +732,7 @@ export const checkoutCopyPolicyEntries = [
   copyPolicy({
     surface: "kill-switch-disabled-checkout",
     docLabel: "Checkout unavailable",
-    ownerIssues: ["#1102", "#1116", "#1103", "#1122"],
+    ownerIssues: ["#1102", "#1548", "#1103", "#1122"],
     kind: "checkout-form",
     customerVisible: true,
     audiences: allCustomerAudiences,
@@ -776,7 +776,7 @@ export const checkoutCopyPolicyEntries = [
   copyPolicy({
     surface: "fresh-state-localization-cleanup",
     docLabel: "Fresh-state localization cleanup",
-    ownerIssues: ["#1102", "#1116", "#1132"],
+    ownerIssues: ["#1102", "#1548", "#1132"],
     kind: "launch-evidence",
     customerVisible: false,
     audiences: ["support-operator"],
@@ -793,7 +793,7 @@ export const checkoutCopyPolicyEntries = [
     pendingDownstreamBoundaryRequired: false,
     localizationCleanupRequired: true,
     examples: ["Launch scan records deleted checkout localization keys and retained internal exceptions."],
-    exitEvidence: "Old dense marketplace-engine checkout keys are deleted or hard-disabled before #1116 closes.",
+    exitEvidence: "Old dense marketplace-engine checkout keys are deleted or hard-disabled before #1548 closes.",
   }),
 ] as const satisfies readonly CheckoutCopyPolicyEntry[];
 

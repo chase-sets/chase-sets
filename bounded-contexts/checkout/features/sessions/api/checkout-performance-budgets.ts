@@ -62,7 +62,7 @@ export type CheckoutPerformanceSurfaceKey =
 export type CheckoutPerformanceBudget = Readonly<{
   surface: CheckoutPerformanceSurfaceKey;
   docLabel: string;
-  ownerIssue: "#1123" | "#1115" | "#1116" | "#1164" | "#1165";
+  ownerIssue: "#1123" | "#1115" | "#1548" | "#1164" | "#1165";
   pathRole: string;
   entrySources: readonly CheckoutPerformanceEntrySource[];
   actorModes: readonly CheckoutPerformanceActorMode[];
@@ -436,7 +436,7 @@ export const checkoutPerformanceBudgets = [
     environments: allEnvironments,
     verification: ["route-test", "e2e", "metrics", "runbook"],
     exitEvidence:
-      "Recovery evidence covers pending, recovered, failed, duplicate-prevented, support-owned, and owner-approved deferred states.",
+      "Recovery evidence covers pending, recovered, failed, duplicate-prevented, support-owned, and owned deferred states.",
   }),
   budget({
     surface: "mobile-sticky-action-interaction",

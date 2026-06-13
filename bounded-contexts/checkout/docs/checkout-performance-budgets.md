@@ -78,7 +78,7 @@ Checkout entry evidence measures time to first known Checkout-owned state:
 - temporary checkout-preparing recovery visible;
 - customer-safe permanent recovery visible.
 
-The PR #1212 staging Buy Now baseline reached safe temporary recovery in 2,937 ms. That value is tracking evidence, not a universal SLA. Current-main launch evidence must remeasure or explicitly revalidate Buy Now, Buy Cart readiness, and Sell List readiness after projection, work-signal, runtime, or sell-confirmation changes.
+The PR #1212 staging Buy Now baseline reached safe temporary recovery in 2,937 ms. That value is tracking evidence, not a universal SLA. Release launch evidence must remeasure or explicitly revalidate Buy Now, Buy Cart readiness, and Sell List readiness after projection, work-signal, runtime, or sell-confirmation changes.
 
 Temporary recovery counts as safe only when:
 
@@ -123,7 +123,7 @@ Each launch evidence row must record:
 - support-safe reference where one exists;
 - observability event or metric source;
 - no-compatibility scan result;
-- current-main PR, test, deploy, canary, or runbook evidence.
+- release PR, test, deploy, canary, or runbook evidence.
 
 Production-like evidence can be synthetic only when it has an approved cleanup or isolation contract. Otherwise staging browser evidence remains the symptom-level proof for customer-visible freshness behavior.
 

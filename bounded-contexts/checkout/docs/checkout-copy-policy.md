@@ -57,7 +57,7 @@ The copy inventory shares capability-state names with visual targets, observabil
 - `reversed`
 - `no-side-effect`
 
-Disabled, deferred, retained-internal, kill-switched, held, reversed, and support-only states must include owner-approved policy or runbook evidence before #1116 can close.
+Disabled, deferred, retained-internal, kill-switched, held, reversed, and support-only states must include owned policy or runbook evidence before #1548 can close.
 
 ## Surface Inventory
 
@@ -137,7 +137,7 @@ Support and customer copy must not expose raw ids, email addresses, mailing addr
 
 ## Launch Evidence
 
-Before #1116 closes, #1102 evidence must link:
+Before #1548 closes, #1102 evidence must link:
 
 - executable contract assertion passing
 - localization cleanup for old dense checkout keys

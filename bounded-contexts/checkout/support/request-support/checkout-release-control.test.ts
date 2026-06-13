@@ -38,7 +38,7 @@ describe("checkout Shopify-simple release control", () => {
         actorMode: "anonymous",
         scenarioState: "kill-switch",
         sideEffectStatus: "not-attempted",
-        launchRegisterDecision: "blocked",
+        launchDecision: "blocked",
         freshStateScanResult: "blocked-before-checkout",
       }),
     );

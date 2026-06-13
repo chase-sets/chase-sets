@@ -51,7 +51,7 @@ export type CheckoutRiskSurface =
   | "launch-evidence"
   | "none";
 
-export type CheckoutRiskLaunchDecision = "required-for-launch" | "launch-register-required" | "not-customer-facing";
+export type CheckoutRiskLaunchDecision = "required-for-launch" | "launch-decision-required" | "not-customer-facing";
 
 export type CheckoutRiskProtectedAction =
   | "buy-cart-line-capture"
@@ -73,7 +73,7 @@ export type CheckoutRiskOwnerIssue =
   | "#1113"
   | "#1114"
   | "#1115"
-  | "#1116"
+  | "#1548"
   | "#1117"
   | "#1118"
   | "#1119"
@@ -102,7 +102,7 @@ export type CheckoutRiskControlKey =
   | "guest-merge-abuse"
   | "duplicate-submit-idempotency"
   | "support-safe-risk-escalation"
-  | "launch-register-risk-states"
+  | "launch-decision-risk-states"
   | "observability-redaction"
   | "no-side-effect-risk-blocks"
   | "fresh-state-risk-cleanup";
@@ -120,7 +120,7 @@ export type CheckoutRiskControlPolicyEntry = Readonly<{
   launchDecision: CheckoutRiskLaunchDecision;
   supportReferenceRequired: boolean;
   observabilityRequired: boolean;
-  launchRegisterRequired: boolean;
+  launchDecisionRequired: boolean;
   noSideEffectBeforeCommitRequired: boolean;
   redactsSensitiveSignals: boolean;
   staysBeforeCheckout: boolean;
@@ -173,7 +173,7 @@ export const checkoutRiskControlRequiredControls = [
   "guest-merge-abuse",
   "duplicate-submit-idempotency",
   "support-safe-risk-escalation",
-  "launch-register-risk-states",
+  "launch-decision-risk-states",
   "observability-redaction",
   "no-side-effect-risk-blocks",
   "fresh-state-risk-cleanup",
@@ -193,7 +193,7 @@ export const checkoutRiskControlPolicyEntries = [
     launchDecision: "required-for-launch",
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchRegisterRequired: false,
+    launchDecisionRequired: false,
     noSideEffectBeforeCommitRequired: true,
     redactsSensitiveSignals: true,
     staysBeforeCheckout: true,
@@ -220,7 +220,7 @@ export const checkoutRiskControlPolicyEntries = [
     launchDecision: "required-for-launch",
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchRegisterRequired: false,
+    launchDecisionRequired: false,
     noSideEffectBeforeCommitRequired: true,
     redactsSensitiveSignals: true,
     staysBeforeCheckout: false,
@@ -239,10 +239,10 @@ export const checkoutRiskControlPolicyEntries = [
     audiences: buyerAudiences,
     outcomeStates: ["allowed", "blocked", "deferred", "no-side-effect"],
     customerSurface: "cart-list-readiness",
-    launchDecision: "launch-register-required",
+    launchDecision: "launch-decision-required",
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchRegisterRequired: true,
+    launchDecisionRequired: true,
     noSideEffectBeforeCommitRequired: true,
     redactsSensitiveSignals: true,
     staysBeforeCheckout: true,
@@ -264,7 +264,7 @@ export const checkoutRiskControlPolicyEntries = [
     launchDecision: "required-for-launch",
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchRegisterRequired: true,
+    launchDecisionRequired: true,
     noSideEffectBeforeCommitRequired: true,
     redactsSensitiveSignals: true,
     staysBeforeCheckout: false,
@@ -283,17 +283,17 @@ export const checkoutRiskControlPolicyEntries = [
     audiences: sellerAudiences,
     outcomeStates: ["allowed", "blocked", "held", "deferred", "provider-unavailable", "no-side-effect"],
     customerSurface: "cart-list-readiness",
-    launchDecision: "launch-register-required",
+    launchDecision: "launch-decision-required",
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchRegisterRequired: true,
+    launchDecisionRequired: true,
     noSideEffectBeforeCommitRequired: true,
     redactsSensitiveSignals: true,
     staysBeforeCheckout: true,
     idempotencyKeyShape: "settlement:payout_risk:<seller-account-ref>:<risk-outcome>",
     forbiddenMechanisms: checkoutRiskForbiddenMechanisms,
     evidenceExpectation:
-      "Payout risk holds stay in Sell List readiness or owner-approved hold states and cannot be bypassed by seller checkout confirmation.",
+      "Payout risk holds stay in Sell List readiness or owned hold states and cannot be bypassed by seller checkout confirmation.",
   }),
   riskControl({
     control: "seller-readiness-and-listing-abuse",
@@ -308,7 +308,7 @@ export const checkoutRiskControlPolicyEntries = [
     launchDecision: "required-for-launch",
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchRegisterRequired: false,
+    launchDecisionRequired: false,
     noSideEffectBeforeCommitRequired: true,
     redactsSensitiveSignals: true,
     staysBeforeCheckout: true,
@@ -335,7 +335,7 @@ export const checkoutRiskControlPolicyEntries = [
     launchDecision: "required-for-launch",
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchRegisterRequired: true,
+    launchDecisionRequired: true,
     noSideEffectBeforeCommitRequired: true,
     redactsSensitiveSignals: true,
     staysBeforeCheckout: false,
@@ -357,7 +357,7 @@ export const checkoutRiskControlPolicyEntries = [
     launchDecision: "required-for-launch",
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchRegisterRequired: false,
+    launchDecisionRequired: false,
     noSideEffectBeforeCommitRequired: true,
     redactsSensitiveSignals: true,
     staysBeforeCheckout: false,
@@ -379,7 +379,7 @@ export const checkoutRiskControlPolicyEntries = [
     launchDecision: "required-for-launch",
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchRegisterRequired: false,
+    launchDecisionRequired: false,
     noSideEffectBeforeCommitRequired: true,
     redactsSensitiveSignals: true,
     staysBeforeCheckout: false,
@@ -401,7 +401,7 @@ export const checkoutRiskControlPolicyEntries = [
     launchDecision: "required-for-launch",
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchRegisterRequired: false,
+    launchDecisionRequired: false,
     noSideEffectBeforeCommitRequired: true,
     redactsSensitiveSignals: true,
     staysBeforeCheckout: false,
@@ -423,7 +423,7 @@ export const checkoutRiskControlPolicyEntries = [
     launchDecision: "required-for-launch",
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchRegisterRequired: true,
+    launchDecisionRequired: true,
     noSideEffectBeforeCommitRequired: true,
     redactsSensitiveSignals: true,
     staysBeforeCheckout: false,
@@ -433,9 +433,9 @@ export const checkoutRiskControlPolicyEntries = [
       "Support can distinguish customer error from risk hold using masked status, support-safe references, and owning-context escalation without raw signals or manual data edits.",
   }),
   riskControl({
-    control: "launch-register-risk-states",
-    docLabel: "Launch-register risk states",
-    ownerIssues: ["#1131", "#1116", "#1102", "#1112"],
+    control: "launch-decision-risk-states",
+    docLabel: "Launch decision risk states",
+    ownerIssues: ["#1131", "#1548", "#1102", "#1112"],
     ownerContext: "Platform",
     checkpoints: ["cart-list-readiness", "provider-or-wallet-return", "final-confirmation", "operator-support"],
     protectedActions: [
@@ -457,17 +457,17 @@ export const checkoutRiskControlPolicyEntries = [
       "no-side-effect",
     ],
     customerSurface: "launch-evidence",
-    launchDecision: "launch-register-required",
+    launchDecision: "launch-decision-required",
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchRegisterRequired: true,
+    launchDecisionRequired: true,
     noSideEffectBeforeCommitRequired: true,
     redactsSensitiveSignals: true,
     staysBeforeCheckout: false,
-    idempotencyKeyShape: "launch-register:risk:<capability-or-provider>:<state>",
+    idempotencyKeyShape: "launch-decision:risk:<capability-or-provider>:<state>",
     forbiddenMechanisms: checkoutRiskForbiddenMechanisms,
     evidenceExpectation:
-      "Blocked, held, challenged, disabled, deferred, unsupported, and provider-unavailable risk states have owner, copy, support path, observability, expiry/follow-up, and visual target evidence.",
+      "Blocked, held, challenged, disabled, deferred, unsupported, and provider-unavailable risk states have owner, copy, support path, observability, support path, and visual target evidence.",
   }),
   riskControl({
     control: "observability-redaction",
@@ -488,7 +488,7 @@ export const checkoutRiskControlPolicyEntries = [
     launchDecision: "required-for-launch",
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchRegisterRequired: false,
+    launchDecisionRequired: false,
     noSideEffectBeforeCommitRequired: true,
     redactsSensitiveSignals: true,
     staysBeforeCheckout: false,
@@ -500,7 +500,7 @@ export const checkoutRiskControlPolicyEntries = [
   riskControl({
     control: "no-side-effect-risk-blocks",
     docLabel: "No-side-effect risk blocks",
-    ownerIssues: ["#1131", "#1116", "#1119", "#1130"],
+    ownerIssues: ["#1131", "#1548", "#1119", "#1130"],
     ownerContext: "Checkout",
     checkpoints: ["cart-list-readiness", "checkout-session-create", "final-confirmation"],
     protectedActions: [
@@ -516,7 +516,7 @@ export const checkoutRiskControlPolicyEntries = [
     launchDecision: "required-for-launch",
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchRegisterRequired: true,
+    launchDecisionRequired: true,
     noSideEffectBeforeCommitRequired: true,
     redactsSensitiveSignals: true,
     staysBeforeCheckout: false,
@@ -528,7 +528,7 @@ export const checkoutRiskControlPolicyEntries = [
   riskControl({
     control: "fresh-state-risk-cleanup",
     docLabel: "Fresh-state risk cleanup",
-    ownerIssues: ["#1131", "#1116", "#1124"],
+    ownerIssues: ["#1131", "#1548", "#1124"],
     ownerContext: "Platform",
     checkpoints: ["cart-list-readiness", "checkout-session-create", "final-confirmation", "operator-support"],
     protectedActions: [
@@ -544,7 +544,7 @@ export const checkoutRiskControlPolicyEntries = [
     launchDecision: "required-for-launch",
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchRegisterRequired: true,
+    launchDecisionRequired: true,
     noSideEffectBeforeCommitRequired: true,
     redactsSensitiveSignals: true,
     staysBeforeCheckout: false,
@@ -585,10 +585,10 @@ export function assertCheckoutRiskControlPolicyCoverage(): void {
       throw new Error(`Checkout risk control '${entry.control}' needs an idempotency/support key shape.`);
     }
     if (
-      entry.launchDecision === "launch-register-required" &&
-      (!entry.launchRegisterRequired || !entry.supportReferenceRequired)
+      entry.launchDecision === "launch-decision-required" &&
+      (!entry.launchDecisionRequired || !entry.supportReferenceRequired)
     ) {
-      throw new Error(`Checkout risk control '${entry.control}' needs launch register and support coverage.`);
+      throw new Error(`Checkout risk control '${entry.control}' needs launch decision and support coverage.`);
     }
     if (
       entry.outcomeStates.some((state) =>

@@ -53,20 +53,20 @@ describe("Checkout economics policy", () => {
     expect(sellerPayout?.deterministicOrder).toEqual(checkoutSellerPayoutEstimateOrder);
   });
 
-  it("keeps promo and gift-card customer input disabled unless launch-registered", () => {
+  it("keeps promo and gift-card customer input disabled unless launch-disabled", () => {
     const promo = checkoutEconomicsPolicyEntries.find((entry) => entry.control === "promo-code-launch-decision");
     const giftCard = checkoutEconomicsPolicyEntries.find(
       (entry) => entry.control === "gift-card-store-credit-launch-decision",
     );
 
     for (const entry of [promo, giftCard]) {
-      expect(entry?.launchPosture, entry?.control).toBe("deferred-with-launch-register");
+      expect(entry?.launchPosture, entry?.control).toBe("launch-disabled");
       expect(entry?.customerInputAllowed, entry?.control).toBe(false);
-      expect(entry?.launchRegisterRequired, entry?.control).toBe(true);
+      expect(entry?.launchDecisionRequired, entry?.control).toBe(true);
       expect(entry?.noSideEffectBeforeCommitRequired, entry?.control).toBe(true);
     }
     expect(promo?.evidenceExpectation).toMatch(/not shown in the launch checkout/i);
-    expect(giftCard?.evidenceExpectation).toMatch(/disabled or launch-registered/i);
+    expect(giftCard?.evidenceExpectation).toMatch(/disabled or launch-disabled/i);
   });
 
   it("requires wallet credit and marketplace checkout fee freshness before payment", () => {
@@ -113,7 +113,7 @@ describe("Checkout economics policy", () => {
     );
 
     expect(changed?.noSideEffectBeforeCommitRequired).toBe(true);
-    expect(changed?.launchRegisterRequired).toBe(true);
+    expect(changed?.launchDecisionRequired).toBe(true);
     expect(changed?.supportReferenceRequired).toBe(true);
     expect(changed?.evidenceExpectation).toMatch(/no payment, order, sale, label, payout/i);
     expect(changed?.evidenceExpectation).toMatch(/refund, void, or reversal/i);
@@ -127,12 +127,12 @@ describe("Checkout economics policy", () => {
     }
   });
 
-  it("documents launch register, support, and reversal economics coverage", () => {
+  it("documents launch decision, support, and reversal economics coverage", () => {
     const reversal = checkoutEconomicsPolicyEntries.find((entry) => entry.control === "reversal-economics-linkage");
     const support = checkoutEconomicsPolicyEntries.find((entry) => entry.control === "support-safe-economics-failure");
     const cleanup = checkoutEconomicsPolicyEntries.find((entry) => entry.control === "fresh-state-economics-cleanup");
 
-    expect(reversal?.launchPosture).toBe("deferred-with-launch-register");
+    expect(reversal?.launchPosture).toBe("launch-disabled");
     expect(reversal?.amountComponents).toEqual(expect.arrayContaining(["refund", "void", "reversal", "adjustment"]));
     expect(support?.evidenceExpectation).toMatch(/masked economics category/i);
     expect(cleanup?.evidenceExpectation).toMatch(/stale cached totals/i);

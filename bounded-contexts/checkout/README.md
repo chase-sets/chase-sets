@@ -48,7 +48,7 @@ This is a greenfield codebase, so local development environments should reset/bo
 - [Checkout Visual Targets](./docs/checkout-visual-targets.md): image-first Milestone #17 visual target register for buy/sell checkout, readiness, recovery, capability, and launch states.
 - [Checkout Session Projection Performance](./docs/checkout-session-projection-performance.md): guest Buy Now freshness path, session read-model indexes, projection transaction behavior, and platform evidence gates.
 - [Checkout Performance Budgets](./docs/checkout-performance-budgets.md): Milestone #17 cart/list, readiness, checkout entry, confirmation, mobile, support, and recovery performance budgets.
-- [Checkout Launch Evidence Matrix](./docs/checkout-launch-evidence-matrix.md): Milestone #17 composite evidence rows that join copy, visual, performance, coverage, launch-register, no-side-effect, and fresh-state cleanup proof.
+- [Checkout Launch Evidence Matrix](./docs/checkout-launch-evidence-matrix.md): Milestone #17 composite evidence rows that join copy, visual, performance, coverage, launch-decision, no-side-effect, and fresh-state cleanup proof.
 - [Fresh-State Launch Exception Register](./docs/fresh-state-launch-exception-register.md): Milestone #17 retained internal artifact register and customer-facing legacy cleanup guard.
 - [Internal Helper Security Proof](./docs/internal-helper-security-proof.md): Milestone #17 permission, customer reachability, audit, redaction, and removal proof for retained internal helper families.
 - [Checkout Observability Contract](./docs/checkout-observability-contract.md): Milestone #17 redacted telemetry profiles for launch rows, support-safe references, side-effect status, and release-health evidence.
