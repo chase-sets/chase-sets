@@ -181,7 +181,7 @@ export type CheckoutObservabilityEventSignal = Readonly<{
   scenarioState: string;
   visibleState: string;
   sideEffectStatus: string;
-  releaseHealthRequired?: boolean;
+  operatorSignalRequired?: boolean;
   readinessContract?: string | null;
   readinessSnapshotState?: string | null;
   sourceRevisionState?: string | null;
@@ -191,11 +191,8 @@ export type CheckoutObservabilityEventSignal = Readonly<{
   providerCategory?: string | null;
   riskCategory?: string | null;
   downstreamStatus?: string | null;
-  launchRegisterDecision?: string | null;
+  capabilityDecision?: string | null;
   freshStateScanResult?: string | null;
-  canaryFinalState?: string | null;
-  promotionDecision?: string | null;
-  releaseRunId?: string | null;
 }>;
 
 export type CatalogIntegrationOptionQuerySignal = Readonly<{
@@ -839,7 +836,7 @@ export function checkoutObservabilityEventAttributes(event: CheckoutObservabilit
     scenario_state: boundedMetricLabel(event.scenarioState),
     visible_state: boundedMetricLabel(event.visibleState),
     side_effect_status: boundedMetricLabel(event.sideEffectStatus),
-    release_health_required: event.releaseHealthRequired === true ? "true" : "false",
+    operator_signal_required: event.operatorSignalRequired === true ? "true" : "false",
     readiness_contract: boundedMetricLabel(event.readinessContract),
     readiness_snapshot_state: boundedMetricLabel(event.readinessSnapshotState),
     source_revision_state: boundedMetricLabel(event.sourceRevisionState),
@@ -849,11 +846,8 @@ export function checkoutObservabilityEventAttributes(event: CheckoutObservabilit
     provider_category: boundedMetricLabel(event.providerCategory),
     risk_category: boundedMetricLabel(event.riskCategory),
     downstream_status: boundedMetricLabel(event.downstreamStatus),
-    launch_register_decision: boundedMetricLabel(event.launchRegisterDecision),
+    capability_decision: boundedMetricLabel(event.capabilityDecision),
     fresh_state_scan_result: boundedMetricLabel(event.freshStateScanResult),
-    canary_final_state: boundedMetricLabel(event.canaryFinalState),
-    promotion_decision: boundedMetricLabel(event.promotionDecision),
-    release_run_id: boundedMetricLabel(event.releaseRunId),
   };
 }
 

@@ -15,7 +15,7 @@ export type CheckoutObservabilityTelemetryEvent = Readonly<{
   scenarioState: CheckoutScenarioState;
   visibleState: string;
   sideEffectStatus: string;
-  releaseHealthRequired: boolean;
+  operatorSignalRequired: boolean;
   readinessContract?: string | null;
   readinessSnapshotState?: string | null;
   sourceRevisionState?: string | null;
@@ -25,11 +25,8 @@ export type CheckoutObservabilityTelemetryEvent = Readonly<{
   providerCategory?: string | null;
   riskCategory?: string | null;
   downstreamStatus?: string | null;
-  launchDecision?: string | null;
+  capabilityDecision?: string | null;
   freshStateScanResult?: string | null;
-  canaryFinalState?: string | null;
-  promotionDecision?: string | null;
-  releaseRunId?: string | null;
 }>;
 
 export type CheckoutObservabilityTelemetry = Readonly<{
@@ -38,7 +35,7 @@ export type CheckoutObservabilityTelemetry = Readonly<{
 
 export type CheckoutObservabilityTelemetryInput = Omit<
   CheckoutObservabilityTelemetryEvent,
-  "eventName" | "telemetryClass" | "alertClass" | "releaseHealthRequired"
+  "eventName" | "telemetryClass" | "alertClass" | "operatorSignalRequired"
 > &
   Readonly<{
     state: CheckoutVisualTargetKey;
@@ -65,7 +62,7 @@ export function checkoutObservabilityTelemetryEvent(
     eventName: profile.eventName,
     telemetryClass: profile.telemetryClass,
     alertClass: profile.alertClass,
-    releaseHealthRequired: profile.releaseHealthRequired,
+    operatorSignalRequired: profile.operatorSignalRequired,
     entrySource: input.entrySource,
     actorMode: input.actorMode,
     scenarioState: input.scenarioState,
@@ -80,11 +77,8 @@ export function checkoutObservabilityTelemetryEvent(
     providerCategory: input.providerCategory ?? null,
     riskCategory: input.riskCategory ?? null,
     downstreamStatus: input.downstreamStatus ?? null,
-    launchDecision: input.launchDecision ?? null,
+    capabilityDecision: input.capabilityDecision ?? null,
     freshStateScanResult: input.freshStateScanResult ?? null,
-    canaryFinalState: input.canaryFinalState ?? null,
-    promotionDecision: input.promotionDecision ?? null,
-    releaseRunId: input.releaseRunId ?? null,
   };
 }
 

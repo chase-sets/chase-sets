@@ -61,7 +61,7 @@ export function recordBuyCheckoutReviewRendered(
     providerCategory: "none",
     riskCategory: "none",
     downstreamStatus: "not-started",
-    launchDecision: "not-required",
+    capabilityDecision: "not-required",
     freshStateScanResult: "not-applicable",
   });
 }
@@ -91,7 +91,7 @@ export function recordActiveSessionStaleRecovery(
     providerCategory: "none",
     riskCategory: "none",
     downstreamStatus: "not-started",
-    launchDecision: "blocked",
+    capabilityDecision: "blocked",
     freshStateScanResult: "not-applicable",
   });
 }
@@ -125,7 +125,7 @@ export function recordAddressServiceabilityFailure(
     providerCategory: "fulfillment",
     riskCategory: "none",
     downstreamStatus: "not-started",
-    launchDecision: "blocked",
+    capabilityDecision: "blocked",
     freshStateScanResult: "not-applicable",
   });
 }
@@ -155,7 +155,7 @@ export function recordUnassignedFulfillmentFailure(
     providerCategory: "fulfillment",
     riskCategory: "none",
     downstreamStatus: "not-started",
-    launchDecision: "blocked",
+    capabilityDecision: "blocked",
     freshStateScanResult: "blocked-before-checkout",
   });
 }
@@ -185,9 +185,8 @@ export function recordUnsupportedCustomerEconomicsInput(
     providerCategory: "payments",
     riskCategory: "none",
     downstreamStatus: "not-started",
-    launchDecision: "deferred",
+    capabilityDecision: "deferred",
     freshStateScanResult: "not-applicable",
-    promotionDecision: "deferred",
   });
 }
 
@@ -216,7 +215,7 @@ export function recordDisabledSavedInstrumentFailure(
     providerCategory: "payments",
     riskCategory: "none",
     downstreamStatus: "not-started",
-    launchDecision: "blocked",
+    capabilityDecision: "blocked",
     freshStateScanResult: "blocked-before-checkout",
   });
 }
@@ -247,7 +246,7 @@ export function recordChangedEconomicsReview(
     providerCategory: "none",
     riskCategory: "none",
     downstreamStatus: "not-started",
-    launchDecision: "blocked",
+    capabilityDecision: "blocked",
     freshStateScanResult: "not-applicable",
   });
 }
@@ -278,7 +277,7 @@ export function recordConfirmationPendingHandoff(
     providerCategory: "payments",
     riskCategory: "none",
     downstreamStatus,
-    launchDecision: "enabled",
+    capabilityDecision: "enabled",
     freshStateScanResult: "not-applicable",
   });
 }

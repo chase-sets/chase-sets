@@ -22,7 +22,7 @@ const reviewRenderedInput = {
   providerCategory: "none",
   riskCategory: "none",
   downstreamStatus: "not-started",
-  launchDecision: "not-required",
+  capabilityDecision: "not-required",
   freshStateScanResult: "not-applicable",
 } satisfies CheckoutObservabilityTelemetryInput;
 
@@ -34,8 +34,8 @@ describe("checkout observability telemetry", () => {
       expect.objectContaining({
         eventName: "checkout.buy.guest_review_rendered",
         telemetryClass: "checkout-entry",
-        alertClass: "dashboard-only",
-        releaseHealthRequired: false,
+        alertClass: "event-only",
+        operatorSignalRequired: false,
         entrySource: "buy-now",
         actorMode: "guest",
         visibleState: "checkout-review-visible",

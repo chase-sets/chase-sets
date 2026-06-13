@@ -16,7 +16,7 @@ locals {
     "prometheus.yml"                                                = file("${local.stack_source_dir}/prometheus.yml")
     "loki-config.yml"                                               = file("${local.stack_source_dir}/loki-config.yml")
     "tempo-config.yml"                                              = file("${local.stack_source_dir}/tempo-config.yml")
-    "grafana/dashboards/checkout-launch-observability.json"         = file("${local.stack_source_dir}/grafana/dashboards/checkout-launch-observability.json")
+    "grafana/dashboards/checkout-observability.json"                = file("${local.stack_source_dir}/grafana/dashboards/checkout-observability.json")
     "grafana/dashboards/platform-api-overview.json"                 = file("${local.stack_source_dir}/grafana/dashboards/platform-api-overview.json")
     "grafana/dashboards/projection-freshness.json"                  = file("${local.stack_source_dir}/grafana/dashboards/projection-freshness.json")
     "grafana/dashboards/projection-wake-pipeline.json"              = file("${local.stack_source_dir}/grafana/dashboards/projection-wake-pipeline.json")

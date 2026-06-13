@@ -48,10 +48,8 @@ describe("observability stack contracts", () => {
     expect(readStackFile("grafana/dashboards/projection-freshness.json")).toContain(
       "chase_sets_projection_freshness_evaluations_total",
     );
-    expect(readStackFile("grafana/dashboards/checkout-launch-observability.json")).toContain(
-      "Checkout Launch Observability",
-    );
-    expect(readStackFile("grafana/dashboards/checkout-launch-observability.json")).toContain(
+    expect(readStackFile("grafana/dashboards/checkout-observability.json")).toContain("Checkout Observability");
+    expect(readStackFile("grafana/dashboards/checkout-observability.json")).toContain(
       "chase_sets_checkout_observability_events_total",
     );
     expect(readStackFile("grafana/provisioning/alerting/platform-api-alerts.yml")).toContain(
@@ -112,8 +110,8 @@ describe("observability stack contracts", () => {
     }
   });
 
-  it("keeps the Checkout launch dashboard aligned with the typed observability profiles", () => {
-    const dashboard = JSON.parse(readStackFile("grafana/dashboards/checkout-launch-observability.json")) as {
+  it("keeps the Checkout dashboard aligned with the typed observability profiles", () => {
+    const dashboard = JSON.parse(readStackFile("grafana/dashboards/checkout-observability.json")) as {
       title: string;
       tags: string[];
       panels: unknown[];
@@ -125,8 +123,9 @@ describe("observability stack contracts", () => {
     );
     const eventNames = extractCheckoutEventNames(contractSource);
 
-    expect(dashboard.title).toBe("Checkout Launch Observability");
-    expect(dashboard.tags).toEqual(expect.arrayContaining(["checkout", "launch", "observability"]));
+    expect(dashboard.title).toBe("Checkout Observability");
+    expect(dashboard.tags).toEqual(expect.arrayContaining(["checkout", "observability"]));
+    expect(dashboard.tags).not.toContain("launch");
     expect(dashboard.panels.length).toBeGreaterThanOrEqual(6);
     expect(new Set(eventNames).size).toBe(eventNames.length);
     expect(eventNames.length).toBeGreaterThan(20);
@@ -136,9 +135,15 @@ describe("observability stack contracts", () => {
     }
 
     expect(dashboardSource).toContain("chase_sets_checkout_observability_events_total");
-    expect(dashboardSource).toContain("release_health_required");
+    expect(dashboardSource).toContain("operator_signal_required");
+    expect(dashboardSource).toContain("capability_decision");
     expect(dashboardSource).toContain("side_effect_status");
     expect(dashboardSource).toContain("support_reference_present");
+    expect(dashboardSource).not.toContain("production_proof");
+    expect(dashboardSource).not.toContain("fresh_state_cleanup_verified");
+    expect(dashboardSource).not.toContain("release_run_id");
+    expect(dashboardSource).not.toContain("canary_final_state");
+    expect(dashboardSource).not.toContain("promotion_decision");
     expect(dashboardSource).not.toContain("raw-after-write");
     expect(dashboardSource).not.toContain("provider-payload");
     expect(dashboardSource).not.toContain("checkout-session-id");
