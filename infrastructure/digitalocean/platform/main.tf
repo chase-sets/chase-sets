@@ -134,7 +134,7 @@ check "production_support_operations_readiness" {
       var.production_support_operations_approved &&
       trimspace(var.production_support_operations_reference) != ""
     )
-    error_message = "Production marketplace promotion requires approved Support operations evidence before live order support."
+    error_message = "Production marketplace promotion requires approved Support readiness before live order support."
   }
 }
 

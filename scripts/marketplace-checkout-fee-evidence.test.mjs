@@ -56,7 +56,7 @@ function input(overrides = {}) {
 }
 
 describe("marketplace checkout fee evidence", () => {
-  it("builds the launch packet gate from a complete production fee approval", () => {
+  it("builds the approval gate from a complete production fee approval", () => {
     expect(buildCheckoutFeeEvidence(input())).toEqual({
       schemaVersion: MARKETPLACE_CHECKOUT_FEE_EVIDENCE_VERSION,
       approved: true,
@@ -253,7 +253,7 @@ describe("marketplace checkout fee evidence", () => {
     expect(evidence.errors).toContain("Marketplace Checkout Fee feePolicyEffectiveAt must be an ISO timestamp.");
   });
 
-  it("fails when the launch packet reference is missing", () => {
+  it("fails when the production reference is missing", () => {
     const evidence = buildCheckoutFeeEvidence(input({ reference: "" }));
 
     expect(evidence.approved).toBe(false);

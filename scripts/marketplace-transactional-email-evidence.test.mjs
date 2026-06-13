@@ -55,7 +55,7 @@ function input(overrides = {}) {
 }
 
 describe("marketplace transactional email evidence", () => {
-  it("builds the launch packet gate from complete production SES proof", () => {
+  it("builds the approval gate from complete production SES proof", () => {
     expect(buildTransactionalEmailEvidence(input())).toEqual({
       schemaVersion: MARKETPLACE_TRANSACTIONAL_EMAIL_EVIDENCE_VERSION,
       approved: true,

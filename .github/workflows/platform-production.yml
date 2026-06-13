@@ -1511,7 +1511,7 @@ jobs:
             fi
 
             if [ "${TF_VAR_production_support_operations_approved:-false}" != "true" ] || [ -z "${TF_VAR_production_support_operations_reference:-}" ]; then
-              echo "Production marketplace promotion requires approved Support operations evidence." >&2
+              echo "Production marketplace promotion requires approved Support readiness." >&2
               exit 1
             fi
 

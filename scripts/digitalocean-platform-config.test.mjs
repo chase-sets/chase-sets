@@ -710,7 +710,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformMain).toContain('check "production_support_operations_readiness"');
     expect(platformMain).toContain("var.production_support_operations_approved");
     expect(platformMain).toContain(
-      'error_message = "Production marketplace promotion requires approved Support operations evidence before live order support."',
+      'error_message = "Production marketplace promotion requires approved Support readiness before live order support."',
     );
     expect(platformMain).toContain('check "production_fulfillment_postage_readiness"');
     expect(platformMain).toContain("var.production_fulfillment_postage_approved");
@@ -1060,7 +1060,7 @@ describe("DigitalOcean platform configuration", () => {
       "Production marketplace promotion requires approved Stripe money operations evidence.",
     );
     expect(platformProductionWorkflow).toContain(
-      "Production marketplace promotion requires approved Support operations evidence.",
+      "Production marketplace promotion requires approved Support readiness.",
     );
     expect(platformProductionWorkflow).toContain(
       "Production marketplace promotion requires approved Fulfillment postage evidence.",

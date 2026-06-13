@@ -2,6 +2,11 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const runbook = readFileSync(new URL("../docs/runbooks/checkout-support-operations.md", import.meta.url), "utf8");
+const platformReadiness = readFileSync(
+  new URL("../bounded-contexts/platform-operations/docs/support-operations-readiness.md", import.meta.url),
+  "utf8",
+);
+const ops = readFileSync(new URL("./ops.mjs", import.meta.url), "utf8");
 const normalizedRunbook = runbook.replace(/\s+/g, " ");
 
 describe("checkout support operations runbook", () => {
@@ -41,5 +46,11 @@ describe("checkout support operations runbook", () => {
     expect(runbook).not.toContain("## Launch Evidence");
     expect(runbook).not.toContain("marketplace:support-operations-evidence");
     expect(runbook).not.toContain("Marketplace Launch Evidence packet");
+    expect(platformReadiness).not.toContain("marketplace:support-operations-evidence");
+    expect(platformReadiness).not.toContain("Marketplace Launch Evidence");
+    expect(platformReadiness).not.toContain("launch evidence packet");
+    expect(platformReadiness).not.toContain("rehearsalCompletedAt");
+    expect(ops).not.toContain("marketplace:support-operations-evidence");
+    expect(ops).not.toContain("marketplace-support-operations-evidence.mjs");
   });
 });

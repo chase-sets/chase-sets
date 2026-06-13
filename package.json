@@ -97,7 +97,6 @@
     "test:marketplace-easypost-refund-event-replay": "vitest run scripts/easypost-refund-event-replay.test.mjs",
     "test:marketplace-stripe-money-operations-evidence": "vitest run scripts/marketplace-stripe-money-operations-evidence.test.mjs",
     "test:settlement-payout-account-migration-report": "vitest run scripts/settlement-payout-account-migration-report.test.mjs",
-    "test:marketplace-support-operations-evidence": "vitest run scripts/marketplace-support-operations-evidence.test.mjs",
     "test:marketplace-tax-nexus-measurement": "vitest run scripts/marketplace-tax-nexus-measurement.test.mjs",
     "test:marketplace-tax-readiness-evidence": "vitest run scripts/marketplace-tax-readiness-evidence.test.mjs",
     "test:marketplace-transactional-email-evidence": "vitest run scripts/marketplace-transactional-email-evidence.test.mjs",

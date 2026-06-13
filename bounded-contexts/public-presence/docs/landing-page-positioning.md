@@ -43,7 +43,7 @@ The final promotion review record must carry the launch-mode copy audit referenc
 
 ## Launch Copy Replacement Inventory
 
-Current source copy is intentionally prelaunch-only. Do not replace it while `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=false`; the prelaunch copy is the safer public posture until the launch evidence packet passes.
+Current source copy is intentionally prelaunch-only. Do not replace it while `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=false`; the prelaunch copy is the safer public posture until the owner-owned launch approvals pass.
 
 The final launch-copy pass must review and replace future-only language across all eight required Public Presence pages before production promotion:
 
@@ -56,7 +56,7 @@ The final launch-copy pass must review and replace future-only language across a
 | Order Protection | `/order-protection` | Explains planned checkout clarity and support coverage. | State live protection scope, exclusions, support handoff, and evidence review without implying guaranteed outcomes. |
 | Marketplace sales fees | `/sales-fees` | Beta seller fee lock and production-promotion-gated availability. | Preserve founding seller economics, remove gated-checkout language, and keep buyer-side Marketplace Checkout Fee visibility explicit. |
 | FAQ | `/faq` | Answers whether Chase Sets is live by pointing to production promotion. | Replace availability answers with the approved live marketplace posture and avoid unsupported scale, demand, or uptime claims. |
-| Contact | `/contact` | Support contact for prelaunch questions. | Confirm support contact, response ownership, and transaction support paths match the Support operations rehearsal. |
+| Contact | `/contact` | Support contact for prelaunch questions. | Confirm support contact, response ownership, and transaction support paths match Support readiness. |
 
 Each required public page must have a reviewed launch-mode replacement for every visible phrase that contains one of these future-only signals:
 

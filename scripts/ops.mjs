@@ -70,7 +70,7 @@ export const SUBCOMMANDS = {
   },
   "marketplace:production-env-commands": {
     script: "marketplace-production-env-commands.mjs",
-    description: "Production environment variable commands from a launch packet.",
+    description: "Production environment variable commands from a production environment JSON record.",
   },
   "marketplace:production-env-snapshot": {
     script: "marketplace-production-env-snapshot.mjs",
@@ -103,10 +103,6 @@ export const SUBCOMMANDS = {
   "marketplace:stripe-money-operations-evidence": {
     script: "marketplace-stripe-money-operations-evidence.mjs",
     description: "Stripe money operations launch gate evidence.",
-  },
-  "marketplace:support-operations-evidence": {
-    script: "marketplace-support-operations-evidence.mjs",
-    description: "Support operations readiness evidence.",
   },
   "marketplace:tax-nexus-measurement": {
     script: "marketplace-tax-nexus-measurement.mjs",
