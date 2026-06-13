@@ -53,11 +53,16 @@ Run these checks after activation and after disablement:
 - Kill-switched buy and sell entry returns to cart/list recovery and emits `checkout.launch.kill_switch_unavailable` without payment, order, label, payout, notification, account-history, support, sale, or listing side effects.
 - Legacy route probes are rejected, hard-disabled, or redirected to fresh recovery without compatibility adapters.
 
-## Launch Evidence Gate
+## Fresh-State Checks
 
-Before public production promotion, create a Checkout-owned `gates.checkoutLaunchEvidence` record and pass it through the [Marketplace Launch Evidence](./marketplace-launch-evidence.md) packet. The gate is approved only when the current release commit has fresh proof for buy-now, Buy Cart readiness, and Sell List readiness; guest and signed-in actors; desktop and mobile; visual snapshots; accessibility; E2E coverage; observability; support handoff; security posture; and kill-switch fail-closed behavior.
-
-Items without assigned fulfillment do not enter checkout. They stay in Buy Cart, Sell List, or the conditional readiness step until assignment is resolved. A savings optimization prompt may tell the customer they can save by switching fulfillment, but that decision also happens before checkout session creation. Checkout evidence must prove no customer-committing side effects occur before confirmation and no legacy dense checkout routes, adapters, or compatibility data remain in the fresh-state path.
+- Items without assigned fulfillment do not enter checkout. They stay in Buy
+  Cart, Sell List, or the conditional readiness step until assignment is
+  resolved.
+- Savings optimization happens before checkout session creation. The checkout
+  session consumes the accepted or declined decision.
+- No customer-committing side effects occur before final confirmation.
+- Legacy dense checkout routes, old session adapters, and compatibility data do
+  not make a fresh checkout succeed.
 
 ## Release Note Template
 
