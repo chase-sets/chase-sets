@@ -33,7 +33,7 @@
 - [ ] Confirmation shows totals and a support-safe reference for buy and sell (covered by PR #1528).
 - [ ] Buyer order history and seller pending activity show the right pending or committed state without pretending downstream owner facts already exist (covered by PR #1296 and PR #1504).
 - [ ] No money, order, label, payout, settlement, notification, account-history, refund, void, or reversal side effect starts before explicit final confirmation (covered by PR #1453, PR #1454, PR #1455, PR #1456, PR #1458, and PR #1485).
-- [ ] Support can look up pending and committed checkout states by support-safe reference.
+- [x] Support can look up pending and committed checkout states by support-safe reference (covered by PR #1605).
 
 ## Payments, Providers, And Recovery
 
@@ -48,7 +48,7 @@
 - [ ] Buyer and seller transactional notifications send only from the owning committed facts and include correct totals/support references where customer-visible.
 - [ ] Notification failure does not block checkout completion, and retries suppress duplicates.
 - [ ] Checkout entry, recovery, confirmation, provider-return, failure, and no-side-effect states emit redacted observability signals usable by support.
-- [ ] Support runbooks cover stuck checkout, payment dispute, missing/failed downstream handoff, and refund requests (covered by PR #1513).
+- [x] Support runbooks cover stuck checkout, payment dispute, missing/failed downstream handoff, and refund requests (covered by PR #1513 and PR #1606).
 
 ## Security, Performance, And Fresh State
 
