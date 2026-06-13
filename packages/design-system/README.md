@@ -6,11 +6,19 @@ The Chase Sets design system is the canonical UI layer for all React web applica
 
 Marketplace and admin applications should compose screens from exported design-system components only.
 
+Use [Component Index](./COMPONENT_INDEX.md) to find the current generated root export surface, source module, documented purpose when one exists, and an example production consumer.
+
 Application code should not introduce:
 
 - raw layout HTML outside the app mount root
 - app-owned CSS files
 - one-off utility classes
+
+## Catalog Decision
+
+ADR-lite, 2026-06-13: choose Option 1, docs-as-catalog, for design-system discoverability. The canonical catalog is the generated [Component Index](./COMPONENT_INDEX.md), backed by the same export and production-consumer inventory as `scripts/check-design-system-dead-exports.mjs`.
+
+Do not rebuild `deployables/design-system-showcase` as the default answer to component discovery. The showcase already rotted to deletion once, added runtime and CI maintenance surface, and duplicated the real-app validation model. Reconsider a showcase only after demonstrated design work needs interactive visual browsing that the generated index, markdown contracts, tests, and real marketplace/admin routes cannot satisfy.
 
 ## Foundations
 
@@ -173,6 +181,8 @@ Use [Dense Admin Workbench Pattern](./DENSE_ADMIN_WORKBENCH.md) for rebuilt admi
 ## Marketplace Direction
 
 Marketplace-specific conversion rules, signal hierarchy, component coverage, and roadmap live in [Marketplace Design System Direction](./MARKETPLACE_SYSTEM.md). Keep this README focused on package-wide design-system contracts.
+
+Patterns, components, and commerce exports answer different questions. Components are reusable UI building blocks and primitives such as `Button`, `DataTable`, `Field`, and `PriceDisplay`; use them when the screen already owns the workflow shape and needs one focused UI part. Patterns are larger reusable compositions and workflow shells such as app shells, panel taxonomy, dense admin workbenches, operational workflow modules, and checkout panels; use them when the choice is about screen structure or interaction model. Commerce exports under `packages/design-system/src/components/commerce/` are marketplace decision primitives for account trust, listings, search, item detail, checkout, notices, and dashboards; use them when buyer/seller decision signals or marketplace economics are part of the surface. For example, `PriceDisplay` is the compact single-amount atom for one formatted price, while `PriceBreakdown` is the commerce checkout primitive for subtotal, fees, shipping, tax, discounts, and final total. If a route needs total-cost comprehension, choose `PriceBreakdown`; if it only needs to render one amount inside an existing card or row, choose `PriceDisplay`.
 
 ## Marketing Expression
 

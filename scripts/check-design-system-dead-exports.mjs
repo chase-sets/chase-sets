@@ -225,25 +225,101 @@ function resolveRelativeModuleFile(fromFile, specifier) {
   return candidates.find((candidate) => existsSync(candidate) && isSourceFile(candidate)) ?? null;
 }
 
-function addDeclarationName(node, exports) {
+function getDeclarationName(node) {
   if (!node.name || !ts.isIdentifier(node.name)) {
-    return;
+    return null;
   }
 
-  const modifiers = ts.canHaveModifiers(node) ? (ts.getModifiers(node) ?? []) : [];
-  if (modifiers.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)) {
-    exports.add(node.name.text);
-  }
+  return node.name.text;
 }
 
-function collectExportsFromFile(filePath, options) {
-  const { visited, readFile } = options;
+function hasExportModifier(node) {
+  const modifiers = ts.canHaveModifiers(node) ? (ts.getModifiers(node) ?? []) : [];
+  return modifiers.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword);
+}
+
+function cleanLeadingComment(commentText) {
+  const lines = commentText
+    .replace(/^\/\*\*?/, "")
+    .replace(/\*\/$/, "")
+    .split("\n")
+    .map((line) =>
+      line
+        .replace(/^\s*\/\/\s?/, "")
+        .replace(/^\s*\*\s?/, "")
+        .trim(),
+    )
+    .filter((line) => line.length > 0 && !line.startsWith("@"));
+
+  const text = lines.join(" ").replace(/\s+/g, " ").trim();
+  if (text.length === 0) {
+    return null;
+  }
+
+  const sentenceMatch = text.match(/^(.+?[.!?])(?:\s|$)/);
+  return sentenceMatch?.[1] ?? text;
+}
+
+function getLeadingPurpose(node, sourceFile) {
+  const text = sourceFile.getFullText();
+  const ranges = ts.getLeadingCommentRanges(text, node.getFullStart()) ?? [];
+  const adjacentRanges = ranges.filter((range) => {
+    const between = text.slice(range.end, node.getStart(sourceFile));
+    return !/\n\s*\n/.test(between);
+  });
+  const commentRange = adjacentRanges.at(-1);
+
+  if (!commentRange) {
+    return null;
+  }
+
+  return cleanLeadingComment(text.slice(commentRange.pos, commentRange.end));
+}
+
+function buildLocalValueDeclarations(sourceFile) {
+  const declarations = new Map();
+
+  for (const statement of sourceFile.statements) {
+    if (ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement) || ts.isEnumDeclaration(statement)) {
+      const name = getDeclarationName(statement);
+      if (name) {
+        declarations.set(name, statement);
+      }
+      continue;
+    }
+
+    if (ts.isVariableStatement(statement)) {
+      for (const declaration of statement.declarationList.declarations) {
+        if (ts.isIdentifier(declaration.name)) {
+          declarations.set(declaration.name.text, statement);
+        }
+      }
+    }
+  }
+
+  return declarations;
+}
+
+function createSurfaceRecord(symbol, filePath, sourceFile, declaration) {
+  return {
+    symbol,
+    sourceFilePath: path.resolve(filePath),
+    purpose: declaration ? getLeadingPurpose(declaration, sourceFile) : null,
+  };
+}
+
+function collectSurfaceFromFile(filePath, options) {
+  const { cache, readFile, visiting } = options;
   const normalizedFilePath = path.resolve(filePath);
 
-  if (visited.has(normalizedFilePath)) {
-    return new Set();
+  if (cache.has(normalizedFilePath)) {
+    return cache.get(normalizedFilePath);
   }
-  visited.add(normalizedFilePath);
+
+  if (visiting.has(normalizedFilePath)) {
+    return new Map();
+  }
+  visiting.add(normalizedFilePath);
 
   const content = readFile(normalizedFilePath);
   if (typeof content !== "string") {
@@ -251,7 +327,14 @@ function collectExportsFromFile(filePath, options) {
   }
 
   const sourceFile = parseSourceFile(normalizedFilePath, content);
-  const exports = new Set();
+  const localDeclarations = buildLocalValueDeclarations(sourceFile);
+  const exports = new Map();
+
+  function addRecord(record) {
+    if (record.symbol !== "default" && !exports.has(record.symbol)) {
+      exports.set(record.symbol, record);
+    }
+  }
 
   for (const statement of sourceFile.statements) {
     if (ts.isExportDeclaration(statement)) {
@@ -265,24 +348,42 @@ function collectExportsFromFile(filePath, options) {
             if (element.isTypeOnly) {
               continue;
             }
-            exports.add(element.name.text);
+
+            const localName = element.propertyName?.text ?? element.name.text;
+            addRecord(
+              createSurfaceRecord(element.name.text, normalizedFilePath, sourceFile, localDeclarations.get(localName)),
+            );
           }
         }
         continue;
       }
 
       if (statement.exportClause && ts.isNamedExports(statement.exportClause)) {
+        const reexportFile = resolveRelativeModuleFile(normalizedFilePath, statement.moduleSpecifier.text);
+        if (!reexportFile) {
+          throw new Error(`Unable to resolve ${statement.moduleSpecifier.text} from ${normalizedFilePath}`);
+        }
+
+        const reexportedRecords = collectSurfaceFromFile(reexportFile, options);
+
         for (const element of statement.exportClause.elements) {
           if (element.isTypeOnly) {
             continue;
           }
-          exports.add(element.name.text);
+
+          const importedName = element.propertyName?.text ?? element.name.text;
+          const targetRecord = reexportedRecords.get(importedName);
+          addRecord(
+            targetRecord
+              ? { ...targetRecord, symbol: element.name.text }
+              : createSurfaceRecord(element.name.text, normalizedFilePath, sourceFile, statement),
+          );
         }
         continue;
       }
 
       if (statement.exportClause && ts.isNamespaceExport(statement.exportClause)) {
-        exports.add(statement.exportClause.name.text);
+        addRecord(createSurfaceRecord(statement.exportClause.name.text, normalizedFilePath, sourceFile, statement));
         continue;
       }
 
@@ -291,49 +392,53 @@ function collectExportsFromFile(filePath, options) {
         throw new Error(`Unable to resolve ${statement.moduleSpecifier.text} from ${normalizedFilePath}`);
       }
 
-      for (const exportName of collectExportsFromFile(reexportFile, options)) {
-        if (exportName !== "default") {
-          exports.add(exportName);
-        }
+      for (const record of collectSurfaceFromFile(reexportFile, options).values()) {
+        addRecord(record);
       }
       continue;
     }
 
-    if (ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) {
-      addDeclarationName(statement, exports);
-      continue;
-    }
-
-    if (ts.isEnumDeclaration(statement)) {
-      addDeclarationName(statement, exports);
+    if (ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement) || ts.isEnumDeclaration(statement)) {
+      const name = getDeclarationName(statement);
+      if (name && hasExportModifier(statement)) {
+        addRecord(createSurfaceRecord(name, normalizedFilePath, sourceFile, statement));
+      }
       continue;
     }
 
     if (ts.isVariableStatement(statement)) {
-      const modifiers = ts.canHaveModifiers(statement) ? (ts.getModifiers(statement) ?? []) : [];
-      if (!modifiers.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)) {
+      if (!hasExportModifier(statement)) {
         continue;
       }
 
       for (const declaration of statement.declarationList.declarations) {
         if (ts.isIdentifier(declaration.name)) {
-          exports.add(declaration.name.text);
+          addRecord(createSurfaceRecord(declaration.name.text, normalizedFilePath, sourceFile, statement));
         }
       }
     }
   }
 
+  visiting.delete(normalizedFilePath);
+  cache.set(normalizedFilePath, exports);
   return exports;
 }
 
-export function collectDesignSystemPublicExports(options = {}) {
+export function collectDesignSystemPublicSurface(options = {}) {
   const rootDir = path.resolve(options.repoRoot ?? repoRoot);
   const entryFile = path.join(rootDir, options.entryRelativePath ?? designSystemEntryRelativePath);
   const readFile = options.readFile ?? ((filePath) => ts.sys.readFile(filePath));
 
-  return [...collectExportsFromFile(entryFile, { visited: new Set(), readFile })].sort((left, right) =>
-    left.localeCompare(right, "en"),
-  );
+  return [...collectSurfaceFromFile(entryFile, { cache: new Map(), readFile, visiting: new Set() }).values()]
+    .map((record) => ({
+      ...record,
+      sourceRelativePath: normalizeRelative(record.sourceFilePath, rootDir),
+    }))
+    .sort((left, right) => left.symbol.localeCompare(right.symbol, "en"));
+}
+
+export function collectDesignSystemPublicExports(options = {}) {
+  return collectDesignSystemPublicSurface(options).map((record) => record.symbol);
 }
 
 function blankRanges(content, ranges) {
@@ -476,7 +581,8 @@ function normalizeAllowlist(allowlist) {
 
 export async function checkDesignSystemDeadExports(options = {}) {
   const rootDir = path.resolve(options.repoRoot ?? repoRoot);
-  const publicExports = collectDesignSystemPublicExports(options);
+  const publicSurface = collectDesignSystemPublicSurface(options);
+  const publicExports = publicSurface.map((record) => record.symbol);
   const exportNames = new Set(publicExports);
   const consumersBySymbol = new Map(publicExports.map((exportName) => [exportName, new Set()]));
   const readFile = options.readFile ?? ((filePath) => ts.sys.readFile(filePath));
@@ -522,6 +628,7 @@ export async function checkDesignSystemDeadExports(options = {}) {
   return {
     passed: violations.length === 0,
     files: consumerFiles.map((filePath) => normalizeRelative(filePath, rootDir)),
+    publicSurface,
     publicExports,
     zeroConsumerExports,
     allowlistedExports,
