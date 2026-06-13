@@ -16,7 +16,7 @@ export const statusClasses: Record<StatusTone, string> = {
   warning: "border-warning-soft bg-warning-soft text-warning",
   error: "border-danger-soft bg-danger-soft text-danger",
   info: "border-info-soft bg-info-soft text-info",
-  neutral: "border-[var(--border)] bg-[var(--surface-2)] text-[var(--muted-foreground)]",
+  neutral: "border-border bg-surface-2 text-tertiary",
 };
 
 export const modelLabels: Record<ListingModel, string> = {

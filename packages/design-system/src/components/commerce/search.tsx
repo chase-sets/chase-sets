@@ -1,9 +1,9 @@
 import type { ReactNode } from "react";
-import { Bell, XCircle } from "lucide-react";
-import { cn } from "../../lib/utils";
+import { Icon } from "../../icons";
+import { cx } from "../../utils/cx";
 import { Button } from "../actions";
 import { SearchInput } from "../forms";
-import { Card, CardContent } from "../compat/card";
+import { Card } from "../data-display/card";
 import { MarketplaceEmptyState } from "./panels";
 
 export interface SearchFilterPanelProps {
@@ -31,7 +31,7 @@ export function SearchFilterPanel({
 }: SearchFilterPanelProps) {
   return (
     <Card>
-      <CardContent className="gap-4 p-0">
+      <Card.Body>
         <div className="grid gap-3 lg:grid-cols-[1fr_auto]">
           <SearchInput label={searchLabel} hideLabel placeholder={placeholder} />
           <div className="flex flex-wrap gap-2">
@@ -42,32 +42,32 @@ export function SearchFilterPanel({
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-sm">
-          {resultCount ? <span className="font-semibold text-[var(--foreground)]">{resultCount}</span> : null}
+          {resultCount ? <span className="font-semibold text-foreground">{resultCount}</span> : null}
           {appliedFilters.map((filter) => (
             <span
               key={filter}
-              className="rounded-tokenFull bg-[var(--primary-soft)] px-2.5 py-1 text-xs font-semibold text-[var(--primary)]"
+              className="rounded-tokenFull bg-accent-soft px-2.5 py-1 text-xs font-semibold text-accent"
             >
               {filter}
             </span>
           ))}
           {appliedFilters.length && clearLabel ? (
-            <button className="text-xs font-semibold text-[var(--text-secondary)] underline-offset-4 hover:underline">
+            <button className="text-xs font-semibold text-secondary underline-offset-4 hover:underline">
               {clearLabel}
             </button>
           ) : null}
         </div>
         {popularSearches.length ? (
           <div className="flex flex-wrap gap-2 text-sm">
-            {popularLabel ? <span className="text-[var(--muted-foreground)]">{popularLabel}</span> : null}
+            {popularLabel ? <span className="text-tertiary">{popularLabel}</span> : null}
             {popularSearches.map((search) => (
-              <button key={search} className="font-semibold text-[var(--primary)] underline-offset-4 hover:underline">
+              <button key={search} className="font-semibold text-accent underline-offset-4 hover:underline">
                 {search}
               </button>
             ))}
           </div>
         ) : null}
-      </CardContent>
+      </Card.Body>
     </Card>
   );
 }
@@ -88,17 +88,17 @@ export function AppliedFilterChips({ filters, clearAction, removeLabel }: Applie
       {filters.map((filter) => (
         <span
           key={filter.id}
-          className="inline-flex min-h-8 items-center gap-2 rounded-tokenFull border border-[var(--border)] bg-[var(--card)] px-3 text-xs font-semibold text-[var(--foreground)]"
+          className="inline-flex min-h-8 items-center gap-2 rounded-tokenFull border border-border bg-surface px-3 text-xs font-semibold text-foreground"
         >
           {filter.label}
           {filter.onRemove ? (
             <button
               type="button"
-              className="ds-focus rounded-tokenFull text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+              className="ds-focus rounded-tokenFull text-tertiary hover:text-foreground"
               aria-label={removeLabel ? removeLabel(filter.label) : undefined}
               onClick={filter.onRemove}
             >
-              <XCircle className="h-3.5 w-3.5" aria-hidden="true" />
+              <Icon name="xCircle" size="sm" tone="inherit" aria-hidden="true" />
             </button>
           ) : null}
         </span>
@@ -116,12 +116,14 @@ export interface SavedSearchPromptProps {
 
 export function SavedSearchPrompt({ title, description, action }: SavedSearchPromptProps) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-2)] p-4">
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-tokenMd border border-border bg-surface-2 p-4">
       <div className="flex gap-3">
-        <Bell className="mt-0.5 h-5 w-5 text-[var(--primary)]" aria-hidden="true" />
+        <span className="mt-0.5">
+          <Icon name="bell" size="md" tone="accent" aria-hidden="true" />
+        </span>
         <div>
-          <div className="font-semibold text-[var(--foreground)]">{title}</div>
-          <div className="text-sm leading-5 text-[var(--text-secondary)]">{description}</div>
+          <div className="font-semibold text-foreground">{title}</div>
+          <div className="text-sm leading-5 text-secondary">{description}</div>
         </div>
       </div>
       {action}
@@ -154,7 +156,7 @@ export function SearchControlBar({
   const filterControlsClass = filterControlsVisibility === "desktop" ? "hidden lg:block" : "block";
 
   return (
-    <section className="grid gap-3 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--card)] p-3 shadow-[var(--shadow-sm)]">
+    <section className="grid gap-3 rounded-tokenLg border border-border bg-surface p-3 shadow-tokenSm">
       <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
         <div className="min-w-0">{search}</div>
         {hasControls ? (
@@ -162,7 +164,7 @@ export function SearchControlBar({
             {sort ? <div className="min-w-44">{sort}</div> : null}
             {filters || actions ? (
               <div className="flex min-w-0 flex-wrap items-end gap-3">
-                {filters ? <div className={cn(filterControlsClass, "min-w-44")}>{filters}</div> : null}
+                {filters ? <div className={cx(filterControlsClass, "min-w-44")}>{filters}</div> : null}
                 {actions ? <div className="flex items-end">{actions}</div> : null}
               </div>
             ) : null}
@@ -170,10 +172,10 @@ export function SearchControlBar({
         ) : null}
       </div>
       {appliedFilters || summary || savedSearch ? (
-        <div className="grid gap-3 border-t border-[var(--border)] pt-3 md:grid-cols-[1fr_auto] md:items-center">
+        <div className="grid gap-3 border-t border-border pt-3 md:grid-cols-[1fr_auto] md:items-center">
           <div className="grid gap-2">
             {appliedFilters}
-            {summary ? <div className="text-sm text-[var(--text-secondary)]">{summary}</div> : null}
+            {summary ? <div className="text-sm text-secondary">{summary}</div> : null}
           </div>
           {savedSearch}
         </div>
