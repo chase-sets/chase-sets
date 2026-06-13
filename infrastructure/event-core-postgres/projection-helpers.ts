@@ -23,6 +23,37 @@ export type ProjectionWhere<TColumns extends NonEmptyArray<string>> = Readonly<{
   casts?: ProjectionValueCasts<TColumns>;
 }>;
 
+export type ProjectionCascadeColumnRef = Readonly<{
+  tableAlias?: string;
+  column: string;
+}>;
+
+export type ProjectionCascadeJoin = Readonly<{
+  kind?: "inner" | "left";
+  table: string;
+  alias?: string;
+  on: NonEmptyArray<
+    Readonly<{
+      left: ProjectionCascadeColumnRef;
+      right: ProjectionCascadeColumnRef;
+    }>
+  >;
+}>;
+
+export type ProjectionCascadeWhere = Readonly<{
+  column: string;
+  tableAlias?: string;
+  operator?: "=" | "@>";
+  value: unknown;
+  cast?: SqlValueCast;
+}>;
+
+export type ProjectionCascadeOrder = Readonly<{
+  column: string;
+  tableAlias?: string;
+  direction?: "ASC" | "DESC";
+}>;
+
 export type JsonbArrayMatch =
   | Readonly<{
       kind: "all";
@@ -128,6 +159,45 @@ export async function updateRow<
     `UPDATE ${table} SET ${setAssignments.join(", ")} WHERE ${where}${returning}`,
     [...setValues, ...whereValues],
   );
+}
+
+export async function refreshAffectedRows<const TIdColumn extends string>(
+  db: PgQueryable,
+  input: Readonly<{
+    select: ProjectionCascadeColumnRef & Readonly<{ column: TIdColumn; distinct?: boolean }>;
+    from: Readonly<{ table: string; alias?: string }>;
+    joins?: readonly ProjectionCascadeJoin[];
+    where?: readonly ProjectionCascadeWhere[];
+    orderBy?: readonly ProjectionCascadeOrder[];
+    idsFromRow?: (row: Readonly<Record<TIdColumn, unknown>>) => readonly string[];
+    refresh: (id: string) => Promise<unknown>;
+  }>,
+): Promise<readonly string[]> {
+  const values: unknown[] = [];
+  const selectColumn = columnRef(input.select);
+  const select = `SELECT ${input.select.distinct ? "DISTINCT " : ""}${selectColumn} AS ${sqlIdentifier(input.select.column)}`;
+  const from = `FROM ${sqlIdentifier(input.from.table)}${aliasClause(input.from.alias)}`;
+  const joins = (input.joins ?? []).map(joinClause);
+  const where = whereClause(input.where ?? [], values);
+  const orderBy = orderByClause(input.orderBy ?? []);
+  const result = await db.query<Record<TIdColumn, unknown>>(
+    [select, from, ...joins, where, orderBy].filter(Boolean).join(" "),
+    values,
+  );
+  const ids = input.idsFromRow
+    ? result.rows.flatMap((row) => input.idsFromRow?.(row) ?? [])
+    : result.rows.map((row) => {
+        const id = row[input.select.column];
+        if (typeof id !== "string") {
+          throw new Error(`Projection cascade selected "${input.select.column}" as a non-string id.`);
+        }
+
+        return id;
+      });
+
+  await Promise.all(ids.map((id) => input.refresh(id)));
+
+  return ids;
 }
 
 export async function transitionStatus<const TReturningColumns extends readonly string[] = readonly []>(
@@ -366,6 +436,46 @@ function orderedJsonbArrayExpression(selectSql: string, orderBy: readonly JsonbA
   const order = orderBy?.length ? orderBy.map(jsonbArrayOrderExpression).join(", ") : "projected.ordinal";
 
   return `(SELECT COALESCE(jsonb_agg(projected.value ORDER BY ${order}), '[]'::jsonb) FROM (${selectSql}) AS projected(value, ordinal))`;
+}
+
+function joinClause(join: ProjectionCascadeJoin): string {
+  const kind = join.kind === "left" ? "LEFT JOIN" : "INNER JOIN";
+  const on = join.on.map((condition) => `${columnRef(condition.left)} = ${columnRef(condition.right)}`).join(" AND ");
+
+  return `${kind} ${sqlIdentifier(join.table)}${aliasClause(join.alias)} ON ${on}`;
+}
+
+function whereClause(where: readonly ProjectionCascadeWhere[], values: unknown[]): string {
+  if (where.length === 0) {
+    return "";
+  }
+
+  return `WHERE ${where
+    .map((condition) => {
+      const operator = condition.operator ?? "=";
+      values.push(prepareColumnValue(condition.value, condition.cast));
+
+      return `${columnRef(condition)} ${operator} ${parameterExpression(values.length, condition.cast)}`;
+    })
+    .join(" AND ")}`;
+}
+
+function orderByClause(orderBy: readonly ProjectionCascadeOrder[]): string {
+  if (orderBy.length === 0) {
+    return "";
+  }
+
+  return `ORDER BY ${orderBy.map((order) => `${columnRef(order)} ${order.direction ?? "ASC"}`).join(", ")}`;
+}
+
+function columnRef(ref: ProjectionCascadeColumnRef): string {
+  const column = sqlIdentifier(ref.column);
+
+  return ref.tableAlias ? `${sqlIdentifier(ref.tableAlias)}.${column}` : column;
+}
+
+function aliasClause(alias: string | undefined): string {
+  return alias ? ` AS ${sqlIdentifier(alias)}` : "";
 }
 
 function jsonbArrayMatchExpression(alias: string, match: JsonbArrayMatch, values: unknown[]): string {

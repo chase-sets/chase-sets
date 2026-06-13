@@ -1,6 +1,12 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import { extractIdFromStreamId } from "@chase-sets/event-core";
-import { transitionStatus, updateRow, upsertRow, type PgQueryable } from "@chase-sets/event-core-postgres";
+import {
+  refreshAffectedRows,
+  transitionStatus,
+  updateRow,
+  upsertRow,
+  type PgQueryable,
+} from "@chase-sets/event-core-postgres";
 import { recordRealtimeProjectionPatch, type RealtimeProjectionPatch } from "@chase-sets/platform-runtime/realtime";
 import {
   createDiscoveryAccountRemovePatch,
@@ -298,14 +304,12 @@ async function refreshGoogleShoppingSellerListings(
   accountId: string,
   reason: GoogleShoppingIncrementalSyncReason,
 ) {
-  const result = await db.query<{ listing_id: string }>(
-    `SELECT listing_id
-     FROM discovery_market_listings
-     WHERE account_id = $1`,
-    [accountId],
-  );
-
-  await Promise.all(result.rows.map((row) => refreshGoogleShoppingListing(db, event, row.listing_id, reason)));
+  await refreshAffectedRows(db, {
+    select: { column: "listing_id" },
+    from: { table: MARKET_LISTINGS_TABLE },
+    where: [{ column: "account_id", value: accountId }],
+    refresh: (listingId) => refreshGoogleShoppingListing(db, event, listingId, reason),
+  });
 }
 
 async function emitSellerListingPatches(
@@ -313,15 +317,15 @@ async function emitSellerListingPatches(
   event: Parameters<ProjectorHandlerMap[string]>[0],
   accountId: string,
 ) {
-  const result = await db.query<{ listing_id: string }>(
-    `SELECT listing_id
-     FROM discovery_market_listings
-     WHERE account_id = $1
-       AND status = 'active'`,
-    [accountId],
-  );
-
-  await Promise.all(result.rows.map((row) => emitListingPatch(db, event, row.listing_id)));
+  await refreshAffectedRows(db, {
+    select: { column: "listing_id" },
+    from: { table: MARKET_LISTINGS_TABLE },
+    where: [
+      { column: "account_id", value: accountId },
+      { column: "status", value: "active" },
+    ],
+    refresh: (listingId) => emitListingPatch(db, event, listingId),
+  });
 }
 
 async function emitOfferPatch(db: PgQueryable, event: Parameters<ProjectorHandlerMap[string]>[0], offerId: string) {
@@ -930,13 +934,13 @@ async function emitAccountReputationPatches(
 ) {
   await emitSellerListingPatches(db, event, accountId);
 
-  const offers = await db.query<{ offer_id: string }>(
-    `SELECT offer_id
-     FROM discovery_offer_demand_matches
-     WHERE buyer_account_id = $1
-       AND status = 'submitted'`,
-    [accountId],
-  );
-
-  await Promise.all(offers.rows.map((row) => emitOfferPatch(db, event, row.offer_id)));
+  await refreshAffectedRows(db, {
+    select: { column: "offer_id" },
+    from: { table: OFFER_DEMAND_MATCHES_TABLE },
+    where: [
+      { column: "buyer_account_id", value: accountId },
+      { column: "status", value: "submitted" },
+    ],
+    refresh: (offerId) => emitOfferPatch(db, event, offerId),
+  });
 }

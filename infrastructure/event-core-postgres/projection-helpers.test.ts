@@ -5,6 +5,7 @@ import {
   patchJsonbArrayElement,
   removeJsonbArrayElement,
   replaceJsonbArrayElement,
+  refreshAffectedRows,
   transitionStatus,
   updateRow,
   upsertRow,
@@ -80,6 +81,99 @@ describe("projection helpers", () => {
         values: ["Test User", JSON.stringify([{ contactMethodId: "cm_1" }]), "usr_1"],
       },
     ]);
+  });
+
+  it("reads affected row ids and refreshes each selected id", async () => {
+    const { db, calls } = recordingDb([{ catalog_item_id: "item_1" }, { catalog_item_id: "item_2" }]);
+    const refreshed: string[] = [];
+
+    await expect(
+      refreshAffectedRows(db, {
+        select: { column: "catalog_item_id" },
+        from: { table: "discovery_search_catalog_items" },
+        where: [{ column: "category_ids", operator: "@>", cast: "jsonb", value: ["cat_1"] }],
+        orderBy: [{ column: "catalog_item_id" }],
+        refresh: async (id) => {
+          refreshed.push(id);
+        },
+      }),
+    ).resolves.toEqual(["item_1", "item_2"]);
+
+    expect(calls).toEqual([
+      {
+        sql: normalizeSql(
+          `SELECT catalog_item_id AS catalog_item_id
+           FROM discovery_search_catalog_items
+           WHERE category_ids @> $1::jsonb
+           ORDER BY catalog_item_id ASC`,
+        ),
+        values: [JSON.stringify(["cat_1"])],
+      },
+    ]);
+    expect(refreshed).toEqual(["item_1", "item_2"]);
+  });
+
+  it("builds affected-row reads with structured joins and aliases", async () => {
+    const { db, calls } = recordingDb([{ catalog_item_id: "item_1" }]);
+
+    await refreshAffectedRows(db, {
+      select: { tableAlias: "item", column: "catalog_item_id", distinct: true },
+      from: { table: "discovery_search_catalog_items", alias: "item" },
+      joins: [
+        {
+          table: "discovery_search_catalog_blueprint_dimensions",
+          alias: "rule",
+          on: [
+            {
+              left: { tableAlias: "rule", column: "blueprint_id" },
+              right: { tableAlias: "item", column: "blueprint_id" },
+            },
+          ],
+        },
+      ],
+      where: [{ tableAlias: "rule", column: "dimension_id", value: "dim_1" }],
+      refresh: async () => undefined,
+    });
+
+    expect(calls).toEqual([
+      {
+        sql: normalizeSql(
+          `SELECT DISTINCT item.catalog_item_id AS catalog_item_id
+           FROM discovery_search_catalog_items AS item
+           INNER JOIN discovery_search_catalog_blueprint_dimensions AS rule
+             ON rule.blueprint_id = item.blueprint_id
+           WHERE rule.dimension_id = $1`,
+        ),
+        values: ["dim_1"],
+      },
+    ]);
+  });
+
+  it("can derive multiple affected ids from each selected row", async () => {
+    const { db, calls } = recordingDb([{ category_ids: ["cat_1", "cat_2"] }]);
+    const refreshed: string[] = [];
+
+    await refreshAffectedRows(db, {
+      select: { column: "category_ids" },
+      from: { table: "discovery_category_catalog_items" },
+      where: [{ column: "catalog_item_id", value: "item_1" }],
+      idsFromRow: (row) => (Array.isArray(row.category_ids) ? row.category_ids.filter(isString) : []),
+      refresh: async (id) => {
+        refreshed.push(id);
+      },
+    });
+
+    expect(calls).toEqual([
+      {
+        sql: normalizeSql(
+          `SELECT category_ids AS category_ids
+           FROM discovery_category_catalog_items
+           WHERE catalog_item_id = $1`,
+        ),
+        values: ["item_1"],
+      },
+    ]);
+    expect(refreshed).toEqual(["cat_1", "cat_2"]);
   });
 
   it("expresses status transitions as a narrow keyed update", async () => {
@@ -284,6 +378,20 @@ describe("projection helpers", () => {
       }),
     ).rejects.toThrow('Projection row values are missing column "display_name"');
 
+    await expect(
+      refreshAffectedRows(db, {
+        select: { column: "catalog_item_id" },
+        from: { table: "discovery_search_catalog_items" },
+        joins: [
+          {
+            table: "unsafe; DROP TABLE unsafe",
+            on: [{ left: { column: "catalog_item_id" }, right: { column: "catalog_item_id" } }],
+          },
+        ],
+        refresh: async () => undefined,
+      }),
+    ).rejects.toThrow("Invalid SQL identifier");
+
     expect(calls).toEqual([]);
   });
 });
@@ -304,4 +412,8 @@ function recordingDb(rows: readonly Record<string, unknown>[] = []): Readonly<{ 
 
 function normalizeSql(sql: string): string {
   return sql.replace(/\s+/g, " ").replace(/\(\s+/g, "(").replace(/\s+\)/g, ")").trim();
+}
+
+function isString(value: unknown): value is string {
+  return typeof value === "string";
 }

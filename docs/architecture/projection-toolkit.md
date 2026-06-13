@@ -24,12 +24,28 @@ The Phase 4 helper surface was designed against the six largest projection files
 The useful abstraction boundary is row-level mutation plus JSONB array edits. Cascades remain explicit orchestration
 because each cascade names domain-specific dependents and side effects.
 
+### Phase D Survey
+
+Issue #1566 surveyed raw `db.query` calls in the toolkit-migrated auth and discovery projections plus newer projection
+files in those bounded contexts. Helpers remain survey-gated: build only when the same pattern appears in at least three
+distinct projection files.
+
+| Candidate pattern | Matching projection files | Distinct file count | Decision |
+| --- | --- | ---: | --- |
+| `INSERT ... SELECT ... ON CONFLICT` derived-row upsert | `bounded-contexts/discovery/support/market-support/projection.ts` | 1 | Declined; below threshold. |
+| COALESCE/conditional `UPDATE ... WHERE` | `bounded-contexts/discovery/support/market-support/projection.ts`, `bounded-contexts/discovery/features/item-detail/read-model/projection.ts` | 2 | Declined; below threshold. |
+| Cascade read feeding batch refresh | `bounded-contexts/discovery/features/categories/read-model/projection.ts`, `bounded-contexts/discovery/features/search/read-model/projection.ts`, `bounded-contexts/discovery/features/item-detail/read-model/projection.ts`, `bounded-contexts/discovery/support/market-support/projection.ts`, `bounded-contexts/discovery/support/google-shopping-support/feed-row-projection.ts` | 5 | Built as `refreshAffectedRows`. |
+
 ## Helper Mapping
 
 - `upsertRow`: use for `INSERT ... ON CONFLICT` keyed by a const `insertColumns` list. Set `updateColumns` when conflict
   updates intentionally exclude insert-only/default columns. Use `casts` for JSONB columns instead of pre-stringifying.
 - `updateRow`: use for ordinary keyed `UPDATE` statements. Keep the `setColumns` and `where.columns` lists inline or in
   table-local constants so column typos fail early and SQL generation stays deterministic.
+- `refreshAffectedRows`: use for the recurring cascade shape where a projection reads affected row ids from one source
+  table, optionally with structured joins/where/order clauses, and invokes a refresh callback for every selected id.
+  Use `idsFromRow` only when one selected row carries multiple affected ids, such as a JSONB id array. Keep graph
+  traversals, aggregate reads, and side-effect orchestration outside the helper.
 - `transitionStatus`: use for status-only event transitions with an `updated_at` write, such as `published`, `revoked`,
   `suspended`, or `expired`.
 - `appendJsonbArrayElement`: use for atomic JSONB array appends. Set `unique: true` plus `orderBy: [{ kind: "text" }]`
