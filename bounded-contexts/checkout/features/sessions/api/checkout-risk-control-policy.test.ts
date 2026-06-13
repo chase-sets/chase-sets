@@ -68,7 +68,7 @@ describe("Checkout risk control policy", () => {
     }
   });
 
-  it("forbids every old compatibility and unsafe repair mechanism", () => {
+  it("forbids every old helper and unsafe repair mechanism", () => {
     for (const entry of checkoutRiskControlPolicyEntries) {
       expect(entry.forbiddenMechanisms, entry.control).toEqual(
         expect.arrayContaining([...checkoutRiskForbiddenMechanisms]),
