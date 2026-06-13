@@ -36,23 +36,23 @@ describe("Checkout address serviceability policy", () => {
     const sellerShipFrom = checkoutAddressServiceabilityPolicyEntries.find(
       (entry) => entry.control === "seller-ship-from-address-validation",
     );
-    expect(sellerShipFrom?.evidenceExpectation).toMatch(/cannot confirm label, payout/i);
+    expect(sellerShipFrom?.customerSafeOutcome).toMatch(/cannot confirm label, payout/i);
   });
 
-  it("requires address evidence before shipping, tax, payout, label, split-group, or risk quote work", () => {
+  it("requires address normalization records before shipping, tax, payout, label, split-group, or risk quote work", () => {
     const quoteGatedEntries = checkoutAddressServiceabilityPolicyEntries.filter((entry) =>
       entry.quoteDependencies.some((dependency) => dependency !== "none"),
     );
 
     expect(quoteGatedEntries.length).toBeGreaterThan(0);
     for (const entry of quoteGatedEntries) {
-      expect(entry.normalizedEvidenceRequired, entry.control).toBe(true);
+      expect(entry.normalizationRecordRequired, entry.control).toBe(true);
       expect(entry.serviceabilityDecisionRequired, entry.control).toBe(true);
       expect(entry.freshnessKeyShape, entry.control).toContain(":");
     }
   });
 
-  it("requires customer-impacting address failures to be launch-disabled and support-safe", () => {
+  it("requires customer-impacting address failures to have owner rules and support-safe recovery", () => {
     const customerImpactingStates = [
       "restricted",
       "unserviceable",
@@ -69,7 +69,7 @@ describe("Checkout address serviceability policy", () => {
 
     expect(impactedEntries.length).toBeGreaterThan(0);
     for (const entry of impactedEntries) {
-      expect(entry.launchDecisionRequired, entry.control).toBe(true);
+      expect(entry.ownerRuleRequired, entry.control).toBe(true);
       expect(entry.supportReferenceRequired, entry.control).toBe(true);
       expect(entry.noSideEffectBeforeCommitRequired, entry.control).toBe(true);
       expect(entry.redactsSensitiveAddressData, entry.control).toBe(true);
@@ -85,11 +85,11 @@ describe("Checkout address serviceability policy", () => {
     );
 
     expect(savedAddress?.checkpoints).toEqual(expect.arrayContaining(["saved-row-edit", "account-update"]));
-    expect(savedAddress?.evidenceExpectation).toMatch(/editable rows and invalidate dependent quotes/i);
+    expect(savedAddress?.customerSafeOutcome).toMatch(/editable rows and invalidate dependent quotes/i);
     expect(activeSession?.checkpoints).toEqual(
       expect.arrayContaining(["active-session-return", "duplicate-submit", "final-confirmation"]),
     );
-    expect(activeSession?.evidenceExpectation).toMatch(/before any customer-committing side effect starts/i);
+    expect(activeSession?.customerSafeOutcome).toMatch(/before any customer-committing side effect starts/i);
   });
 
   it("forbids hidden repair, old payload, stale model, and dense checkout fallback mechanisms", () => {
@@ -108,14 +108,29 @@ describe("Checkout address serviceability policy", () => {
     expect(finalConfirmationEntries.length).toBeGreaterThan(0);
     for (const entry of finalConfirmationEntries) {
       expect(entry.noSideEffectBeforeCommitRequired, entry.control).toBe(true);
-      expect(entry.evidenceExpectation.trim().length, entry.control).toBeGreaterThan(0);
+      expect(entry.customerSafeOutcome.trim().length, entry.control).toBeGreaterThan(0);
     }
 
     const noSideEffect = checkoutAddressServiceabilityPolicyEntries.find(
       (entry) => entry.control === "no-side-effect-address-blocks",
     );
-    expect(noSideEffect?.evidenceExpectation).toMatch(/no payment, order, sale, label, payout/i);
-    expect(noSideEffect?.evidenceExpectation).toMatch(/refund, void, or reversal/i);
+    expect(noSideEffect?.customerSafeOutcome).toMatch(/no payment, order, sale, label, payout/i);
+    expect(noSideEffect?.customerSafeOutcome).toMatch(/refund, void, or reversal/i);
+  });
+
+  it("keeps support enabled and fresh-state address cleanup internal-only", () => {
+    const support = checkoutAddressServiceabilityPolicyEntries.find(
+      (entry) => entry.control === "support-safe-address-failure",
+    );
+    const cleanup = checkoutAddressServiceabilityPolicyEntries.find(
+      (entry) => entry.control === "fresh-state-address-cleanup",
+    );
+
+    expect(support?.surface).toBe("support-runbook");
+    expect(support?.capabilityStatus).toBe("enabled");
+    expect(cleanup?.surface).toBe("operations-status");
+    expect(cleanup?.capabilityStatus).toBe("internal-only");
+    expect(cleanup?.normalizationRecordRequired).toBe(false);
   });
 
   it("documents the executable address serviceability policy", () => {

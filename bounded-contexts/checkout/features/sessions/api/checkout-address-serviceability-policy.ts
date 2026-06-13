@@ -52,9 +52,9 @@ export type CheckoutAddressSurface =
   | "checkout-recovery"
   | "provider-return-recovery"
   | "support-runbook"
-  | "launch-status";
+  | "operations-status";
 
-export type CheckoutAddressLaunchDecision = "required-for-launch" | "launch-decision-required" | "not-customer-facing";
+export type CheckoutAddressCapabilityStatus = "enabled" | "owner-rule-required" | "internal-only";
 
 export type CheckoutAddressQuoteDependency =
   | "shipping-quote"
@@ -89,7 +89,7 @@ export type CheckoutAddressPolicyKey =
   | "buyer-delivery-address-validation"
   | "seller-ship-from-address-validation"
   | "saved-address-invalidation"
-  | "address-normalization-provider-evidence"
+  | "address-normalization-provider-record"
   | "unsupported-country-region-postal"
   | "po-box-or-restricted-address"
   | "military-remote-or-special-destination"
@@ -112,19 +112,19 @@ export type CheckoutAddressServiceabilityPolicyEntry = Readonly<{
   audiences: readonly CheckoutAddressAudience[];
   outcomes: readonly CheckoutAddressOutcome[];
   surface: CheckoutAddressSurface;
-  launchDecision: CheckoutAddressLaunchDecision;
+  capabilityStatus: CheckoutAddressCapabilityStatus;
   quoteDependencies: readonly CheckoutAddressQuoteDependency[];
-  normalizedEvidenceRequired: boolean;
+  normalizationRecordRequired: boolean;
   serviceabilityDecisionRequired: boolean;
   supportReferenceRequired: boolean;
   observabilityRequired: boolean;
-  launchDecisionRequired: boolean;
+  ownerRuleRequired: boolean;
   noSideEffectBeforeCommitRequired: boolean;
   redactsSensitiveAddressData: boolean;
   staysBeforeCheckout: boolean;
   freshnessKeyShape: string;
   forbiddenMechanisms: readonly string[];
-  evidenceExpectation: string;
+  customerSafeOutcome: string;
 }>;
 
 const buyerAudiences = ["guest-buyer", "signed-in-buyer"] as const satisfies readonly CheckoutAddressAudience[];
@@ -162,7 +162,7 @@ export const checkoutAddressRequiredControls = [
   "buyer-delivery-address-validation",
   "seller-ship-from-address-validation",
   "saved-address-invalidation",
-  "address-normalization-provider-evidence",
+  "address-normalization-provider-record",
   "unsupported-country-region-postal",
   "po-box-or-restricted-address",
   "military-remote-or-special-destination",
@@ -177,7 +177,7 @@ export const checkoutAddressRequiredControls = [
   "fresh-state-address-cleanup",
 ] as const satisfies readonly CheckoutAddressPolicyKey[];
 
-export const checkoutAddressLaunchRegisterOutcomeStates: readonly CheckoutAddressOutcome[] = [
+export const checkoutAddressOwnerRuleOutcomeStates: readonly CheckoutAddressOutcome[] = [
   "restricted",
   "unserviceable",
   "quote-unavailable",
@@ -198,20 +198,20 @@ export const checkoutAddressServiceabilityPolicyEntries = [
     audiences: buyerAudiences,
     outcomes: ["valid", "invalid", "recovered", "no-side-effect"],
     surface: "checkout-form",
-    launchDecision: "required-for-launch",
+    capabilityStatus: "enabled",
     quoteDependencies: ["shipping-quote", "tax-quote", "risk-check"],
-    normalizedEvidenceRequired: true,
+    normalizationRecordRequired: true,
     serviceabilityDecisionRequired: true,
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: false,
+    ownerRuleRequired: false,
     noSideEffectBeforeCommitRequired: true,
     redactsSensitiveAddressData: true,
     staysBeforeCheckout: false,
     freshnessKeyShape: "checkout:buyer_delivery_address:<source-revision>:<address-fingerprint>",
     forbiddenMechanisms: checkoutAddressForbiddenMechanisms,
-    evidenceExpectation:
-      "Guest and signed-in buyers cannot proceed to payment or order creation until required delivery fields, normalized evidence, serviceability, quote readiness, and risk dependencies are current.",
+    customerSafeOutcome:
+      "Guest and signed-in buyers cannot proceed to payment or order creation until required delivery fields, the normalization record, serviceability, quote readiness, and risk dependencies are current.",
   }),
   addressPolicy({
     control: "seller-ship-from-address-validation",
@@ -222,19 +222,19 @@ export const checkoutAddressServiceabilityPolicyEntries = [
     audiences: sellerAudiences,
     outcomes: ["valid", "invalid", "restricted", "unserviceable", "no-side-effect"],
     surface: "cart-list-readiness",
-    launchDecision: "required-for-launch",
+    capabilityStatus: "enabled",
     quoteDependencies: ["label-service", "payout-quote", "risk-check"],
-    normalizedEvidenceRequired: true,
+    normalizationRecordRequired: true,
     serviceabilityDecisionRequired: true,
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     noSideEffectBeforeCommitRequired: true,
     redactsSensitiveAddressData: true,
     staysBeforeCheckout: true,
     freshnessKeyShape: "checkout:seller_ship_from:<sell-list-revision>:<address-fingerprint>",
     forbiddenMechanisms: checkoutAddressForbiddenMechanisms,
-    evidenceExpectation:
+    customerSafeOutcome:
       "Guest and signed-in sellers cannot confirm label, payout, settlement, notification, or account-history work when ship-from facts are missing, stale, restricted, or unserviceable.",
   }),
   addressPolicy({
@@ -246,44 +246,44 @@ export const checkoutAddressServiceabilityPolicyEntries = [
     audiences: ["signed-in-buyer", "signed-in-seller"],
     outcomes: ["valid", "invalid", "stale", "recovered", "no-side-effect"],
     surface: "checkout-recovery",
-    launchDecision: "required-for-launch",
+    capabilityStatus: "enabled",
     quoteDependencies: ["shipping-quote", "tax-quote", "payout-quote", "label-service", "risk-check"],
-    normalizedEvidenceRequired: true,
+    normalizationRecordRequired: true,
     serviceabilityDecisionRequired: true,
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     noSideEffectBeforeCommitRequired: true,
     redactsSensitiveAddressData: true,
     staysBeforeCheckout: false,
     freshnessKeyShape: "identity:saved_address:<address-id>:<address-version>",
     forbiddenMechanisms: checkoutAddressForbiddenMechanisms,
-    evidenceExpectation:
+    customerSafeOutcome:
       "Saved addresses that are edited, revoked, normalized differently, or made unsupported fall back to editable rows and invalidate dependent quotes before confirmation.",
   }),
   addressPolicy({
-    control: "address-normalization-provider-evidence",
-    docLabel: "Address normalization provider evidence",
+    control: "address-normalization-provider-record",
+    docLabel: "Address normalization provider record",
     ownerIssues: ["#1127", "#1124", "#1134"],
     ownerContext: "Fulfillment",
     checkpoints: ["manual-address-edit", "wallet-or-express-return", "final-confirmation"],
     audiences: allCustomerAudiences,
     outcomes: ["valid", "invalid", "provider-outage", "unsupported", "no-side-effect"],
     surface: "provider-return-recovery",
-    launchDecision: "launch-decision-required",
+    capabilityStatus: "owner-rule-required",
     quoteDependencies: ["shipping-quote", "tax-quote", "label-service"],
-    normalizedEvidenceRequired: true,
+    normalizationRecordRequired: true,
     serviceabilityDecisionRequired: true,
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     noSideEffectBeforeCommitRequired: true,
     redactsSensitiveAddressData: true,
     staysBeforeCheckout: false,
     freshnessKeyShape: "fulfillment:address_normalization:<provider-version>:<address-fingerprint>",
     forbiddenMechanisms: checkoutAddressForbiddenMechanisms,
-    evidenceExpectation:
-      "Provider normalization records provider/version evidence and support-safe failure codes without hidden normalization or provider payload exposure.",
+    customerSafeOutcome:
+      "Provider normalization records the provider version and support-safe failure codes without hidden normalization or provider payload exposure.",
   }),
   addressPolicy({
     control: "unsupported-country-region-postal",
@@ -294,19 +294,19 @@ export const checkoutAddressServiceabilityPolicyEntries = [
     audiences: allCustomerAudiences,
     outcomes: ["restricted", "unserviceable", "unsupported", "no-side-effect"],
     surface: "checkout-recovery",
-    launchDecision: "launch-decision-required",
+    capabilityStatus: "owner-rule-required",
     quoteDependencies: ["shipping-quote", "tax-quote", "payout-quote", "label-service"],
-    normalizedEvidenceRequired: true,
+    normalizationRecordRequired: true,
     serviceabilityDecisionRequired: true,
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     noSideEffectBeforeCommitRequired: true,
     redactsSensitiveAddressData: true,
     staysBeforeCheckout: false,
     freshnessKeyShape: "fulfillment:destination_support:<country-region-postal-prefix>:<policy-version>",
     forbiddenMechanisms: checkoutAddressForbiddenMechanisms,
-    evidenceExpectation:
+    customerSafeOutcome:
       "Unsupported country, region, and postal outcomes show simple recovery or return-to-list/cart guidance before any payment, order, label, payout, or fulfillment side effect starts.",
   }),
   addressPolicy({
@@ -318,19 +318,19 @@ export const checkoutAddressServiceabilityPolicyEntries = [
     audiences: buyerAudiences,
     outcomes: ["restricted", "unserviceable", "no-side-effect"],
     surface: "checkout-form",
-    launchDecision: "launch-decision-required",
+    capabilityStatus: "owner-rule-required",
     quoteDependencies: ["shipping-quote", "tax-quote", "risk-check"],
-    normalizedEvidenceRequired: true,
+    normalizationRecordRequired: true,
     serviceabilityDecisionRequired: true,
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     noSideEffectBeforeCommitRequired: true,
     redactsSensitiveAddressData: true,
     staysBeforeCheckout: false,
     freshnessKeyShape: "fulfillment:restricted_address:<restriction-code>:<address-fingerprint>",
     forbiddenMechanisms: checkoutAddressForbiddenMechanisms,
-    evidenceExpectation:
+    customerSafeOutcome:
       "PO box and restricted-address outcomes block unavailable shipping services with customer-safe copy and no raw carrier/provider diagnostics.",
   }),
   addressPolicy({
@@ -342,20 +342,20 @@ export const checkoutAddressServiceabilityPolicyEntries = [
     audiences: buyerAudiences,
     outcomes: ["valid", "restricted", "unserviceable", "quote-unavailable", "unsupported"],
     surface: "checkout-recovery",
-    launchDecision: "launch-decision-required",
+    capabilityStatus: "owner-rule-required",
     quoteDependencies: ["shipping-quote", "tax-quote", "split-group-promise", "risk-check"],
-    normalizedEvidenceRequired: true,
+    normalizationRecordRequired: true,
     serviceabilityDecisionRequired: true,
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     noSideEffectBeforeCommitRequired: true,
     redactsSensitiveAddressData: true,
     staysBeforeCheckout: false,
     freshnessKeyShape: "fulfillment:special_destination:<destination-class>:<policy-version>",
     forbiddenMechanisms: checkoutAddressForbiddenMechanisms,
-    evidenceExpectation:
-      "Military, remote, and special destination rules are explicit launch states, not implicit carrier failures discovered after payment or label work starts.",
+    customerSafeOutcome:
+      "Military, remote, and special destination rules are explicit owner-rule states, not implicit carrier failures discovered after payment or label work starts.",
   }),
   addressPolicy({
     control: "serviceability-before-provider-quotes",
@@ -366,19 +366,19 @@ export const checkoutAddressServiceabilityPolicyEntries = [
     audiences: allCustomerAudiences,
     outcomes: ["valid", "invalid", "unserviceable", "quote-unavailable", "provider-outage", "no-side-effect"],
     surface: "checkout-form",
-    launchDecision: "required-for-launch",
+    capabilityStatus: "enabled",
     quoteDependencies: ["shipping-quote", "tax-quote", "payout-quote", "label-service", "risk-check"],
-    normalizedEvidenceRequired: true,
+    normalizationRecordRequired: true,
     serviceabilityDecisionRequired: true,
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     noSideEffectBeforeCommitRequired: true,
     redactsSensitiveAddressData: true,
     staysBeforeCheckout: false,
     freshnessKeyShape: "checkout:address_quote_gate:<address-fingerprint>:<quote-purpose>",
     forbiddenMechanisms: checkoutAddressForbiddenMechanisms,
-    evidenceExpectation:
+    customerSafeOutcome:
       "Shipping, tax, payout, label, split-group, and risk provider calls run only after the address is sufficient for that provider and are rejected when the serviceability decision is stale.",
   }),
   addressPolicy({
@@ -390,19 +390,19 @@ export const checkoutAddressServiceabilityPolicyEntries = [
     audiences: allCustomerAudiences,
     outcomes: ["valid", "stale", "quote-unavailable", "no-side-effect"],
     surface: "checkout-recovery",
-    launchDecision: "required-for-launch",
+    capabilityStatus: "enabled",
     quoteDependencies: ["shipping-quote", "tax-quote", "payout-quote", "label-service", "split-group-promise"],
-    normalizedEvidenceRequired: true,
+    normalizationRecordRequired: true,
     serviceabilityDecisionRequired: true,
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     noSideEffectBeforeCommitRequired: true,
     redactsSensitiveAddressData: true,
     staysBeforeCheckout: false,
     freshnessKeyShape: "checkout:address_dependent_quote:<address-fingerprint>:<quote-fingerprint>",
     forbiddenMechanisms: checkoutAddressForbiddenMechanisms,
-    evidenceExpectation:
+    customerSafeOutcome:
       "Manual edits, saved-row edits, wallet returns, and provider normalization changes invalidate address-dependent quote fingerprints before final confirmation.",
   }),
   addressPolicy({
@@ -414,19 +414,19 @@ export const checkoutAddressServiceabilityPolicyEntries = [
     audiences: buyerAudiences,
     outcomes: ["valid", "invalid", "restricted", "provider-outage", "stale", "no-side-effect"],
     surface: "provider-return-recovery",
-    launchDecision: "launch-decision-required",
+    capabilityStatus: "owner-rule-required",
     quoteDependencies: ["shipping-quote", "tax-quote", "risk-check"],
-    normalizedEvidenceRequired: true,
+    normalizationRecordRequired: true,
     serviceabilityDecisionRequired: true,
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     noSideEffectBeforeCommitRequired: true,
     redactsSensitiveAddressData: true,
     staysBeforeCheckout: false,
     freshnessKeyShape: "payments:wallet_address_return:<provider-ref>:<address-fingerprint>",
     forbiddenMechanisms: checkoutAddressForbiddenMechanisms,
-    evidenceExpectation:
+    customerSafeOutcome:
       "Wallet or express-return addresses re-enter the same serviceability and quote gates; unsupported changes return to simple correction instead of continuing with stale totals.",
   }),
   addressPolicy({
@@ -438,19 +438,19 @@ export const checkoutAddressServiceabilityPolicyEntries = [
     audiences: allCustomerAudiences,
     outcomes: ["valid", "invalid", "stale", "restricted", "unserviceable", "no-side-effect"],
     surface: "checkout-recovery",
-    launchDecision: "required-for-launch",
+    capabilityStatus: "enabled",
     quoteDependencies: ["shipping-quote", "tax-quote", "payout-quote", "label-service", "risk-check"],
-    normalizedEvidenceRequired: true,
+    normalizationRecordRequired: true,
     serviceabilityDecisionRequired: true,
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     noSideEffectBeforeCommitRequired: true,
     redactsSensitiveAddressData: true,
     staysBeforeCheckout: false,
     freshnessKeyShape: "checkout:active_session_address:<session-ref-redacted>:<address-version>",
     forbiddenMechanisms: checkoutAddressForbiddenMechanisms,
-    evidenceExpectation:
+    customerSafeOutcome:
       "Active sessions revalidate address and dependent provider facts on return, reload, duplicate submit, and final confirmation before any customer-committing side effect starts.",
   }),
   addressPolicy({
@@ -462,19 +462,19 @@ export const checkoutAddressServiceabilityPolicyEntries = [
     audiences: buyerAudiences,
     outcomes: ["valid", "stale", "quote-unavailable", "unserviceable", "no-side-effect"],
     surface: "cart-list-readiness",
-    launchDecision: "launch-decision-required",
+    capabilityStatus: "owner-rule-required",
     quoteDependencies: ["shipping-quote", "split-group-promise", "risk-check"],
-    normalizedEvidenceRequired: true,
+    normalizationRecordRequired: true,
     serviceabilityDecisionRequired: true,
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     noSideEffectBeforeCommitRequired: true,
     redactsSensitiveAddressData: true,
     staysBeforeCheckout: true,
     freshnessKeyShape: "fulfillment:split_group_shipping:<readiness-snapshot>:<address-fingerprint>",
     forbiddenMechanisms: checkoutAddressForbiddenMechanisms,
-    evidenceExpectation:
+    customerSafeOutcome:
       "Split-group shipping promises are produced by readiness and consumed by checkout; address changes route back to readiness instead of regrouping shipments in checkout.",
   }),
   addressPolicy({
@@ -485,21 +485,21 @@ export const checkoutAddressServiceabilityPolicyEntries = [
     checkpoints: ["manual-address-edit", "wallet-or-express-return", "final-confirmation", "operator-support"],
     audiences: allAudiences,
     outcomes: ["quote-unavailable", "provider-outage", "disabled", "deferred", "unsupported", "no-side-effect"],
-    surface: "launch-status",
-    launchDecision: "launch-decision-required",
+    surface: "operations-status",
+    capabilityStatus: "owner-rule-required",
     quoteDependencies: ["shipping-quote", "tax-quote", "payout-quote", "label-service", "risk-check"],
-    normalizedEvidenceRequired: true,
+    normalizationRecordRequired: true,
     serviceabilityDecisionRequired: true,
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     noSideEffectBeforeCommitRequired: true,
     redactsSensitiveAddressData: true,
     staysBeforeCheckout: false,
-    freshnessKeyShape: "launch-decision:address_quote:<provider-or-capability>:<state>",
+    freshnessKeyShape: "platform:address_quote_capability:<provider-or-capability>:<state>",
     forbiddenMechanisms: checkoutAddressForbiddenMechanisms,
-    evidenceExpectation:
-      "Quote-unavailable, provider-outage, disabled, deferred, and unsupported address states have owner, copy, visual, support, observability, support path, and launch-decision evidence.",
+    customerSafeOutcome:
+      "Quote-unavailable, provider-outage, disabled, deferred, and unsupported address states have owner rules, copy, visual target, observability, and support-safe recovery.",
   }),
   addressPolicy({
     control: "support-safe-address-failure",
@@ -510,19 +510,19 @@ export const checkoutAddressServiceabilityPolicyEntries = [
     audiences: ["support-operator"],
     outcomes: ["invalid", "restricted", "unserviceable", "quote-unavailable", "provider-outage", "recovered"],
     surface: "support-runbook",
-    launchDecision: "required-for-launch",
+    capabilityStatus: "enabled",
     quoteDependencies: ["shipping-quote", "tax-quote", "payout-quote", "label-service", "risk-check"],
-    normalizedEvidenceRequired: true,
+    normalizationRecordRequired: true,
     serviceabilityDecisionRequired: true,
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     noSideEffectBeforeCommitRequired: true,
     redactsSensitiveAddressData: true,
     staysBeforeCheckout: false,
     freshnessKeyShape: "support:address_failure:<support-safe-reference>:<failure-code>",
     forbiddenMechanisms: checkoutAddressForbiddenMechanisms,
-    evidenceExpectation:
+    customerSafeOutcome:
       "Support can see masked address failure category, owner, freshness status, and support-safe reference without full address, raw provider payload, or manual repair instructions.",
   }),
   addressPolicy({
@@ -534,7 +534,7 @@ export const checkoutAddressServiceabilityPolicyEntries = [
     audiences: allCustomerAudiences,
     outcomes: ["invalid", "restricted", "unserviceable", "stale", "quote-unavailable", "no-side-effect"],
     surface: "checkout-recovery",
-    launchDecision: "required-for-launch",
+    capabilityStatus: "enabled",
     quoteDependencies: [
       "shipping-quote",
       "tax-quote",
@@ -543,17 +543,17 @@ export const checkoutAddressServiceabilityPolicyEntries = [
       "split-group-promise",
       "risk-check",
     ],
-    normalizedEvidenceRequired: true,
+    normalizationRecordRequired: true,
     serviceabilityDecisionRequired: true,
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     noSideEffectBeforeCommitRequired: true,
     redactsSensitiveAddressData: true,
     staysBeforeCheckout: false,
     freshnessKeyShape: "checkout:address_no_side_effect:<source-ref>:<failure-code>",
     forbiddenMechanisms: checkoutAddressForbiddenMechanisms,
-    evidenceExpectation:
+    customerSafeOutcome:
       "Address blocks prove no payment, order, sale, label, payout, fulfillment, settlement, notification, support, account-history, refund, void, or reversal side effect started.",
   }),
   addressPolicy({
@@ -564,20 +564,20 @@ export const checkoutAddressServiceabilityPolicyEntries = [
     checkpoints: ["checkout-session-create", "active-session-return", "final-confirmation", "operator-support"],
     audiences: allAudiences,
     outcomes: ["disabled", "unsupported", "no-side-effect"],
-    surface: "launch-status",
-    launchDecision: "required-for-launch",
+    surface: "operations-status",
+    capabilityStatus: "internal-only",
     quoteDependencies: ["none"],
-    normalizedEvidenceRequired: false,
+    normalizationRecordRequired: false,
     serviceabilityDecisionRequired: false,
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     noSideEffectBeforeCommitRequired: true,
     redactsSensitiveAddressData: true,
     staysBeforeCheckout: false,
     freshnessKeyShape: "checkout:address_fresh_state:<scan-or-route-id>:<result>",
     forbiddenMechanisms: checkoutAddressForbiddenMechanisms,
-    evidenceExpectation:
+    customerSafeOutcome:
       "Fresh-state scans prove address handling cannot succeed through old payloads, hidden normalization, migration/backfill helpers, stale read models, stale fixtures, or dense checkout fallback.",
   }),
 ] as const satisfies readonly CheckoutAddressServiceabilityPolicyEntry[];
@@ -599,7 +599,7 @@ export function assertCheckoutAddressServiceabilityPolicyCoverage(): void {
     if (!entry.ownerIssues.includes("#1127")) {
       throw new Error(`Checkout address/serviceability policy '${entry.control}' must include #1127.`);
     }
-    if (entry.docLabel.trim().length === 0 || entry.evidenceExpectation.trim().length === 0) {
+    if (entry.docLabel.trim().length === 0 || entry.customerSafeOutcome.trim().length === 0) {
       throw new Error(`Checkout address/serviceability policy '${entry.control}' needs documentation text.`);
     }
     if (entry.audiences.length === 0 || entry.checkpoints.length === 0 || entry.outcomes.length === 0) {
@@ -609,18 +609,18 @@ export function assertCheckoutAddressServiceabilityPolicyCoverage(): void {
       throw new Error(`Checkout address/serviceability policy '${entry.control}' must require redacted telemetry.`);
     }
     if (entry.quoteDependencies.some((dependency) => dependency !== "none")) {
-      if (!entry.normalizedEvidenceRequired || !entry.serviceabilityDecisionRequired) {
+      if (!entry.normalizationRecordRequired || !entry.serviceabilityDecisionRequired) {
         throw new Error(
-          `Checkout address/serviceability policy '${entry.control}' must gate provider quotes on address evidence.`,
+          `Checkout address/serviceability policy '${entry.control}' must gate provider quotes on address normalization records.`,
         );
       }
     }
     if (
-      entry.outcomes.some((state) => checkoutAddressLaunchRegisterOutcomeStates.includes(state)) &&
-      (!entry.launchDecisionRequired || !entry.supportReferenceRequired || !entry.noSideEffectBeforeCommitRequired)
+      entry.outcomes.some((state) => checkoutAddressOwnerRuleOutcomeStates.includes(state)) &&
+      (!entry.ownerRuleRequired || !entry.supportReferenceRequired || !entry.noSideEffectBeforeCommitRequired)
     ) {
       throw new Error(
-        `Checkout address/serviceability policy '${entry.control}' must launch-decision customer-impacting failures.`,
+        `Checkout address/serviceability policy '${entry.control}' must define owner rules for customer-impacting failures.`,
       );
     }
     for (const forbiddenMechanism of checkoutAddressForbiddenMechanisms) {
