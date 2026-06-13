@@ -60,6 +60,7 @@ export function NumberInput(props: NumberInputProps) {
 }
 
 export interface CurrencyInputProps extends TextInputProps {
+  currencyLabel?: string;
   currencySymbol?: string;
 }
 
@@ -72,17 +73,25 @@ export function CurrencyInput({
   counter,
   required,
   hideLabel,
+  currencyLabel = "US dollars",
   currencySymbol = "$",
+  "aria-label": ariaLabel,
   "aria-describedby": ariaDescribedBy,
   ...rest
 }: CurrencyInputProps) {
   const fallbackId = useId();
   const inputId = id ?? fallbackId;
+  const currencyDescription = (
+    <>
+      {description}
+      <span className="sr-only"> Amount in {currencyLabel}.</span>
+    </>
+  );
 
   return (
     <FieldChrome
       label={label}
-      description={description}
+      description={currencyDescription}
       error={error}
       status={status}
       counter={counter}
@@ -91,7 +100,10 @@ export function CurrencyInput({
       htmlFor={inputId}
     >
       <div className="relative">
-        <span className="pointer-events-none absolute inset-y-0 left-[var(--control-md-px)] flex items-center text-secondary">
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-y-0 left-[var(--control-md-px)] flex items-center text-secondary"
+        >
           {currencySymbol}
         </span>
         <input
@@ -100,9 +112,10 @@ export function CurrencyInput({
           required={required}
           type="number"
           inputMode="decimal"
+          aria-label={ariaLabel}
           aria-describedby={fieldDescribedBy({
             inputId,
-            description,
+            description: currencyDescription,
             error,
             status,
             counter,

@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { FormEvent } from "react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { describe, expect, it, vi } from "vitest";
@@ -9,6 +10,7 @@ import {
   Checkbox,
   CheckboxGroup,
   Combobox,
+  CurrencyInput,
   Form,
   NumberField,
   RadioGroup,
@@ -456,6 +458,41 @@ describe("form system", () => {
     fireEvent.click(screen.getByRole("link", { name: "Preferences: Choose an option." }));
     expect(document.activeElement?.getAttribute("id")).toBe("updates");
     expect(screen.getByText("Payment could not be started.")).toBeTruthy();
+  });
+
+  it("moves focus into validation summary targets on keyboard link activation", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <>
+        <input id="email" aria-label="Email" />
+        <ValidationSummary
+          errors={[{ fieldId: "email", fieldName: "Email", message: "Enter an email." }]}
+          title="Fix listing details"
+        />
+      </>,
+    );
+
+    const emailLink = screen.getByRole("link", { name: "Email: Enter an email." });
+
+    emailLink.focus();
+    expect(document.activeElement).toBe(emailLink);
+
+    await user.keyboard("{Enter}");
+
+    expect(document.activeElement).toBe(screen.getByLabelText("Email"));
+  });
+
+  it("hides decorative currency prefixes while naming the currency", () => {
+    const { container } = render(<CurrencyInput id="price" label="Price" />);
+
+    const input = screen.getByRole("spinbutton", { name: "Price" });
+    expect(input).toBeTruthy();
+    expect(screen.getByRole("spinbutton", { description: /US dollars/ })).toBe(input);
+
+    const prefix = container.querySelector("span[aria-hidden='true']");
+
+    expect(prefix?.textContent).toBe("$");
   });
 
   it("normalizes server errors and drives controlled form state", () => {
