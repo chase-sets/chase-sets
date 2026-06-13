@@ -93,7 +93,6 @@
     "test:google-shopping-launch-readiness-evidence": "vitest run scripts/google-shopping-launch-readiness-evidence.test.mjs",
     "test:marketplace-promotion-evidence": "vitest run scripts/marketplace-promotion-evidence.test.mjs",
     "test:marketplace-public-presence-copy-audit": "vitest run scripts/marketplace-public-presence-copy-audit.test.mjs",
-    "test:marketplace-deferred-checkout-order-proof": "vitest run scripts/marketplace-deferred-checkout-order-proof.test.mjs",
     "test:marketplace-launch-supply-measurement": "vitest run scripts/marketplace-launch-supply-measurement.test.mjs",
     "test:marketplace-checkout-fee-evidence": "vitest run scripts/marketplace-checkout-fee-evidence.test.mjs",
     "test:marketplace-provider-proof-status": "vitest run scripts/marketplace-provider-proof-status.test.mjs",
