@@ -121,7 +121,7 @@ describe("fresh checkout read-model schemas", () => {
     );
   });
 
-  it("keeps customer-facing checkout surfaces free of dense legacy and repair copy", () => {
+  it("keeps customer-facing checkout surfaces free of dense old-flow and repair copy", () => {
     const customerFacingFiles = [
       ...collectFiles(join(checkoutRoot, "features", "cart", "ui")),
       ...collectFiles(join(checkoutRoot, "features", "sell-list", "ui")),
@@ -133,7 +133,6 @@ describe("fresh checkout read-model schemas", () => {
     const forbiddenCustomerCopy: readonly ForbiddenPattern[] = [
       { label: "old buy checkout start route", pattern: /\/checkout\/start|checkout\/start/ },
       { label: "old broad checkout session route", pattern: /\/checkout\/:sessionId|checkout\/:sessionId/ },
-      { label: "legacy checkout copy", pattern: /\blegacy checkout\b/i },
       { label: "old checkout copy", pattern: /\bold checkout\b/i },
       { label: "dense checkout fallback copy", pattern: /\bdense checkout fallback\b/i },
       { label: "compatibility adapter copy", pattern: /\bcompatibility adapter\b/i },

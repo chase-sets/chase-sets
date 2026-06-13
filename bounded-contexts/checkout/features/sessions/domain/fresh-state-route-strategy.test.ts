@@ -4,7 +4,7 @@ import {
   checkoutFreshStateFeatureKey,
   checkoutFreshStateKillSwitch,
   checkoutFreshStateRoutes,
-  checkoutLegacyRouteDispositions,
+  checkoutOldRouteDispositions,
   findFreshStateRouteCollisions,
   routeAcceptsUnresolvedFulfillment,
 } from "./fresh-state-route-strategy";
@@ -53,39 +53,39 @@ describe("fresh-state checkout route strategy", () => {
     ]);
   });
 
-  it("does not preserve legacy checkout routes as customer-facing compatibility paths", () => {
-    expect(checkoutLegacyRouteDispositions).toEqual([
+  it("does not preserve old checkout routes as customer-facing fallback paths", () => {
+    expect(checkoutOldRouteDispositions).toEqual([
       {
         routeId: "checkout-start",
         routePath: "checkout/start",
-        disposition: "remove-before-launch",
-        customerFacingCompatibility: false,
+        disposition: "remove-before-customer-use",
+        customerFacingFallback: false,
         replacementRouteId: "buy-checkout-readiness",
       },
       {
         routeId: "checkout-session",
         routePath: "checkout/:sessionId",
-        disposition: "hard-disable-before-launch",
-        customerFacingCompatibility: false,
+        disposition: "hard-disable-before-customer-use",
+        customerFacingFallback: false,
         replacementRouteId: "buy-checkout-session",
       },
       {
         routeId: "checkout-concept",
         routePath: "checkout/concept",
         disposition: "removed",
-        customerFacingCompatibility: false,
+        customerFacingFallback: false,
         replacementRouteId: null,
       },
     ]);
   });
 
-  it("uses release controls as a kill switch without restoring legacy checkout", () => {
+  it("uses release controls as a kill switch without restoring old checkout", () => {
     expect(checkoutFreshStateFeatureKey).toBe("checkout.shopify-simple");
     expect(checkoutFreshStateKillSwitch).toEqual({
       featureKey: "checkout.shopify-simple",
       disabledBuyEntryRedirectPath: "/account/cart?checkout=disabled",
       disabledSellEntryRedirectPath: "/account/sell-list?checkout=disabled",
-      restoresLegacyCheckout: false,
+      restoresOldCheckout: false,
     });
   });
 });

@@ -186,8 +186,8 @@ export const checkoutEconomicsForbiddenMechanisms = [
   "old session payload adapter",
   "stale cached totals",
   "hidden economics recalculation",
-  "migration/backfill compatibility",
-  "dual-write compatibility",
+  "migration/backfill helper",
+  "dual-write helper",
   "manual database edit",
   "provider-dashboard-only fix",
   "stale fixture bypass",
@@ -681,7 +681,7 @@ export const checkoutEconomicsPolicyEntries = [
     freshnessKeyShape: "checkout:economics_fresh_state:<scan-or-route-id>:<result>",
     forbiddenMechanisms: checkoutEconomicsForbiddenMechanisms,
     customerSafeOutcome:
-      "Fresh-state scans prove economics cannot succeed through old payload adapters, stale cached totals, hidden recalculation, migration/backfill helpers, stale fixtures, or dense checkout fallback.",
+      "Fresh-state scans show economics cannot succeed through old payload adapters, stale cached totals, hidden recalculation, migration/backfill helpers, stale fixtures, or dense checkout fallback.",
   }),
 ] as const satisfies readonly CheckoutEconomicsPolicyEntry[];
 

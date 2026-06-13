@@ -21,11 +21,11 @@ export type CheckoutFreshStateRoute = {
   readonly disabledRedirectPath: string;
 };
 
-export type CheckoutLegacyRouteDisposition = {
+export type CheckoutOldRouteDisposition = {
   readonly routeId: string;
   readonly routePath: string;
-  readonly disposition: "remove-before-launch" | "hard-disable-before-launch" | "removed";
-  readonly customerFacingCompatibility: false;
+  readonly disposition: "remove-before-customer-use" | "hard-disable-before-customer-use" | "removed";
+  readonly customerFacingFallback: false;
   readonly replacementRouteId: string | null;
 };
 
@@ -35,7 +35,7 @@ export const checkoutFreshStateKillSwitch = {
   featureKey: checkoutFreshStateFeatureKey,
   disabledBuyEntryRedirectPath: "/account/cart?checkout=disabled",
   disabledSellEntryRedirectPath: "/account/sell-list?checkout=disabled",
-  restoresLegacyCheckout: false,
+  restoresOldCheckout: false,
 } as const;
 
 export const checkoutFreshStateRoutes = [
@@ -121,29 +121,29 @@ export const checkoutFreshStateRoutes = [
   },
 ] as const satisfies readonly CheckoutFreshStateRoute[];
 
-export const checkoutLegacyRouteDispositions = [
+export const checkoutOldRouteDispositions = [
   {
     routeId: "checkout-start",
     routePath: "checkout/start",
-    disposition: "remove-before-launch",
-    customerFacingCompatibility: false,
+    disposition: "remove-before-customer-use",
+    customerFacingFallback: false,
     replacementRouteId: "buy-checkout-readiness",
   },
   {
     routeId: "checkout-session",
     routePath: "checkout/:sessionId",
-    disposition: "hard-disable-before-launch",
-    customerFacingCompatibility: false,
+    disposition: "hard-disable-before-customer-use",
+    customerFacingFallback: false,
     replacementRouteId: "buy-checkout-session",
   },
   {
     routeId: "checkout-concept",
     routePath: "checkout/concept",
     disposition: "removed",
-    customerFacingCompatibility: false,
+    customerFacingFallback: false,
     replacementRouteId: null,
   },
-] as const satisfies readonly CheckoutLegacyRouteDisposition[];
+] as const satisfies readonly CheckoutOldRouteDisposition[];
 
 export function findFreshStateRouteCollisions(
   routes: readonly Pick<CheckoutFreshStateRoute, "routeId" | "routePath">[] = checkoutFreshStateRoutes,

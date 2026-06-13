@@ -17,7 +17,7 @@ export type CheckoutNotificationSourceOwner =
   | "Notifications"
   | "Support";
 
-export type CheckoutNotificationChannel = "transactional-email" | "notification-center" | "support-evidence" | "none";
+export type CheckoutNotificationChannel = "transactional-email" | "notification-center" | "support-record" | "none";
 
 export type CheckoutNotificationCapabilityStatus = "enabled" | "suppressed" | "internal-only";
 
@@ -129,7 +129,7 @@ export const checkoutTransactionalNotificationPolicyEntries = [
     missingContactFallback: "not-applicable",
     accountClaimBehavior: "not-applicable",
     customerSafeOutcome:
-      "Recovery proves no payment, order, sale, label, payout, settlement, notification, account-history, support, refund, void, or reversal side effect started.",
+      "Recovery shows no payment, order, sale, label, payout, settlement, notification, account-history, support, refund, void, or reversal side effect started.",
   }),
   notificationPolicy({
     trigger: "buy-order-confirmation",
@@ -182,7 +182,7 @@ export const checkoutTransactionalNotificationPolicyEntries = [
     timing: "failure-recovery",
     capabilityStatus: "enabled",
     audiences: buyerAudiences,
-    channels: ["transactional-email", "support-evidence"],
+    channels: ["transactional-email", "support-record"],
     messageTypes: ["payments.payment-failed"],
     idempotencyKeyShape: "payments:payment_failed:<payment-id>",
     supportReferenceRequired: true,
@@ -203,7 +203,7 @@ export const checkoutTransactionalNotificationPolicyEntries = [
     timing: "after-owning-context-commit",
     capabilityStatus: "enabled",
     audiences: ["guest-buyer"],
-    channels: ["transactional-email", "support-evidence"],
+    channels: ["transactional-email", "support-record"],
     messageTypes: ["ordering.order.created"],
     idempotencyKeyShape: "ordering:order_confirmed:<order-id>",
     supportReferenceRequired: true,
@@ -224,7 +224,7 @@ export const checkoutTransactionalNotificationPolicyEntries = [
     timing: "on-checkout-confirmation",
     capabilityStatus: "suppressed",
     audiences: sellerAudiences,
-    channels: ["support-evidence"],
+    channels: ["support-record"],
     messageTypes: [],
     idempotencyKeyShape: "checkout:sell_confirmation_recorded:<confirmation-id>",
     supportReferenceRequired: true,
@@ -245,7 +245,7 @@ export const checkoutTransactionalNotificationPolicyEntries = [
     timing: "after-owning-context-commit",
     capabilityStatus: "suppressed",
     audiences: sellerAudiences,
-    channels: ["support-evidence"],
+    channels: ["support-record"],
     messageTypes: [],
     idempotencyKeyShape: "seller:sale_committed:<sale-or-handoff-id>",
     supportReferenceRequired: true,
@@ -266,7 +266,7 @@ export const checkoutTransactionalNotificationPolicyEntries = [
     timing: "after-owning-context-commit",
     capabilityStatus: "suppressed",
     audiences: sellerAudiences,
-    channels: ["support-evidence"],
+    channels: ["support-record"],
     messageTypes: [],
     idempotencyKeyShape: "fulfillment:shipping_next_step:<shipment-or-label-id>",
     supportReferenceRequired: true,
@@ -287,7 +287,7 @@ export const checkoutTransactionalNotificationPolicyEntries = [
     timing: "failure-recovery",
     capabilityStatus: "enabled",
     audiences: allCustomerAudiences,
-    channels: ["support-evidence"],
+    channels: ["support-record"],
     messageTypes: [],
     idempotencyKeyShape: "checkout:handoff_failed:<confirmation-or-handoff-id>",
     supportReferenceRequired: true,
@@ -308,7 +308,7 @@ export const checkoutTransactionalNotificationPolicyEntries = [
     timing: "operator-support",
     capabilityStatus: "enabled",
     audiences: ["signed-in-buyer", "signed-in-seller", "support-operator"],
-    channels: ["transactional-email", "support-evidence"],
+    channels: ["transactional-email", "support-record"],
     messageTypes: ["support.support-request.opened"],
     idempotencyKeyShape: "support:support_request_opened:<support-request-id>",
     supportReferenceRequired: true,
@@ -325,11 +325,11 @@ export const checkoutTransactionalNotificationPolicyEntries = [
     docLabel: "Support request resolved",
     ownerIssues: ["#1129", "#1122", "#1165"],
     sourceOwner: "Support",
-    sourceFact: "Support request resolved after evidence and downstream owner status are recorded.",
+    sourceFact: "Support request resolved after support record and downstream owner status are recorded.",
     timing: "operator-support",
     capabilityStatus: "enabled",
     audiences: ["signed-in-buyer", "signed-in-seller", "support-operator"],
-    channels: ["transactional-email", "support-evidence"],
+    channels: ["transactional-email", "support-record"],
     messageTypes: ["support.support-request.resolved"],
     idempotencyKeyShape: "support:support_request_resolved:<support-request-id>",
     supportReferenceRequired: true,
@@ -339,7 +339,7 @@ export const checkoutTransactionalNotificationPolicyEntries = [
     missingContactFallback: "support-runbook",
     accountClaimBehavior: "not-applicable",
     customerSafeOutcome:
-      "Support resolution notification waits for Support lifecycle evidence and downstream refund/hold facts where relevant.",
+      "Support resolution notification waits for Support lifecycle records and downstream refund/hold facts where relevant.",
   }),
   notificationPolicy({
     trigger: "refund-issued",
@@ -350,7 +350,7 @@ export const checkoutTransactionalNotificationPolicyEntries = [
     timing: "after-owning-context-commit",
     capabilityStatus: "enabled",
     audiences: buyerAudiences,
-    channels: ["transactional-email", "support-evidence"],
+    channels: ["transactional-email", "support-record"],
     messageTypes: ["payments.refund-issued"],
     idempotencyKeyShape: "payments:refund_issued:<refund-id>",
     supportReferenceRequired: true,
@@ -371,7 +371,7 @@ export const checkoutTransactionalNotificationPolicyEntries = [
     timing: "failure-recovery",
     capabilityStatus: "enabled",
     audiences: buyerAudiences,
-    channels: ["transactional-email", "support-evidence"],
+    channels: ["transactional-email", "support-record"],
     messageTypes: ["payments.refund-failed"],
     idempotencyKeyShape: "payments:refund_failed:<refund-id>",
     supportReferenceRequired: true,
@@ -392,7 +392,7 @@ export const checkoutTransactionalNotificationPolicyEntries = [
     timing: "failure-recovery",
     capabilityStatus: "enabled",
     audiences: allCustomerAudiences,
-    channels: ["support-evidence"],
+    channels: ["support-record"],
     messageTypes: [],
     idempotencyKeyShape: "checkout:missing_contact:<support-safe-reference>",
     supportReferenceRequired: true,
@@ -402,7 +402,7 @@ export const checkoutTransactionalNotificationPolicyEntries = [
     missingContactFallback: "support-runbook",
     accountClaimBehavior: "order-receipt-only",
     customerSafeOutcome:
-      "Missing contact evidence routes to account/support surfaces and never falls back to old checkout recovery emails or raw provider/customer data.",
+      "Missing contact handling routes to account/support surfaces and never falls back to old checkout recovery emails or raw provider/customer data.",
   }),
   notificationPolicy({
     trigger: "duplicate-prevention",
@@ -413,7 +413,7 @@ export const checkoutTransactionalNotificationPolicyEntries = [
     timing: "after-owning-context-commit",
     capabilityStatus: "enabled",
     audiences: allCustomerAudiences,
-    channels: ["support-evidence"],
+    channels: ["support-record"],
     messageTypes: [],
     idempotencyKeyShape: "<source-owner>:<message-type>:<stable-source-id>",
     supportReferenceRequired: true,

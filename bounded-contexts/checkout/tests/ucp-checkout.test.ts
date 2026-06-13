@@ -135,7 +135,7 @@ describe("checkout UCP handlers", () => {
     );
   });
 
-  it("creates cart checkout only with cart readiness evidence", async () => {
+  it("creates cart checkout only with cart readiness facts", async () => {
     const sessions = createSessions();
     const handlers = createCheckoutUcpHandlers({ sessions });
 
@@ -316,7 +316,7 @@ describe("checkout UCP handlers", () => {
     expect(response.messages).toEqual([
       expect.objectContaining({
         code: "checkout_economics_unsupported",
-        message: "Promo codes, gift cards, and store credit are not available in launch checkout.",
+        message: "Promo codes, gift cards, and store credit are not available in checkout yet.",
       }),
     ]);
     expect(sessions.setShippingAddress).not.toHaveBeenCalled();

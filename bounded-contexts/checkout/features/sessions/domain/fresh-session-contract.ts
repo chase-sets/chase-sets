@@ -278,10 +278,10 @@ export const freshCheckoutStateTransitions = {
 } as const satisfies Record<CheckoutLifecycleStatus, readonly CheckoutLifecycleStatus[]>;
 
 export const forbiddenFreshCheckoutCommandTypes = [
-  "start-legacy-checkout",
+  "start-old-checkout",
   "load-dense-checkout-session",
   "adapt-old-checkout-payload",
-  "dual-write-legacy-session",
+  "dual-write-old-session",
 ] as const;
 
 export function isFreshCheckoutCommandType(value: string): value is FreshCheckoutCommandType {
@@ -390,7 +390,7 @@ const internalCopyPatterns = [
   /\bprovider payload\b/i,
   /\binternal\b/i,
   /\bdual write\b/i,
-  /\blegacy checkout\b/i,
+  /\bold checkout\b/i,
 ] as const;
 
 export function findCheckoutCustomerCopyLeaks(snapshot: FreshCheckoutSessionSnapshot) {

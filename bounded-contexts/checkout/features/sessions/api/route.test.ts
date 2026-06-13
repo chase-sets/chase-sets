@@ -281,7 +281,7 @@ describe("checkout session routes", () => {
     );
   });
 
-  it("passes cart readiness snapshot evidence into cart checkout creation", async () => {
+  it("passes cart readiness snapshot facts into cart checkout creation", async () => {
     const services = createServices();
     const app = buildApp(services);
 
@@ -317,7 +317,7 @@ describe("checkout session routes", () => {
     );
   });
 
-  it("rejects legacy-shaped cart readiness payloads without adapting them into checkout evidence", async () => {
+  it("rejects old-shaped cart readiness payloads without adapting them into checkout facts", async () => {
     const services = createServices({
       createFromCart: vi.fn(async () => {
         throw new CheckoutDomainError(
@@ -336,12 +336,12 @@ describe("checkout session routes", () => {
           source: {
             type: "cart",
             cart_readiness_snapshot: {
-              snapshot_id: "cr_legacy",
-              source_revision: "cart_rev_legacy",
+              snapshot_id: "cr_old",
+              source_revision: "cart_rev_old",
               unresolved_line_ids: [],
             },
-            readiness_snapshot_id: "cr_legacy",
-            readiness_source_revision: "cart_rev_legacy",
+            readiness_snapshot_id: "cr_old",
+            readiness_source_revision: "cart_rev_old",
           },
         }),
       }),
@@ -549,7 +549,7 @@ describe("checkout session routes", () => {
             type: "buy-now",
             checkoutId: "old_checkout_1",
             checkoutSessionId: "old_session_1",
-            legacyCheckoutUrl: "/checkout/start?session=old_session_1",
+            oldCheckoutUrl: "/checkout/start?session=old_session_1",
             catalogItemId: "cat_1",
             productId: "cat_1::form:raw",
             itemTitle: "Charizard",
@@ -1117,7 +1117,7 @@ describe("checkout session routes", () => {
     await expect(response.json()).resolves.toEqual({
       error: {
         code: "checkout_economics_unsupported",
-        message: "Promo codes, gift cards, and store credit are not available in launch checkout.",
+        message: "Promo codes, gift cards, and store credit are not available in checkout yet.",
       },
     });
     expect(services.getSession).not.toHaveBeenCalled();
@@ -1190,7 +1190,7 @@ describe("checkout session routes", () => {
     );
   });
 
-  it("does not support deferred payment proof payloads before committing orders or payment", async () => {
+  it("does not support deferred payment payloads before committing orders or payment", async () => {
     const services = createServices({
       getSession: vi.fn(async () => createSession()),
     });

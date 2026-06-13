@@ -147,8 +147,8 @@ export const checkoutAddressForbiddenMechanisms = [
   "old checkout payload repair",
   "old address payload translation",
   "hidden address normalization",
-  "migration/backfill compatibility",
-  "dual-write compatibility",
+  "migration/backfill helper",
+  "dual-write helper",
   "stale read-model acceptance",
   "provider-dashboard-only fix",
   "manual database edit",
@@ -578,7 +578,7 @@ export const checkoutAddressServiceabilityPolicyEntries = [
     freshnessKeyShape: "checkout:address_fresh_state:<scan-or-route-id>:<result>",
     forbiddenMechanisms: checkoutAddressForbiddenMechanisms,
     customerSafeOutcome:
-      "Fresh-state scans prove address handling cannot succeed through old payloads, hidden normalization, migration/backfill helpers, stale read models, stale fixtures, or dense checkout fallback.",
+      "Fresh-state scans show address handling cannot succeed through old payloads, hidden normalization, migration/backfill helpers, stale read models, stale fixtures, or dense checkout fallback.",
   }),
 ] as const satisfies readonly CheckoutAddressServiceabilityPolicyEntry[];
 
