@@ -44,6 +44,7 @@ export {
   DateInput,
   type DateInputProps,
 } from "./text-input";
+export { Calendar, type CalendarDate, type CalendarProps, DatePicker, type DatePickerProps } from "./date-picker";
 export { Textarea, type TextareaProps } from "./textarea";
 export { Select, NativeSelect, type NativeSelectProps, type SelectItem, type SelectProps } from "./select";
 export { Combobox, type ComboboxProps } from "./combobox";
