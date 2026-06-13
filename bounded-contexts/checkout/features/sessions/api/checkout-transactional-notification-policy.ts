@@ -19,7 +19,7 @@ export type CheckoutNotificationSourceOwner =
 
 export type CheckoutNotificationChannel = "transactional-email" | "notification-center" | "support-evidence" | "none";
 
-export type CheckoutNotificationLaunchDecision = "required-for-launch" | "launch-disabled" | "not-customer-facing";
+export type CheckoutNotificationCapabilityStatus = "enabled" | "suppressed" | "internal-only";
 
 export type CheckoutNotificationTriggerTiming =
   | "before-confirmation"
@@ -67,7 +67,7 @@ export type CheckoutTransactionalNotificationPolicyEntry = Readonly<{
   sourceOwner: CheckoutNotificationSourceOwner;
   sourceFact: string;
   timing: CheckoutNotificationTriggerTiming;
-  launchDecision: CheckoutNotificationLaunchDecision;
+  capabilityStatus: CheckoutNotificationCapabilityStatus;
   audiences: readonly CheckoutNotificationAudience[];
   channels: readonly CheckoutNotificationChannel[];
   messageTypes: readonly string[];
@@ -77,8 +77,8 @@ export type CheckoutTransactionalNotificationPolicyEntry = Readonly<{
   noCustomerCommittingSideEffectBeforeConfirmation: boolean;
   duplicatePreventionRequired: boolean;
   missingContactFallback: "web-only" | "support-runbook" | "not-applicable";
-  accountClaimBehavior: "order-receipt-only" | "launch-disabled" | "not-applicable";
-  evidenceExpectation: string;
+  accountClaimBehavior: "order-receipt-only" | "disabled" | "not-applicable";
+  customerSafeOutcome: string;
 }>;
 
 const buyerAudiences = ["guest-buyer", "signed-in-buyer"] as const satisfies readonly CheckoutNotificationAudience[];
@@ -117,7 +117,7 @@ export const checkoutTransactionalNotificationPolicyEntries = [
     sourceFact:
       "Readiness, active-session, provider-return, kill-switch, or stale-session recovery before confirmation.",
     timing: "before-confirmation",
-    launchDecision: "not-customer-facing",
+    capabilityStatus: "internal-only",
     audiences: allCustomerAudiences,
     channels: ["none"],
     messageTypes: [],
@@ -128,8 +128,8 @@ export const checkoutTransactionalNotificationPolicyEntries = [
     duplicatePreventionRequired: true,
     missingContactFallback: "not-applicable",
     accountClaimBehavior: "not-applicable",
-    evidenceExpectation:
-      "Recovery evidence proves no payment, order, sale, label, payout, settlement, notification, account-history, support, refund, void, or reversal side effect started.",
+    customerSafeOutcome:
+      "Recovery proves no payment, order, sale, label, payout, settlement, notification, account-history, support, refund, void, or reversal side effect started.",
   }),
   notificationPolicy({
     trigger: "buy-order-confirmation",
@@ -138,7 +138,7 @@ export const checkoutTransactionalNotificationPolicyEntries = [
     sourceOwner: "Ordering",
     sourceFact: "Ordering-owned order created fact after Checkout confirmation and payment/order handoff.",
     timing: "after-owning-context-commit",
-    launchDecision: "required-for-launch",
+    capabilityStatus: "enabled",
     audiences: buyerAudiences,
     channels: ["transactional-email", "notification-center"],
     messageTypes: ["ordering.order.created"],
@@ -149,7 +149,7 @@ export const checkoutTransactionalNotificationPolicyEntries = [
     duplicatePreventionRequired: true,
     missingContactFallback: "web-only",
     accountClaimBehavior: "order-receipt-only",
-    evidenceExpectation:
+    customerSafeOutcome:
       "Order confirmation includes totals and support reference after Ordering commits the order; guest receipt uses contact email or web receipt lookup without old checkout links.",
   }),
   notificationPolicy({
@@ -159,7 +159,7 @@ export const checkoutTransactionalNotificationPolicyEntries = [
     sourceOwner: "Payments",
     sourceFact: "Payments-owned payment captured fact.",
     timing: "after-owning-context-commit",
-    launchDecision: "required-for-launch",
+    capabilityStatus: "enabled",
     audiences: buyerAudiences,
     channels: ["transactional-email"],
     messageTypes: ["payments.payment-captured"],
@@ -170,7 +170,7 @@ export const checkoutTransactionalNotificationPolicyEntries = [
     duplicatePreventionRequired: true,
     missingContactFallback: "support-runbook",
     accountClaimBehavior: "order-receipt-only",
-    evidenceExpectation:
+    customerSafeOutcome:
       "Payment captured notification is idempotent by payment id and does not resend on confirmation page reload.",
   }),
   notificationPolicy({
@@ -180,7 +180,7 @@ export const checkoutTransactionalNotificationPolicyEntries = [
     sourceOwner: "Payments",
     sourceFact: "Payments-owned payment failed fact or provider failure recovery.",
     timing: "failure-recovery",
-    launchDecision: "required-for-launch",
+    capabilityStatus: "enabled",
     audiences: buyerAudiences,
     channels: ["transactional-email", "support-evidence"],
     messageTypes: ["payments.payment-failed"],
@@ -191,7 +191,7 @@ export const checkoutTransactionalNotificationPolicyEntries = [
     duplicatePreventionRequired: true,
     missingContactFallback: "support-runbook",
     accountClaimBehavior: "order-receipt-only",
-    evidenceExpectation:
+    customerSafeOutcome:
       "Payment failure communication is customer-safe, support-visible, and does not imply an order or refund exists unless Payments records it.",
   }),
   notificationPolicy({
@@ -201,7 +201,7 @@ export const checkoutTransactionalNotificationPolicyEntries = [
     sourceOwner: "Checkout",
     sourceFact: "Guest checkout confirmation plus Ordering receipt destination.",
     timing: "after-owning-context-commit",
-    launchDecision: "required-for-launch",
+    capabilityStatus: "enabled",
     audiences: ["guest-buyer"],
     channels: ["transactional-email", "support-evidence"],
     messageTypes: ["ordering.order.created"],
@@ -211,9 +211,9 @@ export const checkoutTransactionalNotificationPolicyEntries = [
     noCustomerCommittingSideEffectBeforeConfirmation: true,
     duplicatePreventionRequired: true,
     missingContactFallback: "support-runbook",
-    accountClaimBehavior: "launch-disabled",
-    evidenceExpectation:
-      "Guest receipts use order confirmation and support-safe lookup; account claim/link behavior is launch-disabled if not enabled.",
+    accountClaimBehavior: "disabled",
+    customerSafeOutcome:
+      "Guest receipts use order confirmation and support-safe lookup; account claim/link behavior is disabled until enabled.",
   }),
   notificationPolicy({
     trigger: "sell-confirmation-recorded",
@@ -222,7 +222,7 @@ export const checkoutTransactionalNotificationPolicyEntries = [
     sourceOwner: "Checkout",
     sourceFact: "Checkout-owned sell confirmation and Marketplace handoff recorded with downstream status pending.",
     timing: "on-checkout-confirmation",
-    launchDecision: "launch-disabled",
+    capabilityStatus: "suppressed",
     audiences: sellerAudiences,
     channels: ["support-evidence"],
     messageTypes: [],
@@ -233,7 +233,7 @@ export const checkoutTransactionalNotificationPolicyEntries = [
     duplicatePreventionRequired: true,
     missingContactFallback: "support-runbook",
     accountClaimBehavior: "not-applicable",
-    evidenceExpectation:
+    customerSafeOutcome:
       "Checkout records seller confirmation and support reference, but does not send sale-complete copy before downstream owners commit sale, label, payout, settlement, notification, or account-history facts.",
   }),
   notificationPolicy({
@@ -243,7 +243,7 @@ export const checkoutTransactionalNotificationPolicyEntries = [
     sourceOwner: "Settlement",
     sourceFact: "Downstream sale, payout, and settlement status committed by owning contexts.",
     timing: "after-owning-context-commit",
-    launchDecision: "launch-disabled",
+    capabilityStatus: "suppressed",
     audiences: sellerAudiences,
     channels: ["support-evidence"],
     messageTypes: [],
@@ -254,8 +254,8 @@ export const checkoutTransactionalNotificationPolicyEntries = [
     duplicatePreventionRequired: true,
     missingContactFallback: "support-runbook",
     accountClaimBehavior: "not-applicable",
-    evidenceExpectation:
-      "Seller sale communication needs owned launch status before public launch; until then account activity/support evidence must not imply completed downstream facts.",
+    customerSafeOutcome:
+      "Seller sale communication stays suppressed until downstream owners publish completed sale, payout, and settlement facts.",
   }),
   notificationPolicy({
     trigger: "label-or-shipping-next-step",
@@ -264,7 +264,7 @@ export const checkoutTransactionalNotificationPolicyEntries = [
     sourceOwner: "Fulfillment",
     sourceFact: "Fulfillment-owned label, tracking, or shipment status fact.",
     timing: "after-owning-context-commit",
-    launchDecision: "launch-disabled",
+    capabilityStatus: "suppressed",
     audiences: sellerAudiences,
     channels: ["support-evidence"],
     messageTypes: [],
@@ -275,7 +275,7 @@ export const checkoutTransactionalNotificationPolicyEntries = [
     duplicatePreventionRequired: true,
     missingContactFallback: "support-runbook",
     accountClaimBehavior: "not-applicable",
-    evidenceExpectation:
+    customerSafeOutcome:
       "Shipping next-step communication waits for Fulfillment-owned label/tracking facts and must handle split-group shipments without exposing seller allocation internals.",
   }),
   notificationPolicy({
@@ -285,7 +285,7 @@ export const checkoutTransactionalNotificationPolicyEntries = [
     sourceOwner: "Checkout",
     sourceFact: "Checkout confirmation/handoff row records downstream failed or support-required status.",
     timing: "failure-recovery",
-    launchDecision: "required-for-launch",
+    capabilityStatus: "enabled",
     audiences: allCustomerAudiences,
     channels: ["support-evidence"],
     messageTypes: [],
@@ -296,7 +296,7 @@ export const checkoutTransactionalNotificationPolicyEntries = [
     duplicatePreventionRequired: true,
     missingContactFallback: "support-runbook",
     accountClaimBehavior: "not-applicable",
-    evidenceExpectation:
+    customerSafeOutcome:
       "Failed handoff communication is support-safe and routes to the owning context without synthesizing order, sale, label, payout, settlement, notification, or account-history completion.",
   }),
   notificationPolicy({
@@ -306,7 +306,7 @@ export const checkoutTransactionalNotificationPolicyEntries = [
     sourceOwner: "Support",
     sourceFact: "Support request opened for a committed order source.",
     timing: "operator-support",
-    launchDecision: "required-for-launch",
+    capabilityStatus: "enabled",
     audiences: ["signed-in-buyer", "signed-in-seller", "support-operator"],
     channels: ["transactional-email", "support-evidence"],
     messageTypes: ["support.support-request.opened"],
@@ -317,7 +317,7 @@ export const checkoutTransactionalNotificationPolicyEntries = [
     duplicatePreventionRequired: true,
     missingContactFallback: "support-runbook",
     accountClaimBehavior: "not-applicable",
-    evidenceExpectation:
+    customerSafeOutcome:
       "Support request opened notification is tied to a support request id and an existing order source; pre-confirmation checkout recovery does not create fake support requests.",
   }),
   notificationPolicy({
@@ -327,7 +327,7 @@ export const checkoutTransactionalNotificationPolicyEntries = [
     sourceOwner: "Support",
     sourceFact: "Support request resolved after evidence and downstream owner status are recorded.",
     timing: "operator-support",
-    launchDecision: "required-for-launch",
+    capabilityStatus: "enabled",
     audiences: ["signed-in-buyer", "signed-in-seller", "support-operator"],
     channels: ["transactional-email", "support-evidence"],
     messageTypes: ["support.support-request.resolved"],
@@ -338,7 +338,7 @@ export const checkoutTransactionalNotificationPolicyEntries = [
     duplicatePreventionRequired: true,
     missingContactFallback: "support-runbook",
     accountClaimBehavior: "not-applicable",
-    evidenceExpectation:
+    customerSafeOutcome:
       "Support resolution notification waits for Support lifecycle evidence and downstream refund/hold facts where relevant.",
   }),
   notificationPolicy({
@@ -348,7 +348,7 @@ export const checkoutTransactionalNotificationPolicyEntries = [
     sourceOwner: "Payments",
     sourceFact: "Payments-owned refund issued fact.",
     timing: "after-owning-context-commit",
-    launchDecision: "required-for-launch",
+    capabilityStatus: "enabled",
     audiences: buyerAudiences,
     channels: ["transactional-email", "support-evidence"],
     messageTypes: ["payments.refund-issued"],
@@ -359,7 +359,7 @@ export const checkoutTransactionalNotificationPolicyEntries = [
     duplicatePreventionRequired: true,
     missingContactFallback: "support-runbook",
     accountClaimBehavior: "order-receipt-only",
-    evidenceExpectation:
+    customerSafeOutcome:
       "Refund issued communication is idempotent by refund id and does not duplicate across provider webhook replay or support recovery.",
   }),
   notificationPolicy({
@@ -369,7 +369,7 @@ export const checkoutTransactionalNotificationPolicyEntries = [
     sourceOwner: "Payments",
     sourceFact: "Payments-owned refund failed fact.",
     timing: "failure-recovery",
-    launchDecision: "required-for-launch",
+    capabilityStatus: "enabled",
     audiences: buyerAudiences,
     channels: ["transactional-email", "support-evidence"],
     messageTypes: ["payments.refund-failed"],
@@ -380,7 +380,7 @@ export const checkoutTransactionalNotificationPolicyEntries = [
     duplicatePreventionRequired: true,
     missingContactFallback: "support-runbook",
     accountClaimBehavior: "order-receipt-only",
-    evidenceExpectation:
+    customerSafeOutcome:
       "Refund failed communication is support-safe and does not claim refund completion before Payments records it.",
   }),
   notificationPolicy({
@@ -390,7 +390,7 @@ export const checkoutTransactionalNotificationPolicyEntries = [
     sourceOwner: "Checkout",
     sourceFact: "Checkout or owning downstream context cannot resolve a deliverable customer contact.",
     timing: "failure-recovery",
-    launchDecision: "required-for-launch",
+    capabilityStatus: "enabled",
     audiences: allCustomerAudiences,
     channels: ["support-evidence"],
     messageTypes: [],
@@ -401,7 +401,7 @@ export const checkoutTransactionalNotificationPolicyEntries = [
     duplicatePreventionRequired: true,
     missingContactFallback: "support-runbook",
     accountClaimBehavior: "order-receipt-only",
-    evidenceExpectation:
+    customerSafeOutcome:
       "Missing contact evidence routes to account/support surfaces and never falls back to old checkout recovery emails or raw provider/customer data.",
   }),
   notificationPolicy({
@@ -411,7 +411,7 @@ export const checkoutTransactionalNotificationPolicyEntries = [
     sourceOwner: "Notifications",
     sourceFact: "Durable outbox idempotency and source-owner idempotency keys for transactional communication.",
     timing: "after-owning-context-commit",
-    launchDecision: "required-for-launch",
+    capabilityStatus: "enabled",
     audiences: allCustomerAudiences,
     channels: ["support-evidence"],
     messageTypes: [],
@@ -422,8 +422,8 @@ export const checkoutTransactionalNotificationPolicyEntries = [
     duplicatePreventionRequired: true,
     missingContactFallback: "support-runbook",
     accountClaimBehavior: "order-receipt-only",
-    evidenceExpectation:
-      "Launch coverage covers reload, duplicate submit, job retry, provider webhook replay, and operator recovery without duplicate messages.",
+    customerSafeOutcome:
+      "Notification handling covers reload, duplicate submit, job retry, provider webhook replay, and operator recovery without duplicate messages.",
   }),
 ] as const satisfies readonly CheckoutTransactionalNotificationPolicyEntry[];
 
@@ -453,8 +453,8 @@ export function assertCheckoutTransactionalNotificationPolicyCoverage(): void {
     if (entry.channels.length === 0) {
       throw new Error(`Checkout notification policy '${entry.trigger}' needs a channel decision.`);
     }
-    if (entry.evidenceExpectation.trim().length === 0) {
-      throw new Error(`Checkout notification policy '${entry.trigger}' needs launch expectations.`);
+    if (entry.customerSafeOutcome.trim().length === 0) {
+      throw new Error(`Checkout notification policy '${entry.trigger}' needs a customer-safe outcome.`);
     }
     if (entry.duplicatePreventionRequired && entry.idempotencyKeyShape.trim().length === 0) {
       throw new Error(`Checkout notification policy '${entry.trigger}' needs an idempotency key shape.`);
@@ -478,7 +478,7 @@ export function assertCheckoutTransactionalNotificationPolicyCoverage(): void {
       );
     }
     if (
-      entry.launchDecision === "required-for-launch" &&
+      entry.capabilityStatus === "enabled" &&
       entry.channels.includes("transactional-email") &&
       entry.messageTypes.length === 0
     ) {

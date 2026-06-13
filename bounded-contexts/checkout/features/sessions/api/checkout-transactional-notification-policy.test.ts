@@ -31,7 +31,7 @@ describe("Checkout transactional notification policy", () => {
       expect(entry.channels, entry.trigger).toEqual(["none"]);
       expect(entry.messageTypes, entry.trigger).toEqual([]);
       expect(entry.noCustomerCommittingSideEffectBeforeConfirmation, entry.trigger).toBe(true);
-      expect(entry.evidenceExpectation, entry.trigger).toMatch(/no payment, order, sale/i);
+      expect(entry.customerSafeOutcome, entry.trigger).toMatch(/no payment, order, sale/i);
     }
   });
 
@@ -41,11 +41,11 @@ describe("Checkout transactional notification policy", () => {
     );
 
     expect(sellConfirmation?.sourceOwner).toBe("Checkout");
-    expect(sellConfirmation?.launchDecision).toBe("launch-disabled");
+    expect(sellConfirmation?.capabilityStatus).toBe("suppressed");
     expect(sellConfirmation?.messageTypes).toEqual([]);
     expect(sellConfirmation?.pendingDownstreamBoundaryRequired).toBe(true);
-    expect(sellConfirmation?.evidenceExpectation).toMatch(/does not send sale-complete/i);
-    expect(sellConfirmation?.evidenceExpectation).toMatch(/before downstream owners commit/i);
+    expect(sellConfirmation?.customerSafeOutcome).toMatch(/does not send sale-complete/i);
+    expect(sellConfirmation?.customerSafeOutcome).toMatch(/before downstream owners commit/i);
   });
 
   it("records actual source-owned transactional message types and idempotency shapes", () => {
@@ -79,11 +79,11 @@ describe("Checkout transactional notification policy", () => {
       (entry) => entry.trigger === "duplicate-prevention",
     );
 
-    expect(guestReceipt?.accountClaimBehavior).toBe("launch-disabled");
+    expect(guestReceipt?.accountClaimBehavior).toBe("disabled");
     expect(guestReceipt?.messageTypes).toContain("ordering.order.created");
     expect(missingContact?.missingContactFallback).toBe("support-runbook");
     expect(missingContact?.messageTypes).toEqual([]);
-    expect(duplicatePrevention?.evidenceExpectation).toMatch(/reload, duplicate submit, job retry/i);
+    expect(duplicatePrevention?.customerSafeOutcome).toMatch(/reload, duplicate submit, job retry/i);
   });
 
   it("documents the executable transactional notification policy", () => {

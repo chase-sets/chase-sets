@@ -55,7 +55,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Checkout Session Projection Performance](../bounded-contexts/checkout/docs/checkout-session-projection-performance.md): guest Buy Now checkout freshness path, supporting indexes, projection transaction behavior, and remaining platform evidence gates.
 - [Checkout Performance Budgets](../bounded-contexts/checkout/docs/checkout-performance-budgets.md): Milestone #17 cart/list, readiness, checkout entry, confirmation, mobile, support, and recovery performance budgets.
 - [Checkout Observability Contract](../bounded-contexts/checkout/docs/checkout-observability-contract.md): Milestone #17 redacted telemetry profiles for current checkout states, support-safe references, side-effect status, and operator signals.
-- [Checkout Transactional Notification Policy](../bounded-contexts/checkout/docs/checkout-transactional-notifications.md): Milestone #17 buy/sell notification trigger inventory, launch decisions, idempotency, and support-safe fallback behavior.
+- [Checkout Transactional Notification Policy](../bounded-contexts/checkout/docs/checkout-transactional-notifications.md): Milestone #17 buy/sell notification trigger inventory, capability status, idempotency, and support-safe fallback behavior.
 - [Checkout Risk Control Policy](../bounded-contexts/checkout/docs/checkout-risk-control-policy.md): Milestone #17 fraud, abuse, inventory-hoarding, provider-risk, support-safe hold, observability, and fresh-state cleanup contract.
 - [Checkout Address And Serviceability Policy](../bounded-contexts/checkout/docs/checkout-address-serviceability-policy.md): Milestone #17 address validation, serviceability, delivery restrictions, quote readiness, support-safe recovery, and fresh-state cleanup contract.
 - [Checkout Economics Policy](../bounded-contexts/checkout/docs/checkout-economics-policy.md): Milestone #17 discounts, credits, gift cards, fees, promotions, payout estimates, changed economics, reversal linkage, and fresh-state cleanup contract.
@@ -71,7 +71,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 
 - [Money Operations](./runbooks/money-operations.md): checkout, wallet, Stripe payments, Connect payouts, launch checks, and smoke tests.
 - [Checkout Fresh-State Release](./runbooks/checkout-fresh-state-release.md): Shopify-simple checkout route activation, disablement, smoke validation, and release-note template.
-- [Checkout Support Operations](./runbooks/checkout-support-operations.md): support playbook for stuck checkout, payment dispute, downstream handoff, and refund request launch scenarios.
+- [Checkout Support Operations](./runbooks/checkout-support-operations.md): support playbook for stuck checkout, payment dispute, downstream handoff, and refund request scenarios.
 - [Marketplace Production Promotion](./runbooks/marketplace-production-promotion.md): public promotion gates, proof mode, owner approval variables, and final readiness preflight.
 - [Email Operations](./runbooks/email-operations.md): Amazon SES identities, sender configuration, DNS requirements, and rollout checks.
 - [Tax Production Readiness](../bounded-contexts/ordering/docs/production-tax-readiness.md): Tax readiness evidence, no-provider launch posture, and provider-required collection gating.
