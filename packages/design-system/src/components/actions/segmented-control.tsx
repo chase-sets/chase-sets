@@ -1,4 +1,4 @@
-import type { HTMLAttributes } from "react";
+import type { HTMLAttributes, KeyboardEvent } from "react";
 import { useId } from "react";
 import { LayoutGroup } from "motion/react";
 import type { IconName } from "../../icons";
@@ -19,14 +19,24 @@ export interface SegmentedControlProps extends Omit<
 > {
   items: SegmentedControlItem[];
   value: string;
+  label?: string;
   fullWidth?: boolean;
   onValueChange?: (value: string) => void;
 }
 
-export function SegmentedControl({ items, value, fullWidth = false, onValueChange, ...rest }: SegmentedControlProps) {
+export function SegmentedControl({
+  items,
+  value,
+  label,
+  fullWidth = false,
+  onValueChange,
+  "aria-label": ariaLabel,
+  "aria-labelledby": ariaLabelledBy,
+  ...rest
+}: SegmentedControlProps) {
   const groupId = useId();
 
-  function handleKeyDown(event: React.KeyboardEvent<HTMLButtonElement>, index: number) {
+  function handleKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number) {
     let next = -1;
     if (event.key === "ArrowRight" || event.key === "ArrowDown") {
       next = (index + 1) % items.length;
@@ -41,7 +51,7 @@ export function SegmentedControl({ items, value, fullWidth = false, onValueChang
       event.preventDefault();
       onValueChange?.(items[next].value);
       const container = event.currentTarget.parentElement;
-      const buttons = container?.querySelectorAll<HTMLButtonElement>('[role="tab"]');
+      const buttons = container?.querySelectorAll<HTMLButtonElement>('[role="radio"]');
       buttons?.[next]?.focus();
     }
   }
@@ -50,7 +60,9 @@ export function SegmentedControl({ items, value, fullWidth = false, onValueChang
     <LayoutGroup id={groupId}>
       <div
         {...rest}
-        role="tablist"
+        role="radiogroup"
+        aria-label={ariaLabel ?? (ariaLabelledBy ? undefined : label)}
+        aria-labelledby={ariaLabelledBy}
         className={cx(
           "rounded-tokenLg border border-muted bg-background p-1",
           fullWidth ? "grid w-full grid-cols-2 sm:grid-flow-col sm:auto-cols-fr" : "inline-flex flex-wrap",
@@ -63,8 +75,8 @@ export function SegmentedControl({ items, value, fullWidth = false, onValueChang
             <button
               key={item.value}
               type="button"
-              role="tab"
-              aria-selected={active}
+              role="radio"
+              aria-checked={active}
               tabIndex={active ? 0 : -1}
               className={cx(
                 "focus-ring relative inline-flex min-w-0 items-center gap-2 overflow-hidden rounded-tokenMd font-semibold transition",

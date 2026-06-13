@@ -635,7 +635,7 @@ describe("design system components", () => {
     render(
       <ChaseRoot>
         <SegmentedControl
-          aria-label="Choose intent"
+          label="Choose intent"
           items={[
             { value: "sell", label: "Sell", icon: "store" },
             { value: "buy", label: "Buy", icon: "cart" },
@@ -646,15 +646,17 @@ describe("design system components", () => {
       </ChaseRoot>,
     );
 
-    const selected = screen.getByRole("tab", { name: "Sell" });
-    const inactive = screen.getByRole("tab", { name: "Buy" });
+    const group = screen.getByRole("radiogroup", { name: "Choose intent" });
+    const selected = within(group).getByRole("radio", { name: "Sell" });
+    const inactive = within(group).getByRole("radio", { name: "Buy" });
     const foreground = selected.querySelector("span.relative.z-10");
     const icon = selected.querySelector("svg")?.parentElement;
     const inactiveIcon = inactive.querySelector("svg")?.parentElement;
 
-    expect(selected.getAttribute("aria-selected")).toBe("true");
+    expect(screen.queryByRole("tablist")).toBeNull();
+    expect(selected.getAttribute("aria-checked")).toBe("true");
     expect(selected.className).toContain("text-accent");
-    expect(inactive.getAttribute("aria-selected")).toBe("false");
+    expect(inactive.getAttribute("aria-checked")).toBe("false");
     expect(inactive.className).toContain("text-secondary");
     expect(foreground?.className).toContain("inline-flex");
     expect(icon?.className).toContain("text-current");

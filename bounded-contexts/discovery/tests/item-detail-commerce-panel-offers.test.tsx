@@ -134,7 +134,9 @@ describe("item detail commerce panel purchase workflows and offers", () => {
     expect(screen.queryByText("Selected seller signal")).toBeNull();
 
     fireEvent.click(
-      within(screen.getByRole("tablist", { name: "Choose market intent" })).getByRole("tab", { name: "Watch" }),
+      within(screen.getByRole("radiogroup", { name: "Choose market intent" })).getByRole("radio", {
+        name: "Watch",
+      }),
     );
 
     expect((await screen.findAllByText("Watch listings")).length).toBeGreaterThan(0);
@@ -530,7 +532,9 @@ describe("item detail commerce panel purchase workflows and offers", () => {
     );
 
     fireEvent.click(
-      within(screen.getByRole("tablist", { name: "Choose market intent" })).getByRole("tab", { name: "Sell" }),
+      within(screen.getByRole("radiogroup", { name: "Choose market intent" })).getByRole("radio", {
+        name: "Sell",
+      }),
     );
 
     await waitFor(() =>
@@ -575,7 +579,9 @@ describe("item detail commerce panel purchase workflows and offers", () => {
     );
 
     fireEvent.click(
-      within(screen.getByRole("tablist", { name: "Choose market intent" })).getByRole("tab", { name: "Sell" }),
+      within(screen.getByRole("radiogroup", { name: "Choose market intent" })).getByRole("radio", {
+        name: "Sell",
+      }),
     );
 
     expect(await screen.findByRole("button", { name: /Misty/ })).toBeTruthy();

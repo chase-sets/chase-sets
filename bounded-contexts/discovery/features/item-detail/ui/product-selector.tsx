@@ -49,6 +49,7 @@ export function ProductSelector({ schema, selections, optionSummaries = {}, onSe
                 {formatDimensionName(dimension.dimensionName)}
               </Text>
               <SegmentedControl
+                label={formatDimensionName(dimension.dimensionName)}
                 items={items.map((item) => {
                   const description = "description" in item ? item.description : undefined;
 

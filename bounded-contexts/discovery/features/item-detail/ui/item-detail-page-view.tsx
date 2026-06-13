@@ -102,9 +102,9 @@ export function buildItemDetailPageView({
   explicitSelectedProductSummary,
   explicitSelectedProductSelectionDetails,
 }: ItemDetailPageViewArgs) {
-  const renderMarketIntentControl = (ariaLabel: string, fullWidth = false) => (
+  const renderMarketIntentControl = (label: string, fullWidth = false) => (
     <SegmentedControl
-      aria-label={ariaLabel}
+      label={label}
       fullWidth={fullWidth}
       items={[
         { value: "buy", label: t("discovery.features.itemDetail.ui.itemDetailPage.buy") },

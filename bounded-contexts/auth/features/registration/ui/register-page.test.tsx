@@ -42,7 +42,7 @@ describe("registration page", () => {
 
     render(<RegisterPage />);
 
-    expect(screen.getByRole("tab", { name: /Passkey/ }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("radio", { name: /Passkey/ }).getAttribute("aria-checked")).toBe("true");
     expect(screen.getByText("Recommended")).toBeTruthy();
     expect(screen.getByText(/Face ID, Touch ID, Windows Hello/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Create With Passkey" })).toBeTruthy();
@@ -80,9 +80,9 @@ describe("registration page", () => {
     render(<RegisterPage />);
     fillIdentity();
 
-    fireEvent.click(screen.getByRole("tab", { name: /Magic Link/ }));
+    fireEvent.click(screen.getByRole("radio", { name: /Magic Link/ }));
 
-    expect(screen.getByRole("tab", { name: /Magic Link/ }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("radio", { name: /Magic Link/ }).getAttribute("aria-checked")).toBe("true");
     expect(inputNamed("displayName").value).toBe("Todd");
     expect(inputNamed("email").value).toBe("todd@example.com");
     expect(screen.getByRole("button", { name: "Email me a magic link" })).toBeTruthy();
@@ -92,9 +92,9 @@ describe("registration page", () => {
   it("offers phone code registration without requiring email", () => {
     render(<RegisterPage />);
 
-    fireEvent.click(screen.getByRole("tab", { name: /Phone Code/ }));
+    fireEvent.click(screen.getByRole("radio", { name: /Phone Code/ }));
 
-    expect(screen.getByRole("tab", { name: /Phone Code/ }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("radio", { name: /Phone Code/ }).getAttribute("aria-checked")).toBe("true");
     expect(inputNamed("phone")).toBeTruthy();
     expect(screen.queryByLabelText("Email")).toBeNull();
     expect(screen.getByRole("button", { name: "Text me a code" })).toBeTruthy();
@@ -104,7 +104,7 @@ describe("registration page", () => {
   it("keeps password registration available as the fallback", () => {
     render(<RegisterPage />);
 
-    fireEvent.click(screen.getByRole("tab", { name: /Password/ }));
+    fireEvent.click(screen.getByRole("radio", { name: /Password/ }));
 
     expect(screen.getByText("Use this fallback when passkeys and magic links are not available.")).toBeTruthy();
     expect(inputNamed("password")).toBeTruthy();

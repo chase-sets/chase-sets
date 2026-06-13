@@ -270,6 +270,7 @@ export function SignInPage(
           {challengeMethods.length > 1 ? (
             <SegmentedControl
               fullWidth
+              label="Sign-in method"
               value={method}
               onValueChange={(value) => setMethod(value as SignInMethod)}
               items={challengeMethods}

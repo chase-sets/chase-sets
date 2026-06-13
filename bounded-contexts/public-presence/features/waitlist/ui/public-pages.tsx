@@ -967,7 +967,7 @@ function WaitlistSignupPanel({
                   {t("publicPresence.waitlist.heroIntent.label")}
                 </Text>
                 <SegmentedControl
-                  aria-label={t("publicPresence.waitlist.heroIntent.label")}
+                  label={t("publicPresence.waitlist.heroIntent.label")}
                   items={heroIntentItems}
                   value={heroIntentValue(intent)}
                   onValueChange={trackHeroIntentSelected}

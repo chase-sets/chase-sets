@@ -91,9 +91,9 @@ describe("sign-in page two-step journey", () => {
 
     expect(screen.getByText("Signing in with buyer@example.com")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Use Passkey" })).toBeTruthy();
-    expect(screen.getByRole("tab", { name: "Passkey" }).getAttribute("aria-selected")).toBe("true");
-    expect(screen.getByRole("tab", { name: "Magic Link" })).toBeTruthy();
-    expect(screen.getByRole("tab", { name: "Password" })).toBeTruthy();
+    expect(screen.getByRole("radio", { name: "Passkey" }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByRole("radio", { name: "Magic Link" })).toBeTruthy();
+    expect(screen.getByRole("radio", { name: "Password" })).toBeTruthy();
     expect(screen.queryByRole("link", { name: "Continue with Google" })).toBeNull();
   });
 
@@ -105,17 +105,17 @@ describe("sign-in page two-step journey", () => {
     expect(screen.getByText("Signing in with 3125550100")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Send Phone Code" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Continue With Code" })).toBeTruthy();
-    expect(screen.queryByRole("tab", { name: "Passkey" })).toBeNull();
+    expect(screen.queryByRole("radio", { name: "Passkey" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Use Passkey" })).toBeNull();
   });
 
   it("keeps secondary options behind the identifier step", () => {
     render(<SignInPage />);
 
-    expect(screen.queryByRole("tab", { name: "Magic Link" })).toBeNull();
+    expect(screen.queryByRole("radio", { name: "Magic Link" })).toBeNull();
 
     continueWithIdentifier("buyer@example.com");
-    fireEvent.click(screen.getByRole("tab", { name: "Magic Link" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Magic Link" }));
 
     expect(screen.getByRole("button", { name: "Send Magic Link" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Send Phone Code" })).toBeNull();
@@ -144,7 +144,7 @@ describe("sign-in page magic link recovery", () => {
     render(<SignInPage allowManualMagicLinkTokenEntry={false} />);
 
     continueWithIdentifier("buyer@example.com");
-    fireEvent.click(screen.getByRole("tab", { name: /Magic Link/ }));
+    fireEvent.click(screen.getByRole("radio", { name: /Magic Link/ }));
 
     expect(screen.getByRole("button", { name: "Send Magic Link" })).toBeTruthy();
     expect(screen.queryByLabelText("Magic Link Token")).toBeNull();

@@ -42,13 +42,13 @@ describe("item detail commerce panel market intents and listing selection", () =
     expect(screen.getAllByText("1 active listing").length).toBeGreaterThan(0);
     expect(screen.queryByText("Ash Ketchum")).toBeNull();
 
-    const marketIntent = screen.getByRole("tablist", {
+    const marketIntent = screen.getByRole("radiogroup", {
       name: "Choose market intent",
     });
 
-    expect(within(marketIntent).getByRole("tab", { name: "Buy" })).toBeTruthy();
+    expect(within(marketIntent).getByRole("radio", { name: "Buy" })).toBeTruthy();
 
-    fireEvent.click(within(marketIntent).getByRole("tab", { name: "Sell" }));
+    fireEvent.click(within(marketIntent).getByRole("radio", { name: "Sell" }));
 
     expect(screen.getByText("Accept offer")).toBeTruthy();
     expect(await screen.findByText("1 matching offer")).toBeTruthy();
@@ -74,12 +74,12 @@ describe("item detail commerce panel market intents and listing selection", () =
       />,
     );
 
-    const marketIntent = screen.getByRole("tablist", {
+    const marketIntent = screen.getByRole("radiogroup", {
       name: "Choose market intent",
     });
 
-    fireEvent.click(within(marketIntent).getByRole("tab", { name: "Sell" }));
-    fireEvent.click(within(marketIntent).getByRole("tab", { name: "Watch product" }));
+    fireEvent.click(within(marketIntent).getByRole("radio", { name: "Sell" }));
+    fireEvent.click(within(marketIntent).getByRole("radio", { name: "Watch product" }));
 
     await waitFor(() =>
       expect(analytics.events).toEqual(
@@ -132,7 +132,9 @@ describe("item detail commerce panel market intents and listing selection", () =
     expect(screen.queryByLabelText("Minimum offer price")).toBeNull();
 
     fireEvent.click(
-      within(screen.getByRole("tablist", { name: "Choose market intent" })).getByRole("tab", { name: "Watch" }),
+      within(screen.getByRole("radiogroup", { name: "Choose market intent" })).getByRole("radio", {
+        name: "Watch",
+      }),
     );
 
     expect(await screen.findByRole("button", { name: /Watch listings/ })).toBeTruthy();
@@ -164,14 +166,16 @@ describe("item detail commerce panel market intents and listing selection", () =
     );
 
     fireEvent.click(
-      within(screen.getByRole("tablist", { name: "Choose market intent" })).getByRole("tab", { name: "Buy" }),
+      within(screen.getByRole("radiogroup", { name: "Choose market intent" })).getByRole("radio", { name: "Buy" }),
     );
 
     expect(new URL(window.location.href).searchParams.get("market")).toBe("buy");
     expect(screen.getByText("Buy selected product")).toBeTruthy();
 
     fireEvent.click(
-      within(screen.getByRole("tablist", { name: "Choose market intent" })).getByRole("tab", { name: "Sell" }),
+      within(screen.getByRole("radiogroup", { name: "Choose market intent" })).getByRole("radio", {
+        name: "Sell",
+      }),
     );
 
     expect(new URL(window.location.href).searchParams.get("market")).toBe("sell");
@@ -192,7 +196,9 @@ describe("item detail commerce panel market intents and listing selection", () =
     );
 
     fireEvent.click(
-      within(screen.getByRole("tablist", { name: "Choose market intent" })).getByRole("tab", { name: "Sell" }),
+      within(screen.getByRole("radiogroup", { name: "Choose market intent" })).getByRole("radio", {
+        name: "Sell",
+      }),
     );
 
     expect(await screen.findByText("Selected")).toBeTruthy();
@@ -251,7 +257,9 @@ describe("item detail commerce panel market intents and listing selection", () =
     expect(sellerReputationLink.getAttribute("href")).toBe("/accounts/chase-sets-seller#feedback");
 
     fireEvent.click(
-      within(screen.getByRole("tablist", { name: "Choose market intent" })).getByRole("tab", { name: "Sell" }),
+      within(screen.getByRole("radiogroup", { name: "Choose market intent" })).getByRole("radio", {
+        name: "Sell",
+      }),
     );
 
     const buyerReputationLink = await screen.findByRole("link", { name: /Ash Ketchum/ });
@@ -676,7 +684,7 @@ describe("item detail commerce panel market intents and listing selection", () =
       />,
     );
 
-    fireEvent.click(screen.getByRole("tab", { name: /^Graded/ }));
+    fireEvent.click(screen.getByRole("radio", { name: /^Graded/ }));
 
     await waitFor(() =>
       expect(screen.getByTestId("selected-listing-id")).toHaveProperty("value", "listing_charizard_alt"),
