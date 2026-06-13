@@ -373,6 +373,13 @@ describe("checkout web routes: sell checkout session", () => {
     });
   }
 
+  function expectSellConfirmationRedirect(result: unknown) {
+    expect(result).toBeInstanceOf(Response);
+    const response = result as Response;
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("/checkout/sell/session/chk_sell_1/confirmation");
+  }
+
   it("validates signed-in seller checkout saved fields without side effects", async () => {
     mockSignedInSellCheckoutState();
 
@@ -423,9 +430,7 @@ describe("checkout web routes: sell checkout session", () => {
       context: undefined,
     } as never);
 
-    expect(result.status).toBe("confirmed");
-    expect(result.status === "confirmed" ? result.values.shipFromLine1 : "").toBe("100 Market Street");
-    expect(result.status === "confirmed" ? result.values.shipFromCity : "").toBe("Wichita");
+    expectSellConfirmationRedirect(result);
     expect(mockAcceptOfferMatch).toHaveBeenCalledWith("off_1", {
       feeQuoteFingerprint: "quote_1",
       sourceActionKey: "sell-confirm:slc_chk_sell_1:sll_1:selected:off_1",
@@ -479,7 +484,7 @@ describe("checkout web routes: sell checkout session", () => {
     expectNoSellerCommitSideEffects();
   });
 
-  it("returns a signed-in seller confirmation after recording Marketplace handoff evidence", async () => {
+  it("redirects to seller confirmation after recording Marketplace handoff evidence", async () => {
     mockSignedInSellCheckoutState();
 
     const result = await sellCheckoutSessionAction({
@@ -492,22 +497,7 @@ describe("checkout web routes: sell checkout session", () => {
       context: undefined,
     } as never);
 
-    expect(result).toEqual(
-      expect.objectContaining({
-        status: "confirmed",
-        confirmation: expect.objectContaining({
-          referenceId: "slc_chk_sell_1",
-          sideEffects: {
-            sale: "handoff-recorded",
-            label: "pending-downstream",
-            payout: "pending-downstream",
-            settlement: "pending-downstream",
-            notification: "pending-downstream",
-            accountHistory: "pending-downstream",
-          },
-        }),
-      }),
-    );
+    expectSellConfirmationRedirect(result);
     expect(mockGetSellListConfirmation).toHaveBeenCalledWith("slc_chk_sell_1");
     expect(mockPreviewOfferAcceptanceTerms).toHaveBeenCalledWith("off_1");
     expect(mockAcceptOfferMatch).toHaveBeenCalledWith("off_1", {
@@ -539,6 +529,70 @@ describe("checkout web routes: sell checkout session", () => {
         }),
       }),
     );
+  });
+
+  it("redirects duplicate seller confirmation posts to the existing confirmation without replaying handoff", async () => {
+    mockSignedInSellCheckoutState();
+    mockGetSellListConfirmation.mockResolvedValue({
+      seller_account_id: "acc_seller",
+      confirmation_id: "slc_chk_sell_1",
+      confirmed_at: "2026-06-10T00:00:00.000Z",
+      readiness_evidence: {},
+      seller_evidence: {},
+      handoff_summary: {
+        acceptedOfferCount: 1,
+        publishedListingCount: 0,
+        skippedLineCount: 0,
+        skippedReasons: [],
+        lineOutcomes: [],
+        sideEffects: {
+          sale: "handoff-recorded",
+          label: "pending-downstream",
+          payout: "pending-downstream",
+          settlement: "pending-downstream",
+          notification: "pending-downstream",
+          accountHistory: "pending-downstream",
+        },
+      },
+    });
+
+    const result = await sellCheckoutSessionAction({
+      request: new Request("http://localhost/checkout/sell/session/chk_sell_1", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: signedInSellCheckoutForm().toString(),
+      }),
+      params: { sessionId: "chk_sell_1" },
+      context: undefined,
+    } as never);
+
+    expectSellConfirmationRedirect(result);
+    expect(mockPreviewOfferAcceptanceTerms).not.toHaveBeenCalled();
+    expect(mockAcceptOfferMatch).not.toHaveBeenCalled();
+    expect(mockCreateListing).not.toHaveBeenCalled();
+    expect(mockPublishListing).not.toHaveBeenCalled();
+    expect(mockConfirmSellListCheckout).not.toHaveBeenCalled();
+  });
+
+  it("does not replay seller handoff when duplicate confirmation lookup is unavailable", async () => {
+    const failure = new MockCheckoutApiError(503, { error: { code: "checkout_unavailable" } });
+    mockSignedInSellCheckoutState();
+    mockGetSellListConfirmation.mockRejectedValue(failure);
+
+    await expect(
+      sellCheckoutSessionAction({
+        request: new Request("http://localhost/checkout/sell/session/chk_sell_1", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: signedInSellCheckoutForm().toString(),
+        }),
+        params: { sessionId: "chk_sell_1" },
+        context: undefined,
+      } as never),
+    ).rejects.toBe(failure);
+
+    expect(mockPreviewOfferAcceptanceTerms).not.toHaveBeenCalled();
+    expectNoSellerCommitSideEffects();
   });
 
   it("fails signed-in seller checkout into Sell List recovery when selected offer terms changed before handoff", async () => {
@@ -706,7 +760,7 @@ describe("checkout web routes: sell checkout session", () => {
       context: undefined,
     } as never);
 
-    expect(result.status).toBe("confirmed");
+    expectSellConfirmationRedirect(result);
     expect(mockAcceptOfferMatch).not.toHaveBeenCalled();
     expect(mockCreateListing).toHaveBeenCalledWith({
       inventoryItemId: "inv_1",
@@ -900,7 +954,7 @@ describe("checkout web routes: sell checkout session", () => {
       context: undefined,
     } as never);
 
-    expect(result.status).toBe("confirmed");
+    expectSellConfirmationRedirect(result);
     expect(mockAcceptOfferMatch).toHaveBeenCalledWith("off_product_1", {
       feeQuoteFingerprint: "quote_product_1",
       sourceActionKey: "sell-confirm:slc_chk_sell_1:sll_product:match:off_product_1",

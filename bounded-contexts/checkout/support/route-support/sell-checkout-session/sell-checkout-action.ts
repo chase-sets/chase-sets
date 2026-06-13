@@ -3,7 +3,7 @@ import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { createMarketplaceRequestApiClient } from "@chase-sets/marketplace/server";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { redirect, type ActionFunctionArgs } from "react-router";
-import { createCheckoutRequestApiClient } from "../../request-support/api-client";
+import { CheckoutApiError, createCheckoutRequestApiClient } from "../../request-support/api-client";
 import { resolveCheckoutShopifySimpleUnavailableState } from "../../request-support/checkout-release-control";
 import type { GuestSellCheckoutActionState } from "../../../features/sell-list/ui/guest-sell-checkout-page";
 import type { SignedInSellCheckoutActionState } from "../../../features/sell-list/ui/signed-in-sell-checkout-page";
@@ -19,7 +19,6 @@ import {
 import {
   assertMarketplaceOfferTermsFresh,
   buildSellerEvidence,
-  confirmationSideEffects,
   performMarketplaceHandoff,
 } from "./sell-checkout-handoff";
 import {
@@ -28,31 +27,27 @@ import {
   loadSignedInSellCheckoutState,
 } from "./sell-checkout-loader";
 import {
+  confirmationPathForSession,
   confirmationIdForSession,
   encodeSellListReadinessDecisions,
   parseSellListReadinessDecisions,
   parseSellListReviewPlan,
   reviewedLinesForConfirmation,
 } from "./sell-checkout-readiness";
-import { SellListReviewPlanStaleError, type SellListConfirmResponse } from "./sell-checkout-types";
+import { SellListReviewPlanStaleError } from "./sell-checkout-types";
 import { SELLER_CHECKOUT_REGISTER_HREF } from "../../../features/sell-list/ui/registration-return";
 
-function estimatedTotalFor(
-  lines: readonly {
-    offer_price_amount?: string | null;
-    minimum_listing_price_amount?: string | null;
-    quantity: number;
-  }[],
+async function getExistingSellListConfirmation(
+  api: ReturnType<typeof createCheckoutRequestApiClient>,
+  confirmationId: string,
 ) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-  }).format(
-    lines.reduce(
-      (sum, line) => sum + Number(line.offer_price_amount ?? line.minimum_listing_price_amount ?? 0) * line.quantity,
-      0,
-    ),
-  );
+  return api.getSellListConfirmation(confirmationId).catch((error) => {
+    if (error instanceof CheckoutApiError && error.status === 404) {
+      return null;
+    }
+
+    throw error;
+  });
 }
 
 export async function action({
@@ -113,19 +108,9 @@ export async function action({
     }
 
     const confirmationId = confirmationIdForSession(state.sessionId);
-    const estimatedTotal = estimatedTotalFor(state.lines);
-    const existingConfirmation = await api.getSellListConfirmation(confirmationId).catch(() => null);
+    const existingConfirmation = await getExistingSellListConfirmation(api, confirmationId);
     if (existingConfirmation) {
-      return {
-        status: "confirmed",
-        values,
-        confirmation: {
-          referenceId: existingConfirmation.confirmation_id,
-          sellerName: values.sellerName,
-          estimatedTotal,
-          sideEffects: confirmationSideEffects(existingConfirmation.handoff_summary),
-        },
-      };
+      return redirect(confirmationPathForSession(state.sessionId));
     }
 
     try {
@@ -136,7 +121,7 @@ export async function action({
       const marketplaceHandoff = await performMarketplaceHandoff(marketplaceApi, confirmationId, reviewedLines);
       const confirmedAt = new Date().toISOString();
       const sellerEvidence = buildSellerEvidence(values, state.payoutSummary, confirmedAt);
-      const result = (await api.confirmSellListCheckout({
+      await api.confirmSellListCheckout({
         confirmationId,
         readinessSnapshotId: state.readiness.snapshotId,
         readinessSourceRevision: state.readiness.sourceRevision,
@@ -145,18 +130,9 @@ export async function action({
         remainingLineQuantities: marketplaceHandoff.remainingLineQuantities,
         sellerEvidence,
         handoffSummary: marketplaceHandoff.summary,
-      })) as SellListConfirmResponse;
+      });
 
-      return {
-        status: "confirmed",
-        values,
-        confirmation: {
-          referenceId: result.confirmation.confirmation_id,
-          sellerName: values.sellerName,
-          estimatedTotal,
-          sideEffects: confirmationSideEffects(result.confirmation.handoff_summary),
-        },
-      };
+      return redirect(confirmationPathForSession(state.sessionId));
     } catch (error) {
       if (error instanceof SellListReviewPlanStaleError) {
         return {

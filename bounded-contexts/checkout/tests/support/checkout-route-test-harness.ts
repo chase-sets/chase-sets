@@ -64,7 +64,7 @@ export const mockMergeGuestSellListToAccount = vi.fn();
 export const mockListShippingAddresses = vi.fn();
 
 export function applyCheckoutRouteMockDefaults() {
-  mockGetSellListConfirmation.mockRejectedValue(new Error("not found"));
+  mockGetSellListConfirmation.mockRejectedValue(new MockCheckoutApiError(404, { error: { code: "not_found" } }));
   mockConfirmSellListCheckout.mockImplementation(async (body: { confirmationId: string; handoffSummary: unknown }) => ({
     confirmation: {
       seller_account_id: "acc_seller",

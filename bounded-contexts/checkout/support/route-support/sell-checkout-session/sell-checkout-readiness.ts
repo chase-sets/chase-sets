@@ -135,6 +135,10 @@ export function confirmationIdForSession(sessionId: string) {
   return `slc_${stableKeyPart(sessionId)}`;
 }
 
+export function confirmationPathForSession(sessionId: string) {
+  return `/checkout/sell/session/${stableKeyPart(sessionId)}/confirmation`;
+}
+
 export function reviewedListingId(confirmationId: string, lineId: string) {
   return `lst_${stableKeyPart(confirmationId)}_${stableKeyPart(lineId)}`;
 }

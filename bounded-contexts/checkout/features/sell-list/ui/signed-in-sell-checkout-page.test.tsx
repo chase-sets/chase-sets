@@ -1,10 +1,6 @@
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import {
-  SignedInSellCheckoutPage,
-  signedInSellCheckoutDefaultValues,
-  type SignedInSellCheckoutActionState,
-} from "./signed-in-sell-checkout-page";
+import { SignedInSellCheckoutPage, signedInSellCheckoutDefaultValues } from "./signed-in-sell-checkout-page";
 import type { CheckoutSellListLineRow } from "../read-model/queries";
 import type { SellListReadinessSnapshot } from "../domain/readiness";
 
@@ -185,54 +181,5 @@ describe("signed-in sell checkout page", () => {
     expect(markup).toContain("Refresh the Sell List review so payout and sale facts are current.");
     expect(markup).toContain("Review Sell List");
     expect(markup).toContain("disabled");
-  });
-
-  it("renders a signed-in confirmation handoff with downstream status copy", () => {
-    const actionState: SignedInSellCheckoutActionState = {
-      status: "confirmed",
-      values: defaultValues,
-      confirmation: {
-        referenceId: "signed-in-sell-chk_sell_1",
-        sellerName: "Jane Seller",
-        estimatedTotal: "$38.00",
-        sideEffects: {
-          sale: "handoff-recorded",
-          label: "pending-downstream",
-          payout: "pending-downstream",
-          settlement: "pending-downstream",
-          notification: "pending-downstream",
-          accountHistory: "pending-downstream",
-        },
-      },
-    };
-
-    const markup = renderToString(
-      <SignedInSellCheckoutPage
-        sessionId="chk_sell_1"
-        lines={[selectedOfferLine]}
-        readiness={readyReadiness}
-        recovery={null}
-        defaultValues={defaultValues}
-        savedShipFromAddresses={[savedShipFromAddress]}
-        payoutSummary={payoutSummary}
-        readinessDecisions='{"lineActions":[],"lineOutcomes":[]}'
-        sellListReviewPlan={sellListReviewPlan}
-        actionState={actionState}
-      />,
-    );
-
-    expect(markup).toContain("Sale review ready");
-    expect(markup).toContain("signed-in-sell-chk_sell_1");
-    expect(markup).toContain("Support reference");
-    expect(markup).toContain("Your sale confirmation was recorded");
-    expect(markup).toContain("Marketplace handoff");
-    expect(markup).toContain("Support can track pending or failed downstream work from this confirmation.");
-    expect(markup).toContain("View seller activity");
-    expect(markup).toContain("View committed sales");
-    expect(markup).not.toContain("Sale complete");
-    expect(markup).not.toContain("Label ready");
-    expect(markup).not.toContain("Payout ready");
-    expect(markup).not.toContain("Settlement complete");
-    expect(markup).not.toContain("Account history updated");
   });
 });

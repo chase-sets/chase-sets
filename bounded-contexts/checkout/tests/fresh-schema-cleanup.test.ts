@@ -116,6 +116,11 @@ describe("fresh checkout read-model schemas", () => {
           routeId: "sell-checkout-session",
           routePath: "checkout/sell/session/:sessionId",
         }),
+        expect.objectContaining({
+          routeId: "sell-checkout-confirmation",
+          routePath: "checkout/sell/session/:sessionId/confirmation",
+          fileExport: "./routes/sell-checkout-confirmation",
+        }),
       ]),
     );
     expect(marketplaceRoutes.map((route) => route.routeId)).not.toEqual(
