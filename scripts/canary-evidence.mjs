@@ -67,10 +67,10 @@ export const REQUIRED_CANARY_SIGNALS = [
     name: "checkout-order-payment-errors",
     owner: "checkout/ordering/payments",
     required: false,
-    source: "checkout, order, payment, and provider-health telemetry",
+    source: "checkout, order, payment, and reconciliation telemetry",
     maxIncrease: 0,
     currentState: "needs-instrumentation",
-    detail: "No increase in command failures, session failures, or payment provider-health failures.",
+    detail: "No increase in checkout command, session, payment, or reconciliation failures.",
   },
   {
     name: "settlement-payout-errors",

@@ -543,15 +543,6 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
     return c.json(timeline);
   });
 
-  app.get("/provider-health", async (c) => {
-    const access = requirePaymentAccess(c, "orders.manage");
-    if (access.response) {
-      return access.response;
-    }
-
-    return c.json(await services.getProviderHealth());
-  });
-
   return app;
 }
 
