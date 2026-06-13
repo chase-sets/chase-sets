@@ -241,10 +241,12 @@ export function CheckoutSessionPage({
   const hasUnavailableCheckoutLines = unavailableCheckoutLines.length > 0 || unavailableCount > 0;
   const canConfirm = isOfferIntent ? lines.length > 0 : readyCount > 0 && !hasUnavailableCheckoutLines;
   const firstDeliveryGroup = firstSellerGroup(preview);
+  const savedAddressesForCheckout = signedInBuyCheckout ? savedShippingAddresses : [];
+  const canManageAddressBookInCheckout = signedInBuyCheckout && canManageShippingAddresses;
   const defaultSavedAddress =
-    savedShippingAddresses.find((address) => address.shipping_address_id === session.shipping_address_id) ??
-    savedShippingAddresses.find((address) => address.is_default) ??
-    savedShippingAddresses[0] ??
+    savedAddressesForCheckout.find((address) => address.shipping_address_id === session.shipping_address_id) ??
+    savedAddressesForCheckout.find((address) => address.is_default) ??
+    savedAddressesForCheckout[0] ??
     null;
   const addressDefaults = session.shipping_address
     ? {
@@ -822,7 +824,7 @@ export function CheckoutSessionPage({
                     >
                       <Surface elevated>
                         <Stack gap={3}>
-                          {savedShippingAddresses.length > 0 ? (
+                          {savedAddressesForCheckout.length > 0 ? (
                             <NativeSelect
                               label={t("checkout.features.sessions.ui.checkoutPage.saved.shipping.address")}
                               name="shippingAddressId"
@@ -833,7 +835,7 @@ export function CheckoutSessionPage({
                                   value: "__manual",
                                   label: t("checkout.features.sessions.ui.checkoutPage.enter.a.new.address"),
                                 },
-                                ...savedShippingAddresses.map((address) => ({
+                                ...savedAddressesForCheckout.map((address) => ({
                                   value: address.shipping_address_id,
                                   label: address.is_default
                                     ? t("checkout.features.sessions.ui.checkoutPage.default.address.option", {
@@ -913,11 +915,11 @@ export function CheckoutSessionPage({
                               autoComplete="shipping tel"
                             />
                           </Grid>
-                          {canManageShippingAddresses ? (
+                          {canManageAddressBookInCheckout ? (
                             <ProgressiveDisclosure
                               title={t("checkout.features.sessions.ui.checkoutPage.address.preferences")}
                               summary={
-                                savedShippingAddresses.length > 0
+                                savedAddressesForCheckout.length > 0
                                   ? t("checkout.features.sessions.ui.checkoutPage.use.for.this.checkout")
                                   : t("checkout.features.sessions.ui.checkoutPage.save.as.new.address")
                               }
@@ -927,7 +929,7 @@ export function CheckoutSessionPage({
                                 <NativeSelect
                                   label={t("checkout.features.sessions.ui.checkoutPage.address.book.preference")}
                                   name="addressBookAction"
-                                  defaultValue={savedShippingAddresses.length > 0 ? "checkout-only" : "save-new"}
+                                  defaultValue={savedAddressesForCheckout.length > 0 ? "checkout-only" : "save-new"}
                                   items={[
                                     {
                                       value: "checkout-only",
