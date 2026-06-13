@@ -164,7 +164,7 @@ export function MarketingImageHero({
             ) : null}
             <h1
               className={cx(
-                "max-w-2xl font-display font-semibold leading-tight text-[var(--foreground)] md:leading-[1.08]",
+                "max-w-2xl font-display font-semibold leading-tight text-[var(--foreground)] md:leading-hero",
                 isCompact ? "text-3xl sm:text-4xl md:text-5xl" : "text-3xl sm:text-4xl md:text-5xl",
               )}
             >

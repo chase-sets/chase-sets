@@ -20,6 +20,8 @@ type FrameProps = Omit<HTMLAttributes<HTMLElement>, "className" | "style">;
 type HeadingLevel = 1 | 2 | 3 | 4 | 5 | 6;
 
 const textSizeClasses = {
+  "3xs": "text-3xs",
+  "2xs": "text-2xs",
   xs: "text-xs",
   sm: "text-sm",
   md: "text-base",
@@ -100,7 +102,7 @@ export interface HeadingProps extends FrameProps {
 }
 
 const headingClasses: Record<HeadingLevel, string> = {
-  1: "font-display text-4xl font-semibold leading-tight md:text-5xl md:leading-[1.15]",
+  1: "font-display text-4xl font-semibold leading-tight tracking-label md:text-5xl md:leading-display",
   2: "font-heading text-3xl font-semibold leading-tight md:text-4xl md:leading-tight",
   3: "font-heading text-2xl font-semibold leading-snug md:text-3xl md:leading-tight",
   4: "font-heading text-xl font-semibold leading-snug md:text-2xl md:leading-snug",
@@ -139,16 +141,28 @@ export function Subheading({ children, level = 3, align, ...rest }: SubheadingPr
 
 export interface LabelProps extends Omit<LabelHTMLAttributes<HTMLLabelElement>, "className" | "style"> {
   muted?: boolean;
+  size?: "2xs" | "xs" | "sm";
 }
 
-export function Label({ muted = false, ...rest }: LabelProps) {
-  return <label {...rest} className={cx("text-sm font-medium", muted ? "text-secondary" : "text-foreground")} />;
+const labelSizeClasses: Record<NonNullable<LabelProps["size"]>, string> = {
+  "2xs": "text-2xs",
+  xs: "text-xs",
+  sm: "text-sm",
+};
+
+export function Label({ muted = false, size = "sm", ...rest }: LabelProps) {
+  return (
+    <label
+      {...rest}
+      className={cx("font-medium tracking-label", labelSizeClasses[size], muted ? "text-secondary" : "text-foreground")}
+    />
+  );
 }
 
 export type CaptionProps<TTarget extends ElementType = "p"> = TextProps<TTarget>;
 
 export function Caption<TTarget extends ElementType = "p">(props: CaptionProps<TTarget>) {
-  return <Text {...props} size={props.size ?? "xs"} tone={props.tone ?? "secondary"} />;
+  return <Text {...props} size={props.size ?? "2xs"} tone={props.tone ?? "secondary"} />;
 }
 
 export interface CodeTextProps extends FrameProps {

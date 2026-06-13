@@ -71,7 +71,7 @@ export function ActorIdentityCue({
         <div className="truncate text-xs font-semibold text-foreground">
           {accountLabel} {accountName}
         </div>
-        <div className="truncate text-[0.72rem] text-secondary">
+        <div className="truncate text-2xs text-secondary">
           {userLabel} {userName}
         </div>
       </div>

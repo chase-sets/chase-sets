@@ -4,6 +4,18 @@ export type BreakpointKey = "base" | "sm" | "md" | "lg" | "xl" | "2xl";
 export type ColorMode = "system" | "light" | "dark";
 const spacingTokens = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as const;
 export type SpaceToken = (typeof spacingTokens)[number];
+export type FontSizeToken = "3xs" | "2xs" | "xs" | "sm" | "base" | "lg" | "xl" | "2xl" | "3xl" | "4xl" | "5xl";
+export type LineHeightToken =
+  | FontSizeToken
+  | "none"
+  | "tight"
+  | "snug"
+  | "normal"
+  | "relaxed"
+  | "display"
+  | "hero"
+  | "badge";
+export type LetterSpacingToken = "none" | "normal" | "wide" | "label";
 
 export type ResponsiveValue<T> =
   | T
@@ -85,6 +97,9 @@ export interface ThemeTokens {
     heading: string;
     body: string;
     mono: string;
+    fontSize: Record<FontSizeToken, string>;
+    lineHeight: Record<LineHeightToken, string>;
+    letterSpacing: Record<LetterSpacingToken, string>;
   };
   radius: {
     sm: string;
@@ -118,7 +133,11 @@ export interface ThemeTokens {
 
 export interface ThemeOverrides {
   colors?: Partial<ThemeTokens["colors"]>;
-  typography?: Partial<ThemeTokens["typography"]>;
+  typography?: Partial<Omit<ThemeTokens["typography"], "fontSize" | "lineHeight" | "letterSpacing">> & {
+    fontSize?: Partial<ThemeTokens["typography"]["fontSize"]>;
+    lineHeight?: Partial<ThemeTokens["typography"]["lineHeight"]>;
+    letterSpacing?: Partial<ThemeTokens["typography"]["letterSpacing"]>;
+  };
   radius?: Partial<ThemeTokens["radius"]>;
   spacing?: Partial<ThemeTokens["spacing"]>;
   shadows?: Partial<ThemeTokens["shadows"]>;
@@ -193,6 +212,46 @@ export const chaseTheme: ThemeTokens = {
     heading: 'var(--font-heading, "IBM Plex Sans")',
     body: 'var(--body-font, "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif)',
     mono: 'var(--mono-font, "IBM Plex Mono", ui-monospace, monospace)',
+    fontSize: {
+      "3xs": "var(--font-size-3xs, 0.625rem)",
+      "2xs": "var(--font-size-2xs, 0.6875rem)",
+      xs: "var(--font-size-xs, 0.75rem)",
+      sm: "var(--font-size-sm, 0.875rem)",
+      base: "var(--font-size-base, 1rem)",
+      lg: "var(--font-size-lg, 1.125rem)",
+      xl: "var(--font-size-xl, 1.25rem)",
+      "2xl": "var(--font-size-2xl, 1.5rem)",
+      "3xl": "var(--font-size-3xl, 1.875rem)",
+      "4xl": "var(--font-size-4xl, 2.25rem)",
+      "5xl": "var(--font-size-5xl, 3rem)",
+    },
+    lineHeight: {
+      "3xs": "var(--line-height-3xs, 1)",
+      "2xs": "var(--line-height-2xs, 1rem)",
+      xs: "var(--line-height-xs, 1rem)",
+      sm: "var(--line-height-sm, 1.25rem)",
+      base: "var(--line-height-base, 1.5rem)",
+      lg: "var(--line-height-lg, 1.75rem)",
+      xl: "var(--line-height-xl, 1.75rem)",
+      "2xl": "var(--line-height-2xl, 2rem)",
+      "3xl": "var(--line-height-3xl, 2.25rem)",
+      "4xl": "var(--line-height-4xl, 2.5rem)",
+      "5xl": "var(--line-height-5xl, 1)",
+      none: "var(--line-height-none, 1)",
+      tight: "var(--line-height-tight, 1.25)",
+      snug: "var(--line-height-snug, 1.375)",
+      normal: "var(--line-height-normal, 1.5)",
+      relaxed: "var(--line-height-relaxed, 1.625)",
+      display: "var(--line-height-display, 1.15)",
+      hero: "var(--line-height-hero, 1.08)",
+      badge: "var(--line-height-badge, 1rem)",
+    },
+    letterSpacing: {
+      none: "var(--letter-spacing-none, 0)",
+      normal: "var(--letter-spacing-normal, 0)",
+      wide: "var(--letter-spacing-wide, 0.025em)",
+      label: "var(--letter-spacing-label, 0)",
+    },
   },
   radius: {
     sm: "var(--radius-sm, 0.375rem)",
@@ -260,6 +319,18 @@ export function resolveTheme(theme?: ThemeOverrides, baseTheme: ThemeTokens = ch
     typography: {
       ...baseTheme.typography,
       ...theme.typography,
+      fontSize: {
+        ...baseTheme.typography.fontSize,
+        ...theme.typography?.fontSize,
+      },
+      lineHeight: {
+        ...baseTheme.typography.lineHeight,
+        ...theme.typography?.lineHeight,
+      },
+      letterSpacing: {
+        ...baseTheme.typography.letterSpacing,
+        ...theme.typography?.letterSpacing,
+      },
     },
     radius: {
       ...baseTheme.radius,
@@ -368,6 +439,40 @@ const tokenMap: [string, (theme: ThemeTokens | ThemeOverrides) => string | undef
   ["--font-body", (t) => t.typography?.body],
   ["--mono-font", (t) => t.typography?.mono],
   ["--font-mono", (t) => t.typography?.mono],
+  ["--font-size-3xs", (t) => t.typography?.fontSize?.["3xs"]],
+  ["--font-size-2xs", (t) => t.typography?.fontSize?.["2xs"]],
+  ["--font-size-xs", (t) => t.typography?.fontSize?.xs],
+  ["--font-size-sm", (t) => t.typography?.fontSize?.sm],
+  ["--font-size-base", (t) => t.typography?.fontSize?.base],
+  ["--font-size-lg", (t) => t.typography?.fontSize?.lg],
+  ["--font-size-xl", (t) => t.typography?.fontSize?.xl],
+  ["--font-size-2xl", (t) => t.typography?.fontSize?.["2xl"]],
+  ["--font-size-3xl", (t) => t.typography?.fontSize?.["3xl"]],
+  ["--font-size-4xl", (t) => t.typography?.fontSize?.["4xl"]],
+  ["--font-size-5xl", (t) => t.typography?.fontSize?.["5xl"]],
+  ["--line-height-3xs", (t) => t.typography?.lineHeight?.["3xs"]],
+  ["--line-height-2xs", (t) => t.typography?.lineHeight?.["2xs"]],
+  ["--line-height-xs", (t) => t.typography?.lineHeight?.xs],
+  ["--line-height-sm", (t) => t.typography?.lineHeight?.sm],
+  ["--line-height-base", (t) => t.typography?.lineHeight?.base],
+  ["--line-height-lg", (t) => t.typography?.lineHeight?.lg],
+  ["--line-height-xl", (t) => t.typography?.lineHeight?.xl],
+  ["--line-height-2xl", (t) => t.typography?.lineHeight?.["2xl"]],
+  ["--line-height-3xl", (t) => t.typography?.lineHeight?.["3xl"]],
+  ["--line-height-4xl", (t) => t.typography?.lineHeight?.["4xl"]],
+  ["--line-height-5xl", (t) => t.typography?.lineHeight?.["5xl"]],
+  ["--line-height-none", (t) => t.typography?.lineHeight?.none],
+  ["--line-height-tight", (t) => t.typography?.lineHeight?.tight],
+  ["--line-height-snug", (t) => t.typography?.lineHeight?.snug],
+  ["--line-height-normal", (t) => t.typography?.lineHeight?.normal],
+  ["--line-height-relaxed", (t) => t.typography?.lineHeight?.relaxed],
+  ["--line-height-display", (t) => t.typography?.lineHeight?.display],
+  ["--line-height-hero", (t) => t.typography?.lineHeight?.hero],
+  ["--line-height-badge", (t) => t.typography?.lineHeight?.badge],
+  ["--letter-spacing-none", (t) => t.typography?.letterSpacing?.none],
+  ["--letter-spacing-normal", (t) => t.typography?.letterSpacing?.normal],
+  ["--letter-spacing-wide", (t) => t.typography?.letterSpacing?.wide],
+  ["--letter-spacing-label", (t) => t.typography?.letterSpacing?.label],
   ["--radius-sm", (t) => t.radius?.sm],
   ["--radius", (t) => t.radius?.md],
   ["--radius-md", (t) => t.radius?.md],

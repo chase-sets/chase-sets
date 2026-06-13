@@ -190,6 +190,9 @@ describe("design system components", () => {
     expect(chaseTheme.colors.brandPrimary).toBe("var(--primary)");
     expect(chaseTheme.typography.body).toContain("--body-font");
     expect(chaseTheme.typography.body).toContain("IBM Plex Sans");
+    expect(chaseTheme.typography.fontSize["2xs"]).toBe("var(--font-size-2xs, 0.6875rem)");
+    expect(chaseTheme.typography.lineHeight.display).toBe("var(--line-height-display, 1.15)");
+    expect(chaseTheme.typography.letterSpacing.label).toBe("var(--letter-spacing-label, 0)");
     expect(chaseTheme.radius.md).toBe("var(--radius, 0.5rem)");
     expect(chaseTheme.spacing[4]).toBe("var(--space-4)");
     expect(expectedSpacingTokens).toHaveLength(13);
@@ -215,6 +218,9 @@ describe("design system components", () => {
     const style = resolveThemeOverrideStyle({
       typography: {
         body: "Instrument Sans",
+        fontSize: {
+          "2xs": "0.7rem",
+        },
       },
       spacing: {
         4: "1.125rem",
@@ -223,6 +229,8 @@ describe("design system components", () => {
 
     expect(style?.["--font-body" as never]).toBe("Instrument Sans");
     expect(style?.["--space-4" as never]).toBe("1.125rem");
+    expect(style?.["--font-size-2xs" as never]).toBe("0.7rem");
+    expect(style?.["--font-size-xs" as never]).toBeUndefined();
     expect(style?.["--color-background" as never]).toBeUndefined();
   });
 
