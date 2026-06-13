@@ -494,6 +494,57 @@ describe("checkout web routes: checkout session action", () => {
     );
   });
 
+  it("returns shipping correction before checkout mutations when the shipping method is unavailable", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
+    mockSelectShippingOption.mockRejectedValue(
+      new MockCheckoutApiError(400, {
+        error: {
+          code: "shipping_option_unavailable",
+          message: "Provider rejected raw shipping service drone.",
+        },
+      }),
+    );
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      selectShippingOption: mockSelectShippingOption,
+      selectShippingAddress: mockSelectShippingAddress,
+      confirmCheckoutSession: mockConfirmCheckoutSession,
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "confirm-checkout");
+    form.set("shippingOption", "drone");
+    form.set("paymentMethodCategory", "card");
+    form.set("previewPaymentMethodCategory", "card");
+    form.set("marketplaceCheckoutFeeQuoteFingerprint", "quote_1");
+    form.set("shippingName", "Jane Smith");
+    form.set("shippingLine1", "100 Market Street");
+    form.set("shippingCity", "Chicago");
+    form.set("shippingState", "IL");
+    form.set("shippingPostalCode", "60601");
+    form.set("shippingCountry", "US");
+
+    const response = (await checkoutSessionAction({
+      request: new Request("http://localhost/checkout/buy/session/chk_1", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { sessionId: "chk_1" },
+      context: undefined,
+    } as never)) as { error: string; editSection: string };
+
+    expect(response).toEqual({
+      error: "Choose an available shipping method before continuing.",
+      editSection: "shipping",
+    });
+    expect(JSON.stringify(response)).not.toContain("drone");
+    expect(mockSelectShippingOption).toHaveBeenCalledWith("chk_1", {
+      shippingOption: "drone",
+    });
+    expect(mockSelectShippingAddress).not.toHaveBeenCalled();
+    expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
+  });
+
   it("returns cart recovery when active checkout readiness is stale during review refresh", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
     mockSelectShippingOption.mockRejectedValue(

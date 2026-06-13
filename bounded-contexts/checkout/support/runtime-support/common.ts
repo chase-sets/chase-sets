@@ -183,6 +183,9 @@ export function normalizeShippingOption(value: string): ShippingOption {
     case "priority":
       return "priority";
     default:
-      throw new CheckoutDomainError("Shipping option is not supported.");
+      throw new CheckoutDomainError(
+        "Choose an available shipping method before continuing.",
+        "shipping_option_unavailable",
+      );
   }
 }

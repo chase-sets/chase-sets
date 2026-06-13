@@ -301,6 +301,45 @@ describe("checkout session runtime", () => {
     expect(db.query).not.toHaveBeenCalled();
   });
 
+  it("rejects unavailable shipping options before mutating the session", async () => {
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query: vi.fn(async () => ({ rows: [] })) },
+      cart: createCartServices() as never,
+    });
+    const readiness = createCartReadinessSnapshot([readyCartLine]);
+    const created = await services.createFromCart(
+      {
+        accountId: "acc_buyer" as never,
+        shippingOption: "standard",
+        readinessSnapshotId: readiness.snapshotId,
+        readinessSourceRevision: readiness.sourceRevision,
+        sessionIdOverride: "chk_shipping_method" as never,
+      },
+      context,
+    );
+
+    await expect(
+      services.selectShippingOption(
+        {
+          sessionId: created.sessionId,
+          accountId: "acc_buyer" as never,
+          shippingOption: "overnight",
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({
+      code: "shipping_option_unavailable",
+      message: "Choose an available shipping method before continuing.",
+    } satisfies Partial<CheckoutDomainError>);
+
+    expect(allEvents.filter((event) => event.eventType === "checkout.session.shipping-option-selected")).toHaveLength(
+      0,
+    );
+  });
+
   it("starts multi-seller cart checkout as one session with readiness-produced support groups", async () => {
     const { allEvents, eventStore } = createInMemoryEventStore();
     const cartLines = [readyCartLine, secondSellerCartLine];

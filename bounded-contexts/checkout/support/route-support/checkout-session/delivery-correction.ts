@@ -6,6 +6,14 @@ import {
 } from "../../../features/sessions/domain/delivery-serviceability";
 import { CheckoutApiError } from "../../request-support/api-client";
 
+type CheckoutShippingCorrectionIssue = Readonly<{
+  code: "shipping_option_unavailable";
+  message: string;
+}>;
+
+type CheckoutCorrectionIssue = CheckoutDeliveryServiceabilityIssue | CheckoutShippingCorrectionIssue;
+type CheckoutCorrectionIssueCode = CheckoutDeliveryServiceabilityIssueCode | CheckoutShippingCorrectionIssue["code"];
+
 type CheckoutDeliveryAddress = Readonly<{
   name: string;
   line1: string;
@@ -29,7 +37,11 @@ export function assertCheckoutDeliveryServiceableForAction(address: CheckoutDeli
   }
 }
 
-function deliveryCorrectionMessage(code: CheckoutDeliveryServiceabilityIssueCode) {
+function checkoutCorrectionMessage(code: CheckoutCorrectionIssueCode) {
+  if (code === "shipping_option_unavailable") {
+    return t("checkout.routes.checkoutSession.shipping.option.unavailable");
+  }
+
   if (code === "shipping_address_required") {
     return t("checkout.routes.checkoutSession.delivery.address.required");
   }
@@ -41,7 +53,7 @@ function deliveryCorrectionMessage(code: CheckoutDeliveryServiceabilityIssueCode
   return t("checkout.routes.checkoutSession.delivery.address.restricted");
 }
 
-function checkoutApiDeliveryServiceabilityIssue(error: unknown): CheckoutDeliveryServiceabilityIssue | null {
+function checkoutApiCorrectionIssue(error: unknown): CheckoutCorrectionIssue | null {
   if (!(error instanceof CheckoutApiError) || !error.body || typeof error.body !== "object") {
     return null;
   }
@@ -51,7 +63,8 @@ function checkoutApiDeliveryServiceabilityIssue(error: unknown): CheckoutDeliver
   if (
     code !== "shipping_address_required" &&
     code !== "shipping_address_unsupported" &&
-    code !== "shipping_address_restricted"
+    code !== "shipping_address_restricted" &&
+    code !== "shipping_option_unavailable"
   ) {
     return null;
   }
@@ -63,15 +76,14 @@ function checkoutApiDeliveryServiceabilityIssue(error: unknown): CheckoutDeliver
 }
 
 export function deliveryCorrectionActionData(error: unknown) {
-  const issue =
-    error instanceof CheckoutDeliveryCorrectionError ? error.issue : checkoutApiDeliveryServiceabilityIssue(error);
+  const issue = error instanceof CheckoutDeliveryCorrectionError ? error.issue : checkoutApiCorrectionIssue(error);
 
   if (!issue) {
     return null;
   }
 
   return {
-    error: deliveryCorrectionMessage(issue.code),
-    editSection: "delivery" as const,
+    error: checkoutCorrectionMessage(issue.code),
+    editSection: issue.code === "shipping_option_unavailable" ? ("shipping" as const) : ("delivery" as const),
   };
 }
