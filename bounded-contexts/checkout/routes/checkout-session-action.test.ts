@@ -396,6 +396,47 @@ describe("checkout web routes: checkout session action", () => {
     expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
   });
 
+  it("returns delivery correction before checkout mutations when required address fields are missing", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
+    mockSelectShippingOption.mockResolvedValue({});
+    mockSelectShippingAddress.mockResolvedValue({});
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      selectShippingOption: mockSelectShippingOption,
+      selectShippingAddress: mockSelectShippingAddress,
+      confirmCheckoutSession: mockConfirmCheckoutSession,
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "confirm-checkout");
+    form.set("shippingOption", "standard");
+    form.set("paymentMethodCategory", "card");
+    form.set("previewPaymentMethodCategory", "card");
+    form.set("marketplaceCheckoutFeeQuoteFingerprint", "quote_1");
+    form.set("shippingName", "Jane Smith");
+    form.set("shippingLine1", "100 Market Street");
+    form.set("shippingCity", "Chicago");
+    form.set("shippingState", "IL");
+    form.set("shippingCountry", "US");
+
+    const response = (await checkoutSessionAction({
+      request: new Request("http://localhost/checkout/buy/session/chk_1", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { sessionId: "chk_1" },
+      context: undefined,
+    } as never)) as { error: string; editSection: string };
+
+    expect(response).toEqual({
+      error: "Enter a shipping address before continuing to payment.",
+      editSection: "delivery",
+    });
+    expect(mockSelectShippingOption).not.toHaveBeenCalled();
+    expect(mockSelectShippingAddress).not.toHaveBeenCalled();
+    expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
+  });
+
   it("maps checkout API delivery failures to customer-safe correction copy", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
     mockSelectShippingOption.mockResolvedValue({});

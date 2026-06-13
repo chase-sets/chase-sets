@@ -1015,6 +1015,46 @@ describe("checkout session runtime", () => {
     } satisfies Partial<CheckoutDomainError>);
   });
 
+  it("blocks incomplete delivery addresses before order creation", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const cart = createCartServices([readyCartLine]);
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query: vi.fn(async () => ({ rows: [] })) },
+      cart: cart as never,
+    });
+    const readiness = createCartReadinessSnapshot([readyCartLine]);
+    const created = await services.createFromCart(
+      {
+        accountId: "acc_buyer" as never,
+        readinessSnapshotId: readiness.snapshotId,
+        readinessSourceRevision: readiness.sourceRevision,
+        sessionIdOverride: "chk_address_required" as never,
+      },
+      context,
+    );
+    await expect(
+      services.setShippingAddress(
+        {
+          sessionId: created.sessionId,
+          accountId: "acc_buyer" as never,
+          shippingAddress: {
+            ...serviceableShippingAddress,
+            postalCode: "",
+          },
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({
+      code: "shipping_address_required",
+      message: "Confirm the shipping address before creating orders.",
+    } satisfies Partial<CheckoutDomainError>);
+
+    expect(cart.removeLine).not.toHaveBeenCalled();
+    expect(cart.checkout).not.toHaveBeenCalled();
+  });
+
   it("blocks PO box delivery addresses before order creation", async () => {
     const { eventStore } = createInMemoryEventStore();
     const cart = createCartServices([readyCartLine]);

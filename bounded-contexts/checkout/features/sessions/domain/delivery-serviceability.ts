@@ -9,9 +9,12 @@ export type CheckoutDeliveryServiceabilityIssue = Readonly<{
 }>;
 
 type CheckoutDeliveryAddress = Readonly<{
+  name?: string | null;
   line1: string;
   line2?: string | null;
+  city?: string | null;
   state: string;
+  postalCode?: string | null;
   country: string;
 }>;
 
@@ -21,6 +24,21 @@ export function checkoutDeliveryServiceabilityIssue(
   address: CheckoutDeliveryAddress | null | undefined,
 ): CheckoutDeliveryServiceabilityIssue | null {
   if (!address) {
+    return {
+      code: "shipping_address_required",
+      message: "Confirm the shipping address before creating orders.",
+    };
+  }
+
+  const requiredFields = [
+    address.name,
+    address.line1,
+    address.city,
+    address.state,
+    address.postalCode,
+    address.country,
+  ];
+  if (requiredFields.some((value) => String(value ?? "").trim().length === 0)) {
     return {
       code: "shipping_address_required",
       message: "Confirm the shipping address before creating orders.",
