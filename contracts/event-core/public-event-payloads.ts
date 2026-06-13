@@ -49,6 +49,31 @@ export type InventoryEventPayloads = Readonly<{
   "inventory.reservation.released": InventoryReservationReleasedPayload;
 }>;
 
+export type OrderingReservationRequestPayload = Readonly<{
+  reservationRequestId: string;
+  inventoryItemId: string;
+  sellerAccountId: string;
+  quantity: number;
+  holdId?: string | null;
+  status?: string;
+}>;
+
+export type OrderingOrderCreatedPayload = Readonly<{
+  orderId: string;
+  reservationRequests: readonly OrderingReservationRequestPayload[];
+}>;
+
+export type OrderingOrderCancelledPayload = Readonly<{
+  orderId: string;
+  cancelledAt: string;
+  reservationRequests: readonly OrderingReservationRequestPayload[];
+}>;
+
+export type OrderingEventPayloads = Readonly<{
+  "ordering.order.created": OrderingOrderCreatedPayload;
+  "ordering.order.cancelled": OrderingOrderCancelledPayload;
+}>;
+
 export type MarketplaceOfferAcceptedPayload = Readonly<{
   offerId: string;
   buyerAccountId: AccountId;
@@ -276,6 +301,7 @@ export type PlatformOperationsEventPayloads = Readonly<{
 export type ChaseSetsEventPayloads = AuthEventPayloads &
   CheckoutEventPayloads &
   InventoryEventPayloads &
+  OrderingEventPayloads &
   MarketplaceEventPayloads &
   PaymentsEventPayloads &
   SettlementEventPayloads &
