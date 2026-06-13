@@ -1,9 +1,9 @@
 import { useState, type ImgHTMLAttributes, type ReactNode } from "react";
 import { ImageIcon, Truck } from "lucide-react";
-import { cn } from "../../../lib/utils";
-import { IconButton } from "../../actions";
-import { ProductMediaImage, type ResponsiveImageSource } from "../../data-display/product-media";
-import { Badge } from "../badge";
+import { cn } from "../../lib/utils";
+import { IconButton } from "../actions";
+import { ProductMediaImage, type ResponsiveImageSource } from "../data-display/product-media";
+import { Badge } from "../compat/badge";
 import { AccountReputationSummary, OrderProtectionBadge, TrustBadge, VerifiedAccountBadge } from "./trust";
 import {
   densityClasses,

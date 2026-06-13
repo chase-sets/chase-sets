@@ -20,11 +20,12 @@ export * from "./theme/tokens";
 export * from "./utils/cx";
 export * from "./utils/system";
 
+export * from "./components/commerce";
+
 export {
   NavigationHeader,
   type NavigationHeaderItem,
   type NavigationHeaderProps,
 } from "./components/compat/navigation-header";
-export * from "./components/compat/marketplace";
 export { Progress } from "./components/compat/progress";
 export { ThemeToggle, type ThemePreference } from "./components/compat/theme-toggle";

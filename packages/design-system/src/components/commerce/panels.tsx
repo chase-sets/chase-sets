@@ -1,9 +1,9 @@
 import type { ReactNode } from "react";
 import { AlertTriangle, CheckCircle2, ChevronRight, Clock, Inbox, Package } from "lucide-react";
-import { cn } from "../../../lib/utils";
-import { Inset } from "../../../primitives/layout";
-import { Badge } from "../badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../card";
+import { cn } from "../../lib/utils";
+import { Inset } from "../../primitives/layout";
+import { Badge } from "../compat/badge";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../compat/card";
 import { statusClasses } from "./shared";
 
 export interface MarketplaceEmptyStateProps {

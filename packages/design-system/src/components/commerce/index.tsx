@@ -1,7 +1,8 @@
-// Compat marketplace surface. These components have no canonical design-system
-// replacement yet, so they remain here, decomposed by concern into ./marketplace/*.
-// Dead exports (unconsumed by any context, deployable, or test) were removed in the
-// 2026-06 decomposition; product-option re-exports now flow from data-display directly.
+// Canonical commerce surface. These marketplace components live here, decomposed by
+// concern into sibling modules (trust, listings, checkout, detail, search, account,
+// panels, cart-line-item, shared). Dead exports (unconsumed by any context, deployable,
+// or test) were removed in the 2026-06 decomposition; product-option re-exports now flow
+// from data-display directly.
 
 export {
   type MarketplaceDensity,
@@ -9,7 +10,7 @@ export {
   type TrustTone,
   type StatusTone,
   formatMarketplaceNumber,
-} from "./marketplace/shared";
+} from "./shared";
 
 export {
   TrustBadge,
@@ -29,10 +30,10 @@ export {
   RatingDistribution,
   type RatingDistributionProps,
   SecurePaymentIndicator,
-} from "./marketplace/trust";
+} from "./trust";
 
-export { MarketplaceCartLineItem, type MarketplaceCartLineItemProps } from "./marketplace/cart-line-item";
-export { ListingCard, type ListingCardProps } from "./marketplace/listings";
+export { MarketplaceCartLineItem, type MarketplaceCartLineItemProps } from "./cart-line-item";
+export { ListingCard, type ListingCardProps } from "./listings";
 
 export {
   SearchFilterPanel,
@@ -45,7 +46,7 @@ export {
   type SearchControlBarProps,
   NoResultsRecovery,
   type NoResultsRecoveryProps,
-} from "./marketplace/search";
+} from "./search";
 
 export {
   PriceBreakdown,
@@ -62,7 +63,7 @@ export {
   type PaymentRecoveryPanelProps,
   StickyCtaBar,
   type StickyCtaBarProps,
-} from "./marketplace/checkout";
+} from "./checkout";
 
 export {
   MessageThreadPreview,
@@ -75,7 +76,7 @@ export {
   type SpecificationListProps,
   ComparisonModule,
   type ComparisonModuleProps,
-} from "./marketplace/detail";
+} from "./detail";
 
 export {
   AccountProfileHeader,
@@ -84,7 +85,7 @@ export {
   type AccountCredibilityHeaderProps,
   ReviewCard,
   type ReviewCardProps,
-} from "./marketplace/account";
+} from "./account";
 
 export {
   MarketplaceEmptyState,
@@ -97,4 +98,4 @@ export {
   type MarketplaceDashboardPanelProps,
   MarketplaceTemplateGallery,
   type MarketplaceTemplateGalleryProps,
-} from "./marketplace/panels";
+} from "./panels";

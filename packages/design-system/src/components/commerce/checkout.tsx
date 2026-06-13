@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
 import { AlertTriangle, CheckCircle2, HelpCircle, ShieldCheck, XCircle } from "lucide-react";
-import { cn } from "../../../lib/utils";
-import { Badge } from "../badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../card";
+import { cn } from "../../lib/utils";
+import { Badge } from "../compat/badge";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../compat/card";
 import { TrustBadge } from "./trust";
 import { statusClasses, type StatusTone } from "./shared";
 
