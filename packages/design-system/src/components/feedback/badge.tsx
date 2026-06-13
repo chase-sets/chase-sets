@@ -1,20 +1,29 @@
 import type { HTMLAttributes, ReactNode } from "react";
 import { Icon } from "../../icons";
 import { cx } from "../../utils/cx";
-import { type Tone, softToneClasses, toneToIconTone } from "./shared";
+import { type BadgeTone, outlineToneClasses, softToneClasses, toneClasses, toneToIconTone } from "./shared";
+
+export type BadgeVariant = "soft" | "solid" | "outline";
+
+const variantToneClasses: Record<BadgeVariant, Record<BadgeTone, string>> = {
+  soft: softToneClasses,
+  solid: toneClasses,
+  outline: outlineToneClasses,
+};
 
 export interface BadgeProps extends Omit<HTMLAttributes<HTMLSpanElement>, "className" | "style"> {
   children?: ReactNode;
-  tone?: Tone;
+  tone?: BadgeTone;
+  variant?: BadgeVariant;
 }
 
-export function Badge({ children, tone = "neutral", ...rest }: BadgeProps) {
+export function Badge({ children, tone = "neutral", variant = "soft", ...rest }: BadgeProps) {
   return (
     <span
       {...rest}
       className={cx(
         "inline-flex items-center gap-1 rounded-tokenMd border px-2.5 py-1 text-xs font-semibold shadow-tokenSm",
-        softToneClasses[tone],
+        variantToneClasses[variant][tone],
       )}
     >
       {children}
@@ -32,13 +41,13 @@ export interface TagProps extends BadgeProps {
   onRemove?: () => void;
 }
 
-export function Tag({ children, tone = "neutral", onRemove, ...rest }: TagProps) {
+export function Tag({ children, tone = "neutral", variant = "soft", onRemove, ...rest }: TagProps) {
   return (
     <span
       {...rest}
       className={cx(
         "inline-flex items-center gap-2 rounded-tokenMd border px-3 py-1 text-xs font-semibold shadow-tokenSm",
-        softToneClasses[tone],
+        variantToneClasses[variant][tone],
       )}
     >
       <span>{children}</span>

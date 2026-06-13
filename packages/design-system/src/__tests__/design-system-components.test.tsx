@@ -24,6 +24,7 @@ import { Card, DataTable, ImageGallery } from "../components/data-display";
 import {
   Accordion,
   AccordionOptionTrigger,
+  Badge,
   Dialog,
   LoadingSpinner,
   Menu,
@@ -31,9 +32,12 @@ import {
   ProgressiveDisclosure,
   ProgressiveDisclosureGroup,
   Rating,
+  StatusPill,
+  Tag,
   ToastRegion,
   Tooltip,
 } from "../components/feedback";
+import { Icon, type IconName } from "../icons";
 import {
   Checkbox,
   Combobox,
@@ -1745,5 +1749,100 @@ describe("design system components", () => {
     );
     expect(within(topNav).getAllByRole("link", { name: "Platform" })[1]?.getAttribute("aria-current")).toBe("page");
     expect(within(topNav).getAllByRole("button", { name: "Sign out" })).toHaveLength(2);
+  });
+
+  it("keeps the default Badge soft tone rendering unchanged for existing tones", () => {
+    const neutralMarkup = renderToString(<Badge>Stable</Badge>);
+    const successMarkup = renderToString(<Badge tone="success">Ready</Badge>);
+
+    // Default variant stays "soft": neutral keeps its historical soft classes.
+    expect(neutralMarkup).toContain("border-muted");
+    expect(neutralMarkup).toContain("bg-background");
+    expect(neutralMarkup).toContain("text-secondary");
+    expect(neutralMarkup).toContain("shadow-tokenSm");
+    // Existing semantic tones keep their soft tint.
+    expect(successMarkup).toContain("border-success-soft");
+    expect(successMarkup).toContain("bg-success-soft");
+    expect(successMarkup).toContain("text-success");
+  });
+
+  it("renders the new commerce Badge tones with soft token classes", () => {
+    expect(renderToString(<Badge tone="trust">Verified</Badge>)).toContain("bg-trust-soft");
+    expect(renderToString(<Badge tone="trust">Verified</Badge>)).toContain("text-trust");
+    expect(renderToString(<Badge tone="deal">On sale</Badge>)).toContain("bg-deal-soft");
+    expect(renderToString(<Badge tone="deal">On sale</Badge>)).toContain("text-deal");
+    expect(renderToString(<Badge tone="rating">Top rated</Badge>)).toContain("bg-rating-soft");
+    expect(renderToString(<Badge tone="rating">Top rated</Badge>)).toContain("text-rating");
+  });
+
+  it("covers compat secondary/outline intents via the Badge style axis", () => {
+    // compat `secondary` → neutral solid fill.
+    const solidNeutral = renderToString(
+      <Badge variant="solid" tone="neutral">
+        Secondary
+      </Badge>,
+    );
+    expect(solidNeutral).toContain("bg-background");
+    expect(solidNeutral).toContain("text-secondary");
+
+    // solid semantic tones use the strong fill + contrast text.
+    const solidSuccess = renderToString(
+      <Badge variant="solid" tone="success">
+        Live
+      </Badge>,
+    );
+    expect(solidSuccess).toContain("bg-success");
+    expect(solidSuccess).toContain("text-success-contrast");
+
+    // compat `outline` → transparent fill, tone-colored border + text.
+    const outline = renderToString(
+      <Badge variant="outline" tone="neutral">
+        Outline
+      </Badge>,
+    );
+    expect(outline).toContain("border-muted");
+    expect(outline).toContain("bg-transparent");
+    expect(outline).toContain("text-secondary");
+
+    const outlineTrust = renderToString(
+      <Badge variant="outline" tone="trust">
+        Verified
+      </Badge>,
+    );
+    expect(outlineTrust).toContain("border-trust");
+    expect(outlineTrust).toContain("bg-transparent");
+    expect(outlineTrust).toContain("text-trust");
+  });
+
+  it("flows the new tones and style axis through StatusPill and Tag", () => {
+    expect(renderToString(<StatusPill tone="trust">Verified</StatusPill>)).toContain("bg-trust-soft");
+    expect(renderToString(<Tag tone="deal">On sale</Tag>)).toContain("bg-deal-soft");
+    expect(
+      renderToString(
+        <Tag variant="outline" tone="rating">
+          Top rated
+        </Tag>,
+      ),
+    ).toContain("bg-transparent");
+  });
+
+  it("registers the commerce icon glyphs as renderable IconNames", () => {
+    const commerceIcons: IconName[] = ["mapPin", "packageCheck", "checkCircle", "inbox", "xCircle", "lockClosed"];
+
+    for (const name of commerceIcons) {
+      const markup = renderToString(<Icon name={name} label={name} />);
+      expect(markup).toContain("<svg");
+      expect(markup).toContain(`aria-label="${name}"`);
+    }
+  });
+
+  it("keeps the keyhole lock distinct from the plain lock glyph", () => {
+    const keyhole = renderToString(<Icon name="lock" label="Keyhole lock" />);
+    const plain = renderToString(<Icon name="lockClosed" label="Plain lock" />);
+
+    expect(keyhole).toContain("<svg");
+    expect(plain).toContain("<svg");
+    // Different lucide glyphs produce different path geometry.
+    expect(keyhole).not.toBe(plain);
   });
 });
