@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -25,9 +25,32 @@ function readRepoFile(path: string) {
 }
 
 function designSystemImports(source: string) {
-  return [...source.matchAll(/import\s*{([\s\S]*?)}\s*from\s*"@chase-sets\/design-system";/g)]
+  return [...source.matchAll(/import\s*{([\s\S]*?)}\s*from\s*["']@chase-sets\/design-system["'];/g)]
     .map((match) => match[0] ?? "")
     .join("\n");
+}
+
+function scanFiles(directory: string): string[] {
+  return readdirSync(resolve(repositoryRoot(), directory), { withFileTypes: true }).flatMap((entry) => {
+    if (entry.name === "node_modules" || entry.name === "dist" || entry.name === "__tests__") {
+      return [];
+    }
+
+    const entryPath = `${directory}/${entry.name}`;
+
+    if (entry.isDirectory()) {
+      return scanFiles(entryPath);
+    }
+
+    return [".ts", ".tsx"].some((extension) => entry.name.endsWith(extension)) ? [entryPath] : [];
+  });
+}
+
+function discoverDesignSystemSymbolImports(scope: string, symbols: readonly string[]) {
+  const files = scanFiles(scope);
+  return Object.fromEntries(
+    symbols.map((symbol) => [symbol, files.filter((file) => designSystemImports(readRepoFile(file)).includes(symbol))]),
+  ) as Record<string, string[]>;
 }
 
 const referenceInfoGuidance = readPackageFile("REFERENCE_INFO.md");
@@ -41,19 +64,19 @@ const docsIndex = readRepoFile("docs/README.md");
 const standardizedReferenceInfoSurfaces = [
   {
     name: "Catalog admin reference data",
-    path: "bounded-contexts/catalog/features/catalog-items/ui/catalog-item-detail-page.tsx",
+    scope: "bounded-contexts/catalog/features/catalog-items/ui",
   },
   {
     name: "Discovery item reference data",
-    path: "bounded-contexts/discovery/features/item-detail/ui/item-detail-references.tsx",
+    scope: "bounded-contexts/discovery/features/item-detail/ui",
   },
   {
     name: "Discovery marketplace rail details",
-    path: "bounded-contexts/discovery/features/item-detail/ui/commerce/commerce-primitives.tsx",
+    scope: "bounded-contexts/discovery/features/item-detail/ui/commerce",
   },
   {
     name: "Checkout Sell List terms",
-    path: "bounded-contexts/checkout/features/sell-list/ui/sell-list-page.tsx",
+    scope: "bounded-contexts/checkout/features/sell-list/ui",
   },
 ];
 
@@ -88,19 +111,38 @@ describe("Reference Info guidance", () => {
 
   it("keeps current admin and marketplace reference details on the shared primitive", () => {
     for (const surface of standardizedReferenceInfoSurfaces) {
-      const source = readRepoFile(surface.path);
-      const imports = designSystemImports(source);
+      const symbolFiles = discoverDesignSystemSymbolImports(surface.scope, [
+        "ReferenceInfoDialog",
+        "ReferenceInfoTrigger",
+      ]);
+      const discoveredFiles = [...new Set(Object.values(symbolFiles).flat())];
 
-      expect(imports, `${surface.name} should use the design-system import boundary`).toContain(
-        "@chase-sets/design-system",
-      );
-      expect(imports, `${surface.name} should import the shared dialog primitive`).toContain("ReferenceInfoDialog");
-      expect(imports, `${surface.name} should import the shared trigger primitive`).toContain("ReferenceInfoTrigger");
-      expect(imports, `${surface.name} should not import Popover for structured reference detail`).not.toMatch(
-        /\bPopover\b/,
-      );
-      expect(imports, `${surface.name} should not import Tooltip for structured reference detail`).not.toMatch(
-        /\bTooltip\b/,
+      expect(
+        symbolFiles.ReferenceInfoDialog,
+        `${surface.name} should import the shared dialog primitive in scope`,
+      ).not.toHaveLength(0);
+      expect(
+        symbolFiles.ReferenceInfoTrigger,
+        `${surface.name} should import the shared trigger primitive in scope`,
+      ).not.toHaveLength(0);
+
+      for (const file of discoveredFiles) {
+        const imports = designSystemImports(readRepoFile(file));
+        expect(imports, `${surface.name} should use the design-system import boundary in ${file}`).toContain(
+          "@chase-sets/design-system",
+        );
+        expect(
+          imports,
+          `${surface.name} should not import Popover for structured reference detail in ${file}`,
+        ).not.toMatch(/\bPopover\b/);
+        expect(
+          imports,
+          `${surface.name} should not import Tooltip for structured reference detail in ${file}`,
+        ).not.toMatch(/\bTooltip\b/);
+      }
+
+      expect(discoveredFiles, `${surface.name} should discover scoped Reference Info files`).toEqual(
+        [...discoveredFiles].sort(),
       );
     }
   });

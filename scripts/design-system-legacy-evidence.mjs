@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { repoRoot } from "./lib/repo.mjs";
 import { readOption } from "./lib/cli-options.mjs";
 
-export const DESIGN_SYSTEM_LEGACY_EVIDENCE_VERSION = "design-system-legacy-visual-accessibility-evidence/v1";
+export const DESIGN_SYSTEM_LEGACY_EVIDENCE_VERSION = "design-system-legacy-visual-accessibility-evidence/v2";
 export const defaultEvidencePath = path.join(
   repoRoot,
   "packages",
@@ -39,7 +39,7 @@ const surfaceChecks = [
   {
     id: "fulfillment-print-document",
     owner: "Fulfillment",
-    file: "packages/design-system/src/components/print/packing-slip.tsx",
+    scope: "packages/design-system/src/components/print",
     visualEvidence: [
       "Design-system-owned print stylesheet includes paged print media.",
       "Packing slip document owns print table, page sizing, toolbar, and print action layout.",
@@ -63,7 +63,7 @@ const surfaceChecks = [
   {
     id: "support-request-tables",
     owner: "Support",
-    file: "bounded-contexts/platform-operations/features/support-requests/ui/support-request-list-page.tsx",
+    scope: "bounded-contexts/platform-operations/features/support-requests/ui",
     visualEvidence: ["Support request lists render through DataTable instead of legacy responsive table markup."],
     accessibilityEvidence: ["Table headers and row identity are owned by DataTable column metadata and getRowId."],
     mustInclude: ["DataTable", "getRowId", "columns"],
@@ -72,7 +72,7 @@ const surfaceChecks = [
   {
     id: "catalog-authoring-controls",
     owner: "Catalog",
-    file: "bounded-contexts/catalog/features/source-observations/ui/primary-workbench-page.tsx",
+    scope: "bounded-contexts/catalog/features/source-observations/ui",
     visualEvidence: [
       "The rebuilt Catalog primary workbench container uses grouped section navigation, dense-admin layout, and bulk action surfaces.",
     ],
@@ -85,7 +85,7 @@ const surfaceChecks = [
   {
     id: "catalog-authoring-steps-module",
     owner: "Catalog",
-    file: "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/primary-steps-module.tsx",
+    scope: "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion",
     visualEvidence: [
       "The import-to-promotion steps module renders dense tables and step evidence drawers from design-system primitives.",
     ],
@@ -98,7 +98,7 @@ const surfaceChecks = [
   {
     id: "catalog-authoring-command-controls",
     owner: "Catalog",
-    file: "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/command-controls.tsx",
+    scope: "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion",
     visualEvidence: [
       "Workbench command actions render through shared WorkbenchForm controls with hidden command metadata.",
     ],
@@ -109,7 +109,7 @@ const surfaceChecks = [
   {
     id: "catalog-authoring-status-formatting",
     owner: "Catalog",
-    file: "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion/workbench-formatting.tsx",
+    scope: "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion",
     visualEvidence: ["Blocker and status presentation uses the shared StatusReasonList primitive."],
     accessibilityEvidence: ["Status reasons render as structured lists owned by the design system."],
     mustInclude: ["StatusReasonList"],
@@ -118,7 +118,7 @@ const surfaceChecks = [
   {
     id: "catalog-authoring-review-module",
     owner: "Catalog",
-    file: "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/source-observation-review/source-observation-review-module.tsx",
+    scope: "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/source-observation-review",
     visualEvidence: [
       "Source observation review renders dense tables, detail panels, and evidence sheets from design-system primitives.",
     ],
@@ -131,7 +131,7 @@ const surfaceChecks = [
   {
     id: "catalog-profile-authoring-controls",
     owner: "Catalog",
-    file: "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-authoring-workspace.tsx",
+    scope: "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles",
     visualEvidence: [
       "Profile authoring uses dense-admin navigation, evidence panels, workbench forms, and design-system field controls.",
     ],
@@ -153,7 +153,7 @@ const surfaceChecks = [
   {
     id: "catalog-validation-readiness-controls",
     owner: "Catalog",
-    file: "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/validation/validation-readiness-workspace.tsx",
+    scope: "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/validation",
     visualEvidence: [
       "Validation readiness uses workbench grids, dense cells, evidence lists, and workbench forms for activation evidence.",
     ],
@@ -166,7 +166,7 @@ const surfaceChecks = [
   {
     id: "catalog-health-workspace-patterns",
     owner: "Catalog",
-    file: "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/health/integration-health-dashboard.tsx",
+    scope: "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/health",
     visualEvidence: [
       "Health triage support tables use shared dense workbench data cells, stacks, text, and badge clusters.",
     ],
@@ -179,7 +179,7 @@ const surfaceChecks = [
   {
     id: "catalog-governance-workspace-patterns",
     owner: "Catalog",
-    file: "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/governance/governance-controls-workspace.tsx",
+    scope: "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/governance",
     visualEvidence: [
       "Governance controls use workbench cells, link lists, value lists, and blocker reason patterns instead of raw table-cell markup.",
     ],
@@ -192,7 +192,7 @@ const surfaceChecks = [
   {
     id: "catalog-conflict-workspace-patterns",
     owner: "Catalog",
-    file: "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/conflicts/conflict-resolution-workspace.tsx",
+    scope: "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/conflicts",
     visualEvidence: ["Conflict resolution uses workbench grids, stacks, data cells, and shared blocker reason lists."],
     accessibilityEvidence: [
       "Conflict evidence, precedence, and override blockers use DataTable row metadata and StatusReasonList.",
@@ -203,7 +203,7 @@ const surfaceChecks = [
   {
     id: "catalog-lifecycle-workspace-patterns",
     owner: "Catalog",
-    file: "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/lifecycle/lifecycle-recovery-workspace.tsx",
+    scope: "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/lifecycle",
     visualEvidence: [
       "Lifecycle recovery uses workbench grids, workbench forms, hidden inputs, evidence string lists, and shared blocker reasons.",
     ],
@@ -216,7 +216,7 @@ const surfaceChecks = [
   {
     id: "catalog-audit-evidence-workspace-patterns",
     owner: "Catalog",
-    file: "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/evidence/audit-evidence-workspace.tsx",
+    scope: "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/evidence",
     visualEvidence: [
       "Audit evidence uses workbench stacks, data cells, text, and link lists for release proof and redaction tables.",
     ],
@@ -229,7 +229,7 @@ const surfaceChecks = [
   {
     id: "catalog-clean-reset-workspace-patterns",
     owner: "Catalog",
-    file: "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/evidence/clean-reset-release-workspace.tsx",
+    scope: "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/evidence",
     visualEvidence: [
       "Clean reset release tables use workbench action rows, stacks, and data cells instead of raw release-proof markup.",
     ],
@@ -242,7 +242,7 @@ const surfaceChecks = [
   {
     id: "discovery-commerce-comparison-list",
     owner: "Discovery",
-    file: "bounded-contexts/discovery/features/item-detail/ui/item-detail-market-book.tsx",
+    scope: "bounded-contexts/discovery/features/item-detail/ui",
     visualEvidence: [
       "Listing and offer rows use design-system comparison-list primitives for responsive price/account/product/action layout.",
     ],
@@ -253,7 +253,7 @@ const surfaceChecks = [
   {
     id: "public-waitlist-mobile-cta",
     owner: "Public Presence",
-    file: "bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx",
+    scope: "bounded-contexts/public-presence/features/waitlist/ui",
     visualEvidence: [
       "Public waitlist uses design-system mobile sticky layout, discounted value, segmented control, and marketing sections.",
     ],
@@ -278,7 +278,7 @@ const surfaceChecks = [
   {
     id: "identity-account-badges",
     owner: "Identity",
-    file: "bounded-contexts/identity/features/accounts/ui/account-badges.tsx",
+    scope: "bounded-contexts/identity/features/accounts/ui",
     visualEvidence: ["Account badge icon sizing is owned by SVG attributes and Badge/Inline composition."],
     accessibilityEvidence: ["Compact badge labels use the shared VisuallyHidden primitive."],
     mustInclude: ["VisuallyHidden", "height={16}", "width={16}", 'aria-hidden="true"'],
@@ -287,18 +287,20 @@ const surfaceChecks = [
   {
     id: "design-system-primitives",
     owner: "Design System",
-    file: "packages/design-system/src/components/forms/validation-summary.tsx",
+    scope: "packages/design-system/src/components/forms",
     visualEvidence: ["Validation message visuals are centralized under design-system form primitives."],
     accessibilityEvidence: ["ValidationSummary keeps role=alert, aria-live, and focusable error-link behavior."],
+    discoverySignals: ["ValidationMessageList"],
     mustInclude: ["ValidationMessageList", 'role="alert"', 'aria-live="assertive"', "focusValidationTarget"],
     mustNotInclude: [],
   },
   {
     id: "hidden-input-policy",
     owner: "Design System",
-    file: "packages/design-system/src/components/forms/hidden-input.tsx",
+    scope: "packages/design-system/src/components/forms",
     visualEvidence: ["Non-visible form metadata is centralized as a design-system form primitive."],
     accessibilityEvidence: ["Honeypot inputs are aria-hidden, hidden, non-tabbable, and autocomplete off by default."],
+    discoverySignals: ["HiddenInput", "HoneypotInput"],
     mustInclude: ["HiddenInput", "HoneypotInput", "aria-hidden", "hidden", "tabIndex = -1", 'autoComplete = "off"'],
     mustNotInclude: ["className=", "style="],
   },
@@ -327,7 +329,7 @@ export function collectDesignSystemLegacyEvidence(options = {}) {
   const checkedAt = options.checkedAt ?? new Date().toISOString();
   const ledgerPath =
     options.ledgerPath ?? path.join(rootDir, "packages/design-system/DESIGN_SYSTEM_LEGACY_INVENTORY.json");
-  const checks = surfaceChecks.map((check) => evaluateSurfaceCheck(check, rootDir));
+  const checks = (options.surfaceChecks ?? surfaceChecks).map((check) => evaluateSurfaceCheck(check, rootDir));
   const ledger = readJson(ledgerPath);
   const ledgerErrors = validateLedger(ledger);
   const errors = [...ledgerErrors, ...checks.flatMap((check) => check.errors ?? [])];
@@ -358,39 +360,108 @@ export function writeDesignSystemLegacyEvidence(report, outPath = defaultEvidenc
 }
 
 function evaluateSurfaceCheck(check, rootDir) {
-  const absoluteFile = path.join(rootDir, check.file);
+  const absoluteScope = path.join(rootDir, check.scope);
   const errors = [];
-  let source = "";
+  const files = [];
 
-  if (!existsSync(absoluteFile)) {
-    errors.push(`${check.id}: ${check.file} does not exist.`);
+  if (!existsSync(absoluteScope)) {
+    errors.push(`${check.id}: ${check.scope} does not exist.`);
   } else {
-    source = readFileSync(absoluteFile, "utf8");
+    files.push(...readScannableFiles(absoluteScope, rootDir));
   }
 
-  for (const required of check.mustInclude) {
-    if (!source.includes(required)) {
-      errors.push(`${check.id}: ${check.file} must include ${JSON.stringify(required)}.`);
+  const discoverySignals = check.discoverySignals ?? check.mustInclude;
+  const discoverySignalFiles = {};
+  const discoveredFiles = new Set();
+
+  for (const signal of discoverySignals) {
+    const matchedFiles = files.filter((file) => file.source.includes(signal)).map((file) => file.relativePath);
+    discoverySignalFiles[signal] = matchedFiles;
+
+    if (matchedFiles.length === 0) {
+      errors.push(`${check.id}: ${check.scope} must include ${JSON.stringify(signal)} in at least one scoped file.`);
+    }
+
+    for (const matchedFile of matchedFiles) {
+      discoveredFiles.add(matchedFile);
     }
   }
 
+  const discoveredSources = files.filter((file) => discoveredFiles.has(file.relativePath));
+  const requiredSignalFiles = {};
+
+  for (const required of check.mustInclude) {
+    const matchedFiles = discoveredSources
+      .filter((file) => file.source.includes(required))
+      .map((file) => file.relativePath);
+    requiredSignalFiles[required] = matchedFiles;
+
+    if (matchedFiles.length === 0) {
+      errors.push(
+        `${check.id}: ${check.scope} discovered files must include ${JSON.stringify(required)} in at least one file.`,
+      );
+    }
+  }
+
+  const forbiddenSignalFiles = {};
+
   for (const forbidden of check.mustNotInclude) {
-    if (source.includes(forbidden)) {
-      errors.push(`${check.id}: ${check.file} must not include ${JSON.stringify(forbidden)}.`);
+    const matchedFiles = discoveredSources
+      .filter((file) => file.source.includes(forbidden))
+      .map((file) => file.relativePath);
+    forbiddenSignalFiles[forbidden] = matchedFiles;
+
+    for (const matchedFile of matchedFiles) {
+      errors.push(`${check.id}: ${matchedFile} must not include ${JSON.stringify(forbidden)}.`);
     }
   }
 
   return {
     id: check.id,
     owner: check.owner,
-    file: check.file,
+    scope: check.scope,
+    discoveredFiles: [...discoveredFiles].sort(),
     visualEvidence: check.visualEvidence,
     accessibilityEvidence: check.accessibilityEvidence,
     requiredSignals: check.mustInclude,
     forbiddenSignals: check.mustNotInclude,
+    discoverySignals,
+    discoverySignalFiles,
+    requiredSignalFiles,
+    forbiddenSignalFiles,
     status: errors.length === 0 ? "passed" : "failed",
     ...(errors.length > 0 ? { errors } : {}),
   };
+}
+
+function readScannableFiles(directory, rootDir) {
+  const entries = readdirSync(directory, { withFileTypes: true });
+  return entries.flatMap((entry) => {
+    if (entry.name === "node_modules" || entry.name === "dist" || entry.name === "coverage") {
+      return [];
+    }
+
+    const absolutePath = path.join(directory, entry.name);
+
+    if (entry.isDirectory()) {
+      return readScannableFiles(absolutePath, rootDir);
+    }
+
+    if (!isScannableSourceFile(entry.name)) {
+      return [];
+    }
+
+    return [
+      {
+        relativePath: normalizeRelativePath(absolutePath, rootDir),
+        source: readFileSync(absolutePath, "utf8"),
+      },
+    ];
+  });
+}
+
+function isScannableSourceFile(fileName) {
+  return [".js", ".jsx", ".mjs", ".ts", ".tsx", ".md"].includes(path.extname(fileName));
 }
 
 function validateLedger(ledger) {

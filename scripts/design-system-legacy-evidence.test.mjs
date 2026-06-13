@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -20,6 +20,28 @@ async function makeTempDir() {
 afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
+
+async function writeEmptyLegacyInventory(tempDir) {
+  const ledgerPath = path.join(tempDir, "legacy-inventory.json");
+  await writeFile(
+    ledgerPath,
+    JSON.stringify({
+      summary: { fileCount: 0, categories: {} },
+      entries: [],
+    }),
+  );
+  return ledgerPath;
+}
+
+const scopedFixtureCheck = {
+  id: "fixture-workspace",
+  owner: "Fixture",
+  scope: "bounded-contexts/example/features/workspace/ui",
+  visualEvidence: ["Fixture workspace composes design-system primitives."],
+  accessibilityEvidence: ["Fixture workspace keeps dialog affordances on shared primitives."],
+  mustInclude: ["DataTable", "SideSheet"],
+  mustNotInclude: ["className="],
+};
 
 describe("design system legacy visual/accessibility evidence", () => {
   it("collects retained visual and accessibility evidence for representative migrated surfaces", () => {
@@ -75,6 +97,60 @@ describe("design system legacy visual/accessibility evidence", () => {
     expect(report.errors).toContain("Legacy inventory ledger summary.fileCount must be 0.");
     expect(report.errors).toContain("Legacy inventory ledger entries must be an empty array.");
     expect(report.errors).toContain("Legacy inventory ledger summary.categories must be empty.");
+  });
+
+  it("fails closed when a required symbol is absent from the entire scope", async () => {
+    const tempDir = await makeTempDir();
+    const scopeDir = path.join(tempDir, "bounded-contexts/example/features/workspace/ui");
+    await mkdir(scopeDir, { recursive: true });
+    await writeFile(
+      path.join(scopeDir, "workspace-table.tsx"),
+      "export function Workspace() { return <DataTable />; }\n",
+    );
+
+    const report = collectDesignSystemLegacyEvidence({
+      checkedAt: "2026-06-08T00:00:00.000Z",
+      rootDir: tempDir,
+      ledgerPath: await writeEmptyLegacyInventory(tempDir),
+      surfaceChecks: [scopedFixtureCheck],
+    });
+
+    expect(report.passesDesignSystemLegacyEvidence).toBe(false);
+    expect(report.errors).toContain(
+      'fixture-workspace: bounded-contexts/example/features/workspace/ui must include "SideSheet" in at least one scoped file.',
+    );
+    expect(report.checks[0].requiredSignalFiles.SideSheet).toEqual([]);
+  });
+
+  it("passes when a pinned file is decomposed but required symbols remain in scope", async () => {
+    const tempDir = await makeTempDir();
+    const scopeDir = path.join(tempDir, "bounded-contexts/example/features/workspace/ui");
+    await mkdir(scopeDir, { recursive: true });
+    await writeFile(
+      path.join(scopeDir, "workspace-table.tsx"),
+      "export function WorkspaceTable() { return <DataTable />; }\n",
+    );
+    await writeFile(
+      path.join(scopeDir, "workspace-sheet.tsx"),
+      "export function WorkspaceSheet() { return <SideSheet />; }\n",
+    );
+
+    const report = collectDesignSystemLegacyEvidence({
+      checkedAt: "2026-06-08T00:00:00.000Z",
+      rootDir: tempDir,
+      ledgerPath: await writeEmptyLegacyInventory(tempDir),
+      surfaceChecks: [scopedFixtureCheck],
+    });
+
+    expect(report.passesDesignSystemLegacyEvidence).toBe(true);
+    expect(report.checks[0]).toMatchObject({
+      scope: "bounded-contexts/example/features/workspace/ui",
+      discoveredFiles: [
+        "bounded-contexts/example/features/workspace/ui/workspace-sheet.tsx",
+        "bounded-contexts/example/features/workspace/ui/workspace-table.tsx",
+      ],
+      status: "passed",
+    });
   });
 
   it("parses write, out, and checked-at arguments", () => {
