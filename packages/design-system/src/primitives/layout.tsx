@@ -1,4 +1,12 @@
-import type { ComponentProps, HTMLAttributes, PropsWithChildren, ReactNode } from "react";
+import {
+  forwardRef,
+  type ComponentProps,
+  type ElementType,
+  type HTMLAttributes,
+  type PropsWithChildren,
+  type ReactNode,
+  type Ref,
+} from "react";
 import { ScrollArea as ScrollAreaPrimitive } from "@base-ui/react/scroll-area";
 import { Separator as SeparatorPrimitive } from "@base-ui/react/separator";
 import type { ResponsiveValue } from "../theme/tokens";
@@ -17,21 +25,39 @@ import {
   type SpaceToken,
   type SystemProps,
 } from "../utils/system";
+import type { PolymorphicPrimitive, PolymorphicProps } from "./polymorphic";
 
 type BoxElement = "div" | "section" | "article" | "aside" | "header" | "footer" | "main" | "nav" | "span";
 
 type FrameProps = Omit<HTMLAttributes<HTMLElement>, "className" | "style">;
 
-export interface BoxProps extends PropsWithChildren, FrameProps, SystemProps {
+export interface BoxOwnProps extends PropsWithChildren, SystemProps {
   element?: BoxElement;
 }
 
-export function Box({ element = "div", children, padding, paddingX, paddingY, gap, textAlign, ...rest }: BoxProps) {
-  const Component = element;
+export type BoxProps<TTarget extends ElementType = "div"> = PolymorphicProps<TTarget, BoxOwnProps>;
+
+export const Box = forwardRef(function Box(
+  {
+    as,
+    render,
+    element = "div",
+    children,
+    padding,
+    paddingX,
+    paddingY,
+    gap,
+    textAlign,
+    ...rest
+  }: BoxProps<ElementType>,
+  ref: Ref<unknown>,
+) {
+  const Component = (as ?? render ?? element) as ElementType;
 
   return (
     <Component
       {...rest}
+      ref={ref}
       className={resolveSystemProps({
         padding,
         paddingX,
@@ -43,9 +69,9 @@ export function Box({ element = "div", children, padding, paddingX, paddingY, ga
       {children}
     </Component>
   );
-}
+}) as PolymorphicPrimitive<BoxOwnProps, "div">;
 
-export interface ContainerProps extends Omit<BoxProps, "element"> {
+export interface ContainerProps extends PropsWithChildren, FrameProps, SystemProps {
   width?: LayoutWidth;
 }
 
@@ -83,7 +109,7 @@ export function Container({ children, width = "full", paddingX = 4, ...rest }: C
   );
 }
 
-export interface StackProps extends PropsWithChildren, Omit<FrameProps, "children"> {
+export interface StackOwnProps extends PropsWithChildren {
   element?: BoxElement;
   direction?: ResponsiveValue<DirectionValue>;
   align?: ResponsiveValue<AlignValue>;
@@ -91,20 +117,28 @@ export interface StackProps extends PropsWithChildren, Omit<FrameProps, "childre
   gap?: SpaceToken;
 }
 
-export function Stack({
-  children,
-  element = "div",
-  direction = "column",
-  align,
-  justify,
-  gap = 4,
-  ...rest
-}: StackProps) {
-  const Component = element;
+export type StackProps<TTarget extends ElementType = "div"> = PolymorphicProps<TTarget, StackOwnProps>;
+
+export const Stack = forwardRef(function Stack(
+  {
+    children,
+    as,
+    render,
+    element = "div",
+    direction = "column",
+    align,
+    justify,
+    gap = 4,
+    ...rest
+  }: StackProps<ElementType>,
+  ref: Ref<unknown>,
+) {
+  const Component = (as ?? render ?? element) as ElementType;
 
   return (
     <Component
       {...rest}
+      ref={ref}
       className={cx(
         "flex",
         resolveDirectionClass(direction),
@@ -116,7 +150,7 @@ export function Stack({
       {children}
     </Component>
   );
-}
+}) as PolymorphicPrimitive<StackOwnProps, "div">;
 
 export interface InlineProps extends PropsWithChildren, Omit<FrameProps, "children"> {
   gap?: SpaceToken;
@@ -227,23 +261,29 @@ export function Spacer({ axis = "vertical", size = 4, flexible = false, ...rest 
   );
 }
 
-export interface InsetProps extends BoxProps {}
+export type InsetProps<TTarget extends ElementType = "div"> = BoxProps<TTarget>;
 
-export function Inset({
-  children,
-  element = "div",
-  padding = 4,
-  paddingX,
-  paddingY,
-  gap,
-  textAlign,
-  ...rest
-}: InsetProps) {
-  const Component = element;
+export const Inset = forwardRef(function Inset(
+  {
+    children,
+    as,
+    render,
+    element = "div",
+    padding = 4,
+    paddingX,
+    paddingY,
+    gap,
+    textAlign,
+    ...rest
+  }: InsetProps<ElementType>,
+  ref: Ref<unknown>,
+) {
+  const Component = (as ?? render ?? element) as ElementType;
 
   return (
     <Component
       {...rest}
+      ref={ref}
       className={cx(
         "inset-surface min-w-0 max-w-full rounded-tokenMd border",
         resolveSystemProps({ padding, paddingX, paddingY, gap, textAlign }),
@@ -252,7 +292,7 @@ export function Inset({
       {children}
     </Component>
   );
-}
+}) as PolymorphicPrimitive<BoxOwnProps, "div">;
 
 export interface CenterProps extends PropsWithChildren, Omit<FrameProps, "children"> {
   inline?: boolean;
@@ -306,38 +346,48 @@ export function AspectRatio({ children, ratio = 1, ...rest }: AspectRatioProps) 
   );
 }
 
-export interface SurfaceProps extends PropsWithChildren, Omit<FrameProps, "children">, SystemProps {
+type SurfaceTone = "default" | "muted" | "accent" | "subtle";
+
+export interface SurfaceOwnProps extends PropsWithChildren, SystemProps {
   element?: BoxElement;
-  tone?: "default" | "muted" | "accent" | "subtle";
+  tone?: SurfaceTone;
   elevated?: boolean;
   glow?: boolean;
 }
 
-const surfaceToneClasses: Record<NonNullable<SurfaceProps["tone"]>, string> = {
+export type SurfaceProps<TTarget extends ElementType = "div"> = PolymorphicProps<TTarget, SurfaceOwnProps>;
+
+const surfaceToneClasses: Record<SurfaceTone, string> = {
   default: "glass-surface bg-elevated",
   muted: "bg-surface-2",
   accent: "brand-gradient text-accent-contrast",
   subtle: "bg-surface border-muted",
 };
 
-export function Surface({
-  children,
-  element = "div",
-  tone = "default",
-  elevated = false,
-  glow = false,
-  padding = 4,
-  paddingX,
-  paddingY,
-  gap,
-  textAlign,
-  ...rest
-}: SurfaceProps) {
-  const Component = element;
+export const Surface = forwardRef(function Surface(
+  {
+    children,
+    as,
+    render,
+    element = "div",
+    tone = "default",
+    elevated = false,
+    glow = false,
+    padding = 4,
+    paddingX,
+    paddingY,
+    gap,
+    textAlign,
+    ...rest
+  }: SurfaceProps<ElementType>,
+  ref: Ref<unknown>,
+) {
+  const Component = (as ?? render ?? element) as ElementType;
 
   return (
     <Component
       {...rest}
+      ref={ref}
       className={cx(
         "surface-border min-w-0 max-w-full rounded-tokenLg",
         surfaceToneClasses[tone],
@@ -355,7 +405,7 @@ export function Surface({
       {children}
     </Component>
   );
-}
+}) as PolymorphicPrimitive<SurfaceOwnProps, "div">;
 
 export interface DividerProps extends Omit<ComponentProps<typeof SeparatorPrimitive>, "className" | "style"> {
   decorative?: boolean;
