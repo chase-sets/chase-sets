@@ -45,6 +45,7 @@ import {
   TagInput,
   TextInput,
 } from "../components/forms";
+import { resolveChaseMotion } from "../motion/config";
 import { Reveal, Stagger, ViewTransition } from "../motion/primitives";
 import { ChaseSetsLogo, chaseSetsLogoSvg } from "../brand/chase-sets-logo";
 import {
@@ -68,7 +69,7 @@ import {
 } from "../patterns/app-shells";
 import { SkipLink } from "../primitives/layout";
 import { ChaseRoot, ColorModeToggle, useChaseMotion, useReducedMotion } from "../theme/provider";
-import { resolveThemeOverrideStyle, resolveThemeStyle } from "../theme/tokens";
+import { chaseTheme, resolveThemeOverrideStyle, resolveThemeStyle } from "../theme/tokens";
 import { resolveResponsiveClass, resolveSpaceClass } from "../utils/system";
 
 function ControlledToastHarness() {
@@ -173,10 +174,35 @@ describe("design system components", () => {
     const style = resolveThemeStyle({
       colors: {
         accent: "#000000",
+        trust: "#0f766e",
       },
     });
 
     expect(style["--color-accent" as never]).toBe("#000000");
+    expect(style["--trust" as never]).toBe("#0f766e");
+  });
+
+  it("keeps the TypeScript theme contract aligned to CSS variables", () => {
+    expect(chaseTheme.colors.brandPrimary).toBe("var(--primary)");
+    expect(chaseTheme.typography.body).toContain("--body-font");
+    expect(chaseTheme.typography.body).toContain("IBM Plex Sans");
+    expect(chaseTheme.radius.md).toBe("var(--radius, 0.5rem)");
+    expect(chaseTheme.motion.base).toBe("var(--motion-base, 150ms)");
+    expect(chaseTheme.colors.trust).toBe("var(--trust)");
+    expect(chaseTheme.colors.deal).toBe("var(--deal)");
+    expect(chaseTheme.colors.rating).toBe("var(--rating)");
+    expect(chaseTheme.colors.surfaceLine).toBe("var(--surface-line)");
+    expect(chaseTheme.colors).not.toHaveProperty("cyan");
+    expect(chaseTheme.colors).not.toHaveProperty("indigo");
+    expect(chaseTheme.colors).not.toHaveProperty("glowAccent");
+  });
+
+  it("resolves default motion from the canonical CSS variable contract", () => {
+    const motion = resolveChaseMotion();
+
+    expect(motion.durations.fast).toBe(0.12);
+    expect(motion.durations.base).toBe(0.15);
+    expect(motion.durations.slow).toBe(0.24);
   });
 
   it("only injects explicit theme overrides for scoped runtime styles", () => {

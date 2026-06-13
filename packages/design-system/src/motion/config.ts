@@ -1,4 +1,5 @@
 import type { TargetAndTransition, Transition } from "motion/react";
+import { resolveThemeTokenValue } from "../theme/internal-token-values";
 import { chaseTheme, resolveTheme, type ThemeOverrides } from "../theme/tokens";
 
 export type ReducedMotionSetting = "user" | "always" | "never";
@@ -89,11 +90,11 @@ export function resolveChaseMotion(
 ): ChaseMotionSettings {
   const resolvedTheme = resolveTheme(theme, chaseTheme);
   const durations: MotionDurations = {
-    fast: parseDurationSeconds(resolvedTheme.motion.fast, 120),
-    base: parseDurationSeconds(resolvedTheme.motion.base, 180),
-    slow: parseDurationSeconds(resolvedTheme.motion.slow, 260),
+    fast: parseDurationSeconds(resolveThemeTokenValue(resolvedTheme.motion.fast), 120),
+    base: parseDurationSeconds(resolveThemeTokenValue(resolvedTheme.motion.base), 150),
+    slow: parseDurationSeconds(resolveThemeTokenValue(resolvedTheme.motion.slow), 240),
   };
-  const easing = parseEase(resolvedTheme.motion.ease);
+  const easing = parseEase(resolveThemeTokenValue(resolvedTheme.motion.ease));
   const inertTransition: Transition = { duration: 0.01, ease: "linear" };
 
   if (reducedMotion) {
