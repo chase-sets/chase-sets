@@ -1,5 +1,6 @@
 import {
   createContext,
+  useEffect,
   useContext,
   useMemo,
   useSyncExternalStore,
@@ -69,20 +70,26 @@ export function ChaseRoot({
 }: ChaseRootProps) {
   const [overlayNode, setOverlayNode] = useState<HTMLDivElement | null>(null);
   const [toastNode, setToastNode] = useState<HTMLDivElement | null>(null);
+  const [hasMounted, setHasMounted] = useState(false);
   const systemReducedMotion = useSyncExternalStore(subscribeToReducedMotion, getReducedMotionSnapshot, () => false);
   const resolvedReducedMotion =
-    reducedMotion === "always" ? true : reducedMotion === "never" ? false : systemReducedMotion;
+    reducedMotion === "always" ? true : reducedMotion === "never" ? false : hasMounted && systemReducedMotion;
   const motionSettings = useMemo(
     () => resolveChaseMotion(theme, reducedMotion, resolvedReducedMotion),
     [theme, reducedMotion, resolvedReducedMotion],
   );
+  const motionReducedMotion = resolvedReducedMotion ? "always" : "never";
+
+  useEffect(() => {
+    setHasMounted(true);
+  }, []);
 
   return (
     <DensityContext.Provider value={density}>
       <MotionContext.Provider value={motionSettings}>
         <PortalContext.Provider value={{ overlayNode, toastNode }}>
           <MotionConfig
-            reducedMotion={reducedMotion}
+            reducedMotion={motionReducedMotion}
             transition={{
               duration: motionSettings.durations.base,
               ease: motionSettings.easing,
