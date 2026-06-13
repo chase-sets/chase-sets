@@ -29,6 +29,16 @@ Do not rebuild `deployables/design-system-showcase` as the default answer to com
 - Typography: IBM Plex Sans with tabular numerals for price, rating, quantity, fee, and total displays
 - Motion runtime: Motion for React, configured centrally through `ChaseRoot`
 
+## Prop Vocabulary
+
+Design-system props use one vocabulary across the canonical layer:
+
+- `tone` describes intent and semantic color, such as neutral, accent, success, warning, danger, or info.
+- `variant` describes structural kind, not semantic intent.
+- `size` describes control scale.
+- `density` describes row scale.
+- Icon slots use DS Icon registry names. Prefer leading or trailing slot names such as `leadingIcon?: IconName` and `trailingIcon?: IconName`; single icon slots should also accept `IconName` strings and render through the design-system `Icon` component.
+
 ## Spacing Scale
 
 Spacing uses a canonical 0.25rem base unit exposed as `--space-unit`. The design-system spacing vocabulary is `SpaceToken` `0` through `12`, matching CSS custom properties `--space-0` through `--space-12` and Tailwind spacing keys `0` through `12`.
