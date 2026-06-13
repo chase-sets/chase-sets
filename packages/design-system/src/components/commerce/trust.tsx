@@ -11,10 +11,10 @@ import {
   ShieldCheck,
   Star,
 } from "lucide-react";
-import { cn } from "../../../lib/utils";
-import { Badge } from "../badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../card";
-import { Progress } from "../progress";
+import { cn } from "../../lib/utils";
+import { Badge } from "../compat/badge";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../compat/card";
+import { Progress } from "../compat/progress";
 import { hasReviewCount, normalizeRatingValue, type TrustTone } from "./shared";
 
 export interface TrustBadgeProps {

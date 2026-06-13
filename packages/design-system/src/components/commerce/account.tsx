@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { ShieldCheck } from "lucide-react";
-import { Inset } from "../../../primitives/layout";
-import { Badge } from "../badge";
+import { Inset } from "../../primitives/layout";
+import { Badge } from "../compat/badge";
 import { RatingSummary, TrustBadge } from "./trust";
 
 export interface AccountProfileHeaderProps {

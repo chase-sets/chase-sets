@@ -78,7 +78,6 @@ const canonicalReserveZeroConsumerExports = [
   "MarketplaceActionSheet",
   "MarketplaceCartLineItem",
   "MarketplaceFacetStrip",
-  "MarketplaceMetricStrip",
   "MarketplaceProductCard",
   "MarketplaceProductCommerceRail",
   "MarketplaceProductMobileActionDock",
@@ -176,11 +175,11 @@ const defaultAllowedZeroConsumerExports = [
   ...canonicalReserveZeroConsumerExports,
   {
     symbol: "MarketStatusBadge",
-    reason: "internal MarketplaceProductCard dependency; pending #1569 public-surface decision",
+    reason: "internal MarketplaceProductCard status dependency; kept as a shared commerce atom",
   },
   {
     symbol: "MarketplaceTemplateGallery",
-    reason: "compat inventory pending #1569 promotion/unification",
+    reason: "canonical commerce reserve surface; no production consumer yet",
   },
 ];
 

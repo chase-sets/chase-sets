@@ -1,5 +1,5 @@
 import { useState, type ImgHTMLAttributes, type ReactNode } from "react";
-import { type ResponsiveImageSource } from "../../data-display/product-media";
+import { type ResponsiveImageSource } from "../data-display/product-media";
 
 export interface MarketplaceCartLineItemProps {
   image?: ResponsiveImageSource;

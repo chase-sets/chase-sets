@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { CheckCircle2, ImageIcon, MessageSquare } from "lucide-react";
-import { cn } from "../../../lib/utils";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../card";
+import { cn } from "../../lib/utils";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../compat/card";
 import { statusClasses, type StatusTone } from "./shared";
 
 export interface MessageThreadPreviewProps {

@@ -1,9 +1,9 @@
 import type { ReactNode } from "react";
 import { Bell, XCircle } from "lucide-react";
-import { cn } from "../../../lib/utils";
-import { Button } from "../../actions";
-import { SearchInput } from "../../forms";
-import { Card, CardContent } from "../card";
+import { cn } from "../../lib/utils";
+import { Button } from "../actions";
+import { SearchInput } from "../forms";
+import { Card, CardContent } from "../compat/card";
 import { MarketplaceEmptyState } from "./panels";
 
 export interface SearchFilterPanelProps {

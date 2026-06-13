@@ -66,30 +66,6 @@ export function MarketplaceProductDetailLayout({
   );
 }
 
-export interface MarketplaceMetricItem {
-  label: ReactNode;
-  value: ReactNode;
-  detail?: ReactNode;
-}
-
-export interface MarketplaceMetricStripProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
-  items: MarketplaceMetricItem[];
-}
-
-export function MarketplaceMetricStrip({ items, ...rest }: MarketplaceMetricStripProps) {
-  return (
-    <div {...rest} className="grid grid-cols-2 gap-3 lg:grid-cols-4 xl:grid-cols-2 2xl:grid-cols-4">
-      {items.map((item, index) => (
-        <div key={index} className="rounded-tokenLg border border-muted bg-surface p-3 shadow-tokenSm">
-          <div className="text-xs font-semibold uppercase text-secondary">{item.label}</div>
-          <div className="mt-1 font-heading text-lg font-semibold text-foreground md:text-xl">{item.value}</div>
-          {item.detail ? <div className="mt-1 text-xs text-secondary">{item.detail}</div> : null}
-        </div>
-      ))}
-    </div>
-  );
-}
-
 export interface MarketplaceMarketSummaryFact {
   label: ReactNode;
   value: ReactNode;

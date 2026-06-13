@@ -30,7 +30,7 @@ Brand expression is allowed in homepage heroes, category campaigns, account stor
 
 ## Coverage Areas
 
-Use `packages/design-system/src/` as the canonical component inventory. Marketplace coverage should remain focused on these reusable decision areas:
+Use `packages/design-system/src/` as the canonical component inventory. Marketplace commerce components (trust, listings, checkout, detail, search, account, panels, cart line item, and shared helpers) live under `packages/design-system/src/components/commerce/`; this is their canonical home. There is no `compat/` transition shelf for these primitives — import them from `@chase-sets/design-system` directly. Marketplace coverage should remain focused on these reusable decision areas:
 
 - Listing comparison, filtering, sorting, and saved-search recovery.
 - Product detail confidence, media, specifications, pricing context, and policy disclosure.

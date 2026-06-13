@@ -59,7 +59,7 @@ function isDesignSystemSurfaceSource(source: string) {
     source.endsWith("/card") ||
     source.endsWith("/layout") ||
     source.endsWith("/data-display") ||
-    source.endsWith("/marketplace")
+    source.endsWith("/commerce")
   );
 }
 
