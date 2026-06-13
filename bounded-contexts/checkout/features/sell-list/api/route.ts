@@ -10,7 +10,9 @@ import {
 } from "../../../support/request-support/checkout-route-guard";
 import type { SellListConfirmationSummary, SellListSellerConfirmationEvidence } from "../domain/domain";
 import { parseSellListReadinessDecisionInput } from "../domain/readiness";
+import type { CheckoutObservabilityTelemetry } from "../../sessions/api/checkout-observability-telemetry";
 import type { CheckoutSellListServices } from "./runtime";
+import { recordSellListConfirmationActivity } from "./sell-list-confirmation-observability";
 import type { AccountId, UserId } from "@chase-sets/primitives/typed-ids";
 
 const MAX_ANONYMOUS_SELL_LIST_LINES = 50;
@@ -311,7 +313,10 @@ function hasSellListConfirmationEvidence(body: ReturnType<typeof parseSellListCo
   );
 }
 
-export function createAccountSellListRoutes(services: CheckoutSellListServices) {
+export function createAccountSellListRoutes(
+  services: CheckoutSellListServices,
+  checkoutObservabilityTelemetry?: CheckoutObservabilityTelemetry,
+) {
   const app = new Hono<CheckoutApiEnv>();
 
   app.get("/sell-list", async (c) => {
@@ -400,6 +405,8 @@ export function createAccountSellListRoutes(services: CheckoutSellListServices) 
         404,
       );
     }
+
+    recordSellListConfirmationActivity(checkoutObservabilityTelemetry, access.actor, confirmation);
 
     return c.json(confirmation);
   });
