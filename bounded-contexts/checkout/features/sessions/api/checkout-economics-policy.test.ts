@@ -119,7 +119,7 @@ describe("Checkout economics policy", () => {
     expect(changed?.customerSafeOutcome).toMatch(/refund, void, or reversal/i);
   });
 
-  it("forbids old compatibility and hidden economics repair mechanisms", () => {
+  it("forbids old helpers and hidden economics repair mechanisms", () => {
     for (const entry of checkoutEconomicsPolicyEntries) {
       expect(entry.forbiddenMechanisms, entry.control).toEqual(
         expect.arrayContaining([...checkoutEconomicsForbiddenMechanisms]),

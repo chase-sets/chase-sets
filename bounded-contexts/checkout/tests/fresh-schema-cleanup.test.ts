@@ -135,7 +135,7 @@ describe("fresh checkout read-model schemas", () => {
       { label: "old broad checkout session route", pattern: /\/checkout\/:sessionId|checkout\/:sessionId/ },
       { label: "old checkout copy", pattern: /\bold checkout\b/i },
       { label: "dense checkout fallback copy", pattern: /\bdense checkout fallback\b/i },
-      { label: "compatibility adapter copy", pattern: /\bcompatibility adapter\b/i },
+      { label: "adapter copy", pattern: /\badapter\b/i },
       { label: "migration or backfill copy", pattern: /\bmigration\/backfill\b|\bmigration\b|\bbackfill\b/i },
       { label: "hidden repair copy", pattern: /\bhidden repair\b/i },
       { label: "provider payload copy", pattern: /\bprovider payload\b/i },

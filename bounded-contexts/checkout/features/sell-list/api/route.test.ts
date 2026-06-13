@@ -472,7 +472,7 @@ describe("checkout sell list routes", () => {
     expect(services.confirmSellListCheckout).not.toHaveBeenCalled();
   });
 
-  it("does not expose removed Sell List legacy endpoints", async () => {
+  it("does not expose removed Sell List old endpoints", async () => {
     const services = createServices();
     const app = buildApp({ actor: sellerActor(), services });
 
