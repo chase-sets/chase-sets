@@ -270,7 +270,6 @@ describe("checkout web routes: guest checkout handoff", () => {
       savePaymentMethodForFuture: false,
       fulfillmentPreviewRevision: null,
       acknowledgedMaterialChanges: false,
-      deferPayment: false,
       shippingAddress: {
         shippingAddressId: null,
         name: "Jane Smith",

@@ -98,7 +98,6 @@ export type CheckoutReversalOwnerIssue =
   | "#1112"
   | "#1114"
   | "#1115"
-  | "#1548"
   | "#1118"
   | "#1119"
   | "#1120"
@@ -232,7 +231,7 @@ export const checkoutReversalPolicyEntries = [
   reversalPolicy({
     control: "pre-confirmation-cancel-no-side-effect",
     docLabel: "Pre-confirmation cancel no-side-effect",
-    ownerIssues: ["#1165", "#1118", "#1119", "#1130", "#1548"],
+    ownerIssues: ["#1165", "#1118", "#1119", "#1130"],
     ownerContext: "Checkout",
     checkpoints: ["pre-confirmation", "duplicate-submit"],
     audiences: allCustomerAudiences,
@@ -328,7 +327,7 @@ export const checkoutReversalPolicyEntries = [
   reversalPolicy({
     control: "post-cutoff-support-cancel-request",
     docLabel: "Post-cutoff support cancel request",
-    ownerIssues: ["#1165", "#1122", "#1135", "#1114", "#1548"],
+    ownerIssues: ["#1165", "#1122", "#1135", "#1114"],
     ownerContext: "Support",
     checkpoints: ["order-committed", "shipment-or-label-committed", "operator-recovery", "launch-decision"],
     audiences: [...buyerAudiences, "support-operator"],
@@ -376,7 +375,7 @@ export const checkoutReversalPolicyEntries = [
   reversalPolicy({
     control: "tax-fee-credit-adjustment",
     docLabel: "Tax, fee, and credit adjustment",
-    ownerIssues: ["#1165", "#1128", "#1124", "#1130", "#1548"],
+    ownerIssues: ["#1165", "#1128", "#1124", "#1130"],
     ownerContext: "Payments",
     checkpoints: ["payment-captured", "order-committed", "provider-callback", "operator-recovery"],
     audiences: buyerAudiences,
@@ -406,7 +405,7 @@ export const checkoutReversalPolicyEntries = [
   reversalPolicy({
     control: "seller-pending-handoff-no-fake-reversal",
     docLabel: "Seller pending handoff no fake reversal",
-    ownerIssues: ["#1165", "#1135", "#1130", "#1120", "#1548"],
+    ownerIssues: ["#1165", "#1135", "#1130", "#1120"],
     ownerContext: "Checkout",
     checkpoints: ["seller-confirmation-recorded", "marketplace-handoff-recorded", "launch-decision"],
     audiences: sellerAudiences,
@@ -586,7 +585,7 @@ export const checkoutReversalPolicyEntries = [
   reversalPolicy({
     control: "support-approved-operator-recovery",
     docLabel: "Support-approved operator recovery",
-    ownerIssues: ["#1165", "#1122", "#1114", "#1124", "#1548"],
+    ownerIssues: ["#1165", "#1122", "#1114", "#1124"],
     ownerContext: "Support",
     checkpoints: ["operator-recovery", "launch-decision"],
     audiences: ["support-operator"],
@@ -623,7 +622,7 @@ export const checkoutReversalPolicyEntries = [
   reversalPolicy({
     control: "return-dispute-chargeback-launch-posture",
     docLabel: "Return, dispute, and chargeback launch posture",
-    ownerIssues: ["#1165", "#1122", "#1124", "#1548", "#1102", "#1112"],
+    ownerIssues: ["#1165", "#1122", "#1124", "#1102", "#1112"],
     ownerContext: "Support",
     checkpoints: ["operator-recovery", "provider-callback", "launch-decision"],
     audiences: allCustomerAudiences,
@@ -647,7 +646,7 @@ export const checkoutReversalPolicyEntries = [
   reversalPolicy({
     control: "launch-decision-reversal-states",
     docLabel: "Launch decision reversal states",
-    ownerIssues: ["#1165", "#1548", "#1102", "#1112", "#1114", "#1115", "#1122", "#1123", "#1124"],
+    ownerIssues: ["#1165", "#1102", "#1112", "#1114", "#1115", "#1122", "#1123", "#1124"],
     ownerContext: "Platform",
     checkpoints: ["launch-decision", "operator-recovery"],
     audiences: allAudiences,
@@ -686,7 +685,7 @@ export const checkoutReversalPolicyEntries = [
     noLegacyCompatibility: true,
     forbiddenSources: checkoutReversalForbiddenSources,
     evidenceExpectation:
-      "Supported, disabled, deferred, unsupported, provider-outage, webhook-delayed, support-only, pending, failed, recovered, held, duplicate, partial, and no-side-effect reversal states have #1548 launch-decision coverage where launch-visible.",
+      "Supported, disabled, deferred, unsupported, provider-outage, webhook-delayed, support-only, pending, failed, recovered, held, duplicate, partial, and no-side-effect reversal states have owner-scoped launch handling where launch-visible.",
   }),
   reversalPolicy({
     control: "observability-redaction",
@@ -724,7 +723,7 @@ export const checkoutReversalPolicyEntries = [
   reversalPolicy({
     control: "fresh-state-reversal-cleanup",
     docLabel: "Fresh-state reversal cleanup",
-    ownerIssues: ["#1165", "#1548", "#1124", "#1115"],
+    ownerIssues: ["#1165", "#1124", "#1115"],
     ownerContext: "Platform",
     checkpoints: ["pre-confirmation", "operator-recovery", "launch-decision"],
     audiences: allAudiences,

@@ -2,7 +2,7 @@
 
 Milestone #17 rebuilds Buy Cart and Sell List checkout as a Shopify-simple fresh-state flow. Copy must help customers finish the current decision without exposing marketplace implementation details, provider diagnostics, or old checkout concepts.
 
-The executable contract lives in `bounded-contexts/checkout/features/sessions/api/checkout-copy-policy.ts`. Tests assert that every required surface has an owner, audience, capability state, disclosure posture, policy dependency, support-reference rule, no-side-effect requirement where needed, and launch evidence expectation.
+The executable contract lives in `bounded-contexts/checkout/features/sessions/api/checkout-copy-policy.ts`. Tests assert that every required surface has an owner, audience, capability state, disclosure posture, policy dependency, support-reference rule, no-side-effect requirement where needed, and acceptance note.
 
 ## Core Rules
 
@@ -37,11 +37,11 @@ Customer-facing copy must not use or imply these internal terms:
 - raw id
 - full URL
 
-Support and launch evidence may reference technical concepts only in operator-owned records, never as customer-facing recovery text.
+Operator-owned records may reference technical concepts, but customer-facing recovery text must stay plain-language.
 
 ## Capability States
 
-The copy inventory shares capability-state names with visual targets, observability, support, performance evidence, and launch proof:
+The copy inventory shares capability-state names with visual targets, observability, support, and performance budgets:
 
 - `enabled`
 - `disabled`
@@ -57,11 +57,11 @@ The copy inventory shares capability-state names with visual targets, observabil
 - `reversed`
 - `no-side-effect`
 
-Disabled, deferred, retained-internal, kill-switched, held, reversed, and support-only states must include owned policy or runbook evidence before #1548 can close.
+Disabled, deferred, retained-internal, kill-switched, held, reversed, and support-only states must include owned policy or runbook handling before launch.
 
 ## Surface Inventory
 
-| Surface | Primary copy rule | Launch evidence |
+| Surface | Primary copy rule | Acceptance note |
 | --- | --- | --- |
 | Cart/list review | Keep Buy Cart and Sell List language concise and role-specific. | Review copy does not introduce checkout machinery before readiness. |
 | Readiness item attention | Explain that some items need attention before checkout. | Unready buyer items resolve before checkout and record no payment started. |
@@ -86,7 +86,6 @@ Disabled, deferred, retained-internal, kill-switched, held, reversed, and suppor
 | Cancellation, refund, and reversal | Show current recovery status and next step. | Recovery copy distinguishes pending, recovered, failed, held, reversed, and deferred states. |
 | Checkout unavailable | Say checkout is unavailable and return to review. | Kill switches do not restore old checkout paths or copy. |
 | Policy footer | Use short policy link labels. | Footer links point to Chase Sets policies and stay out of the primary action. |
-| Fresh-state localization cleanup | Record deleted keys and retained internal exceptions. | Dense marketplace-engine checkout keys are deleted or hard-disabled before launch. |
 
 ## Progressive Disclosure
 
@@ -135,16 +134,6 @@ Support-safe references may expose:
 
 Support and customer copy must not expose raw ids, email addresses, mailing addresses, cookies, session ids, provider payloads, full URLs, card or bank details, or sensitive risk signals.
 
-## Launch Evidence
+## Acceptance Use
 
-Before #1548 closes, #1102 evidence must link:
-
-- executable contract assertion passing
-- localization cleanup for old dense checkout keys
-- copy/visual delta for each launch-supported surface
-- customer-safe no-side-effect copy for pre-confirmation rejection states
-- pending-vs-committed copy review for confirmation, seller activity, account history, notifications, support, and reversal states
-- legal/security/privacy signoff from #1124 for policy-sensitive surfaces
-- support/runbook signoff from #1122 for support-reference and operator recovery copy
-- performance-budget state names from #1123 for slow, temporary recovery, and recovery states
-- coverage rows from #1115 for guest/signed-in buy and sell, mobile/desktop, accessibility, disabled/deferred capabilities, and kill-switch behavior
+#1102 owns this contract as the customer-copy baseline. #1115 should cover launch-supported copy through focused route, E2E, visual, mobile, and accessibility checks. #1124 should review policy-sensitive surfaces, and #1122 should review support-reference and operator-recovery copy.

@@ -62,7 +62,7 @@ export type CheckoutPerformanceSurfaceKey =
 export type CheckoutPerformanceBudget = Readonly<{
   surface: CheckoutPerformanceSurfaceKey;
   docLabel: string;
-  ownerIssue: "#1123" | "#1115" | "#1548" | "#1164" | "#1165";
+  ownerIssue: "#1123" | "#1115" | "#1164" | "#1165";
   pathRole: string;
   entrySources: readonly CheckoutPerformanceEntrySource[];
   actorModes: readonly CheckoutPerformanceActorMode[];
@@ -78,7 +78,7 @@ export type CheckoutPerformanceBudget = Readonly<{
   sideEffectsForbiddenBeforeExplicitConfirm: readonly CheckoutSideEffectClass[];
   environments: readonly CheckoutPerformanceEnvironment[];
   verification: readonly CheckoutPerformanceVerificationKind[];
-  exitEvidence: string;
+  acceptanceNote: string;
 }>;
 
 const allEnvironments = [
@@ -123,7 +123,7 @@ export const checkoutPerformanceBudgets = [
     sideEffectsForbiddenBeforeExplicitConfirm: downstreamSideEffects,
     environments: allEnvironments,
     verification: ["route-test", "e2e", "visual-mobile", "metrics"],
-    exitEvidence:
+    acceptanceNote:
       "Buy Cart and Sell List review render within budget for ready, blocked, stale, and empty states on desktop and mobile.",
   }),
   budget({
@@ -145,7 +145,7 @@ export const checkoutPerformanceBudgets = [
     sideEffectsForbiddenBeforeExplicitConfirm: downstreamSideEffects,
     environments: allEnvironments,
     verification: ["unit-contract", "route-test", "e2e", "metrics"],
-    exitEvidence:
+    acceptanceNote:
       "Readiness evidence covers ready carts, unresolved fulfillment, no-supply recovery, save-for-later, and source mutation.",
   }),
   budget({
@@ -168,7 +168,7 @@ export const checkoutPerformanceBudgets = [
     sideEffectsForbiddenBeforeExplicitConfirm: downstreamSideEffects,
     environments: allEnvironments,
     verification: ["unit-contract", "route-test", "e2e", "metrics"],
-    exitEvidence:
+    acceptanceNote:
       "Readiness evidence covers selected offers, Smart Match offers, fallback listing decisions, stale payout/terms, and blocked seller facts.",
   }),
   budget({
@@ -190,7 +190,7 @@ export const checkoutPerformanceBudgets = [
     sideEffectsForbiddenBeforeExplicitConfirm: downstreamSideEffects,
     environments: allEnvironments,
     verification: ["route-test", "e2e", "visual-mobile", "metrics"],
-    exitEvidence:
+    acceptanceNote:
       "Optimization evidence records accepted, declined, unavailable, and stale outcomes before checkout session creation.",
   }),
   budget({
@@ -212,7 +212,7 @@ export const checkoutPerformanceBudgets = [
     sideEffectsForbiddenBeforeExplicitConfirm: downstreamSideEffects,
     environments: allEnvironments,
     verification: ["route-test", "e2e", "canary", "metrics"],
-    exitEvidence:
+    acceptanceNote:
       "Canary or E2E evidence reports time to checkout review for Buy Now, Buy Cart readiness, and Sell List readiness.",
   }),
   budget({
@@ -234,7 +234,7 @@ export const checkoutPerformanceBudgets = [
     sideEffectsForbiddenBeforeExplicitConfirm: downstreamSideEffects,
     environments: allEnvironments,
     verification: ["route-test", "e2e", "canary", "metrics"],
-    exitEvidence:
+    acceptanceNote:
       "Evidence distinguishes safe temporary recovery from platform error, permanent not-found, missing receipt, and ambiguous no-state render.",
   }),
   budget({
@@ -256,7 +256,7 @@ export const checkoutPerformanceBudgets = [
     sideEffectsForbiddenBeforeExplicitConfirm: downstreamSideEffects,
     environments: allEnvironments,
     verification: ["route-test", "e2e", "visual-mobile", "accessibility"],
-    exitEvidence:
+    acceptanceNote:
       "Recovery evidence covers expired receipt, old payload, stale readiness, disabled capability, and kill-switched entry.",
   }),
   budget({
@@ -278,7 +278,7 @@ export const checkoutPerformanceBudgets = [
     sideEffectsForbiddenBeforeExplicitConfirm: downstreamSideEffects,
     environments: allEnvironments,
     verification: ["route-test", "e2e", "metrics"],
-    exitEvidence:
+    acceptanceNote:
       "Reload evidence covers current sessions, stale source facts, guest merge supersession, and duplicate submit prevention.",
   }),
   budget({
@@ -301,7 +301,7 @@ export const checkoutPerformanceBudgets = [
     sideEffectsForbiddenBeforeExplicitConfirm: downstreamSideEffects,
     environments: allEnvironments,
     verification: ["route-test", "e2e", "visual-mobile", "metrics"],
-    exitEvidence:
+    acceptanceNote:
       "Totals evidence records changed, unchanged, timeout, stale quote, and customer-review-required outcomes.",
   }),
   budget({
@@ -323,7 +323,7 @@ export const checkoutPerformanceBudgets = [
     sideEffectsForbiddenBeforeExplicitConfirm: downstreamSideEffects,
     environments: allEnvironments,
     verification: ["route-test", "e2e", "metrics"],
-    exitEvidence:
+    acceptanceNote:
       "Handoff evidence distinguishes payment/payout setup visibility from order, sale, label, payout, or account-history completion.",
   }),
   budget({
@@ -345,7 +345,7 @@ export const checkoutPerformanceBudgets = [
     sideEffectsForbiddenBeforeExplicitConfirm: [],
     environments: allEnvironments,
     verification: ["route-test", "e2e", "visual-mobile", "accessibility", "metrics"],
-    exitEvidence:
+    acceptanceNote:
       "Confirmation evidence records confirmation visible, downstream pending, stale confirmation blocked, duplicate submit, and partial failure recovery.",
   }),
   budget({
@@ -367,7 +367,7 @@ export const checkoutPerformanceBudgets = [
     sideEffectsForbiddenBeforeExplicitConfirm: [],
     environments: allEnvironments,
     verification: ["route-test", "e2e", "metrics", "runbook"],
-    exitEvidence:
+    acceptanceNote:
       "Provider-return evidence distinguishes confirmed, pending provider completion, provider failure, stale readiness, and support-safe recovery.",
   }),
   budget({
@@ -390,7 +390,7 @@ export const checkoutPerformanceBudgets = [
     sideEffectsForbiddenBeforeExplicitConfirm: [],
     environments: allEnvironments,
     verification: ["route-test", "e2e", "visual-mobile", "metrics"],
-    exitEvidence:
+    acceptanceNote:
       "Account-history evidence distinguishes Checkout pending activity from committed Ordering, Fulfillment, Settlement, and Notification facts.",
   }),
   budget({
@@ -412,7 +412,7 @@ export const checkoutPerformanceBudgets = [
     sideEffectsForbiddenBeforeExplicitConfirm: [],
     environments: allEnvironments,
     verification: ["route-test", "e2e", "metrics", "runbook"],
-    exitEvidence:
+    acceptanceNote:
       "Support evidence uses support-safe references without raw provider payloads, old receipt rows, or dense checkout fallback.",
   }),
   budget({
@@ -435,7 +435,7 @@ export const checkoutPerformanceBudgets = [
     sideEffectsForbiddenBeforeExplicitConfirm: [],
     environments: allEnvironments,
     verification: ["route-test", "e2e", "metrics", "runbook"],
-    exitEvidence:
+    acceptanceNote:
       "Recovery evidence covers pending, recovered, failed, duplicate-prevented, support-owned, and owned deferred states.",
   }),
   budget({
@@ -462,7 +462,7 @@ export const checkoutPerformanceBudgets = [
     sideEffectsForbiddenBeforeExplicitConfirm: downstreamSideEffects,
     environments: allEnvironments,
     verification: ["visual-mobile", "accessibility", "e2e"],
-    exitEvidence:
+    acceptanceNote:
       "Mobile evidence records sticky action tap latency, summary expand/collapse, saved-row editing, no horizontal overflow, and no layout shift.",
   }),
 ] as const satisfies readonly CheckoutPerformanceBudget[];

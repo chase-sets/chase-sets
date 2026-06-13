@@ -203,7 +203,7 @@ function mockCheckoutPreview() {
   });
 }
 
-describe("checkout web routes: signed-in buy checkout launch proof", () => {
+describe("checkout web routes: signed-in buy checkout", () => {
   beforeEach(() => {
     applyCheckoutRouteMockDefaults();
     mockResolveActorFromAuthApi.mockResolvedValue(signedInBuyer);
@@ -375,7 +375,6 @@ describe("checkout web routes: signed-in buy checkout launch proof", () => {
       savePaymentMethodForFuture: false,
       fulfillmentPreviewRevision: null,
       acknowledgedMaterialChanges: false,
-      deferPayment: false,
       shippingAddress: {
         shippingAddressId: "adr_buyer",
         name: "Jane Smith",

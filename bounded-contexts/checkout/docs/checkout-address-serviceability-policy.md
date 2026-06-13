@@ -33,7 +33,7 @@ shipping, tax, label, payout, split-group, or risk facts.
 - Invalid, restricted, unserviceable, quote-unavailable, provider-outage,
   disabled, deferred, unsupported, and stale address states use #1102 copy,
   #1112 visuals, #1114 observability, #1115 coverage, #1122 support path, and
-  #1548 launch-decision rows where launch-visible.
+  owner-scoped launch handling where launch-visible.
 - Address blocks must prove no payment, order, sale, label, payout,
   fulfillment, settlement, notification, support, account-history, refund, void,
   or reversal side effect started.
@@ -58,10 +58,10 @@ shipping, tax, label, payout, split-group, or risk facts.
 | Wallet or express address return | Payments | wallet-or-express-return, active-session-return, final-confirmation | shipping-quote, tax-quote, risk-check | launch-decision-required | provider-return-recovery | Wallet or express-return addresses re-enter the same serviceability and quote gates; unsupported changes return to simple correction instead of continuing with stale totals. |
 | Active-session address revalidation | Checkout | active-session-return, duplicate-submit, final-confirmation | shipping-quote, tax-quote, payout-quote, label-service, risk-check | required-for-launch | checkout-recovery | Active sessions revalidate address and dependent provider facts on return, reload, duplicate submit, and final confirmation before any customer-committing side effect starts. |
 | Split-group shipping promise | Fulfillment | cart-list-readiness, manual-address-edit, final-confirmation | shipping-quote, split-group-promise, risk-check | launch-decision-required | cart-list-readiness | Split-group shipping promises are produced by readiness and consumed by checkout; address changes route back to readiness instead of regrouping shipments in checkout. |
-| Quote unavailable or provider outage | Platform | manual-address-edit, wallet-or-express-return, final-confirmation, operator-support | shipping-quote, tax-quote, payout-quote, label-service, risk-check | launch-decision-required | launch-evidence | Quote-unavailable, provider-outage, disabled, deferred, and unsupported address states have owner, copy, visual, support, observability, support path, and launch-decision evidence. |
+| Quote unavailable or provider outage | Platform | manual-address-edit, wallet-or-express-return, final-confirmation, operator-support | shipping-quote, tax-quote, payout-quote, label-service, risk-check | launch-decision-required | launch-status | Quote-unavailable, provider-outage, disabled, deferred, and unsupported address states have owner, copy, visual, support, observability, support path, and launch-decision evidence. |
 | Support-safe address failure | Support | operator-support | shipping-quote, tax-quote, payout-quote, label-service, risk-check | required-for-launch | support-runbook | Support can see masked address failure category, owner, freshness status, and support-safe reference without full address, raw provider payload, or manual repair instructions. |
 | No-side-effect address blocks | Checkout | checkout-session-create, active-session-return, final-confirmation | shipping-quote, tax-quote, payout-quote, label-service, split-group-promise, risk-check | required-for-launch | checkout-recovery | Address blocks prove no payment, order, sale, label, payout, fulfillment, settlement, notification, support, account-history, refund, void, or reversal side effect started. |
-| Fresh-state address cleanup | Platform | checkout-session-create, active-session-return, final-confirmation, operator-support | none | required-for-launch | launch-evidence | Fresh-state scans prove address handling cannot succeed through old payloads, hidden normalization, migration/backfill helpers, stale read models, stale fixtures, or dense checkout fallback. |
+| Fresh-state address cleanup | Platform | checkout-session-create, active-session-return, final-confirmation, operator-support | none | required-for-launch | launch-status | Fresh-state scans prove address handling cannot succeed through old payloads, hidden normalization, migration/backfill helpers, stale read models, stale fixtures, or dense checkout fallback. |
 
 ## Evidence Required Before #1127 Closes
 
@@ -77,7 +77,7 @@ shipping, tax, label, payout, split-group, or risk facts.
 - Provider/version evidence, normalized address freshness keys, serviceability
   decision, quote fingerprint, and support-safe failure code for any provider
   assisted validation or quote path.
-- #1548 launch-decision rows for invalid, restricted, unserviceable,
+- owner-scoped launch handling for invalid, restricted, unserviceable,
   quote-unavailable, provider-outage, disabled, deferred, unsupported, and stale
   launch-visible states.
 - #1102 copy and #1112 visual mappings for correction, provider return,

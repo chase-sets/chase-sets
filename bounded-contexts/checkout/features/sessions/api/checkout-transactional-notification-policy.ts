@@ -31,7 +31,6 @@ export type CheckoutNotificationTriggerTiming =
 export type CheckoutNotificationOwnerIssue =
   | "#1114"
   | "#1115"
-  | "#1548"
   | "#1117"
   | "#1118"
   | "#1119"
@@ -113,7 +112,7 @@ export const checkoutTransactionalNotificationPolicyEntries = [
   notificationPolicy({
     trigger: "pre-confirmation-recovery-no-send",
     docLabel: "Pre-confirmation recovery does not send",
-    ownerIssues: ["#1129", "#1117", "#1119", "#1548"],
+    ownerIssues: ["#1129", "#1117", "#1119"],
     sourceOwner: "Checkout",
     sourceFact:
       "Readiness, active-session, provider-return, kill-switch, or stale-session recovery before confirmation.",
@@ -424,7 +423,7 @@ export const checkoutTransactionalNotificationPolicyEntries = [
     missingContactFallback: "support-runbook",
     accountClaimBehavior: "order-receipt-only",
     evidenceExpectation:
-      "Launch evidence covers reload, duplicate submit, job retry, provider webhook replay, and operator recovery without duplicate messages.",
+      "Launch coverage covers reload, duplicate submit, job retry, provider webhook replay, and operator recovery without duplicate messages.",
   }),
 ] as const satisfies readonly CheckoutTransactionalNotificationPolicyEntry[];
 
@@ -455,7 +454,7 @@ export function assertCheckoutTransactionalNotificationPolicyCoverage(): void {
       throw new Error(`Checkout notification policy '${entry.trigger}' needs a channel decision.`);
     }
     if (entry.evidenceExpectation.trim().length === 0) {
-      throw new Error(`Checkout notification policy '${entry.trigger}' needs launch evidence expectations.`);
+      throw new Error(`Checkout notification policy '${entry.trigger}' needs launch expectations.`);
     }
     if (entry.duplicatePreventionRequired && entry.idempotencyKeyShape.trim().length === 0) {
       throw new Error(`Checkout notification policy '${entry.trigger}' needs an idempotency key shape.`);

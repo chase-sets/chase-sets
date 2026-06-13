@@ -109,7 +109,7 @@ describe("Checkout copy policy", () => {
     }
   });
 
-  it("documents the executable copy policy contract and launch cleanup evidence", () => {
+  it("documents the executable copy policy contract", () => {
     const doc = readFileSync(new URL("../../../docs/checkout-copy-policy.md", import.meta.url), "utf8");
     const checkoutReadme = readFileSync(new URL("../../../README.md", import.meta.url), "utf8");
     const docsIndex = readFileSync(new URL("../../../../../docs/README.md", import.meta.url), "utf8");

@@ -24,7 +24,7 @@ or repair old checkout state to keep a customer moving.
   risk outcomes use customer-safe copy, support references, and redacted
   observability only.
 - Blocked, held, challenged, disabled, deferred, unsupported, and
-  provider-unavailable states require #1548 launch-decision coverage when they
+  provider-unavailable states require owner-scoped launch handling when they
   can affect launch behavior.
 - Risk blocks must prove no payment, order, sale, label, payout, settlement,
   notification, support, account-history, refund, void, or reversal side effect
@@ -49,10 +49,10 @@ or repair old checkout state to keep a customer moving.
 | Guest merge abuse | Identity | guest-merge, active-session-return, final-confirmation | buy-checkout-session-create, buy-final-confirmation | required-for-launch | checkout-recovery | Guest-to-signed-in merge supersedes stale guest sessions and blocks mismatched source facts before payment, order, notification, support, or account-history side effects. |
 | Duplicate submit idempotency | Checkout | duplicate-submit, final-confirmation | buy-final-confirmation, sell-final-confirmation | required-for-launch | confirmation-hold | Duplicate submit, reload, provider retry, and background retry share stable confirmation idempotency and cannot duplicate downstream work. |
 | Support-safe risk escalation | Support | operator-support | support-escalation | required-for-launch | support-runbook | Support can distinguish customer error from risk hold using masked status, support-safe references, and owning-context escalation without raw signals or manual data edits. |
-| Launch decision risk states | Platform | cart-list-readiness, provider-or-wallet-return, final-confirmation, operator-support | buy-final-confirmation, sell-final-confirmation, payment-authorization-or-capture, payout-setup-or-eligibility, inventory-reservation | launch-decision-required | launch-evidence | Blocked, held, challenged, disabled, deferred, unsupported, and provider-unavailable risk states have owner, copy, support path, observability, support path, and visual target evidence. |
-| Observability redaction | Checkout | cart-list-readiness, active-session-return, provider-or-wallet-return, final-confirmation | buy-readiness-evaluation, sell-readiness-evaluation, payment-authorization-or-capture, payout-setup-or-eligibility, support-escalation | required-for-launch | launch-evidence | Risk telemetry uses categories and support-safe references only; logs, metrics, canaries, and runbooks never expose raw addresses, emails, provider payloads, card/bank data, or sensitive risk signals. |
+| Launch decision risk states | Platform | cart-list-readiness, provider-or-wallet-return, final-confirmation, operator-support | buy-final-confirmation, sell-final-confirmation, payment-authorization-or-capture, payout-setup-or-eligibility, inventory-reservation | launch-decision-required | launch-status | Blocked, held, challenged, disabled, deferred, unsupported, and provider-unavailable risk states have owner, copy, support path, observability, support path, and visual target evidence. |
+| Observability redaction | Checkout | cart-list-readiness, active-session-return, provider-or-wallet-return, final-confirmation | buy-readiness-evaluation, sell-readiness-evaluation, payment-authorization-or-capture, payout-setup-or-eligibility, support-escalation | required-for-launch | launch-status | Risk telemetry uses categories and support-safe references only; logs, metrics, canaries, and runbooks never expose raw addresses, emails, provider payloads, card/bank data, or sensitive risk signals. |
 | No-side-effect risk blocks | Checkout | cart-list-readiness, checkout-session-create, final-confirmation | buy-final-confirmation, sell-final-confirmation, payment-authorization-or-capture, payout-setup-or-eligibility, inventory-reservation | required-for-launch | checkout-recovery | Risk blocks prove no payment, order, sale, label, payout, settlement, notification, support, account-history, refund, void, or reversal side effect started. |
-| Fresh-state risk cleanup | Platform | cart-list-readiness, checkout-session-create, final-confirmation, operator-support | buy-checkout-session-create, sell-checkout-session-create, buy-final-confirmation, sell-final-confirmation, support-escalation | required-for-launch | launch-evidence | Fresh-state scans prove risk handling cannot succeed through old routes, payload adapters, migration/backfill helpers, dual writes, hidden repair, stale fixtures, or dense checkout fallback. |
+| Fresh-state risk cleanup | Platform | cart-list-readiness, checkout-session-create, final-confirmation, operator-support | buy-checkout-session-create, sell-checkout-session-create, buy-final-confirmation, sell-final-confirmation, support-escalation | required-for-launch | launch-status | Fresh-state scans prove risk handling cannot succeed through old routes, payload adapters, migration/backfill helpers, dual writes, hidden repair, stale fixtures, or dense checkout fallback. |
 
 ## Evidence Required Before #1131 Closes
 
@@ -60,7 +60,7 @@ or repair old checkout state to keep a customer moving.
   attempt, reservation abuse, provider risk decline/hold, payout risk hold,
   seller readiness abuse, mismatch recovery, guest merge abuse, and duplicate
   submit idempotency.
-- #1548 launch-decision rows for blocked, held, challenged, disabled, deferred,
+- owner-scoped launch handling for blocked, held, challenged, disabled, deferred,
   unsupported, provider-unavailable, and manually-reviewable risk states.
 - #1102 copy and #1112 visual mappings for every customer-visible block, hold,
   challenge, recovery, and support path.

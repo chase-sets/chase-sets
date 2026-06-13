@@ -1190,7 +1190,7 @@ describe("checkout session routes", () => {
     );
   });
 
-  it("rejects customer deferred payment before committing orders or payment", async () => {
+  it("does not support deferred payment proof payloads before committing orders or payment", async () => {
     const services = createServices({
       getSession: vi.fn(async () => createSession()),
     });
@@ -1203,133 +1203,21 @@ describe("checkout session routes", () => {
         body: JSON.stringify({
           shippingAddress,
           deferPayment: true,
-          marketplaceCheckoutFeeQuoteFingerprint: "quote_1",
         }),
       }),
     );
 
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(409);
     await expect(response.json()).resolves.toEqual({
       error: {
-        code: "deferred_checkout_order_proof_required",
-        message: "This checkout action is restricted.",
+        code: "payment_quote_required",
+        message: "Review the latest payable total before payment starts.",
       },
     });
     expect(mockCreateCheckoutOrdersThroughOrdering).not.toHaveBeenCalled();
     expect(mockCreateCheckoutPaymentThroughPayments).not.toHaveBeenCalled();
     expect(services.recordOrdersCreated).not.toHaveBeenCalled();
     expect(services.recordPaymentStarted).not.toHaveBeenCalled();
-  });
-
-  it("rejects operator deferred payment when the proof reference is a placeholder", async () => {
-    const services = createServices({
-      getSession: vi.fn(async () => createSession()),
-    });
-    const app = buildApp(
-      services,
-      createBuyerActor({
-        userId: "usr_ops",
-        membershipId: "mbr_ops",
-        permissions: ["security.manage"],
-      }),
-    );
-
-    const response = await app.fetch(
-      new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          shippingAddress,
-          deferPayment: true,
-          deferredCheckoutOrderProofReference: "TODO",
-        }),
-      }),
-    );
-
-    expect(response.status).toBe(403);
-    await expect(response.json()).resolves.toEqual({
-      error: {
-        code: "deferred_checkout_order_proof_required",
-        message: "This checkout action is restricted.",
-      },
-    });
-    expect(mockCreateCheckoutOrdersThroughOrdering).not.toHaveBeenCalled();
-    expect(mockCreateCheckoutPaymentThroughPayments).not.toHaveBeenCalled();
-    expect(services.recordOrdersCreated).not.toHaveBeenCalled();
-    expect(services.recordPaymentStarted).not.toHaveBeenCalled();
-  });
-
-  it("allows operator production proof order creation to defer payment before fee quote review", async () => {
-    mockCreateCheckoutOrdersThroughOrdering.mockResolvedValue({
-      orderIds: ["ord_1"],
-      readyLineKeys: ["cli_1"],
-    });
-    const checkoutObservabilityTelemetry = { recordCheckoutEvent: vi.fn() };
-    const services = createServices({
-      getSession: vi.fn(async () => createSession()),
-    });
-    const app = buildApp(
-      services,
-      createBuyerActor({
-        userId: "usr_ops",
-        membershipId: "mbr_ops",
-        permissions: ["security.manage"],
-      }),
-      checkoutObservabilityTelemetry,
-    );
-
-    const response = await app.fetch(
-      new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          shippingAddress,
-          deferPayment: true,
-          deferredCheckoutOrderProofReference: "PRODUCTION-PROOF-2026-06-10",
-        }),
-      }),
-    );
-
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
-      order_ids: ["ord_1"],
-      status: "orders-created",
-    });
-    expect(mockCreateCheckoutOrdersThroughOrdering).toHaveBeenCalledTimes(1);
-    expect(mockCreateCheckoutPaymentThroughPayments).not.toHaveBeenCalled();
-    expect(services.recordPaymentStarted).not.toHaveBeenCalled();
-    expect(services.recordOrdersCreated).toHaveBeenCalledWith(
-      expect.objectContaining({
-        sessionId: "chk_1",
-        accountId: "acc_buyer",
-        orderIds: ["ord_1"],
-      }),
-      expect.objectContaining({
-        audit: expect.objectContaining({
-          performedByUserId: "usr_ops",
-          forAccountId: "acc_buyer",
-        }),
-      }),
-    );
-    expect(checkoutObservabilityTelemetry.recordCheckoutEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        eventName: "checkout.reconciliation.pending_visible",
-        actorMode: "signed-in",
-        scenarioState: "pending-downstream",
-        visibleState: "support-safe-status-visible",
-        sideEffectStatus: "pending-downstream",
-        supportReferencePresent: true,
-        providerCategory: "payments",
-        downstreamStatus: "orders-created-payment-deferred",
-        launchDecision: "enabled",
-      }),
-    );
-    const emitted = JSON.stringify(checkoutObservabilityTelemetry.recordCheckoutEvent.mock.calls[0]?.[0]);
-    expect(emitted).not.toContain("PRODUCTION-PROOF-2026-06-10");
-    expect(emitted).not.toContain("usr_ops");
-    expect(emitted).not.toContain("mbr_ops");
-    expect(emitted).not.toContain("chk_1");
-    expect(emitted).not.toContain("acc_buyer");
   });
 
   it("rejects non-deferred payment confirmation before committing orders when fee quote is missing", async () => {

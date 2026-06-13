@@ -2,8 +2,8 @@ import {
   checkoutObservabilityProfiles,
   type CheckoutObservabilityAlertClass,
   type CheckoutObservabilityTelemetryClass,
+  type CheckoutScenarioState,
 } from "./checkout-observability-contract";
-import type { CheckoutLaunchScenarioState } from "./checkout-launch-evidence-matrix";
 import type { CheckoutVisualTargetKey } from "./checkout-visual-targets";
 
 export type CheckoutObservabilityTelemetryEvent = Readonly<{
@@ -12,7 +12,7 @@ export type CheckoutObservabilityTelemetryEvent = Readonly<{
   alertClass: CheckoutObservabilityAlertClass;
   entrySource: string;
   actorMode: string;
-  scenarioState: CheckoutLaunchScenarioState;
+  scenarioState: CheckoutScenarioState;
   visibleState: string;
   sideEffectStatus: string;
   releaseHealthRequired: boolean;
@@ -56,7 +56,7 @@ export function checkoutObservabilityTelemetryEvent(
     throw new Error(`Missing checkout observability profile for state '${input.state}'.`);
   }
 
-  const allowedScenarioStates: readonly CheckoutLaunchScenarioState[] = profile.scenarioStates;
+  const allowedScenarioStates: readonly CheckoutScenarioState[] = profile.scenarioStates;
   if (!allowedScenarioStates.includes(input.scenarioState)) {
     throw new Error(`Checkout observability profile '${input.state}' does not allow '${input.scenarioState}'.`);
   }

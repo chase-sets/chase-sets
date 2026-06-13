@@ -185,7 +185,7 @@ describe("Checkout reversal recovery policy", () => {
       (entry) => entry.control === "launch-decision-reversal-states",
     );
     expect(launchDecision?.ownerIssues).toEqual(expect.arrayContaining(["#1102", "#1112", "#1114", "#1115"]));
-    expect(launchDecision?.evidenceExpectation).toMatch(/#1548 launch-decision coverage/i);
+    expect(launchDecision?.evidenceExpectation).toMatch(/owner-scoped launch handling/i);
   });
 
   it("forbids legacy repair, stale data, dashboard-only recovery, and dense checkout fallback", () => {

@@ -5,11 +5,11 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 ## Core References
 
 - [Product Brief](./PRODUCT.md): product vision, users, and marketplace economics.
-- [Launch Checklist](./launch/checklist.md): single frozen launch checklist for the Shopify-simple checkout; replaces per-PR evidence ledgers and is reviewed once at launch.
+- [Launch Checklist](./launch/checklist.md): single launch checklist for the Shopify-simple checkout; replaces per-PR ledgers and is reviewed once at launch.
 - [Marketplace Glossary](./GLOSSARY.md): canonical marketplace language and account-role naming rules.
 - [Bounded Context Map](../bounded-contexts/README.md): strategic ownership and integration relationships.
 - [Bounded Context Structure](./architecture/bounded-context-structure.md): directory, manifest, export, import-boundary, deployable-composition, and structure-gate failure rules.
-- [Checkout Fresh-State Start Gate](./architecture/checkout-fresh-state-start-gate.md): ownership, dependency order, unresolved-fulfillment readiness, first vertical slice, and launch evidence map for the Shopify-simple checkout rebuild.
+- [Checkout Fresh-State Start Gate](./architecture/checkout-fresh-state-start-gate.md): ownership, dependency order, unresolved-fulfillment readiness, first vertical slice, and launch readiness map for the Shopify-simple checkout rebuild.
 - [Guest Rail Intent Persistence](./architecture/guest-rail-intent-persistence.md): context-owned anonymous listing draft and Watch alert intent persistence, registration return, claim, expiry, replay, and privacy contract for the simplified item-detail rail.
 - [Cookie-Backed Continuation Handoff](./architecture/cookie-backed-continuation-handoff.md): document redirect, protected-loader recovery, and regression-test rules for auth/session cookie continuations.
 - [Read-After-Write Route Author Checklist](./architecture/read-after-write-route-author-checklist.md): exact freshness dependencies, route inventory, transient recovery, cookie-backed continuation, and guardrail checks for post-write projection reads.
@@ -49,15 +49,14 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [ADR 0012: Unified Outbound Messaging](./adr/0012-unified-outbound-messaging.md): single notification outbox, retired transactional email outbox, and channel adapters behind one delivery contract.
 - [ADR 0013: Checkout Payments Dependency Direction](./adr/0013-checkout-payments-dependency-direction.md): Checkout-owned payment handoff, published session/payment linkage fact, and package-cycle cut rule.
 - [Checkout Fresh-State Route Strategy](../bounded-contexts/checkout/docs/fresh-state-route-strategy.md): Shopify-simple checkout route map, legacy route disposition, readiness guardrails, and kill-switch behavior.
-- [Checkout Fresh Session Contracts](../bounded-contexts/checkout/docs/fresh-checkout-session-contracts.md): Milestone #17 buy/sell checkout snapshot, commands, state machine, idempotency, guest merge, and fresh-state compatibility rules.
-- [Checkout Copy Policy](../bounded-contexts/checkout/docs/checkout-copy-policy.md): Milestone #17 customer-safe checkout copy, progressive-disclosure, policy language, support-reference, and launch cleanup contract.
+- [Checkout Fresh Session Contracts](../bounded-contexts/checkout/docs/fresh-checkout-session-contracts.md): Milestone #17 buy/sell checkout snapshot, commands, state machine, idempotency, guest merge, and fresh-state rules.
+- [Checkout Copy Policy](../bounded-contexts/checkout/docs/checkout-copy-policy.md): Milestone #17 customer-safe checkout copy, progressive-disclosure, policy language, support-reference, and launch readiness contract.
 - [Checkout Visual Targets](../bounded-contexts/checkout/docs/checkout-visual-targets.md): image-first Milestone #17 visual target register for buy/sell checkout, readiness, recovery, capability, and launch states.
 - [Checkout Session Projection Performance](../bounded-contexts/checkout/docs/checkout-session-projection-performance.md): guest Buy Now checkout freshness path, supporting indexes, projection transaction behavior, and remaining platform evidence gates.
 - [Checkout Performance Budgets](../bounded-contexts/checkout/docs/checkout-performance-budgets.md): Milestone #17 cart/list, readiness, checkout entry, confirmation, mobile, support, and recovery performance budgets.
-- [Checkout Launch Evidence Matrix](../bounded-contexts/checkout/docs/checkout-launch-evidence-matrix.md): Milestone #17 composite evidence rows joining copy, visual, performance, coverage, launch register, no-side-effect, and fresh-state cleanup proof.
 - [Fresh-State Launch Exception Register](../bounded-contexts/checkout/docs/fresh-state-launch-exception-register.md): Milestone #17 retained internal artifact register and customer-facing legacy cleanup guard.
-- [Internal Helper Security Proof](../bounded-contexts/checkout/docs/internal-helper-security-proof.md): Milestone #17 permission, customer reachability, audit, redaction, and removal proof for retained internal helper families.
-- [Checkout Observability Contract](../bounded-contexts/checkout/docs/checkout-observability-contract.md): Milestone #17 redacted telemetry profiles for launch rows, support-safe references, side-effect status, and release-health evidence.
+- [Internal Helper Security Guard](../bounded-contexts/checkout/docs/internal-helper-security-guard.md): Milestone #17 permission, customer reachability, audit, and redaction guard for retained internal helper families.
+- [Checkout Observability Contract](../bounded-contexts/checkout/docs/checkout-observability-contract.md): Milestone #17 redacted telemetry profiles for launch-supported states, support-safe references, side-effect status, and release-health signals.
 - [Checkout Transactional Notification Policy](../bounded-contexts/checkout/docs/checkout-transactional-notifications.md): Milestone #17 buy/sell notification trigger inventory, launch decisions, idempotency, and support-safe fallback behavior.
 - [Checkout Risk Control Policy](../bounded-contexts/checkout/docs/checkout-risk-control-policy.md): Milestone #17 fraud, abuse, inventory-hoarding, provider-risk, support-safe hold, observability, and fresh-state cleanup contract.
 - [Checkout Address And Serviceability Policy](../bounded-contexts/checkout/docs/checkout-address-serviceability-policy.md): Milestone #17 address validation, serviceability, delivery restrictions, quote readiness, support-safe recovery, and fresh-state cleanup contract.

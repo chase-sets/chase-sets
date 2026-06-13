@@ -26,7 +26,7 @@ Downstream contexts own their committed facts:
 - Notifications owns transactional communication delivery.
 - Support owns operator recovery workflows and support-safe lookup behavior.
 
-Checkout launch evidence may measure those downstream handoffs, but Checkout must not synthesize downstream completion to satisfy a performance budget.
+Checkout launch status checks may measure those downstream handoffs, but Checkout must not synthesize downstream completion to satisfy a performance budget.
 
 ## Budget Rules
 
@@ -36,7 +36,7 @@ Checkout launch evidence may measure those downstream handoffs, but Checkout mus
 - Ambiguous no-state render is always a failure.
 - Local, staging, and production-like evidence are required.
 - Pre-confirmation surfaces must prove payment, order, label, payout, settlement, notification, account-history, and support side effects were not attempted.
-- Launch evidence must report Buy Now, Buy Cart readiness, and Sell List readiness separately for guest and signed-in actors.
+- Launch status checks must report Buy Now, Buy Cart readiness, and Sell List readiness separately for guest and signed-in actors.
 - Mobile evidence must cover sticky totals/actions, collapsible summaries, saved-row editing, no horizontal overflow, and no layout shift.
 
 ## Launch-Supported Shape
@@ -78,7 +78,7 @@ Checkout entry evidence measures time to first known Checkout-owned state:
 - temporary checkout-preparing recovery visible;
 - customer-safe permanent recovery visible.
 
-The PR #1212 staging Buy Now baseline reached safe temporary recovery in 2,937 ms. That value is tracking evidence, not a universal SLA. Release launch evidence must remeasure or explicitly revalidate Buy Now, Buy Cart readiness, and Sell List readiness after projection, work-signal, runtime, or sell-confirmation changes.
+The PR #1212 staging Buy Now baseline reached safe temporary recovery in 2,937 ms. That value is tracking evidence, not a universal SLA. Release launch checks must remeasure or explicitly revalidate Buy Now, Buy Cart readiness, and Sell List readiness after projection, work-signal, runtime, or sell-confirmation changes.
 
 Temporary recovery counts as safe only when:
 
@@ -100,7 +100,7 @@ Readiness and optional optimization stay before checkout:
 
 Final confirmation budgets start only after explicit customer confirmation with current readiness and freshness evidence.
 
-Launch evidence must distinguish:
+Launch status checks must distinguish:
 
 - confirmation recorded;
 - Marketplace handoff recorded;
@@ -113,7 +113,7 @@ Pending downstream state cannot be counted as completed downstream work.
 
 ## Evidence Requirements
 
-Each launch evidence row must record:
+Each launch check must record:
 
 - entry source: Buy Now, Buy Cart readiness, or Sell List readiness;
 - actor: guest or signed-in;

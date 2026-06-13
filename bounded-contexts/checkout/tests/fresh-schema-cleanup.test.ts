@@ -11,7 +11,7 @@ import { checkoutSessionSchemaSql } from "../features/sessions/read-model/schema
 const checkoutRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = resolve(checkoutRoot, "..", "..");
 const exceptionRegisterPath = join(checkoutRoot, "docs", "fresh-state-launch-exception-register.md");
-const internalHelperProofPath = join(checkoutRoot, "docs", "internal-helper-security-proof.md");
+const internalHelperGuardPath = join(checkoutRoot, "docs", "internal-helper-security-guard.md");
 
 type ForbiddenPattern = Readonly<{
   label: string;
@@ -186,19 +186,17 @@ describe("fresh checkout read-model schemas", () => {
 
     expect(register).toContain("No customer-facing retained legacy checkout artifact is approved for launch.");
     expect(register).toContain(
-      "| Artifact | Owner | Customer reachable | Permission gate | Rationale | No-side-effect proof | Expiration/follow-up |",
+      "| Artifact | Owner | Customer reachable | Permission gate | Rationale | No-side-effect guarantee | Expiration/follow-up |",
     );
     expect(register).toContain("`checkout-session-deploy-safe-convergence`");
-    expect(register).toContain("`deferred-checkout-order-proof`");
-    expect(register).toContain("`security.manage` actor permission plus a non-placeholder production proof reference");
+    expect(register).not.toContain("`deferred-checkout-order-proof`");
     expect(register).not.toMatch(/\|\s*`[^`]+`\s*\|\s*Checkout\s*\|\s*Yes\s*\|/);
   });
 
-  it("keeps retained internal helper proof permission-gated and not customer reachable", () => {
-    const proof = readText(internalHelperProofPath);
+  it("keeps retained internal helper guard permission-gated and not customer reachable", () => {
+    const guard = readText(internalHelperGuardPath);
     const requiredHelpers = [
       "`marketplace-production-proof-access`",
-      "`deferred-checkout-order-proof`",
       "`admin-support-projection-diagnostics`",
       "`catalog-provider-diagnostics-and-test-utilities`",
       "`support-lookup-and-recovery-diagnostics`",
@@ -206,16 +204,17 @@ describe("fresh checkout read-model schemas", () => {
     ];
 
     for (const helper of requiredHelpers) {
-      expect(proof).toContain(helper);
+      expect(guard).toContain(helper);
     }
 
-    expect(proof).toContain("`security.manage`");
-    expect(proof).toContain("`catalog.view`");
-    expect(proof).toContain("`catalog.manage`");
-    expect(proof).toContain("signature-checked");
-    expect(proof).toContain("This checkout action is restricted.");
+    expect(guard).not.toContain("`deferred-checkout-order-proof`");
+    expect(guard).toContain("`security.manage`");
+    expect(guard).toContain("`catalog.view`");
+    expect(guard).toContain("`catalog.manage`");
+    expect(guard).toContain("signature-checked");
+    expect(guard).toContain("Confirmation requires the normal payment quote path");
 
-    const helperRows = proof
+    const helperRows = guard
       .split("\n")
       .filter((line) => line.startsWith("| `"))
       .map((line) => line.split("|").map((cell) => cell.trim()));
@@ -225,13 +224,9 @@ describe("fresh checkout read-model schemas", () => {
     }
   });
 
-  it("keeps customer-visible restricted helper copy generic", () => {
+  it("does not keep checkout deferred-payment helper localization", () => {
     const localization = readText(join(repoRoot, "contracts", "localization", "locales", "en", "checkout.ts"));
-    const restrictedMessage = localization.match(
-      /"checkout\.features\.sessions\.api\.route\.deferred\.checkout\.order\.proof\.required":\s*"([^"]+)"/,
-    )?.[1];
 
-    expect(restrictedMessage).toBe("This checkout action is restricted.");
-    expect(restrictedMessage).not.toMatch(/\bproof\b|\bdiagnostic\b|\bprovider\b|\boperator\b/i);
+    expect(localization).not.toContain("deferred.checkout.order.proof.required");
   });
 });

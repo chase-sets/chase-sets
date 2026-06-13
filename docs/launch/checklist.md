@@ -39,7 +39,7 @@
 
 - [ ] Stripe production-mode payment succeeds, and declined-card recovery leaves no partial order.
 - [ ] Stripe webhook replays and payment retries do not duplicate charges, orders, labels, payouts, or notifications (baseline: PR #1499).
-- [ ] Customer-facing `deferPayment` is disabled; any internal proof helper is permission-gated and unreachable by customers (baseline: PR #1539).
+- [ ] Checkout has no deferred-payment proof helper; final confirmation requires the normal payment quote path before order creation or payment handoff.
 - [ ] Refund, void, label cancellation, payout hold/reversal, and operator recovery either work through owned actions or are launch-disabled in code with customer-safe support copy (policy baseline: PR #1449).
 - [ ] EasyPost production mode and label purchase are verified before enabling label purchase; otherwise label purchase remains launch-disabled with safe copy (provider baseline: PR #1541).
 
