@@ -73,7 +73,7 @@ import {
   TokenSwatch,
   Wizard,
 } from "../patterns/app-shells";
-import { SkipLink } from "../primitives/layout";
+import { Box, SkipLink, Stack, Surface } from "../primitives/layout";
 import { ChaseRoot, ColorModeToggle, useChaseMotion, useReducedMotion } from "../theme/provider";
 import { chaseTheme, resolveThemeOverrideStyle, resolveThemeStyle, type SpaceToken } from "../theme/tokens";
 import { resolveResponsiveClass, resolveSpaceClass } from "../utils/system";
@@ -1117,6 +1117,41 @@ describe("design system components", () => {
     expect(resolveSpaceClass("gap", 5)).toBe("gap-5");
     expect(resolveSpaceClass("p", 6)).toBe("p-6");
     expect(resolveSpaceClass("px", 12)).toBe("px-12");
+  });
+
+  it("renders responsive spacing props on layout primitives", () => {
+    const markup = renderToString(
+      <ChaseRoot>
+        <Box
+          padding={{ base: 3, md: 6 }}
+          paddingX={{ base: 2, lg: 4 }}
+          paddingY={{ base: 1, sm: 3 }}
+          gap={{ base: 2, xl: 5 }}
+        >
+          Box content
+        </Box>
+        <Stack gap={{ base: 1, md: 4 }}>
+          <span>Stack content</span>
+        </Stack>
+        <Surface padding={{ base: 4, md: 8 }} gap={{ base: 2, lg: 6 }}>
+          Surface content
+        </Surface>
+      </ChaseRoot>,
+    );
+
+    expect(markup).toContain("p-3");
+    expect(markup).toContain("md:p-6");
+    expect(markup).toContain("px-2");
+    expect(markup).toContain("lg:px-4");
+    expect(markup).toContain("py-1");
+    expect(markup).toContain("sm:py-3");
+    expect(markup).toContain("gap-2");
+    expect(markup).toContain("xl:gap-5");
+    expect(markup).toContain("gap-1");
+    expect(markup).toContain("md:gap-4");
+    expect(markup).toContain("p-4");
+    expect(markup).toContain("md:p-8");
+    expect(markup).toContain("lg:gap-6");
   });
 
   it("keeps Tailwind spacing keys aligned to SpaceToken CSS variables", () => {

@@ -114,7 +114,7 @@ export interface StackOwnProps extends PropsWithChildren {
   direction?: ResponsiveValue<DirectionValue>;
   align?: ResponsiveValue<AlignValue>;
   justify?: ResponsiveValue<JustifyValue>;
-  gap?: SpaceToken;
+  gap?: ResponsiveValue<SpaceToken>;
 }
 
 export type StackProps<TTarget extends ElementType = "div"> = PolymorphicProps<TTarget, StackOwnProps>;
@@ -144,7 +144,7 @@ export const Stack = forwardRef(function Stack(
         resolveDirectionClass(direction),
         resolveAlignClass(align),
         resolveJustifyClass(justify),
-        resolveSpaceClass("gap", gap),
+        resolveSystemProps({ gap }),
       )}
     >
       {children}
@@ -153,14 +153,14 @@ export const Stack = forwardRef(function Stack(
 }) as PolymorphicPrimitive<StackOwnProps, "div">;
 
 export interface InlineProps extends PropsWithChildren, Omit<FrameProps, "children"> {
-  gap?: SpaceToken;
+  gap?: ResponsiveValue<SpaceToken>;
   align?: ResponsiveValue<AlignValue>;
   wrap?: boolean;
 }
 
 export function Inline({ children, gap = 3, align = "center", wrap = true, ...rest }: InlineProps) {
   return (
-    <div {...rest} className={cx("flex", wrap && "flex-wrap", resolveAlignClass(align), resolveSpaceClass("gap", gap))}>
+    <div {...rest} className={cx("flex", wrap && "flex-wrap", resolveAlignClass(align), resolveSystemProps({ gap }))}>
       {children}
     </div>
   );
@@ -178,7 +178,7 @@ export function Cluster({ children, justify = "between", gap = 3, align = "cente
         "flex w-full flex-wrap",
         resolveAlignClass(align),
         resolveJustifyClass(justify),
-        resolveSpaceClass("gap", gap),
+        resolveSystemProps({ gap }),
       )}
     >
       {children}
@@ -188,7 +188,7 @@ export function Cluster({ children, justify = "between", gap = 3, align = "cente
 
 export interface GridProps extends PropsWithChildren, Omit<FrameProps, "children"> {
   columns?: ResponsiveValue<ColumnCount>;
-  gap?: SpaceToken;
+  gap?: ResponsiveValue<SpaceToken>;
   align?: ResponsiveValue<AlignValue>;
   justify?: ResponsiveValue<JustifyValue>;
 }
@@ -202,7 +202,7 @@ export function Grid({ children, columns = { base: 1, md: 2, xl: 3 }, gap = 4, a
         resolveColumnsClass(columns),
         resolveAlignClass(align),
         resolveJustifyClass(justify),
-        resolveSpaceClass("gap", gap),
+        resolveSystemProps({ gap }),
       )}
     >
       {children}
@@ -212,7 +212,7 @@ export function Grid({ children, columns = { base: 1, md: 2, xl: 3 }, gap = 4, a
 
 export interface AutoGridProps extends PropsWithChildren, Omit<FrameProps, "children"> {
   minItemWidth?: "sm" | "md" | "lg";
-  gap?: SpaceToken;
+  gap?: ResponsiveValue<SpaceToken>;
 }
 
 const autoGridWidthClasses: Record<NonNullable<AutoGridProps["minItemWidth"]>, string> = {
@@ -223,7 +223,7 @@ const autoGridWidthClasses: Record<NonNullable<AutoGridProps["minItemWidth"]>, s
 
 export function AutoGrid({ children, minItemWidth = "md", gap = 4, ...rest }: AutoGridProps) {
   return (
-    <div {...rest} className={cx("grid", autoGridWidthClasses[minItemWidth], resolveSpaceClass("gap", gap))}>
+    <div {...rest} className={cx("grid", autoGridWidthClasses[minItemWidth], resolveSystemProps({ gap }))}>
       {children}
     </div>
   );

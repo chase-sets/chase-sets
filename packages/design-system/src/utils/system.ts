@@ -10,12 +10,13 @@ export type DirectionValue = "row" | "column";
 
 type BreakpointKey = "base" | "sm" | "md" | "lg" | "xl" | "2xl";
 type BreakpointClassMap<T extends string | number> = Record<`${T}`, Record<BreakpointKey, string>>;
+type ResponsiveSpaceToken = ResponsiveValue<ThemeSpaceToken>;
 
 export interface SystemProps {
-  padding?: ThemeSpaceToken;
-  paddingX?: ThemeSpaceToken;
-  paddingY?: ThemeSpaceToken;
-  gap?: ThemeSpaceToken;
+  padding?: ResponsiveSpaceToken;
+  paddingX?: ResponsiveSpaceToken;
+  paddingY?: ResponsiveSpaceToken;
+  gap?: ResponsiveSpaceToken;
   textAlign?: TextAlignValue;
 }
 
@@ -175,7 +176,8 @@ const columnsClasses: BreakpointClassMap<ColumnCount> = {
   },
 };
 
-type SpacePrefix = "p" | "px" | "py" | "mx" | "my" | "-mx" | "-my" | "gap";
+type ResponsiveSpacePrefix = "p" | "px" | "py" | "gap";
+type SpacePrefix = ResponsiveSpacePrefix | "mx" | "my" | "-mx" | "-my";
 
 const spaceClasses: Record<SpacePrefix, Record<ThemeSpaceToken, string>> = {
   p: {
@@ -302,12 +304,443 @@ const spaceClasses: Record<SpacePrefix, Record<ThemeSpaceToken, string>> = {
   },
 };
 
+const responsiveSpaceClasses: Record<ResponsiveSpacePrefix, BreakpointClassMap<ThemeSpaceToken>> = {
+  p: {
+    0: {
+      base: "p-0",
+      sm: "sm:p-0",
+      md: "md:p-0",
+      lg: "lg:p-0",
+      xl: "xl:p-0",
+      "2xl": "2xl:p-0",
+    },
+    1: {
+      base: "p-1",
+      sm: "sm:p-1",
+      md: "md:p-1",
+      lg: "lg:p-1",
+      xl: "xl:p-1",
+      "2xl": "2xl:p-1",
+    },
+    2: {
+      base: "p-2",
+      sm: "sm:p-2",
+      md: "md:p-2",
+      lg: "lg:p-2",
+      xl: "xl:p-2",
+      "2xl": "2xl:p-2",
+    },
+    3: {
+      base: "p-3",
+      sm: "sm:p-3",
+      md: "md:p-3",
+      lg: "lg:p-3",
+      xl: "xl:p-3",
+      "2xl": "2xl:p-3",
+    },
+    4: {
+      base: "p-4",
+      sm: "sm:p-4",
+      md: "md:p-4",
+      lg: "lg:p-4",
+      xl: "xl:p-4",
+      "2xl": "2xl:p-4",
+    },
+    5: {
+      base: "p-5",
+      sm: "sm:p-5",
+      md: "md:p-5",
+      lg: "lg:p-5",
+      xl: "xl:p-5",
+      "2xl": "2xl:p-5",
+    },
+    6: {
+      base: "p-6",
+      sm: "sm:p-6",
+      md: "md:p-6",
+      lg: "lg:p-6",
+      xl: "xl:p-6",
+      "2xl": "2xl:p-6",
+    },
+    7: {
+      base: "p-7",
+      sm: "sm:p-7",
+      md: "md:p-7",
+      lg: "lg:p-7",
+      xl: "xl:p-7",
+      "2xl": "2xl:p-7",
+    },
+    8: {
+      base: "p-8",
+      sm: "sm:p-8",
+      md: "md:p-8",
+      lg: "lg:p-8",
+      xl: "xl:p-8",
+      "2xl": "2xl:p-8",
+    },
+    9: {
+      base: "p-9",
+      sm: "sm:p-9",
+      md: "md:p-9",
+      lg: "lg:p-9",
+      xl: "xl:p-9",
+      "2xl": "2xl:p-9",
+    },
+    10: {
+      base: "p-10",
+      sm: "sm:p-10",
+      md: "md:p-10",
+      lg: "lg:p-10",
+      xl: "xl:p-10",
+      "2xl": "2xl:p-10",
+    },
+    11: {
+      base: "p-11",
+      sm: "sm:p-11",
+      md: "md:p-11",
+      lg: "lg:p-11",
+      xl: "xl:p-11",
+      "2xl": "2xl:p-11",
+    },
+    12: {
+      base: "p-12",
+      sm: "sm:p-12",
+      md: "md:p-12",
+      lg: "lg:p-12",
+      xl: "xl:p-12",
+      "2xl": "2xl:p-12",
+    },
+  },
+  px: {
+    0: {
+      base: "px-0",
+      sm: "sm:px-0",
+      md: "md:px-0",
+      lg: "lg:px-0",
+      xl: "xl:px-0",
+      "2xl": "2xl:px-0",
+    },
+    1: {
+      base: "px-1",
+      sm: "sm:px-1",
+      md: "md:px-1",
+      lg: "lg:px-1",
+      xl: "xl:px-1",
+      "2xl": "2xl:px-1",
+    },
+    2: {
+      base: "px-2",
+      sm: "sm:px-2",
+      md: "md:px-2",
+      lg: "lg:px-2",
+      xl: "xl:px-2",
+      "2xl": "2xl:px-2",
+    },
+    3: {
+      base: "px-3",
+      sm: "sm:px-3",
+      md: "md:px-3",
+      lg: "lg:px-3",
+      xl: "xl:px-3",
+      "2xl": "2xl:px-3",
+    },
+    4: {
+      base: "px-4",
+      sm: "sm:px-4",
+      md: "md:px-4",
+      lg: "lg:px-4",
+      xl: "xl:px-4",
+      "2xl": "2xl:px-4",
+    },
+    5: {
+      base: "px-5",
+      sm: "sm:px-5",
+      md: "md:px-5",
+      lg: "lg:px-5",
+      xl: "xl:px-5",
+      "2xl": "2xl:px-5",
+    },
+    6: {
+      base: "px-6",
+      sm: "sm:px-6",
+      md: "md:px-6",
+      lg: "lg:px-6",
+      xl: "xl:px-6",
+      "2xl": "2xl:px-6",
+    },
+    7: {
+      base: "px-7",
+      sm: "sm:px-7",
+      md: "md:px-7",
+      lg: "lg:px-7",
+      xl: "xl:px-7",
+      "2xl": "2xl:px-7",
+    },
+    8: {
+      base: "px-8",
+      sm: "sm:px-8",
+      md: "md:px-8",
+      lg: "lg:px-8",
+      xl: "xl:px-8",
+      "2xl": "2xl:px-8",
+    },
+    9: {
+      base: "px-9",
+      sm: "sm:px-9",
+      md: "md:px-9",
+      lg: "lg:px-9",
+      xl: "xl:px-9",
+      "2xl": "2xl:px-9",
+    },
+    10: {
+      base: "px-10",
+      sm: "sm:px-10",
+      md: "md:px-10",
+      lg: "lg:px-10",
+      xl: "xl:px-10",
+      "2xl": "2xl:px-10",
+    },
+    11: {
+      base: "px-11",
+      sm: "sm:px-11",
+      md: "md:px-11",
+      lg: "lg:px-11",
+      xl: "xl:px-11",
+      "2xl": "2xl:px-11",
+    },
+    12: {
+      base: "px-12",
+      sm: "sm:px-12",
+      md: "md:px-12",
+      lg: "lg:px-12",
+      xl: "xl:px-12",
+      "2xl": "2xl:px-12",
+    },
+  },
+  py: {
+    0: {
+      base: "py-0",
+      sm: "sm:py-0",
+      md: "md:py-0",
+      lg: "lg:py-0",
+      xl: "xl:py-0",
+      "2xl": "2xl:py-0",
+    },
+    1: {
+      base: "py-1",
+      sm: "sm:py-1",
+      md: "md:py-1",
+      lg: "lg:py-1",
+      xl: "xl:py-1",
+      "2xl": "2xl:py-1",
+    },
+    2: {
+      base: "py-2",
+      sm: "sm:py-2",
+      md: "md:py-2",
+      lg: "lg:py-2",
+      xl: "xl:py-2",
+      "2xl": "2xl:py-2",
+    },
+    3: {
+      base: "py-3",
+      sm: "sm:py-3",
+      md: "md:py-3",
+      lg: "lg:py-3",
+      xl: "xl:py-3",
+      "2xl": "2xl:py-3",
+    },
+    4: {
+      base: "py-4",
+      sm: "sm:py-4",
+      md: "md:py-4",
+      lg: "lg:py-4",
+      xl: "xl:py-4",
+      "2xl": "2xl:py-4",
+    },
+    5: {
+      base: "py-5",
+      sm: "sm:py-5",
+      md: "md:py-5",
+      lg: "lg:py-5",
+      xl: "xl:py-5",
+      "2xl": "2xl:py-5",
+    },
+    6: {
+      base: "py-6",
+      sm: "sm:py-6",
+      md: "md:py-6",
+      lg: "lg:py-6",
+      xl: "xl:py-6",
+      "2xl": "2xl:py-6",
+    },
+    7: {
+      base: "py-7",
+      sm: "sm:py-7",
+      md: "md:py-7",
+      lg: "lg:py-7",
+      xl: "xl:py-7",
+      "2xl": "2xl:py-7",
+    },
+    8: {
+      base: "py-8",
+      sm: "sm:py-8",
+      md: "md:py-8",
+      lg: "lg:py-8",
+      xl: "xl:py-8",
+      "2xl": "2xl:py-8",
+    },
+    9: {
+      base: "py-9",
+      sm: "sm:py-9",
+      md: "md:py-9",
+      lg: "lg:py-9",
+      xl: "xl:py-9",
+      "2xl": "2xl:py-9",
+    },
+    10: {
+      base: "py-10",
+      sm: "sm:py-10",
+      md: "md:py-10",
+      lg: "lg:py-10",
+      xl: "xl:py-10",
+      "2xl": "2xl:py-10",
+    },
+    11: {
+      base: "py-11",
+      sm: "sm:py-11",
+      md: "md:py-11",
+      lg: "lg:py-11",
+      xl: "xl:py-11",
+      "2xl": "2xl:py-11",
+    },
+    12: {
+      base: "py-12",
+      sm: "sm:py-12",
+      md: "md:py-12",
+      lg: "lg:py-12",
+      xl: "xl:py-12",
+      "2xl": "2xl:py-12",
+    },
+  },
+  gap: {
+    0: {
+      base: "gap-0",
+      sm: "sm:gap-0",
+      md: "md:gap-0",
+      lg: "lg:gap-0",
+      xl: "xl:gap-0",
+      "2xl": "2xl:gap-0",
+    },
+    1: {
+      base: "gap-1",
+      sm: "sm:gap-1",
+      md: "md:gap-1",
+      lg: "lg:gap-1",
+      xl: "xl:gap-1",
+      "2xl": "2xl:gap-1",
+    },
+    2: {
+      base: "gap-2",
+      sm: "sm:gap-2",
+      md: "md:gap-2",
+      lg: "lg:gap-2",
+      xl: "xl:gap-2",
+      "2xl": "2xl:gap-2",
+    },
+    3: {
+      base: "gap-3",
+      sm: "sm:gap-3",
+      md: "md:gap-3",
+      lg: "lg:gap-3",
+      xl: "xl:gap-3",
+      "2xl": "2xl:gap-3",
+    },
+    4: {
+      base: "gap-4",
+      sm: "sm:gap-4",
+      md: "md:gap-4",
+      lg: "lg:gap-4",
+      xl: "xl:gap-4",
+      "2xl": "2xl:gap-4",
+    },
+    5: {
+      base: "gap-5",
+      sm: "sm:gap-5",
+      md: "md:gap-5",
+      lg: "lg:gap-5",
+      xl: "xl:gap-5",
+      "2xl": "2xl:gap-5",
+    },
+    6: {
+      base: "gap-6",
+      sm: "sm:gap-6",
+      md: "md:gap-6",
+      lg: "lg:gap-6",
+      xl: "xl:gap-6",
+      "2xl": "2xl:gap-6",
+    },
+    7: {
+      base: "gap-7",
+      sm: "sm:gap-7",
+      md: "md:gap-7",
+      lg: "lg:gap-7",
+      xl: "xl:gap-7",
+      "2xl": "2xl:gap-7",
+    },
+    8: {
+      base: "gap-8",
+      sm: "sm:gap-8",
+      md: "md:gap-8",
+      lg: "lg:gap-8",
+      xl: "xl:gap-8",
+      "2xl": "2xl:gap-8",
+    },
+    9: {
+      base: "gap-9",
+      sm: "sm:gap-9",
+      md: "md:gap-9",
+      lg: "lg:gap-9",
+      xl: "xl:gap-9",
+      "2xl": "2xl:gap-9",
+    },
+    10: {
+      base: "gap-10",
+      sm: "sm:gap-10",
+      md: "md:gap-10",
+      lg: "lg:gap-10",
+      xl: "xl:gap-10",
+      "2xl": "2xl:gap-10",
+    },
+    11: {
+      base: "gap-11",
+      sm: "sm:gap-11",
+      md: "md:gap-11",
+      lg: "lg:gap-11",
+      xl: "xl:gap-11",
+      "2xl": "2xl:gap-11",
+    },
+    12: {
+      base: "gap-12",
+      sm: "sm:gap-12",
+      md: "md:gap-12",
+      lg: "lg:gap-12",
+      xl: "xl:gap-12",
+      "2xl": "2xl:gap-12",
+    },
+  },
+};
+
 export function resolveSpaceClass(prefix: SpacePrefix, value?: ThemeSpaceToken): string {
   if (value === undefined) {
     return "";
   }
 
   return spaceClasses[prefix][value];
+}
+
+function resolveResponsiveSpaceClass(prefix: ResponsiveSpacePrefix, value?: ResponsiveSpaceToken): string {
+  return resolveResponsiveClass(value, responsiveSpaceClasses[prefix]);
 }
 
 export function resolveTextAlignClass(value?: TextAlignValue): string {
@@ -357,10 +790,10 @@ export function resolveColumnsClass(value?: ResponsiveValue<ColumnCount>): strin
 
 export function resolveSystemProps(props: SystemProps): string {
   return cx(
-    resolveSpaceClass("p", props.padding),
-    resolveSpaceClass("px", props.paddingX),
-    resolveSpaceClass("py", props.paddingY),
-    resolveSpaceClass("gap", props.gap),
+    resolveResponsiveSpaceClass("p", props.padding),
+    resolveResponsiveSpaceClass("px", props.paddingX),
+    resolveResponsiveSpaceClass("py", props.paddingY),
+    resolveResponsiveSpaceClass("gap", props.gap),
     resolveTextAlignClass(props.textAlign),
   );
 }
