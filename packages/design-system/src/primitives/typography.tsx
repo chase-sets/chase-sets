@@ -43,6 +43,15 @@ const textToneClasses = {
   danger: "text-danger",
 } as const;
 
+const lineClampClasses = {
+  1: "line-clamp-1",
+  2: "line-clamp-2",
+  3: "line-clamp-3",
+  4: "line-clamp-4",
+  5: "line-clamp-5",
+  6: "line-clamp-6",
+} as const;
+
 export interface TextOwnProps {
   children?: ReactNode;
   element?: TextElement;
@@ -52,6 +61,8 @@ export interface TextOwnProps {
   align?: TextAlignValue;
   truncate?: boolean;
   wrap?: "normal" | "break" | "anywhere";
+  /** Clamp to a fixed number of lines, adding an ellipsis when content overflows. */
+  lineClamp?: keyof typeof lineClampClasses;
 }
 
 export type TextProps<TTarget extends ElementType = "p"> = PolymorphicProps<TTarget, TextOwnProps>;
@@ -68,6 +79,7 @@ export const Text = forwardRef(function Text(
     align,
     truncate = false,
     wrap = "normal",
+    lineClamp,
     ...rest
   }: TextProps<ElementType>,
   ref: Ref<unknown>,
@@ -87,6 +99,7 @@ export const Text = forwardRef(function Text(
         truncate && "truncate",
         wrap === "break" && "break-words",
         wrap === "anywhere" && "break-words [overflow-wrap:anywhere]",
+        lineClamp && lineClampClasses[lineClamp],
       )}
     >
       {children}
@@ -99,6 +112,8 @@ export interface HeadingProps extends FrameProps {
   level?: HeadingLevel;
   visualSize?: HeadingLevel;
   align?: TextAlignValue;
+  /** Balance line lengths (`text-wrap: balance`) so short multi-line headings break evenly. */
+  balance?: boolean;
 }
 
 const headingClasses: Record<HeadingLevel, string> = {
@@ -110,11 +125,14 @@ const headingClasses: Record<HeadingLevel, string> = {
   6: "font-heading text-base font-semibold leading-snug",
 };
 
-export function Heading({ children, level = 2, visualSize = level, align, ...rest }: HeadingProps) {
+export function Heading({ children, level = 2, visualSize = level, align, balance = false, ...rest }: HeadingProps) {
   const Component = `h${level}` as const;
 
   return (
-    <Component {...rest} className={cx(headingClasses[visualSize], resolveTextAlignClass(align))}>
+    <Component
+      {...rest}
+      className={cx(headingClasses[visualSize], resolveTextAlignClass(align), balance && "text-balance")}
+    >
       {children}
     </Component>
   );
