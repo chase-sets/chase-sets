@@ -109,11 +109,209 @@
       "@chase-sets/design-system": [
         "./packages/design-system/src/index.ts"
       ],
+      "@chase-sets/design-system/account-menu": [
+        "./packages/design-system/src/components/actions/account-menu.tsx"
+      ],
+      "@chase-sets/design-system/actions": [
+        "./packages/design-system/src/components/actions/index.ts"
+      ],
+      "@chase-sets/design-system/alert-dialog": [
+        "./packages/design-system/src/components/feedback/alert-dialog.tsx"
+      ],
+      "@chase-sets/design-system/app-shells": [
+        "./packages/design-system/src/patterns/app-shells.tsx"
+      ],
+      "@chase-sets/design-system/autocomplete": [
+        "./packages/design-system/src/components/forms/autocomplete.tsx"
+      ],
+      "@chase-sets/design-system/badge": [
+        "./packages/design-system/src/components/feedback/badge.tsx"
+      ],
+      "@chase-sets/design-system/banner": [
+        "./packages/design-system/src/components/feedback/banner.tsx"
+      ],
+      "@chase-sets/design-system/brand": [
+        "./packages/design-system/src/brand/chase-sets-logo.tsx"
+      ],
+      "@chase-sets/design-system/breadcrumbs": [
+        "./packages/design-system/src/components/actions/breadcrumbs.tsx"
+      ],
+      "@chase-sets/design-system/button": [
+        "./packages/design-system/src/components/actions/button.tsx"
+      ],
+      "@chase-sets/design-system/card": [
+        "./packages/design-system/src/components/data-display/card.tsx"
+      ],
+      "@chase-sets/design-system/checkbox": [
+        "./packages/design-system/src/components/forms/checkbox.tsx"
+      ],
+      "@chase-sets/design-system/checkout": [
+        "./packages/design-system/src/components/checkout/index.ts"
+      ],
+      "@chase-sets/design-system/combobox": [
+        "./packages/design-system/src/components/forms/combobox.tsx"
+      ],
+      "@chase-sets/design-system/commerce": [
+        "./packages/design-system/src/components/commerce/index.tsx"
+      ],
+      "@chase-sets/design-system/commerce/account": [
+        "./packages/design-system/src/components/commerce/account.tsx"
+      ],
+      "@chase-sets/design-system/commerce/cart-line-item": [
+        "./packages/design-system/src/components/commerce/cart-line-item.tsx"
+      ],
+      "@chase-sets/design-system/commerce/checkout": [
+        "./packages/design-system/src/components/commerce/checkout.tsx"
+      ],
+      "@chase-sets/design-system/commerce/detail": [
+        "./packages/design-system/src/components/commerce/detail.tsx"
+      ],
+      "@chase-sets/design-system/commerce/listings": [
+        "./packages/design-system/src/components/commerce/listings.tsx"
+      ],
+      "@chase-sets/design-system/commerce/panels": [
+        "./packages/design-system/src/components/commerce/panels.tsx"
+      ],
+      "@chase-sets/design-system/commerce/search": [
+        "./packages/design-system/src/components/commerce/search.tsx"
+      ],
+      "@chase-sets/design-system/commerce/trust": [
+        "./packages/design-system/src/components/commerce/trust.tsx"
+      ],
+      "@chase-sets/design-system/copy-button": [
+        "./packages/design-system/src/components/actions/copy-button.tsx"
+      ],
+      "@chase-sets/design-system/data-display": [
+        "./packages/design-system/src/components/data-display/index.ts"
+      ],
+      "@chase-sets/design-system/data-table": [
+        "./packages/design-system/src/components/data-display/data-table.tsx"
+      ],
+      "@chase-sets/design-system/date-picker": [
+        "./packages/design-system/src/components/forms/date-picker.tsx"
+      ],
+      "@chase-sets/design-system/dialog": [
+        "./packages/design-system/src/components/feedback/dialog.tsx"
+      ],
+      "@chase-sets/design-system/field": [
+        "./packages/design-system/src/components/forms/field.tsx"
+      ],
+      "@chase-sets/design-system/form": [
+        "./packages/design-system/src/components/forms/form.tsx"
+      ],
+      "@chase-sets/design-system/forms": [
+        "./packages/design-system/src/components/forms/index.ts"
+      ],
+      "@chase-sets/design-system/hooks": [
+        "./packages/design-system/src/hooks/index.ts"
+      ],
+      "@chase-sets/design-system/icons": [
+        "./packages/design-system/src/icons/index.tsx"
+      ],
+      "@chase-sets/design-system/image-gallery": [
+        "./packages/design-system/src/components/data-display/image-gallery.tsx"
+      ],
+      "@chase-sets/design-system/key-value-list": [
+        "./packages/design-system/src/components/data-display/key-value-list.tsx"
+      ],
+      "@chase-sets/design-system/layout": [
+        "./packages/design-system/src/primitives/layout.tsx"
+      ],
+      "@chase-sets/design-system/loading": [
+        "./packages/design-system/src/components/feedback/loading.tsx"
+      ],
+      "@chase-sets/design-system/menu": [
+        "./packages/design-system/src/components/feedback/menu.tsx"
+      ],
+      "@chase-sets/design-system/motion": [
+        "./packages/design-system/src/motion/primitives.tsx"
+      ],
+      "@chase-sets/design-system/motion/config": [
+        "./packages/design-system/src/motion/config.ts"
+      ],
+      "@chase-sets/design-system/motion/primitives": [
+        "./packages/design-system/src/motion/primitives.tsx"
+      ],
+      "@chase-sets/design-system/navigation": [
+        "./packages/design-system/src/components/actions/navigation.tsx"
+      ],
+      "@chase-sets/design-system/navigation-menu": [
+        "./packages/design-system/src/components/actions/navigation-menu.tsx"
+      ],
+      "@chase-sets/design-system/number-field": [
+        "./packages/design-system/src/components/forms/number-field.tsx"
+      ],
+      "@chase-sets/design-system/pagination": [
+        "./packages/design-system/src/components/actions/pagination.tsx"
+      ],
+      "@chase-sets/design-system/popover": [
+        "./packages/design-system/src/components/feedback/popover.tsx"
+      ],
+      "@chase-sets/design-system/print": [
+        "./packages/design-system/src/components/print/index.ts"
+      ],
+      "@chase-sets/design-system/product-options": [
+        "./packages/design-system/src/components/data-display/product-options.tsx"
+      ],
+      "@chase-sets/design-system/radio-group": [
+        "./packages/design-system/src/components/forms/radio-group.tsx"
+      ],
       "@chase-sets/design-system/react-router": [
         "./packages/design-system/src/components/forms/router-form.tsx"
       ],
+      "@chase-sets/design-system/segmented-control": [
+        "./packages/design-system/src/components/actions/segmented-control.tsx"
+      ],
+      "@chase-sets/design-system/select": [
+        "./packages/design-system/src/components/forms/select.tsx"
+      ],
+      "@chase-sets/design-system/stat": [
+        "./packages/design-system/src/components/data-display/stat.tsx"
+      ],
       "@chase-sets/design-system/styles.css": [
         "./packages/design-system/src/styles/styles.css"
+      ],
+      "@chase-sets/design-system/switch": [
+        "./packages/design-system/src/components/forms/switch.tsx"
+      ],
+      "@chase-sets/design-system/table": [
+        "./packages/design-system/src/components/data-display/table.tsx"
+      ],
+      "@chase-sets/design-system/tabs": [
+        "./packages/design-system/src/components/actions/tabs.tsx"
+      ],
+      "@chase-sets/design-system/text-input": [
+        "./packages/design-system/src/components/forms/text-input.tsx"
+      ],
+      "@chase-sets/design-system/theme": [
+        "./packages/design-system/src/theme/provider.tsx"
+      ],
+      "@chase-sets/design-system/theme/tokens": [
+        "./packages/design-system/src/theme/tokens.ts"
+      ],
+      "@chase-sets/design-system/toast": [
+        "./packages/design-system/src/components/feedback/toast.tsx"
+      ],
+      "@chase-sets/design-system/toggle": [
+        "./packages/design-system/src/components/actions/toggle.tsx"
+      ],
+      "@chase-sets/design-system/toolbar": [
+        "./packages/design-system/src/components/actions/toolbar.tsx"
+      ],
+      "@chase-sets/design-system/tooltip": [
+        "./packages/design-system/src/components/feedback/tooltip.tsx"
+      ],
+      "@chase-sets/design-system/typography": [
+        "./packages/design-system/src/primitives/typography.tsx"
+      ],
+      "@chase-sets/design-system/utils": [
+        "./packages/design-system/src/lib/utils.ts"
+      ],
+      "@chase-sets/design-system/utils/cx": [
+        "./packages/design-system/src/utils/cx.ts"
+      ],
+      "@chase-sets/design-system/utils/system": [
+        "./packages/design-system/src/utils/system.ts"
       ],
       "@chase-sets/discovery": [
         "./bounded-contexts/discovery/index.ts"
