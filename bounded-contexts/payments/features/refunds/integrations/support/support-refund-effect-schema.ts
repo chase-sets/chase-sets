@@ -13,16 +13,6 @@ CREATE TABLE IF NOT EXISTS payments_support_refund_effects (
   updated_at timestamptz NOT NULL
 );
 
-ALTER TABLE payments_support_refund_effects
-  ADD COLUMN IF NOT EXISTS refund_effect_id text;
-
-UPDATE payments_support_refund_effects
-SET refund_effect_id = 'sre_' || regexp_replace(support_request_id, '^sup_', '')
-WHERE refund_effect_id IS NULL;
-
-ALTER TABLE payments_support_refund_effects
-  ALTER COLUMN refund_effect_id SET NOT NULL;
-
 CREATE UNIQUE INDEX IF NOT EXISTS payments_support_refund_effects_effect_id_idx
   ON payments_support_refund_effects (refund_effect_id);
 
