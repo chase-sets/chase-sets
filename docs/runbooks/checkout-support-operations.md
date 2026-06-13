@@ -36,7 +36,7 @@ recovery or launch incident triage using the support-safe checkout reference.
 ## Safety Rules
 
 - Use only support-safe references in tickets, screenshots, GitHub comments, and
-  launch evidence. Do not paste raw checkout session ids, account ids, emails,
+  support notes. Do not paste raw checkout session ids, account ids, emails,
   addresses, provider payloads, card or bank details, full URLs, cookies,
   after-write receipts, or sensitive risk signals.
 - Never route a customer to the dense legacy checkout, old checkout links, old
@@ -146,33 +146,4 @@ recovery or launch incident triage using the support-safe checkout reference.
    - separate Settlement hold and hold-release evidence references;
    - support notification evidence.
 5. Keep the support request open until Payments and Settlement evidence is
-   attached or the launch-approved deferral/runbook path is recorded.
-
-## Launch Evidence
-
-Build the Support Operations gate from the staging rehearsal record:
-
-```powershell
-pnpm run ops marketplace:support-operations-evidence --rehearsal .\secure\support-operations-rehearsal-2026-05-30.json --reference SUPPORT-OPS-2026-05-30
-```
-
-The rehearsal record must prove:
-
-- buyer and seller issue opening;
-- operations queue review;
-- overdue escalation;
-- evidence, response, escalation, resolution, close, and cancel endpoints;
-- refund-producing resolution;
-- Settlement hold coordination and hold release;
-- support notifications.
-
-The command fails the gate unless the record uses a staging environment, a
-current release commit, fresh `rehearsalCompletedAt`, separate buyer and seller
-`sup_` ids, a buyer-tied refund resolution, Payments `sre_` and `rfd_` ids,
-Settlement `hold_` id, separate hold and hold-release evidence references, and
-all required cross-context evidence references.
-
-Before #1122 can close, attach the private support operations evidence
-reference to #1122 and the Marketplace Launch Evidence packet. The public issue
-comment should include only redacted statuses, workflow/run references, gate
-result, and support-safe ids or id prefixes when needed.
+   attached or an approved deferral path is recorded.

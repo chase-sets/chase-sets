@@ -5,7 +5,7 @@ const runbook = readFileSync(new URL("../docs/runbooks/checkout-support-operatio
 const normalizedRunbook = runbook.replace(/\s+/g, " ");
 
 describe("checkout support operations runbook", () => {
-  it("covers the launch-required support scenarios", () => {
+  it("covers the checkout support scenarios", () => {
     for (const heading of [
       "## Stuck Checkout Procedure",
       "## Payment Dispute Or Failure Procedure",
@@ -25,7 +25,7 @@ describe("checkout support operations runbook", () => {
     }
   });
 
-  it("keeps support recovery inside launch-safe boundaries", () => {
+  it("keeps support recovery inside safe boundaries", () => {
     for (const requiredBoundary of [
       "Use only support-safe references",
       "Do not open a fake order or sale support request",
@@ -35,5 +35,11 @@ describe("checkout support operations runbook", () => {
     ]) {
       expect(normalizedRunbook).toContain(requiredBoundary);
     }
+  });
+
+  it("does not restore launch evidence ceremony", () => {
+    expect(runbook).not.toContain("## Launch Evidence");
+    expect(runbook).not.toContain("marketplace:support-operations-evidence");
+    expect(runbook).not.toContain("Marketplace Launch Evidence packet");
   });
 });
