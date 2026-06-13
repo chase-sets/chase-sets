@@ -355,7 +355,7 @@ describe("checkout web routes: signed-in buy checkout", () => {
     const confirmFreshReceipt = readFreshWriteToken(new Request(`http://localhost${confirmLocation}`));
 
     expect(confirmResponse.status).toBe(302);
-    expect(confirmLocation).toContain("/account/payments/pay_signed_in_1?afterWrite=");
+    expect(confirmLocation).toContain("/checkout/buy/session/chk_signed_in/confirmation?afterWrite=");
     expect(confirmLocation).not.toContain("/checkout/payments");
     expect(confirmFreshReceipt?.sources).toEqual([
       {

@@ -118,7 +118,7 @@ describe("checkout web routes: checkout session action", () => {
     expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
   });
 
-  it("confirms signed-in checkout and redirects to payment detail", async () => {
+  it("confirms signed-in checkout and redirects to confirmation handoff", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
     mockSelectShippingOption.mockResolvedValue({});
     mockConfirmCheckoutSession.mockResolvedValue({ payment_id: "pay_1", order_ids: ["ord_1"], status: "confirmed" });
@@ -177,7 +177,7 @@ describe("checkout web routes: checkout session action", () => {
       },
     });
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/account/payments/pay_1");
+    expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_1/confirmation");
   });
 
   it("starts payment from checkout review for accelerated saved-payment confirmation", async () => {
@@ -222,7 +222,7 @@ describe("checkout web routes: checkout session action", () => {
       }),
     );
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/account/payments/pay_1");
+    expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_1/confirmation");
   });
 
   it("starts payment when a trusted-step saved instrument is selected", async () => {
@@ -267,7 +267,7 @@ describe("checkout web routes: checkout session action", () => {
       }),
     );
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/account/payments/pay_1");
+    expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_1/confirmation");
   });
 
   it("rejects guest saved checkout instruments before checkout mutations", async () => {
@@ -634,7 +634,7 @@ describe("checkout web routes: checkout session action", () => {
     expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
   });
 
-  it("keeps guest checkout confirmation on the guest payment route", async () => {
+  it("keeps guest checkout confirmation on the checkout confirmation handoff route", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(guestCheckoutActor());
     mockSelectShippingOption.mockResolvedValue({});
     mockConfirmCheckoutSession.mockResolvedValue({ payment_id: "pay_1", order_ids: ["ord_1"] });
@@ -665,7 +665,7 @@ describe("checkout web routes: checkout session action", () => {
     } as never)) as Response;
 
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/checkout/payments/pay_1");
+    expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_1/confirmation");
     expect(mockConfirmCheckoutSession).toHaveBeenCalledWith("chk_1", expect.objectContaining({}));
   });
 

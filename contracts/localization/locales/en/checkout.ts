@@ -192,6 +192,15 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.ui.checkoutPage.platform.credit.only": "Platform credit only",
   "checkout.features.sessions.ui.checkoutPage.postal.code": "Postal code",
   "checkout.features.sessions.ui.checkoutPage.processing.payment": "Processing payment...",
+  "checkout.features.sessions.ui.buyCheckoutConfirmationPage.eyebrow": "Secure checkout",
+  "checkout.features.sessions.ui.buyCheckoutConfirmationPage.title": "Checkout received",
+  "checkout.features.sessions.ui.buyCheckoutConfirmationPage.description":
+    "Your checkout handoff is recorded. Continue to payment to finish securely; order detail, fulfillment, notifications, and account history update as their owning workflows commit.",
+  "checkout.features.sessions.ui.buyCheckoutConfirmationPage.payment.handoff": "Payment handoff",
+  "checkout.features.sessions.ui.buyCheckoutConfirmationPage.payment.reference": "Payment reference",
+  "checkout.features.sessions.ui.buyCheckoutConfirmationPage.summary": "Handoff summary",
+  "checkout.features.sessions.ui.buyCheckoutConfirmationPage.summary.description":
+    "These references connect support to the checkout handoff without exposing payment provider details.",
   "checkout.features.sessions.ui.checkoutPage.package.plan": "Package plan",
   "checkout.features.sessions.ui.checkoutPage.package.plan.value":
     "{packageCount} package{packagePlural} - {serviceLevel}",
@@ -820,6 +829,8 @@ export const checkoutEnglishTranslations = {
   "checkout.routes.checkoutSession.secure.checkout": "Secure checkout",
   "checkout.routes.checkoutSession.sign.in.to.continue": "Sign in to continue",
   "checkout.routes.checkoutSession.start.checkout.again": "Start checkout again",
+  "checkout.routes.buyCheckoutConfirmation.title": "Checkout received | Marketplace",
+  "checkout.routes.buyCheckoutConfirmation.description": "Continue to the secure payment step for this checkout.",
   "checkout.routes.checkoutRecovery.browse.marketplace": "Browse marketplace",
   "checkout.routes.checkoutRecovery.buy.cart.empty": "Your Buy Cart is empty",
   "checkout.routes.checkoutRecovery.buy.cart.empty.description": "Add items to your Buy Cart before starting checkout.",
