@@ -63,7 +63,7 @@ export type CheckoutScenarioState =
   | "optimization-accepted"
   | "optimization-declined"
   | "disabled-capability"
-  | "deferred-capability"
+  | "unsupported-capability"
   | "provider-outage"
   | "risk-hold"
   | "split-group"
@@ -234,12 +234,12 @@ export const checkoutObservabilityProfiles = [
     docLabel: "Guest Sell Checkout",
     ownerIssues: ["#1114", "#1115", "#1113"],
     telemetryClass: "checkout-entry",
-    scenarioStates: ["normal", "deferred-capability"],
+    scenarioStates: ["normal", "unsupported-capability"],
     dimensions: ["readiness-contract", "readiness-snapshot-version", "capability-decision", "provider-category"],
     alertClass: "operator-alert",
     operatorSignalRequired: true,
     expectation:
-      "Guest sell telemetry records whether seller account or payout setup is enabled, disabled, or deferred.",
+      "Guest sell telemetry records whether seller account or payout setup is enabled, disabled, or unsupported.",
   }),
   profile({
     state: "signed-in-sell-checkout",
@@ -375,7 +375,7 @@ export const checkoutObservabilityProfiles = [
     docLabel: "Disabled accelerated or saved instrument",
     ownerIssues: ["#1114", "#1115", "#1113"],
     telemetryClass: "capability-state",
-    scenarioStates: ["disabled-capability", "deferred-capability"],
+    scenarioStates: ["disabled-capability", "unsupported-capability"],
     dimensions: ["provider-category", "capability-decision", "support-safe-reference"],
     alertClass: "operator-alert",
     operatorSignalRequired: true,
@@ -387,11 +387,11 @@ export const checkoutObservabilityProfiles = [
     docLabel: "Promo, credit, gift card, and fee state",
     ownerIssues: ["#1114", "#1115", "#1128"],
     telemetryClass: "capability-state",
-    scenarioStates: ["deferred-capability", "blocked"],
+    scenarioStates: ["unsupported-capability", "blocked"],
     dimensions: ["source-revision", "capability-decision", "support-safe-reference"],
     alertClass: "operator-alert",
     operatorSignalRequired: true,
-    expectation: "Promo and credit telemetry records explicit enabled, disabled, or deferred state.",
+    expectation: "Promo and credit telemetry records explicit enabled, disabled, or unsupported state.",
   }),
   profile({
     state: "notification-support-reference",
