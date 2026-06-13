@@ -47,42 +47,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS payments_payment_pages_source_idx
   ON payments_payment_pages (source_context, source_reference_id)
   WHERE source_context IS NOT NULL AND source_reference_id IS NOT NULL;
 
-ALTER TABLE payments_payment_pages
-  ADD COLUMN IF NOT EXISTS balance_credit_amount numeric(12, 2) NOT NULL DEFAULT 0;
-
-ALTER TABLE payments_payment_pages
-  ADD COLUMN IF NOT EXISTS processor_amount numeric(12, 2) NOT NULL DEFAULT 0;
-
-ALTER TABLE payments_payment_pages
-  ADD COLUMN IF NOT EXISTS processor_payment_kind text NOT NULL DEFAULT 'payment-intent';
-
-ALTER TABLE payments_payment_pages
-  ADD COLUMN IF NOT EXISTS processor_redirect_url text NULL;
-
-ALTER TABLE payments_payment_pages
-  ADD COLUMN IF NOT EXISTS marketplace_checkout_fee_policy_version text NULL;
-
-ALTER TABLE payments_payment_pages
-  ADD COLUMN IF NOT EXISTS marketplace_checkout_fee_quote_fingerprint text NULL;
-
-ALTER TABLE payments_payment_pages
-  ADD COLUMN IF NOT EXISTS payment_method_category text NULL;
-
-ALTER TABLE payments_payment_pages
-  ADD COLUMN IF NOT EXISTS saved_checkout_instrument_id text NULL;
-
-ALTER TABLE payments_payment_pages
-  ADD COLUMN IF NOT EXISTS seller_payout_amount numeric(12, 2) NOT NULL DEFAULT 0;
-
-ALTER TABLE payments_payment_pages
-  ADD COLUMN IF NOT EXISTS seller_payouts jsonb NOT NULL DEFAULT '[]'::jsonb;
-
-ALTER TABLE payments_payment_pages
-  ADD COLUMN IF NOT EXISTS refunded_at timestamptz NULL;
-
-ALTER TABLE payments_payment_pages
-  ADD COLUMN IF NOT EXISTS disputed_at timestamptz NULL;
-
 CREATE TABLE IF NOT EXISTS payments_provider_idempotency_keys (
   operation_key text PRIMARY KEY,
   provider_name text NOT NULL,
@@ -146,38 +110,6 @@ CREATE TABLE IF NOT EXISTS payments_saved_checkout_instruments (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
-
-ALTER TABLE payments_saved_checkout_instruments
-  ADD COLUMN IF NOT EXISTS provider_customer_reference text NULL;
-
-ALTER TABLE payments_saved_checkout_instruments
-  ADD COLUMN IF NOT EXISTS allow_redisplay text NOT NULL DEFAULT 'unspecified';
-
-ALTER TABLE payments_saved_checkout_instruments
-  ADD COLUMN IF NOT EXISTS consent_id text NULL;
-
-ALTER TABLE payments_saved_checkout_instruments
-  ADD COLUMN IF NOT EXISTS consent_text text NULL;
-
-ALTER TABLE payments_saved_checkout_instruments
-  ADD COLUMN IF NOT EXISTS removed_at timestamptz NULL;
-
-DO $$
-BEGIN
-  IF EXISTS (
-    SELECT 1
-    FROM pg_constraint
-    WHERE conname = 'payments_saved_checkout_instruments_readiness_check'
-      AND conrelid = 'payments_saved_checkout_instruments'::regclass
-  ) THEN
-    ALTER TABLE payments_saved_checkout_instruments
-      DROP CONSTRAINT payments_saved_checkout_instruments_readiness_check;
-  END IF;
-
-  ALTER TABLE payments_saved_checkout_instruments
-    ADD CONSTRAINT payments_saved_checkout_instruments_readiness_check
-    CHECK (readiness IN ('ready', 'setup-required', 'removed')) NOT VALID;
-END $$;
 
 CREATE INDEX IF NOT EXISTS payments_saved_checkout_instruments_account_idx
   ON payments_saved_checkout_instruments (account_id, is_default DESC, updated_at DESC, instrument_id);
