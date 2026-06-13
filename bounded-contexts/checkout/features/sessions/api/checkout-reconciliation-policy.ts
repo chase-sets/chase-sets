@@ -32,7 +32,7 @@ export type CheckoutReconciliationCheckpoint =
   | "background-retry"
   | "downstream-owner-commit"
   | "operator-recovery"
-  | "launch-decision";
+  | "owner-rule";
 
 export type CheckoutReconciliationEffect =
   | "checkout-confirmation"
@@ -81,7 +81,7 @@ export type CheckoutReconciliationSourceFact =
   | "notification-message"
   | "account-history-record"
   | "support-safe-reference"
-  | "launch-decision"
+  | "owner-rule"
   | "none-before-confirmation";
 
 export type CheckoutReconciliationLookupStart =
@@ -100,7 +100,7 @@ export type CheckoutReconciliationLookupStart =
   | "settlement-id"
   | "notification-id"
   | "account-history-id"
-  | "launch-decision-reference";
+  | "owner-rule-reference";
 
 export type CheckoutReconciliationOwnerIssue =
   | "#1102"
@@ -142,7 +142,7 @@ export type CheckoutReconciliationControlKey =
   | "refund-void-reversal-adjustment-reconciliation"
   | "pending-downstream-boundary"
   | "support-safe-reconciliation-lookup"
-  | "launch-decision-reconciliation-states"
+  | "owner-rule-reconciliation-states"
   | "observability-redaction"
   | "fresh-state-reconciliation-cleanup";
 
@@ -151,7 +151,7 @@ export type CheckoutReconciliationBoundary =
   | "checkout-confirmation"
   | "post-confirmation"
   | "operator-support"
-  | "launch-status";
+  | "operations-status";
 
 export type CheckoutReconciliationPolicyEntry = Readonly<{
   control: CheckoutReconciliationControlKey;
@@ -168,14 +168,14 @@ export type CheckoutReconciliationPolicyEntry = Readonly<{
   idempotencyKeyShape: string;
   supportReferenceRequired: boolean;
   observabilityRequired: boolean;
-  launchDecisionRequired: boolean;
+  ownerRuleRequired: boolean;
   pendingDownstreamBoundaryRequired: boolean;
   duplicatePreventionRequired: boolean;
   noSideEffectBeforeCommitRequired: boolean;
   rejectsSyntheticCompletion: boolean;
   redactsProviderAndPaymentData: boolean;
   forbiddenSources: readonly string[];
-  evidenceExpectation: string;
+  customerSafeOutcome: string;
 }>;
 
 const buyerAudiences = ["guest-buyer", "signed-in-buyer"] as const satisfies readonly CheckoutReconciliationAudience[];
@@ -202,7 +202,7 @@ export const checkoutReconciliationForbiddenSources = [
   "old session payload adapter",
   "old sell execution id",
   "old receipt row",
-  "legacy payload migration",
+  "old payload migration",
   "migration/backfill compatibility",
   "dual-write compatibility",
   "hidden repair",
@@ -234,12 +234,12 @@ export const checkoutReconciliationRequiredControls = [
   "refund-void-reversal-adjustment-reconciliation",
   "pending-downstream-boundary",
   "support-safe-reconciliation-lookup",
-  "launch-decision-reconciliation-states",
+  "owner-rule-reconciliation-states",
   "observability-redaction",
   "fresh-state-reconciliation-cleanup",
 ] as const satisfies readonly CheckoutReconciliationControlKey[];
 
-export const checkoutReconciliationLaunchRegisterStates: readonly CheckoutReconciliationState[] = [
+export const checkoutReconciliationOwnerRuleStates: readonly CheckoutReconciliationState[] = [
   "downstream-failed",
   "held",
   "deferred",
@@ -280,40 +280,40 @@ export const checkoutReconciliationPolicyEntries = [
     idempotencyKeyShape: "checkout:no_side_effect:<source-ref>:<readiness-version>:<reason>",
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     pendingDownstreamBoundaryRequired: false,
     duplicatePreventionRequired: true,
     noSideEffectBeforeCommitRequired: true,
     rejectsSyntheticCompletion: true,
     redactsProviderAndPaymentData: true,
     forbiddenSources: checkoutReconciliationForbiddenSources,
-    evidenceExpectation:
-      "Stale, blocked, superseded, legacy-shaped, or missing readiness sessions route to cart/list recovery and prove no payment, order, sale, label, payout, settlement, notification, account-history, support, refund, void, or reversal fact was created.",
+    customerSafeOutcome:
+      "Stale, blocked, superseded, old-shaped, or missing readiness sessions route to cart/list recovery and prove no payment, order, sale, label, payout, settlement, notification, account-history, support, refund, void, or reversal fact was created.",
   }),
   reconciliationPolicy({
     control: "unassigned-fulfillment-readiness-reconciliation",
     docLabel: "Unassigned fulfillment readiness reconciliation",
     ownerIssues: ["#1130", "#1119", "#1127", "#1131", "#1164"],
     ownerContext: "Checkout",
-    checkpoints: ["cart-list-readiness", "conditional-pre-checkout", "launch-decision"],
+    checkpoints: ["cart-list-readiness", "conditional-pre-checkout", "owner-rule"],
     audiences: allCustomerAudiences,
     effects: ["checkout-confirmation", "payment", "order", "inventory-reservation", "label", "payout", "settlement"],
     states: ["no-side-effect", "downstream-not-created-yet", "unsupported", "deferred"],
-    sourceFacts: ["readiness-snapshot", "launch-decision", "support-safe-reference", "none-before-confirmation"],
-    lookupStarts: ["readiness-snapshot-version", "support-safe-reference", "launch-decision-reference"],
+    sourceFacts: ["readiness-snapshot", "owner-rule", "support-safe-reference", "none-before-confirmation"],
+    lookupStarts: ["readiness-snapshot-version", "support-safe-reference", "owner-rule-reference"],
     boundary: "before-checkout",
     idempotencyKeyShape: "checkout:unassigned_fulfillment:<line-or-group-ref>:<readiness-version>",
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     pendingDownstreamBoundaryRequired: false,
     duplicatePreventionRequired: true,
     noSideEffectBeforeCommitRequired: true,
     rejectsSyntheticCompletion: true,
     redactsProviderAndPaymentData: true,
     forbiddenSources: checkoutReconciliationForbiddenSources,
-    evidenceExpectation:
-      "Items without fulfillment assignment stay in cart/list readiness or a conditional pre-checkout step; checkout can reconcile the rejection as no-side-effect evidence and must not assign fulfillment, create labels, or start payment/order work.",
+    customerSafeOutcome:
+      "Items without fulfillment assignment stay in cart/list readiness or a conditional pre-checkout step; checkout can reconcile the rejection as a no-side-effect outcome and must not assign fulfillment, create labels, or start payment/order work.",
   }),
   reconciliationPolicy({
     control: "optional-fulfillment-optimization-reconciliation",
@@ -330,14 +330,14 @@ export const checkoutReconciliationPolicyEntries = [
     idempotencyKeyShape: "checkout:fulfillment_optimization:<readiness-version>:<accepted-or-declined>",
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     pendingDownstreamBoundaryRequired: false,
     duplicatePreventionRequired: true,
     noSideEffectBeforeCommitRequired: true,
     rejectsSyntheticCompletion: true,
     redactsProviderAndPaymentData: true,
     forbiddenSources: checkoutReconciliationForbiddenSources,
-    evidenceExpectation:
+    customerSafeOutcome:
       "Optional savings prompts happen before checkout. Reconciliation records only the accepted/declined readiness decision and rejects checkout-time re-optimization or hidden allocation repair.",
   }),
   reconciliationPolicy({
@@ -361,14 +361,14 @@ export const checkoutReconciliationPolicyEntries = [
     idempotencyKeyShape: "checkout:confirmation:<confirmation-id>:handoff",
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     pendingDownstreamBoundaryRequired: true,
     duplicatePreventionRequired: true,
     noSideEffectBeforeCommitRequired: true,
     rejectsSyntheticCompletion: true,
     redactsProviderAndPaymentData: true,
     forbiddenSources: checkoutReconciliationForbiddenSources,
-    evidenceExpectation:
+    customerSafeOutcome:
       "Checkout confirmation is a ledger boundary that records the source, readiness version, handoff ids, downstream status, and support-safe reference without claiming downstream owner completion.",
   }),
   reconciliationPolicy({
@@ -386,14 +386,14 @@ export const checkoutReconciliationPolicyEntries = [
     idempotencyKeyShape: "payments:payment:<payment-id-or-intent>:<status>",
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     pendingDownstreamBoundaryRequired: true,
     duplicatePreventionRequired: true,
     noSideEffectBeforeCommitRequired: true,
     rejectsSyntheticCompletion: true,
     redactsProviderAndPaymentData: true,
     forbiddenSources: checkoutReconciliationForbiddenSources,
-    evidenceExpectation:
+    customerSafeOutcome:
       "Payment, marketplace checkout fee, provider callback, refund, void, and adjustment state comes from Payments facts and can be retried or replayed without duplicate charges or synthetic payment completion.",
   }),
   reconciliationPolicy({
@@ -411,14 +411,14 @@ export const checkoutReconciliationPolicyEntries = [
     idempotencyKeyShape: "ordering:order:<order-or-group-id>:<status>",
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     pendingDownstreamBoundaryRequired: true,
     duplicatePreventionRequired: true,
     noSideEffectBeforeCommitRequired: true,
     rejectsSyntheticCompletion: true,
     redactsProviderAndPaymentData: true,
     forbiddenSources: checkoutReconciliationForbiddenSources,
-    evidenceExpectation:
+    customerSafeOutcome:
       "A single customer confirmation may create multiple internal order or fulfillment groups, but reconciliation tracks each group from Ordering facts and cannot duplicate customer money movement or communication.",
   }),
   reconciliationPolicy({
@@ -442,14 +442,14 @@ export const checkoutReconciliationPolicyEntries = [
     idempotencyKeyShape: "marketplace:seller_handoff:<handoff-id-or-action-key>:<status>",
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     pendingDownstreamBoundaryRequired: true,
     duplicatePreventionRequired: true,
     noSideEffectBeforeCommitRequired: true,
     rejectsSyntheticCompletion: true,
     redactsProviderAndPaymentData: true,
     forbiddenSources: checkoutReconciliationForbiddenSources,
-    evidenceExpectation:
+    customerSafeOutcome:
       "Seller confirmations reconcile from current confirmation, reviewed line/action keys, and Marketplace handoff facts; old sell execution ids or receipt rows cannot become sources of truth.",
   }),
   reconciliationPolicy({
@@ -457,24 +457,24 @@ export const checkoutReconciliationPolicyEntries = [
     docLabel: "Label and fulfillment reconciliation",
     ownerIssues: ["#1130", "#1135", "#1164", "#1127", "#1165"],
     ownerContext: "Fulfillment",
-    checkpoints: ["downstream-owner-commit", "background-retry", "operator-recovery", "launch-decision"],
+    checkpoints: ["downstream-owner-commit", "background-retry", "operator-recovery", "owner-rule"],
     audiences: sellerAudiences,
     effects: ["label", "inventory-reservation", "notification", "account-history", "reversal"],
     states: ["downstream-pending", "downstream-committed", "downstream-failed", "recovered", "reversed", "deferred"],
-    sourceFacts: ["checkout-confirmation", "fulfillment-label", "support-safe-reference", "launch-decision"],
-    lookupStarts: ["seller-confirmation-id", "label-id", "support-safe-reference", "launch-decision-reference"],
+    sourceFacts: ["checkout-confirmation", "fulfillment-label", "support-safe-reference", "owner-rule"],
+    lookupStarts: ["seller-confirmation-id", "label-id", "support-safe-reference", "owner-rule-reference"],
     boundary: "post-confirmation",
     idempotencyKeyShape: "fulfillment:label:<label-id-or-shipment-id>:<status>",
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     pendingDownstreamBoundaryRequired: true,
     duplicatePreventionRequired: true,
     noSideEffectBeforeCommitRequired: true,
     rejectsSyntheticCompletion: true,
     redactsProviderAndPaymentData: true,
     forbiddenSources: checkoutReconciliationForbiddenSources,
-    evidenceExpectation:
+    customerSafeOutcome:
       "Fulfillment label creation, retry, cancellation, and deferred states reconcile only from Fulfillment facts or support-safe pending records; Checkout never fabricates a label or assignment.",
   }),
   reconciliationPolicy({
@@ -492,14 +492,14 @@ export const checkoutReconciliationPolicyEntries = [
     idempotencyKeyShape: "settlement:payout:<payout-or-hold-id>:<status>",
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     pendingDownstreamBoundaryRequired: true,
     duplicatePreventionRequired: true,
     noSideEffectBeforeCommitRequired: true,
     rejectsSyntheticCompletion: true,
     redactsProviderAndPaymentData: true,
     forbiddenSources: checkoutReconciliationForbiddenSources,
-    evidenceExpectation:
+    customerSafeOutcome:
       "Payout setup, settlement, holds, reversals, and adjustment state comes from Settlement facts and provider-safe references without exposing bank data or duplicate payout attempts.",
   }),
   reconciliationPolicy({
@@ -517,14 +517,14 @@ export const checkoutReconciliationPolicyEntries = [
     idempotencyKeyShape: "notifications:message:<message-id-or-source-id>:<status>",
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     pendingDownstreamBoundaryRequired: true,
     duplicatePreventionRequired: true,
     noSideEffectBeforeCommitRequired: true,
     rejectsSyntheticCompletion: true,
     redactsProviderAndPaymentData: true,
     forbiddenSources: checkoutReconciliationForbiddenSources,
-    evidenceExpectation:
+    customerSafeOutcome:
       "Notification send, retry, failure, suppression, and support fallback use Notifications outbox/source-owner idempotency and cannot claim an order, sale, label, payout, or refund is complete.",
   }),
   reconciliationPolicy({
@@ -542,14 +542,14 @@ export const checkoutReconciliationPolicyEntries = [
     idempotencyKeyShape: "account-history:record:<record-id-or-source-ref>:<status>",
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     pendingDownstreamBoundaryRequired: true,
     duplicatePreventionRequired: true,
     noSideEffectBeforeCommitRequired: true,
     rejectsSyntheticCompletion: true,
     redactsProviderAndPaymentData: true,
     forbiddenSources: checkoutReconciliationForbiddenSources,
-    evidenceExpectation:
+    customerSafeOutcome:
       "Account history can show Checkout confirmation and pending activity, but committed order, sale, fulfillment, payout, settlement, notification, support, or reversal rows require owning-context records.",
   }),
   reconciliationPolicy({
@@ -591,14 +591,14 @@ export const checkoutReconciliationPolicyEntries = [
     idempotencyKeyShape: "checkout:reconciliation:<confirmation-or-source-id>:<purpose>",
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     pendingDownstreamBoundaryRequired: true,
     duplicatePreventionRequired: true,
     noSideEffectBeforeCommitRequired: true,
     rejectsSyntheticCompletion: true,
     redactsProviderAndPaymentData: true,
     forbiddenSources: checkoutReconciliationForbiddenSources,
-    evidenceExpectation:
+    customerSafeOutcome:
       "Reload, duplicate submit, redirect return, background retry, and operator recovery reuse stable idempotency keys and return the existing current state instead of creating duplicate side effects.",
   }),
   reconciliationPolicy({
@@ -616,14 +616,14 @@ export const checkoutReconciliationPolicyEntries = [
     idempotencyKeyShape: "provider:<provider-event-id>:<event-type>:<owning-context>",
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     pendingDownstreamBoundaryRequired: true,
     duplicatePreventionRequired: true,
     noSideEffectBeforeCommitRequired: true,
     rejectsSyntheticCompletion: true,
     redactsProviderAndPaymentData: true,
     forbiddenSources: checkoutReconciliationForbiddenSources,
-    evidenceExpectation:
+    customerSafeOutcome:
       "Provider callback replay is signature-checked, metadata-correlated, redacted, and idempotent; missed or delayed callbacks reconcile from owning Payments or Settlement facts.",
   }),
   reconciliationPolicy({
@@ -631,7 +631,7 @@ export const checkoutReconciliationPolicyEntries = [
     docLabel: "Operator recovery reconciliation",
     ownerIssues: ["#1130", "#1122", "#1114", "#1124"],
     ownerContext: "Support",
-    checkpoints: ["operator-recovery", "launch-decision"],
+    checkpoints: ["operator-recovery", "owner-rule"],
     audiences: ["support-operator"],
     effects: [
       "support",
@@ -648,20 +648,20 @@ export const checkoutReconciliationPolicyEntries = [
       "adjustment",
     ],
     states: ["downstream-pending", "downstream-failed", "recovered", "held", "deferred", "unsupported"],
-    sourceFacts: ["support-safe-reference", "checkout-confirmation", "launch-decision"],
-    lookupStarts: ["support-safe-reference", "checkout-confirmation-id", "launch-decision-reference"],
+    sourceFacts: ["support-safe-reference", "checkout-confirmation", "owner-rule"],
+    lookupStarts: ["support-safe-reference", "checkout-confirmation-id", "owner-rule-reference"],
     boundary: "operator-support",
     idempotencyKeyShape: "support:reconciliation:<support-safe-reference>:<status-or-action>",
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     pendingDownstreamBoundaryRequired: true,
     duplicatePreventionRequired: true,
     noSideEffectBeforeCommitRequired: true,
     rejectsSyntheticCompletion: true,
     redactsProviderAndPaymentData: true,
     forbiddenSources: checkoutReconciliationForbiddenSources,
-    evidenceExpectation:
+    customerSafeOutcome:
       "Operator recovery starts from support-safe references, shows owner and next action, audits every recovery command, and does not instruct support to edit data or infer completion.",
   }),
   reconciliationPolicy({
@@ -679,39 +679,39 @@ export const checkoutReconciliationPolicyEntries = [
     idempotencyKeyShape: "payments:reversal:<payment-or-order-ref>:<effect-kind>:<effect-id>",
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     pendingDownstreamBoundaryRequired: true,
     duplicatePreventionRequired: true,
     noSideEffectBeforeCommitRequired: true,
     rejectsSyntheticCompletion: true,
     redactsProviderAndPaymentData: true,
     forbiddenSources: checkoutReconciliationForbiddenSources,
-    evidenceExpectation:
-      "Refunds, voids, reversals, label cancellations, payout holds, fee/tax/credit adjustments, and notification updates are idempotent and link to #1165 owner facts or launch deferrals.",
+    customerSafeOutcome:
+      "Refunds, voids, reversals, label cancellations, payout holds, fee/tax/credit adjustments, and notification updates are idempotent and link to #1165 owner facts or owner-rule deferrals.",
   }),
   reconciliationPolicy({
     control: "pending-downstream-boundary",
     docLabel: "Pending downstream boundary",
     ownerIssues: ["#1130", "#1135", "#1120", "#1102", "#1112"],
     ownerContext: "Checkout",
-    checkpoints: ["confirmation-handoff-recorded", "customer-reload", "background-retry", "launch-decision"],
+    checkpoints: ["confirmation-handoff-recorded", "customer-reload", "background-retry", "owner-rule"],
     audiences: allCustomerAudiences,
     effects: ["checkout-confirmation", "order", "label", "payout", "settlement", "notification", "account-history"],
     states: ["confirmation-recorded", "downstream-not-created-yet", "downstream-pending", "downstream-failed"],
-    sourceFacts: ["checkout-confirmation", "support-safe-reference", "launch-decision"],
+    sourceFacts: ["checkout-confirmation", "support-safe-reference", "owner-rule"],
     lookupStarts: ["checkout-confirmation-id", "seller-confirmation-id", "support-safe-reference"],
     boundary: "post-confirmation",
     idempotencyKeyShape: "checkout:pending_downstream:<confirmation-id>:<owner-context>",
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     pendingDownstreamBoundaryRequired: true,
     duplicatePreventionRequired: true,
     noSideEffectBeforeCommitRequired: true,
     rejectsSyntheticCompletion: true,
     redactsProviderAndPaymentData: true,
     forbiddenSources: checkoutReconciliationForbiddenSources,
-    evidenceExpectation:
+    customerSafeOutcome:
       "Checkout may explain confirmation recorded and downstream pending, delayed, failed, deferred, or owner-action-required states, but it cannot synthesize completed downstream facts.",
   }),
   reconciliationPolicy({
@@ -771,22 +771,22 @@ export const checkoutReconciliationPolicyEntries = [
     idempotencyKeyShape: "support:reconciliation_lookup:<support-safe-reference>:<requested-scope>",
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     pendingDownstreamBoundaryRequired: true,
     duplicatePreventionRequired: true,
     noSideEffectBeforeCommitRequired: true,
     rejectsSyntheticCompletion: true,
     redactsProviderAndPaymentData: true,
     forbiddenSources: checkoutReconciliationForbiddenSources,
-    evidenceExpectation:
+    customerSafeOutcome:
       "Support lookup can start from any customer-safe reference and resolve the current owner/status while masking provider payloads, address detail, card data, bank data, and raw risk signals.",
   }),
   reconciliationPolicy({
-    control: "launch-decision-reconciliation-states",
-    docLabel: "Launch decision reconciliation states",
+    control: "owner-rule-reconciliation-states",
+    docLabel: "Owner rule reconciliation states",
     ownerIssues: ["#1130", "#1102", "#1112", "#1114", "#1115", "#1122", "#1124"],
     ownerContext: "Platform",
-    checkpoints: ["launch-decision", "operator-recovery"],
+    checkpoints: ["owner-rule", "operator-recovery"],
     audiences: allAudiences,
     effects: [
       "checkout-confirmation",
@@ -813,21 +813,21 @@ export const checkoutReconciliationPolicyEntries = [
       "provider-outage",
       "stale-active-session",
     ],
-    sourceFacts: ["launch-decision", "support-safe-reference"],
-    lookupStarts: ["launch-decision-reference", "support-safe-reference"],
-    boundary: "launch-status",
-    idempotencyKeyShape: "launch-decision:reconciliation:<capability>:<state>",
+    sourceFacts: ["owner-rule", "support-safe-reference"],
+    lookupStarts: ["owner-rule-reference", "support-safe-reference"],
+    boundary: "operations-status",
+    idempotencyKeyShape: "owner-rule:reconciliation:<capability>:<state>",
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     pendingDownstreamBoundaryRequired: true,
     duplicatePreventionRequired: true,
     noSideEffectBeforeCommitRequired: true,
     rejectsSyntheticCompletion: true,
     redactsProviderAndPaymentData: true,
     forbiddenSources: checkoutReconciliationForbiddenSources,
-    evidenceExpectation:
-      "Disabled, deferred, unsupported, provider-outage, stale active-session, split-group, pending downstream, missing downstream, notification failure, support lookup, refund, void, reversal, adjustment, and no-side-effect states require owner-scoped launch handling.",
+    customerSafeOutcome:
+      "Disabled, deferred, unsupported, provider-outage, stale active-session, split-group, pending downstream, missing downstream, notification failure, support lookup, refund, void, reversal, adjustment, and no-side-effect states require owner rules.",
   }),
   reconciliationPolicy({
     control: "observability-redaction",
@@ -875,18 +875,18 @@ export const checkoutReconciliationPolicyEntries = [
       "account-history-record",
     ],
     lookupStarts: ["checkout-confirmation-id", "support-safe-reference"],
-    boundary: "launch-status",
+    boundary: "operations-status",
     idempotencyKeyShape: "checkout:reconciliation_observability:<event-name>:<support-safe-reference>",
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     pendingDownstreamBoundaryRequired: true,
     duplicatePreventionRequired: true,
     noSideEffectBeforeCommitRequired: true,
     rejectsSyntheticCompletion: true,
     redactsProviderAndPaymentData: true,
     forbiddenSources: checkoutReconciliationForbiddenSources,
-    evidenceExpectation:
+    customerSafeOutcome:
       "Telemetry uses owner, state, effect, idempotency outcome, support-safe reference, and redacted source type only; it never logs raw provider payloads, addresses, cards, banks, or risk signals.",
   }),
   reconciliationPolicy({
@@ -894,7 +894,7 @@ export const checkoutReconciliationPolicyEntries = [
     docLabel: "Fresh-state reconciliation cleanup",
     ownerIssues: ["#1130", "#1124", "#1115"],
     ownerContext: "Platform",
-    checkpoints: ["cart-list-readiness", "checkout-session-create", "operator-recovery", "launch-decision"],
+    checkpoints: ["cart-list-readiness", "checkout-session-create", "operator-recovery", "owner-rule"],
     audiences: allAudiences,
     effects: [
       "checkout-confirmation",
@@ -913,20 +913,20 @@ export const checkoutReconciliationPolicyEntries = [
       "adjustment",
     ],
     states: ["no-side-effect", "disabled", "unsupported", "deferred"],
-    sourceFacts: ["launch-decision", "support-safe-reference", "none-before-confirmation"],
-    lookupStarts: ["support-safe-reference", "launch-decision-reference"],
-    boundary: "launch-status",
+    sourceFacts: ["owner-rule", "support-safe-reference", "none-before-confirmation"],
+    lookupStarts: ["support-safe-reference", "owner-rule-reference"],
+    boundary: "operations-status",
     idempotencyKeyShape: "checkout:reconciliation_fresh_state:<scan-or-route-id>:<result>",
     supportReferenceRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     pendingDownstreamBoundaryRequired: false,
     duplicatePreventionRequired: true,
     noSideEffectBeforeCommitRequired: true,
     rejectsSyntheticCompletion: true,
     redactsProviderAndPaymentData: true,
     forbiddenSources: checkoutReconciliationForbiddenSources,
-    evidenceExpectation:
+    customerSafeOutcome:
       "Fresh-state scans prove stale fixtures, cached read models, provider sandbox leftovers, dual writes, migration/backfill helpers, old receipt fallback reads, old session payloads, manual database repair, and dense checkout fallback cannot make reconciliation succeed.",
   }),
 ] as const satisfies readonly CheckoutReconciliationPolicyEntry[];
@@ -948,7 +948,7 @@ export function assertCheckoutReconciliationPolicyCoverage(): void {
     if (!entry.ownerIssues.includes("#1130")) {
       throw new Error(`Checkout reconciliation policy '${entry.control}' must include #1130.`);
     }
-    if (entry.docLabel.trim().length === 0 || entry.evidenceExpectation.trim().length === 0) {
+    if (entry.docLabel.trim().length === 0 || entry.customerSafeOutcome.trim().length === 0) {
       throw new Error(`Checkout reconciliation policy '${entry.control}' needs documentation text.`);
     }
     if (
@@ -971,11 +971,11 @@ export function assertCheckoutReconciliationPolicyCoverage(): void {
       throw new Error(`Checkout reconciliation policy '${entry.control}' must reject synthetic completion.`);
     }
     if (
-      entry.states.some((state) => checkoutReconciliationLaunchRegisterStates.includes(state)) &&
-      (!entry.launchDecisionRequired || !entry.supportReferenceRequired)
+      entry.states.some((state) => checkoutReconciliationOwnerRuleStates.includes(state)) &&
+      (!entry.ownerRuleRequired || !entry.supportReferenceRequired)
     ) {
       throw new Error(
-        `Checkout reconciliation policy '${entry.control}' must launch-decision customer-impacting states.`,
+        `Checkout reconciliation policy '${entry.control}' must define owner rules for customer-impacting states.`,
       );
     }
     if (entry.pendingDownstreamBoundaryRequired && !entry.supportReferenceRequired) {

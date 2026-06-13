@@ -40,10 +40,10 @@ describe("Checkout reconciliation policy", () => {
       expect(entry?.rejectsSyntheticCompletion, entry?.control).toBe(true);
     }
 
-    expect(unassigned?.evidenceExpectation).toMatch(/stay in cart\/list readiness/i);
-    expect(unassigned?.evidenceExpectation).toMatch(/must not assign fulfillment/i);
-    expect(optimization?.evidenceExpectation).toMatch(/accepted\/declined readiness decision/i);
-    expect(optimization?.evidenceExpectation).toMatch(/checkout-time re-optimization/i);
+    expect(unassigned?.customerSafeOutcome).toMatch(/stay in cart\/list readiness/i);
+    expect(unassigned?.customerSafeOutcome).toMatch(/must not assign fulfillment/i);
+    expect(optimization?.customerSafeOutcome).toMatch(/accepted\/declined readiness decision/i);
+    expect(optimization?.customerSafeOutcome).toMatch(/checkout-time re-optimization/i);
   });
 
   it("covers payment, order, label, payout, notification, settlement, and account-history facts", () => {
@@ -106,7 +106,7 @@ describe("Checkout reconciliation policy", () => {
       (entry) => entry.control === "pending-downstream-boundary",
     );
     expect(boundary?.sourceFacts).not.toEqual(expect.arrayContaining(["ordering-order", "fulfillment-label"]));
-    expect(boundary?.evidenceExpectation).toMatch(/cannot synthesize completed downstream facts/i);
+    expect(boundary?.customerSafeOutcome).toMatch(/cannot synthesize completed downstream facts/i);
   });
 
   it("makes duplicate submit, retry, provider replay, and operator recovery idempotent", () => {
@@ -129,10 +129,10 @@ describe("Checkout reconciliation policy", () => {
       (entry) => entry.control === "provider-webhook-replay-reconciliation",
     );
     expect(replay?.states).toContain("duplicate-suppressed");
-    expect(replay?.evidenceExpectation).toMatch(/signature-checked/i);
+    expect(replay?.customerSafeOutcome).toMatch(/signature-checked/i);
   });
 
-  it("launch-decisions customer-impacting reconciliation states", () => {
+  it("requires owner rules for customer-impacting reconciliation states", () => {
     const customerImpactingStates = [
       "downstream-failed",
       "held",
@@ -148,19 +148,19 @@ describe("Checkout reconciliation policy", () => {
 
     expect(impactedEntries.length).toBeGreaterThan(0);
     for (const entry of impactedEntries) {
-      expect(entry.launchDecisionRequired, entry.control).toBe(true);
+      expect(entry.ownerRuleRequired, entry.control).toBe(true);
       expect(entry.supportReferenceRequired, entry.control).toBe(true);
       expect(entry.noSideEffectBeforeCommitRequired, entry.control).toBe(true);
     }
 
-    const launchDecision = checkoutReconciliationPolicyEntries.find(
-      (entry) => entry.control === "launch-decision-reconciliation-states",
+    const ownerRule = checkoutReconciliationPolicyEntries.find(
+      (entry) => entry.control === "owner-rule-reconciliation-states",
     );
-    expect(launchDecision?.ownerIssues).toEqual(expect.arrayContaining(["#1102", "#1112", "#1114", "#1115"]));
-    expect(launchDecision?.evidenceExpectation).toMatch(/disabled, deferred, unsupported, provider-outage/i);
+    expect(ownerRule?.ownerIssues).toEqual(expect.arrayContaining(["#1102", "#1112", "#1114", "#1115"]));
+    expect(ownerRule?.customerSafeOutcome).toMatch(/disabled, deferred, unsupported, provider-outage/i);
   });
 
-  it("forbids legacy repair, stale data, provider-dashboard fixes, and synthetic completion", () => {
+  it("forbids old repair, stale data, provider-dashboard fixes, and synthetic completion", () => {
     for (const entry of checkoutReconciliationPolicyEntries) {
       expect(entry.ownerIssues, entry.control).toContain("#1130");
       expect(entry.forbiddenSources, entry.control).toEqual(
@@ -171,8 +171,8 @@ describe("Checkout reconciliation policy", () => {
     const cleanup = checkoutReconciliationPolicyEntries.find(
       (entry) => entry.control === "fresh-state-reconciliation-cleanup",
     );
-    expect(cleanup?.evidenceExpectation).toMatch(/old receipt fallback reads/i);
-    expect(cleanup?.evidenceExpectation).toMatch(/dense checkout fallback/i);
+    expect(cleanup?.customerSafeOutcome).toMatch(/old receipt fallback reads/i);
+    expect(cleanup?.customerSafeOutcome).toMatch(/dense checkout fallback/i);
   });
 
   it("documents the executable reconciliation policy", () => {
