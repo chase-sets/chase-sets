@@ -27,7 +27,7 @@ const reviewRenderedInput = {
 } satisfies CheckoutObservabilityTelemetryInput;
 
 describe("checkout observability telemetry", () => {
-  it("derives event metadata from the launch observability profile", () => {
+  it("derives event metadata from the checkout observability profile", () => {
     const event = checkoutObservabilityTelemetryEvent(reviewRenderedInput);
 
     expect(event).toEqual(

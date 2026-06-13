@@ -2,7 +2,7 @@
 
 Milestone #17 rebuilds Buy Cart and Sell List checkout as a Shopify-simple fresh-state flow. Copy must help customers finish the current decision without exposing marketplace implementation details, provider diagnostics, or old checkout concepts.
 
-The executable contract lives in `bounded-contexts/checkout/features/sessions/api/checkout-copy-policy.ts`. Tests assert that every required surface has an owner, audience, capability state, disclosure posture, policy dependency, support-reference rule, no-side-effect requirement where needed, and acceptance note.
+The executable contract lives in `bounded-contexts/checkout/features/sessions/api/checkout-copy-policy.ts`. Tests assert that every required surface has an owner, audience, capability state, disclosure posture, policy dependency, support-reference rule, no-side-effect requirement where needed, and customer-safe outcome.
 
 ## Core Rules
 
@@ -26,11 +26,11 @@ Customer-facing copy must not use or imply these internal terms:
 - provider payload
 - projection or projection repair
 - stale read model
-- session revalidation
-- compatibility adapter
+- session refresh internals
+- old adapter
 - migration or backfill
 - manual database edit
-- legacy checkout or old checkout
+- old checkout
 - dense checkout fallback
 - hidden repair
 - provider dashboard or provider diagnostics
@@ -57,11 +57,11 @@ The copy inventory shares capability-state names with visual targets, observabil
 - `reversed`
 - `no-side-effect`
 
-Disabled, deferred, retained-internal, kill-switched, held, reversed, and support-only states must include owned policy or runbook handling before launch.
+Disabled, deferred, retained-internal, kill-switched, held, reversed, and support-only states must include owned policy or runbook handling before customer use.
 
 ## Surface Inventory
 
-| Surface | Primary copy rule | Acceptance note |
+| Surface | Primary copy rule | Customer-safe outcome |
 | --- | --- | --- |
 | Cart/list review | Keep Buy Cart and Sell List language concise and role-specific. | Review copy does not introduce checkout machinery before readiness. |
 | Readiness item attention | Explain that some items need attention before checkout. | Unready buyer items resolve before checkout and record no payment started. |
@@ -134,6 +134,6 @@ Support-safe references may expose:
 
 Support and customer copy must not expose raw ids, email addresses, mailing addresses, cookies, session ids, provider payloads, full URLs, card or bank details, or sensitive risk signals.
 
-## Acceptance Use
+## Owner Use
 
-#1102 owns this contract as the customer-copy baseline. #1115 should cover launch-supported copy through focused route, E2E, visual, mobile, and accessibility checks. #1124 should review policy-sensitive surfaces, and #1122 should review support-reference and operator-recovery copy.
+#1102 owns this contract as the customer-copy baseline. #1115 should cover supported copy through focused route, E2E, visual, mobile, and accessibility checks. #1124 should review policy-sensitive surfaces, and #1122 should review support-reference and operator-recovery copy.
