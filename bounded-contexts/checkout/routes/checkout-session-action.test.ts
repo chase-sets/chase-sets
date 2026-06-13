@@ -354,6 +354,105 @@ describe("checkout web routes: checkout session action", () => {
     expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
   });
 
+  it("returns delivery correction before checkout mutations when the address is restricted", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
+    mockSelectShippingOption.mockResolvedValue({});
+    mockSelectShippingAddress.mockResolvedValue({});
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      selectShippingOption: mockSelectShippingOption,
+      selectShippingAddress: mockSelectShippingAddress,
+      confirmCheckoutSession: mockConfirmCheckoutSession,
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "confirm-checkout");
+    form.set("shippingOption", "standard");
+    form.set("paymentMethodCategory", "card");
+    form.set("previewPaymentMethodCategory", "card");
+    form.set("marketplaceCheckoutFeeQuoteFingerprint", "quote_1");
+    form.set("shippingName", "Jane Smith");
+    form.set("shippingLine1", "PO Box 100");
+    form.set("shippingCity", "Chicago");
+    form.set("shippingState", "IL");
+    form.set("shippingPostalCode", "60601");
+    form.set("shippingCountry", "US");
+
+    const response = (await checkoutSessionAction({
+      request: new Request("http://localhost/checkout/buy/session/chk_1", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { sessionId: "chk_1" },
+      context: undefined,
+    } as never)) as { error: string; editSection: string };
+
+    expect(response).toEqual({
+      error: "Use a street address before continuing to payment. PO boxes are not supported for this shipping service.",
+      editSection: "delivery",
+    });
+    expect(mockSelectShippingOption).not.toHaveBeenCalled();
+    expect(mockSelectShippingAddress).not.toHaveBeenCalled();
+    expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
+  });
+
+  it("maps checkout API delivery failures to customer-safe correction copy", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
+    mockSelectShippingOption.mockResolvedValue({});
+    mockConfirmCheckoutSession.mockRejectedValue(
+      new MockCheckoutApiError(400, {
+        error: {
+          code: "shipping_address_unsupported",
+          message: "Provider rejected raw delivery destination 96910.",
+        },
+      }),
+    );
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      selectShippingOption: mockSelectShippingOption,
+      confirmCheckoutSession: mockConfirmCheckoutSession,
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "confirm-checkout");
+    form.set("shippingOption", "standard");
+    form.set("paymentMethodCategory", "card");
+    form.set("previewPaymentMethodCategory", "card");
+    form.set("marketplaceCheckoutFeeQuoteFingerprint", "quote_1");
+    form.set("shippingName", "Jane Smith");
+    form.set("shippingLine1", "100 Market Street");
+    form.set("shippingCity", "Chicago");
+    form.set("shippingState", "IL");
+    form.set("shippingPostalCode", "60601");
+    form.set("shippingCountry", "US");
+
+    const response = (await checkoutSessionAction({
+      request: new Request("http://localhost/checkout/buy/session/chk_1", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { sessionId: "chk_1" },
+      context: undefined,
+    } as never)) as { error: string; editSection: string };
+
+    expect(response).toEqual({
+      error: "Use a supported US delivery address before continuing to payment.",
+      editSection: "delivery",
+    });
+    expect(JSON.stringify(response)).not.toContain("96910");
+    expect(mockSelectShippingOption).toHaveBeenCalledWith("chk_1", {
+      shippingOption: "standard",
+    });
+    expect(mockConfirmCheckoutSession).toHaveBeenCalledWith(
+      "chk_1",
+      expect.objectContaining({
+        shippingAddress: expect.objectContaining({
+          line1: "100 Market Street",
+        }),
+      }),
+    );
+  });
+
   it("refreshes checkout review when confirmation is missing the payment quote", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
     mockSelectShippingOption.mockResolvedValue({});
