@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { uniqueDisplayValues } from "../support/item-support/unique-display-values";
+import { uniqueDisplayValues } from "../features/item-detail/ui/unique-display-values";
 import { uniqueStrings } from "../support/item-support/unique-strings";
 
 describe("uniqueDisplayValues", () => {

@@ -8,7 +8,7 @@ import type {
   DiscoveryReferenceRecordRef,
 } from "../../../support/client-support/contracts";
 import { discoveryAssetUrls } from "../../../support/client-support/assets";
-import { uniqueDisplayValues } from "../../../support/item-support/unique-display-values";
+import { uniqueDisplayValues } from "./unique-display-values";
 import {
   createDiscoveryProductDescriptor,
   getOrderedActiveDimensions,
@@ -37,7 +37,7 @@ import {
 } from "../domain/item-detail-market";
 import { buildReferenceDetailRows } from "./reference-detail-rows";
 import { ReferenceValueCue } from "./item-detail-references";
-import { trackItemDetailRailEvent } from "../../../support/ui-support/item-detail-rail-analytics";
+import { trackItemDetailRailEvent } from "./item-detail-rail-analytics";
 import { buildItemDetailImages } from "./item-detail-images";
 import { buildItemDetailPageView } from "./item-detail-page-view";
 import type { ItemDetailCommerceSections, ItemDetailMarketplaceSectionContext } from "./item-detail-page-types";

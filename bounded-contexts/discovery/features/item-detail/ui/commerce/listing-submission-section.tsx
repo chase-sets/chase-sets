@@ -16,7 +16,7 @@ import {
   TextInput,
 } from "@chase-sets/design-system";
 import type { DiscoveryMarketListing } from "../../../../support/client-support/contracts";
-import { trackItemDetailRailEvent } from "../../../../support/ui-support/item-detail-rail-analytics";
+import { trackItemDetailRailEvent } from "../item-detail-rail-analytics";
 import {
   productOptionsFromSelectionDetails,
   type ProductSelectionDisplayDetail,

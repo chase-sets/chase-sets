@@ -18,7 +18,7 @@ import {
   type GoogleShoppingSyncMerchantClient,
   type GoogleShoppingSyncProviderResult,
   type GoogleShoppingSyncServices,
-} from "../support/google-shopping-support/sync-job";
+} from "../features/google-shopping-operations/api/sync-job";
 
 const context: EventStoreContext = {
   tenantId: "tnt_test" as never,

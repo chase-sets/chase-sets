@@ -4,7 +4,7 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import {
   refreshGoogleShoppingFeedRowsForCatalogItem,
   type GoogleShoppingIncrementalSyncReason,
-} from "./feed-row-projection";
+} from "../../features/google-shopping-operations/api/feed-row-projection";
 
 const ITEM_STREAM_PREFIX = "catalog.item-";
 

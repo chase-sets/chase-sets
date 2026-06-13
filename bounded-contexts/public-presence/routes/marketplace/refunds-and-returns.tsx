@@ -1,6 +1,6 @@
 import type { MetaFunction } from "react-router";
 import { PublicInfoPage } from "../../features/waitlist/ui/public-pages";
-import { publicPresenceT as t } from "../../support/ui-support/public-presence-translator";
+import { publicPresenceT as t } from "../../features/waitlist/ui/public-presence-translator";
 
 export const meta: MetaFunction = () => [
   { title: t("publicPresence.routes.refunds.meta.title") },

@@ -1,14 +1,12 @@
 import { t } from "@chase-sets/localization";
 import { BulkActionBar, Button } from "@chase-sets/design-system";
-import type { CatalogRealtimeRevalidationState } from "./realtime-revalidation";
 
-export type CatalogRealtimeReloadActionBarProps = Pick<
-  CatalogRealtimeRevalidationState,
-  "pendingChangeCount" | "syncRequired" | "reload"
-> &
-  Readonly<{
-    entityName: string;
-  }>;
+export type CatalogRealtimeReloadActionBarProps = Readonly<{
+  entityName: string;
+  pendingChangeCount: number;
+  reload: () => void;
+  syncRequired: boolean;
+}>;
 
 export function CatalogRealtimeReloadActionBar({
   pendingChangeCount,

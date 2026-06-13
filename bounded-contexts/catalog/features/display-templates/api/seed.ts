@@ -1,7 +1,7 @@
 import { CatalogDomainError, localizedTextMapFromEnglish } from "../../../support/runtime-support/common";
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import { seedContext } from "../../../support/seed-support/context";
-import type { CatalogServices } from "../../../support/authoring-support";
+import type { CatalogServices } from "../../../support/authoring-support/services";
 import { enqueueAllCatalogItemDisplayIdentityRecomputeWork } from "../../catalog-items/read-model/display-identity-recompute";
 
 export async function seedDisplayTemplates(services: CatalogServices): Promise<void> {

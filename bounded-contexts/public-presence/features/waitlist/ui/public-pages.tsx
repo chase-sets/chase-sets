@@ -41,7 +41,7 @@ import prelaunchHeroUrl from "./assets/chase-sets-prelaunch-hero.webp?url";
 import pikachuIllustrationRareUrl from "./assets/pikachu-illustration-rare-preview.webp?url";
 import waitlistCardPanelsUrl from "./assets/chase-sets-waitlist-card-panels.webp?url";
 import { trackWaitlistEvent } from "./analytics";
-import { publicPresenceT as t } from "../../../support/ui-support/public-presence-translator";
+import { publicPresenceT as t } from "./public-presence-translator";
 
 export type WaitlistActionData = Readonly<{ status: "joined" }> | Readonly<{ status: "error"; message: string }> | null;
 

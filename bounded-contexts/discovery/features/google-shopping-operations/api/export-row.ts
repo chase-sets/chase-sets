@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { DiscoveryImageFallback, DiscoveryProductAssetSet } from "../client-support/contracts";
+import type { DiscoveryImageFallback, DiscoveryProductAssetSet } from "../../../support/client-support/contracts";
 
 export type GoogleShoppingEligibilityStatus = "eligible" | "excluded";
 export type GoogleShoppingImageEligibilityStatus = "eligible" | "excluded";

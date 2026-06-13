@@ -11,7 +11,7 @@ import {
   mapGoogleShoppingProductAttributes,
   selectGoogleShoppingImage,
   type GoogleShoppingFeedRowInput,
-} from "../support/google-shopping-support/export-row";
+} from "../features/google-shopping-operations/api/export-row";
 import { discoveryGoogleShoppingSchemaSql } from "../support/google-shopping-support/schema";
 
 describe("google shopping export rows", () => {
