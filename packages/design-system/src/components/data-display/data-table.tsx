@@ -1,4 +1,4 @@
-import { useEffect, useRef, type HTMLAttributes, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, type HTMLAttributes, type ReactNode } from "react";
 import { Icon, type IconName } from "../../icons";
 import { useDensity } from "../../theme/provider";
 import { cx } from "../../utils/cx";
@@ -56,17 +56,29 @@ export function DataTable<T>({
   const headPad = density === "compact" ? "px-3 py-2" : "px-4 py-3";
 
   const selectable = selectedKeys !== undefined && onSelectionChange !== undefined;
-  const allIds = selectable
-    ? rows
-        .map((row, index) => ({
-          id: getRowId ? getRowId(row, index) : String(index),
-          selectable: isRowSelectable ? isRowSelectable(row, index) : true,
-        }))
-        .filter((row) => row.selectable)
-        .map((row) => row.id)
-    : [];
-  const allSelected = selectable && allIds.length > 0 && allIds.every((id) => selectedKeys.has(id));
-  const someSelected = selectable && allIds.some((id) => selectedKeys.has(id));
+  const allIds = useMemo(
+    () =>
+      selectable
+        ? rows
+            .map((row, index) => ({
+              id: getRowId ? getRowId(row, index) : String(index),
+              selectable: isRowSelectable ? isRowSelectable(row, index) : true,
+            }))
+            .filter((row) => row.selectable)
+            .map((row) => row.id)
+        : [],
+    [rows, getRowId, isRowSelectable, selectable],
+  );
+  const { allSelected, someSelected } = useMemo(() => {
+    if (!selectable || !selectedKeys) {
+      return { allSelected: false, someSelected: false };
+    }
+
+    return {
+      allSelected: allIds.length > 0 && allIds.every((id) => selectedKeys.has(id)),
+      someSelected: allIds.some((id) => selectedKeys.has(id)),
+    };
+  }, [allIds, selectable, selectedKeys]);
   const loadingStatus = loading ? "Loading table data" : "Table data loaded";
 
   function handleSortClick(column: DataColumn<T>) {
