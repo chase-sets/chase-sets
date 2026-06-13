@@ -8,6 +8,7 @@
     "./api": "./api.ts",
     "./auth": "./auth.ts",
     "./context-pools": "./context-pools.ts",
+    "./config-schema": "./config-schema.ts",
     "./control-plane": "./control-plane.ts",
     "./durable-job-events": "./durable-job-events.ts",
     "./durable-job-store": "./durable-job-store.ts",

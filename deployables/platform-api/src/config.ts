@@ -6,6 +6,28 @@ import {
   type EnvironmentDataProfile,
 } from "@chase-sets/platform-runtime/api";
 import {
+  getBooleanEnv,
+  getContextDatabaseEnvName as getSharedContextDatabaseEnvName,
+  getOptionalCsvEnv,
+  getOptionalEnv,
+  getOptionalJsonEnv,
+  getOptionalPositiveNumberEnv,
+  getPositiveNumberEnv,
+  getRequiredPositiveNumberEnv,
+  loadCatalogAssetStorageConfig,
+  loadPlatformDatabaseConfig,
+  loadPoolConfig,
+  loadPostageConfig,
+  loadStorageConfig,
+  loadStripeProviderConfig,
+  resolveMobileMessagingProvider,
+  type PlatformCatalogAssetStorageConfig,
+  type PlatformMoneyMovementConfig,
+  type PlatformPaymentProcessorConfig,
+  type PlatformPoolConfig,
+  type PlatformPostageConfig,
+} from "@chase-sets/platform-runtime/config-schema";
+import {
   PLATFORM_INTERNAL_AUTH_SECRET_ENV,
   resolvePlatformInternalAuthSecret,
 } from "@chase-sets/platform-runtime/http";
@@ -16,43 +38,11 @@ import type {
 } from "@chase-sets/bounded-context-runtime";
 import { apiContextRegistry } from "./generated/api-context-registry";
 
-export type PlatformApiPaymentProcessorConfig =
-  | Readonly<{
-      kind: "fake";
-    }>
-  | Readonly<{
-      kind: "stripe";
-      secretKey: string;
-      publishableKey: string;
-      webhookSecret: string;
-      apiBaseUrl?: string;
-      checkoutUiMode?: "elements" | "hosted";
-    }>;
+export type PlatformApiPaymentProcessorConfig = PlatformPaymentProcessorConfig;
 
-export type PlatformApiMoneyMovementConfig =
-  | Readonly<{
-      kind: "fake";
-    }>
-  | Readonly<{
-      kind: "stripe";
-      secretKey: string;
-      webhookSecret: string;
-      apiBaseUrl?: string;
-      onboardingReturnUrl?: string;
-      onboardingRefreshUrl?: string;
-    }>;
+export type PlatformApiMoneyMovementConfig = PlatformMoneyMovementConfig;
 
-export type PlatformApiPostageConfig =
-  | Readonly<{
-      kind: "sandbox";
-    }>
-  | Readonly<{
-      kind: "easypost";
-      apiKey: string;
-      webhookSecret?: string;
-      apiBaseUrl?: string;
-      mode: "test" | "production";
-    }>;
+export type PlatformApiPostageConfig = PlatformPostageConfig<true>;
 
 export type PlatformApiSocialLoginProviderConfig = Readonly<{
   clientId: string;
@@ -68,22 +58,7 @@ export type PlatformApiAdminGoogleWorkspaceSsoConfig = Readonly<{
   allowedHostedDomains: readonly string[];
 }>;
 
-export type PlatformApiCatalogAssetStorageConfig =
-  | Readonly<{
-      kind: "filesystem";
-      rootDir: string;
-      publicBaseUrl: string;
-    }>
-  | Readonly<{
-      kind: "s3";
-      bucket: string;
-      region: string;
-      publicBaseUrl: string;
-      endpoint?: string;
-      accessKeyId?: string;
-      secretAccessKey?: string;
-      forcePathStyle?: boolean;
-    }>;
+export type PlatformApiCatalogAssetStorageConfig = PlatformCatalogAssetStorageConfig;
 
 export type PlatformApiListingPhotoStorageConfig = PlatformApiCatalogAssetStorageConfig;
 
@@ -119,11 +94,7 @@ export type PlatformApiPlatformAdminConfig = Readonly<{
   accountName: string;
 }>;
 
-export type PlatformApiPoolConfig = Readonly<{
-  max: number;
-  idleTimeoutMillis: number;
-  connectionTimeoutMillis: number;
-}>;
+export type PlatformApiPoolConfig = PlatformPoolConfig;
 
 export type PlatformApiRealtimeConfig = Readonly<{
   batchSize: number;
@@ -233,63 +204,6 @@ export type StripeGoLiveCheckReport = Readonly<{
 }>;
 
 const platformApiContexts = getApiHostContextNames(apiContextRegistry, "platform-api");
-
-function getOptionalEnv(name: string) {
-  const value = process.env[name];
-
-  return value?.trim() ? value.trim() : null;
-}
-
-function getOptionalPositiveNumberEnv(name: string, defaultValue: number) {
-  const parsed = Number(process.env[name] ?? defaultValue);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-}
-
-function getPositiveNumberEnv(name: string, defaultValue: number) {
-  return getOptionalPositiveNumberEnv(name, defaultValue) ?? defaultValue;
-}
-
-function getRequiredPositiveNumberEnv(name: string, defaultValue: number) {
-  const value = getOptionalEnv(name);
-  if (!value) {
-    return defaultValue;
-  }
-
-  const parsed = Number(value);
-  if (Number.isFinite(parsed) && parsed > 0) {
-    return parsed;
-  }
-
-  throw new Error(`${name} must be a positive number.`);
-}
-
-function getBooleanEnv(name: string, defaultValue: boolean) {
-  const value = getOptionalEnv(name);
-  if (!value) {
-    return defaultValue;
-  }
-
-  return ["1", "true", "yes", "on"].includes(value.toLowerCase());
-}
-
-function getOptionalCsvEnv(name: string): readonly string[] {
-  return (process.env[name] ?? "")
-    .split(",")
-    .map((value) => value.trim())
-    .filter(Boolean);
-}
-
-function getOptionalJsonEnv<T>(name: string): T | null {
-  const value = getOptionalEnv(name);
-  if (!value) {
-    return null;
-  }
-  try {
-    return JSON.parse(value) as T;
-  } catch (error) {
-    throw new Error(`${name} must contain valid JSON.`);
-  }
-}
 
 function getReadConsistencyExactDependencyModeEnv(name: string): ReadConsistencyExactDependencyMode {
   const value = getOptionalEnv(name) ?? "enabled";
@@ -448,54 +362,6 @@ function loadPlatformAdminConfig(): PlatformApiPlatformAdminConfig | null {
   };
 }
 
-function loadCatalogAssetStorageConfig(port: number, productionLike: boolean): PlatformApiCatalogAssetStorageConfig {
-  const kind = getOptionalEnv("CATALOG_ASSET_STORAGE_KIND") ?? (productionLike ? "s3" : "filesystem");
-
-  if (kind === "filesystem") {
-    if (productionLike) {
-      throw new Error("CATALOG_ASSET_STORAGE_KIND=s3 is required for Catalog asset storage in production.");
-    }
-
-    return {
-      kind: "filesystem",
-      rootDir: getOptionalEnv("CATALOG_ASSET_LOCAL_ROOT") ?? "artifacts/catalog-assets",
-      publicBaseUrl: getOptionalEnv("CATALOG_ASSET_PUBLIC_BASE_URL") ?? `http://localhost:${port}/catalog-assets`,
-    };
-  }
-
-  if (kind !== "s3") {
-    throw new Error("CATALOG_ASSET_STORAGE_KIND must be filesystem or s3.");
-  }
-
-  const bucket = getOptionalEnv("CATALOG_ASSET_S3_BUCKET");
-  const region = getOptionalEnv("CATALOG_ASSET_S3_REGION");
-  const publicBaseUrl = getOptionalEnv("CATALOG_ASSET_PUBLIC_BASE_URL");
-  const accessKeyId = getOptionalEnv("CATALOG_ASSET_S3_ACCESS_KEY_ID");
-  const secretAccessKey = getOptionalEnv("CATALOG_ASSET_S3_SECRET_ACCESS_KEY");
-
-  if (!bucket || !region || !publicBaseUrl) {
-    throw new Error(
-      "CATALOG_ASSET_S3_BUCKET, CATALOG_ASSET_S3_REGION, and CATALOG_ASSET_PUBLIC_BASE_URL are required when CATALOG_ASSET_STORAGE_KIND=s3.",
-    );
-  }
-  if (Boolean(accessKeyId) !== Boolean(secretAccessKey)) {
-    throw new Error(
-      "CATALOG_ASSET_S3_ACCESS_KEY_ID and CATALOG_ASSET_S3_SECRET_ACCESS_KEY must be configured together.",
-    );
-  }
-
-  return {
-    kind: "s3",
-    bucket,
-    region,
-    publicBaseUrl,
-    endpoint: getOptionalEnv("CATALOG_ASSET_S3_ENDPOINT") ?? undefined,
-    accessKeyId: accessKeyId ?? undefined,
-    secretAccessKey: secretAccessKey ?? undefined,
-    forcePathStyle: getBooleanEnv("CATALOG_ASSET_S3_FORCE_PATH_STYLE", false),
-  };
-}
-
 function loadListingPhotoStorageConfig(
   port: number,
   productionLike: boolean,
@@ -506,55 +372,27 @@ function loadListingPhotoStorageConfig(
     return fallbackStorage;
   }
 
-  const kind = explicitKind ?? (productionLike ? "s3" : "filesystem");
-
-  if (kind === "filesystem") {
-    if (productionLike) {
-      throw new Error(
-        "MARKETPLACE_LISTING_PHOTO_STORAGE_KIND=s3 is required for Marketplace listing photo storage in production.",
-      );
-    }
-
-    return {
-      kind: "filesystem",
-      rootDir: getOptionalEnv("MARKETPLACE_LISTING_PHOTO_LOCAL_ROOT") ?? "artifacts/marketplace-listing-photos",
-      publicBaseUrl:
-        getOptionalEnv("MARKETPLACE_LISTING_PHOTO_PUBLIC_BASE_URL") ??
-        `http://localhost:${port}/marketplace-listing-photos`,
-    };
-  }
-
-  if (kind !== "s3") {
-    throw new Error("MARKETPLACE_LISTING_PHOTO_STORAGE_KIND must be filesystem or s3.");
-  }
-
-  const bucket = getOptionalEnv("MARKETPLACE_LISTING_PHOTO_S3_BUCKET");
-  const region = getOptionalEnv("MARKETPLACE_LISTING_PHOTO_S3_REGION");
-  const publicBaseUrl = getOptionalEnv("MARKETPLACE_LISTING_PHOTO_PUBLIC_BASE_URL");
-  const accessKeyId = getOptionalEnv("MARKETPLACE_LISTING_PHOTO_S3_ACCESS_KEY_ID");
-  const secretAccessKey = getOptionalEnv("MARKETPLACE_LISTING_PHOTO_S3_SECRET_ACCESS_KEY");
-
-  if (!bucket || !region || !publicBaseUrl) {
-    throw new Error(
+  return loadStorageConfig({
+    kindEnvName: "MARKETPLACE_LISTING_PHOTO_STORAGE_KIND",
+    localRootEnvName: "MARKETPLACE_LISTING_PHOTO_LOCAL_ROOT",
+    publicBaseUrlEnvName: "MARKETPLACE_LISTING_PHOTO_PUBLIC_BASE_URL",
+    s3BucketEnvName: "MARKETPLACE_LISTING_PHOTO_S3_BUCKET",
+    s3RegionEnvName: "MARKETPLACE_LISTING_PHOTO_S3_REGION",
+    s3EndpointEnvName: "MARKETPLACE_LISTING_PHOTO_S3_ENDPOINT",
+    s3AccessKeyIdEnvName: "MARKETPLACE_LISTING_PHOTO_S3_ACCESS_KEY_ID",
+    s3SecretAccessKeyEnvName: "MARKETPLACE_LISTING_PHOTO_S3_SECRET_ACCESS_KEY",
+    s3ForcePathStyleEnvName: "MARKETPLACE_LISTING_PHOTO_S3_FORCE_PATH_STYLE",
+    defaultLocalRoot: "artifacts/marketplace-listing-photos",
+    defaultPublicBaseUrl: `http://localhost:${port}/marketplace-listing-photos`,
+    productionLike,
+    productionFilesystemError:
+      "MARKETPLACE_LISTING_PHOTO_STORAGE_KIND=s3 is required for Marketplace listing photo storage in production.",
+    invalidKindError: "MARKETPLACE_LISTING_PHOTO_STORAGE_KIND must be filesystem or s3.",
+    missingS3ConfigError:
       "MARKETPLACE_LISTING_PHOTO_S3_BUCKET, MARKETPLACE_LISTING_PHOTO_S3_REGION, and MARKETPLACE_LISTING_PHOTO_PUBLIC_BASE_URL are required when MARKETPLACE_LISTING_PHOTO_STORAGE_KIND=s3.",
-    );
-  }
-  if (Boolean(accessKeyId) !== Boolean(secretAccessKey)) {
-    throw new Error(
+    mismatchedS3CredentialsError:
       "MARKETPLACE_LISTING_PHOTO_S3_ACCESS_KEY_ID and MARKETPLACE_LISTING_PHOTO_S3_SECRET_ACCESS_KEY must be configured together.",
-    );
-  }
-
-  return {
-    kind: "s3",
-    bucket,
-    region,
-    publicBaseUrl,
-    endpoint: getOptionalEnv("MARKETPLACE_LISTING_PHOTO_S3_ENDPOINT") ?? undefined,
-    accessKeyId: accessKeyId ?? undefined,
-    secretAccessKey: secretAccessKey ?? undefined,
-    forcePathStyle: getBooleanEnv("MARKETPLACE_LISTING_PHOTO_S3_FORCE_PATH_STYLE", false),
-  };
+  });
 }
 
 function loadUcpBusinessSigningKeys(productionLike: boolean): UcpBusinessSigningKeySet | undefined {
@@ -588,51 +426,24 @@ function loadUcpBusinessSigningKeys(productionLike: boolean): UcpBusinessSigning
 }
 
 export function getContextDatabaseEnvName(contextName: PlatformApiContextName) {
-  return `DATABASE_URL_${contextName.replaceAll("-", "_").toUpperCase()}`;
+  return getSharedContextDatabaseEnvName(contextName);
 }
 
 function loadBaseConfig(): PlatformApiBaseConfig {
-  const sharedDatabaseUrl = getOptionalEnv("DATABASE_URL");
-  const explicitControlDatabaseUrl = getOptionalEnv("PLATFORM_CONTROL_DATABASE_URL");
   const deploymentEnvironment = getDeploymentEnvironment();
   const productionLike = isProductionDeployment();
-  const controlDatabaseUrl = explicitControlDatabaseUrl ?? sharedDatabaseUrl;
-  if (!controlDatabaseUrl) {
-    throw new Error(
+  const databaseConfig = loadPlatformDatabaseConfig({
+    contextNames: platformApiContexts,
+    missingControlDatabaseUrlError:
       "PLATFORM_CONTROL_DATABASE_URL or DATABASE_URL is required for platform control-plane coordination.",
-    );
-  }
-  if (productionLike && !explicitControlDatabaseUrl) {
-    throw new Error("PLATFORM_CONTROL_DATABASE_URL is required for platform control-plane coordination in production.");
-  }
-  const contextDatabaseUrls = Object.fromEntries(
-    platformApiContexts.flatMap((contextName) => {
-      const databaseUrl = getOptionalEnv(getContextDatabaseEnvName(contextName));
-
-      return databaseUrl ? [[contextName, databaseUrl]] : [];
-    }),
-  ) as Readonly<Partial<Record<PlatformApiContextName, string>>>;
-  const missingContextNames = platformApiContexts.filter(
-    (contextName) => !sharedDatabaseUrl && !contextDatabaseUrls[contextName],
-  );
-
-  if (missingContextNames.length > 0) {
-    throw new Error(
-      `DATABASE_URL or per-context database URLs are required. Missing: ${missingContextNames
-        .map((contextName) => getContextDatabaseEnvName(contextName))
-        .join(", ")}.`,
-    );
-  }
+    productionLike,
+    productionMissingExplicitControlDatabaseUrlError:
+      "PLATFORM_CONTROL_DATABASE_URL is required for platform control-plane coordination in production.",
+  });
 
   return {
-    sharedDatabaseUrl,
-    controlDatabaseUrl,
-    contextDatabaseUrls,
-    pool: {
-      max: getPositiveNumberEnv("DATABASE_POOL_MAX", 10),
-      idleTimeoutMillis: getPositiveNumberEnv("DATABASE_POOL_IDLE_TIMEOUT_MS", 30_000),
-      connectionTimeoutMillis: getPositiveNumberEnv("DATABASE_POOL_CONNECTION_TIMEOUT_MS", 5_000),
-    },
+    ...databaseConfig,
+    pool: loadPoolConfig(),
     port: Number(process.env.PORT ?? 6182),
     internalAuthSecret: resolvePlatformInternalAuthSecret(),
     realtime: {
@@ -669,7 +480,11 @@ function loadBaseConfig(): PlatformApiBaseConfig {
 export function loadBootstrapConfig(): PlatformApiBootstrapConfig {
   const baseConfig = loadBaseConfig();
   const productionLike = isProductionDeployment();
-  const catalogAssetStorage = loadCatalogAssetStorageConfig(baseConfig.port, productionLike);
+  const catalogAssetStorage = loadCatalogAssetStorageConfig({
+    port: baseConfig.port,
+    productionLike,
+    defaultPublicBaseUrl: `http://localhost:${baseConfig.port}/catalog-assets`,
+  });
 
   return {
     ...baseConfig,
@@ -682,18 +497,7 @@ export function loadConfig(): PlatformApiConfig {
   const baseConfig = loadBaseConfig() as PlatformApiBaseConfig & {
     realtime: PlatformApiRealtimeConfig;
   };
-  const stripeSecretKey = getOptionalEnv("STRIPE_SECRET_KEY");
-  const stripePublishableKey = getOptionalEnv("STRIPE_PUBLISHABLE_KEY");
-  const stripeWebhookSecret = getOptionalEnv("STRIPE_WEBHOOK_SECRET");
-  const stripeConnectWebhookSecret = getOptionalEnv("STRIPE_CONNECT_WEBHOOK_SECRET");
-  const stripeApiBaseUrl = getOptionalEnv("STRIPE_API_BASE_URL") ?? undefined;
-  const stripeCheckoutUiMode = getOptionalEnv("STRIPE_CHECKOUT_UI_MODE");
-  const stripeConnectReturnUrl = getOptionalEnv("STRIPE_CONNECT_RETURN_URL") ?? undefined;
-  const stripeConnectRefreshUrl = getOptionalEnv("STRIPE_CONNECT_REFRESH_URL") ?? undefined;
   const easyPostApiKey = getOptionalEnv("EASYPOST_API_KEY");
-  const easyPostWebhookSecret = getOptionalEnv("EASYPOST_WEBHOOK_SECRET") ?? undefined;
-  const easyPostApiBaseUrl = getOptionalEnv("EASYPOST_API_BASE_URL") ?? undefined;
-  const easyPostMode = getOptionalEnv("EASYPOST_MODE") === "production" ? "production" : "test";
   const googleSocialLoginClientId = getOptionalEnv("GOOGLE_SOCIAL_LOGIN_CLIENT_ID");
   const googleSocialLoginClientSecret = getOptionalEnv("GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET");
   const adminGoogleWorkspaceSsoDomains = getOptionalCsvEnv("ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS").map((value) =>
@@ -701,12 +505,10 @@ export function loadConfig(): PlatformApiConfig {
   );
   const facebookSocialLoginClientId = getOptionalEnv("FACEBOOK_SOCIAL_LOGIN_CLIENT_ID");
   const facebookSocialLoginClientSecret = getOptionalEnv("FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET");
-  const mobileMessagingProvider = getOptionalEnv("MOBILE_MESSAGING_PROVIDER");
+  const mobileMessagingProvider = resolveMobileMessagingProvider(getOptionalEnv("MOBILE_MESSAGING_PROVIDER"));
   const twilioAuthToken = getOptionalEnv("TWILIO_AUTH_TOKEN");
   const twilioRequireWebhookSignature = getBooleanEnv("TWILIO_WEBHOOK_SIGNATURE_REQUIRED", true);
   const productionLike = isProductionDeployment();
-  const resolvedStripeConnectWebhookSecret =
-    stripeConnectWebhookSecret ?? (!productionLike ? stripeWebhookSecret : undefined);
   const ucpBusinessSigningKeys = loadUcpBusinessSigningKeys(productionLike);
 
   if (
@@ -718,14 +520,12 @@ export function loadConfig(): PlatformApiConfig {
     );
   }
 
-  if (
-    productionLike &&
-    (!stripeSecretKey || !stripePublishableKey || !stripeWebhookSecret || !stripeConnectWebhookSecret)
-  ) {
-    throw new Error(
+  const stripeProvider = loadStripeProviderConfig({
+    productionLike,
+    productionMissingConfigError:
       "STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, STRIPE_WEBHOOK_SECRET, and STRIPE_CONNECT_WEBHOOK_SECRET are required for Stripe payment processing and Connect money movement in production.",
-    );
-  }
+  });
+
   if (productionLike && !easyPostApiKey) {
     throw new Error("EASYPOST_API_KEY is required for USPS postage label purchasing in production.");
   }
@@ -733,9 +533,6 @@ export function loadConfig(): PlatformApiConfig {
     throw new Error(
       `${PLATFORM_INTERNAL_AUTH_SECRET_ENV} is required for internal platform API capabilities in production.`,
     );
-  }
-  if (productionLike && easyPostApiKey && !easyPostWebhookSecret) {
-    throw new Error("EASYPOST_WEBHOOK_SECRET is required for EasyPost webhook verification in production.");
   }
   if (productionLike && Boolean(googleSocialLoginClientId) !== Boolean(googleSocialLoginClientSecret)) {
     throw new Error("GOOGLE_SOCIAL_LOGIN_CLIENT_ID and GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET must be configured together.");
@@ -753,7 +550,18 @@ export function loadConfig(): PlatformApiConfig {
   if (mobileMessagingProvider === "twilio" && !twilioAuthToken) {
     throw new Error("TWILIO_AUTH_TOKEN is required when MOBILE_MESSAGING_PROVIDER=twilio.");
   }
-  const catalogAssetStorage = loadCatalogAssetStorageConfig(baseConfig.port, productionLike);
+  const postage = loadPostageConfig({
+    productionLike,
+    productionMissingApiKeyError: "EASYPOST_API_KEY is required for USPS postage label purchasing in production.",
+    includeWebhookSecret: true,
+    productionMissingWebhookSecretError:
+      "EASYPOST_WEBHOOK_SECRET is required for EasyPost webhook verification in production.",
+  });
+  const catalogAssetStorage = loadCatalogAssetStorageConfig({
+    port: baseConfig.port,
+    productionLike,
+    defaultPublicBaseUrl: `http://localhost:${baseConfig.port}/catalog-assets`,
+  });
   const listingPhotoStorage = loadListingPhotoStorageConfig(baseConfig.port, productionLike, catalogAssetStorage);
 
   const socialLogin: PlatformApiSocialLoginConfig = {
@@ -781,19 +589,6 @@ export function loadConfig(): PlatformApiConfig {
         }
       : null;
 
-  const moneyMovement =
-    stripeSecretKey && resolvedStripeConnectWebhookSecret
-      ? {
-          kind: "stripe" as const,
-          secretKey: stripeSecretKey,
-          webhookSecret: resolvedStripeConnectWebhookSecret,
-          apiBaseUrl: stripeApiBaseUrl,
-          ...(stripeConnectReturnUrl ? { onboardingReturnUrl: stripeConnectReturnUrl } : {}),
-          ...(stripeConnectRefreshUrl ? { onboardingRefreshUrl: stripeConnectRefreshUrl } : {}),
-        }
-      : {
-          kind: "fake" as const,
-        };
   const mobileMessaging =
     mobileMessagingProvider === "twilio"
       ? {
@@ -805,75 +600,26 @@ export function loadConfig(): PlatformApiConfig {
           kind: "noop" as const,
         };
 
-  if (stripeSecretKey && stripePublishableKey && stripeWebhookSecret) {
-    return {
-      ...baseConfig,
-      moneyMovement,
-      mobileMessaging,
-      postage: easyPostApiKey
-        ? {
-            kind: "easypost",
-            apiKey: easyPostApiKey,
-            webhookSecret: easyPostWebhookSecret,
-            apiBaseUrl: easyPostApiBaseUrl,
-            mode: easyPostMode,
-          }
-        : { kind: "sandbox" },
-      stripeGoLive: {
-        apiVersion: STRIPE_PLATFORM_API_VERSION,
-        requiredWebhookEvents: REQUIRED_STRIPE_WEBHOOK_EVENTS,
-        paymentsConfigured: true,
-        connectConfigured: moneyMovement.kind === "stripe" && Boolean(resolvedStripeConnectWebhookSecret),
-        legacyHostedSetupUrlsConfigured: Boolean(stripeConnectReturnUrl && stripeConnectRefreshUrl),
-        fakeFallbackAllowed: !productionLike,
-        liveSecretKeyLikely: stripeSecretKey.startsWith("sk_live"),
-      },
-      catalogAssetStorage,
-      listingPhotoStorage,
-      socialLogin,
-      adminGoogleWorkspaceSso,
-      ucpBusinessSigningKeys,
-      paymentProcessor: {
-        kind: "stripe",
-        secretKey: stripeSecretKey,
-        publishableKey: stripePublishableKey,
-        webhookSecret: stripeWebhookSecret,
-        apiBaseUrl: stripeApiBaseUrl,
-        checkoutUiMode: stripeCheckoutUiMode === "hosted" ? "hosted" : "elements",
-      },
-    };
-  }
-
   return {
     ...baseConfig,
-    moneyMovement,
+    moneyMovement: stripeProvider.moneyMovement,
     mobileMessaging,
-    postage: easyPostApiKey
-      ? {
-          kind: "easypost",
-          apiKey: easyPostApiKey,
-          webhookSecret: easyPostWebhookSecret,
-          apiBaseUrl: easyPostApiBaseUrl,
-          mode: easyPostMode,
-        }
-      : { kind: "sandbox" },
+    postage,
     stripeGoLive: {
       apiVersion: STRIPE_PLATFORM_API_VERSION,
       requiredWebhookEvents: REQUIRED_STRIPE_WEBHOOK_EVENTS,
-      paymentsConfigured: false,
-      connectConfigured: moneyMovement.kind === "stripe",
-      legacyHostedSetupUrlsConfigured: Boolean(stripeConnectReturnUrl && stripeConnectRefreshUrl),
+      paymentsConfigured: stripeProvider.paymentProcessor.kind === "stripe",
+      connectConfigured: stripeProvider.moneyMovement.kind === "stripe",
+      legacyHostedSetupUrlsConfigured: Boolean(stripeProvider.connectReturnUrl && stripeProvider.connectRefreshUrl),
       fakeFallbackAllowed: !productionLike,
-      liveSecretKeyLikely: Boolean(stripeSecretKey?.startsWith("sk_live")),
+      liveSecretKeyLikely: Boolean(stripeProvider.secretKey?.startsWith("sk_live")),
     },
     catalogAssetStorage,
     listingPhotoStorage,
     socialLogin,
     adminGoogleWorkspaceSso,
     ucpBusinessSigningKeys,
-    paymentProcessor: {
-      kind: "fake",
-    },
+    paymentProcessor: stripeProvider.paymentProcessor,
   };
 }
 
