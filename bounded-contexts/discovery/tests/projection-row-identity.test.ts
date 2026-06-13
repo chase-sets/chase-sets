@@ -13,7 +13,7 @@ import { buildDiscoveryCategoryProjectionHandlers } from "../features/categories
 import { buildDiscoveryItemDetailProjectionHandlers } from "../features/item-detail/read-model/projection";
 import { buildProductAlertPageProjectionHandlers } from "../features/product-alerts/read-model/projection";
 import { buildDiscoverySearchItemProjectionHandlers } from "../features/search/read-model/projection";
-import { buildGoogleShoppingFeedRowProjectionHandlers } from "../support/google-shopping-support/projection";
+import { buildGoogleShoppingFeedRowProjectionHandlers } from "../features/google-shopping-operations/api/projection";
 import { buildDiscoveryMarketProjectionHandlers } from "../support/market-support/projection";
 import { discoverySchemaSql } from "../support/runtime-support/schema";
 

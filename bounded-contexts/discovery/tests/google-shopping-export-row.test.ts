@@ -11,8 +11,8 @@ import {
   mapGoogleShoppingProductAttributes,
   selectGoogleShoppingImage,
   type GoogleShoppingFeedRowInput,
-} from "../support/google-shopping-support/export-row";
-import { discoveryGoogleShoppingSchemaSql } from "../support/google-shopping-support/schema";
+} from "../features/google-shopping-operations/api/export-row";
+import { discoveryGoogleShoppingSchemaSql } from "../features/google-shopping-operations/api/schema";
 
 describe("google shopping export rows", () => {
   it("derives stable row, offer, and seller identifiers from source ids", () => {

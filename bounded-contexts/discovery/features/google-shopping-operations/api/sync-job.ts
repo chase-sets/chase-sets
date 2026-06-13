@@ -13,6 +13,7 @@ import {
   type DurableJobRecord,
   toDurableJobPublicSnapshot,
 } from "@chase-sets/platform-runtime/durable-job-store";
+import { t } from "@chase-sets/localization";
 import type { GoogleShoppingPayloadInput } from "./export-row";
 import {
   drainDueGoogleShoppingIncrementalSyncRequests,
@@ -568,7 +569,7 @@ export function createGoogleShoppingSyncRuntime(deps: GoogleShoppingSyncRuntimeD
           completed: 0,
           total,
           currentRowId: null,
-          message: "Google Shopping full sync queued.",
+          message: t("discovery.googleShoppingOperations.sync.fullQueued"),
         }),
         eventContext: context,
       })) as GoogleShoppingFullSyncJob;
@@ -594,7 +595,7 @@ export function createGoogleShoppingSyncRuntime(deps: GoogleShoppingSyncRuntimeD
         mode: params.mode,
         requests: googleShoppingMaintenanceRequests(summary),
         context,
-        message: "Google Shopping maintenance sync queued.",
+        message: t("discovery.googleShoppingOperations.sync.maintenanceQueued"),
       });
       return { summary, job };
     },
@@ -614,7 +615,7 @@ export function createGoogleShoppingSyncRuntime(deps: GoogleShoppingSyncRuntimeD
           completed: 0,
           total,
           currentRowId: null,
-          message: "Google Shopping diagnostics refresh queued.",
+          message: t("discovery.googleShoppingOperations.sync.diagnosticsQueued"),
         }),
         eventContext: context,
       })) as GoogleShoppingFullSyncJob;
@@ -651,7 +652,7 @@ export function createGoogleShoppingSyncRuntime(deps: GoogleShoppingSyncRuntimeD
         mode: params.mode,
         requests: googleShoppingMaintenanceRequests(summary),
         context: GOOGLE_SHOPPING_SYSTEM_CONTEXT,
-        message: "Google Shopping scheduled maintenance sync queued.",
+        message: t("discovery.googleShoppingOperations.sync.scheduledMaintenanceQueued"),
       });
       return 1;
     },
@@ -675,7 +676,7 @@ export function createGoogleShoppingSyncRuntime(deps: GoogleShoppingSyncRuntimeD
           completed: 0,
           total,
           currentRowId: null,
-          message: "Google Shopping scheduled diagnostics refresh queued.",
+          message: t("discovery.googleShoppingOperations.sync.scheduledDiagnosticsQueued"),
         }),
         eventContext: GOOGLE_SHOPPING_SYSTEM_CONTEXT,
       });
@@ -714,7 +715,7 @@ export function createGoogleShoppingSyncRuntime(deps: GoogleShoppingSyncRuntimeD
           ...claimed.progress,
           phase: "processing",
           total,
-          message: "Processing Google Shopping full sync.",
+          message: t("discovery.googleShoppingOperations.sync.fullProcessing"),
         });
         await requireGoogleShoppingSyncClaim(
           jobStore.updateProgress({
@@ -760,7 +761,7 @@ export function createGoogleShoppingSyncRuntime(deps: GoogleShoppingSyncRuntimeD
           phase: "completed",
           completed: progress.completed,
           total: Math.max(progress.total, progress.completed),
-          message: "Google Shopping full sync completed.",
+          message: t("discovery.googleShoppingOperations.sync.fullCompleted"),
         });
         const result = toGoogleShoppingSyncResult(claimed.payload.mode, finalProgress);
         await requireGoogleShoppingSyncClaim(
@@ -844,7 +845,7 @@ export function createGoogleShoppingSyncRuntime(deps: GoogleShoppingSyncRuntimeD
           ...claimed.progress,
           phase: "processing",
           total: payload.listingIds.length,
-          message: "Processing Google Shopping incremental sync.",
+          message: t("discovery.googleShoppingOperations.sync.incrementalProcessing"),
         });
         await requireGoogleShoppingSyncClaim(
           jobStore.updateProgress({
@@ -889,7 +890,7 @@ export function createGoogleShoppingSyncRuntime(deps: GoogleShoppingSyncRuntimeD
           phase: "completed",
           completed: progress.completed,
           total: Math.max(progress.total, progress.completed),
-          message: "Google Shopping incremental sync completed.",
+          message: t("discovery.googleShoppingOperations.sync.incrementalCompleted"),
         });
         const result = toGoogleShoppingSyncResult(payload.mode, finalProgress);
         await requireGoogleShoppingSyncClaim(
@@ -955,7 +956,7 @@ export function createGoogleShoppingSyncRuntime(deps: GoogleShoppingSyncRuntimeD
           ...claimed.progress,
           phase: "processing",
           total,
-          message: "Processing Google Shopping diagnostics refresh.",
+          message: t("discovery.googleShoppingOperations.sync.diagnosticsProcessing"),
         });
         await requireGoogleShoppingSyncClaim(
           jobStore.updateProgress({
@@ -1014,7 +1015,7 @@ export function createGoogleShoppingSyncRuntime(deps: GoogleShoppingSyncRuntimeD
           phase: "completed",
           completed: progress.completed,
           total: Math.max(progress.total, progress.completed),
-          message: "Google Shopping diagnostics refresh completed.",
+          message: t("discovery.googleShoppingOperations.sync.diagnosticsCompleted"),
         });
         const result = {
           ...toGoogleShoppingSyncResult(payload.mode, finalProgress),
@@ -1223,7 +1224,7 @@ export async function processGoogleShoppingSyncRow(input: {
         attemptedAt,
         operation: "insert-product-input",
         code: "google_shopping_missing_payload",
-        message: "Eligible Google Shopping feed row is missing payload or payload hash.",
+        message: t("discovery.googleShoppingOperations.sync.rowMissingPayload"),
         response: { classification },
         providerRequestId: null,
       });
@@ -1539,7 +1540,7 @@ export async function processGoogleShoppingDiagnosticsRow(input: {
       await recordGoogleShoppingDiagnosticsFailure(input.db, input.row.rowId, {
         attemptedAt,
         code: "google_shopping_diagnostics_unavailable",
-        message: "Google Merchant client does not support processed product diagnostics.",
+        message: t("discovery.googleShoppingOperations.sync.diagnosticsUnavailable"),
         response: { operation: "get-processed-product" },
         providerRequestId: null,
       });
@@ -2189,7 +2190,7 @@ function addGoogleShoppingSyncOutcome(
     deleted: progress.deleted + (outcome === "deleted" ? 1 : 0),
     failed: progress.failed + (outcome === "failed" ? 1 : 0),
     excluded: progress.excluded + (outcome === "excluded" ? 1 : 0),
-    message: "Processed Google Shopping feed row.",
+    message: t("discovery.googleShoppingOperations.sync.rowProcessed"),
   };
 }
 

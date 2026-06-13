@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { DiscoveryApiEnv } from "../api";
-import { createGoogleShoppingSyncRoutes } from "../support/google-shopping-support/route";
+import { createGoogleShoppingSyncRoutes } from "../features/google-shopping-operations/api/route";
 import {
   classifyGoogleShoppingSyncRow,
   createGoogleShoppingSyncRuntime,
@@ -18,7 +18,7 @@ import {
   type GoogleShoppingSyncMerchantClient,
   type GoogleShoppingSyncProviderResult,
   type GoogleShoppingSyncServices,
-} from "../support/google-shopping-support/sync-job";
+} from "../features/google-shopping-operations/api/sync-job";
 
 const context: EventStoreContext = {
   tenantId: "tnt_test" as never,

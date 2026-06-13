@@ -4,7 +4,7 @@ import type { DiscoveryServices } from "./support/runtime-support/services";
 import { discoveryCategoryRoutes } from "./features/categories/api/route";
 import { discoveryItemRoutes } from "./support/item-support/route";
 import { discoveryMarketRoutes } from "./support/market-support/route";
-import { createGoogleShoppingSyncRoutes } from "./support/google-shopping-support/route";
+import { createGoogleShoppingSyncRoutes } from "./features/google-shopping-operations/api/route";
 import { createGuestProductAlertRoutes, createProductAlertRoutes } from "./features/product-alerts/api/route";
 
 export type DiscoveryApiEnv = AuthenticatedApiEnv;
