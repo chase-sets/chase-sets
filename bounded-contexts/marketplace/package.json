@@ -23,16 +23,17 @@
     "@chase-sets/design-system": "workspace:*",
     "@chase-sets/event-core": "workspace:*",
     "@chase-sets/event-core-postgres": "workspace:*",
-    "@chase-sets/platform-operations": "workspace:*",
     "@chase-sets/http": "workspace:*",
     "@chase-sets/identity": "workspace:*",
     "@chase-sets/inventory": "workspace:*",
     "@chase-sets/localization": "workspace:*",
+    "@chase-sets/platform-operations": "workspace:*",
     "@chase-sets/platform-runtime": "workspace:*",
-    "@chase-sets/product-measures": "workspace:*",
     "@chase-sets/primitives": "workspace:*",
+    "@chase-sets/product-measures": "workspace:*",
     "hono": "^4.12.12",
-    "sharp": "^0.34.5"
+    "sharp": "^0.34.5",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "vitest": "^4.1.4"

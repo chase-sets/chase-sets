@@ -13,11 +13,13 @@ import {
   type DurableJobWorkUnitSummary,
 } from "@chase-sets/platform-runtime/durable-job-work-units";
 import { createId } from "@chase-sets/primitives/typed-ids";
+import { z } from "zod";
 import type {
   BulkLifecycleExecutionOptions,
   BulkLifecycleExecutionProgress,
   BulkSelection,
 } from "../runtime-support/bulk-lifecycle";
+import type { BulkEditCatalogItemOperation } from "../../features/catalog-items/api/runtime";
 import type { CatalogServices } from "./services";
 
 export type CatalogAuthoringBulkJobKind =
@@ -305,6 +307,24 @@ const CATALOG_AUTHORING_PARENT_CLAIM_KINDS: readonly CatalogAuthoringBulkJobKind
   "catalog.authoring.items.edit",
 ];
 
+const editOperationSchema = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("assignBlueprint"), blueprintId: z.string() }),
+  z.object({ action: z.literal("assignCategory"), categoryId: z.string() }),
+  z.object({ action: z.literal("removeCategory"), categoryId: z.string() }),
+  z.object({ action: z.literal("setTags"), tags: z.array(z.string()) }),
+  z.object({ action: z.literal("mergeTags"), tags: z.array(z.string()) }),
+  z.object({ action: z.literal("clearTags") }),
+]);
+
+export function parseEditOperation(value: unknown): BulkEditCatalogItemOperation {
+  const parsed = editOperationSchema.safeParse(value);
+  if (!parsed.success) {
+    throw new Error("Catalog Item bulk edit operation is invalid.");
+  }
+
+  return parsed.data;
+}
+
 async function processNextCatalogAuthoringWorkUnit(input: {
   claimOwnerId: string;
   claimTtlMs: number;
@@ -582,8 +602,12 @@ async function executeCatalogAuthoringBulkJob(
     case "catalog.authoring.items.publish":
       return services.items.publishBulk(payload.itemIds ?? [], context, progressOptions);
     case "catalog.authoring.items.edit":
-      // Dynamic durable-job operation payload still needs a Catalog item edit operation parser.
-      return services.items.editBulk(requireSelection(payload), payload.operation as never, context, progressOptions);
+      return services.items.editBulk(
+        requireSelection(payload),
+        parseEditOperation(payload.operation),
+        context,
+        progressOptions,
+      );
     default:
       throw new Error(`Unsupported Catalog authoring bulk job kind: ${payload.kind}`);
   }

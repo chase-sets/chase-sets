@@ -168,6 +168,42 @@ function createServices(): MarketplaceListingServices {
   } as unknown as MarketplaceListingServices;
 }
 
+const sellerActor: MarketplaceApiEnv["Variables"]["actor"] = {
+  sessionId: "ses_1",
+  tenantId: "tnt_identity",
+  userId: "usr_seller",
+  accountId: "acc_seller",
+  membershipId: "mbr_1",
+  roleKey: "owner",
+  permissions: ["listings.view", "listings.manage"],
+};
+
+const validShipFromAddress = {
+  name: "Seller shelf",
+  company: null,
+  line1: "100 Main St",
+  line2: null,
+  city: "Chicago",
+  state: "IL",
+  postalCode: "60601",
+  country: "US",
+  phone: null,
+  email: null,
+};
+
+const validInventorySnapshot = {
+  inventoryItemId: "inv_1",
+  catalogItemId: "cat_1",
+  productId: "cat_1::form:graded",
+  selectedOptions: [{ dimensionId: "form", optionId: "graded" }],
+  storageLocationId: "sloc_1",
+  storageLocationName: "Seller shelf",
+  shipFromCode: "CHI-1",
+  shipFromAddress: validShipFromAddress,
+  totalQuantity: 2,
+  acquisitionCostAmount: "4.50",
+};
+
 describe("marketplace listing routes", () => {
   it("returns display-safe public standard terms without requiring a signed-in actor", async () => {
     const services = createServices();
@@ -386,15 +422,7 @@ describe("marketplace listing routes", () => {
   it("passes Checkout-provided deterministic listing IDs into seller listing creation", async () => {
     const services = createServices();
     const app = buildApp({
-      actor: {
-        sessionId: "ses_1",
-        tenantId: "tnt_identity",
-        userId: "usr_seller",
-        accountId: "acc_seller",
-        membershipId: "mbr_1",
-        roleKey: "owner",
-        permissions: ["listings.view", "listings.manage"],
-      },
+      actor: sellerActor,
       services,
     });
 
@@ -426,18 +454,119 @@ describe("marketplace listing routes", () => {
     );
   });
 
+  it("hydrates a valid inventory snapshot into seller listing creation", async () => {
+    const services = createServices();
+    const app = buildApp({
+      actor: sellerActor,
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://marketplace.test/account/listings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          priceAmount: "12.00",
+          quantityCap: 1,
+          inventorySnapshot: {
+            ...validInventorySnapshot,
+            gradedCard: {
+              gradingCompany: "PSA",
+              grade: "10",
+              certificationNumber: "12345678",
+              population: {
+                populationAtGrade: 12,
+                populationHigher: 0,
+                source: "PSA population report",
+                asOf: "2026-04-01",
+              },
+              conditionDescriptors: ["Gem Mint"],
+            },
+          },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    expect(services.createListingFromInventorySnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({
+        shipFromAddress: validShipFromAddress,
+        gradedCard: expect.objectContaining({
+          gradingCompany: "PSA",
+          grade: "10",
+          conditionDescriptors: ["Gem Mint"],
+        }),
+      }),
+      expect.any(Object),
+    );
+  });
+
+  it("rejects malformed inventory snapshot ship-from addresses before creating a listing", async () => {
+    const services = createServices();
+    const app = buildApp({
+      actor: sellerActor,
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://marketplace.test/account/listings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          priceAmount: "12.00",
+          quantityCap: 1,
+          inventorySnapshot: {
+            ...validInventorySnapshot,
+            shipFromAddress: {
+              ...validShipFromAddress,
+              line1: "",
+            },
+          },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(services.createListingFromInventorySnapshot).not.toHaveBeenCalled();
+    expect(services.createListing).not.toHaveBeenCalled();
+  });
+
+  it("rejects malformed inventory snapshot graded cards before creating a listing", async () => {
+    const services = createServices();
+    const app = buildApp({
+      actor: sellerActor,
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://marketplace.test/account/listings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          priceAmount: "12.00",
+          quantityCap: 1,
+          inventorySnapshot: {
+            ...validInventorySnapshot,
+            gradedCard: {
+              gradingCompany: "PSA",
+              certificationNumber: "12345678",
+              population: null,
+              conditionDescriptors: [],
+            },
+          },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(services.createListingFromInventorySnapshot).not.toHaveBeenCalled();
+    expect(services.createListing).not.toHaveBeenCalled();
+  });
+
   it("publishes a seller listing through the documented API action", async () => {
     const services = createServices();
     const app = buildApp({
-      actor: {
-        sessionId: "ses_1",
-        tenantId: "tnt_identity",
-        userId: "usr_seller",
-        accountId: "acc_seller",
-        membershipId: "mbr_1",
-        roleKey: "owner",
-        permissions: ["listings.view", "listings.manage"],
-      },
+      actor: sellerActor,
       services,
     });
 
