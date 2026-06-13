@@ -41,4 +41,7 @@ CREATE TABLE IF NOT EXISTS checkout_sell_list_confirmation_pages (
 
 CREATE INDEX IF NOT EXISTS checkout_sell_list_confirmation_pages_seller_latest_idx
   ON checkout_sell_list_confirmation_pages (seller_account_id, confirmed_at DESC, confirmation_id DESC);
+
+CREATE INDEX IF NOT EXISTS checkout_sell_list_confirmation_pages_reference_idx
+  ON checkout_sell_list_confirmation_pages (confirmation_id, confirmed_at DESC);
 `;

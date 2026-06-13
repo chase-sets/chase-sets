@@ -37,4 +37,12 @@ ALTER TABLE checkout_session_pages
 
 CREATE INDEX IF NOT EXISTS checkout_session_pages_buyer_idx
   ON checkout_session_pages (buyer_account_id, updated_at DESC, session_id DESC);
+
+CREATE INDEX IF NOT EXISTS checkout_session_pages_support_reference_idx
+  ON checkout_session_pages ((split_group_handoff ->> 'supportReference'), updated_at DESC)
+  WHERE split_group_handoff IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS checkout_session_pages_split_group_handoff_idx
+  ON checkout_session_pages USING GIN (split_group_handoff)
+  WHERE split_group_handoff IS NOT NULL;
 `;
