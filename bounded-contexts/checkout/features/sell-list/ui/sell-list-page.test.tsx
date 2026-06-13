@@ -277,11 +277,13 @@ describe("checkout sell list page", () => {
 
     expect(markup).toContain("Latest seller confirmation");
     expect(markup).toContain("Seller confirmation recorded");
-    expect(markup).toContain("slc_chk_sell_1");
+    expect(markup).toContain("CS-SL-CHK_SELL_1");
     expect(markup).toContain("Marketplace handoff recorded");
     expect(markup).toContain("Pending downstream");
-    expect(markup).toContain("offer off_charizard");
-    expect(markup).toContain("listing lst_charizard");
+    expect(markup).toContain("Downstream references are available through support.");
+    expect(markup).not.toContain("slc_chk_sell_1");
+    expect(markup).not.toContain("off_charizard");
+    expect(markup).not.toContain("lst_charizard");
     expect(markup).toContain("View seller activity");
     expect(markup).toContain("View committed sales");
     expect(markup).toContain("View sale shipments");

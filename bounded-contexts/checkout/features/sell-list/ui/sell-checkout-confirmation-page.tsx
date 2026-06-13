@@ -8,6 +8,7 @@ import {
 } from "@chase-sets/design-system";
 import { t } from "@chase-sets/localization";
 import type { CheckoutSellListConfirmationRow } from "../read-model/queries";
+import { sellListConfirmationSupportReference } from "../read-model/support-reference";
 
 export type SellCheckoutConfirmationPageProps = Readonly<{
   confirmation: CheckoutSellListConfirmationRow;
@@ -48,6 +49,7 @@ export function SellCheckoutConfirmationPage({ confirmation }: SellCheckoutConfi
   const publishedListingCount = summary.publishedListingCount ?? 0;
   const skippedLineCount = summary.skippedLineCount ?? 0;
   const recordedActionCount = acceptedOfferCount + publishedListingCount;
+  const supportReference = sellListConfirmationSupportReference(confirmation.confirmation_id);
 
   return (
     <Page>
@@ -67,11 +69,11 @@ export function SellCheckoutConfirmationPage({ confirmation }: SellCheckoutConfi
           title={t("checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.title")}
           description={t("checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.description")}
           referenceLabel={t("checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.reference")}
-          referenceValue={confirmation.confirmation_id}
+          referenceValue={supportReference}
           supportReferenceLabel={t(
             "checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.support.reference",
           )}
-          supportReferenceValue={confirmation.confirmation_id}
+          supportReferenceValue={supportReference}
           totalLabel={t("checkout.features.sellList.ui.sellListPage.latest.confirmation.action")}
           total={recordedActionCount}
           nextSteps={[
@@ -138,7 +140,7 @@ export function SellCheckoutConfirmationPage({ confirmation }: SellCheckoutConfi
             },
           ]}
           totalLabel={t("checkout.features.sellList.ui.sellListPage.latest.confirmation.support.references")}
-          total={confirmation.confirmation_id}
+          total={supportReference}
           reassurance={t(
             "checkout.features.sellList.ui.signedInSellCheckoutPage.confirmation.side.effects.description",
           )}

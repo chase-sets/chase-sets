@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { lookupCheckoutSupportReference } from "./runtime";
 
 function createDb(options: { buyRows?: readonly unknown[]; sellRows?: readonly unknown[] }) {
-  const query = vi.fn(async (sql: string) => {
+  const query = vi.fn(async (sql: string, _params: readonly unknown[] = []) => {
     if (sql.includes("checkout_session_pages")) {
       return { rows: [...(options.buyRows ?? [])] };
     }
@@ -94,7 +94,7 @@ describe("checkout support lookup runtime", () => {
     expect(responseText).not.toContain("grp_private");
   });
 
-  it("falls through to sell-list confirmation references and redacts handoff internals", async () => {
+  it("falls through to sell-list support references and redacts handoff internals", async () => {
     const { db, query } = createDb({
       sellRows: [
         {
@@ -132,12 +132,13 @@ describe("checkout support lookup runtime", () => {
       ],
     });
 
-    const result = await lookupCheckoutSupportReference(db, "slc_session_safe");
+    const result = await lookupCheckoutSupportReference(db, "CS-SL-SESSION_SAFE");
 
     expect(query).toHaveBeenCalledTimes(2);
+    expect(query.mock.calls[1]?.[1]).toEqual(["slc_session_safe"]);
     expect(result).toMatchObject({
       type: "sell-list-confirmation",
-      supportReference: "slc_session_safe",
+      supportReference: "CS-SL-SESSION_SAFE",
       state: "committed",
       acceptedOfferCount: 1,
       publishedListingCount: 1,
@@ -156,6 +157,23 @@ describe("checkout support lookup runtime", () => {
     expect(responseText).not.toContain("line_private");
     expect(responseText).not.toContain("off_private");
     expect(responseText).not.toContain("lst_private");
+    expect(responseText).not.toContain("slc_session_safe");
+  });
+
+  it("does not resolve raw Sell List confirmation ids as support references", async () => {
+    const { db, query } = createDb({
+      sellRows: [
+        {
+          confirmation_id: "slc_session_safe",
+          confirmed_at: "2026-06-13T00:02:00.000Z",
+          handoff_summary: {},
+        },
+      ],
+    });
+
+    await expect(lookupCheckoutSupportReference(db, "slc_session_safe")).resolves.toBeNull();
+
+    expect(query).toHaveBeenCalledTimes(1);
   });
 
   it("returns null when the support reference is unknown", async () => {

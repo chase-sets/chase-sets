@@ -1,4 +1,8 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import {
+  confirmationIdFromSellListSupportReference,
+  sellListConfirmationSupportReference,
+} from "../../sell-list/read-model/support-reference";
 
 export type CheckoutSupportEffectStatus =
   | "not-attempted"
@@ -179,6 +183,11 @@ async function lookupSellListConfirmationReference(
   db: PgQueryable,
   supportReference: string,
 ): Promise<SellListConfirmationSupportLookup | null> {
+  const confirmationId = confirmationIdFromSellListSupportReference(supportReference);
+  if (!confirmationId) {
+    return null;
+  }
+
   const result = await db.query<SellListConfirmationSupportRow>(
     `SELECT
        confirmation_id,
@@ -188,7 +197,7 @@ async function lookupSellListConfirmationReference(
      WHERE confirmation_id = $1
      ORDER BY confirmed_at DESC
      LIMIT 1`,
-    [supportReference],
+    [confirmationId],
   );
 
   const row = result.rows[0];
@@ -208,7 +217,7 @@ async function lookupSellListConfirmationReference(
 
   return {
     type: "sell-list-confirmation",
-    supportReference: row.confirmation_id,
+    supportReference: sellListConfirmationSupportReference(row.confirmation_id),
     state: sellListState(sideEffects, acceptedOfferCount, publishedListingCount, skippedLineCount, lineOutcomes.length),
     acceptedOfferCount,
     publishedListingCount,
