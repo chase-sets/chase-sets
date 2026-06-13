@@ -7,12 +7,7 @@
   "slices": ["payments", "refunds"],
   "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support", "ucp-support"],
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
-  "allowedContextDependencies": [
-    "@chase-sets/auth",
-    "@chase-sets/checkout",
-    "@chase-sets/ordering",
-    "@chase-sets/platform-operations"
-  ],
+  "allowedContextDependencies": ["@chase-sets/auth", "@chase-sets/ordering", "@chase-sets/platform-operations"],
   "seedRequirements": ["identity", "marketplace", "ordering"],
   "eventSubscriptions": [
     {

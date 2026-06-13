@@ -1,6 +1,6 @@
 import type { AddressSnapshot } from "../primitives/address-snapshot";
 import type { JsonObject, JsonValue } from "../primitives/json";
-import type { AccountId, PaymentId, SessionId, UserId } from "../primitives/typed-ids";
+import type { AccountId, CheckoutSessionId, PaymentId, SessionId, UserId } from "../primitives/typed-ids";
 
 export type EmptyEventPayload = Readonly<Record<string, never>>;
 
@@ -141,6 +141,16 @@ export type MarketplaceEventPayloads = Readonly<{
   "marketplace.offer.accepted": MarketplaceOfferAcceptedPayload;
 }>;
 
+export type CheckoutSessionPaymentStartedPayload = Readonly<{
+  sessionId: CheckoutSessionId;
+  paymentId: PaymentId;
+  recordedAt: string;
+}>;
+
+export type CheckoutEventPayloads = Readonly<{
+  "checkout.session.payment-started": CheckoutSessionPaymentStartedPayload;
+}>;
+
 export type PaymentCapturedPayload = Readonly<{
   paymentId: PaymentId;
   orderIds: readonly string[];
@@ -264,6 +274,7 @@ export type PlatformOperationsEventPayloads = Readonly<{
 }>;
 
 export type ChaseSetsEventPayloads = AuthEventPayloads &
+  CheckoutEventPayloads &
   InventoryEventPayloads &
   MarketplaceEventPayloads &
   PaymentsEventPayloads &
