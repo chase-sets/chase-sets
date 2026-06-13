@@ -14,7 +14,7 @@ export function LoadingSpinner({ label = "Loading", size = "md", ...rest }: Load
     <div {...rest} className="inline-flex items-center gap-2 text-secondary" role="status" aria-live="polite">
       <span
         aria-hidden="true"
-        className={cx("inline-flex animate-spin rounded-full border-2 border-muted border-t-accent", sizeClass)}
+        className={cx("inline-flex animate-spin rounded-tokenFull border-2 border-muted border-t-accent", sizeClass)}
       />
       <span className="text-sm">{label}</span>
     </div>
@@ -46,10 +46,10 @@ export function ProgressBar({
       aria-valuemax={100}
       aria-valuenow={percentage}
     >
-      <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+      <div className="h-2 w-full overflow-hidden rounded-tokenFull bg-muted">
         <div
           className={cx(
-            "h-full rounded-full transition-all",
+            "h-full rounded-tokenFull transition-all",
             tone === "accent" && "bg-accent",
             (tone === "neutral" || tone === "active") && "bg-secondary",
             tone === "success" && "bg-success",

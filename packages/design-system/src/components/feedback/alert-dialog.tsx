@@ -67,7 +67,7 @@ export function AlertDialog({
           })}
         >
           <div className="space-y-3">
-            <div className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-background">
+            <div className="inline-flex h-10 w-10 items-center justify-center rounded-tokenFull bg-background">
               <Icon name={toneIcon(tone)} size="sm" tone={tone} />
             </div>
             <AlertDialogPrimitive.Title className="font-heading text-xl font-semibold text-foreground">

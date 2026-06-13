@@ -178,12 +178,26 @@ describe("design system components", () => {
     const style = resolveThemeStyle({
       colors: {
         accent: "#000000",
+        successHover: "#166534",
+        dangerHover: "#991b1b",
         trust: "#0f766e",
+        ratingSoft: "#fef3c7",
+      },
+      borderWidth: {
+        lg: "4px",
+      },
+      opacity: {
+        disabled: "0.5",
       },
     });
 
     expect(style["--color-accent" as never]).toBe("#000000");
+    expect(style["--success-hover" as never]).toBe("#166534");
+    expect(style["--color-danger-hover" as never]).toBe("#991b1b");
     expect(style["--trust" as never]).toBe("#0f766e");
+    expect(style["--rating-soft" as never]).toBe("#fef3c7");
+    expect(style["--border-width-lg" as never]).toBe("4px");
+    expect(style["--opacity-disabled" as never]).toBe("0.5");
   });
 
   it("keeps the TypeScript theme contract aligned to CSS variables", () => {
@@ -194,12 +208,20 @@ describe("design system components", () => {
     expect(chaseTheme.typography.lineHeight.display).toBe("var(--line-height-display, 1.15)");
     expect(chaseTheme.typography.letterSpacing.label).toBe("var(--letter-spacing-label, 0)");
     expect(chaseTheme.radius.md).toBe("var(--radius, 0.5rem)");
+    expect(chaseTheme.radius.full).toBe("var(--radius-full, 9999px)");
+    expect(chaseTheme.borderWidth.lg).toBe("var(--border-width-lg, 4px)");
+    expect(chaseTheme.opacity.disabled).toBe("var(--opacity-disabled, 0.5)");
     expect(chaseTheme.spacing[4]).toBe("var(--space-4)");
     expect(expectedSpacingTokens).toHaveLength(13);
     expect(chaseTheme.motion.base).toBe("var(--motion-base, 150ms)");
+    expect(chaseTheme.colors.successHover).toBe("var(--success-hover)");
+    expect(chaseTheme.colors.warningActive).toBe("var(--warning-active)");
+    expect(chaseTheme.colors.dangerHover).toBe("var(--danger-hover)");
+    expect(chaseTheme.colors.infoContrast).toBe("var(--info-contrast)");
     expect(chaseTheme.colors.trust).toBe("var(--trust)");
     expect(chaseTheme.colors.deal).toBe("var(--deal)");
     expect(chaseTheme.colors.rating).toBe("var(--rating)");
+    expect(chaseTheme.colors.ratingSoft).toBe("var(--rating-soft)");
     expect(chaseTheme.colors.surfaceLine).toBe("var(--surface-line)");
     expect(chaseTheme.colors).not.toHaveProperty("cyan");
     expect(chaseTheme.colors).not.toHaveProperty("indigo");
@@ -789,7 +811,7 @@ describe("design system components", () => {
 
     expect(inactive.className).toContain("text-secondary");
     expect(active.className).toContain("text-accent");
-    expect(disabled.className).toContain("opacity-50");
+    expect(disabled.className).toContain("opacity-disabled");
     expect(inactiveIcon?.className).toContain("text-current");
     expect(activeIcon?.className).toContain("text-current");
     expect(disabledIcon?.className).toContain("text-current");
@@ -1101,6 +1123,28 @@ describe("design system components", () => {
     for (const token of expectedSpacingTokens) {
       expect(spacing?.[String(token)]).toBe(chaseTheme.spacing[token]);
     }
+  });
+
+  it("keeps Tailwind semantic aliases aligned to token CSS variables", () => {
+    const colors = tailwindConfig.theme?.extend?.colors as Record<string, string> | undefined;
+    const borderRadius = tailwindConfig.theme?.extend?.borderRadius as Record<string, string> | undefined;
+    const borderWidth = tailwindConfig.theme?.extend?.borderWidth as Record<string, string> | undefined;
+    const opacity = tailwindConfig.theme?.extend?.opacity as Record<string, string> | undefined;
+
+    expect(colors?.["success-soft"]).toBe("var(--color-success-soft)");
+    expect(colors?.["warning-hover"]).toBe("var(--color-warning-hover)");
+    expect(colors?.["danger-active"]).toBe("var(--color-danger-active)");
+    expect(colors?.["info-contrast"]).toBe("var(--color-info-contrast)");
+    expect(colors?.trust).toBe("var(--color-trust)");
+    expect(colors?.["trust-soft"]).toBe("var(--color-trust-soft)");
+    expect(colors?.deal).toBe("var(--color-deal)");
+    expect(colors?.["deal-soft"]).toBe("var(--color-deal-soft)");
+    expect(colors?.rating).toBe("var(--color-rating)");
+    expect(colors?.["rating-soft"]).toBe("var(--color-rating-soft)");
+    expect(borderRadius?.tokenFull).toBe("var(--radius-full)");
+    expect(borderWidth?.tokenLg).toBe("var(--border-width-lg)");
+    expect(opacity?.disabled).toBe("var(--opacity-disabled)");
+    expect(opacity?.overlay).toBe("var(--opacity-overlay)");
   });
 
   it("renders Rating with correct number of stars", () => {

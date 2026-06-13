@@ -123,7 +123,9 @@ export function Tabs({ items, defaultValue, value, onValueChange, orientation = 
                 {active ? renderActivePill(groupId, "accent") : null}
                 <span className="relative z-10 min-w-0 break-words">{item.label}</span>
                 {item.badge ? (
-                  <span className="relative z-10 rounded-full bg-background px-2 py-0.5 text-2xs">{item.badge}</span>
+                  <span className="relative z-10 rounded-tokenFull bg-background px-2 py-0.5 text-2xs">
+                    {item.badge}
+                  </span>
                 ) : null}
               </TabsPrimitive.Tab>
             );

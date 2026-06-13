@@ -86,9 +86,9 @@ export function RadioGroup({
             >
               <span
                 aria-hidden="true"
-                className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border bg-background"
+                className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-tokenFull border border-border bg-background"
               >
-                <Radio.Indicator className="h-2.5 w-2.5 rounded-full bg-accent" />
+                <Radio.Indicator className="h-2.5 w-2.5 rounded-tokenFull bg-accent" />
               </span>
               <span className="space-y-1">
                 <span id={itemLabelId} className="block text-sm font-medium text-foreground">

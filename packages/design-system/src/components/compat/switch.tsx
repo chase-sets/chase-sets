@@ -29,7 +29,7 @@ export function Switch({
         disabled={disabled}
         className={(state) =>
           cn(
-            "ds-focus relative inline-flex h-7 w-12 items-center rounded-full bg-[var(--muted)] transition",
+            "ds-focus relative inline-flex h-7 w-12 items-center rounded-tokenFull bg-[var(--muted)] transition",
             state.checked && "bg-[var(--primary)]",
             state.disabled && "opacity-60",
           )
@@ -38,7 +38,7 @@ export function Switch({
         <SwitchPrimitive.Thumb
           className={(state) =>
             cn(
-              "block h-5 w-5 translate-x-1 rounded-full bg-[var(--card)] shadow-[var(--shadow-sm)] transition",
+              "block h-5 w-5 translate-x-1 rounded-tokenFull bg-[var(--card)] shadow-[var(--shadow-sm)] transition",
               state.checked && "translate-x-6",
             )
           }

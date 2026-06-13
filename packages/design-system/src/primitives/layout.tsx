@@ -323,7 +323,7 @@ export function MobileStickyBar({ children, visibleFrom = "mobile", ...rest }: M
     <div
       {...rest}
       className={cx(
-        "fixed inset-x-0 bottom-0 z-sticky border-t border-muted bg-background/88 px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-tokenLg backdrop-blur-xl",
+        "fixed inset-x-0 bottom-0 z-sticky border-t border-muted bg-background/overlay px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-tokenLg backdrop-blur-xl",
         visibleFrom === "mobile" && "md:hidden",
       )}
     >
@@ -497,13 +497,13 @@ export function ScrollArea({ children, height = "auto", ...rest }: ScrollAreaPro
         orientation="vertical"
         className="flex w-2.5 touch-none select-none bg-transparent p-0.5"
       >
-        <ScrollAreaPrimitive.Thumb className="relative flex-1 rounded-full bg-muted" />
+        <ScrollAreaPrimitive.Thumb className="relative flex-1 rounded-tokenFull bg-muted" />
       </ScrollAreaPrimitive.Scrollbar>
       <ScrollAreaPrimitive.Scrollbar
         orientation="horizontal"
         className="flex h-2.5 touch-none select-none bg-transparent p-0.5"
       >
-        <ScrollAreaPrimitive.Thumb className="relative flex-1 rounded-full bg-muted" />
+        <ScrollAreaPrimitive.Thumb className="relative flex-1 rounded-tokenFull bg-muted" />
       </ScrollAreaPrimitive.Scrollbar>
       <ScrollAreaPrimitive.Corner className="bg-muted" />
     </ScrollAreaPrimitive.Root>

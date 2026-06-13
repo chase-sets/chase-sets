@@ -12,13 +12,10 @@ export const densityClasses: Record<MarketplaceDensity, string> = {
 };
 
 export const statusClasses: Record<StatusTone, string> = {
-  success:
-    "border-[color-mix(in_srgb,var(--success)_26%,var(--border))] bg-[var(--success-soft)] text-[var(--success)]",
-  warning:
-    "border-[color-mix(in_srgb,var(--warning)_32%,var(--border))] bg-[var(--warning-soft)] text-[var(--warning)]",
-  error:
-    "border-[color-mix(in_srgb,var(--destructive)_26%,var(--border))] bg-[var(--error-soft)] text-[var(--destructive)]",
-  info: "border-[color-mix(in_srgb,var(--info)_26%,var(--border))] bg-[var(--info-soft)] text-[var(--info)]",
+  success: "border-success-soft bg-success-soft text-success",
+  warning: "border-warning-soft bg-warning-soft text-warning",
+  error: "border-danger-soft bg-danger-soft text-danger",
+  info: "border-info-soft bg-info-soft text-info",
   neutral: "border-[var(--border)] bg-[var(--surface-2)] text-[var(--muted-foreground)]",
 };
 

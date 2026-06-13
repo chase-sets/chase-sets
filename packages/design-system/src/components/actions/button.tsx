@@ -26,11 +26,11 @@ function ButtonSpinner({ tone }: { tone: ButtonTone }) {
   const color =
     tone === "primary" || tone === "danger"
       ? "border-t-accent-contrast border-accent-contrast/30"
-      : "border-t-accent border-accent/30";
+      : "border-t-accent border-accent-soft";
 
   return (
     <span aria-hidden="true" className={cx("absolute inset-0 flex items-center justify-center")}>
-      <span className={cx("h-4 w-4 animate-spin rounded-full border-2", color)} />
+      <span className={cx("h-4 w-4 animate-spin rounded-tokenFull border-2", color)} />
     </span>
   );
 }

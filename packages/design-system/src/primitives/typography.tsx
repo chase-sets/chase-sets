@@ -204,7 +204,7 @@ export function DiscountValue({ original, current, ...rest }: DiscountValueProps
   return (
     <span {...rest} className="inline-flex flex-wrap justify-end gap-x-1">
       <s className="text-danger decoration-danger">{original}</s>
-      <span className="text-[var(--trust)]">{current}</span>
+      <span className="text-trust">{current}</span>
     </span>
   );
 }
@@ -287,7 +287,7 @@ export interface QuoteProps extends FrameProps {
 
 export function Quote({ children, cite, ...rest }: QuoteProps) {
   return (
-    <blockquote {...rest} className="modern-surface rounded-tokenLg border-l-4 border-accent px-5 py-4">
+    <blockquote {...rest} className="modern-surface rounded-tokenLg border-l-tokenLg border-accent px-5 py-4">
       <Text size="md" weight="medium">
         {children}
       </Text>
@@ -328,7 +328,7 @@ export function Avatar({ name, size = "md", src, alt, ...rest }: AvatarProps) {
         {...rest}
         alt={alt ?? name}
         src={src}
-        className={cx("rounded-full border border-muted object-cover shadow-tokenSm", avatarSizeClasses[size])}
+        className={cx("rounded-tokenFull border border-muted object-cover shadow-tokenSm", avatarSizeClasses[size])}
       />
     );
   }
@@ -337,7 +337,7 @@ export function Avatar({ name, size = "md", src, alt, ...rest }: AvatarProps) {
     <div aria-label={alt ?? name}>
       <div
         className={cx(
-          "inline-flex items-center justify-center rounded-full border border-muted bg-background font-semibold text-secondary shadow-tokenSm",
+          "inline-flex items-center justify-center rounded-tokenFull border border-muted bg-background font-semibold text-secondary shadow-tokenSm",
           avatarSizeClasses[size],
         )}
       >

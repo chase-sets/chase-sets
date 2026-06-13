@@ -246,7 +246,7 @@ export function CategoryTile({ icon, label, detail, ...rest }: CategoryTileProps
   return (
     <Card {...rest} variant="feature" interactive>
       <div className="flex flex-col items-center gap-3 text-center">
-        <div className="rounded-tokenLg border border-accent/40 bg-accent/10 p-3 text-accent shadow-tokenSm">
+        <div className="rounded-tokenLg border border-accent-soft bg-accent-soft p-3 text-accent shadow-tokenSm">
           <Icon name={icon} size="lg" tone="accent" />
         </div>
         <div>
@@ -293,7 +293,7 @@ export function PromoStrip({ icon = "spark", title, description, action, ...rest
   return (
     <div
       {...rest}
-      className="glass-surface glow-accent flex flex-col gap-4 rounded-tokenLg border border-accent/40 p-5 md:flex-row md:items-center md:justify-between"
+      className="glass-surface glow-accent flex flex-col gap-4 rounded-tokenLg border border-accent-soft p-5 md:flex-row md:items-center md:justify-between"
     >
       <div className="flex items-center gap-4">
         <div className="brand-gradient rounded-tokenLg p-3 text-accent-contrast shadow-tokenMd">

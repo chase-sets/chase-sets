@@ -35,7 +35,7 @@ export function ToolbarButton({ children, icon, type = "button", ...rest }: Tool
       {...rest}
       type={type}
       className={cx(
-        "focus-ring inline-flex items-center justify-center gap-2 rounded-tokenMd font-semibold text-secondary transition hover:bg-elevated hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50",
+        "focus-ring inline-flex items-center justify-center gap-2 rounded-tokenMd font-semibold text-secondary transition hover:bg-elevated hover:text-foreground disabled:cursor-not-allowed disabled:opacity-disabled",
         compactControlHeightClasses.md,
         compactControlPaddingClasses.md,
         controlTextClasses.md,

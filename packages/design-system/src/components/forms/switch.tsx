@@ -76,7 +76,7 @@ export function Switch({
           aria-invalid={!!error || undefined}
           className={(state) =>
             cx(
-              "focus-ring relative inline-flex h-7 w-12 items-center rounded-full bg-muted transition",
+              "focus-ring relative inline-flex h-7 w-12 items-center rounded-tokenFull bg-muted transition",
               state.checked && "bg-accent",
               state.disabled && "opacity-60",
             )
@@ -85,7 +85,7 @@ export function Switch({
           <SwitchPrimitive.Thumb
             className={(state) =>
               cx(
-                "block h-5 w-5 translate-x-1 rounded-full bg-elevated shadow-tokenSm transition",
+                "block h-5 w-5 translate-x-1 rounded-tokenFull bg-elevated shadow-tokenSm transition",
                 state.checked && "translate-x-6",
               )
             }

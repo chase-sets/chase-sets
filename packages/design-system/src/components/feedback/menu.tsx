@@ -44,7 +44,7 @@ function renderMenuItem(item: MenuItem) {
     cx(
       "focus-ring flex cursor-pointer select-none items-start gap-3 rounded-tokenMd px-3 py-2 text-sm outline-none",
       state.highlighted && "bg-background",
-      state.disabled && "cursor-not-allowed opacity-50",
+      state.disabled && "cursor-not-allowed opacity-disabled",
       item.destructive ? "text-danger" : "text-foreground",
     );
 

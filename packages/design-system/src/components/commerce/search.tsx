@@ -46,7 +46,7 @@ export function SearchFilterPanel({
           {appliedFilters.map((filter) => (
             <span
               key={filter}
-              className="rounded-full bg-[var(--primary-soft)] px-2.5 py-1 text-xs font-semibold text-[var(--primary)]"
+              className="rounded-tokenFull bg-[var(--primary-soft)] px-2.5 py-1 text-xs font-semibold text-[var(--primary)]"
             >
               {filter}
             </span>
@@ -88,13 +88,13 @@ export function AppliedFilterChips({ filters, clearAction, removeLabel }: Applie
       {filters.map((filter) => (
         <span
           key={filter.id}
-          className="inline-flex min-h-8 items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--card)] px-3 text-xs font-semibold text-[var(--foreground)]"
+          className="inline-flex min-h-8 items-center gap-2 rounded-tokenFull border border-[var(--border)] bg-[var(--card)] px-3 text-xs font-semibold text-[var(--foreground)]"
         >
           {filter.label}
           {filter.onRemove ? (
             <button
               type="button"
-              className="ds-focus rounded-full text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+              className="ds-focus rounded-tokenFull text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
               aria-label={removeLabel ? removeLabel(filter.label) : undefined}
               onClick={filter.onRemove}
             >

@@ -28,13 +28,13 @@ export function TrustBadge({ children, tone = "verified", className }: TrustBadg
     tone === "warning" ? AlertTriangle : tone === "secure" ? Lock : tone === "policy" ? HelpCircle : ShieldCheck;
   const toneClass =
     tone === "warning"
-      ? "border-[color-mix(in_srgb,var(--warning)_28%,var(--border))] bg-[var(--warning-soft)] text-[var(--warning)]"
-      : "border-[color-mix(in_srgb,var(--trust)_28%,var(--border))] bg-[var(--trust-soft)] text-[var(--trust)]";
+      ? "border-warning-soft bg-warning-soft text-warning"
+      : "border-trust-soft bg-trust-soft text-trust";
 
   return (
     <span
       className={cn(
-        "inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold leading-4",
+        "inline-flex max-w-full items-center gap-1.5 rounded-tokenFull border px-2.5 py-1 text-xs font-semibold leading-4",
         toneClass,
         className,
       )}
@@ -77,8 +77,8 @@ export interface PlatformCredibilityCueProps {
 
 export function PlatformCredibilityCue({ title, description }: PlatformCredibilityCueProps) {
   return (
-    <div className="flex gap-3 rounded-[var(--radius)] border border-[color-mix(in_srgb,var(--trust)_28%,var(--border))] bg-[var(--trust-soft)] p-4">
-      <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-[var(--trust)]" aria-hidden="true" />
+    <div className="flex gap-3 rounded-[var(--radius)] border border-trust-soft bg-trust-soft p-4">
+      <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-trust" aria-hidden="true" />
       <div>
         <div className="font-semibold text-[var(--foreground)]">{title}</div>
         <div className="text-sm leading-5 text-[var(--text-secondary)]">{description}</div>
@@ -100,7 +100,7 @@ export function RatingSummary({ value, count, label, compact = false }: RatingSu
       className={cn("inline-flex items-center gap-1.5 text-[var(--text-secondary)]", compact ? "text-xs" : "text-sm")}
       aria-label={label ?? `${value} rating${count ? ` from ${count} reviews` : ""}`}
     >
-      <Star className="h-4 w-4 fill-[var(--rating)] text-[var(--rating)]" aria-hidden="true" />
+      <Star className="h-4 w-4 fill-rating text-rating" aria-hidden="true" />
       <span className="font-semibold tabular-nums text-[var(--foreground)]">{value.toFixed(1)}</span>
       {count ? <span className="tabular-nums">({count})</span> : null}
     </span>
@@ -241,7 +241,7 @@ export function AccountTrustCard({
               key={fact.label}
               className="flex gap-2 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-2)] p-3"
             >
-              <fact.icon className="mt-0.5 h-4 w-4 text-[var(--trust)]" aria-hidden="true" />
+              <fact.icon className="mt-0.5 h-4 w-4 text-trust" aria-hidden="true" />
               <div>
                 <div className="text-xs font-medium text-[var(--muted-foreground)]">{fact.label}</div>
                 <div className="text-sm font-semibold text-[var(--foreground)]">{fact.value}</div>
@@ -298,7 +298,7 @@ export function RatingDistribution({ title, average, count, rows, starLabel }: R
 
 export function SecurePaymentIndicator({ label }: { label?: ReactNode }) {
   return (
-    <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--trust)]">
+    <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-trust">
       <CreditCard className="h-4 w-4" aria-hidden="true" />
       {label}
     </span>

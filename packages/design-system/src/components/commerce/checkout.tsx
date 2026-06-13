@@ -42,7 +42,7 @@ export function PriceBreakdown({ title, description, lines, total, totalLabel, r
           </span>
         </div>
         {reassurance ? (
-          <div className="mt-4 rounded-[var(--radius)] bg-[var(--trust-soft)] p-3 text-sm font-medium text-[var(--trust)]">
+          <div className="mt-4 rounded-[var(--radius)] bg-trust-soft p-3 text-sm font-medium text-trust">
             {reassurance}
           </div>
         ) : null}
@@ -145,7 +145,7 @@ export function OrderIntentSummary({
   paymentStatus,
 }: OrderIntentSummaryProps) {
   return (
-    <Card className="border-[color-mix(in_srgb,var(--trust)_22%,var(--border))]">
+    <Card className="border-trust-soft">
       <CardContent>
         <div className="grid gap-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -185,10 +185,10 @@ export interface OrderProtectionModuleProps {
 
 export function OrderProtectionModule({ title, items }: OrderProtectionModuleProps) {
   return (
-    <Card className="border-[color-mix(in_srgb,var(--trust)_28%,var(--border))] bg-[var(--trust-soft)]">
+    <Card className="border-trust-soft bg-trust-soft">
       {title ? (
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-[var(--trust)]">
+          <CardTitle className="flex items-center gap-2 text-trust">
             <ShieldCheck className="h-5 w-5" aria-hidden="true" />
             {title}
           </CardTitle>
@@ -198,7 +198,7 @@ export function OrderProtectionModule({ title, items }: OrderProtectionModulePro
         <div className="grid grid-cols-[repeat(auto-fit,minmax(13rem,1fr))] gap-5">
           {items.map((item) => (
             <div key={String(item.title)} className="flex min-w-0 gap-3">
-              <div className="mt-0.5 shrink-0 text-[var(--trust)]">
+              <div className="mt-0.5 shrink-0 text-trust">
                 {item.icon ?? <CheckCircle2 className="h-5 w-5" aria-hidden="true" />}
               </div>
               <div className="min-w-0">
@@ -258,7 +258,7 @@ export function PaymentRecoveryPanel({
   secondaryAction,
 }: PaymentRecoveryPanelProps) {
   return (
-    <Card className="border-[color-mix(in_srgb,var(--warning)_32%,var(--border))]">
+    <Card className="border-warning-soft">
       <CardHeader>
         <Badge variant="warning">{statusLabel}</Badge>
         <CardTitle>{title}</CardTitle>

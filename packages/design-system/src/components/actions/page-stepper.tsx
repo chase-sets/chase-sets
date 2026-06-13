@@ -53,12 +53,12 @@ export function PageStepper({
           <div className="flex items-start gap-3">
             <span
               className={cx(
-                "inline-flex shrink-0 items-center justify-center rounded-full text-xs font-bold",
+                "inline-flex shrink-0 items-center justify-center rounded-tokenFull text-xs font-bold",
                 compact ? "h-7 w-7" : "h-8 w-8",
-                item.status === "complete" && "bg-success text-inverse",
+                item.status === "complete" && "bg-success text-success-contrast",
                 item.status === "current" && "bg-accent text-accent-contrast",
                 item.status === "upcoming" && "bg-muted text-secondary",
-                item.status === "blocked" && "bg-danger text-inverse",
+                item.status === "blocked" && "bg-danger text-danger-contrast",
               )}
             >
               {item.status === "complete" ? (

@@ -43,9 +43,9 @@ const stateLabel: Record<SectionNavigationItemState, string> = {
 
 const stateClasses: Record<SectionNavigationItemState, string> = {
   default: "border-transparent text-tertiary",
-  pending: "border-info/30 bg-info/10 text-info",
-  warning: "border-warning/30 bg-warning/10 text-warning",
-  blocked: "border-danger/30 bg-danger/10 text-danger",
+  pending: "border-info-soft bg-info-soft text-info",
+  warning: "border-warning-soft bg-warning-soft text-warning",
+  blocked: "border-danger-soft bg-danger-soft text-danger",
   disabled: "border-border bg-surface-subtle text-tertiary",
 };
 
@@ -84,16 +84,16 @@ function renderStatus(item: SectionNavigationItem) {
       {status ? (
         <span
           className={cx(
-            "inline-flex max-w-[8rem] items-center gap-1 truncate rounded-full border px-2 py-0.5 text-2xs font-semibold leading-badge",
+            "inline-flex max-w-[8rem] items-center gap-1 truncate rounded-tokenFull border px-2 py-0.5 text-2xs font-semibold leading-badge",
             stateClasses[state],
           )}
         >
-          <span aria-hidden="true" className={cx("h-1.5 w-1.5 rounded-full", dotClasses[state])} />
+          <span aria-hidden="true" className={cx("h-1.5 w-1.5 rounded-tokenFull", dotClasses[state])} />
           <span className="truncate">{status}</span>
         </span>
       ) : null}
       {item.count === undefined ? null : (
-        <span className="rounded-full border border-border bg-surface px-2 py-0.5 text-2xs font-semibold leading-badge text-secondary">
+        <span className="rounded-tokenFull border border-border bg-surface px-2 py-0.5 text-2xs font-semibold leading-badge text-secondary">
           {item.count}
         </span>
       )}
@@ -118,7 +118,7 @@ function renderDesktopItem(item: SectionNavigationItem, activeKey: string, onSel
   const className = cx(
     "focus-ring flex min-h-11 w-full items-center gap-2 rounded-tokenMd border px-3 py-2 text-left transition-colors",
     active
-      ? "border-accent/30 bg-accent/10 text-foreground shadow-tokenSm"
+      ? "border-accent-soft bg-accent-soft text-foreground shadow-tokenSm"
       : "border-transparent text-secondary hover:border-border hover:bg-surface-subtle hover:text-foreground",
     disabled && "cursor-not-allowed opacity-60 hover:border-transparent hover:bg-transparent hover:text-secondary",
   );
