@@ -43,19 +43,9 @@ This is a greenfield codebase, so local development environments should reset/bo
 ## Supporting Decisions
 
 - [Fresh-State Route Strategy](./docs/fresh-state-route-strategy.md): Shopify-simple Buy Cart, Sell List, readiness, checkout, confirmation, old route disposition, and kill-switch route strategy.
-- [Fresh Checkout Session Contracts](./docs/fresh-checkout-session-contracts.md): shared buy/sell snapshot, command, state-machine, recovery, idempotency, guest-merge, and fresh-state rules for Milestone #17.
-- [Checkout Copy Policy](./docs/checkout-copy-policy.md): Milestone #17 customer-safe checkout copy, progressive-disclosure, policy language, and support-reference rules.
-- [Checkout Visual Targets](./docs/checkout-visual-targets.md): image-first Milestone #17 visual targets for buy/sell checkout, readiness, recovery, capability, and support states.
+- [Checkout Visual Targets](./docs/checkout-visual-targets.md): image-first design references for buy/sell checkout, readiness, recovery, capability, and support states.
 - [Checkout Session Projection Performance](./docs/checkout-session-projection-performance.md): guest Buy Now freshness path, session read-model indexes, projection transaction behavior, and platform freshness gates.
-- [Checkout Performance Budgets](./docs/checkout-performance-budgets.md): Milestone #17 cart/list, readiness, checkout entry, confirmation, mobile, support, and recovery performance budgets.
-- [Checkout Observability Contract](./docs/checkout-observability-contract.md): Milestone #17 redacted telemetry profiles for current checkout states, support-safe references, side-effect status, and operator signals.
-- [Checkout Transactional Notification Policy](./docs/checkout-transactional-notifications.md): Milestone #17 notification trigger inventory for buy/sell confirmation, failures, support, refunds, missing contact, and duplicate prevention.
-- [Checkout Payment And Payout Affordance Policy](./docs/checkout-payment-payout-affordance-policy.md): Milestone #17 guest card form, saved payment, accelerated payment, payout setup, provider return, and sensitive-data guardrails.
-- [Checkout Risk Control Policy](./docs/checkout-risk-control-policy.md): Milestone #17 fraud, abuse, inventory-hoarding, provider-risk, support-safe hold, observability, and fresh-state cleanup contract.
-- [Checkout Address And Serviceability Policy](./docs/checkout-address-serviceability-policy.md): Milestone #17 address validation, serviceability, delivery restrictions, quote readiness, support-safe recovery, and fresh-state cleanup contract.
-- [Checkout Economics Policy](./docs/checkout-economics-policy.md): Milestone #17 discounts, credits, gift cards, fees, promotions, payout estimates, changed economics, reversal linkage, and fresh-state cleanup contract.
-- [Checkout Reconciliation Policy](./docs/checkout-reconciliation-policy.md): Milestone #17 payment, order, label, payout, settlement, notification, account-history, support, reversal, idempotency, and fresh-state reconciliation contract.
-- [Checkout Reversal Recovery Policy](./docs/checkout-reversal-recovery-policy.md): Milestone #17 cancellation, refund, void, reversal, adjustment, support-approved recovery, and fresh-state recovery contract.
+- [Checkout Observability Contract](./docs/checkout-observability-contract.md): redacted telemetry profiles consumed by checkout observability code.
 - [Guest Buy Now Freshness Verification](./docs/guest-buy-now-freshness-verification.md): signed-out Buy Now freshness contract, test/canary states, fixture ownership, and no-payment/no-order side-effect rules.
 
 ## Buy Cart Readiness
