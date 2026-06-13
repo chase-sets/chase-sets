@@ -78,7 +78,7 @@ export type CheckoutPerformanceBudget = Readonly<{
   sideEffectsForbiddenBeforeExplicitConfirm: readonly CheckoutSideEffectClass[];
   environments: readonly CheckoutPerformanceEnvironment[];
   verification: readonly CheckoutPerformanceVerificationKind[];
-  acceptanceNote: string;
+  coverageNote: string;
 }>;
 
 const allEnvironments = [
@@ -123,7 +123,7 @@ export const checkoutPerformanceBudgets = [
     sideEffectsForbiddenBeforeExplicitConfirm: downstreamSideEffects,
     environments: allEnvironments,
     verification: ["route-test", "e2e", "visual-mobile", "metrics"],
-    acceptanceNote:
+    coverageNote:
       "Buy Cart and Sell List review render within budget for ready, blocked, stale, and empty states on desktop and mobile.",
   }),
   budget({
@@ -145,8 +145,8 @@ export const checkoutPerformanceBudgets = [
     sideEffectsForbiddenBeforeExplicitConfirm: downstreamSideEffects,
     environments: allEnvironments,
     verification: ["unit-contract", "route-test", "e2e", "metrics"],
-    acceptanceNote:
-      "Readiness evidence covers ready carts, unresolved fulfillment, no-supply recovery, save-for-later, and source mutation.",
+    coverageNote:
+      "Readiness cases cover ready carts, unresolved fulfillment, no-supply recovery, save-for-later, and source mutation.",
   }),
   budget({
     surface: "sell-list-readiness-evaluation",
@@ -168,8 +168,8 @@ export const checkoutPerformanceBudgets = [
     sideEffectsForbiddenBeforeExplicitConfirm: downstreamSideEffects,
     environments: allEnvironments,
     verification: ["unit-contract", "route-test", "e2e", "metrics"],
-    acceptanceNote:
-      "Readiness evidence covers selected offers, Smart Match offers, fallback listing decisions, stale payout/terms, and blocked seller facts.",
+    coverageNote:
+      "Readiness cases cover selected offers, Smart Match offers, fallback listing decisions, stale payout/terms, and blocked seller facts.",
   }),
   budget({
     surface: "fulfillment-optimization-decision",
@@ -190,8 +190,8 @@ export const checkoutPerformanceBudgets = [
     sideEffectsForbiddenBeforeExplicitConfirm: downstreamSideEffects,
     environments: allEnvironments,
     verification: ["route-test", "e2e", "visual-mobile", "metrics"],
-    acceptanceNote:
-      "Optimization evidence records accepted, declined, unavailable, and stale outcomes before checkout session creation.",
+    coverageNote:
+      "Optimization coverage records accepted, declined, unavailable, and stale outcomes before checkout session creation.",
   }),
   budget({
     surface: "checkout-entry-review-render",
@@ -212,8 +212,8 @@ export const checkoutPerformanceBudgets = [
     sideEffectsForbiddenBeforeExplicitConfirm: downstreamSideEffects,
     environments: allEnvironments,
     verification: ["route-test", "e2e", "canary", "metrics"],
-    acceptanceNote:
-      "Canary or E2E evidence reports time to checkout review for Buy Now, Buy Cart readiness, and Sell List readiness.",
+    coverageNote:
+      "Canary or E2E coverage reports time to checkout review for Buy Now, Buy Cart readiness, and Sell List readiness.",
   }),
   budget({
     surface: "checkout-entry-temporary-recovery-render",
@@ -234,8 +234,8 @@ export const checkoutPerformanceBudgets = [
     sideEffectsForbiddenBeforeExplicitConfirm: downstreamSideEffects,
     environments: allEnvironments,
     verification: ["route-test", "e2e", "canary", "metrics"],
-    acceptanceNote:
-      "Evidence distinguishes safe temporary recovery from platform error, permanent not-found, missing receipt, and ambiguous no-state render.",
+    coverageNote:
+      "Coverage distinguishes safe temporary recovery from platform error, permanent not-found, missing receipt, and ambiguous no-state render.",
   }),
   budget({
     surface: "checkout-entry-permanent-recovery-render",
@@ -256,8 +256,8 @@ export const checkoutPerformanceBudgets = [
     sideEffectsForbiddenBeforeExplicitConfirm: downstreamSideEffects,
     environments: allEnvironments,
     verification: ["route-test", "e2e", "visual-mobile", "accessibility"],
-    acceptanceNote:
-      "Recovery evidence covers expired receipt, old payload, stale readiness, disabled capability, and kill-switched entry.",
+    coverageNote:
+      "Recovery cases cover expired receipt, old payload, stale readiness, disabled capability, and kill-switched entry.",
   }),
   budget({
     surface: "active-session-reload",
@@ -278,8 +278,8 @@ export const checkoutPerformanceBudgets = [
     sideEffectsForbiddenBeforeExplicitConfirm: downstreamSideEffects,
     environments: allEnvironments,
     verification: ["route-test", "e2e", "metrics"],
-    acceptanceNote:
-      "Reload evidence covers current sessions, stale source facts, guest merge supersession, and duplicate submit prevention.",
+    coverageNote:
+      "Reload cases cover current sessions, stale source facts, guest merge supersession, and duplicate submit prevention.",
   }),
   budget({
     surface: "totals-refresh",
@@ -301,8 +301,8 @@ export const checkoutPerformanceBudgets = [
     sideEffectsForbiddenBeforeExplicitConfirm: downstreamSideEffects,
     environments: allEnvironments,
     verification: ["route-test", "e2e", "visual-mobile", "metrics"],
-    acceptanceNote:
-      "Totals evidence records changed, unchanged, timeout, stale quote, and customer-review-required outcomes.",
+    coverageNote:
+      "Totals coverage records changed, unchanged, timeout, stale quote, and customer-review-required outcomes.",
   }),
   budget({
     surface: "payment-payout-setup-handoff",
@@ -323,8 +323,8 @@ export const checkoutPerformanceBudgets = [
     sideEffectsForbiddenBeforeExplicitConfirm: downstreamSideEffects,
     environments: allEnvironments,
     verification: ["route-test", "e2e", "metrics"],
-    acceptanceNote:
-      "Handoff evidence distinguishes payment/payout setup visibility from order, sale, label, payout, or account-history completion.",
+    coverageNote:
+      "Handoff coverage distinguishes payment/payout setup visibility from order, sale, label, payout, or account-history completion.",
   }),
   budget({
     surface: "final-confirmation-visible-state",
@@ -345,8 +345,8 @@ export const checkoutPerformanceBudgets = [
     sideEffectsForbiddenBeforeExplicitConfirm: [],
     environments: allEnvironments,
     verification: ["route-test", "e2e", "visual-mobile", "accessibility", "metrics"],
-    acceptanceNote:
-      "Confirmation evidence records confirmation visible, downstream pending, stale confirmation blocked, duplicate submit, and partial failure recovery.",
+    coverageNote:
+      "Confirmation coverage records confirmation visible, downstream pending, stale confirmation blocked, duplicate submit, and partial failure recovery.",
   }),
   budget({
     surface: "provider-return-confirmation",
@@ -367,8 +367,8 @@ export const checkoutPerformanceBudgets = [
     sideEffectsForbiddenBeforeExplicitConfirm: [],
     environments: allEnvironments,
     verification: ["route-test", "e2e", "metrics", "runbook"],
-    acceptanceNote:
-      "Provider-return evidence distinguishes confirmed, pending provider completion, provider failure, stale readiness, and support-safe recovery.",
+    coverageNote:
+      "Provider-return coverage distinguishes confirmed, pending provider completion, provider failure, stale readiness, and support-safe recovery.",
   }),
   budget({
     surface: "account-history-handoff",
@@ -390,8 +390,8 @@ export const checkoutPerformanceBudgets = [
     sideEffectsForbiddenBeforeExplicitConfirm: [],
     environments: allEnvironments,
     verification: ["route-test", "e2e", "visual-mobile", "metrics"],
-    acceptanceNote:
-      "Account-history evidence distinguishes Checkout pending activity from committed Ordering, Fulfillment, Settlement, and Notification facts.",
+    coverageNote:
+      "Account-history coverage distinguishes Checkout pending activity from committed Ordering, Fulfillment, Settlement, and Notification facts.",
   }),
   budget({
     surface: "support-lookup",
@@ -412,8 +412,8 @@ export const checkoutPerformanceBudgets = [
     sideEffectsForbiddenBeforeExplicitConfirm: [],
     environments: allEnvironments,
     verification: ["route-test", "e2e", "metrics", "runbook"],
-    acceptanceNote:
-      "Support evidence uses support-safe references without raw provider payloads, old receipt rows, or dense checkout fallback.",
+    coverageNote:
+      "Support coverage uses support-safe references without raw provider payloads, old receipt rows, or dense checkout fallback.",
   }),
   budget({
     surface: "reversal-recovery-status-refresh",
@@ -435,8 +435,8 @@ export const checkoutPerformanceBudgets = [
     sideEffectsForbiddenBeforeExplicitConfirm: [],
     environments: allEnvironments,
     verification: ["route-test", "e2e", "metrics", "runbook"],
-    acceptanceNote:
-      "Recovery evidence covers pending, recovered, failed, duplicate-prevented, support-owned, and owned deferred states.",
+    coverageNote:
+      "Recovery cases cover pending, recovered, failed, duplicate-prevented, support-owned, and owned deferred states.",
   }),
   budget({
     surface: "mobile-sticky-action-interaction",
@@ -462,8 +462,8 @@ export const checkoutPerformanceBudgets = [
     sideEffectsForbiddenBeforeExplicitConfirm: downstreamSideEffects,
     environments: allEnvironments,
     verification: ["visual-mobile", "accessibility", "e2e"],
-    acceptanceNote:
-      "Mobile evidence records sticky action tap latency, summary expand/collapse, saved-row editing, no horizontal overflow, and no layout shift.",
+    coverageNote:
+      "Mobile checks record sticky action tap latency, summary expand/collapse, saved-row editing, no horizontal overflow, and no layout shift.",
   }),
 ] as const satisfies readonly CheckoutPerformanceBudget[];
 
@@ -513,7 +513,7 @@ export function assertCheckoutPerformanceBudgetCoverage(): void {
     }
     for (const environment of allEnvironments) {
       if (!budgetEntry.environments.includes(environment)) {
-        throw new Error(`Checkout performance budget '${budgetEntry.surface}' is missing ${environment} evidence.`);
+        throw new Error(`Checkout performance budget '${budgetEntry.surface}' is missing ${environment} coverage.`);
       }
     }
     if (budgetEntry.maxLines < 1 || budgetEntry.maxFulfillmentGroups < 1 || budgetEntry.maxSummaryRows < 1) {
@@ -561,10 +561,12 @@ export function assertCheckoutPerformanceBudgetCoverage(): void {
     }
   }
 
-  const launchShapeBudgets = checkoutPerformanceBudgets.filter((budgetEntry) => budgetEntry.maxFulfillmentGroups > 1);
-  for (const budgetEntry of launchShapeBudgets) {
+  const compositeShapeBudgets = checkoutPerformanceBudgets.filter(
+    (budgetEntry) => budgetEntry.maxFulfillmentGroups > 1,
+  );
+  for (const budgetEntry of compositeShapeBudgets) {
     if (!budgetEntry.verification.some((kind) => kind === "e2e" || kind === "metrics" || kind === "canary")) {
-      throw new Error(`Multi-group budget '${budgetEntry.surface}' needs launch-shape evidence.`);
+      throw new Error(`Multi-group budget '${budgetEntry.surface}' needs composite-shape coverage.`);
     }
   }
 }
