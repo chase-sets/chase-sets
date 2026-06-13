@@ -1,0 +1,815 @@
+import type { BcEventSubscription } from "@chase-sets/bounded-context-module";
+import { ZERO_GLOBAL_POSITION, toTransportEvent } from "@chase-sets/event-core";
+import type {
+  ProjectionBlockedStream,
+  ProjectionErrorSummary,
+  ProjectionRunContext,
+} from "@chase-sets/event-core/projector";
+import { parseGlobalPosition, type GlobalPosition, type StreamVersion } from "@chase-sets/event-core/storage";
+import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { SUBSCRIPTION_CHECKPOINTS_TABLE } from "./schema";
+import { withProjectionTransaction } from "./projection-transactions";
+
+const SUBSCRIPTION_APPLICATION_LEDGER_RETAIN_APPLIED_EVENTS = 10_000n;
+
+type SubscriptionCheckpointRow = Readonly<{
+  last_global_position: string | number | bigint;
+}>;
+
+type ProjectionGroupRevisionRow = Readonly<{
+  projection_revision: string | number | bigint;
+}>;
+
+type SubscriptionApplicationRow = Readonly<{
+  status: string;
+}>;
+
+export type SubscriptionApplicationClaimResult = "claimed" | "already-applied";
+
+export function createCheckpointKey(
+  subscription: Pick<BcEventSubscription, "projectionName" | "sourceContextName" | "subscriptionVersion">,
+): string {
+  return [subscription.projectionName, subscription.sourceContextName, `v${subscription.subscriptionVersion}`].join(
+    ":",
+  );
+}
+
+function leaseFencingToken(context: ProjectionRunContext | undefined): string | null {
+  return context?.fencingToken && /^\d+$/.test(context.fencingToken) ? context.fencingToken : null;
+}
+
+export async function loadSubscriptionCheckpoint(
+  db: PgTransactionalPool,
+  checkpointKey: string,
+): Promise<GlobalPosition | null> {
+  const result = await db.query<SubscriptionCheckpointRow>(
+    `SELECT last_global_position
+     FROM ${SUBSCRIPTION_CHECKPOINTS_TABLE}
+     WHERE checkpoint_key = $1`,
+    [checkpointKey],
+  );
+
+  const row = result.rows[0];
+  return row ? parseGlobalPosition(String(row.last_global_position)) : null;
+}
+
+export async function saveSubscriptionCheckpoint(
+  db: PgTransactionalPool,
+  subscription: Pick<BcEventSubscription, "projectionName" | "sourceContextName" | "subscriptionVersion">,
+  lastGlobalPosition: GlobalPosition,
+  context?: ProjectionRunContext,
+): Promise<void> {
+  const fencingToken = leaseFencingToken(context);
+  const result = await db.query(
+    `INSERT INTO ${SUBSCRIPTION_CHECKPOINTS_TABLE} (
+       checkpoint_key,
+       projection_name,
+       source_context_name,
+       subscription_version,
+       last_global_position,
+       lease_owner_id,
+       lease_fencing_token,
+       updated_at
+     ) VALUES ($1, $2, $3, $4, $5::bigint, $6, $7::bigint, now())
+     ON CONFLICT (checkpoint_key)
+     DO UPDATE SET
+       last_global_position = GREATEST(
+         ${SUBSCRIPTION_CHECKPOINTS_TABLE}.last_global_position,
+         EXCLUDED.last_global_position
+       ),
+       lease_owner_id = EXCLUDED.lease_owner_id,
+       lease_fencing_token = GREATEST(
+         COALESCE(${SUBSCRIPTION_CHECKPOINTS_TABLE}.lease_fencing_token, 0),
+         COALESCE(EXCLUDED.lease_fencing_token, 0)
+       ),
+       updated_at = EXCLUDED.updated_at
+     WHERE EXCLUDED.lease_fencing_token IS NULL
+        OR ${SUBSCRIPTION_CHECKPOINTS_TABLE}.lease_fencing_token IS NULL
+        OR EXCLUDED.lease_fencing_token >= ${SUBSCRIPTION_CHECKPOINTS_TABLE}.lease_fencing_token`,
+    [
+      createCheckpointKey(subscription),
+      subscription.projectionName,
+      subscription.sourceContextName,
+      subscription.subscriptionVersion,
+      lastGlobalPosition,
+      context?.ownerId ?? null,
+      fencingToken,
+    ],
+  );
+  if (result.rowCount != null && result.rowCount < 1) {
+    throw new Error(
+      `Subscription checkpoint '${createCheckpointKey(subscription)}' rejected stale lease fencing token.`,
+    );
+  }
+}
+
+async function loadSubscriptionApplicationStatus(
+  db: PgQueryable,
+  projectionKey: string,
+  eventId: string,
+  options: Readonly<{ lock?: boolean }> = {},
+): Promise<"started" | "applied" | "poison" | "transient" | null> {
+  const result = await db.query<SubscriptionApplicationRow>(
+    `SELECT status
+     FROM event_subscription_applications
+     WHERE projection_key = $1
+       AND event_id = $2${options.lock ? "\n     FOR UPDATE" : ""}`,
+    [projectionKey, eventId],
+  );
+  const status = result.rows[0]?.status;
+
+  return status === "started" || status === "applied" || status === "poison" || status === "transient" ? status : null;
+}
+
+export async function loadSubscriptionApplicationStatuses(
+  db: PgQueryable,
+  projectionKey: string,
+  eventIds: readonly string[],
+): Promise<ReadonlyMap<string, "started" | "applied" | "poison" | "transient">> {
+  if (eventIds.length === 0) {
+    return new Map();
+  }
+
+  const result = await db.query<Readonly<{ event_id: string; status: string }>>(
+    `SELECT event_id, status
+     FROM event_subscription_applications
+     WHERE projection_key = $1
+       AND event_id = ANY($2::text[])`,
+    [projectionKey, eventIds],
+  );
+
+  return new Map(
+    result.rows.flatMap((row) => {
+      const status = row.status;
+      return status === "started" || status === "applied" || status === "poison" || status === "transient"
+        ? [[String(row.event_id), status] as const]
+        : [];
+    }),
+  );
+}
+
+export async function claimSubscriptionApplication(
+  db: PgQueryable,
+  projectionKey: string,
+  event: Readonly<ReturnType<typeof toTransportEvent>>,
+  context?: ProjectionRunContext,
+): Promise<SubscriptionApplicationClaimResult> {
+  const eventId = String(event.id);
+  const fencingToken = leaseFencingToken(context);
+  const insertResult = await db.query<SubscriptionApplicationRow>(
+    `INSERT INTO event_subscription_applications (
+       projection_key,
+       event_id,
+       stream_id,
+       stream_version,
+       global_position,
+       event_type,
+       status,
+       error_message,
+       lease_owner_id,
+       lease_fencing_token,
+       started_at,
+       updated_at
+     ) VALUES ($1, $2, $3, $4::bigint, $5::bigint, $6, 'started', NULL, $7, $8::bigint, now(), now())
+     ON CONFLICT (projection_key, event_id)
+     DO NOTHING
+     RETURNING status`,
+    [
+      projectionKey,
+      eventId,
+      event.streamId,
+      event.streamVersion,
+      event.globalPosition,
+      event.type,
+      context?.ownerId ?? null,
+      fencingToken,
+    ],
+  );
+
+  if (insertResult.rows[0]) {
+    return "claimed";
+  }
+
+  const existingStatus = await loadSubscriptionApplicationStatus(db, projectionKey, eventId, { lock: true });
+  if (existingStatus === "applied") {
+    return "already-applied";
+  }
+
+  if (!existingStatus) {
+    throw new Error(`Projection application '${projectionKey}:${eventId}' disappeared before it could be claimed.`);
+  }
+
+  const updateResult = await db.query(
+    `UPDATE event_subscription_applications
+     SET status = 'started',
+         error_message = NULL,
+         lease_owner_id = $3,
+         lease_fencing_token = $4::bigint,
+         updated_at = now()
+     WHERE projection_key = $1
+       AND event_id = $2
+       AND status <> 'applied'
+       AND (
+         $4::bigint IS NULL
+         OR lease_fencing_token IS NULL
+         OR $4::bigint >= lease_fencing_token
+       )`,
+    [projectionKey, eventId, context?.ownerId ?? null, fencingToken],
+  );
+  if (updateResult.rowCount != null && updateResult.rowCount < 1) {
+    throw new Error(`Projection application '${projectionKey}:${eventId}' rejected stale lease fencing token.`);
+  }
+
+  return "claimed";
+}
+
+export async function recordSubscriptionApplicationCompleted(
+  db: PgQueryable,
+  projectionKey: string,
+  eventId: string,
+  status: "applied" | "poison" | "transient",
+  error: unknown = null,
+  context?: ProjectionRunContext,
+): Promise<void> {
+  const fencingToken = leaseFencingToken(context);
+  const result = await db.query(
+    `UPDATE event_subscription_applications
+     SET status = $3,
+         error_message = $4,
+         updated_at = now()
+     WHERE projection_key = $1
+       AND event_id = $2
+       AND ($5::bigint IS NULL OR lease_fencing_token = $5::bigint)`,
+    [
+      projectionKey,
+      eventId,
+      status,
+      error instanceof Error ? error.message : error === null ? null : String(error),
+      fencingToken,
+    ],
+  );
+  if (result.rowCount != null && result.rowCount < 1) {
+    throw new Error(`Projection application '${projectionKey}:${eventId}' was not claimed before completion.`);
+  }
+}
+
+export async function recordSubscriptionApplicationFailure(
+  db: PgTransactionalPool,
+  projectionKey: string,
+  event: Readonly<ReturnType<typeof toTransportEvent>>,
+  status: "poison" | "transient",
+  error: unknown,
+  context?: ProjectionRunContext,
+): Promise<SubscriptionApplicationClaimResult> {
+  return withProjectionTransaction(db, context, async (client) => {
+    const claimResult = await claimSubscriptionApplication(client, projectionKey, event, context);
+    if (claimResult === "already-applied") {
+      return claimResult;
+    }
+
+    await recordSubscriptionApplicationCompleted(client, projectionKey, String(event.id), status, error, context);
+    return "claimed";
+  });
+}
+
+export async function compactSubscriptionApplicationLedger(
+  db: PgQueryable,
+  projectionKey: string,
+  checkpoint: GlobalPosition,
+): Promise<void> {
+  const compactThrough = BigInt(checkpoint) - SUBSCRIPTION_APPLICATION_LEDGER_RETAIN_APPLIED_EVENTS;
+  if (compactThrough <= 0n) {
+    return;
+  }
+
+  await db.query(
+    `DELETE FROM event_subscription_applications
+     WHERE projection_key = $1
+       AND status = 'applied'
+       AND global_position <= $2::bigint`,
+    [projectionKey, compactThrough.toString()],
+  );
+}
+
+export async function deleteSubscriptionCheckpoint(
+  db: PgTransactionalPool,
+  checkpointKey: string,
+  context?: ProjectionRunContext,
+): Promise<void> {
+  context?.throwIfLeaseLost?.();
+  const fencingToken = leaseFencingToken(context);
+  const checkpointDelete = await db.query(
+    `DELETE FROM ${SUBSCRIPTION_CHECKPOINTS_TABLE}
+     WHERE checkpoint_key = $1
+       AND (
+         $2::bigint IS NULL
+         OR lease_fencing_token IS NULL
+         OR $2::bigint >= lease_fencing_token
+       )`,
+    [checkpointKey, fencingToken],
+  );
+  if (checkpointDelete.rowCount === 0) {
+    const currentCheckpoint = await loadSubscriptionCheckpoint(db, checkpointKey);
+    if (currentCheckpoint !== null) {
+      throw new Error(`Subscription checkpoint '${checkpointKey}' rejected stale reset fencing token.`);
+    }
+  }
+  context?.throwIfLeaseLost?.();
+  await db.query(
+    `DELETE FROM event_subscription_applications
+     WHERE projection_key = $1
+       AND (
+         $2::bigint IS NULL
+         OR lease_fencing_token IS NULL
+         OR $2::bigint >= lease_fencing_token
+       )`,
+    [checkpointKey, fencingToken],
+  );
+  context?.throwIfLeaseLost?.();
+  await clearProjectionErrors(db, checkpointKey);
+}
+
+async function clearProjectionErrors(db: PgTransactionalPool, projectionKey: string): Promise<void> {
+  await db.query(
+    `UPDATE event_projection_blocked_streams
+     SET state = 'resolved',
+         updated_at = now()
+     WHERE projection_key = $1
+       AND state IN ('blocked', 'retrying')`,
+    [projectionKey],
+  );
+  await db.query(
+    `UPDATE event_projection_poison_events
+     SET state = 'resolved',
+         resolved_at = now(),
+         last_seen_at = now()
+     WHERE projection_key = $1
+       AND state IN ('blocked', 'retrying')`,
+    [projectionKey],
+  );
+}
+
+export async function markProjectionBlockedStreamRetrying(
+  db: PgTransactionalPool,
+  projectionKey: string,
+  streamId: string,
+): Promise<void> {
+  await db.query(
+    `UPDATE event_projection_blocked_streams
+     SET state = 'retrying',
+         updated_at = now()
+     WHERE projection_key = $1
+       AND stream_id = $2
+       AND state IN ('blocked', 'retrying')`,
+    [projectionKey, streamId],
+  );
+  await db.query(
+    `UPDATE event_projection_poison_events
+     SET state = 'retrying',
+         retry_count = retry_count + 1,
+         last_seen_at = now()
+     WHERE projection_key = $1
+       AND stream_id = $2
+       AND state IN ('blocked', 'retrying')`,
+    [projectionKey, streamId],
+  );
+}
+
+export async function markProjectionBlockedStreamBlocked(
+  db: PgTransactionalPool,
+  projectionKey: string,
+  streamId: string,
+): Promise<void> {
+  await db.query(
+    `UPDATE event_projection_blocked_streams
+     SET state = 'blocked',
+         updated_at = now()
+     WHERE projection_key = $1
+       AND stream_id = $2
+       AND state = 'retrying'`,
+    [projectionKey, streamId],
+  );
+  await db.query(
+    `UPDATE event_projection_poison_events
+     SET state = 'blocked',
+         last_seen_at = now()
+     WHERE projection_key = $1
+       AND stream_id = $2
+       AND state = 'retrying'`,
+    [projectionKey, streamId],
+  );
+}
+
+export async function resolveProjectionBlockedStream(
+  db: PgTransactionalPool,
+  projectionKey: string,
+  streamId: string,
+): Promise<void> {
+  await db.query(
+    `UPDATE event_projection_blocked_streams
+     SET state = 'resolved',
+         updated_at = now()
+     WHERE projection_key = $1
+       AND stream_id = $2`,
+    [projectionKey, streamId],
+  );
+  await db.query(
+    `UPDATE event_projection_poison_events
+     SET state = 'resolved',
+         resolved_at = now(),
+         last_seen_at = now()
+     WHERE projection_key = $1
+       AND stream_id = $2
+       AND state IN ('blocked', 'retrying')`,
+    [projectionKey, streamId],
+  );
+}
+
+export async function loadProjectionBlockedStream(
+  db: PgTransactionalPool,
+  projectionKey: string,
+  streamId: string,
+): Promise<ProjectionBlockedStream | null> {
+  const result = await db.query<
+    Readonly<{
+      projection_key: string;
+      stream_id: string;
+      first_blocked_global_position: string | number | bigint;
+      first_blocked_stream_version: string | number | bigint;
+      last_seen_global_position: string | number | bigint;
+      deferred_event_count: string | number | bigint;
+      state: string;
+    }>
+  >(
+    `SELECT
+       projection_key,
+       stream_id,
+       first_blocked_global_position,
+       first_blocked_stream_version,
+       last_seen_global_position,
+       deferred_event_count,
+       state
+     FROM event_projection_blocked_streams
+     WHERE projection_key = $1
+       AND stream_id = $2
+       AND state IN ('blocked', 'retrying')`,
+    [projectionKey, streamId],
+  );
+
+  const row = result.rows[0];
+  if (!row) {
+    return null;
+  }
+
+  return {
+    projectionKey: row.projection_key,
+    streamId: row.stream_id,
+    firstBlockedGlobalPosition: parseGlobalPosition(String(row.first_blocked_global_position)),
+    firstBlockedStreamVersion: coerceStreamVersion(row.first_blocked_stream_version, "first_blocked_stream_version"),
+    lastSeenGlobalPosition: parseGlobalPosition(String(row.last_seen_global_position)),
+    deferredEventCount: coerceNonNegativeInteger(row.deferred_event_count, "deferred_event_count"),
+    state: row.state === "retrying" ? "retrying" : "blocked",
+  };
+}
+
+export async function recordProjectionPoisonEvent(
+  db: PgTransactionalPool,
+  input: Readonly<{
+    projectionKey: string;
+    projectionName: string;
+    targetContextName: string;
+    sourceContextName: string;
+    subscriptionVersion: number;
+    streamId: string;
+    streamVersion: StreamVersion;
+    eventId: string;
+    eventType: string;
+    globalPosition: GlobalPosition;
+    error: unknown;
+  }>,
+): Promise<void> {
+  const errorMessage = input.error instanceof Error ? input.error.message : String(input.error);
+  const errorStack = input.error instanceof Error ? (input.error.stack ?? null) : null;
+
+  await db.query(
+    `INSERT INTO event_projection_poison_events (
+       projection_key,
+       event_id,
+       projection_name,
+       projection_kind,
+       target_context_name,
+       source_context_name,
+       projection_revision,
+       subscription_version,
+       stream_id,
+       stream_version,
+       event_type,
+       global_position,
+       failure_kind,
+       error_message,
+       error_stack,
+       state,
+       retry_count,
+       first_seen_at,
+       last_seen_at,
+       resolved_at
+     ) VALUES (
+       $1, $2, $3, 'subscription', $4, $5, NULL, $6, $7, $8::bigint, $9, $10::bigint,
+       'poison', $11, $12, 'blocked', 0, now(), now(), NULL
+     )
+     ON CONFLICT (projection_key, event_id)
+     DO UPDATE SET
+       projection_name = EXCLUDED.projection_name,
+       target_context_name = EXCLUDED.target_context_name,
+       source_context_name = EXCLUDED.source_context_name,
+       subscription_version = EXCLUDED.subscription_version,
+       stream_id = EXCLUDED.stream_id,
+       stream_version = EXCLUDED.stream_version,
+       event_type = EXCLUDED.event_type,
+       global_position = EXCLUDED.global_position,
+       error_message = EXCLUDED.error_message,
+       error_stack = EXCLUDED.error_stack,
+       state = 'blocked',
+       last_seen_at = EXCLUDED.last_seen_at,
+       resolved_at = NULL`,
+    [
+      input.projectionKey,
+      input.eventId,
+      input.projectionName,
+      input.targetContextName,
+      input.sourceContextName,
+      input.subscriptionVersion,
+      input.streamId,
+      input.streamVersion,
+      input.eventType,
+      input.globalPosition,
+      errorMessage,
+      errorStack,
+    ],
+  );
+
+  await db.query(
+    `INSERT INTO event_projection_blocked_streams (
+       projection_key,
+       stream_id,
+       first_blocked_global_position,
+       first_blocked_stream_version,
+       last_seen_global_position,
+       deferred_event_count,
+       state,
+       updated_at
+     ) VALUES ($1, $2, $3::bigint, $4::bigint, $3::bigint, 0, 'blocked', now())
+     ON CONFLICT (projection_key, stream_id)
+     DO UPDATE SET
+       first_blocked_global_position = LEAST(
+         event_projection_blocked_streams.first_blocked_global_position,
+         EXCLUDED.first_blocked_global_position
+       ),
+       first_blocked_stream_version = LEAST(
+         event_projection_blocked_streams.first_blocked_stream_version,
+         EXCLUDED.first_blocked_stream_version
+       ),
+       last_seen_global_position = GREATEST(
+         event_projection_blocked_streams.last_seen_global_position,
+         EXCLUDED.last_seen_global_position
+       ),
+       state = 'blocked',
+       updated_at = EXCLUDED.updated_at`,
+    [input.projectionKey, input.streamId, input.globalPosition, input.streamVersion],
+  );
+}
+
+export async function recordProjectionDeferredBlockedStreamEvent(
+  db: PgTransactionalPool,
+  input: Readonly<{
+    projectionKey: string;
+    streamId: string;
+    streamVersion: StreamVersion;
+    globalPosition: GlobalPosition;
+  }>,
+): Promise<void> {
+  await db.query(
+    `INSERT INTO event_projection_blocked_streams (
+       projection_key,
+       stream_id,
+       first_blocked_global_position,
+       first_blocked_stream_version,
+       last_seen_global_position,
+       deferred_event_count,
+       state,
+       updated_at
+     ) VALUES ($1, $2, $3::bigint, $4::bigint, $3::bigint, 1, 'blocked', now())
+     ON CONFLICT (projection_key, stream_id)
+     DO UPDATE SET
+       last_seen_global_position = GREATEST(
+         event_projection_blocked_streams.last_seen_global_position,
+         EXCLUDED.last_seen_global_position
+       ),
+       deferred_event_count = event_projection_blocked_streams.deferred_event_count + 1,
+       state = 'blocked',
+       updated_at = EXCLUDED.updated_at`,
+    [input.projectionKey, input.streamId, input.globalPosition, input.streamVersion],
+  );
+}
+
+export async function loadProjectionErrorSummary(
+  db: PgTransactionalPool,
+  projectionKey: string,
+): Promise<ProjectionErrorSummary> {
+  const result = await db.query<
+    Readonly<{
+      blocked_stream_count: string | number | bigint;
+      poison_event_count: string | number | bigint;
+    }>
+  >(
+    `SELECT
+       (
+         SELECT COUNT(*)
+         FROM event_projection_blocked_streams
+         WHERE projection_key = $1
+           AND state IN ('blocked', 'retrying')
+       ) AS blocked_stream_count,
+       (
+         SELECT COUNT(*)
+         FROM event_projection_poison_events
+         WHERE projection_key = $1
+           AND state IN ('blocked', 'retrying')
+       ) AS poison_event_count`,
+    [projectionKey],
+  );
+
+  const row = result.rows[0];
+  return {
+    blockedStreamCount: row ? coerceNonNegativeInteger(row.blocked_stream_count, "blocked_stream_count") : 0,
+    poisonEventCount: row ? coerceNonNegativeInteger(row.poison_event_count, "poison_event_count") : 0,
+  };
+}
+
+function coerceStreamVersion(value: string | number | bigint, fieldName: string): StreamVersion {
+  const parsed = typeof value === "bigint" ? Number(value) : typeof value === "string" ? Number(value) : value;
+
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    throw new Error(`Expected "${fieldName}" to be a positive safe integer.`);
+  }
+
+  return parsed;
+}
+
+function coerceNonNegativeInteger(value: string | number | bigint, fieldName: string): number {
+  const parsed = typeof value === "bigint" ? Number(value) : typeof value === "string" ? Number(value) : value;
+
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    throw new Error(`Expected "${fieldName}" to be a non-negative safe integer.`);
+  }
+
+  return parsed;
+}
+
+export function isGlobalPositionGreater(left: GlobalPosition, right: GlobalPosition): boolean {
+  return BigInt(left) > BigInt(right);
+}
+
+export function calculateOutstandingEventCount(
+  lastGlobalPosition: GlobalPosition,
+  sourceHeadGlobalPosition: GlobalPosition,
+): string {
+  const outstanding = BigInt(sourceHeadGlobalPosition) - BigInt(lastGlobalPosition);
+  return outstanding > 0n ? outstanding.toString() : "0";
+}
+
+export function applyLagMetrics(
+  status: {
+    outstandingEventCount: string;
+    sourceLagEventCount?: string;
+    applicableLagEstimate?: string | null;
+  },
+  applicableLagEstimate: string | null = null,
+): void {
+  status.sourceLagEventCount = status.outstandingEventCount;
+  status.applicableLagEstimate = applicableLagEstimate;
+}
+
+export function deriveSubscriptionReplayState(
+  checkpoint: GlobalPosition,
+  sourceHeadGlobalPosition: GlobalPosition,
+  errorSummary: Pick<ProjectionErrorSummary, "blockedStreamCount" | "poisonEventCount">,
+): "behind" | "caught-up" | "degraded" {
+  if (errorSummary.blockedStreamCount > 0 || errorSummary.poisonEventCount > 0) {
+    return "degraded";
+  }
+
+  return checkpoint === sourceHeadGlobalPosition ? "caught-up" : "behind";
+}
+
+function sumDecimalCounts(counts: readonly string[]): string {
+  return counts.reduce((total, count) => total + BigInt(count), 0n).toString();
+}
+
+export async function readSourceHeadGlobalPosition(pool: PgTransactionalPool): Promise<GlobalPosition> {
+  const result = await pool.query<Readonly<{ head: string | number | bigint | null }>>(
+    "SELECT COALESCE(MAX(global_position), 0) AS head FROM event_store_events",
+  );
+
+  return parseGlobalPosition(String(result.rows[0]?.head ?? ZERO_GLOBAL_POSITION));
+}
+
+export async function estimateApplicableLag(
+  pool: PgTransactionalPool,
+  afterGlobalPosition: GlobalPosition,
+  eventTypes: readonly string[],
+  streamPrefixes: readonly string[] | undefined,
+): Promise<string | null> {
+  if (eventTypes.length === 0) {
+    return null;
+  }
+
+  const predicates = ["global_position > $1::bigint", "event_type = ANY($2::text[])"];
+  const params: unknown[] = [afterGlobalPosition, [...new Set(eventTypes)]];
+
+  if (streamPrefixes?.length) {
+    const streamContextNames = normalizedStreamContextNames(streamPrefixes);
+    if (streamContextNames.length > 0) {
+      params.push(streamContextNames);
+      predicates.push(`stream_context_name = ANY($${params.length}::text[])`);
+    }
+
+    const streamCategories = normalizedStreamCategories(streamPrefixes);
+    if (streamCategories.length > 0) {
+      params.push(streamCategories);
+      predicates.push(`stream_category = ANY($${params.length}::text[])`);
+    }
+
+    const prefixPredicates = [...new Set(streamPrefixes)].map((prefix) => {
+      params.push(prefix);
+      return `stream_id LIKE $${params.length} || '%'`;
+    });
+    predicates.push(`(${prefixPredicates.join(" OR ")})`);
+  }
+
+  try {
+    const result = await pool.query<Readonly<{ count: string | number | bigint }>>(
+      `SELECT COUNT(*) AS count
+       FROM event_store_events
+       WHERE ${predicates.join("\n         AND ")}`,
+      params,
+    );
+
+    return String(result.rows[0]?.count ?? "0");
+  } catch {
+    return null;
+  }
+}
+
+function normalizedStreamContextNames(streamPrefixes: readonly string[]): readonly string[] {
+  return [
+    ...new Set(
+      streamPrefixes
+        .map((prefix) => {
+          const separatorIndex = prefix.indexOf(".");
+          return separatorIndex > 0 ? prefix.slice(0, separatorIndex) : null;
+        })
+        .filter((value): value is string => Boolean(value)),
+    ),
+  ];
+}
+
+function normalizedStreamCategories(streamPrefixes: readonly string[]): readonly string[] {
+  return [
+    ...new Set(
+      streamPrefixes
+        .filter((prefix) => prefix.endsWith("-"))
+        .map((prefix) => prefix.slice(0, -1))
+        .filter(Boolean),
+    ),
+  ];
+}
+
+export async function refreshSubscriptionStatus(
+  targetPool: PgTransactionalPool,
+  sourcePool: PgTransactionalPool,
+  checkpointKey: string,
+  status: {
+    initialized: boolean;
+    lastGlobalPosition: GlobalPosition;
+    sourceHeadGlobalPosition: GlobalPosition;
+    outstandingEventCount: string;
+    state: "idle" | "behind" | "running" | "caught-up" | "degraded" | "error";
+    blockedStreamCount: number;
+    poisonEventCount: number;
+    updatedAt: string;
+  },
+): Promise<void> {
+  const storedCheckpoint = await loadSubscriptionCheckpoint(targetPool, checkpointKey);
+  const checkpoint = storedCheckpoint ?? ZERO_GLOBAL_POSITION;
+  const errorSummary = await loadProjectionErrorSummary(targetPool, checkpointKey);
+
+  status.initialized = storedCheckpoint !== null;
+  status.lastGlobalPosition = checkpoint;
+  status.sourceHeadGlobalPosition = await readSourceHeadGlobalPosition(sourcePool);
+  status.outstandingEventCount = calculateOutstandingEventCount(checkpoint, status.sourceHeadGlobalPosition);
+  applyLagMetrics(status);
+  status.blockedStreamCount = errorSummary.blockedStreamCount;
+  status.poisonEventCount = errorSummary.poisonEventCount;
+  status.state = deriveSubscriptionReplayState(checkpoint, status.sourceHeadGlobalPosition, errorSummary);
+  status.updatedAt = new Date().toISOString();
+}
