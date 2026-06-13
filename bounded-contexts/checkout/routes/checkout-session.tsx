@@ -22,6 +22,7 @@ import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/
 import { CheckoutApiError, createCheckoutRequestApiClient } from "../support/request-support/api-client";
 import { resolveCheckoutShopifySimpleUnavailableState } from "../support/request-support/checkout-release-control";
 import {
+  checkoutRecoveryForError,
   checkoutRecoveryForFreshWriteError,
   createCheckoutRecoveryResponse,
   isCheckoutRecovery,
@@ -564,6 +565,11 @@ export async function action({ request, params }: ActionFunctionArgs) {
     const deliveryCorrection = deliveryCorrectionActionData(error);
     if (deliveryCorrection) {
       return deliveryCorrection;
+    }
+
+    const recovery = checkoutRecoveryForError(error, actor, currentPathWithSearch(request));
+    if (recovery) {
+      throw createCheckoutRecoveryResponse(recovery);
     }
 
     return {
