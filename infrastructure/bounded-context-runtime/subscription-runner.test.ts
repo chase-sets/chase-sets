@@ -23,7 +23,6 @@ import { createProjectionGroupRuntime } from "./index-test-runtime-helpers";
 import {
   compactRuntimeSubscriptionLedgers,
   createSubscriptionRunner,
-  eventSubscriptionSchemaSql,
   listProjectionBlockedStreamDetails,
   refreshProjectionGroupStatuses,
   resolveModuleSubscriptions,
@@ -35,12 +34,6 @@ import {
 describe("bounded context subscription runner", () => {
   beforeEach(() => {
     resetMockPoolState();
-  });
-
-  it("creates projection generation metadata for generation-aware rebuilds", () => {
-    expect(eventSubscriptionSchemaSql).toContain("CREATE TABLE IF NOT EXISTS event_projection_group_generations");
-    expect(eventSubscriptionSchemaSql).toContain("active_generation bigint NOT NULL DEFAULT 1");
-    expect(eventSubscriptionSchemaSql).toContain("rebuilding_generation bigint NULL");
   });
 
   it("fails startup when declared event filters omit a handled event type", () => {

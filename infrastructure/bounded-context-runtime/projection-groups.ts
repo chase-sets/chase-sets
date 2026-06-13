@@ -1,0 +1,924 @@
+import type { BcProjectionGroup, BcProjectionGroupResetStrategy } from "@chase-sets/bounded-context-module";
+import type { ProjectionRunContext } from "@chase-sets/event-core/projector";
+import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { withProjectionTransaction } from "./projection-transactions";
+import { PROJECTION_GROUP_GENERATIONS_TABLE, PROJECTION_GROUP_REVISIONS_TABLE, SQL_IDENTIFIER_RE } from "./schema";
+import type {
+  ContextSubscriptionRunner,
+  ContextSubscriptionStatus,
+  MountedContextRuntimeEntry,
+  SubscriptionReplayState,
+} from "./subscriptions";
+import { drainContextProcesses, sortSubscriptionRunners } from "./subscriptions";
+
+const PROJECTION_STATUS_REFRESH_CONCURRENCY = 4;
+
+type ProjectionGroupRevisionRow = Readonly<{
+  projection_revision: string | number | bigint;
+}>;
+
+export type ContextProjectionGroupStatus = Readonly<{
+  projectionName: string;
+  projectionRevision: number;
+  storedProjectionRevision: number | null;
+  revisionStale: boolean;
+  targetContextName: string;
+  sourceContextNames: readonly string[];
+  ownedTables: readonly string[];
+  requiredDuringBootstrap: boolean;
+  initialized: boolean;
+  caughtUp: boolean;
+  state: SubscriptionReplayState;
+  lastError: string | null;
+  outstandingEventCount: string;
+  sourceLagEventCount?: string;
+  applicableLagEstimate?: string | null;
+  blockedStreamCount: number;
+  poisonEventCount: number;
+  updatedAt: string;
+  subscriptions: readonly ContextSubscriptionStatus[];
+}>;
+
+export type ProjectionReplayContextSummary = Readonly<{
+  contextName: string;
+  totalGroups: number;
+  requiredGroups: number;
+  initializedGroups: number;
+  caughtUpGroups: number;
+  behindGroups: number;
+  staleGroups: number;
+  runningGroups: number;
+  errorGroups: number;
+  outstandingEventCount: string;
+  sourceLagEventCount?: string;
+  applicableLagEstimate?: string | null;
+}>;
+
+export type ProjectionReplaySummary = Readonly<{
+  status: "ok" | "degraded";
+  totalGroups: number;
+  requiredGroups: number;
+  initializedGroups: number;
+  caughtUpGroups: number;
+  behindGroups: number;
+  staleGroups: number;
+  runningGroups: number;
+  errorGroups: number;
+  outstandingEventCount: string;
+  sourceLagEventCount?: string;
+  applicableLagEstimate?: string | null;
+  contexts: readonly ProjectionReplayContextSummary[];
+}>;
+
+export type ContextProjectionGroup = Readonly<{
+  projectionName: string;
+  projectionRevision: number;
+  targetContextName: string;
+  sourceContextNames: readonly string[];
+  ownedTables: readonly string[];
+  resetStrategy?: BcProjectionGroupResetStrategy;
+  requiredDuringBootstrap: boolean;
+  subscriptionRunners: readonly ContextSubscriptionRunner[];
+  reset: (context?: ProjectionRunContext) => Promise<void>;
+  getStatus: () => ContextProjectionGroupStatus;
+  refreshStatus: () => Promise<ContextProjectionGroupStatus>;
+  markRevisionSynced: () => Promise<void>;
+  startGenerationRebuild?: (context?: ProjectionRunContext) => Promise<void>;
+  completeGenerationRebuild?: (context?: ProjectionRunContext) => Promise<void>;
+  failGenerationRebuild?: (context?: ProjectionRunContext) => Promise<void>;
+}>;
+
+function assertSqlIdentifier(identifier: string): string {
+  if (!SQL_IDENTIFIER_RE.test(identifier)) {
+    throw new Error(`Invalid SQL identifier "${identifier}". Use letters, numbers, and underscores only.`);
+  }
+
+  return identifier;
+}
+
+function assertProjectionRevision(value: number | undefined): number {
+  const revision = value ?? 1;
+
+  if (!Number.isInteger(revision) || revision < 1) {
+    throw new Error("projectionRevision must be a positive integer.");
+  }
+
+  return revision;
+}
+
+async function loadProjectionGroupRevision(
+  db: PgTransactionalPool,
+  targetContextName: string,
+  projectionName: string,
+): Promise<number | null> {
+  const result = await db.query<ProjectionGroupRevisionRow>(
+    `SELECT projection_revision
+     FROM ${PROJECTION_GROUP_REVISIONS_TABLE}
+     WHERE target_context_name = $1
+       AND projection_name = $2`,
+    [targetContextName, projectionName],
+  );
+
+  const row = result.rows[0];
+  if (!row) {
+    return null;
+  }
+
+  const revision = Number(row.projection_revision);
+  return assertProjectionRevision(revision);
+}
+
+async function saveProjectionGroupRevision(
+  db: PgTransactionalPool,
+  targetContextName: string,
+  projectionName: string,
+  projectionRevision: number,
+): Promise<void> {
+  await db.query(
+    `INSERT INTO ${PROJECTION_GROUP_REVISIONS_TABLE} (
+       target_context_name,
+       projection_name,
+       projection_revision,
+       updated_at
+     ) VALUES ($1, $2, $3, now())
+     ON CONFLICT (target_context_name, projection_name)
+     DO UPDATE SET
+       projection_revision = EXCLUDED.projection_revision,
+       updated_at = EXCLUDED.updated_at`,
+    [targetContextName, projectionName, assertProjectionRevision(projectionRevision)],
+  );
+}
+
+async function startProjectionGroupGenerationRebuild(
+  db: PgTransactionalPool,
+  group: Pick<ContextProjectionGroup, "targetContextName" | "projectionName">,
+  context?: ProjectionRunContext,
+): Promise<void> {
+  context?.throwIfLeaseLost?.();
+  await db.query(
+    `INSERT INTO ${PROJECTION_GROUP_GENERATIONS_TABLE} (
+       target_context_name,
+       projection_name,
+       active_generation,
+       rebuilding_generation,
+       previous_generation,
+       previous_generation_retain_until,
+       state,
+       operation_id,
+       started_at,
+       cutover_at,
+       updated_at
+     ) VALUES ($1, $2, 1, 2, NULL, NULL, 'rebuilding', $3, now(), NULL, now())
+     ON CONFLICT (target_context_name, projection_name)
+     DO UPDATE SET
+       rebuilding_generation = ${PROJECTION_GROUP_GENERATIONS_TABLE}.active_generation + 1,
+       state = 'rebuilding',
+       operation_id = EXCLUDED.operation_id,
+       started_at = EXCLUDED.started_at,
+       cutover_at = NULL,
+       updated_at = EXCLUDED.updated_at`,
+    [group.targetContextName, group.projectionName, context?.operationId ?? null],
+  );
+}
+
+async function completeProjectionGroupGenerationRebuild(
+  db: PgTransactionalPool,
+  group: Pick<ContextProjectionGroup, "targetContextName" | "projectionName">,
+  context?: ProjectionRunContext,
+): Promise<void> {
+  context?.throwIfLeaseLost?.();
+  await db.query(
+    `INSERT INTO ${PROJECTION_GROUP_GENERATIONS_TABLE} (
+       target_context_name,
+       projection_name,
+       active_generation,
+       rebuilding_generation,
+       previous_generation,
+       previous_generation_retain_until,
+       state,
+       operation_id,
+       started_at,
+       cutover_at,
+       updated_at
+     ) VALUES ($1, $2, 1, NULL, NULL, NULL, 'active', $3, NULL, now(), now())
+     ON CONFLICT (target_context_name, projection_name)
+     DO UPDATE SET
+       previous_generation = ${PROJECTION_GROUP_GENERATIONS_TABLE}.active_generation,
+       previous_generation_retain_until = now() + interval '7 days',
+       active_generation = COALESCE(${PROJECTION_GROUP_GENERATIONS_TABLE}.rebuilding_generation, ${PROJECTION_GROUP_GENERATIONS_TABLE}.active_generation),
+       rebuilding_generation = NULL,
+       state = 'active',
+       operation_id = EXCLUDED.operation_id,
+       cutover_at = EXCLUDED.cutover_at,
+       updated_at = EXCLUDED.updated_at`,
+    [group.targetContextName, group.projectionName, context?.operationId ?? null],
+  );
+}
+
+async function failProjectionGroupGenerationRebuild(
+  db: PgTransactionalPool,
+  group: Pick<ContextProjectionGroup, "targetContextName" | "projectionName">,
+  context?: ProjectionRunContext,
+): Promise<void> {
+  await db.query(
+    `INSERT INTO ${PROJECTION_GROUP_GENERATIONS_TABLE} (
+       target_context_name,
+       projection_name,
+       active_generation,
+       rebuilding_generation,
+       previous_generation,
+       previous_generation_retain_until,
+       state,
+       operation_id,
+       started_at,
+       cutover_at,
+       updated_at
+     ) VALUES ($1, $2, 1, NULL, NULL, NULL, 'failed', $3, now(), NULL, now())
+     ON CONFLICT (target_context_name, projection_name)
+     DO UPDATE SET
+       rebuilding_generation = NULL,
+       state = 'failed',
+       operation_id = EXCLUDED.operation_id,
+       updated_at = EXCLUDED.updated_at`,
+    [group.targetContextName, group.projectionName, context?.operationId ?? null],
+  );
+}
+
+async function cleanupExpiredProjectionGroupGenerationRetention(db: PgTransactionalPool): Promise<number> {
+  const result = await db.query(
+    `UPDATE ${PROJECTION_GROUP_GENERATIONS_TABLE}
+     SET previous_generation = NULL,
+         previous_generation_retain_until = NULL,
+         updated_at = now()
+     WHERE previous_generation_retain_until IS NOT NULL
+       AND previous_generation_retain_until <= now()`,
+  );
+
+  return result.rowCount ?? 0;
+}
+
+function sumDecimalCounts(counts: readonly string[]): string {
+  return counts.reduce((total, count) => total + BigInt(count), 0n).toString();
+}
+
+function createDefaultProjectionGroupReset(
+  pool: PgTransactionalPool,
+  ownedTables: readonly string[],
+  resetStrategy: BcProjectionGroupResetStrategy | undefined,
+  targetContextName: string,
+  projectionName: string,
+): (context?: ProjectionRunContext) => Promise<void> {
+  for (const tableName of ownedTables) {
+    assertSqlIdentifier(tableName);
+  }
+
+  if (ownedTables.length > 0 && !resetStrategy) {
+    throw new Error(
+      `Projection group '${targetContextName}.${projectionName}' owns read-model tables but does not declare resetStrategy.`,
+    );
+  }
+
+  if (resetStrategy === "generation-cutover") {
+    throw new Error(
+      `Projection group '${targetContextName}.${projectionName}' declares generation-cutover, but no generation cutover adapter is configured yet.`,
+    );
+  }
+
+  if (resetStrategy === "truncate-owned-tables") {
+    return async (context) => {
+      context?.throwIfLeaseLost?.();
+      await withProjectionTransaction(pool, context, async (client) => {
+        for (const tableName of ownedTables) {
+          context?.throwIfLeaseLost?.();
+          await client.query(`TRUNCATE TABLE ${assertSqlIdentifier(tableName)}`);
+        }
+      });
+    };
+  }
+
+  return async (context) => {
+    context?.throwIfLeaseLost?.();
+  };
+}
+
+function sortProjectionGroups(groups: readonly ContextProjectionGroup[]): readonly ContextProjectionGroup[] {
+  return [...groups].sort((left, right) => {
+    const leftOrder = Math.min(...left.subscriptionRunners.map((runner) => runner.order), Number.MAX_SAFE_INTEGER);
+    const rightOrder = Math.min(...right.subscriptionRunners.map((runner) => runner.order), Number.MAX_SAFE_INTEGER);
+
+    if (leftOrder !== rightOrder) {
+      return leftOrder - rightOrder;
+    }
+
+    if (left.targetContextName !== right.targetContextName) {
+      return left.targetContextName.localeCompare(right.targetContextName);
+    }
+
+    return left.projectionName.localeCompare(right.projectionName);
+  });
+}
+
+function resolveContextProjectionGroups(entry: MountedContextRuntimeEntry): readonly ContextProjectionGroup[] {
+  const declaredGroups: readonly BcProjectionGroup[] =
+    entry.module.buildProjectionGroups?.(entry.services) ??
+    (entry.module.projectionGroups ?? []).map((group) => ({ ...group }));
+  const declaredProjectionNames = new Set(declaredGroups.map((group) => group.projectionName));
+  const localGroups: readonly BcProjectionGroup[] = (entry.projectionHandlerSets ?? [])
+    .filter((projection) => !declaredProjectionNames.has(projection.projectionName))
+    .map((projection) => ({
+      projectionName: projection.projectionName,
+      projectionRevision: 1,
+      sourceContextNames: [entry.contextName],
+      ownedTables: [],
+      requiredDuringBootstrap: false,
+    }));
+  const runtimeGroups = [...declaredGroups, ...localGroups];
+
+  const seenProjectionNames = new Set<string>();
+
+  return runtimeGroups.map((group) => {
+    if (seenProjectionNames.has(group.projectionName)) {
+      throw new Error(`Context '${entry.contextName}' declared duplicate projection group '${group.projectionName}'.`);
+    }
+    seenProjectionNames.add(group.projectionName);
+
+    const sourceContextNames = [...new Set(group.sourceContextNames)];
+    const ownedTables = [...new Set(group.ownedTables)];
+    const projectionRevision = assertProjectionRevision(group.projectionRevision);
+    const revisionState: {
+      storedProjectionRevision: number | null;
+      updatedAt: string;
+    } = {
+      storedProjectionRevision: null,
+      updatedAt: new Date(0).toISOString(),
+    };
+    const revisionStale = () =>
+      revisionState.storedProjectionRevision !== null && revisionState.storedProjectionRevision !== projectionRevision;
+
+    return {
+      projectionName: group.projectionName,
+      projectionRevision,
+      targetContextName: entry.contextName,
+      sourceContextNames,
+      ownedTables,
+      resetStrategy: group.resetStrategy,
+      requiredDuringBootstrap: group.requiredDuringBootstrap ?? false,
+      subscriptionRunners: [],
+      reset:
+        group.reset ??
+        createDefaultProjectionGroupReset(
+          entry.pool,
+          ownedTables,
+          group.resetStrategy,
+          entry.contextName,
+          group.projectionName,
+        ),
+      getStatus: () => ({
+        projectionName: group.projectionName,
+        projectionRevision,
+        storedProjectionRevision: revisionState.storedProjectionRevision,
+        revisionStale: revisionStale(),
+        targetContextName: entry.contextName,
+        sourceContextNames,
+        ownedTables,
+        requiredDuringBootstrap: group.requiredDuringBootstrap ?? false,
+        initialized: sourceContextNames.length === 0,
+        caughtUp: sourceContextNames.length === 0,
+        state: "caught-up",
+        lastError: null,
+        outstandingEventCount: "0",
+        blockedStreamCount: 0,
+        poisonEventCount: 0,
+        updatedAt: revisionState.updatedAt,
+        subscriptions: [],
+      }),
+      refreshStatus: async () => {
+        revisionState.storedProjectionRevision = await loadProjectionGroupRevision(
+          entry.pool,
+          entry.contextName,
+          group.projectionName,
+        );
+        revisionState.updatedAt = new Date().toISOString();
+        return {
+          projectionName: group.projectionName,
+          projectionRevision,
+          storedProjectionRevision: revisionState.storedProjectionRevision,
+          revisionStale: revisionStale(),
+          targetContextName: entry.contextName,
+          sourceContextNames,
+          ownedTables,
+          requiredDuringBootstrap: group.requiredDuringBootstrap ?? false,
+          initialized: sourceContextNames.length === 0,
+          caughtUp: sourceContextNames.length === 0,
+          state: "caught-up",
+          lastError: null,
+          outstandingEventCount: "0",
+          blockedStreamCount: 0,
+          poisonEventCount: 0,
+          updatedAt: revisionState.updatedAt,
+          subscriptions: [],
+        };
+      },
+      startGenerationRebuild: (context) =>
+        startProjectionGroupGenerationRebuild(
+          entry.pool,
+          { targetContextName: entry.contextName, projectionName: group.projectionName },
+          context,
+        ),
+      completeGenerationRebuild: (context) =>
+        completeProjectionGroupGenerationRebuild(
+          entry.pool,
+          { targetContextName: entry.contextName, projectionName: group.projectionName },
+          context,
+        ),
+      failGenerationRebuild: (context) =>
+        failProjectionGroupGenerationRebuild(
+          entry.pool,
+          { targetContextName: entry.contextName, projectionName: group.projectionName },
+          context,
+        ),
+      markRevisionSynced: async () => {
+        await saveProjectionGroupRevision(entry.pool, entry.contextName, group.projectionName, projectionRevision);
+        revisionState.storedProjectionRevision = projectionRevision;
+        revisionState.updatedAt = new Date().toISOString();
+      },
+    };
+  });
+}
+
+export function resolveModuleProjectionGroups(
+  mountedContexts: readonly MountedContextRuntimeEntry[],
+  subscriptionRunners: readonly ContextSubscriptionRunner[],
+): readonly ContextProjectionGroup[] {
+  const groups: ContextProjectionGroup[] = [];
+  const consumedCheckpointKeys = new Set<string>();
+  const ownedTableOwners = new Map<string, string>();
+
+  for (const entry of mountedContexts) {
+    if (entry.mountRole === "source-only") {
+      continue;
+    }
+
+    const contextGroups = resolveContextProjectionGroups(entry);
+
+    for (const group of contextGroups) {
+      for (const tableName of group.ownedTables) {
+        const ownershipKey = `${entry.contextName}.${tableName}`;
+        const existingOwner = ownedTableOwners.get(ownershipKey);
+        if (existingOwner && existingOwner !== group.projectionName) {
+          throw new Error(
+            `Context '${entry.contextName}' table '${tableName}' is owned by both projection groups '${existingOwner}' and '${group.projectionName}'. Each read-model table must have one projection group owner.`,
+          );
+        }
+        ownedTableOwners.set(ownershipKey, group.projectionName);
+      }
+
+      const groupRunners = sortSubscriptionRunners(
+        subscriptionRunners.filter(
+          (runner) => runner.targetContextName === entry.contextName && runner.projectionName === group.projectionName,
+        ),
+      );
+      const actualSources = [...new Set(groupRunners.map((runner) => runner.sourceContextName))];
+
+      if (group.sourceContextNames.length === 0) {
+        throw new Error(
+          `Context '${entry.contextName}' projection group '${group.projectionName}' must declare at least one source context.`,
+        );
+      }
+
+      if (groupRunners.length === 0) {
+        throw new Error(
+          `Context '${entry.contextName}' projection group '${group.projectionName}' does not have any matching subscriptions.`,
+        );
+      }
+
+      const missingSources = group.sourceContextNames.filter(
+        (sourceContextName) => !actualSources.includes(sourceContextName),
+      );
+      const unexpectedSources = actualSources.filter(
+        (sourceContextName) => !group.sourceContextNames.includes(sourceContextName),
+      );
+
+      if (missingSources.length > 0 || unexpectedSources.length > 0) {
+        throw new Error(
+          `Context '${entry.contextName}' projection group '${group.projectionName}' sources do not match subscriptions. Missing: [${missingSources.join(", ")}]. Unexpected: [${unexpectedSources.join(", ")}].`,
+        );
+      }
+
+      for (const runner of groupRunners) {
+        consumedCheckpointKeys.add(runner.checkpointKey);
+      }
+
+      groups.push({
+        ...group,
+        subscriptionRunners: groupRunners,
+        getStatus: () => {
+          const baseStatus = group.getStatus();
+          const subscriptions = groupRunners.map((runner) => runner.getStatus());
+          const initialized =
+            subscriptions.length > 0 && subscriptions.every((subscription) => subscription.initialized);
+          const caughtUp =
+            subscriptions.length > 0 &&
+            subscriptions.every(
+              (subscription) =>
+                subscription.lastGlobalPosition === subscription.sourceHeadGlobalPosition &&
+                subscription.blockedStreamCount === 0,
+            );
+          const blockedStreamCount = subscriptions.reduce(
+            (total, subscription) => total + subscription.blockedStreamCount,
+            0,
+          );
+          const poisonEventCount = subscriptions.reduce(
+            (total, subscription) => total + subscription.poisonEventCount,
+            0,
+          );
+          const outstandingEventCount = sumDecimalCounts(
+            subscriptions.map((subscription) => subscription.outstandingEventCount),
+          );
+          const applicableLagEstimate = subscriptions.every(
+            (subscription) => subscription.applicableLagEstimate !== null,
+          )
+            ? sumDecimalCounts(subscriptions.map((subscription) => subscription.applicableLagEstimate ?? "0"))
+            : null;
+          const state: SubscriptionReplayState = subscriptions.some((subscription) => subscription.state === "error")
+            ? "error"
+            : subscriptions.some((subscription) => subscription.state === "running")
+              ? "running"
+              : blockedStreamCount > 0 || subscriptions.some((subscription) => subscription.state === "degraded")
+                ? "degraded"
+                : caughtUp
+                  ? "caught-up"
+                  : "behind";
+          const updatedAt = subscriptions.reduce(
+            (latest, subscription) => (latest > subscription.updatedAt ? latest : subscription.updatedAt),
+            new Date(0).toISOString(),
+          );
+          const lastError = subscriptions.find((subscription) => subscription.lastError)?.lastError ?? null;
+
+          return {
+            projectionName: group.projectionName,
+            projectionRevision: group.projectionRevision,
+            storedProjectionRevision: baseStatus.storedProjectionRevision,
+            revisionStale: baseStatus.revisionStale,
+            targetContextName: entry.contextName,
+            sourceContextNames: group.sourceContextNames,
+            ownedTables: group.ownedTables,
+            requiredDuringBootstrap: group.requiredDuringBootstrap,
+            initialized,
+            caughtUp,
+            state,
+            lastError,
+            outstandingEventCount,
+            sourceLagEventCount: outstandingEventCount,
+            applicableLagEstimate,
+            blockedStreamCount,
+            poisonEventCount,
+            updatedAt: updatedAt > baseStatus.updatedAt ? updatedAt : baseStatus.updatedAt,
+            subscriptions,
+          };
+        },
+      });
+    }
+  }
+
+  for (const runner of subscriptionRunners) {
+    if (consumedCheckpointKeys.has(runner.checkpointKey)) {
+      continue;
+    }
+
+    throw new Error(
+      `Subscription '${runner.subscriptionName}' for context '${runner.targetContextName}' is missing a declared projection group for '${runner.projectionName}'.`,
+    );
+  }
+
+  return sortProjectionGroups(groups);
+}
+
+export async function syncProjectionGroup(
+  group: ContextProjectionGroup,
+  context?: ProjectionRunContext,
+): Promise<void> {
+  const status = await group.refreshStatus();
+
+  if (status.revisionStale) {
+    await rebuildProjectionGroup(group, context);
+    return;
+  }
+
+  await drainContextProcesses({ subscriptionRunners: group.subscriptionRunners }, context);
+  context?.throwIfLeaseLost?.();
+  await group.markRevisionSynced();
+}
+
+export async function resetProjectionGroup(
+  group: ContextProjectionGroup,
+  context?: ProjectionRunContext,
+): Promise<void> {
+  context?.throwIfLeaseLost?.();
+  await group.reset(context);
+
+  for (const runner of sortSubscriptionRunners(group.subscriptionRunners)) {
+    context?.throwIfLeaseLost?.();
+    await runner.reset(context);
+  }
+}
+
+export async function rebuildProjectionGroup(
+  group: ContextProjectionGroup,
+  context?: ProjectionRunContext,
+): Promise<void> {
+  const useGenerationRebuild = group.resetStrategy === "generation-cutover";
+
+  try {
+    if (useGenerationRebuild) {
+      await group.startGenerationRebuild?.(context);
+    }
+
+    await resetProjectionGroup(group, context);
+    await drainContextProcesses({ subscriptionRunners: group.subscriptionRunners }, context);
+    context?.throwIfLeaseLost?.();
+
+    if (useGenerationRebuild) {
+      await group.completeGenerationRebuild?.(context);
+    }
+
+    await group.markRevisionSynced();
+  } catch (error) {
+    if (useGenerationRebuild) {
+      await group.failGenerationRebuild?.(context);
+    }
+    throw error;
+  }
+}
+
+export async function syncContextProjectionGroups(
+  runtime: Readonly<{
+    mountedContexts: readonly MountedContextRuntimeEntry[];
+    projectionGroups: readonly ContextProjectionGroup[];
+  }>,
+  contextName: string,
+  options: Readonly<{
+    requiredOnly?: boolean;
+  }> = {},
+): Promise<void> {
+  const targetContext = runtime.mountedContexts.find((entry) => entry.contextName === contextName);
+  if (!targetContext) {
+    throw new Error(`Runtime is missing mounted context '${contextName}'.`);
+  }
+
+  const groups = sortProjectionGroups(
+    runtime.projectionGroups.filter(
+      (group) => group.targetContextName === contextName && (!options.requiredOnly || group.requiredDuringBootstrap),
+    ),
+  );
+
+  if (groups.length === 0) {
+    await drainContextProcesses({
+      subscriptionRunners: runtime.projectionGroups
+        .filter((group) => group.targetContextName === contextName)
+        .flatMap((group) => group.subscriptionRunners),
+    });
+    return;
+  }
+
+  for (const group of groups) {
+    await syncProjectionGroup(group);
+  }
+}
+
+export function getProjectionGroup(
+  runtime: Readonly<{
+    projectionGroups: readonly ContextProjectionGroup[];
+  }>,
+  contextName: string,
+  projectionName: string,
+): ContextProjectionGroup {
+  const group = runtime.projectionGroups.find(
+    (candidate) => candidate.targetContextName === contextName && candidate.projectionName === projectionName,
+  );
+
+  if (!group) {
+    throw new Error(`Runtime is missing projection group '${projectionName}' for context '${contextName}'.`);
+  }
+
+  return group;
+}
+
+export async function rebuildContextProjectionGroup(
+  runtime: Readonly<{
+    projectionGroups: readonly ContextProjectionGroup[];
+  }>,
+  contextName: string,
+  projectionName: string,
+  context?: ProjectionRunContext,
+): Promise<void> {
+  await rebuildProjectionGroup(getProjectionGroup(runtime, contextName, projectionName), context);
+}
+
+export function listProjectionGroupStatuses(
+  runtime: Readonly<{
+    projectionGroups: readonly ContextProjectionGroup[];
+  }>,
+  options: Readonly<{
+    contextName?: string;
+    requiredOnly?: boolean;
+  }> = {},
+): readonly ContextProjectionGroupStatus[] {
+  return sortProjectionGroups(
+    runtime.projectionGroups.filter(
+      (group) =>
+        (!options.contextName || group.targetContextName === options.contextName) &&
+        (!options.requiredOnly || group.requiredDuringBootstrap),
+    ),
+  ).map((group) => group.getStatus());
+}
+
+export async function refreshProjectionGroupStatuses(
+  runtime: Readonly<{
+    projectionGroups: readonly ContextProjectionGroup[];
+  }>,
+  options: Readonly<{
+    contextName?: string;
+    requiredOnly?: boolean;
+  }> = {},
+): Promise<readonly ContextProjectionGroupStatus[]> {
+  const groups = sortProjectionGroups(
+    runtime.projectionGroups.filter(
+      (group) =>
+        (!options.contextName || group.targetContextName === options.contextName) &&
+        (!options.requiredOnly || group.requiredDuringBootstrap),
+    ),
+  );
+
+  await mapWithConcurrency(groups, PROJECTION_STATUS_REFRESH_CONCURRENCY, async (group) => {
+    await group.refreshStatus();
+
+    await mapWithConcurrency(
+      sortSubscriptionRunners(group.subscriptionRunners),
+      PROJECTION_STATUS_REFRESH_CONCURRENCY,
+      (runner) => runner.refreshStatus(),
+    );
+  });
+
+  return groups.map((group) => group.getStatus());
+}
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  mapper: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      results[currentIndex] = await mapper(items[currentIndex] as T);
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, () => worker()));
+
+  return results;
+}
+
+export function summarizeProjectionReplayStatuses(
+  statuses: readonly ContextProjectionGroupStatus[],
+): ProjectionReplaySummary {
+  const contexts = [...new Set(statuses.map((status) => status.targetContextName))]
+    .sort((left, right) => left.localeCompare(right))
+    .map((contextName) => {
+      const contextStatuses = statuses.filter((status) => status.targetContextName === contextName);
+
+      return {
+        contextName,
+        totalGroups: contextStatuses.length,
+        requiredGroups: contextStatuses.filter((status) => status.requiredDuringBootstrap).length,
+        initializedGroups: contextStatuses.filter((status) => status.initialized).length,
+        caughtUpGroups: contextStatuses.filter((status) => status.caughtUp).length,
+        behindGroups: contextStatuses.filter((status) => !status.caughtUp).length,
+        staleGroups: contextStatuses.filter((status) => status.revisionStale).length,
+        runningGroups: contextStatuses.filter((status) => status.state === "running").length,
+        errorGroups: contextStatuses.filter((status) => status.state === "error").length,
+        outstandingEventCount: sumDecimalCounts(contextStatuses.map((status) => status.outstandingEventCount)),
+      } satisfies ProjectionReplayContextSummary;
+    });
+
+  const totalGroups = statuses.length;
+  const requiredGroups = statuses.filter((status) => status.requiredDuringBootstrap).length;
+  const initializedGroups = statuses.filter((status) => status.initialized).length;
+  const caughtUpGroups = statuses.filter((status) => status.caughtUp).length;
+  const behindGroups = statuses.filter((status) => !status.caughtUp).length;
+  const staleGroups = statuses.filter((status) => status.revisionStale).length;
+  const runningGroups = statuses.filter((status) => status.state === "running").length;
+  const errorGroups = statuses.filter((status) => status.state === "error").length;
+  const outstandingEventCount = sumDecimalCounts(statuses.map((status) => status.outstandingEventCount));
+  const requiredStatuses = statuses.filter((status) => status.requiredDuringBootstrap);
+  const status = requiredStatuses.some((entry) => !entry.caughtUp || entry.revisionStale || entry.state === "error")
+    ? "degraded"
+    : "ok";
+
+  return {
+    status,
+    totalGroups,
+    requiredGroups,
+    initializedGroups,
+    caughtUpGroups,
+    behindGroups,
+    staleGroups,
+    runningGroups,
+    errorGroups,
+    outstandingEventCount,
+    contexts,
+  };
+}
+
+export function getProjectionReplaySummary(
+  runtime: Readonly<{
+    projectionGroups: readonly ContextProjectionGroup[];
+  }>,
+  options: Readonly<{
+    contextName?: string;
+    requiredOnly?: boolean;
+  }> = {},
+): ProjectionReplaySummary {
+  return summarizeProjectionReplayStatuses(listProjectionGroupStatuses(runtime, options));
+}
+
+export async function refreshProjectionReplaySummary(
+  runtime: Readonly<{
+    projectionGroups: readonly ContextProjectionGroup[];
+  }>,
+  options: Readonly<{
+    contextName?: string;
+    requiredOnly?: boolean;
+  }> = {},
+): Promise<ProjectionReplaySummary> {
+  return summarizeProjectionReplayStatuses(await refreshProjectionGroupStatuses(runtime, options));
+}
+
+export async function rebuildAllContextProjectionGroups(
+  runtime: Readonly<{
+    projectionGroups: readonly ContextProjectionGroup[];
+  }>,
+  contextName: string,
+  options: Readonly<{
+    requiredOnly?: boolean;
+  }> = {},
+  context?: ProjectionRunContext,
+): Promise<void> {
+  const groups = sortProjectionGroups(
+    runtime.projectionGroups.filter(
+      (group) => group.targetContextName === contextName && (!options.requiredOnly || group.requiredDuringBootstrap),
+    ),
+  );
+
+  if (groups.length === 0) {
+    throw new Error(`Runtime is missing projection groups for context '${contextName}'.`);
+  }
+
+  for (const group of groups) {
+    context?.throwIfLeaseLost?.();
+    await rebuildProjectionGroup(group, context);
+  }
+}
+
+export async function cleanupRuntimeProjectionGenerations(
+  runtime: Readonly<{
+    mountedContexts: readonly MountedContextRuntimeEntry[];
+    projectionGroups?: readonly Pick<ContextProjectionGroup, "targetContextName">[];
+  }>,
+): Promise<number> {
+  const targetPools = runtime.projectionGroups
+    ? uniqueProjectionGroupTargetPools(runtime.mountedContexts, runtime.projectionGroups)
+    : uniqueMountedContextPools(runtime.mountedContexts);
+  let cleaned = 0;
+
+  for (const pool of targetPools) {
+    cleaned += await cleanupExpiredProjectionGroupGenerationRetention(pool);
+  }
+
+  return cleaned;
+}
+
+function uniqueMountedContextPools(
+  mountedContexts: readonly Pick<MountedContextRuntimeEntry, "pool">[],
+): readonly PgTransactionalPool[] {
+  return [...new Set(mountedContexts.map((entry) => entry.pool))];
+}
+
+function uniqueProjectionGroupTargetPools(
+  mountedContexts: readonly Pick<MountedContextRuntimeEntry, "contextName" | "pool">[],
+  projectionGroups: readonly Pick<ContextProjectionGroup, "targetContextName">[],
+): readonly PgTransactionalPool[] {
+  const poolsByContextName = new Map(mountedContexts.map((entry) => [entry.contextName, entry.pool]));
+  return [
+    ...new Set(
+      projectionGroups
+        .map((group) => poolsByContextName.get(group.targetContextName))
+        .filter((pool): pool is PgTransactionalPool => Boolean(pool)),
+    ),
+  ];
+}
