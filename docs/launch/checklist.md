@@ -23,9 +23,9 @@
 
 ## Entry And Readiness
 
-- [ ] Checkout starts only from a fresh readiness snapshot with ownership/fresh-write evidence; missing, stale, partial, or old-shaped state fails closed to cart/list recovery (buy baseline: PR #1193; sell baseline: PR #1202).
-- [ ] Items without fulfillment assignment stay out of checkout and are resolved in cart, Sell List, or a conditional pre-checkout step (cart baseline: PR #1193; runtime baseline: PR #1456).
-- [ ] Optional fulfillment savings is offered before checkout, and accepted or declined decisions carry into checkout as readiness evidence (baseline: PR #1495).
+- [ ] Checkout starts only from a fresh readiness snapshot with ownership/fresh-write evidence; missing, stale, partial, or old-shaped state fails closed to cart/list recovery (buy baseline: PR #1193; sell baseline: PR #1202; proof: PR #1598).
+- [ ] Items without fulfillment assignment stay out of checkout and are resolved in cart, Sell List, or a conditional pre-checkout step (cart baseline: PR #1193; runtime baseline: PR #1456; proof: PR #1598).
+- [ ] Optional fulfillment savings is offered before checkout, and accepted or declined decisions carry into checkout as readiness evidence (baseline: PR #1495; proof: PR #1598).
 - [ ] Active checkout sessions revalidate readiness, prices, address/serviceability, risk, and provider state before confirmation; stale sessions recover without side effects (baselines: PR #1453, PR #1454, PR #1455, PR #1458, PR #1485).
 
 ## Confirmation And Handoff

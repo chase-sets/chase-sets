@@ -317,6 +317,59 @@ describe("checkout session routes", () => {
     );
   });
 
+  it("rejects legacy-shaped cart readiness payloads without adapting them into checkout evidence", async () => {
+    const services = createServices({
+      createFromCart: vi.fn(async () => {
+        throw new CheckoutDomainError(
+          "Cart readiness changed. Review your cart before checkout.",
+          "readiness_snapshot_stale",
+        );
+      }),
+    });
+    const app = buildApp(services);
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source: {
+            type: "cart",
+            cart_readiness_snapshot: {
+              snapshot_id: "cr_legacy",
+              source_revision: "cart_rev_legacy",
+              unresolved_line_ids: [],
+            },
+            readiness_snapshot_id: "cr_legacy",
+            readiness_source_revision: "cart_rev_legacy",
+          },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "readiness_snapshot_stale",
+        message: "Cart readiness changed. Review your cart before checkout.",
+      },
+    });
+    expect(services.createFromCart).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: "acc_buyer",
+        readinessSnapshotId: "",
+        readinessSourceRevision: "",
+        readinessDecisions: {
+          lineOutcomes: [],
+          optimization: null,
+        },
+      }),
+      expect.any(Object),
+    );
+    expect(services.createBuyNow).not.toHaveBeenCalled();
+    expect(services.createOfferIntent).not.toHaveBeenCalled();
+  });
+
   it("normalizes buy-now session payloads into checkout-owned session creation", async () => {
     const services = createServices({
       createBuyNow: vi.fn(async () => ({
