@@ -33,7 +33,7 @@ export type CheckoutReversalCheckpoint =
   | "duplicate-submit"
   | "background-retry"
   | "operator-recovery"
-  | "launch-decision";
+  | "owner-rule";
 
 export type CheckoutReversalEffect =
   | "no-side-effect"
@@ -90,7 +90,7 @@ export type CheckoutReversalSourceFact =
   | "account-history-record"
   | "support-request"
   | "provider-callback"
-  | "launch-decision-row"
+  | "owner-rule-row"
   | "none-before-commit";
 
 export type CheckoutReversalOwnerIssue =
@@ -129,8 +129,8 @@ export type CheckoutReversalControlKey =
   | "duplicate-reversal-prevention"
   | "provider-replay-and-webhook-reconciliation"
   | "support-approved-operator-recovery"
-  | "return-dispute-chargeback-launch-posture"
-  | "launch-decision-reversal-states"
+  | "return-dispute-chargeback-owner-rule-status"
+  | "owner-rule-reversal-states"
   | "observability-redaction"
   | "fresh-state-reversal-cleanup";
 
@@ -149,13 +149,13 @@ export type CheckoutReversalPolicyEntry = Readonly<{
   supportReferenceRequired: boolean;
   auditRequired: boolean;
   observabilityRequired: boolean;
-  launchDecisionRequired: boolean;
+  ownerRuleRequired: boolean;
   owningFactRequiredBeforeAction: boolean;
   duplicatePreventionRequired: boolean;
   redactsSensitiveData: boolean;
-  noLegacyCompatibility: boolean;
+  freshStateOnly: boolean;
   forbiddenSources: readonly string[];
-  evidenceExpectation: string;
+  customerSafeOutcome: string;
 }>;
 
 const buyerAudiences = ["guest-buyer", "signed-in-buyer"] as const satisfies readonly CheckoutReversalAudience[];
@@ -181,7 +181,7 @@ export const checkoutReversalForbiddenSources = [
   "old sell execution id",
   "old receipt row",
   "migration/backfill helper",
-  "dual-write compatibility",
+  "dual writes",
   "hidden repair",
   "manual database edit",
   "stale fixture bypass",
@@ -209,13 +209,13 @@ export const checkoutReversalRequiredControls = [
   "duplicate-reversal-prevention",
   "provider-replay-and-webhook-reconciliation",
   "support-approved-operator-recovery",
-  "return-dispute-chargeback-launch-posture",
-  "launch-decision-reversal-states",
+  "return-dispute-chargeback-owner-rule-status",
+  "owner-rule-reversal-states",
   "observability-redaction",
   "fresh-state-reversal-cleanup",
 ] as const satisfies readonly CheckoutReversalControlKey[];
 
-export const checkoutReversalLaunchRegisterStates: readonly CheckoutReversalState[] = [
+export const checkoutReversalOwnerRuleStates: readonly CheckoutReversalState[] = [
   "support-only",
   "disabled",
   "deferred",
@@ -243,14 +243,14 @@ export const checkoutReversalPolicyEntries = [
     supportReferenceRequired: true,
     auditRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: false,
+    ownerRuleRequired: false,
     owningFactRequiredBeforeAction: false,
     duplicatePreventionRequired: true,
     redactsSensitiveData: true,
-    noLegacyCompatibility: true,
+    freshStateOnly: true,
     forbiddenSources: checkoutReversalForbiddenSources,
-    evidenceExpectation:
-      "Before confirmation, cancellation is simply returning to cart/list/readiness recovery with proof that no payment, order, label, payout, settlement, notification, support, refund, void, reversal, or adjustment side effect exists.",
+    customerSafeOutcome:
+      "Before confirmation, cancellation is simply returning to cart/list/readiness recovery with no payment, order, label, payout, settlement, notification, support, refund, void, reversal, or adjustment side effects.",
   }),
   reversalPolicy({
     control: "payment-authorization-void-after-order-failure",
@@ -267,13 +267,13 @@ export const checkoutReversalPolicyEntries = [
     supportReferenceRequired: true,
     auditRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     owningFactRequiredBeforeAction: true,
     duplicatePreventionRequired: true,
     redactsSensitiveData: true,
-    noLegacyCompatibility: true,
+    freshStateOnly: true,
     forbiddenSources: checkoutReversalForbiddenSources,
-    evidenceExpectation:
+    customerSafeOutcome:
       "If authorization exists but order creation fails before capture, Payments owns an idempotent void or provider-delayed void state; Checkout cannot create an order or refund substitute.",
   }),
   reversalPolicy({
@@ -291,13 +291,13 @@ export const checkoutReversalPolicyEntries = [
     supportReferenceRequired: true,
     auditRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     owningFactRequiredBeforeAction: true,
     duplicatePreventionRequired: true,
     redactsSensitiveData: true,
-    noLegacyCompatibility: true,
+    freshStateOnly: true,
     forbiddenSources: checkoutReversalForbiddenSources,
-    evidenceExpectation:
+    customerSafeOutcome:
       "Captured payment recovery uses Payments-owned refund facts and refund-effect idempotency; partial, delayed, or failed refunds stay support-visible and cannot be hidden by checkout repair.",
   }),
   reversalPolicy({
@@ -315,13 +315,13 @@ export const checkoutReversalPolicyEntries = [
     supportReferenceRequired: true,
     auditRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: false,
+    ownerRuleRequired: false,
     owningFactRequiredBeforeAction: true,
     duplicatePreventionRequired: true,
     redactsSensitiveData: true,
-    noLegacyCompatibility: true,
+    freshStateOnly: true,
     forbiddenSources: checkoutReversalForbiddenSources,
-    evidenceExpectation:
+    customerSafeOutcome:
       "Buyer self-service cancellation is available only while Ordering and Fulfillment facts show the cancellation window is open; Payments refunds a captured payment idempotently after the Ordering cancellation fact exists.",
   }),
   reversalPolicy({
@@ -329,23 +329,23 @@ export const checkoutReversalPolicyEntries = [
     docLabel: "Post-cutoff support cancel request",
     ownerIssues: ["#1165", "#1122", "#1135", "#1114"],
     ownerContext: "Support",
-    checkpoints: ["order-committed", "shipment-or-label-committed", "operator-recovery", "launch-decision"],
+    checkpoints: ["order-committed", "shipment-or-label-committed", "operator-recovery", "owner-rule"],
     audiences: [...buyerAudiences, "support-operator"],
     states: ["support-only", "pending", "held", "deferred", "recovered"],
     effects: ["support-review", "payment-refund", "notification-correction", "account-history-correction"],
-    sourceFacts: ["ordering-order", "fulfillment-shipment", "support-request", "launch-decision-row"],
+    sourceFacts: ["ordering-order", "fulfillment-shipment", "support-request", "owner-rule-row"],
     idempotencyKeyShape: "support:buyer_cancel_request:<support-request-id>:<resolution>",
     customerVisible: true,
     supportReferenceRequired: true,
     auditRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     owningFactRequiredBeforeAction: true,
     duplicatePreventionRequired: true,
     redactsSensitiveData: true,
-    noLegacyCompatibility: true,
+    freshStateOnly: true,
     forbiddenSources: checkoutReversalForbiddenSources,
-    evidenceExpectation:
+    customerSafeOutcome:
       "After Fulfillment closes the cancellation window, cancellation is Support-owned and may resolve to refund, no action, or review without direct Checkout cancellation or database repair.",
   }),
   reversalPolicy({
@@ -363,13 +363,13 @@ export const checkoutReversalPolicyEntries = [
     supportReferenceRequired: true,
     auditRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     owningFactRequiredBeforeAction: true,
     duplicatePreventionRequired: true,
     redactsSensitiveData: true,
-    noLegacyCompatibility: true,
+    freshStateOnly: true,
     forbiddenSources: checkoutReversalForbiddenSources,
-    evidenceExpectation:
+    customerSafeOutcome:
       "Inventory or reservation release follows Ordering cancellation/group facts and is idempotent per order group; Checkout does not release inventory from stale session data.",
   }),
   reversalPolicy({
@@ -381,49 +381,43 @@ export const checkoutReversalPolicyEntries = [
     audiences: buyerAudiences,
     states: ["supported", "pending", "committed", "failed", "partial", "deferred"],
     effects: ["tax-fee-credit-adjustment", "payment-refund", "settlement-adjustment"],
-    sourceFacts: [
-      "payments-capture",
-      "payments-refund",
-      "ordering-order",
-      "settlement-reversal",
-      "launch-decision-row",
-    ],
+    sourceFacts: ["payments-capture", "payments-refund", "ordering-order", "settlement-reversal", "owner-rule-row"],
     idempotencyKeyShape: "payments:adjustment:<order-or-payment-ref>:<component>:<effect-id>",
     customerVisible: true,
     supportReferenceRequired: true,
     auditRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     owningFactRequiredBeforeAction: true,
     duplicatePreventionRequired: true,
     redactsSensitiveData: true,
-    noLegacyCompatibility: true,
+    freshStateOnly: true,
     forbiddenSources: checkoutReversalForbiddenSources,
-    evidenceExpectation:
-      "Tax, marketplace fee, wallet credit, promo, gift-card, label-fee, payout, and settlement adjustments link to Payments/Settlement owner facts or a launch-decision deferral.",
+    customerSafeOutcome:
+      "Tax, marketplace fee, wallet credit, promo, gift-card, label-fee, payout, and settlement adjustments link to Payments/Settlement owner facts or an owner-rule deferral.",
   }),
   reversalPolicy({
     control: "seller-pending-handoff-no-fake-reversal",
     docLabel: "Seller pending handoff no fake reversal",
     ownerIssues: ["#1165", "#1135", "#1130", "#1120"],
     ownerContext: "Checkout",
-    checkpoints: ["seller-confirmation-recorded", "marketplace-handoff-recorded", "launch-decision"],
+    checkpoints: ["seller-confirmation-recorded", "marketplace-handoff-recorded", "owner-rule"],
     audiences: sellerAudiences,
     states: ["pending", "deferred", "no-side-effect"],
     effects: ["support-review", "no-side-effect"],
-    sourceFacts: ["checkout-seller-activity", "checkout-confirmation", "launch-decision-row"],
+    sourceFacts: ["checkout-seller-activity", "checkout-confirmation", "owner-rule-row"],
     idempotencyKeyShape: "checkout:seller_pending_reversal:<confirmation-id>:<downstream-owner>",
     customerVisible: true,
     supportReferenceRequired: true,
     auditRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     owningFactRequiredBeforeAction: false,
     duplicatePreventionRequired: true,
     redactsSensitiveData: true,
-    noLegacyCompatibility: true,
+    freshStateOnly: true,
     forbiddenSources: checkoutReversalForbiddenSources,
-    evidenceExpectation:
+    customerSafeOutcome:
       "When seller activity shows only confirmation or pending handoff, reversal records customer-safe pending/deferred/no-side-effect status and must not create fake label, payout, settlement, notification, or account-history correction facts.",
   }),
   reversalPolicy({
@@ -441,13 +435,13 @@ export const checkoutReversalPolicyEntries = [
     supportReferenceRequired: true,
     auditRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     owningFactRequiredBeforeAction: true,
     duplicatePreventionRequired: true,
     redactsSensitiveData: true,
-    noLegacyCompatibility: true,
+    freshStateOnly: true,
     forbiddenSources: checkoutReversalForbiddenSources,
-    evidenceExpectation:
+    customerSafeOutcome:
       "Label cancellation and postage refund state comes from Fulfillment label/shipment/provider refund facts; failed or delayed provider refund remains support-visible and idempotent.",
   }),
   reversalPolicy({
@@ -465,13 +459,13 @@ export const checkoutReversalPolicyEntries = [
     supportReferenceRequired: true,
     auditRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     owningFactRequiredBeforeAction: true,
     duplicatePreventionRequired: true,
     redactsSensitiveData: true,
-    noLegacyCompatibility: true,
+    freshStateOnly: true,
     forbiddenSources: checkoutReversalForbiddenSources,
-    evidenceExpectation:
+    customerSafeOutcome:
       "Payout holds and reversals are Settlement-owned, provider-safe, and idempotent; Checkout cannot bypass payout readiness or expose bank/provider details.",
   }),
   reversalPolicy({
@@ -489,14 +483,14 @@ export const checkoutReversalPolicyEntries = [
     supportReferenceRequired: true,
     auditRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     owningFactRequiredBeforeAction: true,
     duplicatePreventionRequired: true,
     redactsSensitiveData: true,
-    noLegacyCompatibility: true,
+    freshStateOnly: true,
     forbiddenSources: checkoutReversalForbiddenSources,
-    evidenceExpectation:
-      "Seller refund debits, dispute holds, hold releases, payout failure reversals, and wallet adjustments are Settlement-owned ledger facts with exactly-once reversal evidence.",
+    customerSafeOutcome:
+      "Seller refund debits, dispute holds, hold releases, payout failure reversals, and wallet adjustments are Settlement-owned ledger facts with exactly-once reversal records.",
   }),
   reversalPolicy({
     control: "notification-and-account-history-correction",
@@ -518,13 +512,13 @@ export const checkoutReversalPolicyEntries = [
     supportReferenceRequired: true,
     auditRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     owningFactRequiredBeforeAction: true,
     duplicatePreventionRequired: true,
     redactsSensitiveData: true,
-    noLegacyCompatibility: true,
+    freshStateOnly: true,
     forbiddenSources: checkoutReversalForbiddenSources,
-    evidenceExpectation:
+    customerSafeOutcome:
       "Cancellation, refund, void, reversal, adjustment, label-canceled, payout-held, and payout-reversed copy appears in notifications and account history only after the owning fact exists.",
   }),
   reversalPolicy({
@@ -549,13 +543,13 @@ export const checkoutReversalPolicyEntries = [
     supportReferenceRequired: true,
     auditRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: false,
+    ownerRuleRequired: false,
     owningFactRequiredBeforeAction: true,
     duplicatePreventionRequired: true,
     redactsSensitiveData: true,
-    noLegacyCompatibility: true,
+    freshStateOnly: true,
     forbiddenSources: checkoutReversalForbiddenSources,
-    evidenceExpectation:
+    customerSafeOutcome:
       "Duplicate customer action, provider replay, background retry, and operator retry all resolve to the same owner effect id without duplicate refunds, voids, labels, holds, payouts, notifications, or account-history rows.",
   }),
   reversalPolicy({
@@ -573,13 +567,13 @@ export const checkoutReversalPolicyEntries = [
     supportReferenceRequired: true,
     auditRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     owningFactRequiredBeforeAction: true,
     duplicatePreventionRequired: true,
     redactsSensitiveData: true,
-    noLegacyCompatibility: true,
+    freshStateOnly: true,
     forbiddenSources: checkoutReversalForbiddenSources,
-    evidenceExpectation:
+    customerSafeOutcome:
       "Provider refund, void, dispute, label refund, and payout webhook replay is signature-checked, metadata-correlated, redacted, and reconciled without duplicate owner effects.",
   }),
   reversalPolicy({
@@ -587,7 +581,7 @@ export const checkoutReversalPolicyEntries = [
     docLabel: "Support-approved operator recovery",
     ownerIssues: ["#1165", "#1122", "#1114", "#1124"],
     ownerContext: "Support",
-    checkpoints: ["operator-recovery", "launch-decision"],
+    checkpoints: ["operator-recovery", "owner-rule"],
     audiences: ["support-operator"],
     states: ["support-only", "pending", "failed", "recovered", "held", "deferred"],
     effects: [
@@ -598,57 +592,51 @@ export const checkoutReversalPolicyEntries = [
       "payout-hold",
       "settlement-adjustment",
     ],
-    sourceFacts: [
-      "support-request",
-      "payments-refund",
-      "ordering-cancellation",
-      "settlement-hold",
-      "launch-decision-row",
-    ],
+    sourceFacts: ["support-request", "payments-refund", "ordering-cancellation", "settlement-hold", "owner-rule-row"],
     idempotencyKeyShape: "support:approved_reversal:<support-request-id>:<owner-action>",
     customerVisible: true,
     supportReferenceRequired: true,
     auditRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     owningFactRequiredBeforeAction: true,
     duplicatePreventionRequired: true,
     redactsSensitiveData: true,
-    noLegacyCompatibility: true,
+    freshStateOnly: true,
     forbiddenSources: checkoutReversalForbiddenSources,
-    evidenceExpectation:
-      "Approved operator recovery uses support permissions, audited owner actions, support-safe references, and launch-decision deferrals; support never edits rows or uses provider dashboards as the source of truth.",
+    customerSafeOutcome:
+      "Approved operator recovery uses support permissions, audited owner actions, support-safe references, and owner-rule deferrals; support never edits rows or uses provider dashboards as the source of truth.",
   }),
   reversalPolicy({
-    control: "return-dispute-chargeback-launch-posture",
-    docLabel: "Return, dispute, and chargeback launch posture",
+    control: "return-dispute-chargeback-owner-rule-status",
+    docLabel: "Return, dispute, and chargeback owner rule status",
     ownerIssues: ["#1165", "#1122", "#1124", "#1102", "#1112"],
     ownerContext: "Support",
-    checkpoints: ["operator-recovery", "provider-callback", "launch-decision"],
+    checkpoints: ["operator-recovery", "provider-callback", "owner-rule"],
     audiences: allCustomerAudiences,
     states: ["support-only", "disabled", "deferred", "unsupported", "held", "partial"],
     effects: ["support-review", "payment-refund", "dispute-hold", "settlement-adjustment", "notification-correction"],
-    sourceFacts: ["support-request", "payments-dispute", "settlement-hold", "launch-decision-row"],
-    idempotencyKeyShape: "launch-decision:exception:<return-or-dispute-capability>:<state>",
+    sourceFacts: ["support-request", "payments-dispute", "settlement-hold", "owner-rule-row"],
+    idempotencyKeyShape: "owner-rule:exception:<return-or-dispute-capability>:<state>",
     customerVisible: true,
     supportReferenceRequired: true,
     auditRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     owningFactRequiredBeforeAction: true,
     duplicatePreventionRequired: true,
     redactsSensitiveData: true,
-    noLegacyCompatibility: true,
+    freshStateOnly: true,
     forbiddenSources: checkoutReversalForbiddenSources,
-    evidenceExpectation:
-      "Buyer returns, payment disputes, chargebacks, provider-initiated reversals, partial refunds, and unsupported provider capabilities are explicitly supported, disabled, or deferred with copy, visual, support, observability, and follow-up evidence.",
+    customerSafeOutcome:
+      "Buyer returns, payment disputes, chargebacks, provider-initiated reversals, partial refunds, and unsupported provider capabilities are explicitly supported, disabled, or deferred with copy, visual, support, observability, and follow-up coverage.",
   }),
   reversalPolicy({
-    control: "launch-decision-reversal-states",
-    docLabel: "Launch decision reversal states",
+    control: "owner-rule-reversal-states",
+    docLabel: "Owner rule reversal states",
     ownerIssues: ["#1165", "#1102", "#1112", "#1114", "#1115", "#1122", "#1123", "#1124"],
     ownerContext: "Platform",
-    checkpoints: ["launch-decision", "operator-recovery"],
+    checkpoints: ["owner-rule", "operator-recovery"],
     audiences: allAudiences,
     states: [
       "support-only",
@@ -672,27 +660,27 @@ export const checkoutReversalPolicyEntries = [
       "settlement-adjustment",
       "support-review",
     ],
-    sourceFacts: ["launch-decision-row", "support-request"],
-    idempotencyKeyShape: "launch-decision:reversal:<capability>:<state>",
+    sourceFacts: ["owner-rule-row", "support-request"],
+    idempotencyKeyShape: "owner-rule:reversal:<capability>:<state>",
     customerVisible: true,
     supportReferenceRequired: true,
     auditRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     owningFactRequiredBeforeAction: true,
     duplicatePreventionRequired: true,
     redactsSensitiveData: true,
-    noLegacyCompatibility: true,
+    freshStateOnly: true,
     forbiddenSources: checkoutReversalForbiddenSources,
-    evidenceExpectation:
-      "Supported, disabled, deferred, unsupported, provider-outage, webhook-delayed, support-only, pending, failed, recovered, held, duplicate, partial, and no-side-effect reversal states have owner-scoped launch handling where launch-visible.",
+    customerSafeOutcome:
+      "Supported, disabled, deferred, unsupported, provider-outage, webhook-delayed, support-only, pending, failed, recovered, held, duplicate, partial, and no-side-effect reversal states have owner rules wherever they are customer-visible.",
   }),
   reversalPolicy({
     control: "observability-redaction",
     docLabel: "Observability redaction",
     ownerIssues: ["#1165", "#1114", "#1124", "#1122"],
     ownerContext: "Checkout",
-    checkpoints: ["pre-confirmation", "provider-callback", "background-retry", "operator-recovery", "launch-decision"],
+    checkpoints: ["pre-confirmation", "provider-callback", "background-retry", "operator-recovery", "owner-rule"],
     audiences: allAudiences,
     states: ["supported", "pending", "committed", "failed", "held", "duplicate-suppressed", "no-side-effect"],
     effects: [
@@ -705,27 +693,27 @@ export const checkoutReversalPolicyEntries = [
       "notification-correction",
       "account-history-correction",
     ],
-    sourceFacts: ["checkout-confirmation", "provider-callback", "support-request", "launch-decision-row"],
+    sourceFacts: ["checkout-confirmation", "provider-callback", "support-request", "owner-rule-row"],
     idempotencyKeyShape: "checkout:reversal_observability:<event-name>:<support-safe-reference>",
     customerVisible: false,
     supportReferenceRequired: true,
     auditRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     owningFactRequiredBeforeAction: true,
     duplicatePreventionRequired: true,
     redactsSensitiveData: true,
-    noLegacyCompatibility: true,
+    freshStateOnly: true,
     forbiddenSources: checkoutReversalForbiddenSources,
-    evidenceExpectation:
-      "Reversal telemetry reports owner, state, effect kind, duplicate-prevention outcome, support-safe reference, and launch-decision state without raw provider payloads, card data, bank data, addresses, or risk signals.",
+    customerSafeOutcome:
+      "Reversal telemetry reports owner, state, effect kind, duplicate-prevention outcome, support-safe reference, and owner-rule state without raw provider payloads, card data, bank data, addresses, or risk signals.",
   }),
   reversalPolicy({
     control: "fresh-state-reversal-cleanup",
     docLabel: "Fresh-state reversal cleanup",
     ownerIssues: ["#1165", "#1124", "#1115"],
     ownerContext: "Platform",
-    checkpoints: ["pre-confirmation", "operator-recovery", "launch-decision"],
+    checkpoints: ["pre-confirmation", "operator-recovery", "owner-rule"],
     audiences: allAudiences,
     states: ["supported", "disabled", "deferred", "unsupported", "no-side-effect"],
     effects: [
@@ -737,19 +725,19 @@ export const checkoutReversalPolicyEntries = [
       "payout-reversal",
       "settlement-adjustment",
     ],
-    sourceFacts: ["launch-decision-row", "none-before-commit"],
+    sourceFacts: ["owner-rule-row", "none-before-commit"],
     idempotencyKeyShape: "checkout:reversal_fresh_state:<scan-or-route-id>:<result>",
     customerVisible: false,
     supportReferenceRequired: true,
     auditRequired: true,
     observabilityRequired: true,
-    launchDecisionRequired: true,
+    ownerRuleRequired: true,
     owningFactRequiredBeforeAction: true,
     duplicatePreventionRequired: true,
     redactsSensitiveData: true,
-    noLegacyCompatibility: true,
+    freshStateOnly: true,
     forbiddenSources: checkoutReversalForbiddenSources,
-    evidenceExpectation:
+    customerSafeOutcome:
       "Fresh-state scans prove cancellation, refund, void, reversal, and adjustment paths cannot succeed through old routes, old payload adapters, old sell execution ids, old receipt rows, migrations, hidden repair, stale fixtures/read models, provider-dashboard-only recovery, or dense checkout fallback.",
   }),
 ] as const satisfies readonly CheckoutReversalPolicyEntry[];
@@ -771,7 +759,7 @@ export function assertCheckoutReversalRecoveryPolicyCoverage(): void {
     if (!entry.ownerIssues.includes("#1165")) {
       throw new Error(`Checkout reversal recovery '${entry.control}' must include #1165.`);
     }
-    if (entry.docLabel.trim().length === 0 || entry.evidenceExpectation.trim().length === 0) {
+    if (entry.docLabel.trim().length === 0 || entry.customerSafeOutcome.trim().length === 0) {
       throw new Error(`Checkout reversal recovery '${entry.control}' needs documentation text.`);
     }
     if (
@@ -789,14 +777,16 @@ export function assertCheckoutReversalRecoveryPolicyCoverage(): void {
     if (!entry.auditRequired || !entry.observabilityRequired || !entry.redactsSensitiveData) {
       throw new Error(`Checkout reversal recovery '${entry.control}' must be audited and redacted.`);
     }
-    if (!entry.noLegacyCompatibility) {
-      throw new Error(`Checkout reversal recovery '${entry.control}' must reject legacy compatibility.`);
+    if (!entry.freshStateOnly) {
+      throw new Error(`Checkout reversal recovery '${entry.control}' must remain fresh-state only.`);
     }
     if (
-      entry.states.some((state) => checkoutReversalLaunchRegisterStates.includes(state)) &&
-      (!entry.launchDecisionRequired || !entry.supportReferenceRequired)
+      entry.states.some((state) => checkoutReversalOwnerRuleStates.includes(state)) &&
+      (!entry.ownerRuleRequired || !entry.supportReferenceRequired)
     ) {
-      throw new Error(`Checkout reversal recovery '${entry.control}' must launch-decision customer-impacting states.`);
+      throw new Error(
+        `Checkout reversal recovery '${entry.control}' must define owner rules for customer-impacting states.`,
+      );
     }
     if (entry.effects.some(isOwnerEffect) && !entry.owningFactRequiredBeforeAction) {
       throw new Error(`Checkout reversal recovery '${entry.control}' must require an owner fact before action.`);

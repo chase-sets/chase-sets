@@ -23,7 +23,7 @@ describe("Checkout reversal recovery policy", () => {
     expect(controls).toEqual(expect.arrayContaining([...checkoutReversalRequiredControls]));
   });
 
-  it("classifies launch reversal effects across buy, sell, support, and provider paths", () => {
+  it("classifies reversal effects across buy, sell, support, and provider paths", () => {
     const requiredEffects = [
       "payment-void",
       "payment-refund",
@@ -48,11 +48,11 @@ describe("Checkout reversal recovery policy", () => {
     }
 
     const exceptionPosture = checkoutReversalPolicyEntries.find(
-      (entry) => entry.control === "return-dispute-chargeback-launch-posture",
+      (entry) => entry.control === "return-dispute-chargeback-owner-rule-status",
     );
     expect(exceptionPosture?.states).toEqual(expect.arrayContaining(["support-only", "disabled", "deferred"]));
-    expect(exceptionPosture?.launchDecisionRequired).toBe(true);
-    expect(exceptionPosture?.evidenceExpectation).toMatch(/supported, disabled, or deferred/i);
+    expect(exceptionPosture?.ownerRuleRequired).toBe(true);
+    expect(exceptionPosture?.customerSafeOutcome).toMatch(/supported, disabled, or deferred/i);
   });
 
   it("separates no-side-effect pre-confirmation cancellation from owner reversals", () => {
@@ -68,7 +68,7 @@ describe("Checkout reversal recovery policy", () => {
 
     expect(preConfirmation?.effects).toEqual(["no-side-effect"]);
     expect(preConfirmation?.owningFactRequiredBeforeAction).toBe(false);
-    expect(preConfirmation?.evidenceExpectation).toMatch(/no payment, order, label, payout/i);
+    expect(preConfirmation?.customerSafeOutcome).toMatch(/no payment, order, label, payout/i);
 
     expect(voidAfterFailure?.sourceFacts).toEqual(expect.arrayContaining(["payments-authorization", "payments-void"]));
     expect(voidAfterFailure?.owningFactRequiredBeforeAction).toBe(true);
@@ -108,7 +108,7 @@ describe("Checkout reversal recovery policy", () => {
     expect(pendingSeller?.sourceFacts).not.toEqual(
       expect.arrayContaining(["fulfillment-label", "settlement-payout", "payments-refund"]),
     );
-    expect(pendingSeller?.evidenceExpectation).toMatch(/must not create fake label, payout, settlement/i);
+    expect(pendingSeller?.customerSafeOutcome).toMatch(/must not create fake label, payout, settlement/i);
   });
 
   it("requires label, payout, settlement, and notification correction to start from owner facts", () => {
@@ -156,10 +156,10 @@ describe("Checkout reversal recovery policy", () => {
       (entry) => entry.control === "provider-replay-and-webhook-reconciliation",
     );
     expect(providerReplay?.sourceFacts).toContain("provider-callback");
-    expect(providerReplay?.evidenceExpectation).toMatch(/signature-checked/i);
+    expect(providerReplay?.customerSafeOutcome).toMatch(/signature-checked/i);
   });
 
-  it("launch-decisions customer-impacting reversal states", () => {
+  it("owner-rules customer-impacting reversal states", () => {
     const customerImpactingStates = [
       "support-only",
       "disabled",
@@ -177,29 +177,27 @@ describe("Checkout reversal recovery policy", () => {
 
     expect(impactedEntries.length).toBeGreaterThan(0);
     for (const entry of impactedEntries) {
-      expect(entry.launchDecisionRequired, entry.control).toBe(true);
+      expect(entry.ownerRuleRequired, entry.control).toBe(true);
       expect(entry.supportReferenceRequired, entry.control).toBe(true);
     }
 
-    const launchDecision = checkoutReversalPolicyEntries.find(
-      (entry) => entry.control === "launch-decision-reversal-states",
-    );
-    expect(launchDecision?.ownerIssues).toEqual(expect.arrayContaining(["#1102", "#1112", "#1114", "#1115"]));
-    expect(launchDecision?.evidenceExpectation).toMatch(/owner-scoped launch handling/i);
+    const ownerRule = checkoutReversalPolicyEntries.find((entry) => entry.control === "owner-rule-reversal-states");
+    expect(ownerRule?.ownerIssues).toEqual(expect.arrayContaining(["#1102", "#1112", "#1114", "#1115"]));
+    expect(ownerRule?.customerSafeOutcome).toMatch(/owner rules/i);
   });
 
-  it("forbids legacy repair, stale data, dashboard-only recovery, and dense checkout fallback", () => {
+  it("forbids old repair, stale data, dashboard-only recovery, and dense checkout fallback", () => {
     for (const entry of checkoutReversalPolicyEntries) {
       expect(entry.ownerIssues, entry.control).toContain("#1165");
-      expect(entry.noLegacyCompatibility, entry.control).toBe(true);
+      expect(entry.freshStateOnly, entry.control).toBe(true);
       expect(entry.forbiddenSources, entry.control).toEqual(
         expect.arrayContaining([...checkoutReversalForbiddenSources]),
       );
     }
 
     const cleanup = checkoutReversalPolicyEntries.find((entry) => entry.control === "fresh-state-reversal-cleanup");
-    expect(cleanup?.evidenceExpectation).toMatch(/old sell execution ids/i);
-    expect(cleanup?.evidenceExpectation).toMatch(/dense checkout fallback/i);
+    expect(cleanup?.customerSafeOutcome).toMatch(/old sell execution ids/i);
+    expect(cleanup?.customerSafeOutcome).toMatch(/dense checkout fallback/i);
   });
 
   it("documents the executable reversal recovery policy", () => {
