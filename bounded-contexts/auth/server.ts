@@ -9,6 +9,7 @@ export {
   createAuthRequestApiClient,
   createInternalAuthRequestApiClient,
 } from "./support/request-support/api-client";
+export { clearGuestCheckoutCookie } from "./support/auth-support/http";
 export {
   createFacebookSocialLoginProvider,
   createGoogleSocialLoginProvider,

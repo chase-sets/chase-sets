@@ -26,11 +26,11 @@ import { requireActorFromAuthApi, resolveActorFromAuthApi } from "@chase-sets/pl
 import {
   completeBrowserAuthentication,
   createInternalAuthRequestApiClient,
+  clearGuestCheckoutCookie,
   AuthApiError,
   type InteractiveAuthResult,
 } from "@chase-sets/auth/server";
 import { createPasskeyCredential, type PasskeyCredentialPayload } from "@chase-sets/auth/web";
-import { appendClearedGuestCheckoutCookie } from "@chase-sets/checkout/server";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { PlatformFeedbackPrompt } from "@chase-sets/platform-operations/server";
 import { createOrderingRequestApiClient, type PurchaseDetail } from "@chase-sets/ordering/server";
@@ -209,7 +209,7 @@ export async function action({ request, params }: ActionFunctionArgs): Promise<R
         defaultSuccessPath: successPath,
         accountSelectionPath: "/account/select",
       });
-      appendClearedGuestCheckoutCookie(response.headers);
+      clearGuestCheckoutCookie(response.headers);
       return response;
     }
 
@@ -231,7 +231,7 @@ export async function action({ request, params }: ActionFunctionArgs): Promise<R
         defaultSuccessPath: successPath,
         accountSelectionPath: "/account/select",
       });
-      appendClearedGuestCheckoutCookie(response.headers);
+      clearGuestCheckoutCookie(response.headers);
       return response;
     }
 

@@ -4,6 +4,7 @@ import { appendFreshWriteToken } from "@chase-sets/http/responses";
 const {
   mockClaimGuestCheckoutWithPasskey,
   mockClaimGuestCheckoutWithMagicLink,
+  mockClearGuestCheckoutCookie,
   mockCompleteBrowserAuthentication,
   mockCreateInternalAuthRequestApiClient,
   mockCreatePaymentsRequestApiClient,
@@ -17,6 +18,7 @@ const {
 } = vi.hoisted(() => ({
   mockClaimGuestCheckoutWithPasskey: vi.fn(),
   mockClaimGuestCheckoutWithMagicLink: vi.fn(),
+  mockClearGuestCheckoutCookie: vi.fn(),
   mockCompleteBrowserAuthentication: vi.fn(
     () =>
       new Response(null, {
@@ -44,6 +46,7 @@ vi.mock("@chase-sets/auth/server", () => ({
       super("Auth API error");
     }
   },
+  clearGuestCheckoutCookie: mockClearGuestCheckoutCookie,
   completeBrowserAuthentication: mockCompleteBrowserAuthentication,
   createInternalAuthRequestApiClient: mockCreateInternalAuthRequestApiClient,
 }));
