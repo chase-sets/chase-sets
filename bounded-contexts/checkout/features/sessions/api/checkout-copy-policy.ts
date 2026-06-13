@@ -79,7 +79,7 @@ export type CheckoutCopyPolicyDependency =
   | "risk-review-policy"
   | "refund-reversal-policy"
   | "support-runbook"
-  | "launch-exception-register";
+  | "owner-rule-register";
 
 export type CheckoutCopySurfaceKey =
   | "cart-list-review"
@@ -131,7 +131,7 @@ export type CheckoutCopyPolicyEntry = Readonly<{
   noSideEffectStatementRequired: boolean;
   pendingDownstreamBoundaryRequired: boolean;
   examples: readonly string[];
-  acceptanceNote: string;
+  customerSafeOutcome: string;
 }>;
 
 export const checkoutCopyForbiddenCustomerTerms = [
@@ -141,13 +141,13 @@ export const checkoutCopyForbiddenCustomerTerms = [
   "projection",
   "projection repair",
   "stale read model",
-  "session revalidation",
-  "compatibility adapter",
+  "session refresh internals",
+  "old adapter",
   "migration",
   "backfill",
   "manual database edit",
-  "legacy checkout",
   "old checkout",
+  "old checkout URL",
   "dense checkout fallback",
   "hidden repair",
   "provider dashboard",
@@ -228,7 +228,7 @@ export const checkoutCopyPolicyEntries = [
     noSideEffectStatementRequired: false,
     pendingDownstreamBoundaryRequired: false,
     examples: ["Review your Buy Cart.", "Review your Sell List.", "Smart Match helps prepare product lines."],
-    acceptanceNote: "Cart and Sell List copy stays concise and keeps checkout-only language out of review.",
+    customerSafeOutcome: "Cart and Sell List copy stays concise and keeps checkout-only language out of review.",
   }),
   copyPolicy({
     surface: "readiness-unassigned-fulfillment",
@@ -253,7 +253,7 @@ export const checkoutCopyPolicyEntries = [
       "No payment has started.",
       "Remove them or save them for later.",
     ],
-    acceptanceNote: "Unready buyer items are resolved before checkout and never as checkout form copy.",
+    customerSafeOutcome: "Unready buyer items are resolved before checkout and never as checkout form copy.",
   }),
   copyPolicy({
     surface: "readiness-optimization-offer",
@@ -274,7 +274,8 @@ export const checkoutCopyPolicyEntries = [
     noSideEffectStatementRequired: true,
     pendingDownstreamBoundaryRequired: false,
     examples: ["Save $X with a different shipping plan.", "Keep current plan.", "No payment has started."],
-    acceptanceNote: "Savings copy stays in readiness and does not ask customers to solve internals inside checkout.",
+    customerSafeOutcome:
+      "Savings copy stays in readiness and does not ask customers to solve internals inside checkout.",
   }),
   copyPolicy({
     surface: "readiness-blocked-or-unavailable",
@@ -295,7 +296,7 @@ export const checkoutCopyPolicyEntries = [
     noSideEffectStatementRequired: true,
     pendingDownstreamBoundaryRequired: false,
     examples: ["Checkout is not ready yet.", "Return to review.", "No payment, label, or payout has started."],
-    acceptanceNote: "Blocked readiness copy routes out of checkout with no downstream side effects.",
+    customerSafeOutcome: "Blocked readiness copy routes out of checkout with no downstream side effects.",
   }),
   copyPolicy({
     surface: "checkout-review",
@@ -323,7 +324,7 @@ export const checkoutCopyPolicyEntries = [
     noSideEffectStatementRequired: false,
     pendingDownstreamBoundaryRequired: false,
     examples: ["Contact", "Delivery", "Shipping method", "Payment", "Pay now"],
-    acceptanceNote: "Main checkout copy follows the Shopify-simple hierarchy and keeps required facts visible.",
+    customerSafeOutcome: "Main checkout copy follows the Shopify-simple hierarchy and keeps required facts visible.",
   }),
   copyPolicy({
     surface: "checkout-saved-info-rows",
@@ -344,7 +345,7 @@ export const checkoutCopyPolicyEntries = [
     noSideEffectStatementRequired: false,
     pendingDownstreamBoundaryRequired: false,
     examples: ["Ship to", "Payment", "Payout method", "Edit"],
-    acceptanceNote: "Signed-in rows stay concise, masked, editable, and recoverable when account facts change.",
+    customerSafeOutcome: "Signed-in rows stay concise, masked, editable, and recoverable when account facts change.",
   }),
   copyPolicy({
     surface: "checkout-temporary-recovery",
@@ -365,7 +366,8 @@ export const checkoutCopyPolicyEntries = [
     noSideEffectStatementRequired: true,
     pendingDownstreamBoundaryRequired: false,
     examples: ["We are still getting checkout ready.", "Refresh checkout.", "No payment has started."],
-    acceptanceNote: "Temporary recovery is visible before gateway failure and does not expose freshness internals.",
+    customerSafeOutcome:
+      "Temporary recovery is visible before gateway failure and does not expose freshness internals.",
   }),
   copyPolicy({
     surface: "checkout-permanent-recovery",
@@ -390,7 +392,7 @@ export const checkoutCopyPolicyEntries = [
     noSideEffectStatementRequired: true,
     pendingDownstreamBoundaryRequired: false,
     examples: ["This checkout can no longer continue.", "Return to review.", "No payment or payout has started."],
-    acceptanceNote: "Permanent recovery fails closed to current cart/list facts without old-flow wording.",
+    customerSafeOutcome: "Permanent recovery fails closed to current cart/list facts without old-flow wording.",
   }),
   copyPolicy({
     surface: "active-session-stale-recovery",
@@ -415,7 +417,8 @@ export const checkoutCopyPolicyEntries = [
       "Review changes.",
       "No payment, label, or payout has started.",
     ],
-    acceptanceNote: "Stale active sessions use customer-safe recovery and never explain internal freshness mechanics.",
+    customerSafeOutcome:
+      "Stale active sessions use customer-safe recovery and never explain internal freshness mechanics.",
   }),
   copyPolicy({
     surface: "accelerated-saved-instrument-fallback",
@@ -441,7 +444,7 @@ export const checkoutCopyPolicyEntries = [
       "Use another payout method.",
       "No payment or payout has started.",
     ],
-    acceptanceNote: "Convenience paths cannot bypass readiness or sensitive-data copy rules.",
+    customerSafeOutcome: "Convenience paths cannot bypass readiness or sensitive-data copy rules.",
   }),
   copyPolicy({
     surface: "address-correction",
@@ -466,7 +469,7 @@ export const checkoutCopyPolicyEntries = [
       "We need a deliverable address before checkout can continue.",
       "No payment or label has started.",
     ],
-    acceptanceNote: "Address copy is inline and provider-safe for buyer delivery and seller ship-from recovery.",
+    customerSafeOutcome: "Address copy is inline and provider-safe for buyer delivery and seller ship-from recovery.",
   }),
   copyPolicy({
     surface: "economics-discount-credit-promo",
@@ -482,17 +485,17 @@ export const checkoutCopyPolicyEntries = [
     nextAction: "Review the updated total before continuing.",
     allowedCustomerTerms: ["payment", "payout"],
     forbiddenCustomerTerms: checkoutCopyForbiddenCustomerTerms,
-    policyDependencies: ["tax-policy", "payment-policy", "payout-policy", "launch-exception-register"],
+    policyDependencies: ["tax-policy", "payment-policy", "payout-policy", "owner-rule-register"],
     supportReference: supportReferenceRequired(),
     noSideEffectStatementRequired: true,
     pendingDownstreamBoundaryRequired: false,
     examples: [
       "This discount changed.",
       "Review total.",
-      "Gift cards are not available at launch.",
+      "Gift cards are not available yet.",
       "No payment or payout has started.",
     ],
-    acceptanceNote: "Economics copy covers supported, changed, disabled, and deferred states before commitment.",
+    customerSafeOutcome: "Economics copy covers supported, changed, disabled, and deferred states before commitment.",
   }),
   copyPolicy({
     surface: "provider-return-recovery",
@@ -513,7 +516,7 @@ export const checkoutCopyPolicyEntries = [
     noSideEffectStatementRequired: true,
     pendingDownstreamBoundaryRequired: false,
     examples: ["Review checkout before trying again.", "No payment, label, or payout has started."],
-    acceptanceNote: "Provider and wallet returns fail closed with new-flow copy and support-safe status.",
+    customerSafeOutcome: "Provider and wallet returns fail closed with new-flow copy and support-safe status.",
   }),
   copyPolicy({
     surface: "risk-hold-or-block",
@@ -538,7 +541,7 @@ export const checkoutCopyPolicyEntries = [
       "Contact support.",
       "No payment or payout has started.",
     ],
-    acceptanceNote: "Risk copy exposes next steps without sensitive signals or provider details.",
+    customerSafeOutcome: "Risk copy exposes next steps without sensitive signals or provider details.",
   }),
   copyPolicy({
     surface: "split-group-summary",
@@ -559,7 +562,8 @@ export const checkoutCopyPolicyEntries = [
     noSideEffectStatementRequired: false,
     pendingDownstreamBoundaryRequired: true,
     examples: ["Ships in 2 packages.", "Delivery dates may differ.", "Review packages."],
-    acceptanceNote: "Split-order copy explains customer-visible package facts without exposing grouping mechanics.",
+    customerSafeOutcome:
+      "Split-order copy explains customer-visible package facts without exposing grouping mechanics.",
   }),
   copyPolicy({
     surface: "confirmation-receipt-next-steps",
@@ -580,7 +584,8 @@ export const checkoutCopyPolicyEntries = [
     noSideEffectStatementRequired: false,
     pendingDownstreamBoundaryRequired: true,
     examples: ["Confirmation recorded.", "View details.", "Keep this support reference."],
-    acceptanceNote: "Confirmation copy distinguishes receipt, pending activity, committed detail, and support paths.",
+    customerSafeOutcome:
+      "Confirmation copy distinguishes receipt, pending activity, committed detail, and support paths.",
   }),
   copyPolicy({
     surface: "seller-pending-activity",
@@ -609,7 +614,7 @@ export const checkoutCopyPolicyEntries = [
     noSideEffectStatementRequired: false,
     pendingDownstreamBoundaryRequired: true,
     examples: ["Seller activity recorded.", "Sale details are pending.", "Keep this support reference."],
-    acceptanceNote: "Seller copy never implies downstream completion before owning contexts commit facts.",
+    customerSafeOutcome: "Seller copy never implies downstream completion before owning contexts commit facts.",
   }),
   copyPolicy({
     surface: "account-history-handoff",
@@ -630,7 +635,8 @@ export const checkoutCopyPolicyEntries = [
     noSideEffectStatementRequired: false,
     pendingDownstreamBoundaryRequired: true,
     examples: ["View activity.", "Order detail is ready.", "Seller activity is pending."],
-    acceptanceNote: "Account history copy routes pending Checkout activity and committed downstream facts separately.",
+    customerSafeOutcome:
+      "Account history copy routes pending Checkout activity and committed downstream facts separately.",
   }),
   copyPolicy({
     surface: "support-reference",
@@ -655,7 +661,8 @@ export const checkoutCopyPolicyEntries = [
       "Share this support reference if you need help.",
       "No payment, order, label, payout, or notification has started.",
     ],
-    acceptanceNote: "Support copy is stable across buy, sell, guest, signed-in, confirmation, and recovery states.",
+    customerSafeOutcome:
+      "Support copy is stable across buy, sell, guest, signed-in, confirmation, and recovery states.",
   }),
   copyPolicy({
     surface: "notification-expectation",
@@ -680,7 +687,7 @@ export const checkoutCopyPolicyEntries = [
       "Check activity for the latest status.",
       "No payment or notification has started.",
     ],
-    acceptanceNote: "Notification copy avoids promising sent messages before Notifications commits them.",
+    customerSafeOutcome: "Notification copy avoids promising sent messages before Notifications commits them.",
   }),
   copyPolicy({
     surface: "cancellation-refund-reversal",
@@ -701,7 +708,7 @@ export const checkoutCopyPolicyEntries = [
     noSideEffectStatementRequired: false,
     pendingDownstreamBoundaryRequired: true,
     examples: ["Refund pending.", "Payout hold active.", "View recovery status."],
-    acceptanceNote: "Recovery copy explains status and next step without unsafe promises or provider detail.",
+    customerSafeOutcome: "Recovery copy explains status and next step without unsafe promises or provider detail.",
   }),
   copyPolicy({
     surface: "kill-switch-disabled-checkout",
@@ -717,12 +724,12 @@ export const checkoutCopyPolicyEntries = [
     nextAction: "Return to your cart or list and try again later.",
     allowedCustomerTerms: ["Buy Cart", "Sell List", "support reference"],
     forbiddenCustomerTerms: checkoutCopyForbiddenCustomerTerms,
-    policyDependencies: ["launch-exception-register", "support-runbook"],
+    policyDependencies: ["owner-rule-register", "support-runbook"],
     supportReference: supportReferenceRequired(),
     noSideEffectStatementRequired: true,
     pendingDownstreamBoundaryRequired: false,
     examples: ["Checkout is unavailable right now.", "Return to review.", "No payment, label, or payout has started."],
-    acceptanceNote: "Kill switches fail closed into new-flow recovery without restoring old checkout copy.",
+    customerSafeOutcome: "Kill switches fail closed into new-flow recovery without restoring old checkout copy.",
   }),
   copyPolicy({
     surface: "policy-footer",
@@ -743,7 +750,7 @@ export const checkoutCopyPolicyEntries = [
     noSideEffectStatementRequired: false,
     pendingDownstreamBoundaryRequired: false,
     examples: ["Refund policy", "Terms of service", "Privacy policy"],
-    acceptanceNote: "Policy footer labels match Shopify-simple references while pointing to Chase Sets policies.",
+    customerSafeOutcome: "Policy footer labels match Shopify-simple references while pointing to Chase Sets policies.",
   }),
 ] as const satisfies readonly CheckoutCopyPolicyEntry[];
 
@@ -835,8 +842,8 @@ export function assertCheckoutCopyPolicyCoverage(): void {
     if (entry.primaryAction.trim().length === 0 || entry.nextAction.trim().length === 0) {
       throw new Error(`Checkout copy policy '${entry.surface}' needs action copy.`);
     }
-    if (entry.acceptanceNote.trim().length === 0) {
-      throw new Error(`Checkout copy policy '${entry.surface}' needs an acceptance note.`);
+    if (entry.customerSafeOutcome.trim().length === 0) {
+      throw new Error(`Checkout copy policy '${entry.surface}' needs an customer-safe outcome.`);
     }
 
     if (entry.customerVisible) {

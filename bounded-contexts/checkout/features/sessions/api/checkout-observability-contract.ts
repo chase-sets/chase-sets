@@ -131,7 +131,7 @@ export const checkoutObservabilityProfiles = [
     dimensions: ["readiness-contract", "source-revision", "performance-budget-id", "latency-ms"],
     alertClass: "event-only",
     operatorSignalRequired: false,
-    expectation: "Cart review telemetry proves mutable intent rendered without checkout repair machinery.",
+    expectation: "Cart review telemetry shows mutable intent rendered without checkout repair machinery.",
   }),
   profile({
     state: "buy-readiness-unassigned-fulfillment",
@@ -143,7 +143,7 @@ export const checkoutObservabilityProfiles = [
     dimensions: ["readiness-contract", "readiness-snapshot-version", "source-revision", "capability-decision"],
     alertClass: "support-alert",
     operatorSignalRequired: true,
-    expectation: "Unassigned fulfillment telemetry stays in readiness and proves no downstream side effects started.",
+    expectation: "Unassigned fulfillment telemetry stays in readiness and shows no downstream side effects started.",
   }),
   profile({
     state: "buy-readiness-optimization",
@@ -167,7 +167,7 @@ export const checkoutObservabilityProfiles = [
     dimensions: ["readiness-contract", "readiness-snapshot-version", "performance-budget-id", "latency-ms"],
     alertClass: "event-only",
     operatorSignalRequired: false,
-    expectation: "Guest buy checkout telemetry proves form-first review rendered from current readiness only.",
+    expectation: "Guest buy checkout telemetry shows form-first review rendered from current readiness only.",
   }),
   profile({
     state: "signed-in-buy-checkout",
@@ -179,7 +179,7 @@ export const checkoutObservabilityProfiles = [
     dimensions: ["readiness-contract", "readiness-snapshot-version", "source-revision", "performance-budget-id"],
     alertClass: "event-only",
     operatorSignalRequired: false,
-    expectation: "Signed-in buy telemetry proves saved rows rendered with fresh account facts.",
+    expectation: "Signed-in buy telemetry shows saved rows rendered with fresh account facts.",
   }),
   profile({
     state: "sell-list-review-ready",
@@ -191,7 +191,7 @@ export const checkoutObservabilityProfiles = [
     dimensions: ["readiness-contract", "source-revision", "performance-budget-id", "latency-ms"],
     alertClass: "event-only",
     operatorSignalRequired: false,
-    expectation: "Sell List review telemetry proves seller intent rendered before sale action commitment.",
+    expectation: "Sell List review telemetry shows seller intent rendered before sale action commitment.",
   }),
   profile({
     state: "sell-list-readiness-blocked",
@@ -228,7 +228,7 @@ export const checkoutObservabilityProfiles = [
     dimensions: ["readiness-contract", "readiness-snapshot-version", "provider-category", "performance-budget-id"],
     alertClass: "event-only",
     operatorSignalRequired: false,
-    expectation: "Signed-in sell telemetry proves provider-ready facts were consumed without rebuilding diagnostics.",
+    expectation: "Signed-in sell telemetry shows provider-ready facts were consumed without rebuilding diagnostics.",
   }),
   profile({
     state: "seller-confirmation-activity",
@@ -265,7 +265,7 @@ export const checkoutObservabilityProfiles = [
     ],
     alertClass: "fresh-state-alert",
     operatorSignalRequired: true,
-    expectation: "Active-session recovery telemetry proves source revalidation failed closed before side effects.",
+    expectation: "Active-session recovery telemetry shows source refresh failed closed before side effects.",
   }),
   profile({
     state: "address-serviceability-failure",
@@ -277,7 +277,7 @@ export const checkoutObservabilityProfiles = [
     dimensions: ["readiness-contract", "provider-category", "support-safe-reference", "capability-decision"],
     alertClass: "support-alert",
     operatorSignalRequired: true,
-    expectation: "Address telemetry proves serviceability failed safely without exposing address contents.",
+    expectation: "Address telemetry shows serviceability failed safely without exposing address contents.",
   }),
   profile({
     state: "changed-economics-review",
@@ -289,7 +289,7 @@ export const checkoutObservabilityProfiles = [
     dimensions: ["readiness-contract", "source-revision", "support-safe-reference", "capability-decision"],
     alertClass: "support-alert",
     operatorSignalRequired: true,
-    expectation: "Economics telemetry proves changed totals require review before confirmation.",
+    expectation: "Economics telemetry shows changed totals require review before confirmation.",
   }),
   profile({
     state: "risk-hold-provider-return-failure",
@@ -332,7 +332,7 @@ export const checkoutObservabilityProfiles = [
     dimensions: ["capability-decision", "support-safe-reference"],
     alertClass: "operator-alert",
     operatorSignalRequired: true,
-    expectation: "Kill-switch telemetry proves checkout failed closed without legacy fallback.",
+    expectation: "Kill-switch telemetry shows checkout failed closed without old fallback.",
   }),
   profile({
     state: "temporary-recovery-loading",
@@ -356,7 +356,7 @@ export const checkoutObservabilityProfiles = [
     dimensions: ["provider-category", "capability-decision", "support-safe-reference"],
     alertClass: "operator-alert",
     operatorSignalRequired: true,
-    expectation: "Capability telemetry proves shortcuts cannot bypass readiness or final review.",
+    expectation: "Capability telemetry shows shortcuts cannot bypass readiness or final review.",
   }),
   profile({
     state: "promo-credit-gift-card-state",
@@ -368,7 +368,7 @@ export const checkoutObservabilityProfiles = [
     dimensions: ["source-revision", "capability-decision", "support-safe-reference"],
     alertClass: "operator-alert",
     operatorSignalRequired: true,
-    expectation: "Promo and credit telemetry records explicit enabled, disabled, or deferred launch state.",
+    expectation: "Promo and credit telemetry records explicit enabled, disabled, or deferred state.",
   }),
   profile({
     state: "notification-support-reference",
