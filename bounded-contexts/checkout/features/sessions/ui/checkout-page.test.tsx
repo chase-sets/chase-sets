@@ -327,9 +327,11 @@ describe("checkout session page", () => {
     expect(markup).toContain("CS-CR_READY");
     expect(markup).toContain("Payable total");
     expect(markup).toContain("$503.67");
-    expect(markup).toContain("Downstream details pending");
-    expect(markup).toContain("Continue to the secure payment detail without resubmitting checkout.");
-    expect(markup).toContain("Order detail, fulfillment, notification, and account history stay pending");
+    expect(markup).toContain("Next steps pending");
+    expect(markup).toContain("Continue to secure payment without resubmitting checkout.");
+    expect(markup).toContain("Order details, delivery, notifications, and account history stay pending");
+    expect(markup).not.toContain("Downstream details pending");
+    expect(markup).not.toContain("owning workflows");
     expect(markup).not.toContain("Sale complete");
     expect(markup).not.toContain("Label ready");
     expect(markup).not.toContain("Payout ready");
@@ -337,7 +339,7 @@ describe("checkout session page", () => {
     expect(markup).not.toContain("execution receipt");
   });
 
-  it("renders multi-seller buy confirmation as one customer surface with support-safe group handoff", () => {
+  it("renders multi-seller buy confirmation as one customer surface with support-safe references", () => {
     const markup = renderToString(
       <CheckoutSessionPage
         session={{
@@ -386,8 +388,9 @@ describe("checkout session page", () => {
     expect(markup).toContain("Support reference");
     expect(markup).toContain("ord_card_vault, ord_second_seller");
     expect(markup).toContain("CS-CR_MULTI");
-    expect(markup).toContain("Downstream details pending");
-    expect(markup).toContain("Continue to the secure payment detail without resubmitting checkout.");
+    expect(markup).toContain("Next steps pending");
+    expect(markup).toContain("Continue to secure payment without resubmitting checkout.");
+    expect(markup).not.toContain("Downstream details pending");
     expect(markup).not.toContain("Pay Card Vault");
     expect(markup).not.toContain("Pay Second Seller");
     expect(markup).not.toContain("allocation");
