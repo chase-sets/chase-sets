@@ -1,4 +1,4 @@
-import { type MouseEvent, type ReactNode } from "react";
+import { type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { cx } from "../../utils/cx";
 
 export interface ValidationSummaryError {
@@ -59,8 +59,15 @@ export function ValidationSummary({
     return null;
   }
 
-  function handleFieldLinkClick(event: MouseEvent<HTMLAnchorElement>, fieldId: string) {
+  function handleFieldLinkActivation(event: MouseEvent<HTMLAnchorElement>, fieldId: string) {
     if (event.defaultPrevented) {
+      return;
+    }
+    focusValidationTarget(fieldId);
+  }
+
+  function handleFieldLinkKeyDown(event: KeyboardEvent<HTMLAnchorElement>, fieldId: string) {
+    if (event.defaultPrevented || event.key !== "Enter") {
       return;
     }
     focusValidationTarget(fieldId);
@@ -83,7 +90,8 @@ export function ValidationSummary({
                 <a
                   className="font-medium underline underline-offset-2"
                   href={`#${error.fieldId}`}
-                  onClick={(event) => handleFieldLinkClick(event, error.fieldId ?? "")}
+                  onClick={(event) => handleFieldLinkActivation(event, error.fieldId ?? "")}
+                  onKeyDown={(event) => handleFieldLinkKeyDown(event, error.fieldId ?? "")}
                 >
                   {error.fieldName ? <>{error.fieldName}: </> : null}
                   {error.message}
