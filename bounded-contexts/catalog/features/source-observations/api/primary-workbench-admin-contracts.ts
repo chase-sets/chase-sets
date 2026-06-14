@@ -195,7 +195,6 @@ export const catalogPrimaryWorkbenchRouteSections = [
   "health-triage",
   "profile-authoring",
   "validation-readiness",
-  "adapter-readiness",
   "conflict-resolution",
   "lifecycle-recovery",
   "governance-controls",

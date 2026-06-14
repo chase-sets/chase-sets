@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
 import {
   CATALOG_CONTROL_PLANE_CONTEXT_KEYS,
@@ -6,7 +7,19 @@ import {
   CATALOG_CONTROL_PLANE_WORKFLOW_MAP,
   CATALOG_CONTROL_PLANE_WORKSPACES,
   catalogControlPlaneWorkspaceByKey,
+  type CatalogControlPlaneWorkspaceKey,
 } from "./information-architecture";
+import { CATALOG_PRIMARY_WORKBENCH_WORKSPACE_RENDERERS } from "../primary-workbench-page";
+import {
+  catalogPrimaryWorkbenchActionStateCopy,
+  catalogPrimaryWorkbenchBlockerCopy,
+  catalogPrimaryWorkbenchCompletionCopy,
+  catalogPrimaryWorkbenchCopyMessages,
+  catalogPrimaryWorkbenchEmptyStateCopy,
+  catalogPrimaryWorkbenchProviderTransportCopy,
+  catalogPrimaryWorkbenchResilienceCopy,
+  type CatalogPrimaryWorkbenchOperatorCopy,
+} from "../primary-workbench-copy";
 
 describe("Catalog Control Plane information architecture", () => {
   it("keeps import to promotion as the first navigation target and default workspace", () => {
@@ -119,5 +132,55 @@ describe("Catalog Control Plane information architecture", () => {
       expect(rule.rule).not.toHaveLength(0);
       expect(rule.verification).not.toHaveLength(0);
     }
+  });
+});
+
+describe("Catalog Control Plane IA <-> render parity", () => {
+  const workspaceKeys = new Set<string>(CATALOG_CONTROL_PLANE_WORKSPACES.map((workspace) => workspace.key));
+  const rendererKeys = new Set<string>(Object.keys(CATALOG_PRIMARY_WORKBENCH_WORKSPACE_RENDERERS));
+
+  it("renders every declared IA workspace (no declared-but-unrendered section)", () => {
+    const declaredWithoutRenderer = [...workspaceKeys].filter((key) => !rendererKeys.has(key));
+    expect(declaredWithoutRenderer).toEqual([]);
+  });
+
+  it("declares every rendered workspace in the IA (no render branch without an IA entry)", () => {
+    const renderedWithoutDeclaration = [...rendererKeys].filter((key) => !workspaceKeys.has(key));
+    expect(renderedWithoutDeclaration).toEqual([]);
+  });
+
+  it("backs every navigation-group item with a renderable workspace", () => {
+    const navigationItems = CATALOG_CONTROL_PLANE_NAVIGATION_GROUPS.flatMap((group) => group.items);
+    for (const item of navigationItems) {
+      expect(workspaceKeys.has(item), `nav item ${item} is not a declared workspace`).toBe(true);
+      expect(rendererKeys.has(item), `nav item ${item} has no render branch`).toBe(true);
+    }
+  });
+
+  it("resolves every supportTarget in primary-workbench-copy to a renderable destination", () => {
+    const copyCollections: readonly Record<string, CatalogPrimaryWorkbenchOperatorCopy>[] = [
+      catalogPrimaryWorkbenchCopyMessages,
+      catalogPrimaryWorkbenchProviderTransportCopy,
+      catalogPrimaryWorkbenchBlockerCopy,
+      catalogPrimaryWorkbenchActionStateCopy,
+      catalogPrimaryWorkbenchEmptyStateCopy,
+      catalogPrimaryWorkbenchResilienceCopy,
+      catalogPrimaryWorkbenchCompletionCopy,
+    ];
+
+    const supportTargets = new Set(
+      copyCollections.flatMap((collection) => Object.values(collection).map((entry) => entry.supportTarget)),
+    );
+
+    expect(supportTargets.size).toBeGreaterThan(0);
+    const unresolved = [...supportTargets].filter(
+      (target) => !rendererKeys.has(target as CatalogControlPlaneWorkspaceKey),
+    );
+    expect(unresolved).toEqual([]);
+  });
+
+  it("no longer exposes the retired adapter-readiness destination", () => {
+    expect(workspaceKeys.has("adapter-readiness")).toBe(false);
+    expect(rendererKeys.has("adapter-readiness")).toBe(false);
   });
 });

@@ -11,7 +11,6 @@ export type CatalogPrimaryWorkbenchSupportTarget =
   | "health-triage"
   | "profile-authoring"
   | "validation-readiness"
-  | "adapter-readiness"
   | "lifecycle-recovery"
   | "governance-controls"
   | "audit-evidence";
@@ -322,21 +321,21 @@ export const catalogPrimaryWorkbenchProviderTransportCopy = {
     label: catalogPrimaryWorkbenchCopyLabels.rateLimitCooldown,
     reason: "The provider is limiting request volume for this import scope.",
     nextStep: "Wait for the cooldown or reduce the pull cadence before retrying provider data import.",
-    supportTarget: "adapter-readiness",
+    supportTarget: "validation-readiness",
     group: "provider-transport",
   }),
   throttle: copy({
     label: catalogPrimaryWorkbenchCopyLabels.providerThrottle,
     reason: "The provider asked the adapter to slow down, often with a retry-after signal.",
     nextStep: "Let the throttle window pass, then resume or retry the durable import job.",
-    supportTarget: "adapter-readiness",
+    supportTarget: "validation-readiness",
     group: "provider-transport",
   }),
   quota: copy({
     label: catalogPrimaryWorkbenchCopyLabels.providerQuotaExhausted,
     reason: "The provider quota for this credential or account is exhausted.",
     nextStep: "Pause imports until quota resets or update provider credentials before retrying.",
-    supportTarget: "adapter-readiness",
+    supportTarget: "validation-readiness",
     group: "provider-transport",
   }),
   timeout: copy({
@@ -349,8 +348,8 @@ export const catalogPrimaryWorkbenchProviderTransportCopy = {
   "pagination-failure": copy({
     label: catalogPrimaryWorkbenchCopyLabels.providerPaginationFailed,
     reason: "The adapter could not finish a cursor or page sequence for this import scope.",
-    nextStep: "Open adapter readiness to inspect cursor diagnostics, then resume from durable job progress.",
-    supportTarget: "adapter-readiness",
+    nextStep: "Open provider readiness to inspect cursor diagnostics, then resume from durable job progress.",
+    supportTarget: "validation-readiness",
     group: "provider-transport",
   }),
   "partial-data": copy({
@@ -364,7 +363,7 @@ export const catalogPrimaryWorkbenchProviderTransportCopy = {
     label: catalogPrimaryWorkbenchCopyLabels.staleProviderCache,
     reason: "The workbench is using cached provider data because live acquisition is stale or degraded.",
     nextStep: "Refresh provider readiness, then pull provider data again when live acquisition is fresh.",
-    supportTarget: "adapter-readiness",
+    supportTarget: "validation-readiness",
     group: "provider-transport",
   }),
   "degraded-provider": copy({
@@ -515,22 +514,22 @@ export const catalogPrimaryWorkbenchBlockerCopy = {
   "provider-credential-missing": copy({
     label: catalogPrimaryWorkbenchCopyLabels.providerCredentialMissing,
     reason: "This provider requires credentials before payload acquisition can run.",
-    nextStep: "Configure the provider credential in adapter readiness, then retry the provider pull.",
-    supportTarget: "adapter-readiness",
+    nextStep: "Configure the provider credential in provider readiness, then retry the provider pull.",
+    supportTarget: "validation-readiness",
     group: "credential",
   }),
   "provider-credential-invalid": copy({
     label: catalogPrimaryWorkbenchCopyLabels.providerCredentialInvalid,
     reason: "The provider credential was rejected or revoked.",
-    nextStep: "Replace the credential in adapter readiness before retrying import.",
-    supportTarget: "adapter-readiness",
+    nextStep: "Replace the credential in provider readiness before retrying import.",
+    supportTarget: "validation-readiness",
     group: "credential",
   }),
   "provider-credential-expired": copy({
     label: catalogPrimaryWorkbenchCopyLabels.providerCredentialExpired,
     reason: "The provider credential has expired and cannot acquire payloads.",
-    nextStep: "Refresh the credential in adapter readiness, then pull provider data again.",
-    supportTarget: "adapter-readiness",
+    nextStep: "Refresh the credential in provider readiness, then pull provider data again.",
+    supportTarget: "validation-readiness",
     group: "credential",
   }),
   "provider-transport-rate-limited": catalogPrimaryWorkbenchProviderTransportCopy["rate-limit"],

@@ -251,7 +251,7 @@ describe("Catalog integrations route", () => {
 
     await loader({
       request: new Request(
-        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&section=adapter",
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&section=readiness",
       ),
       params: {},
       context: {},
@@ -273,7 +273,7 @@ describe("Catalog integrations route", () => {
     expect(recordCatalogControlPlaneEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         eventName: "catalog_control_plane.supporting_workflow_detour_opened",
-        detourTarget: "adapter-readiness",
+        detourTarget: "validation-readiness",
         detourOutcome: "opened",
       }),
     );
