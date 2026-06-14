@@ -3,6 +3,9 @@ import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CatalogApiError } from "../client";
 import IntegrationsRoute, { action, loader } from "../routes/admin/integrations";
+import { action as providerSetupAction } from "../routes/admin/integrations-providers";
+import { action as governanceAction } from "../routes/admin/integrations-governance";
+import type { CatalogIntegrationsCommandResult } from "../support/route-support/admin-integrations/integrations-command-result";
 import { buildCatalogPrimaryWorkbenchReadModel } from "../features/source-observations/ui/primary-workbench-read-model";
 import {
   controlPlaneOverview,
@@ -12,11 +15,14 @@ import {
   sourceObservationScope,
 } from "../features/source-observations/ui/primary-workbench-test-fixtures";
 
-const { mockCreateCatalogRequestApiClient, mockUseLoaderData, mockUseRouteLoaderData } = vi.hoisted(() => ({
-  mockCreateCatalogRequestApiClient: vi.fn(),
-  mockUseLoaderData: vi.fn(),
-  mockUseRouteLoaderData: vi.fn(),
-}));
+const { mockCreateCatalogRequestApiClient, mockUseLoaderData, mockUseRouteLoaderData, mockUseActionData } = vi.hoisted(
+  () => ({
+    mockCreateCatalogRequestApiClient: vi.fn(),
+    mockUseLoaderData: vi.fn(),
+    mockUseRouteLoaderData: vi.fn(),
+    mockUseActionData: vi.fn(),
+  }),
+);
 
 vi.mock("react-router", async () => {
   const actual = await vi.importActual<typeof import("react-router")>("react-router");
@@ -24,6 +30,7 @@ vi.mock("react-router", async () => {
     ...actual,
     useLoaderData: mockUseLoaderData,
     useRouteLoaderData: mockUseRouteLoaderData,
+    useActionData: mockUseActionData,
   };
 });
 
@@ -103,6 +110,41 @@ describe("Catalog integrations route", () => {
     expect(screen.getAllByText("Consistency").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Snapshot: tcgdex-pokemon-card@2026.06.04").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Operator: Running").length).toBeGreaterThan(0);
+  });
+
+  it("renders the command-feedback banner from the action result while staying on the daily route", () => {
+    const scopes = { items: [sourceObservationScope()], total: 1, count: 1 };
+    const profileReviews = { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 };
+    const requestUrl = "https://admin.example/catalog/integrations?providerKey=tcgdex";
+    mockUseLoaderData.mockReturnValue({
+      data: scopes,
+      query: {},
+      profileReviews,
+      controlPlaneOverview: null,
+      requestUrl,
+      commandFeedback: null,
+      readModel: buildCatalogPrimaryWorkbenchReadModel({
+        requestUrl,
+        scopes,
+        profileReviews,
+        controlPlaneOverview: null,
+        canManageCatalog: true,
+      }),
+    });
+    mockUseRouteLoaderData.mockReturnValue({
+      actor: { permissions: ["catalog.view", "catalog.manage"] },
+    });
+    // The daily action stays put and returns its result as data; the route reads it
+    // via useActionData and renders the same command-feedback banner in place.
+    mockUseActionData.mockReturnValue({
+      feedback: { status: "success", intent: "start-provider-import", result: "job-queued" },
+      context: { section: "import-to-promotion" },
+      section: "import-to-promotion",
+    });
+
+    render(<IntegrationsRoute />);
+
+    expect(screen.getByText("Command queued")).toBeTruthy();
   });
 
   it("scopes durable import jobs to the selected provider unit while keeping overlap conflicts visible", () => {
@@ -279,7 +321,7 @@ describe("Catalog integrations route", () => {
     );
   });
 
-  it("queues a scoped provider import from the primary workbench route action", async () => {
+  it("stays on the daily route and returns a job-queued result when queuing a scoped provider import", async () => {
     const enqueueSourceObservationIntegrationJob = vi.fn().mockResolvedValue({ jobId: "job_import_123" });
     const recordCatalogControlPlaneEvent = vi.fn().mockResolvedValue({ status: "recorded" });
     mockCreateCatalogRequestApiClient.mockReturnValue({
@@ -287,7 +329,7 @@ describe("Catalog integrations route", () => {
       recordCatalogControlPlaneEvent,
     });
 
-    const response = await runAction({
+    const result = await runDailyAction({
       _intent: "start-provider-import",
       providerKey: "tcgdex",
       unitKey: "tcgdex:pokemon:card:import",
@@ -302,10 +344,12 @@ describe("Catalog integrations route", () => {
       seriesId: "base",
       setId: "base1",
     });
-    expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toContain("jobId=job_import_123");
-    expect(response.headers.get("Location")).toContain("commandStatus=success");
-    expect(response.headers.get("Location")).toContain("commandResult=job-queued");
+    // The run-sync path stays on the daily surface (no redirect) and returns its
+    // result as data so the daily route renders the command-feedback banner.
+    expect(result.section).toBe("import-to-promotion");
+    expect(result.context.jobId).toBe("job_import_123");
+    expect(result.feedback.status).toBe("success");
+    expect(result.feedback.result).toBe("job-queued");
     expect(recordCatalogControlPlaneEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         eventName: "catalog_control_plane.import_started",
@@ -328,7 +372,7 @@ describe("Catalog integrations route", () => {
     });
     mockCreateCatalogRequestApiClient.mockReturnValue({ previewBulkPromoteSourceObservationIds });
 
-    const response = await runAction(
+    const result = await runDailyAction(
       {
         _intent: "preview-promotion",
         providerKey: "tcgdex",
@@ -341,11 +385,12 @@ describe("Catalog integrations route", () => {
     );
 
     expect(previewBulkPromoteSourceObservationIds).toHaveBeenCalledWith(["obs_001"]);
-    expect(response.headers.get("Location")).toContain("selectedObservationIds=obs_001");
-    expect(response.headers.get("Location")).toContain(
-      "promotionPreviewId=preview-tcgdex_tcgdex_pokemon_card_import_en_3_base_base1_2026.06.04_en_base1_changed_none_obs_001-1-1",
+    expect(result.section).toBe("import-to-promotion");
+    expect(result.context.selectedObservationIds).toEqual(["obs_001"]);
+    expect(result.context.promotionPreviewId).toBe(
+      "preview-tcgdex_tcgdex_pokemon_card_import_en_3_base_base1_2026.06.04_en_base1_changed_none_obs_001-1-1",
     );
-    expect(response.headers.get("Location")).toContain("commandResult=preview-ready");
+    expect(result.feedback.result).toBe("preview-ready");
   });
 
   it("bridges profile draft creation through the typed provider profile clone API", async () => {
@@ -360,7 +405,7 @@ describe("Catalog integrations route", () => {
       recordCatalogControlPlaneEvent,
     });
 
-    const response = await runAction({
+    const response = await runProviderSetupAction({
       _intent: "clone-provider-profile",
       providerKey: "tcgdex",
       unitKey: "tcgdex:pokemon:card:import",
@@ -404,7 +449,7 @@ describe("Catalog integrations route", () => {
     const cloneSourceObservationProviderProfile = vi.fn();
     mockCreateCatalogRequestApiClient.mockReturnValue({ cloneSourceObservationProviderProfile });
 
-    const response = await runAction({
+    const response = await runProviderSetupAction({
       _intent: "clone-provider-profile",
       providerKey: "tcgdex",
       unitKey: "tcgdex:pokemon:card:import",
@@ -441,7 +486,7 @@ describe("Catalog integrations route", () => {
       recordCatalogControlPlaneEvent,
     });
 
-    const response = await runAction({
+    const response = await runProviderSetupAction({
       _intent: "update-provider-profile-section",
       providerKey: "tcgdex",
       unitKey: "tcgdex:pokemon:card:import",
@@ -506,7 +551,7 @@ describe("Catalog integrations route", () => {
       recordCatalogControlPlaneEvent,
     });
 
-    const response = await runAction(
+    const response = await runProviderSetupAction(
       {
         _intent: "update-provider-profile-section",
         providerKey: "tcgdex",
@@ -570,7 +615,7 @@ describe("Catalog integrations route", () => {
       recordCatalogControlPlaneEvent,
     });
 
-    const response = await runAction(
+    const response = await runProviderSetupAction(
       {
         _intent: "activate-provider-profile",
         providerKey: "tcgdex",
@@ -633,7 +678,7 @@ describe("Catalog integrations route", () => {
 
     const lifecycleUrl =
       "https://admin.example/catalog/integrations?section=lifecycle&providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1";
-    const rollbackResponse = await runAction(
+    const rollbackResponse = await runGovernanceAction(
       {
         _intent: "rollback-provider-profile",
         providerKey: "tcgdex",
@@ -644,7 +689,7 @@ describe("Catalog integrations route", () => {
       },
       lifecycleUrl,
     );
-    const deprecateResponse = await runAction(
+    const deprecateResponse = await runGovernanceAction(
       {
         _intent: "deprecate-provider-profile",
         providerKey: "tcgdex",
@@ -653,7 +698,7 @@ describe("Catalog integrations route", () => {
       },
       lifecycleUrl,
     );
-    const retireResponse = await runAction(
+    const retireResponse = await runGovernanceAction(
       {
         _intent: "retire-provider-profile",
         providerKey: "tcgdex",
@@ -702,7 +747,7 @@ describe("Catalog integrations route", () => {
       recordCatalogControlPlaneEvent,
     });
 
-    const response = await runAction(
+    const response = await runGovernanceAction(
       {
         _intent: "retire-provider-profile",
         providerKey: "tcgdex",
@@ -742,7 +787,7 @@ describe("Catalog integrations route", () => {
       recordCatalogControlPlaneEvent,
     });
 
-    const response = await runAction(
+    const response = await runGovernanceAction(
       {
         _intent: "retire-provider-profile",
         providerKey: "tcgdex",
@@ -790,7 +835,7 @@ describe("Catalog integrations route", () => {
       recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
     });
 
-    const conflictResponse = await runAction({
+    const conflictResponse = await runProviderSetupAction({
       _intent: "update-provider-profile-section",
       providerKey: "tcgdex",
       profileVersion: "2026.06.04-draft",
@@ -799,7 +844,7 @@ describe("Catalog integrations route", () => {
       sourceDocumentPath: "bounded-contexts/catalog/docs/provider-integration-profiles.md",
       fixtureSetVersion: "tcgdex-proof-v1",
     });
-    const invalidResponse = await runAction({
+    const invalidResponse = await runProviderSetupAction({
       _intent: "update-provider-profile-section",
       providerKey: "tcgdex",
       profileVersion: "2026.06.04-draft",
@@ -819,7 +864,7 @@ describe("Catalog integrations route", () => {
     const bulkPromoteSourceObservations = vi.fn();
     mockCreateCatalogRequestApiClient.mockReturnValue({ bulkPromoteSourceObservations });
 
-    const response = await runAction({
+    const result = await runDailyAction({
       _intent: "execute-promotion",
       providerKey: "tcgdex",
       importScope: "en:3:base:base1",
@@ -827,8 +872,9 @@ describe("Catalog integrations route", () => {
     });
 
     expect(bulkPromoteSourceObservations).not.toHaveBeenCalled();
-    expect(response.headers.get("Location")).toContain("commandStatus=error");
-    expect(response.headers.get("Location")).toContain("commandResult=preview-required");
+    expect(result.section).toBe("import-to-promotion");
+    expect(result.feedback.status).toBe("error");
+    expect(result.feedback.result).toBe("preview-required");
   });
 
   it("executes promotion only when the live preview token matches the submitted context", async () => {
@@ -844,7 +890,7 @@ describe("Catalog integrations route", () => {
       previewBulkPromoteSourceObservationIds,
     });
 
-    const response = await runAction({
+    const result = await runDailyAction({
       _intent: "execute-promotion",
       providerKey: "tcgdex",
       unitKey: "tcgdex:pokemon:card:import",
@@ -857,9 +903,11 @@ describe("Catalog integrations route", () => {
 
     expect(previewBulkPromoteSourceObservationIds).toHaveBeenCalledWith(["obs_001"]);
     expect(bulkPromoteSourceObservations).toHaveBeenCalledWith(["obs_001"]);
-    expect(response.headers.get("Location")).toContain("jobId=job_promote_123");
-    expect(response.headers.get("Location")).not.toContain("promotionPreviewId=");
-    expect(response.headers.get("Location")).toContain("commandResult=job-queued");
+    // The create-update (promote) path stays on the daily surface with a banner.
+    expect(result.section).toBe("import-to-promotion");
+    expect(result.context.jobId).toBe("job_promote_123");
+    expect(result.context.promotionPreviewId).toBeNull();
+    expect(result.feedback.result).toBe("job-queued");
   });
 
   it("rejects promotion execution when the stored preview belongs to a different profile context", async () => {
@@ -875,7 +923,7 @@ describe("Catalog integrations route", () => {
       previewBulkPromoteSourceObservationIds,
     });
 
-    const response = await runAction({
+    const result = await runDailyAction({
       _intent: "execute-promotion",
       providerKey: "tcgdex",
       unitKey: "tcgdex:pokemon:card:import",
@@ -887,16 +935,16 @@ describe("Catalog integrations route", () => {
     });
 
     expect(bulkPromoteSourceObservations).not.toHaveBeenCalled();
-    expect(response.headers.get("Location")).not.toContain("promotionPreviewId=");
-    expect(response.headers.get("Location")).toContain("commandStatus=error");
-    expect(response.headers.get("Location")).toContain("commandResult=preview-required");
+    expect(result.context.promotionPreviewId).toBeNull();
+    expect(result.feedback.status).toBe("error");
+    expect(result.feedback.result).toBe("preview-required");
   });
 
   it("requires a rejection reason before enqueueing reject jobs", async () => {
     const bulkRejectSourceObservations = vi.fn();
     mockCreateCatalogRequestApiClient.mockReturnValue({ bulkRejectSourceObservations });
 
-    const response = await runAction({
+    const result = await runDailyAction({
       _intent: "reject-source-observations",
       providerKey: "tcgdex",
       importScope: "en:3:base:base1",
@@ -904,15 +952,15 @@ describe("Catalog integrations route", () => {
     });
 
     expect(bulkRejectSourceObservations).not.toHaveBeenCalled();
-    expect(response.headers.get("Location")).toContain("commandStatus=error");
-    expect(response.headers.get("Location")).toContain("commandResult=reason-required");
+    expect(result.feedback.status).toBe("error");
+    expect(result.feedback.result).toBe("reason-required");
   });
 
   it("enqueues reject jobs once the operator supplies an audit reason", async () => {
     const bulkRejectSourceObservations = vi.fn().mockResolvedValue({ jobId: "job_reject_123" });
     mockCreateCatalogRequestApiClient.mockReturnValue({ bulkRejectSourceObservations });
 
-    const response = await runAction({
+    const result = await runDailyAction({
       _intent: "reject-source-observations",
       providerKey: "tcgdex",
       importScope: "en:3:base:base1",
@@ -921,15 +969,15 @@ describe("Catalog integrations route", () => {
     });
 
     expect(bulkRejectSourceObservations).toHaveBeenCalledWith(["obs_001"], "Provider evidence is not launch-ready.");
-    expect(response.headers.get("Location")).toContain("jobId=job_reject_123");
-    expect(response.headers.get("Location")).toContain("commandResult=job-queued");
+    expect(result.context.jobId).toBe("job_reject_123");
+    expect(result.feedback.result).toBe("job-queued");
   });
 
   it("enqueues active-profile reapply jobs for selected Source Observations", async () => {
     const reapplySourceObservations = vi.fn().mockResolvedValue({ jobId: "job_reapply_123" });
     mockCreateCatalogRequestApiClient.mockReturnValue({ reapplySourceObservations });
 
-    const response = await runAction({
+    const result = await runDailyAction({
       _intent: "start-reapply",
       providerKey: "tcgdex",
       importScope: "en:3:base:base1",
@@ -938,9 +986,9 @@ describe("Catalog integrations route", () => {
     });
 
     expect(reapplySourceObservations).toHaveBeenCalledWith(["obs_001"]);
-    expect(response.headers.get("Location")).toContain("jobId=job_reapply_123");
-    expect(response.headers.get("Location")).not.toContain("promotionPreviewId=");
-    expect(response.headers.get("Location")).toContain("commandResult=job-queued");
+    expect(result.context.jobId).toBe("job_reapply_123");
+    expect(result.context.promotionPreviewId).toBeNull();
+    expect(result.feedback.result).toBe("job-queued");
   });
 
   it("bridges provider import lifecycle commands to durable job APIs", async () => {
@@ -953,75 +1001,76 @@ describe("Catalog integrations route", () => {
       cancelSourceObservationIntegrationJob,
     });
 
-    const retryResponse = await runAction({ _intent: "retry-import-job", jobId: "job_import_123" });
-    const resumeResponse = await runAction({ _intent: "resume-import-job", jobId: "job_import_123" });
-    const cancelResponse = await runAction({ _intent: "cancel-import-job", jobId: "job_import_123" });
+    const retryResult = await runDailyAction({ _intent: "retry-import-job", jobId: "job_import_123" });
+    const resumeResult = await runDailyAction({ _intent: "resume-import-job", jobId: "job_import_123" });
+    const cancelResult = await runDailyAction({ _intent: "cancel-import-job", jobId: "job_import_123" });
 
     expect(retrySourceObservationIntegrationJob).toHaveBeenCalledWith("job_import_123");
     expect(resumeSourceObservationIntegrationJob).toHaveBeenCalledWith("job_import_123");
     expect(cancelSourceObservationIntegrationJob).toHaveBeenCalledWith("job_import_123");
-    expect(retryResponse.headers.get("Location")).toContain("commandResult=job-queued");
-    expect(resumeResponse.headers.get("Location")).toContain("commandResult=job-queued");
-    expect(cancelResponse.headers.get("Location")).toContain("commandResult=job-cancelled");
+    expect(retryResult.feedback.result).toBe("job-queued");
+    expect(resumeResult.feedback.result).toBe("job-queued");
+    expect(cancelResult.feedback.result).toBe("job-cancelled");
   });
 
   it("requires a durable import job id before lifecycle commands can run", async () => {
     const retrySourceObservationIntegrationJob = vi.fn();
     mockCreateCatalogRequestApiClient.mockReturnValue({ retrySourceObservationIntegrationJob });
 
-    const response = await runAction({ _intent: "retry-import-job" });
+    const result = await runDailyAction({ _intent: "retry-import-job" });
 
     expect(retrySourceObservationIntegrationJob).not.toHaveBeenCalled();
-    expect(response.headers.get("Location")).toContain("commandStatus=error");
-    expect(response.headers.get("Location")).toContain("commandResult=job-required");
+    expect(result.feedback.status).toBe("error");
+    expect(result.feedback.result).toBe("job-required");
   });
 
   it("enqueues defer jobs and clears stale promotion previews", async () => {
     const deferSourceObservations = vi.fn().mockResolvedValue({ jobId: "job_defer_123" });
     mockCreateCatalogRequestApiClient.mockReturnValue({ deferSourceObservations });
 
-    const deferResponse = await runAction({
+    const deferResult = await runDailyAction({
       _intent: "defer-source-observations",
       selectedObservationIds: "obs_001",
       promotionPreviewId: "preview-stale",
     });
 
     expect(deferSourceObservations).toHaveBeenCalledWith(["obs_001"], "Deferred from the primary workbench.");
-    expect(deferResponse.headers.get("Location")).toContain("jobId=job_defer_123");
-    expect(deferResponse.headers.get("Location")).toContain("commandResult=job-queued");
-    expect(deferResponse.headers.get("Location")).not.toContain("promotionPreviewId=");
-    expect(deferResponse.headers.get("Location")).not.toContain("selectedObservationIds=obs_001");
+    expect(deferResult.context.jobId).toBe("job_defer_123");
+    expect(deferResult.feedback.result).toBe("job-queued");
+    expect(deferResult.context.promotionPreviewId).toBeNull();
+    expect(deferResult.context.selectedObservationIds).toEqual([]);
   });
 
   it("enqueues original-profile replay jobs for selected Source Observations", async () => {
     const replaySourceObservations = vi.fn().mockResolvedValue({ jobId: "job_replay_123" });
     mockCreateCatalogRequestApiClient.mockReturnValue({ replaySourceObservations });
 
-    const replayResponse = await runAction({
+    const replayResult = await runDailyAction({
       _intent: "start-replay",
       selectedObservationIds: "obs_001",
       promotionPreviewId: "preview-stale",
     });
 
     expect(replaySourceObservations).toHaveBeenCalledWith(["obs_001"]);
-    expect(replayResponse.headers.get("Location")).toContain("jobId=job_replay_123");
-    expect(replayResponse.headers.get("Location")).toContain("commandResult=job-queued");
-    expect(replayResponse.headers.get("Location")).not.toContain("promotionPreviewId=");
+    expect(replayResult.context.jobId).toBe("job_replay_123");
+    expect(replayResult.feedback.result).toBe("job-queued");
+    expect(replayResult.context.promotionPreviewId).toBeNull();
   });
 
   it("returns sanitized feedback for invalid intents and API failures", async () => {
     const enqueueSourceObservationIntegrationJob = vi.fn().mockRejectedValue(new Error("provider secret leaked"));
     mockCreateCatalogRequestApiClient.mockReturnValue({ enqueueSourceObservationIntegrationJob });
 
-    const invalidResponse = await runAction({ _intent: "legacy-json-patch" });
-    const failureResponse = await runAction({
+    const invalidResult = await runDailyAction({ _intent: "legacy-json-patch" });
+    const failureResult = await runDailyAction({
       _intent: "start-provider-import",
       providerKey: "tcgdex",
     });
 
-    expect(invalidResponse.headers.get("Location")).toContain("commandResult=invalid-intent");
-    expect(failureResponse.headers.get("Location")).toContain("commandResult=command-failed");
-    expect(failureResponse.headers.get("Location")).not.toContain("provider%20secret%20leaked");
+    expect(invalidResult.feedback.result).toBe("invalid-intent");
+    expect(failureResult.feedback.result).toBe("command-failed");
+    // The sanitized result never carries the underlying error message.
+    expect(JSON.stringify(failureResult)).not.toContain("provider secret leaked");
   });
 });
 
@@ -1029,13 +1078,39 @@ function lifecycleConfirmationValue(intent: string, providerKey: string, profile
   return `confirm:${intent}:${providerKey}:${profileVersion}`;
 }
 
-async function runAction(body: Record<string, string>, url = "https://admin.example/catalog/integrations") {
-  return action({
-    request: new Request(url, {
-      method: "POST",
-      body: new URLSearchParams(body),
-    }),
+function actionRequest(body: Record<string, string>, url: string) {
+  return {
+    request: new Request(url, { method: "POST", body: new URLSearchParams(body) }),
     params: {},
     context: {},
-  } as Parameters<typeof action>[0]);
+  } as Parameters<typeof action>[0];
+}
+
+// The daily surface action stays put and returns its command result as data. The
+// daily-command tests assert on that structured result (feedback + context).
+async function runDailyAction(
+  body: Record<string, string>,
+  url = "https://admin.example/catalog/integrations",
+): Promise<CatalogIntegrationsCommandResult> {
+  const result = await action(actionRequest(body, url));
+  if (result instanceof Response) {
+    throw new Error(`Daily command unexpectedly redirected to ${result.headers.get("Location") ?? "(none)"}`);
+  }
+  return result;
+}
+
+// The provider-setup and governance surfaces own a redirect after their commands;
+// those tests assert on the redirect Response the surface decides from the result.
+async function runProviderSetupAction(
+  body: Record<string, string>,
+  url = "https://admin.example/catalog/integrations/providers",
+): Promise<Response> {
+  return providerSetupAction(actionRequest(body, url) as Parameters<typeof providerSetupAction>[0]);
+}
+
+async function runGovernanceAction(
+  body: Record<string, string>,
+  url = "https://admin.example/catalog/integrations/governance",
+): Promise<Response> {
+  return governanceAction(actionRequest(body, url) as Parameters<typeof governanceAction>[0]);
 }

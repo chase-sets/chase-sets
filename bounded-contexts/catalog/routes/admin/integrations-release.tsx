@@ -4,7 +4,7 @@ import { useLoaderData } from "react-router";
 import { CatalogIntegrationsSurfaceRouteView } from "../../features/source-observations/ui/integrations-surface-route-view";
 import { loader } from "../../support/route-support/admin-integrations/release-loader";
 
-export { action } from "../../support/route-support/admin-integrations/integrations-action";
+export { surfaceCommandAction as action } from "../../support/route-support/admin-integrations/surface-command-action";
 export { loader } from "../../support/route-support/admin-integrations/release-loader";
 
 export const meta: MetaFunction = () => [

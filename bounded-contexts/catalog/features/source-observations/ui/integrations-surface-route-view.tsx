@@ -35,9 +35,15 @@ type CatalogLayoutRouteData = Readonly<{
 export function CatalogIntegrationsSurfaceRouteView({
   surface,
   routeData,
+  commandFeedback,
 }: Readonly<{
   surface: CatalogControlPlaneRouteSurfaceKey;
   routeData: CatalogIntegrationsRouteData;
+  // Optional command-feedback override. The daily surface stays put after a
+  // run-sync / promote command and supplies the action result here so the banner
+  // renders in place; the other surfaces leave it undefined and read the feedback
+  // their loader parsed from the post-command redirect query.
+  commandFeedback?: CatalogPrimaryWorkbenchCommandFeedback | null;
 }>) {
   const catalogLayoutData = useRouteLoaderData("routes/catalog-layout") as CatalogLayoutRouteData | undefined;
   const canManageCatalog = catalogLayoutData?.actor?.permissions?.includes("catalog.manage") ?? true;
@@ -63,7 +69,7 @@ export function CatalogIntegrationsSurfaceRouteView({
     <CatalogIntegrationsSurfacePage
       surface={surface}
       readModel={readModel}
-      commandFeedback={routeData.commandFeedback}
+      commandFeedback={commandFeedback ?? routeData.commandFeedback}
     />
   );
 }
