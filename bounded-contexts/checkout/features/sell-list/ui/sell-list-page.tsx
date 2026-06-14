@@ -6,6 +6,7 @@ import {
   Button,
   CheckoutLayout,
   CurrencyInput,
+  Divider,
   Grid,
   Inline,
   Inset,
@@ -528,7 +529,7 @@ function SelectedOfferRow({
 
   return (
     <Surface element="article" tone="default" padding={4}>
-      <div className="grid min-w-0 gap-4 md:grid-cols-[minmax(0,1fr)_minmax(11rem,14rem)_auto] md:items-start">
+      <Grid template="content-aside-action" gap={4}>
         <Stack gap={2}>
           <Inline gap={2}>
             <Badge tone="success">{t("checkout.features.sellList.ui.sellListPage.selected.offer")}</Badge>
@@ -597,7 +598,7 @@ function SelectedOfferRow({
             {t("checkout.features.sellList.ui.sellListPage.remove")}
           </Button>
         </Form>
-      </div>
+      </Grid>
     </Surface>
   );
 }
@@ -620,7 +621,7 @@ function ProductLineRow({
   return (
     <Surface element="article" tone="default" padding={4}>
       <Stack gap={4}>
-        <div className="grid min-w-0 gap-4 md:grid-cols-[minmax(0,1fr)_minmax(11rem,14rem)_auto] md:items-start">
+        <Grid template="content-aside-action" gap={4}>
           <Stack gap={2}>
             <Inline gap={2}>
               <Badge tone="info">{t("checkout.features.sellList.ui.sellListPage.product.line")}</Badge>
@@ -684,102 +685,101 @@ function ProductLineRow({
               {t("checkout.features.sellList.ui.sellListPage.remove")}
             </Button>
           </Form>
-        </div>
+        </Grid>
 
-        <div className="border-t border-[var(--border)] pt-4">
-          <Stack gap={3}>
-            <Text weight="semibold">{t("checkout.features.sellList.ui.sellListPage.pre.checkout.action")}</Text>
-            {review?.offers.length ? (
-              <Stack gap={2}>
-                {review.offers.map(({ offer, terms }) => (
-                  <Stack key={offer.offer_id} gap={1}>
-                    <Inline gap={2}>
-                      <Badge tone="success">
-                        {t("checkout.features.sellList.ui.sellListPage.use.smart.match.offer", {
-                          buyer: buyerLabel(offer),
-                        })}
-                      </Badge>
-                      <Text size="sm" tone="secondary">
-                        {t("checkout.features.sellList.ui.sellListPage.use.smart.match.offer.description", {
-                          quantity: offer.quantity_requested,
-                          sellerNet: formatMoney(terms.seller_net_unit_amount),
-                        })}
-                      </Text>
-                    </Inline>
-                    <HiddenInput
-                      form="sell-list-checkout-form"
-                      type="hidden"
-                      name={`productOfferId:${line.line_id}`}
-                      value={offer.offer_id}
-                    />
-                    <HiddenInput
-                      form="sell-list-checkout-form"
-                      type="hidden"
-                      name={`productOfferFeeQuoteFingerprint:${line.line_id}:${offer.offer_id}`}
-                      value={terms.fee_quote_fingerprint}
-                    />
-                  </Stack>
-                ))}
-              </Stack>
-            ) : (
-              <Text size="sm" tone="secondary">
-                {t("checkout.features.sellList.ui.sellListPage.no.smart.match.offers.available")}
-              </Text>
-            )}
-            <Grid columns={{ base: 1, md: 3 }} gap={3}>
-              <NativeSelect
-                form="sell-list-checkout-form"
-                label={t("checkout.features.sellList.ui.sellListPage.remaining.quantity.action")}
-                name={`fallbackMode:${line.line_id}`}
-                defaultValue={matchingOffersCoverLine ? "none" : defaultInventoryItem ? "create-listing" : "none"}
-                items={[
-                  {
-                    value: "none",
-                    label:
-                      matchingOfferQuantity > 0
-                        ? t("checkout.features.sellList.ui.sellListPage.keep.remaining.in.sell.list")
-                        : t("checkout.features.sellList.ui.sellListPage.keep.in.sell.list"),
-                  },
-                  {
-                    value: "create-listing",
-                    label: t("checkout.features.sellList.ui.sellListPage.create.listing.for.remaining"),
-                    disabled: !defaultInventoryItem,
-                  },
-                ]}
-              />
-              <NativeSelect
-                form="sell-list-checkout-form"
-                label={t("checkout.features.sellList.ui.sellListPage.ship.from.inventory")}
-                name={`inventoryItemId:${line.line_id}`}
-                defaultValue={defaultInventoryItem?.item_id ?? ""}
-                placeholder={t("checkout.features.sellList.ui.sellListPage.choose.inventory")}
-                items={inventoryOptions.map((item) => ({
-                  value: item.item_id,
-                  label: t("checkout.features.sellList.ui.sellListPage.inventory.option.label", {
-                    location: item.storage_location_name,
-                    shipFrom: item.ship_from_code,
-                    quantity: item.available_quantity,
-                  }),
-                }))}
-              />
-              <CurrencyInput
-                form="sell-list-checkout-form"
-                label={t("checkout.features.sellList.ui.sellListPage.listing.price")}
-                name={`priceAmount:${line.line_id}`}
-                defaultValue={defaultPrice}
-                min="0.01"
-                step="0.01"
-                required={Boolean(defaultInventoryItem)}
-              />
-              <HiddenInput
-                form="sell-list-checkout-form"
-                type="hidden"
-                name={`quantityCap:${line.line_id}`}
-                value={Math.min(line.quantity, defaultInventoryItem?.available_quantity ?? line.quantity)}
-              />
-            </Grid>
-          </Stack>
-        </div>
+        <Divider />
+        <Stack gap={3}>
+          <Text weight="semibold">{t("checkout.features.sellList.ui.sellListPage.pre.checkout.action")}</Text>
+          {review?.offers.length ? (
+            <Stack gap={2}>
+              {review.offers.map(({ offer, terms }) => (
+                <Stack key={offer.offer_id} gap={1}>
+                  <Inline gap={2}>
+                    <Badge tone="success">
+                      {t("checkout.features.sellList.ui.sellListPage.use.smart.match.offer", {
+                        buyer: buyerLabel(offer),
+                      })}
+                    </Badge>
+                    <Text size="sm" tone="secondary">
+                      {t("checkout.features.sellList.ui.sellListPage.use.smart.match.offer.description", {
+                        quantity: offer.quantity_requested,
+                        sellerNet: formatMoney(terms.seller_net_unit_amount),
+                      })}
+                    </Text>
+                  </Inline>
+                  <HiddenInput
+                    form="sell-list-checkout-form"
+                    type="hidden"
+                    name={`productOfferId:${line.line_id}`}
+                    value={offer.offer_id}
+                  />
+                  <HiddenInput
+                    form="sell-list-checkout-form"
+                    type="hidden"
+                    name={`productOfferFeeQuoteFingerprint:${line.line_id}:${offer.offer_id}`}
+                    value={terms.fee_quote_fingerprint}
+                  />
+                </Stack>
+              ))}
+            </Stack>
+          ) : (
+            <Text size="sm" tone="secondary">
+              {t("checkout.features.sellList.ui.sellListPage.no.smart.match.offers.available")}
+            </Text>
+          )}
+          <Grid columns={{ base: 1, md: 3 }} gap={3}>
+            <NativeSelect
+              form="sell-list-checkout-form"
+              label={t("checkout.features.sellList.ui.sellListPage.remaining.quantity.action")}
+              name={`fallbackMode:${line.line_id}`}
+              defaultValue={matchingOffersCoverLine ? "none" : defaultInventoryItem ? "create-listing" : "none"}
+              items={[
+                {
+                  value: "none",
+                  label:
+                    matchingOfferQuantity > 0
+                      ? t("checkout.features.sellList.ui.sellListPage.keep.remaining.in.sell.list")
+                      : t("checkout.features.sellList.ui.sellListPage.keep.in.sell.list"),
+                },
+                {
+                  value: "create-listing",
+                  label: t("checkout.features.sellList.ui.sellListPage.create.listing.for.remaining"),
+                  disabled: !defaultInventoryItem,
+                },
+              ]}
+            />
+            <NativeSelect
+              form="sell-list-checkout-form"
+              label={t("checkout.features.sellList.ui.sellListPage.ship.from.inventory")}
+              name={`inventoryItemId:${line.line_id}`}
+              defaultValue={defaultInventoryItem?.item_id ?? ""}
+              placeholder={t("checkout.features.sellList.ui.sellListPage.choose.inventory")}
+              items={inventoryOptions.map((item) => ({
+                value: item.item_id,
+                label: t("checkout.features.sellList.ui.sellListPage.inventory.option.label", {
+                  location: item.storage_location_name,
+                  shipFrom: item.ship_from_code,
+                  quantity: item.available_quantity,
+                }),
+              }))}
+            />
+            <CurrencyInput
+              form="sell-list-checkout-form"
+              label={t("checkout.features.sellList.ui.sellListPage.listing.price")}
+              name={`priceAmount:${line.line_id}`}
+              defaultValue={defaultPrice}
+              min="0.01"
+              step="0.01"
+              required={Boolean(defaultInventoryItem)}
+            />
+            <HiddenInput
+              form="sell-list-checkout-form"
+              type="hidden"
+              name={`quantityCap:${line.line_id}`}
+              value={Math.min(line.quantity, defaultInventoryItem?.available_quantity ?? line.quantity)}
+            />
+          </Grid>
+        </Stack>
       </Stack>
     </Surface>
   );

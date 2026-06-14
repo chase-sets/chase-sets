@@ -8,6 +8,7 @@ import {
   CheckoutStateNotice,
   CheckoutStickyActionBar,
   CheckoutSummaryPanel,
+  DesktopActionBar,
   Form,
   Grid,
   HiddenInput,
@@ -494,12 +495,12 @@ export function GuestSellCheckoutPage({
                 guestDataDescription={t("checkout.features.sellList.ui.guestSellCheckoutPage.guest.data.description")}
               />
 
-              <div className="hidden md:flex md:items-center md:gap-2" data-primary-action-count="1">
+              <DesktopActionBar data-primary-action-count="1">
                 {primaryAction}
                 <LinkButton href="/account/sell-list" tone="secondary">
                   {t("checkout.features.sellList.ui.guestSellCheckoutPage.back.to.sell.list")}
                 </LinkButton>
-              </div>
+              </DesktopActionBar>
             </Form>
           }
         />

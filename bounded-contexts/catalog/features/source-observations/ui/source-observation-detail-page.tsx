@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { useState } from "react";
-import { Button, Inline, KeyValueList, Stack, TextInput } from "@chase-sets/design-system";
+import { Button, Image, Inline, KeyValueList, Stack, TextInput } from "@chase-sets/design-system";
 import { EntityDetailPage } from "../../../support/shell-support/ui/entity-detail-page";
 import { useToasts } from "../../../support/shell-support/ui/toasts";
 import { promoteSourceObservation, rejectSourceObservation, useSourceObservation } from "./use-source-observations";
@@ -63,10 +63,12 @@ export function SourceObservationDetailPage({
       {data && (
         <Stack gap={4}>
           {data.normalized.imageUrls[0] && (
-            <img
+            <Image
               alt={t("catalog.features.sourceObservations.ui.detail.card.image")}
               src={data.normalized.imageUrls[0]}
-              style={{ width: 180, maxWidth: "100%", borderRadius: 8 }}
+              width={180}
+              fit="contain"
+              rounded
             />
           )}
           <KeyValueList

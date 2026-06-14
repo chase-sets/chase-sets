@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { Image } from "../components/data-display";
-import { AspectRatio, Bleed, Center } from "../primitives/layout";
+import { AspectRatio, Bleed, Center, DesktopActionBar, Grid, MediaFrame, Show } from "../primitives/layout";
 import { Heading, Text } from "../primitives/typography";
 
 describe("Image primitive", () => {
@@ -60,6 +60,89 @@ describe("Image primitive", () => {
     const markup = renderToString(<Image src="/card.jpg" alt="Charizard" fit="contain" />);
 
     expect(markup).toContain("object-contain");
+  });
+
+  it("self-sizes to an intrinsic width and applies rounding when requested", () => {
+    const { container } = render(<Image src="/card.jpg" alt="Charizard" width={180} rounded />);
+
+    const wrapper = container.querySelector("span");
+    expect(wrapper?.getAttribute("style")).toContain("width: 180px");
+    expect(wrapper?.getAttribute("style")).toContain("max-width: 100%");
+    expect(wrapper?.className).toContain("rounded-tokenMd");
+    expect(screen.getByAltText("Charizard").className).toContain("h-auto");
+  });
+
+  it("fills its container by default without an inline width", () => {
+    const { container } = render(<Image src="/card.jpg" alt="Charizard" />);
+
+    const wrapper = container.querySelector("span");
+    expect(wrapper?.getAttribute("style")).toBeNull();
+    expect(wrapper?.className).toContain("h-full");
+  });
+});
+
+describe("DesktopActionBar primitive", () => {
+  it("hides on mobile, shows as a flex row from md, and passes contract attributes through", () => {
+    const markup = renderToString(
+      <DesktopActionBar data-primary-action-count="1">
+        <button type="submit">Confirm</button>
+      </DesktopActionBar>,
+    );
+
+    expect(markup).toContain("hidden md:flex md:items-center md:gap-2");
+    expect(markup).toContain('data-primary-action-count="1"');
+  });
+});
+
+describe("Show primitive", () => {
+  it("reveals content from a breakpoint up", () => {
+    const markup = renderToString(
+      <Show from="md" minWidth="0">
+        <span>Desktop</span>
+      </Show>,
+    );
+
+    expect(markup).toContain("hidden md:block");
+    expect(markup).toContain("min-w-0");
+  });
+
+  it("shows content only below a breakpoint", () => {
+    const markup = renderToString(
+      <Show until="md">
+        <span>Mobile</span>
+      </Show>,
+    );
+
+    expect(markup).toContain("md:hidden");
+  });
+});
+
+describe("MediaFrame primitive", () => {
+  it("renders a fixed, bordered, clipped media frame", () => {
+    const markup = renderToString(
+      <MediaFrame>
+        <Image src="/card.jpg" alt="Charizard" fit="contain" />
+      </MediaFrame>,
+    );
+
+    expect(markup).toContain("h-24 w-20");
+    expect(markup).toContain("sm:h-28 sm:w-24");
+    expect(markup).toContain("shrink-0");
+    expect(markup).toContain("overflow-hidden");
+  });
+});
+
+describe("Grid template", () => {
+  it("resolves a named responsive line-row template instead of equal columns", () => {
+    const markup = renderToString(
+      <Grid template="content-aside-action" gap={4}>
+        <span>content</span>
+      </Grid>,
+    );
+
+    expect(markup).toContain("md:grid-cols-[minmax(0,1fr)_minmax(11rem,14rem)_auto]");
+    expect(markup).toContain("md:items-start");
+    expect(markup).not.toContain("grid-cols-1");
   });
 });
 

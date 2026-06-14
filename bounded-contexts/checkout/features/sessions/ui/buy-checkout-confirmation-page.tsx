@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import {
   CheckoutConfirmationPanel,
+  KeyValueList,
   LinkButton,
   Page,
   PageHeader,
@@ -123,45 +124,40 @@ export function BuyCheckoutConfirmationPage({
 
         <PageSection title={t("checkout.features.sessions.ui.buyCheckoutConfirmationPage.summary")}>
           <Surface elevated>
-            <dl className="grid gap-3 text-sm">
-              <div className="flex justify-between gap-4">
-                <dt className="text-secondary">{t("checkout.features.sessions.ui.checkoutPage.items")}</dt>
-                <dd className="text-right font-semibold text-foreground">{itemCount}</dd>
-              </div>
-              <div className="flex justify-between gap-4">
-                <dt className="text-secondary">{t("checkout.features.sessions.ui.checkoutPage.order.reference")}</dt>
-                <dd className="min-w-0 break-words text-right font-semibold text-foreground">{orderReferenceValue}</dd>
-              </div>
-              <div className="flex justify-between gap-4">
-                <dt className="text-secondary">
-                  {t("checkout.features.sessions.ui.buyCheckoutConfirmationPage.order.status")}
-                </dt>
-                <dd className="min-w-0 break-words text-right font-semibold text-foreground">{orderStatusValue}</dd>
-              </div>
-              <div className="flex justify-between gap-4">
-                <dt className="text-secondary">
-                  {t("checkout.features.sessions.ui.buyCheckoutConfirmationPage.payment.reference")}
-                </dt>
-                <dd className="min-w-0 break-words text-right font-semibold text-foreground">
-                  {paymentReferenceValue}
-                </dd>
-              </div>
-              <div className="flex justify-between gap-4">
-                <dt className="text-secondary">
-                  {t("checkout.features.sessions.ui.buyCheckoutConfirmationPage.payment.status")}
-                </dt>
-                <dd className="min-w-0 break-words text-right font-semibold text-foreground">{paymentStatusValue}</dd>
-              </div>
-              <div className="flex justify-between gap-4">
-                <dt className="text-secondary">
-                  {t("checkout.features.sessions.ui.buyCheckoutConfirmationPage.payment.total")}
-                </dt>
-                <dd className="min-w-0 break-words text-right font-semibold text-foreground">{paymentTotalValue}</dd>
-              </div>
-            </dl>
-            <Text tone="secondary" size="sm">
-              {t("checkout.features.sessions.ui.buyCheckoutConfirmationPage.summary.description")}
-            </Text>
+            <Stack gap={3}>
+              <KeyValueList
+                layout="split"
+                items={[
+                  {
+                    key: t("checkout.features.sessions.ui.checkoutPage.items"),
+                    value: itemCount,
+                  },
+                  {
+                    key: t("checkout.features.sessions.ui.checkoutPage.order.reference"),
+                    value: orderReferenceValue,
+                  },
+                  {
+                    key: t("checkout.features.sessions.ui.buyCheckoutConfirmationPage.order.status"),
+                    value: orderStatusValue,
+                  },
+                  {
+                    key: t("checkout.features.sessions.ui.buyCheckoutConfirmationPage.payment.reference"),
+                    value: paymentReferenceValue,
+                  },
+                  {
+                    key: t("checkout.features.sessions.ui.buyCheckoutConfirmationPage.payment.status"),
+                    value: paymentStatusValue,
+                  },
+                  {
+                    key: t("checkout.features.sessions.ui.buyCheckoutConfirmationPage.payment.total"),
+                    value: paymentTotalValue,
+                  },
+                ]}
+              />
+              <Text tone="secondary" size="sm">
+                {t("checkout.features.sessions.ui.buyCheckoutConfirmationPage.summary.description")}
+              </Text>
+            </Stack>
           </Surface>
         </PageSection>
       </Stack>

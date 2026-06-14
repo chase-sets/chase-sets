@@ -31,8 +31,25 @@ type BoxElement = "div" | "section" | "article" | "aside" | "header" | "footer" 
 
 type FrameProps = Omit<HTMLAttributes<HTMLElement>, "className" | "style">;
 
+/**
+ * Named minimum-width tokens shared by layout primitives.
+ * - `0`: allow flex/grid children to shrink past their content size (`min-w-0`).
+ * - `action`: reserve a comfortable minimum for an action column (`min-w-40`).
+ */
+export type MinWidthToken = "0" | "action";
+
+const minWidthClasses: Record<MinWidthToken, string> = {
+  0: "min-w-0",
+  action: "min-w-40",
+};
+
+function resolveMinWidthClass(value?: MinWidthToken): string {
+  return value ? minWidthClasses[value] : "";
+}
+
 export interface BoxOwnProps extends PropsWithChildren, SystemProps {
   element?: BoxElement;
+  minWidth?: MinWidthToken;
 }
 
 export type BoxProps<TTarget extends ElementType = "div"> = PolymorphicProps<TTarget, BoxOwnProps>;
@@ -48,6 +65,7 @@ export const Box = forwardRef(function Box(
     paddingY,
     gap,
     textAlign,
+    minWidth,
     ...rest
   }: BoxProps<ElementType>,
   ref: Ref<unknown>,
@@ -58,13 +76,16 @@ export const Box = forwardRef(function Box(
     <Component
       {...rest}
       ref={ref}
-      className={resolveSystemProps({
-        padding,
-        paddingX,
-        paddingY,
-        gap,
-        textAlign,
-      })}
+      className={cx(
+        resolveMinWidthClass(minWidth),
+        resolveSystemProps({
+          padding,
+          paddingX,
+          paddingY,
+          gap,
+          textAlign,
+        }),
+      )}
     >
       {children}
     </Component>
@@ -115,6 +136,7 @@ export interface StackOwnProps extends PropsWithChildren {
   align?: ResponsiveValue<AlignValue>;
   justify?: ResponsiveValue<JustifyValue>;
   gap?: ResponsiveValue<SpaceToken>;
+  minWidth?: MinWidthToken;
 }
 
 export type StackProps<TTarget extends ElementType = "div"> = PolymorphicProps<TTarget, StackOwnProps>;
@@ -129,6 +151,7 @@ export const Stack = forwardRef(function Stack(
     align,
     justify,
     gap = 4,
+    minWidth,
     ...rest
   }: StackProps<ElementType>,
   ref: Ref<unknown>,
@@ -144,6 +167,7 @@ export const Stack = forwardRef(function Stack(
         resolveDirectionClass(direction),
         resolveAlignClass(align),
         resolveJustifyClass(justify),
+        resolveMinWidthClass(minWidth),
         resolveSystemProps({ gap }),
       )}
     >
@@ -186,20 +210,45 @@ export function Cluster({ children, justify = "between", gap = 3, align = "cente
   );
 }
 
+/**
+ * Named responsive column templates for line-item rows that stack on mobile and
+ * resolve to sized tracks from `md` up. Tailwind scans for literal class strings,
+ * so each template must be a full string here rather than assembled at runtime.
+ */
+export type GridTemplate = "content-aside-action" | "media-content-facts-action";
+
+const gridTemplateClasses: Record<GridTemplate, string> = {
+  // Primary content (1fr) · sized aside · auto-width action.
+  "content-aside-action": "min-w-0 md:grid-cols-[minmax(0,1fr)_minmax(11rem,14rem)_auto] md:items-start",
+  // Media · primary content (1fr) · sized facts · sized action.
+  "media-content-facts-action":
+    "min-w-0 md:grid-cols-[auto_minmax(0,1fr)_minmax(10rem,12rem)_minmax(9rem,11rem)] md:items-start",
+};
+
 export interface GridProps extends PropsWithChildren, Omit<FrameProps, "children"> {
   columns?: ResponsiveValue<ColumnCount>;
+  /** Named responsive line-row template. Takes precedence over `columns` when set. */
+  template?: GridTemplate;
   gap?: ResponsiveValue<SpaceToken>;
   align?: ResponsiveValue<AlignValue>;
   justify?: ResponsiveValue<JustifyValue>;
 }
 
-export function Grid({ children, columns = { base: 1, md: 2, xl: 3 }, gap = 4, align, justify, ...rest }: GridProps) {
+export function Grid({
+  children,
+  columns = { base: 1, md: 2, xl: 3 },
+  template,
+  gap = 4,
+  align,
+  justify,
+  ...rest
+}: GridProps) {
   return (
     <div
       {...rest}
       className={cx(
         "grid",
-        resolveColumnsClass(columns),
+        template ? gridTemplateClasses[template] : resolveColumnsClass(columns),
         resolveAlignClass(align),
         resolveJustifyClass(justify),
         resolveSystemProps({ gap }),
@@ -337,6 +386,89 @@ export interface MobileStickyInsetProps extends PropsWithChildren, Omit<FramePro
 export function MobileStickyInset({ children, ...rest }: MobileStickyInsetProps) {
   return (
     <div {...rest} className="pb-24 md:pb-0">
+      {children}
+    </div>
+  );
+}
+
+export interface DesktopActionBarProps extends PropsWithChildren, Omit<FrameProps, "children"> {}
+
+/**
+ * Desktop-only inline action row. Hidden on mobile (where a `MobileStickyBar`
+ * carries the same actions) and shown as a centered flex row from `md` up.
+ * Pass-through props let callers attach contract attributes like
+ * `data-primary-action-count` without reaching for a raw host element.
+ */
+export function DesktopActionBar({ children, ...rest }: DesktopActionBarProps) {
+  return (
+    <div {...rest} className="hidden md:flex md:items-center md:gap-2">
+      {children}
+    </div>
+  );
+}
+
+export interface ShowProps extends PropsWithChildren, Omit<FrameProps, "children"> {
+  /** Render only from this breakpoint up (hidden below it). */
+  from?: "md";
+  /** Render only below this breakpoint (hidden from it up). */
+  until?: "md";
+  /** Display mode applied when the content is visible. Defaults to `block`. */
+  display?: "block" | "flex";
+  minWidth?: MinWidthToken;
+}
+
+const showFromClasses: Record<NonNullable<ShowProps["from"]>, Record<NonNullable<ShowProps["display"]>, string>> = {
+  md: { block: "hidden md:block", flex: "hidden md:flex" },
+};
+
+const showUntilClasses: Record<NonNullable<ShowProps["until"]>, string> = {
+  md: "md:hidden",
+};
+
+/**
+ * Responsive visibility wrapper. Use `from` to reveal content from a breakpoint
+ * up (hidden below) or `until` to show it only below a breakpoint. Keeps
+ * responsive show/hide logic inside the design system instead of route-local
+ * utility classes.
+ */
+export function Show({ children, from, until, display = "block", minWidth, ...rest }: ShowProps) {
+  return (
+    <div
+      {...rest}
+      className={cx(
+        from ? showFromClasses[from][display] : display === "flex" ? "flex" : undefined,
+        until && showUntilClasses[until],
+        resolveMinWidthClass(minWidth),
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
+export interface MediaFrameProps extends PropsWithChildren, Omit<FrameProps, "children"> {
+  /** Named responsive fixed size for the frame. */
+  size?: "cartLine";
+}
+
+const mediaFrameSizeClasses: Record<NonNullable<MediaFrameProps["size"]>, string> = {
+  cartLine: "h-24 w-20 sm:h-28 sm:w-24",
+};
+
+/**
+ * Fixed-size, bordered, rounded media container for thumbnails that must not
+ * grow or shrink within a flex/grid row. Wrap an `Image` (or other media) so the
+ * frame owns sizing, clipping, and chrome instead of route-local utilities.
+ */
+export function MediaFrame({ children, size = "cartLine", ...rest }: MediaFrameProps) {
+  return (
+    <div
+      {...rest}
+      className={cx(
+        "relative shrink-0 overflow-hidden rounded-tokenMd border border-muted bg-surface-2 shadow-tokenSm",
+        mediaFrameSizeClasses[size],
+      )}
+    >
       {children}
     </div>
   );
