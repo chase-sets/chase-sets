@@ -1,5 +1,6 @@
 import {
   Badge,
+  LinkButton,
   StatusReasonList,
   WorkbenchDetailPanel,
   WorkbenchStack,
@@ -10,8 +11,11 @@ import type {
   CatalogPrimaryWorkbenchActionState,
   CatalogPrimaryWorkbenchBlockerCategory,
   CatalogPrimaryWorkbenchReadModel,
+  CatalogPrimaryWorkbenchRouteContext,
 } from "../../../api/primary-workbench-admin-contracts";
 import { getCatalogPrimaryWorkbenchBlockerCopy } from "../../primary-workbench-copy";
+import { catalogControlPlaneWorkspaceByKey } from "../information-architecture";
+import { catalogPrimaryWorkbenchSupportingHref } from "../../primary-workbench-route-context";
 
 type ImportJobRow = CatalogPrimaryWorkbenchReadModel["importJobs"]["jobs"][number];
 
@@ -19,7 +23,15 @@ type ImportJobRow = CatalogPrimaryWorkbenchReadModel["importJobs"]["jobs"][numbe
 // readiness and promotion-command blockers into a single deduplicated panel so
 // blockers are presented once with consistent label/reason/next-step taxonomy
 // instead of being repeated per step, job, observation, command, and readiness.
-export function WorkspaceBlockerPanel({ blockers }: { blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[] }) {
+// On the daily route it also deep-links each blocker into the provider-setup
+// workspace that clears it, carrying return context back to the exact import scope.
+export function WorkspaceBlockerPanel({
+  blockers,
+  resolveContext,
+}: {
+  blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
+  resolveContext?: CatalogPrimaryWorkbenchRouteContext;
+}) {
   const visibleBlockers = uniqueBlockers(blockers);
   if (visibleBlockers.length === 0) {
     return null;
@@ -36,7 +48,7 @@ export function WorkspaceBlockerPanel({ blockers }: { blockers: readonly Catalog
             count: visibleBlockers.length,
           })}
         </WorkbenchText>
-        <BlockerList blockers={visibleBlockers} />
+        <BlockerList blockers={visibleBlockers} resolveContext={resolveContext} />
       </WorkbenchStack>
     </WorkbenchDetailPanel>
   );
@@ -46,10 +58,14 @@ export function BlockerList({
   blockers,
   compact = false,
   hideWhenEmpty = false,
+  resolveContext,
 }: {
   blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
   compact?: boolean;
   hideWhenEmpty?: boolean;
+  // When set (daily route), each blocker whose support target is a separate
+  // workspace renders a deep link to that workspace carrying return context.
+  resolveContext?: CatalogPrimaryWorkbenchRouteContext;
 }) {
   const visibleBlockers = uniqueBlockers(blockers);
   if (visibleBlockers.length === 0) {
@@ -73,9 +89,37 @@ export function BlockerList({
           reason: copy.reason,
           nextStep: copy.nextStep,
           tone: blockerTone(blocker),
+          action: resolveContext ? blockerResolveLink(blocker, resolveContext) : undefined,
         };
       })}
     />
+  );
+}
+
+// Deep link a blocker into the workspace that clears it, carrying the daily
+// working set as the return path. Skipped when the support target is the daily
+// import-to-promotion workspace itself (there is nowhere to detour to).
+function blockerResolveLink(
+  blocker: CatalogPrimaryWorkbenchBlockerCategory,
+  context: CatalogPrimaryWorkbenchRouteContext,
+) {
+  const supportTarget = getCatalogPrimaryWorkbenchBlockerCopy(blocker).supportTarget;
+  if (supportTarget === "import-to-promotion") {
+    return undefined;
+  }
+  const workspace = catalogControlPlaneWorkspaceByKey(supportTarget);
+
+  return (
+    <LinkButton
+      size="sm"
+      tone="secondary"
+      trailingIcon="chevronRight"
+      href={catalogPrimaryWorkbenchSupportingHref(context, supportTarget)}
+    >
+      {t("catalog.features.sourceObservations.ui.primaryWorkbench.stage.blockers.resolveIn", {
+        workspace: workspace.accessibleName,
+      })}
+    </LinkButton>
   );
 }
 

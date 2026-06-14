@@ -581,6 +581,25 @@ describe("source observation routes: integration discovery and profile administr
     expect(getPromotionTargetAuthoringSchema).toHaveBeenCalledOnce();
   });
 
+  it("answers the authoring-model fetch with 404 when the profile version does not resolve", async () => {
+    // A deep-link can carry a stale/unknown profileVersion. The endpoint must
+    // signal not-found distinctly (404) rather than a server error (500) so the
+    // admin loader can recover into the absent-authoring-model state.
+    const services = {
+      getSelectedOptionAuthoringSchema: vi.fn(async () => ({ dimensions: [] })),
+      getPromotionTargetAuthoringSchema: vi.fn(async () => ({ blueprints: [], categories: [], fields: [] })),
+    } as unknown as SourceObservationRouteServices;
+    const store = mutableProfileStore([...catalogProviderIntegrationProfileVersions]);
+    const app = buildApp(services, store);
+
+    const response = await app.request("/source-observations/provider-profiles/tcgdex/2099.01.01-unknown/authoring");
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: "profile_version_not_found" },
+    });
+  });
+
   it("enriches provider profile dry-runs with duplicate-prevention candidate previews", async () => {
     const previewDuplicatePreventionCandidates = vi.fn(async () => ({
       status: "blocked" as const,

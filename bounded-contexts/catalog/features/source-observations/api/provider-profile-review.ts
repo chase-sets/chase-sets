@@ -64,6 +64,19 @@ export type CatalogProviderProfileActivationDiagnostic = CatalogProviderProfileR
     flow?: string;
   }>;
 
+export class CatalogProviderProfileVersionNotFoundError extends Error {
+  readonly code = "profile_version_not_found";
+  readonly providerKey: string;
+  readonly profileVersion: string;
+
+  constructor(providerKey: string, profileVersion: string) {
+    super(`Catalog provider profile version ${providerKey}@${profileVersion} was not found.`);
+    this.name = "CatalogProviderProfileVersionNotFoundError";
+    this.providerKey = providerKey;
+    this.profileVersion = profileVersion;
+  }
+}
+
 export class CatalogProviderProfileActivationValidationError extends Error {
   readonly diagnostics: readonly CatalogProviderProfileActivationDiagnostic[];
 
@@ -1455,7 +1468,7 @@ async function requireProfileVersion(
 ): Promise<CatalogProviderIntegrationProfileVersionRecord> {
   const version = await store.getProfileVersion(providerKey, profileVersion);
   if (!version) {
-    throw new Error(`Catalog provider profile version ${providerKey}@${profileVersion} was not found.`);
+    throw new CatalogProviderProfileVersionNotFoundError(providerKey, profileVersion);
   }
 
   return version;

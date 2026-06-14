@@ -25,6 +25,7 @@ import {
 import { parseCatalogPrimaryWorkbenchRouteContext } from "../../../features/source-observations/ui/primary-workbench-route-context";
 import type { CatalogControlPlaneRouteSurfaceKey } from "../../../features/source-observations/ui/admin-control-plane/information-architecture";
 import type { CatalogPrimaryWorkbenchCommandFeedback } from "../../../features/source-observations/ui/primary-workbench-page";
+import { CatalogApiError } from "../../../client";
 import { createCatalogRequestApiClient } from "../../../support/request-support/api-client";
 import { loadCatalogListRouteData } from "../../../support/shell-support/list-query-state";
 import { commandFeedbackFromUrl } from "./integrations-command-feedback";
@@ -194,10 +195,22 @@ async function selectedProviderProfileAuthoringModel(
     return null;
   }
 
-  return api.getSourceObservationProviderProfileAuthoringModel<CatalogProviderProfileAuthoringModel>(
-    context.providerKey,
-    context.profileVersion,
-  );
+  try {
+    return await api.getSourceObservationProviderProfileAuthoringModel<CatalogProviderProfileAuthoringModel>(
+      context.providerKey,
+      context.profileVersion,
+    );
+  } catch (error) {
+    // A deep-link from a missing/invalid-profile blocker can carry a provider +
+    // a stale/unknown profileVersion. The backend answers that with 404; treat
+    // it as the existing "no authoring model" absent state so the providers,
+    // governance, and release surfaces render the author-a-profile path instead
+    // of crashing. Genuine 5xx / unexpected errors still propagate.
+    if (error instanceof CatalogApiError && error.status === 404) {
+      return null;
+    }
+    throw error;
+  }
 }
 
 async function selectedProviderProfileLifecycleImpacts(
