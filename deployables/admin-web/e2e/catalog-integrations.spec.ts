@@ -123,8 +123,13 @@ test.describe("catalog admin integrations", () => {
     // target must load gracefully — even for an unknown provider, the filtered list
     // renders an empty result (HTTP < 400), never a 500. This is the integration ->
     // catalog-items handoff seam from #1746.
+    //
+    // Do NOT wait for "networkidle" here: the Catalog Items list subscribes to a
+    // realtime patch stream (useCatalogRealtimeRevalidation -> subscribeRealtimePatches),
+    // an open SSE connection that keeps the network perpetually active, so networkidle
+    // never settles. expectPageOk already awaits domcontentloaded and asserts HTTP < 400,
+    // which is exactly what this handoff seam needs to prove.
     await expectPageOk(page, "/catalog/catalog-items?source=tcgdex");
-    await page.waitForLoadState("networkidle");
     await expect(page).toHaveURL(/\/catalog\/catalog-items\?source=tcgdex/);
     await expectPageOk(page, "/catalog/catalog-items?source=not-a-real-provider");
 
