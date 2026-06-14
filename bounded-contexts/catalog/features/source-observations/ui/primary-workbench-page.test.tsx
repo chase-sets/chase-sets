@@ -863,6 +863,55 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.queryByText("provider-transport-timeout")).toBeNull();
   });
 
+  it("deep-links daily-flow blockers into the provider-setup surface with return context to the import scope", () => {
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.04-draft&filter.status=changed",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      // No active profile -> the daily flow surfaces the missing-active-profile
+      // blocker, whose support target is the profile-authoring provider-setup workspace.
+      profileReviews: {
+        items: [profileReview({ active: false, lifecycle: "draft", profileVersion: "2026.06.04-draft" })],
+        total: 1,
+        count: 1,
+      },
+      controlPlaneOverview: null,
+      canManageCatalog: true,
+    });
+
+    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+
+    expect(readModel.routeContext.section).toBe("import-to-promotion");
+    expect(readModel.readiness.blockers).toContain("missing-active-profile");
+
+    // The consolidated daily blocker panel links the blocker into the providers
+    // surface workspace that clears it, not the daily route itself.
+    const resolveLink = screen
+      .getAllByRole("link", { name: /Resolve in Profile authoring/i })
+      .map((link) => new URL(link.getAttribute("href") ?? "", "https://admin.example"))
+      .find((url) => url.pathname === "/catalog/integrations/providers");
+    expect(resolveLink).toBeTruthy();
+
+    // Profile authoring is the providers-surface default, so the deep link carries no
+    // ?section= but preserves the full provider working set.
+    expect(resolveLink!.searchParams.has("section")).toBe(false);
+    expect(resolveLink!.searchParams.get("providerKey")).toBe("tcgdex");
+    expect(resolveLink!.searchParams.get("unitKey")).toBe("tcgdex:pokemon:card:import");
+    expect(resolveLink!.searchParams.get("importScope")).toBe("en:3:base:base1");
+    expect(resolveLink!.searchParams.get("profileVersion")).toBe("2026.06.04-draft");
+
+    // The carried return path round-trips back to the daily surface route preserving
+    // provider, unit, scope, profile version, and review filters.
+    const returnPath = new URL(resolveLink!.searchParams.get("returnPath") ?? "", "https://admin.example");
+    expect(returnPath.pathname).toBe("/catalog/integrations");
+    expect(returnPath.searchParams.has("section")).toBe(false);
+    expect(returnPath.searchParams.get("providerKey")).toBe("tcgdex");
+    expect(returnPath.searchParams.get("unitKey")).toBe("tcgdex:pokemon:card:import");
+    expect(returnPath.searchParams.get("importScope")).toBe("en:3:base:base1");
+    expect(returnPath.searchParams.get("profileVersion")).toBe("2026.06.04-draft");
+    expect(returnPath.searchParams.get("filter.status")).toBe("changed");
+  });
+
   it("renders Source Observation evidence rows, drawer details, and bulk selection without raw payloads", () => {
     const readModel = buildCatalogPrimaryWorkbenchReadModel({
       requestUrl:

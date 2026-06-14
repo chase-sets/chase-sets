@@ -100,7 +100,7 @@ export function CatalogIntegrationImportToPromotionWorkspace({
 
       <CatalogIntegrationFlowStepper stages={stages} />
 
-      <WorkspaceBlockerPanel blockers={blockers} />
+      <WorkspaceBlockerPanel blockers={blockers} resolveContext={readModel.routeContext} />
 
       <Accordion
         type="single"

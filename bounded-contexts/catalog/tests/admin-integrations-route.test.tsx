@@ -3,7 +3,7 @@ import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CatalogApiError } from "../client";
 import IntegrationsRoute, { action, loader } from "../routes/admin/integrations";
-import { action as providerSetupAction } from "../routes/admin/integrations-providers";
+import { loader as providersLoader, action as providerSetupAction } from "../routes/admin/integrations-providers";
 import { action as governanceAction } from "../routes/admin/integrations-governance";
 import type { CatalogIntegrationsCommandResult } from "../support/route-support/admin-integrations/integrations-command-result";
 import { buildCatalogPrimaryWorkbenchReadModel } from "../features/source-observations/ui/primary-workbench-read-model";
@@ -319,6 +319,76 @@ describe("Catalog integrations route", () => {
         detourOutcome: "opened",
       }),
     );
+  });
+
+  it("renders the providers surface absent-state when the deep-linked profileVersion does not resolve", async () => {
+    // A daily-blocker deep-link can carry a provider + a stale/unknown
+    // profileVersion (e.g. the operator is meant to author the missing profile).
+    // The backend answers the authoring-model fetch with 404 for that version;
+    // the providers loader must treat it as the existing "no authoring model"
+    // absent state and render, not surface a 500.
+    const scopes = { items: [sourceObservationScope()], total: 1, count: 1 };
+    const profileReviews = { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 };
+    const recordCatalogControlPlaneEvent = vi.fn().mockResolvedValue({ status: "recorded" });
+    const getSourceObservationProviderProfileAuthoringModel = vi
+      .fn()
+      .mockRejectedValue(new CatalogApiError(404, { error: { code: "profile_version_not_found" } }));
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listSourceObservationIntegrationScopes: vi.fn().mockResolvedValue(scopes),
+      listSourceObservationProviderProfiles: vi.fn().mockResolvedValue(profileReviews),
+      getSourceObservationProviderProfileAuthoringModel,
+      getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(null),
+      listSourceObservations: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      recordCatalogControlPlaneEvent,
+    });
+
+    // The carried profileVersion (2099.01.01-unknown) resolves nowhere: it is not
+    // in the profile-review list and the authoring-model endpoint answers 404.
+    const routeData = await providersLoader({
+      request: new Request(
+        "https://admin.example/catalog/integrations/providers?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2099.01.01-unknown",
+      ),
+      params: {},
+      context: {},
+    } as Parameters<typeof providersLoader>[0]);
+
+    // The loader did take the deep-link path (it fetched the authoring model for
+    // the carried version) and recovered from the 404 instead of throwing.
+    expect(getSourceObservationProviderProfileAuthoringModel).toHaveBeenCalledWith("tcgdex", "2099.01.01-unknown");
+    expect(routeData.profileAuthoringModel).toBeUndefined();
+    // Both providers workspaces resolve to their absent-selection states: profile
+    // authoring flags the stale selection and validation readiness is unavailable
+    // without a resolved authoring model.
+    expect(routeData.readModel.profileAuthoring.status).toBe("stale-selection");
+    expect(routeData.readModel.validationReadiness.status).toBe("unavailable");
+    expect(routeData.readModel.validationReadiness.freshness).toBe("unavailable");
+  });
+
+  it("propagates non-not-found errors from the providers authoring-model fetch", async () => {
+    // Robustness is narrow: only the 404 not-found case maps to the absent state.
+    // A genuine 5xx (or any other error) must still surface, not be swallowed.
+    const scopes = { items: [sourceObservationScope()], total: 1, count: 1 };
+    const profileReviews = { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 };
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listSourceObservationIntegrationScopes: vi.fn().mockResolvedValue(scopes),
+      listSourceObservationProviderProfiles: vi.fn().mockResolvedValue(profileReviews),
+      getSourceObservationProviderProfileAuthoringModel: vi
+        .fn()
+        .mockRejectedValue(new CatalogApiError(500, { error: { code: "boom" } })),
+      getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(null),
+      listSourceObservations: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+    });
+
+    await expect(
+      providersLoader({
+        request: new Request(
+          "https://admin.example/catalog/integrations/providers?providerKey=tcgdex&profileVersion=2026.06.04",
+        ),
+        params: {},
+        context: {},
+      } as Parameters<typeof providersLoader>[0]),
+    ).rejects.toBeInstanceOf(CatalogApiError);
   });
 
   it("stays on the daily route and returns a job-queued result when queuing a scoped provider import", async () => {

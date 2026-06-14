@@ -170,5 +170,44 @@ test.describe("catalog admin integrations", () => {
     );
     await expect(auditEvidenceNavLink).toHaveCount(1);
     await expect(auditEvidenceNavLink).toHaveAttribute("href", /returnPath=/);
+
+    // The provider-setup surface hosts profile authoring and validation readiness as a
+    // single coherent setup route, off the daily flow. Carry a full working set in and
+    // confirm setup -> return-to-daily round-trips provider/unit/scope/profileVersion.
+    // The deep-linked profileVersion here (2026.06.04) is a stale/unknown version — the
+    // exact shape a missing/invalid-profile blocker deep-links so an operator can author
+    // it. The providers loader must recover from the backend's 404 for that version into
+    // the absent-authoring-model state and render (HTTP < 400), not surface a 500.
+    await expectPageOk(
+      page,
+      "/catalog/integrations/providers?providerKey=tcgdex&unitKey=tcgdex%3Apokemon%3Acard%3Aimport&importScope=en%3A3%3Abase%3Abase1&profileVersion=2026.06.04",
+    );
+    await page.waitForLoadState("networkidle");
+    await expect(page).toHaveURL(/\/catalog\/integrations\/providers\?/);
+    // Both provider-setup workspaces render, stacked on the one providers route. Their
+    // headings are structural (information-architecture metadata) and render in the
+    // absent-authoring-model state, so they do not depend on the stale version resolving.
+    await expectVisibleText(page, "Provider profile authoring");
+    await expectVisibleText(page, "Validation readiness");
+    // Profile authoring is the providers-surface default, so its nav link is active.
+    await expect(page.getByRole("link", { name: /Profile authoring/i }).first()).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    // The setup workspaces are gone from the daily route's content/navigation: the daily
+    // import-to-promotion workspace heading does not render on the providers surface.
+    await expect(page.getByRole("heading", { name: "Import to promotion workbench" })).toHaveCount(0);
+    // Return-to-daily preserves the full working set on the base /catalog/integrations route.
+    const backToDailyHref = await page
+      .getByRole("link", { name: "Back to import workbench" })
+      .first()
+      .getAttribute("href");
+    const backToDailyUrl = new URL(backToDailyHref ?? "", new URL(page.url()).origin);
+    expect(backToDailyUrl.pathname).toBe("/catalog/integrations");
+    expect(backToDailyUrl.searchParams.has("section")).toBe(false);
+    expect(backToDailyUrl.searchParams.get("providerKey")).toBe("tcgdex");
+    expect(backToDailyUrl.searchParams.get("unitKey")).toBe("tcgdex:pokemon:card:import");
+    expect(backToDailyUrl.searchParams.get("importScope")).toBe("en:3:base:base1");
+    expect(backToDailyUrl.searchParams.get("profileVersion")).toBe("2026.06.04");
   });
 });

@@ -19,6 +19,7 @@ import {
   rollbackCatalogProviderProfileVersionForReview,
   updateCatalogProviderProfileSectionForReview,
   CatalogProviderProfileLifecycleConsistencyError,
+  CatalogProviderProfileVersionNotFoundError,
   type CatalogProviderProfileLifecycleBlockingJob,
 } from "./provider-profile-review";
 import type { CatalogProviderIntegrationProfileVersionRecord } from "./provider-integration-profiles";
@@ -94,15 +95,22 @@ export function providerProfileRoutes(
       return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
     }
 
-    const result = await getCatalogProviderProfileAuthoringModel({
-      store: profileVersions,
-      providerKey: c.req.param("providerKey"),
-      profileVersion: c.req.param("profileVersion"),
-      selectedOptionSchema: await services.getSelectedOptionAuthoringSchema(),
-      promotionTargetSchema: await services.getPromotionTargetAuthoringSchema(),
-    });
+    try {
+      const result = await getCatalogProviderProfileAuthoringModel({
+        store: profileVersions,
+        providerKey: c.req.param("providerKey"),
+        profileVersion: c.req.param("profileVersion"),
+        selectedOptionSchema: await services.getSelectedOptionAuthoringSchema(),
+        promotionTargetSchema: await services.getPromotionTargetAuthoringSchema(),
+      });
 
-    return c.json(result);
+      return c.json(result);
+    } catch (error) {
+      if (error instanceof CatalogProviderProfileVersionNotFoundError) {
+        return c.json({ error: { code: error.code, message: error.message } }, 404);
+      }
+      throw error;
+    }
   });
 
   app.patch("/provider-profiles/:providerKey/:profileVersion/sections/:section", async (c) => {

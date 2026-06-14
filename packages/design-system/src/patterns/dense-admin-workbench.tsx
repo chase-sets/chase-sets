@@ -553,6 +553,9 @@ export interface StatusReasonItem {
   reason?: ReactNode;
   nextStep?: ReactNode;
   tone?: BadgeTone;
+  // Optional resolving affordance (e.g. a deep link to the workspace that clears
+  // this status) rendered beneath the reason/next-step copy.
+  action?: ReactNode;
 }
 
 export interface StatusReasonListProps extends FrameProps<HTMLDivElement> {
@@ -593,6 +596,7 @@ export function StatusReasonList({
               ) : null}
             </div>
           ) : null}
+          {item.action ? <div className="flex min-w-0 flex-wrap items-center gap-2">{item.action}</div> : null}
         </div>
       ))}
     </div>
