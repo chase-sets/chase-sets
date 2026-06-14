@@ -1,7 +1,8 @@
-import type { ChangeEvent, HTMLAttributes, MouseEvent } from "react";
+import type { ChangeEvent, HTMLAttributes, MouseEvent, ReactNode } from "react";
 import { useId } from "react";
 import type { IconName } from "../../icons";
 import { Icon } from "../../icons";
+import { Show, Stack } from "../../primitives/layout";
 import { cx } from "../../utils/cx";
 
 export type SectionNavigationItemState = "default" | "pending" | "warning" | "blocked" | "disabled";
@@ -168,20 +169,20 @@ function renderDesktop(
   onSelect?: (key: string) => void,
 ) {
   return (
-    <div className="space-y-5">
+    <Stack gap={5}>
       {groups.map((group) => {
         const headingId = `${headingIdBase}-${group.key.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
 
         return (
-          <div key={group.key} role="group" aria-labelledby={headingId} className="space-y-2">
+          <Stack key={group.key} role="group" aria-labelledby={headingId} gap={2}>
             <h2 id={headingId} className="px-3 text-xs font-semibold uppercase tracking-normal text-tertiary">
               {group.label}
             </h2>
-            <div className="space-y-1">{group.items.map((item) => renderDesktopItem(item, activeKey, onSelect))}</div>
-          </div>
+            <Stack gap={1}>{group.items.map((item) => renderDesktopItem(item, activeKey, onSelect))}</Stack>
+          </Stack>
         );
       })}
-    </div>
+    </Stack>
   );
 }
 
@@ -241,20 +242,44 @@ export function SectionNavigation({
 }: SectionNavigationProps) {
   const showDesktop = variant === "desktop" || variant === "responsive";
   const showMobile = variant === "mobile" || variant === "responsive";
+  const responsive = variant === "responsive";
   const headingIdBase = useId();
 
   return (
     <nav {...rest} aria-label={label}>
       {showDesktop ? (
-        <div className={cx(variant === "responsive" && "hidden md:block")}>
+        <ResponsiveRegion responsive={responsive} at="desktop">
           {renderDesktop(groups, activeKey, headingIdBase, onSelect)}
-        </div>
+        </ResponsiveRegion>
       ) : null}
       {showMobile ? (
-        <div className={cx(variant === "responsive" && "md:hidden")}>
+        <ResponsiveRegion responsive={responsive} at="mobile">
           {renderMobile(groups, activeKey, mobileLabel, onSelect)}
-        </div>
+        </ResponsiveRegion>
       ) : null}
     </nav>
   );
+}
+
+/**
+ * Reveals a section-navigation region at the matching breakpoint. In the
+ * `responsive` variant the desktop grouped list shows from `md` up and the mobile
+ * selector shows below it; the single-mode variants render their region at every
+ * width. Generalizes the old hand-rolled `hidden md:block` / `md:hidden` split
+ * onto the {@link Show} primitive.
+ */
+function ResponsiveRegion({
+  responsive,
+  at,
+  children,
+}: {
+  responsive: boolean;
+  at: "desktop" | "mobile";
+  children: ReactNode;
+}) {
+  if (!responsive) {
+    return <>{children}</>;
+  }
+
+  return at === "desktop" ? <Show above="md">{children}</Show> : <Show below="md">{children}</Show>;
 }

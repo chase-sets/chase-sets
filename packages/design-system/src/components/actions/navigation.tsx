@@ -4,7 +4,7 @@ import { LayoutGroup } from "motion/react";
 import { ChaseSetsLogo } from "../../brand/chase-sets-logo";
 import type { IconName } from "../../icons";
 import { Icon } from "../../icons";
-import { layoutWidthClasses, type LayoutWidth } from "../../primitives/layout";
+import { Cluster, Container, Inline, layoutWidthClasses, Show, type LayoutWidth } from "../../primitives/layout";
 import { cx } from "../../utils/cx";
 import { controlSquareSizeClasses } from "../control-sizing";
 import { renderActivePill } from "./shared";
@@ -18,6 +18,17 @@ export interface NavigationItem {
   placement?: "primary" | "utility";
   avatar?: ReactNode;
   children?: NavigationItem[];
+}
+
+/**
+ * Shared layered content row for an interactive nav item. Sits above the active
+ * pill (`relative z-10`) so the motion background never overlaps the label, icon,
+ * and badge. Pure layout, so it composes from raw inline-flex rather than owning
+ * any interactive chrome — the surrounding `a`/`button`/`summary` leaf owns focus,
+ * hover, and active styling.
+ */
+function NavItemContent({ children, className }: { children: ReactNode; className?: string }) {
+  return <span className={cx("relative z-10 inline-flex items-center gap-2", className)}>{children}</span>;
 }
 
 function renderNavigationItem(
@@ -70,7 +81,7 @@ function renderNavigationItem(
     return (
       <a key={item.key} href={item.href} aria-current={active ? "page" : undefined} className={className}>
         {active && groupId ? renderActivePill(groupId) : null}
-        <span className="relative z-10 inline-flex items-center gap-2">{content}</span>
+        <NavItemContent>{content}</NavItemContent>
       </a>
     );
   }
@@ -78,7 +89,7 @@ function renderNavigationItem(
   return (
     <button key={item.key} type="button" className={className} onClick={() => onSelect?.(item.key)}>
       {active && groupId ? renderActivePill(groupId) : null}
-      <span className="relative z-10 inline-flex items-center gap-2">{content}</span>
+      <NavItemContent>{content}</NavItemContent>
     </button>
   );
 }
@@ -138,10 +149,10 @@ function NavigationItemGroup({
         )}
       >
         {active && groupId ? renderActivePill(groupId) : null}
-        <span className="relative z-10 inline-flex items-center gap-2">{content}</span>
-        <span className="relative z-10 inline-flex items-center">
+        <NavItemContent>{content}</NavItemContent>
+        <NavItemContent>
           <Icon name="chevronDown" size="sm" tone={active ? "accent" : "secondary"} />
-        </span>
+        </NavItemContent>
       </summary>
       <div className="modern-surface absolute left-0 top-[calc(100%+0.5rem)] z-dropdown min-w-56 rounded-tokenLg border border-muted p-2 shadow-overlay">
         {item.children?.map((child) =>
@@ -187,9 +198,7 @@ function renderBottomNavigationItem(
       <details key={item.key} className="group relative min-w-0">
         <summary className={cx(className, "cursor-pointer list-none [&::-webkit-details-marker]:hidden")}>
           {active && groupId ? renderActivePill(groupId) : null}
-          <span className="relative z-10 inline-flex w-full min-w-0 flex-col items-center justify-center gap-1">
-            {content}
-          </span>
+          <NavItemContent className="w-full min-w-0 flex-col justify-center">{content}</NavItemContent>
         </summary>
         <div className="modern-surface absolute bottom-[calc(100%+0.5rem)] right-0 z-dropdown w-[min(16rem,calc(100vw-1.5rem))] rounded-tokenLg border border-muted p-2 shadow-overlay">
           {item.children.map((child) =>
@@ -211,9 +220,7 @@ function renderBottomNavigationItem(
     return (
       <a key={item.key} href={item.href} className={className}>
         {active && groupId ? renderActivePill(groupId) : null}
-        <span className="relative z-10 inline-flex w-full min-w-0 flex-col items-center justify-center gap-1">
-          {content}
-        </span>
+        <NavItemContent className="w-full min-w-0 flex-col justify-center">{content}</NavItemContent>
       </a>
     );
   }
@@ -221,9 +228,7 @@ function renderBottomNavigationItem(
   return (
     <button key={item.key} type="button" className={className} onClick={() => onSelect?.(item.key)}>
       {active && groupId ? renderActivePill(groupId) : null}
-      <span className="relative z-10 inline-flex w-full min-w-0 flex-col items-center justify-center gap-1">
-        {content}
-      </span>
+      <NavItemContent className="w-full min-w-0 flex-col justify-center">{content}</NavItemContent>
     </button>
   );
 }
@@ -356,57 +361,67 @@ export function TopNav({
       aria-label={navLabel}
       className="sticky top-0 z-sticky border-b border-muted bg-background/overlay px-4 py-3 shadow-tokenSm backdrop-blur-xl"
     >
-      <div className={cx("mx-auto flex w-full items-center justify-between gap-4", layoutWidthClasses[width])}>
-        <div className="flex items-center gap-4">
-          {brand}
-          <LayoutGroup id={groupId}>
-            <div className="hidden items-center gap-1 md:flex">
-              {primaryItems.map((item) =>
-                renderNavigationItem(
-                  item,
-                  isNavigationItemActive(item, activeKey),
-                  "horizontal",
-                  groupId,
-                  onSelect,
-                  activeKey,
-                ),
-              )}
-            </div>
-          </LayoutGroup>
-        </div>
-        <div className="flex items-center gap-2">
-          {actions && mobileActionsLabel ? (
-            <>
-              <div className="hidden items-center gap-2 md:flex">{actions}</div>
-              <TopNavActionsMenu
-                actions={actions}
-                activeKey={activeKey}
-                items={[...primaryItems, ...utilityItems]}
-                label={mobileActionsLabel}
-                onSelect={onSelect}
-              />
-            </>
-          ) : (
-            actions
-          )}
-          {utilityItems.length > 0 ? (
-            <LayoutGroup id={`${groupId}-utility`}>
-              <div className="hidden items-center gap-1 md:flex">
-                {utilityItems.map((item) =>
-                  renderNavigationItem(
-                    item,
-                    isNavigationItemActive(item, activeKey),
-                    "horizontal",
-                    `${groupId}-utility`,
-                    onSelect,
-                    activeKey,
-                  ),
-                )}
-              </div>
+      <Container width={width} paddingX={0}>
+        <Cluster justify="between" gap={4}>
+          <Inline gap={4} wrap={false}>
+            {brand}
+            <LayoutGroup id={groupId}>
+              <Show above="md" display="flex">
+                <Inline gap={1} wrap={false}>
+                  {primaryItems.map((item) =>
+                    renderNavigationItem(
+                      item,
+                      isNavigationItemActive(item, activeKey),
+                      "horizontal",
+                      groupId,
+                      onSelect,
+                      activeKey,
+                    ),
+                  )}
+                </Inline>
+              </Show>
             </LayoutGroup>
-          ) : null}
-        </div>
-      </div>
+          </Inline>
+          <Inline gap={2} wrap={false}>
+            {actions && mobileActionsLabel ? (
+              <>
+                <Show above="md" display="flex">
+                  <Inline gap={2} wrap={false}>
+                    {actions}
+                  </Inline>
+                </Show>
+                <TopNavActionsMenu
+                  actions={actions}
+                  activeKey={activeKey}
+                  items={[...primaryItems, ...utilityItems]}
+                  label={mobileActionsLabel}
+                  onSelect={onSelect}
+                />
+              </>
+            ) : (
+              actions
+            )}
+            {utilityItems.length > 0 ? (
+              <LayoutGroup id={`${groupId}-utility`}>
+                <Show above="md" display="flex">
+                  <Inline gap={1} wrap={false}>
+                    {utilityItems.map((item) =>
+                      renderNavigationItem(
+                        item,
+                        isNavigationItemActive(item, activeKey),
+                        "horizontal",
+                        `${groupId}-utility`,
+                        onSelect,
+                        activeKey,
+                      ),
+                    )}
+                  </Inline>
+                </Show>
+              </LayoutGroup>
+            ) : null}
+          </Inline>
+        </Cluster>
+      </Container>
     </nav>
   );
 }

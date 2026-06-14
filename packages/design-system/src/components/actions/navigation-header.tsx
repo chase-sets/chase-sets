@@ -1,4 +1,6 @@
 import type { ReactNode } from "react";
+import { Box, Container, Inline, Stack } from "../../primitives/layout";
+import { Text } from "../../primitives/typography";
 import { cx } from "../../utils/cx";
 import { Badge } from "../feedback/badge";
 
@@ -39,46 +41,61 @@ export function NavigationHeader({
         className,
       )}
     >
-      <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-4 md:flex-row md:items-center md:justify-between">
-        <div className="flex min-w-0 items-center gap-3">
-          {logo ? (
-            <div className="grid h-12 w-12 shrink-0 place-items-center rounded-tokenLg border border-border bg-surface shadow-tokenSm">
-              {logo}
-            </div>
-          ) : null}
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <strong className="ds-display truncate text-2xl">{brand}</strong>
-              {badge ? (
-                <Badge variant="solid" tone="neutral">
-                  {badge}
-                </Badge>
+      <Container width="wide">
+        <Box paddingY={4}>
+          <Stack
+            direction={{ base: "column", md: "row" }}
+            align={{ base: "stretch", md: "center" }}
+            justify={{ base: "start", md: "between" }}
+            gap={4}
+          >
+            <Stack direction="row" align="center" gap={3} minWidth="0">
+              {logo ? (
+                <div className="grid h-12 w-12 shrink-0 place-items-center rounded-tokenLg border border-border bg-surface shadow-tokenSm">
+                  {logo}
+                </div>
               ) : null}
-            </div>
-            {description ? <p className="m-0 text-sm text-secondary">{description}</p> : null}
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <nav className="flex flex-wrap items-center gap-2" aria-label={ariaLabel}>
-            {items.map((item) => (
-              <a
-                key={item.href}
-                href={item.href}
-                aria-current={item.active ? "page" : undefined}
-                className={cx(
-                  "rounded-tokenMd px-3 py-2 text-sm font-semibold transition-colors",
-                  item.active
-                    ? "bg-accent text-accent-contrast shadow-tokenSm"
-                    : "text-secondary hover:bg-surface-2 hover:text-foreground",
-                )}
-              >
-                {item.label}
-              </a>
-            ))}
-          </nav>
-          {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
-        </div>
-      </div>
+              <Box minWidth="0">
+                <Inline gap={2}>
+                  <strong className="ds-display truncate text-2xl">{brand}</strong>
+                  {badge ? (
+                    <Badge variant="solid" tone="neutral">
+                      {badge}
+                    </Badge>
+                  ) : null}
+                </Inline>
+                {description ? (
+                  <Text element="p" size="sm" tone="secondary">
+                    {description}
+                  </Text>
+                ) : null}
+              </Box>
+            </Stack>
+            <Inline gap={3}>
+              <nav aria-label={ariaLabel}>
+                <Inline gap={2}>
+                  {items.map((item) => (
+                    <a
+                      key={item.href}
+                      href={item.href}
+                      aria-current={item.active ? "page" : undefined}
+                      className={cx(
+                        "rounded-tokenMd px-3 py-2 text-sm font-semibold transition-colors",
+                        item.active
+                          ? "bg-accent text-accent-contrast shadow-tokenSm"
+                          : "text-secondary hover:bg-surface-2 hover:text-foreground",
+                      )}
+                    >
+                      {item.label}
+                    </a>
+                  ))}
+                </Inline>
+              </nav>
+              {actions ? <Inline gap={2}>{actions}</Inline> : null}
+            </Inline>
+          </Stack>
+        </Box>
+      </Container>
     </header>
   );
 }
