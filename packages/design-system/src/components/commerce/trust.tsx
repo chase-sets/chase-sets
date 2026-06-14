@@ -279,7 +279,7 @@ export function RatingDistribution({ title, average, count, rows, starLabel }: R
           {rows.map((row) => (
             <div key={row.stars} className="grid grid-cols-[3rem_1fr_3rem] items-center gap-3 text-sm">
               <span className="font-medium">{starLabel ? starLabel(row.stars) : row.stars}</span>
-              <Progress value={row.value} className="h-2" />
+              <Progress value={row.value} />
               <span className="text-right tabular-nums text-tertiary">{row.value}%</span>
             </div>
           ))}
