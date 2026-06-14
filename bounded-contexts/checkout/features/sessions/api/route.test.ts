@@ -388,6 +388,51 @@ describe("checkout session routes", () => {
     );
   });
 
+  it("uses checkout entry attempt keys as idempotent cart session overrides", async () => {
+    const createFromCart = vi.fn(async (params: Parameters<CheckoutSessionServices["createFromCart"]>[0]) => ({
+      sessionId: params.sessionIdOverride ?? ("chk_missing_override" as never),
+    }));
+    const services = createServices({ createFromCart });
+    const app = buildApp(services);
+    const body = {
+      entryAttemptKey: "entry_attempt_1",
+      source: {
+        type: "cart",
+        readinessSnapshotId: "cr_ready",
+        readinessSourceRevision: "cr_source",
+        readinessDecisions: {
+          optimization: { decision: "declined", lineId: "cli_1", listingId: "lst_lower" },
+        },
+      },
+    };
+
+    const first = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    );
+    const second = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    );
+
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(201);
+    const firstBody = await first.json();
+    const secondBody = await second.json();
+    expect(firstBody.session_id).toMatch(/^chk_[a-f0-9]{32}$/);
+    expect(secondBody.session_id).toBe(firstBody.session_id);
+    expect(createFromCart.mock.calls[0]?.[0].sessionIdOverride).toBe(
+      createFromCart.mock.calls[1]?.[0].sessionIdOverride,
+    );
+    expect(String(firstBody.session_id)).not.toContain("entry_attempt_1");
+  });
+
   it("rejects old-shaped cart readiness payloads without adapting them into checkout facts", async () => {
     const services = createServices({
       createFromCart: vi.fn(async () => {
@@ -559,6 +604,47 @@ describe("checkout session routes", () => {
     );
     expect(services.createFromCart).not.toHaveBeenCalled();
     expect(services.createOfferIntent).not.toHaveBeenCalled();
+  });
+
+  it("deduplicates buy-now entry attempts without pinning future attempts to the old session", async () => {
+    const createBuyNow = vi.fn(async (params: Parameters<CheckoutSessionServices["createBuyNow"]>[0]) => ({
+      sessionId: params.sessionIdOverride ?? ("chk_missing_override" as never),
+    }));
+    const services = createServices({ createBuyNow });
+    const app = buildApp(services);
+    const source = {
+      type: "buy-now",
+      listingId: "lst_1",
+      lockedListingId: "lst_1",
+      catalogItemId: "cat_1",
+      productId: "cat_1::form:raw",
+      itemTitle: "Charizard",
+      selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+      quantity: 1,
+    };
+    async function start(entryAttemptKey: string) {
+      const response = await app.fetch(
+        new Request("http://checkout.test/account/checkout-sessions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ entryAttemptKey, source }),
+        }),
+      );
+
+      expect(response.status).toBe(201);
+      return response.json() as Promise<{ session_id: string }>;
+    }
+
+    const first = await start("entry_attempt_1");
+    const duplicate = await start("entry_attempt_1");
+    const futureAttempt = await start("entry_attempt_2");
+
+    expect(duplicate.session_id).toBe(first.session_id);
+    expect(futureAttempt.session_id).not.toBe(first.session_id);
+    expect(createBuyNow.mock.calls[0]?.[0].sessionIdOverride).toBe(createBuyNow.mock.calls[1]?.[0].sessionIdOverride);
+    expect(createBuyNow.mock.calls[2]?.[0].sessionIdOverride).not.toBe(
+      createBuyNow.mock.calls[0]?.[0].sessionIdOverride,
+    );
   });
 
   it("rejects buy-now session creation without assigned fulfillment", async () => {

@@ -1,6 +1,7 @@
+import { createHash } from "node:crypto";
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
-import type { ShippingAddressId, AccountId } from "@chase-sets/primitives/typed-ids";
+import type { ShippingAddressId, AccountId, CheckoutSessionId } from "@chase-sets/primitives/typed-ids";
 import type { CheckoutApiEnv } from "../../../api";
 import { parseCartReadinessDecisionInput } from "../../cart/domain/readiness";
 import type { CheckoutSessionCreateResult, CheckoutSessionServices } from "./runtime";
@@ -186,6 +187,92 @@ function parseOptimizationGoal(value: unknown) {
   return value === "fewest-shipments" ? ("fewest-shipments" as const) : ("lowest-total" as const);
 }
 
+type CheckoutEntryIdempotencySource =
+  | Readonly<{
+      type: "cart";
+      readinessSnapshotId: string;
+      readinessSourceRevision: string;
+      readinessDecisions: ReturnType<typeof parseCartReadinessDecisionInput>;
+    }>
+  | Readonly<{
+      type: "buy-now";
+      listingId: string;
+      catalogItemId: string;
+      productId: string;
+      selectedOptions: ReturnType<typeof parseSelectedOptions>;
+      quantity: number;
+      fulfillmentMode: "locked-listing";
+      lockedListingId: string;
+      sellerPreferenceId: string | null;
+    }>
+  | Readonly<{
+      type: "offer-intent";
+      catalogItemId: string;
+      productId: string;
+      selectedOptions: ReturnType<typeof parseSelectedOptions>;
+      offerPriceAmount: string;
+      quantity: number;
+    }>;
+
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableStringify).join(",")}]`;
+  }
+
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, nested]) => `${JSON.stringify(key)}:${stableStringify(nested)}`)
+      .join(",")}}`;
+  }
+
+  return JSON.stringify(value) ?? "null";
+}
+
+function normalizeCheckoutEntryAttemptKey(...values: unknown[]) {
+  for (const value of values) {
+    if (value === null || value === undefined) {
+      continue;
+    }
+
+    const normalized = String(value).trim();
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  return null;
+}
+
+function checkoutEntrySessionId(params: {
+  accountId: AccountId;
+  entryAttemptKey: string | null;
+  source: CheckoutEntryIdempotencySource;
+  shippingOption: string;
+  optimizationGoal: ReturnType<typeof parseOptimizationGoal>;
+}): CheckoutSessionId | undefined {
+  const idempotencyScope =
+    params.entryAttemptKey ?? (params.source.type === "cart" ? params.source.readinessSnapshotId : null);
+  if (!idempotencyScope) {
+    return undefined;
+  }
+
+  const digest = createHash("sha256")
+    .update(
+      stableStringify({
+        schema: "checkout.entry-idempotency.v1",
+        accountId: params.accountId,
+        entryAttemptKey: params.entryAttemptKey,
+        source: params.source,
+        shippingOption: params.shippingOption,
+        optimizationGoal: params.optimizationGoal,
+      }),
+    )
+    .digest("hex")
+    .slice(0, 32);
+  return `chk_${digest}` as CheckoutSessionId;
+}
+
 export function createAccountCheckoutSessionRoutes(
   services: CheckoutSessionServices,
   checkoutObservabilityTelemetry?: CheckoutObservabilityTelemetry,
@@ -212,17 +299,40 @@ export function createAccountCheckoutSessionRoutes(
     }
 
     const body = await c.req.json();
+    const entryAttemptKey = normalizeCheckoutEntryAttemptKey(
+      body.entryAttemptKey,
+      c.req.header("idempotency-key"),
+      c.req.header("x-idempotency-key"),
+      c.req.header("x-checkout-entry-attempt-key"),
+    );
 
     try {
       if (body.source?.type === "cart") {
+        const readinessSnapshotId = String(body.source.readinessSnapshotId ?? "");
+        const readinessSourceRevision = String(body.source.readinessSourceRevision ?? "");
+        const readinessDecisions = parseCartReadinessDecisionInput(body.source.readinessDecisions);
+        const shippingOption = String(body.shippingOption ?? "standard");
+        const optimizationGoal = parseOptimizationGoal(body.optimizationGoal);
         const result = await services.createFromCart(
           {
             accountId: access.actor.accountId as AccountId,
-            shippingOption: String(body.shippingOption ?? "standard"),
-            optimizationGoal: parseOptimizationGoal(body.optimizationGoal),
-            readinessSnapshotId: String(body.source.readinessSnapshotId ?? ""),
-            readinessSourceRevision: String(body.source.readinessSourceRevision ?? ""),
-            readinessDecisions: parseCartReadinessDecisionInput(body.source.readinessDecisions),
+            shippingOption,
+            optimizationGoal,
+            readinessSnapshotId,
+            readinessSourceRevision,
+            readinessDecisions,
+            sessionIdOverride: checkoutEntrySessionId({
+              accountId: access.actor.accountId as AccountId,
+              entryAttemptKey,
+              source: {
+                type: "cart",
+                readinessSnapshotId,
+                readinessSourceRevision,
+                readinessDecisions,
+              },
+              shippingOption,
+              optimizationGoal,
+            }),
           },
           context,
         );
@@ -246,23 +356,44 @@ export function createAccountCheckoutSessionRoutes(
           );
         }
 
+        const selectedOptions = parseSelectedOptions(source.selectedOptions);
+        const shippingOption = String(body.shippingOption ?? "standard");
+        const optimizationGoal = parseOptimizationGoal(body.optimizationGoal);
+        const catalogItemId = String(source.catalogItemId ?? "");
+        const productId = String(source.productId ?? "");
+        const offerPriceAmount = String(source.offerPriceAmount ?? source.priceAmount ?? "");
+        const quantity = Number(source.quantity ?? source.quantityRequested ?? 0);
         const result = await services.createOfferIntent(
           {
             accountId: access.actor.accountId as AccountId,
-            catalogItemId: String(source.catalogItemId ?? ""),
-            productId: String(source.productId ?? ""),
+            catalogItemId,
+            productId,
             itemTitle: String(source.itemTitle ?? ""),
             itemSubtitle:
               source.itemSubtitle === null || source.itemSubtitle === undefined ? null : String(source.itemSubtitle),
-            selectedOptions: parseSelectedOptions(source.selectedOptions),
+            selectedOptions,
             productSummary:
               source.productSummary === null || source.productSummary === undefined
                 ? null
                 : String(source.productSummary),
-            offerPriceAmount: String(source.offerPriceAmount ?? source.priceAmount ?? ""),
-            quantity: Number(source.quantity ?? source.quantityRequested ?? 0),
-            optimizationGoal: parseOptimizationGoal(body.optimizationGoal),
-            shippingOption: String(body.shippingOption ?? "standard"),
+            offerPriceAmount,
+            quantity,
+            optimizationGoal,
+            shippingOption,
+            sessionIdOverride: checkoutEntrySessionId({
+              accountId: access.actor.accountId as AccountId,
+              entryAttemptKey,
+              source: {
+                type: "offer-intent",
+                catalogItemId,
+                productId,
+                selectedOptions,
+                offerPriceAmount,
+                quantity,
+              },
+              shippingOption,
+              optimizationGoal,
+            }),
           },
           context,
         );
@@ -274,29 +405,54 @@ export function createAccountCheckoutSessionRoutes(
         throw unresolvedFulfillmentError();
       }
 
+      const selectedOptions = parseSelectedOptions(source.selectedOptions);
+      const shippingOption = String(body.shippingOption ?? "standard");
+      const optimizationGoal = parseOptimizationGoal(body.optimizationGoal);
+      const listingId = String(source.listingId ?? "");
+      const catalogItemId = String(source.catalogItemId ?? "");
+      const productId = String(source.productId ?? "");
+      const quantity = Number(source.quantity ?? 0);
+      const sellerPreferenceId =
+        source.sellerPreferenceId === null || source.sellerPreferenceId === undefined
+          ? null
+          : String(source.sellerPreferenceId || "") || null;
       const result = await services.createBuyNow(
         {
           accountId: access.actor.accountId as AccountId,
-          listingId: String(source.listingId ?? ""),
-          catalogItemId: String(source.catalogItemId ?? ""),
-          productId: String(source.productId ?? ""),
+          listingId,
+          catalogItemId,
+          productId,
           itemTitle: String(source.itemTitle ?? ""),
           itemSubtitle:
             source.itemSubtitle === null || source.itemSubtitle === undefined ? null : String(source.itemSubtitle),
-          selectedOptions: parseSelectedOptions(source.selectedOptions),
+          selectedOptions,
           productSummary:
             source.productSummary === null || source.productSummary === undefined
               ? null
               : String(source.productSummary),
-          quantity: Number(source.quantity ?? 0),
+          quantity,
           fulfillmentMode: "locked-listing",
           lockedListingId,
-          sellerPreferenceId:
-            source.sellerPreferenceId === null || source.sellerPreferenceId === undefined
-              ? null
-              : String(source.sellerPreferenceId || "") || null,
-          optimizationGoal: parseOptimizationGoal(body.optimizationGoal),
-          shippingOption: String(body.shippingOption ?? "standard"),
+          sellerPreferenceId,
+          optimizationGoal,
+          shippingOption,
+          sessionIdOverride: checkoutEntrySessionId({
+            accountId: access.actor.accountId as AccountId,
+            entryAttemptKey,
+            source: {
+              type: "buy-now",
+              listingId,
+              catalogItemId,
+              productId,
+              selectedOptions,
+              quantity,
+              fulfillmentMode: "locked-listing",
+              lockedListingId,
+              sellerPreferenceId,
+            },
+            shippingOption,
+            optimizationGoal,
+          }),
         },
         context,
       );

@@ -93,48 +93,55 @@ export type UpdateCheckoutCartLineFulfillmentRequest = Readonly<{
   availabilityState?: "available" | "unavailable" | "changed" | "waiting-for-supply";
 }>;
 
-export type CreateCartCheckoutSessionRequest = Readonly<{
-  source: Readonly<{
-    type: "cart";
-    readinessSnapshotId: string;
-    readinessSourceRevision: string;
-    readinessDecisions?: CartReadinessDecisionInput | null;
-  }>;
-  shippingOption?: string;
+export type CheckoutEntryAttemptInput = Readonly<{
+  entryAttemptKey?: string | null;
 }>;
 
-export type CreateBuyNowCheckoutSessionRequest = Readonly<{
-  source: Readonly<{
-    type: "buy-now";
-    listingId: string;
-    catalogItemId: string;
-    productId: string;
-    itemTitle: string;
-    itemSubtitle?: string | null;
-    selectedOptions: readonly CheckoutSelectedOptionInput[];
-    productSummary?: string | null;
-    quantity: number;
-    fulfillmentMode?: "optimize" | "locked-listing";
-    lockedListingId?: string | null;
-    sellerPreferenceId?: string | null;
+export type CreateCartCheckoutSessionRequest = CheckoutEntryAttemptInput &
+  Readonly<{
+    source: Readonly<{
+      type: "cart";
+      readinessSnapshotId: string;
+      readinessSourceRevision: string;
+      readinessDecisions?: CartReadinessDecisionInput | null;
+    }>;
+    shippingOption?: string;
   }>;
-  shippingOption?: string;
-}>;
 
-export type CreateOfferIntentCheckoutSessionRequest = Readonly<{
-  source: Readonly<{
-    type: "offer-intent";
-    catalogItemId: string;
-    productId: string;
-    itemTitle: string;
-    itemSubtitle?: string | null;
-    selectedOptions: readonly CheckoutSelectedOptionInput[];
-    productSummary?: string | null;
-    offerPriceAmount: string;
-    quantity: number;
+export type CreateBuyNowCheckoutSessionRequest = CheckoutEntryAttemptInput &
+  Readonly<{
+    source: Readonly<{
+      type: "buy-now";
+      listingId: string;
+      catalogItemId: string;
+      productId: string;
+      itemTitle: string;
+      itemSubtitle?: string | null;
+      selectedOptions: readonly CheckoutSelectedOptionInput[];
+      productSummary?: string | null;
+      quantity: number;
+      fulfillmentMode?: "optimize" | "locked-listing";
+      lockedListingId?: string | null;
+      sellerPreferenceId?: string | null;
+    }>;
+    shippingOption?: string;
   }>;
-  shippingOption?: string;
-}>;
+
+export type CreateOfferIntentCheckoutSessionRequest = CheckoutEntryAttemptInput &
+  Readonly<{
+    source: Readonly<{
+      type: "offer-intent";
+      catalogItemId: string;
+      productId: string;
+      itemTitle: string;
+      itemSubtitle?: string | null;
+      selectedOptions: readonly CheckoutSelectedOptionInput[];
+      productSummary?: string | null;
+      offerPriceAmount: string;
+      quantity: number;
+    }>;
+    shippingOption?: string;
+  }>;
 
 export type CreateCheckoutSessionRequest =
   | CreateCartCheckoutSessionRequest

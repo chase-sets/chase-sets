@@ -372,6 +372,15 @@ function sourceContextNameFromStreamId(streamId: string) {
   return separatorIndex > 0 ? streamId.slice(0, separatorIndex) : streamId;
 }
 
+function isEventStoreConcurrencyConflict(error: unknown) {
+  return Boolean(
+    error &&
+    typeof error === "object" &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "concurrency_conflict",
+  );
+}
+
 export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): CheckoutSessionServices {
   const { commandHandler, repository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
@@ -469,22 +478,69 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
     context: EventStoreContext,
   ) {
     const sessionId = params.sessionIdOverride ?? (createId("chk") as CheckoutSessionId);
-    const result = await commandHandler({
-      streamId: `checkout.session-${sessionId}`,
-      command: {
-        type: "StartCheckoutSession",
+    const streamId = `checkout.session-${sessionId}`;
+    async function existingStartedSession(): Promise<CheckoutSessionCreateResult | null> {
+      if (!params.sessionIdOverride) {
+        return null;
+      }
+
+      const storedEvents = await deps.eventStore.readStream({ streamId });
+      const started = storedEvents.find((event) => event.eventType === "checkout.session.started");
+      if (!started) {
+        return null;
+      }
+
+      const payload = started.payload as { sessionId?: unknown; buyerAccountId?: unknown; sourceType?: unknown };
+      if (
+        payload.sessionId !== sessionId ||
+        payload.buyerAccountId !== params.accountId ||
+        payload.sourceType !== params.sourceType
+      ) {
+        throw new CheckoutDomainError("Checkout session not found.");
+      }
+
+      return {
         sessionId,
-        buyerAccountId: params.accountId,
-        sourceType: params.sourceType,
-        optimizationGoal: params.optimizationGoal,
-        fulfillmentPreviewRevision: params.fulfillmentPreviewRevision,
-        cartReadinessSnapshot: params.cartReadinessSnapshot,
-        shippingOption: params.shippingOption,
-        lines: params.lines,
-        createdAt: new Date().toISOString(),
-      },
-      context,
-    });
+        ...commitMetadataFromStoredEvents(storedEvents),
+      };
+    }
+
+    const existing = await existingStartedSession();
+    if (existing) {
+      return existing;
+    }
+
+    let result: Awaited<ReturnType<typeof commandHandler>>;
+    try {
+      result = await commandHandler({
+        streamId,
+        command: {
+          type: "StartCheckoutSession",
+          sessionId,
+          buyerAccountId: params.accountId,
+          sourceType: params.sourceType,
+          optimizationGoal: params.optimizationGoal,
+          fulfillmentPreviewRevision: params.fulfillmentPreviewRevision,
+          cartReadinessSnapshot: params.cartReadinessSnapshot,
+          shippingOption: params.shippingOption,
+          lines: params.lines,
+          createdAt: new Date().toISOString(),
+        },
+        context,
+      });
+    } catch (error) {
+      if (!params.sessionIdOverride || !isEventStoreConcurrencyConflict(error)) {
+        throw error;
+      }
+
+      const replayed = await existingStartedSession();
+      if (replayed) {
+        return replayed;
+      }
+
+      throw error;
+    }
+
     return {
       sessionId,
       ...commitMetadataFromStoredEvents(result.storedEvents),
