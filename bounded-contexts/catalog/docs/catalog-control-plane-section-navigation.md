@@ -2,6 +2,8 @@
 
 This note is the Catalog-specific application contract for #1048. It applies the design-system [Section Navigation](../../../packages/design-system/SECTION_NAVIGATION.md) pattern to the rebuilt Catalog Control Plane.
 
+> Routing update (#1739): the workbench is no longer a single `?section=` mini-app. The control plane is split into four real nested routes — the daily import-to-promotion route plus the `providers`, `governance`, and `release` surfaces — each with its own loader and composed from a shared workbench shell. See [Catalog Integrations Route IA](./catalog-integrations-route-ia.md) for the route map. The route path is the screen router; `?section=` only names the precise workspace inside a multi-workspace surface (active-nav highlight and detour telemetry) and is never the screen router.
+
 ## Product Priority
 
 The first and default operator job is:
@@ -36,6 +38,8 @@ The rebuild must not preserve retired admin patterns as cleaned-up pages. It mus
 
 Each screen must have one cohesive job. A screen that needs several unrelated headings, tab sets, or action clusters is a decomposition failure and should be split before implementation.
 
+Each audience surface is its own route (`/admin/integrations`, `/admin/integrations/providers`, `/admin/integrations/governance`, `/admin/integrations/release`) with its own loader, composed from the shared workbench shell. The daily route renders only the import-to-promotion job; the other three render their grouped supporting workspaces. Navigation between surfaces is real route navigation, so deep links, browser back/forward, and bookmarks work without a query-param section router.
+
 ## Desktop And Mobile
 
 Desktop must use left-side grouped section navigation with headings that match the group contract. Active, blocked, disabled, warning, pending, and count states should make the next operator decision visible without replacing the screen's own readiness evidence.
@@ -56,7 +60,7 @@ Every supporting detour must preserve enough context to return to the primary pa
 - promotion preview ID;
 - return path.
 
-The return target should be the Import to promotion workbench unless the operator intentionally entered a verification-only screen.
+The return target should be the Import to promotion workbench unless the operator intentionally entered a verification-only screen. Across the four routes, every supporting detour carries these context keys plus a `returnPath` query param that points back to the daily import-to-promotion route, so a blocked-sync detour from the daily route into a provider, governance, or release surface deep-links with full working context and returns to the right place.
 
 ## Retirement Contract
 

@@ -1,7 +1,10 @@
 import type { CatalogPrimaryWorkbenchRouteContext } from "../api/primary-workbench-admin-contracts";
 import { catalogPrimaryWorkbenchSections } from "../api/primary-workbench-admin-contracts";
 import type { CatalogIntegrationUnitKey } from "../api/integration-unit";
-import { CATALOG_CONTROL_PLANE_WORKSPACES } from "./admin-control-plane/information-architecture";
+import {
+  CATALOG_CONTROL_PLANE_ROUTE_SURFACES,
+  CATALOG_CONTROL_PLANE_WORKSPACES,
+} from "./admin-control-plane/information-architecture";
 
 const canonicalKeys = new Set([
   "section",
@@ -16,7 +19,11 @@ const canonicalKeys = new Set([
 ]);
 
 const filterPrefix = "filter.";
-const catalogPrimaryWorkbenchPath = "/catalog/integrations";
+// The daily surface is the base integrations route; the other three audience
+// surfaces are real nested routes. The route path is the screen router; ?section=
+// only names the precise workspace within a multi-workspace surface (active-nav +
+// detour telemetry), so it is never the screen router.
+const catalogPrimaryWorkbenchBasePath = "/catalog/integrations";
 const catalogPrimaryWorkbenchOrigin = "https://admin.example";
 const defaultCatalogPrimaryWorkbenchSection = "import-to-promotion";
 const retiredRoutePattern = /legacy|compat|raw-json/i;
@@ -27,11 +34,60 @@ const workspacesByRouteSegment = new Map<string, (typeof CATALOG_CONTROL_PLANE_W
   CATALOG_CONTROL_PLANE_WORKSPACES.map((workspace) => [workspace.routeSegment, workspace]),
 );
 const primarySectionKeys = new Set<string>(catalogPrimaryWorkbenchSections.map((section) => section.key));
+const surfacePathByKey = new Map<string, string>(
+  CATALOG_CONTROL_PLANE_ROUTE_SURFACES.map((surface) => [surface.key, surfacePath(surface.pathSegment)]),
+);
+const surfaceDefaultSectionByPath = new Map<string, string>(
+  CATALOG_CONTROL_PLANE_ROUTE_SURFACES.map((surface) => [surfacePath(surface.pathSegment), surface.workspaces[0]]),
+);
+const surfacePaths = [...surfaceDefaultSectionByPath.keys()];
+
+function surfacePath(pathSegment: string): string {
+  return pathSegment ? `${catalogPrimaryWorkbenchBasePath}/${pathSegment}` : catalogPrimaryWorkbenchBasePath;
+}
+
+// Resolve the canonical surface route path that renders the given section. The
+// section is normalized to a workspace key; read-model section keys that are not
+// workspaces (e.g. source-observation-review, promotion-preview) belong to the
+// daily import-to-promotion job and therefore resolve to the base route.
+export function catalogPrimaryWorkbenchSurfacePathForSection(section: string): string {
+  const normalized = normalizeCatalogPrimaryWorkbenchSection(section);
+  const workspace = workspacesByKey.get(normalized);
+  if (!workspace) {
+    return catalogPrimaryWorkbenchBasePath;
+  }
+  return surfacePathByKey.get(workspace.routeSurface) ?? catalogPrimaryWorkbenchBasePath;
+}
+
+// The exact surface route a pathname resolves to, or null when the pathname is
+// not one of the four integrations surfaces (e.g. action POSTs to the base path).
+function surfaceDefaultSectionForPathname(pathname: string | null | undefined): string | null {
+  if (!pathname) {
+    return null;
+  }
+  const normalizedPathname = pathname.replace(/\/+$/, "") || catalogPrimaryWorkbenchBasePath;
+  const match = surfacePaths.find((path) => normalizedPathname === path);
+
+  return match ? (surfaceDefaultSectionByPath.get(match) ?? defaultCatalogPrimaryWorkbenchSection) : null;
+}
+
+// Resolve the precise workspace for a request. ?section= (set by the action and
+// by deep links) names the exact workspace; otherwise the route path determines
+// the surface default. Direct visits to /integrations/providers therefore open
+// profile authoring without any query state.
+function resolveSectionFromLocation(searchParams: URLSearchParams, pathname: string | null | undefined): string {
+  const explicitSection = searchParams.get("section");
+  if (explicitSection?.trim()) {
+    return normalizeCatalogPrimaryWorkbenchSection(explicitSection);
+  }
+
+  return surfaceDefaultSectionForPathname(pathname) ?? defaultCatalogPrimaryWorkbenchSection;
+}
 
 export function parseCatalogPrimaryWorkbenchRouteContext(url: string | URL): CatalogPrimaryWorkbenchRouteContext {
   const parsedUrl = typeof url === "string" ? new URL(url) : url;
 
-  return routeContextFromSearchParams(parsedUrl.searchParams, true);
+  return routeContextFromLocation(parsedUrl.searchParams, parsedUrl.pathname, true);
 }
 
 export function normalizeCatalogPrimaryWorkbenchSection(section: string | null | undefined): string {
@@ -83,12 +139,13 @@ export function catalogPrimaryWorkbenchSupportingHref(
   );
 }
 
-function routeContextFromSearchParams(
+function routeContextFromLocation(
   searchParams: URLSearchParams,
+  pathname: string | null | undefined,
   includeReturnPath: boolean,
 ): CatalogPrimaryWorkbenchRouteContext {
   return {
-    section: normalizeCatalogPrimaryWorkbenchSection(searchParams.get("section")),
+    section: resolveSectionFromLocation(searchParams, pathname),
     providerKey: nullableParam(searchParams, "providerKey"),
     unitKey: nullableParam(searchParams, "unitKey") as CatalogIntegrationUnitKey | null,
     importScope: nullableParam(searchParams, "importScope"),
@@ -132,16 +189,23 @@ export function serializeCatalogPrimaryWorkbenchRouteContext(
 }
 
 export function catalogPrimaryWorkbenchHref(context: CatalogPrimaryWorkbenchRouteContext, section?: string): string {
+  const normalizedSection = normalizeCatalogPrimaryWorkbenchSection(section ?? context.section);
+  const path = catalogPrimaryWorkbenchSurfacePathForSection(normalizedSection);
   const searchParams = serializeCatalogPrimaryWorkbenchRouteContext({
     ...context,
-    section: normalizeCatalogPrimaryWorkbenchSection(section ?? context.section),
+    section: normalizedSection,
   });
-  if (section) {
-    searchParams.set("section", catalogPrimaryWorkbenchSectionRouteValue(section));
+  // The route path is the surface router. Keep ?section= only to disambiguate the
+  // precise workspace inside a multi-workspace surface (active-nav + telemetry);
+  // drop it when it is the surface default so canonical URLs stay clean.
+  if (normalizedSection !== (surfaceDefaultSectionByPath.get(path) ?? defaultCatalogPrimaryWorkbenchSection)) {
+    searchParams.set("section", catalogPrimaryWorkbenchSectionRouteValue(normalizedSection));
+  } else {
+    searchParams.delete("section");
   }
   const query = searchParams.toString();
 
-  return query ? `${catalogPrimaryWorkbenchPath}?${query}` : catalogPrimaryWorkbenchPath;
+  return query ? `${path}?${query}` : path;
 }
 
 export function catalogPrimaryWorkbenchContextKeysFromUrl(url: string | URL): readonly string[] {
@@ -209,15 +273,15 @@ function sanitizeReturnPath(value: string | null): string | null {
 
   try {
     const parsedUrl = new URL(trimmed, catalogPrimaryWorkbenchOrigin);
-    if (parsedUrl.origin !== catalogPrimaryWorkbenchOrigin || parsedUrl.pathname !== catalogPrimaryWorkbenchPath) {
+    const normalizedReturnPathname = parsedUrl.pathname.replace(/\/+$/, "") || catalogPrimaryWorkbenchBasePath;
+    if (parsedUrl.origin !== catalogPrimaryWorkbenchOrigin || !surfacePaths.includes(normalizedReturnPathname)) {
       return null;
     }
 
-    const hadSection = parsedUrl.searchParams.has("section");
     parsedUrl.searchParams.delete("returnPath");
-    const returnContext = routeContextFromSearchParams(parsedUrl.searchParams, false);
+    const returnContext = routeContextFromLocation(parsedUrl.searchParams, normalizedReturnPathname, false);
 
-    return catalogPrimaryWorkbenchHref(returnContext, hadSection ? returnContext.section : undefined);
+    return catalogPrimaryWorkbenchHref(returnContext, returnContext.section);
   } catch {
     return null;
   }

@@ -2461,13 +2461,24 @@ function validatePrimaryWorkbenchRouteContext(context: CatalogPrimaryWorkbenchRo
   }
 }
 
+// The four audience surface routes that make up the rebuilt integrations
+// workbench (#1739). The daily base route plus three nested surface routes are
+// all safe in-workbench destinations; ?section= only names a workspace within a
+// surface, so it never changes which route a link targets.
+const safePrimaryWorkbenchSurfacePaths = new Set<string>([
+  "/catalog/integrations",
+  "/catalog/integrations/providers",
+  "/catalog/integrations/governance",
+  "/catalog/integrations/release",
+]);
+
 function isSafePrimaryWorkbenchReturnPath(path: string): boolean {
   if (path.startsWith("//")) {
     return false;
   }
   try {
     const parsedUrl = new URL(path, "https://admin.example");
-    return parsedUrl.origin === "https://admin.example" && parsedUrl.pathname === "/catalog/integrations";
+    return parsedUrl.origin === "https://admin.example" && safePrimaryWorkbenchSurfacePaths.has(parsedUrl.pathname);
   } catch {
     return false;
   }

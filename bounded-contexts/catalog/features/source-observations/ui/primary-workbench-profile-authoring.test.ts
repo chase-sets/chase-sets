@@ -223,9 +223,11 @@ describe("Catalog primary workbench read model - profile authoring", () => {
       changedCount: 24,
       reason: null,
     });
-    expect(basics?.importScopeControls.find((scope) => scope.scope === "product/card")?.href).toContain(
-      "section=workbench",
-    );
+    // The import-scope control links back to the daily import-to-promotion surface
+    // route, which carries no ?section= (it is the surface default).
+    const productCardHref = basics?.importScopeControls.find((scope) => scope.scope === "product/card")?.href ?? "";
+    expect(new URL(productCardHref, "https://admin.example").pathname).toBe("/catalog/integrations");
+    expect(productCardHref).not.toContain("section=");
   });
 
   it("explains unavailable TCGplayer import scopes while keeping option query authoring provider-neutral", () => {

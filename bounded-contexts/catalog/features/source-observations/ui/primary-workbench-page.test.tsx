@@ -18,6 +18,15 @@ function jsonClone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+// Supporting workspaces link back to the daily import-to-promotion surface route,
+// which is the base /catalog/integrations path and carries no ?section= (it is the
+// default workspace of its surface).
+function expectBackToWorkbenchHref(href: string | null | undefined) {
+  const url = new URL(href ?? "", "https://admin.example");
+  expect(url.pathname).toBe("/catalog/integrations");
+  expect(url.searchParams.has("section")).toBe(false);
+}
+
 describe("CatalogPrimaryWorkbenchPage", () => {
   afterEach(() => {
     cleanup();
@@ -95,9 +104,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
 
     expect(screen.getByRole("heading", { name: "Integration health triage" })).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Back to import workbench" }).getAttribute("href")).toContain(
-      "section=workbench",
-    );
+    expectBackToWorkbenchHref(screen.getByRole("link", { name: "Back to import workbench" }).getAttribute("href"));
     expect(screen.getAllByText("Catalog semantic readiness").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Provider transport readiness").length).toBeGreaterThan(0);
     expect(screen.getAllByText("TCGdex semantic mapping").length).toBeGreaterThan(0);
@@ -289,7 +296,9 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(draftForm?.querySelector<HTMLInputElement>('input[name="_intent"]')?.value).toBe("clone-provider-profile");
     expect(draftForm?.querySelector<HTMLInputElement>('input[name="sourceProviderKey"]')?.value).toBe("tcgdex");
     expect(draftForm?.querySelector<HTMLInputElement>('input[name="sourceProfileVersion"]')?.value).toBe("2026.06.04");
-    expect(draftForm?.getAttribute("action")).toContain("section=profile-work");
+    expect(new URL(draftForm?.getAttribute("action") ?? "", "https://admin.example").pathname).toBe(
+      "/catalog/integrations/providers",
+    );
     expect(screen.queryByRole("heading", { name: "Provider import operations" })).toBeNull();
     expect(screen.queryByText(/raw JSON/i)).toBeNull();
     expect(screen.queryByText(/Profile JSON|Candidate JSON|Active JSON/i)).toBeNull();
@@ -381,9 +390,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.getAllByText(/sha256:candidate-mapping/).length).toBeGreaterThan(0);
     expect(screen.getAllByText("Changes the card variant merge identity.").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Promotion Plan").length).toBeGreaterThan(0);
-    expect(screen.getByRole("link", { name: "Back to import workbench" }).getAttribute("href")).toContain(
-      "section=workbench",
-    );
+    expectBackToWorkbenchHref(screen.getByRole("link", { name: "Back to import workbench" }).getAttribute("href"));
 
     const migrationEvidenceForm = document.querySelector<HTMLFormElement>(
       'form[data-catalog-validation-evidence-form="true"]',
@@ -539,9 +546,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.getByText("Overrides fail closed until rebuilt")).toBeTruthy();
     expect(screen.getByText(/compatibility override paths are retired/i)).toBeTruthy();
     expect(screen.getAllByText("Promotion mapping reviewed for conflicting Catalog item.").length).toBeGreaterThan(0);
-    expect(screen.getByRole("link", { name: "Back to import workbench" }).getAttribute("href")).toContain(
-      "section=workbench",
-    );
+    expectBackToWorkbenchHref(screen.getByRole("link", { name: "Back to import workbench" }).getAttribute("href"));
     expect(screen.queryByText(/raw JSON|Profile JSON|Candidate JSON|Active JSON/i)).toBeNull();
   });
 
@@ -701,7 +706,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     });
 
     expect(screen.getByRole("heading", { name: "Integration health triage" })).toBeTruthy();
-    expect(window.location.pathname).toBe("/catalog/integrations");
+    expect(window.location.pathname).toBe("/catalog/integrations/release");
     expect(window.location.search).toContain("section=triage");
     expect(window.location.search).toContain("providerKey=tcgdex");
     expect(window.location.search).toContain("unitKey=tcgdex%3Apokemon%3Acard%3Aimport");
@@ -730,8 +735,9 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     });
 
     expect(screen.getByRole("heading", { name: "Provider profile authoring" })).toBeTruthy();
-    expect(window.location.pathname).toBe("/catalog/integrations");
-    expect(window.location.search).toContain("section=profile-work");
+    // Profile authoring is the providers surface default, so the route carries no ?section=.
+    expect(window.location.pathname).toBe("/catalog/integrations/providers");
+    expect(window.location.search).not.toContain("section=");
     expect(window.location.search).toContain("providerKey=tcgdex");
     expect(window.location.search).toContain("unitKey=tcgdex%3Apokemon%3Acard%3Aimport");
     expect(window.location.search).toContain("filter.status=changed");
@@ -763,7 +769,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       .getAllByRole("link")
       .find((link) => link.getAttribute("href")?.includes("section=evidence"));
     expect(auditEvidenceLink?.getAttribute("aria-current")).toBe("page");
-    expect(window.location.pathname).toBe("/catalog/integrations");
+    expect(window.location.pathname).toBe("/catalog/integrations/release");
     expect(window.location.search).toContain("section=evidence");
     expect(window.location.search).toContain("providerKey=tcgdex");
     expect(window.location.search).toContain("unitKey=tcgdex%3Apokemon%3Acard%3Aimport");

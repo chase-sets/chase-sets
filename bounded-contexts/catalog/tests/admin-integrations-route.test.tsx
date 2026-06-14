@@ -379,7 +379,7 @@ describe("Catalog integrations route", () => {
       lifecycle: "draft",
     });
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toContain("section=profile-work");
+    expect(response.headers.get("Location")).toContain("/catalog/integrations/providers");
     expect(response.headers.get("Location")).toContain("providerKey=tcgdex");
     expect(response.headers.get("Location")).toContain("profileVersion=2026.06.04-draft");
     expect(response.headers.get("Location")).toContain("selectedObservationIds=obs_001");
@@ -418,7 +418,7 @@ describe("Catalog integrations route", () => {
 
     expect(cloneSourceObservationProviderProfile).not.toHaveBeenCalled();
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toContain("section=profile-work");
+    expect(response.headers.get("Location")).toContain("/catalog/integrations/providers");
     expect(response.headers.get("Location")).toContain("commandStatus=error");
     expect(response.headers.get("Location")).toContain("commandResult=invalid-intent");
   });
@@ -472,7 +472,7 @@ describe("Catalog integrations route", () => {
       }),
     );
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toContain("section=profile-work");
+    expect(response.headers.get("Location")).toContain("/catalog/integrations/providers");
     expect(response.headers.get("Location")).toContain("profileVersion=2026.06.04-draft");
     expect(response.headers.get("Location")).toContain("commandResult=section-saved");
     expect(response.headers.get("Location")).toContain("commandSection=basics");
@@ -540,6 +540,7 @@ describe("Catalog integrations route", () => {
       }),
     );
     expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toContain("/catalog/integrations/providers");
     expect(response.headers.get("Location")).toContain("section=readiness");
     expect(response.headers.get("Location")).toContain("commandResult=section-saved");
     expect(response.headers.get("Location")).toContain("commandSection=migration-evidence");
@@ -584,6 +585,7 @@ describe("Catalog integrations route", () => {
 
     expect(activateSourceObservationProviderProfile).toHaveBeenCalledWith("tcgdex", "2026.06.04");
     expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toContain("/catalog/integrations/providers");
     expect(response.headers.get("Location")).toContain("section=readiness");
     expect(response.headers.get("Location")).toContain("providerKey=tcgdex");
     expect(response.headers.get("Location")).toContain("profileVersion=2026.06.04");
@@ -664,6 +666,7 @@ describe("Catalog integrations route", () => {
     expect(rollbackSourceObservationProviderProfile).toHaveBeenCalledWith("tcgdex", "2026.06.03");
     expect(deprecateSourceObservationProviderProfile).toHaveBeenCalledWith("tcgdex", "2026.06.04");
     expect(retireSourceObservationProviderProfile).toHaveBeenCalledWith("tcgdex", "2026.06.02");
+    expect(rollbackResponse.headers.get("Location")).toContain("/catalog/integrations/governance");
     expect(rollbackResponse.headers.get("Location")).toContain("section=lifecycle");
     expect(rollbackResponse.headers.get("Location")).toContain("commandResult=profile-rolled-back");
     expect(rollbackResponse.headers.get("Location")).not.toContain("promotionPreviewId=");
@@ -712,6 +715,7 @@ describe("Catalog integrations route", () => {
 
     expect(retireSourceObservationProviderProfile).not.toHaveBeenCalled();
     expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toContain("/catalog/integrations/governance");
     expect(response.headers.get("Location")).toContain("section=lifecycle");
     expect(response.headers.get("Location")).toContain("commandStatus=error");
     expect(response.headers.get("Location")).toContain("commandResult=confirmation-required");
@@ -752,6 +756,7 @@ describe("Catalog integrations route", () => {
     );
 
     expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toContain("/catalog/integrations/governance");
     expect(response.headers.get("Location")).toContain("section=lifecycle");
     expect(response.headers.get("Location")).toContain("commandStatus=error");
     expect(response.headers.get("Location")).toContain("commandResult=lifecycle-conflict");

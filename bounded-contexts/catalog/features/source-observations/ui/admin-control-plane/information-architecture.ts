@@ -23,9 +23,16 @@ export type CatalogControlPlaneWorkspaceKey =
 
 export type CatalogControlPlaneNavigationGroupKey = "primary" | "unblock" | "govern" | "verify";
 
+// Each audience surface is a real nested route under /admin/integrations.
+// The route path is the screen router; the workspace key (carried as ?section=)
+// only identifies the precise workspace within a multi-workspace surface for
+// active-nav highlighting and detour telemetry.
+export type CatalogControlPlaneRouteSurfaceKey = "daily" | "providers" | "governance" | "release";
+
 export type CatalogControlPlaneWorkspace = Readonly<{
   key: CatalogControlPlaneWorkspaceKey;
   routeSegment: string;
+  routeSurface: CatalogControlPlaneRouteSurfaceKey;
   accessibleName: string;
   group: CatalogControlPlaneNavigationGroupKey;
   keyboardOrder: number;
@@ -36,6 +43,17 @@ export type CatalogControlPlaneWorkspace = Readonly<{
   primaryPathRole: "default" | "supporting-detour";
   linkBackContextKeys: readonly CatalogControlPlaneContextKey[];
   consumesIssues: readonly number[];
+}>;
+
+export type CatalogControlPlaneRouteSurface = Readonly<{
+  key: CatalogControlPlaneRouteSurfaceKey;
+  // Path segment appended to /admin/integrations. The daily surface is the base
+  // route, so its segment is empty.
+  pathSegment: string;
+  accessibleName: string;
+  // Workspaces rendered, in order, by this route. The first workspace is the
+  // surface default when no precise workspace is selected.
+  workspaces: readonly CatalogControlPlaneWorkspaceKey[];
 }>;
 
 export type CatalogControlPlaneNavigationGroup = Readonly<{
@@ -75,6 +93,7 @@ export const CATALOG_CONTROL_PLANE_WORKSPACES = [
   {
     key: "import-to-promotion",
     routeSegment: "workbench",
+    routeSurface: "daily",
     accessibleName: "Import to promotion workbench",
     group: "primary",
     keyboardOrder: 10,
@@ -96,6 +115,7 @@ export const CATALOG_CONTROL_PLANE_WORKSPACES = [
   {
     key: "health-triage",
     routeSegment: "triage",
+    routeSurface: "release",
     accessibleName: "Health triage",
     group: "unblock",
     keyboardOrder: 20,
@@ -110,6 +130,7 @@ export const CATALOG_CONTROL_PLANE_WORKSPACES = [
   {
     key: "profile-authoring",
     routeSegment: "profile-work",
+    routeSurface: "providers",
     accessibleName: "Profile authoring",
     group: "unblock",
     keyboardOrder: 30,
@@ -124,6 +145,7 @@ export const CATALOG_CONTROL_PLANE_WORKSPACES = [
   {
     key: "validation-readiness",
     routeSegment: "readiness",
+    routeSurface: "providers",
     accessibleName: "Validation readiness",
     group: "unblock",
     keyboardOrder: 40,
@@ -146,6 +168,7 @@ export const CATALOG_CONTROL_PLANE_WORKSPACES = [
   {
     key: "conflict-resolution",
     routeSegment: "conflicts",
+    routeSurface: "governance",
     accessibleName: "Conflict resolution",
     group: "govern",
     keyboardOrder: 60,
@@ -170,6 +193,7 @@ export const CATALOG_CONTROL_PLANE_WORKSPACES = [
   {
     key: "lifecycle-recovery",
     routeSegment: "lifecycle",
+    routeSurface: "governance",
     accessibleName: "Lifecycle recovery",
     group: "govern",
     keyboardOrder: 70,
@@ -194,6 +218,7 @@ export const CATALOG_CONTROL_PLANE_WORKSPACES = [
   {
     key: "governance-controls",
     routeSegment: "controls",
+    routeSurface: "governance",
     accessibleName: "Governance controls",
     group: "govern",
     keyboardOrder: 80,
@@ -208,6 +233,7 @@ export const CATALOG_CONTROL_PLANE_WORKSPACES = [
   {
     key: "clean-reset-release",
     routeSegment: "reset-release",
+    routeSurface: "release",
     accessibleName: "Clean reset release",
     group: "verify",
     keyboardOrder: 90,
@@ -228,6 +254,7 @@ export const CATALOG_CONTROL_PLANE_WORKSPACES = [
   {
     key: "audit-evidence",
     routeSegment: "evidence",
+    routeSurface: "release",
     accessibleName: "Audit evidence",
     group: "verify",
     keyboardOrder: 100,
@@ -274,6 +301,52 @@ export const CATALOG_CONTROL_PLANE_NAVIGATION_GROUPS = [
     items: ["clean-reset-release", "audit-evidence"],
   },
 ] as const satisfies readonly CatalogControlPlaneNavigationGroup[];
+
+// The four audience surfaces, each a real nested route under /admin/integrations.
+// The daily surface renders only the primary import-to-promotion job; the other
+// three render their grouped supporting workspaces stacked. Listed in nav order.
+export const CATALOG_CONTROL_PLANE_ROUTE_SURFACES = [
+  {
+    key: "daily",
+    pathSegment: "",
+    accessibleName: "Daily import to promotion",
+    workspaces: ["import-to-promotion"],
+  },
+  {
+    key: "providers",
+    pathSegment: "providers",
+    accessibleName: "Provider profiles and readiness",
+    workspaces: ["profile-authoring", "validation-readiness"],
+  },
+  {
+    key: "governance",
+    pathSegment: "governance",
+    accessibleName: "Govern and recover",
+    workspaces: ["conflict-resolution", "lifecycle-recovery", "governance-controls"],
+  },
+  {
+    key: "release",
+    pathSegment: "release",
+    accessibleName: "Release evidence and health",
+    workspaces: ["clean-reset-release", "audit-evidence", "health-triage"],
+  },
+] as const satisfies readonly CatalogControlPlaneRouteSurface[];
+
+export function catalogControlPlaneRouteSurface(
+  key: CatalogControlPlaneRouteSurfaceKey,
+): CatalogControlPlaneRouteSurface {
+  const surface = CATALOG_CONTROL_PLANE_ROUTE_SURFACES.find((candidate) => candidate.key === key);
+  if (!surface) {
+    throw new Error(`Unknown Catalog Control Plane route surface '${key}'.`);
+  }
+  return surface;
+}
+
+export function catalogControlPlaneRouteSurfaceForWorkspace(
+  key: CatalogControlPlaneWorkspaceKey,
+): CatalogControlPlaneRouteSurface {
+  return catalogControlPlaneRouteSurface(catalogControlPlaneWorkspaceByKey(key).routeSurface);
+}
 
 export const CATALOG_CONTROL_PLANE_WORKFLOW_MAP = [
   {

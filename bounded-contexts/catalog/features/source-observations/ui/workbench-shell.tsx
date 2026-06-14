@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import {
   BulkActionSurface,
   DenseAdminWorkbench,
@@ -12,66 +12,35 @@ import {
 import { t } from "@chase-sets/localization";
 import type { CatalogPrimaryWorkbenchReadModel } from "../api/primary-workbench-admin-contracts";
 import {
-  CATALOG_CONTROL_PLANE_NAVIGATION_GROUPS,
+  CATALOG_CONTROL_PLANE_ROUTE_SURFACES,
   CATALOG_CONTROL_PLANE_WORKSPACES,
-  type CatalogControlPlaneWorkspaceKey,
 } from "./admin-control-plane/information-architecture";
 import { CommandFormButton } from "./admin-control-plane/import-to-promotion/command-controls";
-import {
-  commandFeedbackDescription,
-  commandSuccessTitle,
-  type CatalogPrimaryWorkbenchCommandFeedback,
-} from "./primary-workbench-command-feedback";
-import { CATALOG_PRIMARY_WORKBENCH_WORKSPACE_RENDERERS } from "./workbench-workspace-renderers";
-import {
-  catalogPrimaryWorkbenchHref,
-  catalogPrimaryWorkbenchSupportingHref,
-  normalizeCatalogPrimaryWorkbenchSection,
-} from "./primary-workbench-route-context";
+import type { CatalogPrimaryWorkbenchCommandFeedback } from "./primary-workbench-command-feedback";
+import { commandFeedbackDescription, commandSuccessTitle } from "./primary-workbench-command-feedback";
+import { catalogPrimaryWorkbenchHref, catalogPrimaryWorkbenchSupportingHref } from "./primary-workbench-route-context";
 
-// Superseded by the four nested integrations surface routes (#1739); kept until
-// the legacy ?section= page is fully removed (#1749). The render registry and
-// command-feedback copy now live in shared modules that the routes also consume.
-export type { CatalogPrimaryWorkbenchCommandFeedback } from "./primary-workbench-command-feedback";
-export { CATALOG_PRIMARY_WORKBENCH_WORKSPACE_RENDERERS } from "./workbench-workspace-renderers";
-
-export interface CatalogPrimaryWorkbenchPageProps {
+export interface CatalogWorkbenchShellProps {
   readModel: CatalogPrimaryWorkbenchReadModel;
   commandFeedback?: CatalogPrimaryWorkbenchCommandFeedback | null;
+  // The precise workspace key that is active on this surface. Drives nav highlight.
+  activeSection: string;
+  // The composed surface body (one workspace for the daily route, the grouped
+  // workspaces for the other three). The shell owns no per-surface logic.
+  children: ReactNode;
 }
 
-export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null }: CatalogPrimaryWorkbenchPageProps) {
-  const navigation = useMemo(() => navigationGroups(readModel), [readModel]);
-  const [activeSection, setActiveSection] = useState(() => normalizeActiveWorkspace(readModel.routeContext.section));
-  useEffect(() => {
-    setActiveSection(normalizeActiveWorkspace(readModel.routeContext.section));
-  }, [readModel.routeContext.section]);
-  useEffect(() => {
-    const handlePopState = () => {
-      setActiveSection(
-        normalizeActiveWorkspace(new URL(window.location.href).searchParams.get("section") ?? undefined),
-      );
-    };
-
-    window.addEventListener("popstate", handlePopState);
-
-    return () => window.removeEventListener("popstate", handlePopState);
-  }, []);
-  const handleSectionSelect = (key: string) => {
-    const normalized = normalizeActiveWorkspace(key);
-    setActiveSection(normalized);
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    const href = findNavigationHref(navigation, key) ?? findNavigationHref(navigation, normalized);
-    if (href) {
-      window.history.pushState({ catalogPrimaryWorkbenchSection: normalized }, "", href);
-    }
-  };
-  const renderActiveWorkspace =
-    CATALOG_PRIMARY_WORKBENCH_WORKSPACE_RENDERERS[activeSection as CatalogControlPlaneWorkspaceKey] ??
-    CATALOG_PRIMARY_WORKBENCH_WORKSPACE_RENDERERS["import-to-promotion"];
+// Shared chrome for every integrations surface route: cross-surface header,
+// metric strip, and grouped navigation that links to the four real routes. Each
+// route composes this shell around its own surface body, so no surface-specific
+// rendering lives here.
+export function CatalogWorkbenchShell({
+  readModel,
+  commandFeedback = null,
+  activeSection,
+  children,
+}: CatalogWorkbenchShellProps) {
+  const navigation = surfaceNavigationGroups(readModel);
 
   return (
     <DenseAdminWorkbench data-catalog-primary-workbench="true">
@@ -127,10 +96,9 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
         activeNavigationKey={activeSection}
         navigationLabel={t("catalog.features.sourceObservations.ui.primaryWorkbench.navigation.label")}
         mobileNavigationLabel={t("catalog.features.sourceObservations.ui.primaryWorkbench.navigation.mobile.label")}
-        onNavigationSelect={handleSectionSelect}
       >
         <BulkActionSurface>
-          <WorkbenchStack>{renderActiveWorkspace(readModel)}</WorkbenchStack>
+          <WorkbenchStack>{children}</WorkbenchStack>
         </BulkActionSurface>
       </DenseAdminWorkbenchLayout>
     </DenseAdminWorkbench>
@@ -151,13 +119,16 @@ function CommandFeedbackBanner({ feedback }: { feedback: CatalogPrimaryWorkbench
   );
 }
 
-function navigationGroups(readModel: CatalogPrimaryWorkbenchReadModel): SectionNavigationGroup[] {
+// One nav group per audience surface. Items link to the surface route (the daily
+// route for the primary workspace, the grouped routes for supporting workspaces),
+// so navigation is real route navigation rather than a query-param section switch.
+function surfaceNavigationGroups(readModel: CatalogPrimaryWorkbenchReadModel): SectionNavigationGroup[] {
   const workspaces = new Map(CATALOG_CONTROL_PLANE_WORKSPACES.map((workspace) => [workspace.key, workspace]));
 
-  return CATALOG_CONTROL_PLANE_NAVIGATION_GROUPS.map((group) => ({
-    key: group.key,
-    label: group.accessibleName,
-    items: group.items.map((workspaceKey) => {
+  return CATALOG_CONTROL_PLANE_ROUTE_SURFACES.map((surface) => ({
+    key: surface.key,
+    label: surface.accessibleName,
+    items: surface.workspaces.map((workspaceKey) => {
       const workspace = workspaces.get(workspaceKey);
       const supportState = workspace?.primaryPathRole === "default" ? "default" : supportNavigationState(readModel);
 
@@ -166,8 +137,8 @@ function navigationGroups(readModel: CatalogPrimaryWorkbenchReadModel): SectionN
         label: workspace?.accessibleName ?? workspaceKey,
         href:
           workspace?.primaryPathRole === "supporting-detour"
-            ? catalogPrimaryWorkbenchSupportingHref(readModel.routeContext, workspace.key)
-            : catalogPrimaryWorkbenchHref(readModel.routeContext, workspace?.key),
+            ? catalogPrimaryWorkbenchSupportingHref(readModel.routeContext, workspaceKey)
+            : catalogPrimaryWorkbenchHref(readModel.routeContext, workspaceKey),
         description: workspace?.operatorJob,
         count:
           workspaceKey === "import-to-promotion" ? readModel.sourceObservationReview.promotionReadyCount : undefined,
@@ -182,17 +153,4 @@ function supportNavigationState(readModel: CatalogPrimaryWorkbenchReadModel) {
   return readModel.readiness.blockers.length > 0 || readModel.promotionPreview.blockers.length > 0
     ? ("warning" as const)
     : ("default" as const);
-}
-
-function findNavigationHref(groups: SectionNavigationGroup[], key: string): string | undefined {
-  return groups.flatMap((group) => group.items).find((item) => item.key === key)?.href;
-}
-
-function normalizeActiveWorkspace(section: string | undefined): string {
-  const normalizedSection = normalizeCatalogPrimaryWorkbenchSection(section);
-  if (CATALOG_CONTROL_PLANE_WORKSPACES.some((workspace) => workspace.key === normalizedSection)) {
-    return normalizedSection;
-  }
-
-  return "import-to-promotion";
 }
