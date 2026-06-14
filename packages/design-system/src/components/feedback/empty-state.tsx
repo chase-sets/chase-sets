@@ -1,5 +1,8 @@
 import type { HTMLAttributes, ReactNode } from "react";
-import { Icon, type IconName } from "../../icons";
+import type { IconName } from "../../icons";
+import { Center, Inline, Stack } from "../../primitives/layout";
+import { ToneIcon } from "../../primitives/tone-icon";
+import { Heading, Text } from "../../primitives/typography";
 
 export interface EmptyStateProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style" | "title"> {
   title: ReactNode;
@@ -11,15 +14,27 @@ export interface EmptyStateProps extends Omit<HTMLAttributes<HTMLDivElement>, "c
 export function EmptyState({ title, description, actions, icon = "spark", ...rest }: EmptyStateProps) {
   return (
     <div {...rest} className="rounded-tokenLg border border-dashed border-muted bg-background p-6 text-center">
-      <div className="mx-auto flex max-w-sm flex-col items-center gap-4">
-        <div className="inline-flex h-14 w-14 items-center justify-center rounded-tokenFull bg-elevated shadow-tokenSm">
-          <Icon name={icon} size="lg" tone="accent" />
-        </div>
-        <div className="space-y-2">
-          <div className="font-heading text-xl font-semibold text-foreground">{title}</div>
-          {description ? <div className="text-sm text-secondary">{description}</div> : null}
-        </div>
-        {actions ? <div className="flex flex-wrap justify-center gap-2">{actions}</div> : null}
+      <div className="mx-auto max-w-sm">
+        <Stack align="center" gap={4} minWidth="0">
+          <ToneIcon name={icon} tone="primary" size="lg" />
+          <Stack gap={2} align="center">
+            <Heading level={2} visualSize={4} align="center">
+              {title}
+            </Heading>
+            {description ? (
+              <Text size="sm" tone="secondary" align="center">
+                {description}
+              </Text>
+            ) : null}
+          </Stack>
+          {actions ? (
+            <Center>
+              <Inline gap={2} align="center">
+                {actions}
+              </Inline>
+            </Center>
+          ) : null}
+        </Stack>
       </div>
     </div>
   );

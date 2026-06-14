@@ -1,4 +1,6 @@
 import type { IconName } from "../../icons";
+import type { SurfaceSemanticTone } from "../../primitives/layout";
+import type { ToneIconTone } from "../../primitives/tone-icon";
 import { useControllableValue } from "../controllable";
 
 export type Tone = "neutral" | "accent" | "success" | "warning" | "danger" | "info";
@@ -75,6 +77,16 @@ export function toneIcon(tone: BadgeTone): IconName {
 
 export function toneToIconTone(tone: BadgeTone) {
   return tone === "neutral" ? "secondary" : tone;
+}
+
+/**
+ * Maps the semantic feedback {@link Tone} set onto the shared
+ * {@link SurfaceSemanticTone}/{@link ToneIconTone} vocabulary used by tonal
+ * `Surface` and `ToneIcon` primitives. `accent` resolves to the canonical
+ * `primary` brand tone (they share the `--primary-soft` surface token).
+ */
+export function toneToSemantic(tone: Tone): SurfaceSemanticTone & ToneIconTone {
+  return tone === "accent" ? "primary" : tone;
 }
 
 export function useControllableOpen(

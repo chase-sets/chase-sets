@@ -2,6 +2,8 @@ import { forwardRef, type ComponentProps, type HTMLAttributes, type ReactNode } 
 import { Accordion as AccordionPrimitive } from "@base-ui/react/accordion";
 import { motion } from "motion/react";
 import { Icon, type IconName } from "../../icons";
+import { Stack } from "../../primitives/layout";
+import { Heading, Text } from "../../primitives/typography";
 import { useChaseMotion } from "../../theme/provider";
 import { cx } from "../../utils/cx";
 import { softToneClasses, type Tone, toneToIconTone } from "./shared";
@@ -92,10 +94,22 @@ function DisclosureTriggerContent({
           <Icon name={icon} size="sm" tone={toneToIconTone(tone)} />
         </span>
       ) : null}
-      <span className="min-w-0 flex-1 space-y-1">
-        <span className="block text-sm font-semibold text-foreground">{title}</span>
-        {description ? <span className="block text-xs font-normal leading-5 text-secondary">{description}</span> : null}
-        {summary ? <span className="block text-xs font-medium leading-5 text-tertiary">{summary}</span> : null}
+      <span className="min-w-0 flex-1">
+        <Stack element="span" gap={1}>
+          <Text element="span" size="sm" weight="semibold">
+            {title}
+          </Text>
+          {description ? (
+            <Text element="span" size="xs" tone="secondary">
+              {description}
+            </Text>
+          ) : null}
+          {summary ? (
+            <Text element="span" size="xs" weight="medium" tone="tertiary">
+              {summary}
+            </Text>
+          ) : null}
+        </Stack>
       </span>
     </span>
   );
@@ -181,12 +195,20 @@ export function ProgressiveDisclosureGroup({
   ...rest
 }: ProgressiveDisclosureGroupProps) {
   return (
-    <section {...rest} className="space-y-3">
+    <Stack {...rest} element="section" gap={3}>
       {title || description ? (
-        <div className="space-y-1">
-          {title ? <h3 className="font-heading text-lg font-semibold text-foreground">{title}</h3> : null}
-          {description ? <p className="text-sm text-secondary">{description}</p> : null}
-        </div>
+        <Stack gap={1}>
+          {title ? (
+            <Heading level={3} visualSize={5}>
+              {title}
+            </Heading>
+          ) : null}
+          {description ? (
+            <Text size="sm" tone="secondary">
+              {description}
+            </Text>
+          ) : null}
+        </Stack>
       ) : null}
       <AccordionPrimitive.Root<string>
         multiple={multiple}
@@ -199,6 +221,6 @@ export function ProgressiveDisclosureGroup({
           <DisclosureItem key={item.value} {...item} last={index === items.length - 1} />
         ))}
       </AccordionPrimitive.Root>
-    </section>
+    </Stack>
   );
 }
