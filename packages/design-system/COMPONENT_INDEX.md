@@ -4,7 +4,7 @@
 
 This index is generated from the root `@chase-sets/design-system` export surface and the production consumer inventory used by `scripts/check-design-system-dead-exports.mjs`.
 
-- Runtime exports indexed: 339
+- Runtime exports indexed: 341
 - Source modules covered: 101
 - Example consumers scan: production files under `bounded-contexts/` and `deployables/`, excluding tests
 
@@ -139,6 +139,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `HoneypotInput` | `packages/design-system/src/components/forms/hidden-input.tsx` | Purpose not documented; symbol name suggests: Honeypot Input. | `bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx` |
 | `Icon` | `packages/design-system/src/icons/index.tsx` | Purpose not documented; symbol name suggests: Icon. | `bounded-contexts/discovery/features/item-detail/ui/item-detail-page.tsx` |
 | `IconButton` | `packages/design-system/src/components/actions/button.tsx` | Purpose not documented; symbol name suggests: Icon Button. | `No production consumer yet.` |
+| `IconRow` | `packages/design-system/src/primitives/layout.tsx` | Icon-beside-text row: a fixed-size icon slot (`shrink-0`, optional top-nudge) next to a `min-w-0` content slot that wraps and truncates cleanly. | `No production consumer yet.` |
 | `Image` | `packages/design-system/src/components/data-display/image.tsx` | Design-system `<img>` replacement with native lazy loading, a skeleton placeholder while the image streams in, and graceful fallback handling when a source fails. | `bounded-contexts/catalog/features/source-observations/ui/source-observation-detail-page.tsx` |
 | `ImageGallery` | `packages/design-system/src/components/data-display/image-gallery.tsx` | Purpose not documented; symbol name suggests: Image Gallery. | `bounded-contexts/discovery/features/item-detail/ui/item-detail-page.tsx` |
 | `Inline` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: Inline. | `bounded-contexts/auth/features/registration/ui/register-page.tsx` |
@@ -181,7 +182,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `Menu` | `packages/design-system/src/components/feedback/menu.tsx` | Purpose not documented; symbol name suggests: Menu. | `No production consumer yet.` |
 | `MessageThreadPreview` | `packages/design-system/src/components/commerce/detail.tsx` | Purpose not documented; symbol name suggests: Message Thread Preview. | `No production consumer yet.` |
 | `MetricStrip` | `packages/design-system/src/patterns/app-shells/checkout-panels.tsx` | Purpose not documented; symbol name suggests: Metric Strip. | `bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/conflicts/conflict-resolution-workspace.tsx` |
-| `MobileStickyBar` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: Mobile Sticky Bar. | `bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx` |
+| `MobileStickyBar` | `packages/design-system/src/primitives/layout.tsx` | Mobile-only bottom sticky bar. | `bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx` |
 | `MobileStickyInset` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: Mobile Sticky Inset. | `bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx` |
 | `ModalDialog` | `packages/design-system/src/components/feedback/panel-interactions.tsx` | Purpose not documented; symbol name suggests: Modal Dialog. | `bounded-contexts/identity/features/shipping-addresses/ui/shipping-address-page.tsx` |
 | `NativeSelect` | `packages/design-system/src/components/forms/select.tsx` | Purpose not documented; symbol name suggests: Native Select. | `bounded-contexts/auth/features/sessions/ui/session-detail-page.tsx` |
@@ -283,6 +284,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `StatGrid` | `packages/design-system/src/components/data-display/stat.tsx` | Purpose not documented; symbol name suggests: Stat Grid. | `bounded-contexts/discovery/features/google-shopping-operations/ui/google-shopping-operations-page.tsx` |
 | `StatusPill` | `packages/design-system/src/components/feedback/badge.tsx` | Purpose not documented; symbol name suggests: Status Pill. | `bounded-contexts/auth/features/sessions/ui/admin-pages.tsx` |
 | `StatusReasonList` | `packages/design-system/src/patterns/dense-admin-workbench.tsx` | Purpose not documented; symbol name suggests: Status Reason List. | `bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/conflicts/conflict-resolution-workspace.tsx` |
+| `StickyBar` | `packages/design-system/src/primitives/layout.tsx` | Position-agnostic sticky action bar pinned to the top or bottom edge. | `No production consumer yet.` |
 | `StickyCtaBar` | `packages/design-system/src/components/checkout/checkout.tsx` | Purpose not documented; symbol name suggests: Sticky Cta Bar. | `bounded-contexts/checkout/features/cart/ui/cart-page.tsx` |
 | `StickyTaskFooter` | `packages/design-system/src/components/data-display/operational-workflow.tsx` | Purpose not documented; symbol name suggests: Sticky Task Footer. | `bounded-contexts/fulfillment/features/shipments/ui/shipment-packing-page.tsx` |
 | `Subheading` | `packages/design-system/src/primitives/typography.tsx` | Purpose not documented; symbol name suggests: Subheading. | `No production consumer yet.` |

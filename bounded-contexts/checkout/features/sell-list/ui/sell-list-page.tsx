@@ -529,7 +529,7 @@ function SelectedOfferRow({
 
   return (
     <Surface element="article" tone="default" padding={4}>
-      <Grid template="content-aside-action" gap={4}>
+      <Grid templateColumns="minmax(0,1fr) minmax(11rem,14rem) auto" stackUntil="md" gap={4}>
         <Stack gap={2}>
           <Inline gap={2}>
             <Badge tone="success">{t("checkout.features.sellList.ui.sellListPage.selected.offer")}</Badge>
@@ -621,7 +621,7 @@ function ProductLineRow({
   return (
     <Surface element="article" tone="default" padding={4}>
       <Stack gap={4}>
-        <Grid template="content-aside-action" gap={4}>
+        <Grid templateColumns="minmax(0,1fr) minmax(11rem,14rem) auto" stackUntil="md" gap={4}>
           <Stack gap={2}>
             <Inline gap={2}>
               <Badge tone="info">{t("checkout.features.sellList.ui.sellListPage.product.line")}</Badge>
