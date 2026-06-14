@@ -14,6 +14,14 @@ export interface ImageProps extends Omit<ImgHTMLAttributes<HTMLImageElement>, "c
   fallback?: ReactNode;
   /** Native lazy/eager loading hint. Defaults to `lazy`. */
   loading?: ImgHTMLAttributes<HTMLImageElement>["loading"];
+  /**
+   * Intrinsic display width. A number is treated as pixels. When set, the image
+   * sizes itself to this width (capped at 100% of its container) and keeps its
+   * natural aspect ratio instead of filling a sized parent.
+   */
+  width?: number | string;
+  /** Apply a rounded corner radius token to the rendered image. Defaults to `false`. */
+  rounded?: boolean;
 }
 
 const imageFitClasses: Record<NonNullable<ImageProps["fit"]>, string> = {
@@ -36,6 +44,8 @@ export function Image({
   fallbackSrc,
   fallback,
   loading = "lazy",
+  width,
+  rounded = false,
   onLoad,
   onError,
   ...rest
@@ -52,9 +62,18 @@ export function Image({
   }
 
   const showSkeleton = skeleton && !loaded && Boolean(resolvedSrc);
+  const selfSized = width !== undefined;
+  const wrapperStyle = selfSized ? { width, maxWidth: "100%" } : undefined;
 
   return (
-    <span className="relative block h-full w-full overflow-hidden">
+    <span
+      style={wrapperStyle}
+      className={cx(
+        "relative block overflow-hidden",
+        selfSized ? "max-w-full" : "h-full w-full",
+        rounded && "rounded-tokenMd",
+      )}
+    >
       {showSkeleton ? <span aria-hidden="true" className="absolute inset-0 animate-pulse bg-muted" /> : null}
       {resolvedSrc ? (
         <img
@@ -79,7 +98,8 @@ export function Image({
             onError?.(event);
           }}
           className={cx(
-            "block h-full w-full transition-opacity duration-200",
+            "block transition-opacity duration-200",
+            selfSized ? "h-auto w-full" : "h-full w-full",
             imageFitClasses[fit],
             loaded ? "opacity-100" : "opacity-0",
           )}

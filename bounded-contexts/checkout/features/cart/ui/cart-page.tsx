@@ -5,10 +5,14 @@ import {
   Form,
   Badge,
   Banner,
+  Box,
   Button,
+  Grid,
+  Image,
   Inline,
   LinkButton,
   MarketplaceEmptyState,
+  MediaFrame,
   NumberInput,
   Page,
   PageHeader,
@@ -17,6 +21,7 @@ import {
   PriceBreakdown,
   ProductOptions,
   SecurePaymentIndicator,
+  Show,
   Stack,
   StickyCtaBar,
   Surface,
@@ -226,16 +231,16 @@ function ListingPreferenceStatus({ line }: { line: CheckoutCartLineGroup }) {
 
 function ProductImage({ line }: { line: CheckoutCartLineGroup }) {
   return (
-    <div className="relative h-24 w-20 shrink-0 overflow-hidden rounded-tokenMd border border-[var(--border)] bg-[var(--surface-2)] shadow-tokenSm sm:h-28 sm:w-24">
-      <img
+    <MediaFrame size="cartLine">
+      <Image
         src={line.item_image_url ?? CART_ITEM_FALLBACK_IMAGE_URL}
         alt={t("checkout.features.cart.ui.cartPage.product.image.alt", { title: line.item_title })}
         srcSet={line.item_image_srcset ?? undefined}
         sizes="6rem"
-        className="h-full w-full object-contain p-1.5"
+        fit="contain"
         loading="lazy"
       />
-    </div>
+    </MediaFrame>
   );
 }
 
@@ -293,10 +298,10 @@ function CartLineRow({ line }: { line: CheckoutCartLineGroup }) {
       ))}
       <HiddenInput type="hidden" name="sellerPreferenceId" value={line.seller_preference_id ?? ""} />
       <Surface element="article" tone="default" padding={4}>
-        <div className="grid min-w-0 gap-4 md:grid-cols-[auto_minmax(0,1fr)_minmax(10rem,12rem)_minmax(9rem,11rem)] md:items-start">
-          <div className="flex min-w-0 gap-3">
+        <Grid template="media-content-facts-action" gap={4}>
+          <Stack direction="row" gap={3} minWidth="0">
             <ProductImage line={line} />
-            <div className="min-w-0 md:hidden">
+            <Show until="md" minWidth="0">
               <Stack gap={1}>
                 <Text weight="semibold" wrap="anywhere">
                   {line.item_title}
@@ -308,10 +313,10 @@ function CartLineRow({ line }: { line: CheckoutCartLineGroup }) {
                 ) : null}
                 <Text weight="semibold">{linePriceLabel(line)}</Text>
               </Stack>
-            </div>
-          </div>
+            </Show>
+          </Stack>
           <Stack gap={2}>
-            <div className="hidden min-w-0 md:block">
+            <Show from="md" minWidth="0">
               <Text weight="semibold" wrap="anywhere">
                 {line.item_title}
               </Text>
@@ -320,7 +325,7 @@ function CartLineRow({ line }: { line: CheckoutCartLineGroup }) {
                   {line.item_subtitle}
                 </Text>
               ) : null}
-            </div>
+            </Show>
             <Inline gap={2}>
               {line.item_language_code ? (
                 <Badge tone="neutral">{formatLanguageCodeLabel(line.item_language_code)}</Badge>
@@ -337,15 +342,15 @@ function CartLineRow({ line }: { line: CheckoutCartLineGroup }) {
           </Stack>
           <QuantityControls line={line} />
           <Stack gap={3}>
-            <div className="hidden md:block">
+            <Show from="md">
               <Text size="sm" tone="secondary">
                 {t("checkout.features.cart.ui.cartPage.total")}
               </Text>
               <Text weight="semibold">{linePriceLabel(line)}</Text>
-            </div>
+            </Show>
             <CartLineActions line={line} />
           </Stack>
-        </div>
+        </Grid>
       </Surface>
     </Form>
   );
@@ -392,16 +397,16 @@ function CheckoutAction({
 }) {
   if (snapshot.status !== "ready") {
     return (
-      <div className="min-w-40">
+      <Box minWidth="action">
         <LinkButton href={BUY_READINESS_ROUTE} tone="primary" size="md" block>
           {t("checkout.features.cart.ui.cartPage.resolve.fulfillment")}
         </LinkButton>
-      </div>
+      </Box>
     );
   }
 
   return (
-    <div className="min-w-40">
+    <Box minWidth="action">
       <Stack gap={2}>
         <CheckoutForm
           label={t("checkout.features.cart.ui.cartPage.check.out")}
@@ -416,7 +421,7 @@ function CheckoutAction({
           />
         ) : null}
       </Stack>
-    </div>
+    </Box>
   );
 }
 

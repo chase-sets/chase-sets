@@ -11,10 +11,10 @@ import {
   CheckoutStateNotice,
   CheckoutStickyActionBar,
   CheckoutSummaryPanel,
+  DesktopActionBar,
   Form,
   Grid,
   HiddenInput,
-  Icon,
   LinkButton,
   NativeSelect,
   Page,
@@ -289,16 +289,9 @@ function SummaryPanel({
 
 function editRowAction(section: SignedInSellCheckoutEditSection, label: string, onEdit: () => void) {
   return (
-    <button
-      type="button"
-      className="focus-ring inline-flex min-w-0 max-w-full items-center justify-center gap-2 rounded-tokenMd border border-border bg-surface-2 px-3 py-1.5 text-sm font-semibold leading-snug text-foreground shadow-tokenSm transition hover:border-accent hover:text-accent"
-      onClick={onEdit}
-    >
-      <Icon name="edit" size="sm" tone="accent" />
-      <span className="min-w-0">
-        {label || t("checkout.features.sellList.ui.signedInSellCheckoutPage.edit.section", { section })}
-      </span>
-    </button>
+    <Button type="button" tone="secondary" size="sm" leadingIcon="edit" onClick={onEdit}>
+      {label || t("checkout.features.sellList.ui.signedInSellCheckoutPage.edit.section", { section })}
+    </Button>
   );
 }
 
@@ -743,12 +736,12 @@ export function SignedInSellCheckoutPage({
 
               <CheckoutPolicyLinks />
 
-              <div className="hidden md:flex md:items-center md:gap-2" data-primary-action-count="1">
+              <DesktopActionBar data-primary-action-count="1">
                 {primaryAction}
                 <LinkButton href="/account/sell-list" tone="secondary">
                   {t("checkout.features.sellList.ui.signedInSellCheckoutPage.back.to.sell.list")}
                 </LinkButton>
-              </div>
+              </DesktopActionBar>
             </Form>
           }
         />

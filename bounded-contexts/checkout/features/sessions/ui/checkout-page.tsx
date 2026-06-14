@@ -14,7 +14,6 @@ import {
   Divider,
   Grid,
   Inline,
-  Icon,
   LinkButton,
   MarketplaceEmptyState,
   MarketplaceNotice,
@@ -376,14 +375,9 @@ export function CheckoutSessionPage({
       : t("checkout.features.sessions.ui.checkoutPage.saved.payment.row.supporting.secure.step");
   function editRowAction(section: CheckoutEditSection, label: string) {
     return (
-      <button
-        type="button"
-        className="focus-ring inline-flex min-w-0 max-w-full items-center justify-center gap-2 rounded-tokenMd border border-border bg-surface-2 px-3 py-1.5 text-sm font-semibold leading-snug text-foreground shadow-tokenSm transition hover:border-accent hover:text-accent"
-        onClick={() => setEditingSection(section)}
-      >
-        <Icon name="edit" size="sm" tone="accent" />
-        <span className="min-w-0">{label}</span>
-      </button>
+      <Button type="button" tone="secondary" size="sm" leadingIcon="edit" onClick={() => setEditingSection(section)}>
+        {label}
+      </Button>
     );
   }
   function markReviewStale() {
