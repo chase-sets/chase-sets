@@ -231,7 +231,7 @@ function ListingPreferenceStatus({ line }: { line: CheckoutCartLineGroup }) {
 
 function ProductImage({ line }: { line: CheckoutCartLineGroup }) {
   return (
-    <MediaFrame size="cartLine">
+    <MediaFrame size="md">
       <Image
         src={line.item_image_url ?? CART_ITEM_FALLBACK_IMAGE_URL}
         alt={t("checkout.features.cart.ui.cartPage.product.image.alt", { title: line.item_title })}
@@ -298,7 +298,7 @@ function CartLineRow({ line }: { line: CheckoutCartLineGroup }) {
       ))}
       <HiddenInput type="hidden" name="sellerPreferenceId" value={line.seller_preference_id ?? ""} />
       <Surface element="article" tone="default" padding={4}>
-        <Grid template="media-content-facts-action" gap={4}>
+        <Grid templateColumns="auto minmax(0,1fr) minmax(10rem,12rem) minmax(9rem,11rem)" stackUntil="md" gap={4}>
           <Stack direction="row" gap={3} minWidth="0">
             <ProductImage line={line} />
             <Show until="md" minWidth="0">

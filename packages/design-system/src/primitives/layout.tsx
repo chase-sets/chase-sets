@@ -1,6 +1,7 @@
 import {
   forwardRef,
   type ComponentProps,
+  type CSSProperties,
   type ElementType,
   type HTMLAttributes,
   type PropsWithChildren,
@@ -210,45 +211,104 @@ export function Cluster({ children, justify = "between", gap = 3, align = "cente
   );
 }
 
-/**
- * Named responsive column templates for line-item rows that stack on mobile and
- * resolve to sized tracks from `md` up. Tailwind scans for literal class strings,
- * so each template must be a full string here rather than assembled at runtime.
- */
-export type GridTemplate = "content-aside-action" | "media-content-facts-action";
+export interface IconRowProps extends PropsWithChildren, Omit<FrameProps, "children"> {
+  /** Leading icon (or other fixed-size adornment). Pinned with `shrink-0`. */
+  icon: ReactNode;
+  /** Cross-axis alignment of the icon against the content. Defaults to `start`. */
+  align?: "start" | "center";
+  /** Horizontal gap token between the icon and the content. */
+  gap?: ResponsiveValue<SpaceToken>;
+  /**
+   * Nudge the icon down a hair so it optically aligns with the first text line
+   * when `align="start"`. Ignored when `align="center"`. Defaults to `true`.
+   */
+  nudge?: boolean;
+}
 
-const gridTemplateClasses: Record<GridTemplate, string> = {
-  // Primary content (1fr) · sized aside · auto-width action.
-  "content-aside-action": "min-w-0 md:grid-cols-[minmax(0,1fr)_minmax(11rem,14rem)_auto] md:items-start",
-  // Media · primary content (1fr) · sized facts · sized action.
-  "media-content-facts-action":
-    "min-w-0 md:grid-cols-[auto_minmax(0,1fr)_minmax(10rem,12rem)_minmax(9rem,11rem)] md:items-start",
+const iconRowAlignClasses: Record<NonNullable<IconRowProps["align"]>, string> = {
+  start: "items-start",
+  center: "items-center",
 };
 
+/**
+ * Icon-beside-text row: a fixed-size icon slot (`shrink-0`, optional top-nudge)
+ * next to a `min-w-0` content slot that wraps and truncates cleanly. Replaces the
+ * hand-rolled `flex` + `shrink-0` + `min-w-0` trio repeated across the HOC layer.
+ */
+export function IconRow({ children, icon, align = "start", gap = 2, nudge = true, ...rest }: IconRowProps) {
+  return (
+    <div {...rest} className={cx("flex", iconRowAlignClasses[align], resolveSystemProps({ gap }))}>
+      <span className={cx("shrink-0", align === "start" && nudge && "mt-0.5")} aria-hidden="true">
+        {icon}
+      </span>
+      <div className="min-w-0">{children}</div>
+    </div>
+  );
+}
+
 export interface GridProps extends PropsWithChildren, Omit<FrameProps, "children"> {
+  /**
+   * Inline style hook. The primitive owns `grid-template-columns` (via
+   * `templateColumns`) but merges any consumer style on top, so callers keep
+   * passing layout data without reaching for a raw host element.
+   */
+  style?: CSSProperties;
   columns?: ResponsiveValue<ColumnCount>;
-  /** Named responsive line-row template. Takes precedence over `columns` when set. */
-  template?: GridTemplate;
+  /**
+   * Explicit `grid-template-columns` track definition, applied via inline style
+   * and merged with any incoming `style`. Keeps slice-specific track lists in the
+   * consumer as plain data instead of a named variant baked into this primitive.
+   * Takes precedence over `columns` when set. Pair with `stackUntil` to keep a
+   * single stacked column below a breakpoint and only resolve the tracks above it.
+   */
+  templateColumns?: string;
+  /**
+   * Breakpoint below which `templateColumns` is suppressed (the grid renders as a
+   * single stacked column) and only applies from that breakpoint up. Mirrors the
+   * mobile-stack → desktop-tracks behavior line rows rely on.
+   */
+  stackUntil?: "sm" | "md" | "lg";
   gap?: ResponsiveValue<SpaceToken>;
   align?: ResponsiveValue<AlignValue>;
   justify?: ResponsiveValue<JustifyValue>;
 }
 
+const gridStackAlignClasses: Record<NonNullable<GridProps["stackUntil"]>, string> = {
+  sm: "min-w-0 sm:items-start",
+  md: "min-w-0 md:items-start",
+  lg: "min-w-0 lg:items-start",
+};
+
 export function Grid({
   children,
   columns = { base: 1, md: 2, xl: 3 },
-  template,
+  templateColumns,
+  stackUntil,
   gap = 4,
   align,
   justify,
+  style,
   ...rest
 }: GridProps) {
+  // When stacking below a breakpoint, the explicit tracks only apply at and above
+  // it; below it the grid keeps its implicit single column. Otherwise the tracks
+  // apply at every width.
+  const trackStyle: CSSProperties | undefined = templateColumns
+    ? stackUntil
+      ? ({ [`--grid-template-columns-${stackUntil}`]: templateColumns } as CSSProperties)
+      : { gridTemplateColumns: templateColumns }
+    : undefined;
+
   return (
     <div
       {...rest}
+      style={trackStyle ? { ...trackStyle, ...style } : style}
       className={cx(
         "grid",
-        template ? gridTemplateClasses[template] : resolveColumnsClass(columns),
+        templateColumns ? (stackUntil ? gridStackAlignClasses[stackUntil] : undefined) : resolveColumnsClass(columns),
+        stackUntil === "sm" && "sm:[grid-template-columns:var(--grid-template-columns-sm)]",
+        stackUntil === "md" && "md:[grid-template-columns:var(--grid-template-columns-md)]",
+        stackUntil === "lg" && "lg:[grid-template-columns:var(--grid-template-columns-lg)]",
         resolveAlignClass(align),
         resolveJustifyClass(justify),
         resolveSystemProps({ gap }),
@@ -363,21 +423,65 @@ export function Center({ children, inline = false, axis = "both", ...rest }: Cen
   );
 }
 
-export interface MobileStickyBarProps extends PropsWithChildren, Omit<FrameProps, "children"> {
-  visibleFrom?: "mobile" | "all";
+export interface StickyBarProps extends PropsWithChildren, Omit<FrameProps, "children"> {
+  /** Edge the bar pins to. Defaults to `bottom`. */
+  position?: "top" | "bottom";
+  /** Hide the bar from this breakpoint up (e.g. a mobile-only action bar). */
+  hideFrom?: ShowBreakpoint;
+  /** Frosted translucent chrome with a blurred backdrop. Defaults to `true`. */
+  backdrop?: boolean;
 }
 
-export function MobileStickyBar({ children, visibleFrom = "mobile", ...rest }: MobileStickyBarProps) {
+const stickyBarPositionClasses: Record<NonNullable<StickyBarProps["position"]>, string> = {
+  // Bottom bars reserve safe-area inset padding so actions clear the home bar.
+  bottom: "bottom-0 border-t pb-[max(0.5rem,env(safe-area-inset-bottom))]",
+  top: "top-0 border-b pt-[max(0.5rem,env(safe-area-inset-top))]",
+};
+
+const stickyBarHideFromClasses: Record<ShowBreakpoint, string> = {
+  sm: "sm:hidden",
+  md: "md:hidden",
+  lg: "lg:hidden",
+  xl: "xl:hidden",
+};
+
+/**
+ * Position-agnostic sticky action bar pinned to the top or bottom edge. Owns the
+ * fixed positioning, safe-area inset, border, elevation, and optional frosted
+ * backdrop so callers never reach for route-local `fixed`/`inset` utilities. Pass
+ * `hideFrom` to scope it to a breakpoint range (a mobile-only bar uses
+ * `hideFrom="md"`). Pass-through props let callers attach contract attributes
+ * like `data-primary-action-count` without a raw host element.
+ */
+export function StickyBar({ children, position = "bottom", hideFrom, backdrop = true, ...rest }: StickyBarProps) {
   return (
     <div
       {...rest}
       className={cx(
-        "fixed inset-x-0 bottom-0 z-sticky border-t border-muted bg-background/overlay px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-tokenLg backdrop-blur-xl",
-        visibleFrom === "mobile" && "md:hidden",
+        "fixed inset-x-0 z-sticky border-muted px-3 py-2 shadow-tokenLg",
+        stickyBarPositionClasses[position],
+        backdrop ? "bg-background/overlay backdrop-blur-xl" : "bg-background",
+        hideFrom && stickyBarHideFromClasses[hideFrom],
       )}
     >
       {children}
     </div>
+  );
+}
+
+export interface MobileStickyBarProps extends PropsWithChildren, Omit<FrameProps, "children"> {
+  visibleFrom?: "mobile" | "all";
+}
+
+/**
+ * Mobile-only bottom sticky bar. Thin alias over {@link StickyBar} preserved for
+ * existing call sites; new bars should use `StickyBar` directly.
+ */
+export function MobileStickyBar({ children, visibleFrom = "mobile", ...rest }: MobileStickyBarProps) {
+  return (
+    <StickyBar position="bottom" hideFrom={visibleFrom === "mobile" ? "md" : undefined} {...rest}>
+      {children}
+    </StickyBar>
   );
 }
 
@@ -394,10 +498,12 @@ export function MobileStickyInset({ children, ...rest }: MobileStickyInsetProps)
 export interface DesktopActionBarProps extends PropsWithChildren, Omit<FrameProps, "children"> {}
 
 /**
- * Desktop-only inline action row. Hidden on mobile (where a `MobileStickyBar`
- * carries the same actions) and shown as a centered flex row from `md` up.
- * Pass-through props let callers attach contract attributes like
- * `data-primary-action-count` without reaching for a raw host element.
+ * Desktop-only inline action row. Distinct from {@link StickyBar}: this is an
+ * in-flow, non-fixed flex row hidden on mobile (where a `StickyBar`/
+ * `MobileStickyBar` carries the same actions) and shown from `md` up. The two
+ * compose rather than overlap — `StickyBar` owns edge-pinned chrome, this owns
+ * the inline desktop layout. Pass-through props let callers attach contract
+ * attributes like `data-primary-action-count` without a raw host element.
  */
 export function DesktopActionBar({ children, ...rest }: DesktopActionBarProps) {
   return (
@@ -407,37 +513,52 @@ export function DesktopActionBar({ children, ...rest }: DesktopActionBarProps) {
   );
 }
 
+export type ShowBreakpoint = "sm" | "md" | "lg" | "xl";
+
 export interface ShowProps extends PropsWithChildren, Omit<FrameProps, "children"> {
+  /** Render only from this breakpoint up (hidden below it). Alias of `from`. */
+  above?: ShowBreakpoint;
+  /** Render only below this breakpoint (hidden from it up). Alias of `until`. */
+  below?: ShowBreakpoint;
   /** Render only from this breakpoint up (hidden below it). */
-  from?: "md";
+  from?: ShowBreakpoint;
   /** Render only below this breakpoint (hidden from it up). */
-  until?: "md";
+  until?: ShowBreakpoint;
   /** Display mode applied when the content is visible. Defaults to `block`. */
   display?: "block" | "flex";
   minWidth?: MinWidthToken;
 }
 
-const showFromClasses: Record<NonNullable<ShowProps["from"]>, Record<NonNullable<ShowProps["display"]>, string>> = {
+const showAboveClasses: Record<ShowBreakpoint, Record<NonNullable<ShowProps["display"]>, string>> = {
+  sm: { block: "hidden sm:block", flex: "hidden sm:flex" },
   md: { block: "hidden md:block", flex: "hidden md:flex" },
+  lg: { block: "hidden lg:block", flex: "hidden lg:flex" },
+  xl: { block: "hidden xl:block", flex: "hidden xl:flex" },
 };
 
-const showUntilClasses: Record<NonNullable<ShowProps["until"]>, string> = {
+const showBelowClasses: Record<ShowBreakpoint, string> = {
+  sm: "sm:hidden",
   md: "md:hidden",
+  lg: "lg:hidden",
+  xl: "xl:hidden",
 };
 
 /**
- * Responsive visibility wrapper. Use `from` to reveal content from a breakpoint
- * up (hidden below) or `until` to show it only below a breakpoint. Keeps
- * responsive show/hide logic inside the design system instead of route-local
- * utility classes.
+ * Responsive visibility wrapper. Use `above`/`from` to reveal content from a
+ * breakpoint up (hidden below) or `below`/`until` to show it only below a
+ * breakpoint. Keeps responsive show/hide logic inside the design system instead
+ * of route-local utility classes.
  */
-export function Show({ children, from, until, display = "block", minWidth, ...rest }: ShowProps) {
+export function Show({ children, above, below, from, until, display = "block", minWidth, ...rest }: ShowProps) {
+  const aboveBreakpoint = above ?? from;
+  const belowBreakpoint = below ?? until;
+
   return (
     <div
       {...rest}
       className={cx(
-        from ? showFromClasses[from][display] : display === "flex" ? "flex" : undefined,
-        until && showUntilClasses[until],
+        aboveBreakpoint ? showAboveClasses[aboveBreakpoint][display] : display === "flex" ? "flex" : undefined,
+        belowBreakpoint && showBelowClasses[belowBreakpoint],
         resolveMinWidthClass(minWidth),
       )}
     >
@@ -447,12 +568,14 @@ export function Show({ children, from, until, display = "block", minWidth, ...re
 }
 
 export interface MediaFrameProps extends PropsWithChildren, Omit<FrameProps, "children"> {
-  /** Named responsive fixed size for the frame. */
-  size?: "cartLine";
+  /** Fixed responsive frame size on a generic `sm | md | lg` scale. */
+  size?: "sm" | "md" | "lg";
 }
 
 const mediaFrameSizeClasses: Record<NonNullable<MediaFrameProps["size"]>, string> = {
-  cartLine: "h-24 w-20 sm:h-28 sm:w-24",
+  sm: "h-16 w-14 sm:h-20 sm:w-16",
+  md: "h-24 w-20 sm:h-28 sm:w-24",
+  lg: "h-32 w-28 sm:h-36 sm:w-32",
 };
 
 /**
@@ -460,7 +583,7 @@ const mediaFrameSizeClasses: Record<NonNullable<MediaFrameProps["size"]>, string
  * grow or shrink within a flex/grid row. Wrap an `Image` (or other media) so the
  * frame owns sizing, clipping, and chrome instead of route-local utilities.
  */
-export function MediaFrame({ children, size = "cartLine", ...rest }: MediaFrameProps) {
+export function MediaFrame({ children, size = "md", ...rest }: MediaFrameProps) {
   return (
     <div
       {...rest}

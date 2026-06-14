@@ -2,7 +2,18 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { Image } from "../components/data-display";
-import { AspectRatio, Bleed, Center, DesktopActionBar, Grid, MediaFrame, Show } from "../primitives/layout";
+import {
+  AspectRatio,
+  Bleed,
+  Center,
+  DesktopActionBar,
+  Grid,
+  IconRow,
+  MediaFrame,
+  MobileStickyBar,
+  Show,
+  StickyBar,
+} from "../primitives/layout";
 import { Heading, Text } from "../primitives/typography";
 
 describe("Image primitive", () => {
@@ -115,10 +126,98 @@ describe("Show primitive", () => {
 
     expect(markup).toContain("md:hidden");
   });
+
+  it("supports the above/below aliases across breakpoints", () => {
+    const above = renderToString(
+      <Show above="lg" display="flex">
+        <span>Wide</span>
+      </Show>,
+    );
+    const below = renderToString(
+      <Show below="sm">
+        <span>Narrow</span>
+      </Show>,
+    );
+
+    expect(above).toContain("hidden lg:flex");
+    expect(below).toContain("sm:hidden");
+  });
+});
+
+describe("IconRow primitive", () => {
+  it("pins the icon, nudges it at the top by default, and lets content shrink", () => {
+    const { container } = render(
+      <IconRow icon={<svg data-testid="icon" />} data-testid="row">
+        <span>Body</span>
+      </IconRow>,
+    );
+
+    const row = screen.getByTestId("row");
+    expect(row.className).toContain("flex");
+    expect(row.className).toContain("items-start");
+
+    const iconSlot = container.querySelector('[aria-hidden="true"]');
+    expect(iconSlot?.className).toContain("shrink-0");
+    expect(iconSlot?.className).toContain("mt-0.5");
+    expect(container.querySelector(".min-w-0")?.textContent).toContain("Body");
+  });
+
+  it("centers the icon and drops the nudge when aligned center", () => {
+    const { container } = render(
+      <IconRow icon={<svg />} align="center" data-testid="row">
+        <span>Body</span>
+      </IconRow>,
+    );
+
+    expect(screen.getByTestId("row").className).toContain("items-center");
+    expect(container.querySelector('[aria-hidden="true"]')?.className).not.toContain("mt-0.5");
+  });
+});
+
+describe("StickyBar primitive", () => {
+  it("pins to the bottom with a frosted backdrop and passes contract attributes through", () => {
+    const markup = renderToString(
+      <StickyBar data-primary-action-count="1">
+        <button type="submit">Buy</button>
+      </StickyBar>,
+    );
+
+    expect(markup).toContain("fixed inset-x-0");
+    expect(markup).toContain("bottom-0");
+    expect(markup).toContain("pb-[max(0.5rem,env(safe-area-inset-bottom))]");
+    expect(markup).toContain("backdrop-blur-xl");
+    expect(markup).toContain('data-primary-action-count="1"');
+  });
+
+  it("supports a top edge, a hide-from breakpoint, and an opaque variant", () => {
+    const markup = renderToString(
+      <StickyBar position="top" hideFrom="md" backdrop={false}>
+        <span>Top</span>
+      </StickyBar>,
+    );
+
+    expect(markup).toContain("top-0");
+    expect(markup).toContain("md:hidden");
+    expect(markup).toContain("bg-background");
+    expect(markup).not.toContain("backdrop-blur-xl");
+  });
+
+  it("keeps MobileStickyBar rendering the same fixed bottom chrome", () => {
+    const markup = renderToString(
+      <MobileStickyBar>
+        <span>Cta</span>
+      </MobileStickyBar>,
+    );
+
+    expect(markup).toContain("fixed inset-x-0");
+    expect(markup).toContain("bottom-0");
+    expect(markup).toContain("md:hidden");
+    expect(markup).toContain("backdrop-blur-xl");
+  });
 });
 
 describe("MediaFrame primitive", () => {
-  it("renders a fixed, bordered, clipped media frame", () => {
+  it("renders a fixed, bordered, clipped media frame at the default md size", () => {
     const markup = renderToString(
       <MediaFrame>
         <Image src="/card.jpg" alt="Charizard" fit="contain" />
@@ -130,19 +229,39 @@ describe("MediaFrame primitive", () => {
     expect(markup).toContain("shrink-0");
     expect(markup).toContain("overflow-hidden");
   });
+
+  it("resolves the generic sm/md/lg size scale", () => {
+    expect(renderToString(<MediaFrame size="sm">x</MediaFrame>)).toContain("h-16 w-14 sm:h-20 sm:w-16");
+    expect(renderToString(<MediaFrame size="lg">x</MediaFrame>)).toContain("h-32 w-28 sm:h-36 sm:w-32");
+  });
 });
 
-describe("Grid template", () => {
-  it("resolves a named responsive line-row template instead of equal columns", () => {
-    const markup = renderToString(
-      <Grid template="content-aside-action" gap={4}>
+describe("Grid templateColumns", () => {
+  it("applies explicit tracks via inline style and merges incoming style", () => {
+    const { container } = render(
+      <Grid templateColumns="minmax(0,1fr) auto" style={{ rowGap: "8px" }} data-testid="grid">
         <span>content</span>
       </Grid>,
     );
 
-    expect(markup).toContain("md:grid-cols-[minmax(0,1fr)_minmax(11rem,14rem)_auto]");
-    expect(markup).toContain("md:items-start");
-    expect(markup).not.toContain("grid-cols-1");
+    const grid = screen.getByTestId("grid");
+    expect(grid.className).toContain("grid");
+    expect(grid.getAttribute("style")).toContain("grid-template-columns: minmax(0,1fr) auto");
+    expect(grid.getAttribute("style")).toContain("row-gap: 8px");
+    expect(grid.className).not.toContain("grid-cols-1");
+  });
+
+  it("stacks below a breakpoint and only resolves tracks above it", () => {
+    const markup = renderToString(
+      <Grid templateColumns="auto minmax(0,1fr) auto" stackUntil="md" gap={4}>
+        <span>content</span>
+      </Grid>,
+    );
+
+    expect(markup).toContain("min-w-0 md:items-start");
+    expect(markup).toContain("md:[grid-template-columns:var(--grid-template-columns-md)]");
+    expect(markup).toContain("--grid-template-columns-md:auto minmax(0,1fr) auto");
+    expect(markup).not.toContain("gridTemplateColumns");
   });
 });
 
