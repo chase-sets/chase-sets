@@ -38,9 +38,12 @@ const textWeightClasses = {
 const textToneClasses = {
   primary: "text-foreground",
   secondary: "text-secondary",
+  tertiary: "text-tertiary",
   inverse: "text-inverse",
   accent: "text-accent",
   danger: "text-danger",
+  /** Inherit the surrounding color (e.g. a tonal `Surface`) instead of forcing one. */
+  inherit: "text-current",
 } as const;
 
 const lineClampClasses = {

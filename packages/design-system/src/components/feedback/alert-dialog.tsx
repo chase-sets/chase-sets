@@ -1,10 +1,11 @@
 import type { ReactNode } from "react";
 import { AlertDialog as AlertDialogPrimitive } from "@base-ui/react/alert-dialog";
-import { Icon } from "../../icons";
+import { Stack } from "../../primitives/layout";
+import { ToneIcon } from "../../primitives/tone-icon";
 import { useChaseMotion, usePortalRoots } from "../../theme/provider";
 import { renderButtonTrigger, renderMotionDiv } from "../../utils/base-ui";
 import { Button } from "../actions";
-import { type Tone, toneIcon, useControllableOpen } from "./shared";
+import { toneIcon, toneToSemantic, useControllableOpen } from "./shared";
 import { resolveOverlayMotion, resolveOverlayFade } from "./motion-overlay";
 
 export interface AlertDialogProps {
@@ -66,10 +67,8 @@ export function AlertDialog({
               "modern-surface fixed left-1/2 top-1/2 z-modal w-[calc(100vw-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-tokenXl border border-muted p-5 shadow-overlay",
           })}
         >
-          <div className="space-y-3">
-            <div className="inline-flex h-10 w-10 items-center justify-center rounded-tokenFull bg-background">
-              <Icon name={toneIcon(tone)} size="sm" tone={tone} />
-            </div>
+          <Stack gap={3}>
+            <ToneIcon name={toneIcon(tone)} tone={toneToSemantic(tone)} size="md" />
             <AlertDialogPrimitive.Title className="font-heading text-xl font-semibold text-foreground">
               {title}
             </AlertDialogPrimitive.Title>
@@ -78,7 +77,7 @@ export function AlertDialog({
                 {description}
               </AlertDialogPrimitive.Description>
             ) : null}
-          </div>
+          </Stack>
           <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
             <AlertDialogPrimitive.Close render={<Button tone="secondary">{cancelLabel}</Button>} />
             <AlertDialogPrimitive.Close

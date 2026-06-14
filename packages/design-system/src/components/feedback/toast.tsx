@@ -1,9 +1,10 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Toast as ToastPrimitive } from "@base-ui/react/toast";
-import { Icon } from "../../icons";
+import { Stack } from "../../primitives/layout";
+import { ToneIcon } from "../../primitives/tone-icon";
 import { usePortalRoots } from "../../theme/provider";
 import { IconButton } from "../actions";
-import { type Tone, toneIcon } from "./shared";
+import { type Tone, toneIcon, toneToSemantic } from "./shared";
 
 export interface ToastItem {
   id: string;
@@ -101,22 +102,18 @@ function ToastRegionItem({
       className="modern-surface rounded-tokenLg border border-muted shadow-overlay"
     >
       <ToastPrimitive.Content className="grid grid-cols-[auto_1fr_auto] items-start gap-3 p-4">
-        <div className="inline-flex h-10 w-10 items-center justify-center rounded-tokenFull bg-background">
-          <Icon name={toneIcon(tone)} size="sm" tone={tone} />
-        </div>
-        <div className="min-w-0 space-y-1">
+        <ToneIcon name={toneIcon(tone)} tone={toneToSemantic(tone)} size="md" />
+        <Stack gap={1} minWidth="0">
           <ToastPrimitive.Title className="text-sm font-semibold text-foreground" />
           <ToastPrimitive.Description className="text-sm text-secondary" />
-        </div>
-        <div className="self-start">
-          <IconButton
-            label={toast.data?.dismissLabel ?? "Dismiss notification"}
-            icon="close"
-            tone="ghost"
-            size="sm"
-            onClick={onDismiss}
-          />
-        </div>
+        </Stack>
+        <IconButton
+          label={toast.data?.dismissLabel ?? "Dismiss notification"}
+          icon="close"
+          tone="ghost"
+          size="sm"
+          onClick={onDismiss}
+        />
       </ToastPrimitive.Content>
     </ToastPrimitive.Root>
   );

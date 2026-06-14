@@ -2,7 +2,15 @@ import type { HTMLAttributes, ReactNode } from "react";
 import { useId } from "react";
 import type { NavigationItem, SideNavProps } from "../actions";
 import { IconButton, SideNav } from "../actions";
-import { layoutWidthClasses, type LayoutWidth, type SidebarWidth as LayoutSidebarWidth } from "../../primitives/layout";
+import {
+  Box,
+  Inline,
+  Stack,
+  layoutWidthClasses,
+  type LayoutWidth,
+  type SidebarWidth as LayoutSidebarWidth,
+} from "../../primitives/layout";
+import { Heading, Subheading, Text } from "../../primitives/typography";
 import { cx } from "../../utils/cx";
 import { Dialog, ModalPanel, type DialogProps, type ModalPanelProps, type PanelBodyLayout } from "./dialog";
 
@@ -49,19 +57,19 @@ function renderPanelHeader({
   onClose?: () => void;
 }) {
   return (
-    <div className="flex items-start justify-between gap-4">
-      <div className="min-w-0 space-y-1">
-        <h2 id={titleId} className="font-heading text-xl font-semibold text-foreground">
+    <Stack direction="row" justify="between" align="start" gap={4}>
+      <Stack gap={1} minWidth="0">
+        <Heading id={titleId} level={2} visualSize={4}>
           {title}
-        </h2>
+        </Heading>
         {description ? (
-          <p id={descriptionId} className="text-sm leading-6 text-secondary">
+          <Text id={descriptionId} size="sm" tone="secondary">
             {description}
-          </p>
+          </Text>
         ) : null}
-      </div>
+      </Stack>
       {onClose ? <IconButton label={closeLabel ?? "Close panel"} icon="close" tone="ghost" onClick={onClose} /> : null}
-    </div>
+    </Stack>
   );
 }
 
@@ -293,15 +301,15 @@ export function NavigationDrawer({
 }: NavigationDrawerProps) {
   return (
     <SideSheet {...rest} modal side="left" width={width} title={label} description={description} footer={footer}>
-      <div className="grid gap-4">
-        {brand ? <div>{brand}</div> : null}
+      <Stack gap={4}>
+        {brand ? <Box>{brand}</Box> : null}
         <SideNav
           aria-label={typeof label === "string" ? label : "Navigation"}
           items={items}
           activeKey={activeKey}
           onSelect={onSelect}
         />
-      </div>
+      </Stack>
     </SideSheet>
   );
 }
@@ -346,14 +354,20 @@ export function Sidebar({
     >
       <div className="glass-surface flex h-full min-h-0 flex-col gap-4 rounded-tokenLg border border-muted p-3 shadow-tokenSm">
         {title || description ? (
-          <div className="space-y-1 px-1">
-            {title ? (
-              <h2 id={titleId} className="text-sm font-semibold text-foreground">
-                {title}
-              </h2>
-            ) : null}
-            {description ? <p className="text-xs leading-5 text-secondary">{description}</p> : null}
-          </div>
+          <Box paddingX={1}>
+            <Stack gap={1}>
+              {title ? (
+                <Subheading id={titleId} level={2}>
+                  {title}
+                </Subheading>
+              ) : null}
+              {description ? (
+                <Text size="xs" tone="secondary">
+                  {description}
+                </Text>
+              ) : null}
+            </Stack>
+          </Box>
         ) : null}
         {items ? (
           <SideNav
@@ -398,16 +412,27 @@ export function FullPage({
         layoutWidthClasses[width],
       )}
     >
-      <header className="flex min-w-0 flex-col gap-4 md:flex-row md:items-end md:justify-between">
-        <div className="min-w-0 space-y-2">
+      <Stack
+        element="header"
+        direction={{ base: "column", md: "row" }}
+        align={{ base: "stretch", md: "end" }}
+        justify={{ base: "start", md: "between" }}
+        gap={4}
+        minWidth="0"
+      >
+        <Stack gap={2} minWidth="0">
           {eyebrow ? <div className="text-xs font-semibold uppercase text-accent">{eyebrow}</div> : null}
-          <h1 className="font-display text-4xl font-semibold text-foreground md:text-5xl">{title}</h1>
+          <Heading level={1}>{title}</Heading>
           {description ? <p className="max-w-3xl text-base leading-7 text-secondary">{description}</p> : null}
-        </div>
-        {actions ? <div className="flex flex-wrap items-center gap-3">{actions}</div> : null}
-      </header>
+        </Stack>
+        {actions ? (
+          <Inline gap={3} align="center">
+            {actions}
+          </Inline>
+        ) : null}
+      </Stack>
       <div className="min-w-0 flex-1">{children}</div>
-      {footer ? <footer>{footer}</footer> : null}
+      {footer ? <Box element="footer">{footer}</Box> : null}
     </main>
   );
 }

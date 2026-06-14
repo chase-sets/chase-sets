@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState, type HTMLAttributes, type ReactNode } from "react";
 import { IconButton, LinkButton } from "../actions/button";
 import { Icon } from "../../icons";
+import { FlexItem, IconRow, Inline, Stack } from "../../primitives/layout";
+import { Text } from "../../primitives/typography";
 import { cx } from "../../utils/cx";
 
 export type PromoBarTone = "info" | "success" | "warning";
@@ -108,24 +110,34 @@ export function PromoBar({
       aria-label={ariaLabel}
       className={cx("rounded-tokenMd border px-3 py-2 md:px-4", toneClasses[tone])}
     >
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div className="flex min-w-0 flex-1 items-start gap-3">
-          <Icon name="spark" size="sm" tone={iconTone[tone]} />
-          <div className="min-w-0">
-            <p className="text-sm font-semibold leading-5">{activeMessage.title}</p>
-            {activeMessage.description ? (
-              <p className="text-sm leading-5 text-secondary">{activeMessage.description}</p>
-            ) : null}
-          </div>
-        </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-2">
+      <Stack
+        direction={{ base: "column", md: "row" }}
+        align={{ base: "stretch", md: "center" }}
+        justify={{ base: "start", md: "between" }}
+        gap={3}
+      >
+        <FlexItem grow>
+          <IconRow icon={<Icon name="spark" size="sm" tone={iconTone[tone]} />} align="start" gap={3}>
+            <Stack gap={1} minWidth="0">
+              <Text size="sm" weight="semibold" tone="inherit">
+                {activeMessage.title}
+              </Text>
+              {activeMessage.description ? (
+                <Text size="sm" tone="secondary">
+                  {activeMessage.description}
+                </Text>
+              ) : null}
+            </Stack>
+          </IconRow>
+        </FlexItem>
+        <Inline gap={2} align="center">
           {activeMessage.href && activeMessage.linkLabel ? (
             <LinkButton href={activeMessage.href} tone="secondary" size="sm" trailingIcon="chevronRight">
               {activeMessage.linkLabel}
             </LinkButton>
           ) : null}
           {hasMultipleMessages ? (
-            <div className="flex items-center gap-1">
+            <Inline gap={1} align="center" wrap={false}>
               <IconButton label={previousLabel} icon="chevronLeft" size="sm" onClick={showPrevious} />
               <span className="min-w-10 text-center text-xs font-medium text-secondary" aria-live="polite">
                 {activeIndex + 1}/{visibleMessages.length}
@@ -139,10 +151,10 @@ export function PromoBar({
                   onClick={() => setPaused((current) => !current)}
                 />
               )}
-            </div>
+            </Inline>
           ) : null}
-        </div>
-      </div>
+        </Inline>
+      </Stack>
     </section>
   );
 }
