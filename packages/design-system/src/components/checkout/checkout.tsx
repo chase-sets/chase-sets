@@ -2,7 +2,8 @@ import type { HTMLAttributes, ReactNode } from "react";
 import { Icon } from "../../icons";
 import type { IconName } from "../../icons";
 import { cx } from "../../utils/cx";
-import { surfaceSemanticToneClasses } from "../../primitives/layout";
+import { Grid, IconRow, Stack, Surface, surfaceSemanticToneClasses } from "../../primitives/layout";
+import { ToneIcon } from "../../primitives/tone-icon";
 import { Badge } from "../feedback";
 import { Card } from "../data-display/card";
 import { TrustBadge } from "../commerce/trust";
@@ -145,7 +146,7 @@ export function CheckoutSummaryPanel({
   ...rest
 }: CheckoutSummaryPanelProps) {
   return (
-    <section {...rest} className="rounded-tokenLg border border-muted bg-surface p-4 shadow-tokenSm">
+    <Surface {...rest} element="section" tone="subtle">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h2 className="m-0 text-base font-semibold text-foreground">{title}</h2>
@@ -173,7 +174,7 @@ export function CheckoutSummaryPanel({
           {actions}
         </div>
       ) : null}
-    </section>
+    </Surface>
   );
 }
 
@@ -231,16 +232,16 @@ export function CheckoutFlowShell({
   ...rest
 }: CheckoutFlowShellProps) {
   return (
-    <div {...rest} className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_24rem] lg:gap-6">
-      <div className="min-w-0 space-y-5">
+    <Grid {...rest} templateColumns="minmax(0,1fr) 24rem" stackUntil="lg" gap={{ base: 5, lg: 6 }}>
+      <Stack gap={5} minWidth="0">
         {mobileSummary}
         {stickyAction}
         {main}
-      </div>
+      </Stack>
       <aside aria-label={summaryLabel} className="hidden min-w-0 lg:block">
         <div className="sticky top-20">{desktopSummary}</div>
       </aside>
-    </div>
+    </Grid>
   );
 }
 
@@ -313,7 +314,7 @@ export interface CheckoutFormSectionProps extends Omit<HTMLAttributes<HTMLElemen
 
 export function CheckoutFormSection({ title, description, badge, children, ...rest }: CheckoutFormSectionProps) {
   return (
-    <section {...rest} className="grid gap-3">
+    <Stack {...rest} element="section" gap={3}>
       <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <h2 className="m-0 text-xl font-semibold leading-7 text-foreground">{title}</h2>
@@ -321,8 +322,8 @@ export function CheckoutFormSection({ title, description, badge, children, ...re
         </div>
         {badge}
       </div>
-      <div className="grid gap-3">{children}</div>
-    </section>
+      <Stack gap={3}>{children}</Stack>
+    </Stack>
   );
 }
 
@@ -336,7 +337,9 @@ export function CheckoutExpressActions({ label, actions, dividerLabel = "OR", ..
   return (
     <div {...rest} className="grid gap-3 text-center">
       <div className="text-sm text-secondary">{label}</div>
-      <div className="grid gap-2 sm:grid-cols-2">{actions}</div>
+      <Grid columns={{ base: 1, sm: 2 }} gap={2}>
+        {actions}
+      </Grid>
       <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 text-xs text-secondary">
         <span className="h-px bg-muted" aria-hidden="true" />
         <span>{dividerLabel}</span>
@@ -374,18 +377,25 @@ export function CheckoutStateNotice({
   ...rest
 }: CheckoutStateNoticeProps) {
   return (
-    <div {...rest} className={cx("flex gap-3 rounded-tokenLg border p-4", toneClasses[tone])}>
-      <Icon
-        name={icon}
-        size="sm"
-        tone={tone === "danger" ? "danger" : tone === "warning" ? "warning" : tone === "success" ? "success" : "accent"}
-      />
-      <div className="min-w-0 flex-1">
+    <Surface {...rest} tone={tone}>
+      <IconRow
+        gap={3}
+        nudge={false}
+        icon={
+          <Icon
+            name={icon}
+            size="sm"
+            tone={
+              tone === "danger" ? "danger" : tone === "warning" ? "warning" : tone === "success" ? "success" : "accent"
+            }
+          />
+        }
+      >
         <div className="text-sm font-semibold text-foreground">{title}</div>
         {description ? <div className="mt-1 text-sm leading-5 text-secondary">{description}</div> : null}
         {action ? <div className="mt-3">{action}</div> : null}
-      </div>
-    </div>
+      </IconRow>
+    </Surface>
   );
 }
 
@@ -406,7 +416,7 @@ export function CheckoutReadinessPrompt({
       {...rest}
       action={
         action || secondaryAction || facts.length || children ? (
-          <div className="grid gap-3">
+          <Stack gap={3}>
             {facts.length ? (
               <dl className="grid gap-2 text-sm">
                 {facts.map((fact, index) => (
@@ -424,7 +434,7 @@ export function CheckoutReadinessPrompt({
                 {secondaryAction}
               </div>
             ) : null}
-          </div>
+          </Stack>
         ) : null
       }
     />
@@ -463,8 +473,8 @@ export function CheckoutConfirmationPanel({
   ...rest
 }: CheckoutConfirmationPanelProps) {
   return (
-    <section {...rest} className={cx("rounded-tokenLg border bg-surface p-5 shadow-tokenSm", toneClasses[tone])}>
-      <div className="grid gap-3">
+    <Surface {...rest} element="section" tone={tone} padding={5}>
+      <Stack gap={3}>
         <CheckoutStatusBadge tone={tone}>{title}</CheckoutStatusBadge>
         {description ? <p className="m-0 text-sm leading-5 text-secondary">{description}</p> : null}
         {referenceLabel || supportReferenceLabel || totalLabel ? (
@@ -492,7 +502,7 @@ export function CheckoutConfirmationPanel({
           </dl>
         ) : null}
         {nextSteps.length ? (
-          <div className="grid gap-3 sm:grid-cols-3">
+          <Grid columns={{ base: 1, sm: 3 }} gap={3}>
             {nextSteps.map((step, index) => (
               <div key={index} className="min-w-0">
                 <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
@@ -502,15 +512,15 @@ export function CheckoutConfirmationPanel({
                 <div className="mt-1 text-sm leading-5 text-secondary">{step.description}</div>
               </div>
             ))}
-          </div>
+          </Grid>
         ) : null}
         {actions ? (
           <div className="flex flex-wrap gap-2" data-primary-action-count="1">
             {actions}
           </div>
         ) : null}
-      </div>
-    </section>
+      </Stack>
+    </Surface>
   );
 }
 
@@ -540,7 +550,7 @@ export function CheckoutStickyActionBar({
         mobileOffset === "navigation" ? "bottom-[calc(5.5rem+env(safe-area-inset-bottom))]" : "bottom-0",
       )}
     >
-      <div className="grid gap-3">
+      <Stack gap={3}>
         <div className="flex items-end justify-between gap-4">
           <div className="min-w-0">
             <div className="text-xs font-medium text-secondary">{totalLabel}</div>
@@ -548,14 +558,11 @@ export function CheckoutStickyActionBar({
           </div>
           <div className="text-right text-xl font-bold tabular-nums text-foreground">{total}</div>
         </div>
-        <div
-          className={cx("grid gap-2", secondaryAction ? "grid-cols-2" : "grid-cols-1")}
-          data-primary-action-count="1"
-        >
+        <Grid columns={secondaryAction ? 2 : 1} gap={2} data-primary-action-count="1">
           {secondaryAction}
           {primaryAction}
-        </div>
-      </div>
+        </Grid>
+      </Stack>
     </div>
   );
 }
@@ -585,14 +592,14 @@ export function PriceBreakdown({ title, description, lines, total, totalLabel, r
         </Card.Header>
       ) : null}
       <Card.Body>
-        <div className="grid gap-2">
+        <Stack gap={2}>
           {lines.map((line) => (
             <div key={line.label} className="flex items-center justify-between gap-4 text-sm">
               <span className={cx(line.muted ? "text-tertiary" : "text-secondary")}>{line.label}</span>
               <span className="font-semibold tabular-nums text-foreground">{line.value}</span>
             </div>
           ))}
-        </div>
+        </Stack>
         <div className="mt-4 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-center gap-4 border-t border-border pt-4">
           {totalLabel ? <span className="min-w-0 font-semibold text-foreground">{totalLabel}</span> : null}
           <span className="min-w-0 max-w-full break-words text-right text-xl font-bold leading-tight tabular-nums text-foreground sm:text-2xl">
@@ -643,7 +650,7 @@ export function ListingPurchasePanel({
         {reassurance ? <Card.Description>{reassurance}</Card.Description> : null}
       </Card.Header>
       <Card.Body>
-        <div className="grid gap-4">
+        <Stack gap={4}>
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
               <div className="text-xs font-semibold uppercase tracking-[0.08em] text-tertiary">Price</div>
@@ -665,11 +672,11 @@ export function ListingPurchasePanel({
               </div>
             ))}
           </div>
-          <div className="grid gap-2" data-primary-action-count="1">
+          <Stack gap={2} data-primary-action-count="1">
             {primaryAction}
             {secondaryAction}
-          </div>
-        </div>
+          </Stack>
+        </Stack>
       </Card.Body>
     </Card>
   );
@@ -701,7 +708,7 @@ export function OrderIntentSummary({
   return (
     <Card>
       <Card.Body>
-        <div className="grid gap-4">
+        <Stack gap={4}>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="text-base font-semibold leading-6 text-foreground">{title}</div>
@@ -724,7 +731,7 @@ export function OrderIntentSummary({
               </div>
             ))}
           </div>
-        </div>
+        </Stack>
       </Card.Body>
     </Card>
   );
@@ -751,15 +758,14 @@ export function OrderProtectionModule({ title, items }: OrderProtectionModulePro
       <Card.Body>
         <div className="grid grid-cols-[repeat(auto-fit,minmax(13rem,1fr))] gap-5 rounded-tokenMd border border-trust-soft bg-trust-soft p-4">
           {items.map((item) => (
-            <div key={String(item.title)} className="flex min-w-0 gap-3">
-              <div className="mt-0.5 shrink-0 text-trust">
-                <Icon name={item.icon ?? "check"} size="md" tone="inherit" />
-              </div>
-              <div className="min-w-0">
-                <div className="font-semibold text-foreground">{item.title}</div>
-                <div className="text-sm leading-5 text-secondary">{item.description}</div>
-              </div>
-            </div>
+            <IconRow
+              key={String(item.title)}
+              gap={3}
+              icon={<Icon name={item.icon ?? "check"} size="md" tone="trust" />}
+            >
+              <div className="font-semibold text-foreground">{item.title}</div>
+              <div className="text-sm leading-5 text-secondary">{item.description}</div>
+            </IconRow>
           ))}
         </div>
       </Card.Body>
@@ -782,15 +788,18 @@ export interface MarketplaceNoticeProps {
   action?: ReactNode;
 }
 
-export function MarketplaceNotice({ tone = "info", title, description, action }: MarketplaceNoticeProps) {
-  const iconName: IconName =
-    tone === "danger" ? "xCircle" : tone === "warning" ? "warning" : tone === "success" ? "checkCircle" : "help";
+const marketplaceNoticeIcons: Record<CheckoutPrimitiveTone, IconName> = {
+  neutral: "help",
+  info: "help",
+  success: "checkCircle",
+  warning: "warning",
+  danger: "xCircle",
+};
 
+export function MarketplaceNotice({ tone = "info", title, description, action }: MarketplaceNoticeProps) {
   return (
     <div className={cx("flex gap-3 rounded-tokenMd border p-4", noticeToneClasses[tone])}>
-      <span className="mt-0.5 shrink-0">
-        <Icon name={iconName} size="md" tone="inherit" aria-hidden="true" />
-      </span>
+      <ToneIcon name={marketplaceNoticeIcons[tone]} tone={tone} size="sm" />
       <div className="grid gap-2">
         <div className="font-semibold text-foreground">{title}</div>
         {description ? <div className="text-sm leading-5 text-secondary">{description}</div> : null}
@@ -833,16 +842,16 @@ export function PaymentRecoveryPanel({
         <Card.Description>{description}</Card.Description>
       </Card.Header>
       <Card.Body>
-        <div className="grid gap-4">
-          <div className="grid gap-3 sm:grid-cols-2">
+        <Stack gap={4}>
+          <Grid columns={{ base: 1, sm: 2 }} gap={3}>
             <MarketplaceNotice tone="warning" title={chargeStatus} />
             <MarketplaceNotice tone="info" title={nextStep} description={supportPath} />
-          </div>
+          </Grid>
           <div className="flex flex-wrap gap-2" data-primary-action-count="1">
             {primaryAction}
             {secondaryAction}
           </div>
-        </div>
+        </Stack>
       </Card.Body>
     </Card>
   );
