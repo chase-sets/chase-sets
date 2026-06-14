@@ -54,7 +54,7 @@ export function AlertDialog({
             initial: overlayFade.initial,
             animate: overlayFade.animate,
             transition: overlayFade.transition,
-            className: "fixed inset-0 z-modal bg-[rgba(29,27,24,0.35)]",
+            className: "fixed inset-0 z-modal bg-overlay",
           })}
         />
         <AlertDialogPrimitive.Popup

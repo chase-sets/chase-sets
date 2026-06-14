@@ -23,6 +23,8 @@ export function PageStepper({
   ...rest
 }: PageStepperProps) {
   const compact = variant === "compact";
+  // ds-dynamic-css-var: allow --step-count for per-instance grid columns in the future DS scanner, issue 1719.
+  const stepCountStyle = { "--step-count": items.length } as CSSProperties;
 
   return (
     <ol
@@ -33,7 +35,7 @@ export function PageStepper({
         orientation === "vertical" && "grid-cols-1",
         orientation === "responsive" && "grid-cols-1 md:grid-cols-[repeat(var(--step-count),minmax(0,1fr))]",
       )}
-      style={{ "--step-count": items.length } as CSSProperties}
+      style={stepCountStyle}
     >
       {items.map((item, index) => (
         <li
