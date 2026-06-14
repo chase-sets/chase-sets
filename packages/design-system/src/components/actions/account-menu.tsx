@@ -3,6 +3,7 @@ import { Menu as MenuPrimitive } from "@base-ui/react/menu";
 import { Badge, BottomSheet } from "../feedback";
 import { Icon, type IconName } from "../../icons";
 import { useMediaQuery } from "../../hooks";
+import { Box, Cluster, Divider, Stack } from "../../primitives/layout";
 import { useChaseMotion, usePortalRoots } from "../../theme/provider";
 import { renderMotionDiv } from "../../utils/base-ui";
 import { cx } from "../../utils/cx";
@@ -78,22 +79,24 @@ export function AccountMenu({
     className,
   );
   const accountSummary = (
-    <div className="px-3 py-3">
-      <div className="flex min-w-0 items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="text-xs font-semibold uppercase text-secondary">{accountLabel}</div>
-          <div className="mt-1 truncate text-sm font-semibold text-foreground">{accountName}</div>
-        </div>
-        <Badge tone="neutral">{roleName}</Badge>
-      </div>
-      <div className="mt-3 min-w-0">
-        <div className="text-xs font-semibold uppercase text-secondary">{userLabel}</div>
-        <div className="mt-1 truncate text-sm text-foreground">{userName}</div>
-      </div>
+    <Box paddingX={3} paddingY={3}>
+      <Stack gap={3}>
+        <Cluster align="start" gap={3}>
+          <Box minWidth="0">
+            <div className="text-xs font-semibold uppercase text-secondary">{accountLabel}</div>
+            <div className="mt-1 truncate text-sm font-semibold text-foreground">{accountName}</div>
+          </Box>
+          <Badge tone="neutral">{roleName}</Badge>
+        </Cluster>
+        <Box minWidth="0">
+          <div className="text-xs font-semibold uppercase text-secondary">{userLabel}</div>
+          <div className="mt-1 truncate text-sm text-foreground">{userName}</div>
+        </Box>
+      </Stack>
       <div className="sr-only">
         {roleLabel} {roleName}
       </div>
-    </div>
+    </Box>
   );
 
   if (useMobileSheet) {
@@ -109,23 +112,25 @@ export function AccountMenu({
           </button>
         }
       >
-        <div className="grid gap-2">
+        <Stack gap={2}>
           {accountSummary}
-          <div className="h-px bg-muted" />
-          <nav aria-label={menuLabel} className="grid gap-1">
-            {items.map((item) => (
-              <a key={item.key} href={item.href} className={menuItemClassName(false)} onClick={() => setOpen(false)}>
-                {item.icon ? <Icon name={item.icon} size="sm" tone="secondary" /> : null}
-                <span className="min-w-0 flex-1 truncate font-medium">{item.label}</span>
-              </a>
-            ))}
+          <Divider />
+          <nav aria-label={menuLabel}>
+            <Stack gap={1}>
+              {items.map((item) => (
+                <a key={item.key} href={item.href} className={menuItemClassName(false)} onClick={() => setOpen(false)}>
+                  {item.icon ? <Icon name={item.icon} size="sm" tone="secondary" /> : null}
+                  <span className="min-w-0 flex-1 truncate font-medium">{item.label}</span>
+                </a>
+              ))}
+            </Stack>
           </nav>
-          <div className="h-px bg-muted" />
+          <Divider />
           <button type="submit" form={signOutFormId} className={menuItemClassName(false, true)}>
             <Icon name="logOut" size="sm" tone="danger" />
             <span className="min-w-0 flex-1 truncate font-medium">{signOutLabel}</span>
           </button>
-        </div>
+        </Stack>
       </BottomSheet>
     );
   }
