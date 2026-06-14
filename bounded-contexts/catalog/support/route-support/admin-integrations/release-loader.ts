@@ -1,9 +1,10 @@
 import type { LoaderFunctionArgs } from "react-router";
-import { loader as integrationsLoader } from "./integrations-loader";
+import { loadReleaseSurface } from "./integrations-loader-support";
 
-// Loader entry point for the /admin/integrations/release surface route. For
-// #1739 it reuses the shared integrations read-model composition; per-route
-// read-model slicing is the separate concern of #1744.
+// Release evidence and health surface route loader
+// (/admin/integrations/release). Loads only the shared baseline (the clean reset
+// release, audit evidence, and health triage slices derive from the control plane
+// overview) and computes only those slices its surface renders (#1744).
 export async function loader(args: LoaderFunctionArgs) {
-  return integrationsLoader(args);
+  return loadReleaseSurface(args);
 }

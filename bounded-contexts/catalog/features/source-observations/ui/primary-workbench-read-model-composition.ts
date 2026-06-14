@@ -5,13 +5,11 @@ import {
   validateCatalogPrimaryWorkbenchReadModelContract,
   type CatalogPrimaryWorkbenchActionReadModel,
   type CatalogPrimaryWorkbenchBlockerCategory,
-  type CatalogPrimaryWorkbenchCommandKey,
-  type CatalogPrimaryWorkbenchLifecycleOperation,
-  type CatalogPrimaryWorkbenchProviderTransportCategory,
   type CatalogPrimaryWorkbenchReadModel,
   type CatalogPrimaryWorkbenchRouteContext,
 } from "../api/primary-workbench-admin-contracts";
 import { defineCatalogIntegrationUnitKey, type CatalogIntegrationUnitKey } from "../api/integration-unit";
+import type { CatalogControlPlaneRouteSurfaceKey } from "./admin-control-plane/information-architecture";
 import type { CatalogProviderProfileVersionReview, SourceObservationIntegrationScope } from "./contracts";
 import {
   catalogPrimaryWorkbenchSupportingHref,
@@ -38,9 +36,47 @@ import { governanceControlsFor } from "./primary-workbench-governance-controls";
 import { auditEvidenceFor } from "./primary-workbench-audit-evidence";
 import { cleanResetReleaseFor } from "./primary-workbench-clean-reset-release";
 
-export function buildCatalogPrimaryWorkbenchReadModel(
+// The slices the metric strip and grouped navigation render on EVERY surface
+// route, plus the route context and base scalars. Every per-route read model
+// is assembled from this shared core so the cross-surface workbench chrome is
+// identical regardless of which audience surface is active.
+type CatalogPrimaryWorkbenchCore = Readonly<{
+  routeContext: CatalogPrimaryWorkbenchRouteContext;
+  providerScope: CatalogPrimaryWorkbenchReadModel["providerScope"];
+  readiness: CatalogPrimaryWorkbenchReadModel["readiness"];
+  importJobs: CatalogPrimaryWorkbenchReadModel["importJobs"];
+  sourceObservationReview: CatalogPrimaryWorkbenchReadModel["sourceObservationReview"];
+  promotionPreview: CatalogPrimaryWorkbenchReadModel["promotionPreview"];
+  securityPrivacy: CatalogPrimaryWorkbenchReadModel["securityPrivacy"];
+  generatedAt: string;
+}>;
+
+// Intermediate values derived once from the loader input and reused by both the
+// core and every surface slice builder. Keeping them on one object means each
+// surface slice builder is a pure function of (core, derived, input) and never
+// re-derives provider scope, blockers, or counts.
+type CatalogPrimaryWorkbenchDerived = Readonly<{
+  providerKey: string | null;
+  unitKey: CatalogIntegrationUnitKey | null;
+  importScope: string | null;
+  activeProfile: CatalogProviderProfileVersionReview | null;
+  selectedProfile: CatalogProviderProfileVersionReview | null;
+  requestedProfileVersion: string | null;
+  readinessBlockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
+  rolloutEnabled: boolean;
+  activeJobCount: number;
+  failedJobCount: number;
+  importJobRows: CatalogPrimaryWorkbenchReadModel["importJobs"]["jobs"];
+  canManage: boolean;
+}>;
+
+// Build the shared core every surface renders. This does NOT compute any of the
+// supporting-surface slices (profile authoring, validation, conflict, lifecycle,
+// governance, clean-reset, audit, health); those are surface-specific and built
+// independently by the per-surface slice builders below.
+function buildCatalogPrimaryWorkbenchCore(
   input: CatalogPrimaryWorkbenchInput,
-): CatalogPrimaryWorkbenchReadModel {
+): Readonly<{ core: CatalogPrimaryWorkbenchCore; derived: CatalogPrimaryWorkbenchDerived }> {
   const parsedContext = parseCatalogPrimaryWorkbenchRouteContext(input.requestUrl);
   const providerKey = parsedContext.providerKey ?? inferProviderKey(input);
   const activeProfile = findActiveProfile(input.profileReviews.items, providerKey);
@@ -83,48 +119,6 @@ export function buildCatalogPrimaryWorkbenchReadModel(
   const failedJobCount = importJobRows.filter((job) => job.state === "failed").length;
   const canManage = input.canManageCatalog;
   const generatedAt = input.controlPlaneOverview?.generatedAt ?? new Date().toISOString();
-  const healthTriage = healthTriageFor({
-    overview: input.controlPlaneOverview,
-    routeContext,
-    importJobs: importJobRows,
-  });
-  const profileAuthoring = profileAuthoringFor({
-    activeJobCount,
-    activeProfile,
-    canManage,
-    controlPlaneOverview: input.controlPlaneOverview,
-    generatedAt,
-    profiles: input.profileReviews.items,
-    providerKey,
-    requestedProfileVersion: parsedContext.profileVersion,
-    requestUrl: input.requestUrl,
-    routeContext,
-    selectedProfile,
-    scopes: input.scopes.items,
-  });
-  const validationReadiness = validationReadinessFor({
-    activeJobCount,
-    authoringModel: input.profileAuthoringModel ?? null,
-    canManage,
-    controlPlaneOverview: input.controlPlaneOverview,
-    generatedAt,
-    profileAuthoring,
-    routeContext,
-    selectedProfile,
-  });
-  const lifecycleRecovery = lifecycleRecoveryFor({
-    activeJobCount,
-    activeProfile,
-    canManage,
-    controlPlaneOverview: input.controlPlaneOverview,
-    generatedAt,
-    lifecycleImpacts: input.lifecycleImpacts ?? null,
-    profiles: input.profileReviews.items,
-    providerKey,
-    routeContext,
-    selectedProfile,
-    validationReadiness,
-  });
   const sourceObservationReview = sourceObservationReviewFor({
     canManage,
     changed,
@@ -147,116 +141,398 @@ export function buildCatalogPrimaryWorkbenchReadModel(
     routeContext,
     sourceObservationReview,
   });
-  const conflictResolution = conflictResolutionFor({
-    canManage,
-    controlPlaneOverview: input.controlPlaneOverview,
-    generatedAt,
-    promotionPreview,
-    routeContext,
-    sourceObservationReview,
-  });
-  const actions = buildActions({
-    canManage,
-    providerSelected: Boolean(providerKey && unitKey && importScope),
-    activeProfileReady: Boolean(activeProfile),
-    eligible: promotionPreview.outcomeCounts.eligible,
-    reviewable: sourceObservationReview.counts.observed + sourceObservationReview.counts.changed,
-    activeJobCount,
-    blockers: readinessBlockers,
-    activationBlockers: validationReadiness.activationDecision.blockers,
-    cloneProfileBlockers: profileAuthoring.cloneDraft.blockers,
-    lifecycleOperations: lifecycleRecovery.operations,
-    promotionBlockers: promotionPreview.blockers,
-  });
-  const governanceControls = governanceControlsFor({
-    actions,
-    canManage,
-    conflictResolution,
-    controlPlaneOverview: input.controlPlaneOverview,
-    generatedAt,
-    healthTriage,
-    importJobs: importJobRows,
-    readinessBlockers,
-    rolloutEnabled,
-    routeContext,
-    sourceObservationReview,
-  });
   const securityPrivacy = {
     redactionApplied: true,
     governedDataClasses: ["provider payload", "operator identity", "external source URLs"],
     unsafeEvidenceBlocked: false,
     missingSecurityFieldsBlocker: "security-privacy-blocked",
   } satisfies CatalogPrimaryWorkbenchReadModel["securityPrivacy"];
-  const auditEvidence = auditEvidenceFor({
+
+  return {
+    core: {
+      routeContext,
+      providerScope: {
+        providers: providerScopeProviders(input, providerKey, activeProfile),
+      },
+      readiness: {
+        freshness: input.controlPlaneOverview ? "fresh" : "partial",
+        blockers: readinessBlockers,
+        providerTransport,
+        rolloutEnabled,
+        rbacAllowed: input.canManageCatalog,
+        auditEvidenceUrl: catalogPrimaryWorkbenchSupportingHref(routeContext, "audit-evidence"),
+      },
+      importJobs: {
+        freshness: input.controlPlaneOverview ? "fresh" : "partial",
+        activeJobCount,
+        failedJobCount,
+        selectedScope: selectedImportScopeFor({
+          activeProfile,
+          activeJobCount,
+          blockers: readinessBlockers,
+          input,
+          importScope,
+          providerKey,
+          providerTransport,
+          rolloutEnabled,
+          unitKey,
+        }),
+        jobs: importJobRows,
+      },
+      sourceObservationReview,
+      promotionPreview,
+      securityPrivacy,
+      generatedAt,
+    },
+    derived: {
+      providerKey,
+      unitKey,
+      importScope,
+      activeProfile,
+      selectedProfile,
+      requestedProfileVersion: parsedContext.profileVersion,
+      readinessBlockers,
+      rolloutEnabled,
+      activeJobCount,
+      failedJobCount,
+      importJobRows,
+      canManage,
+    },
+  };
+}
+
+// Provider profiles + readiness surface slices (#1739 providers route). Built
+// only from profile reviews, the optional authoring model, and the control plane
+// overview — never from conflict, governance, release, or audit inputs.
+function providersSurfaceSlices(
+  input: CatalogPrimaryWorkbenchInput,
+  core: CatalogPrimaryWorkbenchCore,
+  derived: CatalogPrimaryWorkbenchDerived,
+): Readonly<{
+  profileAuthoring: CatalogPrimaryWorkbenchReadModel["profileAuthoring"];
+  validationReadiness: CatalogPrimaryWorkbenchReadModel["validationReadiness"];
+}> {
+  const profileAuthoring = profileAuthoringFor({
+    activeJobCount: derived.activeJobCount,
+    activeProfile: derived.activeProfile,
+    canManage: derived.canManage,
+    controlPlaneOverview: input.controlPlaneOverview,
+    generatedAt: core.generatedAt,
+    profiles: input.profileReviews.items,
+    providerKey: derived.providerKey,
+    requestedProfileVersion: derived.requestedProfileVersion,
+    requestUrl: input.requestUrl,
+    routeContext: core.routeContext,
+    selectedProfile: derived.selectedProfile,
+    scopes: input.scopes.items,
+  });
+  const validationReadiness = validationReadinessFor({
+    activeJobCount: derived.activeJobCount,
+    authoringModel: input.profileAuthoringModel ?? null,
+    canManage: derived.canManage,
+    controlPlaneOverview: input.controlPlaneOverview,
+    generatedAt: core.generatedAt,
+    profileAuthoring,
+    routeContext: core.routeContext,
+    selectedProfile: derived.selectedProfile,
+  });
+
+  return { profileAuthoring, validationReadiness };
+}
+
+// Conflict resolution + lifecycle recovery: the two govern-and-recover slices
+// that the action array depends on (lifecycle operation states feed the action
+// blockers). Computed before actions in both builders so the dependency order
+// mirrors the original single composition. Lifecycle recovery folds in the
+// validation readiness slice it shares with the providers surface.
+function conflictAndLifecycleSlices(
+  input: CatalogPrimaryWorkbenchInput,
+  core: CatalogPrimaryWorkbenchCore,
+  derived: CatalogPrimaryWorkbenchDerived,
+  validationReadiness: CatalogPrimaryWorkbenchReadModel["validationReadiness"],
+): Readonly<{
+  conflictResolution: CatalogPrimaryWorkbenchReadModel["conflictResolution"];
+  lifecycleRecovery: CatalogPrimaryWorkbenchReadModel["lifecycleRecovery"];
+}> {
+  const conflictResolution = conflictResolutionFor({
+    canManage: derived.canManage,
+    controlPlaneOverview: input.controlPlaneOverview,
+    generatedAt: core.generatedAt,
+    promotionPreview: core.promotionPreview,
+    routeContext: core.routeContext,
+    sourceObservationReview: core.sourceObservationReview,
+  });
+  const lifecycleRecovery = lifecycleRecoveryFor({
+    activeJobCount: derived.activeJobCount,
+    activeProfile: derived.activeProfile,
+    canManage: derived.canManage,
+    controlPlaneOverview: input.controlPlaneOverview,
+    generatedAt: core.generatedAt,
+    lifecycleImpacts: input.lifecycleImpacts ?? null,
+    profiles: input.profileReviews.items,
+    providerKey: derived.providerKey,
+    routeContext: core.routeContext,
+    selectedProfile: derived.selectedProfile,
+    validationReadiness,
+  });
+
+  return { conflictResolution, lifecycleRecovery };
+}
+
+// Governance controls slice. Built after the action array because the RBAC
+// matrix is derived from the resolved action states.
+function governanceControlsSlice(
+  input: CatalogPrimaryWorkbenchInput,
+  core: CatalogPrimaryWorkbenchCore,
+  derived: CatalogPrimaryWorkbenchDerived,
+  conflictResolution: CatalogPrimaryWorkbenchReadModel["conflictResolution"],
+  actions: readonly CatalogPrimaryWorkbenchActionReadModel[],
+  healthTriage: CatalogPrimaryWorkbenchReadModel["healthTriage"],
+): CatalogPrimaryWorkbenchReadModel["governanceControls"] {
+  return governanceControlsFor({
+    actions,
+    canManage: derived.canManage,
     conflictResolution,
     controlPlaneOverview: input.controlPlaneOverview,
-    generatedAt,
-    governanceControls,
+    generatedAt: core.generatedAt,
     healthTriage,
-    importJobs: importJobRows,
-    lifecycleRecovery,
-    promotionPreview,
-    routeContext,
-    securityPrivacy,
-    sourceObservationReview,
-    validationReadiness,
+    importJobs: derived.importJobRows,
+    readinessBlockers: derived.readinessBlockers,
+    rolloutEnabled: derived.rolloutEnabled,
+    routeContext: core.routeContext,
+    sourceObservationReview: core.sourceObservationReview,
+  });
+}
+
+// Health-triage slice (#1739 release route renders it alongside release
+// evidence). Derived purely from the control plane overview and the core import
+// job rows.
+function healthTriageSlice(
+  input: CatalogPrimaryWorkbenchInput,
+  core: CatalogPrimaryWorkbenchCore,
+  derived: CatalogPrimaryWorkbenchDerived,
+): CatalogPrimaryWorkbenchReadModel["healthTriage"] {
+  return healthTriageFor({
+    overview: input.controlPlaneOverview,
+    routeContext: core.routeContext,
+    importJobs: derived.importJobRows,
+  });
+}
+
+// Release evidence surface slices (#1739 release route). Audit evidence folds in
+// the governance, conflict, lifecycle, and validation slices it cites, so they
+// are passed in; clean reset release in turn cites audit evidence.
+function releaseSurfaceSlices(
+  input: CatalogPrimaryWorkbenchInput,
+  core: CatalogPrimaryWorkbenchCore,
+  derived: CatalogPrimaryWorkbenchDerived,
+  cited: Readonly<{
+    conflictResolution: CatalogPrimaryWorkbenchReadModel["conflictResolution"];
+    governanceControls: CatalogPrimaryWorkbenchReadModel["governanceControls"];
+    healthTriage: CatalogPrimaryWorkbenchReadModel["healthTriage"];
+    lifecycleRecovery: CatalogPrimaryWorkbenchReadModel["lifecycleRecovery"];
+    validationReadiness: CatalogPrimaryWorkbenchReadModel["validationReadiness"];
+  }>,
+): Readonly<{
+  auditEvidence: CatalogPrimaryWorkbenchReadModel["auditEvidence"];
+  cleanResetRelease: CatalogPrimaryWorkbenchReadModel["cleanResetRelease"];
+}> {
+  const auditEvidence = auditEvidenceFor({
+    conflictResolution: cited.conflictResolution,
+    controlPlaneOverview: input.controlPlaneOverview,
+    generatedAt: core.generatedAt,
+    governanceControls: cited.governanceControls,
+    healthTriage: cited.healthTriage,
+    importJobs: derived.importJobRows,
+    lifecycleRecovery: cited.lifecycleRecovery,
+    promotionPreview: core.promotionPreview,
+    routeContext: core.routeContext,
+    securityPrivacy: core.securityPrivacy,
+    sourceObservationReview: core.sourceObservationReview,
+    validationReadiness: cited.validationReadiness,
   });
   const cleanResetRelease = cleanResetReleaseFor({
     auditEvidence,
     cleanResetEvidence: input.cleanResetEvidence ?? null,
-    generatedAt,
-    importJobs: importJobRows,
-    routeContext,
-    sourceObservationReview,
+    generatedAt: core.generatedAt,
+    importJobs: derived.importJobRows,
+    routeContext: core.routeContext,
+    sourceObservationReview: core.sourceObservationReview,
     temporaryReleaseScaffolding: input.temporaryReleaseScaffolding ?? null,
   });
 
-  const readModel: CatalogPrimaryWorkbenchReadModel = {
-    schemaVersion: catalogPrimaryWorkbenchContractVersion,
-    generatedAt,
-    routeContext,
-    providerScope: {
-      providers: providerScopeProviders(input, providerKey, activeProfile),
-    },
-    readiness: {
-      freshness: input.controlPlaneOverview ? "fresh" : "partial",
-      blockers: readinessBlockers,
-      providerTransport,
-      rolloutEnabled,
-      rbacAllowed: input.canManageCatalog,
-      auditEvidenceUrl: catalogPrimaryWorkbenchSupportingHref(routeContext, "audit-evidence"),
-    },
-    healthTriage,
+  return { auditEvidence, cleanResetRelease };
+}
+
+// Assemble a fully-validated read model from the shared core and every surface
+// slice. Used by the legacy single-page workbench (#1749) and the view-only
+// re-derivation, both of which render the complete workspace registry.
+export function buildCatalogPrimaryWorkbenchReadModel(
+  input: CatalogPrimaryWorkbenchInput,
+): CatalogPrimaryWorkbenchReadModel {
+  const { core, derived } = buildCatalogPrimaryWorkbenchCore(input);
+  const { profileAuthoring, validationReadiness } = providersSurfaceSlices(input, core, derived);
+  const healthTriage = healthTriageSlice(input, core, derived);
+  const { conflictResolution, lifecycleRecovery } = conflictAndLifecycleSlices(
+    input,
+    core,
+    derived,
+    validationReadiness,
+  );
+  const actions = buildSurfaceActions(core, derived, {
     profileAuthoring,
     validationReadiness,
     lifecycleRecovery,
-    governanceControls,
-    cleanResetRelease,
-    auditEvidence,
-    importJobs: {
-      freshness: input.controlPlaneOverview ? "fresh" : "partial",
-      activeJobCount,
-      failedJobCount,
-      selectedScope: selectedImportScopeFor({
-        activeProfile,
-        activeJobCount,
-        blockers: readinessBlockers,
-        input,
-        importScope,
-        providerKey,
-        providerTransport,
-        rolloutEnabled,
-        unitKey,
-      }),
-      jobs: importJobRows,
-    },
-    sourceObservationReview,
+  });
+  const governanceControls = governanceControlsSlice(input, core, derived, conflictResolution, actions, healthTriage);
+  const { auditEvidence, cleanResetRelease } = releaseSurfaceSlices(input, core, derived, {
     conflictResolution,
-    promotionPreview,
-    promotionResult: null,
+    governanceControls,
+    healthTriage,
+    lifecycleRecovery,
+    validationReadiness,
+  });
+
+  return assembleReadModel({
+    core,
     actions,
+    profileAuthoring,
+    validationReadiness,
+    healthTriage,
+    conflictResolution,
+    lifecycleRecovery,
+    governanceControls,
+    auditEvidence,
+    cleanResetRelease,
+  });
+}
+
+// Assemble a fully-validated read model for ONE audience surface route, computing
+// only the supporting slices that surface renders and substituting cheap default
+// slices (no provider-row iteration, no cross-surface inputs) for the rest. The
+// daily surface therefore never computes governance, lifecycle, release, or audit
+// sub-models; providers never computes governance/release; and so on. Behavior is
+// preserved because each non-rendered slice is identical to what the full builder
+// would produce from the same absent inputs.
+export function buildCatalogPrimaryWorkbenchReadModelForSurface(
+  surface: CatalogControlPlaneRouteSurfaceKey,
+  input: CatalogPrimaryWorkbenchInput,
+): CatalogPrimaryWorkbenchReadModel {
+  const { core, derived } = buildCatalogPrimaryWorkbenchCore(input);
+
+  // Surfaces that fully render (or cite) each supporting slice. The daily surface
+  // renders none of them, so it computes every supporting slice from the
+  // empty-input defaults below — never iterating provider readiness, lifecycle,
+  // governance, release, or audit data. Providers cites nothing downstream;
+  // governance and release cite the upstream slices they fold into their evidence.
+  const wantsProviderSlices = surface === "providers" || surface === "governance" || surface === "release";
+  const wantsHealthTriage = surface === "governance" || surface === "release";
+  const wantsGovernanceSlices = surface === "governance" || surface === "release";
+  const wantsReleaseSlices = surface === "release";
+
+  const sliceInput = (wanted: boolean): CatalogPrimaryWorkbenchInput =>
+    wanted ? input : emptyControlPlaneInput(input);
+
+  const { profileAuthoring, validationReadiness } = providersSurfaceSlices(
+    sliceInput(wantsProviderSlices),
+    core,
+    derived,
+  );
+  const healthTriage = healthTriageSlice(sliceInput(wantsHealthTriage), core, derived);
+  const { conflictResolution, lifecycleRecovery } = conflictAndLifecycleSlices(
+    sliceInput(wantsGovernanceSlices),
+    core,
+    derived,
+    validationReadiness,
+  );
+  const actions = buildSurfaceActions(core, derived, {
+    profileAuthoring,
+    validationReadiness,
+    lifecycleRecovery,
+  });
+  const governanceControls = governanceControlsSlice(
+    sliceInput(wantsGovernanceSlices),
+    core,
+    derived,
+    conflictResolution,
+    actions,
+    healthTriage,
+  );
+  const { auditEvidence, cleanResetRelease } = releaseSurfaceSlices(sliceInput(wantsReleaseSlices), core, derived, {
+    conflictResolution,
+    governanceControls,
+    healthTriage,
+    lifecycleRecovery,
+    validationReadiness,
+  });
+
+  return assembleReadModel({
+    core,
+    actions,
+    profileAuthoring,
+    validationReadiness,
+    healthTriage,
+    conflictResolution,
+    lifecycleRecovery,
+    governanceControls,
+    auditEvidence,
+    cleanResetRelease,
+  });
+}
+
+// The inputs that are absent on a surface which does not render a slice. With no
+// control plane overview, authoring model, lifecycle impacts, or release
+// scaffolding present, the supporting slice builders collapse to constant-cost
+// defaults that still satisfy the read-model contract — so the daily surface
+// assembles a valid read model without ever iterating provider readiness rows for
+// governance, lifecycle, release, or audit.
+function emptyControlPlaneInput(input: CatalogPrimaryWorkbenchInput): CatalogPrimaryWorkbenchInput {
+  return {
+    ...input,
+    controlPlaneOverview: null,
+    profileAuthoringModel: null,
+    lifecycleImpacts: null,
+    cleanResetEvidence: null,
+    temporaryReleaseScaffolding: null,
+  };
+}
+
+function assembleReadModel(
+  parts: Readonly<{
+    core: CatalogPrimaryWorkbenchCore;
+    actions: readonly CatalogPrimaryWorkbenchActionReadModel[];
+    profileAuthoring: CatalogPrimaryWorkbenchReadModel["profileAuthoring"];
+    validationReadiness: CatalogPrimaryWorkbenchReadModel["validationReadiness"];
+    healthTriage: CatalogPrimaryWorkbenchReadModel["healthTriage"];
+    conflictResolution: CatalogPrimaryWorkbenchReadModel["conflictResolution"];
+    lifecycleRecovery: CatalogPrimaryWorkbenchReadModel["lifecycleRecovery"];
+    governanceControls: CatalogPrimaryWorkbenchReadModel["governanceControls"];
+    auditEvidence: CatalogPrimaryWorkbenchReadModel["auditEvidence"];
+    cleanResetRelease: CatalogPrimaryWorkbenchReadModel["cleanResetRelease"];
+  }>,
+): CatalogPrimaryWorkbenchReadModel {
+  const { core } = parts;
+  const readModel: CatalogPrimaryWorkbenchReadModel = {
+    schemaVersion: catalogPrimaryWorkbenchContractVersion,
+    generatedAt: core.generatedAt,
+    routeContext: core.routeContext,
+    providerScope: core.providerScope,
+    readiness: core.readiness,
+    healthTriage: parts.healthTriage,
+    profileAuthoring: parts.profileAuthoring,
+    validationReadiness: parts.validationReadiness,
+    lifecycleRecovery: parts.lifecycleRecovery,
+    governanceControls: parts.governanceControls,
+    cleanResetRelease: parts.cleanResetRelease,
+    auditEvidence: parts.auditEvidence,
+    importJobs: core.importJobs,
+    sourceObservationReview: core.sourceObservationReview,
+    conflictResolution: parts.conflictResolution,
+    promotionPreview: core.promotionPreview,
+    promotionResult: null,
+    actions: parts.actions,
     deploySkew: catalogPrimaryWorkbenchDeploySkewPolicies[0],
-    securityPrivacy,
+    securityPrivacy: core.securityPrivacy,
     instrumentation: {
       dimensions: catalogPrimaryWorkbenchInstrumentationDimensions,
       redactionSafe: true,
@@ -266,6 +542,30 @@ export function buildCatalogPrimaryWorkbenchReadModel(
   validateCatalogPrimaryWorkbenchReadModelContract(readModel);
 
   return readModel;
+}
+
+function buildSurfaceActions(
+  core: CatalogPrimaryWorkbenchCore,
+  derived: CatalogPrimaryWorkbenchDerived,
+  slices: Readonly<{
+    profileAuthoring: CatalogPrimaryWorkbenchReadModel["profileAuthoring"];
+    validationReadiness: CatalogPrimaryWorkbenchReadModel["validationReadiness"];
+    lifecycleRecovery: CatalogPrimaryWorkbenchReadModel["lifecycleRecovery"];
+  }>,
+): readonly CatalogPrimaryWorkbenchActionReadModel[] {
+  return buildActions({
+    canManage: derived.canManage,
+    providerSelected: Boolean(derived.providerKey && derived.unitKey && derived.importScope),
+    activeProfileReady: Boolean(derived.activeProfile),
+    eligible: core.promotionPreview.outcomeCounts.eligible,
+    reviewable: core.sourceObservationReview.counts.observed + core.sourceObservationReview.counts.changed,
+    activeJobCount: derived.activeJobCount,
+    blockers: derived.readinessBlockers,
+    activationBlockers: slices.validationReadiness.activationDecision.blockers,
+    cloneProfileBlockers: slices.profileAuthoring.cloneDraft.blockers,
+    lifecycleOperations: slices.lifecycleRecovery.operations,
+    promotionBlockers: core.promotionPreview.blockers,
+  });
 }
 
 function inferProviderKey(input: CatalogPrimaryWorkbenchInput): string | null {

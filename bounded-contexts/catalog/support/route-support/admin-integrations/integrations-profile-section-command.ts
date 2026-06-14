@@ -1,8 +1,8 @@
-import type { ListResponse } from "@chase-sets/http/responses";
 import type { JsonObject } from "@chase-sets/primitives/json";
 import { CatalogApiError } from "../../../client";
 import type { CatalogProviderProfileVersionReview } from "../../../client";
 import type {
+  CatalogProviderProfileAuthoringModel,
   CatalogProviderProfileEditableSectionKey,
   CatalogProviderProfileSectionUpdateCommand,
 } from "../../../features/source-observations/ui/contracts";
@@ -30,11 +30,17 @@ export async function profileSectionCommandFromFormData(
     formData: FormData;
   }>,
 ): Promise<CatalogProviderProfileSectionUpdateCommand> {
-  const profiles = await api.listSourceObservationProviderProfiles<ListResponse<CatalogProviderProfileVersionReview>>();
-  const profile = profiles.items.find(
-    (candidate) => candidate.providerKey === input.providerKey && candidate.profileVersion === input.profileVersion,
-  );
-  if (!profile) {
+  // Fetch only the targeted profile version (via its authoring model) instead of
+  // re-listing every provider profile just to find one row. The authoring model
+  // carries the same CatalogProviderProfileVersionReview the section command
+  // needs (#1744).
+  const authoringModel =
+    await api.getSourceObservationProviderProfileAuthoringModel<CatalogProviderProfileAuthoringModel>(
+      input.providerKey,
+      input.profileVersion,
+    );
+  const profile = authoringModel.review;
+  if (!profile || profile.providerKey !== input.providerKey || profile.profileVersion !== input.profileVersion) {
     throw new Error("Profile version missing.");
   }
 

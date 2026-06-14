@@ -1,4 +1,7 @@
-export { buildCatalogPrimaryWorkbenchReadModel } from "./primary-workbench-read-model-composition";
+export {
+  buildCatalogPrimaryWorkbenchReadModel,
+  buildCatalogPrimaryWorkbenchReadModelForSurface,
+} from "./primary-workbench-read-model-composition";
 export type { CatalogPrimaryWorkbenchInput } from "./primary-workbench-read-model-input";
 export { buildCatalogPrimaryWorkbenchSourceObservationReviewQuery } from "./primary-workbench-source-observation-review";
 export type { CatalogIntegrationRecentJobReadModel } from "./primary-workbench-import-jobs";
