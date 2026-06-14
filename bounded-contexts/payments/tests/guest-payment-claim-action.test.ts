@@ -347,6 +347,7 @@ describe("guest payment claim action", () => {
       defaultSuccessPath: "/account/payments/pay_1",
       accountSelectionPath: "/account/select",
     });
+    expect(mockClearGuestCheckoutCookie).toHaveBeenCalledWith((result as Response).headers, expect.any(Request));
     expect((result as Response).status).toBe(302);
   });
 
@@ -385,6 +386,7 @@ describe("guest payment claim action", () => {
       paymentId: "pay_1",
       displayName: "Jane Smith",
     });
+    expect(mockClearGuestCheckoutCookie).toHaveBeenCalledWith((result as Response).headers, expect.any(Request));
     expect((result as Response).status).toBe(302);
   });
 
