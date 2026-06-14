@@ -7,7 +7,7 @@ export const catalogSourceObservationsWorkbenchHealthCopyEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.catalog.api.unavailable":
     "Catalog API unavailable",
   "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.catalog.promotion.complete":
-    "Catalog promotion complete",
+    "Catalog Items created or updated",
   "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.command.unavailable": "Command unavailable",
   "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.concurrent.jobs.detected":
     "Concurrent jobs detected",
