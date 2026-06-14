@@ -185,6 +185,41 @@ describe("Catalog Control Plane IA <-> render parity", () => {
     expect(workspaceKeys.has("adapter-readiness")).toBe(false);
     expect(rendererKeys.has("adapter-readiness")).toBe(false);
   });
+
+  // #1749: the single-route section-switching shell is fully retired. No workspace
+  // key, renderer key, route segment, or nav item may reintroduce a legacy/compat
+  // token or one of the retired top-level section names. This fails closed if the
+  // dead ?section= top-level switcher (or an alias for it) reappears anywhere in the
+  // IA that the live surface routes render from.
+  it("rejects retired and legacy tokens in every IA key, route segment, and nav item", () => {
+    const retiredPattern = /legacy|compat|raw-json|adapter-readiness|section-switch|two-page|god-page/i;
+    // The retired single page switched between these ten top-level destinations via
+    // ?section=; they are not workspace keys in the rebuilt IA and must never return.
+    const retiredTopLevelSections = new Set([
+      "health",
+      "authoring",
+      "validation",
+      "operations",
+      "audit",
+      "provider-profile-review",
+      "import-and-job-operations",
+      "source-observation-review-workflow",
+      "promote-and-reapply-workflow",
+      "adapter-readiness",
+    ]);
+
+    const candidateTokens = [
+      ...CATALOG_CONTROL_PLANE_WORKSPACES.flatMap((workspace) => [workspace.key, workspace.routeSegment]),
+      ...rendererKeys,
+      ...CATALOG_CONTROL_PLANE_NAVIGATION_GROUPS.flatMap((group) => group.items),
+      ...CATALOG_CONTROL_PLANE_ROUTE_SURFACES.flatMap((surface) => [surface.pathSegment, ...surface.workspaces]),
+    ];
+
+    for (const token of candidateTokens) {
+      expect(retiredPattern.test(token), `${token} matches a retired/legacy token`).toBe(false);
+      expect(retiredTopLevelSections.has(token), `${token} is a retired top-level section name`).toBe(false);
+    }
+  });
 });
 
 describe("Catalog Control Plane route surfaces", () => {

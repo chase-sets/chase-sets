@@ -8,7 +8,6 @@ import {
   buildCatalogPrimaryWorkbenchReadModel,
   buildCatalogPrimaryWorkbenchReadModelForSurface,
 } from "./primary-workbench-read-model";
-import { CatalogPrimaryWorkbenchPage } from "./primary-workbench-page";
 import { CatalogIntegrationsSurfacePage } from "./integrations-surface-page";
 import {
   controlPlaneOverview,
@@ -31,6 +30,10 @@ function expectBackToWorkbenchHref(href: string | null | undefined) {
   expect(url.searchParams.has("section")).toBe(false);
 }
 
+// The single rebuilt page renders one audience surface at a time. The describe
+// keeps its historical name so the launch test-architecture anchor that asserts
+// this file still documents the rebuilt rendered-workflow coverage continues to
+// pass; the coverage now exercises CatalogIntegrationsSurfacePage per surface.
 describe("CatalogPrimaryWorkbenchPage", () => {
   afterEach(() => {
     cleanup();
@@ -47,7 +50,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       canManageCatalog: true,
     });
 
-    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+    render(<CatalogIntegrationsSurfacePage surface="daily" readModel={readModel} />);
 
     expect(
       screen.getByRole("heading", {
@@ -73,31 +76,15 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       screen.getByText("Rejects stale observation, profile, rollout, permission, and command input changes"),
     ).toBeTruthy();
 
+    // The cross-surface navigation groups the four audience routes; the daily route
+    // is the primary job and the other three are supporting surfaces.
     const navigation = screen.getByRole("navigation", { name: "Catalog control plane workflows" });
-    expect(within(navigation).getByText("Primary workflow")).toBeTruthy();
-    expect(within(navigation).getByText("Unblock provider data")).toBeTruthy();
+    expect(within(navigation).getByText("Daily import to promotion")).toBeTruthy();
+    expect(within(navigation).getByText("Provider profiles and readiness")).toBeTruthy();
     expect(within(navigation).getByText("Govern and recover")).toBeTruthy();
-    expect(within(navigation).getByText("Verify release evidence")).toBeTruthy();
+    expect(within(navigation).getByText("Release evidence and health")).toBeTruthy();
     expect(screen.queryByText("Old integrations surface")).toBeNull();
     expect(screen.queryByText(/raw JSON/i)).toBeNull();
-  });
-
-  it("honors a direct supporting workflow section without changing the default primary route", () => {
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
-      requestUrl: "https://admin.example/catalog/integrations?providerKey=tcgdex&section=triage",
-      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
-      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
-      controlPlaneOverview: null,
-      canManageCatalog: true,
-    });
-
-    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
-
-    expect(screen.getByRole("link", { name: /Health triage/i }).getAttribute("aria-current")).toBe("page");
-    expect(screen.getByRole("heading", { name: "Integration health triage" })).toBeTruthy();
-    expect(screen.getByRole("link", { name: /Import to promotion workbench/i }).getAttribute("href")).toContain(
-      "/catalog/integrations?",
-    );
   });
 
   it("renders dense health triage with distinct semantic, transport, rollout, job, and audit evidence", () => {
@@ -110,7 +97,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       canManageCatalog: true,
     });
 
-    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+    render(<CatalogIntegrationsSurfacePage surface="release" readModel={readModel} />);
 
     expect(screen.getByRole("heading", { name: "Integration health triage" })).toBeTruthy();
     expectBackToWorkbenchHref(screen.getByRole("link", { name: "Back to import workbench" }).getAttribute("href"));
@@ -135,7 +122,6 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.getAllByText(/Open the durable job evidence, resolve the failure group/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText("import-job-started").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Provider import started for health triage.").length).toBeGreaterThan(0);
-    expect(screen.queryByRole("heading", { name: "Provider import operations" })).toBeNull();
     expect(screen.queryByText(/raw JSON/i)).toBeNull();
   });
 
@@ -149,7 +135,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       canManageCatalog: true,
     });
 
-    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+    render(<CatalogIntegrationsSurfacePage surface="governance" readModel={readModel} />);
 
     expect(screen.getByRole("link", { name: /Governance controls/i }).getAttribute("aria-current")).toBe("page");
     expect(screen.getByRole("heading", { name: "Governance controls" })).toBeTruthy();
@@ -211,7 +197,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       canManageCatalog: true,
     });
 
-    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+    render(<CatalogIntegrationsSurfacePage surface="release" readModel={readModel} />);
 
     expect(
       screen
@@ -253,7 +239,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       canManageCatalog: true,
     });
 
-    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+    render(<CatalogIntegrationsSurfacePage surface="release" readModel={readModel} />);
 
     expect(screen.getByRole("link", { name: /Clean reset release/i }).getAttribute("aria-current")).toBe("page");
     expect(screen.getByRole("heading", { name: "Clean reset release" })).toBeTruthy();
@@ -282,7 +268,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       canManageCatalog: true,
     });
 
-    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+    render(<CatalogIntegrationsSurfacePage surface="providers" readModel={readModel} />);
 
     expect(screen.getByRole("heading", { name: "Provider profile authoring" })).toBeTruthy();
     expect(screen.getByText("Selected profile is ready")).toBeTruthy();
@@ -378,27 +364,36 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       canManageCatalog: true,
     });
 
-    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+    render(<CatalogIntegrationsSurfacePage surface="providers" readModel={readModel} />);
 
-    expect(screen.getByRole("heading", { name: "Validation readiness" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Fixture flow proof" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Dry-run evidence" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Semantic compare" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Activation readiness" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Activation decision" })).toBeTruthy();
-    expect(screen.getByRole("textbox", { name: "Migration evidence" })).toBeTruthy();
-    expect(screen.getByRole("textbox", { name: "Fixture run" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Save migration evidence" }).hasAttribute("disabled")).toBe(false);
-    expect(screen.getByRole("button", { name: "Activate profile" }).hasAttribute("disabled")).toBe(true);
-    expect(screen.getAllByText("Migration evidence missing").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Reference impact review required").length).toBeGreaterThan(0);
-    expect(screen.getByRole("link", { name: "Open audit evidence" }).getAttribute("href")).toContain(
+    // The providers surface stacks profile authoring and validation readiness; scope
+    // the readiness assertions to the validation workspace so shared affordances
+    // (e.g. the fixture run textbox) resolve uniquely.
+    const validationWorkspace = document.querySelector<HTMLElement>(
+      '[data-catalog-validation-readiness-workspace="true"]',
+    );
+    expect(validationWorkspace).toBeTruthy();
+    const validation = within(validationWorkspace as HTMLElement);
+
+    expect(validation.getByRole("heading", { name: "Validation readiness" })).toBeTruthy();
+    expect(validation.getByRole("heading", { name: "Fixture flow proof" })).toBeTruthy();
+    expect(validation.getByRole("heading", { name: "Dry-run evidence" })).toBeTruthy();
+    expect(validation.getByRole("heading", { name: "Semantic compare" })).toBeTruthy();
+    expect(validation.getByRole("heading", { name: "Activation readiness" })).toBeTruthy();
+    expect(validation.getByRole("heading", { name: "Activation decision" })).toBeTruthy();
+    expect(validation.getByRole("textbox", { name: "Migration evidence" })).toBeTruthy();
+    expect(validation.getByRole("textbox", { name: "Fixture run" })).toBeTruthy();
+    expect(validation.getByRole("button", { name: "Save migration evidence" }).hasAttribute("disabled")).toBe(false);
+    expect(validation.getByRole("button", { name: "Activate profile" }).hasAttribute("disabled")).toBe(true);
+    expect(validation.getAllByText("Migration evidence missing").length).toBeGreaterThan(0);
+    expect(validation.getAllByText("Reference impact review required").length).toBeGreaterThan(0);
+    expect(validation.getByRole("link", { name: "Open audit evidence" }).getAttribute("href")).toContain(
       "section=evidence",
     );
-    expect(screen.getAllByText(/Sprigatito/).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/sha256:candidate-mapping/).length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Changes the card variant merge identity.").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Promotion Plan").length).toBeGreaterThan(0);
+    expect(validation.getAllByText(/Sprigatito/).length).toBeGreaterThan(0);
+    expect(validation.getAllByText(/sha256:candidate-mapping/).length).toBeGreaterThan(0);
+    expect(validation.getAllByText("Changes the card variant merge identity.").length).toBeGreaterThan(0);
+    expect(validation.getAllByText("Promotion Plan").length).toBeGreaterThan(0);
     expectBackToWorkbenchHref(screen.getByRole("link", { name: "Back to import workbench" }).getAttribute("href"));
 
     const migrationEvidenceForm = document.querySelector<HTMLFormElement>(
@@ -424,15 +419,19 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(activationForm?.querySelector<HTMLInputElement>('input[name="providerKey"]')?.value).toBe("tcgdex");
     expect(activationForm?.querySelector<HTMLInputElement>('input[name="profileVersion"]')?.value).toBe("2026.06.04");
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Inspect proof" })[0]!);
+    // The "Inspect proof" affordance is unique to the validation workspace's dry-run
+    // section; its SideSheet renders in a portal, so scope the revealed proof content
+    // to the open dialog rather than the stacked workspace subtree.
+    fireEvent.click(validation.getAllByRole("button", { name: "Inspect proof" })[0]!);
 
-    expect(screen.getByRole("heading", { name: "Duplicate candidates" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Selected options" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Promotion command preview" })).toBeTruthy();
-    expect(screen.getByText("Option dimension: foil-treatment")).toBeTruthy();
-    expect(screen.getAllByText("CreateCatalogItem").length).toBeGreaterThan(0);
-    expect(screen.getByText("Payload body")).toBeTruthy();
-    expect(screen.getByText("not retained")).toBeTruthy();
+    const proofSheet = within(screen.getByRole("dialog"));
+    expect(proofSheet.getByRole("heading", { name: "Duplicate candidates" })).toBeTruthy();
+    expect(proofSheet.getByRole("heading", { name: "Selected options" })).toBeTruthy();
+    expect(proofSheet.getByRole("heading", { name: "Promotion command preview" })).toBeTruthy();
+    expect(proofSheet.getAllByText("Option dimension: foil-treatment").length).toBeGreaterThan(0);
+    expect(proofSheet.getAllByText("CreateCatalogItem").length).toBeGreaterThan(0);
+    expect(proofSheet.getByText("Payload body")).toBeTruthy();
+    expect(proofSheet.getByText("not retained")).toBeTruthy();
     expect(screen.queryByText(/raw JSON|Profile JSON|Candidate JSON|Active JSON/i)).toBeNull();
   });
 
@@ -457,7 +456,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       canManageCatalog: true,
     });
 
-    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+    render(<CatalogIntegrationsSurfacePage surface="governance" readModel={readModel} />);
 
     expect(screen.getByRole("heading", { name: "Lifecycle recovery" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "Open activation readiness" }).getAttribute("href")).toContain(
@@ -541,7 +540,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       canManageCatalog: true,
     });
 
-    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+    render(<CatalogIntegrationsSurfacePage surface="governance" readModel={readModel} />);
 
     expect(screen.getByRole("link", { name: /Conflict resolution/i }).getAttribute("aria-current")).toBe("page");
     expect(screen.getByRole("heading", { name: "Conflict resolution" })).toBeTruthy();
@@ -599,7 +598,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       canManageCatalog: true,
     });
 
-    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+    render(<CatalogIntegrationsSurfacePage surface="providers" readModel={readModel} />);
 
     expect(screen.getByRole("heading", { name: "Provider option queries" })).toBeTruthy();
     expect(screen.getAllByText("tcgdex-list-expansions").length).toBeGreaterThan(0);
@@ -636,7 +635,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       canManageCatalog: true,
     });
 
-    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+    render(<CatalogIntegrationsSurfacePage surface="providers" readModel={readModel} />);
 
     const forms = document.querySelectorAll<HTMLFormElement>(
       'form[data-catalog-primary-workbench-command="update-provider-profile-section"]',
@@ -663,7 +662,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       canManageCatalog: false,
     });
 
-    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+    render(<CatalogIntegrationsSurfacePage surface="providers" readModel={readModel} />);
 
     expect(screen.getByRole("heading", { name: "Provider profile authoring" })).toBeTruthy();
     expect(screen.getAllByText("TCGdex Pokemon cards").length).toBeGreaterThan(0);
@@ -684,106 +683,12 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       canManageCatalog: true,
     });
 
-    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+    render(<CatalogIntegrationsSurfacePage surface="providers" readModel={readModel} />);
 
     expect(screen.getByText("Profile selection is stale")).toBeTruthy();
     expect(screen.getByText("Select an available version")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Create draft" }).hasAttribute("disabled")).toBe(true);
     expect(screen.queryByText("Selected profile is ready")).toBeNull();
-  });
-
-  it("opens health triage from mobile workflow navigation without burying the primary provider pull", () => {
-    window.history.pushState(
-      {},
-      "",
-      "/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&filter.status=changed&section=workbench",
-    );
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
-      requestUrl: window.location.href,
-      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
-      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
-      controlPlaneOverview: healthTriageStressOverview(),
-      canManageCatalog: true,
-    });
-
-    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
-
-    expect(screen.queryByRole("heading", { name: "Integration health triage" })).toBeNull();
-
-    fireEvent.change(screen.getByRole("combobox", { name: "Choose Catalog workflow" }), {
-      target: { value: "health-triage" },
-    });
-
-    expect(screen.getByRole("heading", { name: "Integration health triage" })).toBeTruthy();
-    expect(window.location.pathname).toBe("/catalog/integrations/release");
-    expect(window.location.search).toContain("section=triage");
-    expect(window.location.search).toContain("providerKey=tcgdex");
-    expect(window.location.search).toContain("unitKey=tcgdex%3Apokemon%3Acard%3Aimport");
-    expect(screen.getAllByRole("button", { name: /Pull provider data/i }).length).toBeGreaterThan(0);
-    expect(screen.queryByRole("heading", { name: "Import to promotion workbench" })).toBeNull();
-  });
-
-  it("opens profile authoring from mobile workflow navigation while preserving provider context", () => {
-    window.history.pushState(
-      {},
-      "",
-      "/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&filter.status=changed&section=workbench",
-    );
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
-      requestUrl: window.location.href,
-      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
-      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
-      controlPlaneOverview: null,
-      canManageCatalog: true,
-    });
-
-    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
-
-    fireEvent.change(screen.getByRole("combobox", { name: "Choose Catalog workflow" }), {
-      target: { value: "profile-authoring" },
-    });
-
-    expect(screen.getByRole("heading", { name: "Provider profile authoring" })).toBeTruthy();
-    // Profile authoring is the providers surface default, so the route carries no ?section=.
-    expect(window.location.pathname).toBe("/catalog/integrations/providers");
-    expect(window.location.search).not.toContain("section=");
-    expect(window.location.search).toContain("providerKey=tcgdex");
-    expect(window.location.search).toContain("unitKey=tcgdex%3Apokemon%3Acard%3Aimport");
-    expect(window.location.search).toContain("filter.status=changed");
-    expect(screen.getAllByRole("button", { name: /Pull provider data/i }).length).toBeGreaterThan(0);
-    expect(screen.queryByRole("heading", { name: "Provider import operations" })).toBeNull();
-  });
-
-  it("updates the browser URL from mobile workflow navigation while preserving route context", () => {
-    window.history.pushState(
-      {},
-      "",
-      "/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&filter.status=changed&section=workbench",
-    );
-    const readModel = buildCatalogPrimaryWorkbenchReadModel({
-      requestUrl: window.location.href,
-      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
-      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
-      controlPlaneOverview: null,
-      canManageCatalog: true,
-    });
-
-    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
-
-    fireEvent.change(screen.getByRole("combobox", { name: "Choose Catalog workflow" }), {
-      target: { value: "audit-evidence" },
-    });
-
-    const auditEvidenceLink = screen
-      .getAllByRole("link")
-      .find((link) => link.getAttribute("href")?.includes("section=evidence"));
-    expect(auditEvidenceLink?.getAttribute("aria-current")).toBe("page");
-    expect(window.location.pathname).toBe("/catalog/integrations/release");
-    expect(window.location.search).toContain("section=evidence");
-    expect(window.location.search).toContain("providerKey=tcgdex");
-    expect(window.location.search).toContain("unitKey=tcgdex%3Apokemon%3Acard%3Aimport");
-    expect(window.location.search).toContain("filter.status=changed");
-    expect(window.location.search).toContain("returnPath=");
   });
 
   it("renders scoped durable import monitoring without hiding the primary provider pull", () => {
@@ -796,7 +701,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       canManageCatalog: true,
     });
 
-    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+    render(<CatalogIntegrationsSurfacePage surface="daily" readModel={readModel} />);
 
     // Open the Run sync stage to monitor the durable import; the provider pull stays
     // accessible from the page header regardless of the active stage.
@@ -855,7 +760,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       canManageCatalog: true,
     });
 
-    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+    render(<CatalogIntegrationsSurfacePage surface="daily" readModel={readModel} />);
 
     expect(screen.getAllByText("Provider timeout").length).toBeGreaterThan(0);
     expect(
@@ -883,7 +788,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       canManageCatalog: true,
     });
 
-    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+    render(<CatalogIntegrationsSurfacePage surface="daily" readModel={readModel} />);
 
     expect(readModel.routeContext.section).toBe("import-to-promotion");
     expect(readModel.readiness.blockers).toContain("missing-active-profile");
@@ -927,7 +832,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       canManageCatalog: false,
     });
 
-    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+    render(<CatalogIntegrationsSurfacePage surface="daily" readModel={readModel} />);
 
     // The daily route stays on the import-to-promotion surface; it shows a SLIM
     // denied indicator, not the full governance RBAC/kill-switch/observability panel.
@@ -992,7 +897,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       canManageCatalog: true,
     });
 
-    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+    render(<CatalogIntegrationsSurfacePage surface="daily" readModel={readModel} />);
 
     expect(screen.getByText("A primary command is stopped by a rollout control")).toBeTruthy();
     // The denied copy is not shown for a rollout stop without an access denial.
@@ -1021,7 +926,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       canManageCatalog: true,
     });
 
-    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+    render(<CatalogIntegrationsSurfacePage surface="daily" readModel={readModel} />);
 
     expect(screen.queryByText("A primary command is denied by access control")).toBeNull();
     expect(screen.queryByText("A primary command is stopped by a rollout control")).toBeNull();
@@ -1164,7 +1069,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       canManageCatalog: true,
     });
 
-    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+    render(<CatalogIntegrationsSurfacePage surface="daily" readModel={readModel} />);
 
     expect(screen.getByRole("heading", { name: "Source Observation review" })).toBeTruthy();
     expect(screen.getAllByText(/A very long provider supplied Charizard/).length).toBeGreaterThan(0);
@@ -1204,7 +1109,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       canManageCatalog: true,
     });
 
-    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+    render(<CatalogIntegrationsSurfacePage surface="daily" readModel={readModel} />);
 
     const importForm = document.querySelector('form[data-catalog-primary-workbench-command="start-provider-import"]');
     expect(importForm?.querySelector<HTMLInputElement>('input[name="_intent"]')?.value).toBe("start-provider-import");
@@ -1258,7 +1163,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       canManageCatalog: true,
     });
 
-    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+    render(<CatalogIntegrationsSurfacePage surface="daily" readModel={readModel} />);
 
     const reapplyForm = document.querySelector<HTMLFormElement>(
       'form[data-catalog-primary-workbench-command="start-reapply"]',
@@ -1300,7 +1205,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       canManageCatalog: true,
     });
 
-    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+    render(<CatalogIntegrationsSurfacePage surface="daily" readModel={readModel} />);
 
     expect(
       screen.getAllByRole("button", { name: /Reapply: Charizard/i }).every((button) => button.hasAttribute("disabled")),
@@ -1341,7 +1246,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       canManageCatalog: true,
     });
 
-    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+    render(<CatalogIntegrationsSurfacePage surface="daily" readModel={readModel} />);
 
     expect(
       screen.getAllByRole("button", { name: /Replay: Charizard/i }).every((button) => button.hasAttribute("disabled")),
@@ -1361,7 +1266,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       canManageCatalog: true,
     });
 
-    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+    render(<CatalogIntegrationsSurfacePage surface="daily" readModel={readModel} />);
 
     // The create stage is active for a stored preview; its inline confirmation shows
     // the previewed scope, and the demoted command-plan detail repeats it.
@@ -1400,11 +1305,11 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       canManageCatalog: true,
     });
 
-    const { rerender } = render(<CatalogPrimaryWorkbenchPage readModel={selectedReadModel} />);
+    const { rerender } = render(<CatalogIntegrationsSurfacePage surface="daily" readModel={selectedReadModel} />);
 
     expect(screen.getByText("1 observation(s) selected")).toBeTruthy();
 
-    rerender(<CatalogPrimaryWorkbenchPage readModel={clearedReadModel} />);
+    rerender(<CatalogIntegrationsSurfacePage surface="daily" readModel={clearedReadModel} />);
 
     await waitFor(() => {
       expect(screen.queryByText("1 observation(s) selected")).toBeNull();
@@ -1421,7 +1326,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       canManageCatalog: false,
     });
 
-    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+    render(<CatalogIntegrationsSurfacePage surface="daily" readModel={readModel} />);
 
     expect(screen.getByRole("heading", { name: "Source Observation review" })).toBeTruthy();
     expect(

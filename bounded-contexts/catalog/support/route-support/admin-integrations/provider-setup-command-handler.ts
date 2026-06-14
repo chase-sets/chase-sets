@@ -1,5 +1,5 @@
 import type { CatalogProviderProfileVersionReview } from "../../../client";
-import type { CatalogPrimaryWorkbenchCommandFeedback } from "../../../features/source-observations/ui/primary-workbench-page";
+import type { CatalogPrimaryWorkbenchCommandFeedback } from "../../../features/source-observations/ui/primary-workbench-command-feedback";
 import type { createCatalogRequestApiClient } from "../../../support/request-support/api-client";
 import type { CatalogIntegrationsCommandResult } from "./integrations-command-result";
 import { stringValue } from "./integrations-form-values";

@@ -8,7 +8,7 @@ import type { CatalogPrimaryWorkbenchActionReadModel } from "../../../features/s
 import type { SourceObservationIntegrationJobScope } from "../../../features/source-observations/ui/contracts";
 import type { createCatalogRequestApiClient } from "../../../support/request-support/api-client";
 import { parseCatalogPrimaryWorkbenchRouteContext } from "../../../features/source-observations/ui/primary-workbench-route-context";
-import type { CatalogPrimaryWorkbenchCommandFeedback } from "../../../features/source-observations/ui/primary-workbench-page";
+import type { CatalogPrimaryWorkbenchCommandFeedback } from "../../../features/source-observations/ui/primary-workbench-command-feedback";
 import { stringValue } from "./integrations-form-values";
 
 export type CatalogPrimaryWorkbenchFormIntent = Extract<
