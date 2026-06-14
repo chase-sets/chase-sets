@@ -2,10 +2,7 @@ import type { NotificationOutbox } from "@chase-sets/notifications";
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import {
-  mapPaymentCapturedToTransactionalEmail,
-  mapPaymentFailedToTransactionalEmail,
-} from "./transactional-email-intents";
+import { mapPaymentCapturedToTransactionalEmail } from "./transactional-email-intents";
 
 export const PAYMENTS_PAYMENT_TRANSACTIONAL_EMAIL_PROJECTION = "payments-payment-transactional-email-projection";
 
@@ -42,18 +39,13 @@ export async function projectPaymentEventToTransactionalEmail(
   event: TransportEvent,
   projectionName = PAYMENTS_PAYMENT_TRANSACTIONAL_EMAIL_PROJECTION,
 ) {
-  if (event.type !== "payments.payment-captured" && event.type !== "payments.payment-failed") return;
+  if (event.type !== "payments.payment-captured") return;
   const data = event.data as PaymentEmailEventData;
   const buyerEmail = await findBuyerEmailForOrders(db, data.orderIds);
   if (!buyerEmail) return;
 
-  const mapper =
-    event.type === "payments.payment-captured"
-      ? mapPaymentCapturedToTransactionalEmail
-      : mapPaymentFailedToTransactionalEmail;
-
   await outbox.enqueueNotification({
-    message: mapper({
+    message: mapPaymentCapturedToTransactionalEmail({
       buyerEmail,
       paymentId: data.paymentId,
       orderIds: data.orderIds,
@@ -77,6 +69,5 @@ export function buildPaymentTransactionalEmailProjectionHandlers(
 ): ProjectorHandlerMap {
   return {
     "payments.payment-captured": (event) => projectPaymentEventToTransactionalEmail(db, outbox, event, projectionName),
-    "payments.payment-failed": (event) => projectPaymentEventToTransactionalEmail(db, outbox, event, projectionName),
   };
 }

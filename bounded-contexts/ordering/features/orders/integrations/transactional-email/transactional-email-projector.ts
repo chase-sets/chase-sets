@@ -10,6 +10,7 @@ export type OrderingOrderCreatedEmailEvent = Readonly<
     type: "ordering.order.created";
     data: Readonly<{
       orderId: string;
+      sourceType?: string | null;
       totalAmount: string;
       shippingDestinationSnapshot: Readonly<{ email?: string | null }>;
     }>;
@@ -27,6 +28,7 @@ export async function projectOrderingEventToTransactionalEmail(
 ) {
   if (event.type !== "ordering.order.created") return;
   const data = event.data as OrderingOrderCreatedEmailEvent["data"];
+  if (data.sourceType === "cart-checkout" || data.sourceType === "buy-now") return;
   const buyerEmail = data.shippingDestinationSnapshot.email?.trim();
   if (!buyerEmail) return;
 
