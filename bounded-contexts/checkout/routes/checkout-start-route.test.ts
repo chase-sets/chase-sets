@@ -167,6 +167,7 @@ describe("checkout web routes: checkout start", () => {
       isGuestBuyer: false,
       source: null,
       cartCount: 2,
+      entryAttemptKey: expect.stringMatching(/^chkentry_/),
       signInPath: "/sign-in?returnTo=%2Fcheckout%2Fbuy%2Freadiness",
     });
   });
@@ -186,6 +187,7 @@ describe("checkout web routes: checkout start", () => {
       isGuestBuyer: true,
       source: null,
       cartCount: 0,
+      entryAttemptKey: expect.stringMatching(/^chkentry_/),
       signInPath: "/sign-in?returnTo=%2Fcheckout%2Fbuy%2Freadiness",
     });
   });
@@ -332,6 +334,7 @@ describe("checkout web routes: checkout start", () => {
       isGuestBuyer: false,
       source: null,
       cartCount: 0,
+      entryAttemptKey: expect.stringMatching(/^chkentry_/),
       signInPath: "/sign-in?returnTo=%2Fcheckout%2Fbuy%2Freadiness",
     });
     expect(mockGetGuestCart).not.toHaveBeenCalled();
@@ -346,6 +349,7 @@ describe("checkout web routes: checkout start", () => {
     });
 
     const form = new URLSearchParams();
+    form.set("entryAttemptKey", "entry_attempt_1");
     form.set("source", "buy-now");
     form.set("listingId", "lst_1");
     form.set("catalogItemId", "cat_1");
@@ -368,6 +372,7 @@ describe("checkout web routes: checkout start", () => {
 
     expect(mockMergeGuestCartToAccount).not.toHaveBeenCalled();
     expect(mockCreateCheckoutSession).toHaveBeenCalledWith({
+      entryAttemptKey: "entry_attempt_1",
       source: {
         type: "buy-now",
         listingId: "lst_1",

@@ -6,6 +6,7 @@ import { RouterForm } from "@chase-sets/design-system/react-router";
 import { appendFreshWriteToken } from "@chase-sets/http/responses";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { AuthApiError, createAuthRequestApiClient } from "@chase-sets/auth/server";
+import { createId } from "@chase-sets/primitives/typed-ids";
 import {
   HiddenInput,
   Form,
@@ -87,6 +88,16 @@ function parseReadinessDecisions(value: FormDataEntryValue | null): CartReadines
   } catch {
     return null;
   }
+}
+
+function entryAttemptKeyFromForm(formData: FormData) {
+  const key = String(formData.get("entryAttemptKey") ?? "").trim();
+  return key ? key : null;
+}
+
+function withEntryAttemptKey(request: CreateCheckoutSessionRequest, formData: FormData): CreateCheckoutSessionRequest {
+  const entryAttemptKey = entryAttemptKeyFromForm(formData);
+  return entryAttemptKey ? { ...request, entryAttemptKey } : request;
 }
 
 function sourceFromUrl(url: URL) {
@@ -173,7 +184,7 @@ function checkoutSessionRequestFromForm(formData: FormData): CreateCheckoutSessi
     if (source.type !== "offer-intent") {
       throw new Error("Purchase intent source was not preserved.");
     }
-    return { source };
+    return withEntryAttemptKey({ source }, formData);
   }
 
   if (sourceType === "buy-now") {
@@ -181,17 +192,20 @@ function checkoutSessionRequestFromForm(formData: FormData): CreateCheckoutSessi
     if (source.type !== "buy-now") {
       throw new Error("Buy now source was not preserved.");
     }
-    return { source };
+    return withEntryAttemptKey({ source }, formData);
   }
 
-  return {
-    source: {
-      type: "cart" as const,
-      readinessSnapshotId: String(formData.get("readinessSnapshotId") ?? ""),
-      readinessSourceRevision: String(formData.get("readinessSourceRevision") ?? ""),
-      readinessDecisions: parseReadinessDecisions(formData.get("readinessDecisions")),
+  return withEntryAttemptKey(
+    {
+      source: {
+        type: "cart" as const,
+        readinessSnapshotId: String(formData.get("readinessSnapshotId") ?? ""),
+        readinessSourceRevision: String(formData.get("readinessSourceRevision") ?? ""),
+        readinessDecisions: parseReadinessDecisions(formData.get("readinessDecisions")),
+      },
     },
-  };
+    formData,
+  );
 }
 
 type CheckoutRequestApi = ReturnType<typeof createCheckoutRequestApiClient>;
@@ -314,6 +328,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     isGuestBuyer,
     source,
     cartCount: cart?.count ?? (source ? 1 : 0),
+    entryAttemptKey: createId("chkentry"),
     signInPath: signInPathForReturnTo(returnTo),
   };
 }
@@ -450,6 +465,7 @@ export default function CheckoutStartRoute() {
   const registerPath = `/register?returnTo=${encodeURIComponent(signInReturnTo)}`;
   const sourceFields = source ? (
     <>
+      <HiddenInput type="hidden" name="entryAttemptKey" value={data.entryAttemptKey} />
       <HiddenInput type="hidden" name="source" value={source.type} />
       {"listingId" in source ? <HiddenInput type="hidden" name="listingId" value={source.listingId} /> : null}
       {"fulfillmentMode" in source ? (
@@ -480,7 +496,10 @@ export default function CheckoutStartRoute() {
       ) : null}
     </>
   ) : (
-    <HiddenInput type="hidden" name="source" value="cart" />
+    <>
+      <HiddenInput type="hidden" name="entryAttemptKey" value={data.entryAttemptKey} />
+      <HiddenInput type="hidden" name="source" value="cart" />
+    </>
   );
   const sourceSummary = source ? (
     <OrderIntentSummary

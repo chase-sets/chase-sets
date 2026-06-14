@@ -301,6 +301,30 @@ describe("checkout session runtime", () => {
     expect(db.query).not.toHaveBeenCalled();
   });
 
+  it("replays duplicate checkout entry overrides without appending another started event", async () => {
+    const { allEvents, eventStore } = createInMemoryEventStore();
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query: vi.fn(async () => ({ rows: [] })) },
+      cart: createCartServices() as never,
+    });
+    const readiness = createCartReadinessSnapshot([readyCartLine]);
+    const createInput = {
+      accountId: "acc_buyer" as never,
+      shippingOption: "standard",
+      readinessSnapshotId: readiness.snapshotId,
+      readinessSourceRevision: readiness.sourceRevision,
+      sessionIdOverride: "chk_entry_replay" as never,
+    };
+
+    const first = await services.createFromCart(createInput, context);
+    const second = await services.createFromCart(createInput, context);
+
+    expect(second).toEqual(first);
+    expect(allEvents.filter((event) => event.eventType === "checkout.session.started")).toHaveLength(1);
+  });
+
   it("rejects unavailable shipping options before mutating the session", async () => {
     const { allEvents, eventStore } = createInMemoryEventStore();
     const services = createCheckoutSessionRuntime({
