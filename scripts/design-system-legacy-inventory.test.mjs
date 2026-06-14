@@ -2,7 +2,13 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { collectDesignSystemLegacyInventory, summarizeInventory } from "./design-system-legacy-inventory.mjs";
+import {
+  checkDesignSystemLegacyInventory,
+  collectDesignSystemLegacyInventory,
+  createDesignSystemLegacyInventoryDocument,
+  printDesignSystemLegacyInventoryCheckResult,
+  summarizeInventory,
+} from "./design-system-legacy-inventory.mjs";
 
 const tempDirs = [];
 
@@ -16,6 +22,28 @@ function writeSource(rootDir, relativeFile, source) {
   const filePath = path.join(rootDir, relativeFile);
   mkdirSync(path.dirname(filePath), { recursive: true });
   writeFileSync(filePath, source, "utf8");
+}
+
+function writeLedger(rootDir, document) {
+  writeSource(rootDir, "packages/design-system/DESIGN_SYSTEM_LEGACY_INVENTORY.json", `${JSON.stringify(document)}\n`);
+}
+
+function captureCheckOutput(result) {
+  const logs = [];
+  const errors = [];
+  const originalLog = console.log;
+  const originalError = console.error;
+
+  try {
+    console.log = (message) => logs.push(message);
+    console.error = (message) => errors.push(message);
+    printDesignSystemLegacyInventoryCheckResult(result);
+  } finally {
+    console.log = originalLog;
+    console.error = originalError;
+  }
+
+  return { logs, errors };
 }
 
 afterEach(() => {
@@ -206,5 +234,70 @@ export function AccountProfilePage() {
       },
     });
     expect(summary.issues["#949"]).toBe(1);
+  });
+
+  it("passes check mode for a clean tree with an in-sync ledger", async () => {
+    const rootDir = createRepo();
+    writeLedger(rootDir, createDesignSystemLegacyInventoryDocument([]));
+
+    const result = await checkDesignSystemLegacyInventory({ rootDir });
+    const output = captureCheckOutput(result);
+
+    expect(result.passed).toBe(true);
+    expect(result.document.summary.fileCount).toBe(0);
+    expect(output.logs.join("\n")).toContain("Design-system legacy inventory check passed");
+    expect(output.errors).toEqual([]);
+  });
+
+  it("fails check mode and lists offending files when the fresh scan has findings", async () => {
+    const rootDir = createRepo();
+    const relativeFile = "bounded-contexts/support/features/support-requests/ui/support-request-list-page.tsx";
+    writeSource(
+      rootDir,
+      relativeFile,
+      `
+export function SupportRequestListPage() {
+  return <button type="button">Open</button>;
+}
+`,
+    );
+    writeLedger(rootDir, createDesignSystemLegacyInventoryDocument([]));
+
+    const result = await checkDesignSystemLegacyInventory({ rootDir });
+    const output = captureCheckOutput(result);
+
+    expect(result.passed).toBe(false);
+    expect(output.errors.join("\n")).toContain(relativeFile);
+    expect(output.errors.join("\n")).toContain("rawControl");
+  });
+
+  it("fails check mode when the committed ledger diverges from a fresh scan", async () => {
+    const rootDir = createRepo();
+    writeLedger(
+      rootDir,
+      createDesignSystemLegacyInventoryDocument([
+        {
+          file: "bounded-contexts/example/features/workspace/ui/stale-page.tsx",
+          owner: "Example",
+          categories: { rawControl: 1 },
+          details: [{ category: "rawControl", line: 1, column: 1, detail: "button" }],
+          phase: "Phase 4",
+          issueTargets: ["#953"],
+          outcome: "migrate-or-promote-to-design-system",
+          prerequisites: [],
+          closureEvidence: [],
+          status: "open",
+          ownerStatus: "unassigned until scheduled by #960",
+        },
+      ]),
+    );
+
+    const result = await checkDesignSystemLegacyInventory({ rootDir });
+    const output = captureCheckOutput(result);
+
+    expect(result.passed).toBe(false);
+    expect(result.document.summary.fileCount).toBe(0);
+    expect(output.errors.join("\n")).toContain("ledger is stale");
+    expect(output.errors.join("\n")).toContain("--write-ledger");
   });
 });

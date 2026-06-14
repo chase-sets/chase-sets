@@ -4,6 +4,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { repoRoot } from "./lib/repo.mjs";
 import { readOption } from "./lib/cli-options.mjs";
+import {
+  collectDesignSystemLegacyInventoryDocument,
+  compareDesignSystemLegacyInventoryLedger,
+} from "./design-system-legacy-inventory.mjs";
 
 export const DESIGN_SYSTEM_LEGACY_EVIDENCE_VERSION = "design-system-legacy-visual-accessibility-evidence/v2";
 export const defaultEvidencePath = path.join(
@@ -324,14 +328,15 @@ export function parseDesignSystemLegacyEvidenceArgs(argv, env = process.env) {
   };
 }
 
-export function collectDesignSystemLegacyEvidence(options = {}) {
+export async function collectDesignSystemLegacyEvidence(options = {}) {
   const rootDir = options.rootDir ?? repoRoot;
   const checkedAt = options.checkedAt ?? new Date().toISOString();
   const ledgerPath =
     options.ledgerPath ?? path.join(rootDir, "packages/design-system/DESIGN_SYSTEM_LEGACY_INVENTORY.json");
   const checks = (options.surfaceChecks ?? surfaceChecks).map((check) => evaluateSurfaceCheck(check, rootDir));
   const ledger = readJson(ledgerPath);
-  const ledgerErrors = validateLedger(ledger);
+  const ledgerValidation = await validateLedger(ledger, { rootDir, ledgerPath });
+  const ledgerErrors = ledgerValidation.errors;
   const errors = [...ledgerErrors, ...checks.flatMap((check) => check.errors ?? [])];
 
   return {
@@ -344,8 +349,8 @@ export function collectDesignSystemLegacyEvidence(options = {}) {
       representativeSurfaceCount: checks.length,
       visualEvidenceCount: checks.reduce((sum, check) => sum + check.visualEvidence.length, 0),
       accessibilityEvidenceCount: checks.reduce((sum, check) => sum + check.accessibilityEvidence.length, 0),
-      legacyInventoryFileCount: ledger.summary?.fileCount ?? null,
-      legacyInventoryEntryCount: Array.isArray(ledger.entries) ? ledger.entries.length : null,
+      legacyInventoryFileCount: ledgerValidation.freshLedger.summary.fileCount,
+      legacyInventoryEntryCount: ledgerValidation.freshLedger.entries.length,
     },
     verificationCommands,
     checks,
@@ -464,21 +469,32 @@ function isScannableSourceFile(fileName) {
   return [".js", ".jsx", ".mjs", ".ts", ".tsx", ".md"].includes(path.extname(fileName));
 }
 
-function validateLedger(ledger) {
+async function validateLedger(ledger, options = {}) {
+  const rootDir = options.rootDir ?? repoRoot;
+  const ledgerPath =
+    options.ledgerPath ?? path.join(rootDir, "packages/design-system/DESIGN_SYSTEM_LEGACY_INVENTORY.json");
+  const freshLedger = await collectDesignSystemLegacyInventoryDocument({ rootDir });
   const errors = [];
+
   if (!ledger || typeof ledger !== "object") {
-    return ["Legacy inventory ledger must be a JSON object."];
+    errors.push("Legacy inventory ledger must be a JSON object.");
+  } else if (!compareDesignSystemLegacyInventoryLedger(freshLedger, ledger)) {
+    errors.push(
+      `Legacy inventory ledger ${normalizeRelativePath(ledgerPath, rootDir)} must match a fresh design-system legacy inventory scan.`,
+    );
   }
-  if (ledger.summary?.fileCount !== 0) {
-    errors.push("Legacy inventory ledger summary.fileCount must be 0.");
+
+  if (freshLedger.summary.fileCount !== 0) {
+    errors.push("Fresh legacy inventory scan summary.fileCount must be 0.");
   }
-  if (!Array.isArray(ledger.entries) || ledger.entries.length !== 0) {
-    errors.push("Legacy inventory ledger entries must be an empty array.");
+  if (freshLedger.entries.length !== 0) {
+    errors.push("Fresh legacy inventory scan entries must be an empty array.");
   }
-  if (Object.keys(ledger.summary?.categories ?? {}).length !== 0) {
-    errors.push("Legacy inventory ledger summary.categories must be empty.");
+  if (Object.keys(freshLedger.summary.categories).length !== 0) {
+    errors.push("Fresh legacy inventory scan summary.categories must be empty.");
   }
-  return errors;
+
+  return { errors, freshLedger };
 }
 
 function readJson(filePath) {
@@ -495,7 +511,7 @@ function normalizeRelativePath(filePath, rootDir) {
 
 async function main(argv, env = process.env) {
   const options = parseDesignSystemLegacyEvidenceArgs(argv, env);
-  const report = collectDesignSystemLegacyEvidence(options);
+  const report = await collectDesignSystemLegacyEvidence(options);
   if (options.write) {
     writeDesignSystemLegacyEvidence(report, options.out);
   }
