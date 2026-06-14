@@ -1,4 +1,4 @@
-import type { CatalogPrimaryWorkbenchCommandFeedback } from "../../../features/source-observations/ui/primary-workbench-page";
+import type { CatalogPrimaryWorkbenchCommandFeedback } from "../../../features/source-observations/ui/primary-workbench-command-feedback";
 import {
   catalogPrimaryWorkbenchHref,
   type parseCatalogPrimaryWorkbenchRouteContext,

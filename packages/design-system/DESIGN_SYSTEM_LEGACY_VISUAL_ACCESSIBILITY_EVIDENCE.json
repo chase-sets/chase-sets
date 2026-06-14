@@ -1,7 +1,7 @@
 {
   "schemaVersion": "design-system-legacy-visual-accessibility-evidence/v2",
   "milestone": 12,
-  "checkedAt": "2026-06-14T19:01:49.125Z",
+  "checkedAt": "2026-06-14T23:26:48.199Z",
   "generatedBy": "pnpm run ops design-system:legacy-evidence --write",
   "retainedArtifact": "packages/design-system/DESIGN_SYSTEM_LEGACY_VISUAL_ACCESSIBILITY_EVIDENCE.json",
   "summary": {
@@ -155,7 +155,6 @@
       "scope": "bounded-contexts/catalog/features/source-observations/ui",
       "discoveredFiles": [
         "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-section-workspaces.tsx",
-        "bounded-contexts/catalog/features/source-observations/ui/primary-workbench-page.tsx",
         "bounded-contexts/catalog/features/source-observations/ui/workbench-shell.tsx"
       ],
       "visualEvidence": [
@@ -184,34 +183,24 @@
       "discoverySignalFiles": {
         "DenseAdminWorkbench": [
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-section-workspaces.tsx",
-          "bounded-contexts/catalog/features/source-observations/ui/primary-workbench-page.tsx",
           "bounded-contexts/catalog/features/source-observations/ui/workbench-shell.tsx"
         ],
         "DenseAdminWorkbenchLayout": [
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-section-workspaces.tsx",
-          "bounded-contexts/catalog/features/source-observations/ui/primary-workbench-page.tsx",
           "bounded-contexts/catalog/features/source-observations/ui/workbench-shell.tsx"
         ],
-        "BulkActionSurface": [
-          "bounded-contexts/catalog/features/source-observations/ui/primary-workbench-page.tsx",
-          "bounded-contexts/catalog/features/source-observations/ui/workbench-shell.tsx"
-        ]
+        "BulkActionSurface": ["bounded-contexts/catalog/features/source-observations/ui/workbench-shell.tsx"]
       },
       "requiredSignalFiles": {
         "DenseAdminWorkbench": [
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-section-workspaces.tsx",
-          "bounded-contexts/catalog/features/source-observations/ui/primary-workbench-page.tsx",
           "bounded-contexts/catalog/features/source-observations/ui/workbench-shell.tsx"
         ],
         "DenseAdminWorkbenchLayout": [
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-section-workspaces.tsx",
-          "bounded-contexts/catalog/features/source-observations/ui/primary-workbench-page.tsx",
           "bounded-contexts/catalog/features/source-observations/ui/workbench-shell.tsx"
         ],
-        "BulkActionSurface": [
-          "bounded-contexts/catalog/features/source-observations/ui/primary-workbench-page.tsx",
-          "bounded-contexts/catalog/features/source-observations/ui/workbench-shell.tsx"
-        ]
+        "BulkActionSurface": ["bounded-contexts/catalog/features/source-observations/ui/workbench-shell.tsx"]
       },
       "forbiddenSignalFiles": {
         "className=": [],

@@ -1,4 +1,4 @@
-import type { CatalogPrimaryWorkbenchCommandFeedback } from "../../../features/source-observations/ui/primary-workbench-page";
+import type { CatalogPrimaryWorkbenchCommandFeedback } from "../../../features/source-observations/ui/primary-workbench-command-feedback";
 
 // Parse the post-command redirect query (?commandStatus/&commandResult/&commandIntent)
 // into the typed feedback banner state. Shared by every integrations surface

@@ -51,7 +51,9 @@ The no-core-change guard covers these core paths:
 - `features/source-observations/api/runtime.ts`
 - `features/source-observations/api/route.ts`
 - `features/source-observations/api/route-helpers.ts`
-- `features/source-observations/ui/primary-workbench-page.tsx`
+- `features/source-observations/ui/workbench-shell.tsx`
+- `features/source-observations/ui/integrations-surface-page.tsx`
+- `features/source-observations/ui/workbench-workspace-renderers.tsx`
 - `features/source-observations/ui/admin-control-plane/`
 - `features/source-observations/api/provider-integration-profiles.ts`
 

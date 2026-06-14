@@ -30,9 +30,12 @@ The route path is the screen router. The `section` query param (and the `routeCo
 
 Every supporting detour deep-links to the surface route that hosts its workspace and carries a `returnPath` query param that points back to the daily import-to-promotion route, plus the working-set context keys (provider key, unit key, import scope, profile version, Source Observation filters, selected IDs, job ID, promotion preview ID). Because each surface is a real route, browser back/forward and bookmarks preserve context with no `pushState` section router. The route-context href helpers and the `returnPath` round-trip are covered by `primary-workbench-route-context.test.ts`.
 
+## Retired single-route shell (#1749, done)
+
+The superseded `?section=` single-page shell (`primary-workbench-page.tsx`, exporting `CatalogPrimaryWorkbenchPage`) has been completely deleted. There is no compatibility shim, alias, hidden flag, or fallback branch. The four nested routes are the only canonical router; the legacy in-page top-level section switching (`normalizeActiveWorkspace`, the `popstate`/`pushState` section handler, and the duplicate in-page command-feedback banner) no longer exists. The IA parity guard in `information-architecture.test.ts` fails closed if a retired section key, route segment, renderer key, or nav item reappears.
+
 ## Out of scope for #1739 (later issues)
 
 - Per-route read-model slicing — the four loaders currently share the same read-model composition (#1744).
 - Redesigning the daily flow (Run sync → Review → Create/update linearization) (#1740).
 - Decomposing the 17-intent action or changing its redirect behavior (#1745).
-- Removing the superseded `?section=` `primary-workbench-page.tsx` shell (#1749). It is no longer the mounted router; the four routes are canonical.
