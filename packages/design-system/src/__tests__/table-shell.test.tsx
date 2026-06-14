@@ -1,0 +1,183 @@
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { DataTable, Table, type DataColumn } from "../components/data-display";
+import { ChaseRoot } from "../theme/provider";
+
+interface Row {
+  name: string;
+  price: number;
+}
+
+const baseColumns: DataColumn<Row>[] = [
+  { key: "name", header: "Name", cell: (row) => row.name, sortable: true },
+  { key: "price", header: "Price", align: "right", cell: (row) => row.price, sortable: true },
+  { key: "stock", header: "Stock", cell: () => "Available" },
+];
+
+const baseRows: Row[] = [
+  { name: "Alpha", price: 10 },
+  { name: "Beta", price: 20 },
+];
+
+describe("TableShell scaffolding", () => {
+  it("renders the shared wrapper + table chrome once for the simple Table", () => {
+    const { container } = render(<Table caption="People" columns={["Name", "Role"]} rows={[["Ada", "Engineer"]]} />);
+
+    const wrapper = container.firstElementChild as HTMLElement;
+    expect(wrapper.className).toContain("modern-surface");
+    expect(wrapper.className).toContain("overflow-x-auto");
+
+    const table = wrapper.querySelector("table");
+    expect(table?.className).toBe("min-w-full border-collapse text-left text-sm");
+
+    const caption = table?.querySelector("caption");
+    expect(caption?.textContent).toBe("People");
+    expect(caption?.className).toBe("sr-only");
+
+    // Header cells use semantic <th>; body uses <td>.
+    expect(within(table as HTMLElement).getAllByRole("columnheader")).toHaveLength(2);
+    expect(screen.getByText("Ada").tagName).toBe("TD");
+  });
+
+  it("uses the inset surface for DataTable", () => {
+    const { container } = render(<DataTable rows={baseRows} columns={baseColumns} mobileMode="scroll" />);
+    const wrapper = container.querySelector(".inset-surface.overflow-x-auto");
+    expect(wrapper).not.toBeNull();
+    expect(wrapper?.querySelector("table")?.className).toBe("min-w-full border-collapse text-left text-sm");
+  });
+});
+
+describe("DataTable density", () => {
+  it("defaults to comfortable padding and tightens under compact", () => {
+    const { rerender } = render(<DataTable rows={baseRows} columns={baseColumns} density="comfortable" />);
+    expect(screen.getByRole("columnheader", { name: "Name" }).className).toContain("px-4 py-3");
+
+    rerender(<DataTable rows={baseRows} columns={baseColumns} density="compact" />);
+    expect(screen.getByRole("columnheader", { name: "Name" }).className).toContain("px-3 py-2");
+  });
+
+  it("inherits density from the surrounding ChaseRoot when no prop is set", () => {
+    render(
+      <ChaseRoot density="compact">
+        <DataTable rows={baseRows} columns={baseColumns} />
+      </ChaseRoot>,
+    );
+    expect(screen.getByRole("columnheader", { name: "Name" }).className).toContain("px-3 py-2");
+  });
+});
+
+describe("DataTable mobileMode", () => {
+  it("renders a stacked card list alongside the desktop table by default", () => {
+    const { container } = render(<DataTable rows={baseRows} columns={baseColumns} />);
+
+    expect(within(container).getByRole("list")).toBeTruthy();
+    expect(container.querySelector(".hidden.md\\:block")).not.toBeNull();
+  });
+
+  it("drops the card list and always shows the table in scroll mode", () => {
+    const { container } = render(<DataTable rows={baseRows} columns={baseColumns} mobileMode="scroll" />);
+
+    expect(within(container).queryByRole("list")).toBeNull();
+    expect(container.querySelector(".block")?.querySelector("table")).not.toBeNull();
+  });
+});
+
+describe("DataTable loading", () => {
+  it("renders the requested number of skeleton rows without hover affordance", () => {
+    const { container } = render(<DataTable rows={[]} columns={baseColumns} loading loadingRows={3} />);
+
+    const table = container.querySelector(".hidden.md\\:block table");
+    const skeletonRows = table?.querySelectorAll("tbody tr");
+    expect(skeletonRows).toHaveLength(3);
+    skeletonRows?.forEach((row) => {
+      expect(row.className).toBe("border-b border-muted last:border-b-0");
+      expect(row.className).not.toContain("hover:");
+    });
+  });
+
+  it("announces loading state via a polite status region", () => {
+    const { rerender } = render(<DataTable rows={[]} columns={baseColumns} loading />);
+    const status = screen.getByRole("status");
+    expect(status.textContent).toBe("Loading table data");
+    expect(status.getAttribute("aria-live")).toBe("polite");
+
+    rerender(<DataTable rows={baseRows} columns={baseColumns} loading={false} />);
+    expect(screen.getByRole("status").textContent).toBe("Table data loaded");
+  });
+});
+
+describe("DataTable sort affordances", () => {
+  it("exposes aria-sort and emits direction toggles", () => {
+    const onSortChange = vi.fn();
+    render(
+      <DataTable
+        rows={baseRows}
+        columns={baseColumns}
+        sortKey="name"
+        sortDirection="asc"
+        onSortChange={onSortChange}
+      />,
+    );
+
+    expect(screen.getByRole("columnheader", { name: "Name" }).getAttribute("aria-sort")).toBe("ascending");
+    expect(screen.getByRole("columnheader", { name: "Price" }).getAttribute("aria-sort")).toBe("none");
+    expect(screen.getByRole("columnheader", { name: "Stock" }).hasAttribute("aria-sort")).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Name" }));
+    expect(onSortChange).toHaveBeenCalledWith("name", "desc");
+
+    fireEvent.click(screen.getByRole("button", { name: "Price" }));
+    expect(onSortChange).toHaveBeenCalledWith("price", "asc");
+  });
+});
+
+describe("DataTable selection", () => {
+  it("toggles individual rows and supports select-all with indeterminate state", () => {
+    const onSelectionChange = vi.fn();
+    const { container, rerender } = render(
+      <DataTable
+        rows={baseRows}
+        columns={baseColumns}
+        mobileMode="scroll"
+        getRowId={(row) => row.name}
+        selectedKeys={new Set<string>()}
+        onSelectionChange={onSelectionChange}
+      />,
+    );
+
+    const rowCheckbox = screen.getByLabelText("Select row Alpha") as HTMLInputElement;
+    fireEvent.click(rowCheckbox);
+    expect(onSelectionChange).toHaveBeenCalledWith(new Set(["Alpha"]));
+
+    const selectAll = screen.getByLabelText("Select all rows") as HTMLInputElement;
+    fireEvent.click(selectAll);
+    expect(onSelectionChange).toHaveBeenCalledWith(new Set(["Alpha", "Beta"]));
+
+    rerender(
+      <DataTable
+        rows={baseRows}
+        columns={baseColumns}
+        mobileMode="scroll"
+        getRowId={(row) => row.name}
+        selectedKeys={new Set(["Alpha"])}
+        onSelectionChange={onSelectionChange}
+      />,
+    );
+    const partial = within(container).getByLabelText("Select all rows");
+    expect(partial.getAttribute("aria-checked")).toBe("mixed");
+  });
+});
+
+describe("DataTable a11y semantics", () => {
+  it("keeps empty state out of a table and surfaces it as a message", () => {
+    render(<DataTable rows={[]} columns={baseColumns} emptyTitle="Nothing here" />);
+    expect(screen.getByText("Nothing here")).toBeTruthy();
+    expect(document.querySelector("table")).toBeNull();
+  });
+
+  it("renders header cells as scoped column headers", () => {
+    render(<DataTable rows={baseRows} columns={baseColumns} mobileMode="scroll" />);
+    const headers = screen.getAllByRole("columnheader");
+    expect(headers.map((header) => header.tagName)).toEqual(["TH", "TH", "TH"]);
+  });
+});
