@@ -118,6 +118,16 @@ test.describe("catalog admin integrations", () => {
     await expect(page.getByRole("textbox", { name: /JSON/i })).toHaveCount(0);
     await expect(page.getByText(/Old integrations surface/i)).toHaveCount(0);
 
+    // The Create / update stage deep-links into the separate Catalog Items area,
+    // filtered to the just-created/updated drafts for the provider (?source=). That
+    // target must load gracefully — even for an unknown provider, the filtered list
+    // renders an empty result (HTTP < 400), never a 500. This is the integration ->
+    // catalog-items handoff seam from #1746.
+    await expectPageOk(page, "/catalog/catalog-items?source=tcgdex");
+    await page.waitForLoadState("networkidle");
+    await expect(page).toHaveURL(/\/catalog\/catalog-items\?source=tcgdex/);
+    await expectPageOk(page, "/catalog/catalog-items?source=not-a-real-provider");
+
     const retiredListResponse = await page.goto(["/catalog", "source-observations"].join("/"), {
       waitUntil: "domcontentloaded",
       timeout: 15_000,

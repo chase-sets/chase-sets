@@ -7,6 +7,7 @@ import {
   Dialog,
   Inline,
   KeyValueList,
+  LinkButton,
   PageSection,
   ProgressiveDisclosure,
   ReferenceInfoDialog,
@@ -20,6 +21,7 @@ import {
 import { useToasts } from "../../../support/shell-support/ui/toasts";
 import { EntityDetailPage } from "../../../support/shell-support/ui/entity-detail-page";
 import { toCatalogAdminHref } from "../../../support/shell-support/ui/catalog-admin-hrefs";
+import { sourceObservationsForProviderHref } from "./catalog-item-provenance-links";
 import { LifecycleControls, type Transition } from "../../../support/shell-support/ui/lifecycle-controls";
 import {
   useCatalogItem,
@@ -554,6 +556,16 @@ export function CatalogItemDetailPage({
   const categories = (data?.categories ?? []) as CategoryRef[];
   const externalCatalogItemReferences = data?.external_catalog_item_references ?? [];
   const externalReferences = data?.external_product_references ?? [];
+  // The provider keys that link this Catalog Item back to the integration imports
+  // that created or updated it. Promotion writes these external references, so they
+  // are the item's recorded origin — dedupe and sort for a stable back-reference.
+  const originProviderKeys = Array.from(
+    new Set(
+      [...externalReferences, ...externalCatalogItemReferences]
+        .map((reference) => reference.providerKey.trim())
+        .filter(Boolean),
+    ),
+  ).sort((left, right) => left.localeCompare(right));
 
   const fieldValueColumns: DataColumn<ReferenceDetailRow>[] = [
     {
@@ -634,6 +646,30 @@ export function CatalogItemDetailPage({
                 { key: t("catalog.features.catalogItems.ui.catalogItemDetailPage.updated"), value: data.updated_at },
               ]}
             />
+
+            {originProviderKeys.length > 0 && (
+              <PageSection title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.origin.title")}>
+                <Stack gap={3}>
+                  <Text tone="secondary">
+                    {t("catalog.features.catalogItems.ui.catalogItemDetailPage.origin.description")}
+                  </Text>
+                  <Inline gap={2}>
+                    {originProviderKeys.map((providerKey) => (
+                      <LinkButton
+                        key={providerKey}
+                        size="sm"
+                        tone="secondary"
+                        leadingIcon="externalLink"
+                        href={sourceObservationsForProviderHref(providerKey)}
+                      >
+                        {t("catalog.features.catalogItems.ui.catalogItemDetailPage.view.source.observations")} (
+                        {providerKey})
+                      </LinkButton>
+                    ))}
+                  </Inline>
+                </Stack>
+              </PageSection>
+            )}
 
             {data.status === "draft" && !data.blueprint && (
               <PageSection title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.blueprint")}>
