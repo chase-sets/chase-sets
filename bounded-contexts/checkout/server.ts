@@ -4,7 +4,6 @@ export { createCheckoutUcpHandlers } from "./support/ucp-support/checkout";
 export {
   appendAnonymousCartCookie,
   appendAnonymousSellListCookie,
-  appendClearedGuestCheckoutCookie,
   ensureAnonymousCartId,
   ensureAnonymousSellListId,
   readAnonymousCartId,

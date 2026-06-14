@@ -209,7 +209,7 @@ export async function action({ request, params }: ActionFunctionArgs): Promise<R
         defaultSuccessPath: successPath,
         accountSelectionPath: "/account/select",
       });
-      clearGuestCheckoutCookie(response.headers);
+      clearGuestCheckoutCookie(response.headers, request);
       return response;
     }
 
@@ -231,7 +231,7 @@ export async function action({ request, params }: ActionFunctionArgs): Promise<R
         defaultSuccessPath: successPath,
         accountSelectionPath: "/account/select",
       });
-      clearGuestCheckoutCookie(response.headers);
+      clearGuestCheckoutCookie(response.headers, request);
       return response;
     }
 

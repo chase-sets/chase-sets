@@ -85,7 +85,3 @@ export function appendClearedAnonymousCartCookie(headers: Headers, request?: Req
 export function appendClearedAnonymousSellListCookie(headers: Headers, request?: Request) {
   headers.append("Set-Cookie", serializeCookie(CHECKOUT_ANONYMOUS_SELL_LIST_COOKIE_NAME, "", 0, request));
 }
-
-export function appendClearedGuestCheckoutCookie(headers: Headers, request?: Request) {
-  headers.append("Set-Cookie", serializeCookie(CHECKOUT_GUEST_COOKIE_NAME, "", 0, request));
-}
