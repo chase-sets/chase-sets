@@ -1,6 +1,7 @@
 import {
   Badge,
   LinkButton,
+  OperationalStatusBanner,
   StatusReasonList,
   WorkbenchDetailPanel,
   WorkbenchStack,
@@ -51,6 +52,84 @@ export function WorkspaceBlockerPanel({
         <BlockerList blockers={visibleBlockers} resolveContext={resolveContext} />
       </WorkbenchStack>
     </WorkbenchDetailPanel>
+  );
+}
+
+// Governance is rare, privileged ops kept off the daily route. When a primary
+// command is denied (RBAC) or stopped (rollout / kill switch), the daily flow
+// does NOT host the full RBAC/rollout panel — it shows only this slim indicator
+// that deep-links into the governance-controls workspace carrying return context
+// back to the daily job. Everything else (the full matrix, kill switches,
+// observability) lives on /admin/integrations/governance.
+type CatalogDailyGovernanceStatus = "denied" | "stopped";
+
+const governanceDenialBlockers = new Set<CatalogPrimaryWorkbenchBlockerCategory>([
+  "permission-denied",
+  "authorization-denied",
+  "rbac-missing",
+]);
+const governanceStopBlockers = new Set<CatalogPrimaryWorkbenchBlockerCategory>([
+  "rollout-disabled",
+  "kill-switch-active",
+]);
+
+// Detect whether a primary command is denied or stopped by governance, from the
+// shared core read model the daily surface already loads (no governance slice
+// required). Denial takes precedence over a rollout stop because an access
+// failure is the more fundamental block. Returns null when nothing is
+// governance-blocked, so the daily flow renders no indicator in the common case.
+export function catalogDailyGovernanceStatus(
+  readModel: CatalogPrimaryWorkbenchReadModel,
+): CatalogDailyGovernanceStatus | null {
+  const blockers = new Set<CatalogPrimaryWorkbenchBlockerCategory>([
+    ...readModel.readiness.blockers,
+    ...readModel.promotionPreview.blockers,
+  ]);
+  const denied =
+    readModel.readiness.rbacAllowed === false ||
+    readModel.actions.some((action) => action.state === "denied") ||
+    [...governanceDenialBlockers].some((blocker) => blockers.has(blocker));
+  if (denied) {
+    return "denied";
+  }
+  const stopped =
+    readModel.readiness.rolloutEnabled === false ||
+    [...governanceStopBlockers].some((blocker) => blockers.has(blocker));
+
+  return stopped ? "stopped" : null;
+}
+
+// The slim daily denied/stopped indicator. A compact tone-danger banner that
+// names the governance failure mode and links into governance-controls with the
+// daily working set as return context — the only governance affordance the daily
+// route carries. Renders nothing when no primary command is governance-blocked.
+export function DailyGovernanceStatusIndicator({
+  readModel,
+}: Readonly<{
+  readModel: CatalogPrimaryWorkbenchReadModel;
+}>) {
+  const status = catalogDailyGovernanceStatus(readModel);
+  if (!status) {
+    return null;
+  }
+
+  return (
+    <OperationalStatusBanner
+      data-catalog-daily-governance-status={status}
+      tone="danger"
+      title={t(`catalog.features.sourceObservations.ui.primaryWorkbench.governanceStatus.${status}.title`)}
+      description={t(`catalog.features.sourceObservations.ui.primaryWorkbench.governanceStatus.${status}.description`)}
+      action={
+        <LinkButton
+          size="sm"
+          tone="secondary"
+          trailingIcon="chevronRight"
+          href={catalogPrimaryWorkbenchSupportingHref(readModel.routeContext, "governance-controls")}
+        >
+          {t("catalog.features.sourceObservations.ui.primaryWorkbench.governanceStatus.open")}
+        </LinkButton>
+      }
+    />
   );
 }
 

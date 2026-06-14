@@ -209,5 +209,39 @@ test.describe("catalog admin integrations", () => {
     expect(backToDailyUrl.searchParams.get("unitKey")).toBe("tcgdex:pokemon:card:import");
     expect(backToDailyUrl.searchParams.get("importScope")).toBe("en:3:base:base1");
     expect(backToDailyUrl.searchParams.get("profileVersion")).toBe("2026.06.04");
+
+    // The governance-and-recovery surface hosts conflict resolution, lifecycle recovery,
+    // and governance controls as rare, privileged ops off the daily route. The daily flow's
+    // slim denied/stopped indicator deep-links here (section=controls) carrying return
+    // context. Land on that exact deep-link shape — including a stale/unknown profileVersion,
+    // the shape a missing/invalid-profile blocker carries — and confirm the governance loader
+    // recovers from the backend's 404 into the absent-authoring-model state and renders
+    // (HTTP < 400) rather than surfacing a 500.
+    await expectPageOk(
+      page,
+      "/catalog/integrations/governance?providerKey=tcgdex&unitKey=tcgdex%3Apokemon%3Acard%3Aimport&importScope=en%3A3%3Abase%3Abase1&profileVersion=2026.06.04&section=controls",
+    );
+    await page.waitForLoadState("networkidle");
+    await expect(page).toHaveURL(/\/catalog\/integrations\/governance\?/);
+    // All three govern-and-recover workspaces render, stacked on the one governance route.
+    await expectVisibleText(page, "Conflict resolution");
+    await expectVisibleText(page, "Lifecycle recovery");
+    await expectVisibleText(page, "Governance controls");
+    // Governance controls is the deep-link target (section=controls), so its nav link is active.
+    await expect(page.getByRole("link", { name: /Governance controls/i }).first()).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    // The full RBAC / kill-switch / observability panel lives here, not on the daily route.
+    await expect(page.getByRole("heading", { name: "RBAC action matrix" })).toBeVisible();
+    // Each governance workspace links back to the daily import workbench, preserving the working set.
+    const backFromGovernanceHref = await page
+      .getByRole("link", { name: "Back to import workbench" })
+      .first()
+      .getAttribute("href");
+    const backFromGovernanceUrl = new URL(backFromGovernanceHref ?? "", new URL(page.url()).origin);
+    expect(backFromGovernanceUrl.pathname).toBe("/catalog/integrations");
+    expect(backFromGovernanceUrl.searchParams.has("section")).toBe(false);
+    expect(backFromGovernanceUrl.searchParams.get("providerKey")).toBe("tcgdex");
   });
 });
