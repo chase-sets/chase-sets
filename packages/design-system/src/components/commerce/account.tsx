@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Icon } from "../../icons";
-import { Inset } from "../../primitives/layout";
+import { Cluster, Grid, IconRow, Inline, Inset, Stack } from "../../primitives/layout";
 import { Badge } from "../feedback";
 import { RatingSummary, TrustBadge } from "./trust";
 
@@ -21,8 +21,8 @@ export function AccountProfileHeader({
 }: AccountProfileHeaderProps) {
   return (
     <section className="ds-panel grid gap-4 rounded-tokenLg border border-border p-4 md:grid-cols-[1fr_auto] md:items-end">
-      <div className="grid gap-3">
-        <div className="flex flex-wrap items-center gap-2">
+      <Stack gap={3}>
+        <Inline gap={2}>
           <h2 className="m-0 text-2xl font-bold leading-8 text-foreground">{name}</h2>
           {verified ? (
             <TrustBadge>Verified account</TrustBadge>
@@ -31,20 +31,20 @@ export function AccountProfileHeader({
               Building trust
             </Badge>
           )}
-        </div>
+        </Inline>
         {tagline ? <p className="m-0 max-w-2xl text-sm leading-6 text-secondary">{tagline}</p> : null}
         {stats.length ? (
-          <div className="grid gap-2 sm:grid-cols-4">
+          <Grid columns={{ base: 1, sm: 4 }} gap={2}>
             {stats.map((stat) => (
               <Inset key={stat.label} padding={3}>
                 <div className="text-lg font-bold tabular-nums text-foreground">{stat.value}</div>
                 <div className="text-xs text-tertiary">{stat.label}</div>
               </Inset>
             ))}
-          </div>
+          </Grid>
         ) : null}
-      </div>
-      {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
+      </Stack>
+      {actions ? <Inline gap={2}>{actions}</Inline> : null}
     </section>
   );
 }
@@ -70,41 +70,40 @@ export function AccountCredibilityHeader({
 }: AccountCredibilityHeaderProps) {
   return (
     <section className="ds-panel grid gap-4 rounded-tokenLg border border-border p-4">
-      <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-start">
-        <div className="grid gap-2">
-          <div className="flex flex-wrap items-center gap-2">
+      <Grid templateColumns="1fr auto" stackUntil="md" gap={3} align={{ base: "stretch", md: "start" }}>
+        <Stack gap={2}>
+          <Inline gap={2}>
             <h2 className="m-0 text-2xl font-bold leading-8 text-foreground">{name}</h2>
             <TrustBadge>{verification}</TrustBadge>
-          </div>
+          </Inline>
           {summary ? <p className="m-0 max-w-3xl text-sm leading-6 text-secondary">{summary}</p> : null}
-        </div>
+        </Stack>
         {contactAction || reportAction ? (
-          <div className="flex flex-wrap gap-2">
+          <Inline gap={2}>
             {contactAction}
             {reportAction}
-          </div>
+          </Inline>
         ) : null}
-      </div>
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+      </Grid>
+      <Grid columns={{ base: 1, sm: 2, lg: 4 }} gap={2}>
         {facts.map((fact) => (
           <Inset key={String(fact.label)} padding={3}>
             <div className="text-sm font-semibold text-foreground">{fact.value}</div>
             <div className="text-xs text-tertiary">{fact.label}</div>
           </Inset>
         ))}
-      </div>
+      </Grid>
       {policies.length ? (
         <div className="grid gap-2 border-t border-border pt-4 sm:grid-cols-2">
           {policies.map((policy) => (
-            <div key={String(policy.label)} className="flex gap-2 text-sm">
-              <span className="mt-0.5 shrink-0">
-                <Icon name="shield" size="sm" tone="trust" aria-hidden="true" />
-              </span>
-              <div>
-                <div className="font-semibold text-foreground">{policy.label}</div>
-                <div className="text-secondary">{policy.value}</div>
-              </div>
-            </div>
+            <IconRow
+              key={String(policy.label)}
+              gap={2}
+              icon={<Icon name="shield" size="sm" tone="trust" aria-hidden="true" />}
+            >
+              <div className="text-sm font-semibold text-foreground">{policy.label}</div>
+              <div className="text-sm text-secondary">{policy.value}</div>
+            </IconRow>
           ))}
         </div>
       ) : null}
@@ -124,20 +123,20 @@ export interface ReviewCardProps {
 export function ReviewCard({ author, rating, body, meta, verified = false, sellerResponse }: ReviewCardProps) {
   return (
     <article className="grid gap-3 rounded-tokenMd border border-border bg-surface p-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
+      <Cluster gap={2}>
         <div>
           <div className="font-semibold text-foreground">{author}</div>
           {meta ? <div className="text-xs text-tertiary">{meta}</div> : null}
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <Inline gap={2}>
           <RatingSummary value={rating} compact />
           {verified ? (
             <Badge tone="trust" variant="soft">
               Verified purchase
             </Badge>
           ) : null}
-        </div>
-      </div>
+        </Inline>
+      </Cluster>
       <p className="m-0 text-sm leading-6 text-secondary">{body}</p>
       {sellerResponse ? (
         <div className="rounded-tokenMd bg-surface-2 p-3 text-sm leading-5 text-secondary">

@@ -1,6 +1,7 @@
 import type { MouseEventHandler, ReactNode } from "react";
 import { Icon, type IconName } from "../../icons";
 import { cx } from "../../utils/cx";
+import { Grid, IconRow, Stack } from "../../primitives/layout";
 import { Badge, Progress } from "../feedback";
 import { Card } from "../data-display/card";
 import { hasReviewCount, normalizeRatingValue, type TrustTone } from "./shared";
@@ -65,14 +66,11 @@ export interface PlatformCredibilityCueProps {
 
 export function PlatformCredibilityCue({ title, description }: PlatformCredibilityCueProps) {
   return (
-    <div className="flex gap-3 rounded-tokenMd border border-trust-soft bg-trust-soft p-4">
-      <span className="mt-0.5 shrink-0">
-        <Icon name="shield" size="md" tone="trust" aria-hidden="true" />
-      </span>
-      <div>
+    <div className="rounded-tokenMd border border-trust-soft bg-trust-soft p-4">
+      <IconRow gap={3} icon={<Icon name="shield" size="md" tone="trust" aria-hidden="true" />}>
         <div className="font-semibold text-foreground">{title}</div>
         <div className="text-sm leading-5 text-secondary">{description}</div>
-      </div>
+      </IconRow>
     </div>
   );
 }
@@ -201,8 +199,8 @@ export function AccountTrustCard({
   return (
     <Card>
       <Card.Header>
-        <div className="flex items-start justify-between gap-3">
-          <div className="grid min-w-0 gap-2">
+        <Stack direction="row" justify="between" align="start" gap={3}>
+          <Stack gap={2} minWidth="0">
             <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
               <Card.Title>{name}</Card.Title>
               {verified ? (
@@ -224,31 +222,28 @@ export function AccountTrustCard({
                 New
               </span>
             )}
-          </div>
+          </Stack>
           {actions}
-        </div>
+        </Stack>
       </Card.Header>
       <Card.Body>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <Grid columns={{ base: 1, sm: 2 }} gap={3}>
           {facts.map((fact) => (
-            <div key={fact.label} className="flex gap-2 rounded-tokenMd border border-border bg-surface-2 p-3">
-              <span className="mt-0.5">
-                <Icon name={fact.icon} size="sm" tone="trust" aria-hidden="true" />
-              </span>
-              <div>
+            <div key={fact.label} className="rounded-tokenMd border border-border bg-surface-2 p-3">
+              <IconRow gap={2} icon={<Icon name={fact.icon} size="sm" tone="trust" aria-hidden="true" />}>
                 <div className="text-xs font-medium text-tertiary">{fact.label}</div>
                 <div className="text-sm font-semibold text-foreground">{fact.value}</div>
-              </div>
+              </IconRow>
             </div>
           ))}
-        </div>
+        </Grid>
         {policies.length ? (
           <div className="mt-4 grid gap-2">
             {policies.map((policy) => (
-              <div key={policy.label} className="flex items-center justify-between gap-3 text-sm">
-                <span className="text-secondary">{policy.label}</span>
-                <span className="font-semibold text-foreground">{policy.value}</span>
-              </div>
+              <Stack key={policy.label} direction="row" justify="between" align="center" gap={3}>
+                <span className="text-sm text-secondary">{policy.label}</span>
+                <span className="text-sm font-semibold text-foreground">{policy.value}</span>
+              </Stack>
             ))}
           </div>
         ) : null}
@@ -275,15 +270,15 @@ export function RatingDistribution({ title, average, count, rows, starLabel }: R
         </Card.Description>
       </Card.Header>
       <Card.Body>
-        <div className="grid gap-2">
+        <Stack gap={2}>
           {rows.map((row) => (
-            <div key={row.stars} className="grid grid-cols-[3rem_1fr_3rem] items-center gap-3 text-sm">
-              <span className="font-medium">{starLabel ? starLabel(row.stars) : row.stars}</span>
+            <Grid key={row.stars} templateColumns="3rem 1fr 3rem" align="center" gap={3}>
+              <span className="text-sm font-medium">{starLabel ? starLabel(row.stars) : row.stars}</span>
               <Progress value={row.value} />
-              <span className="text-right tabular-nums text-tertiary">{row.value}%</span>
-            </div>
+              <span className="text-right text-sm tabular-nums text-tertiary">{row.value}%</span>
+            </Grid>
           ))}
-        </div>
+        </Stack>
       </Card.Body>
     </Card>
   );

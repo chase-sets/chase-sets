@@ -1,6 +1,7 @@
 import { useState, type ImgHTMLAttributes, type ReactNode } from "react";
 import { Icon } from "../../icons";
 import { cx } from "../../utils/cx";
+import { Inline, Stack } from "../../primitives/layout";
 import { IconButton } from "../actions";
 import { ProductMediaImage, type ResponsiveImageSource } from "../data-display/product-media";
 import { Badge } from "../feedback";
@@ -160,7 +161,7 @@ export function ListingCard({
     Boolean(sellerName && sellerHref) || normalizeRatingValue(rating) !== null || hasReviewCount(reviewCount);
   const sellerTrustSummary =
     sellerName || resolvedSellerTrust || sellerMeta || sellerFeedbackAction ? (
-      <div className="grid min-w-0 gap-1">
+      <Stack gap={1} minWidth="0">
         <div className="flex min-w-0 flex-wrap items-start gap-x-2 gap-y-1">
           {sellerName && sellerHasAccountReputation ? (
             <AccountReputationSummary
@@ -181,7 +182,7 @@ export function ListingCard({
             {sellerFeedbackAction}
           </div>
         ) : null}
-      </div>
+      </Stack>
     ) : null;
   const resolvedProtection = protection ? <OrderProtectionBadge label={protection} /> : null;
   const hasPrice = price !== undefined && price !== null && price !== false && price !== "";
@@ -300,14 +301,14 @@ export function ListingCard({
       <div className={cx("grid content-start", contentClassName, isLinked && "z-20 pointer-events-none")}>
         <div className="grid gap-1.5">
           {condition || availability ? (
-            <div className="flex flex-wrap items-center gap-2">
+            <Inline gap={2}>
               {condition ? (
                 <Badge variant="outline" tone="neutral">
                   {condition}
                 </Badge>
               ) : null}
               {availability ? <span className="text-xs font-medium text-secondary">{availability}</span> : null}
-            </div>
+            </Inline>
           ) : null}
           <h3
             className={cx(
@@ -325,7 +326,7 @@ export function ListingCard({
 
         {hasPrice || priceDetail || priceExplanation ? (
           <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
-            <div className="grid gap-1">
+            <Stack gap={1}>
               {hasPrice ? (
                 <div
                   className={cx(
@@ -338,7 +339,7 @@ export function ListingCard({
               ) : null}
               {priceDetail ? <div className="text-xs leading-4 text-tertiary">{priceDetail}</div> : null}
               {priceExplanation ? <div className="text-xs leading-4 text-secondary">{priceExplanation}</div> : null}
-            </div>
+            </Stack>
           </div>
         ) : null}
 
@@ -346,7 +347,7 @@ export function ListingCard({
           <div className="grid gap-2 text-sm text-secondary">
             {sellerTrustSummary}
             {fulfillment || resolvedProtection || returnPolicy ? (
-              <div className="flex flex-wrap gap-2">
+              <Inline gap={2}>
                 {fulfillment ? (
                   <span className="inline-flex items-center gap-1.5">
                     <Icon name="truck" size="sm" tone="trust" aria-hidden="true" />
@@ -355,7 +356,7 @@ export function ListingCard({
                 ) : null}
                 {resolvedProtection}
                 {returnPolicy ? <TrustBadge tone="policy">{returnPolicy}</TrustBadge> : null}
-              </div>
+              </Inline>
             ) : null}
           </div>
         ) : null}

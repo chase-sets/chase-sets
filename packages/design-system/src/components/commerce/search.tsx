@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Icon } from "../../icons";
 import { cx } from "../../utils/cx";
+import { Box, Grid, IconRow, Inline } from "../../primitives/layout";
 import { Button } from "../actions";
 import { SearchInput } from "../forms";
 import { Card } from "../data-display/card";
@@ -32,15 +33,15 @@ export function SearchFilterPanel({
   return (
     <Card>
       <Card.Body>
-        <div className="grid gap-3 lg:grid-cols-[1fr_auto]">
+        <Grid templateColumns="1fr auto" stackUntil="lg" gap={3}>
           <SearchInput label={searchLabel} hideLabel placeholder={placeholder} />
-          <div className="flex flex-wrap gap-2">
+          <Inline gap={2}>
             <Button tone="secondary" leadingIcon="filter">
               {filterLabel}
             </Button>
             {actions}
-          </div>
-        </div>
+          </Inline>
+        </Grid>
         <div className="flex flex-wrap items-center gap-2 text-sm">
           {resultCount ? <span className="font-semibold text-foreground">{resultCount}</span> : null}
           {appliedFilters.map((filter) => (
@@ -84,7 +85,7 @@ export function AppliedFilterChips({ filters, clearAction, removeLabel }: Applie
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <Inline gap={2}>
       {filters.map((filter) => (
         <span
           key={filter.id}
@@ -104,7 +105,7 @@ export function AppliedFilterChips({ filters, clearAction, removeLabel }: Applie
         </span>
       ))}
       {clearAction}
-    </div>
+    </Inline>
   );
 }
 
@@ -117,15 +118,10 @@ export interface SavedSearchPromptProps {
 export function SavedSearchPrompt({ title, description, action }: SavedSearchPromptProps) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-tokenMd border border-border bg-surface-2 p-4">
-      <div className="flex gap-3">
-        <span className="mt-0.5">
-          <Icon name="bell" size="md" tone="accent" aria-hidden="true" />
-        </span>
-        <div>
-          <div className="font-semibold text-foreground">{title}</div>
-          <div className="text-sm leading-5 text-secondary">{description}</div>
-        </div>
-      </div>
+      <IconRow gap={3} icon={<Icon name="bell" size="md" tone="accent" aria-hidden="true" />}>
+        <div className="font-semibold text-foreground">{title}</div>
+        <div className="text-sm leading-5 text-secondary">{description}</div>
+      </IconRow>
       {action}
     </div>
   );
@@ -158,7 +154,7 @@ export function SearchControlBar({
   return (
     <section className="grid gap-3 rounded-tokenLg border border-border bg-surface p-3 shadow-tokenSm">
       <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
-        <div className="min-w-0">{search}</div>
+        <Box minWidth="0">{search}</Box>
         {hasControls ? (
           <div className="flex min-w-0 flex-wrap items-end gap-3 lg:justify-end">
             {sort ? <div className="min-w-44">{sort}</div> : null}
