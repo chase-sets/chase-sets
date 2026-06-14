@@ -4,7 +4,7 @@
 
 This index is generated from the root `@chase-sets/design-system` export surface and the production consumer inventory used by `scripts/check-design-system-dead-exports.mjs`.
 
-- Runtime exports indexed: 341
+- Runtime exports indexed: 343
 - Source modules covered: 101
 - Example consumers scan: production files under `bounded-contexts/` and `deployables/`, excluding tests
 
@@ -128,6 +128,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `formatProductOptionsAriaLabel` | `packages/design-system/src/components/data-display/product-options.tsx` | Purpose not documented; symbol name suggests: format Product Options Aria Label. | `No production consumer yet.` |
 | `formatProductOptionsText` | `packages/design-system/src/components/data-display/product-options.tsx` | Purpose not documented; symbol name suggests: format Product Options Text. | `No production consumer yet.` |
 | `FormPanel` | `packages/design-system/src/patterns/commerce-overlays.tsx` | Purpose not documented; symbol name suggests: Form Panel. | `bounded-contexts/discovery/features/item-detail/ui/commerce/action-cards.tsx` |
+| `FormRow` | `packages/design-system/src/primitives/layout.tsx` | Side-by-side form fields. | `No production consumer yet.` |
 | `FormSection` | `packages/design-system/src/components/forms/fieldset.tsx` | Purpose not documented; symbol name suggests: Form Section. | `No production consumer yet.` |
 | `FullPage` | `packages/design-system/src/components/feedback/panel-interactions.tsx` | Purpose not documented; symbol name suggests: Full Page. | `No production consumer yet.` |
 | `Grid` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: Grid. | `bounded-contexts/checkout/features/cart/ui/cart-page.tsx` |
@@ -224,6 +225,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `ProgressBar` | `packages/design-system/src/components/feedback/loading.tsx` | Purpose not documented; symbol name suggests: Progress Bar. | `No production consumer yet.` |
 | `ProgressiveDisclosure` | `packages/design-system/src/components/feedback/disclosure.tsx` | Purpose not documented; symbol name suggests: Progressive Disclosure. | `bounded-contexts/catalog/features/blueprints/ui/blueprint-detail-page.tsx` |
 | `ProgressiveDisclosureGroup` | `packages/design-system/src/components/feedback/disclosure.tsx` | Purpose not documented; symbol name suggests: Progressive Disclosure Group. | `No production consumer yet.` |
+| `ProgressTrack` | `packages/design-system/src/primitives/layout.tsx` | Determinate progress track: a muted rail with a tone-tinted fill whose width is the one legitimate dynamic inline style in the design system — it lives here, inside the primitive, so feature UI never hand-rolls a `style={{ width }}` fill. | `No production consumer yet.` |
 | `PromoBar` | `packages/design-system/src/components/feedback/promo-bar.tsx` | Purpose not documented; symbol name suggests: Promo Bar. | `bounded-contexts/public-presence/features/promo-bar/ui/admin-pages.tsx` |
 | `PromoStrip` | `packages/design-system/src/patterns/app-shells/product-cards.tsx` | Purpose not documented; symbol name suggests: Promo Strip. | `bounded-contexts/discovery/features/search/ui/search-page.tsx` |
 | `QuantityChecklistControl` | `packages/design-system/src/components/data-display/operational-workflow.tsx` | Purpose not documented; symbol name suggests: Quantity Checklist Control. | `bounded-contexts/fulfillment/features/shipments/ui/shipment-packing-page.tsx` |

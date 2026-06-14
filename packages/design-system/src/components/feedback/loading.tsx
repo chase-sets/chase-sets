@@ -1,4 +1,5 @@
 import type { HTMLAttributes } from "react";
+import { ProgressTrack, type SurfaceSemanticTone } from "../../primitives/layout";
 import { cx } from "../../utils/cx";
 import type { Tone } from "./shared";
 
@@ -21,10 +22,28 @@ export function LoadingSpinner({ label = "Loading", size = "md", ...rest }: Load
   );
 }
 
+export type ProgressBarTone = Tone | "active" | "blocked";
+
+/**
+ * Maps the historical {@link ProgressBar} tone names onto the shared semantic
+ * vocabulary the {@link ProgressTrack} primitive draws from, preserving each
+ * bar's existing fill color.
+ */
+const progressBarToneMap: Record<ProgressBarTone, SurfaceSemanticTone> = {
+  accent: "primary",
+  neutral: "neutral",
+  active: "neutral",
+  success: "success",
+  warning: "warning",
+  danger: "danger",
+  blocked: "danger",
+  info: "info",
+};
+
 export interface ProgressBarProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
   value: number;
   max?: number;
-  tone?: Tone | "active" | "blocked";
+  tone?: ProgressBarTone;
   formatLabel?: (percentage: number) => string;
 }
 
@@ -38,29 +57,8 @@ export function ProgressBar({
   const percentage = Math.max(0, Math.min(100, (value / max) * 100));
 
   return (
-    <div
-      {...rest}
-      className="space-y-2"
-      role="progressbar"
-      aria-valuemin={0}
-      aria-valuemax={100}
-      aria-valuenow={percentage}
-    >
-      <div className="h-2 w-full overflow-hidden rounded-tokenFull bg-muted">
-        <div
-          className={cx(
-            "h-full rounded-tokenFull transition-all",
-            tone === "accent" && "bg-accent",
-            (tone === "neutral" || tone === "active") && "bg-secondary",
-            tone === "success" && "bg-success",
-            tone === "warning" && "bg-warning",
-            tone === "danger" && "bg-danger",
-            tone === "blocked" && "bg-danger",
-            tone === "info" && "bg-info",
-          )}
-          style={{ width: `${percentage}%` }}
-        />
-      </div>
+    <div {...rest} className="space-y-2">
+      <ProgressTrack value={percentage} tone={progressBarToneMap[tone]} />
       <div className="text-xs text-secondary">{formatLabel(percentage)}</div>
     </div>
   );
@@ -68,35 +66,21 @@ export function ProgressBar({
 
 export type ProgressTone = "neutral" | "active" | "success" | "blocked";
 
+const progressToneMap: Record<ProgressTone, SurfaceSemanticTone> = {
+  neutral: "neutral",
+  active: "primary",
+  success: "success",
+  blocked: "danger",
+};
+
 export interface ProgressProps {
   value: number;
   tone?: ProgressTone;
-  className?: string;
+  label?: string;
 }
 
-export function Progress({ value, tone = "active", className }: ProgressProps) {
-  const percentage = Math.max(0, Math.min(100, value));
-
-  return (
-    <div
-      className={cx("h-2 overflow-hidden rounded-tokenFull bg-muted", className)}
-      role="progressbar"
-      aria-valuemin={0}
-      aria-valuemax={100}
-      aria-valuenow={value}
-    >
-      <div
-        className={cx(
-          "h-full rounded-tokenFull transition-all",
-          tone === "neutral" && "bg-secondary",
-          tone === "active" && "bg-accent",
-          tone === "success" && "bg-success",
-          tone === "blocked" && "bg-danger",
-        )}
-        style={{ width: `${percentage}%` }}
-      />
-    </div>
-  );
+export function Progress({ value, tone = "active", label }: ProgressProps) {
+  return <ProgressTrack value={value} tone={progressToneMap[tone]} label={label} />;
 }
 
 export interface SkeletonProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {

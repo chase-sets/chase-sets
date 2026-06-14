@@ -319,6 +319,33 @@ export function Grid({
   );
 }
 
+export interface FormRowProps extends PropsWithChildren, Omit<FrameProps, "children"> {
+  /**
+   * Number of side-by-side field columns. Stacks to a single column on narrow
+   * viewports and resolves to `columns` from `sm` up. Defaults to `2` — the
+   * common first-name / last-name pairing.
+   */
+  columns?: 2 | 3 | 4;
+  /** Gap token between fields. Defaults to `4`, matching field stacking rhythm. */
+  gap?: ResponsiveValue<SpaceToken>;
+  /** Cross-axis alignment of the fields. Defaults to `start` so labels and help text line up. */
+  align?: ResponsiveValue<AlignValue>;
+}
+
+/**
+ * Side-by-side form fields. A thin {@link Grid} wrapper that stacks to a single
+ * column on mobile and resolves to `columns` tracks from `sm` up, so forms place
+ * paired fields (first/last name, city/postcode) without hand-rolling grid
+ * utilities or breakpoints.
+ */
+export function FormRow({ children, columns = 2, gap = 4, align = "start", ...rest }: FormRowProps) {
+  return (
+    <Grid {...rest} columns={{ base: 1, sm: columns }} gap={gap} align={align}>
+      {children}
+    </Grid>
+  );
+}
+
 export interface AutoGridProps extends PropsWithChildren, Omit<FrameProps, "children"> {
   minItemWidth?: "sm" | "md" | "lg";
   gap?: ResponsiveValue<SpaceToken>;
@@ -737,6 +764,68 @@ export const Surface = forwardRef(function Surface(
     </Component>
   );
 }) as PolymorphicPrimitive<SurfaceOwnProps, "div">;
+
+/**
+ * Solid fill tones for the determinate {@link ProgressTrack}, keyed by the same
+ * semantic vocabulary as {@link SurfaceSemanticTone}. Unlike a surface's soft
+ * tint, a progress fill needs the saturated `bg-{tone}` token so the bar reads
+ * against its muted track.
+ */
+const progressTrackToneClasses: Record<SurfaceSemanticTone, string> = {
+  neutral: "bg-secondary",
+  info: "bg-info",
+  success: "bg-success",
+  warning: "bg-warning",
+  danger: "bg-danger",
+  trust: "bg-trust",
+  primary: "bg-accent",
+};
+
+const progressTrackSizeClasses: Record<NonNullable<ProgressTrackProps["size"]>, string> = {
+  sm: "h-1.5",
+  md: "h-2",
+  lg: "h-3",
+};
+
+export interface ProgressTrackProps extends Omit<FrameProps, "children"> {
+  /** Completion as a percentage from 0–100. Values outside the range are clamped. */
+  value: number;
+  /** Semantic fill tone, drawn from the shared {@link SurfaceSemanticTone} set. Defaults to `primary`. */
+  tone?: SurfaceSemanticTone;
+  /** Track thickness. Defaults to `md`. */
+  size?: "sm" | "md" | "lg";
+  /** Accessible name for the bar when no visible label is wired up via `aria-labelledby`. */
+  label?: string;
+}
+
+/**
+ * Determinate progress track: a muted rail with a tone-tinted fill whose width
+ * is the one legitimate dynamic inline style in the design system — it lives
+ * here, inside the primitive, so feature UI never hand-rolls a `style={{ width }}`
+ * fill. Exposes the full `progressbar` ARIA contract (`role`, `aria-valuemin`/
+ * `max`/`now`) and clamps `value` to 0–100. Higher-level bars (e.g. `ProgressBar`)
+ * compose this for the visual rail.
+ */
+export function ProgressTrack({ value, tone = "primary", size = "md", label, ...rest }: ProgressTrackProps) {
+  const percentage = Math.max(0, Math.min(100, value));
+
+  return (
+    <div
+      {...rest}
+      role="progressbar"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={percentage}
+      aria-label={label}
+      className={cx("w-full overflow-hidden rounded-tokenFull bg-muted", progressTrackSizeClasses[size])}
+    >
+      <div
+        className={cx("h-full rounded-tokenFull transition-all", progressTrackToneClasses[tone])}
+        style={{ width: `${percentage}%` }}
+      />
+    </div>
+  );
+}
 
 export interface DividerProps extends Omit<ComponentProps<typeof SeparatorPrimitive>, "className" | "style"> {
   decorative?: boolean;

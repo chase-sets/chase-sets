@@ -49,7 +49,14 @@ export type {
 } from "./toast";
 
 export { LoadingSpinner, Progress, ProgressBar, Skeleton } from "./loading";
-export type { LoadingSpinnerProps, ProgressProps, ProgressBarProps, ProgressTone, SkeletonProps } from "./loading";
+export type {
+  LoadingSpinnerProps,
+  ProgressProps,
+  ProgressBarProps,
+  ProgressBarTone,
+  ProgressTone,
+  SkeletonProps,
+} from "./loading";
 
 export { EmptyState } from "./empty-state";
 export type { EmptyStateProps } from "./empty-state";
