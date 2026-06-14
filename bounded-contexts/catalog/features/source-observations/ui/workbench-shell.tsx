@@ -96,6 +96,7 @@ export function CatalogWorkbenchShell({
         activeNavigationKey={activeSection}
         navigationLabel={t("catalog.features.sourceObservations.ui.primaryWorkbench.navigation.label")}
         mobileNavigationLabel={t("catalog.features.sourceObservations.ui.primaryWorkbench.navigation.mobile.label")}
+        onNavigationSelect={(key) => navigateToWorkspace(navigation, key)}
       >
         <BulkActionSurface>
           <WorkbenchStack>{children}</WorkbenchStack>
@@ -117,6 +118,22 @@ function CommandFeedbackBanner({ feedback }: { feedback: CatalogPrimaryWorkbench
       description={commandFeedbackDescription(feedback)}
     />
   );
+}
+
+// Mobile cross-workspace navigation: the "Choose Catalog workflow" combobox
+// selects a workspace key; navigate the browser to that workspace's real surface
+// route using the same hrefs the desktop nav links already carry. Each workspace
+// lives on a real nested route, so this is a genuine route navigation rather than
+// a query-param section switch. Generic to every surface (no daily special-case).
+function navigateToWorkspace(groups: SectionNavigationGroup[], key: string): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const href = groups.flatMap((group) => group.items).find((item) => item.key === key)?.href;
+  if (href) {
+    window.location.assign(href);
+  }
 }
 
 // One nav group per audience surface. Items link to the surface route (the daily

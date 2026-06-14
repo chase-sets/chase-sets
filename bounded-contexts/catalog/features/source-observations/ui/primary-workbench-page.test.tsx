@@ -51,11 +51,16 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       }),
     ).toBeTruthy();
     expect(screen.getAllByRole("button", { name: /Pull provider data/i }).length).toBeGreaterThan(0);
-    expect(screen.getByRole("cell", { name: /Review Source Observations/i })).toBeTruthy();
-    expect(screen.getByRole("cell", { name: /Preview Catalog promotion impact/i })).toBeTruthy();
-    expect(screen.getByRole("cell", { name: /Promote into Catalog Items/i })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Promotion command plan" })).toBeTruthy();
-    expect(screen.getByText("Matching filtered observations")).toBeTruthy();
+    // The daily flow is now an explicit, linear three-stage path. The stepper names
+    // each stage; the review and create stages expose their work below it.
+    expect(screen.getAllByText("Run sync").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Review changes").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Create / update items").length).toBeGreaterThan(0);
+    expect(screen.getByRole("heading", { name: "Source Observation review" })).toBeTruthy();
+    // The promotion command plan is demoted into supporting detail inside the create
+    // stage; its detail content (including the decision summaries) stays rendered.
+    expect(screen.getByText("Promotion command plan")).toBeTruthy();
+    expect(screen.getAllByText("Matching filtered observations").length).toBeGreaterThan(0);
     expect(screen.getByText("Reject requires a reason")).toBeTruthy();
     expect(screen.getByText("Defer keeps observations in review")).toBeTruthy();
     expect(screen.getByText("Reapply uses current active profile")).toBeTruthy();
@@ -789,6 +794,10 @@ describe("CatalogPrimaryWorkbenchPage", () => {
 
     render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
 
+    // Open the Run sync stage to monitor the durable import; the provider pull stays
+    // accessible from the page header regardless of the active stage.
+    fireEvent.click(screen.getByRole("button", { name: /Run sync/i }));
+
     expect(screen.getByRole("heading", { name: "Provider import operations" })).toBeTruthy();
     expect(screen.getByText("Expected observations")).toBeTruthy();
     expect(screen.getAllByText("142").length).toBeGreaterThan(0);
@@ -1077,13 +1086,17 @@ describe("CatalogPrimaryWorkbenchPage", () => {
 
     render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
 
-    expect(screen.getByRole("heading", { name: "Promotion command plan" })).toBeTruthy();
-    expect(screen.getByText("Explicit selected observations")).toBeTruthy();
+    // The create stage is active for a stored preview; its inline confirmation shows
+    // the previewed scope, and the demoted command-plan detail repeats it.
+    expect(screen.getByText("Promotion command plan")).toBeTruthy();
+    expect(screen.getAllByText("Explicit selected observations").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Stale").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Stale promotion preview").length).toBeGreaterThan(0);
+    // The promotion preview is folded into the inline create/update confirmation, so
+    // the commit button stays disabled until a fresh preview is confirmed.
     expect(
       screen
-        .getAllByRole("button", { name: "Promote Catalog facts" })
+        .getAllByRole("button", { name: "Create or update Catalog Items" })
         .every((button) => button.hasAttribute("disabled")),
     ).toBe(true);
   });

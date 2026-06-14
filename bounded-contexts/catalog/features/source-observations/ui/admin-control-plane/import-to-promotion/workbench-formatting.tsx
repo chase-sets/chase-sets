@@ -1,4 +1,10 @@
-import { Badge, StatusReasonList } from "@chase-sets/design-system";
+import {
+  Badge,
+  StatusReasonList,
+  WorkbenchDetailPanel,
+  WorkbenchStack,
+  WorkbenchText,
+} from "@chase-sets/design-system";
 import { t } from "@chase-sets/localization";
 import type {
   CatalogPrimaryWorkbenchActionState,
@@ -8,6 +14,33 @@ import type {
 import { getCatalogPrimaryWorkbenchBlockerCopy } from "../../primary-workbench-copy";
 
 type ImportJobRow = CatalogPrimaryWorkbenchReadModel["importJobs"]["jobs"][number];
+
+// One normalized blocker affordance for the whole daily flow. Collapses the
+// readiness and promotion-command blockers into a single deduplicated panel so
+// blockers are presented once with consistent label/reason/next-step taxonomy
+// instead of being repeated per step, job, observation, command, and readiness.
+export function WorkspaceBlockerPanel({ blockers }: { blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[] }) {
+  const visibleBlockers = uniqueBlockers(blockers);
+  if (visibleBlockers.length === 0) {
+    return null;
+  }
+
+  return (
+    <WorkbenchDetailPanel>
+      <WorkbenchStack gap="sm">
+        <WorkbenchText tone="foreground" weight="semibold">
+          {t("catalog.features.sourceObservations.ui.primaryWorkbench.stage.blockers.title")}
+        </WorkbenchText>
+        <WorkbenchText size="xs">
+          {t("catalog.features.sourceObservations.ui.primaryWorkbench.stage.blockers.summary", {
+            count: visibleBlockers.length,
+          })}
+        </WorkbenchText>
+        <BlockerList blockers={visibleBlockers} />
+      </WorkbenchStack>
+    </WorkbenchDetailPanel>
+  );
+}
 
 export function BlockerList({
   blockers,

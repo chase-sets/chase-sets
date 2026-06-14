@@ -321,6 +321,41 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.title": "Source Observation review",
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.view": "View",
   "catalog.features.sourceObservations.ui.primaryWorkbench.save.context": "Save context",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.blockers.summary":
+    "{count} blocker(s) across this provider context and the promotion command plan.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.blockers.title": "Resolve before continuing",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.commit": "Create or update Catalog Items",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.confirm":
+    "I confirm the previewed impact above and want to write these Catalog facts.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.description":
+    "Confirm the previewed Catalog impact inline, then commit the create or update in one step.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.impact":
+    "{eligible} eligible, {blocked} blocked, {destructive} destructive write(s).",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.label": "Create / update items",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.preview.fresh": "Previewed impact is current",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.preview.refresh":
+    "Refresh the previewed impact before committing.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.preview.title": "Confirm previewed impact",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.summary":
+    "{count} Catalog Item(s) created or updated.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.summary.pending":
+    "No Catalog writes run until you confirm the previewed impact.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.flow.description":
+    "Run sync, review what changed, then create or update Catalog Items. Only the active stage is expanded.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.flow.title": "Import to promotion flow",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.review.description":
+    "Review changed Source Observations with provenance, redacted facts, and command readiness.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.review.label": "Review changes",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.review.summary":
+    "{changed} changed, {ready} ready for promotion.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.runSync.description":
+    "Choose the provider context and pull provider data through a durable import.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.runSync.label": "Run sync",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.runSync.summary":
+    "{active} active job(s); {observed} observed, {changed} changed.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.supporting.command.plan":
+    "Promotion command plan detail",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.supporting.jobs": "Durable import job detail",
   "catalog.features.sourceObservations.ui.primaryWorkbench.step.import.evidence":
     "{count} active or recent job(s) for the selected context.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.step.import.label":
