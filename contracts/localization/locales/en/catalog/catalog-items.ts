@@ -153,6 +153,9 @@ export const catalogItemsEnglishTranslations = {
   "catalog.features.catalogItems.ui.catalogItemDetailPage.image.urls.summary": "{count} image URLs",
   "catalog.features.catalogItems.ui.catalogItemDetailPage.no.tags": "No tags.",
   "catalog.features.catalogItems.ui.catalogItemDetailPage.none": "None",
+  "catalog.features.catalogItems.ui.catalogItemDetailPage.origin.description":
+    "This Catalog Item was created or updated by promoting Source Observations. Open the originating import for its provider.",
+  "catalog.features.catalogItems.ui.catalogItemDetailPage.origin.title": "Originating import",
   "catalog.features.catalogItems.ui.catalogItemDetailPage.provider": "Provider",
   "catalog.features.catalogItems.ui.catalogItemDetailPage.publish": "Publish",
   "catalog.features.catalogItems.ui.catalogItemDetailPage.publish.2": "Publish",
@@ -199,6 +202,7 @@ export const catalogItemsEnglishTranslations = {
   "catalog.features.catalogItems.ui.catalogItemDetailPage.value.2": "Value",
   "catalog.features.catalogItems.ui.catalogItemDetailPage.value.description":
     "Text is saved as-is. Values beginning with { or [ are saved as JSON when valid.",
+  "catalog.features.catalogItems.ui.catalogItemDetailPage.view.source.observations": "View Source Observations",
   "catalog.features.catalogItems.ui.catalogItemListPage.active": "Active",
   "catalog.features.catalogItems.ui.catalogItemListPage.actions": "Actions",
   "catalog.features.catalogItems.ui.catalogItemListPage.archive.selected": "Archive selected",

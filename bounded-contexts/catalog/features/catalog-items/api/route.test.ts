@@ -166,6 +166,18 @@ describe("catalog item routes", () => {
     );
   });
 
+  it("renders an empty filtered list for an unknown source provider deep-link without erroring", async () => {
+    const listCatalogItems = vi.fn(async () => ({ items: [], total: 0 }));
+    const app = buildApp(createServices({ listCatalogItems }));
+
+    const response = await app.fetch(new Request("http://catalog.test/items?source=not-a-real-provider"));
+
+    expect(response.status).toBe(200);
+    expect(listCatalogItems).toHaveBeenCalledWith(expect.objectContaining({ source: "not-a-real-provider" }));
+    const body = (await response.json()) as { items: unknown[]; total: number; count: number };
+    expect(body).toEqual({ items: [], total: 0, count: 0 });
+  });
+
   it("passes workflow filters into the Catalog Item list query", async () => {
     const listCatalogItems = vi.fn(async () => ({ items: [], total: 0 }));
     const app = buildApp(createServices({ listCatalogItems }));

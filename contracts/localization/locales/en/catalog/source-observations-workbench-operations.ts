@@ -349,6 +349,12 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
     "I confirm the previewed impact above and want to write these Catalog facts.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.description":
     "Confirm the previewed Catalog impact inline, then commit the create or update in one step.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.handoff.cta":
+    "Open Catalog Items for {provider}",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.handoff.cta.unscoped": "Open Catalog Items",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.handoff.description":
+    "Promotion creates and updates draft Catalog Items. Finish them in the Catalog Items area, then publish.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.handoff.title": "Where these items go next",
   "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.impact":
     "{eligible} eligible, {blocked} blocked, {destructive} destructive write(s).",
   "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.label": "Create / update items",
