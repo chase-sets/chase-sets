@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import prettier from "prettier";
@@ -436,7 +436,11 @@ export function summarizeInventory(entries) {
   };
 }
 
-function ledgerDocument(entries) {
+function inventoryLedgerPathForRoot(rootDir) {
+  return path.join(rootDir, "packages", "design-system", "DESIGN_SYSTEM_LEGACY_INVENTORY.json");
+}
+
+export function createDesignSystemLegacyInventoryDocument(entries) {
   return {
     version: 1,
     milestone: 12,
@@ -448,10 +452,125 @@ function ledgerDocument(entries) {
   };
 }
 
+export async function collectDesignSystemLegacyInventoryDocument(options = {}) {
+  const entries = await collectDesignSystemLegacyInventory(options);
+  return createDesignSystemLegacyInventoryDocument(entries);
+}
+
+function meaningfulLedgerContent(document) {
+  return {
+    summary: document?.summary ?? null,
+    entries: Array.isArray(document?.entries) ? document.entries : null,
+  };
+}
+
+function stableJsonValue(value) {
+  if (Array.isArray(value)) {
+    return value.map(stableJsonValue);
+  }
+
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.keys(value)
+        .sort()
+        .map((key) => [key, stableJsonValue(value[key])]),
+    );
+  }
+
+  return value;
+}
+
+export function compareDesignSystemLegacyInventoryLedger(currentDocument, committedDocument) {
+  return (
+    JSON.stringify(stableJsonValue(meaningfulLedgerContent(currentDocument))) ===
+    JSON.stringify(stableJsonValue(meaningfulLedgerContent(committedDocument)))
+  );
+}
+
+function readLedger(ledgerPath) {
+  if (!existsSync(ledgerPath)) {
+    return {
+      ledger: null,
+      error: `Design-system legacy inventory ledger is missing at ${normalizeRelative(ledgerPath)}.`,
+    };
+  }
+
+  try {
+    return {
+      ledger: JSON.parse(readFileSync(ledgerPath, "utf8")),
+      error: null,
+    };
+  } catch (error) {
+    return {
+      ledger: null,
+      error: `Design-system legacy inventory ledger is not valid JSON at ${normalizeRelative(ledgerPath)}: ${error.message}`,
+    };
+  }
+}
+
+export async function checkDesignSystemLegacyInventory(options = {}) {
+  const rootDir = options.rootDir ?? repoRoot;
+  const ledgerPath = options.ledgerPath ?? inventoryLedgerPathForRoot(rootDir);
+  const document = await collectDesignSystemLegacyInventoryDocument({ rootDir });
+  const ledgerResult = readLedger(ledgerPath);
+  const ledgerInSync =
+    ledgerResult.ledger !== null && compareDesignSystemLegacyInventoryLedger(document, ledgerResult.ledger);
+
+  return {
+    passed: document.summary.fileCount === 0 && ledgerInSync,
+    document,
+    ledgerPath,
+    ledgerError: ledgerResult.error,
+    ledgerInSync,
+  };
+}
+
+function lineListForCategory(entry, category) {
+  return [...new Set(entry.details.filter((detail) => detail.category === category).map((detail) => detail.line))].sort(
+    (left, right) => left - right,
+  );
+}
+
+function formatInventoryFinding(entry) {
+  const categoryNames = Object.keys(entry.categories).sort();
+  const categorySummary = categoryNames.map((category) => `${category}(${entry.categories[category]})`).join(", ");
+  const lineSummary = categoryNames
+    .map((category) => `${category}: lines ${lineListForCategory(entry, category).join(", ")}`)
+    .join("; ");
+
+  return `- ${entry.file}: ${categorySummary}; ${lineSummary}`;
+}
+
+export function printDesignSystemLegacyInventoryCheckResult(result) {
+  const relativeLedgerPath = normalizeRelative(result.ledgerPath);
+
+  if (result.document.summary.fileCount !== 0) {
+    console.error(
+      `Design-system legacy inventory check failed: fresh scan found ${result.document.summary.fileCount} offending file(s).`,
+    );
+    for (const entry of result.document.entries) {
+      console.error(formatInventoryFinding(entry));
+    }
+  }
+
+  if (result.ledgerError) {
+    console.error(result.ledgerError);
+    console.error("Run pnpm run ops design-system:legacy-inventory --write-ledger to regenerate it.");
+  } else if (!result.ledgerInSync) {
+    console.error(`Design-system legacy inventory ledger is stale: ${relativeLedgerPath} differs from a fresh scan.`);
+    console.error("Run pnpm run ops design-system:legacy-inventory --write-ledger to regenerate it.");
+  }
+
+  if (result.passed) {
+    console.log(
+      `Design-system legacy inventory check passed: fresh scan found 0 file(s), and ${relativeLedgerPath} is in sync.`,
+    );
+  }
+}
+
 async function main() {
   const args = new Set(process.argv.slice(2));
-  const entries = await collectDesignSystemLegacyInventory();
-  const document = ledgerDocument(entries);
+  const document = await collectDesignSystemLegacyInventoryDocument();
   const prettierOptions = (await prettier.resolveConfig(defaultLedgerPath)) ?? {};
   const formattedDocument = await prettier.format(JSON.stringify(document), {
     ...prettierOptions,
@@ -462,7 +581,16 @@ async function main() {
   if (args.has("--write-ledger")) {
     mkdirSync(path.dirname(defaultLedgerPath), { recursive: true });
     writeFileSync(defaultLedgerPath, formattedDocument, "utf8");
-    console.log(`Wrote ${normalizeRelative(defaultLedgerPath)} with ${entries.length} file(s).`);
+    console.log(`Wrote ${normalizeRelative(defaultLedgerPath)} with ${document.entries.length} file(s).`);
+    return;
+  }
+
+  if (args.has("--check")) {
+    const result = await checkDesignSystemLegacyInventory();
+    printDesignSystemLegacyInventoryCheckResult(result);
+    if (!result.passed) {
+      process.exit(1);
+    }
     return;
   }
 
