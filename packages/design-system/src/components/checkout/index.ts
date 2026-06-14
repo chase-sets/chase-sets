@@ -12,6 +12,13 @@ export {
   CheckoutSummaryLineItem,
   CheckoutSummaryPanel,
   CheckoutTotals,
+  ListingPurchasePanel,
+  MarketplaceNotice,
+  OrderIntentSummary,
+  OrderProtectionModule,
+  PaymentRecoveryPanel,
+  PriceBreakdown,
+  StickyCtaBar,
 } from "./checkout";
 
 export type {
@@ -31,4 +38,11 @@ export type {
   CheckoutSummaryLineItemProps,
   CheckoutSummaryPanelProps,
   CheckoutTotalsProps,
+  ListingPurchasePanelProps,
+  MarketplaceNoticeProps,
+  OrderIntentSummaryProps,
+  OrderProtectionModuleProps,
+  PaymentRecoveryPanelProps,
+  PriceBreakdownProps,
+  StickyCtaBarProps,
 } from "./checkout";

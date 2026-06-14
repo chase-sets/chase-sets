@@ -80,7 +80,7 @@ export function SettlementPayoutDetailPage({
       <PageSection title={t("settlement.features.payouts.ui.payoutDetailPage.summary")}>
         <Stack gap={4}>
           <MarketplaceNotice
-            tone={failed ? "error" : completed ? "success" : "info"}
+            tone={failed ? "danger" : completed ? "success" : "info"}
             title={statusLabel(payout.status)}
             description={
               payout.failure_reason ??

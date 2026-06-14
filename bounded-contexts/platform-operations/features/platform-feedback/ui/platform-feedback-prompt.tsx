@@ -152,7 +152,7 @@ export function PlatformFeedbackPrompt({
         <Text tone="secondary">{description}</Text>
         {errorMessage ? (
           <MarketplaceNotice
-            tone="error"
+            tone="danger"
             title={t("experience.platformFeedbackPrompt.issue")}
             description={errorMessage}
           />

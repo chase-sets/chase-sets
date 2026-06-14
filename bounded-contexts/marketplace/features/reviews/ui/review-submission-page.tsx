@@ -108,7 +108,7 @@ export function ReviewSubmissionPage({
           <Stack gap={3}>
             {errorMessage ? (
               <MarketplaceNotice
-                tone="error"
+                tone="danger"
                 title={t("reputation.features.reviews.ui.reviewSubmissionPage.your.review")}
                 description={errorMessage}
               />

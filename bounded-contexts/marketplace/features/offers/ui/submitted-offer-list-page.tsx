@@ -62,7 +62,7 @@ export function MarketplaceSubmittedOfferListPage({
 
       {errorMessage ? (
         <MarketplaceNotice
-          tone="error"
+          tone="danger"
           title={t("marketplace.features.offers.ui.submittedOfferListPage.offer.status.issue")}
           description={errorMessage}
         />

@@ -499,7 +499,7 @@ export function FulfillmentShipmentPackingPage({
 
       {errorMessage ? (
         <MarketplaceNotice
-          tone="error"
+          tone="danger"
           title={t("fulfillment.features.shipments.ui.shipmentPackingPage.error")}
           description={errorMessage}
         />

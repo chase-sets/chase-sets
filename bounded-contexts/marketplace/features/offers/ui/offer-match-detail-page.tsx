@@ -121,7 +121,7 @@ export function MarketplaceOfferMatchDetailPage({
 
       {errorMessage ? (
         <MarketplaceNotice
-          tone="error"
+          tone="danger"
           title={t("marketplace.features.offers.ui.offerMatchDetailPage.offer.match.overview")}
           description={errorMessage}
         />

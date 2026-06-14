@@ -222,13 +222,7 @@ export function SettlementWalletPage({
 
       <PageSection title={t("settlement.features.wallets.ui.walletPage.payout.availability")}>
         <MarketplaceNotice
-          tone={
-            payoutAvailability.tone === "danger"
-              ? "error"
-              : payoutAvailability.tone === "accent"
-                ? "info"
-                : payoutAvailability.tone
-          }
+          tone={payoutAvailability.tone === "accent" ? "info" : payoutAvailability.tone}
           title={payoutAvailability.label}
           description={
             <>
