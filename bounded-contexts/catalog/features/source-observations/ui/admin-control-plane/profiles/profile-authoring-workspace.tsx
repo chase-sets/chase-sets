@@ -104,11 +104,6 @@ export function CatalogIntegrationProfileAuthoringWorkspace({
         title={t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.title")}
         description={t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.description")}
         status={<Badge tone={authoringTone(authoring.status)}>{stateLabel(authoring.status)}</Badge>}
-        actions={
-          <LinkButton size="sm" tone="secondary" leadingIcon="chevronLeft" href={authoring.returnToPrimaryHref}>
-            {t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.back")}
-          </LinkButton>
-        }
       >
         <WorkbenchStack>
           <OperationalStatusBanner

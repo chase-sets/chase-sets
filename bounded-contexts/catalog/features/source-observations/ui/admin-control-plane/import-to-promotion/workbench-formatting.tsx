@@ -16,7 +16,10 @@ import type {
 } from "../../../api/primary-workbench-admin-contracts";
 import { getCatalogPrimaryWorkbenchBlockerCopy } from "../../primary-workbench-copy";
 import { catalogControlPlaneWorkspaceByKey } from "../information-architecture";
-import { catalogPrimaryWorkbenchSupportingHref } from "../../primary-workbench-route-context";
+import {
+  catalogPrimaryWorkbenchReturnPath,
+  catalogPrimaryWorkbenchSupportingHref,
+} from "../../primary-workbench-route-context";
 
 type ImportJobRow = CatalogPrimaryWorkbenchReadModel["importJobs"]["jobs"][number];
 
@@ -130,6 +133,93 @@ export function DailyGovernanceStatusIndicator({
         </LinkButton>
       }
     />
+  );
+}
+
+// Health triage is observability work kept off the daily route: the full
+// readiness/transport/rollout/job/audit dashboard lives on
+// /admin/integrations/release. When the daily working set is health-degraded or
+// blocked, the daily flow does NOT host that dashboard — it shows only this slim
+// indicator that deep-links into health triage on the release surface carrying
+// return context back to the daily job. Mirrors DailyGovernanceStatusIndicator.
+type CatalogDailyHealthStatus = "degraded" | "blocked";
+
+const transportBlockingTransports = new Set<CatalogPrimaryWorkbenchReadModel["readiness"]["providerTransport"][number]>(
+  ["timeout", "pagination-failure", "degraded-provider"],
+);
+
+// Derive the daily health signal from the core read model the daily surface
+// already loads — provider transport degradation, stale read-model freshness, and
+// failed jobs — without computing the full health-triage slice (which the daily
+// surface deliberately omits, #1744). A blocking transport failure surfaces as
+// "blocked"; softer degradation (partial data, stale cache, throttling, stale
+// freshness, failed jobs) surfaces as "degraded". Returns null when health is
+// nominal, so the daily flow renders no indicator in the common case.
+export function catalogDailyHealthStatus(readModel: CatalogPrimaryWorkbenchReadModel): CatalogDailyHealthStatus | null {
+  const transport = readModel.readiness.providerTransport;
+  if (transport.some((category) => transportBlockingTransports.has(category))) {
+    return "blocked";
+  }
+  const degraded =
+    transport.length > 0 || readModel.readiness.freshness !== "fresh" || readModel.importJobs.failedJobCount > 0;
+
+  return degraded ? "degraded" : null;
+}
+
+// The slim daily degraded/blocked health indicator. A compact tone-warning/danger
+// banner that names the degradation and links into health triage on the release
+// surface with the daily working set as return context — the only health
+// affordance the daily route carries. Renders nothing when health is nominal.
+export function DailyHealthStatusIndicator({
+  readModel,
+}: Readonly<{
+  readModel: CatalogPrimaryWorkbenchReadModel;
+}>) {
+  const status = catalogDailyHealthStatus(readModel);
+  if (!status) {
+    return null;
+  }
+
+  return (
+    <OperationalStatusBanner
+      data-catalog-daily-health-status={status}
+      tone={status === "blocked" ? "danger" : "warning"}
+      title={t(`catalog.features.sourceObservations.ui.primaryWorkbench.healthStatus.${status}.title`)}
+      description={t(`catalog.features.sourceObservations.ui.primaryWorkbench.healthStatus.${status}.description`)}
+      action={
+        <LinkButton
+          size="sm"
+          tone="secondary"
+          trailingIcon="chevronRight"
+          href={catalogPrimaryWorkbenchSupportingHref(readModel.routeContext, "health-triage")}
+        >
+          {t("catalog.features.sourceObservations.ui.primaryWorkbench.healthStatus.open")}
+        </LinkButton>
+      }
+    />
+  );
+}
+
+// The single "Back to import workbench" affordance for a supporting surface. The
+// release, providers, and governance surfaces stack multiple workspaces; rather
+// than each workspace repeating an identical return link (#1739 left three on the
+// release surface), the surface header renders this once. The href is the daily
+// working set the operator detoured from — identical for every workspace on the
+// surface — so one link per surface is correct.
+export function WorkbenchReturnLink({
+  routeContext,
+}: Readonly<{
+  routeContext: CatalogPrimaryWorkbenchRouteContext;
+}>) {
+  return (
+    <LinkButton
+      size="sm"
+      tone="secondary"
+      leadingIcon="chevronLeft"
+      href={catalogPrimaryWorkbenchReturnPath(routeContext)}
+    >
+      {t("catalog.features.sourceObservations.ui.primaryWorkbench.returnToWorkbench")}
+    </LinkButton>
   );
 }
 

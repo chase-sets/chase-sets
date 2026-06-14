@@ -14,8 +14,10 @@ import type { CatalogPrimaryWorkbenchReadModel } from "../api/primary-workbench-
 import {
   CATALOG_CONTROL_PLANE_ROUTE_SURFACES,
   CATALOG_CONTROL_PLANE_WORKSPACES,
+  type CatalogControlPlaneRouteSurfaceKey,
 } from "./admin-control-plane/information-architecture";
 import { CommandFormButton } from "./admin-control-plane/import-to-promotion/command-controls";
+import { WorkbenchReturnLink } from "./admin-control-plane/import-to-promotion/workbench-formatting";
 import type { CatalogPrimaryWorkbenchCommandFeedback } from "./primary-workbench-command-feedback";
 import { commandFeedbackDescription, commandSuccessTitle } from "./primary-workbench-command-feedback";
 import { catalogPrimaryWorkbenchHref, catalogPrimaryWorkbenchSupportingHref } from "./primary-workbench-route-context";
@@ -23,6 +25,11 @@ import { catalogPrimaryWorkbenchHref, catalogPrimaryWorkbenchSupportingHref } fr
 export interface CatalogWorkbenchShellProps {
   readModel: CatalogPrimaryWorkbenchReadModel;
   commandFeedback?: CatalogPrimaryWorkbenchCommandFeedback | null;
+  // The audience surface this shell wraps. Drives the single per-surface return
+  // affordance: the supporting surfaces (providers, governance, release) render
+  // one "Back to import workbench" link; the daily surface is the primary job and
+  // renders none.
+  surface: CatalogControlPlaneRouteSurfaceKey;
   // The precise workspace key that is active on this surface. Drives nav highlight.
   activeSection: string;
   // The composed surface body (one workspace for the daily route, the grouped
@@ -37,10 +44,15 @@ export interface CatalogWorkbenchShellProps {
 export function CatalogWorkbenchShell({
   readModel,
   commandFeedback = null,
+  surface,
   activeSection,
   children,
 }: CatalogWorkbenchShellProps) {
   const navigation = surfaceNavigationGroups(readModel);
+  // The daily surface is the primary import-to-promotion job, so it carries no
+  // return link; every supporting surface returns to it through the one link the
+  // header renders (rather than each stacked workspace repeating it).
+  const showReturnLink = surface !== "daily";
 
   return (
     <DenseAdminWorkbench data-catalog-primary-workbench="true">
@@ -50,6 +62,7 @@ export function CatalogWorkbenchShell({
         description={t("catalog.features.sourceObservations.ui.primaryWorkbench.description")}
         actions={
           <>
+            {showReturnLink ? <WorkbenchReturnLink routeContext={readModel.routeContext} /> : null}
             <CommandFormButton readModel={readModel} intent="start-provider-import" leadingIcon="refreshCcw">
               {t("catalog.features.sourceObservations.ui.primaryWorkbench.pull.provider.data")}
             </CommandFormButton>

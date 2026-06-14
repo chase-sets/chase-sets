@@ -3,7 +3,6 @@ import {
   BadgeCluster,
   DataTable,
   KeyValueList,
-  LinkButton,
   LinkText,
   MetricStrip,
   OperationalStatusBanner,
@@ -44,11 +43,6 @@ export function CatalogIntegrationGovernanceControlsWorkspace({
         title={t("catalog.features.sourceObservations.ui.governanceControls.title")}
         description={t("catalog.features.sourceObservations.ui.governanceControls.description")}
         status={<Badge tone={statusTone(governance.status)}>{stateLabel(governance.status)}</Badge>}
-        actions={
-          <LinkButton size="sm" tone="secondary" leadingIcon="chevronLeft" href={governance.returnToPrimaryHref}>
-            {t("catalog.features.sourceObservations.ui.governanceControls.backToWorkbench")}
-          </LinkButton>
-        }
         headingLevel={2}
         density="compact"
       >

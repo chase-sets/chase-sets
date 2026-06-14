@@ -6,7 +6,6 @@ import {
   LinkButton,
   MetricStrip,
   OperationalStatusBanner,
-  WorkbenchActionRow,
   WorkbenchDataCell,
   WorkbenchStack,
   WorkflowModule,
@@ -37,14 +36,9 @@ export function CatalogIntegrationCleanResetReleaseWorkspace({
         description={t("catalog.features.sourceObservations.ui.cleanResetRelease.description")}
         status={<Badge tone={statusTone(cleanReset.status)}>{stateLabel(cleanReset.status)}</Badge>}
         actions={
-          <WorkbenchActionRow>
-            <LinkButton size="sm" tone="secondary" leadingIcon="chevronLeft" href={cleanReset.returnToPrimaryHref}>
-              {t("catalog.features.sourceObservations.ui.cleanResetRelease.backToWorkbench")}
-            </LinkButton>
-            <LinkButton size="sm" tone="secondary" leadingIcon="externalLink" href={cleanReset.auditEvidenceHref}>
-              {t("catalog.features.sourceObservations.ui.cleanResetRelease.openAuditEvidence")}
-            </LinkButton>
-          </WorkbenchActionRow>
+          <LinkButton size="sm" tone="secondary" leadingIcon="externalLink" href={cleanReset.auditEvidenceHref}>
+            {t("catalog.features.sourceObservations.ui.cleanResetRelease.openAuditEvidence")}
+          </LinkButton>
         }
         headingLevel={2}
         density="compact"

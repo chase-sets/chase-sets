@@ -195,7 +195,6 @@ export const catalogSourceObservationsWorkbenchHealthCopyEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.health.readModels.empty": "No read-model state reported",
   "catalog.features.sourceObservations.ui.primaryWorkbench.health.readModels.empty.detail":
     "Health triage needs explicit freshness states for semantic, transport, jobs, and audit projections.",
-  "catalog.features.sourceObservations.ui.primaryWorkbench.health.return.primary": "Back to import workbench",
   "catalog.features.sourceObservations.ui.primaryWorkbench.health.rollout.clear.description":
     "No active kill switch or rollout stop applies to the selected provider and ingestion unit.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.health.rollout.clear.title": "Rollout controls are open",

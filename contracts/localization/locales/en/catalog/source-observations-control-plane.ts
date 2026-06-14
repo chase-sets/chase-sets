@@ -6,7 +6,6 @@ export const catalogSourceObservationsControlPlaneEnglishTranslations = {
   "catalog.features.sourceObservations.ui.lifecycleRecovery.audit.emptyTitle": "No lifecycle audit events",
   "catalog.features.sourceObservations.ui.lifecycleRecovery.audit.notRecorded": "not recorded",
   "catalog.features.sourceObservations.ui.lifecycleRecovery.audit.title": "Recent lifecycle audit",
-  "catalog.features.sourceObservations.ui.lifecycleRecovery.backToImportWorkbench": "Back to import workbench",
   "catalog.features.sourceObservations.ui.lifecycleRecovery.badge.active": "Active",
   "catalog.features.sourceObservations.ui.lifecycleRecovery.banner.blockedDescription":
     "Resolve active jobs, profile lifecycle conflicts, or profile references before running lifecycle recovery.",
@@ -70,7 +69,6 @@ export const catalogSourceObservationsControlPlaneEnglishTranslations = {
   "catalog.features.sourceObservations.ui.conflictResolution.audit.emptyTitle": "No conflict audit events",
   "catalog.features.sourceObservations.ui.conflictResolution.audit.notRecorded": "not recorded",
   "catalog.features.sourceObservations.ui.conflictResolution.audit.title": "Conflict audit evidence",
-  "catalog.features.sourceObservations.ui.conflictResolution.backToWorkbench": "Back to import workbench",
   "catalog.features.sourceObservations.ui.conflictResolution.banner.blockedDescription":
     "Promotion is blocked until the conflicting facts are reviewed with evidence and a launch-ready command path.",
   "catalog.features.sourceObservations.ui.conflictResolution.banner.blockedTitle": "Conflicts are blocking promotion",
@@ -147,7 +145,6 @@ export const catalogSourceObservationsControlPlaneEnglishTranslations = {
   "catalog.features.sourceObservations.ui.conflictResolution.table.state": "State",
   "catalog.features.sourceObservations.ui.conflictResolution.table.values": "Candidate values",
   "catalog.features.sourceObservations.ui.conflictResolution.title": "Conflict resolution",
-  "catalog.features.sourceObservations.ui.governanceControls.backToWorkbench": "Back to import workbench",
   "catalog.features.sourceObservations.ui.governanceControls.banner.blockedDescription":
     "At least one permission, rollout, kill-switch, worker, or observability control is blocking writes.",
   "catalog.features.sourceObservations.ui.governanceControls.banner.blockedTitle": "Governance controls are blocking",
@@ -239,7 +236,6 @@ export const catalogSourceObservationsControlPlaneEnglishTranslations = {
   "catalog.features.sourceObservations.ui.governanceControls.table.surface": "Surface",
   "catalog.features.sourceObservations.ui.governanceControls.table.value": "Value",
   "catalog.features.sourceObservations.ui.governanceControls.title": "Governance controls",
-  "catalog.features.sourceObservations.ui.auditEvidence.backToWorkbench": "Back to import workbench",
   "catalog.features.sourceObservations.ui.auditEvidence.banner.blocked.description":
     "One or more release evidence rows block signoff. Resolve the named owner workflow before shipping.",
   "catalog.features.sourceObservations.ui.auditEvidence.banner.blocked.title": "Release evidence is blocking",
@@ -367,7 +363,6 @@ export const catalogSourceObservationsControlPlaneEnglishTranslations = {
   "catalog.features.sourceObservations.ui.auditEvidence.timeline.emptyTitle": "No timeline events",
   "catalog.features.sourceObservations.ui.auditEvidence.timeline.title": "Audit timeline",
   "catalog.features.sourceObservations.ui.auditEvidence.title": "Audit and release evidence",
-  "catalog.features.sourceObservations.ui.cleanResetRelease.backToWorkbench": "Back to import workbench",
   "catalog.features.sourceObservations.ui.cleanResetRelease.backfill.description":
     "Backfill is required only when retained data remains; clean prelaunch wipe skips backfill after seeded profile rebuild.",
   "catalog.features.sourceObservations.ui.cleanResetRelease.backfill.title": "Backfill decision state",

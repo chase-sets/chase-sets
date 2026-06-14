@@ -145,10 +145,12 @@ test.describe("catalog admin integrations", () => {
     await expect(page.getByRole("button", { name: /Pull provider data/i }).first()).toBeVisible();
     await expect(page.getByRole("button", { name: /Preview promotion/i }).first()).toBeVisible();
     await expect(page.getByRole("heading", { name: "Integration health triage" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Back to import workbench" }).first()).toHaveAttribute(
-      "href",
-      /\/catalog\/integrations(\?|$)/,
-    );
+    // The release surface stacks three workspaces but renders the "Back to import
+    // workbench" affordance exactly once, in the surface header (no longer once per
+    // stacked workspace), so this no longer needs a .first() disambiguator.
+    const releaseBackLinks = page.getByRole("link", { name: "Back to import workbench" });
+    await expect(releaseBackLinks).toHaveCount(1);
+    await expect(releaseBackLinks).toHaveAttribute("href", /\/catalog\/integrations(\?|$)/);
     await expect(page.getByRole("heading", { name: "Import to promotion workbench" })).toHaveCount(0);
     // The release surface stacks all three of its workspaces, so audit evidence is
     // already rendered alongside health triage; its workspace heading is visible and
@@ -198,6 +200,10 @@ test.describe("catalog admin integrations", () => {
     // import-to-promotion workspace heading does not render on the providers surface.
     await expect(page.getByRole("heading", { name: "Import to promotion workbench" })).toHaveCount(0);
     // Return-to-daily preserves the full working set on the base /catalog/integrations route.
+    // The providers surface renders its single header "Back to import workbench" affordance
+    // once (no longer per stacked workspace); when the deep-linked profile version is stale
+    // the profile-authoring empty state also offers a return path, so take the header link
+    // (first in DOM order) explicitly.
     const backToDailyHref = await page
       .getByRole("link", { name: "Back to import workbench" })
       .first()
@@ -234,14 +240,27 @@ test.describe("catalog admin integrations", () => {
     );
     // The full RBAC / kill-switch / observability panel lives here, not on the daily route.
     await expect(page.getByRole("heading", { name: "RBAC action matrix" })).toBeVisible();
-    // Each governance workspace links back to the daily import workbench, preserving the working set.
-    const backFromGovernanceHref = await page
-      .getByRole("link", { name: "Back to import workbench" })
-      .first()
-      .getAttribute("href");
+    // The governance surface stacks three workspaces but renders the "Back to import
+    // workbench" affordance exactly once, in the surface header; it preserves the working set.
+    const governanceBackLinks = page.getByRole("link", { name: "Back to import workbench" });
+    await expect(governanceBackLinks).toHaveCount(1);
+    const backFromGovernanceHref = await governanceBackLinks.getAttribute("href");
     const backFromGovernanceUrl = new URL(backFromGovernanceHref ?? "", new URL(page.url()).origin);
     expect(backFromGovernanceUrl.pathname).toBe("/catalog/integrations");
     expect(backFromGovernanceUrl.searchParams.has("section")).toBe(false);
     expect(backFromGovernanceUrl.searchParams.get("providerKey")).toBe("tcgdex");
+
+    // The compact daily health signal deep-links into health triage on the release
+    // surface. Land on that exact deep-link shape — including a stale/unknown
+    // profileVersion (the shape a missing/invalid-profile blocker carries) — and confirm
+    // the release loader recovers from the backend's 404 into the absent-authoring-model
+    // state and renders (HTTP < 400) rather than surfacing a 500.
+    await expectPageOk(
+      page,
+      "/catalog/integrations/release?providerKey=tcgdex&unitKey=tcgdex%3Apokemon%3Acard%3Aimport&importScope=en%3A3%3Abase%3Abase1&profileVersion=2026.06.04&section=triage",
+    );
+    await page.waitForLoadState("networkidle");
+    await expect(page).toHaveURL(/\/catalog\/integrations\/release\?.*section=triage/);
+    await expect(page.getByRole("heading", { name: "Integration health triage" })).toBeVisible();
   });
 });
