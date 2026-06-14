@@ -1,9 +1,10 @@
 import type { LoaderFunctionArgs } from "react-router";
-import { loader as integrationsLoader } from "./integrations-loader";
+import { loadProvidersSurface } from "./integrations-loader-support";
 
-// Loader entry point for the /admin/integrations/providers surface route. For
-// #1739 it reuses the shared integrations read-model composition; per-route
-// read-model slicing is the separate concern of #1744.
+// Provider profiles and readiness surface route loader
+// (/admin/integrations/providers). Loads the shared baseline plus the selected
+// provider profile authoring model and computes only the profile-authoring and
+// validation-readiness slices its surface renders (#1744).
 export async function loader(args: LoaderFunctionArgs) {
-  return integrationsLoader(args);
+  return loadProvidersSurface(args);
 }

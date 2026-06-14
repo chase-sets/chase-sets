@@ -424,11 +424,11 @@ describe("Catalog integrations route", () => {
   });
 
   it("bridges guided profile section saves through the typed section PATCH API", async () => {
-    const listSourceObservationProviderProfiles = vi.fn().mockResolvedValue({
-      items: [profileReview({ active: false, lifecycle: "draft", profileVersion: "2026.06.04-draft" })],
-      total: 1,
-      count: 1,
-    });
+    const getSourceObservationProviderProfileAuthoringModel = vi.fn().mockResolvedValue(
+      profileAuthoringModel({
+        review: profileReview({ active: false, lifecycle: "draft", profileVersion: "2026.06.04-draft" }),
+      }),
+    );
     const updateSourceObservationProviderProfileSection = vi.fn().mockResolvedValue({
       providerKey: "tcgdex",
       profileKey: "tcgdex-pokemon-card",
@@ -436,7 +436,7 @@ describe("Catalog integrations route", () => {
     });
     const recordCatalogControlPlaneEvent = vi.fn().mockResolvedValue({ status: "recorded" });
     mockCreateCatalogRequestApiClient.mockReturnValue({
-      listSourceObservationProviderProfiles,
+      getSourceObservationProviderProfileAuthoringModel,
       updateSourceObservationProviderProfileSection,
       recordCatalogControlPlaneEvent,
     });
@@ -489,11 +489,11 @@ describe("Catalog integrations route", () => {
   });
 
   it("keeps migration-evidence saves inside validation readiness", async () => {
-    const listSourceObservationProviderProfiles = vi.fn().mockResolvedValue({
-      items: [profileReview({ active: true, lifecycle: "active", profileVersion: "2026.06.04" })],
-      total: 1,
-      count: 1,
-    });
+    const getSourceObservationProviderProfileAuthoringModel = vi.fn().mockResolvedValue(
+      profileAuthoringModel({
+        review: profileReview({ active: true, lifecycle: "active", profileVersion: "2026.06.04" }),
+      }),
+    );
     const updateSourceObservationProviderProfileSection = vi.fn().mockResolvedValue({
       providerKey: "tcgdex",
       profileKey: "tcgdex-pokemon-card",
@@ -501,7 +501,7 @@ describe("Catalog integrations route", () => {
     });
     const recordCatalogControlPlaneEvent = vi.fn().mockResolvedValue({ status: "recorded" });
     mockCreateCatalogRequestApiClient.mockReturnValue({
-      listSourceObservationProviderProfiles,
+      getSourceObservationProviderProfileAuthoringModel,
       updateSourceObservationProviderProfileSection,
       recordCatalogControlPlaneEvent,
     });
@@ -775,17 +775,17 @@ describe("Catalog integrations route", () => {
   });
 
   it("returns section-scoped feedback for stale and invalid section saves", async () => {
-    const listSourceObservationProviderProfiles = vi.fn().mockResolvedValue({
-      items: [profileReview({ active: false, lifecycle: "draft", profileVersion: "2026.06.04-draft" })],
-      total: 1,
-      count: 1,
-    });
+    const getSourceObservationProviderProfileAuthoringModel = vi.fn().mockResolvedValue(
+      profileAuthoringModel({
+        review: profileReview({ active: false, lifecycle: "draft", profileVersion: "2026.06.04-draft" }),
+      }),
+    );
     const updateSourceObservationProviderProfileSection = vi
       .fn()
       .mockRejectedValueOnce(new CatalogApiError(409, { error: { code: "stale" } }))
       .mockRejectedValueOnce(new CatalogApiError(400, { error: { code: "invalid" } }));
     mockCreateCatalogRequestApiClient.mockReturnValue({
-      listSourceObservationProviderProfiles,
+      getSourceObservationProviderProfileAuthoringModel,
       updateSourceObservationProviderProfileSection,
       recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
     });

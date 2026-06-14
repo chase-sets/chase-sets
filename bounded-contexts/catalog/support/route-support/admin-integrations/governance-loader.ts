@@ -1,9 +1,10 @@
 import type { LoaderFunctionArgs } from "react-router";
-import { loader as integrationsLoader } from "./integrations-loader";
+import { loadGovernanceSurface } from "./integrations-loader-support";
 
-// Loader entry point for the /admin/integrations/governance surface route. For
-// #1739 it reuses the shared integrations read-model composition; per-route
-// read-model slicing is the separate concern of #1744.
+// Govern and recover surface route loader (/admin/integrations/governance). Loads
+// the shared baseline plus the selected profile lifecycle impacts and computes
+// only the conflict-resolution, lifecycle-recovery, and governance-controls
+// slices its surface renders (#1744).
 export async function loader(args: LoaderFunctionArgs) {
-  return integrationsLoader(args);
+  return loadGovernanceSurface(args);
 }

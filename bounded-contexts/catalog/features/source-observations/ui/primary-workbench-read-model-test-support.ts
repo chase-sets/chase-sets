@@ -11,6 +11,7 @@ import {
 import { catalogProviderProfileEditableSectionKeys } from "../api/provider-profile-section-registry";
 import {
   buildCatalogPrimaryWorkbenchReadModel,
+  buildCatalogPrimaryWorkbenchReadModelForSurface,
   buildCatalogPrimaryWorkbenchSourceObservationReviewQuery,
 } from "./primary-workbench-read-model";
 import {
@@ -24,6 +25,7 @@ import {
 
 export {
   buildCatalogPrimaryWorkbenchReadModel,
+  buildCatalogPrimaryWorkbenchReadModelForSurface,
   buildCatalogPrimaryWorkbenchSourceObservationReviewQuery,
   catalogProviderProfileEditableSectionKeys,
   controlPlaneOverview,

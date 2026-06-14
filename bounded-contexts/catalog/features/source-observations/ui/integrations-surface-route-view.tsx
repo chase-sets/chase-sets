@@ -1,7 +1,10 @@
 import { useMemo } from "react";
 import { useRouteLoaderData } from "react-router";
 import type { CatalogControlPlaneRouteSurfaceKey } from "./admin-control-plane/information-architecture";
-import { buildCatalogPrimaryWorkbenchReadModel } from "./primary-workbench-read-model";
+import {
+  buildCatalogPrimaryWorkbenchReadModel,
+  buildCatalogPrimaryWorkbenchReadModelForSurface,
+} from "./primary-workbench-read-model";
 import type { CatalogPrimaryWorkbenchReadModel } from "../api/primary-workbench-admin-contracts";
 import type { CatalogPrimaryWorkbenchCommandFeedback } from "./primary-workbench-command-feedback";
 import { CatalogIntegrationsSurfacePage } from "./integrations-surface-page";
@@ -42,7 +45,7 @@ export function CatalogIntegrationsSurfaceRouteView({
     () =>
       canManageCatalog
         ? routeData.readModel
-        : buildCatalogPrimaryWorkbenchReadModel({
+        : buildCatalogPrimaryWorkbenchReadModelForSurface(surface, {
             requestUrl: routeData.requestUrl,
             scopes: routeData.data,
             profileReviews: routeData.profileReviews,
@@ -53,7 +56,7 @@ export function CatalogIntegrationsSurfaceRouteView({
             reviewPagination: routeData.reviewPagination,
             canManageCatalog,
           }),
-    [canManageCatalog, routeData],
+    [canManageCatalog, routeData, surface],
   );
 
   return (
