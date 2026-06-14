@@ -365,6 +365,7 @@ describe("marketplace account payment route", () => {
         processor_payment_kind: "checkout-session",
       }),
       orders: [buildPurchase()],
+      buyerEmail: "buyer@example.com",
     });
 
     (window as StripeWindow).Stripe = vi.fn(() => ({

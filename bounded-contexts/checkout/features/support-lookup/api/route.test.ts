@@ -6,6 +6,7 @@ import type { CheckoutSupportLookupResult, CheckoutSupportLookupServices } from 
 
 function supportActor(
   permissions: readonly string[] = ["support.manage"],
+  roleKey = "platform-admin",
 ): NonNullable<CheckoutApiEnv["Variables"]["actor"]> {
   return {
     sessionId: "ses_support",
@@ -13,7 +14,7 @@ function supportActor(
     userId: "usr_support",
     accountId: "acc_support",
     membershipId: "mem_support",
-    roleKey: "platform-admin",
+    roleKey,
     permissions: [...permissions],
   };
 }
@@ -86,6 +87,16 @@ describe("checkout support lookup routes", () => {
   it("requires support manage permission", async () => {
     const services = createServices(null);
     const response = await buildApp({ actor: supportActor(["support.view"]), services }).request(
+      "/support/checkout-references/CS-READY",
+    );
+
+    expect(response.status).toBe(403);
+    expect(services.lookupBySupportReference).not.toHaveBeenCalled();
+  });
+
+  it("rejects account support managers because lookup is an internal helper", async () => {
+    const services = createServices(null);
+    const response = await buildApp({ actor: supportActor(["support.manage"], "owner"), services }).request(
       "/support/checkout-references/CS-READY",
     );
 

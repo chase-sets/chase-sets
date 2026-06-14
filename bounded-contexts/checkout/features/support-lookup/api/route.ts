@@ -29,12 +29,12 @@ function requireSupportLookupAccess(c: { get(key: "actor"): CheckoutApiEnv["Vari
     };
   }
 
-  if (!actor.permissions.includes("support.manage")) {
+  if (actor.roleKey !== "platform-admin" || !actor.permissions.includes("support.manage")) {
     return {
       response: jsonError(
         403,
         "authorization_forbidden",
-        "Support checkout lookup requires support management access.",
+        "Support checkout lookup requires internal support management access.",
       ),
     };
   }
