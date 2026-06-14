@@ -912,6 +912,118 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(returnPath.searchParams.get("filter.status")).toBe("changed");
   });
 
+  it("surfaces a slim governance denied indicator on the daily route that deep-links to governance controls with return context", () => {
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&filter.status=changed",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: null,
+      // A view-only operator: the primary commands are denied by access control.
+      canManageCatalog: false,
+    });
+
+    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+
+    // The daily route stays on the import-to-promotion surface; it shows a SLIM
+    // denied indicator, not the full governance RBAC/kill-switch/observability panel.
+    expect(readModel.routeContext.section).toBe("import-to-promotion");
+    expect(screen.getByText("A primary command is denied by access control")).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "RBAC action matrix" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Rollout and worker controls" })).toBeNull();
+
+    // The indicator deep-links into the governance-controls workspace on the
+    // governance surface, carrying return context back to the daily job.
+    const governanceLink = screen
+      .getAllByRole("link", { name: "Open governance controls" })
+      .map((link) => new URL(link.getAttribute("href") ?? "", "https://admin.example"))
+      .find((url) => url.pathname === "/catalog/integrations/governance");
+    expect(governanceLink).toBeTruthy();
+    expect(governanceLink!.searchParams.get("section")).toBe("controls");
+    expect(governanceLink!.searchParams.get("providerKey")).toBe("tcgdex");
+    expect(governanceLink!.searchParams.get("unitKey")).toBe("tcgdex:pokemon:card:import");
+    expect(governanceLink!.searchParams.get("importScope")).toBe("en:3:base:base1");
+
+    const returnPath = new URL(governanceLink!.searchParams.get("returnPath") ?? "", "https://admin.example");
+    expect(returnPath.pathname).toBe("/catalog/integrations");
+    expect(returnPath.searchParams.has("section")).toBe(false);
+    expect(returnPath.searchParams.get("providerKey")).toBe("tcgdex");
+    expect(returnPath.searchParams.get("importScope")).toBe("en:3:base:base1");
+    expect(returnPath.searchParams.get("filter.status")).toBe("changed");
+  });
+
+  it("surfaces a slim governance stopped indicator on the daily route when a rollout kill switch blocks a primary command", () => {
+    const baseOverview = controlPlaneOverview();
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: controlPlaneOverview({
+        readiness: {
+          ...baseOverview.readiness,
+          rolloutControls: {
+            generatedAt: baseOverview.generatedAt,
+            controls: [
+              {
+                controlId: "catalog-import-launch-stop",
+                owner: "ops-release",
+                ownerIssue: 801,
+                defaultState: "quarantined",
+                status: "blocked",
+                severity: "error",
+                capabilities: ["source-observation-import"],
+                providerKeys: ["tcgdex"],
+                profileKeys: ["tcgdex-pokemon-card"],
+                unitKeys: ["tcgdex:pokemon:card:import"],
+                message: "Catalog integration imports stopped by launch kill switch.",
+                auditEventName: "rollout-control-denied",
+                metricKey: "catalog.integration.rollout.stop",
+              },
+            ],
+          },
+        },
+      }),
+      // A privileged operator: the command is stopped by a rollout control, not denied.
+      canManageCatalog: true,
+    });
+
+    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+
+    expect(screen.getByText("A primary command is stopped by a rollout control")).toBeTruthy();
+    // The denied copy is not shown for a rollout stop without an access denial.
+    expect(screen.queryByText("A primary command is denied by access control")).toBeNull();
+    // Still no full governance panel on the daily route.
+    expect(screen.queryByRole("heading", { name: "RBAC action matrix" })).toBeNull();
+
+    const governanceLink = screen
+      .getAllByRole("link", { name: "Open governance controls" })
+      .map((link) => new URL(link.getAttribute("href") ?? "", "https://admin.example"))
+      .find((url) => url.pathname === "/catalog/integrations/governance");
+    expect(governanceLink).toBeTruthy();
+    expect(governanceLink!.searchParams.get("section")).toBe("controls");
+    expect(new URL(governanceLink!.searchParams.get("returnPath") ?? "", "https://admin.example").pathname).toBe(
+      "/catalog/integrations",
+    );
+  });
+
+  it("renders no governance indicator on the daily route when no primary command is denied or stopped", () => {
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: controlPlaneOverview(),
+      canManageCatalog: true,
+    });
+
+    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+
+    expect(screen.queryByText("A primary command is denied by access control")).toBeNull();
+    expect(screen.queryByText("A primary command is stopped by a rollout control")).toBeNull();
+    expect(screen.queryByRole("link", { name: "Open governance controls" })).toBeNull();
+  });
+
   it("renders Source Observation evidence rows, drawer details, and bulk selection without raw payloads", () => {
     const readModel = buildCatalogPrimaryWorkbenchReadModel({
       requestUrl:

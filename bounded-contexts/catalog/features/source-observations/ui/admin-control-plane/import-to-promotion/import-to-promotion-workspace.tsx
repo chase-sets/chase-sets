@@ -15,7 +15,7 @@ import { CommandFormButton } from "./command-controls";
 import { CatalogIntegrationCreateItemsStage } from "./create-items-stage";
 import { buildFlowStages, CatalogIntegrationFlowStepper } from "./primary-steps-module";
 import { useImportToPromotionWorkspace, type ImportToPromotionStageKey } from "./use-import-to-promotion-workspace";
-import { WorkspaceBlockerPanel } from "./workbench-formatting";
+import { DailyGovernanceStatusIndicator, WorkspaceBlockerPanel } from "./workbench-formatting";
 
 // The daily import-to-promotion workspace, framed as an explicit three-stage
 // linear flow: Run sync -> Review changes -> Create / update items. The stepper
@@ -97,6 +97,8 @@ export function CatalogIntegrationImportToPromotionWorkspace({
           </LinkButton>
         }
       />
+
+      <DailyGovernanceStatusIndicator readModel={readModel} />
 
       <CatalogIntegrationFlowStepper stages={stages} />
 

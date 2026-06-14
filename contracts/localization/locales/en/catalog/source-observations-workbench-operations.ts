@@ -130,6 +130,15 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.failure.mode": "Failure mode",
   "catalog.features.sourceObservations.ui.primaryWorkbench.failure.mode.value":
     "Blocked, stale, denied, and unsafe actions fail closed.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.governanceStatus.denied.description":
+    "Your account cannot run a primary command here. Open governance controls to resolve the RBAC grant, then return to this provider context.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.governanceStatus.denied.title":
+    "A primary command is denied by access control",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.governanceStatus.open": "Open governance controls",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.governanceStatus.stopped.description":
+    "A rollout stop or kill switch is blocking a primary command. Review the stop owner in governance controls, then return to this provider context.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.governanceStatus.stopped.title":
+    "A primary command is stopped by a rollout control",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.cancel": "Cancel",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.context.current.scope": "Current scope",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.context.overlapping.scope": "Overlapping scope",
