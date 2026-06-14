@@ -3,7 +3,6 @@ import {
   BadgeCluster,
   DataTable,
   KeyValueList,
-  LinkButton,
   MetricStrip,
   OperationalStatusBanner,
   WorkbenchDataCell,
@@ -36,11 +35,6 @@ export function CatalogIntegrationHealthTriageWorkspace({
       title={t("catalog.features.sourceObservations.ui.primaryWorkbench.health.title")}
       description={t("catalog.features.sourceObservations.ui.primaryWorkbench.health.description")}
       status={<Badge tone={statusTone(health.status)}>{statusLabel(health.status)}</Badge>}
-      actions={
-        <LinkButton size="sm" tone="secondary" leadingIcon="chevronLeft" href={health.returnToPrimaryHref}>
-          {t("catalog.features.sourceObservations.ui.primaryWorkbench.health.return.primary")}
-        </LinkButton>
-      }
       headingLevel={2}
       density="compact"
     >

@@ -165,7 +165,6 @@ export const catalogSourceObservationsWorkbenchProfileValidationEnglishTranslati
   "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.replay.title":
     "Replay implications",
   "catalog.features.sourceObservations.ui.primaryWorkbench.validation.activationDecision.title": "Activation decision",
-  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.back": "Back to import workbench",
   "catalog.features.sourceObservations.ui.primaryWorkbench.validation.blockers.empty": "No blockers",
   "catalog.features.sourceObservations.ui.primaryWorkbench.validation.compare.cardVariantKey": "Card variant key",
   "catalog.features.sourceObservations.ui.primaryWorkbench.validation.compare.description":

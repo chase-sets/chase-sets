@@ -139,6 +139,15 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
     "A rollout stop or kill switch is blocking a primary command. Review the stop owner in governance controls, then return to this provider context.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.governanceStatus.stopped.title":
     "A primary command is stopped by a rollout control",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.healthStatus.blocked.description":
+    "A provider or unit is blocking import, review, or promotion right now. Open health triage to see the named blocker and owner, then return to this provider context.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.healthStatus.blocked.title":
+    "Integration health is blocking a primary command",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.healthStatus.degraded.description":
+    "Provider transport, read-model freshness, or recent jobs are degraded. Open health triage for the full diagnostic, then return to this provider context.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.healthStatus.degraded.title":
+    "Integration health is degraded",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.healthStatus.open": "Open health triage",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.cancel": "Cancel",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.context.current.scope": "Current scope",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.context.overlapping.scope": "Overlapping scope",
@@ -242,6 +251,7 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
     "No provider transport blockers reported for the selected context.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.ready": "Ready",
   "catalog.features.sourceObservations.ui.primaryWorkbench.reset.view": "Reset view",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.returnToWorkbench": "Back to import workbench",
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.audit.observed": "Observed {observedAt}",
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.audit.promoted": "Promoted {promotedAt}",
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.audit.promotion.profile":

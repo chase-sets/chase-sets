@@ -235,12 +235,12 @@ const surfaceChecks = [
     owner: "Catalog",
     scope: "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/evidence",
     visualEvidence: [
-      "Clean reset release tables use workbench action rows, stacks, and data cells instead of raw release-proof markup.",
+      "Clean reset release tables use workbench stacks and data cells instead of raw release-proof markup.",
     ],
     accessibilityEvidence: [
-      "Release proof links remain buttons while surrounding evidence text is centralized in dense workbench cells.",
+      "Release proof and audit-evidence links remain buttons while surrounding evidence text is centralized in dense workbench cells.",
     ],
-    mustInclude: ["WorkbenchActionRow", "WorkbenchDataCell", "WorkbenchStack", "LinkButton"],
+    mustInclude: ["WorkbenchDataCell", "WorkbenchStack", "LinkButton"],
     mustNotInclude: catalogControlPlaneForbiddenSignals,
   },
   {

@@ -1,11 +1,4 @@
-import {
-  Badge,
-  LinkButton,
-  MetricStrip,
-  OperationalStatusBanner,
-  WorkbenchStack,
-  WorkflowModule,
-} from "@chase-sets/design-system";
+import { Badge, MetricStrip, OperationalStatusBanner, WorkbenchStack, WorkflowModule } from "@chase-sets/design-system";
 import { t } from "@chase-sets/localization";
 import type { CatalogPrimaryWorkbenchReadModel } from "../../../api/primary-workbench-admin-contracts";
 import { ActivationDecisionModule, ActivationReadinessSection } from "./activation-evidence-section";
@@ -29,11 +22,6 @@ export function CatalogIntegrationValidationReadinessWorkspace({
         title={t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.title")}
         description={t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.description")}
         status={<Badge tone={statusTone(validation.status)}>{statusLabel(validation.status)}</Badge>}
-        actions={
-          <LinkButton size="sm" tone="secondary" leadingIcon="chevronLeft" href={validation.returnToPrimaryHref}>
-            {t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.back")}
-          </LinkButton>
-        }
         headingLevel={2}
         density="compact"
       >

@@ -32,7 +32,12 @@ export function CatalogIntegrationsSurfacePage({
     : surfaceDefinition.workspaces[0];
 
   return (
-    <CatalogWorkbenchShell readModel={readModel} commandFeedback={commandFeedback} activeSection={activeSection}>
+    <CatalogWorkbenchShell
+      readModel={readModel}
+      commandFeedback={commandFeedback}
+      surface={surface}
+      activeSection={activeSection}
+    >
       {renderCatalogWorkbenchSurfaceWorkspaces(readModel, surfaceDefinition.workspaces)}
     </CatalogWorkbenchShell>
   );

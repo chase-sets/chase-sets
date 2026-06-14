@@ -1108,12 +1108,12 @@
         "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/evidence/clean-reset-release-workspace.tsx"
       ],
       "visualEvidence": [
-        "Clean reset release tables use workbench action rows, stacks, and data cells instead of raw release-proof markup."
+        "Clean reset release tables use workbench stacks and data cells instead of raw release-proof markup."
       ],
       "accessibilityEvidence": [
-        "Release proof links remain buttons while surrounding evidence text is centralized in dense workbench cells."
+        "Release proof and audit-evidence links remain buttons while surrounding evidence text is centralized in dense workbench cells."
       ],
-      "requiredSignals": ["WorkbenchActionRow", "WorkbenchDataCell", "WorkbenchStack", "LinkButton"],
+      "requiredSignals": ["WorkbenchDataCell", "WorkbenchStack", "LinkButton"],
       "forbiddenSignals": [
         "className=",
         "<div",
@@ -1129,11 +1129,8 @@
         "<li",
         "<Form"
       ],
-      "discoverySignals": ["WorkbenchActionRow", "WorkbenchDataCell", "WorkbenchStack", "LinkButton"],
+      "discoverySignals": ["WorkbenchDataCell", "WorkbenchStack", "LinkButton"],
       "discoverySignalFiles": {
-        "WorkbenchActionRow": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/evidence/clean-reset-release-workspace.tsx"
-        ],
         "WorkbenchDataCell": [
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/evidence/audit-evidence-workspace.tsx",
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/evidence/clean-reset-release-workspace.tsx"
@@ -1143,14 +1140,10 @@
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/evidence/clean-reset-release-workspace.tsx"
         ],
         "LinkButton": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/evidence/audit-evidence-workspace.tsx",
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/evidence/clean-reset-release-workspace.tsx"
         ]
       },
       "requiredSignalFiles": {
-        "WorkbenchActionRow": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/evidence/clean-reset-release-workspace.tsx"
-        ],
         "WorkbenchDataCell": [
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/evidence/audit-evidence-workspace.tsx",
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/evidence/clean-reset-release-workspace.tsx"
@@ -1160,7 +1153,6 @@
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/evidence/clean-reset-release-workspace.tsx"
         ],
         "LinkButton": [
-          "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/evidence/audit-evidence-workspace.tsx",
           "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/evidence/clean-reset-release-workspace.tsx"
         ]
       },

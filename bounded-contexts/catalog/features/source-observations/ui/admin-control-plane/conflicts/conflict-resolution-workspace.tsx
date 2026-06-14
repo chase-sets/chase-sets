@@ -41,11 +41,6 @@ export function CatalogIntegrationConflictResolutionWorkspace({
         title={t("catalog.features.sourceObservations.ui.conflictResolution.title")}
         description={t("catalog.features.sourceObservations.ui.conflictResolution.description")}
         status={<Badge tone={statusTone(conflicts.status)}>{stateLabel(conflicts.status)}</Badge>}
-        actions={
-          <LinkButton size="sm" tone="secondary" leadingIcon="chevronLeft" href={conflicts.returnToPrimaryHref}>
-            {t("catalog.features.sourceObservations.ui.conflictResolution.backToWorkbench")}
-          </LinkButton>
-        }
         headingLevel={2}
         density="compact"
       >

@@ -17,6 +17,7 @@ import {
   type CatalogControlPlaneWorkspaceKey,
 } from "./admin-control-plane/information-architecture";
 import { CommandFormButton } from "./admin-control-plane/import-to-promotion/command-controls";
+import { WorkbenchReturnLink } from "./admin-control-plane/import-to-promotion/workbench-formatting";
 import {
   commandFeedbackDescription,
   commandSuccessTitle,
@@ -72,6 +73,10 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
   const renderActiveWorkspace =
     CATALOG_PRIMARY_WORKBENCH_WORKSPACE_RENDERERS[activeSection as CatalogControlPlaneWorkspaceKey] ??
     CATALOG_PRIMARY_WORKBENCH_WORKSPACE_RENDERERS["import-to-promotion"];
+  // The supporting workspaces render their single "Back to import workbench"
+  // affordance once in the header (no longer per-workspace); the primary import
+  // workspace is the daily job itself, so it carries none.
+  const showReturnLink = activeSection !== "import-to-promotion";
 
   return (
     <DenseAdminWorkbench data-catalog-primary-workbench="true">
@@ -81,6 +86,7 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
         description={t("catalog.features.sourceObservations.ui.primaryWorkbench.description")}
         actions={
           <>
+            {showReturnLink ? <WorkbenchReturnLink routeContext={readModel.routeContext} /> : null}
             <CommandFormButton readModel={readModel} intent="start-provider-import" leadingIcon="refreshCcw">
               {t("catalog.features.sourceObservations.ui.primaryWorkbench.pull.provider.data")}
             </CommandFormButton>

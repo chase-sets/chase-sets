@@ -3,7 +3,6 @@ import {
   DataTable,
   EmptyState,
   KeyValueList,
-  LinkButton,
   LinkText,
   MetricStrip,
   OperationalStatusBanner,
@@ -37,11 +36,6 @@ export function CatalogIntegrationAuditEvidenceWorkspace({
         title={t("catalog.features.sourceObservations.ui.auditEvidence.title")}
         description={t("catalog.features.sourceObservations.ui.auditEvidence.description")}
         status={<Badge tone={statusTone(audit.status)}>{stateLabel(audit.status)}</Badge>}
-        actions={
-          <LinkButton size="sm" tone="secondary" leadingIcon="chevronLeft" href={audit.returnToPrimaryHref}>
-            {t("catalog.features.sourceObservations.ui.auditEvidence.backToWorkbench")}
-          </LinkButton>
-        }
         headingLevel={2}
         density="compact"
       >

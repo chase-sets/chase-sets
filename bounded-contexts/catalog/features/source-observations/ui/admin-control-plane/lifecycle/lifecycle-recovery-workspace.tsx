@@ -46,11 +46,6 @@ export function CatalogIntegrationLifecycleRecoveryWorkspace({
         title={t("catalog.features.sourceObservations.ui.lifecycleRecovery.title")}
         description={t("catalog.features.sourceObservations.ui.lifecycleRecovery.description")}
         status={<Badge tone={statusTone(lifecycle.status)}>{stateLabel(lifecycle.status)}</Badge>}
-        actions={
-          <LinkButton size="sm" tone="secondary" leadingIcon="chevronLeft" href={lifecycle.returnToPrimaryHref}>
-            {t("catalog.features.sourceObservations.ui.lifecycleRecovery.backToImportWorkbench")}
-          </LinkButton>
-        }
         headingLevel={2}
         density="compact"
       >

@@ -4,8 +4,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import { tcgdexPokemonCardSourceObservationMappingContract } from "../api/tcgdex-executable-mapping-contract";
 import { tcgdexPokemonTcgProviderProfile } from "../api/provider-integration-profiles";
 import { catalogProviderProfileEditableSectionKeys } from "../api/provider-profile-section-registry";
-import { buildCatalogPrimaryWorkbenchReadModel } from "./primary-workbench-read-model";
+import {
+  buildCatalogPrimaryWorkbenchReadModel,
+  buildCatalogPrimaryWorkbenchReadModelForSurface,
+} from "./primary-workbench-read-model";
 import { CatalogPrimaryWorkbenchPage } from "./primary-workbench-page";
+import { CatalogIntegrationsSurfacePage } from "./integrations-surface-page";
 import {
   controlPlaneOverview,
   profileAuthoringModel,
@@ -1022,6 +1026,118 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.queryByText("A primary command is denied by access control")).toBeNull();
     expect(screen.queryByText("A primary command is stopped by a rollout control")).toBeNull();
     expect(screen.queryByRole("link", { name: "Open governance controls" })).toBeNull();
+  });
+
+  it("surfaces a slim degraded health indicator on the daily surface that deep-links into health triage on the release surface", () => {
+    const baseOverview = controlPlaneOverview();
+    // The daily surface deliberately omits the full health-triage slice (#1744), so
+    // build the actual daily surface read model and prove the compact signal still
+    // fires from the core readiness/transport data it always loads.
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("daily", {
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&filter.status=changed",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: controlPlaneOverview({
+        readiness: {
+          ...baseOverview.readiness,
+          units: [
+            {
+              ...baseOverview.readiness.units[0]!,
+              diagnostics: [
+                {
+                  code: "provider-partial-data",
+                  severity: "warning",
+                  message: "Provider returned partial data for this unit.",
+                  unitKey: "tcgdex:pokemon:card:import",
+                  retryAfterSeconds: null,
+                  source: "provider-adapter",
+                },
+              ],
+            },
+          ],
+        },
+      }),
+      canManageCatalog: true,
+    });
+
+    render(<CatalogIntegrationsSurfacePage surface="daily" readModel={readModel} />);
+
+    // A compact degraded banner, not the full health dashboard, on the daily route.
+    expect(screen.getByText("Integration health is degraded")).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Integration health triage" })).toBeNull();
+
+    // It deep-links into health triage on the release surface with return context.
+    const healthLink = screen
+      .getAllByRole("link", { name: "Open health triage" })
+      .map((link) => new URL(link.getAttribute("href") ?? "", "https://admin.example"))
+      .find((url) => url.pathname === "/catalog/integrations/release");
+    expect(healthLink).toBeTruthy();
+    expect(healthLink!.searchParams.get("section")).toBe("triage");
+    expect(healthLink!.searchParams.get("providerKey")).toBe("tcgdex");
+    expect(healthLink!.searchParams.get("unitKey")).toBe("tcgdex:pokemon:card:import");
+
+    const returnPath = new URL(healthLink!.searchParams.get("returnPath") ?? "", "https://admin.example");
+    expect(returnPath.pathname).toBe("/catalog/integrations");
+    expect(returnPath.searchParams.has("section")).toBe(false);
+    expect(returnPath.searchParams.get("providerKey")).toBe("tcgdex");
+    expect(returnPath.searchParams.get("filter.status")).toBe("changed");
+  });
+
+  it("escalates the daily health indicator to blocked when a provider transport failure blocks a primary command", () => {
+    const baseOverview = controlPlaneOverview();
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("daily", {
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: controlPlaneOverview({
+        readiness: {
+          ...baseOverview.readiness,
+          units: [
+            {
+              ...baseOverview.readiness.units[0]!,
+              transportReadiness: "blocked",
+              diagnostics: [
+                {
+                  code: "provider-timeout",
+                  severity: "error",
+                  message: "Provider timeout while fetching payloads.",
+                  unitKey: "tcgdex:pokemon:card:import",
+                  retryAfterSeconds: null,
+                  source: "provider-adapter",
+                },
+              ],
+            },
+          ],
+        },
+      }),
+      canManageCatalog: true,
+    });
+
+    render(<CatalogIntegrationsSurfacePage surface="daily" readModel={readModel} />);
+
+    expect(screen.getByText("Integration health is blocking a primary command")).toBeTruthy();
+    expect(screen.queryByText("Integration health is degraded")).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Integration health triage" })).toBeNull();
+    expect(screen.getAllByRole("link", { name: "Open health triage" }).length).toBeGreaterThan(0);
+  });
+
+  it("renders no daily health indicator when provider transport, freshness, and jobs are nominal", () => {
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("daily", {
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: controlPlaneOverview(),
+      canManageCatalog: true,
+    });
+
+    render(<CatalogIntegrationsSurfacePage surface="daily" readModel={readModel} />);
+
+    expect(screen.queryByText("Integration health is degraded")).toBeNull();
+    expect(screen.queryByText("Integration health is blocking a primary command")).toBeNull();
+    expect(screen.queryByRole("link", { name: "Open health triage" })).toBeNull();
   });
 
   it("renders Source Observation evidence rows, drawer details, and bulk selection without raw payloads", () => {
