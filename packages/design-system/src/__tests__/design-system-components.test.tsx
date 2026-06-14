@@ -186,6 +186,7 @@ describe("design system components", () => {
         dangerHover: "#991b1b",
         trust: "#0f766e",
         ratingSoft: "#fef3c7",
+        overlay: "var(--test-overlay)",
       },
       borderWidth: {
         lg: "4px",
@@ -200,6 +201,7 @@ describe("design system components", () => {
     expect(style["--color-danger-hover" as never]).toBe("#991b1b");
     expect(style["--trust" as never]).toBe("#0f766e");
     expect(style["--rating-soft" as never]).toBe("#fef3c7");
+    expect(style["--color-overlay" as never]).toBe("var(--test-overlay)");
     expect(style["--border-width-lg" as never]).toBe("4px");
     expect(style["--opacity-disabled" as never]).toBe("0.5");
   });
@@ -226,6 +228,7 @@ describe("design system components", () => {
     expect(chaseTheme.colors.deal).toBe("var(--deal)");
     expect(chaseTheme.colors.rating).toBe("var(--rating)");
     expect(chaseTheme.colors.ratingSoft).toBe("var(--rating-soft)");
+    expect(chaseTheme.colors.overlay).toBe("var(--overlay)");
     expect(chaseTheme.colors.surfaceLine).toBe("var(--surface-line)");
     expect(chaseTheme.colors).not.toHaveProperty("cyan");
     expect(chaseTheme.colors).not.toHaveProperty("indigo");
@@ -1180,6 +1183,7 @@ describe("design system components", () => {
     expect(colors?.["deal-soft"]).toBe("var(--color-deal-soft)");
     expect(colors?.rating).toBe("var(--color-rating)");
     expect(colors?.["rating-soft"]).toBe("var(--color-rating-soft)");
+    expect(colors?.overlay).toBe("var(--color-overlay)");
     expect(borderRadius?.tokenFull).toBe("var(--radius-full)");
     expect(borderWidth?.tokenLg).toBe("var(--border-width-lg)");
     expect(opacity?.disabled).toBe("var(--opacity-disabled)");

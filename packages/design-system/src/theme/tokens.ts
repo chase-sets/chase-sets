@@ -59,6 +59,7 @@ export interface ThemeTokens {
     primaryHover: string;
     primaryActive: string;
     primarySoft: string;
+    overlay: string;
     secondary: string;
     secondaryForeground: string;
     accent: string;
@@ -201,6 +202,7 @@ export const chaseTheme: ThemeTokens = {
     primaryHover: "var(--primary-hover)",
     primaryActive: "var(--primary-active)",
     primarySoft: "var(--primary-soft)",
+    overlay: "var(--overlay)",
     secondary: "var(--secondary)",
     secondaryForeground: "var(--secondary-foreground)",
     accent: "var(--primary)",
@@ -454,6 +456,8 @@ const tokenMap: [string, (theme: ThemeTokens | ThemeOverrides) => string | undef
   ["--primary-hover", (t) => t.colors?.primaryHover],
   ["--primary-active", (t) => t.colors?.primaryActive],
   ["--primary-soft", (t) => t.colors?.primarySoft],
+  ["--overlay", (t) => t.colors?.overlay],
+  ["--color-overlay", (t) => t.colors?.overlay],
   ["--secondary", (t) => t.colors?.secondary],
   ["--secondary-foreground", (t) => t.colors?.secondaryForeground],
   ["--accent", (t) => t.colors?.accent],

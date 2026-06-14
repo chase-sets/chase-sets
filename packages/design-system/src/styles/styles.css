@@ -24,6 +24,7 @@
     --primary-hover: #174db0;
     --primary-active: #123f91;
     --primary-soft: #dbeafe;
+    --overlay: rgba(29, 27, 24, 0.35);
     --secondary: #f1f5f9;
     --secondary-foreground: #334155;
     --muted: #e2e8f0;
@@ -162,6 +163,7 @@
     --dark-primary-hover: #7ca4f8;
     --dark-primary-active: #a8c2fb;
     --dark-primary-soft: #172554;
+    --dark-overlay: rgba(29, 27, 24, 0.35);
     --dark-secondary: #1e293b;
     --dark-secondary-foreground: #cbd5e1;
     --dark-muted: #334155;
@@ -241,6 +243,7 @@
     --primary-hover: var(--dark-primary-hover);
     --primary-active: var(--dark-primary-active);
     --primary-soft: var(--dark-primary-soft);
+    --overlay: var(--dark-overlay);
     --secondary: var(--dark-secondary);
     --secondary-foreground: var(--dark-secondary-foreground);
     --muted: var(--dark-muted);
@@ -318,6 +321,7 @@
       --primary-hover: var(--dark-primary-hover);
       --primary-active: var(--dark-primary-active);
       --primary-soft: var(--dark-primary-soft);
+      --overlay: var(--dark-overlay);
       --secondary: var(--dark-secondary);
       --secondary-foreground: var(--dark-secondary-foreground);
       --muted: var(--dark-muted);
@@ -403,6 +407,7 @@
     --color-brand-secondary: var(--trust);
     --color-primary: var(--primary);
     --color-primary-soft: var(--primary-soft);
+    --color-overlay: var(--overlay);
     --color-accent: var(--primary);
     --color-accent-2: var(--trust);
     --color-accent-soft: var(--primary-soft);

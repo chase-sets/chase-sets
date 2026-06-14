@@ -69,7 +69,7 @@ function renderDialogFrame({
           initial: overlayAnimation.initial,
           animate: overlayAnimation.animate,
           transition: overlayAnimation.transition,
-          className: "fixed inset-0 z-modal bg-[rgba(29,27,24,0.35)]",
+          className: "fixed inset-0 z-modal bg-overlay",
         })}
       />
       <DialogPrimitive.Popup

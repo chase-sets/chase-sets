@@ -29,6 +29,7 @@ const config: Config = {
         "brand-2": "var(--color-brand-secondary)",
         primary: "var(--color-primary)",
         "primary-soft": "var(--color-primary-soft)",
+        overlay: "var(--color-overlay)",
         accent: "var(--color-accent)",
         "accent-2": "var(--color-accent-2)",
         "accent-soft": "var(--color-accent-soft)",

@@ -104,6 +104,7 @@ export function ImageGallery({
     !failedImageSources.has(active.src),
   );
   const loadingFallback = showLoadingFallback ? fallbackImage : undefined;
+  // ds-dynamic-css-var: allow --gallery-aspect-ratio for per-instance media sizing in the future DS scanner, issue 1719.
   const galleryStyle = {
     aspectRatio,
     "--gallery-aspect-ratio": String(parseAspectRatio(aspectRatio)),
