@@ -1,5 +1,6 @@
 import type { HTMLAttributes, ReactNode } from "react";
 import { cx } from "../../utils/cx";
+import { Stack } from "../../primitives/layout";
 
 export interface ComparisonListProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
   children?: ReactNode;
@@ -7,9 +8,9 @@ export interface ComparisonListProps extends Omit<HTMLAttributes<HTMLDivElement>
 
 export function ComparisonList({ children, ...rest }: ComparisonListProps) {
   return (
-    <div {...rest} className="grid gap-3">
+    <Stack {...rest} gap={3}>
       {children}
-    </div>
+    </Stack>
   );
 }
 
