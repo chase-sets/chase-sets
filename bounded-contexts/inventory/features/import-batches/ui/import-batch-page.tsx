@@ -106,7 +106,7 @@ export function InventoryImportBatchPage({
 
       {errorMessage ? (
         <MarketplaceNotice
-          tone="error"
+          tone="danger"
           title={t("inventory.features.importBatches.ui.importBatchPage.import.failed")}
           description={errorMessage}
         />
@@ -114,7 +114,7 @@ export function InventoryImportBatchPage({
 
       {activeJob ? (
         <MarketplaceNotice
-          tone={activeJob.status === "failed" ? "error" : "info"}
+          tone={activeJob.status === "failed" ? "danger" : "info"}
           title={t("inventory.features.importBatches.ui.importBatchPage.import.job.running")}
           description={
             activeJob.errorMessage ??

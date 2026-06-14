@@ -366,7 +366,7 @@ export function MarketplaceListingListPage({
 
       {errorMessage ? (
         <MarketplaceNotice
-          tone="error"
+          tone="danger"
           title={t("marketplace.features.listings.ui.listingListPage.listings")}
           description={errorMessage}
         />

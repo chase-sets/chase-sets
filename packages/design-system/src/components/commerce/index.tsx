@@ -1,8 +1,9 @@
 // Canonical commerce surface. These marketplace components live here, decomposed by
-// concern into sibling modules (trust, listings, checkout, detail, search, account,
-// panels, cart-line-item, shared). Dead exports (unconsumed by any context, deployable,
-// or test) were removed in the 2026-06 decomposition; product-option re-exports now flow
-// from data-display directly.
+// concern into sibling modules (trust, listings, detail, search, account, panels,
+// cart-line-item, shared). Dead exports (unconsumed by any context, deployable, or
+// test) were removed in the 2026-06 decomposition; product-option re-exports now flow
+// from data-display directly. Checkout surfaces were consolidated into the canonical
+// `components/checkout` module (#1643).
 
 export {
   type MarketplaceDensity,
@@ -48,22 +49,10 @@ export {
   type NoResultsRecoveryProps,
 } from "./search";
 
-export {
-  PriceBreakdown,
-  type PriceBreakdownProps,
-  ListingPurchasePanel,
-  type ListingPurchasePanelProps,
-  OrderIntentSummary,
-  type OrderIntentSummaryProps,
-  OrderProtectionModule,
-  type OrderProtectionModuleProps,
-  MarketplaceNotice,
-  type MarketplaceNoticeProps,
-  PaymentRecoveryPanel,
-  type PaymentRecoveryPanelProps,
-  StickyCtaBar,
-  type StickyCtaBarProps,
-} from "./checkout";
+// The marketplace checkout surfaces (PriceBreakdown, ListingPurchasePanel,
+// OrderIntentSummary, OrderProtectionModule, MarketplaceNotice,
+// PaymentRecoveryPanel, StickyCtaBar) were consolidated into the canonical
+// `components/checkout` module and are re-exported from the package root there.
 
 export {
   MessageThreadPreview,

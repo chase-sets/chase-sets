@@ -124,7 +124,7 @@ export function OrderingOrderDetailPage({
 
       {errorMessage ? (
         <MarketplaceNotice
-          tone="error"
+          tone="danger"
           title={t("ordering.features.orders.ui.orderDetailPage.projection.issue", {
             projectionLabel,
           })}

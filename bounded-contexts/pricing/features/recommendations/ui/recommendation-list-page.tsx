@@ -131,7 +131,7 @@ export function PricingRecommendationListPage({
 
       {activeJobMessage ? (
         <MarketplaceNotice
-          tone={activeJob?.status === "failed" ? "error" : "success"}
+          tone={activeJob?.status === "failed" ? "danger" : "success"}
           title={t("pricing.features.recommendations.ui.recommendationListPage.pricing")}
           description={activeJob?.errorMessage ?? activeJobMessage}
         />
@@ -139,7 +139,7 @@ export function PricingRecommendationListPage({
 
       {errorMessage ? (
         <MarketplaceNotice
-          tone="error"
+          tone="danger"
           title={t("pricing.features.recommendations.ui.recommendationListPage.pricing")}
           description={errorMessage}
         />
