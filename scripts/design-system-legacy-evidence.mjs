@@ -350,6 +350,7 @@ export async function collectDesignSystemLegacyEvidence(options = {}) {
       visualEvidenceCount: checks.reduce((sum, check) => sum + check.visualEvidence.length, 0),
       accessibilityEvidenceCount: checks.reduce((sum, check) => sum + check.accessibilityEvidence.length, 0),
       legacyInventoryFileCount: ledgerValidation.freshLedger.summary.fileCount,
+      legacyInventoryGatingFileCount: ledgerValidation.freshLedger.summary.gatingFileCount,
       legacyInventoryEntryCount: ledgerValidation.freshLedger.entries.length,
     },
     verificationCommands,
@@ -484,14 +485,8 @@ async function validateLedger(ledger, options = {}) {
     );
   }
 
-  if (freshLedger.summary.fileCount !== 0) {
-    errors.push("Fresh legacy inventory scan summary.fileCount must be 0.");
-  }
-  if (freshLedger.entries.length !== 0) {
-    errors.push("Fresh legacy inventory scan entries must be an empty array.");
-  }
-  if (Object.keys(freshLedger.summary.categories).length !== 0) {
-    errors.push("Fresh legacy inventory scan summary.categories must be empty.");
+  if (freshLedger.summary.gatingFileCount !== 0) {
+    errors.push("Fresh legacy inventory scan summary.gatingFileCount must be 0.");
   }
 
   return { errors, freshLedger };
@@ -519,6 +514,6 @@ async function main(argv, env = process.env) {
   return report.passesDesignSystemLegacyEvidence ? 0 : 1;
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+if (typeof process !== "undefined" && process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   process.exitCode = await main(process.argv.slice(2));
 }

@@ -8,7 +8,10 @@ import {
   parseDesignSystemLegacyEvidenceArgs,
   writeDesignSystemLegacyEvidence,
 } from "./design-system-legacy-evidence.mjs";
-import { createDesignSystemLegacyInventoryDocument } from "./design-system-legacy-inventory.mjs";
+import {
+  collectDesignSystemLegacyInventoryDocument,
+  createDesignSystemLegacyInventoryDocument,
+} from "./design-system-legacy-inventory.mjs";
 
 const tempDirs = [];
 
@@ -50,8 +53,7 @@ describe("design system legacy visual/accessibility evidence", () => {
       checkedAt: "2026-06-08T00:00:00.000Z",
       passesDesignSystemLegacyEvidence: true,
     });
-    expect(report.summary.legacyInventoryFileCount).toBe(0);
-    expect(report.summary.legacyInventoryEntryCount).toBe(0);
+    expect(report.summary.legacyInventoryGatingFileCount).toBe(0);
     expect(report.checks.map((check) => check.status)).toEqual(report.checks.map(() => "passed"));
     expect(report.checks.map((check) => check.id)).toContain("discovery-commerce-comparison-list");
     expect(report.checks.map((check) => check.id)).toContain("public-waitlist-mobile-cta");
@@ -87,12 +89,32 @@ describe("design system legacy visual/accessibility evidence", () => {
 
     expect(report.passesDesignSystemLegacyEvidence).toBe(false);
     expect(report.summary.legacyInventoryFileCount).toBe(1);
-    expect(report.errors).toContain("Fresh legacy inventory scan summary.fileCount must be 0.");
-    expect(report.errors).toContain("Fresh legacy inventory scan entries must be an empty array.");
-    expect(report.errors).toContain("Fresh legacy inventory scan summary.categories must be empty.");
+    expect(report.summary.legacyInventoryGatingFileCount).toBe(1);
+    expect(report.errors).toContain("Fresh legacy inventory scan summary.gatingFileCount must be 0.");
     expect(report.errors).toContain(
       "Legacy inventory ledger legacy-inventory.json must match a fresh design-system legacy inventory scan.",
     );
+  });
+
+  it("passes evidence validation when the fresh inventory contains only warning-tier findings", async () => {
+    const tempDir = await makeTempDir();
+    const scopeDir = path.join(tempDir, "bounded-contexts/example/features/workspace/ui");
+    await mkdir(scopeDir, { recursive: true });
+    await writeFile(path.join(scopeDir, "page.tsx"), "export function Page() { return <span>Warning</span>; }\n");
+    const freshLedger = await collectDesignSystemLegacyInventoryDocument({ rootDir: tempDir });
+    const ledgerPath = path.join(tempDir, "legacy-inventory.json");
+    await writeFile(ledgerPath, JSON.stringify(freshLedger));
+
+    const report = await collectDesignSystemLegacyEvidence({
+      checkedAt: "2026-06-08T00:00:00.000Z",
+      rootDir: tempDir,
+      ledgerPath,
+      surfaceChecks: [],
+    });
+
+    expect(report.passesDesignSystemLegacyEvidence).toBe(true);
+    expect(report.summary.legacyInventoryFileCount).toBe(1);
+    expect(report.summary.legacyInventoryGatingFileCount).toBe(0);
   });
 
   it("fails closed when a required symbol is absent from the entire scope", async () => {

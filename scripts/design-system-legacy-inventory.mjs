@@ -20,6 +20,7 @@ const designSystemUiSourcePrefix = "packages/design-system/src/components/ui/";
 
 const categoryMetadata = {
   canonicalUiSourceFile: {
+    severity: "error",
     phase: "Phase 2",
     issueTargets: ["#945", "#959", "#950", "#951", "#956"],
     outcome: "relocate-or-remove",
@@ -27,6 +28,7 @@ const categoryMetadata = {
     evidence: ["relocated exports", "typecheck", "design-system tests", "final audit"],
   },
   embeddedStyle: {
+    severity: "error",
     phase: "Phase 3",
     issueTargets: ["#945", "#946", "#947", "#953", "#956"],
     outcome: "migrate-or-promote-to-design-system",
@@ -34,13 +36,23 @@ const categoryMetadata = {
     evidence: ["print primitive migration", "visual artifact", "guardrail"],
   },
   hiddenInput: {
+    severity: "error",
     phase: "Phase 4",
     issueTargets: ["#945", "#953", "#956"],
     outcome: "policy-matrix",
     prerequisites: ["#945", "#953 policy matrix"],
     evidence: ["policy matrix", "guardrail classification"],
   },
+  inlineStyle: {
+    severity: "warning",
+    phase: "Phase G3",
+    issueTargets: ["#1666"],
+    outcome: "migrate-or-promote-to-design-system",
+    prerequisites: ["#1665"],
+    evidence: ["inline style inventory", "documented exception allow-list", "warning-tier guardrail"],
+  },
   legacyAliasImport: {
+    severity: "error",
     phase: "Phase 3",
     issueTargets: ["#945", "#948", "#949", "#950", "#951", "#956"],
     outcome: "migrate",
@@ -48,6 +60,7 @@ const categoryMetadata = {
     evidence: ["consumer migration", "legacy alias guardrail"],
   },
   legacyAliasJsxUsage: {
+    severity: "error",
     phase: "Phase 3",
     issueTargets: ["#945", "#948", "#949", "#950", "#951", "#956"],
     outcome: "migrate",
@@ -55,6 +68,7 @@ const categoryMetadata = {
     evidence: ["consumer migration", "legacy alias guardrail"],
   },
   legacyAliasMemberUsage: {
+    severity: "error",
     phase: "Phase 3",
     issueTargets: ["#945", "#948", "#949", "#950", "#951", "#956"],
     outcome: "migrate",
@@ -62,6 +76,7 @@ const categoryMetadata = {
     evidence: ["consumer migration", "legacy alias guardrail"],
   },
   legacyResponsiveTableCellMissingLabel: {
+    severity: "error",
     phase: "Phase 4",
     issueTargets: ["#945", "#948", "#952", "#957", "#956"],
     outcome: "migrate",
@@ -69,6 +84,7 @@ const categoryMetadata = {
     evidence: ["mobile table labels", "responsive table guardrail", "mobile visual evidence"],
   },
   legacyUiEntrypointExport: {
+    severity: "error",
     phase: "Phase 4",
     issueTargets: ["#945", "#950", "#951", "#956"],
     outcome: "delete",
@@ -76,6 +92,7 @@ const categoryMetadata = {
     evidence: ["removed exports", "absence tests", "guardrail"],
   },
   legacyUiSourceImport: {
+    severity: "error",
     phase: "Phase 4",
     issueTargets: ["#945", "#959", "#950", "#951", "#956"],
     outcome: "relocate-or-delete",
@@ -83,13 +100,23 @@ const categoryMetadata = {
     evidence: ["source relocation", "guardrail"],
   },
   rawControl: {
+    severity: "error",
     phase: "Phase 4",
     issueTargets: ["#945", "#953", "#956"],
     outcome: "migrate-or-promote-to-design-system",
     prerequisites: ["#945", "#953 policy matrix"],
     evidence: ["design-system primitive", "guardrail classification"],
   },
+  rawStructuralElement: {
+    severity: "warning",
+    phase: "Phase G3",
+    issueTargets: ["#1666"],
+    outcome: "migrate-or-promote-to-design-system",
+    prerequisites: ["#1665"],
+    evidence: ["structural element inventory", "documented exception allow-list", "warning-tier guardrail"],
+  },
   rawTable: {
+    severity: "error",
     phase: "Phase 4",
     issueTargets: ["#945", "#952", "#953", "#956"],
     outcome: "migrate-or-promote-to-design-system",
@@ -97,6 +124,7 @@ const categoryMetadata = {
     evidence: ["DataTable/table primitive migration", "mobile evidence"],
   },
   routeLocalClassName: {
+    severity: "error",
     phase: "Phase 4",
     issueTargets: ["#945", "#953", "#954", "#955", "#956"],
     outcome: "migrate-or-promote-to-design-system",
@@ -137,9 +165,96 @@ function isAppProductionFile(relativeFile) {
   return relativeFile.startsWith("bounded-contexts/") || relativeFile.startsWith("deployables/");
 }
 
+function isFeatureUiFile(relativeFile) {
+  return isAppProductionFile(relativeFile);
+}
+
 function isDesignSystemPrintContractFile(relativeFile) {
   return relativeFile.startsWith("packages/design-system/src/components/print/");
 }
+
+const rawStructuralElementTags = new Set([
+  "div",
+  "span",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "ul",
+  "li",
+  "a",
+  "main",
+  "img",
+]);
+
+const inlineStyleAllowList = [
+  {
+    path: "bounded-contexts/settlement/features/payout-readiness/ui/payout-setup-page.tsx",
+    markers: ["data-testid", "stripe-connect-embedded-component", "ref"],
+    reason: "Stripe Connect embedded component mount point owns third-party rendering outside the design system.",
+  },
+  {
+    path: "bounded-contexts/payments/features/payments/ui/account-payment/stripe-confirmation-card.tsx",
+    markers: ["ref", "containerRef"],
+    reason: "Stripe confirmation mount point owns third-party rendering outside the design system.",
+  },
+  {
+    path: "bounded-contexts/discovery/features/search/ui/search-page.tsx",
+    markers: ["ref", "loadMoreRef", "aria-hidden"],
+    reason: "IntersectionObserver sentinel is behavior-only and has no design-system visual surface.",
+  },
+  {
+    path: "bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx",
+    markers: ["--step-count"],
+    reason: "Dynamic CSS variable bridges runtime step count into an existing design-system layout contract.",
+  },
+  {
+    path: "bounded-contexts/discovery/features/item-detail/ui",
+    markers: ["aspectRatio", "style"],
+    reason: "Product media placeholders may inject runtime gallery aspect ratios until image primitives own the value.",
+  },
+];
+
+const rawStructuralElementAllowList = [
+  {
+    path: "bounded-contexts/settlement/features/payout-readiness/ui/payout-setup-page.tsx",
+    tagName: "div",
+    markers: ["data-testid", "stripe-connect-embedded-component", "ref"],
+    reason: "Stripe Connect embedded component requires a raw ref mount div.",
+  },
+  {
+    path: "bounded-contexts/payments/features/payments/ui/account-payment/stripe-confirmation-card.tsx",
+    tagName: "div",
+    markers: ["ref", "containerRef"],
+    reason: "Stripe confirmation flow requires a raw ref mount div.",
+  },
+  {
+    path: "bounded-contexts/discovery/features/search/ui/search-page.tsx",
+    tagName: "div",
+    markers: ["ref", "loadMoreRef", "aria-hidden"],
+    reason: "Search pagination uses a behavior-only IntersectionObserver sentinel div.",
+  },
+  {
+    path: "bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx",
+    tagName: "main",
+    markers: ["id", "main-content"],
+    reason: "The public waitlist keeps one raw main landmark with an id for skip-link targeting.",
+  },
+  {
+    path: "deployables/",
+    tagName: "main",
+    markers: [],
+    reason: "Deployable composition roots may expose a single raw main landmark while apps compose bounded-context UI.",
+  },
+  {
+    path: "bounded-contexts/",
+    tagName: "img",
+    markers: [],
+    reason: "Raw product/media img tags remain tolerated until the design-system Image migration is complete.",
+  },
+];
 
 function contextNameToOwner(contextName) {
   return contextName
@@ -227,6 +342,44 @@ function stringLiteralAttribute(node, name) {
 
 function hasJsxAttribute(node, name) {
   return node.attributes.properties.some((property) => ts.isJsxAttribute(property) && property.name.text === name);
+}
+
+function jsxNodeText(sourceFile, node) {
+  return node.getText(sourceFile);
+}
+
+function matchesAllowListEntry(entry, relativeFile, tagName, sourceFile, node) {
+  if (entry.tagName && entry.tagName !== tagName) return false;
+  if (entry.path.endsWith("/")) {
+    if (!relativeFile.startsWith(entry.path)) return false;
+  } else if (relativeFile !== entry.path && !relativeFile.startsWith(`${entry.path}/`)) {
+    return false;
+  }
+
+  const nodeText = jsxNodeText(sourceFile, node);
+  return entry.markers.every((marker) => nodeText.includes(marker));
+}
+
+function isInlineStyleAllowed(relativeFile, tagName, sourceFile, node) {
+  return inlineStyleAllowList.some((entry) => matchesAllowListEntry(entry, relativeFile, tagName, sourceFile, node));
+}
+
+function isRawStructuralElementAllowed(relativeFile, tagName, sourceFile, node) {
+  return rawStructuralElementAllowList.some((entry) =>
+    matchesAllowListEntry(entry, relativeFile, tagName, sourceFile, node),
+  );
+}
+
+function categorySeverity(category) {
+  return categoryMetadata[category]?.severity ?? "error";
+}
+
+function hasErrorSeverityCategory(entry) {
+  return Object.keys(entry.categories).some((category) => categorySeverity(category) === "error");
+}
+
+function hasWarningSeverityCategory(entry) {
+  return Object.keys(entry.categories).some((category) => categorySeverity(category) === "warning");
 }
 
 function createFileResult(relativeFile) {
@@ -340,6 +493,14 @@ function collectFileInventory(filePath, rootDir) {
         addFinding(fileResult, sourceFile, node.tagName, "routeLocalClassName", tagName ?? "member JSX tag");
       }
 
+      if (
+        isFeatureUiFile(relativeFile) &&
+        hasJsxAttribute(node, "style") &&
+        !isInlineStyleAllowed(relativeFile, tagName, sourceFile, node)
+      ) {
+        addFinding(fileResult, sourceFile, node.tagName, "inlineStyle", tagName ?? "member JSX tag");
+      }
+
       if (isAppProductionFile(relativeFile)) {
         if (tagName === "input" && stringLiteralAttribute(node, "type") === "hidden") {
           addFinding(fileResult, sourceFile, node.tagName, "hiddenInput", "input[type=hidden]");
@@ -350,6 +511,14 @@ function collectFileInventory(filePath, rootDir) {
         if (["table", "thead", "tbody", "tr", "th", "td"].includes(tagName ?? "")) {
           addFinding(fileResult, sourceFile, node.tagName, "rawTable", tagName);
         }
+      }
+
+      if (
+        isFeatureUiFile(relativeFile) &&
+        rawStructuralElementTags.has(tagName ?? "") &&
+        !isRawStructuralElementAllowed(relativeFile, tagName, sourceFile, node)
+      ) {
+        addFinding(fileResult, sourceFile, node.tagName, "rawStructuralElement", tagName);
       }
     }
 
@@ -417,11 +586,24 @@ export function summarizeInventory(entries) {
   const categories = {};
   const owners = {};
   const issues = {};
+  const severity = {
+    error: 0,
+    warning: 0,
+  };
+  let gatingFileCount = 0;
+  let warningFileCount = 0;
 
   for (const entry of entries) {
     owners[entry.owner] = (owners[entry.owner] ?? 0) + 1;
+    if (hasErrorSeverityCategory(entry)) {
+      gatingFileCount += 1;
+    }
+    if (hasWarningSeverityCategory(entry)) {
+      warningFileCount += 1;
+    }
     for (const [category, count] of Object.entries(entry.categories)) {
       categories[category] = (categories[category] ?? 0) + count;
+      severity[categorySeverity(category)] = (severity[categorySeverity(category)] ?? 0) + count;
     }
     for (const issue of entry.issueTargets) {
       issues[issue] = (issues[issue] ?? 0) + 1;
@@ -430,7 +612,10 @@ export function summarizeInventory(entries) {
 
   return {
     fileCount: entries.length,
+    gatingFileCount,
+    warningFileCount,
     categories: Object.fromEntries(Object.entries(categories).sort(([left], [right]) => left.localeCompare(right))),
+    severity: Object.fromEntries(Object.entries(severity).sort(([left], [right]) => left.localeCompare(right))),
     owners: Object.fromEntries(Object.entries(owners).sort(([left], [right]) => left.localeCompare(right))),
     issues: Object.fromEntries(Object.entries(issues).sort(([left], [right]) => left.localeCompare(right))),
   };
@@ -517,7 +702,7 @@ export async function checkDesignSystemLegacyInventory(options = {}) {
     ledgerResult.ledger !== null && compareDesignSystemLegacyInventoryLedger(document, ledgerResult.ledger);
 
   return {
-    passed: document.summary.fileCount === 0 && ledgerInSync,
+    passed: document.summary.gatingFileCount === 0 && ledgerInSync,
     document,
     ledgerPath,
     ledgerError: ledgerResult.error,
@@ -544,11 +729,11 @@ function formatInventoryFinding(entry) {
 export function printDesignSystemLegacyInventoryCheckResult(result) {
   const relativeLedgerPath = normalizeRelative(result.ledgerPath);
 
-  if (result.document.summary.fileCount !== 0) {
+  if (result.document.summary.gatingFileCount !== 0) {
     console.error(
-      `Design-system legacy inventory check failed: fresh scan found ${result.document.summary.fileCount} offending file(s).`,
+      `Design-system legacy inventory check failed: fresh scan found ${result.document.summary.gatingFileCount} error-gated file(s) and ${result.document.summary.warningFileCount} warning-bearing file(s).`,
     );
-    for (const entry of result.document.entries) {
+    for (const entry of result.document.entries.filter(hasErrorSeverityCategory)) {
       console.error(formatInventoryFinding(entry));
     }
   }
@@ -563,7 +748,7 @@ export function printDesignSystemLegacyInventoryCheckResult(result) {
 
   if (result.passed) {
     console.log(
-      `Design-system legacy inventory check passed: fresh scan found 0 file(s), and ${relativeLedgerPath} is in sync.`,
+      `Design-system legacy inventory check passed: fresh scan found ${result.document.summary.gatingFileCount} error-gated file(s) and ${result.document.summary.warningFileCount} warning-bearing file(s), and ${relativeLedgerPath} is in sync.`,
     );
   }
 }
@@ -597,6 +782,6 @@ async function main() {
   console.log(formattedDocument);
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (typeof process !== "undefined" && import.meta.url === pathToFileURL(process.argv[1]).href) {
   await main();
 }
