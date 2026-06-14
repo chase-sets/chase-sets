@@ -3,6 +3,7 @@ import { Icon, type IconName } from "../../icons";
 import { useDensity } from "../../theme/provider";
 import { cx } from "../../utils/cx";
 import { EmptyState } from "../feedback";
+import { TableCell, TableHeadCell, TableRow, TableShell } from "./table-shell";
 
 export interface DataColumn<T> {
   key: string;
@@ -52,8 +53,6 @@ export function DataTable<T>({
   ...rest
 }: DataTableProps<T>) {
   const density = densityProp ?? useDensity();
-  const cellPad = density === "compact" ? "px-3 py-2" : "px-4 py-3";
-  const headPad = density === "compact" ? "px-3 py-2" : "px-4 py-3";
 
   const selectable = selectedKeys !== undefined && onSelectionChange !== undefined;
   const allIds = useMemo(
@@ -138,98 +137,83 @@ export function DataTable<T>({
   }
 
   const table = (
-    <div className="inset-surface overflow-x-auto rounded-tokenMd border">
-      <table className="min-w-full border-collapse text-left text-sm">
-        <thead>
-          <tr className="border-b border-muted bg-surface-2">
-            {selectable ? (
-              <th className={cx("w-12", headPad)}>
-                <SelectAllCheckbox
-                  checked={allSelected}
-                  indeterminate={!allSelected && someSelected}
-                  disabled={allIds.length === 0}
-                  onChange={handleSelectAll}
-                />
-              </th>
-            ) : null}
-            {columns.map((column) => (
-              <th
-                key={column.key}
-                aria-sort={resolveSortState(column)}
-                className={cx(headPad, "font-semibold text-foreground", column.align === "right" && "text-right")}
-              >
-                {column.sortable ? (
-                  <button
-                    type="button"
-                    className="inline-flex items-center gap-1 hover:text-accent"
-                    onClick={() => handleSortClick(column)}
-                  >
-                    {column.header}
-                    {renderSortIndicator(column)}
-                  </button>
-                ) : (
-                  column.header
-                )}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {loading
-            ? Array.from({ length: loadingRows }, (_, i) => (
-                <tr key={`skeleton-${i}`} className="border-b border-muted last:border-b-0">
-                  {selectable ? <td className={cx("w-12", cellPad)} /> : null}
-                  {columns.map((column, colIndex) => (
-                    <td key={column.key} className={cellPad}>
-                      <div
-                        aria-hidden="true"
-                        className={cx(
-                          "h-4 animate-pulse rounded-tokenSm bg-muted",
-                          skeletonWidths[(i + colIndex) % skeletonWidths.length],
-                        )}
-                      />
-                    </td>
-                  ))}
-                </tr>
-              ))
-            : rows.map((row, index) => {
-                const rowId = getRowId ? getRowId(row, index) : String(index);
-                const isSelected = selectable && selectedKeys.has(rowId);
+    <TableShell surface="inset">
+      <thead>
+        <TableRow head surface="inset">
+          {selectable ? (
+            <TableHeadCell control density={density}>
+              <SelectAllCheckbox
+                checked={allSelected}
+                indeterminate={!allSelected && someSelected}
+                disabled={allIds.length === 0}
+                onChange={handleSelectAll}
+              />
+            </TableHeadCell>
+          ) : null}
+          {columns.map((column) => (
+            <TableHeadCell key={column.key} align={column.align} density={density} aria-sort={resolveSortState(column)}>
+              {column.sortable ? (
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 hover:text-accent"
+                  onClick={() => handleSortClick(column)}
+                >
+                  {column.header}
+                  {renderSortIndicator(column)}
+                </button>
+              ) : (
+                column.header
+              )}
+            </TableHeadCell>
+          ))}
+        </TableRow>
+      </thead>
+      <tbody>
+        {loading
+          ? Array.from({ length: loadingRows }, (_, i) => (
+              <TableRow key={`skeleton-${i}`} surface="inset" interactive={false}>
+                {selectable ? <TableCell control density={density} /> : null}
+                {columns.map((column, colIndex) => (
+                  <TableCell key={column.key} density={density}>
+                    <div
+                      aria-hidden="true"
+                      className={cx(
+                        "h-4 animate-pulse rounded-tokenSm bg-muted",
+                        skeletonWidths[(i + colIndex) % skeletonWidths.length],
+                      )}
+                    />
+                  </TableCell>
+                ))}
+              </TableRow>
+            ))
+          : rows.map((row, index) => {
+              const rowId = getRowId ? getRowId(row, index) : String(index);
+              const isSelected = selectable && selectedKeys.has(rowId);
 
-                return (
-                  <tr
-                    key={rowId}
-                    className={cx(
-                      "border-b border-muted transition-colors last:border-b-0",
-                      isSelected ? "bg-surface-2" : "hover:bg-surface-2/70",
-                    )}
-                  >
-                    {selectable ? (
-                      <td className={cx("w-12", cellPad)}>
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          disabled={isRowSelectable ? !isRowSelectable(row, index) : false}
-                          onChange={() => handleSelectRow(rowId, isRowSelectable ? isRowSelectable(row, index) : true)}
-                          aria-label={`Select row ${rowId}`}
-                          className="h-4 w-4 rounded border-border accent-accent"
-                        />
-                      </td>
-                    ) : null}
-                    {columns.map((column) => (
-                      <td
-                        key={column.key}
-                        className={cx(cellPad, "text-foreground", column.align === "right" && "text-right")}
-                      >
-                        {column.cell(row)}
-                      </td>
-                    ))}
-                  </tr>
-                );
-              })}
-        </tbody>
-      </table>
-    </div>
+              return (
+                <TableRow key={rowId} surface="inset" selected={isSelected}>
+                  {selectable ? (
+                    <TableCell control density={density}>
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        disabled={isRowSelectable ? !isRowSelectable(row, index) : false}
+                        onChange={() => handleSelectRow(rowId, isRowSelectable ? isRowSelectable(row, index) : true)}
+                        aria-label={`Select row ${rowId}`}
+                        className="h-4 w-4 rounded border-border accent-accent"
+                      />
+                    </TableCell>
+                  ) : null}
+                  {columns.map((column) => (
+                    <TableCell key={column.key} align={column.align} density={density}>
+                      {column.cell(row)}
+                    </TableCell>
+                  ))}
+                </TableRow>
+              );
+            })}
+      </tbody>
+    </TableShell>
   );
 
   const cards = (
