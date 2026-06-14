@@ -401,6 +401,8 @@
     --color-text-inverse: var(--primary-foreground);
     --color-brand-primary: var(--primary);
     --color-brand-secondary: var(--trust);
+    --color-primary: var(--primary);
+    --color-primary-soft: var(--primary-soft);
     --color-accent: var(--primary);
     --color-accent-2: var(--trust);
     --color-accent-soft: var(--primary-soft);

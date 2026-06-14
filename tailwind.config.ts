@@ -27,6 +27,8 @@ const config: Config = {
         inverse: "var(--color-text-inverse)",
         brand: "var(--color-brand-primary)",
         "brand-2": "var(--color-brand-secondary)",
+        primary: "var(--color-primary)",
+        "primary-soft": "var(--color-primary-soft)",
         accent: "var(--color-accent)",
         "accent-2": "var(--color-accent-2)",
         "accent-soft": "var(--color-accent-soft)",
