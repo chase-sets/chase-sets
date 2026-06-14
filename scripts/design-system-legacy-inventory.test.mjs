@@ -182,6 +182,68 @@ export function PackingSlipPage() {
     expect(entries[0].issueTargets).toEqual(expect.arrayContaining(["#947", "#953"]));
   });
 
+  it("detects warning-tier inline styles and raw structural elements in feature UI", async () => {
+    const rootDir = createRepo();
+    writeSource(
+      rootDir,
+      "bounded-contexts/example/features/workspace/ui/workspace-page.tsx",
+      `
+export function WorkspacePage() {
+  return (
+    <section style={{ color: "red" }}>
+      <h2>Workspace</h2>
+      <ul>
+        <li><a href="/workspace">Open</a></li>
+      </ul>
+    </section>
+  );
+}
+`,
+    );
+
+    const entries = await collectDesignSystemLegacyInventory({ rootDir });
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      file: "bounded-contexts/example/features/workspace/ui/workspace-page.tsx",
+      categories: {
+        inlineStyle: 1,
+        rawStructuralElement: 4,
+      },
+    });
+    expect(entries[0].issueTargets).toEqual(["#1666"]);
+  });
+
+  it("does not flag documented inline-style and structural allow-list exceptions", async () => {
+    const rootDir = createRepo();
+    writeSource(
+      rootDir,
+      "bounded-contexts/settlement/features/payout-readiness/ui/payout-setup-page.tsx",
+      `
+export function PayoutSetupPage({ containerRef }) {
+  return <div ref={containerRef} aria-label="Stripe" data-testid="stripe-connect-embedded-component" />;
+}
+`,
+    );
+    writeSource(
+      rootDir,
+      "bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx",
+      `
+export function PublicPages({ children, steps }) {
+  return (
+    <main id="main-content">
+      <section style={{ "--step-count": steps.length }}>{children}</section>
+    </main>
+  );
+}
+`,
+    );
+
+    const entries = await collectDesignSystemLegacyInventory({ rootDir });
+
+    expect(entries).toEqual([]);
+  });
+
   it("allows design-system print contract styles and ignores JSON-LD scripts", async () => {
     const rootDir = createRepo();
     writeSource(
@@ -226,8 +288,14 @@ export function AccountProfilePage() {
 
     expect(summary).toMatchObject({
       fileCount: 1,
+      gatingFileCount: 1,
+      warningFileCount: 0,
       categories: {
         legacyAliasMemberUsage: 1,
+      },
+      severity: {
+        error: 1,
+        warning: 0,
       },
       owners: {
         Identity: 1,
@@ -245,11 +313,39 @@ export function AccountProfilePage() {
 
     expect(result.passed).toBe(true);
     expect(result.document.summary.fileCount).toBe(0);
+    expect(result.document.summary.gatingFileCount).toBe(0);
     expect(output.logs.join("\n")).toContain("Design-system legacy inventory check passed");
     expect(output.errors).toEqual([]);
   });
 
-  it("fails check mode and lists offending files when the fresh scan has findings", async () => {
+  it("passes check mode when warning-tier findings are present and the ledger is in sync", async () => {
+    const rootDir = createRepo();
+    writeSource(
+      rootDir,
+      "bounded-contexts/example/features/workspace/ui/workspace-page.tsx",
+      `
+export function WorkspacePage() {
+  return <span>Advisory markup</span>;
+}
+`,
+    );
+    writeLedger(
+      rootDir,
+      createDesignSystemLegacyInventoryDocument(await collectDesignSystemLegacyInventory({ rootDir })),
+    );
+
+    const result = await checkDesignSystemLegacyInventory({ rootDir });
+    const output = captureCheckOutput(result);
+
+    expect(result.passed).toBe(true);
+    expect(result.document.summary.fileCount).toBe(1);
+    expect(result.document.summary.gatingFileCount).toBe(0);
+    expect(result.document.summary.warningFileCount).toBe(1);
+    expect(output.logs.join("\n")).toContain("0 error-gated file(s)");
+    expect(output.errors).toEqual([]);
+  });
+
+  it("fails check mode and lists offending files when the fresh scan has error-tier findings", async () => {
     const rootDir = createRepo();
     const relativeFile = "bounded-contexts/support/features/support-requests/ui/support-request-list-page.tsx";
     writeSource(
@@ -267,6 +363,7 @@ export function SupportRequestListPage() {
     const output = captureCheckOutput(result);
 
     expect(result.passed).toBe(false);
+    expect(result.document.summary.gatingFileCount).toBe(1);
     expect(output.errors.join("\n")).toContain(relativeFile);
     expect(output.errors.join("\n")).toContain("rawControl");
   });
