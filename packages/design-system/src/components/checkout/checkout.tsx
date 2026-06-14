@@ -2,6 +2,7 @@ import type { HTMLAttributes, ReactNode } from "react";
 import { Icon } from "../../icons";
 import type { IconName } from "../../icons";
 import { cx } from "../../utils/cx";
+import { surfaceSemanticToneClasses } from "../../primitives/layout";
 import { Badge } from "../feedback";
 import { Card } from "../data-display/card";
 import { TrustBadge } from "../commerce/trust";
@@ -28,13 +29,10 @@ export interface CheckoutSummaryItem {
   thumbnail?: ReactNode;
 }
 
-const toneClasses: Record<CheckoutPrimitiveTone, string> = {
-  neutral: "border-muted bg-surface-2 text-secondary",
-  info: "border-info-soft bg-info-soft text-info",
-  success: "border-success-soft bg-success-soft text-success",
-  warning: "border-warning-soft bg-warning-soft text-warning",
-  danger: "border-danger-soft bg-danger-soft text-danger",
-};
+// The status-tint triple (`border-{tone}-soft bg-{tone}-soft text-{tone}`) is the
+// canonical `Surface` semantic tone map. Reuse it so checkout notice/status
+// surfaces tint from the same source of truth instead of a duplicated lookup.
+const toneClasses = surfaceSemanticToneClasses;
 
 function CheckoutStatusBadge({ tone = "neutral", children }: { tone?: CheckoutPrimitiveTone; children: ReactNode }) {
   return (
@@ -769,11 +767,11 @@ export function OrderProtectionModule({ title, items }: OrderProtectionModulePro
   );
 }
 
+// Marketplace notices reuse the canonical status-tint triple and override only
+// the neutral case, which reads with a plain `border`/`text-tertiary` frame
+// rather than the muted-border neutral surface tone.
 const noticeToneClasses: Record<CheckoutPrimitiveTone, string> = {
-  success: "border-success-soft bg-success-soft text-success",
-  warning: "border-warning-soft bg-warning-soft text-warning",
-  danger: "border-danger-soft bg-danger-soft text-danger",
-  info: "border-info-soft bg-info-soft text-info",
+  ...surfaceSemanticToneClasses,
   neutral: "border-border bg-surface-2 text-tertiary",
 };
 

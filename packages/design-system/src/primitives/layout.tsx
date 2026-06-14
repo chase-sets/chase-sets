@@ -529,7 +529,21 @@ export function Bleed({ children, space = 4, axis = "horizontal", ...rest }: Ble
   );
 }
 
-type SurfaceTone = "default" | "muted" | "accent" | "subtle";
+/**
+ * Structural surface tones describe chrome and elevation (the canonical card
+ * shell, recessed wells, the brand-gradient accent, and a flat subtle frame).
+ */
+type SurfaceStructuralTone = "default" | "muted" | "accent" | "subtle";
+
+/**
+ * Semantic status tones tint a surface with the canonical
+ * `border-{tone}-soft bg-{tone}-soft text-{tone}` token triple so notice,
+ * status, and confirmation surfaces read their meaning from the token layer
+ * instead of duplicated lookup maps or `color-mix` border tints.
+ */
+export type SurfaceSemanticTone = "neutral" | "info" | "success" | "warning" | "danger" | "trust" | "primary";
+
+export type SurfaceTone = SurfaceStructuralTone | SurfaceSemanticTone;
 
 export interface SurfaceOwnProps extends PropsWithChildren, SystemProps {
   element?: BoxElement;
@@ -540,11 +554,22 @@ export interface SurfaceOwnProps extends PropsWithChildren, SystemProps {
 
 export type SurfaceProps<TTarget extends ElementType = "div"> = PolymorphicProps<TTarget, SurfaceOwnProps>;
 
+export const surfaceSemanticToneClasses: Record<SurfaceSemanticTone, string> = {
+  neutral: "border-muted bg-surface-2 text-secondary",
+  info: "border-info-soft bg-info-soft text-info",
+  success: "border-success-soft bg-success-soft text-success",
+  warning: "border-warning-soft bg-warning-soft text-warning",
+  danger: "border-danger-soft bg-danger-soft text-danger",
+  trust: "border-trust-soft bg-trust-soft text-trust",
+  primary: "border-primary-soft bg-primary-soft text-primary",
+};
+
 const surfaceToneClasses: Record<SurfaceTone, string> = {
   default: "glass-surface bg-elevated",
   muted: "bg-surface-2",
   accent: "brand-gradient text-accent-contrast",
   subtle: "bg-surface border-muted",
+  ...surfaceSemanticToneClasses,
 };
 
 export const Surface = forwardRef(function Surface(

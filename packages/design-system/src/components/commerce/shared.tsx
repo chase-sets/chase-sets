@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { surfaceSemanticToneClasses } from "../../primitives/layout";
 
 export type MarketplaceDensity = "compact" | "comfortable" | "focused";
 export type ListingModel = "product" | "service" | "rental" | "booking" | "digital" | "quote" | "local";
@@ -11,11 +12,14 @@ export const densityClasses: Record<MarketplaceDensity, string> = {
   focused: "p-5",
 };
 
+// Status tints reuse the canonical `Surface` semantic tone triple. This context
+// names the negative tone `error`, so it aliases the `danger` triple, and uses a
+// plain `border`/`text-tertiary` frame for the neutral case.
 export const statusClasses: Record<StatusTone, string> = {
-  success: "border-success-soft bg-success-soft text-success",
-  warning: "border-warning-soft bg-warning-soft text-warning",
-  error: "border-danger-soft bg-danger-soft text-danger",
-  info: "border-info-soft bg-info-soft text-info",
+  success: surfaceSemanticToneClasses.success,
+  warning: surfaceSemanticToneClasses.warning,
+  error: surfaceSemanticToneClasses.danger,
+  info: surfaceSemanticToneClasses.info,
   neutral: "border-border bg-surface-2 text-tertiary",
 };
 

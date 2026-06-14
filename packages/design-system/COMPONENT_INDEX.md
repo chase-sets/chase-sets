@@ -4,8 +4,8 @@
 
 This index is generated from the root `@chase-sets/design-system` export surface and the production consumer inventory used by `scripts/check-design-system-dead-exports.mjs`.
 
-- Runtime exports indexed: 337
-- Source modules covered: 100
+- Runtime exports indexed: 339
+- Source modules covered: 101
 - Example consumers scan: production files under `bounded-contexts/` and `deployables/`, excluding tests
 
 | Component/export | Module | One-line purpose | Example consumer file |
@@ -287,6 +287,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `StickyTaskFooter` | `packages/design-system/src/components/data-display/operational-workflow.tsx` | Purpose not documented; symbol name suggests: Sticky Task Footer. | `bounded-contexts/fulfillment/features/shipments/ui/shipment-packing-page.tsx` |
 | `Subheading` | `packages/design-system/src/primitives/typography.tsx` | Purpose not documented; symbol name suggests: Subheading. | `No production consumer yet.` |
 | `Surface` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: Surface. | `bounded-contexts/checkout/features/cart/ui/cart-page.tsx` |
+| `surfaceSemanticToneClasses` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: surface Semantic Tone Classes. | `No production consumer yet.` |
 | `Switch` | `packages/design-system/src/components/forms/switch.tsx` | Purpose not documented; symbol name suggests: Switch. | `No production consumer yet.` |
 | `Table` | `packages/design-system/src/components/data-display/table.tsx` | Purpose not documented; symbol name suggests: Table. | `No production consumer yet.` |
 | `Tabs` | `packages/design-system/src/components/actions/tabs.tsx` | Purpose not documented; symbol name suggests: Tabs. | `bounded-contexts/discovery/features/item-detail/ui/item-detail-market-book.tsx` |
@@ -310,6 +311,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `Toggle` | `packages/design-system/src/components/actions/toggle.tsx` | Purpose not documented; symbol name suggests: Toggle. | `No production consumer yet.` |
 | `ToggleGroup` | `packages/design-system/src/components/actions/toggle.tsx` | Purpose not documented; symbol name suggests: Toggle Group. | `No production consumer yet.` |
 | `TokenSwatch` | `packages/design-system/src/patterns/app-shells/token-swatch.tsx` | Purpose not documented; symbol name suggests: Token Swatch. | `No production consumer yet.` |
+| `ToneIcon` | `packages/design-system/src/primitives/tone-icon.tsx` | A tone-colored icon circle: a tinted-soft badge wrapping the design-system `Icon`. | `No production consumer yet.` |
 | `Toolbar` | `packages/design-system/src/components/actions/toolbar.tsx` | Purpose not documented; symbol name suggests: Toolbar. | `No production consumer yet.` |
 | `ToolbarButton` | `packages/design-system/src/components/actions/toolbar.tsx` | Purpose not documented; symbol name suggests: Toolbar Button. | `No production consumer yet.` |
 | `ToolbarInput` | `packages/design-system/src/components/actions/toolbar.tsx` | Purpose not documented; symbol name suggests: Toolbar Input. | `No production consumer yet.` |
