@@ -1,6 +1,7 @@
 import { useId, useState } from "react";
 import { Icon } from "../../icons";
 import { cx } from "../../utils/cx";
+import { InputAddon } from "./input-addon";
 import { FieldChrome, controlClass, controlErrorClass, fieldDescribedBy } from "./shared";
 import type { TextInputProps } from "./text-input";
 
@@ -37,7 +38,21 @@ export function PasswordInput({
       hideLabel={hideLabel}
       htmlFor={inputId}
     >
-      <div className="relative">
+      <InputAddon
+        end={{
+          interactive: true,
+          content: (
+            <button
+              type="button"
+              className="focus-ring flex items-center rounded-sm"
+              onClick={() => setVisible((v) => !v)}
+              aria-label={visible ? hidePasswordLabel : showPasswordLabel}
+            >
+              <Icon name={visible ? "eyeOff" : "eye"} size="sm" tone="secondary" />
+            </button>
+          ),
+        }}
+      >
         <input
           {...rest}
           id={inputId}
@@ -47,15 +62,7 @@ export function PasswordInput({
           aria-invalid={!!error || undefined}
           className={cx(controlClass, !!error && controlErrorClass, "pr-[calc(var(--control-md-px)+2rem)]")}
         />
-        <button
-          type="button"
-          className="focus-ring absolute inset-y-0 right-[var(--control-md-px)] flex items-center rounded-sm"
-          onClick={() => setVisible((v) => !v)}
-          aria-label={visible ? hidePasswordLabel : showPasswordLabel}
-        >
-          <Icon name={visible ? "eyeOff" : "eye"} size="sm" tone="secondary" />
-        </button>
-      </div>
+      </InputAddon>
     </FieldChrome>
   );
 }

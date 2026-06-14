@@ -1,3 +1,6 @@
+// @ds-leaf Print-isolated packing slip: owns hand-authored BEM class names and
+// hardcoded hex print styles (no Tailwind/tokens resolve at print time), so it is
+// exempt from the design-system HOC raw-className budget by design.
 import type { ReactNode } from "react";
 import { Button } from "../actions/button";
 import { Form } from "../forms/form";

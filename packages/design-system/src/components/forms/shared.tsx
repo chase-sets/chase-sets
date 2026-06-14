@@ -1,5 +1,6 @@
 import { type HTMLAttributes, type ReactNode } from "react";
 import { Field as BaseField } from "@base-ui/react/field";
+import { Text } from "../../primitives/typography";
 import { cx } from "../../utils/cx";
 import {
   compoundControlInsetClass,
@@ -92,6 +93,14 @@ export function fieldDescribedBy({
   );
 }
 
+/**
+ * Decorative required-field asterisk. A single host `<span>` leaf shared by every
+ * field-chrome label so the `before:content-['*']` marker lives in one place.
+ */
+export function RequiredMarker() {
+  return <span aria-hidden="true" className="ml-1 text-accent before:content-['*']" />;
+}
+
 export function FieldChrome({
   label,
   description,
@@ -117,7 +126,7 @@ export function FieldChrome({
           className={cx("block text-sm font-medium text-foreground", hideLabel && "sr-only")}
         >
           {label}
-          {required ? <span aria-hidden="true" className="ml-1 text-accent before:content-['*']" /> : null}
+          {required ? <RequiredMarker /> : null}
         </BaseField.Label>
       ) : null}
       {children}
@@ -132,14 +141,14 @@ export function FieldChrome({
         </BaseField.Error>
       ) : null}
       {status ? (
-        <div id={statusId} className="text-xs text-secondary" aria-live="polite">
+        <Text element="div" size="xs" tone="secondary" id={statusId} aria-live="polite">
           {status}
-        </div>
+        </Text>
       ) : null}
       {counter ? (
-        <div id={counterId} className="text-xs text-tertiary">
+        <Text element="div" size="xs" tone="tertiary" id={counterId}>
           {counter}
-        </div>
+        </Text>
       ) : null}
     </BaseField.Root>
   );
