@@ -138,13 +138,13 @@ const contextOwners = [
   ["packages/design-system/", "Design System"],
 ];
 
-function sourceKindFor(filePath) {
+export function sourceKindFor(filePath) {
   if (filePath.endsWith(".tsx") || filePath.endsWith(".jsx")) return ts.ScriptKind.TSX;
   if (filePath.endsWith(".js")) return ts.ScriptKind.JS;
   return ts.ScriptKind.TS;
 }
 
-function isCheckedProductionFile(relativeFile) {
+export function isCheckedProductionFile(relativeFile) {
   const normalized = relativeFile.replaceAll("\\", "/");
 
   if (!checkedRoots.some((root) => normalized.startsWith(`${root}/`))) return false;
@@ -344,6 +344,28 @@ function hasJsxAttribute(node, name) {
   return node.attributes.properties.some((property) => ts.isJsxAttribute(property) && property.name.text === name);
 }
 
+export function rawClassNameJsxElementFinding(sourceFile, node) {
+  if (!ts.isJsxOpeningElement(node) && !ts.isJsxSelfClosingElement(node)) return null;
+  if (!hasJsxAttribute(node, "className")) return null;
+
+  const tagName = jsxTagName(node);
+
+  return {
+    node: node.tagName,
+    detail: tagName ?? "member JSX tag",
+  };
+}
+
+export function rawClassNameHostElementFinding(sourceFile, node) {
+  const finding = rawClassNameJsxElementFinding(sourceFile, node);
+  if (!finding) return null;
+
+  const tagName = jsxTagName(node);
+  if (!tagName || !/^[a-z]/.test(tagName)) return null;
+
+  return finding;
+}
+
 function jsxNodeText(sourceFile, node) {
   return node.getText(sourceFile);
 }
@@ -489,8 +511,10 @@ function collectFileInventory(filePath, rootDir) {
         addFinding(fileResult, sourceFile, node.tagName, "embeddedStyle", tagName ?? "dangerouslySetInnerHTML");
       }
 
-      if (isAppProductionFile(relativeFile) && hasJsxAttribute(node, "className")) {
-        addFinding(fileResult, sourceFile, node.tagName, "routeLocalClassName", tagName ?? "member JSX tag");
+      const rawClassNameFinding = rawClassNameJsxElementFinding(sourceFile, node);
+
+      if (isAppProductionFile(relativeFile) && rawClassNameFinding) {
+        addFinding(fileResult, sourceFile, rawClassNameFinding.node, "routeLocalClassName", rawClassNameFinding.detail);
       }
 
       if (
