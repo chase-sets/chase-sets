@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
+import { buildPaymentsApi } from "../../../api";
 import type { PaymentsApiEnv } from "./route";
 import { createAccountPaymentRoutes, createPaymentProcessorWebhookRoutes } from "./route";
 import type { PaymentServices } from "./runtime";
@@ -673,5 +674,55 @@ describe("payments routes", () => {
 
       expect(response.status).toBe(404);
     }
+  });
+
+  it("does not expose standalone refund creation outside owning recovery facts", async () => {
+    const refundServices = {
+      issueRefund: vi.fn(),
+      projectors: [],
+    };
+    const app = new Hono<PaymentsApiEnv>();
+
+    app.use("*", async (c, next) => {
+      c.set("actor", {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_1",
+        accountId: "acc_buyer",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["orders.view", "orders.manage"],
+      });
+      c.set("context", {
+        tenantId: "tnt_identity" as never,
+        audit: {
+          performedByUserId: "usr_1" as never,
+          forAccountId: "acc_buyer" as never,
+        },
+      });
+      await next();
+    });
+    app.route(
+      "/",
+      buildPaymentsApi({
+        payments: createServices(),
+        refunds: refundServices,
+      } as never),
+    );
+
+    const response = await app.fetch(
+      new Request("http://payments.test/account/payments/pay_1/refunds", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          amount: "10.00",
+          orderIds: ["ord_1"],
+          reason: "Manual refund",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(404);
+    expect(refundServices.issueRefund).not.toHaveBeenCalled();
   });
 });

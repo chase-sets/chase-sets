@@ -266,18 +266,6 @@ export function createPaymentsApiClient({
         }),
       );
     },
-    async issueRefund(
-      paymentId: string,
-      body: Readonly<{ amount: string; reason: string; orderIds?: readonly string[] }>,
-    ): Promise<Readonly<{ id: string; version: number }>> {
-      return parseJsonResponse(
-        await client.account.payments[":paymentId"].refunds.$post({
-          param: { paymentId },
-          json: body,
-          header: headers,
-        }),
-      );
-    },
     async getMarketplaceCheckoutFeePolicy(): Promise<PaymentsMarketplaceCheckoutFeePolicy> {
       return parseJsonResponse(
         await client.account["marketplace-checkout-fee-policy"].$get({
