@@ -11,6 +11,7 @@ import type { CatalogPrimaryWorkbenchReadModel } from "../../../api/primary-work
 import { ActivationDecisionModule, ActivationReadinessSection } from "./activation-evidence-section";
 import { DryRunSection } from "./dry-run-section";
 import { FixtureSection } from "./fixture-section";
+import { ProviderReadinessSection } from "./provider-readiness-section";
 import { SemanticCompareSection } from "./semantic-checks-section";
 import type { BadgeTone, ValidationReadiness } from "./validation-shared";
 import { statusLabel } from "./validation-shared";
@@ -74,6 +75,7 @@ export function CatalogIntegrationValidationReadinessWorkspace({
         </WorkbenchStack>
       </WorkflowModule>
 
+      <ProviderReadinessSection readModel={readModel} />
       <FixtureSection validation={validation} />
       <DryRunSection validation={validation} />
       <SemanticCompareSection validation={validation} />

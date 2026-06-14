@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactElement } from "react";
 import {
   Badge,
   BulkActionSurface,
@@ -16,6 +16,7 @@ import type { CatalogPrimaryWorkbenchReadModel } from "../api/primary-workbench-
 import {
   CATALOG_CONTROL_PLANE_NAVIGATION_GROUPS,
   CATALOG_CONTROL_PLANE_WORKSPACES,
+  type CatalogControlPlaneWorkspaceKey,
 } from "./admin-control-plane/information-architecture";
 import { CatalogIntegrationConflictResolutionWorkspace } from "./admin-control-plane/conflicts/conflict-resolution-workspace";
 import { CatalogIntegrationAuditEvidenceWorkspace } from "./admin-control-plane/evidence/audit-evidence-workspace";
@@ -63,6 +64,25 @@ export interface CatalogPrimaryWorkbenchPageProps {
   commandFeedback?: CatalogPrimaryWorkbenchCommandFeedback | null;
 }
 
+type CatalogPrimaryWorkbenchWorkspaceRenderer = (readModel: CatalogPrimaryWorkbenchReadModel) => ReactElement;
+
+// Single source of truth for which IA workspace renders which workspace component.
+// Typed as a total record over CatalogControlPlaneWorkspaceKey so a declared-but-unrendered
+// section fails the TypeScript build, and the IA<->render parity test asserts both directions.
+export const CATALOG_PRIMARY_WORKBENCH_WORKSPACE_RENDERERS: Readonly<
+  Record<CatalogControlPlaneWorkspaceKey, CatalogPrimaryWorkbenchWorkspaceRenderer>
+> = {
+  "import-to-promotion": (readModel) => <CatalogIntegrationImportToPromotionWorkspace readModel={readModel} />,
+  "health-triage": (readModel) => <CatalogIntegrationHealthTriageWorkspace readModel={readModel} />,
+  "profile-authoring": (readModel) => <CatalogIntegrationProfileAuthoringWorkspace readModel={readModel} />,
+  "validation-readiness": (readModel) => <CatalogIntegrationValidationReadinessWorkspace readModel={readModel} />,
+  "conflict-resolution": (readModel) => <CatalogIntegrationConflictResolutionWorkspace readModel={readModel} />,
+  "lifecycle-recovery": (readModel) => <CatalogIntegrationLifecycleRecoveryWorkspace readModel={readModel} />,
+  "governance-controls": (readModel) => <CatalogIntegrationGovernanceControlsWorkspace readModel={readModel} />,
+  "clean-reset-release": (readModel) => <CatalogIntegrationCleanResetReleaseWorkspace readModel={readModel} />,
+  "audit-evidence": (readModel) => <CatalogIntegrationAuditEvidenceWorkspace readModel={readModel} />,
+};
+
 export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null }: CatalogPrimaryWorkbenchPageProps) {
   const navigation = useMemo(() => navigationGroups(readModel), [readModel]);
   const [activeSection, setActiveSection] = useState(() => normalizeActiveWorkspace(readModel.routeContext.section));
@@ -92,24 +112,9 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
       window.history.pushState({ catalogPrimaryWorkbenchSection: normalized }, "", href);
     }
   };
-  const implementedSupportWorkspace =
-    activeSection === "health-triage" ? (
-      <CatalogIntegrationHealthTriageWorkspace readModel={readModel} />
-    ) : activeSection === "profile-authoring" ? (
-      <CatalogIntegrationProfileAuthoringWorkspace readModel={readModel} />
-    ) : activeSection === "validation-readiness" ? (
-      <CatalogIntegrationValidationReadinessWorkspace readModel={readModel} />
-    ) : activeSection === "conflict-resolution" ? (
-      <CatalogIntegrationConflictResolutionWorkspace readModel={readModel} />
-    ) : activeSection === "lifecycle-recovery" ? (
-      <CatalogIntegrationLifecycleRecoveryWorkspace readModel={readModel} />
-    ) : activeSection === "governance-controls" ? (
-      <CatalogIntegrationGovernanceControlsWorkspace readModel={readModel} />
-    ) : activeSection === "clean-reset-release" ? (
-      <CatalogIntegrationCleanResetReleaseWorkspace readModel={readModel} />
-    ) : activeSection === "audit-evidence" ? (
-      <CatalogIntegrationAuditEvidenceWorkspace readModel={readModel} />
-    ) : null;
+  const renderActiveWorkspace =
+    CATALOG_PRIMARY_WORKBENCH_WORKSPACE_RENDERERS[activeSection as CatalogControlPlaneWorkspaceKey] ??
+    CATALOG_PRIMARY_WORKBENCH_WORKSPACE_RENDERERS["import-to-promotion"];
 
   return (
     <DenseAdminWorkbench data-catalog-primary-workbench="true">
@@ -168,9 +173,7 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
         onNavigationSelect={handleSectionSelect}
       >
         <BulkActionSurface>
-          <WorkbenchStack>
-            {implementedSupportWorkspace ?? <CatalogIntegrationImportToPromotionWorkspace readModel={readModel} />}
-          </WorkbenchStack>
+          <WorkbenchStack>{renderActiveWorkspace(readModel)}</WorkbenchStack>
         </BulkActionSurface>
       </DenseAdminWorkbenchLayout>
     </DenseAdminWorkbench>

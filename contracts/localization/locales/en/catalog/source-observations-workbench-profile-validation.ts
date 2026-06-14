@@ -242,6 +242,31 @@ export const catalogSourceObservationsWorkbenchProfileValidationEnglishTranslati
   "catalog.features.sourceObservations.ui.primaryWorkbench.validation.metric.fixtureFlows": "Fixture flows",
   "catalog.features.sourceObservations.ui.primaryWorkbench.validation.metric.readinessBlockers": "Readiness blockers",
   "catalog.features.sourceObservations.ui.primaryWorkbench.validation.metric.semanticChanges": "Semantic changes",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.provider.adapter": "Adapter readiness",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.provider.banner.blocked.description":
+    "Configure or refresh the provider credential before retrying provider data import for this scope.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.provider.banner.blocked.title":
+    "Provider credentials are blocking import",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.provider.banner.degraded.description":
+    "Provider transport is rate limited, throttled, paginating, or serving stale cache; resolve it before pulling fresh data.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.provider.banner.degraded.title":
+    "Provider transport is degraded",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.provider.banner.ready.description":
+    "Credentials and provider transport can acquire provider payloads for the selected scope.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.provider.banner.ready.title":
+    "Provider readiness is ready",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.provider.credential": "Credential readiness",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.provider.description":
+    "Provider credential, adapter, and transport availability that must hold before payload acquisition can run.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.provider.nextStep": "Next step",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.provider.noRemediation":
+    "No credential or transport remediation is required for the selected scope.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.provider.noScope": "No scope selected",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.provider.remediation": "Provider remediation",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.provider.title": "Provider readiness",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.provider.transport": "Provider transport",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.validation.provider.transportReady":
+    "Within provider limits",
   "catalog.features.sourceObservations.ui.primaryWorkbench.validation.redaction.normalizedFacts": "Normalized facts",
   "catalog.features.sourceObservations.ui.primaryWorkbench.validation.redaction.payload": "Payload body",
   "catalog.features.sourceObservations.ui.primaryWorkbench.validation.redaction.sourceHash": "Source hash",

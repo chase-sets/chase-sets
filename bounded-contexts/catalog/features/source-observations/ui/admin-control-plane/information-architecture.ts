@@ -15,7 +15,6 @@ export type CatalogControlPlaneWorkspaceKey =
   | "health-triage"
   | "profile-authoring"
   | "validation-readiness"
-  | "adapter-readiness"
   | "conflict-resolution"
   | "lifecycle-recovery"
   | "governance-controls"
@@ -128,27 +127,21 @@ export const CATALOG_CONTROL_PLANE_WORKSPACES = [
     accessibleName: "Validation readiness",
     group: "unblock",
     keyboardOrder: 40,
-    operatorJob: "Prove profile changes with fixtures, dry runs, semantic compare, and activation readiness.",
-    startsAt: "Fixture, dry-run, compare, or activation blocker.",
-    completesAt: "Validation evidence attached to the blocked import or promotion action.",
-    evidenceScope: ["Fixture result", "Dry-run facts", "Semantic diff", "Activation readiness"],
+    operatorJob:
+      "Prove profile changes with fixtures, dry runs, semantic compare, activation readiness, and provider credential and transport availability.",
+    startsAt: "Fixture, dry-run, compare, activation, credential, or provider transport blocker.",
+    completesAt: "Validation and provider readiness evidence attached to the blocked import or promotion action.",
+    evidenceScope: [
+      "Fixture result",
+      "Dry-run facts",
+      "Semantic diff",
+      "Activation readiness",
+      "Provider credential state",
+      "Provider transport limits",
+    ],
     primaryPathRole: "supporting-detour",
     linkBackContextKeys: ["section", "providerKey", "unitKey", "importScope", "profileVersion", "returnPath"],
-    consumesIssues: [1036, 1037],
-  },
-  {
-    key: "adapter-readiness",
-    routeSegment: "adapter",
-    accessibleName: "Adapter readiness",
-    group: "unblock",
-    keyboardOrder: 50,
-    operatorJob: "Inspect provider transport, option query, credential, and import-scope availability.",
-    startsAt: "Provider transport, credential, option query, or scope blocker.",
-    completesAt: "Import can proceed or shows a provider-owned remediation.",
-    evidenceScope: ["Credential state", "Adapter state", "Option cache state", "Provider transport limits"],
-    primaryPathRole: "supporting-detour",
-    linkBackContextKeys: ["section", "providerKey", "unitKey", "importScope", "returnPath"],
-    consumesIssues: [1035, 1065],
+    consumesIssues: [1036, 1037, 1065],
   },
   {
     key: "conflict-resolution",
@@ -268,7 +261,7 @@ export const CATALOG_CONTROL_PLANE_NAVIGATION_GROUPS = [
   {
     key: "unblock",
     accessibleName: "Unblock provider data",
-    items: ["health-triage", "profile-authoring", "validation-readiness", "adapter-readiness"],
+    items: ["health-triage", "profile-authoring", "validation-readiness"],
   },
   {
     key: "govern",
@@ -288,7 +281,7 @@ export const CATALOG_CONTROL_PLANE_WORKFLOW_MAP = [
     startsIn: "import-to-promotion",
     completesIn: "import-to-promotion",
     requiredEvidence: ["Import readiness", "Job progress", "Source Observation review", "Promotion preview"],
-    blockedBy: ["health-triage", "profile-authoring", "validation-readiness", "adapter-readiness"],
+    blockedBy: ["health-triage", "profile-authoring", "validation-readiness"],
   },
   {
     workflow: "Health triage",
@@ -309,7 +302,7 @@ export const CATALOG_CONTROL_PLANE_WORKFLOW_MAP = [
     startsIn: "validation-readiness",
     completesIn: "import-to-promotion",
     requiredEvidence: ["Fixture result", "Dry-run evidence", "Semantic compare", "Activation readiness"],
-    blockedBy: ["profile-authoring", "adapter-readiness", "governance-controls"],
+    blockedBy: ["profile-authoring", "governance-controls"],
   },
   {
     workflow: "Imports, jobs, Source Observation review, promotion, reapply, replay",
