@@ -177,6 +177,7 @@ describe("guest payment claim action", () => {
       expect.objectContaining({
         isGuestCheckoutPayment: true,
         showSupportDetails: false,
+        buyerEmail: null,
         payment: expect.objectContaining({
           payment_id: "pay_guest_1",
           status: "captured",
@@ -185,6 +186,8 @@ describe("guest payment claim action", () => {
           expect.objectContaining({
             order_id: "ord_guest_1",
             status: "paid",
+            total_amount: "27.10",
+            seller_payout_amount: "25.00",
           }),
         ],
         guestClaimContext: {
@@ -193,9 +196,11 @@ describe("guest payment claim action", () => {
         },
       }),
     );
+    expect(JSON.stringify(result.orders)).not.toContain("100 Market Street");
+    expect(JSON.stringify(result.orders)).not.toContain("jane@example.com");
   });
 
-  it("loads a signed-in account payment as the account history and support handoff", async () => {
+  it("loads a signed-in account payment without customer-visible support diagnostics", async () => {
     mockRequireActorFromAuthApi.mockResolvedValue({
       accountId: "acc_buyer",
       roleKey: "owner",
@@ -247,7 +252,8 @@ describe("guest payment claim action", () => {
       expect.objectContaining({
         isGuestCheckoutPayment: false,
         guestClaimContext: null,
-        showSupportDetails: true,
+        showSupportDetails: false,
+        buyerEmail: null,
         payment: expect.objectContaining({
           payment_id: "pay_signed_in_1",
           status: "captured",
@@ -255,11 +261,114 @@ describe("guest payment claim action", () => {
         orders: [
           expect.objectContaining({
             order_id: "ord_signed_in_1",
-            source_reference_id: "chk_signed_in",
+            status: "paid",
+            total_amount: "27.29",
+            seller_payout_amount: "25.00",
           }),
         ],
       }),
     );
+    expect(JSON.stringify(result.orders)).not.toContain("100 Market Street");
+    expect(JSON.stringify(result.orders)).not.toContain("chk_signed_in");
+  });
+
+  it("allows platform support operators to see the internal support panel flag", async () => {
+    mockRequireActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_support",
+      roleKey: "platform-admin",
+      permissions: ["orders.view", "support.manage"],
+    });
+    mockGetAccountPayment.mockResolvedValue({
+      payment_id: "pay_signed_in_1",
+      buyer_account_id: "acc_support",
+      order_ids: ["ord_signed_in_1"],
+      status: "captured",
+      currency_code: "usd",
+      processor_amount: "27.29",
+      balance_credit_amount: "0.00",
+      payment_method_category: "card",
+    });
+    mockGetPurchase.mockResolvedValue({
+      order_id: "ord_signed_in_1",
+      buyer_account_id: "acc_support",
+      status: "paid",
+      total_amount: "27.29",
+      seller_payout_amount: "25.00",
+      shipping_destination_snapshot: {
+        email: "operator-view@example.com",
+      },
+    });
+
+    const result = await loader({
+      request: new Request("http://localhost/account/payments/pay_signed_in_1"),
+      params: { paymentId: "pay_signed_in_1" },
+      context: undefined,
+    } as never);
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        isGuestCheckoutPayment: false,
+        showSupportDetails: true,
+        buyerEmail: null,
+      }),
+    );
+  });
+
+  it("returns buyer email only for pending processor checkout sessions", async () => {
+    mockRequireActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer",
+      roleKey: "owner",
+      permissions: ["orders.view", "orders.manage"],
+    });
+    mockGetAccountPayment.mockResolvedValue({
+      payment_id: "pay_checkout_session",
+      buyer_account_id: "acc_buyer",
+      order_ids: ["ord_checkout_session"],
+      status: "pending-confirmation",
+      currency_code: "usd",
+      processor_amount: "27.29",
+      balance_credit_amount: "0.00",
+      payment_method_category: "card",
+      processor_payment_kind: "checkout-session",
+    });
+    mockGetPurchase.mockResolvedValue({
+      order_id: "ord_checkout_session",
+      buyer_account_id: "acc_buyer",
+      status: "pending-payment",
+      total_amount: "27.29",
+      seller_payout_amount: "25.00",
+      shipping_destination_snapshot: {
+        name: "Jane Smith",
+        line1: "100 Market Street",
+        city: "Chicago",
+        state: "IL",
+        postalCode: "60601",
+        country: "US",
+        email: "jane@example.com",
+      },
+    });
+
+    const result = await loader({
+      request: new Request("http://localhost/account/payments/pay_checkout_session"),
+      params: { paymentId: "pay_checkout_session" },
+      context: undefined,
+    } as never);
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        buyerEmail: "jane@example.com",
+        showSupportDetails: false,
+        orders: [
+          {
+            order_id: "ord_checkout_session",
+            status: "pending-payment",
+            total_amount: "27.29",
+            seller_payout_amount: "25.00",
+          },
+        ],
+      }),
+    );
+    expect(JSON.stringify(result.orders)).not.toContain("100 Market Street");
   });
 
   it("requests a local email claim token for guest payment recovery", async () => {

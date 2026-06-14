@@ -36,6 +36,7 @@ import { PlatformFeedbackPrompt } from "@chase-sets/platform-operations/server";
 import { createOrderingRequestApiClient, type PurchaseDetail } from "@chase-sets/ordering/server";
 import { createPaymentsRequestApiClient, PaymentsApiError } from "../../support/request-support/api-client";
 import type {
+  AccountPaymentOrderView,
   GuestCheckoutClaimContext,
   GuestClaimActionData,
 } from "../../features/payments/ui/account-payment/account-payment-contracts";
@@ -65,6 +66,36 @@ function paymentPreparingResponse() {
     status: 503,
     statusText: t("payments.routes.marketplace.accountPayment.payment.preparing"),
   });
+}
+
+function isInternalPaymentSupportActor(
+  actor: Readonly<{ roleKey?: string | null; permissions: readonly string[] }> | null | undefined,
+) {
+  return actor?.roleKey === "platform-admin" && actor.permissions.includes("support.manage");
+}
+
+function orderView(order: PurchaseDetail): AccountPaymentOrderView {
+  return {
+    order_id: order.order_id,
+    status: order.status,
+    total_amount: order.total_amount,
+    seller_payout_amount: order.seller_payout_amount,
+  };
+}
+
+function resolveBuyerEmail(orders: readonly PurchaseDetail[]) {
+  for (const order of orders) {
+    const email = order.shipping_destination_snapshot.email?.trim();
+    if (email) {
+      return email;
+    }
+  }
+
+  return null;
+}
+
+function needsProcessorBuyerEmail(payment: Readonly<{ status: string; processor_payment_kind?: string | null }>) {
+  return payment.status === "pending-confirmation" && payment.processor_payment_kind === "checkout-session";
 }
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
@@ -100,10 +131,11 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
     return {
       payment,
-      orders,
+      orders: orders.map(orderView),
       isGuestCheckoutPayment,
       guestClaimContext,
-      showSupportDetails: Boolean(actor?.permissions.includes("orders.manage")),
+      showSupportDetails: isInternalPaymentSupportActor(actor),
+      buyerEmail: needsProcessorBuyerEmail(payment) ? resolveBuyerEmail(orders) : null,
     };
   } catch (error) {
     if (
@@ -259,17 +291,6 @@ export async function action({ request, params }: ActionFunctionArgs): Promise<R
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({ title: t("payments.routes.marketplace.accountPayment.payment.marketplace") });
 
-function resolveBuyerEmail(orders: readonly PurchaseDetail[]) {
-  for (const order of orders) {
-    const email = order.shipping_destination_snapshot.email?.trim();
-    if (email) {
-      return email;
-    }
-  }
-
-  return null;
-}
-
 function PasskeyHiddenFields({ payload }: { payload: PasskeyCredentialPayload | null }) {
   return (
     <>
@@ -423,7 +444,6 @@ function GuestClaimPrompt({
 export default function MarketplaceAccountPaymentRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
-  const buyerEmail = resolveBuyerEmail(data.orders);
   const retryActionError =
     actionData && "error" in actionData && actionData.scope === "retry" ? actionData.error : null;
   const zeroDollarBalanceCovered =
@@ -459,7 +479,7 @@ export default function MarketplaceAccountPaymentRoute() {
       orders={data.orders}
       isGuestCheckoutPayment={data.isGuestCheckoutPayment}
       showSupportDetails={data.showSupportDetails}
-      buyerEmail={buyerEmail}
+      buyerEmail={data.buyerEmail}
       retryActionError={retryActionError}
       feedbackPrompt={feedbackPrompt}
       guestClaimSection={guestClaimSection}
