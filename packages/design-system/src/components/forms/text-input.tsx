@@ -1,6 +1,8 @@
 import { useId, type InputHTMLAttributes } from "react";
 import { Icon } from "../../icons";
+import { VisuallyHidden } from "../../primitives/layout";
 import { cx } from "../../utils/cx";
+import { InputAddon } from "./input-addon";
 import { FieldChrome, controlClass, controlErrorClass, fieldDescribedBy, type BaseInputProps } from "./shared";
 
 export interface TextInputProps
@@ -84,7 +86,7 @@ export function CurrencyInput({
   const currencyDescription = (
     <>
       {description}
-      <span className="sr-only"> Amount in {currencyLabel}.</span>
+      <VisuallyHidden> Amount in {currencyLabel}.</VisuallyHidden>
     </>
   );
 
@@ -99,13 +101,7 @@ export function CurrencyInput({
       hideLabel={hideLabel}
       htmlFor={inputId}
     >
-      <div className="relative">
-        <span
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-y-0 left-[var(--control-md-px)] flex items-center text-secondary"
-        >
-          {currencySymbol}
-        </span>
+      <InputAddon start={{ content: currencySymbol, muted: true }}>
         <input
           {...rest}
           id={inputId}
@@ -124,7 +120,7 @@ export function CurrencyInput({
           aria-invalid={!!error || undefined}
           className={cx(controlClass, !!error && controlErrorClass, "pl-[calc(var(--control-md-px)+1rem)]")}
         />
-      </div>
+      </InputAddon>
     </FieldChrome>
   );
 }
@@ -157,10 +153,7 @@ export function SearchInput({
       hideLabel={hideLabel}
       htmlFor={inputId}
     >
-      <div className="relative">
-        <span className="pointer-events-none absolute inset-y-0 left-[var(--control-md-px)] flex items-center">
-          <Icon name="search" size="sm" tone="secondary" />
-        </span>
+      <InputAddon start={{ content: <Icon name="search" size="sm" tone="secondary" /> }}>
         <input
           {...rest}
           id={inputId}
@@ -177,7 +170,7 @@ export function SearchInput({
           aria-invalid={!!error || undefined}
           className={cx(controlClass, !!error && controlErrorClass, "pl-[calc(var(--control-md-px)+1.5rem)]")}
         />
-      </div>
+      </InputAddon>
     </FieldChrome>
   );
 }

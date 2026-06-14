@@ -1,7 +1,10 @@
 import { useEffect, useId, useRef, useState } from "react";
+// The indeterminate/checked indicator imports lucide icons directly: the DS `Icon`
+// does not expose the precise `strokeWidth`/sizing this 16px in-control glyph needs.
+// Documented leaf — keep the raw lucide import here.
 import { Check, Minus } from "lucide-react";
 import { cx } from "../../utils/cx";
-import { FieldChrome, fieldDescribedBy, type BaseInputProps } from "./shared";
+import { FieldChrome, RequiredMarker, fieldDescribedBy, type BaseInputProps } from "./shared";
 import type { SelectItem } from "./select";
 
 type CheckedState = boolean | "indeterminate";
@@ -120,7 +123,7 @@ export function Checkbox({
           {label ? (
             <div className={cx("text-sm font-medium text-foreground", hideLabel && "sr-only")}>
               {label}
-              {required ? <span aria-hidden="true" className="ml-1 text-accent before:content-['*']" /> : null}
+              {required ? <RequiredMarker /> : null}
             </div>
           ) : null}
         </div>
@@ -182,7 +185,7 @@ export function CheckboxGroup({
         {label ? (
           <legend id={legendId} className={cx("mb-2 text-sm font-medium text-foreground", hideLabel && "sr-only")}>
             {label}
-            {required ? <span aria-hidden="true" className="ml-1 text-accent before:content-['*']" /> : null}
+            {required ? <RequiredMarker /> : null}
           </legend>
         ) : null}
         <div className="space-y-2">
