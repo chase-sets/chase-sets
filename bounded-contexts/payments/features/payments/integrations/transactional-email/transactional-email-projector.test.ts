@@ -30,7 +30,7 @@ describe("payments transactional email projector", () => {
     });
   });
 
-  it("uses the same buyer email source for payment failure email", async () => {
+  it("does not enqueue payment failure email because decline recovery stays on the payment page", async () => {
     const db = {
       query: vi.fn(async () => ({ rows: [{ buyer_email: "buyer@example.com" }] })),
     };
@@ -45,14 +45,8 @@ describe("payments transactional email projector", () => {
       data: { paymentId: "pay_123", orderIds: ["ord_123"], amount: "20.00", currencyCode: "USD" },
     } as never);
 
-    expect(outbox.enqueueNotification).toHaveBeenCalledOnce();
-    expect(outbox.enqueueNotification.mock.calls[0]?.[0]).toMatchObject({
-      message: {
-        messageType: "payments.payment-failed",
-        templateId: "payment_failed",
-        channels: [{ channel: "email", to: [{ email: "buyer@example.com" }] }],
-      },
-    });
+    expect(db.query).not.toHaveBeenCalled();
+    expect(outbox.enqueueNotification).not.toHaveBeenCalled();
   });
 
   it("does not enqueue when no buyer email has been projected for the order", async () => {
