@@ -189,10 +189,7 @@ describe("Catalog operator outcome-language contract (#1747)", () => {
     for (const [category, copy] of Object.entries(catalogPrimaryWorkbenchBlockerCopy)) {
       const existing = labelToCopy.get(copy.label);
       if (existing !== undefined) {
-        expect(
-          existing,
-          `blocker '${category}' reuses label '${copy.label}' for a different copy object`,
-        ).toBe(copy);
+        expect(existing, `blocker '${category}' reuses label '${copy.label}' for a different copy object`).toBe(copy);
       } else {
         labelToCopy.set(copy.label, copy);
       }
@@ -201,7 +198,9 @@ describe("Catalog operator outcome-language contract (#1747)", () => {
   });
 
   it("resolves blocker, empty, denied, degraded, and completion states to label + reason + next step", () => {
-    const blockerCopy = catalogPrimaryWorkbenchBlockers.map((blocker) => catalogPrimaryWorkbenchBlockerCopy[blocker.category]);
+    const blockerCopy = catalogPrimaryWorkbenchBlockers.map(
+      (blocker) => catalogPrimaryWorkbenchBlockerCopy[blocker.category],
+    );
     const deniedCopy = [
       catalogPrimaryWorkbenchActionStateCopy.denied,
       catalogPrimaryWorkbenchBlockerCopy["permission-denied"],
