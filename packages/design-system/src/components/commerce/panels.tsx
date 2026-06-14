@@ -1,10 +1,9 @@
 import type { ReactNode } from "react";
 import { Icon, type IconName } from "../../icons";
-import { cx } from "../../utils/cx";
-import { Inset } from "../../primitives/layout";
+import { Center, Cluster, Grid, Inline, Inset, Stack } from "../../primitives/layout";
+import { ToneIcon, type ToneIconTone } from "../../primitives/tone-icon";
 import { Badge } from "../feedback";
 import { Card } from "../data-display/card";
-import { statusClasses } from "./shared";
 
 export interface MarketplaceEmptyStateProps {
   title: ReactNode;
@@ -23,24 +22,28 @@ export function MarketplaceEmptyState({
 }: MarketplaceEmptyStateProps) {
   return (
     <section className="grid gap-4 rounded-tokenLg border border-dashed border-[var(--border-strong)] bg-surface p-6 text-center">
-      <span className="flex justify-center">
+      <Center axis="horizontal">
         <Icon name="inbox" size="lg" tone="tertiary" aria-hidden="true" />
-      </span>
-      <div className="grid gap-2">
+      </Center>
+      <Stack gap={2}>
         <h2 className="m-0 text-xl font-bold text-foreground">{title}</h2>
         <p className="m-0 mx-auto max-w-xl text-sm leading-6 text-secondary">{description}</p>
-      </div>
+      </Stack>
       {trustCue ? <div className="mx-auto w-full max-w-2xl text-left">{trustCue}</div> : null}
       {recommendations.length ? (
-        <div className="flex flex-wrap justify-center gap-2">
+        <Cluster justify="center" gap={2}>
           {recommendations.map((recommendation) => (
             <Badge key={recommendation} tone="neutral" variant="soft">
               {recommendation}
             </Badge>
           ))}
-        </div>
+        </Cluster>
       ) : null}
-      {recoveryActions ? <div className="flex flex-wrap justify-center gap-2">{recoveryActions}</div> : null}
+      {recoveryActions ? (
+        <Cluster justify="center" gap={2}>
+          {recoveryActions}
+        </Cluster>
+      ) : null}
     </section>
   );
 }
@@ -61,7 +64,7 @@ export function MarketplaceStatusTimeline({ steps }: MarketplaceStatusTimelinePr
     <ol className="grid gap-3">
       {steps.map((step) => {
         const iconName = iconByStatus[step.status];
-        const tone =
+        const tone: ToneIconTone =
           step.status === "issue"
             ? "warning"
             : step.status === "complete"
@@ -72,11 +75,7 @@ export function MarketplaceStatusTimeline({ steps }: MarketplaceStatusTimelinePr
 
         return (
           <li key={step.label} className="flex gap-3 rounded-tokenMd border border-border bg-surface p-3">
-            <span
-              className={cx("grid h-8 w-8 shrink-0 place-items-center rounded-tokenFull border", statusClasses[tone])}
-            >
-              <Icon name={iconName} size="sm" tone="inherit" aria-hidden="true" />
-            </span>
+            <ToneIcon name={iconName} tone={tone} size="sm" />
             <div>
               <div className="font-semibold text-foreground">{step.label}</div>
               {step.description ? <div className="text-sm leading-5 text-secondary">{step.description}</div> : null}
@@ -101,18 +100,18 @@ export function OfferCard({ title, amount, status, accountTrust, details, action
   return (
     <Card>
       <Card.Header>
-        <div className="flex items-start justify-between gap-3">
+        <Stack direction="row" justify="between" align="start" gap={3}>
           <div>
             <Card.Title>{title}</Card.Title>
             {status ? <Card.Description>{status}</Card.Description> : null}
             {accountTrust ? <div className="mt-2">{accountTrust}</div> : null}
           </div>
           <div className="text-right text-2xl font-bold tabular-nums text-foreground">{amount}</div>
-        </div>
+        </Stack>
       </Card.Header>
       <Card.Body>
         {details ? <div className="text-sm leading-6 text-secondary">{details}</div> : null}
-        {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
+        {actions ? <Inline gap={2}>{actions}</Inline> : null}
       </Card.Body>
     </Card>
   );
@@ -129,16 +128,16 @@ export function MarketplaceDashboardPanel({ title, description, metrics, action 
   return (
     <Card>
       <Card.Header>
-        <div className="flex items-start justify-between gap-3">
+        <Stack direction="row" justify="between" align="start" gap={3}>
           <div>
             <Card.Title>{title}</Card.Title>
             {description ? <Card.Description>{description}</Card.Description> : null}
           </div>
           {action}
-        </div>
+        </Stack>
       </Card.Header>
       <Card.Body>
-        <div className="grid gap-3 sm:grid-cols-3">
+        <Grid columns={{ base: 1, sm: 3 }} gap={3}>
           {metrics.map((metric) => (
             <Inset key={metric.label} padding={3}>
               <div className="text-2xl font-bold tabular-nums text-foreground">{metric.value}</div>
@@ -146,7 +145,7 @@ export function MarketplaceDashboardPanel({ title, description, metrics, action 
               {metric.detail ? <div className="mt-1 text-xs text-tertiary">{metric.detail}</div> : null}
             </Inset>
           ))}
-        </div>
+        </Grid>
       </Card.Body>
     </Card>
   );
@@ -158,26 +157,26 @@ export interface MarketplaceTemplateGalleryProps {
 
 export function MarketplaceTemplateGallery({ templates }: MarketplaceTemplateGalleryProps) {
   return (
-    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+    <Grid columns={{ base: 1, md: 2, xl: 3 }} gap={3}>
       {templates.map((template) => (
         <article key={template.name} className="grid gap-3 rounded-tokenMd border border-border bg-surface p-4">
-          <div className="flex items-start justify-between gap-3">
+          <Stack direction="row" justify="between" align="start" gap={3}>
             <div>
               <h3 className="m-0 text-base font-semibold text-foreground">{template.name}</h3>
               <p className="m-0 mt-1 text-sm leading-5 text-secondary">{template.purpose}</p>
             </div>
             <Icon name="chevronRight" size="sm" tone="tertiary" aria-hidden="true" />
-          </div>
-          <div className="flex flex-wrap gap-2">
+          </Stack>
+          <Inline gap={2}>
             {template.criticalSignals.map((signal) => (
               <Badge key={signal} tone="neutral" variant="soft">
                 {signal}
               </Badge>
             ))}
-          </div>
+          </Inline>
           <div className="text-xs font-semibold uppercase text-tertiary">Primary action: {template.primaryAction}</div>
         </article>
       ))}
-    </div>
+    </Grid>
   );
 }

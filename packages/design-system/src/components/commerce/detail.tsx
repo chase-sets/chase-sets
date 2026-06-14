@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Icon, type IconName } from "../../icons";
 import { cx } from "../../utils/cx";
+import { Grid, Stack } from "../../primitives/layout";
 import { Card } from "../data-display/card";
 import { statusClasses, type StatusTone } from "./shared";
 
@@ -36,7 +37,7 @@ export function MessageThreadPreview({
         ) : null}
       </Card.Header>
       <Card.Body>
-        <div className="grid gap-3">
+        <Stack gap={3}>
           {messages.map((message) => (
             <div
               key={`${message.author}-${String(message.body)}`}
@@ -50,7 +51,7 @@ export function MessageThreadPreview({
             </div>
           ))}
           {action}
-        </div>
+        </Stack>
       </Card.Body>
     </Card>
   );
@@ -67,7 +68,7 @@ export function ProductMediaModule({ title, media = [], badges }: ProductMediaMo
   const thumbnails = media.slice(1, 5);
 
   return (
-    <section className="grid gap-3" aria-label={`${title} media`}>
+    <Stack element="section" gap={3} aria-label={`${title} media`}>
       <div className="relative grid min-h-80 place-items-center overflow-hidden rounded-tokenLg border border-border bg-surface-2">
         {primary?.src ? (
           <img src={primary.src} alt={primary.alt} className="h-full max-h-[32rem] w-full object-contain p-4" />
@@ -80,7 +81,7 @@ export function ProductMediaModule({ title, media = [], badges }: ProductMediaMo
         {badges ? <div className="absolute left-3 top-3 flex flex-wrap gap-2">{badges}</div> : null}
       </div>
       {thumbnails.length ? (
-        <div className="grid grid-cols-4 gap-2">
+        <Grid columns={4} gap={2}>
           {thumbnails.map((item) => (
             <button
               key={item.alt}
@@ -97,9 +98,9 @@ export function ProductMediaModule({ title, media = [], badges }: ProductMediaMo
               )}
             </button>
           ))}
-        </div>
+        </Grid>
       ) : null}
-    </section>
+    </Stack>
   );
 }
 
@@ -117,7 +118,7 @@ export function DetailConfidenceModule({ title, description, items }: DetailConf
         {description ? <Card.Description>{description}</Card.Description> : null}
       </Card.Header>
       <Card.Body>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <Grid columns={{ base: 1, sm: 2 }} gap={3}>
           {items.map((item) => (
             <div key={item.label} className="flex gap-3 rounded-tokenMd border border-border bg-surface-2 p-3">
               <div className={cx("mt-0.5", item.tone ? statusClasses[item.tone].split(" ").at(-1) : "text-trust")}>
@@ -129,7 +130,7 @@ export function DetailConfidenceModule({ title, description, items }: DetailConf
               </div>
             </div>
           ))}
-        </div>
+        </Grid>
       </Card.Body>
     </Card>
   );
