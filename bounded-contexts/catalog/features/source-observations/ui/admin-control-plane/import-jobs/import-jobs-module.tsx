@@ -28,11 +28,7 @@ import {
   getCatalogPrimaryWorkbenchProviderTransportCopy,
 } from "../../primary-workbench-copy";
 import { catalogPrimaryWorkbenchHref } from "../../primary-workbench-route-context";
-import {
-  CommandFormButton,
-  CommandHiddenInputs,
-  type CatalogPrimaryWorkbenchSubmitIntent,
-} from "../import-to-promotion/command-controls";
+import { CommandHiddenInputs, type CatalogPrimaryWorkbenchSubmitIntent } from "../import-to-promotion/command-controls";
 import { BlockerList, profileSnapshotLabel, stateLabel } from "../import-to-promotion/workbench-formatting";
 
 type ImportJobRow = CatalogPrimaryWorkbenchReadModel["importJobs"]["jobs"][number];
@@ -204,11 +200,6 @@ export function CatalogIntegrationImportJobsModule({
             count: readModel.importJobs.activeJobCount,
           })}
         </Badge>
-      }
-      actions={
-        <CommandFormButton readModel={readModel} intent="start-provider-import" size="sm" leadingIcon="refreshCcw">
-          {t("catalog.features.sourceObservations.ui.primaryWorkbench.pull.provider.data")}
-        </CommandFormButton>
       }
       headingLevel={2}
       density="compact"

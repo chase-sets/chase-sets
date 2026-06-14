@@ -91,12 +91,12 @@ const surfaceChecks = [
     owner: "Catalog",
     scope: "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-to-promotion",
     visualEvidence: [
-      "The import-to-promotion steps module renders dense tables and step evidence drawers from design-system primitives.",
+      "The import-to-promotion flow renders an explicit three-stage path with the design-system PageStepper and an Accordion that keeps only the active stage expanded.",
     ],
     accessibilityEvidence: [
-      "Step tables and evidence drawers expose row identity and accessible structure via DataTable and SideSheet.",
+      "The ordered stage flow exposes step status and one-expanded-at-a-time disclosure structure via PageStepper and Accordion.",
     ],
-    mustInclude: ["DataTable", "SideSheet"],
+    mustInclude: ["PageStepper", "Accordion"],
     mustNotInclude: catalogControlPlaneForbiddenSignals,
   },
   {

@@ -108,13 +108,13 @@ test.describe("catalog admin integrations", () => {
 
     await expect(page.getByRole("button", { name: /Pull provider data/i }).first()).toBeVisible();
     await expect(page.getByRole("button", { name: /Preview promotion/i }).first()).toBeVisible();
-    await expect(page.getByRole("cell", { name: /Choose provider, unit, scope, and profile/i }).first()).toBeVisible();
-    await expect(
-      page.getByRole("cell", { name: /Pull provider data through a durable import/i }).first(),
-    ).toBeVisible();
-    await expect(page.getByRole("cell", { name: /Review Source Observations/i }).first()).toBeVisible();
-    await expect(page.getByRole("cell", { name: /Preview Catalog promotion impact/i }).first()).toBeVisible();
-    await expect(page.getByRole("cell", { name: /Promote into Catalog Items/i }).first()).toBeVisible();
+    // The daily route is now an explicit, linear three-stage flow. The ordered
+    // stepper and the stage controls name each stage so "where do I run a sync /
+    // create items?" is answerable at a glance. These labels render in the always-
+    // visible stepper (and the stage controls), independent of which stage is open.
+    await expectVisibleText(page, "Run sync");
+    await expectVisibleText(page, "Review changes");
+    await expectVisibleText(page, "Create / update items");
     await expect(page.getByRole("textbox", { name: /JSON/i })).toHaveCount(0);
     await expect(page.getByText(/Old integrations surface/i)).toHaveCount(0);
 
@@ -154,8 +154,9 @@ test.describe("catalog admin integrations", () => {
     // already rendered alongside health triage; its workspace heading is visible and
     // the mobile nav exposes it as a selectable workflow on the same release route.
     await expect(page.getByRole("heading", { name: "Audit and release evidence" })).toBeVisible();
-    // Selection is a no-op in the rebuilt shell (cross-workspace navigation is via the nav
-    // links below), so assert the combobox merely lists audit-evidence as a release workflow.
+    // The mobile combobox now navigates to the chosen workspace's surface route on
+    // selection (matching the desktop nav links below). Without changing it here, just
+    // assert it exposes audit-evidence as a selectable release workflow option.
     await expect(
       page.getByRole("combobox", { name: "Choose Catalog workflow" }).locator('option[value="audit-evidence"]'),
     ).toHaveCount(1);
