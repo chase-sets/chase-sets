@@ -4,12 +4,14 @@ import {
   CATALOG_CONTROL_PLANE_CONTEXT_KEYS,
   CATALOG_CONTROL_PLANE_NAVIGATION_GROUPS,
   CATALOG_CONTROL_PLANE_REBUILD_RELEASE_RULES,
+  CATALOG_CONTROL_PLANE_ROUTE_SURFACES,
   CATALOG_CONTROL_PLANE_WORKFLOW_MAP,
   CATALOG_CONTROL_PLANE_WORKSPACES,
+  catalogControlPlaneRouteSurfaceForWorkspace,
   catalogControlPlaneWorkspaceByKey,
   type CatalogControlPlaneWorkspaceKey,
 } from "./information-architecture";
-import { CATALOG_PRIMARY_WORKBENCH_WORKSPACE_RENDERERS } from "../primary-workbench-page";
+import { CATALOG_PRIMARY_WORKBENCH_WORKSPACE_RENDERERS } from "../workbench-workspace-renderers";
 import {
   catalogPrimaryWorkbenchActionStateCopy,
   catalogPrimaryWorkbenchBlockerCopy,
@@ -182,5 +184,53 @@ describe("Catalog Control Plane IA <-> render parity", () => {
   it("no longer exposes the retired adapter-readiness destination", () => {
     expect(workspaceKeys.has("adapter-readiness")).toBe(false);
     expect(rendererKeys.has("adapter-readiness")).toBe(false);
+  });
+});
+
+describe("Catalog Control Plane route surfaces", () => {
+  const rendererKeys = new Set<string>(Object.keys(CATALOG_PRIMARY_WORKBENCH_WORKSPACE_RENDERERS));
+
+  it("describes the four audience surface routes from the epic #1737 target IA", () => {
+    expect(CATALOG_CONTROL_PLANE_ROUTE_SURFACES.map((surface) => [surface.key, surface.pathSegment])).toEqual([
+      ["daily", ""],
+      ["providers", "providers"],
+      ["governance", "governance"],
+      ["release", "release"],
+    ]);
+
+    const surfaceWorkspaces = Object.fromEntries(
+      CATALOG_CONTROL_PLANE_ROUTE_SURFACES.map((surface) => [surface.key, surface.workspaces]),
+    );
+    expect(surfaceWorkspaces.daily).toEqual(["import-to-promotion"]);
+    expect(surfaceWorkspaces.providers).toEqual(["profile-authoring", "validation-readiness"]);
+    expect(surfaceWorkspaces.governance).toEqual(["conflict-resolution", "lifecycle-recovery", "governance-controls"]);
+    expect(surfaceWorkspaces.release).toEqual(["clean-reset-release", "audit-evidence", "health-triage"]);
+  });
+
+  it("assigns every workspace to exactly one surface and renders every surface workspace", () => {
+    const surfaceWorkspaceKeys = CATALOG_CONTROL_PLANE_ROUTE_SURFACES.flatMap((surface) => surface.workspaces);
+
+    // Each declared workspace appears on exactly one surface.
+    expect([...surfaceWorkspaceKeys].sort()).toEqual(
+      [...CATALOG_CONTROL_PLANE_WORKSPACES.map((workspace) => workspace.key)].sort(),
+    );
+    expect(new Set(surfaceWorkspaceKeys).size).toBe(surfaceWorkspaceKeys.length);
+
+    // Every workspace on a surface is renderable, and its IA routeSurface field
+    // agrees with the surface that lists it.
+    for (const surface of CATALOG_CONTROL_PLANE_ROUTE_SURFACES) {
+      for (const workspaceKey of surface.workspaces) {
+        expect(rendererKeys.has(workspaceKey), `surface workspace ${workspaceKey} has no render branch`).toBe(true);
+        expect(catalogControlPlaneRouteSurfaceForWorkspace(workspaceKey).key).toBe(surface.key);
+      }
+    }
+  });
+
+  it("keeps the daily surface as the default import-to-promotion route", () => {
+    const daily = CATALOG_CONTROL_PLANE_ROUTE_SURFACES[0];
+    expect(daily.key).toBe("daily");
+    expect(daily.pathSegment).toBe("");
+    expect(daily.workspaces[0]).toBe("import-to-promotion");
+    expect(catalogControlPlaneWorkspaceByKey("import-to-promotion").routeSurface).toBe("daily");
   });
 });

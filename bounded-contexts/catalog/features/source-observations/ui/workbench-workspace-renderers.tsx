@@ -1,0 +1,43 @@
+import type { ReactElement } from "react";
+import type { CatalogPrimaryWorkbenchReadModel } from "../api/primary-workbench-admin-contracts";
+import type { CatalogControlPlaneWorkspaceKey } from "./admin-control-plane/information-architecture";
+import { CatalogIntegrationConflictResolutionWorkspace } from "./admin-control-plane/conflicts/conflict-resolution-workspace";
+import { CatalogIntegrationAuditEvidenceWorkspace } from "./admin-control-plane/evidence/audit-evidence-workspace";
+import { CatalogIntegrationCleanResetReleaseWorkspace } from "./admin-control-plane/evidence/clean-reset-release-workspace";
+import { CatalogIntegrationGovernanceControlsWorkspace } from "./admin-control-plane/governance/governance-controls-workspace";
+import { CatalogIntegrationHealthTriageWorkspace } from "./admin-control-plane/health/integration-health-dashboard";
+import { CatalogIntegrationImportToPromotionWorkspace } from "./admin-control-plane/import-to-promotion/import-to-promotion-workspace";
+import { CatalogIntegrationLifecycleRecoveryWorkspace } from "./admin-control-plane/lifecycle/lifecycle-recovery-workspace";
+import { CatalogIntegrationProfileAuthoringWorkspace } from "./admin-control-plane/profiles/profile-authoring-workspace";
+import { CatalogIntegrationValidationReadinessWorkspace } from "./admin-control-plane/validation/validation-readiness-workspace";
+
+export type CatalogPrimaryWorkbenchWorkspaceRenderer = (readModel: CatalogPrimaryWorkbenchReadModel) => ReactElement;
+
+// Single source of truth for which IA workspace renders which workspace component.
+// Typed as a total record over CatalogControlPlaneWorkspaceKey so a declared-but-unrendered
+// section fails the TypeScript build, and the IA<->render parity test asserts both directions.
+export const CATALOG_PRIMARY_WORKBENCH_WORKSPACE_RENDERERS: Readonly<
+  Record<CatalogControlPlaneWorkspaceKey, CatalogPrimaryWorkbenchWorkspaceRenderer>
+> = {
+  "import-to-promotion": (readModel) => <CatalogIntegrationImportToPromotionWorkspace readModel={readModel} />,
+  "health-triage": (readModel) => <CatalogIntegrationHealthTriageWorkspace readModel={readModel} />,
+  "profile-authoring": (readModel) => <CatalogIntegrationProfileAuthoringWorkspace readModel={readModel} />,
+  "validation-readiness": (readModel) => <CatalogIntegrationValidationReadinessWorkspace readModel={readModel} />,
+  "conflict-resolution": (readModel) => <CatalogIntegrationConflictResolutionWorkspace readModel={readModel} />,
+  "lifecycle-recovery": (readModel) => <CatalogIntegrationLifecycleRecoveryWorkspace readModel={readModel} />,
+  "governance-controls": (readModel) => <CatalogIntegrationGovernanceControlsWorkspace readModel={readModel} />,
+  "clean-reset-release": (readModel) => <CatalogIntegrationCleanResetReleaseWorkspace readModel={readModel} />,
+  "audit-evidence": (readModel) => <CatalogIntegrationAuditEvidenceWorkspace readModel={readModel} />,
+};
+
+// Render the workspaces for a route surface, in IA order. The daily route passes
+// a single workspace; the other three pass their grouped workspaces.
+export function renderCatalogWorkbenchSurfaceWorkspaces(
+  readModel: CatalogPrimaryWorkbenchReadModel,
+  workspaceKeys: readonly CatalogControlPlaneWorkspaceKey[],
+): readonly ReactElement[] {
+  return workspaceKeys.map((workspaceKey) => {
+    const renderWorkspace = CATALOG_PRIMARY_WORKBENCH_WORKSPACE_RENDERERS[workspaceKey];
+    return <div key={workspaceKey}>{renderWorkspace(readModel)}</div>;
+  });
+}
