@@ -86,6 +86,27 @@
       "requiresAuth": true,
       "readFreshnessRoutes": [
         {
+          "routePath": "/account/cart",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "checkout_cart_line_pages"
+            }
+          ]
+        },
+        {
+          "routePath": "/account/sell-list",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "checkout_sell_list_line_pages"
+            },
+            {
+              "readModelTable": "checkout_sell_list_confirmation_pages"
+            }
+          ]
+        },
+        {
           "routePath": "/account/checkout-sessions/:sessionId",
           "methods": ["GET", "HEAD"],
           "dependencies": [
@@ -189,14 +210,11 @@
       },
       "destination": {
         "routeId": "account-cart",
-        "transientRecovery": "Cart route forwards afterWrite to the API but still needs shared transient-recovery policy hardening."
-      },
-      "exception": {
-        "status": "accepted",
-        "owner": "checkout",
-        "reviewBy": "2026-07-31",
-        "issue": "#1806",
-        "reason": "Self-refreshing account cart exact freshness remains a current remediation gap; audit input is tracked by #1809 and implementation by #1806."
+        "apiContextName": "checkout",
+        "apiRoutePath": "/account/cart",
+        "readModelTables": ["checkout_cart_line_pages"],
+        "helperUses": ["loadFreshlyWrittenResource"],
+        "transientRecovery": "Account cart self-refresh uses the fresh-read strategy: it waits on the exact checkout cart line page projection and converts valid afterWrite projection timeouts into temporary cart recovery while missing, malformed, or expired receipts stay on the permanent API error path."
       }
     },
     {
@@ -211,14 +229,11 @@
       },
       "destination": {
         "routeId": "account-sell-list",
-        "transientRecovery": "Sell List route forwards afterWrite to the API but still needs shared transient-recovery policy hardening."
-      },
-      "exception": {
-        "status": "accepted",
-        "owner": "checkout",
-        "reviewBy": "2026-07-31",
-        "issue": "#1806",
-        "reason": "Self-refreshing account sell-list exact freshness remains a current remediation gap; audit input is tracked by #1809 and implementation by #1806."
+        "apiContextName": "checkout",
+        "apiRoutePath": "/account/sell-list",
+        "readModelTables": ["checkout_sell_list_line_pages", "checkout_sell_list_confirmation_pages"],
+        "helperUses": ["loadFreshlyWrittenResource"],
+        "transientRecovery": "Account Sell List self-refresh uses the fresh-read strategy: it waits on exact sell-list line and confirmation page projections and converts valid afterWrite projection timeouts into temporary Sell List recovery while missing, malformed, or expired receipts stay on the permanent API error path."
       }
     },
     {

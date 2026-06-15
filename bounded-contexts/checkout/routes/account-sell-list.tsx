@@ -1,6 +1,10 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
-import { appendFreshWriteToken } from "@chase-sets/http/responses";
+import {
+  appendFreshWriteToken,
+  loadFreshlyWrittenResource,
+  recoverFreshWriteReadError,
+} from "@chase-sets/http/responses";
 import { t } from "@chase-sets/localization";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
@@ -17,6 +21,7 @@ import type { SettlementPayoutReadinessRow } from "@chase-sets/settlement/server
 import {
   createCheckoutRequestApiClient,
   type AddCheckoutSellListLineRequest,
+  type CheckoutSellListConfirmationRow,
   type CheckoutSellListLineRow,
   type SellListReadinessDecisionInput,
 } from "../support/request-support/api-client";
@@ -60,6 +65,56 @@ type SellListProductOfferReview = Readonly<{
   }>[];
   message: string | null;
 }>;
+
+type AccountSellList = Readonly<{
+  items: readonly CheckoutSellListLineRow[];
+  count: number;
+  latestConfirmation?: CheckoutSellListConfirmationRow | null;
+}>;
+
+function checkoutApiErrorStatus(error: unknown) {
+  const status = (error as { status?: unknown })?.status;
+  return typeof status === "number" ? status : null;
+}
+
+function checkoutApiErrorBody(error: unknown) {
+  return typeof error === "object" && error !== null && "body" in error ? (error as { body: unknown }).body : null;
+}
+
+function checkoutApiErrorCode(error: unknown) {
+  const body = checkoutApiErrorBody(error);
+  const apiError = typeof body === "object" && body !== null && "error" in body ? body.error : null;
+  const code = typeof apiError === "object" && apiError !== null ? (apiError as { code?: unknown }).code : null;
+  return code === null || code === undefined ? null : String(code);
+}
+
+async function loadAccountSellList(request: Request, load: () => Promise<AccountSellList>) {
+  try {
+    const sellList = await loadFreshlyWrittenResource({
+      request,
+      load,
+      isNotFound: (error) => checkoutApiErrorStatus(error) === 404,
+    });
+    return { sellList, freshnessError: null };
+  } catch (error) {
+    const recovery = recoverFreshWriteReadError({
+      request,
+      error,
+      getStatus: checkoutApiErrorStatus,
+      getErrorCode: checkoutApiErrorCode,
+      getBody: checkoutApiErrorBody,
+      recoverTransient: () => ({
+        sellList: { items: [], count: 0, latestConfirmation: null },
+        freshnessError: t("checkout.routes.accountSellList.sell.list.request.failed"),
+      }),
+    });
+    if (recovery) {
+      return recovery;
+    }
+
+    throw error;
+  }
+}
 
 function moneyValue(value: string | null | undefined) {
   const amount = Number(value);
@@ -356,13 +411,14 @@ export async function loader({ request }: LoaderFunctionArgs) {
     }
   }
 
-  const sellList = await api.getSellList();
+  const { sellList, freshnessError } = await loadAccountSellList(request, () => api.getSellList());
 
   return {
     isSignedIn: true,
     registrationReturn,
     mergedLineCount,
     mergeError,
+    freshnessError,
     sellList,
     offerReviews: await loadSellListOfferReviews(request, sellList.items, {
       includeStandardComparison: registrationReturn === "seller-checkout",
@@ -758,7 +814,7 @@ export default function CheckoutAccountSellListRoute() {
       registrationReturn={data.registrationReturn}
       mergedLineCount={data.mergedLineCount}
       mergeError={data.mergeError}
-      errorMessage={actionData?.error ?? null}
+      errorMessage={actionData?.error ?? ("freshnessError" in data ? data.freshnessError : null)}
     />
   );
 }

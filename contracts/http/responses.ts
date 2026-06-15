@@ -27,6 +27,12 @@ export interface ResponseMetadata {
   consistency: ResponseConsistencyMetadata | null;
 }
 
+export type CommandReceiptMetadata = ResponseConsistencyMetadata;
+
+export type MutationResult<T extends object> = T & {
+  readonly commandReceipt: CommandReceiptMetadata | null;
+};
+
 export type ApiErrorCode =
   | "authentication_required"
   | "authorization_forbidden"
@@ -147,6 +153,10 @@ type MetadataCarrier = {
   [RESPONSE_METADATA]?: ResponseMetadata;
 };
 
+type CommandReceiptCarrier = {
+  commandReceipt?: CommandReceiptMetadata | null;
+};
+
 export function readResponseConsistencyMetadata(
   response: Pick<Response, "headers">,
 ): ResponseConsistencyMetadata | null {
@@ -175,10 +185,17 @@ export function attachResponseMetadata<T>(body: T, response: Pick<Response, "hea
     return body;
   }
 
+  const consistency = readResponseConsistencyMetadata(response);
+
   Object.defineProperty(body, RESPONSE_METADATA, {
     value: {
-      consistency: readResponseConsistencyMetadata(response),
+      consistency,
     } satisfies ResponseMetadata,
+    enumerable: false,
+  });
+
+  Object.defineProperty(body, "commandReceipt", {
+    value: consistency,
     enumerable: false,
   });
 
@@ -191,6 +208,15 @@ export function getResponseMetadata(value: unknown): ResponseMetadata | null {
   }
 
   return (value as MetadataCarrier)[RESPONSE_METADATA] ?? null;
+}
+
+export function getMutationResultCommandReceipt(value: unknown): CommandReceiptMetadata | null {
+  if (typeof value !== "object" || value === null) {
+    return null;
+  }
+
+  const commandReceipt = (value as CommandReceiptCarrier).commandReceipt;
+  return commandReceipt && typeof commandReceipt === "object" ? commandReceipt : null;
 }
 
 function pathFromUrl(url: URL, originalPath: string): string {
@@ -318,9 +344,12 @@ export function decodeFreshWriteReceipt(
 }
 
 function consistencyMetadataFromSource(source: unknown): ResponseConsistencyMetadata | null {
-  return typeof source === "object" && source !== null && ("commitPosition" in source || "commitPositions" in source)
-    ? (source as ResponseConsistencyMetadata)
-    : (getResponseMetadata(source)?.consistency ?? null);
+  return (
+    getMutationResultCommandReceipt(source) ??
+    (typeof source === "object" && source !== null && ("commitPosition" in source || "commitPositions" in source)
+      ? (source as ResponseConsistencyMetadata)
+      : (getResponseMetadata(source)?.consistency ?? null))
+  );
 }
 
 function maxCommitPosition(left: string | undefined, right: string | undefined) {
