@@ -560,6 +560,7 @@ export type ProviderOptionQueryServices = Readonly<{
     cursor?: string | null;
     limit?: number | null;
     forceRefresh?: boolean | null;
+    cacheOnly?: boolean | null;
   }) => Promise<CatalogProviderOptionQueryPage>;
   listIntegrationOptions: (input: {
     providerKey: string;
@@ -3557,6 +3558,7 @@ async function queryProviderIntegrationOptions(
     cursor?: string | null;
     limit?: number | null;
     forceRefresh?: boolean | null;
+    cacheOnly?: boolean | null;
   },
   db: PgQueryable | null,
   rolloutControlPolicy: CatalogIntegrationRolloutControlPolicy | null,
@@ -3579,12 +3581,13 @@ async function queryProviderIntegrationOptions(
     providerKey: input.providerKey,
   });
   const blockingControls = decision?.controls ?? [];
-  const cacheOnly =
+  const rolloutCacheOnly =
     blockingControls.length > 0 &&
     blockingControls.every((control) => control.controlId === "provider-option-queries-cache-only");
-  if (decision && !decision.allowed && !cacheOnly) {
+  if (decision && !decision.allowed && !rolloutCacheOnly) {
     throw new CatalogIntegrationRolloutControlError(decision);
   }
+  const cacheOnly = input.cacheOnly === true || rolloutCacheOnly;
 
   const versions = await profileVersions.listProfileVersions();
   const activeOptionQueryVersions = versions.filter(isActiveProviderOptionQueryProfileVersion);

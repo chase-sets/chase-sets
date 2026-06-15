@@ -39,6 +39,23 @@ describe("Catalog provider profile review", () => {
       },
       hasExecutableMappingContract: true,
     });
+    expect(reviews.find((review) => review.providerKey === "tcgdex")?.sourceOptionKinds).toEqual([
+      expect.objectContaining({
+        queryKind: "languages",
+        scope: "language",
+        parentScope: null,
+      }),
+      expect.objectContaining({
+        queryKind: "series",
+        scope: "series",
+        parentScope: "language",
+      }),
+      expect.objectContaining({
+        queryKind: "expansions",
+        scope: "expansion",
+        parentScope: "series",
+      }),
+    ]);
   });
 
   it("dry-runs executable profiles with redacted payload and mapping evidence", async () => {

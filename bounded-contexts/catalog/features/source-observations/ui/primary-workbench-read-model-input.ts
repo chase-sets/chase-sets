@@ -10,6 +10,7 @@ import type {
   SourceObservationListItem,
 } from "./contracts";
 import type { CatalogPrimaryWorkbenchTemporaryReleaseScaffoldingInput } from "./primary-workbench-clean-reset-release";
+import type { CatalogPrimaryWorkbenchSourceOptionPageSnapshot } from "./primary-workbench-source-options";
 
 export type CatalogPrimaryWorkbenchInput = Readonly<{
   requestUrl: string | URL;
@@ -22,6 +23,7 @@ export type CatalogPrimaryWorkbenchInput = Readonly<{
   lifecycleImpacts?: Partial<
     Record<CatalogPrimaryWorkbenchLifecycleOperation, CatalogAdminRollbackRetirementImpactSummaryReadModel>
   > | null;
+  sourceOptionPages?: readonly CatalogPrimaryWorkbenchSourceOptionPageSnapshot[] | null;
   reviewObservations?: ListResponse<SourceObservationListItem> | null;
   reviewPagination?: Readonly<{ limit: number; offset: number }>;
   canManageCatalog: boolean;

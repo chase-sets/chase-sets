@@ -3,11 +3,18 @@ import type {
   CatalogIntegrationControlPlaneOverview,
   CatalogIntegrationRecentJobSummary,
   CatalogProviderProfileAuthoringModel,
+  CatalogProviderSourceOptionKind,
   CatalogProviderProfileVersionReview,
   SourceObservationListItem,
   SourceObservationIntegrationScope,
 } from "./contracts";
 import { tcgdexPokemonCardSourceObservationMappingContract } from "../api/tcgdex-executable-mapping-contract";
+import {
+  scrydexScryfallCardProviderProfile,
+  tcgdexPokemonTcgProviderProfile,
+  tcgplayerAutomationClientProviderProfile,
+  type CatalogProviderIntegrationProfile,
+} from "../api/provider-integration-profiles";
 
 export function sourceObservationScope(
   overrides: Partial<SourceObservationIntegrationScope> = {},
@@ -64,9 +71,10 @@ export function profileReview(
     retirementPlan: null,
     executableMappingContract: {},
     referenceCount: 0,
-    capabilities: ["source-observation-import", "promotion-command-plan"],
+    capabilities: ["provider-option-query", "source-observation-import", "promotion-command-plan"],
     supportedScopes: ["pokemon/card"],
     languageOptions: ["en"],
+    sourceOptionKinds: sourceOptionKindsForProvider(overrides.providerKey ?? "tcgdex"),
     mappingOutputKind: "provider-product",
     hasExecutableMappingContract: true,
     migrationEvidence: null,
@@ -77,6 +85,37 @@ export function profileReview(
     },
     ...overrides,
   };
+}
+
+function sourceOptionKindsForProvider(providerKey: string): CatalogProviderSourceOptionKind[] {
+  const profile = {
+    scrydex: scrydexScryfallCardProviderProfile,
+    tcgdex: tcgdexPokemonTcgProviderProfile,
+    tcgplayer: tcgplayerAutomationClientProviderProfile,
+  }[providerKey] as CatalogProviderIntegrationProfile | undefined;
+
+  return (profile ?? tcgdexPokemonTcgProviderProfile).optionQueries.map((query) => ({
+    queryKind: query.queryKind,
+    aliases: [...sourceOptionQueryAliases(query)],
+    displayName: query.displayName,
+    scope: query.scope,
+    parentScope: query.parentScope,
+    parentRequired: sourceOptionQueryParentValue(query)?.required ?? false,
+    parentValueKind: sourceOptionQueryParentValue(query)?.valueKind ?? null,
+    parentDiagnosticText: sourceOptionQueryParentValue(query)?.diagnosticText ?? null,
+  }));
+}
+
+function sourceOptionQueryAliases(
+  query: CatalogProviderIntegrationProfile["optionQueries"][number],
+): readonly string[] {
+  return "aliases" in query ? (query.aliases ?? []) : [];
+}
+
+function sourceOptionQueryParentValue(
+  query: CatalogProviderIntegrationProfile["optionQueries"][number],
+): Readonly<{ required: boolean; valueKind: string; diagnosticText: string }> | null {
+  return "parentValue" in query ? (query.parentValue ?? null) : null;
 }
 
 export function profileAuthoringModel(

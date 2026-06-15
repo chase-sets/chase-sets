@@ -13,6 +13,7 @@ import type { CatalogAdminRollbackRetirementImpactSummaryReadModel } from "../..
 import type {
   CatalogProviderProfileAuthoringModel,
   CatalogIntegrationControlPlaneOverview,
+  SourceObservationIntegrationOptionResponse,
 } from "../../../features/source-observations/ui/contracts";
 import {
   loaderTelemetryEvents,
@@ -20,7 +21,9 @@ import {
 } from "../../../features/source-observations/ui/primary-workbench-telemetry";
 import {
   buildCatalogPrimaryWorkbenchReadModelForSurface,
+  buildCatalogPrimaryWorkbenchSourceOptionRequests,
   buildCatalogPrimaryWorkbenchSourceObservationReviewQuery,
+  type CatalogPrimaryWorkbenchSourceOptionPageSnapshot,
 } from "../../../features/source-observations/ui/primary-workbench-read-model";
 import { parseCatalogPrimaryWorkbenchRouteContext } from "../../../features/source-observations/ui/primary-workbench-route-context";
 import type { CatalogControlPlaneRouteSurfaceKey } from "../../../features/source-observations/ui/admin-control-plane/information-architecture";
@@ -77,6 +80,7 @@ async function finalizeSurfaceLoad(input: {
   > | null;
   reviewObservations?: ListResponse<SourceObservationListItem> | null;
   reviewPagination?: Readonly<{ limit: number; offset: number }>;
+  sourceOptionPages?: readonly CatalogPrimaryWorkbenchSourceOptionPageSnapshot[] | null;
 }) {
   const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface(input.surface, {
     requestUrl: input.request.url,
@@ -87,6 +91,7 @@ async function finalizeSurfaceLoad(input: {
     controlPlaneOverview: input.baseline.controlPlaneOverview,
     reviewObservations: input.reviewObservations ?? null,
     reviewPagination: input.reviewPagination,
+    sourceOptionPages: input.sourceOptionPages ?? null,
     canManageCatalog: true,
   });
   await recordCatalogControlPlaneEvents(input.api, loaderTelemetryEvents(readModel));
@@ -113,9 +118,10 @@ export async function loadDailySurface({ request }: LoaderFunctionArgs) {
   const { api, baseline, routeContext } = await loadIntegrationsBaseline(request);
   const reviewPagination = { limit: 25, offset: 0 };
   const reviewQuery = buildCatalogPrimaryWorkbenchSourceObservationReviewQuery(routeContext, reviewPagination);
-  const reviewObservations = reviewQuery
-    ? await api.listSourceObservations<ListResponse<SourceObservationListItem>>(reviewQuery)
-    : null;
+  const [reviewObservations, sourceOptionPages] = await Promise.all([
+    reviewQuery ? api.listSourceObservations<ListResponse<SourceObservationListItem>>(reviewQuery) : null,
+    selectedProviderSourceOptionPages(api, request, baseline, routeContext),
+  ]);
 
   return finalizeSurfaceLoad({
     api,
@@ -124,6 +130,7 @@ export async function loadDailySurface({ request }: LoaderFunctionArgs) {
     baseline,
     reviewObservations,
     reviewPagination,
+    sourceOptionPages,
   });
 }
 
@@ -211,6 +218,94 @@ async function selectedProviderProfileAuthoringModel(
     }
     throw error;
   }
+}
+
+async function selectedProviderSourceOptionPages(
+  api: ReturnType<typeof createCatalogRequestApiClient>,
+  request: Request,
+  baseline: CatalogIntegrationsBaseline,
+  routeContext: CatalogPrimaryWorkbenchRouteContext,
+): Promise<readonly CatalogPrimaryWorkbenchSourceOptionPageSnapshot[]> {
+  if (typeof api.listSourceObservationIntegrationOptions !== "function") {
+    return [];
+  }
+
+  const requests = buildCatalogPrimaryWorkbenchSourceOptionRequests({
+    requestUrl: request.url,
+    scopes: baseline.routeData.data.items,
+    profiles: baseline.profileReviews.items,
+    routeContext,
+    cacheOnly: true,
+  });
+
+  return Promise.all(
+    requests.map(async (sourceOptionRequest): Promise<CatalogPrimaryWorkbenchSourceOptionPageSnapshot> => {
+      if (
+        sourceOptionRequest.parentRequired &&
+        sourceOptionRequest.parentScope !== null &&
+        !sourceOptionRequest.selectedParentValue
+      ) {
+        return { request: sourceOptionRequest };
+      }
+
+      try {
+        const query = new URL(sourceOptionRequest.queryHref, request.url).searchParams.toString();
+        const response =
+          await api.listSourceObservationIntegrationOptions<SourceObservationIntegrationOptionResponse>(query);
+        return { request: sourceOptionRequest, response };
+      } catch (error) {
+        return { request: sourceOptionRequest, error: sourceOptionPageError(error) };
+      }
+    }),
+  );
+}
+
+function sourceOptionPageError(error: unknown): CatalogPrimaryWorkbenchSourceOptionPageSnapshot["error"] {
+  if (error instanceof CatalogApiError) {
+    const parsed = catalogApiErrorBody(error.body);
+    return {
+      status: error.status,
+      code: parsed.code,
+      message: parsed.message,
+      rolloutBlocked: error.status === 403 && parsed.code === "catalog_integration_rollout_control_denied",
+    };
+  }
+
+  return {
+    status: null,
+    code: "catalog_provider_option_query_unavailable",
+    message: error instanceof Error ? error.message : "Provider source options are unavailable.",
+    rolloutBlocked: false,
+  };
+}
+
+function catalogApiErrorBody(body: unknown): Readonly<{ code: string; message: string }> {
+  if (typeof body !== "object" || body === null || !("error" in body)) {
+    return {
+      code: "catalog_provider_option_query_unavailable",
+      message: "Provider source options are unavailable.",
+    };
+  }
+
+  const errorBody = (body as Readonly<{ error?: unknown }>).error;
+  if (typeof errorBody !== "object" || errorBody === null) {
+    return {
+      code: "catalog_provider_option_query_unavailable",
+      message: String(errorBody ?? "Provider source options are unavailable."),
+    };
+  }
+
+  const fields = errorBody as Readonly<Record<string, unknown>>;
+  return {
+    code:
+      typeof fields.code === "string" && fields.code.trim()
+        ? fields.code.trim()
+        : "catalog_provider_option_query_unavailable",
+    message:
+      typeof fields.message === "string" && fields.message.trim()
+        ? fields.message.trim()
+        : "Provider source options are unavailable.",
+  };
 }
 
 async function selectedProviderProfileLifecycleImpacts(

@@ -197,7 +197,7 @@ describe("source observation routes: integration discovery and profile administr
     const app = buildApp(services);
 
     const response = await app.request(
-      "/source-observations/integration-options?provider=tcgdex&kind=expansions&language=en&seriesId=me&cursor=offset:1&limit=1&forceRefresh=true",
+      "/source-observations/integration-options?provider=tcgdex&kind=expansions&language=en&seriesId=me&cursor=offset:1&limit=1&forceRefresh=true&cacheOnly=true",
     );
 
     expect(response.status).toBe(200);
@@ -216,6 +216,7 @@ describe("source observation routes: integration discovery and profile administr
       cursor: "offset:1",
       limit: 1,
       forceRefresh: true,
+      cacheOnly: true,
     });
   });
 

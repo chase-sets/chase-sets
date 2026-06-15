@@ -22,6 +22,7 @@ describe("Admin Control Plane read-model contracts", () => {
     const requiredKeys: readonly CatalogAdminControlPlaneQueryKey[] = [
       "integration-health-summary",
       "provider-transport-readiness-summary",
+      "provider-source-options",
       "active-profile-version-summary",
       "profile-section-status-summary",
       "adapter-transport-diagnostics",
@@ -80,6 +81,11 @@ describe("Admin Control Plane read-model contracts", () => {
     expect(getCatalogAdminControlPlaneQueryContract("adapter-transport-diagnostics")).toMatchObject({
       grouping: "provider-adapter",
       unitKey: "optional",
+    });
+    expect(getCatalogAdminControlPlaneQueryContract("provider-source-options")).toMatchObject({
+      grouping: "provider",
+      unitKey: "optional",
+      freshness: "request-time",
     });
   });
 

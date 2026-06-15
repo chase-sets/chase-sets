@@ -48,6 +48,7 @@ export function providerOptionRoutes(services: ProviderOptionRouteServices) {
     const cursor = c.req.query("cursor");
     const limit = positiveIntegerQueryValue(c.req.query("limit"));
     const forceRefresh = c.req.query("forceRefresh") === "true";
+    const cacheOnly = c.req.query("cacheOnly") === "true";
 
     try {
       if (typeof services.queryIntegrationOptions === "function") {
@@ -59,6 +60,7 @@ export function providerOptionRoutes(services: ProviderOptionRouteServices) {
           cursor,
           limit,
           forceRefresh,
+          ...(cacheOnly ? { cacheOnly } : {}),
         });
         return c.json(page);
       }

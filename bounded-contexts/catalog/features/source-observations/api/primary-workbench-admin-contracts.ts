@@ -1,3 +1,4 @@
+import type { JsonValue } from "@chase-sets/primitives/json";
 import type {
   CatalogAdminControlPlaneFreshnessState,
   CatalogAdminControlPlanePaginationMode,
@@ -314,6 +315,7 @@ export type CatalogPrimaryWorkbenchReadModel = Readonly<{
   generatedAt: string;
   routeContext: CatalogPrimaryWorkbenchRouteContext;
   providerScope: CatalogPrimaryWorkbenchProviderScopeReadModel;
+  sourceOptions: CatalogPrimaryWorkbenchSourceOptionsReadModel;
   readiness: CatalogPrimaryWorkbenchReadinessReadModel;
   healthTriage: CatalogPrimaryWorkbenchHealthTriageReadModel;
   profileAuthoring: CatalogPrimaryWorkbenchProfileAuthoringReadModel;
@@ -358,6 +360,119 @@ export type CatalogPrimaryWorkbenchProviderScopeReadModel = Readonly<{
       activeProfile: CatalogAdminProfileVersionPointer | null;
     }>[];
   }>[];
+}>;
+
+export type CatalogPrimaryWorkbenchSourceOptionsStatus = "ready" | "degraded" | "blocked" | "unavailable";
+
+export type CatalogPrimaryWorkbenchSourceOptionPageState =
+  | "live"
+  | "cached"
+  | "stale"
+  | "unavailable"
+  | "rollout-blocked"
+  | "not-requested";
+
+export type CatalogPrimaryWorkbenchSourceOptionKindReadModel = Readonly<{
+  queryKind: string;
+  aliases: readonly string[];
+  displayName: string;
+  scope: string;
+  parentScope: string | null;
+  parent: Readonly<{
+    scope: string | null;
+    required: boolean;
+    valueKind: string | null;
+    diagnosticText: string | null;
+    selectedValue: string | null;
+    selectedLabel: string | null;
+    missing: boolean;
+  }>;
+}>;
+
+export type CatalogPrimaryWorkbenchSourceOptionPageReadModel = Readonly<{
+  queryKind: string;
+  displayName: string;
+  scope: string;
+  state: CatalogPrimaryWorkbenchSourceOptionPageState;
+  actionState: CatalogPrimaryWorkbenchActionState;
+  blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
+  degraded: boolean;
+  request: Readonly<{
+    providerKey: string;
+    languageCode: string | null;
+    parentValue: string | null;
+    cursor: string | null;
+    limit: number;
+    cacheOnly: boolean;
+  }>;
+  page: Readonly<{
+    cursor: string | null;
+    nextCursor: string | null;
+    limit: number;
+    hasMore: boolean;
+    total: number;
+    count: number;
+  }>;
+  cache: Readonly<{
+    status: "fresh" | "stale" | "miss" | "bypass" | "unavailable";
+    source: "cache" | "live" | "none";
+    cacheKey: string | null;
+    fetchedAt: string | null;
+    expiresAt: string | null;
+    staleUntil: string | null;
+    cacheOnly: boolean;
+    forceRefresh: boolean;
+    degraded: boolean;
+    diagnostics: readonly Readonly<{
+      code: string;
+      severity: "info" | "warning" | "error";
+      message: string;
+      retryAfterSeconds: number | null;
+    }>[];
+  }>;
+  items: readonly Readonly<{
+    providerKey: string;
+    queryKind: string;
+    value: string;
+    label: string;
+    description: string | null;
+    parentValue: string | null;
+    imageUrl: string | null;
+    metadata: Readonly<Record<string, JsonValue>>;
+  }>[];
+  queryHref: string;
+  refreshHref: string | null;
+  nextPageHref: string | null;
+}>;
+
+export type CatalogPrimaryWorkbenchSourceOptionsReadModel = Readonly<{
+  status: CatalogPrimaryWorkbenchSourceOptionsStatus;
+  freshness: CatalogAdminControlPlaneFreshnessState;
+  generatedAt: string;
+  selectedProviderKey: string | null;
+  selectedUnitKey: CatalogIntegrationUnitKey | null;
+  selectedProfile: CatalogAdminProfileVersionPointer | null;
+  summary: Readonly<{
+    declaredKinds: number;
+    loadedPages: number;
+    availableOptions: number;
+    stalePages: number;
+    degradedPages: number;
+    unavailablePages: number;
+    rolloutBlockedPages: number;
+    blockedPages: number;
+    missingParentPages: number;
+    hasMorePages: number;
+  }>;
+  optionKinds: readonly CatalogPrimaryWorkbenchSourceOptionKindReadModel[];
+  pages: readonly CatalogPrimaryWorkbenchSourceOptionPageReadModel[];
+  refresh: Readonly<{
+    state: CatalogPrimaryWorkbenchActionState;
+    blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
+    refreshAllHref: string | null;
+    cacheOnly: boolean;
+    forceRefreshSupported: boolean;
+  }>;
 }>;
 
 export type CatalogPrimaryWorkbenchReadinessReadModel = Readonly<{
@@ -1581,7 +1696,12 @@ export const catalogPrimaryWorkbenchSections = [
   section({
     key: "provider-scope-selection",
     defaultVisible: true,
-    queryKeys: ["integration-health-summary", "provider-transport-readiness-summary", "active-profile-version-summary"],
+    queryKeys: [
+      "integration-health-summary",
+      "provider-transport-readiness-summary",
+      "active-profile-version-summary",
+      "provider-source-options",
+    ],
     commands: ["select-provider-scope"],
     freshnessStates: ["fresh", "stale", "partial", "unavailable"],
     pagination: "none",
@@ -2403,6 +2523,8 @@ export function validateCatalogPrimaryWorkbenchReadModelContract(
     assertPrimaryWorkbenchBlockers(actionEntry.blockers);
   }
   assertPrimaryWorkbenchBlockers(value.readiness?.blockers);
+  assertPrimaryWorkbenchBlockers(value.sourceOptions?.refresh.blockers);
+  assertPrimaryWorkbenchBlockers(value.sourceOptions?.pages.flatMap((page) => page.blockers));
   assertPrimaryWorkbenchBlockers(value.importJobs?.selectedScope?.readiness.blockers);
   assertPrimaryWorkbenchBlockers(value.importJobs?.jobs.flatMap((job) => job.blockers));
   assertPrimaryWorkbenchBlockers(
@@ -2419,6 +2541,7 @@ export function validateCatalogPrimaryWorkbenchReadModelContract(
   assertPrimaryWorkbenchBlockers(value.conflictResolution?.overridePolicy.blockers);
   assertPrimaryWorkbenchBlockers(value.promotionPreview?.blockers);
   assertPrimaryWorkbenchConflictResolution(value.conflictResolution);
+  assertPrimaryWorkbenchSourceOptions(value.sourceOptions);
   assertPrimaryWorkbenchGovernanceControls(value.governanceControls);
   assertPrimaryWorkbenchCleanResetRelease(value.cleanResetRelease);
   assertPrimaryWorkbenchAuditEvidence(value.auditEvidence);
@@ -2553,6 +2676,67 @@ function blocker(
     instrumentationDimension: "blocker_category",
     failClosed: true,
   };
+}
+
+function assertPrimaryWorkbenchSourceOptions(
+  value: CatalogPrimaryWorkbenchReadModel["sourceOptions"] | undefined,
+): void {
+  if (!value) {
+    throw new Error("Primary workbench source options contract is required.");
+  }
+  if (!["ready", "degraded", "blocked", "unavailable"].includes(value.status)) {
+    throw new Error("Primary workbench source options status must be explicit.");
+  }
+  if (!["fresh", "stale", "lagging", "partial", "unavailable"].includes(value.freshness)) {
+    throw new Error("Primary workbench source options freshness must be explicit.");
+  }
+  for (const kind of value.optionKinds) {
+    if (!kind.queryKind || !kind.displayName || !kind.scope) {
+      throw new Error("Primary workbench source option kinds must expose canonical query metadata.");
+    }
+    if (kind.parent.required && !kind.parent.scope) {
+      throw new Error("Primary workbench source option required parents must name the parent scope.");
+    }
+    if (kind.parent.missing && !kind.parent.diagnosticText) {
+      throw new Error("Primary workbench source option missing parents require diagnostic text.");
+    }
+  }
+  for (const page of value.pages) {
+    if (!page.queryKind || !page.displayName || !page.scope) {
+      throw new Error("Primary workbench source option pages must preserve option kind identity.");
+    }
+    if (!["live", "cached", "stale", "unavailable", "rollout-blocked", "not-requested"].includes(page.state)) {
+      throw new Error("Primary workbench source option page state must be explicit.");
+    }
+    assertCatalogPrimaryWorkbenchActionState(page.actionState);
+    assertPrimaryWorkbenchBlockers(page.blockers);
+    if (page.request.limit < 1 || page.page.limit < 1) {
+      throw new Error("Primary workbench source option pages must expose positive limits.");
+    }
+    if (page.page.count !== page.items.length) {
+      throw new Error("Primary workbench source option page count must match item count.");
+    }
+    if (!["fresh", "stale", "miss", "bypass", "unavailable"].includes(page.cache.status)) {
+      throw new Error("Primary workbench source option cache status must be explicit.");
+    }
+    if (!["cache", "live", "none"].includes(page.cache.source)) {
+      throw new Error("Primary workbench source option cache source must be explicit.");
+    }
+    if ((page.state === "live" || page.state === "cached" || page.state === "stale") && !page.cache.cacheKey) {
+      throw new Error("Primary workbench source option cached/live pages must include the cache key.");
+    }
+    if (!page.queryHref || /raw-json|legacy|compat/i.test(page.queryHref)) {
+      throw new Error("Primary workbench source option query links must stay on typed option routes.");
+    }
+    if (page.refreshHref && /raw-json|legacy|compat/i.test(page.refreshHref)) {
+      throw new Error("Primary workbench source option refresh links must stay on typed option routes.");
+    }
+  }
+  if (value.summary.declaredKinds !== value.optionKinds.length || value.pages.length !== value.optionKinds.length) {
+    throw new Error("Primary workbench source options must expose one page state per declared option kind.");
+  }
+  assertCatalogPrimaryWorkbenchActionState(value.refresh.state);
+  assertPrimaryWorkbenchBlockers(value.refresh.blockers);
 }
 
 function assertPrimaryWorkbenchConflictResolution(

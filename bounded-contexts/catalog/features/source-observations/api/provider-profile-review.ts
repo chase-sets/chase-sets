@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { toJsonValue, type JsonObject, type JsonValue } from "@chase-sets/primitives/json";
 import type {
+  CatalogProviderOptionQuery,
   CatalogProviderIntegrationProfileAuthoringAudit,
   CatalogProviderIntegrationProfileMigrationEvidence,
   CatalogProviderIntegrationProfileVersionDiagnostic,
@@ -131,6 +132,7 @@ export type CatalogProviderProfileVersionReview = Readonly<{
   capabilities: readonly string[];
   supportedScopes: readonly string[];
   languageOptions: readonly string[];
+  sourceOptionKinds: readonly CatalogProviderSourceOptionKind[];
   mappingOutputKind: string;
   hasExecutableMappingContract: boolean;
   migrationEvidence: CatalogProviderIntegrationProfileMigrationEvidence | null;
@@ -139,6 +141,17 @@ export type CatalogProviderProfileVersionReview = Readonly<{
     status: "valid" | "invalid";
     diagnostics: readonly CatalogProviderProfileReviewDiagnostic[];
   }>;
+}>;
+
+export type CatalogProviderSourceOptionKind = Readonly<{
+  queryKind: string;
+  aliases: readonly string[];
+  displayName: string;
+  scope: string;
+  parentScope: string | null;
+  parentRequired: boolean;
+  parentValueKind: string | null;
+  parentDiagnosticText: string | null;
 }>;
 
 export type CatalogProviderProfileDryRunEvidence = Readonly<{
@@ -1439,6 +1452,7 @@ function toProfileVersionReview(
     capabilities: version.profile.capabilities,
     supportedScopes: version.profile.supportedScopes,
     languageOptions: version.profile.languageOptions,
+    sourceOptionKinds: version.profile.optionQueries.map(toSourceOptionKind),
     mappingOutputKind: version.executableMappingContract?.normalizedObservation.outputKind ?? "unknown",
     hasExecutableMappingContract: Boolean(version.executableMappingContract),
     migrationEvidence: version.migrationEvidence ?? null,
@@ -1447,6 +1461,19 @@ function toProfileVersionReview(
       status: diagnostics.length === 0 ? "valid" : "invalid",
       diagnostics,
     },
+  };
+}
+
+function toSourceOptionKind(query: CatalogProviderOptionQuery): CatalogProviderSourceOptionKind {
+  return {
+    queryKind: query.queryKind,
+    aliases: query.aliases ?? [],
+    displayName: query.displayName,
+    scope: query.scope,
+    parentScope: query.parentScope,
+    parentRequired: query.parentValue?.required ?? false,
+    parentValueKind: query.parentValue?.valueKind ?? null,
+    parentDiagnosticText: query.parentValue?.diagnosticText ?? null,
   };
 }
 

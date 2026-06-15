@@ -321,6 +321,55 @@ describe("Catalog integrations route", () => {
     );
   });
 
+  it("loads cache-only provider source option pages into the daily read model", async () => {
+    const scopes = { items: [sourceObservationScope()], total: 1, count: 1 };
+    const profileReviews = { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 };
+    const listSourceObservationIntegrationOptions = vi.fn(async (query: string) => {
+      const params = new URLSearchParams(query);
+      const queryKind = params.get("queryKind") ?? "";
+      return sourceOptionResponse(queryKind, {
+        status: queryKind === "expansions" ? "stale" : "fresh",
+        source: "cache",
+        parentValue: params.get("parentValue"),
+        degraded: queryKind === "expansions",
+      });
+    });
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listSourceObservationIntegrationScopes: vi.fn().mockResolvedValue(scopes),
+      listSourceObservationProviderProfiles: vi.fn().mockResolvedValue(profileReviews),
+      getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(null),
+      listSourceObservations: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      listSourceObservationIntegrationOptions,
+      recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+    });
+
+    const routeData = await loader({
+      request: new Request(
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1",
+      ),
+      params: {},
+      context: {},
+    } as Parameters<typeof loader>[0]);
+
+    expect(listSourceObservationIntegrationOptions).toHaveBeenCalledTimes(3);
+    const queries = listSourceObservationIntegrationOptions.mock.calls.map(([query]) => query);
+    expect(queries.every((query) => new URLSearchParams(query).get("cacheOnly") === "true")).toBe(true);
+    expect(queries.map((query) => new URLSearchParams(query).get("queryKind"))).toEqual([
+      "languages",
+      "series",
+      "expansions",
+    ]);
+    expect(new URLSearchParams(queries[1]).get("languageCode")).toBe("en");
+    expect(new URLSearchParams(queries[2]).get("parentValue")).toBe("base");
+    expect(
+      Object.fromEntries(routeData.readModel.sourceOptions.pages.map((page) => [page.queryKind, page.state])),
+    ).toEqual({
+      languages: "cached",
+      series: "cached",
+      expansions: "stale",
+    });
+  });
+
   it("renders the providers surface absent-state when the deep-linked profileVersion does not resolve", async () => {
     // A daily-blocker deep-link can carry a provider + a stale/unknown
     // profileVersion (e.g. the operator is meant to author the missing profile).
@@ -1231,6 +1280,77 @@ describe("Catalog integrations route", () => {
     expect(JSON.stringify(failureResult)).not.toContain("provider secret leaked");
   });
 });
+
+function sourceOptionResponse(
+  queryKind: string,
+  input: Readonly<{
+    status: "fresh" | "stale";
+    source: "cache" | "live";
+    parentValue: string | null;
+    degraded: boolean;
+  }>,
+) {
+  const value =
+    queryKind === "languages"
+      ? "en"
+      : queryKind === "series"
+        ? "base"
+        : queryKind === "expansions"
+          ? "base1"
+          : "option";
+  const label =
+    queryKind === "languages"
+      ? "English"
+      : queryKind === "series"
+        ? "Base"
+        : queryKind === "expansions"
+          ? "Base Set"
+          : "Option";
+
+  return {
+    items: [
+      {
+        providerKey: "tcgdex",
+        queryKind,
+        value,
+        label,
+        description: null,
+        parentValue: input.parentValue,
+        imageUrl: null,
+        metadata: {},
+      },
+    ],
+    total: 1,
+    count: 1,
+    page: {
+      cursor: null,
+      nextCursor: null,
+      limit: 25,
+      hasMore: false,
+    },
+    cache: {
+      status: input.status,
+      source: input.source,
+      cacheKey: `sha256:${queryKind}`,
+      fetchedAt: "2026-06-09T00:00:00.000Z",
+      expiresAt: "2026-06-09T00:15:00.000Z",
+      staleUntil: "2026-06-10T00:00:00.000Z",
+      cacheOnly: true,
+      forceRefresh: false,
+      degraded: input.degraded,
+      diagnostics: input.degraded
+        ? [
+            {
+              code: "provider-option-query-stale-cache-used",
+              severity: "warning",
+              message: "Provider option query used stale cache.",
+              retryAfterSeconds: null,
+            },
+          ]
+        : [],
+    },
+  };
+}
 
 function lifecycleConfirmationValue(intent: string, providerKey: string, profileVersion: string): string {
   return `confirm:${intent}:${providerKey}:${profileVersion}`;

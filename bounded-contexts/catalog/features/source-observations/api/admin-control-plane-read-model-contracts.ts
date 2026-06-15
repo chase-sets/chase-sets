@@ -20,6 +20,7 @@ import type { CatalogProviderProfileSectionStatus } from "./provider-profile-rev
 export type CatalogAdminControlPlaneQueryKey =
   | "integration-health-summary"
   | "provider-transport-readiness-summary"
+  | "provider-source-options"
   | "active-profile-version-summary"
   | "profile-section-status-summary"
   | "adapter-transport-diagnostics"
@@ -37,6 +38,7 @@ export type CatalogAdminControlPlaneQueryKey =
 export type CatalogAdminControlPlaneReadModelName =
   | "CatalogAdminIntegrationHealthSummaryReadModel"
   | "CatalogAdminProviderTransportReadinessSummaryReadModel"
+  | "CatalogAdminProviderSourceOptionsReadModel"
   | "CatalogAdminActiveProfileVersionSummaryReadModel"
   | "CatalogAdminProfileSectionStatusSummaryReadModel"
   | "CatalogAdminAdapterTransportDiagnosticsReadModel"
@@ -79,6 +81,9 @@ export type CatalogAdminControlPlaneSourceKind =
 export type CatalogAdminControlPlaneErrorCode =
   | "adapter_unavailable"
   | "credential_unavailable"
+  | "provider_option_query_unavailable"
+  | "provider_option_query_rollout_blocked"
+  | "provider_option_parent_required"
   | "source_projection_stale"
   | "profile_version_missing"
   | "profile_section_projection_missing"
@@ -122,6 +127,7 @@ export type CatalogAdminControlPlaneQueryContract = Readonly<{
 export const catalogAdminControlPlaneQueryKeys = [
   "integration-health-summary",
   "provider-transport-readiness-summary",
+  "provider-source-options",
   "active-profile-version-summary",
   "profile-section-status-summary",
   "adapter-transport-diagnostics",
@@ -176,6 +182,31 @@ export const catalogAdminControlPlaneQueryContracts = [
       errorState("adapter_unavailable", "blocked", "Provider adapter transport diagnostics are unavailable."),
       errorState("credential_unavailable", "blocked", "Provider credential readiness is unavailable."),
       errorState("permission_denied", "blocked", "Operator lacks permission to inspect provider transport readiness."),
+    ],
+  }),
+  contract({
+    key: "provider-source-options",
+    readModelName: "CatalogAdminProviderSourceOptionsReadModel",
+    routeIntent:
+      "Compose active-profile provider source option kinds, parent requirements, cached pages, and refresh affordances.",
+    grouping: "provider",
+    unitKey: "optional",
+    freshness: "request-time",
+    sources: [
+      runtimeSource("ProviderOptionQueryServices.queryIntegrationOptions"),
+      tableSource("catalog_provider_integration_profile_versions"),
+      tableSource("catalog_provider_option_query_cache"),
+    ],
+    errorStates: [
+      errorState("provider_option_query_unavailable", "degraded", "Provider option cache or transport is unavailable."),
+      errorState(
+        "provider_option_query_rollout_blocked",
+        "blocked",
+        "Provider option queries are blocked by rollout controls.",
+      ),
+      errorState("provider_option_parent_required", "empty", "A parent source option must be selected first."),
+      errorState("profile_version_missing", "empty", "No active profile version declares source option kinds."),
+      errorState("permission_denied", "blocked", "Operator lacks permission to inspect provider source options."),
     ],
   }),
   contract({
@@ -437,6 +468,7 @@ export function getCatalogAdminControlPlaneQueryContract(
 export const catalogAdminControlPlaneQueryGovernanceDataClasses = {
   "integration-health-summary": ["dry-run-output-evidence", "engine-diagnostic", "provider-credential-readiness"],
   "provider-transport-readiness-summary": ["provider-transport-diagnostic", "provider-credential-readiness"],
+  "provider-source-options": ["engine-diagnostic", "provider-transport-diagnostic"],
   "active-profile-version-summary": ["audit-evidence"],
   "profile-section-status-summary": ["engine-diagnostic", "audit-evidence"],
   "adapter-transport-diagnostics": ["provider-transport-diagnostic", "provider-credential-readiness"],
