@@ -155,44 +155,6 @@
       ]
     }
   ],
-  "mutationConsistencyInventory": [
-    {
-      "id": "auth.deployable-shell-sign-out-forms",
-      "owner": "auth",
-      "risk": "important",
-      "strategy": "snapshot-return",
-      "surfaces": [
-        "post-form:deployables/admin-web/app/admin-account-menu.tsx:Heda552c623b5#1",
-        "post-form:deployables/marketplace/app/routes/layout.tsx:H471446951fc0#1",
-        "post-form:deployables/marketplace/app/routes/layout.tsx:Hb720c9850c28#1",
-        "post-form:deployables/marketplace/app/routes/layout.tsx:Hcebdacd493da#1"
-      ],
-      "visibleDestination": {
-        "description": "Deployable shell POST forms submit to Auth-owned sign-out and guest-checkout-exit route actions. The action response is the authoritative visible result: Auth revokes the applicable session or guest-checkout token, clears browser session cookies, and redirects to the host signed-out destination without waiting on a projection-backed read model."
-      },
-      "proof": {
-        "authoritativeResponse": "bounded-contexts/auth/support/route-support/auth-host.test.ts proves sign-out revokes guest checkout and session state, clears both cookies, and returns the signed-out redirect; deployables/admin-web/app/admin-layouts.test.tsx and deployables/marketplace/app/routes/layout.test.tsx prove the composition-root forms point at the Auth-owned POST routes.",
-        "tests": [
-          "pnpm --filter @chase-sets/auth run test -- support/route-support/auth-host.test.ts",
-          "pnpm --filter @chase-sets/app-admin-web run test -- app/admin-layouts.test.tsx",
-          "pnpm --filter @chase-sets/app-marketplace-web run test -- app/routes/layout.test.tsx"
-        ]
-      }
-    },
-    {
-      "id": "auth.admin-registration-disabled-host-guard",
-      "owner": "auth",
-      "risk": "important",
-      "strategy": "read-model-neutral",
-      "surfaces": ["api-route:deployables/admin-support-api/src/app.ts:POST /api/auth/register"],
-      "exception": {
-        "owner": "auth",
-        "reviewBy": "2026-09-30",
-        "issue": "#1819",
-        "reason": "The admin-support-api composition root rejects admin self-registration before any Auth command runs when ADMIN_REGISTRATION_ENABLED is false. deployables/admin-support-api/__tests__/app.test.ts proves the POST returns the authoritative registration_disabled response and does not depend on a projection-backed post-write read."
-      }
-    }
-  ],
   "deployableContributions": [
     {
       "deployable": "admin-web",
@@ -494,6 +456,42 @@
     }
   ],
   "mutationConsistencyInventory": [
+    {
+      "id": "auth.deployable-shell-sign-out-forms",
+      "owner": "auth",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "post-form:deployables/admin-web/app/admin-account-menu.tsx:Heda552c623b5#1",
+        "post-form:deployables/marketplace/app/routes/layout.tsx:H471446951fc0#1",
+        "post-form:deployables/marketplace/app/routes/layout.tsx:Hb720c9850c28#1",
+        "post-form:deployables/marketplace/app/routes/layout.tsx:Hcebdacd493da#1"
+      ],
+      "visibleDestination": {
+        "description": "Deployable shell POST forms submit to Auth-owned sign-out and guest-checkout-exit route actions. The action response is the authoritative visible result: Auth revokes the applicable session or guest-checkout token, clears browser session cookies, and redirects to the host signed-out destination without waiting on a projection-backed read model."
+      },
+      "proof": {
+        "authoritativeResponse": "bounded-contexts/auth/support/route-support/auth-host.test.ts proves sign-out revokes guest checkout and session state, clears both cookies, and returns the signed-out redirect; deployables/admin-web/app/admin-layouts.test.tsx and deployables/marketplace/app/routes/layout.test.tsx prove the composition-root forms point at the Auth-owned POST routes.",
+        "tests": [
+          "pnpm --filter @chase-sets/auth run test -- support/route-support/auth-host.test.ts",
+          "pnpm --filter @chase-sets/app-admin-web run test -- app/admin-layouts.test.tsx",
+          "pnpm --filter @chase-sets/app-marketplace-web run test -- app/routes/layout.test.tsx"
+        ]
+      }
+    },
+    {
+      "id": "auth.admin-registration-disabled-host-guard",
+      "owner": "auth",
+      "risk": "important",
+      "strategy": "read-model-neutral",
+      "surfaces": ["api-route:deployables/admin-support-api/src/app.ts:POST /api/auth/register"],
+      "exception": {
+        "owner": "auth",
+        "reviewBy": "2026-09-30",
+        "issue": "#1819",
+        "reason": "The admin-support-api composition root rejects admin self-registration before any Auth command runs when ADMIN_REGISTRATION_ENABLED is false. deployables/admin-support-api/__tests__/app.test.ts proves the POST returns the authoritative registration_disabled response and does not depend on a projection-backed post-write read."
+      }
+    },
     {
       "id": "auth.session-detail-fresh-read",
       "owner": "auth",
