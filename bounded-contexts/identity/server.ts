@@ -45,19 +45,26 @@ export function createIdentityRequestApiClient(request: Request) {
   });
 }
 
+export type IdentityCommandSnapshot = Readonly<{
+  aggregate: "account" | "api-key" | "consent" | "invitation" | "membership" | "user";
+  id: string;
+  version: number;
+  status: string;
+}>;
+
 export type IdentityAuthMutationClient = Readonly<{
   createGuestAccount: (
     params: Readonly<{
       email: string;
       displayName: string;
     }>,
-  ) => Promise<Readonly<{ accountId: string }>>;
+  ) => Promise<Readonly<{ accountId: string; snapshots: readonly IdentityCommandSnapshot[] }>>;
   createUser: (
     params: Readonly<{
       email: string;
       displayName: string;
     }>,
-  ) => Promise<Readonly<{ userId: string }>>;
+  ) => Promise<Readonly<{ userId: string; snapshots: readonly IdentityCommandSnapshot[] }>>;
   createPersonalIdentity: (
     params: Readonly<{
       email?: string | null;
@@ -67,24 +74,31 @@ export type IdentityAuthMutationClient = Readonly<{
       familyName?: string;
       consents?: readonly { policyKey: string; policyVersion: string }[];
     }>,
-  ) => Promise<Readonly<{ userId: string; accountId: string; membershipId: string }>>;
+  ) => Promise<
+    Readonly<{
+      userId: string;
+      accountId: string;
+      membershipId: string;
+      snapshots: readonly IdentityCommandSnapshot[];
+    }>
+  >;
   enablePasswordCredential: (
     params: Readonly<{
       userId: string;
       credentialId: string;
     }>,
-  ) => Promise<void>;
+  ) => Promise<Readonly<{ ok: true; userId: string; snapshots: readonly IdentityCommandSnapshot[] }>>;
   registerPasskeyCredential: (
     params: Readonly<{
       userId: string;
       credentialId: string;
     }>,
-  ) => Promise<void>;
+  ) => Promise<Readonly<{ ok: true; userId: string; snapshots: readonly IdentityCommandSnapshot[] }>>;
   enableSmsCode: (
     params: Readonly<{
       userId: string;
     }>,
-  ) => Promise<void>;
+  ) => Promise<Readonly<{ ok: true; userId: string; snapshots: readonly IdentityCommandSnapshot[] }>>;
   linkSocialLogin: (
     params: Readonly<{
       userId: string;
@@ -92,14 +106,14 @@ export type IdentityAuthMutationClient = Readonly<{
       providerSubject: string;
       email: string;
     }>,
-  ) => Promise<void>;
+  ) => Promise<Readonly<{ ok: true; userId: string; snapshots: readonly IdentityCommandSnapshot[] }>>;
   claimGuestAccount: (
     params: Readonly<{
       accountId: string;
       userId: string;
       roleKey: string;
     }>,
-  ) => Promise<Readonly<{ membershipId: string }>>;
+  ) => Promise<Readonly<{ membershipId: string; snapshots: readonly IdentityCommandSnapshot[] }>>;
   acceptInvitationForUser: (
     params: Readonly<{
       invitationId: string;
@@ -107,7 +121,7 @@ export type IdentityAuthMutationClient = Readonly<{
       accountId: string;
       roleKey: string;
     }>,
-  ) => Promise<Readonly<{ membershipId: string }>>;
+  ) => Promise<Readonly<{ membershipId: string; snapshots: readonly IdentityCommandSnapshot[] }>>;
 }>;
 
 async function parseJsonResponse<T>(response: Response): Promise<T> {
@@ -137,22 +151,17 @@ export function createIdentityAuthRequestClient(request: Request): IdentityAuthM
     createGuestAccount: (params) => postJson("guest-accounts", params),
     createUser: (params) => postJson("users", params),
     createPersonalIdentity: (params) => postJson("personal-identities", params),
-    enablePasswordCredential: async ({ userId, credentialId }) => {
-      await postJson(`users/${userId}/password-credential`, { credentialId });
-    },
-    registerPasskeyCredential: async ({ userId, credentialId }) => {
-      await postJson(`users/${userId}/passkey-credential`, { credentialId });
-    },
-    enableSmsCode: async ({ userId }) => {
-      await postJson(`users/${userId}/sms-code`, {});
-    },
-    linkSocialLogin: async ({ userId, providerName, providerSubject, email }) => {
-      await postJson(`users/${userId}/social-login-link`, {
+    enablePasswordCredential: ({ userId, credentialId }) =>
+      postJson(`users/${userId}/password-credential`, { credentialId }),
+    registerPasskeyCredential: ({ userId, credentialId }) =>
+      postJson(`users/${userId}/passkey-credential`, { credentialId }),
+    enableSmsCode: ({ userId }) => postJson(`users/${userId}/sms-code`, {}),
+    linkSocialLogin: ({ userId, providerName, providerSubject, email }) =>
+      postJson(`users/${userId}/social-login-link`, {
         providerName,
         providerSubject,
         email,
-      });
-    },
+      }),
     claimGuestAccount: ({ accountId, userId, roleKey }) =>
       postJson(`guest-accounts/${accountId}/claim`, {
         userId,
