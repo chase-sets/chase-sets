@@ -225,15 +225,38 @@ describe("CatalogWorkbenchShell source-options status panel", () => {
     ).not.toBeNull();
 
     const panelScope = within(panel as HTMLElement);
-    // Reload (cache) is offered per group; force-refresh (live) carries the
-    // forceRefresh href from the read model.
-    expect(panelScope.getAllByRole("link", { name: "Reload" })).toHaveLength(3);
+    // Reload (cache) is offered per group; force-refresh (live) per group. The
+    // operator must stay in the Catalog Integrations workbench, so every control
+    // links to /catalog/integrations with a source-option intent — never to the raw
+    // provider-options API href the read model still carries for the loader.
+    const reload = panelScope.getAllByRole("link", { name: "Reload" });
+    expect(reload).toHaveLength(3);
+    for (const link of reload) {
+      const target = new URL(link.getAttribute("href") ?? "", "https://admin.example");
+      expect(target.pathname).toBe("/catalog/integrations");
+      expect(target.pathname).not.toContain("/api/catalog");
+      expect(target.searchParams.get("sourceOptionAction")).toBe("reload");
+      expect(target.searchParams.get("sourceOptionQueryKind")).toBeTruthy();
+      // Route context is preserved so the reload reopens the same scope.
+      expect(target.searchParams.get("providerKey")).toBe("tcgdex");
+      expect(target.searchParams.has("forceRefresh")).toBe(false);
+    }
+
     const forceRefresh = panelScope.getAllByRole("link", { name: "Force refresh" });
     expect(forceRefresh.length).toBeGreaterThan(0);
-    expect(forceRefresh[0]!.getAttribute("href")).toContain("forceRefresh=true");
+    const forceRefreshTarget = new URL(forceRefresh[0]!.getAttribute("href") ?? "", "https://admin.example");
+    expect(forceRefreshTarget.pathname).toBe("/catalog/integrations");
+    expect(forceRefreshTarget.searchParams.get("sourceOptionAction")).toBe("force-refresh");
+    expect(forceRefreshTarget.searchParams.get("sourceOptionQueryKind")).toBeTruthy();
+    expect(forceRefreshTarget.searchParams.has("forceRefresh")).toBe(false);
 
     const refreshAll = panelScope.getByRole("link", { name: "Refresh all" });
-    expect(refreshAll.getAttribute("href")).toContain("forceRefresh=true");
+    const refreshAllTarget = new URL(refreshAll.getAttribute("href") ?? "", "https://admin.example");
+    expect(refreshAllTarget.pathname).toBe("/catalog/integrations");
+    expect(refreshAllTarget.searchParams.get("sourceOptionAction")).toBe("force-refresh-all");
+    // Refresh-all fans across every group, so it carries no single queryKind.
+    expect(refreshAllTarget.searchParams.has("sourceOptionQueryKind")).toBe(false);
+    expect(refreshAllTarget.searchParams.has("forceRefresh")).toBe(false);
   });
 
   it("flags a group whose required parent scope is not selected yet", () => {

@@ -370,6 +370,83 @@ describe("Catalog integrations route", () => {
     });
   });
 
+  it("force-refreshes every option group when the workbench refresh-all intent is present", async () => {
+    const scopes = { items: [sourceObservationScope()], total: 1, count: 1 };
+    const profileReviews = { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 };
+    const listSourceObservationIntegrationOptions = vi.fn(async (query: string) => {
+      const params = new URLSearchParams(query);
+      const queryKind = params.get("queryKind") ?? "";
+      return sourceOptionResponse(queryKind, {
+        status: "fresh",
+        source: "live",
+        parentValue: params.get("parentValue"),
+        degraded: false,
+      });
+    });
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listSourceObservationIntegrationScopes: vi.fn().mockResolvedValue(scopes),
+      listSourceObservationProviderProfiles: vi.fn().mockResolvedValue(profileReviews),
+      getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(null),
+      listSourceObservations: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      listSourceObservationIntegrationOptions,
+      recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+    });
+
+    await loader({
+      request: new Request(
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&sourceOptionAction=force-refresh-all",
+      ),
+      params: {},
+      context: {},
+    } as Parameters<typeof loader>[0]);
+
+    expect(listSourceObservationIntegrationOptions).toHaveBeenCalledTimes(3);
+    const queries = listSourceObservationIntegrationOptions.mock.calls.map(([query]) => new URLSearchParams(query));
+    // Every request escalates to the force-refresh (live) query; none stays cache-only.
+    expect(queries.every((params) => params.get("forceRefresh") === "true")).toBe(true);
+    expect(queries.some((params) => params.get("cacheOnly") === "true")).toBe(false);
+  });
+
+  it("force-refreshes only the targeted group for a per-group workbench force-refresh intent", async () => {
+    const scopes = { items: [sourceObservationScope()], total: 1, count: 1 };
+    const profileReviews = { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 };
+    const listSourceObservationIntegrationOptions = vi.fn(async (query: string) => {
+      const params = new URLSearchParams(query);
+      const queryKind = params.get("queryKind") ?? "";
+      return sourceOptionResponse(queryKind, {
+        status: "fresh",
+        source: params.get("forceRefresh") === "true" ? "live" : "cache",
+        parentValue: params.get("parentValue"),
+        degraded: false,
+      });
+    });
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listSourceObservationIntegrationScopes: vi.fn().mockResolvedValue(scopes),
+      listSourceObservationProviderProfiles: vi.fn().mockResolvedValue(profileReviews),
+      getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(null),
+      listSourceObservations: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      listSourceObservationIntegrationOptions,
+      recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+    });
+
+    await loader({
+      request: new Request(
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&sourceOptionAction=force-refresh&sourceOptionQueryKind=expansions",
+      ),
+      params: {},
+      context: {},
+    } as Parameters<typeof loader>[0]);
+
+    const byKind = Object.fromEntries(
+      listSourceObservationIntegrationOptions.mock.calls.map(([query]) => {
+        const params = new URLSearchParams(query);
+        return [params.get("queryKind"), params.get("forceRefresh") === "true"];
+      }),
+    );
+    // Only the targeted expansions group is forced live; the rest stay cache-only.
+    expect(byKind).toEqual({ languages: false, series: false, expansions: true });
+  });
+
   it("renders the providers surface absent-state when the deep-linked profileVersion does not resolve", async () => {
     // A daily-blocker deep-link can carry a provider + a stale/unknown
     // profileVersion (e.g. the operator is meant to author the missing profile).

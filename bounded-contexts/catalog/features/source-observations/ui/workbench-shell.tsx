@@ -25,6 +25,7 @@ import { CommandFormButton } from "./admin-control-plane/import-to-promotion/com
 import { WorkbenchReturnLink } from "./admin-control-plane/import-to-promotion/workbench-formatting";
 import type { CatalogPrimaryWorkbenchCommandFeedback } from "./primary-workbench-command-feedback";
 import { commandFeedbackDescription, commandSuccessTitle } from "./primary-workbench-command-feedback";
+import { catalogPrimaryWorkbenchSourceOptionHref } from "./primary-workbench-source-option-refresh";
 import {
   guidedSourceScopeFields,
   sourceOptionPageStateTone,
@@ -223,13 +224,17 @@ function GuidedSourceScopeFields({ fields }: { fields: readonly CatalogPrimaryWo
 // A compact sync/status panel for the synced provider option groups, rendered next
 // to the context form on the daily surface. It names each option group with its
 // natural label, surfaces freshness/degraded/missing-parent state per group, and
-// exposes reload (cache) and force-refresh (live) links from the read-model hrefs.
-// Renders nothing when the selected provider declares no option kinds.
+// exposes reload (cache) and force-refresh (live) controls. The controls navigate
+// back to the Catalog Integrations workbench with a source-option intent — never to
+// the raw provider-options API hrefs — so the operator stays in the workbench and
+// the loader re-fetches the option pages. Renders nothing when the selected
+// provider declares no option kinds.
 function SourceOptionsStatusPanel({ readModel }: { readModel: CatalogPrimaryWorkbenchReadModel }) {
   const sourceOptions = readModel.sourceOptions;
   if (sourceOptions.optionKinds.length === 0) {
     return null;
   }
+  const { routeContext } = readModel;
   const { refresh, summary } = sourceOptions;
   const canRefreshAll =
     refresh.refreshAllHref !== null && (refresh.state === "available" || refresh.state === "degraded");
@@ -261,7 +266,10 @@ function SourceOptionsStatusPanel({ readModel }: { readModel: CatalogPrimaryWork
                 size="sm"
                 tone="secondary"
                 leadingIcon="refreshCcw"
-                href={refresh.refreshAllHref ?? undefined}
+                href={catalogPrimaryWorkbenchSourceOptionHref(routeContext, {
+                  action: "force-refresh-all",
+                  queryKind: null,
+                })}
               >
                 {t("catalog.features.sourceObservations.ui.primaryWorkbench.sourceOptions.refreshAll")}
               </LinkButton>
@@ -304,11 +312,27 @@ function SourceOptionsStatusPanel({ readModel }: { readModel: CatalogPrimaryWork
               </WorkbenchStack>
             </WorkbenchActionRow>
             <WorkbenchActionRow align="start" stackOnMobile>
-              <LinkButton size="sm" tone="ghost" leadingIcon="refreshCcw" href={page.queryHref}>
+              <LinkButton
+                size="sm"
+                tone="ghost"
+                leadingIcon="refreshCcw"
+                href={catalogPrimaryWorkbenchSourceOptionHref(routeContext, {
+                  action: "reload",
+                  queryKind: page.queryKind,
+                })}
+              >
                 {t("catalog.features.sourceObservations.ui.primaryWorkbench.sourceOptions.reload")}
               </LinkButton>
               {page.refreshHref ? (
-                <LinkButton size="sm" tone="ghost" leadingIcon="spark" href={page.refreshHref}>
+                <LinkButton
+                  size="sm"
+                  tone="ghost"
+                  leadingIcon="spark"
+                  href={catalogPrimaryWorkbenchSourceOptionHref(routeContext, {
+                    action: "force-refresh",
+                    queryKind: page.queryKind,
+                  })}
+                >
                   {t("catalog.features.sourceObservations.ui.primaryWorkbench.sourceOptions.forceRefresh")}
                 </LinkButton>
               ) : null}
