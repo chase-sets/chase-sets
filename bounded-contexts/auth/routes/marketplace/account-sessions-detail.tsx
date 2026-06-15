@@ -1,5 +1,6 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
+import { appendFreshWriteTokenFromSources } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { t } from "@chase-sets/localization";
 import { createAuthRequestApiClient } from "../../support/request-support/api-client";
@@ -19,16 +20,17 @@ export async function action({ request, params }: ActionFunctionArgs) {
   const formData = await request.formData();
   const intent = String(formData.get("intent") ?? "");
   const sessionId = params.id!;
+  const results: unknown[] = [];
 
   if (intent === "switch-account") {
-    await api.switchSessionAccount(sessionId, String(formData.get("accountId") ?? ""));
+    results.push(await api.switchSessionAccount(sessionId, String(formData.get("accountId") ?? "")));
   }
 
   if (intent === "revoke") {
-    await api.revokeSession(sessionId);
+    results.push(await api.revokeSession(sessionId));
   }
 
-  return redirect(`/account/sessions/${sessionId}`);
+  return redirect(appendFreshWriteTokenFromSources(`/account/sessions/${sessionId}`, results));
 }
 
 export const meta: MetaFunction = () =>

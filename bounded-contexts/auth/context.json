@@ -110,6 +110,13 @@
       "ownedTables": ["auth_identity_invitations"],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "auth-session-projection",
+      "sourceContextNames": ["auth"],
+      "ownedTables": ["identity_sessions", "identity_session_lookup"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
     }
   ],
   "hostPorts": [
@@ -134,7 +141,18 @@
     {
       "mountPath": "/api/auth",
       "kind": "primary",
-      "requiresAuth": false
+      "requiresAuth": false,
+      "readFreshnessRoutes": [
+        {
+          "routePath": "/sessions/:id",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "identity_sessions"
+            }
+          ]
+        }
+      ]
     }
   ],
   "mutationConsistencyInventory": [
@@ -454,5 +472,166 @@
       "expectedConsumers": ["Generated deployable route adapters"]
     }
   },
-  "runtimeDeployables": ["admin-support-worker", "platform-worker"]
+  "runtimeDeployables": ["admin-support-worker", "platform-worker"],
+  "readAfterWriteRouteInventory": [
+    {
+      "id": "auth.session-detail-self-refresh",
+      "owner": "auth",
+      "risk": "important",
+      "source": {
+        "routeIds": ["sessions-detail", "account-sessions-detail"],
+        "actions": ["Switch session account", "Revoke session"],
+        "command": "Auth session commands",
+        "helperUses": ["appendFreshWriteTokenFromSources"]
+      },
+      "destination": {
+        "routeIds": ["sessions-detail", "account-sessions-detail"],
+        "apiContextName": "auth",
+        "apiRoutePath": "/sessions/:id",
+        "readModelTables": ["identity_sessions"],
+        "transientRecovery": "Session detail reloads carry the Auth command receipt to the Auth API so the read-consistency gate waits for the session projection before showing switched or revoked session state."
+      }
+    }
+  ],
+  "mutationConsistencyInventory": [
+    {
+      "id": "auth.session-detail-fresh-read",
+      "owner": "auth",
+      "risk": "important",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "post-form:bounded-contexts/auth/features/sessions/ui/session-detail-page.tsx:H2df726441e2a#1",
+        "post-form:bounded-contexts/auth/features/sessions/ui/session-detail-page.tsx:H2df726441e2a#2",
+        "route-action:bounded-contexts/auth/routes/access-admin/sessions-detail.tsx",
+        "route-action:bounded-contexts/auth/routes/marketplace/account-sessions-detail.tsx"
+      ],
+      "visibleDestination": {
+        "routeIds": ["sessions-detail", "account-sessions-detail"],
+        "apiContextName": "auth",
+        "apiRoutePath": "/sessions/:id",
+        "readModelTables": ["identity_sessions"],
+        "transientRecovery": "Session detail reloads carry the Auth command receipt to the Auth API so the read-consistency gate waits for identity_sessions before showing switched or revoked state; valid fresh-write lag stays bounded by the shared API freshness timeout instead of asking the account to repeat the session action."
+      }
+    },
+    {
+      "id": "auth.browser-auth-route-snapshots",
+      "owner": "auth",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "post-form:bounded-contexts/auth/features/account-selection/ui/account-selection-page.tsx:H7a156fe57c56#1",
+        "post-form:bounded-contexts/auth/features/registration/ui/register-page.tsx:H9d861fd197ea#1",
+        "post-form:bounded-contexts/auth/features/sign-in/ui/sign-in-page.tsx:H40557e616e62#1",
+        "post-form:bounded-contexts/auth/features/sign-in/ui/sign-in-page.tsx:Hc6650289f31b#1",
+        "post-form:bounded-contexts/auth/features/sign-in/ui/sign-in-page.tsx:Hc6650289f31b#2",
+        "post-form:bounded-contexts/auth/features/sign-in/ui/sign-in-page.tsx:Hc6650289f31b#3",
+        "post-form:bounded-contexts/auth/features/sign-in/ui/sign-in-page.tsx:Hc6650289f31b#4",
+        "post-form:bounded-contexts/auth/features/sign-in/ui/sign-in-page.tsx:Hc6650289f31b#5",
+        "route-action:bounded-contexts/auth/routes/access-admin/account-select.tsx",
+        "route-action:bounded-contexts/auth/routes/access-admin/sign-in.tsx",
+        "route-action:bounded-contexts/auth/routes/access-admin/sign-out.tsx",
+        "route-action:bounded-contexts/auth/routes/catalog-admin/account-select.tsx",
+        "route-action:bounded-contexts/auth/routes/catalog-admin/sign-in.tsx",
+        "route-action:bounded-contexts/auth/routes/catalog-admin/sign-out.tsx",
+        "route-action:bounded-contexts/auth/routes/marketplace/account-select.tsx",
+        "route-action:bounded-contexts/auth/routes/marketplace/guest-checkout-exit.tsx",
+        "route-action:bounded-contexts/auth/routes/marketplace/register.tsx",
+        "route-action:bounded-contexts/auth/routes/marketplace/sign-in.tsx",
+        "route-action:bounded-contexts/auth/routes/marketplace/sign-out.tsx"
+      ],
+      "visibleDestination": {
+        "description": "Browser Auth route actions use command-local InteractiveAuthResult, challenge notice, selected account, or sign-out snapshots to set and clear cookies, render challenge feedback, and redirect to the safe return path without waiting on an Auth projection."
+      },
+      "proof": {
+        "authoritativeResponse": "defineAuthHost route actions consume API-returned authResult, account-selection, challenge, and sign-out snapshots in the same request that performs the write; guest checkout exit clears guest cookies from the returned command result before continuing.",
+        "tests": [
+          "bounded-contexts/auth/support/route-support/auth-host.test.ts",
+          "bounded-contexts/auth/support/request-support/api-client.test.ts",
+          "bounded-contexts/auth/routes/access-admin/sessions-detail.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "auth.api-authentication-snapshots",
+      "owner": "auth",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-client:bounded-contexts/auth/client.ts:POST H485dc923f9e9#1",
+        "api-client:bounded-contexts/auth/client.ts:POST Hbdf71af6ff6b#1",
+        "api-route:bounded-contexts/auth/support/api-support/account-selection-routes.ts:POST /account-selection/complete",
+        "api-route:bounded-contexts/auth/support/api-support/account-selection-routes.ts:POST /account-selection/resolve",
+        "api-route:bounded-contexts/auth/support/api-support/guest-checkout-routes.ts:POST /guest-checkout/claim-context",
+        "api-route:bounded-contexts/auth/support/api-support/guest-checkout-routes.ts:POST /guest-checkout/claim-link/request",
+        "api-route:bounded-contexts/auth/support/api-support/guest-checkout-routes.ts:POST /guest-checkout/claim-with-magic-link",
+        "api-route:bounded-contexts/auth/support/api-support/guest-checkout-routes.ts:POST /guest-checkout/claim-with-passkey",
+        "api-route:bounded-contexts/auth/support/api-support/guest-checkout-routes.ts:POST /guest-checkout/exit",
+        "api-route:bounded-contexts/auth/support/api-support/guest-checkout-routes.ts:POST /guest-checkout/start",
+        "api-route:bounded-contexts/auth/support/api-support/invitation-routes.ts:POST /invitations/accept",
+        "api-route:bounded-contexts/auth/support/api-support/magic-link-routes.ts:POST /magic-link/consume",
+        "api-route:bounded-contexts/auth/support/api-support/magic-link-routes.ts:POST /magic-link/request",
+        "api-route:bounded-contexts/auth/support/api-support/passkey-routes.ts:POST /passkeys/challenge",
+        "api-route:bounded-contexts/auth/support/api-support/passkey-routes.ts:POST /passkeys/register",
+        "api-route:bounded-contexts/auth/support/api-support/passkey-routes.ts:POST /passkeys/sign-in",
+        "api-route:bounded-contexts/auth/support/api-support/password-routes.ts:POST /password-sign-in",
+        "api-route:bounded-contexts/auth/support/api-support/phone-code-routes.ts:POST /phone-code/consume",
+        "api-route:bounded-contexts/auth/support/api-support/phone-code-routes.ts:POST /phone-code/request",
+        "api-route:bounded-contexts/auth/support/api-support/register-routes.ts:POST /register",
+        "api-route:bounded-contexts/auth/support/api-support/session-routes.ts:POST /sign-out"
+      ],
+      "visibleDestination": {
+        "description": "Auth API customer authentication commands return command-local auth, challenge, session, guest-checkout, and account-selection snapshots directly to the caller so sign-in, register, guest checkout, and account selection flows can continue from the authoritative response."
+      },
+      "proof": {
+        "authoritativeResponse": "Each API handler returns the result produced by the command it just executed, including authResult, session tokens, challenge token ids and expirations, guest token or claim context, account-selection results, or sign-out status generated in the same handler after durable writes.",
+        "tests": [
+          "bounded-contexts/auth/support/api-support/guest-checkout-routes.test.ts",
+          "bounded-contexts/auth/support/api-support/magic-link-routes.test.ts",
+          "bounded-contexts/auth/support/api-support/passkey-routes.test.ts",
+          "bounded-contexts/auth/support/api-support/phone-code-routes.test.ts",
+          "bounded-contexts/auth/support/api-support/register-routes.test.ts",
+          "bounded-contexts/auth/support/request-support/api-client.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "auth.session-api-snapshots",
+      "owner": "auth",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/auth/features/sessions/api/route.ts:POST /:id/revoke",
+        "api-route:bounded-contexts/auth/features/sessions/api/route.ts:POST /:id/switch-account"
+      ],
+      "visibleDestination": {
+        "description": "Session management API writes return the command-local session id, aggregate version, and status immediately; browser session detail routes then use the preserved command receipt for exact fresh reads of the projected detail page."
+      },
+      "proof": {
+        "authoritativeResponse": "The switch-account and revoke handlers return the command handler result version and state.status from the same aggregate write before any projected session detail is read.",
+        "tests": [
+          "bounded-contexts/auth/features/sessions/domain/domain.test.ts",
+          "bounded-contexts/auth/routes/access-admin/sessions-detail.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "auth.ucp-oauth-snapshots",
+      "owner": "auth",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/auth/support/ucp-support/oauth.ts:POST /authorizations/:id/revoke",
+        "api-route:bounded-contexts/auth/support/ucp-support/oauth.ts:POST /introspect",
+        "api-route:bounded-contexts/auth/support/ucp-support/oauth.ts:POST /revoke",
+        "api-route:bounded-contexts/auth/support/ucp-support/oauth.ts:POST /token"
+      ],
+      "visibleDestination": {
+        "description": "UCP OAuth token, introspection, and revoke mutations return protocol snapshots from the authorization/token store in the request that performs the write, without a user-visible projected read path."
+      },
+      "proof": {
+        "authoritativeResponse": "Token responses contain the newly issued or refreshed token snapshot, introspection returns the current active/token metadata snapshot, and revoke routes return immediate revocation status from the Auth-owned OAuth service.",
+        "tests": ["bounded-contexts/auth/support/ucp-support/oauth.test.ts"]
+      }
+    }
+  ]
 }

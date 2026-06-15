@@ -137,11 +137,6 @@ function joinRoutePaths(prefix, routePath) {
 
 function collectApiRoutePathsForContext(context) {
   const routePaths = new Set();
-  const apiPath = path.join(context.rootAbs, "api.ts");
-  const apiContent = existsSync(apiPath) ? readFileSync(apiPath, "utf8") : "";
-  const prefixes = [...apiContent.matchAll(/\bapp\.route\(\s*["']([^"']+)["']/g)]
-    .map((match) => match[1])
-    .filter(isNonEmptyString);
   const routeFiles = [];
 
   function collectFiles(dir) {
@@ -162,9 +157,13 @@ function collectApiRoutePathsForContext(context) {
   }
 
   collectFiles(context.rootAbs);
+  const routeFileContents = routeFiles.map((file) => [file, readFileSync(file, "utf8")]);
+  const prefixes = routeFileContents
+    .flatMap(([, content]) => [...content.matchAll(/\bapp\.route\(\s*["']([^"']+)["']/g)])
+    .map((match) => match[1])
+    .filter(isNonEmptyString);
 
-  for (const file of routeFiles) {
-    const content = readFileSync(file, "utf8");
+  for (const [, content] of routeFileContents) {
     for (const match of content.matchAll(/\bapp\.(?:get|head)\(\s*["']([^"']+)["']/g)) {
       const routePath = match[1];
       routePaths.add(hostRoutePath(routePath));
