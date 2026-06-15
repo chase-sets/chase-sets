@@ -1,0 +1,153 @@
+# Post-Write Consistency Policy
+
+## Purpose
+
+Every Chase Sets mutation that changes user-visible state must choose an explicit post-write consistency strategy. This policy is the product-wide taxonomy that route authors, API owners, realtime consumers, and future structure checks reference before implementing a write flow.
+
+This document does not replace the [Read-After-Write Route Author Checklist](./read-after-write-route-author-checklist.md), [Event Projection Runtime](./event-projection-runtime.md), [Projection Freshness SLOs](./projection-freshness-slos.md), or [Realtime SSE Runbook](../runbooks/realtime-sse.md). Those documents remain the detailed contracts for receipt propagation, projection waits, route inventories, SLOs, and SSE operation.
+
+The consistency floor is durable domain state plus context-owned projections. Push wake signals, SSE, browser retries, and optimistic UI are latency and correction tools. They must never become the only correctness guarantee for critical immediate feedback unless a documented, tested fallback reads the authoritative projection again.
+
+## Strategy Taxonomy
+
+| Strategy | Contract | Use When | Not Enough When |
+| --- | --- | --- | --- |
+| `fresh-read` | The write returns source-context commit receipt metadata; the next read carries `afterWrite`/`Chase-Sets-Read-After-Write`; the API waits on exact projection dependencies and either serves fresh data or returns bounded temporary recovery. | Critical redirects or reloads where stale state would look like lost money, a missing checkout session, a failed payment, or a missing resource after a confirmed write. | The destination read is not projection-backed, the flow stays on the same page and can safely use a returned snapshot, or the user can tolerate explicit lag. |
+| `optimistic-with-correction` | The client applies a local predicted state immediately, records the write in flight, then reconciles with the command result, a fresh refetch, or a bounded realtime correction. Failed writes roll back or show route-owned repair. | Quantity steppers, cart and sell-list controls, simple preference toggles, and other reversible account actions where immediate feel matters and failure can be explained inline. | The write starts checkout, creates payment/order side effects, changes money movement, or would hide authorization, inventory, quote, or fee failures. |
+| `snapshot-return` | The command response includes the user-visible snapshot or version needed to render the committed state without waiting for a projection. The snapshot is scoped to the command owner and does not pretend downstream projections have caught up. | Same-context mutations where the aggregate can return a safe current view, such as a revised line quantity, selected option, fee quote, validation result, or command receipt. | Other route regions depend on downstream projections, cross-context read models, or server-derived totals that the command owner cannot authoritatively return. |
+| `realtime-correction` | The initial page comes from a normal server/API read. SSE delivers durable projection patches or `sync.required`; clients patch only compatible visible state and refetch/reload on missed, expired, backpressured, invalid, or failed streams. | Multi-tab correction, account list refresh, public market updates, operator surfaces, and supplemental updates after a page is already usable. | Critical immediate feedback after a write unless paired with `fresh-read`, `snapshot-return`, or an explicit reload/refetch fallback that is tested. |
+
+Use the smallest strategy that preserves trust. Combining strategies is expected: a quantity stepper may use `optimistic-with-correction` plus `snapshot-return`; checkout session start uses `fresh-read`; the checkout review page may also use `realtime-correction` to reload after later projection changes.
+
+## Flow Class Rules
+
+| Flow Class | Default Strategy | Allowed Additions | Required User Outcome |
+| --- | --- | --- | --- |
+| Critical Checkout | `fresh-read` for session start, pay-ready handoff, payment detail, and any redirect to projection-backed checkout/payment state. | `snapshot-return` for same-route validation or selected edit results; `realtime-correction` only as supplemental reload after the page has a safe baseline. | The buyer reaches the intended page, a payable review state, or temporary preparing/recovery while the original receipt is fresh. Expired handoffs must use safe restart copy and confirm payment has not started when applicable. |
+| Account Self-Refresh | `optimistic-with-correction` or `snapshot-return` for reversible edits; `fresh-read` when redirecting to a projection-backed detail page. | `realtime-correction` for open account lists, multi-tab updates, and stale-patch recovery. | The account sees either the expected updated state, an inline rollback/error, or a bounded refresh/reload prompt. No indefinite spinners or hidden stale data. |
+| Operator/Admin | `snapshot-return` or `realtime-correction` with explicit freshness, lag, partial, or unavailable states. Use `fresh-read` only for operator writes that immediately navigate to projection-backed detail. | Durable job SSE, projection operation SSE, and realtime reload prompts. | Operators can distinguish fresh, stale, lagging, partial, and unavailable data, and have an explicit retry/reload or diagnostic path. |
+| Background Flows | No browser immediacy requirement. Durable jobs, projections, scheduled reconciliation, and outbox processing own convergence. | SSE or notification updates can expose progress, but must replay from durable rows or return `sync.required`. | The system converges through durable queues/projections; missed wake signals cost latency only. User-visible surfaces show status or refresh from projections. |
+
+## Concrete Flow Guidance
+
+Critical Checkout examples:
+
+- Guest Buy Now session start is `fresh-read`: the action appends `afterWrite`, the destination loader uses exact `checkout_session_pages` freshness, and temporary recovery is allowed only while the original token is valid.
+- Checkout session edits that stay on the review page may use `snapshot-return` for command-local validation or edit-section state. If an edit depends on recalculated read models, the page must refetch or reload rather than relying only on SSE.
+- Checkout realtime subscriptions are `realtime-correction` only after the loader has established a safe session baseline. Their `onPatch` and `onSyncRequired` behavior must reload/refetch; they are not the guarantee that session creation or pay readiness succeeded.
+
+Account self-refresh examples:
+
+- Quantity steppers are `optimistic-with-correction`: update the visible quantity immediately, disable or serialize conflicting writes as needed, reconcile with the command response or refetch, and roll back with inline copy when the write fails.
+- Cart and sell-list mutations may use `snapshot-return` when the command can return the visible row, total, and version it owns. If marketplace, inventory, fee, fulfillment, or payment projections are needed, the route must refetch those surfaces explicitly.
+- Listing create-to-detail and payment create-to-detail are `fresh-read` because the user navigates to a projection-backed resource that could otherwise look missing.
+- Marketplace account listings, account offers, and offer matches use realtime as a correction channel for already loaded lists. Their `onSyncRequired` fallback must reload the server route.
+
+Non-Checkout product flows:
+
+- Discovery item, listing, public-account, and search pages use realtime patches as supplemental market correction after the initial server read. A missed stream, cursor expiry, or replay backpressure must become route reload/refetch, not silent staleness.
+- Catalog admin list surfaces use realtime invalidation either to auto revalidate or to prompt an explicit reload. They remain operator/admin flows because the page can represent freshness and reload state.
+- Durable job progress SSE is not a projection freshness guarantee. It is a resumable progress transport backed by durable job event rows; stale replay coalesces to `sync.required` and clients refresh the job snapshot.
+
+## Realtime/SSE Correction Channel Rules
+
+Realtime/SSE is bounded correction, not source-of-truth execution:
+
+- Publish client-facing `projection.patch` messages only; never stream raw domain events.
+- Patch only a route's already loaded, compatible visible shape. If a patch cannot be applied safely, trigger reload/refetch.
+- Treat `sync.required` as mandatory reload/refetch. Valid reasons are cursor expiry and replay backpressure.
+- Treat missed notifications, `LISTEN` unavailability, deploy drain, stream errors, connection limits, and backoff as latency events. Durable outbox replay or route reload must recover.
+- Keep topic ownership in the bounded context that owns the projection/read model. Public topics can expose public market facts; account topics require actor/account authorization.
+- Realtime-only is disallowed for critical immediate-feedback mutations unless the route documents and tests a fallback that re-reads authoritative state within a bounded budget.
+
+Existing realtime consumers are classified as:
+
+| Surface | Current Role | Required Fallback |
+| --- | --- | --- |
+| Checkout session preview topics | Supplemental correction after fresh loader state. | Reload/refetch on patch or `sync.required`; session start and pay readiness stay governed by `fresh-read`. |
+| Marketplace account listings, submitted offers, and offer matches | Primary correction for an already loaded account list; not initial write guarantee. | `onSyncRequired` reloads the route; patch logic must not insert incompatible rows into paged data. |
+| Discovery search, item detail, public listing, and public account | Supplemental public market correction. | Reload/refetch when cursor expiry, replay backpressure, malformed messages, or unsupported patch shapes occur. |
+| Catalog admin catalog items and admin surfaces | Operator/admin invalidation and reload prompt. | Auto revalidate or prompt an explicit reload on patch or `sync.required`. |
+| Durable job and projection operation SSE | Progress/status transport. | Replay from durable event rows; coalesce stale replay to a snapshot or `sync.required`. |
+
+## Termination And Recovery
+
+Termination must be visible, bounded, and tied to the original write.
+
+- `afterWrite` expiry is final. Missing, malformed, far-future, expired, or wrong-actor tokens must not be refreshed, re-minted, or treated as temporary.
+- Retry/reload budgets belong to the route. A fresh token can retry `404`, `projection_freshness_timeout`, or a route-bounded opaque gateway/service timeout only until the token expires or the route's attempt budget is exhausted.
+- Realtime reconnects must use the last cursor where available, back off after noisy errors, and close streams on unmount. Cursor expiry or replay backpressure terminates patch replay and requires a full reload/refetch.
+- Optimistic UI must either confirm, reconcile, or roll back. A failed write must restore the last known server state or replace the optimistic state with a server-returned snapshot plus inline recovery copy.
+- Snapshot responses must include enough version/status information for the client to detect stale command results, concurrent edits, or quote/fingerprint drift. Stale snapshots must not overwrite newer local or server-confirmed state.
+- Background and operator flows must expose stale, lagging, partial, unavailable, or retryable status instead of silently presenting old projections as current.
+
+User-visible recovery should name the user task, not the infrastructure. "Preparing checkout", "Reload listings", or "Quantity could not be updated" is appropriate. "Projection timeout" belongs in logs, metrics, and operator diagnostics, not customer-facing copy.
+
+## Stale Response And Rollback Behavior
+
+For `fresh-read`:
+
+- Fresh receipt plus `404` or `projection_freshness_timeout` is temporary only while the receipt is valid.
+- Fresh receipt plus unrelated `401`, `403`, validation, conflict, or domain errors is not projection lag.
+- Expired checkout handoffs use safe restart copy; expired non-checkout detail routes return normal not-found/access behavior or context-owned recovery.
+
+For `optimistic-with-correction`:
+
+- Queue or supersede rapid writes explicitly. Last-click-wins is acceptable only when the server command is idempotent or versioned enough to reject stale writes.
+- On validation, conflict, authorization, inventory, fee, or quote failure, roll back the optimistic value or replace it with the server snapshot and show the route-owned recovery.
+- Do not keep a disabled control or spinner past the retry budget. Restore actionability with clear status.
+
+For `snapshot-return`:
+
+- Apply the snapshot only when its aggregate id, actor/account scope, command id or version, and route context match the current view.
+- If a later user action has already advanced the local version, ignore older snapshots and refetch if needed.
+- Never infer downstream projection freshness from a command snapshot unless the response explicitly owns that visible shape.
+
+For `realtime-correction`:
+
+- Ignore malformed, unauthorized, unrelated-topic, wrong-projection, or incompatible patch messages.
+- `remove` and `summary` patches may update or remove visible rows; paged lists must not insert rows that were not already in the server-loaded page unless the route contract explicitly supports that insertion.
+- On `sync.required`, missed retention, excessive lag, stream limit rejection, or repeated stream errors, reload/refetch from the API.
+
+## Required Tests And Evidence
+
+Each mutation strategy must name evidence in the owning context or platform package.
+
+| Strategy | Required Evidence |
+| --- | --- |
+| `fresh-read` | Source action test for commit receipt and `afterWrite`; route/client test that forwards `Chase-Sets-Read-After-Write` and `Chase-Sets-Read-Target-Context`; manifest coverage in `readFreshnessRoutes` and `readAfterWriteRouteInventory`; transient recovery tests for fresh `404`, `projection_freshness_timeout`, and bounded gateway timeout; permanent recovery tests for missing/expired/malformed/wrong-actor token; SLO/canary evidence for critical checkout. |
+| `optimistic-with-correction` | UI or route tests for optimistic apply, in-flight sequencing, server success reconciliation, validation/conflict rollback, network failure recovery, stale response suppression, and accessible inline status. Include rapid-click or concurrent edit coverage for quantity steppers and cart/sell-list controls. |
+| `snapshot-return` | API/command tests proving the returned snapshot is scoped, versioned, and reflects the committed aggregate; client tests proving stale snapshots do not overwrite newer state; contract tests for stale quote/fingerprint responses when money, fee, fulfillment, or availability data can drift. |
+| `realtime-correction` | Contract tests for `projection.patch` and `sync.required`; topic authorization/redaction tests; durable outbox replay and retention expiry tests; route/client tests that apply compatible patches and reload/refetch on `sync.required`; stream failure/backoff/close tests; patch ordering or stale patch tests where the route mutates paged/list state. |
+
+Existing evidence includes `infrastructure/platform-runtime/realtime-routes.test.ts`, `infrastructure/platform-runtime/realtime-web.test.ts`, `infrastructure/platform-runtime/realtime-outbox.test.ts`, `infrastructure/platform-runtime/realtime.db.test.ts`, `contracts/realtime/index.test.ts`, `bounded-contexts/catalog/support/shell-support/ui/realtime-revalidation.test.tsx`, `bounded-contexts/marketplace/tests/realtime-patches.test.ts`, and `bounded-contexts/discovery/tests/realtime-market.test.ts`.
+
+Local verification for policy or structure changes should normally include:
+
+```powershell
+pnpm run check:structure
+pnpm run test:structure
+pnpm --filter @chase-sets/realtime run test
+pnpm --filter @chase-sets/platform-runtime run test -- realtime-routes.test.ts realtime-web.test.ts realtime-outbox.test.ts
+```
+
+Run broader context tests when touching route code, UI behavior, command handlers, or manifests. With Postgres available, include the realtime DB integration test named in the [Realtime SSE Runbook](../runbooks/realtime-sse.md).
+
+## Privacy And Redaction
+
+Post-write consistency metadata must stay structural:
+
+- `afterWrite` and commit receipts may contain observation time, source context names, source global positions, and event ids only.
+- Do not include account ids, user ids, emails, contact names, session ids, checkout session ids, payment identifiers, order identifiers, item details, catalog payloads, payment state, cookies, bearer tokens, or guest tokens in `afterWrite`.
+- Logs, metrics, dashboards, canary output, and freshness audit rows must use route templates, context names, projection names, dependency names, outcome codes, durations, and sanitized error categories.
+- Realtime topic values may include account identifiers only as routing keys after topic-policy authorization. They must not include emails, payment identifiers, checkout session tokens, cookies, provider credentials, or payment data.
+- SSE patch payloads must contain only client-facing projection facts already allowed on the subscribed route. Raw domain event payloads, worker-private durable job payloads, and provider response bodies must not be streamed.
+- Cursor ids are opaque. Do not log decoded cursors or signing material; status snapshots may report whether signing is configured, not the keys.
+
+When privacy and freshness conflict, privacy wins. The recovery path should reload an authorized route or show safe recovery copy rather than expanding tokens, topics, logs, or patch payloads with sensitive data.
+
+## Enforcement Guidance
+
+Future structure and inventory tooling should record a route's selected strategy as one of `fresh-read`, `optimistic-with-correction`, `snapshot-return`, or `realtime-correction`. Realtime may be recorded only when the route also names its reload/refetch fallback, topic policy owner, patch contract, and tests for `sync.required` or missed-patch recovery.
+
+Critical flows must fail enforcement when they rely on `realtime-correction` alone. They need `fresh-read`, a command-owned `snapshot-return`, or a documented fallback that performs a fresh authoritative read inside a bounded customer-visible budget.

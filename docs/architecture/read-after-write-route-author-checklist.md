@@ -12,6 +12,8 @@ Use this checklist when a browser action writes durable state and immediately re
 
 This pattern prevents a user-facing "not found" after a successful write without turning every read into a synchronous projection drain.
 
+For flows that do not need a projection-backed immediate read, first choose the strategy in the [Post-Write Consistency Policy](./post-write-consistency.md). Realtime/SSE may supplement this checklist, but it is not the sole guarantee for critical immediate feedback unless the route documents and tests an authoritative reload/refetch fallback.
+
 ## Required Authoring Steps
 
 - Identify the source action and command that writes durable state.
