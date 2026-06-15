@@ -662,6 +662,170 @@
         "authoritativeResponse": "The issue-owned routes respond from the command handler's evolved aggregate state, the bulk lifecycle preview result, or the authoring job enqueue result. Tests prove stale projection detail reads are not consulted after a command snapshot and that lifecycle and bulk preview/confirm responses carry the committed or durable snapshot needed for the operator UI.",
         "tests": ["bounded-contexts/catalog/tests/catalog-admin-model-mutation-consistency.test.ts"]
       }
+    },
+    {
+      "id": "catalog.catalog-item-api-command-snapshots",
+      "owner": "catalog",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/catalog/features/catalog-items/api/route.ts:DELETE /:id",
+        "api-route:bounded-contexts/catalog/features/catalog-items/api/route.ts:DELETE /:id/categories/:categoryId",
+        "api-route:bounded-contexts/catalog/features/catalog-items/api/route.ts:DELETE /:id/external-catalog-item-references/:providerKey/:externalKey",
+        "api-route:bounded-contexts/catalog/features/catalog-items/api/route.ts:DELETE /:id/external-product-references/:providerKey/:externalKey",
+        "api-route:bounded-contexts/catalog/features/catalog-items/api/route.ts:DELETE /:id/fields/:fieldId",
+        "api-route:bounded-contexts/catalog/features/catalog-items/api/route.ts:DELETE /:id/image-fallback",
+        "api-route:bounded-contexts/catalog/features/catalog-items/api/route.ts:POST /",
+        "api-route:bounded-contexts/catalog/features/catalog-items/api/route.ts:POST /:id/archive",
+        "api-route:bounded-contexts/catalog/features/catalog-items/api/route.ts:POST /:id/blueprint",
+        "api-route:bounded-contexts/catalog/features/catalog-items/api/route.ts:POST /:id/categories/:categoryId",
+        "api-route:bounded-contexts/catalog/features/catalog-items/api/route.ts:POST /:id/publish",
+        "api-route:bounded-contexts/catalog/features/catalog-items/api/route.ts:POST /bulk-edit/confirm",
+        "api-route:bounded-contexts/catalog/features/catalog-items/api/route.ts:POST /bulk-edit/preview",
+        "api-route:bounded-contexts/catalog/features/catalog-items/api/route.ts:POST /bulk-lifecycle/confirm",
+        "api-route:bounded-contexts/catalog/features/catalog-items/api/route.ts:POST /bulk-lifecycle/preview",
+        "api-route:bounded-contexts/catalog/features/catalog-items/api/route.ts:POST /bulk-publish/confirm",
+        "api-route:bounded-contexts/catalog/features/catalog-items/api/route.ts:POST /bulk-publish/preview",
+        "api-route:bounded-contexts/catalog/features/catalog-items/api/route.ts:PUT /:id/external-catalog-item-references/:providerKey/:externalKey",
+        "api-route:bounded-contexts/catalog/features/catalog-items/api/route.ts:PUT /:id/external-product-references/:providerKey/:externalKey",
+        "api-route:bounded-contexts/catalog/features/catalog-items/api/route.ts:PUT /:id/fields/:fieldId",
+        "api-route:bounded-contexts/catalog/features/catalog-items/api/route.ts:PUT /:id/image-fallback",
+        "api-route:bounded-contexts/catalog/features/catalog-items/api/route.ts:PUT /:id/image-urls",
+        "api-route:bounded-contexts/catalog/features/catalog-items/api/route.ts:PUT /:id/metadata",
+        "api-route:bounded-contexts/catalog/features/catalog-items/api/route.ts:PUT /:id/tags"
+      ],
+      "visibleDestination": {
+        "description": "Catalog Item API commands stay on the operator item surface and return command-owned id/version/status plus the committed aggregate snapshot; bulk preview returns the computed preview snapshot and bulk confirm returns the durable authoring job snapshot without waiting on item list/detail projections."
+      },
+      "proof": {
+        "authoritativeResponse": "Catalog Item command routes respond from the command handler's evolved aggregate state via commandSnapshotResponse. Bulk preview routes respond from the computed preview result, and bulk confirm routes respond from the authoring job enqueue snapshot. Tests prove stale item detail reads are not consulted after command snapshots and preview/confirm responses carry the snapshot needed for operator UI.",
+        "tests": ["bounded-contexts/catalog/tests/catalog-item-mutation-consistency.test.ts"]
+      }
+    },
+    {
+      "id": "catalog.source-observation-api-command-snapshots",
+      "owner": "catalog",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/catalog/features/source-observations/api/bulk-review-job-routes.ts:POST /bulk-defer/jobs",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/bulk-review-job-routes.ts:POST /bulk-promote",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/bulk-review-job-routes.ts:POST /bulk-promote/jobs",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/bulk-review-job-routes.ts:POST /bulk-reject",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/bulk-review-job-routes.ts:POST /bulk-reject/jobs",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/bulk-review-job-routes.ts:POST /reapply",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/integration-job-routes.ts:POST /integration-jobs",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/integration-job-routes.ts:POST /integration-jobs/:jobId/cancel",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/integration-job-routes.ts:POST /integration-jobs/:jobId/resume",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/integration-job-routes.ts:POST /integration-jobs/:jobId/retry",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/promotion-review-routes.ts:POST /bulk-promote/preview",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/promotion-review-routes.ts:POST /reapply/impact",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/promotion-review-routes.ts:POST /reapply/preview",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/provider-profile-routes.ts:PATCH /provider-profiles/:providerKey/:profileVersion/sections/:section",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/provider-profile-routes.ts:POST /provider-profiles",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/provider-profile-routes.ts:POST /provider-profiles/:providerKey/:profileVersion/activate",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/provider-profile-routes.ts:POST /provider-profiles/:providerKey/:profileVersion/clone",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/provider-profile-routes.ts:POST /provider-profiles/:providerKey/:profileVersion/deprecate",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/provider-profile-routes.ts:POST /provider-profiles/:providerKey/:profileVersion/dry-run",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/provider-profile-routes.ts:POST /provider-profiles/:providerKey/:profileVersion/retire",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/provider-profile-routes.ts:POST /provider-profiles/:providerKey/:profileVersion/rollback",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/source-observation-review-routes.ts:POST /:id/promote",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/source-observation-review-routes.ts:POST /:id/reject"
+      ],
+      "visibleDestination": {
+        "routeId": "integrations",
+        "description": "Source Observation workbench mutations return scoped job, review, preview, impact, and provider-profile snapshots to the same operator workflow; durable job event streams correct later progress without requiring an immediate projection-backed refresh."
+      },
+      "proof": {
+        "authoritativeResponse": "Bulk review, integration job, promotion review, provider profile, and observation review routes return the durable job/profile/review/preview snapshot produced by the command service in the same request. Route tests cover job enqueue/lifecycle snapshots, provider profile lifecycle responses, review command snapshots, and preview/impact responses.",
+        "tests": [
+          "bounded-contexts/catalog/features/source-observations/api/route-integration-jobs.test.ts",
+          "bounded-contexts/catalog/features/source-observations/api/route-provider-profile-admin.test.ts",
+          "bounded-contexts/catalog/features/source-observations/api/route-review-controls.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "catalog.source-observation-control-plane-telemetry",
+      "owner": "catalog",
+      "risk": "informational",
+      "strategy": "non-user-visible",
+      "surfaces": [
+        "api-route:bounded-contexts/catalog/features/source-observations/api/control-plane-telemetry-routes.ts:POST /control-plane-events"
+      ],
+      "exception": {
+        "owner": "catalog",
+        "reviewBy": "2026-09-30",
+        "issue": "#1816",
+        "reason": "Source Observation control-plane telemetry records redaction-safe operator evidence and returns only an acknowledgement; no user-visible workbench read depends on the POST result. bounded-contexts/catalog/features/source-observations/api/route-review-controls.test.ts proves supported telemetry is recorded and unsupported/private telemetry labels are rejected before recording."
+      }
+    },
+    {
+      "id": "catalog.shell-source-observation-workbench-correction",
+      "owner": "catalog",
+      "risk": "important",
+      "strategy": "realtime-correction",
+      "surfaces": [
+        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:PATCH H661a4c9c6ed8#1",
+        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H0be18cbb16a4#1",
+        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H2ccae70b986c#1",
+        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H4713b23308ae#1",
+        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H5916ed4aed53#1",
+        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H5951cf447e8c#1",
+        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H6646e478f939#1",
+        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H6c60f0691cb7#1",
+        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H85392f14cb35#1",
+        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H876c5e305fd2#1",
+        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H8acc70cf4320#1",
+        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H8fb4eb8e717e#1",
+        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H9d96152ce165#1",
+        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST Hd82bcf180987#1",
+        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST Hfd5a82933793#1"
+      ],
+      "visibleDestination": {
+        "routeId": "integrations",
+        "description": "The Catalog shell client feeds Source Observation workbench actions from scoped API snapshots and uses durable job event streams to correct projection-backed job progress after writes."
+      },
+      "proof": {
+        "fallback": "The client parses initial command-owned job/profile/review/preview snapshots, reconnects durable job streams with last-event-id, retries transient 429/503 stream overloads, and treats sync.required.snapshot as the authoritative durable job snapshot when a stream cannot replay all events. Non-stream workbench commands return the same scoped API snapshot directly.",
+        "tests": [
+          "bounded-contexts/catalog/support/shell-support/api/client.test.ts",
+          "bounded-contexts/catalog/tests/admin-integrations-route.test.tsx"
+        ]
+      }
+    },
+    {
+      "id": "catalog.tcgplayer-automation-provider-post-snapshots",
+      "owner": "catalog",
+      "risk": "internal",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-client:bounded-contexts/catalog/features/source-observations/api/tcgplayer-automation-client.ts:POST Hf9aa1b4b1d8d#1"
+      ],
+      "visibleDestination": {
+        "description": "The TCGplayer automation runtime consumes provider POST responses synchronously inside Catalog import/review jobs and returns the parsed provider response snapshot to the source-observation workflow without a browser projection read."
+      },
+      "proof": {
+        "authoritativeResponse": "TcgplayerAutomationDomainHttpClient.post returns the parsed provider response after retry/cooldown recovery and redacts exhausted provider diagnostics before surfacing them to operators.",
+        "tests": ["bounded-contexts/catalog/features/source-observations/api/tcgplayer-automation-client.test.ts"]
+      }
+    },
+    {
+      "id": "catalog.integrations-route-action-command-snapshots",
+      "owner": "catalog",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "route-action:bounded-contexts/catalog/support/route-support/admin-integrations/integrations-action.ts"
+      ],
+      "visibleDestination": {
+        "routeId": "integrations",
+        "description": "The admin integrations route action returns same-page command results for daily workbench actions and redirects provider/governance actions with the command-owned feedback context instead of depending on an immediate stale projection read."
+      },
+      "proof": {
+        "authoritativeResponse": "integrationsAction dispatches CatalogIntegrationsCommandResult snapshots from command handlers; promotion execution re-previews live context to suppress stale preview submissions, durable job commands return job ids/status, and actions clear stale preview/job context when a new command snapshot supersedes it.",
+        "tests": ["bounded-contexts/catalog/tests/admin-integrations-route.test.tsx"]
+      }
     }
   ]
 }

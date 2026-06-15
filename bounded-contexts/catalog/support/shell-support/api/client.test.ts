@@ -48,6 +48,38 @@ data: ${JSON.stringify(jobSnapshot({ status: "completed", result: completedResul
     expect(progress).toHaveBeenCalledTimes(2);
   });
 
+  it("uses sync.required snapshots as durable job correction when replay falls behind", async () => {
+    const completedResult = {
+      requested: 1,
+      imported: 1,
+      observed: 204,
+      reapplied: 0,
+      skipped: 0,
+      failed: 0,
+      outcomes: [],
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValueOnce(
+      sseResponse(
+        `id: 3
+event: sync.required
+data: ${JSON.stringify({ kind: "sync.required", snapshot: jobSnapshot({ status: "completed", result: completedResult }) })}
+
+`,
+      ),
+    );
+    const progress = vi.fn();
+    const client = createCatalogApiClient({ baseUrl: "/api/catalog", fetch });
+
+    await expect(
+      client.watchSourceObservationIntegrationJob("job_1", {
+        onProgress: progress,
+      }),
+    ).resolves.toEqual(completedResult);
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(progress).toHaveBeenCalledWith(expect.objectContaining({ phase: "completed" }));
+  });
+
   it("imports a TCGdex set through an integration job and maps the completed result", async () => {
     const completedResult = {
       requested: 1,

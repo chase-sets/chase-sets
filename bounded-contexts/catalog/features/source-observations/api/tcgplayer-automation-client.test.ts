@@ -101,6 +101,35 @@ describe("TCGplayer automation HTTP client", () => {
     });
   });
 
+  it("returns provider POST response snapshots after retryable automation recovery", async () => {
+    const providerSnapshot = {
+      searchId: "src_search_1",
+      results: [{ productId: 12345, name: "Furret" }],
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(textResponse("temporarily unavailable", { status: 503 }))
+      .mockResolvedValueOnce(jsonResponse(providerSnapshot));
+    const client = clientWithConfig(
+      {
+        maxRetries: 1,
+      },
+      {
+        fetch: fetchMock,
+        random: () => 0,
+      },
+    );
+
+    await expect(client.post("/v1/search", { query: "Furret" })).resolves.toEqual(providerSnapshot);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1]?.[0]).toBe("https://mp-search-api.tcgplayer.com/v1/search");
+    expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({
+      method: "POST",
+      body: JSON.stringify({ query: "Furret" }),
+    });
+  });
+
   it("decreases adaptive delay after a configured success streak", async () => {
     const store = createInMemoryTcgplayerAutomationHttpConfigStore({
       adaptiveConfig: {

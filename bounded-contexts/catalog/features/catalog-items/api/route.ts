@@ -2,6 +2,7 @@ import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { BulkEditCatalogItemOperation, BulkPublishSelection, CatalogItemServices } from "./runtime";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
+import { commandSnapshotResponse } from "../../../support/authoring-support/api-command-response";
 import type { CatalogAuthoringBulkJobServices } from "../../../support/authoring-support/bulk-authoring-jobs";
 import type { CatalogItemId, BlueprintId, FieldId, CategoryId } from "../../../ids";
 import { CatalogDomainError, type LocalizedTextMap } from "../../../support/runtime-support/common";
@@ -32,7 +33,7 @@ export function catalogItemRoutes(services: CatalogItemServices, authoringBulkJo
       context,
     });
 
-    return c.json({ id: itemId, version: result.version, status: result.state.status }, 201);
+    return c.json(commandSnapshotResponse(itemId, result), 201);
   });
 
   app.post("/bulk-publish/preview", async (c) => {
@@ -113,7 +114,7 @@ export function catalogItemRoutes(services: CatalogItemServices, authoringBulkJo
       context,
     });
 
-    return c.json({ id: itemId, version: result.version, status: result.state.status });
+    return c.json(commandSnapshotResponse(itemId, result));
   });
 
   app.put("/:id/fields/:fieldId", async (c) => {
@@ -131,7 +132,7 @@ export function catalogItemRoutes(services: CatalogItemServices, authoringBulkJo
       context,
     });
 
-    return c.json({ id: itemId, version: result.version, status: result.state.status });
+    return c.json(commandSnapshotResponse(itemId, result));
   });
 
   app.delete("/:id/fields/:fieldId", async (c) => {
@@ -149,7 +150,7 @@ export function catalogItemRoutes(services: CatalogItemServices, authoringBulkJo
       context,
     });
 
-    return c.json({ id: itemId, version: result.version, status: result.state.status });
+    return c.json(commandSnapshotResponse(itemId, result));
   });
 
   app.post("/:id/categories/:categoryId", async (c) => {
@@ -165,7 +166,7 @@ export function catalogItemRoutes(services: CatalogItemServices, authoringBulkJo
       context,
     });
 
-    return c.json({ id: itemId, version: result.version, status: result.state.status }, 201);
+    return c.json(commandSnapshotResponse(itemId, result), 201);
   });
 
   app.delete("/:id/categories/:categoryId", async (c) => {
@@ -181,7 +182,7 @@ export function catalogItemRoutes(services: CatalogItemServices, authoringBulkJo
       context,
     });
 
-    return c.json({ id: itemId, version: result.version, status: result.state.status });
+    return c.json(commandSnapshotResponse(itemId, result));
   });
 
   app.post("/:id/publish", async (c) => {
@@ -199,7 +200,7 @@ export function catalogItemRoutes(services: CatalogItemServices, authoringBulkJo
       context,
     });
 
-    return c.json({ id: itemId, version: result.version, status: result.state.status });
+    return c.json(commandSnapshotResponse(itemId, result));
   });
 
   app.put("/:id/metadata", async (c) => {
@@ -219,7 +220,7 @@ export function catalogItemRoutes(services: CatalogItemServices, authoringBulkJo
       context,
     });
 
-    return c.json({ id: itemId, version: result.version, status: result.state.status });
+    return c.json(commandSnapshotResponse(itemId, result));
   });
 
   app.put("/:id/tags", async (c) => {
@@ -236,7 +237,7 @@ export function catalogItemRoutes(services: CatalogItemServices, authoringBulkJo
       context,
     });
 
-    return c.json({ id: itemId, version: result.version, status: result.state.status });
+    return c.json(commandSnapshotResponse(itemId, result));
   });
 
   app.put("/:id/image-urls", async (c) => {
@@ -253,7 +254,7 @@ export function catalogItemRoutes(services: CatalogItemServices, authoringBulkJo
       context,
     });
 
-    return c.json({ id: itemId, version: result.version, status: result.state.status });
+    return c.json(commandSnapshotResponse(itemId, result));
   });
 
   app.put("/:id/image-fallback", async (c) => {
@@ -270,7 +271,7 @@ export function catalogItemRoutes(services: CatalogItemServices, authoringBulkJo
       context,
     });
 
-    return c.json({ id: itemId, version: result.version, status: result.state.status });
+    return c.json(commandSnapshotResponse(itemId, result));
   });
 
   app.delete("/:id/image-fallback", async (c) => {
@@ -285,7 +286,7 @@ export function catalogItemRoutes(services: CatalogItemServices, authoringBulkJo
       context,
     });
 
-    return c.json({ id: itemId, version: result.version, status: result.state.status });
+    return c.json(commandSnapshotResponse(itemId, result));
   });
 
   app.put("/:id/external-product-references/:providerKey/:externalKey", async (c) => {
@@ -304,7 +305,7 @@ export function catalogItemRoutes(services: CatalogItemServices, authoringBulkJo
       context,
     });
 
-    return c.json({ id: itemId, version: result.version, status: result.state.status });
+    return c.json(commandSnapshotResponse(itemId, result));
   });
 
   app.put("/:id/external-catalog-item-references/:providerKey/:externalKey", async (c) => {
@@ -321,7 +322,7 @@ export function catalogItemRoutes(services: CatalogItemServices, authoringBulkJo
       context,
     });
 
-    return c.json({ id: itemId, version: result.version, status: result.state.status });
+    return c.json(commandSnapshotResponse(itemId, result));
   });
 
   app.delete("/:id/external-product-references/:providerKey/:externalKey", async (c) => {
@@ -338,7 +339,7 @@ export function catalogItemRoutes(services: CatalogItemServices, authoringBulkJo
       context,
     });
 
-    return c.json({ id: itemId, version: result.version, status: result.state.status });
+    return c.json(commandSnapshotResponse(itemId, result));
   });
 
   app.delete("/:id/external-catalog-item-references/:providerKey/:externalKey", async (c) => {
@@ -355,7 +356,7 @@ export function catalogItemRoutes(services: CatalogItemServices, authoringBulkJo
       context,
     });
 
-    return c.json({ id: itemId, version: result.version, status: result.state.status });
+    return c.json(commandSnapshotResponse(itemId, result));
   });
 
   app.post("/:id/archive", async (c) => {
@@ -368,7 +369,7 @@ export function catalogItemRoutes(services: CatalogItemServices, authoringBulkJo
       context,
     });
 
-    return c.json({ id: itemId, version: result.version, status: result.state.status });
+    return c.json(commandSnapshotResponse(itemId, result));
   });
 
   app.delete("/:id", async (c) => {
@@ -381,7 +382,7 @@ export function catalogItemRoutes(services: CatalogItemServices, authoringBulkJo
       context,
     });
 
-    return c.json({ id: itemId, version: result.version, status: result.state.status });
+    return c.json(commandSnapshotResponse(itemId, result));
   });
 
   app.get("/", async (c) => {
