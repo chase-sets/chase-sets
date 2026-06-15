@@ -65,24 +65,24 @@ export function observationIdsFromFormData(formData: FormData, fallback: readonl
 }
 
 export function integrationScopeFromContext(context: RouteContext): SourceObservationIntegrationJobScope {
-  const [language, productLineId, seriesId, setId] = context.importScope?.split(":") ?? [];
+  const parsedScope = parseProviderImportScope(context.importScope);
 
   return compactScope({
     provider: context.providerKey ?? undefined,
-    language: context.sourceObservationFilters.language ?? language,
-    seriesId,
-    setId: context.sourceObservationFilters.setId ?? setId,
-    productLineId,
+    language: context.sourceObservationFilters.language ?? parsedScope.language,
+    seriesId: parsedScope.seriesId,
+    setId: context.sourceObservationFilters.setId ?? parsedScope.setId,
+    productLineId: parsedScope.productLineId,
   });
 }
 
 export function promotionScopeFromContext(context: RouteContext): SourceObservationPromotionScope {
-  const [language, , , setId] = context.importScope?.split(":") ?? [];
+  const parsedScope = parseProviderImportScope(context.importScope);
 
   return compactScope({
     provider: context.providerKey ?? undefined,
-    language: context.sourceObservationFilters.language ?? language,
-    setId: context.sourceObservationFilters.setId ?? setId,
+    language: context.sourceObservationFilters.language ?? parsedScope.language,
+    setId: context.sourceObservationFilters.setId ?? parsedScope.setId,
     status: context.sourceObservationFilters.status ?? "changed",
     search: context.sourceObservationFilters.search,
   });
@@ -229,6 +229,39 @@ function promotionPreviewScopeToken(context: RouteContext, selectedObservationId
 
 function tokenSegment(value: string): string {
   return value.replace(/[^A-Za-z0-9_.-]+/g, "_") || "none";
+}
+
+function parseProviderImportScope(importScope: string | null): Readonly<{
+  language?: string;
+  productLineId?: string;
+  seriesId?: string;
+  setId?: string;
+}> {
+  const segments = importScope
+    ?.split(":")
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+
+  if (!segments || segments.length === 0) {
+    return {};
+  }
+
+  if (segments.length >= 4) {
+    const [language, productLineId, seriesId, setId] = segments;
+    return { language, productLineId, seriesId, setId };
+  }
+
+  if (segments.length === 3) {
+    const [language, seriesId, setId] = segments;
+    return { language, seriesId, setId };
+  }
+
+  if (segments.length === 2) {
+    const [language, setId] = segments;
+    return { language, setId };
+  }
+
+  return { setId: segments[0] };
 }
 
 function compactScope<T extends Record<string, string | undefined>>(scope: T): T {
