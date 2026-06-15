@@ -6,6 +6,11 @@ import type { NotificationPreferenceKey, NotificationsServices } from "./feature
 export type NotificationsApiEnv = AuthenticatedApiEnv;
 
 const preferenceKeys = new Set<NotificationPreferenceKey>(["web", "email", "sms", "rcs", "product-alerts"]);
+const defaultFeedSnapshotQuery = Object.freeze({
+  includeRead: true,
+  limit: 25,
+  offset: 0,
+});
 
 function requireAccountAccess(c: { get(key: "actor"): NotificationsApiEnv["Variables"]["actor"] }) {
   const actor = c.get("actor");
@@ -50,6 +55,19 @@ function requireAccountAccess(c: { get(key: "actor"): NotificationsApiEnv["Varia
 
 function parsePreferenceKey(value: string): NotificationPreferenceKey | null {
   return preferenceKeys.has(value as NotificationPreferenceKey) ? (value as NotificationPreferenceKey) : null;
+}
+
+async function loadFeedSnapshot(services: NotificationsServices, accountId: string) {
+  const items = await services.feed.listWebNotifications({
+    accountId,
+    ...defaultFeedSnapshotQuery,
+  });
+
+  return {
+    items,
+    count: items.length,
+    unread: await services.feed.countUnreadWebNotifications({ accountId }),
+  };
 }
 
 export function buildNotificationsApi(services: NotificationsServices) {
@@ -98,7 +116,10 @@ export function buildNotificationsApi(services: NotificationsServices) {
       deliveryId: c.req.param("deliveryId"),
     });
 
-    return c.json({ status: "read" });
+    return c.json({
+      status: "read",
+      feed: await loadFeedSnapshot(services, access.actor.accountId),
+    });
   });
 
   app.post("/center/read-all", async (c) => {
@@ -109,7 +130,10 @@ export function buildNotificationsApi(services: NotificationsServices) {
       accountId: access.actor.accountId,
     });
 
-    return c.json({ status: "read" });
+    return c.json({
+      status: "read",
+      feed: await loadFeedSnapshot(services, access.actor.accountId),
+    });
   });
 
   app.get("/preferences", async (c) => {

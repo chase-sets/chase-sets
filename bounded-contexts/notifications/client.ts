@@ -17,6 +17,11 @@ export type NotificationCenterFeedResponse = Readonly<{
   unread: number;
 }>;
 
+export type NotificationCenterReadMutationResponse = Readonly<{
+  status: "read";
+  feed: NotificationCenterFeedResponse;
+}>;
+
 export type NotificationPreference = Readonly<{
   key: "web" | "email" | "product-alerts";
   enabled: boolean;
@@ -53,7 +58,7 @@ export function createNotificationCenterApiClient({
       return parseJsonResponse<NotificationCenterFeedResponse>(await request(`${baseUrl}/center${suffix}`));
     },
     async markRead(deliveryId: string) {
-      return parseJsonResponse<{ status: string }>(
+      return parseJsonResponse<NotificationCenterReadMutationResponse>(
         await request(`${baseUrl}/center/${encodeURIComponent(deliveryId)}/read`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -62,7 +67,7 @@ export function createNotificationCenterApiClient({
       );
     },
     async markAllRead() {
-      return parseJsonResponse<{ status: string }>(
+      return parseJsonResponse<NotificationCenterReadMutationResponse>(
         await request(`${baseUrl}/center/read-all`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
