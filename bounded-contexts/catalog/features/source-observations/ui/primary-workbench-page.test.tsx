@@ -1097,6 +1097,43 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.queryByText(/raw JSON/i)).toBeNull();
   });
 
+  // #1748 acceptance gate (criterion 3, accessibility matrix): the daily Source
+  // Observation review renders real table semantics — a <table> with column headers,
+  // per-row "Select row" controls, and a polite live region announcing dynamic load
+  // state — rather than a bespoke grid of <div>s. These are assertable on the live
+  // CatalogIntegrationsSurfacePage daily surface, the route operators land on first.
+  it("renders the daily Source Observation review with accessible table semantics and a live region", () => {
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&filter.status=changed",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: controlPlaneOverview(),
+      reviewObservations: { items: [sourceObservationListItem()], total: 1, count: 1 },
+      reviewPagination: { limit: 25, offset: 0 },
+      canManageCatalog: true,
+    });
+
+    render(<CatalogIntegrationsSurfacePage surface="daily" readModel={readModel} />);
+
+    const reviewModule = screen.getByRole("heading", { name: "Source Observation review" }).closest("section");
+    expect(reviewModule).toBeTruthy();
+    const review = within(reviewModule as HTMLElement);
+
+    // Real table semantics: a table element with column headers (not a div grid).
+    const reviewTable = review.getByRole("table");
+    expect(reviewTable).toBeTruthy();
+    expect(within(reviewTable).getAllByRole("columnheader").length).toBeGreaterThan(0);
+    expect(within(reviewTable).getAllByRole("row").length).toBeGreaterThan(1);
+    // Per-row selection control names its row for screen readers.
+    expect(within(reviewTable).getAllByRole("checkbox", { name: /Select row/i }).length).toBeGreaterThan(0);
+
+    // A polite live region announces dynamic review load/progress state to screen
+    // readers (the dynamic-job/blocker-updates accessibility dimension).
+    const liveRegions = (reviewModule as HTMLElement).querySelectorAll('[role="status"][aria-live="polite"]');
+    expect(liveRegions.length).toBeGreaterThan(0);
+  });
+
   it("submits primary workbench commands with clean intent and selected-observation context", () => {
     const readModel = buildCatalogPrimaryWorkbenchReadModel({
       requestUrl:

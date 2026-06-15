@@ -118,6 +118,14 @@ test.describe("catalog admin integrations", () => {
     await expect(page.getByRole("textbox", { name: /JSON/i })).toHaveCount(0);
     await expect(page.getByText(/Old integrations surface/i)).toHaveCount(0);
 
+    // #1748 acceptance gate (criterion 1): the daily route is the DEFAULT landing, not a
+    // detour. The supporting surfaces (providers/governance/release) each carry a single
+    // "Back to import workbench" return affordance; the daily route itself must NOT — there
+    // is nowhere "up" from the primary job. This is the explicit deliberate-detour property:
+    // daily is home, the supporting surfaces are reached on purpose and always offer a way
+    // back (the per-surface back-links are asserted on each surface below).
+    await expect(page.getByRole("link", { name: "Back to import workbench" })).toHaveCount(0);
+
     // The Create / update stage deep-links into the separate Catalog Items area,
     // filtered to the just-created/updated drafts for the provider (?source=). That
     // target must load gracefully — even for an unknown provider, the filtered list
