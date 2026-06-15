@@ -251,6 +251,23 @@ export function importScopeSegment(importScope: string | null, index: number): s
   return importScope?.split(":")[index] || null;
 }
 
+export function importScopeSetId(importScope: string | null): string | null {
+  const segments = importScope
+    ?.split(":")
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+
+  if (!segments || segments.length === 0) {
+    return null;
+  }
+
+  if (segments.length >= 4) {
+    return segments[3] ?? null;
+  }
+
+  return segments[segments.length - 1] ?? null;
+}
+
 export function setQueryParam(params: URLSearchParams, key: string, value: string | null | undefined): void {
   if (value) {
     params.set(key, value);

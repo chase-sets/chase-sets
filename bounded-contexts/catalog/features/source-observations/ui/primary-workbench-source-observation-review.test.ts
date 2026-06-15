@@ -241,6 +241,26 @@ describe("Catalog primary workbench read model - source observation review", () 
     expect(readModel.sourceObservationReview.promotionReadyCount).toBe(0);
   });
 
+  it("derives the review set filter from native TCGdex language-series-set scopes", () => {
+    const query = buildCatalogPrimaryWorkbenchSourceObservationReviewQuery({
+      section: "import-to-promotion",
+      providerKey: "tcgdex",
+      unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+      importScope: "ja:SV:SV8",
+      profileVersion: "2026.06.03",
+      sourceObservationFilters: {},
+      selectedObservationIds: [],
+      jobId: null,
+      promotionPreviewId: null,
+      returnPath: null,
+    });
+
+    const params = new URLSearchParams(query ?? "");
+    expect(params.get("provider")).toBe("tcgdex");
+    expect(params.get("language")).toBe("ja");
+    expect(params.get("setId")).toBe("SV8");
+  });
+
   it("fails closed for denied writes and does not fetch all-provider review rows without provider context", () => {
     const noProviderQuery = buildCatalogPrimaryWorkbenchSourceObservationReviewQuery({
       section: "import-to-promotion",

@@ -101,9 +101,12 @@ function buildCatalogPrimaryWorkbenchCore(
       ...(importScope ? { importScope } : {}),
     },
   };
-  const scopeRows = providerKey
+  const providerScopeRows = providerKey
     ? input.scopes.items.filter((scope) => scope.provider_key === providerKey)
     : input.scopes.items;
+  const scopeRows = importScope
+    ? providerScopeRows.filter((scope) => scopeKey(scope) === importScope)
+    : providerScopeRows;
   const observed = sum(scopeRows, (scope) => scope.observed_observations);
   const changed = sum(scopeRows, (scope) => scope.changed_observations);
   const promoted = sum(scopeRows, (scope) => scope.promoted_observations);
