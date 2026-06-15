@@ -2,13 +2,17 @@ import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/
 import { attachResponseMetadata } from "@chase-sets/http/responses";
 import type {
   SupportFlowSummary,
+  SupportRequestCommandSnapshot,
   SupportRequestDetail,
+  SupportRequestEscalationSnapshot,
   SupportRequestListItem,
 } from "../../features/support-requests/ui/contracts";
 
 export type {
   SupportFlowSummary,
+  SupportRequestCommandSnapshot,
   SupportRequestDetail,
+  SupportRequestEscalationSnapshot,
   SupportRequestListItem,
 } from "../../features/support-requests/ui/contracts";
 
@@ -79,7 +83,7 @@ export function createSupportRequestApiClient(options: SupportRequestApiClientOp
         openedByRole: string;
       }>,
     ) =>
-      parseJsonResponse<{ id: string; version: number; status: string }>(
+      parseJsonResponse<SupportRequestCommandSnapshot>(
         await clientFetch(`${baseUrl}/support-requests`, {
           method: "POST",
           headers: {
@@ -90,7 +94,7 @@ export function createSupportRequestApiClient(options: SupportRequestApiClientOp
         }),
       ),
     escalateOverdueSupportRequests: async (body: Readonly<{ limit?: number }> = {}) =>
-      parseJsonResponse<{ escalated: number; skipped: number }>(
+      parseJsonResponse<SupportRequestEscalationSnapshot>(
         await clientFetch(`${baseUrl}/support-requests/ops/escalate-overdue`, {
           method: "POST",
           headers: {

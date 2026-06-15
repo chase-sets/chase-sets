@@ -17,6 +17,11 @@ const routeKey = "platformOperations.projectionOperations";
 
 export const meta: MetaFunction = () => [{ title: t(`${routeKey}.metaTitle`) }];
 
+function currentRoutePath(request: Request) {
+  const url = new URL(request.url);
+  return `${url.pathname}${url.search}`;
+}
+
 export async function loader({ request }: LoaderFunctionArgs) {
   const [data, wakeStatus] = await Promise.all([
     loadProjectionOperationsSnapshot(request),
@@ -56,7 +61,7 @@ export async function action({ request }: ActionFunctionArgs) {
     });
   }
 
-  return redirect("/platform/projections");
+  return redirect(currentRoutePath(request));
 }
 
 export default function ProjectionOperationsRoute() {

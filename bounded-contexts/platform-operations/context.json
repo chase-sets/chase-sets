@@ -97,6 +97,121 @@
       "requiresAuth": true
     }
   ],
+  "mutationConsistencyInventory": [
+    {
+      "id": "platform-operations.projection-operation-command-snapshots",
+      "owner": "platform-operations",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-client:bounded-contexts/platform-operations/features/projection-operations/api/client.ts:POST H1e2a330b475d#1",
+        "post-form:bounded-contexts/platform-operations/features/projection-operations/ui/projection-operations-page.tsx:H2df726441e2a#1",
+        "post-form:bounded-contexts/platform-operations/features/projection-operations/ui/projection-operations-page.tsx:H2df726441e2a#2",
+        "post-form:bounded-contexts/platform-operations/features/projection-operations/ui/projection-operations-page.tsx:H2df726441e2a#3",
+        "post-form:bounded-contexts/platform-operations/features/projection-operations/ui/projection-operations-page.tsx:H2df726441e2a#4",
+        "post-form:bounded-contexts/platform-operations/features/projection-operations/ui/projection-operations-page.tsx:H2df726441e2a#5",
+        "route-action:bounded-contexts/platform-operations/routes/admin/projection-operations.tsx"
+      ],
+      "visibleDestination": {
+        "description": "Projection operation commands return live-refresh, queued-operation, or cancellation snapshots; the route action redirects to the same projection console URL so the loader refetches projection, wake, stale, lagging, partial, and unavailable states."
+      },
+      "proof": {
+        "authoritativeResponse": "refreshProjectionStatus normalizes the runtime live-refresh snapshot, retry/rebuild return the enqueued operation snapshot, cancel returns the cancellation result, and the operator route preserves filters before refetching the console loader.",
+        "tests": [
+          "bounded-contexts/platform-operations/features/projection-operations/api/client.test.ts",
+          "bounded-contexts/platform-operations/features/projection-operations/ui/projection-operations-page.test.tsx",
+          "bounded-contexts/platform-operations/tests/mutation-consistency-route-actions.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "platform-operations.release-controls-policy-snapshots",
+      "owner": "platform-operations",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-client:bounded-contexts/platform-operations/features/release-controls/api/client.ts:POST H9c3e7c4c830e#1",
+        "api-client:bounded-contexts/platform-operations/features/release-controls/api/client.ts:PUT H7f213597d4ce#1",
+        "api-route:bounded-contexts/platform-operations/features/release-controls/api/route.ts:POST /release-lock",
+        "api-route:bounded-contexts/platform-operations/features/release-controls/api/route.ts:PUT /rollouts/:featureKey",
+        "route-action:bounded-contexts/platform-operations/routes/admin/release-controls.tsx"
+      ],
+      "visibleDestination": {
+        "description": "Release lock and rollout policy writes return the command-owned policy snapshot; the admin action redirects back to the release controls route with current query state so the page refetches the generated command plan and rollout evaluation."
+      },
+      "proof": {
+        "authoritativeResponse": "setReleaseLock and setRolloutPolicy return ReleaseControlsPolicySnapshot directly from the aggregate command state before any downstream projection read.",
+        "tests": [
+          "bounded-contexts/platform-operations/features/release-controls/api/client.test.ts",
+          "bounded-contexts/platform-operations/features/release-controls/api/route.test.ts",
+          "bounded-contexts/platform-operations/tests/mutation-consistency-route-actions.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "platform-operations.platform-feedback-command-snapshots",
+      "owner": "platform-operations",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-client:bounded-contexts/platform-operations/support/request-support/platform-feedback-client.ts:POST H0320f0d7dce8#1",
+        "api-client:bounded-contexts/platform-operations/support/request-support/platform-feedback-client.ts:POST H28424991b4a4#1",
+        "api-client:bounded-contexts/platform-operations/support/request-support/platform-feedback-client.ts:POST H6579561c17fb#1",
+        "api-client:bounded-contexts/platform-operations/support/request-support/platform-feedback-client.ts:POST Hc1844b41e8c0#1",
+        "api-route:bounded-contexts/platform-operations/features/platform-feedback/api/http.ts:POST /",
+        "api-route:bounded-contexts/platform-operations/features/platform-feedback/api/http.ts:POST /:id/archive",
+        "api-route:bounded-contexts/platform-operations/features/platform-feedback/api/http.ts:POST /:id/review",
+        "api-route:bounded-contexts/platform-operations/features/platform-feedback/api/http.ts:POST /dismiss",
+        "post-form:bounded-contexts/platform-operations/features/platform-feedback/ui/admin-pages.tsx:H2df726441e2a#1",
+        "post-form:bounded-contexts/platform-operations/features/platform-feedback/ui/admin-pages.tsx:H2df726441e2a#2",
+        "route-action:bounded-contexts/platform-operations/routes/admin/platform-feedback-detail.tsx"
+      ],
+      "visibleDestination": {
+        "description": "Feedback submit, dismissal, review, and archive writes return id/version/status or snooze snapshots; admin review/archive forms redirect back to the detail route for an authoritative refetch."
+      },
+      "proof": {
+        "authoritativeResponse": "Platform feedback command handlers return the committed feedback or prompt id and aggregate version; the API maps that command result to submission, dismissal, reviewed, and archived snapshots.",
+        "tests": [
+          "bounded-contexts/platform-operations/tests/platform-feedback-api.test.ts",
+          "bounded-contexts/platform-operations/support/request-support/api-clients.test.ts",
+          "bounded-contexts/platform-operations/tests/mutation-consistency-route-actions.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "platform-operations.support-request-command-snapshots",
+      "owner": "platform-operations",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-client:bounded-contexts/platform-operations/support/request-support/support-request-api-client.ts:POST H6f340124f27a#1",
+        "api-client:bounded-contexts/platform-operations/support/request-support/support-request-api-client.ts:POST Ha0b27785d0b6#1",
+        "api-route:bounded-contexts/platform-operations/features/support-requests/api/route.ts:POST /",
+        "api-route:bounded-contexts/platform-operations/features/support-requests/api/route.ts:POST /:id/cancel",
+        "api-route:bounded-contexts/platform-operations/features/support-requests/api/route.ts:POST /:id/close",
+        "api-route:bounded-contexts/platform-operations/features/support-requests/api/route.ts:POST /:id/escalate",
+        "api-route:bounded-contexts/platform-operations/features/support-requests/api/route.ts:POST /:id/evidence",
+        "api-route:bounded-contexts/platform-operations/features/support-requests/api/route.ts:POST /:id/resolve",
+        "api-route:bounded-contexts/platform-operations/features/support-requests/api/route.ts:POST /:id/responses",
+        "api-route:bounded-contexts/platform-operations/features/support-requests/api/route.ts:POST /ops/escalate-overdue",
+        "post-form:bounded-contexts/platform-operations/features/support-requests/ui/support-operations-page.tsx:Hb08a81ecfd73#1",
+        "post-form:bounded-contexts/platform-operations/features/support-requests/ui/support-request-list-page.tsx:Hb08a81ecfd73#1",
+        "route-action:bounded-contexts/platform-operations/routes/admin/requests.tsx",
+        "route-action:bounded-contexts/platform-operations/routes/marketplace/account-support.tsx"
+      ],
+      "visibleDestination": {
+        "description": "Support request writes return lifecycle id/version/status snapshots and overdue escalation counts; account and operator routes redirect back to list routes where loaders refetch the authoritative support request read models."
+      },
+      "proof": {
+        "authoritativeResponse": "Support request lifecycle commands return the committed support request id and aggregate version, while overdue escalation returns command-owned escalated/skipped counts; route actions expose those snapshots in success redirects before list refetch.",
+        "tests": [
+          "bounded-contexts/platform-operations/features/support-requests/api/route.test.ts",
+          "bounded-contexts/platform-operations/support/request-support/api-clients.test.ts",
+          "bounded-contexts/platform-operations/tests/mutation-consistency-route-actions.test.ts"
+        ]
+      }
+    }
+  ],
   "deployableContributions": [
     {
       "deployable": "marketplace-web",

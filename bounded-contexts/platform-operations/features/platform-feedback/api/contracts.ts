@@ -43,6 +43,24 @@ export type PlatformFeedbackPromptEligibility = Readonly<{
   reason: "eligible" | "recent-submission" | "snoozed";
 }>;
 
+export type PlatformFeedbackSubmissionSnapshot = Readonly<{
+  id: string;
+  version: number;
+  status: "submitted";
+}>;
+
+export type PlatformFeedbackPromptDismissalSnapshot = Readonly<{
+  id: string;
+  version: number;
+  snoozedUntil: string;
+}>;
+
+export type PlatformFeedbackReviewSnapshot = Readonly<{
+  id: string;
+  version: number;
+  status: "reviewed" | "archived";
+}>;
+
 export type SubmitPlatformFeedbackRequest = Readonly<{
   rating: number;
   topic: PlatformFeedbackTopic;

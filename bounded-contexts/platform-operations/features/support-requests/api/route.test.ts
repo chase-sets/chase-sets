@@ -17,6 +17,10 @@ function buildApp(services: SupportRequestServices, permissions: readonly string
       roleKey: "platform-admin",
       permissions: [...permissions],
     });
+    c.set("context", {
+      tenantId: "tnt_chase_sets",
+      audit: { performedByUserId: "usr_operator", forAccountId: "acc_operator" },
+    } as never);
     await next();
   });
 
@@ -72,6 +76,77 @@ function createServices(overrides: Partial<SupportRequestServices> = {}): Suppor
 }
 
 describe("support request routes", () => {
+  it.each([
+    [
+      "openSupportRequest",
+      "/support-requests",
+      { orderId: "ord_1", flowType: "product-not-received", openedByRole: "buyer" },
+      { id: "sup_open", version: 1, status: "opened" },
+    ],
+    [
+      "submitEvidence",
+      "/support-requests/sup_1/evidence",
+      { submittedByRole: "buyer", evidenceType: "photo", summary: "Package photo", attachments: ["att_1"] },
+      { id: "sup_1", version: 2, status: "evidence-submitted" },
+    ],
+    [
+      "recordResponse",
+      "/support-requests/sup_1/responses",
+      { submittedByRole: "seller", responseType: "challenge-with-evidence", summary: "Carrier scan attached" },
+      { id: "sup_1", version: 3, status: "response-recorded" },
+    ],
+    [
+      "escalateSupportRequest",
+      "/support-requests/sup_1/escalate",
+      { reason: "Needs support review" },
+      { id: "sup_1", version: 4, status: "escalated" },
+    ],
+    [
+      "resolveSupportRequest",
+      "/support-requests/sup_1/resolve",
+      { resolutionType: "replacement", summary: "Replacement approved" },
+      { id: "sup_1", version: 5, status: "resolved" },
+    ],
+    ["closeSupportRequest", "/support-requests/sup_1/close", {}, { id: "sup_1", version: 6, status: "closed" }],
+    [
+      "cancelSupportRequest",
+      "/support-requests/sup_1/cancel",
+      { reason: "Buyer withdrew request" },
+      { id: "sup_1", version: 7, status: "cancelled" },
+    ],
+  ] as const)("returns a command-owned snapshot for %s", async (methodName, path, body, expected) => {
+    const command = vi.fn(async () => ({
+      supportRequestId: expected.id,
+      version: expected.version,
+    }));
+    const services = createServices({ [methodName]: command } as Partial<SupportRequestServices>);
+
+    const response = await buildApp(services).request(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    expect(response.status).toBe(methodName === "openSupportRequest" ? 201 : 200);
+    await expect(response.json()).resolves.toEqual(expected);
+    expect(command).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns command-owned support operations escalation counts", async () => {
+    const escalateOverdueSupportRequests = vi.fn(async () => ({ escalated: 3, skipped: 2 }));
+    const services = createServices({ escalateOverdueSupportRequests });
+
+    const response = await buildApp(services).request("/support-requests/ops/escalate-overdue", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ limit: 10 }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ escalated: 3, skipped: 2 });
+    expect(escalateOverdueSupportRequests).toHaveBeenCalledWith({ limit: 10 }, expect.any(Object));
+  });
+
   it("lets support operators read request details outside participant account scope", async () => {
     const services = createServices();
     const response = await buildApp(services).request("/support-requests/ops/sup_1");

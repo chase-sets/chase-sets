@@ -34,19 +34,46 @@ describe("projection operations API client", () => {
   });
 
   it("posts refresh, retry, rebuild, and cancel operations to the platform API", async () => {
-    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(
-      async () => new Response("{}", { status: 202 }),
-    );
+    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/refresh")) {
+        return new Response(
+          JSON.stringify({
+            summary: { totalGroups: 1 },
+            projectionGroups: [],
+            blockedProjections: [],
+            projectionStatusSource: "live-refresh",
+            workers: [],
+            runners: [],
+            operations: [],
+            operationSummary: null,
+          }),
+          { status: 202 },
+        );
+      }
+      if (url.endsWith("/cancel")) {
+        return new Response(JSON.stringify({ result: { cancelled: true } }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ operation: { operationId: "op_queued", state: "queued" } }), {
+        status: 202,
+      });
+    });
     vi.stubGlobal("fetch", fetchMock);
     const request = new Request("https://admin.example.com/platform/projections", {
       headers: { cookie: "session=abc" },
     });
 
-    await refreshProjectionStatus(request);
-    await retryBlockedStream(request, { projectionKey: "catalog.catalog-item-projection", streamId: "catalog.item-1" });
-    await rebuildProjectionGroup(request, { contextName: "catalog", projectionName: "catalog-item-projection" });
-    await rebuildProjectionContext(request, { contextName: "catalog" });
-    await cancelProjectionOperation(request, { operationId: "op_1" });
+    const refreshed = await refreshProjectionStatus(request);
+    const retried = await retryBlockedStream(request, {
+      projectionKey: "catalog.catalog-item-projection",
+      streamId: "catalog.item-1",
+    });
+    const rebuiltGroup = await rebuildProjectionGroup(request, {
+      contextName: "catalog",
+      projectionName: "catalog-item-projection",
+    });
+    const rebuiltContext = await rebuildProjectionContext(request, { contextName: "catalog" });
+    const cancelled = await cancelProjectionOperation(request, { operationId: "op_1" });
 
     expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
       "https://admin.example.com/api/platform/projections/refresh",
@@ -63,11 +90,29 @@ describe("projection operations API client", () => {
       method: "POST",
       body: JSON.stringify({ confirm: "rebuild-all" }),
     });
+    expect(refreshed.projectionStatusSource).toBe("live-refresh");
+    expect(retried).toEqual({ operation: { operationId: "op_queued", state: "queued" } });
+    expect(rebuiltGroup).toEqual({ operation: { operationId: "op_queued", state: "queued" } });
+    expect(rebuiltContext).toEqual({ operation: { operationId: "op_queued", state: "queued" } });
+    expect(cancelled).toEqual({ result: { cancelled: true } });
   });
 
   it("uses the configured internal API origin for production-safe server calls", async () => {
     const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(
-      async () => new Response("{}", { status: 202 }),
+      async () =>
+        new Response(
+          JSON.stringify({
+            summary: {},
+            projectionGroups: [],
+            blockedProjections: [],
+            projectionStatusSource: "live-refresh",
+            workers: [],
+            runners: [],
+            operations: [],
+            operationSummary: null,
+          }),
+          { status: 202 },
+        ),
     );
     vi.stubEnv(CHASE_SETS_INTERNAL_API_ORIGIN_ENV, "http://platform-api:8080");
     vi.stubGlobal("fetch", fetchMock);
