@@ -179,11 +179,13 @@ export async function fetchTcgdexSetObservationPayloads(input: {
   profile: CatalogProviderIntegrationProfile;
   languageCode: string;
   setId: string;
+  seriesId?: string | null;
   fetch?: typeof globalThis.fetch;
   onProgress?: (progress: TcgdexSetImportProgress) => void | Promise<void>;
 }): Promise<readonly TcgdexObservationPayload[]> {
   const languageCode = normalizeKey(input.languageCode || "en");
   const setId = normalizeKey(input.setId);
+  const seriesId = input.seriesId ? normalizeKey(input.seriesId) : null;
   const fetcher = input.fetch ?? globalThis.fetch;
   const connector = requireTcgdexConnector(input.profile);
   const setUrl = tcgdexUrl(connector, connector.endpoints.expansionDetail, {
@@ -212,6 +214,7 @@ export async function fetchTcgdexSetObservationPayloads(input: {
         card,
         set,
         languageCode,
+        seriesId,
         sourceUrl: cardUrl,
         observedAt,
       })),
@@ -248,6 +251,7 @@ async function toObservations(input: {
   card: TcgdexCard;
   set: TcgdexSet;
   languageCode: string;
+  seriesId: string | null;
   sourceUrl: string;
   observedAt: string;
 }): Promise<readonly TcgdexObservationPayload[]> {
@@ -279,7 +283,7 @@ async function toObservations(input: {
       expansionAbbreviation: expansionAbbreviation(input.set),
       expansionCardCount: input.set.cardCount?.official ?? input.set.cardCount?.total ?? null,
       expansionParallelSetCardCount: input.set.cardCount?.reverse ?? null,
-      seriesId: input.set.serie?.id ?? null,
+      seriesId: input.set.serie?.id ?? input.seriesId,
       seriesName: input.set.serie?.name ?? null,
       releaseDate: input.set.releaseDate ?? null,
       releaseYear,

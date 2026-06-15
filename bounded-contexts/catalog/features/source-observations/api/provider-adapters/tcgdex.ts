@@ -93,6 +93,7 @@ export function createTcgdexProviderAdapter(
       const profileVersion = await options.loadActiveProfileVersion();
       const languageCode = stringValue(plan.scope.values.languageCode) || "en";
       const setId = stringValue(plan.scope.values.setId) || stringValue(plan.scope.values.expansionId);
+      const seriesId = stringValue(plan.scope.values.seriesId);
       if (!setId) {
         throw new Error("TCGdex payload fetch requires a setId or expansionId scope value.");
       }
@@ -101,6 +102,7 @@ export function createTcgdexProviderAdapter(
         profile: profileVersion.profile,
         languageCode,
         setId,
+        seriesId,
         fetch: options.fetch,
         onProgress: (progress) =>
           fetchOptions?.onProgress?.({

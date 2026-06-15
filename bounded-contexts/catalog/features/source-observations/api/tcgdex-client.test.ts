@@ -208,6 +208,57 @@ describe("TCGdex client", () => {
     expect(observations[0]?.sourcePayload).not.toHaveProperty("pricing");
   });
 
+  it("uses the selected series as a reference fallback when set metadata omits serie", async () => {
+    const responses = new Map<string, unknown>([
+      [
+        "https://api.tcgdex.net/v2/ja/sets/sv8",
+        {
+          id: "SV8",
+          name: "Super Electric Breaker",
+          cardCount: { official: 106, total: 106 },
+          cards: [{ id: "SV8-001", localId: "001", name: "Pokemon A" }],
+        },
+      ],
+      [
+        "https://api.tcgdex.net/v2/ja/cards/SV8-001",
+        {
+          id: "SV8-001",
+          localId: "001",
+          name: "Pokemon A",
+          image: "https://assets.tcgdex.net/ja/sv/sv8/001",
+          category: "Pokemon",
+          set: { id: "SV8", name: "Super Electric Breaker" },
+          variants: { normal: true },
+        },
+      ],
+    ]);
+    const fetcher: typeof globalThis.fetch = async (input) => {
+      const response = responses.get(String(input));
+      return response ? new Response(JSON.stringify(response), { status: 200 }) : new Response(null, { status: 404 });
+    };
+
+    const observations = normalizeTcgdexObservationPayloads(
+      await fetchTcgdexSetObservationPayloads({
+        profile: tcgdexPokemonTcgProviderProfile,
+        languageCode: "ja",
+        seriesId: "SV",
+        setId: "SV8",
+        fetch: fetcher,
+      }),
+    );
+
+    expect(observations).toHaveLength(1);
+    expect(observations[0]).toMatchObject({
+      observationId: "tcgdex_ja_sv8_001",
+      languageCode: "ja",
+      normalized: {
+        setId: "SV8",
+        expansionId: "SV8",
+        seriesId: "sv",
+      },
+    });
+  });
+
   it("uses Pokemon marketplace language for premium parallel variants", async () => {
     const responses = new Map<string, unknown>([
       [
