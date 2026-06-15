@@ -1,7 +1,27 @@
+// @vitest-environment jsdom
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { CheckoutCartPage } from "./cart-page";
 import type { CheckoutCartLine } from "./contracts";
+
+const { mockFetcherSubmit, mockUseFetcher } = vi.hoisted(() => ({
+  mockFetcherSubmit: vi.fn(),
+  mockUseFetcher: vi.fn(() => ({
+    state: "idle",
+    data: null as { error?: string } | null,
+    submit: mockFetcherSubmit,
+  })),
+}));
+
+vi.mock("react-router", async () => {
+  const actual = await vi.importActual<typeof import("react-router")>("react-router");
+
+  return {
+    ...actual,
+    useFetcher: mockUseFetcher,
+  };
+});
 
 const cartLine: CheckoutCartLine = {
   buyer_account_id: "acc_buyer",
@@ -52,6 +72,16 @@ const cartLine: CheckoutCartLine = {
 };
 
 describe("checkout cart page", () => {
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    mockUseFetcher.mockImplementation(() => ({
+      state: "idle",
+      data: null,
+      submit: mockFetcherSubmit,
+    }));
+  });
+
   it("renders a Shopify-simple cart review without dense marketplace panels", () => {
     const markup = renderToString(<CheckoutCartPage cartLines={[cartLine]} />);
 
@@ -103,9 +133,110 @@ describe("checkout cart page", () => {
     expect(markup).toContain('value="5"');
     expect(markup).toContain('name="lineId" value="cart_line_1"');
     expect(markup).toContain('name="lineId" value="cart_line_2"');
+    expect(markup).toContain('data-optimistic-strategy="optimistic-with-correction"');
+    expect(markup).toContain('data-correction-source="fresh-read:loader-revalidation"');
     expect(markup).toContain("$1,945.00");
     expect(markup).not.toContain("Catalog item:");
     expect(markup).not.toContain("cat_charizard");
+  });
+
+  it("updates quantity and subtotal optimistically before loader correction returns", async () => {
+    render(<CheckoutCartPage cartLines={[cartLine]} />);
+
+    const quantity = screen.getByLabelText("Quantity") as HTMLInputElement;
+    fireEvent.click(screen.getByRole("button", { name: "Increase" }));
+
+    await waitFor(() => expect(quantity.value).toBe("3"));
+    expect(screen.getAllByText("$1,167.00").length).toBeGreaterThan(0);
+    expect(mockFetcherSubmit).toHaveBeenCalledTimes(1);
+
+    const formData = mockFetcherSubmit.mock.calls[0]?.[0] as FormData;
+    expect(formData.get("intent")).toBe("update-cart-line");
+    expect(formData.get("quantity")).toBe("3");
+    expect(formData.get("optimisticStrategy")).toBe("optimistic-with-correction");
+    expect(formData.get("correctionSource")).toBe("fresh-read:loader-revalidation");
+    expect(formData.get("optimisticSequence")).toBe("1");
+    expect(formData.getAll("lineId")).toEqual(["cart_line_1"]);
+  });
+
+  it("keeps typed draft quantities out of subtotal until submitted", async () => {
+    render(<CheckoutCartPage cartLines={[cartLine]} />);
+
+    const quantity = screen.getByLabelText("Quantity") as HTMLInputElement;
+    fireEvent.change(quantity, { target: { value: "5" } });
+
+    expect(quantity.value).toBe("5");
+    expect(screen.getAllByText("$778.00").length).toBeGreaterThan(0);
+    expect(screen.queryByText("$1,945.00")).toBeNull();
+    expect(mockFetcherSubmit).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Update" }));
+
+    await waitFor(() => expect(mockFetcherSubmit).toHaveBeenCalledTimes(1));
+    expect(screen.getAllByText("$1,945.00").length).toBeGreaterThan(0);
+  });
+
+  it("coalesces rapid repeated quantity clicks for one line", async () => {
+    render(<CheckoutCartPage cartLines={[cartLine]} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Increase" }));
+    await waitFor(() => expect((screen.getByLabelText("Quantity") as HTMLInputElement).value).toBe("3"));
+    fireEvent.click(screen.getByRole("button", { name: "Increase" }));
+    fireEvent.click(screen.getByRole("button", { name: "Increase" }));
+
+    await waitFor(() => expect((screen.getByLabelText("Quantity") as HTMLInputElement).value).toBe("5"));
+    expect(mockFetcherSubmit).toHaveBeenCalledTimes(1);
+    expect(screen.getAllByText("$1,945.00").length).toBeGreaterThan(0);
+  });
+
+  it("reconciles optimistic quantity and subtotal to server loader truth", async () => {
+    const { rerender } = render(<CheckoutCartPage cartLines={[cartLine]} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Increase" }));
+    await waitFor(() => expect((screen.getByLabelText("Quantity") as HTMLInputElement).value).toBe("3"));
+    expect(screen.getAllByText("$1,167.00").length).toBeGreaterThan(0);
+
+    rerender(<CheckoutCartPage cartLines={[{ ...cartLine, quantity: 4 }]} />);
+
+    await waitFor(() => expect((screen.getByLabelText("Quantity") as HTMLInputElement).value).toBe("4"));
+    expect(screen.getAllByText("$1,556.00").length).toBeGreaterThan(0);
+  });
+
+  it("rolls back visible quantity and subtotal when the route rejects the write", async () => {
+    const { rerender } = render(<CheckoutCartPage cartLines={[cartLine]} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Increase" }));
+    await waitFor(() => expect((screen.getByLabelText("Quantity") as HTMLInputElement).value).toBe("3"));
+
+    mockUseFetcher.mockImplementation(() => ({
+      state: "idle",
+      data: { error: "Request failed." },
+      submit: mockFetcherSubmit,
+    }));
+    rerender(<CheckoutCartPage cartLines={[cartLine]} errorMessage="Request failed." />);
+
+    await waitFor(() => expect((screen.getByLabelText("Quantity") as HTMLInputElement).value).toBe("2"));
+    expect(screen.getByText("Checkout issue")).toBeTruthy();
+    expect(screen.getAllByText("$778.00").length).toBeGreaterThan(0);
+  });
+
+  it("submits grouped duplicate lines as one absolute optimistic target", async () => {
+    const duplicateLine: CheckoutCartLine = {
+      ...cartLine,
+      line_id: "cart_line_2",
+      quantity: 3,
+      updated_at: "2026-04-29T00:00:00.000Z",
+    };
+
+    render(<CheckoutCartPage cartLines={[cartLine, duplicateLine]} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Decrease" }));
+
+    await waitFor(() => expect((screen.getByLabelText("Quantity") as HTMLInputElement).value).toBe("4"));
+
+    const formData = mockFetcherSubmit.mock.calls[0]?.[0] as FormData;
+    expect(formData.get("quantity")).toBe("4");
+    expect(formData.getAll("lineId")).toEqual(["cart_line_1", "cart_line_2"]);
   });
 
   it("shows preferred listing context and a cart-side lock action", () => {
