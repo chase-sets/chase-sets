@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { appendFreshWriteToken } from "@chase-sets/http/responses";
+import { appendFreshWriteToken, readFreshWriteToken } from "@chase-sets/http/responses";
 
 const {
   mockClaimGuestCheckoutWithPasskey,
@@ -85,6 +85,7 @@ import { action, loader } from "../routes/marketplace/account-payment";
 
 function paymentCommit(position: string, eventId: string) {
   return {
+    mode: "eventual",
     commitPosition: position,
     commitEventIds: [eventId],
     commitPositions: [
@@ -95,6 +96,15 @@ function paymentCommit(position: string, eventId: string) {
       },
     ],
   };
+}
+
+function withPaymentCommandReceipt<T extends object>(body: T, position = "43", eventId = "evt_payment_retry"): T {
+  Object.defineProperty(body, "commandReceipt", {
+    value: paymentCommit(position, eventId),
+    enumerable: false,
+  });
+
+  return body;
 }
 
 function freshPaymentRequest(path = "/checkout/payments/pay_1") {
@@ -508,9 +518,7 @@ describe("guest payment claim action", () => {
       payment_method_category: "bank-account",
       status: "failed",
     });
-    mockRecoverCheckoutPayment.mockResolvedValue({
-      payment_id: "pay_retry",
-    });
+    mockRecoverCheckoutPayment.mockResolvedValue(withPaymentCommandReceipt({ payment_id: "pay_retry" }));
     mockGetCheckoutStatus.mockResolvedValue({
       marketplace_checkout_fee: {
         quote_fingerprint: "quote_bank_retry",
@@ -544,7 +552,15 @@ describe("guest payment claim action", () => {
       marketplaceCheckoutFeeQuoteFingerprint: "quote_bank_retry",
       returnUrlPath: "/checkout/payments/:paymentId",
     });
-    expect((result as Response).headers.get("Location")).toBe("/checkout/payments/pay_retry");
+    const location = (result as Response).headers.get("Location");
+    expect(location).toContain("/checkout/payments/pay_retry?afterWrite=");
+    expect(readFreshWriteToken(location ?? "")?.sources).toEqual([
+      {
+        sourceContextName: "payments",
+        maxGlobalPosition: "43",
+        eventIds: ["evt_payment_retry"],
+      },
+    ]);
   });
 
   it("returns retry-scoped errors when guest payment recovery fails", async () => {

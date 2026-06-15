@@ -2,6 +2,7 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChaseRoot } from "@chase-sets/design-system";
+import { encodeCommitReceipt, readFreshWriteToken } from "@chase-sets/http/responses";
 import type { ComponentProps } from "react";
 import { jsonResponse, requestUrl } from "./test-support/http";
 
@@ -149,6 +150,16 @@ const checkoutStatus = {
   unavailable_reason_details: [],
 };
 
+const paymentCommitSource = {
+  sourceContextName: "payments",
+  maxGlobalPosition: "42",
+  eventIds: ["evt_payment_created"],
+};
+
+function requestMethod(input: string | URL | Request, init?: RequestInit) {
+  return (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
+}
+
 describe("marketplace account payment start route", () => {
   beforeEach(() => {
     mockUseActionData.mockReturnValue(undefined);
@@ -248,8 +259,15 @@ describe("marketplace account payment start route", () => {
           return Promise.resolve(jsonResponse(checkoutStatus));
         }
 
-        if (url.includes("/api/marketplace/account/payments") && (init?.method ?? "GET").toUpperCase() === "POST") {
-          return Promise.resolve(jsonResponse({ payment_id: "pay_1" }, 201));
+        if (url.includes("/api/marketplace/account/payments") && requestMethod(input, init) === "POST") {
+          return Promise.resolve(
+            jsonResponse({ payment_id: "pay_1" }, 201, {
+              "Chase-Sets-Consistency": "eventual",
+              "Chase-Sets-Commit-Receipt": encodeCommitReceipt([paymentCommitSource]),
+              "Chase-Sets-Commit-Event-Ids": paymentCommitSource.eventIds.join(","),
+              "Chase-Sets-Commit-Position": paymentCommitSource.maxGlobalPosition,
+            }),
+          );
         }
 
         return Promise.reject(new Error(`Unexpected fetch request: ${url}`));
@@ -272,6 +290,8 @@ describe("marketplace account payment start route", () => {
     } as never)) as Response;
 
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/account/payments/pay_1");
+    const location = response.headers.get("Location");
+    expect(location).toContain("/account/payments/pay_1?afterWrite=");
+    expect(readFreshWriteToken(location ?? "")?.sources).toEqual([paymentCommitSource]);
   });
 });

@@ -51,6 +51,13 @@ export type PaymentsSavedCheckoutSetupSession = Readonly<{
   processor_status: string;
 }>;
 
+export type PaymentsPaymentMethodReconciliationResult = Readonly<{
+  checked: number;
+  updated: number;
+  removed: number;
+  items: readonly PaymentsSavedCheckoutInstrument[];
+}>;
+
 function paymentsApiErrorMessage(status: number, body: unknown) {
   if (body && typeof body === "object" && "error" in body) {
     const error = (body as Record<string, unknown>).error;
@@ -231,7 +238,7 @@ export function createPaymentsApiClient({
         }),
       );
     },
-    async reconcilePaymentMethods(): Promise<Readonly<{ checked: number; updated: number; removed: number }>> {
+    async reconcilePaymentMethods(): Promise<PaymentsPaymentMethodReconciliationResult> {
       return parseJsonResponse(
         await client.account["payment-methods"].reconcile.$post({
           header: headers,
