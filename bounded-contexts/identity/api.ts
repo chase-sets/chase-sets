@@ -63,16 +63,19 @@ type IdentityMutationSnapshot = Readonly<{
   status: string;
 }>;
 
-function mutationSnapshot(
+function mutationSnapshot<State extends Readonly<object>>(
   aggregate: IdentityMutationSnapshot["aggregate"],
   id: string,
-  result: Readonly<{ version: number; state: Readonly<{ status?: string }> }>,
+  result: Readonly<{ version: number; state: State }>,
+  options: Readonly<{ fallbackStatus?: string }> = {},
 ): IdentityMutationSnapshot {
+  const stateStatus = "status" in result.state ? result.state.status : undefined;
+
   return {
     aggregate,
     id,
     version: result.version,
-    status: String(result.state.status ?? "committed"),
+    status: typeof stateStatus === "string" ? stateStatus : (options.fallbackStatus ?? "committed"),
   };
 }
 
@@ -205,7 +208,7 @@ async function createPersonalIdentityForAuth(
       },
       context: params.context,
     });
-    snapshots.push(mutationSnapshot("consent", consentId, consentResult));
+    snapshots.push(mutationSnapshot("consent", consentId, consentResult, { fallbackStatus: "recorded" }));
   }
 
   if (phone) {

@@ -133,7 +133,20 @@ function createServices() {
       projectors: [],
     },
     consents: {
-      commandHandler: vi.fn(async () => commandResult(61, "recorded")),
+      commandHandler: vi.fn(async () => ({
+        version: 61,
+        state: {
+          id: "cns_1",
+          subjectType: "user",
+          userId: actor.userId,
+          accountId: actor.accountId,
+          policyKey: "terms",
+          policyVersion: "2026-06-15",
+          recordedAt: "2026-06-15T00:00:00.000Z",
+        },
+        newEvents: [],
+        storedEvents: [],
+      })),
       listConsents: vi.fn(async () => ({ items: [], total: 0 })),
       projectors: [],
     },
@@ -314,7 +327,7 @@ describe("Identity API mutation snapshots", () => {
     for (const testCase of accountCases) {
       const { response, body } = await requestJson(app, testCase.path, {
         method: testCase.method,
-        body: JSON.stringify(testCase.body ?? {}),
+        body: JSON.stringify("body" in testCase ? testCase.body : {}),
       });
       expect(response.status).toBe(testCase.status);
       expect(body).toMatchObject(testCase.expected);
@@ -371,7 +384,7 @@ describe("Identity API mutation snapshots", () => {
     for (const testCase of userCases) {
       const { response, body } = await requestJson(app, testCase.path, {
         method: testCase.method,
-        body: JSON.stringify(testCase.body ?? {}),
+        body: JSON.stringify("body" in testCase ? testCase.body : {}),
       });
       expect(response.status).toBe(testCase.status);
       expect(body).toMatchObject(testCase.expected);
@@ -408,7 +421,7 @@ describe("Identity API mutation snapshots", () => {
     for (const testCase of membershipCases) {
       const { response, body } = await requestJson(app, testCase.path, {
         method: testCase.method,
-        body: JSON.stringify(testCase.body ?? {}),
+        body: JSON.stringify("body" in testCase ? testCase.body : {}),
       });
       expect(response.status).toBe(testCase.status);
       expect(body).toMatchObject(testCase.expected);
@@ -451,7 +464,7 @@ describe("Identity API mutation snapshots", () => {
     for (const testCase of invitationCases) {
       const { response, body } = await requestJson(app, testCase.path, {
         method: testCase.method,
-        body: JSON.stringify(testCase.body ?? {}),
+        body: JSON.stringify("body" in testCase ? testCase.body : {}),
       });
       expect(response.status).toBe(testCase.status);
       expect(body).toMatchObject(testCase.expected);
@@ -496,7 +509,7 @@ describe("Identity API mutation snapshots", () => {
     for (const testCase of shippingCases) {
       const { response, body } = await requestJson(app, testCase.path, {
         method: testCase.method,
-        body: JSON.stringify(testCase.body ?? {}),
+        body: JSON.stringify("body" in testCase ? testCase.body : {}),
       });
       expect(response.status).toBe(testCase.status);
       expect(body).toMatchObject(testCase.expected);
