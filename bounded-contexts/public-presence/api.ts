@@ -310,11 +310,12 @@ export function createAdminPromoBarRoutes(services: PromoBarServices) {
       return access.response;
     }
 
-    const deleted = await services.deletePromoBarMessage(c.req.param("messageId"));
+    const messageId = c.req.param("messageId");
+    const deleted = await services.deletePromoBarMessage(messageId);
     if (!deleted) {
       return c.json({ error: { code: "not_found", message: t("publicPresence.api.promoBar.notFound") } }, 404);
     }
-    return c.json({ status: "deleted" });
+    return c.json({ id: messageId, status: "deleted" });
   });
 
   return app;

@@ -2,7 +2,7 @@ import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useActionData, useLoaderData } from "react-router";
 import { PromoBarAdminPage } from "../../features/promo-bar/ui/admin-pages";
-import type { PromoBarMessageTone } from "../../features/promo-bar/api/contracts";
+import type { PromoBarMessage, PromoBarMessageTone } from "../../features/promo-bar/api/contracts";
 import { createPublicPresenceRequestApiClient } from "../../support/request-support/api-client";
 
 function optional(formData: FormData, key: string) {
@@ -44,33 +44,27 @@ export async function action({ request }: ActionFunctionArgs) {
   const formData = await request.formData();
   const intent = String(formData.get("intent") ?? "");
   const id = String(formData.get("id") ?? "");
+  let message = t("publicPresence.promoBar.action.noop");
 
   if (intent === "create") {
     await api.createPromoBarMessage(messageBody(formData));
-    return { message: t("publicPresence.promoBar.action.created") };
-  }
-
-  if (intent === "update" && id) {
+    message = t("publicPresence.promoBar.action.created");
+  } else if (intent === "update" && id) {
     await api.updatePromoBarMessage(id, messageBody(formData));
-    return { message: t("publicPresence.promoBar.action.updated") };
-  }
-
-  if (intent === "activate" && id) {
+    message = t("publicPresence.promoBar.action.updated");
+  } else if (intent === "activate" && id) {
     await api.activatePromoBarMessage(id);
-    return { message: t("publicPresence.promoBar.action.activated") };
-  }
-
-  if (intent === "deactivate" && id) {
+    message = t("publicPresence.promoBar.action.activated");
+  } else if (intent === "deactivate" && id) {
     await api.deactivatePromoBarMessage(id);
-    return { message: t("publicPresence.promoBar.action.deactivated") };
-  }
-
-  if (intent === "delete" && id) {
+    message = t("publicPresence.promoBar.action.deactivated");
+  } else if (intent === "delete" && id) {
     await api.deletePromoBarMessage(id);
-    return { message: t("publicPresence.promoBar.action.deleted") };
+    message = t("publicPresence.promoBar.action.deleted");
   }
 
-  return { message: t("publicPresence.promoBar.action.noop") };
+  const refreshed = await api.listPromoBarMessages();
+  return { message, items: refreshed.items };
 }
 
 export const meta: MetaFunction = () => [{ title: t("publicPresence.routes.admin.promoBar.meta.title") }];
@@ -78,10 +72,11 @@ export const meta: MetaFunction = () => [{ title: t("publicPresence.routes.admin
 export default function PromoBarAdminRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
+  const messages = (actionData?.items as PromoBarMessage[] | undefined) ?? data.items;
 
   return (
     <PromoBarAdminPage
-      messages={data.items}
+      messages={messages}
       actionMessage={actionData?.message ?? null}
       marketplaceOrigin={data.marketplaceOrigin}
     />

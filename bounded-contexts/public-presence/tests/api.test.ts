@@ -135,6 +135,7 @@ describe("public presence API", () => {
     });
 
     expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toEqual({ id: "wls_test", version: 1, status: "joined" });
     expect(submitWaitlistSignup).toHaveBeenCalledWith(
       expect.objectContaining({
         email: "todd@example.com",
@@ -276,5 +277,51 @@ describe("public presence API", () => {
         linkLabel: "Seller fees",
       }),
     );
+  });
+
+  it("returns command snapshots for promo bar management writes", async () => {
+    const createdMessage = {
+      id: "pbm_created",
+      title: "0% fees on beta listings.",
+      description: null,
+      href: "/sales-fees",
+      link_label: "Seller fees",
+      tone: "success",
+      is_active: true,
+      display_order: 20,
+      starts_at: null,
+      ends_at: null,
+      created_at: "2026-06-15T00:00:00.000Z",
+      updated_at: "2026-06-15T00:00:00.000Z",
+    } satisfies PromoBarMessage;
+    const updatedMessage = { ...createdMessage, title: "Updated fees", updated_at: "2026-06-15T00:01:00.000Z" };
+    const inactiveMessage = { ...updatedMessage, is_active: false, updated_at: "2026-06-15T00:02:00.000Z" };
+    const services = createPromoBarServices({
+      createPromoBarMessage: vi.fn(async () => createdMessage),
+      updatePromoBarMessage: vi.fn(async () => updatedMessage),
+      setPromoBarMessageActive: vi.fn(async (_id, isActive) => (isActive ? updatedMessage : inactiveMessage)),
+      deletePromoBarMessage: vi.fn(async () => true),
+    });
+    const app = adminPromoBarAppFor(services);
+
+    const create = await app.request("/promo-bar-messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "0% fees on beta listings." }),
+    });
+    const update = await app.request("/promo-bar-messages/pbm_created", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "Updated fees" }),
+    });
+    const activate = await app.request("/promo-bar-messages/pbm_created/activate", { method: "POST" });
+    const deactivate = await app.request("/promo-bar-messages/pbm_created/deactivate", { method: "POST" });
+    const deleted = await app.request("/promo-bar-messages/pbm_created", { method: "DELETE" });
+
+    await expect(create.json()).resolves.toMatchObject({ id: "pbm_created", title: "0% fees on beta listings." });
+    await expect(update.json()).resolves.toMatchObject({ id: "pbm_created", title: "Updated fees" });
+    await expect(activate.json()).resolves.toMatchObject({ id: "pbm_created", is_active: true });
+    await expect(deactivate.json()).resolves.toMatchObject({ id: "pbm_created", is_active: false });
+    await expect(deleted.json()).resolves.toEqual({ id: "pbm_created", status: "deleted" });
   });
 });

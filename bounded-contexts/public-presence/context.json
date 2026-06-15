@@ -78,6 +78,79 @@
         "issue": "#1819",
         "reason": "Public Presence owns the waitlist analytics event vocabulary and documents public-web capture as directional funnel observability in bounded-contexts/public-presence/docs/landing-page-analytics.md. deployables/public-web/app/routes/public-web.test.tsx proves the route accepts bounded analytics labels, rejects unsupported/private labels, returns 204, and no user-visible route read depends on the ping."
       }
+    },
+    {
+      "id": "public-presence.waitlist-signup-command-receipt",
+      "owner": "public-presence",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-client:bounded-contexts/public-presence/client.ts:POST H405b3cbdf275#1",
+        "api-route:bounded-contexts/public-presence/api.ts:POST /waitlist",
+        "post-form:bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx:H2df726441e2a#1",
+        "route-action:bounded-contexts/public-presence/routes/marketplace/home.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "home",
+        "description": "The public waitlist form stays on the landing page and renders the joined success state from the command response, which includes the committed waitlist signup id and version instead of reading the admin waitlist projection."
+      },
+      "proof": {
+        "authoritativeResponse": "submitWaitlistSignup returns the committed signup id/version, the public API returns that receipt with status=joined, and the home route action forwards the receipt to the same-page success banner.",
+        "tests": [
+          "bounded-contexts/public-presence/tests/api.test.ts proves POST /waitlist returns the committed id/version receipt.",
+          "bounded-contexts/public-presence/tests/home-route.test.ts proves the home action returns the receipt as the same-page success snapshot.",
+          "bounded-contexts/public-presence/features/waitlist/ui/public-pages.test.tsx proves the waitlist form posts through the Public Presence route action."
+        ]
+      }
+    },
+    {
+      "id": "public-presence.promo-bar-command-snapshots",
+      "owner": "public-presence",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-client:bounded-contexts/public-presence/client.ts:DELETE Hd6ce7ff1e4d3#1",
+        "api-client:bounded-contexts/public-presence/client.ts:POST H43e144f953d8#1",
+        "api-client:bounded-contexts/public-presence/client.ts:POST H4e43f80f9d5e#1",
+        "api-client:bounded-contexts/public-presence/client.ts:POST Ha3e298fafcdf#1",
+        "api-client:bounded-contexts/public-presence/client.ts:PUT H72e5a17da97f#1",
+        "api-route:bounded-contexts/public-presence/api.ts:DELETE /promo-bar-messages/:messageId",
+        "api-route:bounded-contexts/public-presence/api.ts:POST /promo-bar-messages",
+        "api-route:bounded-contexts/public-presence/api.ts:POST /promo-bar-messages/:messageId/activate",
+        "api-route:bounded-contexts/public-presence/api.ts:POST /promo-bar-messages/:messageId/deactivate",
+        "api-route:bounded-contexts/public-presence/api.ts:PUT /promo-bar-messages/:messageId"
+      ],
+      "visibleDestination": {
+        "description": "Promo Bar Message create, update, activate, deactivate, and delete API responses return the command-owned message snapshot or scoped deletion receipt so API callers do not need to trust a lagging list read for the completed write."
+      },
+      "proof": {
+        "authoritativeResponse": "The promo-bar read-model command functions mutate the Public Presence table and return the saved message row with updated_at; delete returns the deleted message id/status receipt.",
+        "tests": [
+          "bounded-contexts/public-presence/tests/api.test.ts proves promo-bar management writes return scoped command snapshots or deletion receipts."
+        ]
+      }
+    },
+    {
+      "id": "public-presence.promo-bar-admin-route-snapshot",
+      "owner": "public-presence",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "post-form:bounded-contexts/public-presence/features/promo-bar/ui/admin-pages.tsx:H2df726441e2a#1",
+        "post-form:bounded-contexts/public-presence/features/promo-bar/ui/admin-pages.tsx:H2df726441e2a#2",
+        "route-action:bounded-contexts/public-presence/routes/admin/promo-bar.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "promo-bar",
+        "description": "The admin Promo Bar route returns a Public Presence admin promo-bar list snapshot after every write and renders that action-owned list snapshot ahead of any stale loader result."
+      },
+      "proof": {
+        "authoritativeResponse": "The route action performs create/update/activate/deactivate/delete, then calls listPromoBarMessages and returns items; PromoBarAdminRoute renders actionData.items before loader data for the just-completed write.",
+        "tests": [
+          "bounded-contexts/public-presence/tests/promo-bar-route.test.ts proves the route action returns the refreshed admin list snapshot after create.",
+          "bounded-contexts/public-presence/features/promo-bar/ui/admin-pages.test.tsx proves the admin page renders the supplied message list and preview links."
+        ]
+      }
     }
   ],
   "deployableContributions": [

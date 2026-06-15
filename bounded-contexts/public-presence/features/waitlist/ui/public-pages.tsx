@@ -43,7 +43,10 @@ import waitlistCardPanelsUrl from "./assets/chase-sets-waitlist-card-panels.webp
 import { trackWaitlistEvent } from "./analytics";
 import { publicPresenceT as t } from "./public-presence-translator";
 
-export type WaitlistActionData = Readonly<{ status: "joined" }> | Readonly<{ status: "error"; message: string }> | null;
+export type WaitlistActionData =
+  | Readonly<{ status: "joined"; id?: string; version?: number }>
+  | Readonly<{ status: "error"; message: string }>
+  | null;
 
 const roleItems = [
   { value: "both", label: t("publicPresence.waitlist.role.both") },
