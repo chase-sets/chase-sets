@@ -372,7 +372,6 @@
     "api-route:bounded-contexts/settlement/features/wallets/api/route.ts:POST /wallet/dispute-holds",
     "api-route:bounded-contexts/settlement/features/wallets/api/route.ts:POST /wallet/dispute-releases",
     "api-route:bounded-contexts/settlement/features/wallets/api/route.ts:POST /wallet/refund-debits",
-    "api-route:deployables/admin-support-api/src/app.ts:POST /api/auth/register",
     "fetcher-submit:bounded-contexts/discovery/features/item-detail/ui/commerce/purchase-section.tsx:Hd8587c34fa67#1",
     "post-form:bounded-contexts/auth/features/account-selection/ui/account-selection-page.tsx:H7a156fe57c56#1",
     "post-form:bounded-contexts/auth/features/registration/ui/register-page.tsx:H9d861fd197ea#1",
@@ -510,10 +509,6 @@
     "post-form:bounded-contexts/settlement/features/payouts/ui/payout-list-page.tsx:H2df726441e2a#2",
     "post-form:bounded-contexts/settlement/features/payouts/ui/payout-list-page.tsx:H2df726441e2a#3",
     "post-form:bounded-contexts/settlement/features/payouts/ui/payout-operations-page.tsx:H2df726441e2a#1",
-    "post-form:deployables/admin-web/app/admin-account-menu.tsx:Heda552c623b5#1",
-    "post-form:deployables/marketplace/app/routes/layout.tsx:H471446951fc0#1",
-    "post-form:deployables/marketplace/app/routes/layout.tsx:Hb720c9850c28#1",
-    "post-form:deployables/marketplace/app/routes/layout.tsx:Hcebdacd493da#1",
     "route-action:bounded-contexts/auth/routes/access-admin/account-select.tsx",
     "route-action:bounded-contexts/auth/routes/access-admin/sessions-detail.tsx",
     "route-action:bounded-contexts/auth/routes/access-admin/sign-in.tsx",
@@ -579,8 +574,6 @@
     "route-action:bounded-contexts/public-presence/routes/marketplace/home.tsx",
     "route-action:bounded-contexts/settlement/routes/marketplace/account-payout-operations.tsx",
     "route-action:bounded-contexts/settlement/routes/marketplace/account-payout-setup.tsx",
-    "route-action:bounded-contexts/settlement/routes/marketplace/account-payouts.tsx",
-    "route-action:deployables/marketplace/app/routes/item-detail-rail-analytics.ts",
-    "route-action:deployables/public-web/app/routes/waitlist-analytics.ts"
+    "route-action:bounded-contexts/settlement/routes/marketplace/account-payouts.tsx"
   ]
 }

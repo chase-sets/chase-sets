@@ -65,6 +65,21 @@
       "requiresAuth": true
     }
   ],
+  "mutationConsistencyInventory": [
+    {
+      "id": "public-presence.waitlist-analytics-capture",
+      "owner": "public-presence",
+      "risk": "informational",
+      "strategy": "non-user-visible",
+      "surfaces": ["route-action:deployables/public-web/app/routes/waitlist-analytics.ts"],
+      "exception": {
+        "owner": "public-presence",
+        "reviewBy": "2026-09-30",
+        "issue": "#1819",
+        "reason": "Public Presence owns the waitlist analytics event vocabulary and documents public-web capture as directional funnel observability in bounded-contexts/public-presence/docs/landing-page-analytics.md. deployables/public-web/app/routes/public-web.test.tsx proves the route accepts bounded analytics labels, rejects unsupported/private labels, returns 204, and no user-visible route read depends on the ping."
+      }
+    }
+  ],
   "deployableContributions": [
     {
       "deployable": "public-web",
