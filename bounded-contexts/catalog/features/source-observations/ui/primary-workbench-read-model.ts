@@ -4,7 +4,12 @@ export {
 } from "./primary-workbench-read-model-composition";
 export type { CatalogPrimaryWorkbenchInput } from "./primary-workbench-read-model-input";
 export { buildCatalogPrimaryWorkbenchSourceObservationReviewQuery } from "./primary-workbench-source-observation-review";
+export { buildCatalogPrimaryWorkbenchSourceOptionRequests } from "./primary-workbench-source-options";
 export type { CatalogIntegrationRecentJobReadModel } from "./primary-workbench-import-jobs";
+export type {
+  CatalogPrimaryWorkbenchSourceOptionPageSnapshot,
+  CatalogPrimaryWorkbenchSourceOptionRequest,
+} from "./primary-workbench-source-options";
 export type { ProfileSectionWorkspace } from "./primary-workbench-profile-section-workspaces";
 export type { ProfileSectionField } from "./primary-workbench-profile-section-fields";
 export type { ProfileOptionQueryDetail } from "./primary-workbench-profile-option-queries";

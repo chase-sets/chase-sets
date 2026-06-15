@@ -35,6 +35,7 @@ import { conflictResolutionFor } from "./primary-workbench-conflict-resolution";
 import { governanceControlsFor } from "./primary-workbench-governance-controls";
 import { auditEvidenceFor } from "./primary-workbench-audit-evidence";
 import { cleanResetReleaseFor } from "./primary-workbench-clean-reset-release";
+import { buildCatalogPrimaryWorkbenchSourceOptions } from "./primary-workbench-source-options";
 
 // The slices the metric strip and grouped navigation render on EVERY surface
 // route, plus the route context and base scalars. Every per-route read model
@@ -43,6 +44,7 @@ import { cleanResetReleaseFor } from "./primary-workbench-clean-reset-release";
 type CatalogPrimaryWorkbenchCore = Readonly<{
   routeContext: CatalogPrimaryWorkbenchRouteContext;
   providerScope: CatalogPrimaryWorkbenchReadModel["providerScope"];
+  sourceOptions: CatalogPrimaryWorkbenchReadModel["sourceOptions"];
   readiness: CatalogPrimaryWorkbenchReadModel["readiness"];
   importJobs: CatalogPrimaryWorkbenchReadModel["importJobs"];
   sourceObservationReview: CatalogPrimaryWorkbenchReadModel["sourceObservationReview"];
@@ -150,6 +152,16 @@ function buildCatalogPrimaryWorkbenchCore(
     unsafeEvidenceBlocked: false,
     missingSecurityFieldsBlocker: "security-privacy-blocked",
   } satisfies CatalogPrimaryWorkbenchReadModel["securityPrivacy"];
+  const sourceOptions = buildCatalogPrimaryWorkbenchSourceOptions({
+    activeProfile,
+    canManage,
+    generatedAt,
+    profiles: input.profileReviews.items,
+    readinessBlockers,
+    routeContext,
+    scopes: input.scopes.items,
+    sourceOptionPages: input.sourceOptionPages ?? null,
+  });
 
   return {
     core: {
@@ -157,6 +169,7 @@ function buildCatalogPrimaryWorkbenchCore(
       providerScope: {
         providers: providerScopeProviders(input, providerKey, activeProfile),
       },
+      sourceOptions,
       readiness: {
         freshness: input.controlPlaneOverview ? "fresh" : "partial",
         blockers: readinessBlockers,
@@ -534,6 +547,7 @@ function assembleReadModel(
     promotionPreview: core.promotionPreview,
     promotionResult: null,
     actions: parts.actions,
+    sourceOptions: core.sourceOptions,
     deploySkew: catalogPrimaryWorkbenchDeploySkewPolicies[0],
     securityPrivacy: core.securityPrivacy,
     instrumentation: {

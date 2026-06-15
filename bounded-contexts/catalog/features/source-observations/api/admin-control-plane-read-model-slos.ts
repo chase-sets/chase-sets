@@ -95,6 +95,27 @@ export const catalogAdminControlPlaneReadModelSlos = [
     performanceChecks: [check("smoke", 10, "Adapter diagnostics request completes within the dashboard budget.")],
   }),
   slo({
+    key: "provider-source-options",
+    latency: latency(
+      400,
+      2_000,
+      "Provider source options should populate dependent selectors without stalling review.",
+    ),
+    freshness: freshness("request-time", 15, 60, 300, ["fresh", "stale", "partial", "unavailable"]),
+    pagination: pagination("cursor", true, 25, 100, ["queryKind", "cursor"]),
+    queryShape: queryShape(
+      ["providerKey", "profileVersion", "queryKind", "languageCode", "parentValue"],
+      ["label", "value"],
+      ["catalog_provider_option_query_cache_lookup_idx", "catalog_provider_option_query_cache_stale_until_idx"],
+      [],
+      "Provider option pages use the cache lookup key first, then refresh through bounded provider queries.",
+    ),
+    highVolume: false,
+    performanceChecks: [
+      check("unit-test", 1_000, "Provider option pages preserve cache metadata and parent selection."),
+    ],
+  }),
+  slo({
     key: "active-profile-version-summary",
     latency: latency(250, 1_500, "Profile workspace header reads should be instant-feeling."),
     freshness: freshness("transactional-projection", 5, 30, 180, ["fresh", "stale", "unavailable"]),

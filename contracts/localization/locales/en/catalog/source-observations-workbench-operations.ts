@@ -238,6 +238,8 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.promote.catalog.facts": "Promote Catalog facts",
   "catalog.features.sourceObservations.ui.primaryWorkbench.pull.provider.data": "Pull provider data",
   "catalog.features.sourceObservations.ui.primaryWorkbench.queue.preview": "Queue preview",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.sourceOptions.notLoaded":
+    "The provider source option page was not loaded by this surface.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.readiness": "Readiness",
   "catalog.features.sourceObservations.ui.primaryWorkbench.readiness.deploy.skew.description":
     "Unsupported UI/API pairings fail closed before exposing unsafe commands.",

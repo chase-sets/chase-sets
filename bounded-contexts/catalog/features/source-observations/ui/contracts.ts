@@ -141,6 +141,17 @@ export interface SourceObservationIntegrationOptionResponse {
   cache?: SourceObservationIntegrationOptionQueryCache;
 }
 
+export interface CatalogProviderSourceOptionKind {
+  queryKind: string;
+  aliases: string[];
+  displayName: string;
+  scope: string;
+  parentScope: string | null;
+  parentRequired: boolean;
+  parentValueKind: string | null;
+  parentDiagnosticText: string | null;
+}
+
 export interface CatalogIntegrationControlPlaneReadiness {
   generatedAt: string;
   rolloutControls: CatalogIntegrationRolloutControlSnapshot;
@@ -335,6 +346,7 @@ export interface CatalogProviderProfileVersionReview {
   capabilities: string[];
   supportedScopes: string[];
   languageOptions: string[];
+  sourceOptionKinds: CatalogProviderSourceOptionKind[];
   mappingOutputKind: string;
   hasExecutableMappingContract: boolean;
   migrationEvidence: {

@@ -84,6 +84,7 @@ describe("Catalog primary workbench read model - per-surface slicing", () => {
     for (const slice of [
       "routeContext",
       "providerScope",
+      "sourceOptions",
       "readiness",
       "importJobs",
       "sourceObservationReview",
