@@ -210,7 +210,7 @@
     {
       "id": "checkout.cart-self-refresh",
       "owner": "checkout",
-      "risk": "important",
+      "risk": "critical",
       "source": {
         "routeId": "account-cart",
         "actions": ["Update account cart"],

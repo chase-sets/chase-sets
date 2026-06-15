@@ -202,6 +202,36 @@ describe("checkout cart page", () => {
     expect(screen.getAllByText("$1,556.00").length).toBeGreaterThan(0);
   });
 
+  it("keeps account cart quantity and subtotal optimistic when stale loader data returns first", async () => {
+    const { rerender } = render(<CheckoutCartPage cartLines={[cartLine]} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Increase" }));
+
+    await waitFor(() => expect((screen.getByLabelText("Quantity") as HTMLInputElement).value).toBe("3"));
+    expect(screen.getAllByText("$1,167.00").length).toBeGreaterThan(0);
+
+    mockUseFetcher.mockImplementation(() => ({
+      state: "loading",
+      data: null,
+      submit: mockFetcherSubmit,
+    }));
+    rerender(<CheckoutCartPage cartLines={[{ ...cartLine, quantity: 1 }]} />);
+
+    expect((screen.getByLabelText("Quantity") as HTMLInputElement).value).toBe("3");
+    expect(screen.getAllByText("$1,167.00").length).toBeGreaterThan(0);
+    expect(screen.queryByText("$389.00")).toBeNull();
+
+    mockUseFetcher.mockImplementation(() => ({
+      state: "idle",
+      data: null,
+      submit: mockFetcherSubmit,
+    }));
+    rerender(<CheckoutCartPage cartLines={[{ ...cartLine, quantity: 3 }]} />);
+
+    await waitFor(() => expect((screen.getByLabelText("Quantity") as HTMLInputElement).value).toBe("3"));
+    expect(screen.getAllByText("$1,167.00").length).toBeGreaterThan(0);
+  });
+
   it("rolls back visible quantity and subtotal when the route rejects the write", async () => {
     const { rerender } = render(<CheckoutCartPage cartLines={[cartLine]} />);
 

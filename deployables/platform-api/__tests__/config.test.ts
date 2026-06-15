@@ -132,6 +132,13 @@ describe("platform api config", () => {
       routeTuning: [
         {
           mountPath: "/api/marketplace",
+          routePath: "/account/cart",
+          timeoutMs: 900,
+          pollIntervalMs: 50,
+          exactDependencyMode: "enabled",
+        },
+        {
+          mountPath: "/api/marketplace",
           routePath: "/account/checkout-sessions/:sessionId",
           timeoutMs: 900,
           pollIntervalMs: 50,
@@ -706,6 +713,13 @@ describe("platform api config", () => {
       routeTuning: [
         {
           mountPath: "/api/marketplace",
+          routePath: "/account/cart",
+          timeoutMs: 900,
+          pollIntervalMs: 50,
+          exactDependencyMode: "enabled",
+        },
+        {
+          mountPath: "/api/marketplace",
           routePath: "/account/checkout-sessions/:sessionId",
           timeoutMs: 900,
           pollIntervalMs: 50,
@@ -743,6 +757,13 @@ describe("platform api config", () => {
     ]);
 
     expect(loadConfig().readConsistency?.routeTuning).toEqual([
+      {
+        mountPath: "/api/marketplace",
+        routePath: "/account/cart",
+        timeoutMs: 900,
+        pollIntervalMs: 50,
+        exactDependencyMode: "enabled",
+      },
       {
         mountPath: "/api/marketplace",
         routePath: "/account/checkout-sessions/:sessionId",

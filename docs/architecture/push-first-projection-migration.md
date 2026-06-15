@@ -31,7 +31,7 @@ An explicit opt-out (`projectionPushOptOuts` in `projection-push-migration.ts`) 
 
 The validator also rejects opt-outs naming unknown projection groups and duplicates. **Current opt-out count: 0.** Every projection group on the platform is push-first eligible or enabled.
 
-## Projection Groups (64)
+## Projection Groups (72)
 
 Bold source contexts are staging-enabled in the registry. `Enabled` counts sources with relay fan-out enabled.
 
@@ -60,6 +60,13 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `fulfillment:fulfillment-account-projection` | Fulfillment | identity | push-eligible | 0/1 |
 | `fulfillment:fulfillment-order-source-projection` | Fulfillment | **ordering** | push-enabled | 1/1 |
 | `fulfillment:fulfillment-shipment-projection` | Fulfillment | fulfillment | push-eligible | 0/1 |
+| `identity:identity-account-projection` | Identity | identity | push-eligible | 0/1 |
+| `identity:identity-api-key-projection` | Identity | identity | push-eligible | 0/1 |
+| `identity:identity-consent-projection` | Identity | identity | push-eligible | 0/1 |
+| `identity:identity-invitation-projection` | Identity | identity | push-eligible | 0/1 |
+| `identity:identity-membership-projection` | Identity | identity | push-eligible | 0/1 |
+| `identity:identity-shipping-address-projection` | Identity | identity | push-eligible | 0/1 |
+| `identity:identity-user-projection` | Identity | identity | push-eligible | 0/1 |
 | `inventory:inventory-catalog-item-projection` | Inventory | **catalog** | push-enabled | 1/1 |
 | `inventory:inventory-hold-projection` | Inventory | inventory | push-eligible | 0/1 |
 | `inventory:inventory-item-projection` | Inventory | inventory | push-eligible | 0/1 |
@@ -72,6 +79,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `marketplace:marketplace-offer-projection` | Marketplace | **marketplace** | push-enabled | 1/1 |
 | `marketplace:reputation-account-projection` | Marketplace | identity | push-eligible | 0/1 |
 | `marketplace:reputation-order-source-projection` | Marketplace | **ordering** | push-enabled | 1/1 |
+| `marketplace:reputation-review-projection` | Marketplace | **marketplace** | push-enabled | 1/1 |
 | `marketplace:reputation-shipment-source-projection` | Marketplace | fulfillment | push-eligible | 0/1 |
 | `marketplace:reputation-support-source-projection` | Marketplace | platform-operations | push-eligible | 0/1 |
 | `notifications:notifications-source-facts-outbox-projection` | Notifications | fulfillment, **ordering** | push-eligible | 1/2 |
@@ -102,16 +110,16 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `settlement:settlement-payment-input-projection` | Settlement | **payments** | push-enabled | 1/1 |
 | `settlement:settlement-support-hold-projection` | Settlement | platform-operations | push-eligible | 0/1 |
 
-Totals: 30 `push-enabled`, 34 `push-eligible`, 0 `disabled`, 0 `opted-out`.
+Totals: 31 `push-enabled`, 41 `push-eligible`, 0 `disabled`, 0 `opted-out`.
 
-## Read-After-Write Route Inventory (31)
+## Read-After-Write Route Inventory (46)
 
 Every route inventory entry keeps its exact durable wait or carries an owner-approved exception recorded in the owning context's `context.json` (validated by #1233). "Wave posture" describes whether commits behind the route's freshness dependencies currently emit push wakes in staging; exact waits and recovery contracts hold in every posture.
 
 | Route entry | Owning context | Risk | Freshness contract | Wave posture (staging) |
 | --- | --- | --- | --- | --- |
 | `auth.session-detail-self-refresh` | auth | important | exact wait | deferred until wave 4 |
-| `checkout.cart-self-refresh` | checkout | important | exact wait | push-accelerated |
+| `checkout.cart-self-refresh` | checkout | critical | exact wait | push-accelerated |
 | `checkout.guest-sell-list-to-checkout` | checkout | important | accepted exception (checkout, review 2026-07-31, #1809) | push-accelerated |
 | `checkout.sell-checkout-confirmation-detail` | checkout | critical | not-post-write-read exception (checkout, review 2026-07-31) | push-accelerated |
 | `checkout.sell-list-self-refresh` | checkout | important | exact wait | push-accelerated |
@@ -125,13 +133,28 @@ Every route inventory entry keeps its exact durable wait or carries an owner-app
 | `commercial-terms.schedule-update-to-detail` | commercial-terms | important | exact wait | deferred until wave 4 |
 | `discovery.item-detail-checkout-handoff` | discovery | important | not-post-write-read exception (discovery, review 2026-07-31) | poll-bounded until wave 3 |
 | `fulfillment.seller-shipment-self-refresh` | fulfillment | important | exact wait | poll-bounded until wave 2 |
-| `identity.shipping-addresses-self-refresh` | identity | important | not-read-model-backed exception (identity, review 2026-07-31) | poll-bounded until wave 2 |
+| `identity.account-security-api-key-fresh-read` | identity | critical | exact wait | poll-bounded until wave 2 |
+| `identity.account-security-user-fresh-read` | identity | important | exact wait | poll-bounded until wave 2 |
+| `identity.account-team-invitation-fresh-read` | identity | important | exact wait | poll-bounded until wave 2 |
+| `identity.account-team-membership-fresh-read` | identity | important | exact wait | poll-bounded until wave 2 |
+| `identity.admin-account-detail-fresh-read` | identity | important | exact wait | poll-bounded until wave 2 |
+| `identity.admin-api-key-detail-fresh-read` | identity | critical | exact wait | poll-bounded until wave 2 |
+| `identity.admin-api-key-list-fresh-read` | identity | critical | exact wait | poll-bounded until wave 2 |
+| `identity.admin-invitation-detail-fresh-read` | identity | important | exact wait | poll-bounded until wave 2 |
+| `identity.admin-invitation-list-fresh-read` | identity | important | exact wait | poll-bounded until wave 2 |
+| `identity.admin-membership-detail-fresh-read` | identity | important | exact wait | poll-bounded until wave 2 |
+| `identity.admin-user-detail-fresh-read` | identity | important | exact wait | poll-bounded until wave 2 |
+| `identity.marketplace-account-profile-fresh-read` | identity | important | exact wait | poll-bounded until wave 2 |
+| `identity.shipping-addresses-fresh-read` | identity | important | exact wait | poll-bounded until wave 2 |
 | `inventory.import-batch-detail` | inventory | important | accepted exception (inventory, review 2026-07-31, #1809) | poll-bounded until wave 2 |
 | `inventory.item-adjust-to-detail` | inventory | critical | exact wait | poll-bounded until wave 2 |
 | `inventory.item-create-to-detail` | inventory | important | exact wait | poll-bounded until wave 2 |
 | `inventory.storage-locations-list` | inventory | important | exact wait | poll-bounded until wave 2 |
+| `marketplace.listing-availability-self-refresh` | marketplace | important | exact wait | push-accelerated |
 | `marketplace.listing-create-to-detail` | marketplace | critical | exact wait | push-accelerated |
-| `marketplace.listing-list-self-refresh` | marketplace | important | accepted exception (marketplace, review 2026-07-31, #1809) | push-accelerated |
+| `marketplace.listing-fee-lock-self-refresh` | marketplace | important | exact wait | push-accelerated |
+| `marketplace.listing-list-self-refresh` | marketplace | important | exact wait | push-accelerated |
+| `marketplace.offer-match-accept-to-detail` | marketplace | important | exact wait | push-accelerated |
 | `marketplace.submitted-offer-detail` | marketplace | important | exact wait | push-accelerated |
 | `ordering.postage-policy-command-to-detail` | ordering | important | exact wait | push-accelerated |
 | `ordering.postage-policy-create-to-list` | ordering | important | exact wait | push-accelerated |
@@ -139,7 +162,7 @@ Every route inventory entry keeps its exact durable wait or carries an owner-app
 | `ordering.sale-cancel-to-detail` | ordering | important | exact wait | push-accelerated |
 | `payments.create-to-detail` | payments | critical | exact wait | push-accelerated |
 | `payments.detail-self-refresh` | payments | important | exact wait | push-accelerated |
-| `reputation.review-submit-to-detail` | marketplace | important | accepted exception (marketplace, review 2026-07-31, #1809) | push-accelerated |
+| `reputation.review-submit-to-detail` | marketplace | important | exact wait | push-accelerated |
 | `settlement.payout-request-to-detail` | settlement | important | accepted exception (settlement, review 2026-07-31, #1809) | poll-bounded until wave 3 |
 
 ## Rollout Waves: Staging First, Production Gated

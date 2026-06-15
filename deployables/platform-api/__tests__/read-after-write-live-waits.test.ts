@@ -254,6 +254,38 @@ describe("checkout exact read-after-write waits (#1225)", () => {
     }
   });
 
+  it("pins account cart self-refresh to the checkout cart projection dependency", () => {
+    expect(CRITICAL_READ_CONSISTENCY_ROUTE_TUNING).toContainEqual({
+      mountPath: "/api/marketplace",
+      routePath: "/account/cart",
+      timeoutMs: 900,
+      pollIntervalMs: 50,
+      exactDependencyMode: "enabled",
+    });
+
+    const checkoutCartLiveRoutes = findLiveFreshnessRoutes("checkout", "/account/cart");
+    expect(checkoutCartLiveRoutes).toEqual([
+      {
+        mountPath: "/api/marketplace",
+        route: {
+          routePath: "/account/cart",
+          methods: ["GET", "HEAD"],
+          dependencies: [{ readModelTable: "checkout_cart_line_pages" }],
+        },
+      },
+    ]);
+
+    const resolvedDependencies = checkoutCartLiveRoutes.flatMap(({ route }) =>
+      route.dependencies.flatMap((dependency) =>
+        resolveReadConsistencyDependency("checkout", dependency, mountedProjectionGroups),
+      ),
+    );
+
+    expect(resolvedDependencies).toEqual([
+      { targetContextName: "checkout", projectionName: "checkout.cart-projection" },
+    ]);
+  });
+
   it("keeps every critical route tuning entry matched to a live module freshness route", () => {
     const violations: string[] = [];
 

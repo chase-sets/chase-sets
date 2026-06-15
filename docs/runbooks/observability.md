@@ -46,7 +46,7 @@ The application must continue serving traffic if telemetry export is unavailable
 ## Signals
 
 - Traces: Hono requests, Node HTTP/fetch/pg auto-instrumentation, event-store operations, projection/subscription runs, and worker loops.
-- Metrics: request count/duration, event-store operation count/duration, projection/subscription run count/duration, worker run count/duration, read-after-write projection freshness count/duration/pending lag, Catalog integration option-query/job counts, and UCP operation/security/idempotency counts.
+- Metrics: request count/duration, event-store operation count/duration, projection/subscription run count/duration, worker run count/duration, read-after-write projection freshness count/duration/pending lag, post-write consistency outcome counts, Catalog integration option-query/job counts, and UCP operation/security/idempotency counts.
 - Logs: JSON stdout with `traceId` and `spanId` when an active span exists. The shared logger also exports sanitized structured logs to OTLP `/v1/logs` when observability is enabled. Local dev can also mirror logs to JSONL when `LOG_FILE_PATH` is set so the Collector can tail them into Loki.
 
 Do not log request bodies, cookies, authorization headers, provider secrets, emails, addresses, card data, or raw customer payloads.
@@ -121,6 +121,8 @@ Metric labels must stay bounded: service, environment, route template, method, s
 
 Projection freshness metrics add only bounded labels: `mount_path`, `route_path`, `target_context`, `projection`, `source_context`, `outcome`, `wait_mode`, receipt/header status, runner state, and sanitized `last_error` presence. They must not include raw URLs, path parameters, checkout session ids, account ids, user ids, guest emails, cookies, event ids, or `afterWrite` token values.
 
+Post-write consistency metrics use `chase_sets_post_write_consistency_events_total` with bounded labels only: `context`, `surface`, `strategy`, `outcome`, `route_id`, `route_template`, `correction_source`, `actor_mode`, `recovery_action`, and `freshness_outcome`. Account cart uses `context="checkout"`, `surface="account-cart"`, `route_id="account-cart"`, correction source `fresh-read:loader-revalidation`, and route template `/account/cart`. The outcome values are `missing_strategy`, `optimistic_applied`, `freshness_timeout`, `rollback`, `reconciliation`, and `stale_response_discard`; do not add account ids, cart ids, item ids, event ids, full URLs, raw receipts, or customer identifiers.
+
 ## Production Canary Queries
 
 Production release canary telemetry uses the Prometheus-compatible query endpoint selected by ADR 0011. Configure the production GitHub Environment with:
@@ -131,6 +133,8 @@ Production release canary telemetry uses the Prometheus-compatible query endpoin
 - `CANARY_PROMETHEUS_HEADERS` (secret): JSON object of query headers, for example `{"X-Chase-Sets-Observability-Query":"<token>"}`.
 
 Keep credentials out of `CANARY_PROMETHEUS_URL`; use `CANARY_PROMETHEUS_HEADERS` for bearer, basic, tenant, or gateway-specific query credentials. The first required production stack signal is `observability-transport`, backed by `up{job="otel-collector"}`. Required zero-event queries must use real liveness counters in PromQL, such as projection freshness evaluations or the authenticated Settlement provider-health canary's `provider-health-checked` operation; sparse once-per-canary counters should anchor with `max_over_time(...) * 0` rather than `rate(...) * 0` so a single scraped health sample proves liveness without turning absence into healthy zero. Empty Prometheus results are not converted to healthy zeroes. Signals that are still `needs-instrumentation` may appear as `required: false`, but they must remain visible as missing until their telemetry is live.
+
+Account cart consistency uses an optional release signal named `account-cart-post-write-consistency`. It watches `missing_strategy` and `freshness_timeout` outcomes and must remain zero once runtime emission is live. Pair that query with the redacted [Account Cart Consistency Canary](./account-cart-consistency-canary.md) artifact; the canary output may be shared, while private browser observations must stay out of PR comments and launch checklist rows.
 
 ## Projection Freshness Queries
 

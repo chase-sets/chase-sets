@@ -74,6 +74,50 @@ describe("optimistic correction primitive", () => {
     expect(submit.mock.calls[1]?.[0]).toMatchObject({ value: 5, sequence: 3 });
   });
 
+  it("does not let stale loader truth overwrite the latest queued optimistic value", () => {
+    const submit = vi.fn();
+    const { rerender } = render(<Harness sourceValue={2} submitting={false} submit={submit} />);
+
+    act(() => screen.getByText("Increase").click());
+    rerender(<Harness sourceValue={2} submitting submit={submit} />);
+    act(() => screen.getByText("Increase").click());
+    act(() => screen.getByText("Increase").click());
+
+    rerender(<Harness sourceValue={3} submitting submit={submit} />);
+
+    expect(screen.getByLabelText("quantity").textContent).toBe("5");
+    expect(screen.getByLabelText("status").textContent).toBe("pending");
+    expect(submit).toHaveBeenCalledTimes(1);
+
+    rerender(<Harness sourceValue={3} submitting={false} submit={submit} />);
+
+    expect(screen.getByLabelText("quantity").textContent).toBe("5");
+    expect(screen.getByLabelText("status").textContent).toBe("pending");
+    expect(submit).toHaveBeenCalledTimes(2);
+    expect(submit.mock.calls[1]?.[0]).toMatchObject({ value: 5, sequence: 3 });
+  });
+
+  it("discards stale loader responses until the source catches up to the optimistic value", () => {
+    const submit = vi.fn();
+    const { rerender } = render(<Harness sourceValue={2} submitting={false} submit={submit} />);
+
+    act(() => screen.getByText("Increase").click());
+    rerender(<Harness sourceValue={1} submitting submit={submit} />);
+
+    expect(screen.getByLabelText("quantity").textContent).toBe("3");
+    expect(screen.getByLabelText("status").textContent).toBe("pending");
+
+    rerender(<Harness sourceValue={1} submitting={false} submit={submit} />);
+
+    expect(screen.getByLabelText("quantity").textContent).toBe("3");
+    expect(screen.getByLabelText("status").textContent).toBe("pending");
+
+    rerender(<Harness sourceValue={3} submitting={false} submit={submit} />);
+
+    expect(screen.getByLabelText("quantity").textContent).toBe("3");
+    expect(screen.getByLabelText("status").textContent).toBe("idle");
+  });
+
   it("rolls back to loader truth on rejection", () => {
     const submit = vi.fn();
     const { rerender } = render(<Harness sourceValue={2} submitting={false} submit={submit} />);

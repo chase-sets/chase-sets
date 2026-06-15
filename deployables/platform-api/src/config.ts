@@ -126,6 +126,13 @@ export type PlatformApiReadConsistencyConfig = Readonly<{
 export const CRITICAL_READ_CONSISTENCY_ROUTE_TUNING: readonly ReadConsistencyRouteTuning[] = [
   {
     mountPath: "/api/marketplace",
+    routePath: "/account/cart",
+    timeoutMs: 900,
+    pollIntervalMs: 50,
+    exactDependencyMode: "enabled",
+  },
+  {
+    mountPath: "/api/marketplace",
     routePath: "/account/checkout-sessions/:sessionId",
     timeoutMs: 900,
     pollIntervalMs: 50,

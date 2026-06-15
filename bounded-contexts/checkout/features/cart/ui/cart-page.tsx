@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useFetcher } from "react-router";
 import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
 import {
@@ -569,7 +569,6 @@ export function CheckoutCartPage({
 }) {
   const sourceCartLineGroups = useMemo(() => groupCartLines(cartLines), [cartLines]);
   const [optimisticQuantities, setOptimisticQuantities] = useState<Record<string, number>>({});
-  const previousSourceQuantitiesRef = useRef<Record<string, number>>({});
   const onQuantityChange = useMemo(
     () => (groupKey: string, quantity: number) => {
       setOptimisticQuantities((current) =>
@@ -596,13 +595,9 @@ export function CheckoutCartPage({
       const next: Record<string, number> = {};
       let changed = false;
       const sourceKeys = new Set(sourceCartLineGroups.map((line) => line.groupKey));
-      const previousSourceQuantities = previousSourceQuantitiesRef.current;
 
       for (const line of sourceCartLineGroups) {
-        const sourceChanged =
-          previousSourceQuantities[line.groupKey] !== undefined &&
-          previousSourceQuantities[line.groupKey] !== line.sourceQuantity;
-        if (!sourceChanged && current[line.groupKey] !== undefined && current[line.groupKey] !== line.quantity) {
+        if (current[line.groupKey] !== undefined && current[line.groupKey] !== line.quantity) {
           next[line.groupKey] = current[line.groupKey]!;
         }
       }
@@ -617,9 +612,6 @@ export function CheckoutCartPage({
 
       return changed ? next : current;
     });
-    previousSourceQuantitiesRef.current = Object.fromEntries(
-      sourceCartLineGroups.map((line) => [line.groupKey, line.sourceQuantity]),
-    );
   }, [sourceCartLineGroups]);
   const cartLineCount = cartLineGroups.reduce((sum, line) => sum + line.quantity, 0);
   const estimatedSubtotal = estimateCartSubtotal(cartLineGroups);
