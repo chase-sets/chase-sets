@@ -21,7 +21,7 @@ import {
 describe("source-context wake registry", () => {
   const inventory = loadBoundedContextInventory();
 
-  it("covers every bounded context with only the wave-1 hot-path contexts staging-enabled", () => {
+  it("covers every bounded context with the staging-enabled wake sources explicit", () => {
     expect(() =>
       validateSourceContextWakeRegistry({
         boundedContextNames: inventory.contextNames,
@@ -30,27 +30,35 @@ describe("source-context wake registry", () => {
 
     expect(sourceContextWakeRegistry.map((entry) => entry.sourceContextName)).toEqual(inventory.contextNames);
     expect(listEventStoreWakeNotificationSourceContexts().map((entry) => entry.sourceContextName)).toEqual([
+      "catalog",
       "checkout",
       "marketplace",
       "ordering",
       "payments",
     ]);
-    expect(listSourceContextWakeRelayConfigs()).toMatchObject(
-      ["checkout", "marketplace", "ordering", "payments"].map((sourceContextName) => ({
+    expect(listSourceContextWakeRelayConfigs()).toMatchObject([
+      {
+        sourceContextName: "catalog",
+        rolloutState: "staging-enabled",
+        rolloutWave: "wave-2-commerce-dependencies",
+        relayFanOutEnabled: true,
+        priorityLane: "standard",
+      },
+      ...["checkout", "marketplace", "ordering", "payments"].map((sourceContextName) => ({
         sourceContextName,
         rolloutState: "staging-enabled",
         rolloutWave: "wave-1-checkout-hot-path",
         relayFanOutEnabled: true,
         priorityLane: "hot",
       })),
-    );
+    ]);
     expect(listSourceContextWakeRelayConfigs({ includeInactive: true })).toHaveLength(inventory.contextNames.length);
 
     expect(summarizeSourceContextWakeRegistry()).toMatchObject({
       entryCount: inventory.contextNames.length,
-      activeEntryCount: 4,
-      enabledEventStoreWakeContextCount: 4,
-      enabledRelayFanOutContextCount: 4,
+      activeEntryCount: 5,
+      enabledEventStoreWakeContextCount: 5,
+      enabledRelayFanOutContextCount: 5,
     });
   });
 
@@ -119,6 +127,11 @@ describe("source-context wake registry", () => {
     });
     expect(listSourceContextWakeRelayConfigs({ registry })).toMatchObject([
       {
+        sourceContextName: "catalog",
+        relayFanOutEnabled: true,
+        priorityLane: "standard",
+      },
+      {
         sourceContextName: "checkout",
         relayFanOutEnabled: true,
         priorityLane: "hot",
@@ -186,7 +199,7 @@ describe("source-context wake registry", () => {
 
     expect(() =>
       validateSourceContextWakeRegistry({
-        registry: withRegistryEntryPatch("catalog", {
+        registry: withRegistryEntryPatch("auth", {
           enablement: {
             eventStoreWakeNotifications: true,
             relayFanOut: true,

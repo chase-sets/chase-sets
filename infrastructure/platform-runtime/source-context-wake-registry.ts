@@ -142,13 +142,18 @@ export const sourceContextWakeRegistry = [
   registryEntry({
     sourceContextName: "catalog",
     owner: "Catalog",
-    rolloutState: "eligible",
+    rolloutState: "staging-enabled",
+    enablement: {
+      eventStoreWakeNotifications: true,
+      relayFanOut: true,
+    },
     phase: "phase-2-composite-migration",
     rolloutWave: "wave-2-commerce-dependencies",
     priorityLane: "standard",
     expectedEventVolume: "high",
     wakeStoreLoadEstimate: "high",
     affectedProjectionNames: [
+      "catalog:catalog-source-observation-projection",
       "checkout:checkout-catalog-item-projection",
       "discovery:discovery-category-projection",
       "discovery:discovery-google-shopping-feed-row-projection",
