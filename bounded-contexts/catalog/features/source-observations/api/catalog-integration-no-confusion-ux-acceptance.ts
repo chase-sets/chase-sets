@@ -372,6 +372,10 @@ export function buildCatalogNoConfusionUxAcceptancePacket(input: {
   signoff: Omit<CatalogNoConfusionUxSignoff, "checklistVersion"> &
     Partial<Pick<CatalogNoConfusionUxSignoff, "checklistVersion">>;
 }): CatalogNoConfusionUxAcceptancePacket {
+  // #1047 owns the no-confusion launch gate; #1748 re-proves it against the
+  // decongested four-route IA. The desktop/mobile visual evidence for every
+  // required state (default/empty/blocked/denied/degraded/success/error) is
+  // produced by the @catalog-admin-integrations E2E artifacts in CI.
   const evidenceBase = "https://github.com/chase-sets/chase-sets/issues/1047#issuecomment-4677367910";
 
   return assertCatalogNoConfusionUxAcceptancePacketIsLaunchSafe({
@@ -480,6 +484,23 @@ export function assertCatalogNoConfusionUxAcceptancePacketIsLaunchSafe(
   return packet;
 }
 
+// #1748 re-proves the #1047 gate against the decongested four-route IA
+// (/catalog/integrations daily, /integrations/providers, /integrations/governance,
+// /integrations/release). The gate validates section/action CONTRACTS rather than
+// routes, so it survived #1749's single-route-shell retirement; the test references
+// below name the executable evidence that exercises the new information architecture
+// and the live audience-surface page so the packet points at current artifacts.
+const catalogNoConfusionUxNewIaProofTests = [
+  // The four-route audience information architecture and surface-route mapping.
+  "ui/admin-control-plane/information-architecture.test.ts",
+  // The rewritten rendered-workflow coverage targeting the live CatalogIntegrationsSurfacePage.
+  "ui/primary-workbench-page.test.tsx",
+  // The grouped-navigation, mobile workflow combobox, and single per-surface return affordance.
+  "ui/workbench-shell.test.tsx",
+  // The daily happy-path E2E walked first across the new routes (tag @catalog-admin-integrations).
+  "deployables/admin-web/e2e/catalog-integrations.spec.ts",
+] as const;
+
 function buildDefaultWorkflowEvidence(evidenceBase: string): readonly CatalogNoConfusionUxWorkflowEvidence[] {
   const workflow = (
     key: CatalogNoConfusionUxWorkflowKey,
@@ -503,7 +524,11 @@ function buildDefaultWorkflowEvidence(evidenceBase: string): readonly CatalogNoC
     resilienceBehavior: "Failure states preserve route context and expose a safe recovery action.",
     securityPrivacyBehavior: "Provider evidence is redacted and unsafe writes fail closed.",
     providerTransportPerformanceBehavior: "Provider transport budget and degraded state evidence are linked.",
-    tests: ["catalog-integration-no-confusion-ux-acceptance.test.ts", "primary-workbench-admin-contracts.test.ts"],
+    tests: [
+      "catalog-integration-no-confusion-ux-acceptance.test.ts",
+      "primary-workbench-admin-contracts.test.ts",
+      ...catalogNoConfusionUxNewIaProofTests,
+    ],
     sections,
     actions,
     hiddenNextStep: false,
