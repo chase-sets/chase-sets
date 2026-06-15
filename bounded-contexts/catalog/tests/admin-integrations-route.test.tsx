@@ -433,6 +433,30 @@ describe("Catalog integrations route", () => {
     );
   });
 
+  it("queues a TCGdex native language-series-set scope as a concrete expansion import", async () => {
+    const enqueueSourceObservationIntegrationJob = vi.fn().mockResolvedValue({ jobId: "job_import_ja_sv8" });
+    const recordCatalogControlPlaneEvent = vi.fn().mockResolvedValue({ status: "recorded" });
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      enqueueSourceObservationIntegrationJob,
+      recordCatalogControlPlaneEvent,
+    });
+
+    await runDailyAction({
+      _intent: "start-provider-import",
+      providerKey: "tcgdex",
+      unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+      importScope: "ja:SV:SV8",
+      profileVersion: "2026.06.03",
+    });
+
+    expect(enqueueSourceObservationIntegrationJob).toHaveBeenCalledWith("import", {
+      provider: "tcgdex",
+      language: "ja",
+      seriesId: "SV",
+      setId: "SV8",
+    });
+  });
+
   it("preserves selected IDs while creating a scoped promotion preview token", async () => {
     const previewBulkPromoteSourceObservationIds = vi.fn().mockResolvedValue({
       matched: 1,
