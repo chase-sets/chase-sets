@@ -365,11 +365,48 @@
       "key": "integrations",
       "label": "Integrations",
       "icon": "rocket",
-      "href": "/integrations",
       "order": 70,
       "visibility": "signed-in",
       "requiredPermissions": [],
-      "section": "catalog"
+      "section": "catalog",
+      "children": [
+        {
+          "key": "integrations-import",
+          "label": "Import",
+          "icon": "refreshCcw",
+          "href": "/integrations",
+          "order": 10,
+          "visibility": "signed-in",
+          "requiredPermissions": []
+        },
+        {
+          "key": "integrations-providers",
+          "label": "Provider setup",
+          "icon": "settings",
+          "href": "/integrations/providers",
+          "order": 20,
+          "visibility": "signed-in",
+          "requiredPermissions": []
+        },
+        {
+          "key": "integrations-governance",
+          "label": "Governance",
+          "icon": "shield",
+          "href": "/integrations/governance",
+          "order": 30,
+          "visibility": "signed-in",
+          "requiredPermissions": []
+        },
+        {
+          "key": "integrations-release",
+          "label": "Release health and evidence",
+          "icon": "checkCircle",
+          "href": "/integrations/release",
+          "order": 40,
+          "visibility": "signed-in",
+          "requiredPermissions": []
+        }
+      ]
     }
   ],
   "directoryIntent": {

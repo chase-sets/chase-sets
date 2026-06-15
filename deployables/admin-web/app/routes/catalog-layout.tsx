@@ -8,6 +8,13 @@ const config = {
   defaultActiveKey: "dimensions",
   activeKeys: {
     "reference-types": "reference-records",
+    // The integrations surfaces are real nested routes under one "Integrations"
+    // nav group; map each to its child key so the side nav highlights and expands
+    // the active child (the base route is the Import child).
+    integrations: "integrations-import",
+    "integrations/providers": "integrations-providers",
+    "integrations/governance": "integrations-governance",
+    "integrations/release": "integrations-release",
   },
 } as const;
 

@@ -83,13 +83,12 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       screen.getByText("Rejects stale observation, profile, rollout, permission, and command input changes"),
     ).toBeTruthy();
 
-    // The cross-surface navigation groups the four audience routes; the daily route
-    // is the primary job and the other three are supporting surfaces.
-    const navigation = screen.getByRole("navigation", { name: "Catalog control plane workflows" });
-    expect(within(navigation).getByText("Daily import to promotion")).toBeTruthy();
-    expect(within(navigation).getByText("Provider profiles and readiness")).toBeTruthy();
-    expect(within(navigation).getByText("Govern and recover")).toBeTruthy();
-    expect(within(navigation).getByText("Release evidence and health")).toBeTruthy();
+    // Cross-surface navigation now lives in the admin shell side nav (the nested
+    // "Integrations" manifest group), not on the page: the integrations surface no
+    // longer renders its own "Catalog control plane workflows" nav or the mobile
+    // workflow combobox.
+    expect(screen.queryByRole("navigation", { name: "Catalog control plane workflows" })).toBeNull();
+    expect(screen.queryByRole("combobox", { name: "Choose Catalog workflow" })).toBeNull();
     expect(screen.queryByText("Old integrations surface")).toBeNull();
     expect(screen.queryByText(/raw JSON/i)).toBeNull();
   });
@@ -144,7 +143,6 @@ describe("CatalogPrimaryWorkbenchPage", () => {
 
     render(<CatalogIntegrationsSurfacePage surface="governance" readModel={readModel} />);
 
-    expect(screen.getByRole("link", { name: /Governance controls/i }).getAttribute("aria-current")).toBe("page");
     expect(screen.getByRole("heading", { name: "Governance controls" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Rollout and worker controls" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "RBAC action matrix" })).toBeTruthy();
@@ -206,11 +204,6 @@ describe("CatalogPrimaryWorkbenchPage", () => {
 
     render(<CatalogIntegrationsSurfacePage surface="release" readModel={readModel} />);
 
-    expect(
-      screen
-        .getAllByRole("link", { name: /Audit evidence/i })
-        .some((link) => link.getAttribute("aria-current") === "page"),
-    ).toBe(true);
     expect(screen.getByRole("heading", { name: "Audit and release evidence" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Timeline filters" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Audit timeline" })).toBeTruthy();
@@ -248,7 +241,6 @@ describe("CatalogPrimaryWorkbenchPage", () => {
 
     render(<CatalogIntegrationsSurfacePage surface="release" readModel={readModel} />);
 
-    expect(screen.getByRole("link", { name: /Clean reset release/i }).getAttribute("aria-current")).toBe("page");
     expect(screen.getByRole("heading", { name: "Clean reset release" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Release decision checklist" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Reset evidence findings" })).toBeTruthy();
@@ -549,7 +541,6 @@ describe("CatalogPrimaryWorkbenchPage", () => {
 
     render(<CatalogIntegrationsSurfacePage surface="governance" readModel={readModel} />);
 
-    expect(screen.getByRole("link", { name: /Conflict resolution/i }).getAttribute("aria-current")).toBe("page");
     expect(screen.getByRole("heading", { name: "Conflict resolution" })).toBeTruthy();
     expect(screen.getByText("Conflicts are blocking promotion")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Fact conflicts" })).toBeTruthy();
