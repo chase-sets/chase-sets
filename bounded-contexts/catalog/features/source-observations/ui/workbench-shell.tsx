@@ -4,7 +4,6 @@ import {
   Button,
   DenseAdminWorkbench,
   DenseAdminWorkbenchHeader,
-  DenseAdminWorkbenchLayout,
   MetricStrip,
   NativeSelect,
   OperationalStatusBanner,
@@ -13,20 +12,14 @@ import {
   WorkbenchForm,
   WorkbenchFormGrid,
   WorkbenchStack,
-  type SectionNavigationGroup,
 } from "@chase-sets/design-system";
 import { t } from "@chase-sets/localization";
 import type { CatalogPrimaryWorkbenchReadModel } from "../api/primary-workbench-admin-contracts";
-import {
-  CATALOG_CONTROL_PLANE_ROUTE_SURFACES,
-  CATALOG_CONTROL_PLANE_WORKSPACES,
-  type CatalogControlPlaneRouteSurfaceKey,
-} from "./admin-control-plane/information-architecture";
+import type { CatalogControlPlaneRouteSurfaceKey } from "./admin-control-plane/information-architecture";
 import { CommandFormButton } from "./admin-control-plane/import-to-promotion/command-controls";
 import { WorkbenchReturnLink } from "./admin-control-plane/import-to-promotion/workbench-formatting";
 import type { CatalogPrimaryWorkbenchCommandFeedback } from "./primary-workbench-command-feedback";
 import { commandFeedbackDescription, commandSuccessTitle } from "./primary-workbench-command-feedback";
-import { catalogPrimaryWorkbenchHref, catalogPrimaryWorkbenchSupportingHref } from "./primary-workbench-route-context";
 
 export interface CatalogWorkbenchShellProps {
   readModel: CatalogPrimaryWorkbenchReadModel;
@@ -36,25 +29,21 @@ export interface CatalogWorkbenchShellProps {
   // one "Back to import workbench" link; the daily surface is the primary job and
   // renders none.
   surface: CatalogControlPlaneRouteSurfaceKey;
-  // The precise workspace key that is active on this surface. Drives nav highlight.
-  activeSection: string;
   // The composed surface body (one workspace for the daily route, the grouped
   // workspaces for the other three). The shell owns no per-surface logic.
   children: ReactNode;
 }
 
-// Shared chrome for every integrations surface route: cross-surface header,
-// metric strip, and grouped navigation that links to the four real routes. Each
-// route composes this shell around its own surface body, so no surface-specific
-// rendering lives here.
+// Shared chrome for every integrations surface route: the cross-surface header,
+// metric strip, and surface body. Cross-surface navigation lives in the admin
+// shell side nav (the nested "Integrations" manifest group), not in the page, so
+// this shell renders only the active surface's content.
 export function CatalogWorkbenchShell({
   readModel,
   commandFeedback = null,
   surface,
-  activeSection,
   children,
 }: CatalogWorkbenchShellProps) {
-  const navigation = surfaceNavigationGroups(readModel);
   // The daily surface is the primary import-to-promotion job, so it carries no
   // return link; every supporting surface returns to it through the one link the
   // header renders (rather than each stacked workspace repeating it).
@@ -111,17 +100,9 @@ export function CatalogWorkbenchShell({
         ]}
       />
 
-      <DenseAdminWorkbenchLayout
-        navigationGroups={navigation}
-        activeNavigationKey={activeSection}
-        navigationLabel={t("catalog.features.sourceObservations.ui.primaryWorkbench.navigation.label")}
-        mobileNavigationLabel={t("catalog.features.sourceObservations.ui.primaryWorkbench.navigation.mobile.label")}
-        onNavigationSelect={(key) => navigateToWorkspace(navigation, key)}
-      >
-        <BulkActionSurface>
-          <WorkbenchStack>{children}</WorkbenchStack>
-        </BulkActionSurface>
-      </DenseAdminWorkbenchLayout>
+      <BulkActionSurface>
+        <WorkbenchStack>{children}</WorkbenchStack>
+      </BulkActionSurface>
     </DenseAdminWorkbench>
   );
 }
@@ -193,56 +174,4 @@ function CommandFeedbackBanner({ feedback }: { feedback: CatalogPrimaryWorkbench
       description={commandFeedbackDescription(feedback)}
     />
   );
-}
-
-// Mobile cross-workspace navigation: the "Choose Catalog workflow" combobox
-// selects a workspace key; navigate the browser to that workspace's real surface
-// route using the same hrefs the desktop nav links already carry. Each workspace
-// lives on a real nested route, so this is a genuine route navigation rather than
-// a query-param section switch. Generic to every surface (no daily special-case).
-function navigateToWorkspace(groups: SectionNavigationGroup[], key: string): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  const href = groups.flatMap((group) => group.items).find((item) => item.key === key)?.href;
-  if (href) {
-    window.location.assign(href);
-  }
-}
-
-// One nav group per audience surface. Items link to the surface route (the daily
-// route for the primary workspace, the grouped routes for supporting workspaces),
-// so navigation is real route navigation rather than a query-param section switch.
-function surfaceNavigationGroups(readModel: CatalogPrimaryWorkbenchReadModel): SectionNavigationGroup[] {
-  const workspaces = new Map(CATALOG_CONTROL_PLANE_WORKSPACES.map((workspace) => [workspace.key, workspace]));
-
-  return CATALOG_CONTROL_PLANE_ROUTE_SURFACES.map((surface) => ({
-    key: surface.key,
-    label: surface.accessibleName,
-    items: surface.workspaces.map((workspaceKey) => {
-      const workspace = workspaces.get(workspaceKey);
-      const supportState = workspace?.primaryPathRole === "default" ? "default" : supportNavigationState(readModel);
-
-      return {
-        key: workspaceKey,
-        label: workspace?.accessibleName ?? workspaceKey,
-        href:
-          workspace?.primaryPathRole === "supporting-detour"
-            ? catalogPrimaryWorkbenchSupportingHref(readModel.routeContext, workspaceKey)
-            : catalogPrimaryWorkbenchHref(readModel.routeContext, workspaceKey),
-        description: workspace?.operatorJob,
-        count:
-          workspaceKey === "import-to-promotion" ? readModel.sourceObservationReview.promotionReadyCount : undefined,
-        state: supportState,
-        statusLabel: supportState === "warning" ? "Detour" : undefined,
-      };
-    }),
-  }));
-}
-
-function supportNavigationState(readModel: CatalogPrimaryWorkbenchReadModel) {
-  return readModel.readiness.blockers.length > 0 || readModel.promotionPreview.blockers.length > 0
-    ? ("warning" as const)
-    : ("default" as const);
 }

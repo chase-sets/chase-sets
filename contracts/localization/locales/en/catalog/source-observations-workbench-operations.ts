@@ -222,8 +222,6 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.module.description":
     "Provider context, durable import, review status, promotion preview, and command safety are shown as one cohesive workflow.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.module.title": "Import to promotion workbench",
-  "catalog.features.sourceObservations.ui.primaryWorkbench.navigation.label": "Catalog control plane workflows",
-  "catalog.features.sourceObservations.ui.primaryWorkbench.navigation.mobile.label": "Choose Catalog workflow",
   "catalog.features.sourceObservations.ui.primaryWorkbench.no.active.profile": "no active profile",
   "catalog.features.sourceObservations.ui.primaryWorkbench.none": "None",
   "catalog.features.sourceObservations.ui.primaryWorkbench.not.queued": "not queued",

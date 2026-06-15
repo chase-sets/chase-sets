@@ -3,6 +3,7 @@ import { Outlet, useLoaderData, useLocation } from "react-router";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import type { WebHostSection } from "@chase-sets/platform-runtime/web";
 import { AdminShell, ChaseRoot, Text, type ColorMode } from "@chase-sets/design-system";
+import { type ActiveKeyConfig, resolveActiveKey } from "./admin-section-active-key";
 import { AdminAccountMenu } from "./admin-account-menu";
 import { resolveAdminWebNavItems, resolveAdminWebSectionNavItems } from "./host";
 
@@ -10,19 +11,12 @@ type SectionConfig = Readonly<{
   section: WebHostSection;
   brand: string;
   fallbackPermission: string;
-  defaultActiveKey: string;
-  activeKeys?: Readonly<Record<string, string>>;
-}>;
+}> &
+  ActiveKeyConfig;
 
 type AdminSectionLoaderData = Readonly<{
   actor: ResolvedActor;
 }>;
-
-function resolveActiveKey(pathname: string, config: SectionConfig) {
-  const segments = pathname.split("/").filter(Boolean);
-  const sectionPath = segments[1] ?? "";
-  return config.activeKeys?.[sectionPath] ?? (sectionPath || config.defaultActiveKey);
-}
 
 export function AdminSectionLayout({ config }: Readonly<{ config: SectionConfig }>) {
   const location = useLocation();

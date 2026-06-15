@@ -17,27 +17,17 @@ export interface CatalogIntegrationsSurfacePageProps {
 // One audience surface route body: composes the shared workbench shell around the
 // workspaces that belong to this surface. The daily surface renders only the
 // primary import-to-promotion workspace; the others render their grouped
-// workspaces. The active nav workspace comes from the route context section,
-// constrained to a workspace that actually lives on this surface.
+// workspaces. Cross-surface navigation lives in the admin shell side nav, so this
+// body owns no nav state.
 export function CatalogIntegrationsSurfacePage({
   surface,
   readModel,
   commandFeedback = null,
 }: CatalogIntegrationsSurfacePageProps) {
   const surfaceDefinition = useMemo(() => catalogControlPlaneRouteSurface(surface), [surface]);
-  const activeSection = surfaceDefinition.workspaces.includes(
-    readModel.routeContext.section as (typeof surfaceDefinition.workspaces)[number],
-  )
-    ? readModel.routeContext.section
-    : surfaceDefinition.workspaces[0];
 
   return (
-    <CatalogWorkbenchShell
-      readModel={readModel}
-      commandFeedback={commandFeedback}
-      surface={surface}
-      activeSection={activeSection}
-    >
+    <CatalogWorkbenchShell readModel={readModel} commandFeedback={commandFeedback} surface={surface}>
       {renderCatalogWorkbenchSurfaceWorkspaces(readModel, surfaceDefinition.workspaces)}
     </CatalogWorkbenchShell>
   );

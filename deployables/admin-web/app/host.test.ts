@@ -50,6 +50,35 @@ describe("admin web host context registry", () => {
     expect(resolveAdminWebNavItems({ permissions: ["commercial-terms.view"] }, { section: "platform" })).toEqual([]);
   });
 
+  it("contributes Catalog integrations as a nested admin nav group with section-prefixed child routes", () => {
+    expect(resolveAdminWebNavItems({ permissions: ["catalog.view"] }, { section: "catalog" })).toContainEqual({
+      key: "integrations",
+      label: "Integrations",
+      icon: "rocket",
+      children: [
+        { key: "integrations-import", label: "Import", icon: "refreshCcw", href: "/catalog/integrations" },
+        {
+          key: "integrations-providers",
+          label: "Provider setup",
+          icon: "settings",
+          href: "/catalog/integrations/providers",
+        },
+        {
+          key: "integrations-governance",
+          label: "Governance",
+          icon: "shield",
+          href: "/catalog/integrations/governance",
+        },
+        {
+          key: "integrations-release",
+          label: "Release health and evidence",
+          icon: "checkCircle",
+          href: "/catalog/integrations/release",
+        },
+      ],
+    });
+  });
+
   it("contributes Commercial Terms and postage policies to Commerce", () => {
     expect(resolveAdminWebRouteConfigRecords()).toContainEqual(
       expect.objectContaining({

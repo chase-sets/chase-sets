@@ -100,11 +100,21 @@ test.describe("catalog admin integrations", () => {
       }),
     ).toBeVisible();
     await expectVisibleText(page, "Catalog control plane");
-    await expectVisibleText(page, "Import to promotion workbench");
-    await expectVisibleText(page, "Daily import to promotion");
-    await expectVisibleText(page, "Provider profiles and readiness");
-    await expectVisibleText(page, "Govern and recover");
-    await expectVisibleText(page, "Release evidence and health");
+    // The rebuilt daily surface no longer renders a page-local "Import to promotion
+    // workbench" label; that text was tied to the removed page-local workflow/module
+    // nav. The workbench identity is now carried by the heading (asserted above) and the
+    // linear three-stage flow ("Run sync" / "Review changes" / "Create / update items",
+    // asserted below).
+    // Cross-surface navigation now lives in the admin shell side nav as a nested
+    // "Integrations" group, not a page-local "Catalog control plane workflows" nav.
+    await expect(page.getByRole("navigation", { name: "Catalog control plane workflows" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Integrations" }).first()).toBeVisible();
+    // The daily route is the group's Import child, so its side-nav link is current and
+    // the sibling surface routes are reachable as nested children.
+    await expect(page.locator('a[href="/catalog/integrations"]').first()).toHaveAttribute("aria-current", "page");
+    await expect(page.locator('a[href="/catalog/integrations/providers"]').first()).toBeVisible();
+    await expect(page.locator('a[href="/catalog/integrations/governance"]').first()).toBeVisible();
+    await expect(page.locator('a[href="/catalog/integrations/release"]').first()).toBeVisible();
 
     await expect(page.getByRole("button", { name: /Pull provider data/i }).first()).toBeVisible();
     await expect(page.getByRole("button", { name: /Preview promotion/i }).first()).toBeVisible();
@@ -155,16 +165,19 @@ test.describe("catalog admin integrations", () => {
     );
     await page.waitForLoadState("networkidle");
     await expect(page).toHaveURL(/\/catalog\/integrations\/release\?.*section=triage/);
-    await expect(page.getByRole("link", { name: /Health triage/i })).toHaveAttribute("aria-current", "page");
-    // The import-to-promotion workspace links back to the daily base route.
-    await expect(page.getByRole("link", { name: /Import to promotion workbench/i })).toHaveAttribute(
-      "href",
-      /\/catalog\/integrations(\?|$)/,
+    // The release surface is the nested "Release health and evidence" child, so its
+    // side-nav link is current and the Import child still links back to the daily route.
+    await expect(page.locator('a[href="/catalog/integrations/release"]').first()).toHaveAttribute(
+      "aria-current",
+      "page",
     );
+    await expect(page.locator('a[href="/catalog/integrations"]').first()).toBeVisible();
 
     await page.setViewportSize({ width: 390, height: 900 });
-    await expect(page.getByRole("navigation", { name: "Catalog control plane workflows" })).toBeVisible();
-    await expect(page.getByRole("combobox", { name: "Choose Catalog workflow" })).toHaveValue("health-triage");
+    // The page-local workflow nav and its mobile combobox are gone; cross-surface
+    // navigation is the admin shell's responsibility now.
+    await expect(page.getByRole("navigation", { name: "Catalog control plane workflows" })).toHaveCount(0);
+    await expect(page.getByRole("combobox", { name: "Choose Catalog workflow" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: /Pull provider data/i }).first()).toBeVisible();
     await expect(page.getByRole("button", { name: /Preview promotion/i }).first()).toBeVisible();
     await expect(page.getByRole("heading", { name: "Integration health triage" })).toBeVisible();
@@ -176,25 +189,10 @@ test.describe("catalog admin integrations", () => {
     await expect(releaseBackLinks).toHaveAttribute("href", /\/catalog\/integrations(\?|$)/);
     await expect(page.getByRole("heading", { name: "Import to promotion workbench" })).toHaveCount(0);
     // The release surface stacks all three of its workspaces, so audit evidence is
-    // already rendered alongside health triage; its workspace heading is visible and
-    // the mobile nav exposes it as a selectable workflow on the same release route.
+    // already rendered alongside health triage; its workspace heading stays visible.
     await expect(page.getByRole("heading", { name: "Audit and release evidence" })).toBeVisible();
-    // The mobile combobox now navigates to the chosen workspace's surface route on
-    // selection (matching the desktop nav links below). Without changing it here, just
-    // assert it exposes audit-evidence as a selectable release workflow option.
-    await expect(
-      page.getByRole("combobox", { name: "Choose Catalog workflow" }).locator('option[value="audit-evidence"]'),
-    ).toHaveCount(1);
-    // Switch to the desktop nav, where each workspace is a real route link. Locate the
-    // audit-evidence link by its href (the `section=evidence` alias is unique to it on the
-    // release route), not by accessible name (several links mention "audit" in their copy).
+    // Return to the desktop side nav for the remaining surface assertions.
     await page.setViewportSize({ width: 1280, height: 900 });
-    const releaseNavigation = page.getByRole("navigation", { name: "Catalog control plane workflows" });
-    const auditEvidenceNavLink = releaseNavigation.locator(
-      'a[href*="/integrations/release?"][href*="section=evidence"]',
-    );
-    await expect(auditEvidenceNavLink).toHaveCount(1);
-    await expect(auditEvidenceNavLink).toHaveAttribute("href", /returnPath=/);
 
     // The provider-setup surface hosts profile authoring and validation readiness as a
     // single coherent setup route, off the daily flow. Carry a full working set in and
@@ -214,8 +212,8 @@ test.describe("catalog admin integrations", () => {
     // absent-authoring-model state, so they do not depend on the stale version resolving.
     await expectVisibleText(page, "Provider profile authoring");
     await expectVisibleText(page, "Validation readiness");
-    // Profile authoring is the providers-surface default, so its nav link is active.
-    await expect(page.getByRole("link", { name: /Profile authoring/i }).first()).toHaveAttribute(
+    // The providers surface is the nested "Provider setup" child, so its side-nav link is current.
+    await expect(page.locator('a[href="/catalog/integrations/providers"]').first()).toHaveAttribute(
       "aria-current",
       "page",
     );
@@ -256,8 +254,8 @@ test.describe("catalog admin integrations", () => {
     await expectVisibleText(page, "Conflict resolution");
     await expectVisibleText(page, "Lifecycle recovery");
     await expectVisibleText(page, "Governance controls");
-    // Governance controls is the deep-link target (section=controls), so its nav link is active.
-    await expect(page.getByRole("link", { name: /Governance controls/i }).first()).toHaveAttribute(
+    // The governance surface is the nested "Governance" child, so its side-nav link is current.
+    await expect(page.locator('a[href="/catalog/integrations/governance"]').first()).toHaveAttribute(
       "aria-current",
       "page",
     );
