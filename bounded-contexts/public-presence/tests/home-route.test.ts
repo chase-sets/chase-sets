@@ -90,11 +90,12 @@ describe("public presence home route", () => {
   });
 
   it("returns the waitlist command receipt as the same-page success snapshot", async () => {
-    const fetch = vi.fn(async () =>
-      new Response(JSON.stringify({ id: "wls_public", version: 3, status: "joined" }), {
-        status: 201,
-        headers: { "Content-Type": "application/json" },
-      }),
+    const fetch = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ id: "wls_public", version: 3, status: "joined" }), {
+          status: 201,
+          headers: { "Content-Type": "application/json" },
+        }),
     );
     vi.stubGlobal("fetch", fetch);
 

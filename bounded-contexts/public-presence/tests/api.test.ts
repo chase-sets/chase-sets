@@ -299,9 +299,7 @@ describe("public presence API", () => {
     const services = createPromoBarServices({
       createPromoBarMessage: vi.fn(async () => createdMessage),
       updatePromoBarMessage: vi.fn(async () => updatedMessage),
-      setPromoBarMessageActive: vi.fn(async (_id, isActive) =>
-        isActive ? updatedMessage : inactiveMessage,
-      ),
+      setPromoBarMessageActive: vi.fn(async (_id, isActive) => (isActive ? updatedMessage : inactiveMessage)),
       deletePromoBarMessage: vi.fn(async () => true),
     });
     const app = adminPromoBarAppFor(services);
