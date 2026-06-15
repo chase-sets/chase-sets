@@ -1,0 +1,237 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { appendFreshWriteToken, readFreshWriteToken } from "@chase-sets/http/responses";
+
+const {
+  MockCommercialTermsApiError,
+  mockApi,
+  mockCreateCommercialTermsRequestApiClient,
+  commercialTermsCommit,
+  projectionFreshnessTimeout,
+} = vi.hoisted(() => {
+  class MockCommercialTermsApiError extends Error {
+    public constructor(
+      public readonly status: number,
+      public readonly body: unknown,
+      message = "Commercial Terms API request failed.",
+    ) {
+      super(message);
+    }
+  }
+
+  function commercialTermsCommit(position = "42") {
+    return {
+      id: "cts_committed",
+      version: 2,
+      commandReceipt: {
+        mode: "eventual",
+        commitPosition: position,
+        commitEventIds: [`evt_terms_${position}`],
+        commitPositions: [
+          {
+            sourceContextName: "commercial-terms",
+            maxGlobalPosition: position,
+            eventIds: [`evt_terms_${position}`],
+          },
+        ],
+      },
+    };
+  }
+
+  function projectionFreshnessTimeout() {
+    return new MockCommercialTermsApiError(
+      503,
+      {
+        error: {
+          code: "projection_freshness_timeout",
+          message: "Commercial Terms projection is catching up.",
+        },
+      },
+      "Commercial Terms projection is catching up.",
+    );
+  }
+
+  return {
+    MockCommercialTermsApiError,
+    mockApi: {
+      listSchedules: vi.fn(),
+      getSchedule: vi.fn(),
+      createSchedule: vi.fn(),
+      updateSchedule: vi.fn(),
+      listAgreements: vi.fn(),
+      getAgreement: vi.fn(),
+      createAgreement: vi.fn(),
+      updateAgreement: vi.fn(),
+    },
+    mockCreateCommercialTermsRequestApiClient: vi.fn(),
+    commercialTermsCommit,
+    projectionFreshnessTimeout,
+  };
+});
+
+vi.mock("../../support/request-support/api-client", () => ({
+  CommercialTermsApiError: MockCommercialTermsApiError,
+  createCommercialTermsRequestApiClient: mockCreateCommercialTermsRequestApiClient,
+}));
+
+import { action as agreementsAction, loader as agreementsLoader } from "./agreements";
+import { action as agreementDetailAction, loader as agreementDetailLoader } from "./agreements-detail";
+import { action as schedulesAction, loader as schedulesLoader } from "./schedules";
+import { action as scheduleDetailAction } from "./schedules-detail";
+
+function formRequest(path: string, values: Record<string, string>) {
+  return new Request(`https://admin.chasesets.com${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams(values).toString(),
+  });
+}
+
+function freshnessRequest(path: string, position = "42") {
+  return new Request(`https://admin.chasesets.com${appendFreshWriteToken(path, commercialTermsCommit(position))}`);
+}
+
+function scheduleForm() {
+  return {
+    label: "Business",
+    accountType: "business",
+    marketplaceSalesFeePercentageBps: "650",
+    marketplaceSalesFeeFixedAmount: "0.00",
+    shippingAllowancePercentageBps: "750",
+    status: "active",
+    effectiveFrom: "2026-05-01T00:00:00.000Z",
+    effectiveUntil: "",
+  };
+}
+
+function agreementForm() {
+  return {
+    label: "Preferred",
+    accountId: "acc_seller",
+    marketplaceSalesFeePercentageBps: "550",
+    marketplaceSalesFeeFixedAmount: "0.00",
+    shippingAllowancePercentageBps: "700",
+    status: "active",
+    effectiveFrom: "2026-05-01T00:00:00.000Z",
+    effectiveUntil: "",
+  };
+}
+
+describe("commercial terms admin routes", () => {
+  beforeEach(() => {
+    mockCreateCommercialTermsRequestApiClient.mockReturnValue(mockApi);
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("carries schedule create receipts into the list redirect", async () => {
+    mockApi.createSchedule.mockResolvedValue(commercialTermsCommit("51"));
+
+    const response = (await schedulesAction({
+      request: formRequest("/commerce/terms/schedules", scheduleForm()),
+      params: {},
+      context: undefined,
+    } as never)) as Response;
+
+    expect(response.status).toBe(302);
+    const location = response.headers.get("Location") ?? "";
+    expect(location).toContain("/commerce/terms/schedules?afterWrite=");
+    expect(readFreshWriteToken(`https://admin.chasesets.com${location}`)?.commitPosition).toBe("51");
+  });
+
+  it("carries schedule update receipts into the detail redirect", async () => {
+    mockApi.updateSchedule.mockResolvedValue(commercialTermsCommit("52"));
+
+    const response = (await scheduleDetailAction({
+      request: formRequest("/commerce/terms/schedules/cts_business", scheduleForm()),
+      params: { id: "cts_business" },
+      context: undefined,
+    } as never)) as Response;
+
+    expect(response.status).toBe(302);
+    const location = response.headers.get("Location") ?? "";
+    expect(location).toContain("/commerce/terms/schedules/cts_business?afterWrite=");
+    expect(readFreshWriteToken(`https://admin.chasesets.com${location}`)?.commitPosition).toBe("52");
+  });
+
+  it("carries agreement create receipts into the list redirect", async () => {
+    mockApi.createAgreement.mockResolvedValue(commercialTermsCommit("53"));
+
+    const response = (await agreementsAction({
+      request: formRequest("/commerce/terms/agreements", agreementForm()),
+      params: {},
+      context: undefined,
+    } as never)) as Response;
+
+    expect(response.status).toBe(302);
+    const location = response.headers.get("Location") ?? "";
+    expect(location).toContain("/commerce/terms/agreements?afterWrite=");
+    expect(readFreshWriteToken(`https://admin.chasesets.com${location}`)?.commitPosition).toBe("53");
+  });
+
+  it("carries agreement update receipts into the detail redirect", async () => {
+    mockApi.updateAgreement.mockResolvedValue(commercialTermsCommit("54"));
+
+    const response = (await agreementDetailAction({
+      request: formRequest("/commerce/terms/agreements/cag_preferred", agreementForm()),
+      params: { id: "cag_preferred" },
+      context: undefined,
+    } as never)) as Response;
+
+    expect(response.status).toBe(302);
+    const location = response.headers.get("Location") ?? "";
+    expect(location).toContain("/commerce/terms/agreements/cag_preferred?afterWrite=");
+    expect(readFreshWriteToken(`https://admin.chasesets.com${location}`)?.commitPosition).toBe("54");
+  });
+
+  it("recovers schedule list projection lag after a fresh write", async () => {
+    mockApi.listSchedules.mockRejectedValue(projectionFreshnessTimeout());
+
+    const result = await schedulesLoader({
+      request: freshnessRequest("/commerce/terms/schedules", "55"),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result).toEqual({
+      items: [],
+      loadError: "Commercial Terms projection is catching up.",
+    });
+  });
+
+  it("recovers agreement detail projection lag after a fresh write", async () => {
+    mockApi.getAgreement.mockRejectedValue(projectionFreshnessTimeout());
+
+    const result = await agreementDetailLoader({
+      request: freshnessRequest("/commerce/terms/agreements/cag_preferred", "56"),
+      params: { id: "cag_preferred" },
+      context: undefined,
+    } as never);
+
+    expect(result).toEqual({
+      agreement: null,
+      loadError: "Commercial Terms projection is catching up.",
+    });
+  });
+
+  it("loads schedule and agreement pages normally without a fresh-write token", async () => {
+    mockApi.listSchedules.mockResolvedValue({ items: [{ schedule_id: "cts_business" }] });
+    mockApi.listAgreements.mockResolvedValue({ items: [{ agreement_id: "cag_preferred" }] });
+
+    await expect(
+      schedulesLoader({
+        request: new Request("https://admin.chasesets.com/commerce/terms/schedules"),
+        params: {},
+        context: undefined,
+      } as never),
+    ).resolves.toEqual({ items: [{ schedule_id: "cts_business" }], loadError: null });
+    await expect(
+      agreementsLoader({
+        request: new Request("https://admin.chasesets.com/commerce/terms/agreements"),
+        params: {},
+        context: undefined,
+      } as never),
+    ).resolves.toEqual({ items: [{ agreement_id: "cag_preferred" }], loadError: null });
+  });
+});

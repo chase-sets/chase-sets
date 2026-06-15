@@ -32,6 +32,36 @@ function createApp(services: Partial<AgreementServices>, permissions: readonly s
 }
 
 describe("commercial terms agreement routes", () => {
+  it("returns a command snapshot when creating an account agreement", async () => {
+    const createAgreement = vi.fn(async () => ({ agreementId: "cag_created", version: 1 }));
+    const app = createApp({ createAgreement }, ["commercial-terms.manage"]);
+
+    const response = await app.request("/", {
+      method: "POST",
+      body: JSON.stringify({
+        label: "Preferred",
+        accountId: "acc_seller",
+        marketplaceSalesFeePercentageBps: 550,
+        marketplaceSalesFeeFixedAmount: "0.00",
+        shippingAllowancePercentageBps: 700,
+        status: "active",
+        effectiveFrom: "2026-05-01T00:00:00.000Z",
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toEqual({ id: "cag_created", version: 1 });
+    expect(createAgreement).toHaveBeenCalledWith(
+      expect.objectContaining({
+        label: "Preferred",
+        accountId: "acc_seller",
+        marketplaceSalesFeePercentageBps: 550,
+      }),
+      context,
+    );
+  });
+
   it("requires manage permission for agreement revisions", async () => {
     const reviseAgreement = vi.fn();
     const app = createApp({ reviseAgreement }, ["commercial-terms.view"]);
