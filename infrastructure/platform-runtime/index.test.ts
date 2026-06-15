@@ -642,6 +642,115 @@ describe("platform host web registry", () => {
     expect(getWebHostSections("admin-web")).toEqual(["access", "catalog", "commerce", "growth", "support", "platform"]);
   });
 
+  it("resolves nested admin nav with section-prefixed child hrefs and permission filtering", () => {
+    const registry = [
+      {
+        contextName: "catalog",
+        packageName: "@test/catalog",
+        manifest: {
+          contextName: "catalog",
+          shellContributions: [
+            {
+              deployable: "admin-web",
+              slot: "primary-nav",
+              key: "integrations",
+              label: "Integrations",
+              icon: "plug",
+              order: 10,
+              visibility: "signed-in",
+              requiredPermissions: [],
+              section: "catalog",
+              children: [
+                {
+                  key: "integrations-providers",
+                  label: "Providers",
+                  icon: "plug",
+                  href: "/integrations/providers",
+                  order: 20,
+                  visibility: "signed-in",
+                  requiredPermissions: ["catalog.integrations.manage"],
+                },
+                {
+                  key: "integrations-governance",
+                  label: "Governance",
+                  icon: "shield",
+                  href: "/integrations/governance",
+                  order: 10,
+                  visibility: "signed-in",
+                  requiredPermissions: ["catalog.integrations.govern"],
+                },
+              ],
+            },
+          ],
+        },
+      },
+    ] as const satisfies WebContextRegistry;
+
+    expect(
+      resolveWebHostNavItems(
+        registry,
+        "admin-web",
+        "primary-nav",
+        { permissions: ["catalog.integrations.manage"] },
+        { section: "catalog" },
+      ),
+    ).toEqual([
+      {
+        key: "integrations",
+        label: "Integrations",
+        icon: "plug",
+        children: [
+          {
+            key: "integrations-providers",
+            label: "Providers",
+            icon: "plug",
+            href: "/catalog/integrations/providers",
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("hides nested nav parents when permission filtering removes every child", () => {
+    const registry = [
+      {
+        contextName: "catalog",
+        packageName: "@test/catalog",
+        manifest: {
+          contextName: "catalog",
+          shellContributions: [
+            {
+              deployable: "admin-web",
+              slot: "primary-nav",
+              key: "integrations",
+              label: "Integrations",
+              icon: "plug",
+              order: 10,
+              visibility: "signed-in",
+              requiredPermissions: [],
+              section: "catalog",
+              children: [
+                {
+                  key: "integrations-providers",
+                  label: "Providers",
+                  icon: "plug",
+                  href: "/integrations/providers",
+                  order: 10,
+                  visibility: "signed-in",
+                  requiredPermissions: ["catalog.integrations.manage"],
+                },
+              ],
+            },
+          ],
+        },
+      },
+    ] as const satisfies WebContextRegistry;
+
+    expect(
+      resolveWebHostNavItems(registry, "admin-web", "primary-nav", { permissions: [] }, { section: "catalog" }),
+    ).toEqual([]);
+  });
+
   it("places public-presence waitlist review in the growth admin section", () => {
     const routes = resolveWebHostRouteRecords(webRegistry, "admin-web");
     const navItems = resolveWebHostNavItems(

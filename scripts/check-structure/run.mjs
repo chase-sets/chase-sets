@@ -1033,6 +1033,114 @@ function buildManifestHostRouteIdentity(deployable, sourceContext, route) {
   };
 }
 
+export function validateShellContributionEntries({ manifest, root }) {
+  const diagnostics = [];
+  const routesByDeployable = new Map(
+    (manifest.deployableContributions ?? []).map((contribution) => [
+      contribution.deployable,
+      contribution.routes ?? [],
+    ]),
+  );
+
+  function addViolation(path, message) {
+    diagnostics.push({ path, message });
+  }
+
+  function validateShellContributionNode(contribution, contributionLabel, deployable) {
+    if (typeof contribution.key !== "string" || contribution.key.length === 0) {
+      addViolation(contributionLabel, "key must be a non-empty string");
+    }
+
+    if (typeof contribution.label !== "string" || contribution.label.length === 0) {
+      addViolation(contributionLabel, "label must be a non-empty string");
+    }
+
+    if (typeof contribution.icon !== "string" || contribution.icon.length === 0) {
+      addViolation(contributionLabel, "icon must be a non-empty string");
+    }
+
+    const hasChildren = Array.isArray(contribution.children) && contribution.children.length > 0;
+
+    if (
+      contribution.href !== undefined &&
+      (typeof contribution.href !== "string" || !contribution.href.startsWith("/"))
+    ) {
+      addViolation(contributionLabel, "href must be an absolute path");
+    }
+
+    if (typeof contribution.order !== "number") {
+      addViolation(contributionLabel, "order must be a number");
+    }
+
+    if (
+      contribution.visibility !== "always" &&
+      contribution.visibility !== "signed-in" &&
+      contribution.visibility !== "signed-out"
+    ) {
+      addViolation(contributionLabel, "visibility must be 'always', 'signed-in', or 'signed-out'");
+    }
+
+    if (!isStringArray(contribution.requiredPermissions)) {
+      addViolation(contributionLabel, "requiredPermissions must be an array of strings");
+    }
+
+    if (contribution.children !== undefined && !Array.isArray(contribution.children)) {
+      addViolation(contributionLabel, "children must be an array when provided");
+    }
+
+    if (contribution.href === undefined && !hasChildren) {
+      addViolation(contributionLabel, "href is required when children are not provided");
+    }
+
+    const normalizedHref = contribution.href?.replace(/^\//, "");
+    const ownedRoutes = routesByDeployable.get(deployable) ?? [];
+    const hasOwnedRoute =
+      normalizedHref === undefined || ownedRoutes.some((route) => route.routePath === normalizedHref);
+    if (!hasOwnedRoute) {
+      addViolation(
+        contributionLabel,
+        "shell contributions must point at a same-context route contribution for the target deployable",
+      );
+    }
+
+    const children = Array.isArray(contribution.children) ? contribution.children : [];
+    for (const [childIndex, child] of children.entries()) {
+      validateShellContributionNode(child, `${contributionLabel}.children[${childIndex}]`, deployable);
+    }
+  }
+
+  for (const [index, contribution] of (manifest.shellContributions ?? []).entries()) {
+    const contributionLabel = `${root}/context.json shellContributions[${index}]`;
+
+    if (!knownShellDeployables.has(contribution.deployable)) {
+      addViolation(contributionLabel, `deployable must be one of ${[...knownShellDeployables].join(", ")}`);
+      continue;
+    }
+
+    const allowedSlots = knownShellDeployableSlots.get(contribution.deployable) ?? new Set();
+    if (!allowedSlots.has(contribution.slot)) {
+      addViolation(contributionLabel, `slot must be one of ${[...allowedSlots].sort().join(", ")}`);
+    }
+
+    if (
+      contribution.placements !== undefined &&
+      (!Array.isArray(contribution.placements) || contribution.placements.length === 0)
+    ) {
+      addViolation(contributionLabel, "placements must be a non-empty array when provided");
+    }
+
+    for (const placement of contribution.placements ?? []) {
+      if (!allowedSlots.has(placement)) {
+        addViolation(contributionLabel, `placements must only use ${[...allowedSlots].sort().join(", ")}`);
+      }
+    }
+
+    validateShellContributionNode(contribution, contributionLabel, contribution.deployable);
+  }
+
+  return diagnostics;
+}
+
 export async function runStructureCheck(options = {}) {
   violations.length = 0;
   warnings.length = 0;
@@ -1214,80 +1322,8 @@ export async function runStructureCheck(options = {}) {
       );
     }
 
-    const routesByDeployable = new Map(
-      (manifest.deployableContributions ?? []).map((contribution) => [
-        contribution.deployable,
-        contribution.routes ?? [],
-      ]),
-    );
-
-    for (const [index, contribution] of (manifest.shellContributions ?? []).entries()) {
-      const contributionLabel = `${root}/context.json shellContributions[${index}]`;
-
-      if (!knownShellDeployables.has(contribution.deployable)) {
-        addPathViolation(contributionLabel, `deployable must be one of ${[...knownShellDeployables].join(", ")}`);
-        continue;
-      }
-
-      const allowedSlots = knownShellDeployableSlots.get(contribution.deployable) ?? new Set();
-      if (!allowedSlots.has(contribution.slot)) {
-        addPathViolation(contributionLabel, `slot must be one of ${[...allowedSlots].sort().join(", ")}`);
-      }
-
-      if (
-        contribution.placements !== undefined &&
-        (!Array.isArray(contribution.placements) || contribution.placements.length === 0)
-      ) {
-        addPathViolation(contributionLabel, "placements must be a non-empty array when provided");
-      }
-
-      for (const placement of contribution.placements ?? []) {
-        if (!allowedSlots.has(placement)) {
-          addPathViolation(contributionLabel, `placements must only use ${[...allowedSlots].sort().join(", ")}`);
-        }
-      }
-
-      if (typeof contribution.key !== "string" || contribution.key.length === 0) {
-        addPathViolation(contributionLabel, "key must be a non-empty string");
-      }
-
-      if (typeof contribution.label !== "string" || contribution.label.length === 0) {
-        addPathViolation(contributionLabel, "label must be a non-empty string");
-      }
-
-      if (typeof contribution.icon !== "string" || contribution.icon.length === 0) {
-        addPathViolation(contributionLabel, "icon must be a non-empty string");
-      }
-
-      if (typeof contribution.href !== "string" || !contribution.href.startsWith("/")) {
-        addPathViolation(contributionLabel, "href must be an absolute path");
-      }
-
-      if (typeof contribution.order !== "number") {
-        addPathViolation(contributionLabel, "order must be a number");
-      }
-
-      if (
-        contribution.visibility !== "always" &&
-        contribution.visibility !== "signed-in" &&
-        contribution.visibility !== "signed-out"
-      ) {
-        addPathViolation(contributionLabel, "visibility must be 'always', 'signed-in', or 'signed-out'");
-      }
-
-      if (!isStringArray(contribution.requiredPermissions)) {
-        addPathViolation(contributionLabel, "requiredPermissions must be an array of strings");
-      }
-
-      const normalizedHref = contribution.href?.replace(/^\//, "");
-      const ownedRoutes = routesByDeployable.get(contribution.deployable) ?? [];
-      const hasOwnedRoute = ownedRoutes.some((route) => route.routePath === normalizedHref);
-      if (!hasOwnedRoute) {
-        addPathViolation(
-          contributionLabel,
-          "shell contributions must point at a same-context route contribution for the target deployable",
-        );
-      }
+    for (const diagnostic of validateShellContributionEntries({ manifest, root })) {
+      addPathViolation(diagnostic.path, diagnostic.message);
     }
 
     for (const dependency of manifest.allowedContextDependencies ?? []) {
@@ -1925,6 +1961,31 @@ export async function runStructureCheck(options = {}) {
   async function validateDeployableShellOwnership(contexts) {
     const contributionsByDeployable = new Map([...knownShellDeployables].map((deployable) => [deployable, []]));
 
+    function collectPlacedShellContributionNodes(contribution) {
+      const placements =
+        Array.isArray(contribution.placements) && contribution.placements.length > 0
+          ? contribution.placements
+          : [contribution.slot];
+      const { children: rawChildren, ...contributionNode } = contribution;
+      const children = Array.isArray(rawChildren) ? rawChildren : [];
+      const ownNodes = placements.map((placement) => ({
+        ...contributionNode,
+        slot: placement,
+      }));
+      const childNodes = children.flatMap((child) =>
+        collectPlacedShellContributionNodes({
+          ...child,
+          deployable: contribution.deployable,
+          slot: contribution.slot,
+          placements,
+          sourceContext: contribution.sourceContext,
+          packageName: contribution.packageName,
+        }),
+      );
+
+      return [...ownNodes, ...childNodes];
+    }
+
     for (const context of contexts.values()) {
       for (const contribution of context.manifest.shellContributions ?? []) {
         contributionsByDeployable.get(contribution.deployable)?.push({
@@ -1937,17 +1998,7 @@ export async function runStructureCheck(options = {}) {
 
     for (const [deployable, unsortedContributions] of contributionsByDeployable.entries()) {
       const contributions = unsortedContributions
-        .flatMap((contribution) => {
-          const placements =
-            Array.isArray(contribution.placements) && contribution.placements.length > 0
-              ? contribution.placements
-              : [contribution.slot];
-
-          return placements.map((placement) => ({
-            ...contribution,
-            slot: placement,
-          }));
-        })
+        .flatMap((contribution) => collectPlacedShellContributionNodes(contribution))
         .sort((left, right) =>
           left.slot === right.slot
             ? left.order === right.order
@@ -1968,14 +2019,16 @@ export async function runStructureCheck(options = {}) {
         }
         contributionKeys.add(key);
 
-        const href = `${contribution.slot}:${contribution.href}`;
-        if (contributionHrefs.has(href)) {
-          addPathViolation(
-            `deployables/${deployable}/app`,
-            `shell contribution hrefs must be unique per slot (${contribution.slot}:${contribution.href})`,
-          );
+        if (contribution.href) {
+          const href = `${contribution.slot}:${contribution.href}`;
+          if (contributionHrefs.has(href)) {
+            addPathViolation(
+              `deployables/${deployable}/app`,
+              `shell contribution hrefs must be unique per slot (${contribution.slot}:${contribution.href})`,
+            );
+          }
+          contributionHrefs.add(href);
         }
-        contributionHrefs.add(href);
       }
     }
   }

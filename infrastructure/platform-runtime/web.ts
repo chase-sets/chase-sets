@@ -2,6 +2,7 @@ import type {
   BcDeployableContribution,
   BcRouteModule,
   BcShellContribution,
+  BcShellContributionItem,
   BcShellContributionSlot,
   BcShellContributionVisibility,
 } from "@chase-sets/bounded-context-module";
@@ -42,9 +43,18 @@ export type WebHostRouteRecord = Readonly<
 >;
 
 type ShellContributionRecord = Readonly<
-  Omit<BcShellContribution, "section"> & {
+  Omit<BcShellContribution, "children" | "section"> & {
     contextName: string;
     section?: WebHostSection;
+    children?: readonly ShellContributionItemRecord[];
+  }
+>;
+
+type ShellContributionItemRecord = Readonly<
+  Omit<BcShellContributionItem, "children"> & {
+    contextName: string;
+    section?: WebHostSection;
+    children?: readonly ShellContributionItemRecord[];
   }
 >;
 
@@ -127,6 +137,66 @@ function isVisibleForActor(
   return hasRequiredPermissions(actor, requiredPermissions);
 }
 
+function sortShellContributionItems<T extends Pick<BcShellContributionItem, "label" | "order">>(
+  items: readonly T[],
+): T[] {
+  return [...items].sort((left, right) =>
+    left.order === right.order ? left.label.localeCompare(right.label) : left.order - right.order,
+  );
+}
+
+function resolveShellContributionChildRecords(
+  children: readonly BcShellContributionItem[] | undefined,
+  contextName: string,
+  section: WebHostSection | undefined,
+): readonly ShellContributionItemRecord[] | undefined {
+  if (!children?.length) {
+    return undefined;
+  }
+
+  return sortShellContributionItems(children).map((child) => ({
+    ...child,
+    ...(child.href ? { href: section ? withPrefixedPath(child.href, `/${section}`) : child.href } : {}),
+    contextName,
+    section,
+    children: resolveShellContributionChildRecords(child.children, contextName, section),
+  }));
+}
+
+function filterShellContributionTree<T extends ShellContributionItemRecord>(
+  actor: ShellActor,
+  contribution: T,
+): T | null {
+  if (!isVisibleForActor(actor, contribution.visibility, contribution.requiredPermissions)) {
+    return null;
+  }
+
+  const visibleChildren = (contribution.children ?? [])
+    .map((child) => filterShellContributionTree(actor, child))
+    .filter((child): child is ShellContributionItemRecord => child !== null);
+
+  if (contribution.children?.length && visibleChildren.length === 0) {
+    return null;
+  }
+
+  return {
+    ...contribution,
+    ...(visibleChildren.length > 0 ? { children: visibleChildren } : {}),
+  };
+}
+
+function toNavigationItem(contribution: ShellContributionItemRecord): NavigationItem {
+  return {
+    key: contribution.key,
+    label: contribution.label,
+    icon: contribution.icon as NavigationItem["icon"],
+    ...(contribution.href ? { href: contribution.href } : {}),
+    ...(contribution.children?.length
+      ? { children: contribution.children.map((child) => toNavigationItem(child)) }
+      : {}),
+  };
+}
+
 export function resolveWebHostRouteRecords(
   registry: WebContextRegistry,
   hostName: WebHostName,
@@ -187,6 +257,7 @@ export function resolveWebHostNavItems(
                 ...contributionRecord,
                 slot: placement,
                 contextName: entry.contextName,
+                children: resolveShellContributionChildRecords(contribution.children, entry.contextName, undefined),
               } satisfies ShellContributionRecord;
             }
 
@@ -195,26 +266,21 @@ export function resolveWebHostNavItems(
             return {
               ...contributionRecord,
               slot: placement,
-              href: withPrefixedPath(contribution.href, `/${section}`),
+              ...(contribution.href ? { href: withPrefixedPath(contribution.href, `/${section}`) } : {}),
               contextName: entry.contextName,
               section,
+              children: resolveShellContributionChildRecords(contribution.children, entry.contextName, section),
             } satisfies ShellContributionRecord;
           }),
       );
   });
 
-  return contributions
-    .filter((contribution) => (options.section ? contribution.section === options.section : true))
-    .filter((contribution) => isVisibleForActor(actor, contribution.visibility, contribution.requiredPermissions))
-    .sort((left, right) =>
-      left.order === right.order ? left.label.localeCompare(right.label) : left.order - right.order,
-    )
-    .map(({ key, label, icon, href }) => ({
-      key,
-      label,
-      icon: icon as NavigationItem["icon"],
-      href,
-    }));
+  return sortShellContributionItems(
+    contributions
+      .filter((contribution) => (options.section ? contribution.section === options.section : true))
+      .map((contribution) => filterShellContributionTree(actor, contribution))
+      .filter((contribution): contribution is ShellContributionRecord => contribution !== null),
+  ).map((contribution) => toNavigationItem(contribution));
 }
 
 export function getWebHostSections(hostName: WebHostName): readonly WebHostSection[] {
