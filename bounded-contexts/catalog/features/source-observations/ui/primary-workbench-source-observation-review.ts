@@ -9,12 +9,8 @@ import type {
 } from "../api/primary-workbench-admin-contracts";
 import type { SourceObservationIntegrationScope, SourceObservationListItem } from "./contracts";
 import { catalogPrimaryWorkbenchHref } from "./primary-workbench-route-context";
-import {
-  actionStateForBlockers,
-  importScopeSegment,
-  providerImportScopeSetId,
-  setQueryParam,
-} from "./primary-workbench-read-model-support";
+import { actionStateForBlockers, setQueryParam } from "./primary-workbench-read-model-support";
+import { scopeContextFromRouteContext, scopeContextToObservationFilterScope } from "./primary-workbench-scope-context";
 
 const defaultReviewPageSize = 25;
 
@@ -27,21 +23,20 @@ export function buildCatalogPrimaryWorkbenchSourceObservationReviewQuery(
   }
 
   const params = new URLSearchParams();
+  const scope = scopeContextToObservationFilterScope(
+    scopeContextFromRouteContext(context),
+    context.sourceObservationFilters,
+  );
   params.set("provider", context.providerKey);
   params.set("limit", String(pagination.limit ?? defaultReviewPageSize));
   params.set("offset", String(pagination.offset ?? 0));
-  setQueryParam(params, "status", context.sourceObservationFilters.status);
-  setQueryParam(
-    params,
-    "language",
-    context.sourceObservationFilters.language ?? importScopeSegment(context.importScope, 0),
-  );
-  setQueryParam(
-    params,
-    "setId",
-    context.sourceObservationFilters.setId ?? providerImportScopeSetId(context.providerKey, context.importScope),
-  );
-  setQueryParam(params, "search", context.sourceObservationFilters.search);
+  setQueryParam(params, "status", scope.status);
+  setQueryParam(params, "language", scope.language);
+  setQueryParam(params, "productLineId", scope.productLineId);
+  setQueryParam(params, "seriesId", scope.seriesId);
+  setQueryParam(params, "expansionId", scope.expansionId);
+  setQueryParam(params, "setId", scope.setId);
+  setQueryParam(params, "search", scope.search);
 
   return params.toString();
 }
@@ -403,6 +398,11 @@ function promotionDispositionFor(
 function reviewFiltersFor(
   routeContext: CatalogPrimaryWorkbenchRouteContext,
 ): CatalogPrimaryWorkbenchReadModel["sourceObservationReview"]["filters"] {
+  const scope = scopeContextToObservationFilterScope(
+    scopeContextFromRouteContext(routeContext),
+    routeContext.sourceObservationFilters,
+  );
+
   return [
     filter(
       "providerKey",
@@ -425,20 +425,19 @@ function reviewFiltersFor(
     filter(
       "status",
       t("catalog.features.sourceObservations.ui.primaryWorkbench.review.filter.status"),
-      routeContext.sourceObservationFilters.status ?? null,
+      scope.status ?? null,
       true,
     ),
     filter(
       "language",
       t("catalog.features.sourceObservations.ui.primaryWorkbench.review.filter.language"),
-      routeContext.sourceObservationFilters.language ?? importScopeSegment(routeContext.importScope, 0),
+      scope.language ?? null,
       true,
     ),
     filter(
       "setId",
       t("catalog.features.sourceObservations.ui.primaryWorkbench.review.filter.set"),
-      routeContext.sourceObservationFilters.setId ??
-        providerImportScopeSetId(routeContext.providerKey, routeContext.importScope),
+      scope.expansionId ?? scope.setId ?? null,
       true,
     ),
     filter(

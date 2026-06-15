@@ -65,6 +65,26 @@ describe("source observation read-model queries", () => {
     expect(db.query).toHaveBeenCalledWith(expect.stringContaining("ORDER BY observed_at DESC"), ["en", ["changed"]]);
   });
 
+  it("applies structured product-line and series filters without requiring an expansion", async () => {
+    const db = queryable([{ observation_id: "obs_sv8" }, { observation_id: "obs_sv1" }]);
+
+    const ids = await listSourceObservationIdsForPromotion(db, {
+      provider: "tcgdex",
+      language: "ja",
+      productLineId: "3",
+      seriesId: "sv",
+    });
+
+    expect(ids).toEqual(["obs_sv8", "obs_sv1"]);
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("ORDER BY observed_at DESC"), [
+      "tcgdex",
+      "ja",
+      "3",
+      "sv",
+      ["observed", "changed"],
+    ]);
+  });
+
   it("lists promoted IDs when the current status filter is promoted", async () => {
     const db = queryable([{ observation_id: "obs_promoted" }]);
 

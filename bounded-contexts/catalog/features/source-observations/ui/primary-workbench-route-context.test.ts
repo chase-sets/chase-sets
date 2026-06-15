@@ -18,6 +18,12 @@ describe("Catalog primary workbench route context", () => {
       section: "health-triage",
       providerKey: "tcgdex",
       unitKey: "tcgdex:pokemon:card:import",
+      scope: {
+        providerKey: "tcgdex",
+        languageCode: "en",
+        seriesId: "base",
+        expansionId: null,
+      },
       importScope: "en:base",
       profileVersion: "2026.06.04",
       sourceObservationFilters: { status: "changed" },
@@ -35,6 +41,38 @@ describe("Catalog primary workbench route context", () => {
     expect(
       parseCatalogPrimaryWorkbenchRouteContext("https://admin.example/catalog/integrations?section=legacy").section,
     ).toBe("import-to-promotion");
+  });
+
+  it("builds structured scope context from explicit params and legacy importScope URLs", () => {
+    const explicit = parseCatalogPrimaryWorkbenchRouteContext(
+      "https://admin.example/catalog/integrations?providerKey=tcgdex&languageCode=ja&seriesId=SV&expansionId=SV8",
+    );
+    const legacy = parseCatalogPrimaryWorkbenchRouteContext(
+      "https://admin.example/catalog/integrations?providerKey=tcgdex&importScope=ja:SV:SV8",
+    );
+    const productLine = parseCatalogPrimaryWorkbenchRouteContext(
+      "https://admin.example/catalog/integrations?providerKey=tcgplayer&importScope=en:3",
+    );
+
+    expect(explicit.scope).toMatchObject({
+      providerKey: "tcgdex",
+      languageCode: "ja",
+      seriesId: "SV",
+      expansionId: "SV8",
+    });
+    expect(explicit.importScope).toBe("ja:SV:SV8");
+    expect(legacy.scope).toMatchObject({
+      providerKey: "tcgdex",
+      languageCode: "ja",
+      seriesId: "SV",
+      expansionId: "SV8",
+    });
+    expect(productLine.scope).toMatchObject({
+      providerKey: "tcgplayer",
+      languageCode: "en",
+      productLineId: "3",
+      seriesId: null,
+    });
   });
 
   it("drops unsafe return paths instead of preserving compatibility detours", () => {

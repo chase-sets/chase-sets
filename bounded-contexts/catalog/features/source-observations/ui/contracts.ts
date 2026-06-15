@@ -602,6 +602,9 @@ export interface SourceObservationPromotionScope {
   status?: string;
   provider?: string;
   language?: string;
+  productLineId?: string;
+  seriesId?: string;
+  expansionId?: string;
   setId?: string;
 }
 

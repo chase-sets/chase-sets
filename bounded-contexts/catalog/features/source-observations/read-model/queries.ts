@@ -41,6 +41,9 @@ export type SourceObservationFilterScope = Readonly<{
   status?: string;
   provider?: string;
   language?: string;
+  productLineId?: string;
+  seriesId?: string;
+  expansionId?: string;
   setId?: string;
 }>;
 
@@ -136,7 +139,10 @@ export async function listSourceObservations(
 
 export async function listSourceObservationIntegrationScopes(
   db: PgQueryable,
-  params: Pick<SourceObservationFilterScope, "provider" | "language" | "setId"> = {},
+  params: Pick<
+    SourceObservationFilterScope,
+    "provider" | "language" | "productLineId" | "seriesId" | "expansionId" | "setId"
+  > = {},
 ): Promise<SourceObservationIntegrationScopeRow[]> {
   const filter = buildSourceObservationFilter(params, { includeListFilters: false });
   const where = filter.conditions.length > 0 ? `WHERE ${filter.conditions.join(" AND ")}` : "";
@@ -660,8 +666,18 @@ function buildSourceObservationFilter(
     conditions.push(`language_code = $${values.length}`);
   }
 
-  if (scope.setId) {
-    values.push(scope.setId);
+  if (scope.productLineId) {
+    values.push(scope.productLineId);
+    conditions.push(`source_payload->>'productLineId' = $${values.length}`);
+  }
+
+  if (scope.seriesId) {
+    values.push(scope.seriesId);
+    conditions.push(`normalized->>'seriesId' = $${values.length}`);
+  }
+
+  if (scope.expansionId) {
+    values.push(scope.expansionId);
     conditions.push(
       `((normalized->>'setId') = $${values.length} OR (normalized->>'expansionId') = $${values.length} OR (normalized->>'setName') = $${values.length})`,
     );
@@ -689,12 +705,17 @@ function buildSourceObservationFilter(
 function normalizeSourceObservationFilterScope(
   params: SourceObservationFilterScope,
 ): Required<SourceObservationFilterScope> {
+  const expansionId = params.expansionId?.trim() || params.setId?.trim() || "";
+
   return {
     search: params.search?.trim() ?? "",
     status: params.status?.trim() ?? "",
     provider: params.provider?.trim() ?? "",
     language: params.language?.trim() ?? "",
-    setId: params.setId?.trim() ?? "",
+    productLineId: params.productLineId?.trim() ?? "",
+    seriesId: params.seriesId?.trim() ?? "",
+    expansionId,
+    setId: expansionId,
   };
 }
 
