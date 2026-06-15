@@ -1321,6 +1321,51 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     ).toBe(true);
   });
 
+  it("renders promote-all as an explicit selected-scope action with preview counts and confirmation", () => {
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.04&filter.status=changed&promotionPreviewId=preview_scope",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: null,
+      reviewObservations: { items: [sourceObservationListItem()], total: 1, count: 1 },
+      reviewPagination: { limit: 25, offset: 0 },
+      canManageCatalog: true,
+    });
+
+    render(<CatalogIntegrationsSurfacePage surface="daily" readModel={readModel} />);
+
+    expect(screen.getByText("Promote all eligible in this scope")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Scoped to Matching filtered observations: only the 1 eligible observation(s) here are promoted.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText("Scoped")).toBeTruthy();
+    expect(screen.getAllByText("Matched").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Eligible").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Blocked").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Skipped").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Conflicts").length).toBeGreaterThan(0);
+    expect(screen.getByText("Draft Catalog Item updates")).toBeTruthy();
+    expect(screen.getByText(/No other provider scope is promoted by this action/i)).toBeTruthy();
+
+    const confirmation = screen.getByLabelText(
+      "I confirm this will promote 1 eligible observation(s) from Matching filtered observations.",
+    );
+    expect(confirmation).toBeTruthy();
+    const commitButton = screen.getAllByRole("button", { name: "Create or update Catalog Items" }).at(0);
+    expect(commitButton?.hasAttribute("disabled")).toBe(true);
+
+    fireEvent.click(confirmation);
+
+    expect(commitButton?.hasAttribute("disabled")).toBe(false);
+    const executeForms = document.querySelectorAll<HTMLFormElement>(
+      'form[data-catalog-primary-workbench-command="execute-promotion"]',
+    );
+    expect(executeForms.length).toBeGreaterThan(0);
+  });
+
   it("clears route-provided Source Observation selections when the review context changes", async () => {
     const selectedReadModel = buildCatalogPrimaryWorkbenchReadModel({
       requestUrl:

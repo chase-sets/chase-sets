@@ -1,6 +1,6 @@
 import { useState } from "react";
 import {
-  Badge,
+  BadgeCluster,
   Checkbox,
   KeyValueList,
   LinkButton,
@@ -30,6 +30,7 @@ export function CatalogIntegrationCreateItemsStage({
   const [confirmed, setConfirmed] = useState(false);
   const preview = readModel.promotionPreview;
   const previewFresh = preview.executionSafeguards.previewFresh && preview.previewId !== null;
+  const scopeSummary = preview.scope.filterSummary.join(", ");
 
   return (
     <WorkbenchStack>
@@ -39,10 +40,27 @@ export function CatalogIntegrationCreateItemsStage({
 
       <WorkbenchDetailPanel>
         <WorkbenchActionRow align="between">
-          <WorkbenchText tone="foreground" weight="semibold">
-            {t("catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.preview.title")}
-          </WorkbenchText>
-          <Badge tone={previewFresh ? "success" : "warning"}>{stateLabel(preview.freshness)}</Badge>
+          <WorkbenchStack gap="sm">
+            <WorkbenchText tone="foreground" weight="semibold">
+              {t("catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.promoteScope.title")}
+            </WorkbenchText>
+            <WorkbenchText size="xs" tone="secondary">
+              {t("catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.promoteScope.scoped", {
+                count: preview.scope.eligibleCount,
+                scope: preview.scope.label,
+              })}
+            </WorkbenchText>
+          </WorkbenchStack>
+          <BadgeCluster
+            items={[
+              {
+                key: "scoped",
+                label: t("catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.scoped.badge"),
+                tone: "info",
+              },
+              { key: "freshness", label: stateLabel(preview.freshness), tone: previewFresh ? "success" : "warning" },
+            ]}
+          />
         </WorkbenchActionRow>
 
         <WorkbenchGrid columns="detail">
@@ -67,6 +85,10 @@ export function CatalogIntegrationCreateItemsStage({
           <KeyValueList
             items={[
               {
+                key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.count.matched"),
+                value: preview.scope.requestedCount,
+              },
+              {
                 key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.count.eligible"),
                 value: preview.outcomeCounts.eligible,
               },
@@ -75,18 +97,25 @@ export function CatalogIntegrationCreateItemsStage({
                 value: preview.outcomeCounts.blocked,
               },
               {
+                key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.count.skipped"),
+                value: preview.outcomeCounts.skipped,
+              },
+              {
                 key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.count.conflicting"),
                 value: preview.outcomeCounts.conflicting,
+              },
+              {
+                key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.count.catalogItemUpdates"),
+                value: preview.destructiveCount,
               },
             ]}
           />
         </WorkbenchGrid>
 
         <WorkbenchText size="xs" tone="secondary">
-          {t("catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.impact", {
-            eligible: preview.dispositions.eligible,
-            blocked: preview.dispositions.blocked,
-            destructive: preview.destructiveCount,
+          {t("catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.promoteScope.explicit", {
+            count: preview.scope.requestedCount,
+            scope: scopeSummary,
           })}
         </WorkbenchText>
 
@@ -106,7 +135,10 @@ export function CatalogIntegrationCreateItemsStage({
           checked={confirmed}
           disabled={!previewFresh}
           onCheckedChange={(checked) => setConfirmed(checked === true)}
-          label={t("catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.confirm")}
+          label={t("catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.confirm", {
+            count: preview.scope.eligibleCount,
+            scope: preview.scope.label,
+          })}
         />
 
         <WorkbenchActionRow>

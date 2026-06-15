@@ -90,6 +90,12 @@ export function promotionScopeFromContext(context: RouteContext): SourceObservat
   return scopeContextToObservationFilterScope(scopeContextFromRouteContext(context), context.sourceObservationFilters);
 }
 
+export function hasExplicitPromotionScope(context: RouteContext): boolean {
+  const scope = scopeContextFromRouteContext(context);
+
+  return Boolean(context.providerKey && context.unitKey && importScopeFromScopeContext(scope));
+}
+
 export function reapplyScopeFromContext(context: RouteContext): SourceObservationPromotionScope {
   return {
     ...promotionScopeFromContext(context),
