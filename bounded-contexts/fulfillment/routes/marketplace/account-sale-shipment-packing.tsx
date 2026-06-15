@@ -9,6 +9,8 @@ import { FulfillmentApiError, type FulfillmentShipmentDetail } from "../../suppo
 import { createFulfillmentRequestApiClient } from "../../support/request-support/api-client";
 import { FulfillmentShipmentPackingPage } from "../../features/shipments/ui/shipment-packing-page";
 
+type ShipmentPackingActionData = Readonly<{ error?: string }>;
+
 function formValue(formData: FormData, key: string) {
   return String(formData.get(key) ?? "");
 }
@@ -109,7 +111,7 @@ export const meta: MetaFunction = () =>
 
 export default function MarketplaceAccountSaleShipmentPackingRoute() {
   const data = useLoaderData<typeof loader>();
-  const actionData = useActionData<typeof action>();
+  const actionData = useActionData() as ShipmentPackingActionData | undefined;
 
   if (!data.shipment) {
     return (
