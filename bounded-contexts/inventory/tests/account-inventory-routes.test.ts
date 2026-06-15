@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { appendFreshWriteToken, encodeCommitReceipt, readFreshWriteToken } from "@chase-sets/http/responses";
 import { action as inventoryAction, loader as inventoryLoader } from "../routes/marketplace/account-inventory";
 import {
   action as inventoryImportsAction,
@@ -8,12 +9,48 @@ import {
   action as inventoryItemAction,
   loader as inventoryItemLoader,
 } from "../routes/marketplace/account-inventory-item";
+import {
+  action as inventoryLocationsAction,
+  loader as inventoryLocationsLoader,
+} from "../routes/marketplace/account-inventory-locations";
 
-function jsonResponse(body: unknown, status = 200) {
+function jsonResponse(body: unknown, status = 200, headers: HeadersInit = {}) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...headers },
   });
+}
+
+function inventoryCommit(position = "42") {
+  return {
+    commandReceipt: {
+      mode: "eventual",
+      commitPosition: position,
+      commitEventIds: [`evt_inventory_${position}`],
+      commitPositions: [
+        {
+          sourceContextName: "inventory",
+          maxGlobalPosition: position,
+          eventIds: [`evt_inventory_${position}`],
+        },
+      ],
+    },
+  };
+}
+
+function commitHeaders(position = "42") {
+  return {
+    "Chase-Sets-Consistency": "eventual",
+    "Chase-Sets-Commit-Position": position,
+    "Chase-Sets-Commit-Event-Ids": `evt_inventory_${position}`,
+    "Chase-Sets-Commit-Receipt": encodeCommitReceipt([
+      {
+        sourceContextName: "inventory",
+        maxGlobalPosition: position,
+        eventIds: [`evt_inventory_${position}`],
+      },
+    ]),
+  };
 }
 
 describe("marketplace inventory routes", () => {
@@ -103,6 +140,55 @@ describe("marketplace inventory routes", () => {
     expect(result).toEqual({ error: "Bad inventory input." });
   });
 
+  it("carries inventory item create receipts into the detail redirect", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = String(input);
+
+        if (url.includes("/api/auth/session")) {
+          return Promise.resolve(
+            jsonResponse({
+              actor: {
+                sessionId: "ses_1",
+                tenantId: "tnt_identity",
+                userId: "usr_1",
+                accountId: "acc_1",
+                membershipId: "mbr_1",
+                roleKey: "owner",
+                permissions: ["inventory.view", "inventory.manage"],
+              },
+            }),
+          );
+        }
+
+        return Promise.resolve(jsonResponse({ id: "inv_created", version: 7 }, 201, commitHeaders("61")));
+      }),
+    );
+
+    const form = new URLSearchParams();
+    form.set("intent", "create-item");
+    form.set("catalogItemId", "cat_1");
+    form.set("selectedOptions", "[]");
+    form.set("storageLocationId", "loc_1");
+    form.set("totalQuantity", "3");
+
+    const response = (await inventoryAction({
+      request: new Request("http://localhost/account/inventory", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never)) as Response;
+
+    const location = response.headers.get("Location") ?? "";
+    expect(location).toContain("/account/inventory/items/inv_created?");
+    expect(location).toContain("feedbackWorkflow=inventory-create");
+    expect(readFreshWriteToken(`http://localhost${location}`)?.commitPosition).toBe("61");
+  });
+
   it("loads inventory item detail through the inventory API", async () => {
     vi.stubGlobal(
       "fetch",
@@ -160,6 +246,53 @@ describe("marketplace inventory routes", () => {
     } as never);
 
     expect(result.item.available_quantity).toBe(7);
+  });
+
+  it("returns bounded recovery while fresh inventory item detail is catching up", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = String(input);
+
+        if (url.includes("/api/auth/session")) {
+          return Promise.resolve(
+            jsonResponse({
+              actor: {
+                sessionId: "ses_1",
+                tenantId: "tnt_identity",
+                userId: "usr_1",
+                accountId: "acc_1",
+                membershipId: "mbr_1",
+                roleKey: "owner",
+                permissions: ["inventory.view", "inventory.manage"],
+              },
+            }),
+          );
+        }
+
+        return Promise.resolve(
+          jsonResponse(
+            {
+              error: {
+                code: "projection_freshness_timeout",
+                message: "Inventory projection is catching up.",
+              },
+            },
+            503,
+          ),
+        );
+      }),
+    );
+
+    await expect(
+      inventoryItemLoader({
+        request: new Request(
+          `http://localhost${appendFreshWriteToken("/account/inventory/items/inv_1", inventoryCommit("62"))}`,
+        ),
+        params: { itemId: "inv_1" },
+        context: undefined,
+      } as never),
+    ).rejects.toMatchObject({ status: 503 });
   });
 
   it("loads import batch workbench data through the inventory API", async () => {
@@ -310,6 +443,106 @@ describe("marketplace inventory routes", () => {
     expect((createResponse as Response).headers.get("Location")).toBe("/account/inventory/imports?jobId=job_create");
     expect(commitResponse).toBeInstanceOf(Response);
     expect(requestedUrls.some((url) => url.includes("/api/inventory/import-batches/imb_1/commit"))).toBe(true);
+  });
+
+  it("carries storage location write receipts into the list redirect", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = String(input);
+
+        if (url.includes("/api/auth/session")) {
+          return Promise.resolve(
+            jsonResponse({
+              actor: {
+                sessionId: "ses_1",
+                tenantId: "tnt_identity",
+                userId: "usr_1",
+                accountId: "acc_1",
+                membershipId: "mbr_1",
+                roleKey: "owner",
+                permissions: ["inventory.view", "inventory.manage"],
+              },
+            }),
+          );
+        }
+
+        return Promise.resolve(jsonResponse({ id: "loc_created", version: 3 }, 201, commitHeaders("63")));
+      }),
+    );
+
+    const form = new URLSearchParams();
+    form.set("intent", "create-location");
+    form.set("name", "North shelf");
+    form.set("shipFromCode", "CHI-WH-1");
+    form.set("shipFromName", "Inventory");
+    form.set("shipFromLine1", "100 Test Lane");
+    form.set("shipFromCity", "Chicago");
+    form.set("shipFromState", "IL");
+    form.set("shipFromPostalCode", "60601");
+    form.set("shipFromCountry", "US");
+
+    const response = (await inventoryLocationsAction({
+      request: new Request("http://localhost/account/inventory/locations", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never)) as Response;
+
+    const location = response.headers.get("Location") ?? "";
+    expect(location).toContain("/account/inventory/locations?afterWrite=");
+    expect(readFreshWriteToken(`http://localhost${location}`)?.commitPosition).toBe("63");
+  });
+
+  it("returns bounded recovery while fresh storage locations are catching up", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = String(input);
+
+        if (url.includes("/api/auth/session")) {
+          return Promise.resolve(
+            jsonResponse({
+              actor: {
+                sessionId: "ses_1",
+                tenantId: "tnt_identity",
+                userId: "usr_1",
+                accountId: "acc_1",
+                membershipId: "mbr_1",
+                roleKey: "owner",
+                permissions: ["inventory.view", "inventory.manage"],
+              },
+            }),
+          );
+        }
+
+        return Promise.resolve(
+          jsonResponse(
+            {
+              error: {
+                code: "projection_freshness_timeout",
+                message: "Inventory storage locations are catching up.",
+              },
+            },
+            503,
+          ),
+        );
+      }),
+    );
+
+    const result = await inventoryLocationsLoader({
+      request: new Request(
+        `http://localhost${appendFreshWriteToken("/account/inventory/locations", inventoryCommit("64"))}`,
+      ),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result.locations.items).toEqual([]);
+    expect(result.loadError).toBe("Storage locations are still updating. Reload this page in a moment.");
   });
 
   it("surfaces inventory item action validation errors", async () => {

@@ -1,7 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useSearchParams } from "react-router";
-import type { ListResponse } from "@chase-sets/http/responses";
+import { appendFreshWriteToken, type ListResponse } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { PlatformFeedbackPrompt } from "@chase-sets/platform-operations/server";
@@ -51,6 +51,9 @@ export async function action({ request }: ActionFunctionArgs) {
       });
       if (result.id) {
         feedback.set("feedbackEntityId", result.id);
+        return redirect(
+          appendFreshWriteToken(`/account/inventory/items/${encodeURIComponent(result.id)}?${feedback}`, result),
+        );
       }
       return redirect(`/account/inventory?${feedback}`);
     }

@@ -117,11 +117,39 @@
               "readModelTable": "inventory_holds"
             }
           ]
+        },
+        {
+          "routePath": "/storage-locations",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "inventory_storage_locations"
+            }
+          ]
         }
       ]
     }
   ],
   "readAfterWriteRouteInventory": [
+    {
+      "id": "inventory.item-create-to-detail",
+      "owner": "inventory",
+      "risk": "important",
+      "source": {
+        "routeId": "account-inventory",
+        "actions": ["Create inventory item"],
+        "command": "Inventory item create command",
+        "helperUses": ["appendFreshWriteToken"]
+      },
+      "destination": {
+        "routeId": "account-inventory-item",
+        "apiContextName": "inventory",
+        "apiRoutePath": "/items/:id",
+        "readModelTables": ["inventory_items", "inventory_holds"],
+        "helperUses": ["loadFreshlyWrittenResource"],
+        "transientRecovery": "Inventory item create redirects to the created item detail with afterWrite so the item detail API waits on exact item and hold projections before rendering the new stock record."
+      }
+    },
     {
       "id": "inventory.item-adjust-to-detail",
       "owner": "inventory",
@@ -137,6 +165,7 @@
         "apiContextName": "inventory",
         "apiRoutePath": "/items/:id",
         "readModelTables": ["inventory_items", "inventory_holds"],
+        "helperUses": ["loadFreshlyWrittenResource"],
         "transientRecovery": "Inventory item detail forwards afterWrite to the API so exact item and hold projections gate the detail read."
       }
     },
@@ -160,6 +189,142 @@
         "reviewBy": "2026-07-31",
         "issue": "#1809",
         "reason": "Import batch route freshness is job-backed and remains a current audit/remediation classification gap."
+      }
+    },
+    {
+      "id": "inventory.storage-locations-list",
+      "owner": "inventory",
+      "risk": "important",
+      "source": {
+        "routeId": "account-inventory-locations",
+        "actions": ["Create storage location", "Update storage location", "Archive storage location"],
+        "command": "Inventory storage location commands",
+        "helperUses": ["appendFreshWriteToken"]
+      },
+      "destination": {
+        "routeId": "account-inventory-locations",
+        "apiContextName": "inventory",
+        "apiRoutePath": "/storage-locations",
+        "readModelTables": ["inventory_storage_locations"],
+        "helperUses": ["loadFreshlyWrittenResource"],
+        "transientRecovery": "Storage location writes redirect with afterWrite and the locations loader converts valid projection catch-up timeouts into route-owned temporary recovery copy."
+      }
+    }
+  ],
+  "mutationConsistencyInventory": [
+    {
+      "id": "inventory.api-command-snapshots",
+      "owner": "inventory",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/inventory/features/holds/api/route.ts:POST /:id/release",
+        "api-route:bounded-contexts/inventory/features/import-batches/api/route.ts:POST /",
+        "api-route:bounded-contexts/inventory/features/import-batches/api/route.ts:POST /:id/commit",
+        "api-route:bounded-contexts/inventory/features/inventory-items/api/route.ts:POST /",
+        "api-route:bounded-contexts/inventory/features/inventory-items/api/route.ts:POST /:id/adjustments",
+        "api-route:bounded-contexts/inventory/features/inventory-items/api/route.ts:POST /:id/holds",
+        "api-route:bounded-contexts/inventory/features/inventory-items/api/route.ts:POST /listing-stock/ensure",
+        "api-route:bounded-contexts/inventory/features/storage-locations/api/route.ts:PATCH /:id",
+        "api-route:bounded-contexts/inventory/features/storage-locations/api/route.ts:POST /"
+      ],
+      "visibleDestination": {
+        "description": "Inventory API commands return command-owned ids, versions, durable job statuses, or listing-stock snapshots that callers can render or carry into a fresh-read route without trusting a stale projection response."
+      },
+      "proof": {
+        "authoritativeResponse": "Item, hold, and storage-location commands return the committed aggregate id/version; import-batch commands return durable job public snapshots; listing-stock ensure returns the command-owned inventory stock snapshot.",
+        "tests": [
+          "bounded-contexts/inventory/tests/acceptance/inventory-api.test.ts",
+          "bounded-contexts/inventory/features/inventory-items/api/route.test.ts",
+          "bounded-contexts/inventory/features/import-batches/api/runtime.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "inventory.import-batch-job-snapshot",
+      "owner": "inventory",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "post-form:bounded-contexts/inventory/features/import-batches/ui/import-batch-page.tsx:H2df726441e2a#1",
+        "post-form:bounded-contexts/inventory/features/import-batches/ui/import-batch-page.tsx:H2df726441e2a#2",
+        "route-action:bounded-contexts/inventory/routes/marketplace/account-inventory-imports.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "account-inventory-imports",
+        "description": "Import create and commit actions redirect with the durable job id, render job progress from the command-owned job snapshot, and reload the completed batch from the terminal job result path."
+      },
+      "proof": {
+        "authoritativeResponse": "createImportBatch and commitImportBatch return InventoryImportBatchJobStatus snapshots; the import page subscribes to the job event stream and navigates only after a completed terminal snapshot includes the batch result.",
+        "tests": [
+          "bounded-contexts/inventory/tests/account-inventory-routes.test.ts",
+          "bounded-contexts/inventory/features/import-batches/ui/import-batch-page.test.tsx",
+          "bounded-contexts/inventory/features/import-batches/api/runtime.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "inventory.item-create-to-detail-fresh-read",
+      "owner": "inventory",
+      "risk": "important",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "post-form:bounded-contexts/inventory/features/inventory-items/ui/inventory-item-list-page.tsx:H2df726441e2a#1",
+        "route-action:bounded-contexts/inventory/routes/marketplace/account-inventory.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "account-inventory-item",
+        "apiContextName": "inventory",
+        "apiRoutePath": "/items/:id",
+        "readModelTables": ["inventory_items", "inventory_holds"],
+        "transientRecovery": "Inventory item create redirects to the created item detail with afterWrite and the detail loader retries valid fresh-write not-found reads before falling back to temporary recovery."
+      },
+      "proof": {
+        "tests": ["bounded-contexts/inventory/tests/account-inventory-routes.test.ts"]
+      }
+    },
+    {
+      "id": "inventory.item-detail-actions-fresh-read",
+      "owner": "inventory",
+      "risk": "critical",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "post-form:bounded-contexts/inventory/features/inventory-items/ui/inventory-item-detail-page.tsx:H2df726441e2a#1",
+        "post-form:bounded-contexts/inventory/features/inventory-items/ui/inventory-item-detail-page.tsx:H2df726441e2a#2",
+        "post-form:bounded-contexts/inventory/features/inventory-items/ui/inventory-item-detail-page.tsx:H2df726441e2a#3",
+        "route-action:bounded-contexts/inventory/routes/marketplace/account-inventory-item.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "account-inventory-item",
+        "apiContextName": "inventory",
+        "apiRoutePath": "/items/:id",
+        "readModelTables": ["inventory_items", "inventory_holds"],
+        "transientRecovery": "Adjust, hold, and release actions redirect with afterWrite to the same item detail page; the loader forwards the receipt and uses bounded fresh-write recovery for lagging item or hold projections."
+      },
+      "proof": {
+        "tests": ["bounded-contexts/inventory/tests/account-inventory-routes.test.ts"]
+      }
+    },
+    {
+      "id": "inventory.storage-location-list-fresh-read",
+      "owner": "inventory",
+      "risk": "important",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "post-form:bounded-contexts/inventory/features/storage-locations/ui/storage-location-page.tsx:H2df726441e2a#1",
+        "post-form:bounded-contexts/inventory/features/storage-locations/ui/storage-location-page.tsx:H2df726441e2a#2",
+        "post-form:bounded-contexts/inventory/features/storage-locations/ui/storage-location-page.tsx:H2df726441e2a#3",
+        "route-action:bounded-contexts/inventory/routes/marketplace/account-inventory-locations.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "account-inventory-locations",
+        "apiContextName": "inventory",
+        "apiRoutePath": "/storage-locations",
+        "readModelTables": ["inventory_storage_locations"],
+        "transientRecovery": "Storage location create, update, and archive redirect with afterWrite to the locations list; the loader waits on the storage-location projection and shows bounded recovery copy during valid projection catch-up."
+      },
+      "proof": {
+        "tests": ["bounded-contexts/inventory/tests/account-inventory-routes.test.ts"]
       }
     }
   ],
