@@ -1,6 +1,19 @@
-import { useState, type ImgHTMLAttributes, type ReactNode } from "react";
+import { type ImgHTMLAttributes, type ReactNode } from "react";
+import { Icon } from "../../icons";
 import { Box, Stack } from "../../primitives/layout";
+import { Image } from "../data-display/image";
 import { type ResponsiveImageSource } from "../data-display/product-media";
+
+// Designed empty/placeholder state for a cart line thumbnail with no image (or
+// once every source has failed). Routed through the `Image` primitive's
+// `fallback` slot so a missing image never renders a blank square.
+function MarketplaceCartLineImagePlaceholder() {
+  return (
+    <span className="flex h-full w-full items-center justify-center text-[var(--muted-foreground)]" aria-hidden="true">
+      <Icon name="image" size="md" tone="tertiary" />
+    </span>
+  );
+}
 
 export interface MarketplaceCartLineItemProps {
   image?: ResponsiveImageSource;
@@ -43,7 +56,6 @@ export function MarketplaceCartLineItem({
   quantityControl,
   actions,
 }: MarketplaceCartLineItemProps) {
-  const [loaded, setLoaded] = useState(false);
   const resolvedImage = image ?? {
     src: imageSrc,
     srcSet: imageSrcSet,
@@ -67,30 +79,24 @@ export function MarketplaceCartLineItem({
       data-marketplace-cart-line
     >
       <div className="grid min-w-0 grid-cols-[4.75rem_minmax(0,1fr)] gap-3 sm:grid-cols-[5.5rem_minmax(0,1fr)] md:grid-cols-[5.5rem_minmax(0,1fr)_minmax(13rem,16rem)] md:gap-4">
-        <div className="relative min-w-0 overflow-hidden rounded-tokenMd border border-[var(--border)] bg-[var(--surface-2)] shadow-tokenSm">
-          {resolvedLoadingImage && !loaded ? (
-            <img
-              src={resolvedLoadingImage.src}
-              alt={loadingImageAlt ?? imageAlt}
-              srcSet={resolvedLoadingImage.srcSet}
-              sizes={resolvedLoadingImage.sizes}
-              width={resolvedLoadingImage.width}
-              height={resolvedLoadingImage.height}
-              className="absolute inset-0 aspect-[2.5/3.5] h-full w-full object-contain p-1.5"
-              aria-hidden="true"
+        <div className="relative aspect-[2.5/3.5] min-w-0 overflow-hidden rounded-tokenMd border border-[var(--border)] bg-[var(--surface-2)] p-1.5 shadow-tokenSm">
+          {resolvedImage.src ? (
+            // The box owns the 2.5/3.5 aspect ratio and fill, so the image fills
+            // its parent rather than self-sizing to an intrinsic width. Intrinsic
+            // width/height attributes are intentionally not forwarded.
+            <Image
+              src={resolvedImage.src}
+              alt={imageAlt}
+              srcSet={resolvedImage.srcSet}
+              sizes={resolvedImage.sizes}
+              fit="contain"
+              loading="lazy"
+              fallbackSrc={resolvedLoadingImage?.src}
+              fallback={<MarketplaceCartLineImagePlaceholder />}
             />
-          ) : null}
-          <img
-            src={resolvedImage.src}
-            alt={imageAlt}
-            srcSet={resolvedImage.srcSet}
-            sizes={resolvedImage.sizes}
-            width={resolvedImage.width}
-            height={resolvedImage.height}
-            className="aspect-[2.5/3.5] h-full w-full object-contain p-1.5"
-            loading="lazy"
-            onLoad={() => setLoaded(true)}
-          />
+          ) : (
+            <MarketplaceCartLineImagePlaceholder />
+          )}
         </div>
         <Stack gap={3} minWidth="0">
           <Stack gap={1} minWidth="0">

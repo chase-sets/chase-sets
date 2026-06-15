@@ -31,6 +31,7 @@ export {
   RatingDistribution,
   type RatingDistributionProps,
   SecurePaymentIndicator,
+  type SecurePaymentIndicatorProps,
 } from "./trust";
 
 export { MarketplaceCartLineItem, type MarketplaceCartLineItemProps } from "./cart-line-item";

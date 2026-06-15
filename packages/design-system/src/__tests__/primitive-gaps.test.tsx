@@ -7,6 +7,20 @@ import { CurrencyInput, NumberInput } from "../components/forms";
 import { ChaseRoot } from "../theme/provider";
 import { Image } from "../components/data-display";
 import {
+  ActionRow,
+  ActionStack,
+  CheckoutNoticeStack,
+  CheckoutSummaryLineItem,
+  CheckoutTotals,
+  DestructiveAction,
+  MarketplaceNotice,
+  PageStepper,
+  PriceBreakdown,
+  StickyCtaBar,
+  SecurePaymentIndicator,
+  selectCheckoutNotice,
+} from "../index";
+import {
   AspectRatio,
   Bleed,
   Center,
@@ -566,5 +580,250 @@ describe("Native number-spinner suppression", () => {
     // The global CSS rule covers NumberInput and CurrencyInput (type="number").
     const spinbutton = screen.getByRole("spinbutton");
     expect(spinbutton.getAttribute("inputmode")).toBe("numeric");
+  });
+});
+
+describe("Single-deferred-total totals model (#1853)", () => {
+  it("renders one deferred total with a single caption and the canonical quiet style", () => {
+    const markup = renderToString(
+      <CheckoutTotals
+        lines={[{ label: "Shipping & tax", value: "Calculated at checkout", muted: true }]}
+        totalLabel="Estimated total"
+        total="$42.00"
+        totalCaption="Final total confirmed at checkout"
+        deferred
+      />,
+    );
+
+    // The deferral statement appears exactly once.
+    expect(markup.match(/Final total confirmed at checkout/g)).toHaveLength(1);
+    expect(markup).toContain("Estimated total");
+    // The deferred total drops the bold charge emphasis for the quiet tertiary style.
+    expect(markup).toContain("text-tertiary");
+    expect(markup).not.toContain("text-xl font-bold");
+  });
+
+  it("renders a firm total in the bold charge style when not deferred", () => {
+    const markup = renderToString(
+      <CheckoutTotals lines={[{ label: "Subtotal", value: "$40.00" }]} totalLabel="Payable total" total="$42.00" />,
+    );
+
+    expect(markup).toContain("Payable total");
+    expect(markup).toContain("font-bold");
+  });
+
+  it("threads the deferred model and single caption through PriceBreakdown (pending alias)", () => {
+    const markup = renderToString(
+      <PriceBreakdown
+        lines={[{ label: "Subtotal", value: "Pending", muted: true }]}
+        totalLabel="Total"
+        total="Pending"
+        totalCaption="Secure payment"
+        pending
+      />,
+    );
+
+    expect(markup.match(/Secure payment/g)).toHaveLength(1);
+    expect(markup).toContain("text-tertiary");
+    expect(markup).not.toContain("font-bold");
+  });
+});
+
+describe("CheckoutSummaryLineItem indicative pricing (#1853)", () => {
+  it("prefixes an indicative price with `from` and keeps the tabular-nums slot", () => {
+    const markup = renderToString(
+      <CheckoutSummaryLineItem item={{ id: "1", title: "Charizard", price: "$120.00", priceState: "indicative" }} />,
+    );
+
+    expect(markup).toContain("from");
+    expect(markup).toContain("$120.00");
+    expect(markup).toContain("tabular-nums");
+  });
+
+  it("shows a single quiet `Priced at checkout` state for a deferred line and ignores price", () => {
+    const markup = renderToString(
+      <CheckoutSummaryLineItem item={{ id: "2", title: "Blastoise", price: "$99.00", priceState: "deferred" }} />,
+    );
+
+    expect(markup).toContain("Priced at checkout");
+    expect(markup).not.toContain("$99.00");
+    expect(markup).toContain("text-tertiary");
+  });
+
+  it("renders an exact price with no `from` prefix by default", () => {
+    const markup = renderToString(<CheckoutSummaryLineItem item={{ id: "3", title: "Venusaur", price: "$80.00" }} />);
+
+    expect(markup).toContain("$80.00");
+    expect(markup).not.toContain(">from<");
+  });
+
+  it("routes a present image through the Image primitive with lazy loading", () => {
+    const markup = renderToString(
+      <CheckoutSummaryLineItem item={{ id: "4", title: "Mewtwo", image: { src: "/card.jpg", alt: "Mewtwo card" } }} />,
+    );
+
+    expect(markup).toContain('loading="lazy"');
+    expect(markup).toContain('alt="Mewtwo card"');
+  });
+
+  it("renders a designed placeholder, not a blank square, when no image is supplied", () => {
+    const { container } = render(<CheckoutSummaryLineItem item={{ id: "5", title: "No art" }} />);
+
+    // The placeholder uses a decorative icon rather than an empty box.
+    expect(container.querySelector('[aria-hidden="true"] svg')).toBeTruthy();
+  });
+});
+
+describe("Unified sticky CTA bar + reassurance (#1853)", () => {
+  it("accepts the totalLabel/total/context triple and stamps a single primary action", () => {
+    const markup = renderToString(
+      <StickyCtaBar
+        totalLabel="Estimated total"
+        total="$42.00"
+        context="Final total confirmed at checkout"
+        reassurance={<SecurePaymentIndicator label="Secure payment" reassurance="Not charged yet" />}
+        primaryAction={<button type="submit">Check out</button>}
+        secondaryAction={<button type="button">Keep shopping</button>}
+      />,
+    );
+
+    expect(markup).toContain("Estimated total");
+    expect(markup).toContain("$42.00");
+    expect(markup).toContain('data-primary-action-count="1"');
+    expect(markup).toContain("Secure payment");
+    expect(markup).toContain("Not charged yet");
+  });
+
+  it("keeps the deprecated price alias working for existing consumers", () => {
+    const markup = renderToString(
+      <StickyCtaBar price="$472.19" primaryAction={<button type="submit">Continue</button>} />,
+    );
+
+    expect(markup).toContain("$472.19");
+  });
+});
+
+describe("Action-hierarchy helpers (#1853)", () => {
+  it("ActionRow stamps a single primary action and orders primary last", () => {
+    const { container } = render(
+      <ActionRow
+        lowEmphasis={<DestructiveAction>Remove</DestructiveAction>}
+        secondary={<button type="button">Find alternatives</button>}
+        primary={<button type="submit">Check out</button>}
+        data-testid="row"
+      />,
+    );
+
+    const row = screen.getByTestId("row");
+    expect(row.getAttribute("data-primary-action-count")).toBe("1");
+    const buttons = Array.from(container.querySelectorAll("button")).map((b) => b.textContent);
+    expect(buttons).toEqual(["Remove", "Find alternatives", "Check out"]);
+  });
+
+  it("ActionStack stamps a single primary action and leads with primary", () => {
+    const { container } = render(
+      <ActionStack
+        primary={<button type="submit">Pay now</button>}
+        secondary={<button type="button">Back to cart</button>}
+        data-testid="stack"
+      />,
+    );
+
+    expect(screen.getByTestId("stack").getAttribute("data-primary-action-count")).toBe("1");
+    const buttons = Array.from(container.querySelectorAll("button")).map((b) => b.textContent);
+    expect(buttons).toEqual(["Pay now", "Back to cart"]);
+  });
+
+  it("reports zero primary actions when no primary is provided", () => {
+    render(<ActionRow secondary={<button type="button">Edit</button>} data-testid="row" />);
+
+    expect(screen.getByTestId("row").getAttribute("data-primary-action-count")).toBe("0");
+  });
+
+  it("DestructiveAction renders a non-danger ghost recipe for routine Remove", () => {
+    const markup = renderToString(<DestructiveAction>Remove</DestructiveAction>);
+
+    expect(markup).toContain("Remove");
+    expect(markup).toContain('type="button"');
+    // Quiet, non-danger styling — red tone is reserved for blocking confirmations.
+    expect(markup).toContain("text-secondary");
+    expect(markup).not.toContain("bg-danger");
+  });
+});
+
+describe("CheckoutNoticeStack single-notice ladder (#1853)", () => {
+  it("renders only the highest-priority active notice (blocking beats needs-review beats savings)", () => {
+    const { container } = render(
+      <CheckoutNoticeStack
+        candidates={[
+          { priority: "savings", notice: <MarketplaceNotice tone="info" title="Save $4.20 by changing fulfillment" /> },
+          {
+            priority: "needs-review",
+            notice: <MarketplaceNotice tone="warning" title="2 items need a fulfillment choice" />,
+          },
+          { priority: "blocking", notice: <MarketplaceNotice tone="danger" title="An item is unavailable" /> },
+        ]}
+      />,
+    );
+
+    expect(container.textContent).toContain("An item is unavailable");
+    expect(container.textContent).not.toContain("need a fulfillment choice");
+    expect(container.textContent).not.toContain("Save $4.20");
+  });
+
+  it("skips inactive candidates and falls back down the ladder", () => {
+    const notice = selectCheckoutNotice([
+      { priority: "blocking", active: false, notice: "blocking" },
+      { priority: "needs-review", active: true, notice: "needs-review" },
+      { priority: "savings", active: true, notice: "savings" },
+    ]);
+
+    expect(notice).toBe("needs-review");
+  });
+
+  it("renders nothing when no candidate is active", () => {
+    const { container } = render(
+      <CheckoutNoticeStack candidates={[{ priority: "info", active: false, notice: <span>none</span> }]} />,
+    );
+
+    expect(container.textContent).toBe("");
+  });
+});
+
+describe("PageStepper multi-step spine (#1853)", () => {
+  it("marks the current step with aria-current and uses list semantics", () => {
+    render(
+      <PageStepper
+        aria-label="Checkout steps"
+        items={[
+          { label: "Contact", status: "complete" },
+          { label: "Delivery", status: "current" },
+          { label: "Payment", status: "upcoming" },
+          { label: "Review", status: "upcoming" },
+        ]}
+      />,
+    );
+
+    const list = screen.getByRole("list", { name: "Checkout steps" });
+    expect(list.tagName).toBe("OL");
+    expect(screen.getAllByRole("listitem")).toHaveLength(4);
+
+    const current = screen.getByText("Delivery").closest("li");
+    expect(current?.getAttribute("aria-current")).toBe("step");
+  });
+
+  it("flags a blocked step distinctly from upcoming", () => {
+    render(
+      <PageStepper
+        items={[
+          { label: "Shipping", status: "current" },
+          { label: "Payment", status: "blocked" },
+        ]}
+      />,
+    );
+
+    const blocked = screen.getByText("Payment").closest("li");
+    expect(blocked?.getAttribute("aria-current")).toBeNull();
+    expect(blocked?.className).toContain("border-danger");
   });
 });

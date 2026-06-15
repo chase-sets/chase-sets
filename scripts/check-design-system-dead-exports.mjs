@@ -25,6 +25,8 @@ const moduleFileExtensions = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"];
 
 const canonicalReserveZeroConsumerExports = [
   "AccountProfileHeader",
+  "ActionRow",
+  "ActionStack",
   "ActivityList",
   "ActivitySheet",
   "AspectRatio",
@@ -43,6 +45,7 @@ const canonicalReserveZeroConsumerExports = [
   "ChaseSetsLogo",
   "chaseTheme",
   "CheckoutExpressActions",
+  "CheckoutNoticeStack",
   "CheckoutSummaryLineItem",
   "CheckoutTotals",
   "CheckoutTrustPanel",
@@ -56,6 +59,7 @@ const canonicalReserveZeroConsumerExports = [
   "cx",
   "defaultToastManager",
   "DenseAdminWorkbenchProof",
+  "DestructiveAction",
   "EmptyStateIllustration",
   "EvidenceCodeBlock",
   "FeatureCard",
@@ -125,6 +129,7 @@ const canonicalReserveZeroConsumerExports = [
   "ScrollArea",
   "SearchFilterPanel",
   "SectionNavigation",
+  "selectCheckoutNotice",
   "SelectionToolbar",
   "showToast",
   "Sidebar",

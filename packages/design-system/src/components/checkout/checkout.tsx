@@ -1,4 +1,4 @@
-import type { HTMLAttributes, ReactNode } from "react";
+import type { ButtonHTMLAttributes, HTMLAttributes, ReactNode } from "react";
 import { Icon } from "../../icons";
 import type { IconName } from "../../icons";
 import { cx } from "../../utils/cx";
@@ -6,6 +6,7 @@ import { Grid, IconRow, Stack, Surface, surfaceSemanticToneClasses } from "../..
 import { ToneIcon } from "../../primitives/tone-icon";
 import { Badge } from "../feedback";
 import { Card } from "../data-display/card";
+import { Image } from "../data-display/image";
 import { TrustBadge } from "../commerce/trust";
 
 export type CheckoutPrimitiveTone = "neutral" | "info" | "success" | "warning" | "danger";
@@ -16,12 +17,30 @@ export interface CheckoutSummaryLine {
   muted?: boolean;
 }
 
+/**
+ * Pricing state for a summary line. `exact` is a locked, charge-grade price;
+ * `indicative` is a known floor surfaced as `from $X`; `deferred` defers the
+ * line entirely as a single quiet `Priced at checkout` statement.
+ */
+export type CheckoutLinePriceState = "exact" | "indicative" | "deferred";
+
 export interface CheckoutSummaryItem {
   id: string;
   title: ReactNode;
   subtitle?: ReactNode;
   facts?: ReactNode[];
   price?: ReactNode;
+  /**
+   * How the line price reads. Defaults to `exact`. `indicative` prefixes the
+   * price with `from`; `deferred` ignores `price` and shows the quiet
+   * `deferredPriceLabel` instead so a missing quote never repeats a deferral
+   * string in the price slot.
+   */
+  priceState?: CheckoutLinePriceState;
+  /** Prefix for an `indicative` price. Defaults to `from`. */
+  indicativePrefix?: ReactNode;
+  /** Quiet text shown when `priceState` is `deferred`. Defaults to `Priced at checkout`. */
+  deferredPriceLabel?: ReactNode;
   quantity?: ReactNode;
   image?: {
     src: string;
@@ -29,6 +48,12 @@ export interface CheckoutSummaryItem {
   };
   thumbnail?: ReactNode;
 }
+
+// One canonical quiet style for a deferred/pending money value, shared by every
+// totals and line primitive so the "repeat the deferral string in five slots"
+// anti-pattern is impossible to express: there is exactly one way to render the
+// quiet state, and it never carries a hard currency emphasis.
+const quietMoneyClass = "font-medium text-tertiary";
 
 // The status-tint triple (`border-{tone}-soft bg-{tone}-soft text-{tone}`) is the
 // canonical `Surface` semantic tone map. Reuse it so checkout notice/status
@@ -48,6 +73,44 @@ function CheckoutStatusBadge({ tone = "neutral", children }: { tone?: CheckoutPr
   );
 }
 
+// Designed empty/placeholder state for a line thumbnail with no image. Shared by
+// `CheckoutSummaryLineItem` and `MarketplaceCartLineItem` so a missing image
+// never renders a blank square or a jarring bare icon.
+function LineItemImagePlaceholder() {
+  return (
+    <span className="flex h-full w-full items-center justify-center bg-surface-2 text-tertiary" aria-hidden="true">
+      <Icon name="image" size="md" tone="tertiary" />
+    </span>
+  );
+}
+
+function CheckoutLinePrice({ item }: { item: CheckoutSummaryItem }) {
+  const state = item.priceState ?? "exact";
+
+  if (state === "deferred") {
+    return (
+      <div className={cx("text-right text-xs leading-5", quietMoneyClass)}>
+        {item.deferredPriceLabel ?? "Priced at checkout"}
+      </div>
+    );
+  }
+
+  if (item.price === undefined || item.price === null) {
+    return null;
+  }
+
+  return (
+    <div className="text-right text-sm font-semibold tabular-nums text-foreground">
+      {state === "indicative" ? (
+        <span className="mr-1 align-baseline text-xs font-medium text-secondary">
+          {item.indicativePrefix ?? "from"}
+        </span>
+      ) : null}
+      {item.price}
+    </div>
+  );
+}
+
 export interface CheckoutSummaryLineItemProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
   item: CheckoutSummaryItem;
 }
@@ -58,11 +121,15 @@ export function CheckoutSummaryLineItem({ item, ...rest }: CheckoutSummaryLineIt
       <div className="relative h-14 w-14 overflow-hidden rounded-tokenMd border border-muted bg-surface-2">
         {item.thumbnail ??
           (item.image ? (
-            <img src={item.image.src} alt={item.image.alt} className="h-full w-full object-cover" loading="eager" />
+            <Image
+              src={item.image.src}
+              alt={item.image.alt}
+              fit="cover"
+              loading="lazy"
+              fallback={<LineItemImagePlaceholder />}
+            />
           ) : (
-            <span className="flex h-full w-full items-center justify-center text-secondary" aria-hidden="true">
-              <Icon name="image" size="md" tone="secondary" />
-            </span>
+            <LineItemImagePlaceholder />
           ))}
         {item.quantity ? (
           <span className="absolute -right-1 -top-1 min-w-5 rounded-tokenFull bg-foreground px-1.5 py-0.5 text-center text-xs font-bold leading-none text-background">
@@ -83,9 +150,7 @@ export function CheckoutSummaryLineItem({ item, ...rest }: CheckoutSummaryLineIt
           </div>
         ) : null}
       </div>
-      {item.price ? (
-        <div className="text-right text-sm font-semibold tabular-nums text-foreground">{item.price}</div>
-      ) : null}
+      <CheckoutLinePrice item={item} />
     </div>
   );
 }
@@ -95,9 +160,33 @@ export interface CheckoutTotalsProps extends Omit<HTMLAttributes<HTMLDListElemen
   totalLabel: ReactNode;
   total: ReactNode;
   currency?: ReactNode;
+  /**
+   * The single deferral statement for the surface (e.g. `Final total confirmed
+   * at checkout`). Rendered once, beneath the total — never repeated per line.
+   */
+  totalCaption?: ReactNode;
+  /**
+   * When the total is not yet a charge-grade quote. Renders the total in the
+   * canonical quiet style instead of the bold charge emphasis. `pending` is an
+   * accepted alias.
+   */
+  deferred?: boolean;
+  /** Alias for {@link CheckoutTotalsProps.deferred}. */
+  pending?: boolean;
 }
 
-export function CheckoutTotals({ lines, totalLabel, total, currency, ...rest }: CheckoutTotalsProps) {
+export function CheckoutTotals({
+  lines,
+  totalLabel,
+  total,
+  currency,
+  totalCaption,
+  deferred = false,
+  pending = false,
+  ...rest
+}: CheckoutTotalsProps) {
+  const isQuiet = deferred || pending;
+
   return (
     <dl {...rest} className="grid gap-2">
       {lines.map((line, index) => (
@@ -106,12 +195,20 @@ export function CheckoutTotals({ lines, totalLabel, total, currency, ...rest }: 
           <dd className="text-right font-medium tabular-nums text-foreground">{line.value}</dd>
         </div>
       ))}
-      <div className="mt-2 flex items-end justify-between gap-4 border-t border-muted pt-3">
+      <div className="mt-2 grid grid-cols-[minmax(0,1fr)_auto] items-end gap-x-4 border-t border-muted pt-3">
         <dt className="text-base font-semibold text-foreground">{totalLabel}</dt>
-        <dd className="text-right text-xl font-bold leading-tight tabular-nums text-foreground">
-          {currency ? <span className="mr-1 align-baseline text-xs font-medium text-secondary">{currency}</span> : null}
+        <dd
+          className={cx(
+            "text-right leading-tight tabular-nums",
+            isQuiet ? cx("text-base", quietMoneyClass) : "text-xl font-bold text-foreground",
+          )}
+        >
+          {currency && !isQuiet ? (
+            <span className="mr-1 align-baseline text-xs font-medium text-secondary">{currency}</span>
+          ) : null}
           {total}
         </dd>
+        {totalCaption ? <p className="col-span-2 m-0 text-xs leading-5 text-tertiary">{totalCaption}</p> : null}
       </div>
     </dl>
   );
@@ -127,6 +224,8 @@ export interface CheckoutSummaryPanelProps extends Omit<HTMLAttributes<HTMLEleme
   totalLabel: ReactNode;
   total: ReactNode;
   currency?: ReactNode;
+  totalCaption?: ReactNode;
+  deferred?: boolean;
   actions?: ReactNode;
   reassurance?: ReactNode;
 }
@@ -141,6 +240,8 @@ export function CheckoutSummaryPanel({
   totalLabel,
   total,
   currency,
+  totalCaption,
+  deferred = false,
   actions,
   reassurance,
   ...rest
@@ -162,7 +263,14 @@ export function CheckoutSummaryPanel({
         </div>
       ) : null}
       <div className="mt-4">
-        <CheckoutTotals lines={totals} totalLabel={totalLabel} total={total} currency={currency} />
+        <CheckoutTotals
+          lines={totals}
+          totalLabel={totalLabel}
+          total={total}
+          currency={currency}
+          totalCaption={totalCaption}
+          deferred={deferred}
+        />
       </div>
       {reassurance ? (
         <div className="mt-4 rounded-tokenMd border border-success-soft bg-success-soft p-3 text-sm font-medium leading-5 text-success">
@@ -528,6 +636,8 @@ export interface CheckoutStickyActionBarProps extends Omit<HTMLAttributes<HTMLDi
   totalLabel: ReactNode;
   total: ReactNode;
   context?: ReactNode;
+  /** Canonical reassurance slot — pass a `SecurePaymentIndicator`. */
+  reassurance?: ReactNode;
   primaryAction: ReactNode;
   secondaryAction?: ReactNode;
   mobileOffset?: "navigation" | "none";
@@ -537,6 +647,7 @@ export function CheckoutStickyActionBar({
   totalLabel,
   total,
   context,
+  reassurance,
   primaryAction,
   secondaryAction,
   mobileOffset = "navigation",
@@ -555,6 +666,7 @@ export function CheckoutStickyActionBar({
           <div className="min-w-0">
             <div className="text-xs font-medium text-secondary">{totalLabel}</div>
             {context ? <div className="text-xs leading-5 text-secondary">{context}</div> : null}
+            {reassurance ? <div className="mt-1">{reassurance}</div> : null}
           </div>
           <div className="text-right text-xl font-bold tabular-nums text-foreground">{total}</div>
         </div>
@@ -579,10 +691,35 @@ export interface PriceBreakdownProps {
   lines: Array<{ label: string; value: ReactNode; muted?: boolean }>;
   total: ReactNode;
   totalLabel?: ReactNode;
+  /**
+   * The single deferral statement for the surface (e.g. `Final total confirmed
+   * at checkout`). Rendered once, beneath the total — never repeated per line.
+   */
+  totalCaption?: ReactNode;
+  /**
+   * When the total is not yet a charge-grade quote. Renders the total in the
+   * canonical quiet style instead of the bold charge emphasis. `pending` is an
+   * accepted alias.
+   */
+  deferred?: boolean;
+  /** Alias for {@link PriceBreakdownProps.deferred}. */
+  pending?: boolean;
   reassurance?: ReactNode;
 }
 
-export function PriceBreakdown({ title, description, lines, total, totalLabel, reassurance }: PriceBreakdownProps) {
+export function PriceBreakdown({
+  title,
+  description,
+  lines,
+  total,
+  totalLabel,
+  totalCaption,
+  deferred = false,
+  pending = false,
+  reassurance,
+}: PriceBreakdownProps) {
+  const isQuiet = deferred || pending;
+
   return (
     <Card>
       {title || description ? (
@@ -600,11 +737,17 @@ export function PriceBreakdown({ title, description, lines, total, totalLabel, r
             </div>
           ))}
         </Stack>
-        <div className="mt-4 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-center gap-4 border-t border-border pt-4">
+        <div className="mt-4 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-baseline gap-x-4 border-t border-border pt-4">
           {totalLabel ? <span className="min-w-0 font-semibold text-foreground">{totalLabel}</span> : null}
-          <span className="min-w-0 max-w-full break-words text-right text-xl font-bold leading-tight tabular-nums text-foreground sm:text-2xl">
+          <span
+            className={cx(
+              "min-w-0 max-w-full break-words text-right leading-tight tabular-nums",
+              isQuiet ? cx("text-base", quietMoneyClass) : "text-xl font-bold text-foreground sm:text-2xl",
+            )}
+          >
             {total}
           </span>
+          {totalCaption ? <p className="col-span-2 m-0 mt-1 text-xs leading-5 text-tertiary">{totalCaption}</p> : null}
         </div>
         {reassurance ? (
           <div className="mt-4 rounded-tokenMd bg-trust-soft p-3 text-sm font-medium text-trust">{reassurance}</div>
@@ -858,19 +1001,41 @@ export function PaymentRecoveryPanel({
 }
 
 export interface StickyCtaBarProps {
+  /**
+   * Optional label above the total (e.g. `Estimated total`). Part of the shared
+   * `totalLabel`/`total`/`context` triple unified with `CheckoutStickyActionBar`.
+   */
+  totalLabel?: ReactNode;
+  /** The headline money value. Use this over the deprecated `price` alias. */
+  total?: ReactNode;
+  /** @deprecated Use {@link StickyCtaBarProps.total}. */
   price?: ReactNode;
   context?: ReactNode;
+  /** Canonical reassurance slot — pass a `SecurePaymentIndicator`. */
+  reassurance?: ReactNode;
   primaryAction: ReactNode;
   secondaryAction?: ReactNode;
 }
 
-export function StickyCtaBar({ price, context, primaryAction, secondaryAction }: StickyCtaBarProps) {
+export function StickyCtaBar({
+  totalLabel,
+  total,
+  price,
+  context,
+  reassurance,
+  primaryAction,
+  secondaryAction,
+}: StickyCtaBarProps) {
+  const resolvedTotal = total ?? price;
+
   return (
-    <div className="rounded-tokenLg border border-border bg-[color-mix(in_srgb,var(--card)_94%,transparent)] px-4 py-3 shadow-overlay backdrop-blur">
+    <div className="rounded-tokenLg border border-muted bg-background/overlay px-4 py-3 shadow-tokenLg backdrop-blur-xl">
       <div className="mx-auto grid max-w-7xl gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
         <div className="min-w-0">
-          {price ? <div className="text-lg font-bold tabular-nums text-foreground">{price}</div> : null}
+          {totalLabel ? <div className="text-xs font-medium text-secondary">{totalLabel}</div> : null}
+          {resolvedTotal ? <div className="text-lg font-bold tabular-nums text-foreground">{resolvedTotal}</div> : null}
           {context ? <div className="text-xs leading-5 text-tertiary sm:truncate">{context}</div> : null}
+          {reassurance ? <div className="mt-1">{reassurance}</div> : null}
         </div>
         <div className="grid min-w-0 grid-cols-2 gap-2 sm:flex sm:shrink-0" data-primary-action-count="1">
           {secondaryAction}
@@ -879,4 +1044,140 @@ export function StickyCtaBar({ price, context, primaryAction, secondaryAction }:
       </div>
     </div>
   );
+}
+
+// Action-hierarchy helpers. These make "one primary action per surface"
+// enforceable rather than conventional: the single `primary` slot stamps
+// `data-primary-action-count="1"` (the contract the marketplace tests assert),
+// and arranges the primary, secondary, and low-emphasis controls in the correct
+// reading order — primary leads on a row, leads at the bottom of a stack — with
+// canonical spacing. A surface that needs two primaries cannot express it
+// through these helpers; it must pass exactly one node to `primary`.
+
+export interface ActionRowProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
+  /** The single primary action for the surface. Renders last (right) so it reads as the commit. */
+  primary?: ReactNode;
+  /** Standard secondary actions (navigation, edit). */
+  secondary?: ReactNode;
+  /** Low-emphasis actions (ghost Remove, undo). Rendered first/quietest. */
+  lowEmphasis?: ReactNode;
+  /** Horizontal alignment of the cluster. Defaults to `end`. */
+  align?: "start" | "end" | "between";
+}
+
+const actionAlignClasses: Record<NonNullable<ActionRowProps["align"]>, string> = {
+  start: "justify-start",
+  end: "justify-end",
+  between: "justify-between",
+};
+
+export function ActionRow({ primary, secondary, lowEmphasis, align = "end", ...rest }: ActionRowProps) {
+  return (
+    <div
+      {...rest}
+      className={cx("flex flex-wrap items-center gap-2", actionAlignClasses[align])}
+      data-primary-action-count={primary ? "1" : "0"}
+    >
+      {lowEmphasis}
+      {secondary}
+      {primary}
+    </div>
+  );
+}
+
+export interface ActionStackProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
+  /** The single primary action for the surface. Renders first (top) so it leads the stack. */
+  primary?: ReactNode;
+  /** Standard secondary actions (navigation, edit). */
+  secondary?: ReactNode;
+  /** Low-emphasis actions (ghost Remove, undo). Rendered last/quietest. */
+  lowEmphasis?: ReactNode;
+}
+
+export function ActionStack({ primary, secondary, lowEmphasis, ...rest }: ActionStackProps) {
+  return (
+    <div {...rest} className="grid gap-2" data-primary-action-count={primary ? "1" : "0"}>
+      {primary}
+      {secondary}
+      {lowEmphasis}
+    </div>
+  );
+}
+
+// A documented low-emphasis, non-blocking destructive recipe. Routine edits such
+// as Remove must NOT use `tone="danger"` — red is reserved for blocking
+// confirmations. This forwards to the consumer-supplied control props but pins
+// the canonical ghost recipe (quiet, compact, with a trailing trash icon) so
+// consumers stop reaching for danger tone on every Remove.
+export interface DestructiveActionProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className" | "style"> {
+  children: ReactNode;
+  /** Icon for the action. Defaults to `trash`. */
+  icon?: IconName;
+  /** Hide the icon entirely. */
+  hideIcon?: boolean;
+}
+
+export function DestructiveAction({ children, icon = "trash", hideIcon = false, ...rest }: DestructiveActionProps) {
+  return (
+    <button
+      {...rest}
+      type={rest.type ?? "button"}
+      className="focus-ring inline-flex min-w-0 max-w-full items-center justify-center gap-1.5 rounded-tokenMd border border-transparent bg-transparent px-3 py-1.5 text-sm font-semibold leading-snug text-secondary transition hover:border-border hover:bg-surface-2 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-disabled"
+    >
+      {hideIcon ? null : <Icon name={icon} size="sm" tone="secondary" />}
+      <span className="min-w-0">{children}</span>
+    </button>
+  );
+}
+
+// Single-notice helper. Takes prioritized notices and renders exactly ONE,
+// encoding the §4 priority ladder (blocking > needs-review > savings > none) so
+// the checkout path stops stacking a warning notice and an info notice at once.
+export type CheckoutNoticePriority = "blocking" | "needs-review" | "savings" | "info";
+
+export interface CheckoutNoticeCandidate {
+  /** Priority bucket. Higher buckets win; `blocking` is highest. */
+  priority: CheckoutNoticePriority;
+  /** Whether this candidate currently applies. A candidate that is not active is skipped. */
+  active?: boolean;
+  /** The notice to render when this candidate wins. */
+  notice: ReactNode;
+}
+
+const noticePriorityRank: Record<CheckoutNoticePriority, number> = {
+  blocking: 3,
+  "needs-review": 2,
+  savings: 1,
+  info: 0,
+};
+
+/** Pick the single highest-priority active notice from the candidate ladder. */
+export function selectCheckoutNotice(candidates: CheckoutNoticeCandidate[]): ReactNode {
+  let winner: CheckoutNoticeCandidate | undefined;
+
+  for (const candidate of candidates) {
+    if (candidate.active === false) {
+      continue;
+    }
+
+    if (!winner || noticePriorityRank[candidate.priority] > noticePriorityRank[winner.priority]) {
+      winner = candidate;
+    }
+  }
+
+  return winner?.notice ?? null;
+}
+
+export interface CheckoutNoticeStackProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
+  candidates: CheckoutNoticeCandidate[];
+}
+
+export function CheckoutNoticeStack({ candidates, ...rest }: CheckoutNoticeStackProps) {
+  const notice = selectCheckoutNotice(candidates);
+
+  if (!notice) {
+    return null;
+  }
+
+  return <div {...rest}>{notice}</div>;
 }
