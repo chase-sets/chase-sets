@@ -46,6 +46,35 @@ function isSameRouteFamily(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
+type ShellContributionHrefCandidate = Readonly<{
+  href?: string;
+  requiredPermissions: readonly string[];
+  children?: readonly ShellContributionHrefCandidate[];
+}>;
+
+function shellContributionHrefCandidates(
+  contribution: ShellContributionHrefCandidate,
+  section: WebHostSection,
+  defaultPermission: string,
+): readonly Readonly<{ href: string; permission: string }>[] {
+  const ownCandidate =
+    contribution.href && contribution.requiredPermissions.length > 0
+      ? [
+          {
+            href: withAdminSectionPrefix(contribution.href, section),
+            permission: contribution.requiredPermissions[0] ?? defaultPermission,
+          },
+        ]
+      : [];
+
+  return [
+    ...ownCandidate,
+    ...(contribution.children ?? []).flatMap((child) =>
+      shellContributionHrefCandidates(child, section, defaultPermission),
+    ),
+  ];
+}
+
 export function resolveAdminWebRouteFallbackPermission(
   section: WebHostSection,
   pathname: string,
@@ -58,11 +87,7 @@ export function resolveAdminWebRouteFallbackPermission(
       .filter((contribution) => contribution.deployable === "admin-web")
       .filter((contribution) => contribution.slot === "primary-nav")
       .filter((contribution) => contribution.section === section)
-      .filter((contribution) => contribution.requiredPermissions.length > 0)
-      .map((contribution) => ({
-        href: withAdminSectionPrefix(contribution.href, section),
-        permission: contribution.requiredPermissions[0] ?? defaultPermission,
-      }))
+      .flatMap((contribution) => shellContributionHrefCandidates(contribution, section, defaultPermission))
       .filter((candidate) => isSameRouteFamily(sectionPath, candidate.href)),
   );
 

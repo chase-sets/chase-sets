@@ -64,19 +64,34 @@ export type BcDeployableContribution = Readonly<{
 export type BcShellContributionSlot = "primary-nav" | "top-nav" | "bottom-nav";
 export type BcShellContributionVisibility = "always" | "signed-in" | "signed-out";
 
-export type BcShellContribution = Readonly<{
-  readonly deployable: string;
-  readonly slot: BcShellContributionSlot;
-  readonly placements?: readonly BcShellContributionSlot[];
+export type BcShellContributionItemBase = Readonly<{
   readonly key: string;
   readonly label: string;
   readonly icon: string;
-  readonly href: string;
-  readonly section?: string;
   readonly order: number;
   readonly visibility: BcShellContributionVisibility;
   readonly requiredPermissions: readonly string[];
 }>;
+
+export type BcShellContributionItem = BcShellContributionItemBase &
+  Readonly<
+    | {
+        readonly href: string;
+        readonly children?: readonly BcShellContributionItem[];
+      }
+    | {
+        readonly href?: string;
+        readonly children: readonly BcShellContributionItem[];
+      }
+  >;
+
+export type BcShellContribution = BcShellContributionItem &
+  Readonly<{
+    readonly deployable: string;
+    readonly slot: BcShellContributionSlot;
+    readonly placements?: readonly BcShellContributionSlot[];
+    readonly section?: string;
+  }>;
 
 export type BcHostPort = Readonly<{
   readonly portName: string;
