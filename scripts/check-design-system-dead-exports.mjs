@@ -60,7 +60,6 @@ const canonicalReserveZeroConsumerExports = [
   "EvidenceCodeBlock",
   "FeatureCard",
   "Field",
-  "Fieldset",
   "FilterBottomSheet",
   "firstFieldError",
   "FlexItem",

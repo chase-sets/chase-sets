@@ -26,6 +26,10 @@ import {
   type CatalogPrimaryWorkbenchSourceOptionPageSnapshot,
 } from "../../../features/source-observations/ui/primary-workbench-read-model";
 import { parseCatalogPrimaryWorkbenchRouteContext } from "../../../features/source-observations/ui/primary-workbench-route-context";
+import {
+  catalogPrimaryWorkbenchSourceOptionForcesRefresh,
+  parseCatalogPrimaryWorkbenchSourceOptionIntent,
+} from "../../../features/source-observations/ui/primary-workbench-source-option-refresh";
 import type { CatalogControlPlaneRouteSurfaceKey } from "../../../features/source-observations/ui/admin-control-plane/information-architecture";
 import type { CatalogPrimaryWorkbenchCommandFeedback } from "../../../features/source-observations/ui/primary-workbench-command-feedback";
 import { CatalogApiError } from "../../../client";
@@ -237,6 +241,9 @@ async function selectedProviderSourceOptionPages(
     routeContext,
     cacheOnly: true,
   });
+  // A workbench reload stays cache-only; a per-group or refresh-all intent escalates
+  // the matching request(s) to the force-refresh (live) query the read model exposes.
+  const refreshIntent = parseCatalogPrimaryWorkbenchSourceOptionIntent(request.url);
 
   return Promise.all(
     requests.map(async (sourceOptionRequest): Promise<CatalogPrimaryWorkbenchSourceOptionPageSnapshot> => {
@@ -248,8 +255,17 @@ async function selectedProviderSourceOptionPages(
         return { request: sourceOptionRequest };
       }
 
+      const forceRefresh = catalogPrimaryWorkbenchSourceOptionForcesRefresh(
+        refreshIntent,
+        sourceOptionRequest.queryKind,
+      );
+      const href =
+        forceRefresh && sourceOptionRequest.refreshHref
+          ? sourceOptionRequest.refreshHref
+          : sourceOptionRequest.queryHref;
+
       try {
-        const query = new URL(sourceOptionRequest.queryHref, request.url).searchParams.toString();
+        const query = new URL(href, request.url).searchParams.toString();
         const response =
           await api.listSourceObservationIntegrationOptions<SourceObservationIntegrationOptionResponse>(query);
         return { request: sourceOptionRequest, response };
