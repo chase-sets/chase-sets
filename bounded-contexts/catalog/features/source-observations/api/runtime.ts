@@ -1556,6 +1556,7 @@ export function createSourceObservationRuntime(
   async function importTcgdexSetScope(input: {
     languageCode: string;
     setId: string;
+    seriesId?: string | null;
     providerProfileVersion?: CatalogProviderIntegrationProfileVersionRecord;
     context: EventStoreContext;
     onProgress?: (progress: TcgdexSetImportProgress) => void | Promise<void>;
@@ -1572,7 +1573,7 @@ export function createSourceObservationRuntime(
     const importPlan = await tcgdexAdapter.planImport({
       unitKey: TCGDEX_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
       scopeKey: "expansion",
-      values: { languageCode: input.languageCode, setId: input.setId },
+      values: { languageCode: input.languageCode, setId: input.setId, seriesId: input.seriesId ?? "" },
     });
     const observationPayloads = await collectTcgdexObservationPayloads(tcgdexAdapter, importPlan, async (progress) =>
       input.onProgress?.({
@@ -2553,6 +2554,7 @@ export function createSourceObservationRuntime(
           {
             expansionId: scope.setId,
             name: scope.setId,
+            seriesId: scope.seriesId || null,
           },
         ]
       : await listTcgdexExpansionsThroughAdapter(providerAdapterRegistry, {
@@ -2755,6 +2757,7 @@ export function createSourceObservationRuntime(
           {
             expansionId: scope.setId,
             name: scope.setId,
+            seriesId: scope.seriesId || null,
           },
         ]
       : await listTcgdexExpansionsThroughAdapter(providerAdapterRegistry, {
@@ -2769,6 +2772,7 @@ export function createSourceObservationRuntime(
         const result = await importTcgdexSetScope({
           languageCode,
           setId: expansion.expansionId,
+          seriesId: expansion.seriesId,
           providerProfileVersion,
           context: input.context,
           onProgress: (progress) =>
@@ -2815,7 +2819,7 @@ export function createSourceObservationRuntime(
   }
 
   async function importIntegrationExpansion(input: {
-    expansion: Readonly<{ expansionId: string; name: string }>;
+    expansion: Readonly<{ expansionId: string; name: string; seriesId?: string | null }>;
     languageCode: string;
     providerProfile: CatalogProviderIntegrationProfile;
     providerProfileVersion: CatalogProviderIntegrationProfileVersionRecord;
@@ -2828,6 +2832,7 @@ export function createSourceObservationRuntime(
       const result = await importTcgdexSetScope({
         languageCode: input.languageCode,
         setId: input.expansion.expansionId,
+        seriesId: input.expansion.seriesId,
         providerProfileVersion: input.providerProfileVersion,
         context: input.context,
         onProgress: input.onProgress,
