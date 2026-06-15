@@ -4,7 +4,7 @@ import { redirect, useActionData, useLoaderData, useRouteLoaderData } from "reac
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { useRealtimePatchedSnapshot } from "@chase-sets/platform-runtime/realtime-react";
-import { appendFreshWriteToken, type ListResponse } from "@chase-sets/http/responses";
+import { appendFreshWriteToken, loadFreshlyWrittenResource, type ListResponse } from "@chase-sets/http/responses";
 import {
   createMarketplaceRequestApiClient,
   MarketplaceApiError,
@@ -25,6 +25,10 @@ const DEFAULT_LISTING_QUERY = "limit=100&offset=0";
 const DEFAULT_ITEM_QUERY = "limit=100&offset=0";
 const LISTING_STOCK_LOCATION_NAME = "Listing stock";
 const MARKETPLACE_DESCRIPTION = t("marketplace.routes.accountListings.manage.active.draft.paused.and.withdrawn");
+
+function marketplaceApiErrorStatus(error: unknown) {
+  return error instanceof MarketplaceApiError ? error.status : null;
+}
 
 function optionalLimit(value: FormDataEntryValue | null) {
   const text = String(value ?? "").trim();
@@ -117,12 +121,23 @@ export async function loader({ request }: LoaderFunctionArgs) {
   let claimedDraft: MarketplaceAnonymousListingDraftIntent | null = null;
   let claimError: string | null = null;
 
-  const [listings, feeLockReport, inventoryItemsResponse, hasListingStockLocation] = await Promise.all([
-    marketplaceApi.listSellerListings(DEFAULT_LISTING_QUERY),
-    marketplaceApi.listSellerListingFeeLockReport(DEFAULT_LISTING_QUERY),
-    marketplaceApi.listSellerListingInventory(DEFAULT_ITEM_QUERY),
-    marketplaceApi.hasSellerSupplyLocationNamed(LISTING_STOCK_LOCATION_NAME),
-  ]);
+  const { listings, feeLockReport, inventoryItemsResponse, hasListingStockLocation, listingAvailability } =
+    await loadFreshlyWrittenResource({
+      request,
+      isNotFound: (error) => marketplaceApiErrorStatus(error) === 404,
+      load: async () => {
+        const [listings, feeLockReport, inventoryItemsResponse, hasListingStockLocation, listingAvailability] =
+          await Promise.all([
+            marketplaceApi.listSellerListings(DEFAULT_LISTING_QUERY),
+            marketplaceApi.listSellerListingFeeLockReport(DEFAULT_LISTING_QUERY),
+            marketplaceApi.listSellerListingInventory(DEFAULT_ITEM_QUERY),
+            marketplaceApi.hasSellerSupplyLocationNamed(LISTING_STOCK_LOCATION_NAME),
+            marketplaceApi.getSellerListingAvailability(),
+          ]);
+
+        return { listings, feeLockReport, inventoryItemsResponse, hasListingStockLocation, listingAvailability };
+      },
+    });
 
   if (claimListingIntentId) {
     const anonymousOwnerId = readAnonymousListingDraftOwnerId(request);
@@ -138,7 +153,6 @@ export async function loader({ request }: LoaderFunctionArgs) {
     }
   }
 
-  const listingAvailability = await marketplaceApi.getSellerListingAvailability();
   const inventoryItems = inventoryItemsResponse.items as MarketplaceListingInventoryItemOption[];
   const selectedInventoryItem = selectedInventoryItemId
     ? inventoryItems.find((inventoryItem) => inventoryItem.item_id === selectedInventoryItemId)

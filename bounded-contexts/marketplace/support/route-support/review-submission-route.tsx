@@ -1,6 +1,5 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { redirect, useActionData, useLoaderData, useNavigation } from "react-router";
-import { appendFreshWriteToken } from "@chase-sets/http/responses";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
   createReputationRequestApiClient,
@@ -21,10 +20,13 @@ type ReviewSubmissionLoaderData = Readonly<{
   opportunity: ReviewOpportunity;
 }>;
 
+type SubmittedReviewSnapshot = Readonly<{ id: string }>;
+
 export type ReviewSubmissionRouteConfig = Readonly<{
   orderParamName: string;
   notFoundMessage: string;
   buildBackHref: (orderId: string) => string;
+  buildSubmittedReviewRedirect: (review: SubmittedReviewSnapshot) => string;
 }>;
 
 function parseFeedback(value: FormDataEntryValue | null) {
@@ -102,9 +104,9 @@ export function createReviewSubmissionAction(config: ReviewSubmissionRouteConfig
         subjectAccountId: opportunity.subject_account_id,
         rating,
         feedback,
-      })) as Readonly<{ id: string }>;
+      })) as SubmittedReviewSnapshot;
 
-      return redirect(appendFreshWriteToken(`/account/reviews/${review.id}`, review));
+      return redirect(config.buildSubmittedReviewRedirect(review));
     } catch (error) {
       if (error instanceof ReputationApiError && error.status === 404) {
         throw new Response(config.notFoundMessage, { status: 404 });

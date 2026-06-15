@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { action as listingsAction, loader as listingsLoader } from "../routes/account-listings";
-import { readFreshWriteToken } from "@chase-sets/http/responses";
+import {
+  appendFreshWriteToken,
+  CHASE_SETS_READ_AFTER_WRITE_HEADER,
+  CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
+  readFreshWriteToken,
+} from "@chase-sets/http/responses";
 
 function jsonResponse(body: unknown, status = 200, headers: HeadersInit = {}) {
   return new Response(JSON.stringify(body), {
@@ -17,6 +22,16 @@ const sellerActor = {
   membershipId: "mbr_1",
   roleKey: "owner",
   permissions: ["listings.view", "listings.manage"],
+};
+
+const listingAvailability = {
+  account_id: "acc_1",
+  status: "available",
+  disabled_reason_category: null,
+  available_again_on: null,
+  disabled_at: null,
+  enabled_at: null,
+  updated_at: "2026-04-17T00:00:00.000Z",
 };
 
 describe("marketplace listing routes", () => {
@@ -66,6 +81,10 @@ describe("marketplace listing routes", () => {
 
         if (url.includes("/api/marketplace/account/supply-locations/exists")) {
           return Promise.resolve(jsonResponse({ exists: false }));
+        }
+
+        if (url.includes("/api/marketplace/account/listing-availability")) {
+          return Promise.resolve(jsonResponse(listingAvailability));
         }
 
         return Promise.resolve(jsonResponse({ items: [], total: 0, count: 0 }));
@@ -164,5 +183,62 @@ describe("marketplace listing routes", () => {
     const location = (result as Response).headers.get("Location") ?? "";
     expect(location).toMatch(/^\/account\/listings\/lst_1\?afterWrite=/);
     expect(readFreshWriteToken(location)?.commitPosition).toBe("42");
+  });
+
+  it("forwards afterWrite metadata when refreshing listing availability", async () => {
+    const availabilityHeaders: Headers[] = [];
+    const freshPath = appendFreshWriteToken(
+      "/account/listings",
+      {
+        commitPositions: [
+          {
+            sourceContextName: "marketplace",
+            maxGlobalPosition: "43",
+            eventIds: ["evt_listing_availability"],
+          },
+        ],
+        commitEventIds: ["evt_listing_availability"],
+      },
+      Date.now(),
+    );
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+
+        if (url.includes("/api/auth/session")) {
+          return Promise.resolve(jsonResponse({ actor: sellerActor }));
+        }
+
+        if (url.includes("/api/marketplace/account/listing-availability")) {
+          availabilityHeaders.push(new Headers(init?.headers));
+          return Promise.resolve(
+            jsonResponse({
+              ...listingAvailability,
+              status: "unavailable",
+              disabled_reason_category: "audit",
+              updated_at: "2026-04-18T00:00:00.000Z",
+            }),
+          );
+        }
+
+        if (url.includes("/api/marketplace/account/supply-locations/exists")) {
+          return Promise.resolve(jsonResponse({ exists: true }));
+        }
+
+        return Promise.resolve(jsonResponse({ items: [], total: 0, count: 0 }));
+      }),
+    );
+
+    const result = await listingsLoader({
+      request: new Request(`http://localhost${freshPath}`),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result.listingAvailability.status).toBe("unavailable");
+    expect(availabilityHeaders[0]?.get(CHASE_SETS_READ_AFTER_WRITE_HEADER)).toBeTruthy();
+    expect(availabilityHeaders[0]?.get(CHASE_SETS_READ_TARGET_CONTEXT_HEADER)).toBe("marketplace");
   });
 });

@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useSearchParams } from "react-router";
+import { appendFreshWriteToken, loadFreshlyWrittenResource } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { PlatformFeedbackPrompt } from "@chase-sets/platform-operations/server";
@@ -26,12 +27,18 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const api = createMarketplaceRequestApiClient(request);
 
   try {
-    const offerMatch = await api.getOfferMatch(params.offerId!);
-    return {
-      offerMatch,
-      acceptanceTerms:
-        offerMatch.status === "submitted" ? await api.previewOfferAcceptanceTerms(params.offerId!) : null,
-    };
+    return await loadFreshlyWrittenResource({
+      request,
+      isNotFound: (error) => error instanceof MarketplaceApiError && error.status === 404,
+      load: async () => {
+        const offerMatch = await api.getOfferMatch(params.offerId!);
+        return {
+          offerMatch,
+          acceptanceTerms:
+            offerMatch.status === "submitted" ? await api.previewOfferAcceptanceTerms(params.offerId!) : null,
+        };
+      },
+    });
   } catch (error) {
     if (error instanceof MarketplaceApiError && error.status === 404) {
       throw new Response(t("marketplace.routes.accountOfferMatch.offer.match.not.found"), { status: 404 });
@@ -56,10 +63,12 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
   try {
     if (intent === "accept-offer") {
-      await api.acceptOfferMatch(params.offerId!, {
+      const result = await api.acceptOfferMatch(params.offerId!, {
         feeQuoteFingerprint: String(formData.get("feeQuoteFingerprint") ?? ""),
       });
-      return redirect(`/account/offers/matches/${params.offerId}?feedbackWorkflow=offer-accept`);
+      return redirect(
+        appendFreshWriteToken(`/account/offers/matches/${params.offerId}?feedbackWorkflow=offer-accept`, result),
+      );
     }
 
     return null;

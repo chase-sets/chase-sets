@@ -2,6 +2,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChaseRoot } from "@chase-sets/design-system";
+import { readFreshWriteToken } from "@chase-sets/http/responses";
 import { jsonResponse, requestUrl } from "./test-support/http";
 
 const { mockUseLoaderData, mockUseActionData, mockUseNavigation, mockRequireActorFromAuthApi } = vi.hoisted(() => ({
@@ -94,7 +95,20 @@ describe("marketplace account sale review route", () => {
         }
 
         if (url.includes("/api/marketplace/reviews") && (init?.method ?? "GET").toUpperCase() === "POST") {
-          return Promise.resolve(jsonResponse({ id: "rev_2", version: 1 }, 201));
+          return Promise.resolve(
+            jsonResponse({ id: "rev_2", version: 1 }, 201, {
+              "Chase-Sets-Consistency": "eventual",
+              "Chase-Sets-Commit-Receipt": encodeURIComponent(
+                JSON.stringify([
+                  {
+                    sourceContextName: "marketplace",
+                    maxGlobalPosition: "45",
+                    eventIds: ["evt_review_submitted_sale"],
+                  },
+                ]),
+              ),
+            }),
+          );
         }
 
         return Promise.reject(new Error(`Unexpected fetch request: ${url}`));
@@ -119,7 +133,15 @@ describe("marketplace account sale review route", () => {
       throw new Error("Expected redirect response.");
     }
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/account/reviews/rev_2");
+    const location = response.headers.get("Location") ?? "";
+    expect(location).toMatch(/^\/account\/reviews\/rev_2\?afterWrite=/);
+    expect(readFreshWriteToken(location)?.sources).toEqual([
+      {
+        sourceContextName: "marketplace",
+        maxGlobalPosition: "45",
+        eventIds: ["evt_review_submitted_sale"],
+      },
+    ]);
   });
 
   it("renders the sale-side account review submission page", () => {
