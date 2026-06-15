@@ -9,7 +9,12 @@ import type {
 } from "../api/primary-workbench-admin-contracts";
 import type { SourceObservationIntegrationScope, SourceObservationListItem } from "./contracts";
 import { catalogPrimaryWorkbenchHref } from "./primary-workbench-route-context";
-import { actionStateForBlockers, importScopeSegment, setQueryParam } from "./primary-workbench-read-model-support";
+import {
+  actionStateForBlockers,
+  importScopeSegment,
+  importScopeSetId,
+  setQueryParam,
+} from "./primary-workbench-read-model-support";
 
 const defaultReviewPageSize = 25;
 
@@ -31,7 +36,7 @@ export function buildCatalogPrimaryWorkbenchSourceObservationReviewQuery(
     "language",
     context.sourceObservationFilters.language ?? importScopeSegment(context.importScope, 0),
   );
-  setQueryParam(params, "setId", context.sourceObservationFilters.setId ?? importScopeSegment(context.importScope, 3));
+  setQueryParam(params, "setId", context.sourceObservationFilters.setId ?? importScopeSetId(context.importScope));
   setQueryParam(params, "search", context.sourceObservationFilters.search);
 
   return params.toString();
@@ -427,7 +432,7 @@ function reviewFiltersFor(
     filter(
       "setId",
       t("catalog.features.sourceObservations.ui.primaryWorkbench.review.filter.set"),
-      routeContext.sourceObservationFilters.setId ?? importScopeSegment(routeContext.importScope, 3),
+      routeContext.sourceObservationFilters.setId ?? importScopeSetId(routeContext.importScope),
       true,
     ),
     filter(
