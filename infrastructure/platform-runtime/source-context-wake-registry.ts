@@ -292,7 +292,12 @@ export const sourceContextWakeRegistry = [
       "ordering:ordering-inventory-supply-input-projection",
       "pricing:pricing-inventory-input-projection",
     ],
-    routeDependencyIds: ["inventory.import-batch-detail", "inventory.item-adjust-to-detail"],
+    routeDependencyIds: [
+      "inventory.import-batch-detail",
+      "inventory.item-adjust-to-detail",
+      "inventory.item-create-to-detail",
+      "inventory.storage-locations-list",
+    ],
   }),
   registryEntry({
     sourceContextName: "marketplace",
