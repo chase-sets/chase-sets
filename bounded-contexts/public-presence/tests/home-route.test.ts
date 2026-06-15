@@ -1,5 +1,9 @@
-import { describe, expect, it } from "vitest";
-import { loader, meta, publicPresenceHomeJsonLd } from "../routes/marketplace/home";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { action, loader, meta, publicPresenceHomeJsonLd } from "../routes/marketplace/home";
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe("public presence home route", () => {
   it("positions the homepage metadata around seller beta early access", () => {
@@ -83,5 +87,37 @@ describe("public presence home route", () => {
         }),
       ]),
     });
+  });
+
+  it("returns the waitlist command receipt as the same-page success snapshot", async () => {
+    const fetch = vi.fn(async () =>
+      new Response(JSON.stringify({ id: "wls_public", version: 3, status: "joined" }), {
+        status: 201,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    const result = await action({
+      request: new Request("https://chasesets.test/?index", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          email: "collector@example.com",
+          role: "both",
+          interests: "low-sales-fees",
+          emailConsent: "yes",
+          pagePath: "/",
+        }),
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result).toEqual({ status: "joined", id: "wls_public", version: 3 });
+    expect(fetch).toHaveBeenCalledWith(
+      "https://chasesets.test/api/public-presence/waitlist",
+      expect.objectContaining({ method: "POST" }),
+    );
   });
 });

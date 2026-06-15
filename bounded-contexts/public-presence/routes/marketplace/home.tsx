@@ -55,7 +55,7 @@ export async function action({ request }: ActionFunctionArgs) {
   const emailConsent = formData.get("emailConsent");
 
   try {
-    await api.submitWaitlistSignup({
+    const result = await api.submitWaitlistSignup({
       email: String(formData.get("email") ?? ""),
       role: String(formData.get("role") ?? "both") as SubmitWaitlistSignupRequest["role"],
       interests: formData.getAll("interests").map(String) as SubmitWaitlistSignupRequest["interests"],
@@ -71,7 +71,7 @@ export async function action({ request }: ActionFunctionArgs) {
         utmTerm: optional(formData.get("utmTerm")),
       },
     });
-    return { status: "joined" as const };
+    return { status: "joined" as const, id: result.id, version: result.version };
   } catch (error) {
     return { status: "error" as const, message: actionErrorMessage(error) };
   }

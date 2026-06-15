@@ -116,7 +116,7 @@ export function createPublicPresenceApiClient({
         }),
       );
     },
-    async deletePromoBarMessage(id: string): Promise<{ status: string }> {
+    async deletePromoBarMessage(id: string): Promise<{ id: string; status: string }> {
       return parseJsonResponse(
         await configuredFetch(`${baseUrl}/admin/promo-bar-messages/${encodeURIComponent(id)}`, {
           method: "DELETE",
