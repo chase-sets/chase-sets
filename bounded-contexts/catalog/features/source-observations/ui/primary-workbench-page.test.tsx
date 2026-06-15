@@ -57,6 +57,13 @@ describe("CatalogPrimaryWorkbenchPage", () => {
         name: "Pull provider data, review Source Observations, promote Catalog facts",
       }),
     ).toBeTruthy();
+    expect(screen.getByLabelText("Provider")).toBeTruthy();
+    expect(screen.getByLabelText("Unit")).toBeTruthy();
+    const importScope = screen.getByLabelText("Import scope") as HTMLInputElement;
+    expect(importScope.value).toBe("en:3:base:base1");
+    fireEvent.change(importScope, { target: { value: "ja:3:SV:SV8" } });
+    expect(importScope.value).toBe("ja:3:SV:SV8");
+    expect(screen.getByRole("button", { name: "Apply context" })).toBeTruthy();
     expect(screen.getAllByRole("button", { name: /Pull provider data/i }).length).toBeGreaterThan(0);
     // The daily flow is now an explicit, linear three-stage path. The stepper names
     // each stage; the review and create stages expose their work below it.
