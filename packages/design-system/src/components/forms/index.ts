@@ -50,6 +50,7 @@ export { Select, NativeSelect, type NativeSelectProps, type SelectItem, type Sel
 export { Combobox, type ComboboxProps } from "./combobox";
 export { Autocomplete, type AutocompleteItem, type AutocompleteProps } from "./autocomplete";
 export { NumberField, type NumberFieldProps } from "./number-field";
+export { QuantityStepper, type QuantityStepperProps } from "./quantity-stepper";
 export { Checkbox, type CheckboxProps, CheckboxGroup, type CheckboxGroupProps } from "./checkbox";
 export { RadioGroup, type RadioGroupProps } from "./radio-group";
 export { Switch, type SwitchProps } from "./switch";

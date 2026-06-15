@@ -4,8 +4,8 @@
 
 This index is generated from the root `@chase-sets/design-system` export surface and the production consumer inventory used by `scripts/check-design-system-dead-exports.mjs`.
 
-- Runtime exports indexed: 343
-- Source modules covered: 115
+- Runtime exports indexed: 344
+- Source modules covered: 116
 - Example consumers scan: production files under `bounded-contexts/` and `deployables/`, excluding tests
 
 | Component/export | Module | One-line purpose | Example consumer file |
@@ -229,6 +229,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `PromoBar` | `packages/design-system/src/components/feedback/promo-bar.tsx` | Purpose not documented; symbol name suggests: Promo Bar. | `bounded-contexts/public-presence/features/promo-bar/ui/admin-pages.tsx` |
 | `PromoStrip` | `packages/design-system/src/patterns/app-shells/product-cards.tsx` | Purpose not documented; symbol name suggests: Promo Strip. | `bounded-contexts/discovery/features/search/ui/search-page.tsx` |
 | `QuantityChecklistControl` | `packages/design-system/src/components/data-display/operational-workflow/quantity-checklist-control.tsx` | Quantity checklist stepper: a bounded increment/decrement control showing a packed-of-total count that turns success-toned on completion, used to track partial fulfillment of a line item. | `bounded-contexts/fulfillment/features/shipments/ui/shipment-packing-page.tsx` |
+| `QuantityStepper` | `packages/design-system/src/components/forms/quantity-stepper.tsx` | QuantityStepper — canonical compact stepper for cart and order-entry flows. | `No production consumer yet.` |
 | `Quote` | `packages/design-system/src/primitives/typography.tsx` | Purpose not documented; symbol name suggests: Quote. | `No production consumer yet.` |
 | `RadioGroup` | `packages/design-system/src/components/forms/radio-group.tsx` | Purpose not documented; symbol name suggests: Radio Group. | `No production consumer yet.` |
 | `Rating` | `packages/design-system/src/components/feedback/rating.tsx` | Purpose not documented; symbol name suggests: Rating. | `bounded-contexts/marketplace/features/reviews/ui/review-submission-page.tsx` |

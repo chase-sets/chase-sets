@@ -9,7 +9,7 @@
     "exempt": ["packages/design-system/src/primitives/**", "leading @ds-leaf marker comment"]
   },
   "summary": {
-    "governedFileCount": 105,
+    "governedFileCount": 106,
     "exemptFileCount": 5,
     "exemptByReason": { "ds-leaf-marker": 1, "primitive": 4 },
     "totalRawClassNameCount": 624,
@@ -119,6 +119,7 @@
     "packages/design-system/src/components/forms/input-addon.tsx": 2,
     "packages/design-system/src/components/forms/number-field.tsx": 0,
     "packages/design-system/src/components/forms/password-input.tsx": 2,
+    "packages/design-system/src/components/forms/quantity-stepper.tsx": 0,
     "packages/design-system/src/components/forms/radio-group.tsx": 6,
     "packages/design-system/src/components/forms/router-form.tsx": 1,
     "packages/design-system/src/components/forms/select.tsx": 3,
