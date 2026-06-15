@@ -1,6 +1,10 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { renderToString } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { QuantityStepper } from "../components/forms";
+import { CurrencyInput, NumberInput } from "../components/forms";
+import { ChaseRoot } from "../theme/provider";
 import { Image } from "../components/data-display";
 import {
   AspectRatio,
@@ -373,5 +377,194 @@ describe("Typography polish", () => {
     );
 
     expect(screen.getByTestId("clamped").className).toContain("line-clamp-3");
+  });
+});
+
+describe("QuantityStepper primitive", () => {
+  it("renders decrement and increment buttons with accessible labels", () => {
+    render(
+      <ChaseRoot>
+        <QuantityStepper label="Quantity" defaultValue={2} decrementLabel="Remove one" incrementLabel="Add one" />
+      </ChaseRoot>,
+    );
+
+    expect(screen.getByRole("button", { name: "Remove one" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Add one" })).toBeTruthy();
+  });
+
+  it("increments the value within max and fires onValueChange", async () => {
+    const user = userEvent.setup();
+    const onValueChange = vi.fn();
+
+    render(
+      <ChaseRoot>
+        <QuantityStepper
+          label="Quantity"
+          defaultValue={3}
+          max={5}
+          onValueChange={onValueChange}
+          incrementLabel="Add one"
+          decrementLabel="Remove one"
+        />
+      </ChaseRoot>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Add one" }));
+
+    expect(onValueChange).toHaveBeenCalledWith(4);
+  });
+
+  it("decrements the value within min and fires onValueChange", async () => {
+    const user = userEvent.setup();
+    const onValueChange = vi.fn();
+
+    render(
+      <ChaseRoot>
+        <QuantityStepper
+          label="Quantity"
+          defaultValue={2}
+          min={1}
+          onValueChange={onValueChange}
+          incrementLabel="Add one"
+          decrementLabel="Remove one"
+        />
+      </ChaseRoot>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Remove one" }));
+
+    expect(onValueChange).toHaveBeenCalledWith(1);
+  });
+
+  it("does not decrement below min", async () => {
+    const user = userEvent.setup();
+    const onValueChange = vi.fn();
+
+    render(
+      <ChaseRoot>
+        <QuantityStepper
+          label="Qty"
+          defaultValue={1}
+          min={1}
+          onValueChange={onValueChange}
+          decrementLabel="Remove one"
+          incrementLabel="Add one"
+        />
+      </ChaseRoot>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Remove one" }));
+
+    // At min — callback is either not called, or called with the clamped min value (not below it)
+    const calls = onValueChange.mock.calls.map((c) => c[0]);
+    expect(calls.every((v: number | null) => v === null || v >= 1)).toBe(true);
+  });
+
+  it("disables both buttons when disabled prop is true", () => {
+    render(
+      <ChaseRoot>
+        <QuantityStepper
+          label="Quantity"
+          defaultValue={1}
+          disabled
+          decrementLabel="Remove one"
+          incrementLabel="Add one"
+        />
+      </ChaseRoot>,
+    );
+
+    expect(screen.getByRole("button", { name: "Remove one" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Add one" }).hasAttribute("disabled")).toBe(true);
+  });
+
+  it("disables both buttons when loading prop is true", () => {
+    render(
+      <ChaseRoot>
+        <QuantityStepper
+          label="Quantity"
+          defaultValue={1}
+          loading
+          decrementLabel="Remove one"
+          incrementLabel="Add one"
+        />
+      </ChaseRoot>,
+    );
+
+    expect(screen.getByRole("button", { name: "Remove one" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Add one" }).hasAttribute("disabled")).toBe(true);
+  });
+
+  it("exposes role=spinbutton and inputMode=numeric on the input for keyboard/aria accessibility", () => {
+    render(
+      <ChaseRoot>
+        <QuantityStepper label="Qty" defaultValue={1} decrementLabel="Less" incrementLabel="More" />
+      </ChaseRoot>,
+    );
+
+    const spinbutton = screen.getByRole("spinbutton");
+    expect(spinbutton).toBeTruthy();
+    expect(spinbutton.getAttribute("inputmode")).toBe("numeric");
+  });
+
+  it("marks the input aria-busy when loading", () => {
+    const markup = renderToString(
+      <ChaseRoot>
+        <QuantityStepper label="Qty" defaultValue={1} loading decrementLabel="Less" incrementLabel="More" />
+      </ChaseRoot>,
+    );
+
+    expect(markup).toContain('aria-busy="true"');
+  });
+
+  it("marks the input aria-invalid when an error is provided", () => {
+    const markup = renderToString(
+      <ChaseRoot>
+        <QuantityStepper
+          label="Qty"
+          defaultValue={1}
+          error="Quantity exceeds available stock"
+          decrementLabel="Less"
+          incrementLabel="More"
+        />
+      </ChaseRoot>,
+    );
+
+    expect(markup).toContain('aria-invalid="true"');
+  });
+});
+
+describe("Native number-spinner suppression", () => {
+  it("NumberInput renders type=number so the global CSS rule applies", () => {
+    const markup = renderToString(
+      <ChaseRoot>
+        <NumberInput label="Price" />
+      </ChaseRoot>,
+    );
+
+    expect(markup).toContain('type="number"');
+  });
+
+  it("CurrencyInput renders type=number so the global CSS rule applies", () => {
+    const markup = renderToString(
+      <ChaseRoot>
+        <CurrencyInput label="Amount" />
+      </ChaseRoot>,
+    );
+
+    expect(markup).toContain('type="number"');
+  });
+
+  it("QuantityStepper exposes role=spinbutton (Base UI renders type=text with spinbutton role)", () => {
+    render(
+      <ChaseRoot>
+        <QuantityStepper label="Qty" defaultValue={1} decrementLabel="Less" incrementLabel="More" />
+      </ChaseRoot>,
+    );
+
+    // Base UI NumberField.Input renders type="text" with role="spinbutton" —
+    // native spinner chevrons are not emitted, so suppression is not needed for this input.
+    // The global CSS rule covers NumberInput and CurrencyInput (type="number").
+    const spinbutton = screen.getByRole("spinbutton");
+    expect(spinbutton.getAttribute("inputmode")).toBe("numeric");
   });
 });

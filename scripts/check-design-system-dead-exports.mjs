@@ -91,6 +91,7 @@ const canonicalReserveZeroConsumerExports = [
   "NavRail",
   "normalizeFormErrors",
   "NumberField",
+  "QuantityStepper",
   "packingSlipPrintStyles",
   "Pagination",
   "Popover",
