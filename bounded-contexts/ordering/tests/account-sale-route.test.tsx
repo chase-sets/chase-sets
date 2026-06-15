@@ -2,6 +2,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChaseRoot } from "@chase-sets/design-system";
+import { CHASE_SETS_COMMIT_RECEIPT_HEADER, encodeCommitReceipt } from "@chase-sets/http/responses";
 import { jsonResponse, requestUrl } from "./test-support/http";
 
 const { mockUseLoaderData, mockUseActionData, mockRequireActorFromAuthApi } = vi.hoisted(() => ({
@@ -31,7 +32,7 @@ vi.mock("@chase-sets/platform-runtime/auth", async () => {
   };
 });
 
-import MarketplaceAccountSaleRoute, { loader } from "../routes/account-sale";
+import MarketplaceAccountSaleRoute, { action, loader } from "../routes/account-sale";
 
 const order = {
   order_id: "ord_1",
@@ -56,6 +57,12 @@ const order = {
   total_quantity: 1,
   lines: [],
   inventory_holds: [],
+};
+
+const orderingCommit = {
+  sourceContextName: "ordering",
+  maxGlobalPosition: "43",
+  eventIds: ["evt_sale_cancelled"],
 };
 
 describe("marketplace account sale route", () => {
@@ -108,6 +115,37 @@ describe("marketplace account sale route", () => {
 
     expect(result.sale.order_id).toBe("ord_1");
     expect(result.reviewOpportunity?.subject_account_id).toBe("acc_buyer");
+  });
+
+  it("redirects sale cancellation with the Ordering commit receipt", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = requestUrl(input);
+        if (url.includes("/api/marketplace/account/sales/ord_1/cancel")) {
+          return Promise.resolve(
+            jsonResponse({ id: "ord_1", version: 3, status: "cancelled" }, 200, {
+              "Chase-Sets-Consistency": "committed",
+              [CHASE_SETS_COMMIT_RECEIPT_HEADER]: encodeCommitReceipt([orderingCommit]),
+            }),
+          );
+        }
+        return Promise.reject(new Error(`Unexpected fetch request: ${url}`));
+      }),
+    );
+
+    const response = await action({
+      request: new Request("http://localhost/account/sales/ord_1", {
+        method: "POST",
+        body: new URLSearchParams({ intent: "cancel-sale" }),
+      }),
+      params: { orderId: "ord_1" },
+      context: undefined,
+    } as never);
+
+    expect(response).toBeInstanceOf(Response);
+    expect((response as Response).status).toBe(302);
+    expect((response as Response).headers.get("Location")).toContain("afterWrite=");
   });
 
   it("renders a verified-sale counterparty review CTA", () => {

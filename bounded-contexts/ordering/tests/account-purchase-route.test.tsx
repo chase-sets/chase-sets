@@ -2,6 +2,12 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChaseRoot } from "@chase-sets/design-system";
+import {
+  appendFreshWriteToken,
+  CHASE_SETS_COMMIT_RECEIPT_HEADER,
+  encodeCommitReceipt,
+} from "@chase-sets/http/responses";
+import { CHASE_SETS_READ_AFTER_WRITE_HEADER, CHASE_SETS_READ_TARGET_CONTEXT_HEADER } from "@chase-sets/http/responses";
 import { jsonResponse, requestUrl } from "./test-support/http";
 
 const { mockUseLoaderData, mockUseActionData, mockRequireActorFromAuthApi } = vi.hoisted(() => ({
@@ -31,7 +37,7 @@ vi.mock("@chase-sets/platform-runtime/auth", async () => {
   };
 });
 
-import MarketplaceAccountPurchaseRoute, { loader } from "../routes/account-purchase";
+import MarketplaceAccountPurchaseRoute, { action, loader } from "../routes/account-purchase";
 
 const order = {
   order_id: "ord_1",
@@ -103,6 +109,12 @@ const order = {
   inventory_holds: [],
 };
 
+const orderingCommit = {
+  sourceContextName: "ordering",
+  maxGlobalPosition: "42",
+  eventIds: ["evt_order_cancelled"],
+};
+
 describe("marketplace account purchase route", () => {
   beforeEach(() => {
     mockUseActionData.mockReturnValue(null);
@@ -153,6 +165,74 @@ describe("marketplace account purchase route", () => {
 
     expect(result.purchase.order_id).toBe("ord_1");
     expect(result.reviewOpportunity?.subject_account_id).toBe("acc_seller");
+  });
+
+  it("forwards fresh-write metadata and retries a temporarily missing purchase", async () => {
+    const fetchCalls: Request[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request, init?: RequestInit) => {
+        const request = input instanceof Request ? input : new Request(input, init);
+        fetchCalls.push(request);
+        const url = requestUrl(request);
+
+        if (url.includes("/api/marketplace/account/purchases/ord_1")) {
+          return Promise.resolve(
+            fetchCalls.length === 1 ? jsonResponse({ error: { code: "not_found" } }, 404) : jsonResponse(order),
+          );
+        }
+
+        if (url.includes("/api/marketplace/reviews/opportunities/orders/ord_1")) {
+          return Promise.resolve(jsonResponse({ error: { code: "not_found" } }, 404));
+        }
+
+        return Promise.reject(new Error(`Unexpected fetch request: ${url}`));
+      }),
+    );
+
+    const result = await loader({
+      request: new Request(
+        `http://localhost${appendFreshWriteToken("/account/purchases/ord_1", { commitPositions: [orderingCommit] }, Date.now())}`,
+      ),
+      params: { purchaseId: "ord_1" },
+      context: undefined,
+    } as never);
+
+    expect(result.purchase.order_id).toBe("ord_1");
+    expect(fetchCalls.filter((request) => request.url.includes("/account/purchases/ord_1"))).toHaveLength(2);
+    expect(fetchCalls[0]?.headers.get(CHASE_SETS_READ_AFTER_WRITE_HEADER)).toBeTruthy();
+    expect(fetchCalls[0]?.headers.get(CHASE_SETS_READ_TARGET_CONTEXT_HEADER)).toBe("ordering");
+  });
+
+  it("redirects purchase cancellation with the Ordering commit receipt", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = requestUrl(input);
+        if (url.includes("/api/marketplace/account/purchases/ord_1/cancel")) {
+          return Promise.resolve(
+            jsonResponse({ id: "ord_1", version: 3, status: "cancelled" }, 200, {
+              "Chase-Sets-Consistency": "committed",
+              [CHASE_SETS_COMMIT_RECEIPT_HEADER]: encodeCommitReceipt([orderingCommit]),
+            }),
+          );
+        }
+        return Promise.reject(new Error(`Unexpected fetch request: ${url}`));
+      }),
+    );
+
+    const response = await action({
+      request: new Request("http://localhost/account/purchases/ord_1", {
+        method: "POST",
+        body: new URLSearchParams({ intent: "cancel-purchase" }),
+      }),
+      params: { purchaseId: "ord_1" },
+      context: undefined,
+    } as never);
+
+    expect(response).toBeInstanceOf(Response);
+    expect((response as Response).status).toBe(302);
+    expect((response as Response).headers.get("Location")).toContain("afterWrite=");
   });
 
   it("renders a verified-purchase account review CTA", () => {

@@ -129,6 +129,13 @@
       "resetStrategy": "replay-only"
     },
     {
+      "projectionName": "ordering-order-projection",
+      "sourceContextNames": ["ordering"],
+      "ownedTables": ["ordering_order_line_pages"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
+    },
+    {
       "projectionName": "ordering-marketplace-offer-acceptance",
       "sourceContextNames": ["marketplace"],
       "ownedTables": ["ordering_offer_acceptance_inputs"],
@@ -175,7 +182,280 @@
     {
       "mountPath": "/api/marketplace",
       "kind": "primary",
-      "requiresAuth": true
+      "requiresAuth": true,
+      "readFreshnessRoutes": [
+        {
+          "routePath": "/purchases/:id",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "projectionName": "ordering-order-projection"
+            }
+          ]
+        },
+        {
+          "routePath": "/sales/:id",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "projectionName": "ordering-order-projection"
+            }
+          ]
+        },
+        {
+          "routePath": "/admin/postage-policies",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "ordering_postage_policy_pages"
+            }
+          ]
+        },
+        {
+          "routePath": "/admin/postage-policies/:id",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "ordering_postage_policy_pages"
+            },
+            {
+              "readModelTable": "ordering_postage_policy_history"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "readAfterWriteRouteInventory": [
+    {
+      "id": "ordering.purchase-cancel-to-detail",
+      "owner": "ordering",
+      "risk": "important",
+      "source": {
+        "routeId": "account-purchase",
+        "actions": ["Cancel purchase"],
+        "command": "CancelOrder",
+        "helperUses": ["appendFreshWriteToken"]
+      },
+      "destination": {
+        "routeId": "account-purchase",
+        "apiContextName": "ordering",
+        "apiRoutePath": "/purchases/:id",
+        "projectionDependencies": ["ordering-order-projection"],
+        "helperUses": ["loadFreshlyWrittenResource"],
+        "transientRecovery": "Purchase detail forwards the cancellation afterWrite receipt to Ordering and retries fresh-write not-found while the order projection records the cancelled status."
+      }
+    },
+    {
+      "id": "ordering.sale-cancel-to-detail",
+      "owner": "ordering",
+      "risk": "important",
+      "source": {
+        "routeId": "account-sale",
+        "actions": ["Cancel sale"],
+        "command": "CancelOrder",
+        "helperUses": ["appendFreshWriteToken"]
+      },
+      "destination": {
+        "routeId": "account-sale",
+        "apiContextName": "ordering",
+        "apiRoutePath": "/sales/:id",
+        "projectionDependencies": ["ordering-order-projection"],
+        "helperUses": ["loadFreshlyWrittenResource"],
+        "transientRecovery": "Sale detail forwards the cancellation afterWrite receipt to Ordering and retries fresh-write not-found while the order projection records the cancelled status."
+      }
+    },
+    {
+      "id": "ordering.postage-policy-create-to-list",
+      "owner": "ordering",
+      "risk": "important",
+      "source": {
+        "routeId": "ordering-postage-policies",
+        "actions": ["Create postage policy draft"],
+        "command": "CreatePostagePolicy",
+        "helperUses": ["appendFreshWriteToken"]
+      },
+      "destination": {
+        "routeId": "ordering-postage-policies",
+        "apiContextName": "ordering",
+        "apiRoutePath": "/admin/postage-policies",
+        "readModelTables": ["ordering_postage_policy_pages"],
+        "transientRecovery": "Postage policy list forwards the create afterWrite receipt to Ordering so the new draft is present before the admin list renders."
+      }
+    },
+    {
+      "id": "ordering.postage-policy-command-to-detail",
+      "owner": "ordering",
+      "risk": "important",
+      "source": {
+        "routeId": "ordering-postage-policies-detail",
+        "actions": [
+          "Revise postage policy",
+          "Activate postage policy",
+          "Retire postage policy",
+          "Clone postage policy"
+        ],
+        "command": "Postage policy lifecycle commands",
+        "helperUses": ["appendFreshWriteToken"]
+      },
+      "destination": {
+        "routeId": "ordering-postage-policies-detail",
+        "apiContextName": "ordering",
+        "apiRoutePath": "/admin/postage-policies/:id",
+        "readModelTables": ["ordering_postage_policy_pages", "ordering_postage_policy_history"],
+        "helperUses": ["loadFreshlyWrittenResource"],
+        "transientRecovery": "Postage policy detail forwards lifecycle afterWrite receipts to Ordering and retries fresh-write not-found while page and history projections catch up."
+      }
+    }
+  ],
+  "mutationConsistencyInventory": [
+    {
+      "id": "ordering.checkout-order-command-snapshots",
+      "owner": "ordering",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/ordering/features/orders/api/route.ts:POST /purchases/checkout",
+        "api-route:bounded-contexts/ordering/features/orders/api/route.ts:POST /purchases/checkout/preview"
+      ],
+      "visibleDestination": {
+        "description": "Checkout preview returns the command-owned fulfillment/economics snapshot; checkout confirmation returns created order IDs plus the Ordering commit receipt for downstream handoff."
+      },
+      "proof": {
+        "authoritativeResponse": "previewCheckoutFulfillment returns the calculated package, shipping, tax, total, and material-change snapshot before order creation; createOrdersFromCheckout returns the committed order ids from the command and API commit receipt metadata.",
+        "tests": ["bounded-contexts/ordering/features/orders/api/route.test.ts"]
+      }
+    },
+    {
+      "id": "ordering.order-cancel-command-snapshot",
+      "owner": "ordering",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/ordering/features/orders/api/route.ts:POST /purchases/:id/cancel",
+        "api-route:bounded-contexts/ordering/features/orders/api/route.ts:POST /sales/:id/cancel"
+      ],
+      "visibleDestination": {
+        "description": "Purchase and sale cancellation endpoints return the cancelled order id, aggregate version, status, and commit receipt so callers can render or redirect without trusting a stale projection."
+      },
+      "proof": {
+        "authoritativeResponse": "cancelPurchase and cancelSale return the command result version and the API route returns the cancelled status alongside commit receipt headers.",
+        "tests": ["bounded-contexts/ordering/features/orders/api/route.test.ts"]
+      }
+    },
+    {
+      "id": "ordering.purchase-cancel-fresh-read",
+      "owner": "ordering",
+      "risk": "important",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "post-form:bounded-contexts/ordering/features/orders/ui/order-detail-page.tsx:H2df726441e2a#1",
+        "route-action:bounded-contexts/ordering/routes/account-purchase.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "account-purchase",
+        "apiContextName": "ordering",
+        "apiRoutePath": "/purchases/:id",
+        "projectionDependencies": ["ordering-order-projection"],
+        "transientRecovery": "Purchase cancellation redirects back to purchase detail with afterWrite; the loader forwards the receipt to Ordering and retries fresh-write not-found until the order projection catches up or the token expires."
+      },
+      "proof": {
+        "tests": [
+          "bounded-contexts/ordering/tests/account-purchase-route.test.tsx",
+          "bounded-contexts/ordering/features/orders/ui/order-detail-page.test.tsx"
+        ]
+      }
+    },
+    {
+      "id": "ordering.sale-cancel-fresh-read",
+      "owner": "ordering",
+      "risk": "important",
+      "strategy": "fresh-read",
+      "surfaces": ["route-action:bounded-contexts/ordering/routes/account-sale.tsx"],
+      "visibleDestination": {
+        "routeId": "account-sale",
+        "apiContextName": "ordering",
+        "apiRoutePath": "/sales/:id",
+        "projectionDependencies": ["ordering-order-projection"],
+        "transientRecovery": "Sale cancellation redirects back to sale detail with afterWrite; the loader forwards the receipt to Ordering and retries fresh-write not-found until the order projection catches up or the token expires."
+      },
+      "proof": {
+        "tests": ["bounded-contexts/ordering/tests/account-sale-route.test.tsx"]
+      }
+    },
+    {
+      "id": "ordering.postage-policy-command-snapshots",
+      "owner": "ordering",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-client:bounded-contexts/ordering/client.ts:POST H1cf225056a37#1",
+        "api-client:bounded-contexts/ordering/client.ts:POST H6af656666ad9#1",
+        "api-client:bounded-contexts/ordering/client.ts:POST H963d9ea2d823#1",
+        "api-client:bounded-contexts/ordering/client.ts:POST Ha9bc4789d519#1",
+        "api-client:bounded-contexts/ordering/client.ts:POST Hfab331c80ed6#1",
+        "api-client:bounded-contexts/ordering/client.ts:PUT Hb45b45ccd165#1",
+        "api-route:bounded-contexts/ordering/features/postage-policies/api/route.ts:POST /",
+        "api-route:bounded-contexts/ordering/features/postage-policies/api/route.ts:POST /:id/activate",
+        "api-route:bounded-contexts/ordering/features/postage-policies/api/route.ts:POST /:id/clone",
+        "api-route:bounded-contexts/ordering/features/postage-policies/api/route.ts:POST /:id/retire",
+        "api-route:bounded-contexts/ordering/features/postage-policies/api/route.ts:POST /preview",
+        "api-route:bounded-contexts/ordering/features/postage-policies/api/route.ts:PUT /:id",
+        "post-form:bounded-contexts/ordering/features/postage-policies/ui/postage-policy-detail-page.tsx:H2df726441e2a#2"
+      ],
+      "visibleDestination": {
+        "description": "Postage policy writes return command-owned id/version receipts, and preview returns a package-plan snapshot without relying on the policy projection."
+      },
+      "proof": {
+        "authoritativeResponse": "Postage policy lifecycle endpoints return the policy id and aggregate version; previewPostagePolicy returns the evaluated PackagePlan snapshot directly from the policy evaluator.",
+        "tests": [
+          "bounded-contexts/ordering/features/postage-policies/api/route.test.ts",
+          "bounded-contexts/ordering/tests/postage-policy-routes.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "ordering.postage-policy-create-fresh-read",
+      "owner": "ordering",
+      "risk": "important",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "post-form:bounded-contexts/ordering/features/postage-policies/ui/postage-policy-list-page.tsx:H2df726441e2a#1",
+        "route-action:bounded-contexts/ordering/routes/admin/postage-policies.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "ordering-postage-policies",
+        "apiContextName": "ordering",
+        "apiRoutePath": "/admin/postage-policies",
+        "readModelTables": ["ordering_postage_policy_pages"],
+        "transientRecovery": "Create redirects back to the postage policy list with afterWrite, and the loader forwards that receipt so the list waits for the policy page projection."
+      },
+      "proof": {
+        "tests": ["bounded-contexts/ordering/tests/postage-policy-routes.test.ts"]
+      }
+    },
+    {
+      "id": "ordering.postage-policy-detail-fresh-read",
+      "owner": "ordering",
+      "risk": "important",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "post-form:bounded-contexts/ordering/features/postage-policies/ui/postage-policy-detail-page.tsx:H2df726441e2a#1",
+        "post-form:bounded-contexts/ordering/features/postage-policies/ui/postage-policy-detail-page.tsx:H2df726441e2a#3",
+        "post-form:bounded-contexts/ordering/features/postage-policies/ui/postage-policy-detail-page.tsx:H2df726441e2a#4",
+        "post-form:bounded-contexts/ordering/features/postage-policies/ui/postage-policy-detail-page.tsx:H2df726441e2a#5",
+        "route-action:bounded-contexts/ordering/routes/admin/postage-policies-detail.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "ordering-postage-policies-detail",
+        "apiContextName": "ordering",
+        "apiRoutePath": "/admin/postage-policies/:id",
+        "readModelTables": ["ordering_postage_policy_pages", "ordering_postage_policy_history"],
+        "transientRecovery": "Revise, activate, retire, and clone redirects include afterWrite; the detail loader forwards the receipt and retries fresh-write not-found while policy page and history projections catch up."
+      },
+      "proof": {
+        "tests": ["bounded-contexts/ordering/tests/postage-policy-routes.test.ts"]
+      }
     }
   ],
   "deployableContributions": [
