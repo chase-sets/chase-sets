@@ -4,7 +4,11 @@
 
 Realtime SSE is a platform transport over bounded-context owned projection outboxes.
 Contexts publish client-facing projection patches after read model updates. Deployables
-only compose context stores into `/api/realtime/events`.
+only compose context stores into `/api/realtime/events`. The [Post-Write
+Consistency Policy](../architecture/post-write-consistency.md) classifies
+realtime as a bounded correction channel: it can reconcile already loaded views
+and multi-tab updates, but critical immediate-feedback writes need `fresh-read`,
+`snapshot-return`, or a documented reload/refetch fallback.
 
 ## Push-Driven Migration Note
 
@@ -41,6 +45,12 @@ If a cursor is older than retained patches, the server sends `sync.required` wit
 replay batches, the server sends `sync.required` with `reason: "replay-backpressure"`
 and advances the cursor to the context head. In either case, clients refetch the
 current route data and continue live patching.
+
+Routes must also refetch or reload when a patch cannot be applied safely, the
+stream fails repeatedly, a stream is rejected by resource limits, or the route
+needs authoritative state after a critical write. SSE wake-ups and `pg_notify`
+notifications are latency hints; durable outbox replay and projection/API reads
+remain the correctness floor.
 
 ## Postgres Wake-Up
 
