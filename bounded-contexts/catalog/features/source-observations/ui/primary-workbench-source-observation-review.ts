@@ -12,7 +12,7 @@ import { catalogPrimaryWorkbenchHref } from "./primary-workbench-route-context";
 import {
   actionStateForBlockers,
   importScopeSegment,
-  importScopeSetId,
+  providerImportScopeSetId,
   setQueryParam,
 } from "./primary-workbench-read-model-support";
 
@@ -36,7 +36,11 @@ export function buildCatalogPrimaryWorkbenchSourceObservationReviewQuery(
     "language",
     context.sourceObservationFilters.language ?? importScopeSegment(context.importScope, 0),
   );
-  setQueryParam(params, "setId", context.sourceObservationFilters.setId ?? importScopeSetId(context.importScope));
+  setQueryParam(
+    params,
+    "setId",
+    context.sourceObservationFilters.setId ?? providerImportScopeSetId(context.providerKey, context.importScope),
+  );
   setQueryParam(params, "search", context.sourceObservationFilters.search);
 
   return params.toString();
@@ -432,7 +436,8 @@ function reviewFiltersFor(
     filter(
       "setId",
       t("catalog.features.sourceObservations.ui.primaryWorkbench.review.filter.set"),
-      routeContext.sourceObservationFilters.setId ?? importScopeSetId(routeContext.importScope),
+      routeContext.sourceObservationFilters.setId ??
+        providerImportScopeSetId(routeContext.providerKey, routeContext.importScope),
       true,
     ),
     filter(

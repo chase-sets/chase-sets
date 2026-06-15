@@ -18,11 +18,11 @@ import {
 import type { CatalogPrimaryWorkbenchInput } from "./primary-workbench-read-model-input";
 import {
   credentialBlockerFor,
+  importScopeMatchesProviderScope,
   normalizeUnitSegment,
   profilePointerForProfile,
   providerTransportBlockerFor,
   providerTransportFor,
-  scopeKey,
   sum,
 } from "./primary-workbench-read-model-support";
 import { profileAuthoringFor } from "./primary-workbench-profile-authoring";
@@ -105,7 +105,7 @@ function buildCatalogPrimaryWorkbenchCore(
     ? input.scopes.items.filter((scope) => scope.provider_key === providerKey)
     : input.scopes.items;
   const scopeRows = importScope
-    ? providerScopeRows.filter((scope) => scopeKey(scope) === importScope)
+    ? providerScopeRows.filter((scope) => importScopeMatchesProviderScope(importScope, scope))
     : providerScopeRows;
   const observed = sum(scopeRows, (scope) => scope.observed_observations);
   const changed = sum(scopeRows, (scope) => scope.changed_observations);

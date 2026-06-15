@@ -158,7 +158,7 @@ export async function fetchTcgdexExpansionOptions(input: {
   fetch?: typeof globalThis.fetch;
 }): Promise<readonly TcgdexExpansionOption[]> {
   const languageCode = normalizeKey(input.languageCode || "en");
-  const seriesId = input.seriesId?.trim();
+  const seriesId = input.seriesId ? normalizeKey(input.seriesId) : null;
   const fetcher = input.fetch ?? globalThis.fetch;
   const connector = requireTcgdexConnector(input.profile);
 
@@ -183,7 +183,7 @@ export async function fetchTcgdexSetObservationPayloads(input: {
   onProgress?: (progress: TcgdexSetImportProgress) => void | Promise<void>;
 }): Promise<readonly TcgdexObservationPayload[]> {
   const languageCode = normalizeKey(input.languageCode || "en");
-  const setId = input.setId.trim();
+  const setId = normalizeKey(input.setId);
   const fetcher = input.fetch ?? globalThis.fetch;
   const connector = requireTcgdexConnector(input.profile);
   const setUrl = tcgdexUrl(connector, connector.endpoints.expansionDetail, {
