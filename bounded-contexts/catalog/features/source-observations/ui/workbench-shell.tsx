@@ -138,9 +138,7 @@ function ProviderImportContextForm({ readModel }: { readModel: CatalogPrimaryWor
   const unitOptions = units.map(({ provider, unit }) => ({
     value: unit.unitKey,
     label: unit.unitKey,
-    description: [provider.displayName, unit.productDomain, unit.productForm, unit.ingestionPurpose]
-      .filter(Boolean)
-      .join(" / "),
+    description: [provider.displayName, unit.productDomain, unit.productForm].filter(Boolean).join(" / "),
   }));
   const selectedUnit = units.find(({ unit }) => unit.unitKey === readModel.routeContext.unitKey)?.unit;
   const profileVersion = readModel.routeContext.profileVersion ?? selectedUnit?.activeProfile?.profileVersion ?? "";
