@@ -9,9 +9,9 @@ Operator-facing labels, blocked-state explanations, next steps, provider transpo
 
 The default workbench journey is:
 
-1. Choose provider, ingestion unit, and import scope.
+1. Choose provider, ingestion unit, and source scope from synced provider options. For the TCGdex Japanese Pokemon path, select Language `Japanese`, Series `SV`, and Expansion `SV8`; operators should not type a serialized scope by hand.
 2. See import readiness before starting work: active profile snapshot, credential/adapter availability, fixture/readiness blockers, rollout/RBAC status, and provider transport limits.
-3. Pull provider data through a durable import job.
+3. Select the source scope, then pull provider data through a durable import job for that exact scope.
 4. Monitor queued/running/completed job progress with grouped failures, retry/resume/cancel availability, stale replay protection, and links into filtered Source Observations.
 5. Review new or changed Source Observations with redacted provenance, normalized facts, diagnostics, duplicate/conflict evidence, and promotion readiness.
 6. Preview promotion impact and command plan before any Catalog Item/reference writes.
@@ -27,6 +27,7 @@ Operators should be able to complete the happy path without visiting profile aut
 The first screen of the rebuilt control plane must make the primary path obvious before secondary configuration surfaces:
 
 - show provider/scope selection and import readiness as the top workflow;
+- load provider source options into guided selectors before asking the operator to start a sync;
 - show Source Observation review status and promotion readiness for the selected context;
 - surface active or recent import/promotion/reapply jobs that affect the selected context;
 - summarize blockers with direct links to the supporting workflow that resolves them;
@@ -68,7 +69,7 @@ Visible blocker copy must use the #1058 operator-copy contract: every blocked or
 
 Route and deep-link contracts are owned by #1057, but primary-path framing requires these invariants:
 
-- provider, ingestion unit, scope, profile version, Source Observation filters, selected row IDs, job ID, promotion preview ID, and return path are durable context keys;
+- provider, ingestion unit, selected source scope, profile version, Source Observation filters, selected row IDs, job ID, promotion preview ID, and return path are durable context keys;
 - primary path links should move forward and backward through import -> review -> preview -> promote without dropping context;
 - supporting workflow detours should return to the exact blocked action when possible;
 - browser refresh, copied links, stale projections, denied actions, and unavailable providers must explain the current state rather than silently resetting to a generic integrations page.
@@ -83,7 +84,7 @@ Stage 2 and Stage 3 implementation should cite these operator journeys from [Cat
 - J11 Reapply mapping changes;
 - J14 Audit and release evidence.
 
-Happy-path acceptance for #1056 should prove provider/scope selection, durable import, observation review, promotion preview, and promotion can complete as one workflow in a non-production environment. Recovery acceptance should prove at least one blocked import, one blocked promotion, and one reapply/replay branch returns to the same provider/unit/scope context.
+Happy-path acceptance for #1056 should prove provider source option loading, TCGdex Japanese SV8 source-scope selection, durable import, observed Source Observation review, promotion preview, and promote-all execution can complete as one workflow in a non-production environment. Recovery acceptance should prove at least one blocked import, one blocked promotion, and one reapply/replay branch returns to the same provider/unit/scope context.
 
 ## Rejected Patterns
 

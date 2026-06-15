@@ -12,6 +12,7 @@ import {
   integrationJobSummary,
   profileAuthoringModel,
   profileReview,
+  sourceObservationListItem,
   sourceObservationScope,
 } from "../features/source-observations/ui/primary-workbench-test-fixtures";
 
@@ -368,6 +369,199 @@ describe("Catalog integrations route", () => {
       series: "cached",
       expansions: "stale",
     });
+  });
+
+  it("proves the Japanese SV8 operator journey without raw importScope authoring", async () => {
+    const selectedScopeUrl =
+      "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:single-card:source-observation-import&languageCode=ja&seriesId=SV&expansionId=SV8&profileVersion=2026.06.04";
+    expect(new URL(selectedScopeUrl).searchParams.has("importScope")).toBe(false);
+
+    const sv8Scope = sourceObservationScope({
+      language_code: "ja",
+      product_line_id: "",
+      product_line_name: "",
+      series_id: "sv",
+      series_name: "Scarlet & Violet",
+      expansion_id: "sv8",
+      expansion_name: "Super Electric Breaker",
+      total_observations: 130,
+      observed_observations: 130,
+      changed_observations: 130,
+      promoted_observations: 0,
+      rejected_observations: 0,
+    });
+    const scopes = { items: [sv8Scope], total: 1, count: 1 };
+    const profileReviews = { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 };
+    const sv8Observation = sourceObservationListItem({
+      observation_id: "obs_ja_sv8_001",
+      external_key: "SV8-001",
+      language_code: "ja",
+      normalized: {
+        ...sourceObservationListItem().normalized,
+        languageCode: "ja",
+        name: "Pikachu ex",
+        cardNumber: "001",
+        setId: "SV8",
+        setName: "Super Electric Breaker",
+        expansionId: "SV8",
+        expansionName: "Super Electric Breaker",
+        seriesId: "SV",
+        seriesName: "Scarlet & Violet",
+      },
+      status: "changed",
+      promoted_catalog_item_id: null,
+      promoted_at: null,
+    });
+    const listSourceObservations = vi.fn().mockResolvedValue({ items: [sv8Observation], total: 1, count: 1 });
+    const listSourceObservationIntegrationOptions = vi.fn(async (query: string) => {
+      const params = new URLSearchParams(query);
+      const queryKind = params.get("queryKind") ?? "";
+      return sourceOptionResponse(queryKind, {
+        status: queryKind === "expansions" ? "stale" : "fresh",
+        source: "cache",
+        parentValue: params.get("parentValue"),
+        degraded: queryKind === "expansions",
+        value: queryKind === "languages" ? "ja" : queryKind === "series" ? "SV" : "SV8",
+        label:
+          queryKind === "languages"
+            ? "Japanese"
+            : queryKind === "series"
+              ? "Scarlet & Violet"
+              : "Super Electric Breaker",
+        metadata:
+          queryKind === "languages"
+            ? { languageCode: "ja" }
+            : queryKind === "series"
+              ? { languageCode: "ja", seriesId: "SV" }
+              : { languageCode: "ja", seriesId: "SV", expansionId: "SV8" },
+      });
+    });
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listSourceObservationIntegrationScopes: vi.fn().mockResolvedValue(scopes),
+      listSourceObservationProviderProfiles: vi.fn().mockResolvedValue(profileReviews),
+      getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(null),
+      listSourceObservations,
+      listSourceObservationIntegrationOptions,
+      recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+    });
+
+    const routeData = await loader({
+      request: new Request(selectedScopeUrl),
+      params: {},
+      context: {},
+    } as Parameters<typeof loader>[0]);
+
+    const optionQueries = listSourceObservationIntegrationOptions.mock.calls.map(
+      ([query]) => new URLSearchParams(query),
+    );
+    expect(optionQueries.map((params) => params.get("queryKind"))).toEqual(["languages", "series", "expansions"]);
+    expect(optionQueries.every((params) => params.get("cacheOnly") === "true")).toBe(true);
+    expect(optionQueries[1]?.get("languageCode")).toBe("ja");
+    expect(optionQueries[2]?.get("parentValue")).toBe("sv");
+    const reviewQuery = new URLSearchParams(listSourceObservations.mock.calls[0]?.[0] ?? "");
+    expect(reviewQuery.get("provider")).toBe("tcgdex");
+    expect(reviewQuery.get("language")).toBe("ja");
+    expect(reviewQuery.get("seriesId")).toBe("sv");
+    expect(reviewQuery.get("setId")).toBe("sv8");
+    expect(routeData.readModel.importJobs.selectedScope).toMatchObject({
+      importScope: "ja:SV:SV8",
+      expectedObservationVolume: 130,
+      observedCount: 130,
+      changedCount: 130,
+      promotedCount: 0,
+    });
+    expect(routeData.readModel.sourceOptions.pages.find((page) => page.queryKind === "expansions")).toMatchObject({
+      state: "stale",
+      items: [expect.objectContaining({ value: "SV8", label: "Super Electric Breaker" })],
+    });
+    expect(routeData.readModel.sourceObservationReview).toMatchObject({
+      counts: expect.objectContaining({ observed: 130, changed: 130, promoted: 0 }),
+      rows: [
+        expect.objectContaining({
+          observationId: "obs_ja_sv8_001",
+          providerKey: "tcgdex",
+          promotionReadiness: expect.objectContaining({ state: "eligible" }),
+        }),
+      ],
+    });
+
+    const enqueueSourceObservationIntegrationJob = vi.fn().mockResolvedValue({ jobId: "job_import_ja_sv8" });
+    mockCreateCatalogRequestApiClient.mockReturnValue({ enqueueSourceObservationIntegrationJob });
+    const syncResult = await runDailyAction(
+      {
+        _intent: "start-provider-import",
+        providerKey: "tcgdex",
+        unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+        languageCode: "ja",
+        seriesId: "SV",
+        expansionId: "SV8",
+        profileVersion: "2026.06.04",
+      },
+      selectedScopeUrl,
+    );
+    expect(enqueueSourceObservationIntegrationJob).toHaveBeenCalledWith("import", {
+      provider: "tcgdex",
+      language: "ja",
+      seriesId: "SV",
+      setId: "SV8",
+    });
+    expect(syncResult.context.importScope).toBe("ja:SV:SV8");
+    expect(syncResult.context.jobId).toBe("job_import_ja_sv8");
+
+    const previewBulkPromoteSourceObservations = vi.fn().mockResolvedValue({
+      matched: 130,
+      eligible: 130,
+      terminal: 0,
+      scope: { provider: "tcgdex", language: "ja", setId: "sv8", status: "", search: "" },
+    });
+    mockCreateCatalogRequestApiClient.mockReturnValue({ previewBulkPromoteSourceObservations });
+    const previewResult = await runDailyAction(
+      {
+        _intent: "preview-promotion",
+        providerKey: "tcgdex",
+        unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+        languageCode: "ja",
+        seriesId: "SV",
+        expansionId: "SV8",
+        profileVersion: "2026.06.04",
+      },
+      selectedScopeUrl,
+    );
+    const selectedScopePromotionFilter = {
+      provider: "tcgdex",
+      language: "ja",
+      seriesId: "sv",
+      expansionId: "sv8",
+      setId: "sv8",
+    };
+    expect(previewBulkPromoteSourceObservations).toHaveBeenCalledWith(selectedScopePromotionFilter);
+    expect(previewResult.context.promotionPreviewId).toBe(
+      "preview-tcgdex_tcgdex_pokemon_single-card_source-observation-import_ja_SV_SV8_2026.06.04_ja_sv8_all_none_filtered-130-130",
+    );
+
+    const bulkPromoteSourceObservationsByScope = vi.fn().mockResolvedValue({ jobId: "job_promote_ja_sv8" });
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      previewBulkPromoteSourceObservations,
+      bulkPromoteSourceObservationsByScope,
+    });
+    const promoteResult = await runDailyAction(
+      {
+        _intent: "execute-promotion",
+        providerKey: "tcgdex",
+        unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+        languageCode: "ja",
+        seriesId: "SV",
+        expansionId: "SV8",
+        profileVersion: "2026.06.04",
+        promotionPreviewId: previewResult.context.promotionPreviewId ?? "",
+      },
+      selectedScopeUrl,
+    );
+
+    expect(bulkPromoteSourceObservationsByScope).toHaveBeenCalledWith(selectedScopePromotionFilter);
+    expect(promoteResult.context.jobId).toBe("job_promote_ja_sv8");
+    expect(promoteResult.context.promotionPreviewId).toBeNull();
+    expect(promoteResult.feedback.result).toBe("job-queued");
   });
 
   it("force-refreshes every option group when the workbench refresh-all intent is present", async () => {
@@ -1470,24 +1664,29 @@ function sourceOptionResponse(
     source: "cache" | "live";
     parentValue: string | null;
     degraded: boolean;
+    value?: string;
+    label?: string;
+    metadata?: Record<string, string>;
   }>,
 ) {
   const value =
-    queryKind === "languages"
+    input.value ??
+    (queryKind === "languages"
       ? "en"
       : queryKind === "series"
         ? "base"
         : queryKind === "expansions"
           ? "base1"
-          : "option";
+          : "option");
   const label =
-    queryKind === "languages"
+    input.label ??
+    (queryKind === "languages"
       ? "English"
       : queryKind === "series"
         ? "Base"
         : queryKind === "expansions"
           ? "Base Set"
-          : "Option";
+          : "Option");
 
   return {
     items: [
@@ -1499,7 +1698,7 @@ function sourceOptionResponse(
         description: null,
         parentValue: input.parentValue,
         imageUrl: null,
-        metadata: {},
+        metadata: input.metadata ?? {},
       },
     ],
     total: 1,

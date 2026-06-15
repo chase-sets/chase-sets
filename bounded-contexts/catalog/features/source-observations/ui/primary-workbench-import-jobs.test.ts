@@ -129,6 +129,7 @@ describe("Catalog primary workbench read model - import jobs", () => {
   });
 
   it("matches native TCGdex scope rows case-insensitively without falling back to provider-wide totals", () => {
+    const baseOverview = controlPlaneOverview();
     const matched = buildCatalogPrimaryWorkbenchReadModel({
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:single-card:source-observation-import&importScope=ja:SV:SV8",
@@ -150,7 +151,24 @@ describe("Catalog primary workbench read model - import jobs", () => {
         count: 1,
       },
       profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
-      controlPlaneOverview: controlPlaneOverview(),
+      controlPlaneOverview: controlPlaneOverview({
+        unitActivity: {
+          ...baseOverview.unitActivity,
+          units: [
+            {
+              unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+              recentJobs: [
+                integrationJobSummary({
+                  jobId: "job_ja_sv8_active",
+                  unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+                  importScope: "ja:sv:sv8",
+                  profileVersion: "2026.06.04",
+                }),
+              ],
+            },
+          ],
+        },
+      }),
       canManageCatalog: true,
     });
 
@@ -162,6 +180,14 @@ describe("Catalog primary workbench read model - import jobs", () => {
       promotedCount: 0,
     });
     expect(matched.sourceObservationReview.counts).toMatchObject({ observed: 130, changed: 130, promoted: 0 });
+    expect(matched.importJobs.activeJobCount).toBe(1);
+    expect(matched.importJobs.jobs[0]).toMatchObject({
+      jobId: "job_ja_sv8_active",
+      scopeMatchesRoute: true,
+    });
+    expect(matched.actions.find((action) => action.key === "start-provider-import")?.blockers).toContain(
+      "active-job-conflict",
+    );
 
     const empty = buildCatalogPrimaryWorkbenchReadModel({
       requestUrl:

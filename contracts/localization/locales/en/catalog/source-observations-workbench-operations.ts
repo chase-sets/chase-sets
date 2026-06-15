@@ -183,7 +183,7 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.table.job": "Durable job",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.table.profile": "Profile: {profile}",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.table.progress": "Progress",
-  "catalog.features.sourceObservations.ui.primaryWorkbench.importContext.apply": "Apply context",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.importContext.apply": "Select source scope",
   "catalog.features.sourceObservations.ui.primaryWorkbench.importContext.profileVersion": "Profile version",
   "catalog.features.sourceObservations.ui.primaryWorkbench.importContext.provider": "Provider",
   "catalog.features.sourceObservations.ui.primaryWorkbench.importContext.scope": "Import scope",

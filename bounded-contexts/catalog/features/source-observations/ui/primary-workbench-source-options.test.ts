@@ -58,6 +58,79 @@ describe("Catalog primary workbench source options", () => {
     });
   });
 
+  it("surfaces stale Japanese SV8 expansion option cache on the selected-scope path", () => {
+    const profile = profileReview({ active: true, lifecycle: "active" });
+    const sv8Scope = sourceObservationScope({
+      language_code: "ja",
+      product_line_id: "",
+      product_line_name: "",
+      series_id: "sv",
+      series_name: "Scarlet & Violet",
+      expansion_id: "sv8",
+      expansion_name: "Super Electric Breaker",
+      total_observations: 130,
+      observed_observations: 130,
+      changed_observations: 130,
+      promoted_observations: 0,
+      rejected_observations: 0,
+    });
+    const requestUrl =
+      "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:single-card:source-observation-import&languageCode=ja&seriesId=SV&expansionId=SV8";
+    const requests = buildCatalogPrimaryWorkbenchSourceOptionRequests({
+      requestUrl,
+      scopes: [sv8Scope],
+      profiles: [profile],
+      cacheOnly: true,
+    });
+    const pages = requests.map((request) => ({
+      request,
+      response:
+        request.queryKind === "expansions"
+          ? optionResponse(
+              request,
+              "stale",
+              "cache",
+              [
+                {
+                  value: "SV8",
+                  label: "Super Electric Breaker",
+                  parentValue: "SV",
+                  metadata: { languageCode: "ja", seriesId: "SV", expansionId: "SV8" },
+                },
+              ],
+              true,
+            )
+          : responseFor(request),
+    }));
+
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl,
+      scopes: { items: [sv8Scope], total: 1, count: 1 },
+      profileReviews: { items: [profile], total: 1, count: 1 },
+      sourceOptionPages: pages,
+      controlPlaneOverview: null,
+      canManageCatalog: true,
+    });
+
+    expect(readModel.routeContext.importScope).toBe("ja:SV:SV8");
+    expect(readModel.sourceOptions.pages.find((page) => page.queryKind === "expansions")).toMatchObject({
+      state: "stale",
+      request: expect.objectContaining({
+        languageCode: "ja",
+        parentValue: "sv",
+        cacheOnly: true,
+      }),
+      items: [expect.objectContaining({ value: "SV8", label: "Super Electric Breaker" })],
+      cache: expect.objectContaining({
+        diagnostics: [expect.objectContaining({ code: "provider-option-query-stale-cache-used" })],
+      }),
+    });
+    expect(readModel.sourceOptions.summary).toMatchObject({
+      stalePages: 1,
+      degradedPages: 1,
+    });
+  });
+
   it("composes TCGplayer product-line option hierarchy from the same structured scope contract", () => {
     const profile = profileReview({ providerKey: "tcgplayer", active: true, lifecycle: "active" });
     const requests = buildCatalogPrimaryWorkbenchSourceOptionRequests({

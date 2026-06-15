@@ -18,7 +18,7 @@ Every other screen exists to unblock, govern, recover, or verify that job. Navig
 
 | Group | First responsibility | Screen responsibility |
 | --- | --- | --- |
-| Primary workflow | Import to promotion workbench | Choose provider/unit/scope, confirm readiness, pull provider data, monitor jobs, review observations, preview promotion, promote, and recover common branches without leaving the workflow. |
+| Primary workflow | Import to promotion workbench | Choose provider/unit/source scope from synced options, confirm readiness, pull provider data, monitor jobs, review observations, preview promotion, promote, and recover common branches without leaving the workflow. |
 | Unblock provider data | Health triage | Resolve provider/profile/adapter/validation blockers only when they prevent import, review, or promotion. |
 | Govern and recover | Lifecycle recovery | Roll back, reapply, replay, retire, and govern risky operations with impact evidence and return context. |
 | Verify release evidence | Audit evidence | Trace operator actions, release proof, smoke evidence, and risk decisions. |
@@ -52,7 +52,7 @@ Every supporting detour must preserve enough context to return to the primary pa
 
 - provider key;
 - ingestion unit key;
-- import scope;
+- selected source scope;
 - profile version;
 - Source Observation filters;
 - selected Source Observation IDs;
@@ -82,6 +82,7 @@ The product has not launched, so preserving legacy data or interaction patterns 
 - The first visible desktop group and first mobile group are `Primary workflow`.
 - The first item is Import to promotion.
 - Pull provider data, review Source Observations, and promote are reachable without detouring through support screens.
+- TCGdex operators can select Language `Japanese`, Series `SV`, and Expansion `SV8` from loaded provider options before syncing the scope.
 - Supporting screens include context-preserving return behavior.
 - No screen maps one-to-one to retired tabbed modules.
 - No retired code, product patterns, route/API/client/read-model behavior, documentation, tests, fixtures, seeds, screenshots, runbooks, release notes, or operator instructions remain.
