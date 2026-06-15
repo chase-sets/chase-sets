@@ -243,6 +243,30 @@ export function scopeKey(scope: SourceObservationIntegrationScope): string {
   return [scope.language_code, scope.product_line_id, scope.series_id, scope.expansion_id].filter(Boolean).join(":");
 }
 
+export function comparableImportScopeKey(importScope: string | null, providerKey: string | null): string | null {
+  if (!importScope) {
+    return null;
+  }
+
+  const value = importScope
+    .split(":")
+    .map((segment) => segment.trim())
+    .filter(Boolean)
+    .join(":");
+
+  return providerKey === "tcgdex" ? value.toLowerCase() : value;
+}
+
+export function importScopeMatchesProviderScope(
+  importScope: string | null,
+  scope: SourceObservationIntegrationScope,
+): boolean {
+  return (
+    comparableImportScopeKey(importScope, scope.provider_key) ===
+    comparableImportScopeKey(scopeKey(scope), scope.provider_key)
+  );
+}
+
 export function sum<T>(items: readonly T[], selector: (item: T) => number): number {
   return items.reduce((total, item) => total + selector(item), 0);
 }
@@ -266,6 +290,12 @@ export function importScopeSetId(importScope: string | null): string | null {
   }
 
   return segments[segments.length - 1] ?? null;
+}
+
+export function providerImportScopeSetId(providerKey: string | null, importScope: string | null): string | null {
+  const setId = importScopeSetId(importScope);
+
+  return providerKey === "tcgdex" ? (setId?.toLowerCase() ?? null) : setId;
 }
 
 export function setQueryParam(params: URLSearchParams, key: string, value: string | null | undefined): void {

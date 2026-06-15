@@ -77,7 +77,7 @@ describe("TCGdex client", () => {
       fetchTcgdexExpansionOptions({
         profile: tcgdexPokemonTcgProviderProfile,
         languageCode: "en",
-        seriesId: "me",
+        seriesId: "ME",
         fetch: fetcher,
       }),
     ).resolves.toEqual([
@@ -144,8 +144,8 @@ describe("TCGdex client", () => {
     const observations = normalizeTcgdexObservationPayloads(
       await fetchTcgdexSetObservationPayloads({
         profile: tcgdexPokemonTcgProviderProfile,
-        languageCode: "en",
-        setId: "swsh3",
+        languageCode: "EN",
+        setId: "SWSH3",
         fetch: fetcher,
       }),
     );

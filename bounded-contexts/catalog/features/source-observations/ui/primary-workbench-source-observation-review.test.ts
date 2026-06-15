@@ -258,7 +258,7 @@ describe("Catalog primary workbench read model - source observation review", () 
     const params = new URLSearchParams(query ?? "");
     expect(params.get("provider")).toBe("tcgdex");
     expect(params.get("language")).toBe("ja");
-    expect(params.get("setId")).toBe("SV8");
+    expect(params.get("setId")).toBe("sv8");
   });
 
   it("fails closed for denied writes and does not fetch all-provider review rows without provider context", () => {

@@ -66,6 +66,75 @@ describe("Catalog primary workbench read model - import jobs", () => {
     });
   });
 
+  it("matches native TCGdex scope rows case-insensitively without falling back to provider-wide totals", () => {
+    const matched = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:single-card:source-observation-import&importScope=ja:SV:SV8",
+      scopes: {
+        items: [
+          sourceObservationScope({
+            language_code: "ja",
+            product_line_id: "",
+            series_id: "sv",
+            expansion_id: "sv8",
+            total_observations: 130,
+            observed_observations: 130,
+            changed_observations: 130,
+            promoted_observations: 0,
+            rejected_observations: 0,
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: controlPlaneOverview(),
+      canManageCatalog: true,
+    });
+
+    expect(matched.importJobs.selectedScope).toMatchObject({
+      importScope: "ja:SV:SV8",
+      expectedObservationVolume: 130,
+      observedCount: 130,
+      changedCount: 130,
+      promotedCount: 0,
+    });
+    expect(matched.sourceObservationReview.counts).toMatchObject({ observed: 130, changed: 130, promoted: 0 });
+
+    const empty = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:single-card:source-observation-import&importScope=ja:SV:SV8",
+      scopes: {
+        items: [
+          sourceObservationScope({
+            language_code: "ja",
+            product_line_id: "",
+            series_id: "sv",
+            expansion_id: "sv1",
+            total_observations: 31639,
+            observed_observations: 0,
+            changed_observations: 0,
+            promoted_observations: 31639,
+            rejected_observations: 0,
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: controlPlaneOverview(),
+      canManageCatalog: true,
+    });
+
+    expect(empty.importJobs.selectedScope).toMatchObject({
+      expectedObservationVolume: 0,
+      observedCount: 0,
+      changedCount: 0,
+      promotedCount: 0,
+    });
+    expect(empty.sourceObservationReview.counts).toMatchObject({ observed: 0, changed: 0, promoted: 0 });
+  });
+
   it("groups retryable provider failures and transport blockers for operator recovery", () => {
     const overview = controlPlaneOverview({
       readiness: {

@@ -9,10 +9,10 @@ import type { CatalogIntegrationControlPlaneOverview, CatalogProviderProfileVers
 import { catalogPrimaryWorkbenchHref, catalogPrimaryWorkbenchSupportingHref } from "./primary-workbench-route-context";
 import type { CatalogPrimaryWorkbenchInput } from "./primary-workbench-read-model-input";
 import {
+  importScopeMatchesProviderScope,
   profilePointerForProfile,
   providerTransportBlockerFor,
   providerTransportFor,
-  scopeKey,
   sum,
 } from "./primary-workbench-read-model-support";
 
@@ -41,12 +41,9 @@ export function selectedImportScopeFor(input: {
     (unit) => unit.unitKey === input.unitKey || unit.providerKey === input.providerKey,
   );
   const matchingRows = input.input.scopes.items.filter(
-    (scope) => scope.provider_key === input.providerKey && scopeKey(scope) === input.importScope,
+    (scope) => scope.provider_key === input.providerKey && importScopeMatchesProviderScope(input.importScope, scope),
   );
-  const rows =
-    matchingRows.length > 0
-      ? matchingRows
-      : input.input.scopes.items.filter((scope) => scope.provider_key === input.providerKey);
+  const rows = matchingRows;
   const blockers = new Set<CatalogPrimaryWorkbenchBlockerCategory>(input.blockers);
   for (const category of input.providerTransport) {
     blockers.add(providerTransportBlockerFor(category));
