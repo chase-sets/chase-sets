@@ -63,7 +63,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.cart.ui.cartPage.resolve.before.checkout":
     "Resolve this item before checkout or remove it from your cart.",
   "checkout.features.cart.ui.cartPage.resolve.before.payment": "Resolve item availability before payment starts.",
-  "checkout.features.cart.ui.cartPage.resolve.fulfillment": "Resolve items",
+  "checkout.features.cart.ui.cartPage.resolve.fulfillment": "Continue to checkout",
   "checkout.features.cart.ui.cartPage.review.items.before.checkout":
     "Review quantities and remove anything you do not want before checkout.",
   "checkout.features.cart.ui.cartPage.review.cart": "Review cart",

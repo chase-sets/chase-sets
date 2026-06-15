@@ -145,7 +145,8 @@ describe("checkout cart page", () => {
     expect(markup).toContain("Resolve this item before checkout or remove it from your cart.");
     expect(markup).toContain("Find alternatives");
     expect(markup).toContain('href="/search?q=Charizard"');
-    expect(markup).toContain("Resolve items");
+    expect(markup).toContain("Continue to checkout");
+    expect(markup).not.toContain("Resolve items");
     expect(markup).toContain('href="/checkout/buy/readiness"');
     expect(markup).toContain("Resolve item availability before payment starts.");
     expect(markup).not.toContain('action="/checkout/buy/readiness"');
