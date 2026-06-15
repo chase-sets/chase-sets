@@ -5,12 +5,18 @@ import {
   CATALOG_CONTROL_PLANE_ROUTE_SURFACES,
   CATALOG_CONTROL_PLANE_WORKSPACES,
 } from "./admin-control-plane/information-architecture";
+import {
+  catalogPrimaryWorkbenchScopeQueryKeys,
+  importScopeFromScopeContext,
+  scopeContextFromSearchParams,
+} from "./primary-workbench-scope-context";
 
 const canonicalKeys = new Set([
   "section",
   "providerKey",
   "unitKey",
   "importScope",
+  ...catalogPrimaryWorkbenchScopeQueryKeys,
   "profileVersion",
   "selectedObservationIds",
   "jobId",
@@ -144,13 +150,24 @@ function routeContextFromLocation(
   pathname: string | null | undefined,
   includeReturnPath: boolean,
 ): CatalogPrimaryWorkbenchRouteContext {
+  const providerKey = nullableParam(searchParams, "providerKey");
+  const importScope = nullableParam(searchParams, "importScope");
+  const sourceObservationFilters = parseSourceObservationFilters(searchParams);
+  const scope = scopeContextFromSearchParams({
+    searchParams,
+    providerKey,
+    importScope,
+    sourceObservationFilters,
+  });
+
   return {
     section: resolveSectionFromLocation(searchParams, pathname),
-    providerKey: nullableParam(searchParams, "providerKey"),
+    providerKey,
     unitKey: nullableParam(searchParams, "unitKey") as CatalogIntegrationUnitKey | null,
-    importScope: nullableParam(searchParams, "importScope"),
+    scope,
+    importScope: importScope ?? importScopeFromScopeContext(scope),
     profileVersion: nullableParam(searchParams, "profileVersion"),
-    sourceObservationFilters: parseSourceObservationFilters(searchParams),
+    sourceObservationFilters,
     selectedObservationIds: parseCsvParam(searchParams, "selectedObservationIds"),
     jobId: nullableParam(searchParams, "jobId"),
     promotionPreviewId: nullableParam(searchParams, "promotionPreviewId"),
@@ -168,7 +185,7 @@ export function serializeCatalogPrimaryWorkbenchRouteContext(
   }
   setNullable(searchParams, "providerKey", context.providerKey);
   setNullable(searchParams, "unitKey", context.unitKey);
-  setNullable(searchParams, "importScope", context.importScope);
+  setNullable(searchParams, "importScope", context.importScope ?? importScopeFromScopeContext(context.scope));
   setNullable(searchParams, "profileVersion", context.profileVersion);
   if (context.selectedObservationIds.length > 0) {
     searchParams.set("selectedObservationIds", context.selectedObservationIds.join(","));

@@ -20,7 +20,8 @@ export function sourceObservationReadReviewRoutes(services: SourceObservationRea
       return permissionError;
     }
 
-    const { search, status, limit, offset, provider, source, language, setId, expansionId } = c.req.query();
+    const { search, status, limit, offset, provider, source, language, productLineId, seriesId, setId, expansionId } =
+      c.req.query();
     const result = await services.listSourceObservations({
       search,
       status,
@@ -28,6 +29,9 @@ export function sourceObservationReadReviewRoutes(services: SourceObservationRea
       offset: Number(offset) || undefined,
       provider: provider ?? source,
       language,
+      ...(productLineId ? { productLineId } : {}),
+      ...(seriesId ? { seriesId } : {}),
+      ...(expansionId ? { expansionId } : {}),
       setId: expansionId ?? setId,
     });
     return c.json({ items: result.items, total: result.total, count: result.items.length });

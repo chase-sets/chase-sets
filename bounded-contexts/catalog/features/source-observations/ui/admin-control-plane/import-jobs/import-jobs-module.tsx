@@ -28,6 +28,7 @@ import {
   getCatalogPrimaryWorkbenchProviderTransportCopy,
 } from "../../primary-workbench-copy";
 import { catalogPrimaryWorkbenchHref } from "../../primary-workbench-route-context";
+import { scopeContextFromImportScope, scopeDisplayLabel } from "../../primary-workbench-scope-context";
 import { CommandHiddenInputs, type CatalogPrimaryWorkbenchSubmitIntent } from "../import-to-promotion/command-controls";
 import { BlockerList, profileSnapshotLabel, stateLabel } from "../import-to-promotion/workbench-formatting";
 
@@ -68,8 +69,7 @@ export function CatalogIntegrationImportJobsModule({
                   {
                     key: "scope",
                     label: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.context.scope", {
-                      scope:
-                        job.importScope ?? t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected"),
+                      scope: importScopeDisplayLabel(job.importScope, job.providerKey),
                     }),
                     tone: "neutral",
                   },
@@ -220,7 +220,10 @@ export function CatalogIntegrationImportJobsModule({
               },
               {
                 key: t("catalog.features.sourceObservations.ui.primaryWorkbench.key.scope"),
-                value: readModel.importJobs.selectedScope.importScope,
+                value: importScopeDisplayLabel(
+                  readModel.importJobs.selectedScope.importScope,
+                  readModel.importJobs.selectedScope.providerKey,
+                ),
               },
               {
                 key: t("catalog.features.sourceObservations.ui.primaryWorkbench.key.profile"),
@@ -346,6 +349,12 @@ function ImportJobLifecycleAction({
       </Button>
     </WorkbenchForm>
   );
+}
+
+function importScopeDisplayLabel(importScope: string | null, providerKey: string | null): string {
+  return importScope
+    ? scopeDisplayLabel(scopeContextFromImportScope(importScope, providerKey))
+    : t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected");
 }
 
 function jobStateTone(state: ImportJobRow["state"]) {

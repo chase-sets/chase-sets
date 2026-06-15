@@ -135,6 +135,58 @@ describe("Catalog primary workbench read model - import jobs", () => {
     expect(empty.sourceObservationReview.counts).toMatchObject({ observed: 0, changed: 0, promoted: 0 });
   });
 
+  it("matches all-series scopes without narrowing them to an expansion id", () => {
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:single-card:source-observation-import&importScope=ja:SV",
+      scopes: {
+        items: [
+          sourceObservationScope({
+            language_code: "ja",
+            product_line_id: "",
+            series_id: "sv",
+            expansion_id: "sv1",
+            total_observations: 10,
+            observed_observations: 4,
+            changed_observations: 1,
+            promoted_observations: 5,
+            rejected_observations: 0,
+          }),
+          sourceObservationScope({
+            language_code: "ja",
+            product_line_id: "",
+            series_id: "sv",
+            expansion_id: "sv8",
+            total_observations: 130,
+            observed_observations: 100,
+            changed_observations: 30,
+            promoted_observations: 0,
+            rejected_observations: 0,
+          }),
+        ],
+        total: 2,
+        count: 2,
+      },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: controlPlaneOverview(),
+      canManageCatalog: true,
+    });
+
+    expect(readModel.importJobs.selectedScope).toMatchObject({
+      importScope: "ja:SV",
+      expectedObservationVolume: 140,
+      observedCount: 104,
+      changedCount: 31,
+      promotedCount: 5,
+    });
+    expect(readModel.sourceObservationReview.filters).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: "language", value: "ja" }),
+        expect.objectContaining({ key: "setId", value: null }),
+      ]),
+    );
+  });
+
   it("groups retryable provider failures and transport blockers for operator recovery", () => {
     const overview = controlPlaneOverview({
       readiness: {

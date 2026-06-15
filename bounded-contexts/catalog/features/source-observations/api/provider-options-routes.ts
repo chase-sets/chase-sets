@@ -25,10 +25,13 @@ export function providerOptionRoutes(services: ProviderOptionRouteServices) {
       return permissionError;
     }
 
-    const { provider, source, language, setId, expansionId } = c.req.query();
+    const { provider, source, language, productLineId, seriesId, setId, expansionId } = c.req.query();
     const items = await services.listIntegrationScopes({
       provider: provider ?? source,
       language,
+      ...(productLineId ? { productLineId } : {}),
+      ...(seriesId ? { seriesId } : {}),
+      ...(expansionId ? { expansionId } : {}),
       setId: expansionId ?? setId,
     });
 

@@ -17,13 +17,20 @@ export function parsePromotionScope(input: unknown): SourceObservationFilterScop
   }
 
   const record = input as Record<string, unknown>;
+  const productLineId = stringField(record.productLineId);
+  const seriesId = stringField(record.seriesId);
+  const expansionId = stringField(record.expansionId);
+  const setId = expansionId ?? stringField(record.setId);
 
   return {
     search: stringField(record.search),
     status: stringField(record.status),
     provider: stringField(record.provider) ?? stringField(record.source),
     language: stringField(record.language),
-    setId: stringField(record.expansionId) ?? stringField(record.setId),
+    ...(productLineId ? { productLineId } : {}),
+    ...(seriesId ? { seriesId } : {}),
+    ...(expansionId ? { expansionId } : {}),
+    setId,
   };
 }
 
@@ -35,11 +42,13 @@ export function parseIntegrationJobScope(input: unknown): SourceObservationInteg
   const record = input as Record<string, unknown>;
   const provider = stringField(record.provider) ?? stringField(record.source);
   const language = stringField(record.language) ?? stringField(record.languageCode);
+  const productLineId = stringField(record.productLineId) ?? stringField(record.categoryId);
   const seriesId = stringField(record.seriesId);
   const setId = stringField(record.expansionId) ?? stringField(record.setId);
   const scope = {
     ...(provider ? { provider } : {}),
     ...(language ? { language } : {}),
+    ...(productLineId ? { productLineId } : {}),
     ...(seriesId ? { seriesId } : {}),
     ...(setId ? { setId } : {}),
   };
@@ -48,14 +57,13 @@ export function parseIntegrationJobScope(input: unknown): SourceObservationInteg
     return scope;
   }
 
-  const productLineId =
-    stringField(record.productLineId) ?? stringField(record.categoryId) ?? stringField(record.seriesId);
+  const tcgplayerProductLineId = productLineId ?? stringField(record.seriesId);
   const setName = stringField(record.setName) ?? stringField(record.cleanSetName) ?? stringField(record.setId);
   const productId = stringField(record.productId) ?? stringField(record.tcgplayerProductId);
 
   return {
     ...scope,
-    ...(productLineId ? { productLineId } : {}),
+    ...(tcgplayerProductLineId ? { productLineId: tcgplayerProductLineId } : {}),
     ...(setName ? { setName } : {}),
     ...(productId ? { productId } : {}),
   };
@@ -67,7 +75,9 @@ export function promotionScopeToIntegrationScope(
   return {
     provider: scope.provider,
     language: scope.language,
-    setId: scope.setId,
+    productLineId: scope.productLineId,
+    seriesId: scope.seriesId,
+    setId: scope.expansionId ?? scope.setId,
   };
 }
 

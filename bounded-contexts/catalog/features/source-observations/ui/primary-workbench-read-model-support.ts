@@ -4,11 +4,13 @@ import type {
   CatalogPrimaryWorkbenchProviderTransportCategory,
   CatalogPrimaryWorkbenchReadModel,
 } from "../api/primary-workbench-admin-contracts";
-import type {
-  CatalogIntegrationControlPlaneOverview,
-  CatalogProviderProfileVersionReview,
-  SourceObservationIntegrationScope,
-} from "./contracts";
+import type { CatalogIntegrationControlPlaneOverview, CatalogProviderProfileVersionReview } from "./contracts";
+import {
+  comparableImportScopeKey as comparableStructuredImportScopeKey,
+  importScopeSegment as structuredImportScopeSegment,
+} from "./primary-workbench-scope-context";
+
+export { importScopeMatchesProviderScope, providerImportScopeSetId, scopeKey } from "./primary-workbench-scope-context";
 
 export function recordValue(value: unknown): Record<string, unknown> | null {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -239,63 +241,16 @@ export function normalizeUnitSegment(value: string): string {
   );
 }
 
-export function scopeKey(scope: SourceObservationIntegrationScope): string {
-  return [scope.language_code, scope.product_line_id, scope.series_id, scope.expansion_id].filter(Boolean).join(":");
-}
-
-export function comparableImportScopeKey(importScope: string | null, providerKey: string | null): string | null {
-  if (!importScope) {
-    return null;
-  }
-
-  const value = importScope
-    .split(":")
-    .map((segment) => segment.trim())
-    .filter(Boolean)
-    .join(":");
-
-  return providerKey === "tcgdex" ? value.toLowerCase() : value;
-}
-
-export function importScopeMatchesProviderScope(
-  importScope: string | null,
-  scope: SourceObservationIntegrationScope,
-): boolean {
-  return (
-    comparableImportScopeKey(importScope, scope.provider_key) ===
-    comparableImportScopeKey(scopeKey(scope), scope.provider_key)
-  );
-}
-
 export function sum<T>(items: readonly T[], selector: (item: T) => number): number {
   return items.reduce((total, item) => total + selector(item), 0);
 }
 
+export function comparableImportScopeKey(importScope: string | null, providerKey: string | null): string | null {
+  return comparableStructuredImportScopeKey(importScope, providerKey);
+}
+
 export function importScopeSegment(importScope: string | null, index: number): string | null {
-  return importScope?.split(":")[index] || null;
-}
-
-export function importScopeSetId(importScope: string | null): string | null {
-  const segments = importScope
-    ?.split(":")
-    .map((segment) => segment.trim())
-    .filter(Boolean);
-
-  if (!segments || segments.length === 0) {
-    return null;
-  }
-
-  if (segments.length >= 4) {
-    return segments[3] ?? null;
-  }
-
-  return segments[segments.length - 1] ?? null;
-}
-
-export function providerImportScopeSetId(providerKey: string | null, importScope: string | null): string | null {
-  const setId = importScopeSetId(importScope);
-
-  return providerKey === "tcgdex" ? (setId?.toLowerCase() ?? null) : setId;
+  return structuredImportScopeSegment(importScope, null, index);
 }
 
 export function setQueryParam(params: URLSearchParams, key: string, value: string | null | undefined): void {

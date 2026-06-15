@@ -183,6 +183,7 @@ export type CatalogPrimaryWorkbenchRouteContextKey =
   | "section"
   | "providerKey"
   | "unitKey"
+  | "scope"
   | "importScope"
   | "profileVersion"
   | "sourceObservationFilters"
@@ -339,6 +340,7 @@ export type CatalogPrimaryWorkbenchRouteContext = Readonly<{
   section: string;
   providerKey: string | null;
   unitKey: CatalogIntegrationUnitKey | null;
+  scope?: CatalogPrimaryWorkbenchScopeContext;
   importScope: string | null;
   profileVersion: string | null;
   sourceObservationFilters: Readonly<Record<string, string>>;
@@ -346,6 +348,18 @@ export type CatalogPrimaryWorkbenchRouteContext = Readonly<{
   jobId: string | null;
   promotionPreviewId: string | null;
   returnPath: string | null;
+}>;
+
+export type CatalogPrimaryWorkbenchScopeContext = Readonly<{
+  providerKey: string | null;
+  languageCode: string | null;
+  productLineId: string | null;
+  productLineName: string | null;
+  seriesId: string | null;
+  seriesName: string | null;
+  expansionId: string | null;
+  expansionName: string | null;
+  status: string | null;
 }>;
 
 export type CatalogPrimaryWorkbenchProviderScopeReadModel = Readonly<{
@@ -2575,12 +2589,36 @@ function validatePrimaryWorkbenchRouteContext(context: CatalogPrimaryWorkbenchRo
       throw new Error("Primary workbench route context filters must be clean query values.");
     }
   }
+  if (context.scope) {
+    validatePrimaryWorkbenchScopeContext(context.scope);
+  }
   if (
     context.returnPath &&
     (!isSafePrimaryWorkbenchReturnPath(context.returnPath) ||
       /legacy|compat|raw-json|god-page/i.test(context.returnPath))
   ) {
     throw new Error("Primary workbench returnPath must be a safe rebuilt Catalog admin path.");
+  }
+}
+
+function validatePrimaryWorkbenchScopeContext(scope: CatalogPrimaryWorkbenchScopeContext): void {
+  for (const [key, value] of Object.entries(scope)) {
+    if (
+      ![
+        "providerKey",
+        "languageCode",
+        "productLineId",
+        "productLineName",
+        "seriesId",
+        "seriesName",
+        "expansionId",
+        "expansionName",
+        "status",
+      ].includes(key) ||
+      (value !== null && (typeof value !== "string" || value.includes("\n") || value.includes("&")))
+    ) {
+      throw new Error("Primary workbench route scope must use clean structured scope fields.");
+    }
   }
 }
 

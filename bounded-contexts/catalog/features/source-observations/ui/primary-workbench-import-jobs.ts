@@ -9,6 +9,7 @@ import type { CatalogIntegrationControlPlaneOverview, CatalogProviderProfileVers
 import { catalogPrimaryWorkbenchHref, catalogPrimaryWorkbenchSupportingHref } from "./primary-workbench-route-context";
 import type { CatalogPrimaryWorkbenchInput } from "./primary-workbench-read-model-input";
 import {
+  comparableImportScopeKey,
   importScopeMatchesProviderScope,
   profilePointerForProfile,
   providerTransportBlockerFor,
@@ -214,7 +215,11 @@ function jobMatchesRouteScope(
   job: CatalogIntegrationRecentJobReadModel,
   routeContext: CatalogPrimaryWorkbenchRouteContext,
 ): boolean {
-  return !routeContext.importScope || job.importScope === routeContext.importScope;
+  return (
+    !routeContext.importScope ||
+    comparableImportScopeKey(job.importScope, job.providerKey) ===
+      comparableImportScopeKey(routeContext.importScope, routeContext.providerKey)
+  );
 }
 
 function jobOccurredAt(job: CatalogIntegrationRecentJobReadModel): string {

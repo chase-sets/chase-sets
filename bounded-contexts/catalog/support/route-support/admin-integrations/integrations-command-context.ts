@@ -8,6 +8,13 @@ import type { CatalogPrimaryWorkbenchActionReadModel } from "../../../features/s
 import type { SourceObservationIntegrationJobScope } from "../../../features/source-observations/ui/contracts";
 import type { createCatalogRequestApiClient } from "../../../support/request-support/api-client";
 import { parseCatalogPrimaryWorkbenchRouteContext } from "../../../features/source-observations/ui/primary-workbench-route-context";
+import {
+  importScopeFromScopeContext,
+  scopeContextFromFormData,
+  scopeContextFromRouteContext,
+  scopeContextToIntegrationJobScope,
+  scopeContextToObservationFilterScope,
+} from "../../../features/source-observations/ui/primary-workbench-scope-context";
 import type { CatalogPrimaryWorkbenchCommandFeedback } from "../../../features/source-observations/ui/primary-workbench-command-feedback";
 import { stringValue } from "./integrations-form-values";
 
@@ -42,12 +49,17 @@ type RouteContext = ReturnType<typeof parseCatalogPrimaryWorkbenchRouteContext>;
 export function commandContextFromFormData(requestUrl: string, formData: FormData) {
   const parsedContext = parseCatalogPrimaryWorkbenchRouteContext(requestUrl);
   const selectedObservationIds = observationIdsFromFormData(formData, parsedContext.selectedObservationIds);
+  const providerKey = stringValue(formData.get("providerKey")) ?? parsedContext.providerKey;
+  const importScope = stringValue(formData.get("importScope")) ?? parsedContext.importScope;
+  const baseScope = scopeContextFromRouteContext({ ...parsedContext, providerKey, importScope });
+  const scope = scopeContextFromFormData(formData, baseScope);
 
   return {
     ...parsedContext,
-    providerKey: stringValue(formData.get("providerKey")) ?? parsedContext.providerKey,
+    providerKey,
     unitKey: (stringValue(formData.get("unitKey")) ?? parsedContext.unitKey) as typeof parsedContext.unitKey,
-    importScope: stringValue(formData.get("importScope")) ?? parsedContext.importScope,
+    scope,
+    importScope: importScopeFromScopeContext(scope) ?? importScope,
     profileVersion: stringValue(formData.get("profileVersion")) ?? parsedContext.profileVersion,
     selectedObservationIds,
     jobId: stringValue(formData.get("jobId")) ?? parsedContext.jobId,
@@ -65,27 +77,17 @@ export function observationIdsFromFormData(formData: FormData, fallback: readonl
 }
 
 export function integrationScopeFromContext(context: RouteContext): SourceObservationIntegrationJobScope {
-  const parsedScope = parseProviderImportScope(context.importScope);
-
-  return compactScope({
-    provider: context.providerKey ?? undefined,
-    language: context.sourceObservationFilters.language ?? parsedScope.language,
-    seriesId: parsedScope.seriesId,
-    setId: context.sourceObservationFilters.setId ?? parsedScope.setId,
-    productLineId: parsedScope.productLineId,
+  const scope = scopeContextFromRouteContext(context);
+  return scopeContextToIntegrationJobScope({
+    ...scope,
+    languageCode: context.sourceObservationFilters.language ?? scope.languageCode,
+    expansionId:
+      context.sourceObservationFilters.setId ?? context.sourceObservationFilters.expansionId ?? scope.expansionId,
   });
 }
 
 export function promotionScopeFromContext(context: RouteContext): SourceObservationPromotionScope {
-  const parsedScope = parseProviderImportScope(context.importScope);
-
-  return compactScope({
-    provider: context.providerKey ?? undefined,
-    language: context.sourceObservationFilters.language ?? parsedScope.language,
-    setId: context.sourceObservationFilters.setId ?? parsedScope.setId,
-    status: context.sourceObservationFilters.status,
-    search: context.sourceObservationFilters.search,
-  });
+  return scopeContextToObservationFilterScope(scopeContextFromRouteContext(context), context.sourceObservationFilters);
 }
 
 export function reapplyScopeFromContext(context: RouteContext): SourceObservationPromotionScope {
@@ -229,41 +231,4 @@ function promotionPreviewScopeToken(context: RouteContext, selectedObservationId
 
 function tokenSegment(value: string): string {
   return value.replace(/[^A-Za-z0-9_.-]+/g, "_") || "none";
-}
-
-function parseProviderImportScope(importScope: string | null): Readonly<{
-  language?: string;
-  productLineId?: string;
-  seriesId?: string;
-  setId?: string;
-}> {
-  const segments = importScope
-    ?.split(":")
-    .map((segment) => segment.trim())
-    .filter(Boolean);
-
-  if (!segments || segments.length === 0) {
-    return {};
-  }
-
-  if (segments.length >= 4) {
-    const [language, productLineId, seriesId, setId] = segments;
-    return { language, productLineId, seriesId, setId };
-  }
-
-  if (segments.length === 3) {
-    const [language, seriesId, setId] = segments;
-    return { language, seriesId, setId };
-  }
-
-  if (segments.length === 2) {
-    const [language, setId] = segments;
-    return { language, setId };
-  }
-
-  return { setId: segments[0] };
-}
-
-function compactScope<T extends Record<string, string | undefined>>(scope: T): T {
-  return Object.fromEntries(Object.entries(scope).filter(([, value]) => value)) as T;
 }

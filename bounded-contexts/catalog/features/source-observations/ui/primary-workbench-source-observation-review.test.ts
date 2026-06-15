@@ -305,7 +305,30 @@ describe("Catalog primary workbench read model - source observation review", () 
     const params = new URLSearchParams(query ?? "");
     expect(params.get("provider")).toBe("tcgdex");
     expect(params.get("language")).toBe("ja");
+    expect(params.get("seriesId")).toBe("sv");
     expect(params.get("setId")).toBe("sv8");
+  });
+
+  it("derives all-series review filters without inventing an expansion filter", () => {
+    const query = buildCatalogPrimaryWorkbenchSourceObservationReviewQuery({
+      section: "import-to-promotion",
+      providerKey: "tcgdex",
+      unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+      importScope: "ja:SV",
+      profileVersion: "2026.06.03",
+      sourceObservationFilters: {},
+      selectedObservationIds: [],
+      jobId: null,
+      promotionPreviewId: null,
+      returnPath: null,
+    });
+
+    const params = new URLSearchParams(query ?? "");
+    expect(params.get("provider")).toBe("tcgdex");
+    expect(params.get("language")).toBe("ja");
+    expect(params.get("seriesId")).toBe("sv");
+    expect(params.has("setId")).toBe(false);
+    expect(params.has("expansionId")).toBe(false);
   });
 
   it("fails closed for denied writes and does not fetch all-provider review rows without provider context", () => {

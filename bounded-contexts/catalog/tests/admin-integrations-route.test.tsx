@@ -506,6 +506,39 @@ describe("Catalog integrations route", () => {
     });
   });
 
+  it("queues provider imports from structured scope fields without requiring legacy importScope", async () => {
+    const enqueueSourceObservationIntegrationJob = vi.fn().mockResolvedValue({ jobId: "job_import_structured" });
+    const recordCatalogControlPlaneEvent = vi.fn().mockResolvedValue({ status: "recorded" });
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      enqueueSourceObservationIntegrationJob,
+      recordCatalogControlPlaneEvent,
+    });
+
+    const result = await runDailyAction({
+      _intent: "start-provider-import",
+      providerKey: "tcgdex",
+      unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+      languageCode: "ja",
+      seriesId: "SV",
+      expansionId: "SV8",
+      profileVersion: "2026.06.03",
+    });
+
+    expect(enqueueSourceObservationIntegrationJob).toHaveBeenCalledWith("import", {
+      provider: "tcgdex",
+      language: "ja",
+      seriesId: "SV",
+      setId: "SV8",
+    });
+    expect(result.context.importScope).toBe("ja:SV:SV8");
+    expect(result.context.scope).toMatchObject({
+      providerKey: "tcgdex",
+      languageCode: "ja",
+      seriesId: "SV",
+      expansionId: "SV8",
+    });
+  });
+
   it("preserves selected IDs while creating a scoped promotion preview token", async () => {
     const previewBulkPromoteSourceObservationIds = vi.fn().mockResolvedValue({
       matched: 1,
@@ -556,6 +589,9 @@ describe("Catalog integrations route", () => {
     expect(previewBulkPromoteSourceObservations).toHaveBeenCalledWith({
       provider: "tcgdex",
       language: "en",
+      productLineId: "3",
+      seriesId: "base",
+      expansionId: "base1",
       setId: "base1",
     });
     expect(result.context.promotionPreviewId).toBe(
@@ -1136,11 +1172,17 @@ describe("Catalog integrations route", () => {
     expect(previewBulkPromoteSourceObservations).toHaveBeenCalledWith({
       provider: "tcgdex",
       language: "en",
+      productLineId: "3",
+      seriesId: "base",
+      expansionId: "base1",
       setId: "base1",
     });
     expect(bulkPromoteSourceObservationsByScope).toHaveBeenCalledWith({
       provider: "tcgdex",
       language: "en",
+      productLineId: "3",
+      seriesId: "base",
+      expansionId: "base1",
       setId: "base1",
     });
     expect(result.context.jobId).toBe("job_promote_scope");

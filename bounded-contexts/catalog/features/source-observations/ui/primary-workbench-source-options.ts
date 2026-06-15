@@ -11,12 +11,13 @@ import type {
   SourceObservationIntegrationScope,
 } from "./contracts";
 import { parseCatalogPrimaryWorkbenchRouteContext } from "./primary-workbench-route-context";
+import { actionStateForBlockers, profilePointerForProfile } from "./primary-workbench-read-model-support";
 import {
-  actionStateForBlockers,
-  importScopeMatchesProviderScope,
-  profilePointerForProfile,
+  scopeContextFromProviderScope,
+  scopeContextFromRouteContext,
+  scopeContextMatchesProviderScope,
   scopeKey,
-} from "./primary-workbench-read-model-support";
+} from "./primary-workbench-scope-context";
 
 export type CatalogPrimaryWorkbenchSourceOptionRequest = Readonly<{
   providerKey: string;
@@ -118,7 +119,7 @@ export function buildCatalogPrimaryWorkbenchSourceOptionRequests(input: {
 
   const selections = sourceOptionSelections({
     providerKey,
-    importScope: context.importScope,
+    scope: context.scope,
     profile,
     scopes: input.scopes,
   });
@@ -162,6 +163,7 @@ function sourceOptionContext(input: {
 }): Readonly<{
   providerKey: string | null;
   importScope: string | null;
+  scope: NonNullable<CatalogPrimaryWorkbenchRouteContext["scope"]>;
   activeProfile: CatalogProviderProfileVersionReview | null;
 }> {
   const parsed = input.routeContext ?? parseCatalogPrimaryWorkbenchRouteContext(input.requestUrl);
@@ -177,20 +179,35 @@ function sourceOptionContext(input: {
     null;
   const representativeScope = input.scopes.find((scope) => !providerKey || scope.provider_key === providerKey) ?? null;
   const importScope = parsed.importScope ?? (representativeScope ? scopeKey(representativeScope) : null);
+  const scope = scopeContextFromRouteContext({ ...parsed, providerKey, importScope });
 
-  return { providerKey, importScope, activeProfile };
+  return { providerKey, importScope, scope, activeProfile };
 }
 
 function sourceOptionSelections(input: {
   providerKey: string;
-  importScope: string | null;
+  scope: CatalogPrimaryWorkbenchRouteContext["scope"];
   profile: CatalogProviderProfileVersionReview;
   scopes: readonly SourceObservationIntegrationScope[];
 }): ReadonlyMap<string, Readonly<{ value: string; label: string }>> {
   const providerRows = input.scopes.filter((scope) => scope.provider_key === input.providerKey);
+  const hasExplicitScopeSelection = Boolean(
+    input.scope?.languageCode ||
+    input.scope?.productLineId ||
+    input.scope?.seriesId ||
+    input.scope?.expansionId ||
+    input.scope?.expansionName,
+  );
   const matchedRepresentative =
-    providerRows.find((scope) => importScopeMatchesProviderScope(input.importScope, scope)) ?? null;
-  const representative = matchedRepresentative ?? (input.importScope ? null : (providerRows[0] ?? null));
+    hasExplicitScopeSelection && input.scope
+      ? (providerRows.find((scope) => scopeContextMatchesProviderScope(input.scope!, scope)) ?? null)
+      : null;
+  const representative = matchedRepresentative ?? (hasExplicitScopeSelection ? null : (providerRows[0] ?? null));
+  const scope = hasExplicitScopeSelection
+    ? input.scope
+    : representative
+      ? scopeContextFromProviderScope(representative)
+      : null;
   const selections = new Map<string, Readonly<{ value: string; label: string }>>();
   addSelection(selections, "language", representative?.language_code, representative?.language_code);
   addSelection(selections, "product-line/category", representative?.product_line_id, representative?.product_line_name);
@@ -213,28 +230,21 @@ function sourceOptionSelections(input: {
     representative ? scopeKey(representative) : null,
     representative?.expansion_name,
   );
-
-  const segments = input.importScope
-    ?.split(":")
-    .map((segment) => segment.trim())
-    .filter(Boolean);
-  if (segments?.[0] && !selections.has("language")) {
-    addSelection(selections, "language", segments[0], segments[0]);
-  }
-  if (segments && segments.length >= 4) {
-    addSelection(selections, "product-line/category", segments[1], segments[1]);
-    addSelection(selections, "series", segments[2], segments[2]);
-    addSelection(selections, "expansion", segments[3], segments[3]);
-  }
-  if (segments && segments.length === 2 && input.profile.supportedScopes.includes("series")) {
-    addSelection(selections, "series", segments[1], segments[1]);
-  }
-  if (segments && segments.length >= 2 && input.profile.supportedScopes.includes("product-line/category")) {
-    addSelection(selections, "product-line/category", segments[1], segments[1]);
-  }
-  if (segments && segments.length >= 3 && input.profile.supportedScopes.includes("set-name")) {
-    addSelection(selections, "set-name", segments[2], segments[2]);
-  }
+  addSelection(selections, "language", scope?.languageCode, scope?.languageCode);
+  addSelection(
+    selections,
+    "product-line/category",
+    scope?.productLineId,
+    scope?.productLineName ?? scope?.productLineId,
+  );
+  addSelection(selections, "series", scope?.seriesId, scope?.seriesName ?? scope?.seriesId);
+  addSelection(selections, "expansion", scope?.expansionId, scope?.expansionName ?? scope?.expansionId);
+  addSelection(
+    selections,
+    "set-name",
+    scope?.expansionName ?? scope?.expansionId,
+    scope?.expansionName ?? scope?.expansionId,
+  );
   if (!selections.has("language")) {
     addSelection(
       selections,

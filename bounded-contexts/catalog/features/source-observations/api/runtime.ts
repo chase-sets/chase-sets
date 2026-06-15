@@ -747,6 +747,9 @@ export type SourceObservationReadServices = Readonly<{
   listIntegrationScopes: (params?: {
     provider?: string;
     language?: string;
+    productLineId?: string;
+    seriesId?: string;
+    expansionId?: string;
     setId?: string;
   }) => Promise<readonly SourceObservationIntegrationScopeRow[]>;
   getSourceObservationDetail: (observationId: string) => ReturnType<typeof getSourceObservationDetail>;
@@ -3493,9 +3496,14 @@ function integrationScopeTelemetryRef(scope: SourceObservationIntegrationJobScop
 }
 
 function promotionScopeTelemetryRef(scope: SourceObservationFilterScope): string | null {
-  const segments = [scope.provider, scope.language, scope.setId, scope.status].filter((segment): segment is string =>
-    Boolean(segment),
-  );
+  const segments = [
+    scope.provider,
+    scope.language,
+    scope.productLineId,
+    scope.seriesId,
+    scope.expansionId ?? scope.setId,
+    scope.status,
+  ].filter((segment): segment is string => Boolean(segment));
 
   return segments.length > 0 ? segments.join(":") : null;
 }
@@ -5462,6 +5470,9 @@ function integrationScopeToObservationScope(scope: SourceObservationIntegrationJ
   return {
     provider: scope.provider?.trim() || undefined,
     language: scope.language?.trim() || undefined,
+    productLineId: scope.productLineId?.trim() || undefined,
+    seriesId: scope.seriesId?.trim() || undefined,
+    expansionId: scope.setId?.trim() || undefined,
     setId: scope.setId?.trim() || undefined,
   };
 }

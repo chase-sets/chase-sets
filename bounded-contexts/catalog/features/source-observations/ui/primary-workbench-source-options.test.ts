@@ -38,6 +38,46 @@ describe("Catalog primary workbench source options", () => {
     });
   });
 
+  it("composes native TCGdex language-series-expansion scope parents without a product-line segment", () => {
+    const profile = profileReview({ active: true, lifecycle: "active" });
+    const requests = buildCatalogPrimaryWorkbenchSourceOptionRequests({
+      requestUrl: "https://admin.example/catalog/integrations?providerKey=tcgdex&importScope=ja:SV:SV8",
+      scopes: [],
+      profiles: [profile],
+      cacheOnly: true,
+    });
+
+    expect(requests.find((request) => request.queryKind === "series")).toMatchObject({
+      languageCode: "ja",
+      selectedParentValue: "ja",
+    });
+    expect(requests.find((request) => request.queryKind === "expansions")).toMatchObject({
+      languageCode: "ja",
+      parentValue: "SV",
+      selectedParentValue: "SV",
+    });
+  });
+
+  it("composes TCGplayer product-line option hierarchy from the same structured scope contract", () => {
+    const profile = profileReview({ providerKey: "tcgplayer", active: true, lifecycle: "active" });
+    const requests = buildCatalogPrimaryWorkbenchSourceOptionRequests({
+      requestUrl: "https://admin.example/catalog/integrations?providerKey=tcgplayer&importScope=en:3",
+      scopes: [],
+      profiles: [profile],
+      cacheOnly: true,
+    });
+
+    expect(requests.find((request) => request.queryKind === "product-lines")).toMatchObject({
+      languageCode: "en",
+      parentValue: null,
+    });
+    expect(requests.find((request) => request.queryKind === "set-names")).toMatchObject({
+      languageCode: "en",
+      parentValue: "3",
+      selectedParentValue: "3",
+    });
+  });
+
   it("composes TCGdex language, series, and expansion option pages with parent selections", () => {
     const profile = profileReview({ active: true, lifecycle: "active" });
     const scope = sourceObservationScope();
