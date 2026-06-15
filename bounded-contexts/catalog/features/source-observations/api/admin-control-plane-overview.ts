@@ -6,7 +6,9 @@ import type {
   CatalogIntegrationControlPlaneReadiness,
   CatalogIntegrationControlPlaneUnitReadiness,
   SourceObservationIntegrationJob,
+  SourceObservationIntegrationJobResult,
   SourceObservationIntegrationProfileSnapshot,
+  SourceObservationReapplyProfileMode,
 } from "./runtime";
 import type { CatalogProviderProfileVersionReview } from "./provider-profile-review";
 
@@ -40,6 +42,8 @@ export type CatalogIntegrationRecentJobSummary = Readonly<{
   importScope: string | null;
   profileVersion: string | null;
   profileSnapshot: CatalogAdminProfileVersionPointer | null;
+  reapplyProfileMode: SourceObservationReapplyProfileMode | null;
+  result: SourceObservationIntegrationJobResult | null;
   startedAt: string | null;
   createdAt: string;
   summary: string;
@@ -320,6 +324,8 @@ function jobSummary(
     importScope: importScopeForIntegrationJob(job.scope),
     profileVersion: job.profileSnapshot?.profileVersion ?? null,
     profileSnapshot: profileSnapshotPointer(job.profileSnapshot),
+    reapplyProfileMode: job.reapplyProfileMode,
+    result: job.result,
     startedAt: job.startedAt ?? null,
     createdAt: job.createdAt,
     summary: t("catalog.features.sourceObservations.api.adminControlPlaneOverview.job.summary", {

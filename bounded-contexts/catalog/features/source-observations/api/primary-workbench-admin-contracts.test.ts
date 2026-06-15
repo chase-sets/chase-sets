@@ -919,6 +919,17 @@ describe("Catalog primary workbench admin contracts", () => {
         selectedScope: {
           providerKey: "tcgdex",
           unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+          scope: {
+            providerKey: "tcgdex",
+            languageCode: null,
+            productLineId: null,
+            productLineName: null,
+            seriesId: null,
+            seriesName: null,
+            expansionId: null,
+            expansionName: null,
+            status: "changed",
+          },
           importScope: "changed",
           profileVersion: "2026.06.04",
           profileSnapshot,
@@ -971,6 +982,7 @@ describe("Catalog primary workbench admin contracts", () => {
             auditEvidenceUrl:
               "/catalog/integrations?section=evidence&providerKey=tcgdex&jobId=job_001&returnPath=%2Fcatalog%2Fintegrations%3FproviderKey%3Dtcgdex%26jobId%3Djob_001%26section%3Dworkbench",
             observationLinks: ["obs_001"],
+            result: null,
             blockers: [],
           },
         ],

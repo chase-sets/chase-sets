@@ -86,6 +86,9 @@ export type CatalogPrimaryWorkbenchBlockerCategory =
   | "rbac-missing"
   | "active-job-conflict"
   | "concurrent-job"
+  | "provider-selection-required"
+  | "unit-selection-required"
+  | "import-scope-required"
   | "missing-active-profile"
   | "profile-version-missing"
   | "profile-section-read-only"
@@ -1414,6 +1417,7 @@ export type CatalogPrimaryWorkbenchImportJobsReadModel = Readonly<{
   selectedScope: Readonly<{
     providerKey: string;
     unitKey: CatalogIntegrationUnitKey | null;
+    scope: CatalogPrimaryWorkbenchScopeContext;
     importScope: string;
     profileVersion: string | null;
     profileSnapshot: CatalogAdminProfileVersionPointer | null;
@@ -1460,6 +1464,20 @@ export type CatalogPrimaryWorkbenchImportJobsReadModel = Readonly<{
     sourceObservationReviewHref: string;
     auditEvidenceUrl: string;
     observationLinks: readonly string[];
+    result: Readonly<{
+      requestedScope: CatalogPrimaryWorkbenchScopeContext;
+      requestedCount: number;
+      importedSetCount: number;
+      observedCount: number;
+      reappliedCount: number;
+      skippedCount: number;
+      failedCount: number;
+      replayOrReapplyState:
+        | "not-applicable"
+        | "reapply-current-active-profile"
+        | "replay-original-source-profile"
+        | "unknown";
+    }> | null;
     blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
   }>[];
 }>;
@@ -1918,6 +1936,9 @@ export const catalogPrimaryWorkbenchActions = [
       "rollout-disabled",
       "kill-switch-active",
       "rbac-missing",
+      "provider-selection-required",
+      "unit-selection-required",
+      "import-scope-required",
       "missing-active-profile",
       "missing-fixture-coverage",
       "provider-credential-missing",
@@ -2141,6 +2162,9 @@ export const catalogPrimaryWorkbenchBlockers = [
   blocker("rbac-missing", ["denied"], "catalog.primary.import.denied"),
   blocker("active-job-conflict", ["blocked"], "catalog.primary.import.blocked"),
   blocker("concurrent-job", ["blocked"], "catalog.primary.import.blocked"),
+  blocker("provider-selection-required", ["blocked"], "catalog.primary.providerScope.required"),
+  blocker("unit-selection-required", ["blocked"], "catalog.primary.providerScope.required"),
+  blocker("import-scope-required", ["blocked"], "catalog.primary.providerScope.required"),
   blocker("missing-active-profile", ["blocked"], "catalog.primary.providerScope.required"),
   blocker("profile-version-missing", ["blocked"], "catalog.primary.reapply.originalProfileMissing"),
   blocker("profile-section-read-only", ["blocked"], "catalog.primary.import.blocked"),

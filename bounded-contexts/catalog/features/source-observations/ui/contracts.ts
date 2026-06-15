@@ -256,6 +256,8 @@ export interface CatalogIntegrationRecentJobSummary {
   importScope: string | null;
   profileVersion: string | null;
   profileSnapshot: CatalogAdminProfileVersionPointer | null;
+  reapplyProfileMode: SourceObservationReapplyProfileMode | null;
+  result: SourceObservationIntegrationJobResult | null;
   startedAt: string | null;
   createdAt: string;
   summary: string;
@@ -679,6 +681,7 @@ export interface BulkSourceObservationReapplyResult {
 }
 
 export type SourceObservationIntegrationJobAction = "import" | "reapply";
+export type SourceObservationReapplyProfileMode = "original-source-profile" | "current-active-profile";
 export type SourceObservationIntegrationJobPhase =
   | "enqueued"
   | "fetching"

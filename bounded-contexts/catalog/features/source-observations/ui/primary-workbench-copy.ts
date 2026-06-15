@@ -69,9 +69,16 @@ export type CatalogPrimaryWorkbenchGlossaryTerm = Readonly<{
 }>;
 
 const catalogPrimaryWorkbenchCopyLabels = {
+  providerSelectionRequired: t(
+    "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.provider.selection.required",
+  ),
   providerContextRequired: t(
     "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.provider.context.required",
   ),
+  unitSelectionRequired: t(
+    "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.unit.selection.required",
+  ),
+  importScopeRequired: t("catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.import.scope.required"),
   providerPullBlocked: t("catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.provider.pull.blocked"),
   providerPullDenied: t("catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.provider.pull.denied"),
   importCompletedWithPartialData: t(
@@ -410,6 +417,27 @@ export const catalogPrimaryWorkbenchBlockerCopy = {
     nextStep: "Open governance controls and add the required role before retrying.",
     supportTarget: "governance-controls",
     group: "permission",
+  }),
+  "provider-selection-required": copy({
+    label: catalogPrimaryWorkbenchCopyLabels.providerSelectionRequired,
+    reason: "Provider import needs a provider selection before it can pull source data.",
+    nextStep: "Choose a provider from the source scope controls, then retry the pull.",
+    supportTarget: "import-to-promotion",
+    group: "readiness",
+  }),
+  "unit-selection-required": copy({
+    label: catalogPrimaryWorkbenchCopyLabels.unitSelectionRequired,
+    reason: "Provider import needs a source ingestion unit before it can pull source data.",
+    nextStep: "Choose the provider unit for this source workflow, then retry the pull.",
+    supportTarget: "import-to-promotion",
+    group: "readiness",
+  }),
+  "import-scope-required": copy({
+    label: catalogPrimaryWorkbenchCopyLabels.importScopeRequired,
+    reason: "Provider import needs a concrete language, series, or set scope before it can pull source data.",
+    nextStep: "Choose source options until the selected scope names the data to sync, then retry the pull.",
+    supportTarget: "import-to-promotion",
+    group: "readiness",
   }),
   "active-job-conflict": copy({
     label: catalogPrimaryWorkbenchCopyLabels.importAlreadyRunning,

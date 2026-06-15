@@ -36,6 +36,13 @@ describe("Catalog primary workbench read model - import jobs", () => {
       providerKey: "tcgdex",
       unitKey: "tcgdex:pokemon:card:import",
       importScope: "en:3:base:base1",
+      scope: {
+        providerKey: "tcgdex",
+        languageCode: "en",
+        productLineId: "3",
+        seriesId: "base",
+        expansionId: "base1",
+      },
       profileVersion: "2026.06.04",
       expectedObservationVolume: 142,
       changedCount: 24,
@@ -63,6 +70,61 @@ describe("Catalog primary workbench read model - import jobs", () => {
     expect(readModel.actions.find((action) => action.key === "start-provider-import")).toMatchObject({
       state: "blocked",
       blockers: ["active-job-conflict"],
+    });
+  });
+
+  it("reports completed job result counts for the selected scope", () => {
+    const baseOverview = controlPlaneOverview();
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: controlPlaneOverview({
+        unitActivity: {
+          ...baseOverview.unitActivity,
+          units: [
+            {
+              unitKey: "tcgdex:pokemon:card:import",
+              recentJobs: [
+                integrationJobSummary({
+                  phase: "completed",
+                  operatorStatus: "completed",
+                  completed: 3,
+                  total: 3,
+                  result: {
+                    requested: 3,
+                    imported: 1,
+                    observed: 142,
+                    reapplied: 0,
+                    skipped: 1,
+                    failed: 1,
+                    outcomes: [],
+                  },
+                }),
+              ],
+            },
+          ],
+        },
+      }),
+      canManageCatalog: true,
+    });
+
+    expect(readModel.importJobs.jobs[0]?.result).toMatchObject({
+      requestedScope: {
+        providerKey: "tcgdex",
+        languageCode: "en",
+        productLineId: "3",
+        seriesId: "base",
+        expansionId: "base1",
+      },
+      requestedCount: 3,
+      importedSetCount: 1,
+      observedCount: 142,
+      reappliedCount: 0,
+      skippedCount: 1,
+      failedCount: 1,
+      replayOrReapplyState: "not-applicable",
     });
   });
 

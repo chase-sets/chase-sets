@@ -402,6 +402,8 @@ export function integrationJobSummary(
       connectorSourceVersion: null,
       sourceMappingFingerprint: "sha256:mapping",
     },
+    reapplyProfileMode: null,
+    result: null,
     startedAt: "2026-06-09T01:00:00.000Z",
     createdAt: "2026-06-09T00:59:00.000Z",
     summary: t("catalog.features.sourceObservations.api.adminControlPlaneOverview.job.summary", {
