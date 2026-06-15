@@ -47,6 +47,7 @@ This is a greenfield codebase, so local development environments should reset/bo
 - [Checkout Session Projection Performance](./docs/checkout-session-projection-performance.md): guest Buy Now freshness path, session read-model indexes, projection transaction behavior, and platform freshness gates.
 - [Checkout Observability Contract](./docs/checkout-observability-contract.md): redacted telemetry profiles consumed by checkout observability code.
 - [Guest Buy Now Freshness Verification](./docs/guest-buy-now-freshness-verification.md): signed-out Buy Now freshness contract, test/canary states, fixture ownership, and no-payment/no-order side-effect rules.
+- [Optimistic With Correction](./docs/optimistic-with-correction.md): account-control correction rules for immediate Checkout UI updates such as Buy Cart quantity.
 
 ## Buy Cart Readiness
 

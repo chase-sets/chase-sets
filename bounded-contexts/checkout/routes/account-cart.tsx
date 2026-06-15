@@ -102,10 +102,19 @@ export async function action({ request }: ActionFunctionArgs) {
       const lineIds = cartLineIdsFromForm(formData);
       const [primaryLineId, ...duplicateLineIds] = lineIds;
 
+      const absoluteQuantity = Number(formData.get("quantity") ?? NaN);
+      const usesOptimisticCorrection =
+        formData.get("optimisticStrategy") === "optimistic-with-correction" &&
+        String(formData.get("correctionSource") ?? "").startsWith("fresh-read:");
       const enteredQuantity = Number(formData.get("quantity") ?? 1);
       const quantityDelta = Number(formData.get("quantityDelta") ?? 0);
       const safeEnteredQuantity = Number.isFinite(enteredQuantity) ? enteredQuantity : 1;
-      const nextQuantity = Math.max(1, safeEnteredQuantity + (Number.isFinite(quantityDelta) ? quantityDelta : 0));
+      const nextQuantity = Math.max(
+        1,
+        usesOptimisticCorrection && Number.isFinite(absoluteQuantity)
+          ? absoluteQuantity
+          : safeEnteredQuantity + (Number.isFinite(quantityDelta) ? quantityDelta : 0),
+      );
 
       if (!useAccountCart && anonymousCartId) {
         const results = await Promise.all([

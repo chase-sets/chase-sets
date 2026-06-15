@@ -259,6 +259,47 @@
       }
     }
   ],
+  "mutationConsistencyInventory": [
+    {
+      "id": "checkout.cart-quantity-optimistic-correction",
+      "owner": "checkout",
+      "risk": "important",
+      "strategy": "optimistic-with-correction",
+      "surfaces": [
+        "fetcher-submit:bounded-contexts/checkout/features/cart/ui/cart-page.tsx:H7f1ccc11975d#1",
+        "route-action:bounded-contexts/checkout/routes/account-cart.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "account-cart",
+        "description": "Buy Cart quantity controls update visible quantity, line total, subtotal, and cart count immediately, then reconcile to the authoritative cart loader state."
+      },
+      "proof": {
+        "correction": "The control submits absolute target quantities with optimisticStrategy=optimistic-with-correction and correctionSource=fresh-read:loader-revalidation; per-line writes are serialized and coalesced, fresh loader quantity clears the optimistic override, and route-owned errors roll back to loader truth.",
+        "tests": [
+          "bounded-contexts/checkout/features/cart/ui/optimistic-correction.test.tsx",
+          "bounded-contexts/checkout/features/cart/ui/cart-page.test.tsx",
+          "bounded-contexts/checkout/routes/account-cart-route.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "checkout.cart-non-quantity-form-migration",
+      "owner": "checkout",
+      "risk": "important",
+      "strategy": "migration",
+      "surfaces": [
+        "post-form:bounded-contexts/checkout/features/cart/ui/cart-page.tsx:H2df726441e2a#2",
+        "post-form:bounded-contexts/checkout/features/cart/ui/cart-page.tsx:H2df726441e2a#3",
+        "post-form:bounded-contexts/checkout/features/cart/ui/cart-page.tsx:H2df726441e2a#4"
+      ],
+      "exception": {
+        "owner": "checkout",
+        "issue": "#1809",
+        "reviewBy": "2026-07-31",
+        "reason": "Lock listing, remove line, and checkout-readiness forms were reclassified only because the cart page split nested forms while preserving existing behavior; full non-quantity cart mutation strategy audit remains in the #1809 baseline."
+      }
+    }
+  ],
   "deployableContributions": [
     {
       "deployable": "marketplace-web",

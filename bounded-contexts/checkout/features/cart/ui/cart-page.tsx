@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useFetcher } from "react-router";
 import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
 import {
   HiddenInput,
@@ -34,9 +35,12 @@ import {
   type CartReadinessSnapshot,
 } from "../domain/readiness";
 import type { CheckoutCartLine } from "./contracts";
+import { useOptimisticCorrection } from "./optimistic-correction";
 
 type CheckoutCartLineGroup = CheckoutCartLine & {
+  groupKey: string;
   lineIds: readonly string[];
+  sourceQuantity: number;
 };
 
 const CART_ITEM_FALLBACK_IMAGE_URL = "/fake-cdn/assets/pokemon-card-back.png";
@@ -62,7 +66,9 @@ function groupCartLines(cartLines: readonly CheckoutCartLine[]): CheckoutCartLin
     if (!existing) {
       grouped.set(key, {
         ...line,
+        groupKey: key,
         lineIds: [line.line_id],
+        sourceQuantity: line.quantity,
       });
       continue;
     }
@@ -70,6 +76,7 @@ function groupCartLines(cartLines: readonly CheckoutCartLine[]): CheckoutCartLin
     grouped.set(key, {
       ...existing,
       quantity: existing.quantity + line.quantity,
+      sourceQuantity: existing.sourceQuantity + line.quantity,
       lineIds: [...existing.lineIds, line.line_id],
       seller_options: mergeSellerOptions(existing.seller_options, line.seller_options),
       updated_at:
@@ -140,6 +147,13 @@ function linePriceLabel(line: CheckoutCartLineGroup) {
   }
 
   return formatMoney(unitPrice * line.quantity);
+}
+
+function lineWithQuantity(line: CheckoutCartLineGroup, quantity: number): CheckoutCartLineGroup {
+  return {
+    ...line,
+    quantity,
+  };
 }
 
 function marketRecoveryHref(itemTitle: string) {
@@ -244,25 +258,125 @@ function ProductImage({ line }: { line: CheckoutCartLineGroup }) {
   );
 }
 
-function QuantityControls({ line }: { line: CheckoutCartLineGroup }) {
+function CartLineHiddenFields({ line }: { line: CheckoutCartLineGroup }) {
   return (
-    <Stack gap={2}>
-      <NumberInput
-        label={t("checkout.features.cart.ui.cartPage.quantity")}
-        name="quantity"
-        min="1"
-        defaultValue={String(line.quantity)}
-        required
-      />
-      <Inline gap={2} wrap={false}>
-        <Button type="submit" size="sm" tone="secondary" name="quantityDelta" value="-1" leadingIcon="minus">
-          {t("checkout.features.cart.ui.cartPage.decrease")}
+    <>
+      {line.lineIds.map((lineId) => (
+        <HiddenInput key={lineId} type="hidden" name="lineId" value={lineId} />
+      ))}
+      <HiddenInput type="hidden" name="sellerPreferenceId" value={line.seller_preference_id ?? ""} />
+    </>
+  );
+}
+
+function QuantityControls({
+  line,
+  onQuantityChange,
+}: {
+  line: CheckoutCartLineGroup;
+  onQuantityChange: (groupKey: string, quantity: number) => void;
+}) {
+  const fetcher = useFetcher<{ error?: string }>();
+  const correction = useOptimisticCorrection({
+    resourceKey: line.groupKey,
+    sourceValue: line.sourceQuantity,
+    correctionSource: "loader-revalidation",
+    submitting: fetcher.state !== "idle",
+    rejected: Boolean(fetcher.data?.error),
+    submit: ({ value, sequence, correctionSource }) => {
+      const formData = new FormData();
+      formData.set("intent", "update-cart-line");
+      for (const lineId of line.lineIds) {
+        formData.append("lineId", lineId);
+      }
+      formData.set("sellerPreferenceId", line.seller_preference_id ?? "");
+      formData.set("quantity", String(value));
+      formData.set("optimisticSequence", String(sequence));
+      formData.set("optimisticStrategy", "optimistic-with-correction");
+      formData.set("correctionSource", `fresh-read:${correctionSource}`);
+      fetcher.submit(formData, { method: "post", action: "/account/cart" });
+    },
+  });
+  const safeQuantity = Math.max(1, Number(correction.value) || 1);
+  const [draftQuantity, setDraftQuantity] = useState(safeQuantity);
+  const pending = correction.status === "pending";
+
+  useEffect(() => {
+    onQuantityChange(line.groupKey, safeQuantity);
+  }, [line.groupKey, onQuantityChange, safeQuantity]);
+
+  useEffect(() => {
+    setDraftQuantity(safeQuantity);
+  }, [safeQuantity]);
+
+  function setQuantity(nextQuantity: number) {
+    const quantity = Math.max(1, nextQuantity);
+    setDraftQuantity(quantity);
+    correction.setOptimisticValue(quantity);
+  }
+
+  return (
+    <Form
+      spacing="none"
+      method="post"
+      data-optimistic-strategy="optimistic-with-correction"
+      data-correction-source="fresh-read:loader-revalidation"
+      data-optimistic-resource={line.lineIds.join(":")}
+      data-optimistic-status={correction.status}
+      onSubmit={(event) => {
+        event.preventDefault();
+        const formData = new FormData(event.currentTarget);
+        const enteredQuantity = Number(formData.get("quantity") ?? safeQuantity);
+        setQuantity(Number.isFinite(enteredQuantity) ? enteredQuantity : safeQuantity);
+      }}
+    >
+      <HiddenInput type="hidden" name="intent" value="update-cart-line" />
+      <CartLineHiddenFields line={line} />
+      <Stack gap={2}>
+        <NumberInput
+          label={t("checkout.features.cart.ui.cartPage.quantity")}
+          name="quantity"
+          min="1"
+          value={String(draftQuantity)}
+          onChange={(event) => {
+            const enteredQuantity = Number(event.currentTarget.value);
+            if (Number.isFinite(enteredQuantity) && enteredQuantity >= 1) {
+              setDraftQuantity(enteredQuantity);
+            }
+          }}
+          required
+        />
+        <Inline gap={2} wrap={false}>
+          <Button
+            type="button"
+            size="sm"
+            tone="secondary"
+            name="quantityDelta"
+            value="-1"
+            leadingIcon="minus"
+            aria-busy={pending || undefined}
+            onClick={() => setQuantity(safeQuantity - 1)}
+          >
+            {t("checkout.features.cart.ui.cartPage.decrease")}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            tone="secondary"
+            name="quantityDelta"
+            value="1"
+            leadingIcon="plus"
+            aria-busy={pending || undefined}
+            onClick={() => setQuantity(safeQuantity + 1)}
+          >
+            {t("checkout.features.cart.ui.cartPage.increase")}
+          </Button>
+        </Inline>
+        <Button type="submit" size="sm" tone="secondary" leadingIcon="check" loading={pending} block>
+          {t("checkout.features.cart.ui.cartPage.update")}
         </Button>
-        <Button type="submit" size="sm" tone="secondary" name="quantityDelta" value="1" leadingIcon="plus">
-          {t("checkout.features.cart.ui.cartPage.increase")}
-        </Button>
-      </Inline>
-    </Stack>
+      </Stack>
+    </Form>
   );
 }
 
@@ -270,16 +384,21 @@ function CartLineActions({ line }: { line: CheckoutCartLineGroup }) {
   return (
     <Stack gap={2}>
       {line.seller_preference_id && line.fulfillment_mode !== "locked-listing" ? (
-        <Button type="submit" size="md" name="intent" value="lock-preferred-listing" tone="secondary" block>
-          {t("checkout.features.cart.ui.cartPage.lock.this.listing")}
-        </Button>
+        <Form spacing="none" method="post">
+          <HiddenInput type="hidden" name="intent" value="lock-preferred-listing" />
+          <CartLineHiddenFields line={line} />
+          <Button type="submit" size="md" tone="secondary" block>
+            {t("checkout.features.cart.ui.cartPage.lock.this.listing")}
+          </Button>
+        </Form>
       ) : null}
-      <Button type="submit" size="md" tone="secondary" leadingIcon="check" block>
-        {t("checkout.features.cart.ui.cartPage.update")}
-      </Button>
-      <Button type="submit" size="md" name="intent" value="remove-cart-line" tone="danger" leadingIcon="trash" block>
-        {t("checkout.features.cart.ui.cartPage.remove")}
-      </Button>
+      <Form spacing="none" method="post">
+        <HiddenInput type="hidden" name="intent" value="remove-cart-line" />
+        <CartLineHiddenFields line={line} />
+        <Button type="submit" size="md" tone="danger" leadingIcon="trash" block>
+          {t("checkout.features.cart.ui.cartPage.remove")}
+        </Button>
+      </Form>
       {!hasFulfillmentPath(line) ? (
         <LinkButton href={marketRecoveryHref(line.item_title)} tone="secondary" size="md" block>
           {t("checkout.features.cart.ui.cartPage.find.alternatives")}
@@ -289,34 +408,20 @@ function CartLineActions({ line }: { line: CheckoutCartLineGroup }) {
   );
 }
 
-function CartLineRow({ line }: { line: CheckoutCartLineGroup }) {
+function CartLineRow({
+  line,
+  onQuantityChange,
+}: {
+  line: CheckoutCartLineGroup;
+  onQuantityChange: (groupKey: string, quantity: number) => void;
+}) {
   return (
-    <Form spacing="none" key={line.line_id} method="post">
-      <HiddenInput type="hidden" name="intent" value="update-cart-line" />
-      {line.lineIds.map((lineId) => (
-        <HiddenInput key={lineId} type="hidden" name="lineId" value={lineId} />
-      ))}
-      <HiddenInput type="hidden" name="sellerPreferenceId" value={line.seller_preference_id ?? ""} />
-      <Surface element="article" tone="default" padding={4}>
-        <Grid templateColumns="auto minmax(0,1fr) minmax(10rem,12rem) minmax(9rem,11rem)" stackUntil="md" gap={4}>
-          <Stack direction="row" gap={3} minWidth="0">
-            <ProductImage line={line} />
-            <Show until="md" minWidth="0">
-              <Stack gap={1}>
-                <Text weight="semibold" wrap="anywhere">
-                  {line.item_title}
-                </Text>
-                {line.item_subtitle ? (
-                  <Text size="sm" tone="secondary" wrap="anywhere">
-                    {line.item_subtitle}
-                  </Text>
-                ) : null}
-                <Text weight="semibold">{linePriceLabel(line)}</Text>
-              </Stack>
-            </Show>
-          </Stack>
-          <Stack gap={2}>
-            <Show from="md" minWidth="0">
+    <Surface element="article" tone="default" padding={4}>
+      <Grid templateColumns="auto minmax(0,1fr) minmax(10rem,12rem) minmax(9rem,11rem)" stackUntil="md" gap={4}>
+        <Stack direction="row" gap={3} minWidth="0">
+          <ProductImage line={line} />
+          <Show until="md" minWidth="0">
+            <Stack gap={1}>
               <Text weight="semibold" wrap="anywhere">
                 {line.item_title}
               </Text>
@@ -325,34 +430,47 @@ function CartLineRow({ line }: { line: CheckoutCartLineGroup }) {
                   {line.item_subtitle}
                 </Text>
               ) : null}
-            </Show>
-            <Inline gap={2}>
-              {line.item_language_code ? (
-                <Badge tone="neutral">{formatLanguageCodeLabel(line.item_language_code)}</Badge>
-              ) : null}
-              <Badge tone={readinessTone(line)}>{readinessLabel(line)}</Badge>
-            </Inline>
-            {renderLineOptions(line)}
-            <ListingPreferenceStatus line={line} />
-            {!hasFulfillmentPath(line) ? (
+              <Text weight="semibold">{linePriceLabel(line)}</Text>
+            </Stack>
+          </Show>
+        </Stack>
+        <Stack gap={2}>
+          <Show from="md" minWidth="0">
+            <Text weight="semibold" wrap="anywhere">
+              {line.item_title}
+            </Text>
+            {line.item_subtitle ? (
               <Text size="sm" tone="secondary">
-                {t("checkout.features.cart.ui.cartPage.resolve.before.checkout")}
+                {line.item_subtitle}
               </Text>
             ) : null}
-          </Stack>
-          <QuantityControls line={line} />
-          <Stack gap={3}>
-            <Show from="md">
-              <Text size="sm" tone="secondary">
-                {t("checkout.features.cart.ui.cartPage.total")}
-              </Text>
-              <Text weight="semibold">{linePriceLabel(line)}</Text>
-            </Show>
-            <CartLineActions line={line} />
-          </Stack>
-        </Grid>
-      </Surface>
-    </Form>
+          </Show>
+          <Inline gap={2}>
+            {line.item_language_code ? (
+              <Badge tone="neutral">{formatLanguageCodeLabel(line.item_language_code)}</Badge>
+            ) : null}
+            <Badge tone={readinessTone(line)}>{readinessLabel(line)}</Badge>
+          </Inline>
+          {renderLineOptions(line)}
+          <ListingPreferenceStatus line={line} />
+          {!hasFulfillmentPath(line) ? (
+            <Text size="sm" tone="secondary">
+              {t("checkout.features.cart.ui.cartPage.resolve.before.checkout")}
+            </Text>
+          ) : null}
+        </Stack>
+        <QuantityControls line={line} onQuantityChange={onQuantityChange} />
+        <Stack gap={3}>
+          <Show from="md">
+            <Text size="sm" tone="secondary">
+              {t("checkout.features.cart.ui.cartPage.total")}
+            </Text>
+            <Text weight="semibold">{linePriceLabel(line)}</Text>
+          </Show>
+          <CartLineActions line={line} />
+        </Stack>
+      </Grid>
+    </Surface>
   );
 }
 
@@ -449,7 +567,60 @@ export function CheckoutCartPage({
   cartLines: readonly CheckoutCartLine[];
   errorMessage?: string | null;
 }) {
-  const cartLineGroups = groupCartLines(cartLines);
+  const sourceCartLineGroups = useMemo(() => groupCartLines(cartLines), [cartLines]);
+  const [optimisticQuantities, setOptimisticQuantities] = useState<Record<string, number>>({});
+  const previousSourceQuantitiesRef = useRef<Record<string, number>>({});
+  const onQuantityChange = useMemo(
+    () => (groupKey: string, quantity: number) => {
+      setOptimisticQuantities((current) =>
+        current[groupKey] === quantity
+          ? current
+          : {
+              ...current,
+              [groupKey]: quantity,
+            },
+      );
+    },
+    [],
+  );
+  const cartLineGroups = useMemo(
+    () =>
+      sourceCartLineGroups.map((line) =>
+        lineWithQuantity(line, Math.max(1, optimisticQuantities[line.groupKey] ?? line.quantity)),
+      ),
+    [optimisticQuantities, sourceCartLineGroups],
+  );
+
+  useEffect(() => {
+    setOptimisticQuantities((current) => {
+      const next: Record<string, number> = {};
+      let changed = false;
+      const sourceKeys = new Set(sourceCartLineGroups.map((line) => line.groupKey));
+      const previousSourceQuantities = previousSourceQuantitiesRef.current;
+
+      for (const line of sourceCartLineGroups) {
+        const sourceChanged =
+          previousSourceQuantities[line.groupKey] !== undefined &&
+          previousSourceQuantities[line.groupKey] !== line.sourceQuantity;
+        if (!sourceChanged && current[line.groupKey] !== undefined && current[line.groupKey] !== line.quantity) {
+          next[line.groupKey] = current[line.groupKey]!;
+        }
+      }
+
+      for (const key of Object.keys(current)) {
+        if (!sourceKeys.has(key)) {
+          changed = true;
+        } else if (current[key] !== next[key] && next[key] === undefined) {
+          changed = true;
+        }
+      }
+
+      return changed ? next : current;
+    });
+    previousSourceQuantitiesRef.current = Object.fromEntries(
+      sourceCartLineGroups.map((line) => [line.groupKey, line.sourceQuantity]),
+    );
+  }, [sourceCartLineGroups]);
   const cartLineCount = cartLineGroups.reduce((sum, line) => sum + line.quantity, 0);
   const estimatedSubtotal = estimateCartSubtotal(cartLineGroups);
   const pricedLineCount = cartLineGroups.filter(hasKnownLinePrice).length;
@@ -534,7 +705,7 @@ export function CheckoutCartPage({
             />
           ) : null}
           {cartLineGroups.map((line) => (
-            <CartLineRow key={line.line_id} line={line} />
+            <CartLineRow key={line.line_id} line={line} onQuantityChange={onQuantityChange} />
           ))}
         </Stack>
       )}

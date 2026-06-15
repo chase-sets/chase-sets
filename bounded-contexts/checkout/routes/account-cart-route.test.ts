@@ -16,11 +16,13 @@ import {
   mockGetGuestCart,
   MockMarketplaceApiError,
   mockRemoveCartLine,
+  mockRemoveGuestCartLine,
   mockRequireActorFromAuthApi,
   mockResolveActorFromAuthApi,
   mockUpdateCartLineFulfillment,
   mockUpdateCartLineQuantity,
   mockUpdateGuestCartLineFulfillment,
+  mockUpdateGuestCartLineQuantity,
 } from "../tests/support/checkout-route-test-harness";
 
 vi.mock("@chase-sets/platform-runtime/auth", async () => {
@@ -228,6 +230,76 @@ describe("checkout web routes: account cart", () => {
       commitPosition: "44",
       sources: [{ sourceContextName: "checkout", maxGlobalPosition: "44", eventIds: ["evt_duplicate_removed"] }],
     });
+  });
+
+  it("uses absolute optimistic quantity for signed-in grouped cart updates", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["checkout.manage"] });
+    mockUpdateCartLineQuantity.mockResolvedValue(checkoutCommit("48", "evt_quantity"));
+    mockRemoveCartLine.mockResolvedValue(checkoutCommit("49", "evt_duplicate_removed"));
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      updateCartLineQuantity: mockUpdateCartLineQuantity,
+      removeCartLine: mockRemoveCartLine,
+    });
+
+    const form = new URLSearchParams();
+    form.append("lineId", "cli_primary");
+    form.append("lineId", "cli_duplicate");
+    form.set("quantity", "5");
+    form.set("quantityDelta", "-1");
+    form.set("optimisticStrategy", "optimistic-with-correction");
+    form.set("correctionSource", "fresh-read:loader-revalidation");
+    form.set("optimisticSequence", "3");
+    form.set("intent", "update-cart-line");
+
+    const response = (await accountCartAction({
+      request: new Request("http://localhost/account/cart", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never)) as Response;
+
+    expect(mockUpdateCartLineQuantity).toHaveBeenCalledWith("cli_primary", { quantity: 5 });
+    expect(mockRemoveCartLine).toHaveBeenCalledWith("cli_duplicate");
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toContain("/account/cart?afterWrite=");
+  });
+
+  it("uses absolute optimistic quantity for guest cart updates", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(guestCheckoutActor());
+    mockUpdateGuestCartLineQuantity.mockResolvedValue(checkoutCommit("50", "evt_guest_quantity"));
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      updateGuestCartLineQuantity: mockUpdateGuestCartLineQuantity,
+      removeGuestCartLine: mockRemoveGuestCartLine,
+    });
+
+    const form = new URLSearchParams();
+    form.append("lineId", "cli_guest");
+    form.set("quantity", "4");
+    form.set("optimisticStrategy", "optimistic-with-correction");
+    form.set("correctionSource", "fresh-read:loader-revalidation");
+    form.set("optimisticSequence", "2");
+    form.set("intent", "update-cart-line");
+
+    const response = (await accountCartAction({
+      request: new Request("http://localhost/account/cart", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          cookie: "chase_sets_anonymous_cart=anon_cart_1",
+        },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never)) as Response;
+
+    expect(mockUpdateGuestCartLineQuantity).toHaveBeenCalledWith("anon_cart_1", "cli_guest", { quantity: 4 });
+    expect(mockRemoveGuestCartLine).not.toHaveBeenCalled();
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toContain("/account/cart?afterWrite=");
   });
 
   it("locks preferred listing fulfillment for signed-in grouped cart lines", async () => {
