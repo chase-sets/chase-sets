@@ -471,6 +471,26 @@ describe("Catalog primary workbench admin contracts", () => {
       connectorSourceVersion: null,
       sourceMappingFingerprint: "sha256:mapping",
     } as const;
+    const savedFilters: CatalogPrimaryWorkbenchReadModel["sourceObservationReview"]["savedFilters"] = [
+      {
+        key: "ready-for-promotion",
+        label: "Eligible for promotion",
+        filters: { providerKey: "tcgdex" },
+        count: 1,
+      },
+      {
+        key: "new-observations",
+        label: "New observations",
+        filters: { providerKey: "tcgdex", status: "observed" },
+        count: 2,
+      },
+      {
+        key: "changed-since-last-pull",
+        label: "Changed observations",
+        filters: { providerKey: "tcgdex", status: "changed" },
+        count: 1,
+      },
+    ];
     const readModel = {
       schemaVersion: catalogPrimaryWorkbenchContractVersion,
       generatedAt: "2026-06-09T00:00:00.000Z",
@@ -871,14 +891,7 @@ describe("Catalog primary workbench admin contracts", () => {
           { key: "providerKey", label: "Provider", value: "tcgdex", serverApplied: true },
           { key: "status", label: "Status", value: "changed", serverApplied: true },
         ],
-        savedFilters: [
-          {
-            key: "ready-for-promotion",
-            label: "Ready for promotion preview",
-            filters: { providerKey: "tcgdex", status: "changed" },
-            count: 1,
-          },
-        ],
+        savedFilters,
         pagination: {
           mode: "offset",
           limit: 25,

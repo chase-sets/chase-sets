@@ -487,6 +487,33 @@ describe("Catalog integrations route", () => {
     expect(result.feedback.result).toBe("preview-ready");
   });
 
+  it("previews the matching TCGdex scope without silently narrowing fresh observations out", async () => {
+    const previewBulkPromoteSourceObservations = vi.fn().mockResolvedValue({
+      matched: 124,
+      eligible: 124,
+      terminal: 0,
+      scope: { provider: "tcgdex", language: "en", setId: "base1", status: "", search: "" },
+    });
+    mockCreateCatalogRequestApiClient.mockReturnValue({ previewBulkPromoteSourceObservations });
+
+    const result = await runDailyAction({
+      _intent: "preview-promotion",
+      providerKey: "tcgdex",
+      unitKey: "tcgdex:pokemon:card:import",
+      importScope: "en:3:base:base1",
+      profileVersion: "2026.06.04",
+    });
+
+    expect(previewBulkPromoteSourceObservations).toHaveBeenCalledWith({
+      provider: "tcgdex",
+      language: "en",
+      setId: "base1",
+    });
+    expect(result.context.promotionPreviewId).toBe(
+      "preview-tcgdex_tcgdex_pokemon_card_import_en_3_base_base1_2026.06.04_en_base1_all_none_filtered-124-124",
+    );
+  });
+
   it("bridges profile draft creation through the typed provider profile clone API", async () => {
     const cloneSourceObservationProviderProfile = vi.fn().mockResolvedValue({
       providerKey: "tcgdex",
@@ -992,7 +1019,7 @@ describe("Catalog integrations route", () => {
       profileVersion: "2026.06.04",
       selectedObservationIds: "obs_001",
       promotionPreviewId:
-        "preview-tcgdex_tcgdex_pokemon_card_import_en_3_base_base1_2026.06.04_en_base1_changed_none_obs_001-1-1",
+        "preview-tcgdex_tcgdex_pokemon_card_import_en_3_base_base1_2026.06.04_en_base1_all_none_obs_001-1-1",
     });
 
     expect(previewBulkPromoteSourceObservationIds).toHaveBeenCalledWith(["obs_001"]);
@@ -1032,6 +1059,43 @@ describe("Catalog integrations route", () => {
     expect(result.context.promotionPreviewId).toBeNull();
     expect(result.feedback.status).toBe("error");
     expect(result.feedback.result).toBe("preview-required");
+  });
+
+  it("executes matching-filter promotion with the same explicit broad scope used for preview", async () => {
+    const previewBulkPromoteSourceObservations = vi.fn().mockResolvedValue({
+      matched: 124,
+      eligible: 124,
+      terminal: 0,
+      scope: { provider: "tcgdex", language: "en", setId: "base1", status: "", search: "" },
+    });
+    const bulkPromoteSourceObservationsByScope = vi.fn().mockResolvedValue({ jobId: "job_promote_scope" });
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      bulkPromoteSourceObservationsByScope,
+      previewBulkPromoteSourceObservations,
+    });
+
+    const result = await runDailyAction({
+      _intent: "execute-promotion",
+      providerKey: "tcgdex",
+      unitKey: "tcgdex:pokemon:card:import",
+      importScope: "en:3:base:base1",
+      profileVersion: "2026.06.04",
+      promotionPreviewId:
+        "preview-tcgdex_tcgdex_pokemon_card_import_en_3_base_base1_2026.06.04_en_base1_all_none_filtered-124-124",
+    });
+
+    expect(previewBulkPromoteSourceObservations).toHaveBeenCalledWith({
+      provider: "tcgdex",
+      language: "en",
+      setId: "base1",
+    });
+    expect(bulkPromoteSourceObservationsByScope).toHaveBeenCalledWith({
+      provider: "tcgdex",
+      language: "en",
+      setId: "base1",
+    });
+    expect(result.context.jobId).toBe("job_promote_scope");
+    expect(result.feedback.result).toBe("job-queued");
   });
 
   it("requires a rejection reason before enqueueing reject jobs", async () => {

@@ -71,6 +71,53 @@ describe("Catalog primary workbench read model - source observation review", () 
     expect(readModel.sourceObservationReview.rows[0]?.payloadSummary).not.toMatch(/raw JSON/i);
   });
 
+  it("distinguishes new, changed, and eligible promotion saved filters", () => {
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: null,
+      reviewObservations: {
+        items: [
+          sourceObservationListItem({ observation_id: "obs_new", status: "observed" }),
+          sourceObservationListItem({ observation_id: "obs_changed", status: "changed" }),
+        ],
+        total: 2,
+        count: 2,
+      },
+      reviewPagination: { limit: 25, offset: 0 },
+      canManageCatalog: true,
+    });
+
+    expect(readModel.sourceObservationReview.savedFilters).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "ready-for-promotion",
+          label: "Eligible for promotion",
+          filters: { providerKey: "tcgdex" },
+          count: 124,
+        }),
+        expect.objectContaining({
+          key: "new-observations",
+          label: "New observations",
+          filters: { providerKey: "tcgdex", status: "observed" },
+          count: 100,
+        }),
+        expect.objectContaining({
+          key: "changed-since-last-pull",
+          label: "Changed observations",
+          filters: { providerKey: "tcgdex", status: "changed" },
+          count: 24,
+        }),
+      ]),
+    );
+    expect(readModel.sourceObservationReview.rows.map((row) => row.promotionReadiness.state)).toEqual([
+      "eligible",
+      "eligible",
+    ]);
+  });
+
   it("models explicit-row promotion command scope with decision and profile semantics", () => {
     const readModel = buildCatalogPrimaryWorkbenchReadModel({
       requestUrl:

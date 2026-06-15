@@ -83,7 +83,7 @@ export function promotionScopeFromContext(context: RouteContext): SourceObservat
     provider: context.providerKey ?? undefined,
     language: context.sourceObservationFilters.language ?? parsedScope.language,
     setId: context.sourceObservationFilters.setId ?? parsedScope.setId,
-    status: context.sourceObservationFilters.status ?? "changed",
+    status: context.sourceObservationFilters.status,
     search: context.sourceObservationFilters.search,
   });
 }
