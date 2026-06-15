@@ -203,7 +203,7 @@
           ]
         },
         {
-          "routePath": "/",
+          "routePath": "/admin/postage-policies",
           "methods": ["GET", "HEAD"],
           "dependencies": [
             {
@@ -212,7 +212,7 @@
           ]
         },
         {
-          "routePath": "/:id",
+          "routePath": "/admin/postage-policies/:id",
           "methods": ["GET", "HEAD"],
           "dependencies": [
             {
@@ -278,7 +278,7 @@
       "destination": {
         "routeId": "ordering-postage-policies",
         "apiContextName": "ordering",
-        "apiRoutePath": "/",
+        "apiRoutePath": "/admin/postage-policies",
         "readModelTables": ["ordering_postage_policy_pages"],
         "transientRecovery": "Postage policy list forwards the create afterWrite receipt to Ordering so the new draft is present before the admin list renders."
       }
@@ -301,7 +301,7 @@
       "destination": {
         "routeId": "ordering-postage-policies-detail",
         "apiContextName": "ordering",
-        "apiRoutePath": "/:id",
+        "apiRoutePath": "/admin/postage-policies/:id",
         "readModelTables": ["ordering_postage_policy_pages", "ordering_postage_policy_history"],
         "helperUses": ["loadFreshlyWrittenResource"],
         "transientRecovery": "Postage policy detail forwards lifecycle afterWrite receipts to Ordering and retries fresh-write not-found while page and history projections catch up."
@@ -426,7 +426,7 @@
       "visibleDestination": {
         "routeId": "ordering-postage-policies",
         "apiContextName": "ordering",
-        "apiRoutePath": "/",
+        "apiRoutePath": "/admin/postage-policies",
         "readModelTables": ["ordering_postage_policy_pages"],
         "transientRecovery": "Create redirects back to the postage policy list with afterWrite, and the loader forwards that receipt so the list waits for the policy page projection."
       },
@@ -449,7 +449,7 @@
       "visibleDestination": {
         "routeId": "ordering-postage-policies-detail",
         "apiContextName": "ordering",
-        "apiRoutePath": "/:id",
+        "apiRoutePath": "/admin/postage-policies/:id",
         "readModelTables": ["ordering_postage_policy_pages", "ordering_postage_policy_history"],
         "transientRecovery": "Revise, activate, retire, and clone redirects include afterWrite; the detail loader forwards the receipt and retries fresh-write not-found while policy page and history projections catch up."
       },
