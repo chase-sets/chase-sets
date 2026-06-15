@@ -1,3 +1,4 @@
+import type { ActionFunctionArgs } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 import { decodeFreshWriteReceipt } from "@chase-sets/http/responses";
 import { action as accessAction } from "./sessions-detail";
@@ -34,6 +35,16 @@ function readReceipt(location: string) {
   return decodeFreshWriteReceipt(token);
 }
 
+function createActionArgs(request: Request, params: ActionFunctionArgs["params"], pattern: string): ActionFunctionArgs {
+  return {
+    request,
+    params,
+    context: {},
+    url: new URL(request.url),
+    pattern,
+  };
+}
+
 describe("session detail actions", () => {
   it("redirects access session revokes with the Auth command receipt", async () => {
     const revokeSession = vi.fn(async () => withCommandReceipt({ id: "ses_1", version: 3, status: "revoked" }));
@@ -42,14 +53,13 @@ describe("session detail actions", () => {
       switchSessionAccount: vi.fn(),
     });
 
-    const response = (await accessAction({
-      request: new Request("http://localhost/access/sessions/ses_1", {
-        method: "POST",
-        body: new URLSearchParams({ intent: "revoke" }),
-      }),
-      params: { id: "ses_1" },
-      context: {},
-    } as Parameters<typeof accessAction>[0])) as Response;
+    const request = new Request("http://localhost/access/sessions/ses_1", {
+      method: "POST",
+      body: new URLSearchParams({ intent: "revoke" }),
+    });
+    const response = (await accessAction(
+      createActionArgs(request, { id: "ses_1" }, "/access/sessions/:id"),
+    )) as Response;
 
     const location = response.headers.get("Location") ?? "";
     expect(response.status).toBe(302);
@@ -65,17 +75,16 @@ describe("session detail actions", () => {
       switchSessionAccount,
     });
 
-    const response = (await marketplaceAction({
-      request: new Request("http://localhost/account/sessions/ses_2", {
-        method: "POST",
-        body: new URLSearchParams({
-          intent: "switch-account",
-          accountId: "acct_2",
-        }),
+    const request = new Request("http://localhost/account/sessions/ses_2", {
+      method: "POST",
+      body: new URLSearchParams({
+        intent: "switch-account",
+        accountId: "acct_2",
       }),
-      params: { id: "ses_2" },
-      context: {},
-    } as Parameters<typeof marketplaceAction>[0])) as Response;
+    });
+    const response = (await marketplaceAction(
+      createActionArgs(request, { id: "ses_2" }, "/account/sessions/:id"),
+    )) as Response;
 
     const location = response.headers.get("Location") ?? "";
     expect(response.status).toBe(302);
