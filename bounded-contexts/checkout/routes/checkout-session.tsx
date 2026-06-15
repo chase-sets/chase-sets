@@ -411,6 +411,10 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     isNotFound: (error) => error instanceof CheckoutApiError && error.status === 404,
     load: () => api.getCheckoutSession(params.sessionId!),
   }).catch((error) => {
+    if (error instanceof CheckoutApiError && error.status === 403 && actor?.roleKey === "guest-buyer") {
+      throw redirect("/checkout/buy/readiness");
+    }
+
     const recovery = checkoutRecoveryForFreshWriteError(error, actor, request, currentPathWithSearch(request));
     if (recovery) {
       throw createCheckoutRecoveryResponse(recovery);
