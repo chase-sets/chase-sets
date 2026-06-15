@@ -124,6 +124,16 @@ export type PricingRecommendationJobStatus = DurableJobPublicSnapshot<
   PricingRecommendationJobResult
 >;
 
+export type PricingRecommendationCommandSnapshot = Readonly<{
+  recommendationId: string;
+  accountId: string;
+  status: PricingRecommendationState["status"];
+  recommendedListAmount: number | null;
+  recommendationReason: string | null;
+  publishedAt: string | null;
+  version: number;
+}>;
+
 export function toPricingRecommendationJobStatus(job: PricingRecommendationJob): PricingRecommendationJobStatus {
   return toDurableJobPublicSnapshot(job);
 }
@@ -334,7 +344,7 @@ export type PricingRecommendationServices = Readonly<{
       publishedAt?: string;
     }>,
     context: EventStoreContext,
-  ) => Promise<{ recommendationId: string; version: number }>;
+  ) => Promise<PricingRecommendationCommandSnapshot>;
   listAccountRecommendations: (
     params: Parameters<typeof listAccountRecommendations>[1],
   ) => ReturnType<typeof listAccountRecommendations>;
@@ -700,7 +710,7 @@ export function createPricingRecommendationRuntime(
         context,
       });
 
-      return { recommendationId: params.recommendationId, version: result.version };
+      return pricingRecommendationCommandSnapshot(result.state, result.version);
     },
     refreshRecommendations,
     applyRecommendations,
@@ -1010,6 +1020,25 @@ function createPricingJobProgressCheckpoint(
     completed: (progress) => progress.completed,
     isTerminal: (progress) => progress.phase === "completed" || progress.phase === "failed",
   });
+}
+
+function pricingRecommendationCommandSnapshot(
+  state: PricingRecommendationState,
+  version: number,
+): PricingRecommendationCommandSnapshot {
+  if (!state.recommendationId || !state.sellerAccountId) {
+    throw new Error("Recommendation command did not produce a publishable snapshot.");
+  }
+
+  return {
+    recommendationId: state.recommendationId,
+    accountId: state.sellerAccountId,
+    status: state.status,
+    recommendedListAmount: state.recommendedListAmount,
+    recommendationReason: state.recommendationReason,
+    publishedAt: state.publishedAt,
+    version,
+  };
 }
 
 function listingIdForPricingRecommendation(recommendationId: string): string {

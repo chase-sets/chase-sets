@@ -36,6 +36,8 @@ export const pricingEnglishTranslations = {
   "pricing.features.recommendations.ui.recommendationListPage.import": "Import",
   "pricing.features.recommendations.ui.recommendationListPage.item": "Item",
   "pricing.features.recommendations.ui.recommendationListPage.items.with.feed.data": "Items with feed data",
+  "pricing.features.recommendations.ui.recommendationListPage.job.reconnecting":
+    "Pricing is reconnecting. Recommendation actions stay paused until the latest job status is confirmed.",
   "pricing.features.recommendations.ui.recommendationListPage.listings": "Listings",
   "pricing.features.recommendations.ui.recommendationListPage.lowest.active": "Lowest active: {amount}",
   "pricing.features.recommendations.ui.recommendationListPage.market": "Market",

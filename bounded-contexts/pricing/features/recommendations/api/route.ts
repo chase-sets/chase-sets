@@ -139,7 +139,7 @@ export function createAccountRecommendationRoutes(services: PricingRecommendatio
         },
         context,
       );
-      return c.json({ id: result.recommendationId, version: result.version });
+      return c.json({ id: result.recommendationId, version: result.version, recommendation: result });
     } catch (error) {
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }

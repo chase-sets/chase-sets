@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
-import { loader as repricingLoader } from "../routes/marketplace/account-repricing";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { action as repricingAction, loader as repricingLoader } from "../routes/marketplace/account-repricing";
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -9,6 +9,10 @@ function jsonResponse(body: unknown, status = 200) {
 }
 
 describe("marketplace repricing route", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("loads advisory pricing recommendations through the pricing API", async () => {
     const requestedUrls: string[] = [];
     vi.stubGlobal(
@@ -95,5 +99,157 @@ describe("marketplace repricing route", () => {
       ),
     ).toBe(true);
     expect(requestedUrls.some((url) => url.includes("/api/marketplace/account/recommendations"))).toBe(true);
+  });
+
+  it("hydrates the active recommendation job snapshot after a write redirect", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = String(input);
+
+        if (url.includes("/api/auth/session")) {
+          return Promise.resolve(
+            jsonResponse({
+              actor: {
+                sessionId: "ses_1",
+                tenantId: "tnt_identity",
+                userId: "usr_1",
+                accountId: "acc_1",
+                membershipId: "mbr_1",
+                roleKey: "owner",
+                permissions: ["pricing.view"],
+              },
+            }),
+          );
+        }
+
+        if (url.includes("/api/platform/release-controls/rollouts/pricing.account-repricing/decision")) {
+          return Promise.resolve(
+            jsonResponse({
+              enabled: true,
+              reason: "subject-allowlist",
+              bucket: 10,
+              featureKey: "pricing.account-repricing",
+              environment: "production",
+              subject: { subjectType: "account", subjectId: "acc_1" },
+              cohortSize: 1,
+            }),
+          );
+        }
+
+        if (url.includes("/api/marketplace/account/recommendation-jobs/job_apply")) {
+          return Promise.resolve(
+            jsonResponse({
+              jobId: "job_apply",
+              jobKind: "apply",
+              status: "queued",
+              progress: {
+                phase: "queued",
+                completed: 0,
+                total: 1,
+                message: "Recommendation job queued.",
+              },
+              result: null,
+              errorMessage: null,
+              createdAt: "2026-05-09T00:00:00.000Z",
+              startedAt: null,
+              completedAt: null,
+              updatedAt: "2026-05-09T00:00:00.000Z",
+            }),
+          );
+        }
+
+        return Promise.resolve(jsonResponse({ items: [], total: 0, count: 0 }));
+      }),
+    );
+
+    const result = await repricingLoader({
+      request: new Request("http://localhost/account/repricing?jobId=job_apply"),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result.activeJob).toMatchObject({
+      jobId: "job_apply",
+      status: "queued",
+      progress: {
+        message: "Recommendation job queued.",
+      },
+    });
+  });
+
+  it("redirects apply writes to a job snapshot correction route", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = String(input);
+
+        if (url.includes("/api/auth/session")) {
+          return Promise.resolve(
+            jsonResponse({
+              actor: {
+                sessionId: "ses_1",
+                tenantId: "tnt_identity",
+                userId: "usr_1",
+                accountId: "acc_1",
+                membershipId: "mbr_1",
+                roleKey: "owner",
+                permissions: ["pricing.view", "pricing.manage"],
+              },
+            }),
+          );
+        }
+
+        if (url.includes("/api/platform/release-controls/rollouts/pricing.account-repricing/decision")) {
+          return Promise.resolve(
+            jsonResponse({
+              enabled: true,
+              reason: "subject-allowlist",
+              bucket: 10,
+              featureKey: "pricing.account-repricing",
+              environment: "production",
+              subject: { subjectType: "account", subjectId: "acc_1" },
+              cohortSize: 1,
+            }),
+          );
+        }
+
+        return Promise.resolve(
+          jsonResponse({
+            jobId: "job_apply",
+            jobKind: "apply",
+            status: "queued",
+            progress: {
+              phase: "queued",
+              completed: 0,
+              total: 1,
+              message: "Recommendation job queued.",
+            },
+            result: null,
+            errorMessage: null,
+            createdAt: "2026-05-09T00:00:00.000Z",
+            startedAt: null,
+            completedAt: null,
+            updatedAt: "2026-05-09T00:00:00.000Z",
+          }),
+        );
+      }),
+    );
+
+    const form = new FormData();
+    form.set("intent", "apply-recommendations");
+    form.append("recommendationId", "rec_1");
+    const response = await repricingAction({
+      request: new Request("http://localhost/account/repricing", {
+        method: "POST",
+        body: form,
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(response).toBeInstanceOf(Response);
+    expect((response as Response).status).toBe(302);
+    expect((response as Response).headers.get("Location")).toBe("/account/repricing?jobId=job_apply");
   });
 });

@@ -77,4 +77,36 @@ describe("PricingRecommendationListPage", () => {
     expect(html).toContain("failed");
     expect(html).toContain("Fee quote changed.");
   });
+
+  it("pauses recommendation controls while a command-owned job snapshot is active", () => {
+    const html = renderToString(
+      <PricingRecommendationListPage
+        recommendations={[recommendation]}
+        activeJobId="job_1"
+        initialActiveJob={{
+          jobId: "job_1",
+          jobKind: "apply",
+          status: "queued",
+          progress: {
+            phase: "queued",
+            completed: 0,
+            total: 1,
+            message: "Recommendation job queued.",
+          },
+          result: null,
+          errorMessage: null,
+          createdAt: "2026-05-09T00:00:00.000Z",
+          startedAt: null,
+          completedAt: null,
+          updatedAt: "2026-05-09T00:00:00.000Z",
+        }}
+      />,
+    );
+
+    expect(html).toContain("Recommendation job queued.");
+    expect(html).toContain('value="refresh-recommendations"');
+    expect(html).toContain('value="apply-recommendations"');
+    expect(html).toContain('value="dismiss-recommendations"');
+    expect(html.match(/disabled=""/g)?.length ?? 0).toBeGreaterThanOrEqual(4);
+  });
 });

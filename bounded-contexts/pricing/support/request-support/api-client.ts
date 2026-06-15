@@ -74,6 +74,14 @@ export function createPricingApiClient({
         }),
       );
     },
+    async getRecommendationJob(jobId: string): Promise<PricingRecommendationJobStatus> {
+      return parseJsonResponse(
+        await client.account["recommendation-jobs"][":jobId"].$get({
+          param: { jobId },
+          header: headers,
+        }),
+      );
+    },
     async refreshRecommendations(): Promise<PricingRecommendationJobStatus> {
       return parseJsonResponse(
         await client.account.recommendations.refresh.$post({
