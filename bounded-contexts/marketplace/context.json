@@ -182,6 +182,13 @@
       "resetStrategy": "truncate-owned-tables"
     },
     {
+      "projectionName": "reputation-review-projection",
+      "sourceContextNames": ["marketplace"],
+      "ownedTables": ["reputation_review_pages", "review_summary_pages"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
       "projectionName": "reputation-account-projection",
       "sourceContextNames": ["identity"],
       "ownedTables": ["reputation_account_pages"],
@@ -230,6 +237,33 @@
       "requiresAuth": true,
       "readFreshnessRoutes": [
         {
+          "routePath": "/account/listings",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "marketplace_listing_pages"
+            }
+          ]
+        },
+        {
+          "routePath": "/account/listings/fee-lock-report",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "marketplace_listing_pages"
+            }
+          ]
+        },
+        {
+          "routePath": "/account/listing-availability",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "marketplace_seller_listing_availability_pages"
+            }
+          ]
+        },
+        {
           "routePath": "/account/listings/:id",
           "methods": ["GET", "HEAD"],
           "dependencies": [
@@ -244,6 +278,24 @@
           "dependencies": [
             {
               "readModelTable": "marketplace_offer_pages"
+            }
+          ]
+        },
+        {
+          "routePath": "/account/offers/matches/:id",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "marketplace_offer_pages"
+            }
+          ]
+        },
+        {
+          "routePath": "/reviews/:id",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "reputation_review_pages"
             }
           ]
         }
@@ -281,24 +333,55 @@
       "risk": "important",
       "source": {
         "routeId": "account-listings",
-        "actions": [
-          "Disable seller listing availability",
-          "Enable seller listing availability",
-          "Create listing and return to list"
-        ],
+        "actions": ["Disable seller listing availability", "Enable seller listing availability"],
         "command": "Marketplace listing list commands",
         "helperUses": ["appendFreshWriteToken"]
       },
       "destination": {
         "routeId": "account-listings",
-        "transientRecovery": "List refresh still needs exact dependency classification for listing and seller-availability read models."
+        "apiContextName": "marketplace",
+        "apiRoutePath": "/account/listings",
+        "readModelTables": ["marketplace_listing_pages"],
+        "helperUses": ["loadFreshlyWrittenResource"],
+        "transientRecovery": "Account Listings self-refresh forwards the Marketplace commit receipt to the listing-page API reads and retries valid fresh-write not-found responses while the listing projection catches up."
+      }
+    },
+    {
+      "id": "marketplace.listing-fee-lock-self-refresh",
+      "owner": "marketplace",
+      "risk": "important",
+      "source": {
+        "routeId": "account-listings",
+        "actions": ["Disable seller listing availability", "Enable seller listing availability"],
+        "command": "Marketplace listing list commands",
+        "helperUses": ["appendFreshWriteToken"]
       },
-      "exception": {
-        "status": "accepted",
-        "owner": "marketplace",
-        "reviewBy": "2026-07-31",
-        "issue": "#1809",
-        "reason": "Marketplace list self-refresh remains a current audit/remediation gap; the helper use is represented so new drift fails closed."
+      "destination": {
+        "routeId": "account-listings",
+        "apiContextName": "marketplace",
+        "apiRoutePath": "/account/listings/fee-lock-report",
+        "readModelTables": ["marketplace_listing_pages"],
+        "helperUses": ["loadFreshlyWrittenResource"],
+        "transientRecovery": "Account Listings loads the fee-lock report inside the same fresh-write loader, so valid post-write list refreshes wait on the Marketplace listing projection before rendering fee and price rows."
+      }
+    },
+    {
+      "id": "marketplace.listing-availability-self-refresh",
+      "owner": "marketplace",
+      "risk": "important",
+      "source": {
+        "routeId": "account-listings",
+        "actions": ["Disable seller listing availability", "Enable seller listing availability"],
+        "command": "Seller Listing Availability commands",
+        "helperUses": ["appendFreshWriteToken"]
+      },
+      "destination": {
+        "routeId": "account-listings",
+        "apiContextName": "marketplace",
+        "apiRoutePath": "/account/listing-availability",
+        "readModelTables": ["marketplace_seller_listing_availability_pages"],
+        "helperUses": ["loadFreshlyWrittenResource"],
+        "transientRecovery": "Account Listings loads Seller Listing Availability inside the fresh-write loader, so availability toggles redirect with a Marketplace receipt and the destination waits on the availability page before showing the account-wide control."
       }
     },
     {
@@ -321,27 +404,293 @@
       }
     },
     {
+      "id": "marketplace.offer-match-accept-to-detail",
+      "owner": "marketplace",
+      "risk": "important",
+      "source": {
+        "routeId": "account-offer-match",
+        "actions": ["Accept offer match"],
+        "command": "AcceptOffer",
+        "helperUses": ["appendFreshWriteToken"]
+      },
+      "destination": {
+        "routeId": "account-offer-match",
+        "apiContextName": "marketplace",
+        "apiRoutePath": "/account/offers/matches/:id",
+        "readModelTables": ["marketplace_offer_pages"],
+        "helperUses": ["loadFreshlyWrittenResource"],
+        "transientRecovery": "Offer Match detail redirects with the AcceptOffer command receipt; the destination loader forwards it to the offer-page read and retries valid fresh-write not-found responses while the offer projection catches up."
+      }
+    },
+    {
       "id": "reputation.review-submit-to-detail",
       "owner": "marketplace",
       "risk": "important",
       "source": {
         "routeIds": ["account-purchase-review", "account-sale-review"],
         "actions": ["Submit purchase review", "Submit sale review"],
-        "command": "SubmitReview"
+        "command": "SubmitReview",
+        "helperUses": ["appendFreshWriteToken"]
       },
       "destination": {
         "routeId": "account-review",
+        "apiContextName": "marketplace",
+        "apiRoutePath": "/reviews/:id",
+        "readModelTables": ["reputation_review_pages"],
         "helperUses": ["loadFreshlyWrittenResource"],
-        "transientRecovery": "Review detail uses compatibility fresh-write recovery while exact review read-model dependencies are audited."
+        "transientRecovery": "Review submission redirects with the SubmitReview command receipt; the account review loader forwards it to the review detail read and retries valid fresh-write not-found responses while the review projection catches up."
+      }
+    }
+  ],
+  "mutationConsistencyInventory": [
+    {
+      "id": "marketplace.listing-api-client-command-snapshots",
+      "owner": "marketplace",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-client:bounded-contexts/marketplace/client.ts:POST H04af719a48e5#1",
+        "api-client:bounded-contexts/marketplace/client.ts:POST H188a5fe9c458#1",
+        "api-client:bounded-contexts/marketplace/client.ts:POST H59449737c72f#1",
+        "api-client:bounded-contexts/marketplace/client.ts:POST H717d12dd6ee0#1",
+        "api-client:bounded-contexts/marketplace/client.ts:POST H9128ca46a67f#1",
+        "api-client:bounded-contexts/marketplace/client.ts:POST H94718dd21134#1",
+        "api-client:bounded-contexts/marketplace/client.ts:POST H9b81d7eb5cbd#1",
+        "api-client:bounded-contexts/marketplace/client.ts:POST He218f5201552#1"
+      ],
+      "visibleDestination": {
+        "description": "Marketplace configured-fetch clients return command-owned listing and terms snapshots and attach response consistency metadata for route actions that redirect to fresh detail or list reads."
       },
-      "exception": {
-        "status": "accepted",
-        "owner": "marketplace",
-        "reviewBy": "2026-07-31",
-        "issue": "#1809",
-        "reason": "Review detail projection dependency and shared route-support helper migration remain current audit/remediation gaps.",
-        "files": ["bounded-contexts/marketplace/support/route-support/review-submission-route.tsx"],
-        "helperUses": ["appendFreshWriteToken"]
+      "proof": {
+        "authoritativeResponse": "The client returns the API response body with non-enumerable command receipt metadata from attachResponseMetadata; listing drafts, listing commands, photo uploads, and fee previews are scoped to the command response and do not claim downstream projection freshness.",
+        "tests": [
+          "bounded-contexts/marketplace/features/listings/api/route.test.ts",
+          "bounded-contexts/marketplace/tests/account-listings-web-route.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "marketplace.listing-api-command-snapshots",
+      "owner": "marketplace",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /guest/listing-draft-intents",
+        "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /listing-availability/disable",
+        "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /listing-availability/enable",
+        "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /listing-draft-intents/:id/claim",
+        "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /listings",
+        "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /listings/:id/pause",
+        "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /listings/:id/photos",
+        "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /listings/:id/price",
+        "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /listings/:id/publish",
+        "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /listings/:id/purchase-limits",
+        "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /listings/:id/quantity-cap",
+        "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /listings/:id/withdraw",
+        "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /listings/preview",
+        "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /terms/public-standard/listing-preview"
+      ],
+      "visibleDestination": {
+        "description": "Listing API commands return command-owned ids, versions, statuses, draft intent snapshots, or fee quote snapshots; browser form destinations use the returned receipt for fresh detail/list reads."
+      },
+      "proof": {
+        "authoritativeResponse": "Listing create/update/publish/pause/withdraw and availability commands respond from the committed command result with id/version/status; draft intent and claim routes return the draft snapshot; fee preview routes return the computed terms snapshot, with stale fee quote responses carrying the current quote.",
+        "tests": [
+          "bounded-contexts/marketplace/features/listings/api/route.test.ts",
+          "bounded-contexts/marketplace/features/listings/api/runtime.test.ts",
+          "bounded-contexts/marketplace/tests/account-listing-route.test.ts",
+          "bounded-contexts/marketplace/tests/account-listings-web-route.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "marketplace.offer-api-command-snapshots",
+      "owner": "marketplace",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/marketplace/features/offers/api/route.ts:POST /offers/matches/:id/accept",
+        "api-route:bounded-contexts/marketplace/features/offers/api/route.ts:POST /offers/submitted"
+      ],
+      "visibleDestination": {
+        "description": "Offer API commands return command-owned id/version/status snapshots; submitted-offer and accepted-offer browser destinations use the receipt for fresh offer reads."
+      },
+      "proof": {
+        "authoritativeResponse": "SubmitOffer returns id/version/status=submitted and AcceptOffer returns id/version/status=accepted directly from the command result; stale fee quote failures return the current quote snapshot instead of rendering stale acceptance terms.",
+        "tests": [
+          "bounded-contexts/marketplace/features/offers/api/route.test.ts",
+          "bounded-contexts/marketplace/features/offers/api/runtime.test.ts",
+          "bounded-contexts/marketplace/tests/account-offers-route.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "marketplace.review-api-command-snapshots",
+      "owner": "marketplace",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/marketplace/features/reviews/api/route.ts:POST /",
+        "api-route:bounded-contexts/marketplace/features/reviews/api/route.ts:POST /:id/update",
+        "api-route:bounded-contexts/marketplace/features/reviews/api/route.ts:POST /:id/withdraw"
+      ],
+      "visibleDestination": {
+        "description": "Review API commands return command-owned review id/version/status snapshots; review submission routes use the receipt for a fresh review detail read."
+      },
+      "proof": {
+        "authoritativeResponse": "SubmitReview, UpdateReview, and WithdrawReview respond from the command result with review id, stream version, and status before any review read-model projection is consulted.",
+        "tests": [
+          "bounded-contexts/marketplace/features/reviews/api/route.test.ts",
+          "bounded-contexts/marketplace/features/reviews/api/runtime.test.ts",
+          "bounded-contexts/marketplace/tests/account-purchase-review-route.test.tsx",
+          "bounded-contexts/marketplace/tests/account-sale-review-route.test.tsx"
+        ]
+      }
+    },
+    {
+      "id": "marketplace.listing-detail-fresh-read-forms",
+      "owner": "marketplace",
+      "risk": "important",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "post-form:bounded-contexts/marketplace/features/listings/ui/listing-detail-page.tsx:H2df726441e2a#1",
+        "post-form:bounded-contexts/marketplace/features/listings/ui/listing-detail-page.tsx:H2df726441e2a#2",
+        "post-form:bounded-contexts/marketplace/features/listings/ui/listing-detail-page.tsx:H2df726441e2a#3",
+        "post-form:bounded-contexts/marketplace/features/listings/ui/listing-detail-page.tsx:H2df726441e2a#4",
+        "post-form:bounded-contexts/marketplace/features/listings/ui/listing-detail-page.tsx:H2df726441e2a#5",
+        "post-form:bounded-contexts/marketplace/features/listings/ui/listing-detail-page.tsx:H2df726441e2a#6",
+        "post-form:bounded-contexts/marketplace/features/listings/ui/listing-detail-page.tsx:H2df726441e2a#7",
+        "route-action:bounded-contexts/marketplace/routes/account-listing.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "account-listing",
+        "apiContextName": "marketplace",
+        "apiRoutePath": "/account/listings/:id",
+        "readModelTables": ["marketplace_listing_pages"],
+        "transientRecovery": "Listing detail forms redirect back to the listing detail with a Marketplace commit receipt; the loader forwards afterWrite to the listing API and retries fresh-write not-found while the listing projection catches up."
+      },
+      "proof": {
+        "tests": [
+          "bounded-contexts/marketplace/features/listings/ui/listing-detail-page.test.tsx",
+          "bounded-contexts/marketplace/tests/account-listing-route.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "marketplace.listing-availability-fresh-read-forms",
+      "owner": "marketplace",
+      "risk": "important",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "post-form:bounded-contexts/marketplace/features/listings/ui/listing-list-page.tsx:H2df726441e2a#1",
+        "post-form:bounded-contexts/marketplace/features/listings/ui/listing-list-page.tsx:H2df726441e2a#2",
+        "route-action:bounded-contexts/marketplace/routes/account-listings.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "account-listings",
+        "apiContextName": "marketplace",
+        "apiRoutePath": "/account/listing-availability",
+        "readModelTables": ["marketplace_seller_listing_availability_pages"],
+        "transientRecovery": "Seller Listing Availability toggles redirect to Account Listings with a Marketplace receipt; the destination loader forwards it to availability and list reads before rendering the account-wide status control."
+      },
+      "proof": {
+        "tests": [
+          "bounded-contexts/marketplace/features/listings/ui/listing-list-page.test.tsx",
+          "bounded-contexts/marketplace/tests/account-listings-route.test.ts",
+          "bounded-contexts/marketplace/tests/account-listings-web-route.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "marketplace.listing-create-fresh-read-form",
+      "owner": "marketplace",
+      "risk": "important",
+      "strategy": "fresh-read",
+      "surfaces": ["post-form:bounded-contexts/marketplace/features/listings/ui/listing-list-page.tsx:H2df726441e2a#3"],
+      "visibleDestination": {
+        "routeId": "account-listing",
+        "apiContextName": "marketplace",
+        "apiRoutePath": "/account/listings/:id",
+        "readModelTables": ["marketplace_listing_pages"],
+        "transientRecovery": "The create listing form submits through Account Listings and redirects to the new listing detail with a Marketplace commit receipt; the detail loader waits on the listing projection before rendering price, quantity, photos, and status."
+      },
+      "proof": {
+        "tests": [
+          "bounded-contexts/marketplace/features/listings/ui/listing-list-page.test.tsx",
+          "bounded-contexts/marketplace/tests/account-listings-web-route.test.ts",
+          "bounded-contexts/marketplace/tests/account-listing-route.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "marketplace.offer-match-accept-fresh-read-form",
+      "owner": "marketplace",
+      "risk": "important",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "post-form:bounded-contexts/marketplace/features/offers/ui/offer-match-detail-page.tsx:H2df726441e2a#1",
+        "route-action:bounded-contexts/marketplace/routes/account-offer-match.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "account-offer-match",
+        "apiContextName": "marketplace",
+        "apiRoutePath": "/account/offers/matches/:id",
+        "readModelTables": ["marketplace_offer_pages"],
+        "transientRecovery": "Accept Offer redirects back to the Offer Match detail with the AcceptOffer receipt; the detail loader forwards afterWrite to the offer read and retries fresh-write not-found while the offer projection catches up."
+      },
+      "proof": {
+        "tests": [
+          "bounded-contexts/marketplace/features/offers/ui/offer-match-list-page.test.tsx",
+          "bounded-contexts/marketplace/tests/account-offers-route.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "marketplace.offer-match-sell-list-handoff-forms",
+      "owner": "marketplace",
+      "risk": "important",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "post-form:bounded-contexts/marketplace/features/offers/ui/offer-match-detail-page.tsx:H2df726441e2a#2",
+        "post-form:bounded-contexts/marketplace/features/offers/ui/offer-match-list-page.tsx:H2df726441e2a#1"
+      ],
+      "visibleDestination": {
+        "routeId": "account-sell-list",
+        "apiContextName": "checkout",
+        "apiRoutePath": "/account/sell-list",
+        "readModelTables": ["checkout_sell_list_line_pages", "checkout_sell_list_confirmation_pages"],
+        "transientRecovery": "Marketplace Offer Match source-list forms post selected offer snapshots to the Checkout-owned Sell List action; Checkout redirects to Account Sell List with its receipt and waits on sell-list line and confirmation projections."
+      },
+      "proof": {
+        "tests": [
+          "bounded-contexts/marketplace/features/offers/ui/offer-match-list-page.test.tsx",
+          "bounded-contexts/checkout/routes/account-sell-list-route.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "marketplace.review-submit-fresh-read-form",
+      "owner": "marketplace",
+      "risk": "important",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "post-form:bounded-contexts/marketplace/features/reviews/ui/review-submission-page.tsx:H2df726441e2a#1",
+        "route-action:bounded-contexts/marketplace/routes/marketplace/account-purchase-review.tsx",
+        "route-action:bounded-contexts/marketplace/routes/marketplace/account-sale-review.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "account-review",
+        "apiContextName": "marketplace",
+        "apiRoutePath": "/reviews/:id",
+        "readModelTables": ["reputation_review_pages"],
+        "transientRecovery": "Purchase and sale review forms submit through Marketplace review route support and redirect to review detail with a SubmitReview receipt; the review detail loader waits on reputation_review_pages before rendering the submitted rating and feedback."
+      },
+      "proof": {
+        "tests": [
+          "bounded-contexts/marketplace/features/reviews/ui/review-submission-page.test.tsx",
+          "bounded-contexts/marketplace/tests/account-purchase-review-route.test.tsx",
+          "bounded-contexts/marketplace/tests/account-sale-review-route.test.tsx"
+        ]
       }
     }
   ],

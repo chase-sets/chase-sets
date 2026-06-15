@@ -1,13 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
+import {
+  appendFreshWriteToken,
+  CHASE_SETS_READ_AFTER_WRITE_HEADER,
+  CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
+  readFreshWriteToken,
+} from "@chase-sets/http/responses";
 import { loader as submittedOfferLoader } from "../routes/account-offer-submitted";
 import { loader as submittedOffersLoader } from "../routes/account-offers-submitted";
-import { loader as offerMatchLoader } from "../routes/account-offer-match";
+import { action as offerMatchAction, loader as offerMatchLoader } from "../routes/account-offer-match";
 import { loader as offerMatchesLoader } from "../routes/account-offer-matches";
 
-function jsonResponse(body: unknown, status = 200) {
+function jsonResponse(body: unknown, status = 200, headers: HeadersInit = {}) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...headers },
   });
 }
 
@@ -248,5 +254,152 @@ describe("marketplace offer routes", () => {
 
     expect(result.offerMatch.offer_id).toBe("off_1");
     expect(result.offerMatch.buyer_display_name).toBe("Buyer One");
+  });
+
+  it("carries write consistency metadata after accepting an offer match", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+
+        if (url.includes("/api/auth/session")) {
+          return Promise.resolve(
+            jsonResponse({
+              actor: {
+                sessionId: "ses_1",
+                tenantId: "tnt_identity",
+                userId: "usr_1",
+                accountId: "acc_1",
+                membershipId: "mbr_1",
+                roleKey: "owner",
+                permissions: ["offers.view", "offers.manage", "listings.view"],
+              },
+            }),
+          );
+        }
+
+        if (
+          url.includes("/api/marketplace/account/offers/matches/off_1/accept") &&
+          (init?.method ?? "GET").toUpperCase() === "POST"
+        ) {
+          return Promise.resolve(
+            jsonResponse({ id: "off_1", version: 2, status: "accepted" }, 201, {
+              "Chase-Sets-Consistency": "eventual",
+              "Chase-Sets-Commit-Receipt": encodeURIComponent(
+                JSON.stringify([
+                  {
+                    sourceContextName: "marketplace",
+                    maxGlobalPosition: "42",
+                    eventIds: ["evt_offer_accepted"],
+                  },
+                ]),
+              ),
+            }),
+          );
+        }
+
+        return Promise.reject(new Error(`Unexpected fetch request: ${url}`));
+      }),
+    );
+
+    const form = new URLSearchParams();
+    form.set("intent", "accept-offer");
+    form.set("feeQuoteFingerprint", "quote-current");
+
+    const response = await offerMatchAction({
+      request: new Request("http://localhost/account/offers/matches/off_1", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { offerId: "off_1" },
+      context: undefined,
+    } as never);
+
+    expect(response).toBeInstanceOf(Response);
+    const location = (response as Response).headers.get("Location") ?? "";
+    expect(location).toMatch(/^\/account\/offers\/matches\/off_1\?feedbackWorkflow=offer-accept&afterWrite=/);
+    expect(readFreshWriteToken(location)?.sources).toEqual([
+      {
+        sourceContextName: "marketplace",
+        maxGlobalPosition: "42",
+        eventIds: ["evt_offer_accepted"],
+      },
+    ]);
+  });
+
+  it("forwards afterWrite metadata when loading a freshly accepted offer match", async () => {
+    const offerDetailHeaders: Headers[] = [];
+    const freshPath = appendFreshWriteToken(
+      "/account/offers/matches/off_1",
+      {
+        commitPositions: [
+          {
+            sourceContextName: "marketplace",
+            maxGlobalPosition: "42",
+            eventIds: ["evt_offer_accepted"],
+          },
+        ],
+        commitEventIds: ["evt_offer_accepted"],
+      },
+      Date.now(),
+    );
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+
+        if (url.includes("/api/auth/session")) {
+          return Promise.resolve(
+            jsonResponse({
+              actor: {
+                sessionId: "ses_1",
+                tenantId: "tnt_identity",
+                userId: "usr_1",
+                accountId: "acc_1",
+                membershipId: "mbr_1",
+                roleKey: "owner",
+                permissions: ["offers.view", "offers.manage", "listings.view"],
+              },
+            }),
+          );
+        }
+
+        if (url.includes("/api/marketplace/account/offers/matches/off_1")) {
+          offerDetailHeaders.push(new Headers(init?.headers));
+          return Promise.resolve(
+            jsonResponse({
+              offer_id: "off_1",
+              buyer_account_id: "acc_buyer",
+              buyer_display_name: "Buyer One",
+              catalog_catalog_item_id: "cat_charizard",
+              product_id: "cat_charizard::",
+              item_title: "Charizard",
+              item_subtitle: null,
+              selected_options: [],
+              product_summary: null,
+              price_amount: "350.00",
+              quantity_requested: 1,
+              status: "accepted",
+              created_at: "2026-03-31T00:00:00.000Z",
+              updated_at: "2026-03-31T00:00:00.000Z",
+            }),
+          );
+        }
+
+        return Promise.reject(new Error(`Unexpected fetch request: ${url}`));
+      }),
+    );
+
+    const result = await offerMatchLoader({
+      request: new Request(`http://localhost${freshPath}`),
+      params: { offerId: "off_1" },
+      context: undefined,
+    } as never);
+
+    expect(result.offerMatch.status).toBe("accepted");
+    expect(offerDetailHeaders[0]?.get(CHASE_SETS_READ_AFTER_WRITE_HEADER)).toBeTruthy();
+    expect(offerDetailHeaders[0]?.get(CHASE_SETS_READ_TARGET_CONTEXT_HEADER)).toBe("marketplace");
   });
 });
