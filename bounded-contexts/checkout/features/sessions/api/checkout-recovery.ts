@@ -174,6 +174,14 @@ export function checkoutRecoveryForError(
   }
 
   if (error.status === 403) {
+    if (actor?.roleKey === "guest-buyer") {
+      return checkoutRecoveryForKind("guest-access-expired", currentPath);
+    }
+
+    if (!actor) {
+      return checkoutRecoveryForKind("access-required", currentPath);
+    }
+
     return checkoutRecoveryForKind("wrong-account", currentPath);
   }
 

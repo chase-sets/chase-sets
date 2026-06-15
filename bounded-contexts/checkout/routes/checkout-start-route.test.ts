@@ -13,6 +13,7 @@ import {
   mockCreateOrderingRequestApiClient,
   mockCreatePaymentsRequestApiClient,
   mockCreateSettlementRequestApiClient,
+  mockGetGuestCheckoutClaimContext,
   mockGetGuestCart,
   MockMarketplaceApiError,
   mockMergeGuestCartToAccount,
@@ -393,6 +394,131 @@ describe("checkout web routes: checkout start", () => {
     });
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_buy_now");
+  });
+
+  it("silently recovers active guest buy-now checkout when the current guest account cannot start the preserved session", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(guestCheckoutActor());
+    const blockedCreateCheckoutSession = vi.fn(async () => {
+      throw new MockCheckoutApiError(403, {
+        error: { code: "authorization_forbidden", message: "Forbidden." },
+      });
+    });
+    const recoveredCreateCheckoutSession = vi.fn(async () => ({ session_id: "chk_guest_recovered" }));
+    mockGetGuestCheckoutClaimContext.mockResolvedValue({
+      contactName: "Jane Smith",
+      contactEmail: "jane@example.com",
+    });
+    mockStartGuestCheckout.mockResolvedValue({
+      accountId: "acc_guest_recovered",
+      guestToken: "guest_token_recovered",
+      expiresAt: "2026-04-02T00:00:00.000Z",
+    });
+    mockCreateAuthRequestApiClient.mockReturnValue({
+      getGuestCheckoutClaimContext: mockGetGuestCheckoutClaimContext,
+      startGuestCheckout: mockStartGuestCheckout,
+    });
+    mockCreateCheckoutRequestApiClient
+      .mockReturnValueOnce({
+        createCheckoutSession: blockedCreateCheckoutSession,
+        mergeGuestCartToAccount: mockMergeGuestCartToAccount,
+      })
+      .mockReturnValueOnce({
+        createCheckoutSession: recoveredCreateCheckoutSession,
+        mergeGuestCartToAccount: mockMergeGuestCartToAccount,
+      });
+
+    const form = new URLSearchParams();
+    form.set("entryAttemptKey", "entry_attempt_1");
+    form.set("source", "buy-now");
+    form.set("listingId", "lst_1");
+    form.set("catalogItemId", "cat_1");
+    form.set("productId", "prod_1");
+    form.set("itemTitle", "Charizard");
+    form.set("selectedOptions", JSON.stringify([{ dimensionId: "condition", optionId: "raw" }]));
+    form.set("quantity", "1");
+
+    const response = (await checkoutStartAction({
+      request: new Request("http://localhost/checkout/buy/readiness", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          cookie: "chase_sets_guest_checkout=stale_guest_token",
+        },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never)) as Response;
+
+    expect(blockedCreateCheckoutSession).toHaveBeenCalledWith({
+      entryAttemptKey: "entry_attempt_1",
+      source: expect.objectContaining({
+        type: "buy-now",
+        listingId: "lst_1",
+        catalogItemId: "cat_1",
+        productId: "prod_1",
+        itemTitle: "Charizard",
+      }),
+    });
+    expect(mockGetGuestCheckoutClaimContext).toHaveBeenCalledWith({});
+    expect(mockStartGuestCheckout).toHaveBeenCalledWith({
+      displayName: "Jane Smith",
+      email: "jane@example.com",
+    });
+    expect(recoveredCreateCheckoutSession).toHaveBeenCalledWith({
+      entryAttemptKey: "entry_attempt_1",
+      source: expect.objectContaining({
+        type: "buy-now",
+        listingId: "lst_1",
+        catalogItemId: "cat_1",
+        productId: "prod_1",
+        itemTitle: "Charizard",
+      }),
+    });
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_guest_recovered");
+    expect(response.headers.get("X-Remix-Reload-Document")).toBe("true");
+    expect(response.headers.getSetCookie().join("; ")).toContain("chase_sets_guest_checkout=guest_token_recovered");
+    expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
+  });
+
+  it("keeps signed-in wrong-account checkout start protected", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_other", permissions: [] });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      createCheckoutSession: vi.fn(async () => {
+        throw new MockCheckoutApiError(403, {
+          error: { code: "authorization_forbidden", message: "Forbidden." },
+        });
+      }),
+      mergeGuestCartToAccount: mockMergeGuestCartToAccount,
+    });
+
+    const form = new URLSearchParams();
+    form.set("source", "buy-now");
+    form.set("listingId", "lst_1");
+    form.set("catalogItemId", "cat_1");
+    form.set("productId", "prod_1");
+    form.set("itemTitle", "Charizard");
+    form.set("selectedOptions", "[]");
+    form.set("quantity", "1");
+
+    const result = await checkoutStartAction({
+      request: new Request("http://localhost/checkout/buy/readiness", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result).toEqual({
+      recovery: expect.objectContaining({
+        kind: "wrong-account",
+        title: "Checkout belongs to another account",
+      }),
+    });
+    expect(mockStartGuestCheckout).not.toHaveBeenCalled();
   });
 
   it("starts signed-in purchase-intent checkout from the preserved checkout start payload", async () => {

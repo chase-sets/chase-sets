@@ -460,7 +460,36 @@ describe("checkout web routes: checkout session loader", () => {
     await expect(recoveryResponse?.text()).resolves.toContain("guest checkout link is no longer active");
   });
 
-  it("returns checkout-owned recovery when the checkout belongs to another account", async () => {
+  it("redirects guest checkout session ownership mismatch to the guest checkout continuation", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(guestCheckoutActor());
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCheckoutSession: vi.fn(async () => {
+        throw new MockCheckoutApiError(403, {
+          error: { code: "authorization_forbidden", message: "Forbidden." },
+        });
+      }),
+    });
+
+    let redirectResponse: Response | null = null;
+    try {
+      await checkoutSessionLoader({
+        request: new Request("http://localhost/checkout/buy/session/chk_1"),
+        params: { sessionId: "chk_1" },
+        context: undefined,
+      } as never);
+    } catch (error) {
+      redirectResponse = error as Response;
+    }
+
+    expect(redirectResponse?.status).toBe(302);
+    expect(redirectResponse?.headers.get("Location")).toBe("/checkout/buy/readiness");
+    const body = redirectResponse ? await redirectResponse.text() : "";
+    expect(body).not.toContain("Checkout belongs to another account");
+    expect(mockPreviewCheckoutFulfillment).not.toHaveBeenCalled();
+    expect(mockPreviewCheckoutStatus).not.toHaveBeenCalled();
+  });
+
+  it("returns checkout-owned recovery when the signed-in checkout belongs to another account", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_other", permissions: [] });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getCheckoutSession: vi.fn(async () => {

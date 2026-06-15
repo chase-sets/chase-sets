@@ -30,6 +30,7 @@ import {
   productOptionsFromSummary,
 } from "@chase-sets/design-system";
 import {
+  CheckoutApiError,
   createCheckoutRequestApiClient,
   type CartReadinessDecisionInput,
   type CreateCheckoutSessionRequest,
@@ -48,6 +49,12 @@ import {
 } from "../support/request-support/guest-checkout";
 
 const ACCOUNT_SIGN_IN_REQUIRED_CODE = "account_sign_in_required";
+type CheckoutActor = Awaited<ReturnType<typeof resolveActorFromAuthApi>>;
+type GuestCheckoutStart = Readonly<{
+  accountId: string;
+  guestToken: string;
+  expiresAt: string;
+}>;
 
 function parseSelectedOptions(value: string | null) {
   try {
@@ -314,6 +321,112 @@ function isAccountSignInRequiredError(error: unknown) {
   );
 }
 
+function isCheckoutAuthorizationError(error: unknown) {
+  return error instanceof CheckoutApiError && error.status === 403;
+}
+
+function isGuestCheckoutActor(actor: CheckoutActor) {
+  return actor?.roleKey === "guest-buyer";
+}
+
+function canRecoverGuestCheckoutMismatch(sourceType: string, anonymousCartId: string | null) {
+  return sourceType === "buy-now" || (sourceType === "cart" && Boolean(anonymousCartId));
+}
+
+async function loadGuestCheckoutStartContact(
+  request: Request,
+): Promise<Readonly<{ email: string; contactName: string }> | null> {
+  try {
+    const context = await createAuthRequestApiClient(request).getGuestCheckoutClaimContext<{
+      contactEmail?: string | null;
+      contactName?: string | null;
+    }>({});
+    const email = String(context.contactEmail ?? "").trim();
+    if (!email) {
+      return null;
+    }
+
+    return {
+      email,
+      contactName: String(context.contactName ?? "").trim(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function createGuestCheckoutStart(
+  request: Request,
+  contact: Readonly<{ contactName: string; email: string }>,
+): Promise<GuestCheckoutStart> {
+  return createAuthRequestApiClient(request).startGuestCheckout<GuestCheckoutStart>({
+    displayName: contact.contactName,
+    email: contact.email,
+  });
+}
+
+async function startGuestCheckoutSession(
+  request: Request,
+  formData: FormData,
+  params: Readonly<{
+    anonymousCartId: string | null;
+    sourceType: string;
+    guest: GuestCheckoutStart;
+  }>,
+) {
+  const guestApi = createCheckoutRequestApiClient(request, {
+    headers: {
+      cookie: `${CHECKOUT_GUEST_COOKIE_NAME}=${encodeURIComponent(params.guest.guestToken)}`,
+    },
+  });
+  const forceReadinessRefresh = params.sourceType === "cart" && Boolean(params.anonymousCartId);
+  if (params.sourceType === "cart" && params.anonymousCartId) {
+    await guestApi.mergeGuestCartToAccount(params.anonymousCartId);
+  }
+
+  const sessionRequest = await ensureCartReadinessSnapshot(guestApi, checkoutSessionRequestFromForm(formData), {
+    forceRefresh: forceReadinessRefresh,
+  });
+  const session = await guestApi.createCheckoutSession(sessionRequest);
+  const response = redirectDocument(appendFreshWriteToken(`/checkout/buy/session/${session.session_id}`, session));
+  appendGuestCheckoutCookie(response.headers, params.guest.guestToken, request);
+  appendClearedAnonymousCartCookie(response.headers, request);
+
+  return response;
+}
+
+async function recoverGuestCheckoutStartMismatch(
+  error: unknown,
+  actor: CheckoutActor,
+  request: Request,
+  formData: FormData,
+  params: Readonly<{ anonymousCartId: string | null; sourceType: string }>,
+) {
+  if (
+    !isCheckoutAuthorizationError(error) ||
+    !isGuestCheckoutActor(actor) ||
+    !canRecoverGuestCheckoutMismatch(params.sourceType, params.anonymousCartId)
+  ) {
+    return null;
+  }
+
+  const contact = await loadGuestCheckoutStartContact(request);
+  if (!contact) {
+    return null;
+  }
+
+  try {
+    const guest = await createGuestCheckoutStart(request, contact);
+    return await startGuestCheckoutSession(request, formData, { ...params, guest });
+  } catch (recoveryError) {
+    if (isCheckoutAuthorizationError(recoveryError)) {
+      return null;
+    }
+
+    throw recoveryError;
+  }
+}
+
 export async function loader({ request }: LoaderFunctionArgs) {
   const actor = await resolveActorFromAuthApi({ request });
   const url = new URL(request.url);
@@ -375,6 +488,14 @@ export async function action({ request }: ActionFunctionArgs) {
 
       return response;
     } catch (error) {
+      const recovered = await recoverGuestCheckoutStartMismatch(error, actor, request, formData, {
+        anonymousCartId,
+        sourceType,
+      });
+      if (recovered) {
+        return recovered;
+      }
+
       return recoverCheckoutStartError(error, actor, request);
     }
   }
@@ -397,24 +518,14 @@ export async function action({ request }: ActionFunctionArgs) {
     }
   }
 
-  const contactName = String(formData.get("contactName") ?? "").trim();
-  const email = String(formData.get("email") ?? "").trim();
-  const authApi = createAuthRequestApiClient(request);
-  let guest: {
-    accountId: string;
-    guestToken: string;
-    expiresAt: string;
+  const contact = {
+    contactName: String(formData.get("contactName") ?? "").trim(),
+    email: String(formData.get("email") ?? "").trim(),
   };
+  let guest: GuestCheckoutStart;
 
   try {
-    guest = await authApi.startGuestCheckout<{
-      accountId: string;
-      guestToken: string;
-      expiresAt: string;
-    }>({
-      displayName: contactName,
-      email,
-    });
+    guest = await createGuestCheckoutStart(request, contact);
   } catch (error) {
     if (isAccountSignInRequiredError(error)) {
       return {
@@ -426,27 +537,28 @@ export async function action({ request }: ActionFunctionArgs) {
     throw error;
   }
 
-  const guestApi = createCheckoutRequestApiClient(request, {
-    headers: {
-      cookie: `${CHECKOUT_GUEST_COOKIE_NAME}=${encodeURIComponent(guest.guestToken)}`,
-    },
-  });
   try {
-    const forceReadinessRefresh = sourceType === "cart" && Boolean(anonymousCartId);
-    if (sourceType === "cart" && anonymousCartId) {
-      await guestApi.mergeGuestCartToAccount(anonymousCartId);
+    return await startGuestCheckoutSession(request, formData, { anonymousCartId, sourceType, guest });
+  } catch (error) {
+    if (isCheckoutAuthorizationError(error) && canRecoverGuestCheckoutMismatch(sourceType, anonymousCartId)) {
+      let retryGuest: GuestCheckoutStart;
+      try {
+        retryGuest = await createGuestCheckoutStart(request, contact);
+      } catch {
+        return recoverCheckoutStartError(error, actor, request);
+      }
+
+      try {
+        return await startGuestCheckoutSession(request, formData, {
+          anonymousCartId,
+          sourceType,
+          guest: retryGuest,
+        });
+      } catch (retryError) {
+        return recoverCheckoutStartError(retryError, null, request);
+      }
     }
 
-    const sessionRequest = await ensureCartReadinessSnapshot(guestApi, checkoutSessionRequestFromForm(formData), {
-      forceRefresh: forceReadinessRefresh,
-    });
-    const session = await guestApi.createCheckoutSession(sessionRequest);
-    const response = redirectDocument(appendFreshWriteToken(`/checkout/buy/session/${session.session_id}`, session));
-    appendGuestCheckoutCookie(response.headers, guest.guestToken, request);
-    appendClearedAnonymousCartCookie(response.headers, request);
-
-    return response;
-  } catch (error) {
     return recoverCheckoutStartError(error, actor, request);
   }
 }
