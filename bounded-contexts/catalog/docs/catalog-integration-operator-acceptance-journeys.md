@@ -37,6 +37,8 @@ Acceptance runs should use the smallest data set that proves the operator decisi
 - A semantic comparison with changed and unchanged sections, severity, mapping fingerprints, and activation impact.
 - View-only state where safe read actions remain available and write/destructive actions are disabled.
 
+For the guided Catalog Integrations path, the acceptance data set should include a TCGdex Japanese Pokemon scope selected through provider options: Language `Japanese`, Series `SV`, and Expansion `SV8`. The run should prove source options can be loaded from cache or live provider queries, the selected scope can be synced, observed rows become reviewable, promotion preview is scoped to that selection, and promote-all enqueues work only for eligible observations in that selected scope.
+
 ## Release Evidence Rules
 
 Every Admin Control Plane release must record:

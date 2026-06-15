@@ -1,6 +1,6 @@
 # Catalog Integration No-Confusion UX Acceptance
 
-Issue #1047 owns the no-confusion acceptance gate for the rebuilt Catalog Control Plane first slice. The gate proves operators can complete the front-and-center job: choose provider/unit/scope, pull provider data, monitor import, review Source Observations, preview promotion, promote eligible sources into Catalog Items or Catalog-owned references, and verify audit/release evidence.
+Issue #1047 owns the no-confusion acceptance gate for the rebuilt Catalog Control Plane first slice. The gate proves operators can complete the front-and-center job: load provider source options, choose provider/unit/source scope, pull provider data, monitor import, review Source Observations, preview promotion, promote eligible sources into Catalog Items or Catalog-owned references, and verify audit/release evidence.
 
 Health, profile authoring, validation, lifecycle recovery, RBAC, rollout controls, observability, security/privacy, provider transport, and audit work are support paths. They must explain, unblock, govern, recover, or verify import-to-promotion. They must not bury the primary path or preserve retired admin behavior as a migration target.
 
@@ -36,12 +36,12 @@ The gate rejects evidence when any workflow keeps:
 
 The primary workflow order is fixed for first-slice acceptance:
 
-1. Choose provider, unit, and scope.
-2. Pull provider data.
+1. Load provider source options and choose provider, unit, and source scope from guided controls. For the TCGdex Japanese Pokemon path, select Language `Japanese`, Series `SV`, and Expansion `SV8`.
+2. Sync the selected source scope through Pull provider data.
 3. Monitor import.
 4. Review Source Observations.
 5. Preview promotion.
-6. Promote to Catalog Items or Catalog-owned references.
+6. Promote all eligible observations in the selected scope to Catalog Items or Catalog-owned references.
 7. Verify audit and release evidence.
 
 ## Retirement Rule

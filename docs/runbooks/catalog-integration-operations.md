@@ -14,6 +14,8 @@ Use this runbook for Catalog Integration Control Plane incidents involving provi
    - worker run count/duration for Catalog job runners and projection metrics when freshness is implicated.
 3. Open Admin Control Plane:
    - `/catalog/integrations`
+   - provider, ingestion unit, and Source scope selectors
+   - source option cache freshness and reload/force-refresh controls
    - readiness summary
    - active jobs
    - diagnostic counts
@@ -55,7 +57,7 @@ Triage:
 
 1. Identify provider and query/import scope from bounded labels and Admin readiness.
 2. Check whether cache-only rollout mode is enabled for provider option queries.
-3. Prefer stale cache for selector reads when within stale TTL.
+3. Prefer stale cache for selector reads when within stale TTL. The operator should still select the source scope from the guided controls and see stale/cache-only status inline.
 4. Pause imports if provider cooldown or outage would create repeated failed jobs.
 5. Resume with a small scope after retry-after/cooldown has passed.
 
@@ -64,6 +66,19 @@ Escalate when:
 - stale cache is unavailable for required import selectors;
 - provider downtime exceeds the stale option-query window;
 - repeated import attempts fail after provider recovery.
+
+## Guided TCGdex Scope Sync
+
+Use this path when validating or recovering the common Japanese Pokemon set import:
+
+1. Open `/catalog/integrations` and choose provider `TCGdex` with the Pokemon single-card Source Observation ingestion unit.
+2. Load provider source options. If the provider is degraded, use the stale/cache-only option pages only when they are still inside the stale window and clearly labeled in the UI.
+3. In Source scope, select Language `Japanese`, Series `SV`, and Expansion `SV8`. Use `Select source scope`; do not type or paste a serialized scope string.
+4. Run `Pull provider data`. If an active job conflict appears for the same provider/unit/scope, monitor, cancel, or let the active job finish before starting another pull.
+5. After the job completes, confirm the selected scope shows observed or changed Source Observation rows.
+6. Spot check Source Observation provenance, redaction, normalized card facts, and promotion readiness.
+7. Preview promotion for the selected scope.
+8. Use `Promote all eligible in this scope` only after the confirmation summary names the selected scope and eligible count.
 
 ## Fixture Validation Failure Before Activation
 

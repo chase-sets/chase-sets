@@ -116,6 +116,8 @@ test.describe("catalog admin integrations", () => {
     await expect(page.locator('a[href="/catalog/integrations/governance"]').first()).toBeVisible();
     await expect(page.locator('a[href="/catalog/integrations/release"]').first()).toBeVisible();
 
+    await expect(page.getByRole("button", { name: "Apply context" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Select source scope" }).first()).toBeVisible();
     await expect(page.getByRole("button", { name: /Pull provider data/i }).first()).toBeVisible();
     await expect(page.getByRole("button", { name: /Preview promotion/i }).first()).toBeVisible();
     // The daily route is now an explicit, linear three-stage flow. The ordered

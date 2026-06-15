@@ -7,8 +7,11 @@ import { catalogProviderProfileEditableSectionKeys } from "../api/provider-profi
 import {
   buildCatalogPrimaryWorkbenchReadModel,
   buildCatalogPrimaryWorkbenchReadModelForSurface,
+  buildCatalogPrimaryWorkbenchSourceOptionRequests,
+  type CatalogPrimaryWorkbenchSourceOptionRequest,
 } from "./primary-workbench-read-model";
 import { CatalogIntegrationsSurfacePage } from "./integrations-surface-page";
+import type { SourceObservationIntegrationOptionResponse } from "./contracts";
 import {
   controlPlaneOverview,
   profileAuthoringModel,
@@ -30,6 +33,61 @@ function expectBackToWorkbenchHref(href: string | null | undefined) {
   expect(url.searchParams.has("section")).toBe(false);
 }
 
+const japaneseSv8RequestUrl =
+  "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:single-card:source-observation-import&languageCode=ja&seriesId=SV&expansionId=SV8&profileVersion=2026.06.04";
+
+function japaneseSv8SourceOptionResponse(
+  request: CatalogPrimaryWorkbenchSourceOptionRequest,
+): SourceObservationIntegrationOptionResponse {
+  if (request.queryKind === "languages") {
+    return sourceOptionResponse(request, "fresh", "cache", [{ value: "ja", label: "Japanese", parentValue: null }]);
+  }
+  if (request.queryKind === "series") {
+    return sourceOptionResponse(request, "fresh", "live", [
+      { value: "SV", label: "Scarlet & Violet", parentValue: "ja" },
+    ]);
+  }
+
+  return sourceOptionResponse(request, "fresh", "live", [
+    { value: "SV8", label: "Super Electric Breaker", parentValue: "SV" },
+  ]);
+}
+
+function sourceOptionResponse(
+  request: CatalogPrimaryWorkbenchSourceOptionRequest,
+  status: NonNullable<SourceObservationIntegrationOptionResponse["cache"]>["status"],
+  source: NonNullable<SourceObservationIntegrationOptionResponse["cache"]>["source"],
+  items: readonly { value: string; label: string; parentValue: string | null }[],
+): SourceObservationIntegrationOptionResponse {
+  return {
+    items: items.map((item) => ({
+      providerKey: request.providerKey,
+      queryKind: request.queryKind,
+      value: item.value,
+      label: item.label,
+      description: null,
+      parentValue: item.parentValue,
+      imageUrl: null,
+      metadata: {},
+    })),
+    total: items.length,
+    count: items.length,
+    page: { cursor: request.cursor, nextCursor: null, limit: request.limit, hasMore: false },
+    cache: {
+      status,
+      source,
+      cacheKey: `sha256:${request.queryKind}`,
+      fetchedAt: "2026-06-09T00:00:00.000Z",
+      expiresAt: "2026-06-09T00:15:00.000Z",
+      staleUntil: "2026-06-10T00:00:00.000Z",
+      cacheOnly: request.cacheOnly,
+      forceRefresh: false,
+      degraded: false,
+      diagnostics: [],
+    },
+  };
+}
+
 // The single rebuilt page renders one audience surface at a time. The describe
 // keeps its historical name so the launch test-architecture anchor that asserts
 // this file still documents the rebuilt rendered-workflow coverage continues to
@@ -40,13 +98,58 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     window.history.pushState({}, "", "/catalog/integrations");
   });
 
-  it("puts provider import, Source Observation review, and promotion ahead of support workflows", () => {
+  it("guides a Japanese SV8 operator from provider options to sync, review, and promote-all", () => {
+    const profile = profileReview({ active: true, lifecycle: "active", languageOptions: ["ja"] });
+    const japaneseSv8Scope = sourceObservationScope({
+      language_code: "ja",
+      product_line_id: "",
+      series_id: "SV",
+      series_name: "Scarlet & Violet",
+      expansion_id: "SV8",
+      expansion_name: "Super Electric Breaker",
+      total_observations: 130,
+      observed_observations: 130,
+      changed_observations: 130,
+      promoted_observations: 0,
+      rejected_observations: 0,
+    });
+    const sourceOptionRequests = buildCatalogPrimaryWorkbenchSourceOptionRequests({
+      requestUrl: japaneseSv8RequestUrl,
+      scopes: [japaneseSv8Scope],
+      profiles: [profile],
+      cacheOnly: true,
+    });
     const readModel = buildCatalogPrimaryWorkbenchReadModel({
-      requestUrl:
-        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1",
-      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
-      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      requestUrl: japaneseSv8RequestUrl,
+      scopes: { items: [japaneseSv8Scope], total: 1, count: 1 },
+      profileReviews: { items: [profile], total: 1, count: 1 },
+      sourceOptionPages: sourceOptionRequests.map((request) => ({
+        request,
+        response: japaneseSv8SourceOptionResponse(request),
+      })),
       controlPlaneOverview: null,
+      reviewObservations: {
+        items: [
+          sourceObservationListItem({
+            external_key: "SV8-001",
+            language_code: "ja",
+            normalized: {
+              ...sourceObservationListItem().normalized,
+              languageCode: "ja",
+              name: "Pikachu ex",
+              setId: "SV8",
+              setName: "Super Electric Breaker",
+              expansionId: "SV8",
+              expansionName: "Super Electric Breaker",
+              seriesId: "SV",
+              seriesName: "Scarlet & Violet",
+            },
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+      reviewPagination: { limit: 25, offset: 0 },
       canManageCatalog: true,
     });
 
@@ -60,13 +163,23 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.getByLabelText("Provider")).toBeTruthy();
     expect(screen.getByLabelText("Unit")).toBeTruthy();
     // The raw colon-delimited import-scope text box is replaced by guided,
-    // profile-driven scope selects whose values come from the route context.
+    // profile-driven scope selects whose values come from synced provider options.
     expect(screen.queryByLabelText("Import scope")).toBeNull();
     const scopeGroup = screen.getByRole("group", { name: "Source scope" });
+    const language = within(scopeGroup).getByLabelText("Language") as HTMLSelectElement;
     const series = within(scopeGroup).getByLabelText("Series") as HTMLSelectElement;
+    const expansion = within(scopeGroup).getByLabelText("Expansion") as HTMLSelectElement;
+    expect(language.name).toBe("languageCode");
+    expect(language.value).toBe("ja");
+    expect(within(language).getByRole("option", { name: "Japanese" })).toBeTruthy();
     expect(series.name).toBe("seriesId");
-    expect(series.value).toBe("base");
-    expect(screen.getByRole("button", { name: "Apply context" })).toBeTruthy();
+    expect(series.value).toBe("SV");
+    expect(within(series).getByRole("option", { name: "Scarlet & Violet" })).toBeTruthy();
+    expect(expansion.name).toBe("expansionId");
+    expect(expansion.value).toBe("SV8");
+    expect(within(expansion).getByRole("option", { name: "Super Electric Breaker" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Apply context" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Select source scope" })).toBeTruthy();
     expect(screen.getAllByRole("button", { name: /Pull provider data/i }).length).toBeGreaterThan(0);
     // The daily flow is now an explicit, linear three-stage path. The stepper names
     // each stage; the review and create stages expose their work below it.
@@ -74,6 +187,8 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.getAllByText("Review changes").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Create / update items").length).toBeGreaterThan(0);
     expect(screen.getByRole("heading", { name: "Source Observation review" })).toBeTruthy();
+    expect(screen.getAllByText("Pikachu ex").length).toBeGreaterThan(0);
+    expect(screen.getByText("Promote all eligible in this scope")).toBeTruthy();
     // The promotion command plan is demoted into supporting detail inside the create
     // stage; its detail content (including the decision summaries) stays rendered.
     expect(screen.getByText("Promotion command plan")).toBeTruthy();
