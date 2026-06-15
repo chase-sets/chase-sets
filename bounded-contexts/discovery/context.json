@@ -364,6 +364,21 @@
       }
     }
   ],
+  "mutationConsistencyInventory": [
+    {
+      "id": "discovery.item-detail-rail-analytics-capture",
+      "owner": "discovery",
+      "risk": "informational",
+      "strategy": "non-user-visible",
+      "surfaces": ["route-action:deployables/marketplace/app/routes/item-detail-rail-analytics.ts"],
+      "exception": {
+        "owner": "discovery",
+        "reviewBy": "2026-09-30",
+        "issue": "#1819",
+        "reason": "Discovery owns the item-detail rail analytics vocabulary and documents the marketplace deployable bridge as observability-only capture in bounded-contexts/discovery/docs/item-detail-rail-analytics.md. deployables/marketplace/app/root.test.tsx proves the route accepts only bounded analytics labels, rejects unsupported/private labels, returns 204, and no user-visible route read depends on the ping."
+      }
+    }
+  ],
   "deployableContributions": [
     {
       "deployable": "marketplace-web",
