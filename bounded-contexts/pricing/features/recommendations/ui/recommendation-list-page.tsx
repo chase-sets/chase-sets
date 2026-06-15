@@ -65,18 +65,21 @@ function statusTone(row: AccountRecommendationListItem) {
 export function PricingRecommendationListPage({
   recommendations,
   activeJobId,
+  initialActiveJob,
   message,
   errorMessage,
 }: {
   recommendations: readonly AccountRecommendationListItem[];
   activeJobId?: string | null;
+  initialActiveJob?: PricingRecommendationJobStatus | null;
   message?: string | null;
   errorMessage?: string | null;
 }) {
   const stockOnHand = recommendations.reduce((sum, row) => sum + row.stock_on_hand_quantity, 0);
   const activeOffers = recommendations.reduce((sum, row) => sum + row.active_offer_count, 0);
   const activeListings = recommendations.reduce((sum, row) => sum + row.active_listing_count, 0);
-  const activeJob = usePricingRecommendationJob(activeJobId);
+  const { job: activeJob, reconnecting } = usePricingRecommendationJob(activeJobId, initialActiveJob);
+  const hasActiveMutation = activeJob?.status === "queued" || activeJob?.status === "running";
   const activeJobMessage = activeJob?.progress.message ?? (activeJobId ? message : null);
 
   return (
@@ -88,7 +91,13 @@ export function PricingRecommendationListPage({
         actions={
           <Inline>
             <Form spacing="none" method="post">
-              <Button type="submit" name="intent" value="refresh-recommendations" tone="primary">
+              <Button
+                type="submit"
+                name="intent"
+                value="refresh-recommendations"
+                tone="primary"
+                disabled={hasActiveMutation}
+              >
                 {t("pricing.features.recommendations.ui.recommendationListPage.refresh")}
               </Button>
             </Form>
@@ -133,7 +142,11 @@ export function PricingRecommendationListPage({
         <MarketplaceNotice
           tone={activeJob?.status === "failed" ? "danger" : "success"}
           title={t("pricing.features.recommendations.ui.recommendationListPage.pricing")}
-          description={activeJob?.errorMessage ?? activeJobMessage}
+          description={
+            reconnecting
+              ? t("pricing.features.recommendations.ui.recommendationListPage.job.reconnecting")
+              : (activeJob?.errorMessage ?? activeJobMessage)
+          }
         />
       ) : null}
 
@@ -152,10 +165,22 @@ export function PricingRecommendationListPage({
               <Inline align="center">
                 <Text>{t("pricing.features.recommendations.ui.recommendationListPage.batch.notice")}</Text>
                 <Inline>
-                  <Button type="submit" name="intent" value="apply-recommendations" tone="primary">
+                  <Button
+                    type="submit"
+                    name="intent"
+                    value="apply-recommendations"
+                    tone="primary"
+                    disabled={hasActiveMutation}
+                  >
                     {t("pricing.features.recommendations.ui.recommendationListPage.apply.selected")}
                   </Button>
-                  <Button type="submit" name="intent" value="dismiss-recommendations" tone="ghost">
+                  <Button
+                    type="submit"
+                    name="intent"
+                    value="dismiss-recommendations"
+                    tone="ghost"
+                    disabled={hasActiveMutation}
+                  >
                     {t("pricing.features.recommendations.ui.recommendationListPage.dismiss.selected")}
                   </Button>
                 </Inline>
@@ -176,7 +201,7 @@ export function PricingRecommendationListPage({
                       hideLabel
                       name="recommendationId"
                       value={row.recommendation_id}
-                      disabled={row.status === "applied" || row.status === "dismissed"}
+                      disabled={hasActiveMutation || row.status === "applied" || row.status === "dismissed"}
                     />
                   ),
                 },
@@ -286,18 +311,28 @@ export function PricingRecommendationListPage({
   );
 }
 
-function usePricingRecommendationJob(jobId?: string | null) {
-  const [job, setJob] = useState<PricingRecommendationJobStatus | null>(null);
+function usePricingRecommendationJob(
+  jobId?: string | null,
+  initialJob?: PricingRecommendationJobStatus | null,
+): Readonly<{ job: PricingRecommendationJobStatus | null; reconnecting: boolean }> {
+  const [job, setJob] = useState<PricingRecommendationJobStatus | null>(initialJob ?? null);
+  const [reconnecting, setReconnecting] = useState(false);
 
   useEffect(() => {
     if (!jobId) {
       setJob(null);
+      setReconnecting(false);
       return;
     }
 
+    setJob(initialJob ?? null);
+    setReconnecting(false);
     const subscription = subscribeDurableJobStatus<PricingRecommendationJobStatus>({
       url: `/api/marketplace/account/recommendation-jobs/${encodeURIComponent(jobId)}/events`,
-      onStatus: setJob,
+      onStatus: (nextJob) => {
+        setJob(nextJob);
+        setReconnecting(false);
+      },
       onTerminal: (nextJob) => {
         if (nextJob.status === "completed") {
           window.setTimeout(() => {
@@ -305,11 +340,14 @@ function usePricingRecommendationJob(jobId?: string | null) {
           }, 250);
         }
       },
+      onError: () => {
+        setReconnecting(true);
+      },
     });
     return () => {
       subscription.close();
     };
-  }, [jobId]);
+  }, [jobId, initialJob]);
 
-  return job;
+  return { job, reconnecting };
 }

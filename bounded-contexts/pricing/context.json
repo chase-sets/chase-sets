@@ -123,6 +123,70 @@
       "requiresAuth": true
     }
   ],
+  "mutationConsistencyInventory": [
+    {
+      "id": "pricing.recommendation-publish-command-snapshot",
+      "owner": "pricing",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/pricing/features/recommendations/api/route.ts:POST /recommendations/:id/publish"
+      ],
+      "visibleDestination": {
+        "description": "Recommendation publish responses include the command-owned recommendation snapshot and version so callers do not need to trust a potentially lagging recommendation feed read."
+      },
+      "proof": {
+        "authoritativeResponse": "publishRecommendation returns the aggregate state produced by the command handler, and the API route returns that snapshot alongside id/version receipt fields.",
+        "tests": [
+          "bounded-contexts/pricing/features/recommendations/api/runtime.test.ts",
+          "bounded-contexts/pricing/features/recommendations/api/route.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "pricing.recommendation-job-command-snapshots",
+      "owner": "pricing",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/pricing/features/recommendations/api/route.ts:POST /recommendations/apply",
+        "api-route:bounded-contexts/pricing/features/recommendations/api/route.ts:POST /recommendations/dismiss",
+        "api-route:bounded-contexts/pricing/features/recommendations/api/route.ts:POST /recommendations/refresh"
+      ],
+      "visibleDestination": {
+        "description": "Refresh, apply, and dismiss responses return the durable job public snapshot that owns queued/running/completed state for the submitted recommendation write."
+      },
+      "proof": {
+        "authoritativeResponse": "enqueueRecommendationJob persists and returns the durable job public snapshot; the account route reloads that snapshot by jobId before rendering post-write recommendation controls.",
+        "tests": [
+          "bounded-contexts/pricing/features/recommendations/api/route.test.ts",
+          "bounded-contexts/pricing/tests/account-repricing-route.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "pricing.account-repricing-job-correction",
+      "owner": "pricing",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "post-form:bounded-contexts/pricing/features/recommendations/ui/recommendation-list-page.tsx:H2df726441e2a#1",
+        "post-form:bounded-contexts/pricing/features/recommendations/ui/recommendation-list-page.tsx:H2df726441e2a#2",
+        "route-action:bounded-contexts/pricing/routes/marketplace/account-repricing.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "account-repricing",
+        "description": "The account repricing page renders the active durable job snapshot, pauses recommendation controls while it is queued or running, and the SSE terminal path reloads the recommendation list."
+      },
+      "proof": {
+        "authoritativeResponse": "The route action redirects with jobId, the loader fetches the durable job snapshot, and the list page disables refresh/apply/dismiss controls until terminal status triggers a page refetch.",
+        "tests": [
+          "bounded-contexts/pricing/tests/account-repricing-route.test.ts",
+          "bounded-contexts/pricing/features/recommendations/ui/recommendation-list-page.test.tsx"
+        ]
+      }
+    }
+  ],
   "deployableContributions": [
     {
       "deployable": "marketplace-web",

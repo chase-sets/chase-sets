@@ -397,4 +397,39 @@ describe("pricing recommendation runtime", () => {
     expect(result).toEqual({ dismissedCount: 1 });
     expect(events.at(-1)?.eventType).toBe("pricing.recommendation.dismissed");
   });
+
+  it("returns a command-owned publish snapshot without waiting on the recommendation feed", async () => {
+    const staleFeedRecommendation = {
+      ...proposedRecommendation,
+      recommended_list_amount: 17.99,
+      recommendation_reason: "Old guidance.",
+    };
+    const { services } = createRuntime(
+      queryStub({
+        recommendations: [staleFeedRecommendation],
+      }),
+    );
+    await seedRecommendation(services, staleFeedRecommendation);
+
+    const snapshot = await services.publishRecommendation(
+      {
+        recommendationId: "rec_active",
+        accountId: "acc_1",
+        recommendedListAmount: 16.5,
+        reason: "New command-owned guidance.",
+        publishedAt: "2026-05-09T01:00:00.000Z",
+      },
+      context,
+    );
+
+    expect(snapshot).toEqual({
+      recommendationId: "rec_active",
+      accountId: "acc_1",
+      status: "proposed",
+      recommendedListAmount: 16.5,
+      recommendationReason: "New command-owned guidance.",
+      publishedAt: "2026-05-09T01:00:00.000Z",
+      version: 2,
+    });
+  });
 });

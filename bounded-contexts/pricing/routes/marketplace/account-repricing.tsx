@@ -3,9 +3,10 @@ import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react
 import { redirect, useActionData, useLoaderData } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import { createPricingRequestApiClient } from "../../support/request-support/api-client";
+import { createPricingRequestApiClient, PricingApiError } from "../../support/request-support/api-client";
 import { requirePricingAccountRepricingRollout } from "../../support/request-support/rollout-guard";
 import { PricingRecommendationListPage } from "../../features/recommendations/ui/recommendation-list-page";
+import type { PricingRecommendationJobStatus } from "../../features/recommendations/api/runtime";
 
 const DEFAULT_RECOMMENDATION_QUERY = "limit=100&offset=0";
 
@@ -16,11 +17,28 @@ export async function loader({ request }: LoaderFunctionArgs) {
   });
   await requirePricingAccountRepricingRollout(request, actor);
   const api = createPricingRequestApiClient(request);
+  const activeJobId = new URL(request.url).searchParams.get("jobId") ?? "";
+  const activeJob = activeJobId ? await loadActiveRecommendationJob(api, activeJobId) : null;
 
   return {
     recommendations: await api.listAccountRecommendations(DEFAULT_RECOMMENDATION_QUERY),
-    activeJobId: new URL(request.url).searchParams.get("jobId") ?? "",
+    activeJobId,
+    activeJob,
   };
+}
+
+async function loadActiveRecommendationJob(
+  api: ReturnType<typeof createPricingRequestApiClient>,
+  activeJobId: string,
+): Promise<PricingRecommendationJobStatus | null> {
+  try {
+    return await api.getRecommendationJob(activeJobId);
+  } catch (error) {
+    if (error instanceof PricingApiError && error.status === 404) {
+      return null;
+    }
+    throw error;
+  }
 }
 
 function selectedRecommendationIds(formData: FormData) {
@@ -81,6 +99,7 @@ export default function MarketplaceRepricingRoute() {
     <PricingRecommendationListPage
       recommendations={data.recommendations.items}
       activeJobId={data.activeJobId}
+      initialActiveJob={data.activeJob}
       message={actionData && "message" in actionData ? String(actionData.message ?? "") : null}
       errorMessage={actionData && "error" in actionData ? String(actionData.error ?? "") : null}
     />
