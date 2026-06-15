@@ -1,4 +1,5 @@
 import type { ListResponse } from "@chase-sets/http/responses";
+import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import type { LoaderFunctionArgs } from "react-router";
 import type {
   CatalogProviderProfileVersionReview,
@@ -47,6 +48,7 @@ type CatalogIntegrationsBaseline = Readonly<{
   routeData: Awaited<ReturnType<typeof loadCatalogListRouteData<SourceObservationIntegrationScope>>>;
   profileReviews: ListResponse<CatalogProviderProfileVersionReview>;
   controlPlaneOverview: CatalogIntegrationControlPlaneOverview | null;
+  canManageCatalog: boolean;
 }>;
 
 async function loadIntegrationsBaseline(request: Request): Promise<{
@@ -55,17 +57,23 @@ async function loadIntegrationsBaseline(request: Request): Promise<{
   routeContext: CatalogPrimaryWorkbenchRouteContext;
 }> {
   const api = createCatalogRequestApiClient(request);
-  const [routeData, profileReviews, controlPlaneOverview] = await Promise.all([
+  const [routeData, profileReviews, controlPlaneOverview, actor] = await Promise.all([
     loadCatalogListRouteData<SourceObservationIntegrationScope>(request, (query) =>
       api.listSourceObservationIntegrationScopes(query),
     ),
     api.listSourceObservationProviderProfiles<ListResponse<CatalogProviderProfileVersionReview>>(),
     api.getCatalogIntegrationControlPlaneOverview<CatalogIntegrationControlPlaneOverview>(),
+    resolveActorFromAuthApi({ request }),
   ]);
 
   return {
     api,
-    baseline: { routeData, profileReviews, controlPlaneOverview },
+    baseline: {
+      routeData,
+      profileReviews,
+      controlPlaneOverview,
+      canManageCatalog: actor?.permissions.includes("catalog.manage") ?? false,
+    },
     routeContext: parseCatalogPrimaryWorkbenchRouteContext(request.url),
   };
 }
@@ -96,18 +104,11 @@ async function finalizeSurfaceLoad(input: {
     reviewObservations: input.reviewObservations ?? null,
     reviewPagination: input.reviewPagination,
     sourceOptionPages: input.sourceOptionPages ?? null,
-    canManageCatalog: true,
+    canManageCatalog: input.baseline.canManageCatalog,
   });
   await recordCatalogControlPlaneEvents(input.api, loaderTelemetryEvents(readModel));
 
   return {
-    ...input.baseline.routeData,
-    profileReviews: input.baseline.profileReviews,
-    profileAuthoringModel: input.profileAuthoringModel ?? undefined,
-    lifecycleImpacts: input.lifecycleImpacts ?? undefined,
-    controlPlaneOverview: input.baseline.controlPlaneOverview,
-    reviewObservations: input.reviewObservations ?? undefined,
-    reviewPagination: input.reviewPagination,
     readModel,
     requestUrl: input.request.url,
     commandFeedback: commandFeedbackFromUrl(input.request.url),

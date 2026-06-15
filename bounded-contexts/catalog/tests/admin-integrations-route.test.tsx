@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CatalogApiError } from "../client";
 import IntegrationsRoute, { action, loader } from "../routes/admin/integrations";
 import { loader as providersLoader, action as providerSetupAction } from "../routes/admin/integrations-providers";
@@ -16,14 +16,19 @@ import {
   sourceObservationScope,
 } from "../features/source-observations/ui/primary-workbench-test-fixtures";
 
-const { mockCreateCatalogRequestApiClient, mockUseLoaderData, mockUseRouteLoaderData, mockUseActionData } = vi.hoisted(
-  () => ({
-    mockCreateCatalogRequestApiClient: vi.fn(),
-    mockUseLoaderData: vi.fn(),
-    mockUseRouteLoaderData: vi.fn(),
-    mockUseActionData: vi.fn(),
-  }),
-);
+const {
+  mockCreateCatalogRequestApiClient,
+  mockResolveActorFromAuthApi,
+  mockUseLoaderData,
+  mockUseRouteLoaderData,
+  mockUseActionData,
+} = vi.hoisted(() => ({
+  mockCreateCatalogRequestApiClient: vi.fn(),
+  mockResolveActorFromAuthApi: vi.fn(),
+  mockUseLoaderData: vi.fn(),
+  mockUseRouteLoaderData: vi.fn(),
+  mockUseActionData: vi.fn(),
+}));
 
 vi.mock("react-router", async () => {
   const actual = await vi.importActual<typeof import("react-router")>("react-router");
@@ -39,9 +44,23 @@ vi.mock("../support/request-support/api-client", () => ({
   createCatalogRequestApiClient: mockCreateCatalogRequestApiClient,
 }));
 
+vi.mock("@chase-sets/platform-runtime/auth", () => ({
+  resolveActorFromAuthApi: mockResolveActorFromAuthApi,
+}));
+
 describe("Catalog integrations route", () => {
+  afterEach(() => {
+    cleanup();
+    mockUseLoaderData.mockReset();
+    mockUseRouteLoaderData.mockReset();
+    mockUseActionData.mockReset();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      permissions: ["catalog.view", "catalog.manage"],
+    });
   });
 
   it("renders the rebuilt primary workbench as the default integrations experience", () => {
@@ -362,12 +381,127 @@ describe("Catalog integrations route", () => {
     ]);
     expect(new URLSearchParams(queries[1]).get("languageCode")).toBe("en");
     expect(new URLSearchParams(queries[2]).get("parentValue")).toBe("base");
+    expect(routeData).not.toHaveProperty("data");
+    expect(routeData).not.toHaveProperty("profileReviews");
+    expect(routeData).not.toHaveProperty("controlPlaneOverview");
+    expect(routeData).not.toHaveProperty("reviewObservations");
     expect(
       Object.fromEntries(routeData.readModel.sourceOptions.pages.map((page) => [page.queryKind, page.state])),
     ).toEqual({
       languages: "cached",
       series: "cached",
       expansions: "stale",
+    });
+  });
+
+  it("keeps the staging Japanese SV8 deep-link payload trimmed", async () => {
+    const sv8Scope = sourceObservationScope({
+      language_code: "ja",
+      product_line_id: "",
+      product_line_name: "",
+      series_id: "sv",
+      series_name: "Scarlet & Violet",
+      expansion_id: "sv8",
+      expansion_name: "Super Electric Breaker",
+      total_observations: 130,
+      observed_observations: 130,
+      changed_observations: 130,
+      promoted_observations: 0,
+      rejected_observations: 0,
+    });
+    const scopes = { items: [sv8Scope], total: 1, count: 1 };
+    const profileReviews = {
+      items: [profileReview({ active: true, lifecycle: "active", profileVersion: "2026.06.03" })],
+      total: 1,
+      count: 1,
+    };
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listSourceObservationIntegrationScopes: vi.fn().mockResolvedValue(scopes),
+      listSourceObservationProviderProfiles: vi.fn().mockResolvedValue(profileReviews),
+      getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(null),
+      listSourceObservations: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      listSourceObservationIntegrationOptions: vi.fn(async (query: string) => {
+        const params = new URLSearchParams(query);
+        const queryKind = params.get("queryKind") ?? "";
+        return sourceOptionResponse(queryKind, {
+          status: queryKind === "expansions" ? "stale" : "fresh",
+          source: "cache",
+          parentValue: params.get("parentValue"),
+          degraded: queryKind === "expansions",
+          value: queryKind === "languages" ? "ja" : queryKind === "series" ? "SV" : "SV8",
+          label:
+            queryKind === "languages"
+              ? "Japanese"
+              : queryKind === "series"
+                ? "Scarlet & Violet"
+                : "Super Electric Breaker",
+        });
+      }),
+      recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+    });
+
+    const routeData = await loader({
+      request: new Request(
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex%3Apokemon%3Asingle-card%3Asource-observation-import&importScope=ja%3ASV%3ASV8&profileVersion=2026.06.03",
+      ),
+      params: {},
+      context: {},
+    } as Parameters<typeof loader>[0]);
+
+    expect(routeData).not.toHaveProperty("data");
+    expect(routeData).not.toHaveProperty("profileReviews");
+    expect(routeData).not.toHaveProperty("controlPlaneOverview");
+    expect(routeData).not.toHaveProperty("reviewObservations");
+    expect(routeData).not.toHaveProperty("profileAuthoringModel");
+    expect(routeData).not.toHaveProperty("lifecycleImpacts");
+    expect(routeData.readModel.routeContext.importScope).toBe("ja:SV:SV8");
+    expect(routeData.readModel.importJobs.selectedScope).not.toBeNull();
+    expect(routeData.readModel.importJobs.selectedScope?.importScope).toBe("ja:SV:SV8");
+    expect(routeData.readModel.sourceOptions.pages.find((page) => page.queryKind === "expansions")).toMatchObject({
+      state: "stale",
+      items: [expect.objectContaining({ value: "SV8", label: "Super Electric Breaker" })],
+    });
+  });
+
+  it("builds a trimmed read model with denied write actions for catalog view-only operators", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      permissions: ["catalog.view"],
+    });
+    const scopes = { items: [sourceObservationScope()], total: 1, count: 1 };
+    const profileReviews = { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 };
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listSourceObservationIntegrationScopes: vi.fn().mockResolvedValue(scopes),
+      listSourceObservationProviderProfiles: vi.fn().mockResolvedValue(profileReviews),
+      getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(null),
+      listSourceObservations: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      listSourceObservationIntegrationOptions: vi.fn().mockResolvedValue(
+        sourceOptionResponse("languages", {
+          status: "fresh",
+          source: "cache",
+          parentValue: null,
+          degraded: false,
+        }),
+      ),
+      recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+    });
+
+    const routeData = await loader({
+      request: new Request(
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1",
+      ),
+      params: {},
+      context: {},
+    } as Parameters<typeof loader>[0]);
+
+    expect(routeData).not.toHaveProperty("data");
+    expect(routeData).not.toHaveProperty("profileReviews");
+    expect(routeData.readModel.readiness.rbacAllowed).toBe(false);
+    expect(routeData.readModel.readiness.blockers).toContain("permission-denied");
+    expect(
+      routeData.readModel.actions.find((actionEntry) => actionEntry.key === "start-provider-import"),
+    ).toMatchObject({
+      state: "blocked",
+      blockers: expect.arrayContaining(["permission-denied"]),
     });
   });
 
@@ -675,7 +809,7 @@ describe("Catalog integrations route", () => {
     // The loader did take the deep-link path (it fetched the authoring model for
     // the carried version) and recovered from the 404 instead of throwing.
     expect(getSourceObservationProviderProfileAuthoringModel).toHaveBeenCalledWith("tcgdex", "2099.01.01-unknown");
-    expect(routeData.profileAuthoringModel).toBeUndefined();
+    expect(routeData).not.toHaveProperty("profileAuthoringModel");
     // Both providers workspaces resolve to their absent-selection states: profile
     // authoring flags the stale selection and validation readiness is unavailable
     // without a resolved authoring model.
