@@ -693,7 +693,7 @@ export const tcgdexPokemonTcgProviderProfile = {
         ruleKey: "series",
         typeKey: "series",
         recordId: { kind: "provider", typeKey: "series", providerValuePaths: ["seriesId", "seriesName"] },
-        key: { kind: "path", path: "seriesName" },
+        key: { kind: "path", path: "seriesId" },
         name: { kind: "path", path: "seriesName" },
         description: {
           kind: "template",
@@ -708,7 +708,7 @@ export const tcgdexPokemonTcgProviderProfile = {
         ruleKey: "expansion",
         typeKey: "expansion",
         recordId: { kind: "provider", typeKey: "expansion", providerValuePaths: ["expansionId"] },
-        key: { kind: "path", path: "expansionName" },
+        key: { kind: "path", path: "expansionId" },
         name: { kind: "path", path: "expansionName" },
         description: {
           kind: "template",
