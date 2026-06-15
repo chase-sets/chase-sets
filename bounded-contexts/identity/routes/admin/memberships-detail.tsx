@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
+import { appendFreshWriteToken } from "@chase-sets/http/responses";
 import type { Membership } from "../../support/request-support/api-client";
 import { MembershipDetailPage } from "../../features/memberships/ui/membership-detail-page";
 import { createIdentityRequestApiClient } from "../../support/route-support/identity-request";
@@ -18,20 +19,21 @@ export async function action({ request, params }: ActionFunctionArgs) {
   const formData = await request.formData();
   const intent = String(formData.get("intent") ?? "");
   const membershipId = params.id!;
+  let result: unknown = null;
 
   if (intent === "change-role") {
-    await api.changeMembershipRole(membershipId, String(formData.get("roleKey") ?? ""));
+    result = await api.changeMembershipRole(membershipId, String(formData.get("roleKey") ?? ""));
   }
 
   if (intent === "revoke") {
-    await api.revokeMembership(membershipId);
+    result = await api.revokeMembership(membershipId);
   }
 
   if (intent === "reinstate") {
-    await api.reinstateMembership(membershipId);
+    result = await api.reinstateMembership(membershipId);
   }
 
-  return redirect(`/access/memberships/${membershipId}`);
+  return redirect(appendFreshWriteToken(`/access/memberships/${membershipId}`, result));
 }
 
 export const meta: MetaFunction = () => [

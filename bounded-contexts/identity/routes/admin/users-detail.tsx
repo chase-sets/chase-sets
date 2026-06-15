@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
+import { appendFreshWriteToken } from "@chase-sets/http/responses";
 import type { User } from "../../support/request-support/api-client";
 import { UserDetailPage } from "../../features/users/ui/user-detail-page";
 import { createIdentityRequestApiClient } from "../../support/route-support/identity-request";
@@ -18,9 +19,10 @@ export async function action({ request, params }: ActionFunctionArgs) {
   const formData = await request.formData();
   const intent = String(formData.get("intent") ?? "");
   const userId = params.id!;
+  let result: unknown = null;
 
   if (intent === "update-profile") {
-    await api.updateUser(userId, {
+    result = await api.updateUser(userId, {
       displayName: String(formData.get("displayName") ?? ""),
       givenName: String(formData.get("givenName") ?? ""),
       familyName: String(formData.get("familyName") ?? ""),
@@ -28,14 +30,14 @@ export async function action({ request, params }: ActionFunctionArgs) {
   }
 
   if (intent === "suspend") {
-    await api.suspendUser(userId);
+    result = await api.suspendUser(userId);
   }
 
   if (intent === "reactivate") {
-    await api.reactivateUser(userId);
+    result = await api.reactivateUser(userId);
   }
 
-  return redirect(`/access/users/${userId}`);
+  return redirect(appendFreshWriteToken(`/access/users/${userId}`, result));
 }
 
 export const meta: MetaFunction = () => [{ title: t("identity.routes.admin.usersDetail.user.detail.identity.admin") }];

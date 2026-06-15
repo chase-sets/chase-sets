@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
+import { appendFreshWriteToken } from "@chase-sets/http/responses";
 import type { ApiKey } from "../../support/request-support/api-client";
 import { ApiKeyDetailPage } from "../../features/api-keys/ui/api-key-detail-page";
 import { createIdentityRequestApiClient } from "../../support/route-support/identity-request";
@@ -18,16 +19,17 @@ export async function action({ request, params }: ActionFunctionArgs) {
   const formData = await request.formData();
   const intent = String(formData.get("intent") ?? "");
   const apiKeyId = params.id!;
+  let result: unknown = null;
 
   if (intent === "rotate") {
-    await api.rotateApiKey(apiKeyId);
+    result = await api.rotateApiKey(apiKeyId);
   }
 
   if (intent === "revoke") {
-    await api.revokeApiKey(apiKeyId);
+    result = await api.revokeApiKey(apiKeyId);
   }
 
-  return redirect(`/access/api-keys/${apiKeyId}`);
+  return redirect(appendFreshWriteToken(`/access/api-keys/${apiKeyId}`, result));
 }
 
 export const meta: MetaFunction = () => [

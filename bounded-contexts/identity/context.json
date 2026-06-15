@@ -17,6 +17,62 @@
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./web"],
   "allowedContextDependencies": [],
   "seedRequirements": [],
+  "projectionGroups": [
+    {
+      "projectionName": "identity-account-projection",
+      "sourceContextNames": ["identity"],
+      "ownedTables": ["identity_accounts", "identity_account_display_name_reservations"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "identity-user-projection",
+      "sourceContextNames": ["identity"],
+      "ownedTables": [
+        "identity_users",
+        "identity_user_emails",
+        "identity_user_phones",
+        "identity_user_social_login_links"
+      ],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "identity-membership-projection",
+      "sourceContextNames": ["identity"],
+      "ownedTables": ["identity_memberships", "identity_user_memberships"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "identity-invitation-projection",
+      "sourceContextNames": ["identity"],
+      "ownedTables": ["identity_invitations"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "identity-api-key-projection",
+      "sourceContextNames": ["identity"],
+      "ownedTables": ["identity_api_keys", "identity_api_key_lookup"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "identity-consent-projection",
+      "sourceContextNames": ["identity"],
+      "ownedTables": ["identity_consents"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "identity-shipping-address-projection",
+      "sourceContextNames": ["identity"],
+      "ownedTables": ["identity_shipping_addresses"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "truncate-owned-tables"
+    }
+  ],
   "hostPorts": [],
   "apiDeployables": ["admin-support-api", "platform-api"],
   "runtimeDeployables": ["admin-support-worker", "platform-worker"],
@@ -24,12 +80,318 @@
     {
       "mountPath": "/api/identity",
       "kind": "primary",
-      "requiresAuth": true
+      "requiresAuth": true,
+      "readFreshnessRoutes": [
+        {
+          "routePath": "/accounts/:id",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [{ "readModelTable": "identity_accounts" }]
+        },
+        {
+          "routePath": "/users/:id",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [{ "readModelTable": "identity_users" }]
+        },
+        {
+          "routePath": "/memberships",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [{ "readModelTable": "identity_memberships" }]
+        },
+        {
+          "routePath": "/memberships/:id",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [{ "readModelTable": "identity_memberships" }]
+        },
+        {
+          "routePath": "/invitations",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [{ "readModelTable": "identity_invitations" }]
+        },
+        {
+          "routePath": "/invitations/:id",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [{ "readModelTable": "identity_invitations" }]
+        },
+        {
+          "routePath": "/api-keys",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [{ "readModelTable": "identity_api_keys" }]
+        },
+        {
+          "routePath": "/api-keys/:id",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [{ "readModelTable": "identity_api_keys" }]
+        },
+        {
+          "routePath": "/accounts/:accountId/shipping-addresses",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [{ "readModelTable": "identity_shipping_addresses" }]
+        }
+      ]
     }
   ],
   "readAfterWriteRouteInventory": [
     {
-      "id": "identity.shipping-addresses-self-refresh",
+      "id": "identity.admin-account-detail-fresh-read",
+      "owner": "identity",
+      "risk": "important",
+      "source": {
+        "routeId": "accounts-detail",
+        "actions": [
+          "Update account profile",
+          "Suspend account",
+          "Reactivate account",
+          "Close account",
+          "Assign account badge",
+          "Remove account badge"
+        ],
+        "command": "Identity account commands",
+        "helperUses": ["appendFreshWriteToken"]
+      },
+      "destination": {
+        "routeId": "accounts-detail",
+        "apiContextName": "identity",
+        "apiRoutePath": "/accounts/:id",
+        "readModelTables": ["identity_accounts"],
+        "transientRecovery": "Account detail redirects carry the Identity command receipt so the account detail loader reads after the account projection catches up."
+      },
+      "proof": {
+        "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
+      }
+    },
+    {
+      "id": "identity.marketplace-account-profile-fresh-read",
+      "owner": "identity",
+      "risk": "important",
+      "source": {
+        "routeId": "account",
+        "actions": ["Update account profile"],
+        "command": "UpdateAccountProfile",
+        "helperUses": ["appendFreshWriteToken"]
+      },
+      "destination": {
+        "routeId": "account",
+        "apiContextName": "identity",
+        "apiRoutePath": "/accounts/:id",
+        "readModelTables": ["identity_accounts"],
+        "transientRecovery": "Marketplace account profile redirects carry the Identity account command receipt so the account loader reads after the account projection catches up."
+      },
+      "proof": {
+        "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
+      }
+    },
+    {
+      "id": "identity.admin-user-detail-fresh-read",
+      "owner": "identity",
+      "risk": "important",
+      "source": {
+        "routeId": "users-detail",
+        "actions": ["Update user profile", "Suspend user", "Reactivate user"],
+        "command": "Identity user commands",
+        "helperUses": ["appendFreshWriteToken"]
+      },
+      "destination": {
+        "routeId": "users-detail",
+        "apiContextName": "identity",
+        "apiRoutePath": "/users/:id",
+        "readModelTables": ["identity_users"],
+        "transientRecovery": "User detail redirects carry the Identity user command receipt so the user detail loader reads after the user projection catches up."
+      },
+      "proof": {
+        "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
+      }
+    },
+    {
+      "id": "identity.account-security-user-fresh-read",
+      "owner": "identity",
+      "risk": "important",
+      "source": {
+        "routeId": "account-security",
+        "actions": ["Update user profile"],
+        "command": "UpdateUserProfile",
+        "helperUses": ["appendFreshWriteToken"]
+      },
+      "destination": {
+        "routeId": "account-security",
+        "apiContextName": "identity",
+        "apiRoutePath": "/users/:id",
+        "readModelTables": ["identity_users"],
+        "transientRecovery": "Account security profile redirects carry the Identity user command receipt so the security loader reads after the user projection catches up."
+      },
+      "proof": {
+        "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
+      }
+    },
+    {
+      "id": "identity.admin-api-key-list-fresh-read",
+      "owner": "identity",
+      "risk": "critical",
+      "source": {
+        "routeId": "api-keys",
+        "actions": ["Create API key"],
+        "command": "CreateApiKey",
+        "helperUses": ["appendFreshWriteToken"]
+      },
+      "destination": {
+        "routeId": "api-keys",
+        "apiContextName": "identity",
+        "apiRoutePath": "/api-keys",
+        "readModelTables": ["identity_api_keys"],
+        "transientRecovery": "API key list redirects carry the Identity API-key command receipt so the list loader reads after the API-key projection catches up."
+      },
+      "proof": {
+        "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
+      }
+    },
+    {
+      "id": "identity.admin-api-key-detail-fresh-read",
+      "owner": "identity",
+      "risk": "critical",
+      "source": {
+        "routeId": "api-keys-detail",
+        "actions": ["Rotate API key", "Revoke API key"],
+        "command": "Identity API-key commands",
+        "helperUses": ["appendFreshWriteToken"]
+      },
+      "destination": {
+        "routeId": "api-keys-detail",
+        "apiContextName": "identity",
+        "apiRoutePath": "/api-keys/:id",
+        "readModelTables": ["identity_api_keys"],
+        "transientRecovery": "API key detail redirects carry the Identity API-key command receipt so the detail loader reads after the API-key projection catches up."
+      },
+      "proof": {
+        "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
+      }
+    },
+    {
+      "id": "identity.account-security-api-key-fresh-read",
+      "owner": "identity",
+      "risk": "critical",
+      "source": {
+        "routeId": "account-security",
+        "actions": ["Create API key", "Rotate API key", "Revoke API key"],
+        "command": "Identity API-key commands",
+        "helperUses": ["appendFreshWriteToken"]
+      },
+      "destination": {
+        "routeId": "account-security",
+        "apiContextName": "identity",
+        "apiRoutePath": "/api-keys",
+        "readModelTables": ["identity_api_keys"],
+        "transientRecovery": "Account security API-key redirects carry the Identity API-key command receipt so the security loader reads after the API-key projection catches up."
+      },
+      "proof": {
+        "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
+      }
+    },
+    {
+      "id": "identity.admin-invitation-list-fresh-read",
+      "owner": "identity",
+      "risk": "important",
+      "source": {
+        "routeId": "invitations",
+        "actions": ["Create invitation"],
+        "command": "CreateInvitation",
+        "helperUses": ["appendFreshWriteToken"]
+      },
+      "destination": {
+        "routeId": "invitations",
+        "apiContextName": "identity",
+        "apiRoutePath": "/invitations",
+        "readModelTables": ["identity_invitations"],
+        "transientRecovery": "Invitation list redirects carry the Identity invitation command receipt so the list loader reads after the invitation projection catches up."
+      },
+      "proof": {
+        "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
+      }
+    },
+    {
+      "id": "identity.admin-invitation-detail-fresh-read",
+      "owner": "identity",
+      "risk": "important",
+      "source": {
+        "routeId": "invitations-detail",
+        "actions": ["Resend invitation", "Cancel invitation", "Decline invitation"],
+        "command": "Identity invitation commands",
+        "helperUses": ["appendFreshWriteToken"]
+      },
+      "destination": {
+        "routeId": "invitations-detail",
+        "apiContextName": "identity",
+        "apiRoutePath": "/invitations/:id",
+        "readModelTables": ["identity_invitations"],
+        "transientRecovery": "Invitation detail redirects carry the Identity invitation command receipt so the detail loader reads after the invitation projection catches up."
+      },
+      "proof": {
+        "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
+      }
+    },
+    {
+      "id": "identity.account-team-invitation-fresh-read",
+      "owner": "identity",
+      "risk": "important",
+      "source": {
+        "routeId": "account-team",
+        "actions": ["Create invitation", "Cancel invitation"],
+        "command": "Identity invitation commands",
+        "helperUses": ["appendFreshWriteToken"]
+      },
+      "destination": {
+        "routeId": "account-team",
+        "apiContextName": "identity",
+        "apiRoutePath": "/invitations",
+        "readModelTables": ["identity_invitations"],
+        "transientRecovery": "Account team invitation redirects carry the Identity invitation command receipt so the team loader reads after the invitation projection catches up."
+      },
+      "proof": {
+        "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
+      }
+    },
+    {
+      "id": "identity.admin-membership-detail-fresh-read",
+      "owner": "identity",
+      "risk": "important",
+      "source": {
+        "routeId": "memberships-detail",
+        "actions": ["Change membership role", "Revoke membership", "Reinstate membership"],
+        "command": "Identity membership commands",
+        "helperUses": ["appendFreshWriteToken"]
+      },
+      "destination": {
+        "routeId": "memberships-detail",
+        "apiContextName": "identity",
+        "apiRoutePath": "/memberships/:id",
+        "readModelTables": ["identity_memberships"],
+        "transientRecovery": "Membership detail redirects carry the Identity membership command receipt so the detail loader reads after the membership projection catches up."
+      },
+      "proof": {
+        "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
+      }
+    },
+    {
+      "id": "identity.account-team-membership-fresh-read",
+      "owner": "identity",
+      "risk": "important",
+      "source": {
+        "routeId": "account-team",
+        "actions": ["Change membership role", "Revoke membership", "Reinstate membership"],
+        "command": "Identity membership commands",
+        "helperUses": ["appendFreshWriteToken"]
+      },
+      "destination": {
+        "routeId": "account-team",
+        "apiContextName": "identity",
+        "apiRoutePath": "/memberships",
+        "readModelTables": ["identity_memberships"],
+        "transientRecovery": "Account team membership redirects carry the Identity membership command receipt so the team loader reads after the membership projection catches up."
+      },
+      "proof": {
+        "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
+      }
+    },
+    {
+      "id": "identity.shipping-addresses-fresh-read",
       "owner": "identity",
       "risk": "important",
       "source": {
@@ -37,7 +399,7 @@
         "actions": [
           "Create shipping address",
           "Update shipping address",
-          "Delete shipping address",
+          "Archive shipping address",
           "Set default shipping address"
         ],
         "command": "Identity shipping-address commands",
@@ -45,17 +407,259 @@
       },
       "destination": {
         "routeId": "account-shipping-addresses",
-        "transientRecovery": "Shipping-address account route refreshes Identity-owned state and is not part of projection-backed Checkout session recovery."
+        "apiContextName": "identity",
+        "apiRoutePath": "/accounts/:accountId/shipping-addresses",
+        "readModelTables": ["identity_shipping_addresses"],
+        "transientRecovery": "Shipping-address redirects carry the Identity shipping-address command receipt so the address-book loader reads after the shipping-address projection catches up."
       },
-      "exception": {
-        "status": "not-read-model-backed",
-        "owner": "identity",
-        "reviewBy": "2026-07-31",
-        "reason": "Identity shipping-address route uses the fresh-write token as same-route UX continuity, not to wait on a platform projection freshness gate."
+      "proof": {
+        "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
       }
     }
   ],
   "mutationConsistencyInventory": [
+    {
+      "id": "identity.account-browser-fresh-read",
+      "owner": "identity",
+      "risk": "important",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "post-form:bounded-contexts/identity/features/accounts/ui/account-detail-page.tsx:H2df726441e2a#1",
+        "post-form:bounded-contexts/identity/features/accounts/ui/account-detail-page.tsx:H2df726441e2a#2",
+        "post-form:bounded-contexts/identity/features/accounts/ui/account-detail-page.tsx:H2df726441e2a#3",
+        "post-form:bounded-contexts/identity/features/accounts/ui/account-detail-page.tsx:H2df726441e2a#4",
+        "post-form:bounded-contexts/identity/features/accounts/ui/account-detail-page.tsx:H2df726441e2a#5",
+        "post-form:bounded-contexts/identity/features/accounts/ui/account-profile-page.tsx:H2df726441e2a#1",
+        "route-action:bounded-contexts/identity/routes/admin/accounts-detail.tsx",
+        "route-action:bounded-contexts/identity/routes/marketplace/account.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "accounts-detail",
+        "apiContextName": "identity",
+        "apiRoutePath": "/accounts/:id",
+        "readModelTables": ["identity_accounts"],
+        "transientRecovery": "Account profile and lifecycle forms redirect with Identity command receipts and reload account pages through the account projection freshness route."
+      },
+      "proof": {
+        "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
+      }
+    },
+    {
+      "id": "identity.user-browser-fresh-read",
+      "owner": "identity",
+      "risk": "important",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "post-form:bounded-contexts/identity/features/api-keys/ui/account-security-page.tsx:H2df726441e2a#1",
+        "post-form:bounded-contexts/identity/features/users/ui/user-detail-page.tsx:H2df726441e2a#1",
+        "post-form:bounded-contexts/identity/features/users/ui/user-detail-page.tsx:H2df726441e2a#2",
+        "post-form:bounded-contexts/identity/features/users/ui/user-detail-page.tsx:H2df726441e2a#3",
+        "route-action:bounded-contexts/identity/routes/admin/users-detail.tsx",
+        "route-action:bounded-contexts/identity/routes/marketplace/account-security.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "users-detail",
+        "apiContextName": "identity",
+        "apiRoutePath": "/users/:id",
+        "readModelTables": ["identity_users"],
+        "transientRecovery": "User profile and lifecycle forms redirect with Identity command receipts and reload user/security pages through the user projection freshness route."
+      },
+      "proof": {
+        "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
+      }
+    },
+    {
+      "id": "identity.api-key-list-browser-fresh-read",
+      "owner": "identity",
+      "risk": "critical",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "post-form:bounded-contexts/identity/features/api-keys/ui/api-key-list-page.tsx:H2df726441e2a#1",
+        "route-action:bounded-contexts/identity/routes/admin/api-keys.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "api-keys",
+        "apiContextName": "identity",
+        "apiRoutePath": "/api-keys",
+        "readModelTables": ["identity_api_keys"],
+        "transientRecovery": "API-key create forms redirect with Identity command receipts and reload list pages through the API-key projection freshness route."
+      },
+      "proof": {
+        "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
+      }
+    },
+    {
+      "id": "identity.api-key-detail-browser-fresh-read",
+      "owner": "identity",
+      "risk": "critical",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "post-form:bounded-contexts/identity/features/api-keys/ui/api-key-detail-page.tsx:H2df726441e2a#1",
+        "post-form:bounded-contexts/identity/features/api-keys/ui/api-key-detail-page.tsx:H2df726441e2a#2",
+        "route-action:bounded-contexts/identity/routes/admin/api-keys-detail.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "api-keys-detail",
+        "apiContextName": "identity",
+        "apiRoutePath": "/api-keys/:id",
+        "readModelTables": ["identity_api_keys"],
+        "transientRecovery": "API-key rotate and revoke forms redirect with Identity command receipts and reload detail pages through the API-key projection freshness route."
+      },
+      "proof": {
+        "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
+      }
+    },
+    {
+      "id": "identity.account-security-api-key-browser-fresh-read",
+      "owner": "identity",
+      "risk": "critical",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "post-form:bounded-contexts/identity/features/api-keys/ui/account-security-page.tsx:H2df726441e2a#2",
+        "post-form:bounded-contexts/identity/features/api-keys/ui/account-security-page.tsx:H2df726441e2a#3",
+        "post-form:bounded-contexts/identity/features/api-keys/ui/account-security-page.tsx:H2df726441e2a#4",
+        "route-action:bounded-contexts/identity/routes/marketplace/account-security.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "account-security",
+        "apiContextName": "identity",
+        "apiRoutePath": "/api-keys",
+        "readModelTables": ["identity_api_keys"],
+        "transientRecovery": "Account security API-key forms redirect with Identity command receipts and reload the security page through the API-key projection freshness route."
+      },
+      "proof": {
+        "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
+      }
+    },
+    {
+      "id": "identity.invitation-list-browser-fresh-read",
+      "owner": "identity",
+      "risk": "important",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "post-form:bounded-contexts/identity/features/invitations/ui/invitation-list-page.tsx:H2df726441e2a#1",
+        "route-action:bounded-contexts/identity/routes/admin/invitations.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "invitations",
+        "apiContextName": "identity",
+        "apiRoutePath": "/invitations",
+        "readModelTables": ["identity_invitations"],
+        "transientRecovery": "Invitation create forms redirect with Identity command receipts and reload invitation list pages through the invitation projection freshness route."
+      },
+      "proof": {
+        "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
+      }
+    },
+    {
+      "id": "identity.invitation-detail-browser-fresh-read",
+      "owner": "identity",
+      "risk": "important",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "post-form:bounded-contexts/identity/features/invitations/ui/invitation-detail-page.tsx:H2df726441e2a#1",
+        "post-form:bounded-contexts/identity/features/invitations/ui/invitation-detail-page.tsx:H2df726441e2a#2",
+        "post-form:bounded-contexts/identity/features/invitations/ui/invitation-detail-page.tsx:H2df726441e2a#3",
+        "route-action:bounded-contexts/identity/routes/admin/invitations-detail.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "invitations-detail",
+        "apiContextName": "identity",
+        "apiRoutePath": "/invitations/:id",
+        "readModelTables": ["identity_invitations"],
+        "transientRecovery": "Invitation resend, cancel, and decline forms redirect with Identity command receipts and reload detail pages through the invitation projection freshness route."
+      },
+      "proof": {
+        "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
+      }
+    },
+    {
+      "id": "identity.account-team-invitation-browser-fresh-read",
+      "owner": "identity",
+      "risk": "important",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "post-form:bounded-contexts/identity/features/memberships/ui/account-team-page.tsx:H2df726441e2a#1",
+        "post-form:bounded-contexts/identity/features/memberships/ui/account-team-page.tsx:H2df726441e2a#4",
+        "route-action:bounded-contexts/identity/routes/marketplace/account-team.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "account-team",
+        "apiContextName": "identity",
+        "apiRoutePath": "/invitations",
+        "readModelTables": ["identity_invitations"],
+        "transientRecovery": "Account team invitation forms redirect with Identity command receipts and reload team invitations through the invitation projection freshness route."
+      },
+      "proof": {
+        "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
+      }
+    },
+    {
+      "id": "identity.membership-detail-browser-fresh-read",
+      "owner": "identity",
+      "risk": "important",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "post-form:bounded-contexts/identity/features/memberships/ui/membership-detail-page.tsx:H2df726441e2a#1",
+        "post-form:bounded-contexts/identity/features/memberships/ui/membership-detail-page.tsx:H2df726441e2a#2",
+        "post-form:bounded-contexts/identity/features/memberships/ui/membership-detail-page.tsx:H2df726441e2a#3",
+        "route-action:bounded-contexts/identity/routes/admin/memberships-detail.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "memberships-detail",
+        "apiContextName": "identity",
+        "apiRoutePath": "/memberships/:id",
+        "readModelTables": ["identity_memberships"],
+        "transientRecovery": "Membership role and lifecycle forms redirect with Identity command receipts and reload detail pages through the membership projection freshness route."
+      },
+      "proof": {
+        "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
+      }
+    },
+    {
+      "id": "identity.account-team-membership-browser-fresh-read",
+      "owner": "identity",
+      "risk": "important",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "post-form:bounded-contexts/identity/features/memberships/ui/account-team-page.tsx:H2df726441e2a#2",
+        "post-form:bounded-contexts/identity/features/memberships/ui/account-team-page.tsx:H2df726441e2a#3",
+        "route-action:bounded-contexts/identity/routes/marketplace/account-team.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "account-team",
+        "apiContextName": "identity",
+        "apiRoutePath": "/memberships",
+        "readModelTables": ["identity_memberships"],
+        "transientRecovery": "Account team membership forms redirect with Identity command receipts and reload team memberships through the membership projection freshness route."
+      },
+      "proof": {
+        "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
+      }
+    },
+    {
+      "id": "identity.shipping-address-browser-fresh-read",
+      "owner": "identity",
+      "risk": "important",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "post-form:bounded-contexts/identity/features/shipping-addresses/ui/shipping-address-page.tsx:H2df726441e2a#1",
+        "post-form:bounded-contexts/identity/features/shipping-addresses/ui/shipping-address-page.tsx:H2df726441e2a#2",
+        "post-form:bounded-contexts/identity/features/shipping-addresses/ui/shipping-address-page.tsx:H2df726441e2a#3",
+        "post-form:bounded-contexts/identity/features/shipping-addresses/ui/shipping-address-page.tsx:H2df726441e2a#4",
+        "route-action:bounded-contexts/identity/routes/marketplace/account-shipping-addresses.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "account-shipping-addresses",
+        "apiContextName": "identity",
+        "apiRoutePath": "/accounts/:accountId/shipping-addresses",
+        "readModelTables": ["identity_shipping_addresses"],
+        "transientRecovery": "Shipping address forms redirect with Identity command receipts and reload address-book pages through the shipping-address projection freshness route."
+      },
+      "proof": {
+        "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
+      }
+    },
     {
       "id": "identity.internal-auth-api-command-snapshots",
       "owner": "identity",
