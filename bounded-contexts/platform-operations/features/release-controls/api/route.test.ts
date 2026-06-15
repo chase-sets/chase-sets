@@ -83,6 +83,16 @@ describe("release controls policy API", () => {
     });
 
     expect(update.status).toBe(200);
+    await expect(update.clone().json()).resolves.toMatchObject({
+      rolloutPolicies: [
+        {
+          featureKey: "pricing.account-repricing",
+          environment: "production",
+          percentage: 0,
+          allowSubjects: ["account:acc_ops"],
+        },
+      ],
+    });
 
     const decision = await app.request(
       "/rollouts/pricing.account-repricing/decision?environment=production&subjectType=account&subjectId=acc_ops",
@@ -113,6 +123,27 @@ describe("release controls policy API", () => {
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toMatchObject({
       error: { message: "Emergency release or release-lock clearance reference is required." },
+    });
+  });
+
+  it("returns the command-owned release lock snapshot after release lock writes", async () => {
+    const app = createApp();
+
+    const response = await app.request("/release-lock", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ locked: true, reason: "maintenance", reference: "inc_2" }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      releaseLock: {
+        locked: true,
+        reason: "maintenance",
+        reference: "inc_2",
+        changedByUserId: "usr_ops",
+      },
+      rolloutPolicies: [],
     });
   });
 

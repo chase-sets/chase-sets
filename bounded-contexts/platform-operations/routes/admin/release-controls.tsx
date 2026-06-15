@@ -10,6 +10,11 @@ const routeKey = "platformOperations.releaseControls";
 
 export const meta: MetaFunction = () => [{ title: t(`${routeKey}.metaTitle`) }];
 
+function currentRoutePath(request: Request) {
+  const url = new URL(request.url);
+  return `${url.pathname}${url.search}`;
+}
+
 export function loader({ request }: LoaderFunctionArgs) {
   return {
     data: loadReleaseControlsSnapshot(request),
@@ -27,7 +32,7 @@ export async function action({ request }: ActionFunctionArgs) {
       reason: String(formData.get("releaseReason") ?? ""),
       reference: String(formData.get("releaseReference") ?? ""),
     });
-    return redirect("/platform/release-controls");
+    return redirect(currentRoutePath(request));
   }
 
   if (intent === "set-rollout-policy") {
@@ -40,7 +45,7 @@ export async function action({ request }: ActionFunctionArgs) {
       reason: String(formData.get("releaseReason") ?? ""),
       reference: String(formData.get("releaseReference") ?? ""),
     });
-    return redirect("/platform/release-controls");
+    return redirect(currentRoutePath(request));
   }
 
   return { error: t(`${routeKey}.unknownAction`) };

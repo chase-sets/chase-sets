@@ -94,6 +94,7 @@ describe("experience platform feedback API", () => {
     });
 
     expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toEqual({ id: "pfb_test", version: 1, status: "submitted" });
     expect(submitPlatformFeedback).toHaveBeenCalledWith(
       {
         userId: "usr_test",
@@ -171,7 +172,45 @@ describe("experience platform feedback API", () => {
 
     expect(reviewed.status).toBe(200);
     expect(archived.status).toBe(200);
+    await expect(reviewed.json()).resolves.toEqual({ id: "pfb_test", version: 2, status: "reviewed" });
+    await expect(archived.json()).resolves.toEqual({ id: "pfb_test", version: 3, status: "archived" });
     expect(markReviewed).toHaveBeenCalledWith("pfb_test", "usr_test", context);
     expect(archive).toHaveBeenCalledWith("pfb_test", "usr_test", context);
+  });
+
+  it("returns prompt dismissal snapshots without depending on prompt projections", async () => {
+    const dismissPrompt = vi.fn(async () => ({
+      promptId: "pfp_test",
+      version: 4,
+      snoozedUntil: "2026-05-14T12:00:00.000Z",
+    }));
+    const services = createServices({ dismissPrompt });
+
+    const response = await appFor(services).request("/dismiss", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        workflow: "checkout-payment",
+        sourceRoutePath: "/checkout",
+        relatedEntities: [{ type: "payment", id: "pay_test" }],
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      id: "pfp_test",
+      version: 4,
+      snoozedUntil: "2026-05-14T12:00:00.000Z",
+    });
+    expect(dismissPrompt).toHaveBeenCalledWith(
+      {
+        userId: "usr_test",
+        accountId: "acc_test",
+        workflow: "checkout-payment",
+        sourceRoutePath: "/checkout",
+        relatedEntities: [{ type: "payment", id: "pay_test" }],
+      },
+      context,
+    );
   });
 });

@@ -5,6 +5,9 @@ import type {
   PlatformFeedbackListItem,
   PlatformFeedbackMetrics,
   PlatformFeedbackPromptEligibility,
+  PlatformFeedbackPromptDismissalSnapshot,
+  PlatformFeedbackReviewSnapshot,
+  PlatformFeedbackSubmissionSnapshot,
   SubmitPlatformFeedbackRequest,
 } from "../../features/platform-feedback/api/contracts";
 
@@ -16,6 +19,9 @@ export type {
   PlatformFeedbackListItem,
   PlatformFeedbackMetrics,
   PlatformFeedbackPromptEligibility,
+  PlatformFeedbackPromptDismissalSnapshot,
+  PlatformFeedbackReviewSnapshot,
+  PlatformFeedbackSubmissionSnapshot,
   SubmitPlatformFeedbackRequest,
 } from "../../features/platform-feedback/api/contracts";
 
@@ -93,7 +99,7 @@ export function createExperienceApiClient({
       );
     },
     async submitPlatformFeedback(body: SubmitPlatformFeedbackRequest) {
-      return parseJsonResponse<{ id: string; version: number; status: string }>(
+      return parseJsonResponse<PlatformFeedbackSubmissionSnapshot>(
         await configuredFetch(`${baseUrl}/platform-feedback`, {
           method: "POST",
           body: JSON.stringify(body),
@@ -101,7 +107,7 @@ export function createExperienceApiClient({
       );
     },
     async dismissPlatformFeedbackPrompt(body: DismissPlatformFeedbackPromptRequest) {
-      return parseJsonResponse<{ id: string; version: number; snoozedUntil: string }>(
+      return parseJsonResponse<PlatformFeedbackPromptDismissalSnapshot>(
         await configuredFetch(`${baseUrl}/platform-feedback/dismiss`, {
           method: "POST",
           body: JSON.stringify(body),
@@ -118,7 +124,7 @@ export function createExperienceApiClient({
       return parseJsonResponse(await configuredFetch(`${baseUrl}/platform-feedback/metrics`));
     },
     async markReviewed(feedbackId: string) {
-      return parseJsonResponse(
+      return parseJsonResponse<PlatformFeedbackReviewSnapshot>(
         await configuredFetch(`${baseUrl}/platform-feedback/${encodeURIComponent(feedbackId)}/review`, {
           method: "POST",
           body: "{}",
@@ -126,7 +132,7 @@ export function createExperienceApiClient({
       );
     },
     async archive(feedbackId: string) {
-      return parseJsonResponse(
+      return parseJsonResponse<PlatformFeedbackReviewSnapshot>(
         await configuredFetch(`${baseUrl}/platform-feedback/${encodeURIComponent(feedbackId)}/archive`, {
           method: "POST",
           body: "{}",

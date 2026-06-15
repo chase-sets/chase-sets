@@ -6,6 +6,11 @@ import {
 } from "../read-model/contracts";
 import { normalizeWakeStatusSnapshot, type WakeStatusSnapshot } from "../read-model/wake-status-contracts";
 
+export type ProjectionOperationCommandSnapshot =
+  | ProjectionOperationsSnapshot
+  | Readonly<{ operation: Record<string, unknown> }>
+  | Readonly<{ result: { cancelled: boolean } }>;
+
 export async function loadProjectionOperationsSnapshot(request: Request): Promise<ProjectionOperationsSnapshot> {
   const response = await fetch(resolveProjectionOperationsApiUrl(request), {
     headers: createForwardedAuthHeaders(request),
@@ -54,33 +59,34 @@ export function readProjectionOperationsFilters(request: Request): ProjectionOpe
 }
 
 export async function refreshProjectionStatus(request: Request) {
-  await postProjectionOperation(request, ["refresh"]);
+  const snapshot = await postProjectionOperation(request, ["refresh"]);
+  return normalizeProjectionOperationsSnapshot(snapshot);
 }
 
 export async function retryBlockedStream(
   request: Request,
   input: Readonly<{ projectionKey: string; streamId: string }>,
 ) {
-  await postProjectionOperation(request, [input.projectionKey, "blocked-streams", input.streamId, "retry"]);
+  return postProjectionOperation(request, [input.projectionKey, "blocked-streams", input.streamId, "retry"]);
 }
 
 export async function rebuildProjectionGroup(
   request: Request,
   input: Readonly<{ contextName: string; projectionName: string }>,
 ) {
-  await postProjectionOperation(request, ["groups", input.contextName, input.projectionName, "rebuild"], {
+  return postProjectionOperation(request, ["groups", input.contextName, input.projectionName, "rebuild"], {
     confirm: "rebuild",
   });
 }
 
 export async function rebuildProjectionContext(request: Request, input: Readonly<{ contextName: string }>) {
-  await postProjectionOperation(request, ["groups", input.contextName, "rebuild"], {
+  return postProjectionOperation(request, ["groups", input.contextName, "rebuild"], {
     confirm: "rebuild-all",
   });
 }
 
 export async function cancelProjectionOperation(request: Request, input: Readonly<{ operationId: string }>) {
-  await postProjectionOperation(request, ["operations", input.operationId, "cancel"]);
+  return postProjectionOperation(request, ["operations", input.operationId, "cancel"]);
 }
 
 function resolveProjectionOperationsApiUrl(request: Request) {
@@ -91,7 +97,7 @@ async function postProjectionOperation(
   request: Request,
   segments: readonly string[],
   body: Record<string, unknown> = {},
-) {
+): Promise<ProjectionOperationCommandSnapshot> {
   const url = resolveProjectionOperationsApiUrl(request);
   for (const segment of segments) {
     url.pathname = `${url.pathname.replace(/\/$/, "")}/${encodeURIComponent(segment)}`;
@@ -108,4 +114,6 @@ async function postProjectionOperation(
   if (!response.ok) {
     throw new Response(await response.text(), { status: response.status });
   }
+
+  return (await response.json()) as ProjectionOperationCommandSnapshot;
 }
