@@ -43,11 +43,12 @@ function createTempRepo() {
 function writeRoute(root, relativeFile, helpers) {
   const absolute = path.join(root, relativeFile);
   mkdirSync(path.dirname(absolute), { recursive: true });
+  const exportName = helpers.includes("loadFreshlyWrittenResource") ? "loader" : "action";
   writeFileSync(
     absolute,
     [
       `import { ${helpers.join(", ")} } from "@chase-sets/http/responses";`,
-      "export async function action() {",
+      `export async function ${exportName}() {`,
       ...helpers.map((helper) =>
         helper === "loadFreshlyWrittenResource"
           ? `  return ${helper}({ request: new Request("http://test"), load: async () => ({ ok: true }) });`
@@ -121,6 +122,22 @@ function createContextManifest(root, overrides = {}) {
         },
       },
     ],
+    mutationConsistencyInventory: [
+      {
+        id: "checkout.session-start-action",
+        owner: "checkout",
+        risk: "critical",
+        strategy: "fresh-read",
+        surfaces: ["route-action:bounded-contexts/checkout/routes/checkout-start.tsx"],
+        visibleDestination: {
+          routeId: "buy-checkout-session",
+          apiContextName: "checkout",
+          apiRoutePath: "/account/checkout-sessions/:sessionId",
+          readModelTables: ["checkout_session_pages"],
+          transientRecovery: "temporary checkout recovery",
+        },
+      },
+    ],
     ...overrides,
   };
 
@@ -161,6 +178,15 @@ describe("read-after-write route inventory guard", () => {
 
     expect(result.violations).toEqual([]);
     expect(result.reportEntries).toHaveLength(1);
+    expect(result.mutationRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "route-action:bounded-contexts/checkout/routes/checkout-start.tsx",
+          strategy: "fresh-read",
+          dependencies: ["checkout_session_pages"],
+        }),
+      ]),
+    );
   });
 
   it("fails when a helper-using route is missing inventory coverage", async () => {
@@ -178,6 +204,170 @@ describe("read-after-write route inventory guard", () => {
     expect(result.violations).toContain(
       "bounded-contexts/checkout/routes/checkout-start.tsx: fresh-write helper(s) appendFreshWriteToken on route 'buy-checkout-readiness' must be declared in readAfterWriteRouteInventory or an exception",
     );
+  });
+
+  it("fails when a mutating route action lacks mutation consistency classification", async () => {
+    const root = createTempRepo();
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-start.tsx", ["appendFreshWriteToken"]);
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-session.tsx", ["loadFreshlyWrittenResource"]);
+    writeFileSync(
+      path.join(root, "bounded-contexts", "checkout", "routes", "unclassified.tsx"),
+      ["export async function action() {", "  return null;", "}", ""].join("\n"),
+      "utf8",
+    );
+
+    const result = await validate(root, createContextManifest(root));
+
+    expect(result.violations).toContain(
+      "bounded-contexts/checkout/routes/unclassified.tsx: mutating route-action is unclassified; add mutationConsistencyInventory with strategy proof",
+    );
+  });
+
+  it("accepts declared optimistic-with-correction mutations with reconciliation proof", async () => {
+    const root = createTempRepo();
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-start.tsx", ["appendFreshWriteToken"]);
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-session.tsx", ["loadFreshlyWrittenResource"]);
+    writeFileSync(
+      path.join(root, "bounded-contexts", "checkout", "routes", "cart.tsx"),
+      ["export async function action() {", "  return null;", "}", ""].join("\n"),
+      "utf8",
+    );
+
+    const manifest = createContextManifest(root);
+    manifest.get("bounded-contexts/checkout").manifest.mutationConsistencyInventory.push({
+      id: "checkout.cart-quantity",
+      owner: "checkout",
+      risk: "important",
+      strategy: "optimistic-with-correction",
+      surfaces: ["route-action:bounded-contexts/checkout/routes/cart.tsx"],
+      visibleDestination: {
+        routeId: "account-cart",
+        description:
+          "Cart quantity and subtotal are updated optimistically, then reconciled from the authoritative cart read.",
+      },
+      proof: {
+        correction: "The route revalidates after submit and rolls back to server quantity on mismatch.",
+        tests: ["bounded-contexts/checkout/routes/account-cart-route.test.ts"],
+      },
+    });
+
+    const result = await validate(root, manifest);
+
+    expect(result.violations).toEqual([]);
+  });
+
+  it("fails when optimistic-with-correction proof fields are missing", async () => {
+    const root = createTempRepo();
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-start.tsx", ["appendFreshWriteToken"]);
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-session.tsx", ["loadFreshlyWrittenResource"]);
+    writeFileSync(
+      path.join(root, "bounded-contexts", "checkout", "routes", "cart.tsx"),
+      ["export async function action() {", "  return null;", "}", ""].join("\n"),
+      "utf8",
+    );
+
+    const manifest = createContextManifest(root);
+    manifest.get("bounded-contexts/checkout").manifest.mutationConsistencyInventory.push({
+      id: "checkout.cart-quantity",
+      owner: "checkout",
+      risk: "important",
+      strategy: "optimistic-with-correction",
+      surfaces: ["route-action:bounded-contexts/checkout/routes/cart.tsx"],
+      visibleDestination: {
+        routeId: "account-cart",
+      },
+    });
+
+    const result = await validate(root, manifest);
+
+    expect(result.violations).toContain(
+      "bounded-contexts/checkout/context.json mutationConsistencyInventory[1]: optimistic-with-correction requires visibleDestination.description",
+    );
+    expect(result.violations).toContain(
+      "bounded-contexts/checkout/context.json mutationConsistencyInventory[1]: optimistic-with-correction requires proof.correction",
+    );
+    expect(result.violations).toContain(
+      "bounded-contexts/checkout/context.json mutationConsistencyInventory[1]: optimistic-with-correction requires proof.tests",
+    );
+  });
+
+  it("accepts realtime-correction mutations with fallback proof", async () => {
+    const root = createTempRepo();
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-start.tsx", ["appendFreshWriteToken"]);
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-session.tsx", ["loadFreshlyWrittenResource"]);
+    writeFileSync(
+      path.join(root, "bounded-contexts", "checkout", "features", "sessions", "api", "commands.ts"),
+      [
+        'import { Hono } from "hono";',
+        "export function commands() {",
+        "  const app = new Hono();",
+        '  app.post("/checkout-sessions/:sessionId/realtime-refresh", async (c) => c.json({ ok: true }));',
+        "  return app;",
+        "}",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const manifest = createContextManifest(root);
+    manifest.get("bounded-contexts/checkout").manifest.mutationConsistencyInventory.push({
+      id: "checkout.session-realtime-refresh",
+      owner: "checkout",
+      risk: "important",
+      strategy: "realtime-correction",
+      surfaces: [
+        "api-route:bounded-contexts/checkout/features/sessions/api/commands.ts:POST /checkout-sessions/:sessionId/realtime-refresh",
+      ],
+      visibleDestination: {
+        description: "Checkout session realtime panel updates from a patch stream.",
+      },
+      proof: {
+        fallback: "The route reloads the session when the realtime channel is unavailable.",
+        tests: ["bounded-contexts/checkout/routes/checkout-session-loader.test.ts"],
+      },
+    });
+
+    const result = await validate(root, manifest);
+
+    expect(result.violations).toEqual([]);
+  });
+
+  it("accepts non-user-visible classifications with dated remediation evidence", async () => {
+    const root = createTempRepo();
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-start.tsx", ["appendFreshWriteToken"]);
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-session.tsx", ["loadFreshlyWrittenResource"]);
+    writeFileSync(
+      path.join(root, "bounded-contexts", "checkout", "features", "sessions", "api", "webhook.ts"),
+      [
+        'import { Hono } from "hono";',
+        "export function webhook() {",
+        "  const app = new Hono();",
+        '  app.post("/provider/webhook", async (c) => c.json({ ok: true }));',
+        "  return app;",
+        "}",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const manifest = createContextManifest(root);
+    manifest.get("bounded-contexts/checkout").manifest.mutationConsistencyInventory.push({
+      id: "checkout.provider-webhook",
+      owner: "checkout",
+      risk: "internal",
+      strategy: "non-user-visible",
+      surfaces: ["api-route:bounded-contexts/checkout/features/sessions/api/webhook.ts:POST /provider/webhook"],
+      exception: {
+        owner: "checkout",
+        reason: "Provider webhook has no immediate browser-visible destination.",
+        reviewBy: "2026-07-31",
+        issue: "#1809",
+      },
+    });
+
+    const result = await validate(root, manifest);
+
+    expect(result.violations).toEqual([]);
   });
 
   it("fails when a readFreshnessRoutes dependency points at an unowned table", async () => {
@@ -280,6 +470,43 @@ describe("read-after-write route inventory guard", () => {
 
     expect(result.violations).toContain(
       "bounded-contexts/checkout/context.json readAfterWriteRouteInventory[0]: exception.helperUses claims 'appendFreshWriteToken' for file 'bounded-contexts/checkout/support/forwarding.ts' but the file does not use it",
+    );
+  });
+
+  it("fails when an accepted helper exception lacks a current remediation issue", async () => {
+    const root = createTempRepo();
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-start.tsx", ["appendFreshWriteToken"]);
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-session.tsx", ["loadFreshlyWrittenResource"]);
+
+    const result = await validate(
+      root,
+      createContextManifest(root, {
+        readAfterWriteRouteInventory: [
+          {
+            id: "checkout.cart-self-refresh",
+            owner: "checkout",
+            risk: "important",
+            source: {
+              routeId: "buy-checkout-readiness",
+              helperUses: ["appendFreshWriteToken"],
+            },
+            destination: {
+              routeId: "buy-checkout-session",
+              transientRecovery: "Cart self-refresh remains an accepted migration gap.",
+            },
+            exception: {
+              status: "accepted",
+              owner: "checkout",
+              reviewBy: "2026-07-31",
+              reason: "Self-refreshing cart projection migration is tracked by a stale closed issue.",
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(result.violations).toContain(
+      "bounded-contexts/checkout/context.json readAfterWriteRouteInventory[0]: accepted exceptions must reference a current remediation issue",
     );
   });
 

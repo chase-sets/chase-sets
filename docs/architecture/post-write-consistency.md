@@ -148,6 +148,10 @@ When privacy and freshness conflict, privacy wins. The recovery path should relo
 
 ## Enforcement Guidance
 
-Future structure and inventory tooling should record a route's selected strategy as one of `fresh-read`, `optimistic-with-correction`, `snapshot-return`, or `realtime-correction`. Realtime may be recorded only when the route also names its reload/refetch fallback, topic policy owner, patch contract, and tests for `sync.required` or missed-patch recovery.
+`pnpm run check:structure` generates `artifacts/read-after-write-route-inventory.md`, which is the product-wide post-write consistency inventory. The report includes fresh-write route metadata, discovered mutation surfaces, and an audit summary grouped by bounded context and failure class so #1809 can split current gaps into bounded remediation issues.
+
+The mutation scanner discovers browser route actions, statically identifiable POST forms and fetcher submits, mutating Hono API routes, mutating API-client calls, and existing fresh-write helper usage. New surfaces must be classified in the owning context's `mutationConsistencyInventory` or the structure check fails. Existing unclassified surfaces are staged in `scripts/check-structure/mutation-consistency-baseline.json` as migration rows linked to #1809; removing a surface from code without removing its baseline row also fails so audit debt cannot disappear silently.
+
+`mutationConsistencyInventory` entries record the selected strategy as one of `fresh-read`, `optimistic-with-correction`, `snapshot-return`, or `realtime-correction`, plus narrow non-failure/migration classifications when a mutation is not immediately user-visible or is still being audited. `fresh-read` entries must name exact API freshness dependencies and transient recovery. `optimistic-with-correction`, `snapshot-return`, and `realtime-correction` entries must name their strategy-specific proof fields and tests. Realtime may be recorded only when the route also names its reload/refetch fallback, topic policy owner, patch contract, and tests for `sync.required` or missed-patch recovery.
 
 Critical flows must fail enforcement when they rely on `realtime-correction` alone. They need `fresh-read`, a command-owned `snapshot-return`, or a documented fallback that performs a fresh authoritative read inside a bounded customer-visible budget.

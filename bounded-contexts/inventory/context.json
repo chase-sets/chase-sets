@@ -158,7 +158,8 @@
         "status": "accepted",
         "owner": "inventory",
         "reviewBy": "2026-07-31",
-        "reason": "Import batch route freshness is job-backed and tracked for explicit classification by #1084."
+        "issue": "#1809",
+        "reason": "Import batch route freshness is job-backed and remains a current audit/remediation classification gap."
       }
     }
   ],
