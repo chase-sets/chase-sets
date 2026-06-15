@@ -173,6 +173,7 @@
         "status": "accepted",
         "owner": "checkout",
         "reviewBy": "2026-07-31",
+        "issue": "#1809",
         "reason": "Checkout only originates the cross-context offer handoff; exact destination freshness is owned by marketplace.submitted-offer-detail in the Marketplace context."
       }
     },
@@ -194,7 +195,8 @@
         "status": "accepted",
         "owner": "checkout",
         "reviewBy": "2026-07-31",
-        "reason": "Self-refreshing account cart projection migration is tracked by #1084/#1083."
+        "issue": "#1806",
+        "reason": "Self-refreshing account cart exact freshness remains a current remediation gap; audit input is tracked by #1809 and implementation by #1806."
       }
     },
     {
@@ -215,7 +217,8 @@
         "status": "accepted",
         "owner": "checkout",
         "reviewBy": "2026-07-31",
-        "reason": "Self-refreshing account sell-list projection migration is tracked by #1084/#1083."
+        "issue": "#1806",
+        "reason": "Self-refreshing account sell-list exact freshness remains a current remediation gap; audit input is tracked by #1809 and implementation by #1806."
       }
     },
     {
@@ -236,7 +239,8 @@
         "status": "accepted",
         "owner": "checkout",
         "reviewBy": "2026-07-31",
-        "reason": "Guest sell checkout revalidates anonymous Sell List readiness through the existing guest Sell List API and does not have a persisted checkout-session read model until #1111 wires seller runtime orchestration."
+        "issue": "#1809",
+        "reason": "Guest sell checkout revalidates anonymous Sell List readiness through the existing guest Sell List API and needs bounded audit classification before seller runtime orchestration remediation."
       }
     }
   ],

@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { readdir } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import path from "node:path";
 
 const sourceExtensions = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
@@ -12,6 +13,23 @@ const freshWriteHelperNames = new Set([
 const helperImportPattern = /from\s+["']@chase-sets\/http\/responses["']/;
 const supportedRiskClassifications = new Set(["critical", "important", "internal", "informational"]);
 const supportedExceptionStatuses = new Set(["accepted", "not-read-model-backed", "not-post-write-read"]);
+const mutatingHttpMethods = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+const supportedMutationStrategies = new Set([
+  "fresh-read",
+  "optimistic-with-correction",
+  "realtime-correction",
+  "snapshot-return",
+  "read-model-neutral",
+  "non-user-visible",
+  "not-post-write-read",
+  "migration",
+]);
+const mutationExceptionStrategies = new Set([
+  "read-model-neutral",
+  "non-user-visible",
+  "not-post-write-read",
+  "migration",
+]);
 const isoDatePattern = /^\d{4}-\d{2}-\d{2}$/;
 
 function normalizeRelative(filePath, repoRoot) {
@@ -36,6 +54,63 @@ function isNonEmptyStringArray(value) {
 
 function formatValues(values) {
   return [...values].sort().join(", ") || "none";
+}
+
+function markdownCell(value) {
+  return String(value ?? "")
+    .replaceAll("|", "\\|")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function recommendedStrategyForSurface(surface) {
+  if (surface.kind === "post-form" || surface.kind === "fetcher-submit" || surface.kind === "route-action") {
+    return "fresh-read or optimistic-with-correction";
+  }
+  if (surface.kind === "api-route" || surface.kind === "api-client") {
+    return "snapshot-return or fresh-read";
+  }
+  return "needs classification";
+}
+
+function lineNumberAt(content, index) {
+  return content.slice(0, index).split(/\r?\n/).length;
+}
+
+function contextRootForFile(relativeFile) {
+  const match = relativeFile.match(/^bounded-contexts\/[^/]+/);
+  return match?.[0] ?? null;
+}
+
+function contextNameForFile(relativeFile, contextManifests) {
+  const contextRoot = contextRootForFile(relativeFile);
+  if (!contextRoot) {
+    return null;
+  }
+  return contextManifests.get(contextRoot)?.manifest.contextName ?? contextRoot.slice("bounded-contexts/".length);
+}
+
+function buildMutationSurfaceId(kind, file, detail) {
+  return detail ? `${kind}:${file}:${detail}` : `${kind}:${file}`;
+}
+
+function stableSnippetId(value) {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return `H${createHash("sha256").update(normalized).digest("hex").slice(0, 12)}`;
+}
+
+function occurrenceDetail(occurrences, scope, baseDetail) {
+  const key = `${scope}:${baseDetail}`;
+  const count = (occurrences.get(key) ?? 0) + 1;
+  occurrences.set(key, count);
+  return `${baseDetail}#${count}`;
+}
+
+function addMutationSurface(surfaces, surface) {
+  if (surfaces.some((existing) => existing.id === surface.id)) {
+    return;
+  }
+  surfaces.push(surface);
 }
 
 function stripRouteFileExtension(filePath) {
@@ -253,6 +328,134 @@ export async function collectFreshWriteHelperUsage(options) {
   return usages.sort((left, right) => left.file.localeCompare(right.file));
 }
 
+export async function collectMutationConsistencySurfaces(options) {
+  const { repoRoot, contextManifests } = options;
+  const { routeIdsByFile } = collectReadAfterWriteRouteIndexes(contextManifests);
+  const scanRoots = ["bounded-contexts", "deployables"]
+    .map((root) => path.join(repoRoot, root))
+    .filter((root) => existsSync(root));
+  const files = [];
+  for (const scanRoot of scanRoots) {
+    files.push(...(await walkSourceFiles(scanRoot)));
+  }
+  const surfaces = [];
+
+  for (const file of files) {
+    const relativeFile = normalizeRelative(file, repoRoot);
+    if (
+      relativeFile.includes("/tests/") ||
+      relativeFile.includes("/__tests__/") ||
+      relativeFile.endsWith(".test.ts") ||
+      relativeFile.endsWith(".test.tsx") ||
+      relativeFile.endsWith(".spec.ts") ||
+      relativeFile.endsWith(".spec.tsx")
+    ) {
+      continue;
+    }
+
+    const contextName = contextNameForFile(relativeFile, contextManifests);
+    const content = readFileSync(file, "utf8");
+    const routeIds = [
+      ...(routeIdsByFile.get(relativeFile) ?? routeIdsByFile.get(stripRouteFileExtension(relativeFile)) ?? []),
+    ].sort();
+    const occurrenceCounts = new Map();
+
+    if (/^\s*export\s+(?:async\s+function|const)\s+action\b/m.test(content)) {
+      addMutationSurface(surfaces, {
+        id: buildMutationSurfaceId("route-action", relativeFile),
+        contextName: contextName ?? "deployable",
+        file: relativeFile,
+        kind: "route-action",
+        routeIds,
+        location: relativeFile,
+        mutationSurface: "browser route action",
+      });
+    }
+
+    const postFormPattern =
+      /<(?:RouterForm|Form|fetcher\.Form|form)\b[\s\S]{0,800}?\bmethod\s*=\s*(?:"post"|'post'|\{\s*["']post["']\s*\})/g;
+    for (const match of content.matchAll(postFormPattern)) {
+      const line = lineNumberAt(content, match.index ?? 0);
+      const detail = occurrenceDetail(occurrenceCounts, "post-form", stableSnippetId(match[0]));
+      addMutationSurface(surfaces, {
+        id: buildMutationSurfaceId("post-form", relativeFile, detail),
+        contextName: contextName ?? "deployable",
+        file: relativeFile,
+        kind: "post-form",
+        routeIds,
+        location: `${relativeFile}:${line}`,
+        mutationSurface: "POST form",
+      });
+    }
+
+    const fetcherSubmitPattern =
+      /\b[A-Za-z0-9_$]+\.submit\([\s\S]{0,800}?\bmethod\s*:\s*["'](?:post|put|patch|delete)["']/gi;
+    for (const match of content.matchAll(fetcherSubmitPattern)) {
+      const line = lineNumberAt(content, match.index ?? 0);
+      const detail = occurrenceDetail(occurrenceCounts, "fetcher-submit", stableSnippetId(match[0]));
+      addMutationSurface(surfaces, {
+        id: buildMutationSurfaceId("fetcher-submit", relativeFile, detail),
+        contextName: contextName ?? "deployable",
+        file: relativeFile,
+        kind: "fetcher-submit",
+        routeIds,
+        location: `${relativeFile}:${line}`,
+        mutationSurface: "fetcher submit",
+      });
+    }
+
+    const apiRoutePattern = /\bapp\.(post|put|patch|delete)\(\s*["']([^"']+)["']/gi;
+    for (const match of content.matchAll(apiRoutePattern)) {
+      const method = match[1].toUpperCase();
+      const routePath = hostRoutePath(match[2]);
+      addMutationSurface(surfaces, {
+        id: buildMutationSurfaceId("api-route", relativeFile, `${method} ${routePath}`),
+        contextName: contextName ?? "deployable",
+        file: relativeFile,
+        kind: "api-route",
+        routeIds: [],
+        location: `${relativeFile}:${lineNumberAt(content, match.index ?? 0)}`,
+        mutationSurface: `${method} API route ${routePath}`,
+      });
+    }
+
+    const shouldScanAsApiClient =
+      /(?:^|\/)(?:client|server)\.ts$/.test(relativeFile) ||
+      relativeFile.includes("/request-support/") ||
+      relativeFile.includes("/client-support/") ||
+      relativeFile.includes("/api-client") ||
+      relativeFile.includes("/api/");
+    if (shouldScanAsApiClient) {
+      const methodPropertyPattern = /\bmethod\s*:\s*["'](POST|PUT|PATCH|DELETE|post|put|patch|delete)["']/g;
+      for (const match of content.matchAll(methodPropertyPattern)) {
+        const method = match[1].toUpperCase();
+        if (!mutatingHttpMethods.has(method)) {
+          continue;
+        }
+        const line = lineNumberAt(content, match.index ?? 0);
+        const snippetStart = Math.max(0, (match.index ?? 0) - 240);
+        const snippetEnd = Math.min(content.length, (match.index ?? 0) + 240);
+        const detail = occurrenceDetail(
+          occurrenceCounts,
+          "api-client",
+          `${method} ${stableSnippetId(content.slice(snippetStart, snippetEnd))}`,
+        );
+        addMutationSurface(surfaces, {
+          id: buildMutationSurfaceId("api-client", relativeFile, detail),
+          contextName: contextName ?? "deployable",
+          file: relativeFile,
+          kind: "api-client",
+          routeIds,
+          location: `${relativeFile}:${line}`,
+          mutationSurface: `${method} API client call`,
+        });
+      }
+    }
+  }
+
+  return surfaces.sort((left, right) => left.id.localeCompare(right.id));
+}
+
 function validateFreshnessRouteDependencies(options) {
   const {
     apiRoutePathsByContext,
@@ -426,6 +629,259 @@ function validateHelperUseClaims(options) {
   }
 }
 
+function collectMutationConsistencyDeclarations(contextManifests) {
+  const declarations = [];
+  for (const context of contextManifests.values()) {
+    for (const [index, entry] of (context.manifest.mutationConsistencyInventory ?? []).entries()) {
+      declarations.push({ context, entry, index });
+    }
+  }
+  return declarations;
+}
+
+function collectBaselineMutationSurfaces(repoRoot) {
+  const baselinePath = path.join(repoRoot, "scripts", "check-structure", "mutation-consistency-baseline.json");
+  if (!existsSync(baselinePath)) {
+    return new Map();
+  }
+
+  const parsed = JSON.parse(readFileSync(baselinePath, "utf8"));
+  const defaults = {
+    issue: parsed.issue,
+    owner: parsed.owner,
+    reason: parsed.reason,
+    reviewBy: parsed.reviewBy,
+  };
+  const baseline = new Map();
+  for (const entry of parsed.surfaces ?? []) {
+    if (typeof entry === "string") {
+      baseline.set(entry, defaults);
+      continue;
+    }
+    if (isPlainObject(entry) && isNonEmptyString(entry.id)) {
+      baseline.set(entry.id, { ...defaults, ...entry });
+    }
+  }
+  return baseline;
+}
+
+function validateMutationException(entryLabel, entry, violations) {
+  const exception = entry.exception;
+  if (!isPlainObject(exception)) {
+    violations.push(`${entryLabel}: ${entry.strategy} strategy requires exception owner, reason, reviewBy, and issue`);
+    return;
+  }
+  if (!isNonEmptyString(exception.owner)) {
+    violations.push(`${entryLabel}: exception.owner must name the accountable owner`);
+  }
+  if (!isNonEmptyString(exception.reason)) {
+    violations.push(`${entryLabel}: exception.reason must tie the classification to code evidence`);
+  }
+  if (!isNonEmptyString(exception.reviewBy) || !isoDatePattern.test(exception.reviewBy)) {
+    violations.push(`${entryLabel}: exception.reviewBy must be a YYYY-MM-DD renewal/removal date`);
+  }
+  if (!isNonEmptyString(exception.issue) || !/^#\d+$/.test(exception.issue)) {
+    violations.push(
+      `${entryLabel}: exception.issue must reference the remediation or evidence issue, for example #1809`,
+    );
+  }
+}
+
+function validateMutationFreshReadProof(options) {
+  const { entryLabel, entry, freshnessRoutesByContext, violations } = options;
+  const destination = isPlainObject(entry.visibleDestination) ? entry.visibleDestination : {};
+  if (!isNonEmptyString(destination.apiContextName)) {
+    violations.push(`${entryLabel}: fresh-read visibleDestination.apiContextName is required`);
+    return;
+  }
+  if (!isNonEmptyString(destination.apiRoutePath)) {
+    violations.push(`${entryLabel}: fresh-read visibleDestination.apiRoutePath is required`);
+    return;
+  }
+  if (!isNonEmptyString(destination.transientRecovery)) {
+    violations.push(`${entryLabel}: fresh-read visibleDestination.transientRecovery is required`);
+  }
+
+  const readModelTables = destination.readModelTables ?? [];
+  const projectionDependencies = destination.projectionDependencies ?? [];
+  if (!isNonEmptyStringArray(readModelTables) && !isNonEmptyStringArray(projectionDependencies)) {
+    violations.push(`${entryLabel}: fresh-read requires readModelTables or projectionDependencies`);
+  }
+
+  const freshnessRoute = freshnessRoutesByContext.get(destination.apiContextName)?.get(destination.apiRoutePath);
+  if (!freshnessRoute) {
+    violations.push(
+      `${entryLabel}: fresh-read destination '${destination.apiContextName}.${destination.apiRoutePath}' has no matching readFreshnessRoutes declaration`,
+    );
+    return;
+  }
+
+  const declaredTables = new Set(
+    (freshnessRoute.route.dependencies ?? []).map((dependency) => dependency.readModelTable).filter(isNonEmptyString),
+  );
+  const declaredProjections = new Set(
+    (freshnessRoute.route.dependencies ?? []).map((dependency) => dependency.projectionName).filter(isNonEmptyString),
+  );
+  for (const tableName of readModelTables) {
+    if (!declaredTables.has(tableName)) {
+      violations.push(
+        `${entryLabel}: readModelTable '${tableName}' is not declared on the matching readFreshnessRoutes entry`,
+      );
+    }
+  }
+  for (const projectionName of projectionDependencies) {
+    if (!declaredProjections.has(projectionName)) {
+      violations.push(
+        `${entryLabel}: projectionDependency '${projectionName}' is not declared on the matching readFreshnessRoutes entry`,
+      );
+    }
+  }
+}
+
+function validateMutationStrategyProof(entryLabel, entry, indexes, violations) {
+  const proof = isPlainObject(entry.proof) ? entry.proof : {};
+  const destination = isPlainObject(entry.visibleDestination) ? entry.visibleDestination : {};
+
+  if (entry.strategy === "fresh-read") {
+    validateMutationFreshReadProof({
+      entryLabel,
+      entry,
+      freshnessRoutesByContext: indexes.freshnessRoutesByContext,
+      violations,
+    });
+    return;
+  }
+
+  if (entry.strategy === "optimistic-with-correction") {
+    if (!isNonEmptyString(destination.description)) {
+      violations.push(`${entryLabel}: optimistic-with-correction requires visibleDestination.description`);
+    }
+    if (!isNonEmptyString(proof.correction)) {
+      violations.push(`${entryLabel}: optimistic-with-correction requires proof.correction`);
+    }
+    if (!isNonEmptyStringArray(proof.tests)) {
+      violations.push(`${entryLabel}: optimistic-with-correction requires proof.tests`);
+    }
+    return;
+  }
+
+  if (entry.strategy === "realtime-correction") {
+    if (!isNonEmptyString(destination.description)) {
+      violations.push(`${entryLabel}: realtime-correction requires visibleDestination.description`);
+    }
+    if (!isNonEmptyString(proof.fallback)) {
+      violations.push(`${entryLabel}: realtime-correction requires proof.fallback`);
+    }
+    if (!isNonEmptyStringArray(proof.tests)) {
+      violations.push(`${entryLabel}: realtime-correction requires proof.tests`);
+    }
+    return;
+  }
+
+  if (entry.strategy === "snapshot-return") {
+    if (!isNonEmptyString(destination.description)) {
+      violations.push(`${entryLabel}: snapshot-return requires visibleDestination.description`);
+    }
+    if (!isNonEmptyString(proof.authoritativeResponse)) {
+      violations.push(`${entryLabel}: snapshot-return requires proof.authoritativeResponse`);
+    }
+    if (!isNonEmptyStringArray(proof.tests)) {
+      violations.push(`${entryLabel}: snapshot-return requires proof.tests`);
+    }
+    return;
+  }
+
+  if (mutationExceptionStrategies.has(entry.strategy)) {
+    validateMutationException(entryLabel, entry, violations);
+  }
+}
+
+function validateMutationConsistencyInventory(options) {
+  const { repoRoot, contextManifests, mutationSurfaces, indexes, violations } = options;
+  const declarations = collectMutationConsistencyDeclarations(contextManifests);
+  const baseline = collectBaselineMutationSurfaces(repoRoot);
+  const declaredSurfaceIds = new Set();
+  const declarationBySurfaceId = new Map();
+  const surfaceIds = new Set(mutationSurfaces.map((surface) => surface.id));
+  const reportRows = [];
+
+  for (const { context, entry, index } of declarations) {
+    const entryLabel = `${context.root}/context.json mutationConsistencyInventory[${index}]`;
+    if (!isPlainObject(entry)) {
+      violations.push(`${entryLabel}: entry must be an object`);
+      continue;
+    }
+    if (!isNonEmptyString(entry.id)) {
+      violations.push(`${entryLabel}: id must be a non-empty string`);
+    }
+    if (!isNonEmptyString(entry.owner)) {
+      violations.push(`${entryLabel}: owner must name the accountable context or team`);
+    }
+    if (!supportedRiskClassifications.has(entry.risk)) {
+      violations.push(`${entryLabel}: risk must be one of ${[...supportedRiskClassifications].sort().join(", ")}`);
+    }
+    if (!supportedMutationStrategies.has(entry.strategy)) {
+      violations.push(`${entryLabel}: strategy must be one of ${[...supportedMutationStrategies].sort().join(", ")}`);
+    }
+    if (!isNonEmptyStringArray(entry.surfaces)) {
+      violations.push(`${entryLabel}: surfaces must be a non-empty string array of discovered mutation surface ids`);
+      continue;
+    }
+
+    for (const surfaceId of entry.surfaces) {
+      if (!surfaceIds.has(surfaceId)) {
+        violations.push(`${entryLabel}: surface '${surfaceId}' was not discovered by the mutation inventory scanner`);
+      }
+      declaredSurfaceIds.add(surfaceId);
+      declarationBySurfaceId.set(surfaceId, entry);
+    }
+
+    validateMutationStrategyProof(entryLabel, entry, indexes, violations);
+  }
+
+  for (const surface of mutationSurfaces) {
+    const declaration = declarationBySurfaceId.get(surface.id);
+    const baselineEntry = baseline.get(surface.id);
+    if (!declaration && !baselineEntry) {
+      violations.push(
+        `${surface.location}: mutating ${surface.kind} is unclassified; add mutationConsistencyInventory with strategy proof`,
+      );
+    }
+
+    reportRows.push({
+      ...surface,
+      owner: declaration?.owner ?? baselineEntry?.owner ?? surface.contextName,
+      risk: declaration?.risk ?? "unclassified",
+      strategy: declaration?.strategy ?? (baselineEntry ? "migration" : "unclassified"),
+      recommendedStrategy: declaration?.strategy ?? recommendedStrategyForSurface(surface),
+      visibleDestination:
+        declaration?.visibleDestination?.routeId ??
+        declaration?.visibleDestination?.routePath ??
+        declaration?.visibleDestination?.description ??
+        "unknown",
+      dependencies: [
+        ...(declaration?.visibleDestination?.readModelTables ?? []),
+        ...(declaration?.visibleDestination?.projectionDependencies ?? []),
+      ],
+      issueOrException:
+        declaration?.exception?.issue ??
+        declaration?.exception?.status ??
+        baselineEntry?.issue ??
+        (declaration ? "classified" : "missing classification"),
+    });
+  }
+
+  for (const surfaceId of baseline.keys()) {
+    if (!surfaceIds.has(surfaceId)) {
+      violations.push(
+        `scripts/check-structure/mutation-consistency-baseline.json: stale mutation baseline surface '${surfaceId}' was not discovered`,
+      );
+    }
+  }
+
+  return reportRows.sort((left, right) => left.id.localeCompare(right.id));
+}
+
 function validateInventoryEntry(options) {
   const {
     context,
@@ -515,6 +971,9 @@ function validateInventoryEntry(options) {
     if (!isNonEmptyString(entry.exception.reviewBy) || !isoDatePattern.test(entry.exception.reviewBy)) {
       violations.push(`${entryLabel}: exception.reviewBy must be a YYYY-MM-DD renewal/removal date`);
     }
+    if (entry.exception.status === "accepted" && !isNonEmptyString(entry.exception.issue)) {
+      violations.push(`${entryLabel}: accepted exceptions must reference a current remediation issue`);
+    }
     return entry;
   }
 
@@ -583,6 +1042,7 @@ export async function validateReadAfterWriteRouteInventory(options) {
   const { repoRoot, contextManifests, reportOutputPath = "artifacts/read-after-write-route-inventory.md" } = options;
   const indexes = collectReadAfterWriteRouteIndexes(contextManifests);
   const helperUsages = await collectFreshWriteHelperUsage({ repoRoot, contextManifests });
+  const mutationSurfaces = await collectMutationConsistencySurfaces({ repoRoot, contextManifests });
   const { helpersUsedByFile, helpersUsedByRoute } = collectHelperUsageIndexes(helperUsages);
   const violations = [];
   const warnings = [];
@@ -686,7 +1146,9 @@ export async function validateReadAfterWriteRouteInventory(options) {
         ...(validatedEntry.destination?.projectionDependencies ?? []),
       ],
       transientRecovery: validatedEntry.destination?.transientRecovery ?? "",
-      exception: validatedEntry.exception?.status ?? "",
+      exception: validatedEntry.exception
+        ? `${validatedEntry.exception.status ?? "exception"}${validatedEntry.exception.issue ? ` ${validatedEntry.exception.issue}` : ""}`
+        : "",
     });
   }
 
@@ -726,11 +1188,20 @@ export async function validateReadAfterWriteRouteInventory(options) {
     }
   }
 
+  const mutationRows = validateMutationConsistencyInventory({
+    repoRoot,
+    contextManifests,
+    mutationSurfaces,
+    indexes,
+    violations,
+  });
+
   writeReadAfterWriteRouteInventoryReport({
     repoRoot,
     outputPath: reportOutputPath,
     entries: reportEntries,
     helperUsages,
+    mutationRows,
     violations,
     warnings,
   });
@@ -738,6 +1209,8 @@ export async function validateReadAfterWriteRouteInventory(options) {
   return {
     ok: violations.length === 0,
     helperUsages,
+    mutationRows,
+    mutationSurfaces,
     reportEntries,
     violations,
     warnings,
@@ -745,16 +1218,16 @@ export async function validateReadAfterWriteRouteInventory(options) {
 }
 
 export function writeReadAfterWriteRouteInventoryReport(options) {
-  const { repoRoot, outputPath, entries, helperUsages, violations, warnings } = options;
+  const { repoRoot, outputPath, entries, helperUsages, mutationRows = [], violations, warnings } = options;
   const absoluteOutputPath = path.resolve(repoRoot, outputPath);
   mkdirSync(path.dirname(absoluteOutputPath), { recursive: true });
 
   const lines = [
-    "# Read-After-Write Route Inventory",
+    "# Post-Write Mutation Consistency Inventory",
     "",
     `Generated at: ${new Date().toISOString()}`,
     "",
-    "## Routes",
+    "## Fresh-Write Routes",
     "",
     "| Context | Inventory ID | Risk | Owner | Source route | Destination route | API route | Dependencies | Recovery / exception |",
     "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
@@ -762,7 +1235,58 @@ export function writeReadAfterWriteRouteInventoryReport(options) {
 
   for (const entry of entries.sort((left, right) => left.id.localeCompare(right.id))) {
     lines.push(
-      `| ${entry.contextName} | ${entry.id} | ${entry.risk} | ${entry.owner} | ${entry.sourceRoute} | ${entry.destinationRoute} | ${entry.apiRoute} | ${formatValues(entry.dependencies)} | ${entry.exception || entry.transientRecovery || "none"} |`,
+      `| ${markdownCell(entry.contextName)} | ${markdownCell(entry.id)} | ${markdownCell(entry.risk)} | ${markdownCell(entry.owner)} | ${markdownCell(entry.sourceRoute)} | ${markdownCell(entry.destinationRoute)} | ${markdownCell(entry.apiRoute)} | ${markdownCell(formatValues(entry.dependencies))} | ${markdownCell(entry.exception || entry.transientRecovery || "none")} |`,
+    );
+  }
+
+  const auditGroups = new Map();
+  for (const row of mutationRows) {
+    const key = [row.contextName, row.kind, row.strategy, row.issueOrException, row.recommendedStrategy].join("|");
+    const group = auditGroups.get(key) ?? {
+      contextName: row.contextName,
+      kind: row.kind,
+      strategy: row.strategy,
+      issueOrException: row.issueOrException,
+      recommendedStrategy: row.recommendedStrategy,
+      count: 0,
+      examples: [],
+    };
+    group.count += 1;
+    if (group.examples.length < 3) {
+      group.examples.push(row.location);
+    }
+    auditGroups.set(key, group);
+  }
+
+  lines.push(
+    "",
+    "## Audit Summary",
+    "",
+    "| Context | Failure class | Count | Current classification | Recommended strategy | Issue / exception | Example surfaces |",
+    "| --- | --- | ---: | --- | --- | --- | --- |",
+  );
+  for (const group of [...auditGroups.values()].sort((left, right) => {
+    const contextCompare = left.contextName.localeCompare(right.contextName);
+    if (contextCompare !== 0) {
+      return contextCompare;
+    }
+    return left.kind.localeCompare(right.kind);
+  })) {
+    lines.push(
+      `| ${markdownCell(group.contextName)} | ${markdownCell(group.kind)} | ${group.count} | ${markdownCell(group.strategy)} | ${markdownCell(group.recommendedStrategy)} | ${markdownCell(group.issueOrException)} | ${markdownCell(group.examples.join("; "))} |`,
+    );
+  }
+
+  lines.push(
+    "",
+    "## Mutation Surfaces",
+    "",
+    "| Context | Surface ID | Kind | Owner | Risk | Strategy | Recommended strategy | Route IDs | Visible destination | Dependencies | Issue / exception |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+  );
+  for (const row of mutationRows) {
+    lines.push(
+      `| ${markdownCell(row.contextName)} | ${markdownCell(row.id)} | ${markdownCell(row.kind)} | ${markdownCell(row.owner)} | ${markdownCell(row.risk)} | ${markdownCell(row.strategy)} | ${markdownCell(row.recommendedStrategy)} | ${markdownCell(formatValues(row.routeIds))} | ${markdownCell(row.visibleDestination)} | ${markdownCell(formatValues(row.dependencies))} | ${markdownCell(row.issueOrException)} |`,
     );
   }
 

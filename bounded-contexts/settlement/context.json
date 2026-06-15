@@ -149,7 +149,8 @@
         "status": "accepted",
         "owner": "settlement",
         "reviewBy": "2026-07-31",
-        "reason": "Payout detail projection dependency migration is tracked by #1084."
+        "issue": "#1809",
+        "reason": "Payout detail projection dependency migration remains a current audit/remediation gap."
       }
     }
   ],

@@ -297,7 +297,8 @@
         "status": "accepted",
         "owner": "marketplace",
         "reviewBy": "2026-07-31",
-        "reason": "Marketplace list self-refresh migration is tracked by #1084; the helper use is represented so new drift fails closed."
+        "issue": "#1809",
+        "reason": "Marketplace list self-refresh remains a current audit/remediation gap; the helper use is represented so new drift fails closed."
       }
     },
     {
@@ -337,7 +338,8 @@
         "status": "accepted",
         "owner": "marketplace",
         "reviewBy": "2026-07-31",
-        "reason": "Review detail projection dependency and shared route-support helper migration is tracked by #1084.",
+        "issue": "#1809",
+        "reason": "Review detail projection dependency and shared route-support helper migration remain current audit/remediation gaps.",
         "files": ["bounded-contexts/marketplace/support/route-support/review-submission-route.tsx"],
         "helperUses": ["appendFreshWriteToken"]
       }
