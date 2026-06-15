@@ -90,6 +90,11 @@ export type CheckoutSavedPaymentInstrument = Readonly<{
 
 export type CheckoutEditSection = "contact" | "delivery" | "shipping" | "payment";
 
+export type GuestCheckoutContact = Readonly<{
+  contactEmail: string;
+  contactName: string | null;
+}>;
+
 function deliveryWindowLabel(group: CheckoutFulfillmentPreview["sellerGroups"][number]) {
   return `${group.deliveryEstimate.earliestDate} - ${group.deliveryEstimate.latestDate}`;
 }
@@ -220,6 +225,7 @@ export function CheckoutSessionPage({
   isSubmitting = false,
   savedShippingAddresses = [],
   savedCheckoutInstruments = [],
+  guestCheckoutContact = null,
   canManageShippingAddresses = false,
   canSavePaymentMethods = false,
   isSignedInBuyer = false,
@@ -236,6 +242,7 @@ export function CheckoutSessionPage({
   isSubmitting?: boolean;
   savedShippingAddresses?: readonly CheckoutSavedShippingAddress[];
   savedCheckoutInstruments?: readonly CheckoutSavedPaymentInstrument[];
+  guestCheckoutContact?: GuestCheckoutContact | null;
   canManageShippingAddresses?: boolean;
   canSavePaymentMethods?: boolean;
   isSignedInBuyer?: boolean;
@@ -246,6 +253,7 @@ export function CheckoutSessionPage({
   const hasPayment = Boolean(session.payment_id);
   const isOfferIntent = session.source_type === "offer-intent";
   const signedInBuyCheckout = isSignedInBuyer && !isOfferIntent;
+  const guestBuyCheckout = !isSignedInBuyer && !isOfferIntent;
   const preview = fulfillmentPreview ?? null;
   const payment = paymentPreview ?? null;
   const [hasPendingReviewChanges, setHasPendingReviewChanges] = useState(false);
@@ -296,7 +304,7 @@ export function CheckoutSessionPage({
         }
       : {
           shippingAddressId: "__manual",
-          name: "",
+          name: guestBuyCheckout ? (guestCheckoutContact?.contactName ?? "") : "",
           company: "",
           line1: "",
           line2: "",
@@ -305,7 +313,7 @@ export function CheckoutSessionPage({
           postalCode: "",
           country: "US",
           phone: "",
-          email: "",
+          email: guestBuyCheckout ? (guestCheckoutContact?.contactEmail ?? "") : "",
         };
   const previewPayableTotal = payment?.marketplace_checkout_fee.total_amount ?? preview?.totals.totalAmount ?? null;
   const orderReferenceValue = formatBuyCheckoutReferenceList(session.order_ids);
@@ -357,15 +365,17 @@ export function CheckoutSessionPage({
   const savedAddressReady = Boolean(
     defaultSavedAddress && !selectedSavedPaymentInstrument && !isOfferIntent && !hasPayment,
   );
-  const contactReady = signedInBuyCheckout && addressDefaults.email.trim().length > 0;
+  const guestContactReady = guestBuyCheckout && addressDefaults.email.trim().length > 0;
+  const contactReady = (signedInBuyCheckout || guestContactReady) && addressDefaults.email.trim().length > 0;
   const deliveryReady = signedInBuyCheckout && addressIsComplete(addressDefaults);
   const shippingMethodReady = signedInBuyCheckout && Boolean(firstDeliveryGroup);
   const paymentMethodReady = signedInBuyCheckout && Boolean(selectedSavedPaymentInstrument);
   const showSavedCheckoutRows = Boolean(
-    signedInBuyCheckout && (contactReady || deliveryReady || shippingMethodReady || paymentMethodReady),
+    contactReady || (signedInBuyCheckout && (deliveryReady || shippingMethodReady || paymentMethodReady)),
   );
   const activeEditSection = editingSection ?? initialEditSection;
-  const showContactForm = !signedInBuyCheckout || !contactReady || activeEditSection === "contact";
+  const canEditCollapsedContact = signedInBuyCheckout;
+  const showContactForm = !contactReady || (canEditCollapsedContact && activeEditSection === "contact");
   const showDeliveryForm = !signedInBuyCheckout || !deliveryReady || activeEditSection === "delivery";
   const showShippingMethodForm = !signedInBuyCheckout || !shippingMethodReady || activeEditSection === "shipping";
   const showPaymentForm = !signedInBuyCheckout || !paymentMethodReady || activeEditSection === "payment";
@@ -762,10 +772,11 @@ export function CheckoutSessionPage({
                           supportingText={contactSupportingText(addressDefaults.phone)}
                           status={t("checkout.features.sessions.ui.checkoutPage.ready")}
                           statusTone="success"
-                          action={editRowAction(
-                            "contact",
-                            t("checkout.features.sessions.ui.checkoutPage.edit.contact"),
-                          )}
+                          action={
+                            canEditCollapsedContact
+                              ? editRowAction("contact", t("checkout.features.sessions.ui.checkoutPage.edit.contact"))
+                              : undefined
+                          }
                         />
                       ) : null}
                       {deliveryReady ? (

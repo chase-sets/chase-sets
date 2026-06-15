@@ -15,6 +15,7 @@ import {
   mockCreatePaymentsRequestApiClient,
   mockCreateSettlementRequestApiClient,
   mockGetCheckoutSession,
+  mockGetGuestCheckoutClaimContext,
   mockGetGuestCart,
   MockMarketplaceApiError,
   mockMergeGuestCartToAccount,
@@ -193,6 +194,13 @@ describe("checkout web routes: guest checkout handoff", () => {
     mockCreatePaymentsRequestApiClient.mockReturnValue({
       previewCheckoutStatus: mockPreviewCheckoutStatus,
     });
+    mockGetGuestCheckoutClaimContext.mockResolvedValue({
+      contactName: "Jane Smith",
+      contactEmail: "jane@example.com",
+    });
+    mockCreateAuthRequestApiClient.mockReturnValue({
+      getGuestCheckoutClaimContext: mockGetGuestCheckoutClaimContext,
+    });
 
     const checkoutSessionResult = await checkoutSessionLoader({
       request: new Request("http://localhost/checkout/buy/session/chk_guest", {
@@ -214,8 +222,13 @@ describe("checkout web routes: guest checkout handoff", () => {
         paymentPreview: expect.objectContaining({
           amount: "26.00",
         }),
+        guestCheckoutContact: {
+          contactName: "Jane Smith",
+          contactEmail: "jane@example.com",
+        },
       }),
     );
+    expect(mockGetGuestCheckoutClaimContext).toHaveBeenCalledWith({});
 
     mockSelectShippingOption.mockResolvedValue({});
     mockConfirmCheckoutSession.mockResolvedValue({
@@ -241,7 +254,7 @@ describe("checkout web routes: guest checkout handoff", () => {
     confirmationForm.set("shippingState", "IL");
     confirmationForm.set("shippingPostalCode", "60601");
     confirmationForm.set("shippingCountry", "US");
-    confirmationForm.set("shippingEmail", "jane@example.com");
+    confirmationForm.set("shippingEmail", checkoutSessionResult.guestCheckoutContact?.contactEmail ?? "");
 
     const confirmationResponse = (await checkoutSessionAction({
       request: new Request("http://localhost/checkout/buy/session/chk_guest", {

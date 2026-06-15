@@ -28,6 +28,7 @@ export const mockCreateOrderingRequestApiClient = vi.fn();
 export const mockCreatePaymentsRequestApiClient = vi.fn();
 export const mockGetAccountPayment = vi.fn();
 export const mockCreateAuthRequestApiClient = vi.fn();
+export const mockGetGuestCheckoutClaimContext = vi.fn();
 export const mockCreateIdentityRequestApiClient = vi.fn();
 export const mockCreateCheckoutSession = vi.fn();
 export const mockCreateCartReadiness = vi.fn();

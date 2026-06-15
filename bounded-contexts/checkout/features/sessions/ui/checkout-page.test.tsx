@@ -323,6 +323,30 @@ describe("checkout session page", () => {
     expect(markup).not.toContain('name="addressBookAction"');
   });
 
+  it("uses guest checkout contact without asking for email again", () => {
+    const markup = renderToString(
+      <CheckoutSessionPage
+        session={readySession}
+        fulfillmentPreview={readyFulfillmentPreview}
+        paymentPreview={paymentPreview}
+        guestCheckoutContact={{
+          contactName: "Jane Smith",
+          contactEmail: "jane@example.com",
+        }}
+      />,
+    );
+
+    expect(markup).toContain("Checkout details");
+    expect(markup).toContain("jane@example.com");
+    expect(markup).toContain('name="shippingEmail"');
+    expect(markup).toContain('value="jane@example.com"');
+    expect(markup).toContain('name="shippingName"');
+    expect(markup).toContain('value="Jane Smith"');
+    expect(markup).not.toContain('type="email"');
+    expect(markup).not.toContain("Email me with news");
+    expect(markup).not.toContain("Edit contact");
+  });
+
   it("shows only payment methods supported by the current quote", () => {
     const cardOnlyMarkup = renderToString(
       <CheckoutSessionPage
