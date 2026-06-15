@@ -213,6 +213,16 @@ describe("settlement payout runtime", () => {
       context,
     );
 
+    expect(requested.payout).toMatchObject({
+      payout_id: requested.payoutId,
+      account_id: "acc_seller",
+      amount: "12.50",
+      status: "in-transit",
+      provider_transfer_reference: expect.any(String),
+      provider_payout_reference: expect.any(String),
+      version: requested.version,
+    });
+
     payoutRow = {
       payout_id: requested.payoutId,
       account_id: "acc_seller",
@@ -756,13 +766,21 @@ describe("settlement payout runtime", () => {
     });
     await seedAvailableWallet(wallets);
 
-    await payouts.requestPayout(
+    const requested = await payouts.requestPayout(
       {
         accountId: "acc_seller" as never,
         amount: "12.50",
       },
       context,
     );
+
+    expect(requested.payout).toMatchObject({
+      payout_id: requested.payoutId,
+      status: "failed",
+      failure_reason: "Payout account details need review.",
+      provider_failure_message: expect.stringContaining("Provider"),
+      version: requested.version,
+    });
 
     expect(
       readAllEvents()

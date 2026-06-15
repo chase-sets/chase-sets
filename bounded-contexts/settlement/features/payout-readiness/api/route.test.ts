@@ -71,6 +71,21 @@ describe("settlement payout setup routes", () => {
       clientSecret: "provider_session_secret",
       expiresAt: "2026-06-01T15:00:00.000Z",
       components: ["payout-setup"],
+      readiness: {
+        account_id: "acc_seller",
+        status: "pending",
+        missing_requirements: ["external_account"],
+        provider_reference: "acct_test",
+        onboarding_status: "pending",
+        transfer_capability_status: "pending",
+        payout_capability_status: "pending",
+        payout_destination_status: "missing",
+        payout_account_dashboard: "none",
+        losses_collector: "application",
+        fees_collector: "application",
+        requirements_collector: "application",
+        updated_at: "2026-06-01T15:00:00.000Z",
+      },
     }));
     const app = createApp({ createPayoutSetupSession }, ["payouts.setup"]);
 
@@ -86,6 +101,11 @@ describe("settlement payout setup routes", () => {
       clientSecret: "provider_session_secret",
       expiresAt: "2026-06-01T15:00:00.000Z",
       components: ["payout-setup"],
+      readiness: expect.objectContaining({
+        account_id: "acc_seller",
+        status: "pending",
+        provider_reference: "acct_test",
+      }),
     });
     expect(createPayoutSetupSession).toHaveBeenCalledWith(
       expect.objectContaining({

@@ -10,6 +10,8 @@ import { PayoutSetupPage, type PayoutSetupMode } from "../../features/payout-rea
 
 type PayoutSetupActionData = Readonly<{
   error?: string;
+  payoutReadiness?: SettlementPayoutReadinessRow;
+  setupNotice?: string;
 }>;
 
 export const CONNECT_EMBEDDED_COMPONENT_CSP = [
@@ -94,8 +96,11 @@ export async function action({ request }: ActionFunctionArgs) {
 
   try {
     if (intent === "refresh-payout-setup") {
-      await settlementApi.refreshPayoutSetup();
-      return redirect(setupRouteForMode(mode, "updated"));
+      const payoutReadiness = await settlementApi.refreshPayoutSetup();
+      return {
+        payoutReadiness,
+        setupNotice: t("settlement.routes.marketplace.accountPayoutSetup.payout.setup.status.was.refreshed"),
+      };
     }
 
     return redirect(setupRouteForMode(mode));
@@ -116,11 +121,12 @@ export default function MarketplaceAccountPayoutSetupRoute() {
   const actionData = useActionData() as PayoutSetupActionData | undefined;
   const revalidator = useRevalidator();
   const [providerErrorMessage, setProviderErrorMessage] = useState<string | null>(null);
+  const [providerReadinessSnapshot, setProviderReadinessSnapshot] = useState<SettlementPayoutReadinessRow | null>(null);
 
   const handleProviderExit = useCallback(async () => {
     setProviderErrorMessage(null);
     try {
-      await createSettlementApiClient().refreshPayoutSetup();
+      setProviderReadinessSnapshot(await createSettlementApiClient().refreshPayoutSetup());
       revalidator.revalidate();
     } catch (error) {
       setProviderErrorMessage(
@@ -133,10 +139,14 @@ export default function MarketplaceAccountPayoutSetupRoute() {
 
   return (
     <PayoutSetupPage
-      payoutReadiness={data.payoutReadiness as SettlementPayoutReadinessRow}
+      payoutReadiness={
+        providerReadinessSnapshot ??
+        actionData?.payoutReadiness ??
+        (data.payoutReadiness as SettlementPayoutReadinessRow)
+      }
       mode={data.mode as PayoutSetupMode}
       stripePublishableKey={data.stripePublishableKey}
-      setupNotice={data.setupNotice}
+      setupNotice={actionData?.setupNotice ?? data.setupNotice}
       providerErrorMessage={providerErrorMessage ?? actionData?.error ?? null}
       onProviderExit={handleProviderExit}
     />

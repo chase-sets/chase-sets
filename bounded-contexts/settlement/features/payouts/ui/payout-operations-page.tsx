@@ -69,11 +69,22 @@ export function SettlementPayoutOperationsPage({
   idempotencyKeys?: readonly SettlementProviderIdempotencyKeyRow[];
   payoutReadiness?: SettlementPayoutReadinessRow | null;
   runResult?: Readonly<{
-    checked: number;
-    reconciled: number;
-    ignored: number;
-    skipped: number;
-    errors: readonly Readonly<{ payoutId: string; message: string }>[];
+    jobId: string;
+    status: string;
+    progress: Readonly<{
+      phase: string;
+      completed: number;
+      total: number;
+      message: string | null;
+    }>;
+    result: Readonly<{
+      checked: number;
+      reconciled: number;
+      ignored: number;
+      skipped: number;
+      errors: readonly Readonly<{ payoutId: string; message: string }>[];
+    }> | null;
+    errorMessage?: string | null;
   }> | null;
   currentFilter?: string;
   lastCheckedAt?: string | null;
@@ -99,6 +110,7 @@ export function SettlementPayoutOperationsPage({
     : false;
   const payoutSetupStale = payoutReadiness ? payoutReadinessIsStale(payoutReadiness.updated_at) : false;
   const payoutSetupMissingRequirementCount = payoutReadiness?.missing_requirements.length ?? 0;
+  const terminalRunResult = runResult?.result ?? null;
 
   return (
     <Page>
@@ -135,20 +147,38 @@ export function SettlementPayoutOperationsPage({
             </Text>
             {runResult ? (
               <Stack gap={1}>
+                <Badge
+                  tone={
+                    runResult.status === "failed" ? "danger" : runResult.status === "completed" ? "success" : "accent"
+                  }
+                >
+                  {runResult.status}
+                </Badge>
+                {runResult.progress.message ? (
+                  <Text size="sm" tone="secondary">
+                    {runResult.progress.message}
+                  </Text>
+                ) : null}
                 <Text size="sm" tone="secondary">
                   {t("settlement.features.payouts.ui.payoutOperationsPage.checked")}
-                  {runResult.checked}
+                  {terminalRunResult?.checked ?? runResult.progress.completed}
                   {t("settlement.features.payouts.ui.payoutOperationsPage.reconciled")}
-                  {runResult.reconciled}
+                  {terminalRunResult?.reconciled ?? 0}
                   {t("settlement.features.payouts.ui.payoutOperationsPage.ignored")}
-                  {runResult.ignored}
+                  {terminalRunResult?.ignored ?? 0}
                   {t("settlement.features.payouts.ui.payoutOperationsPage.skipped")}
-                  {runResult.skipped}.
+                  {terminalRunResult?.skipped ?? 0}.
                 </Text>
-                {runResult.errors.length > 0 ? (
+                {terminalRunResult && terminalRunResult.errors.length > 0 ? (
                   <Text size="sm" tone="secondary">
                     {t("settlement.features.payouts.ui.payoutOperationsPage.errors")}
-                    {runResult.errors.map((error) => error.message).join("; ")}
+                    {terminalRunResult.errors.map((error) => error.message).join("; ")}
+                  </Text>
+                ) : null}
+                {runResult.errorMessage ? (
+                  <Text size="sm" tone="secondary">
+                    {t("settlement.features.payouts.ui.payoutOperationsPage.errors")}
+                    {runResult.errorMessage}
                   </Text>
                 ) : null}
               </Stack>

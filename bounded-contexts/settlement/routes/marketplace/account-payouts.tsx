@@ -26,6 +26,8 @@ type PayoutActionData = Readonly<{
     note: string | null;
     preview: SettlementPayoutPreview;
   }>;
+  refreshedPayoutReadiness?: SettlementPayoutReadinessRow;
+  setupNotice?: string;
 }>;
 
 function normalizeQuickAmount(formData: FormData) {
@@ -134,8 +136,11 @@ export async function action({ request }: ActionFunctionArgs) {
       if (!actor.permissions.includes("payouts.setup")) {
         return { error: t("settlement.routes.marketplace.accountPayouts.you.do.not.have.permission.to.5") };
       }
-      await settlementApi.refreshPayoutSetup();
-      return redirect("/account/payouts");
+      const refreshedPayoutReadiness = await settlementApi.refreshPayoutSetup();
+      return {
+        refreshedPayoutReadiness,
+        setupNotice: t("settlement.routes.marketplace.accountPayouts.payout.setup.status.was.refreshed"),
+      };
     }
 
     if (intent === "manage-payout-account") {
@@ -166,14 +171,14 @@ export default function MarketplaceAccountPayoutsRoute() {
     <SettlementPayoutListPage
       wallet={data.wallet as SettlementWalletRow}
       payouts={(data.payouts.items ?? []) as SettlementPayoutRow[]}
-      payoutReadiness={data.payoutReadiness as SettlementPayoutReadinessRow}
+      payoutReadiness={actionData?.refreshedPayoutReadiness ?? (data.payoutReadiness as SettlementPayoutReadinessRow)}
       errorMessage={actionData?.error ?? null}
       payoutDraft={actionData?.draft ?? null}
       payoutConfirmation={actionData?.confirmation ?? null}
       canRequestPayouts={data.canRequestPayouts}
       canSetupPayouts={data.canSetupPayouts}
       showOperations={data.canReconcilePayouts}
-      setupNotice={data.setupNotice}
+      setupNotice={actionData?.setupNotice ?? data.setupNotice}
     />
   );
 }

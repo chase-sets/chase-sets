@@ -331,7 +331,15 @@ export function createPayoutRoutes(services: PayoutServices) {
       };
       const result = await services.requestPayout(request, context);
 
-      return c.json({ id: result.payoutId, version: result.version, status: "requested" }, 201);
+      return c.json(
+        {
+          id: result.payoutId,
+          version: result.version,
+          status: result.payout.status,
+          payout: result.payout,
+        },
+        201,
+      );
     } catch (error) {
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
