@@ -1,7 +1,22 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AuthApiError, createAuthApiClient } from "../../client";
 import { PLATFORM_INTERNAL_AUTH_HEADER } from "@chase-sets/platform-runtime/http";
+import {
+  CHASE_SETS_COMMIT_RECEIPT_HEADER,
+  CHASE_SETS_READ_AFTER_WRITE_HEADER,
+  CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
+  appendFreshWriteToken,
+  decodeFreshWriteReceipt,
+  encodeCommitReceipt,
+  getMutationResultCommandReceipt,
+} from "@chase-sets/http/responses";
 import { createAuthRequestApiClient, createInternalAuthRequestApiClient } from "./api-client";
+
+const authSource = {
+  sourceContextName: "auth",
+  maxGlobalPosition: "42",
+  eventIds: ["evt_auth"],
+};
 
 function createRecordingFetch() {
   const calls: {
@@ -133,6 +148,62 @@ describe("auth api client authentication methods", () => {
     expect(() => createInternalAuthRequestApiClient(new Request("https://app.test/"))).toThrow(
       "PLATFORM_INTERNAL_AUTH_SECRET is required",
     );
+  });
+
+  it("keeps command receipts on Auth mutation responses without exposing them in JSON", async () => {
+    const api = createAuthApiClient({
+      baseUrl: "https://app.test/api/auth",
+      fetch: async () =>
+        new Response(JSON.stringify({ id: "ses_1", version: 3, status: "revoked" }), {
+          headers: {
+            "Content-Type": "application/json",
+            "Chase-Sets-Consistency": "eventual",
+            [CHASE_SETS_COMMIT_RECEIPT_HEADER]: encodeCommitReceipt([authSource]),
+          },
+        }),
+    });
+
+    const result = await api.revokeSession<{ id: string; version: number; status: string }>("ses_1");
+
+    expect(result).toEqual({ id: "ses_1", version: 3, status: "revoked" });
+    expect(Object.keys(result).sort()).toEqual(["id", "status", "version"]);
+    expect(JSON.stringify(result)).toBe('{"id":"ses_1","version":3,"status":"revoked"}');
+    expect(getMutationResultCommandReceipt(result)).toEqual({
+      mode: "eventual",
+      commitEventIds: [],
+      commitPositions: [authSource],
+    });
+  });
+
+  it("forwards fresh-read receipts and target context on Auth API reads", async () => {
+    const request = new Request(
+      `http://localhost${appendFreshWriteToken(
+        "/account/sessions/ses_1",
+        { commitPositions: [authSource], commitEventIds: ["evt_auth"] },
+        Date.now(),
+      )}`,
+      {
+        headers: {
+          cookie: "chase_sets_session=session_token",
+        },
+      },
+    );
+    let receivedInit: RequestInit | undefined;
+    vi.stubGlobal("fetch", async (_input: RequestInfo | URL, init?: RequestInit) => {
+      receivedInit = init;
+      return new Response(JSON.stringify({ id: "ses_1", status: "revoked" }), {
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+
+    await createAuthRequestApiClient(request).getSession("ses_1");
+
+    const headers = new Headers(receivedInit?.headers);
+    expect(headers.get("cookie")).toBe("chase_sets_session=session_token");
+    expect(decodeFreshWriteReceipt(headers.get(CHASE_SETS_READ_AFTER_WRITE_HEADER))).toMatchObject({
+      sources: [authSource],
+    });
+    expect(headers.get(CHASE_SETS_READ_TARGET_CONTEXT_HEADER)).toBe("auth");
   });
 
   it("uses structured API error messages instead of object stringification", async () => {

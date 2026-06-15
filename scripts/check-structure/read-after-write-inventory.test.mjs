@@ -189,6 +189,103 @@ describe("read-after-write route inventory guard", () => {
     );
   });
 
+  it("discovers API freshness routes registered through nested route support modules", async () => {
+    const root = createTempRepo();
+    writeFileSync(
+      path.join(root, "bounded-contexts", "checkout", "api.ts"),
+      [
+        'import { Hono } from "hono";',
+        "export function buildCheckoutApi() {",
+        "  const app = new Hono();",
+        "  registerSessionApiRoutes(app);",
+        "  return app;",
+        "}",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    mkdirSync(path.join(root, "bounded-contexts", "checkout", "support", "api-support"), { recursive: true });
+    writeFileSync(
+      path.join(root, "bounded-contexts", "checkout", "support", "api-support", "session-routes.ts"),
+      ["export function registerSessionApiRoutes(app) {", '  app.route("/sessions", sessionRoutes());', "}", ""].join(
+        "\n",
+      ),
+      "utf8",
+    );
+    writeFileSync(
+      path.join(root, "bounded-contexts", "checkout", "features", "sessions", "api", "route.ts"),
+      [
+        'import { Hono } from "hono";',
+        "export function sessionRoutes() {",
+        "  const app = new Hono();",
+        '  app.get("/:sessionId", async (c) => c.json({}));',
+        "  return app;",
+        "}",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-start.tsx", ["appendFreshWriteToken"]);
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-session.tsx", ["loadFreshlyWrittenResource"]);
+
+    const result = await validate(
+      root,
+      createContextManifest(root, {
+        apiMounts: [
+          {
+            mountPath: "/api/marketplace",
+            kind: "primary",
+            requiresAuth: true,
+            readFreshnessRoutes: [
+              {
+                routePath: "/sessions/:sessionId",
+                methods: ["GET", "HEAD"],
+                dependencies: [{ readModelTable: "checkout_session_pages" }],
+              },
+            ],
+          },
+        ],
+        readAfterWriteRouteInventory: [
+          {
+            id: "checkout.session-self-refresh",
+            owner: "checkout",
+            risk: "critical",
+            source: {
+              routeId: "buy-checkout-readiness",
+              helperUses: ["appendFreshWriteToken"],
+            },
+            destination: {
+              routeId: "buy-checkout-session",
+              apiContextName: "checkout",
+              apiRoutePath: "/sessions/:sessionId",
+              readModelTables: ["checkout_session_pages"],
+              helperUses: ["loadFreshlyWrittenResource"],
+              transientRecovery: "temporary checkout recovery",
+            },
+          },
+        ],
+        mutationConsistencyInventory: [
+          {
+            id: "checkout.session-start-action",
+            owner: "checkout",
+            risk: "critical",
+            strategy: "fresh-read",
+            surfaces: ["route-action:bounded-contexts/checkout/routes/checkout-start.tsx"],
+            visibleDestination: {
+              routeId: "buy-checkout-session",
+              apiContextName: "checkout",
+              apiRoutePath: "/sessions/:sessionId",
+              readModelTables: ["checkout_session_pages"],
+              transientRecovery: "temporary checkout recovery",
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(result.violations).toEqual([]);
+  });
+
   it("fails when a helper-using route is missing inventory coverage", async () => {
     const root = createTempRepo();
     writeRoute(root, "bounded-contexts/checkout/routes/checkout-start.tsx", ["appendFreshWriteToken"]);
