@@ -17,7 +17,7 @@ import type { WorkSignalPriorityLane } from "./work-signal-store";
  * disposition check, wave 2 (`catalog`, `fulfillment`, `identity`,
  * `inventory`) and wave 3 (`discovery`, `platform-operations`,
  * `public-presence`, `settlement`) still have registry `eligible` rows with
- * relay fan-out disabled, leaving 38 projection groups `push-eligible`.
+ * relay fan-out disabled, leaving 34 projection groups `push-eligible`.
  *
  * Derives a push-first disposition for every projection group and every
  * read-after-write route inventory entry from the source-context wake

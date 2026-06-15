@@ -136,8 +136,8 @@ export const sourceContextWakeRegistry = [
     priorityLane: "bulk",
     expectedEventVolume: "low",
     wakeStoreLoadEstimate: "none",
-    affectedProjectionNames: [],
-    routeDependencyIds: [],
+    affectedProjectionNames: ["auth:auth-session-projection"],
+    routeDependencyIds: ["auth.session-detail-self-refresh"],
   }),
   registryEntry({
     sourceContextName: "catalog",
@@ -190,6 +190,7 @@ export const sourceContextWakeRegistry = [
     routeDependencyIds: [
       "checkout.cart-self-refresh",
       "checkout.guest-sell-list-to-checkout",
+      "checkout.sell-checkout-confirmation-detail",
       "checkout.sell-list-self-refresh",
       "checkout.session-offer-handoff",
       "checkout.session-payment-handoff",
@@ -206,8 +207,16 @@ export const sourceContextWakeRegistry = [
     priorityLane: "bulk",
     expectedEventVolume: "low",
     wakeStoreLoadEstimate: "none",
-    affectedProjectionNames: [],
-    routeDependencyIds: [],
+    affectedProjectionNames: [
+      "commercial-terms:commercial-terms-agreement-projection",
+      "commercial-terms:commercial-terms-schedule-projection",
+    ],
+    routeDependencyIds: [
+      "commercial-terms.agreement-create-to-list",
+      "commercial-terms.agreement-update-to-detail",
+      "commercial-terms.schedule-create-to-list",
+      "commercial-terms.schedule-update-to-detail",
+    ],
   }),
   registryEntry({
     sourceContextName: "discovery",
@@ -231,6 +240,7 @@ export const sourceContextWakeRegistry = [
     expectedEventVolume: "medium",
     wakeStoreLoadEstimate: "medium",
     affectedProjectionNames: [
+      "fulfillment:fulfillment-shipment-projection",
       "notifications:notifications-source-facts-outbox-projection",
       "ordering:ordering-fulfillment-cancellation-inputs",
       "pricing:pricing-fulfillment-input-projection",
@@ -238,7 +248,7 @@ export const sourceContextWakeRegistry = [
       "settlement:settlement-fulfillment-source-projection",
       "platform-operations:support-shipment-source-projection",
     ],
-    routeDependencyIds: [],
+    routeDependencyIds: ["fulfillment.seller-shipment-self-refresh"],
   }),
   registryEntry({
     sourceContextName: "identity",
@@ -349,6 +359,7 @@ export const sourceContextWakeRegistry = [
       "fulfillment:fulfillment-order-source-projection",
       "inventory:inventory-order-reservation-workflow",
       "notifications:notifications-source-facts-outbox-projection",
+      "ordering:ordering-order-projection",
       "ordering:ordering-postage-policy-projection",
       "payments:payments-order-cancellation-refund-effect",
       "payments:payments-order-input-projection",
@@ -356,7 +367,12 @@ export const sourceContextWakeRegistry = [
       "marketplace:reputation-order-source-projection",
       "platform-operations:support-order-source-projection",
     ],
-    routeDependencyIds: [],
+    routeDependencyIds: [
+      "ordering.postage-policy-command-to-detail",
+      "ordering.postage-policy-create-to-list",
+      "ordering.purchase-cancel-to-detail",
+      "ordering.sale-cancel-to-detail",
+    ],
   }),
   registryEntry({
     sourceContextName: "payments",
