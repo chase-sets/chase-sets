@@ -15,9 +15,12 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.choose.unit": "choose unit",
   "catalog.features.sourceObservations.ui.primaryWorkbench.clear.selection": "Clear selection",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.count.blocked": "Blocked",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.count.catalogItemUpdates":
+    "Draft Catalog Item updates",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.count.conflicting": "Conflicts",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.count.eligible": "Eligible",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.count.failed": "Failures",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.count.matched": "Matched",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.count.skipped": "Skipped",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.defer.key": "Defer decision",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.defer.value": "Defer keeps observations in review",
@@ -376,7 +379,7 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.stage.blockers.title": "Resolve before continuing",
   "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.commit": "Create or update Catalog Items",
   "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.confirm":
-    "I confirm the previewed impact above and want to write these Catalog facts.",
+    "I confirm this will promote {count} eligible observation(s) from {scope}.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.description":
     "Confirm the previewed Catalog impact inline, then commit the create or update in one step.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.handoff.cta":
@@ -392,6 +395,13 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.preview.refresh":
     "Refresh the previewed impact before committing.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.preview.title": "Confirm previewed impact",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.promoteScope.explicit":
+    "Selected scope: {scope}. Matching observations: {count}. No other provider scope is promoted by this action.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.promoteScope.scoped":
+    "Scoped to {scope}: only the {count} eligible observation(s) here are promoted.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.promoteScope.title":
+    "Promote all eligible in this scope",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.scoped.badge": "Scoped",
   "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.summary":
     "{count} Catalog Item(s) created or updated.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.summary.pending":

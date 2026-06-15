@@ -697,6 +697,23 @@ describe("Catalog integrations route", () => {
     );
   });
 
+  it("fails closed when a scope preview has provider and unit but no concrete scope", async () => {
+    const previewBulkPromoteSourceObservations = vi.fn();
+    mockCreateCatalogRequestApiClient.mockReturnValue({ previewBulkPromoteSourceObservations });
+
+    const result = await runDailyAction({
+      _intent: "preview-promotion",
+      providerKey: "tcgdex",
+      unitKey: "tcgdex:pokemon:card:import",
+      profileVersion: "2026.06.04",
+    });
+
+    expect(previewBulkPromoteSourceObservations).not.toHaveBeenCalled();
+    expect(result.feedback.status).toBe("error");
+    expect(result.feedback.result).toBe("command-failed");
+    expect(result.context.promotionPreviewId).toBeNull();
+  });
+
   it("bridges profile draft creation through the typed provider profile clone API", async () => {
     const cloneSourceObservationProviderProfile = vi.fn().mockResolvedValue({
       providerKey: "tcgdex",
@@ -1285,6 +1302,29 @@ describe("Catalog integrations route", () => {
     });
     expect(result.context.jobId).toBe("job_promote_scope");
     expect(result.feedback.result).toBe("job-queued");
+  });
+
+  it("fails closed when scoped promotion execution has no concrete scope", async () => {
+    const previewBulkPromoteSourceObservations = vi.fn();
+    const bulkPromoteSourceObservationsByScope = vi.fn();
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      bulkPromoteSourceObservationsByScope,
+      previewBulkPromoteSourceObservations,
+    });
+
+    const result = await runDailyAction({
+      _intent: "execute-promotion",
+      providerKey: "tcgdex",
+      unitKey: "tcgdex:pokemon:card:import",
+      profileVersion: "2026.06.04",
+      promotionPreviewId: "preview-tcgdex_tcgdex_pokemon_card_import_none-124-124",
+    });
+
+    expect(previewBulkPromoteSourceObservations).not.toHaveBeenCalled();
+    expect(bulkPromoteSourceObservationsByScope).not.toHaveBeenCalled();
+    expect(result.feedback.status).toBe("error");
+    expect(result.feedback.result).toBe("preview-required");
+    expect(result.context.promotionPreviewId).toBeNull();
   });
 
   it("requires a rejection reason before enqueueing reject jobs", async () => {

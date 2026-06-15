@@ -2,6 +2,7 @@ import type { CatalogPrimaryWorkbenchCommandFeedback } from "../../../features/s
 import type { createCatalogRequestApiClient } from "../../../support/request-support/api-client";
 import {
   confirmsFreshPromotionPreview,
+  hasExplicitPromotionScope,
   integrationScopeFromContext,
   previewPromotionForContext,
   promotionPreviewIdFor,
@@ -99,6 +100,14 @@ export async function handleDailyCommand(input: {
       });
     }
     case "preview-promotion": {
+      if (selectedObservationIds.length === 0 && !hasExplicitPromotionScope(context)) {
+        return dailyResult(intent, "error", "command-failed", {
+          ...context,
+          selectedObservationIds,
+          promotionPreviewId: null,
+        });
+      }
+
       const preview = await previewPromotionForContext(api, context, selectedObservationIds);
 
       return dailyResult(intent, "success", "preview-ready", {
@@ -108,6 +117,13 @@ export async function handleDailyCommand(input: {
       });
     }
     case "execute-promotion": {
+      if (selectedObservationIds.length === 0 && !hasExplicitPromotionScope(context)) {
+        return dailyResult(intent, "error", "preview-required", {
+          ...context,
+          selectedObservationIds,
+          promotionPreviewId: null,
+        });
+      }
       if (!context.promotionPreviewId || !(await confirmsFreshPromotionPreview(api, context, selectedObservationIds))) {
         return dailyResult(intent, "error", "preview-required", {
           ...context,
