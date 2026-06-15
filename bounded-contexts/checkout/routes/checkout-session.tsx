@@ -17,6 +17,7 @@ import {
 } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
+import { createAuthRequestApiClient } from "@chase-sets/auth/server";
 import { subscribeRealtimePatches } from "@chase-sets/platform-runtime/realtime-web";
 import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
 import { CheckoutApiError, createCheckoutRequestApiClient } from "../support/request-support/api-client";
@@ -48,6 +49,11 @@ const FULFILLMENT_PREVIEW_UNAVAILABLE = t(
 const CHECKOUT_SESSION_FRESH_READ_TIMEOUT_MS = 2_000;
 const GUEST_SAVED_PAYMENT_UNAVAILABLE =
   "Saved payment methods are available after sign-in. Continue with card payment.";
+
+type GuestCheckoutContact = Readonly<{
+  contactEmail: string;
+  contactName: string | null;
+}>;
 
 async function loadWalletBalance(request: Request) {
   const response = await createForwardedAuthFetch(request, globalThis.fetch, { readTargetContextName: "settlement" })(
@@ -154,6 +160,36 @@ async function loadSavedShippingAddresses(
     items: readonly ShippingAddress[];
   }>(actor.accountId);
   return response.items;
+}
+
+async function loadGuestCheckoutContact(
+  request: Request,
+  actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>,
+): Promise<GuestCheckoutContact | null> {
+  if (!actor || actor.roleKey !== "guest-buyer") {
+    return null;
+  }
+
+  try {
+    const context = await createAuthRequestApiClient(request).getGuestCheckoutClaimContext<{
+      contactEmail?: string | null;
+      contactName?: string | null;
+    }>({});
+    const contactEmail = String(context.contactEmail ?? "")
+      .trim()
+      .toLowerCase();
+    if (!contactEmail) {
+      return null;
+    }
+
+    const contactName = String(context.contactName ?? "").trim();
+    return {
+      contactEmail,
+      contactName: contactName || null,
+    };
+  } catch {
+    return null;
+  }
 }
 
 async function resolveCheckoutShippingAddress(
@@ -392,6 +428,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const wallet = actor && actor.roleKey !== "guest-buyer" ? await loadWalletBalance(request) : null;
   const savedShippingAddresses = await loadSavedShippingAddresses(request, actor);
   const savedCheckoutInstruments = await loadSavedCheckoutInstruments(request, actor);
+  const guestCheckoutContact = await loadGuestCheckoutContact(request, actor);
   const { fulfillmentPreview, previewError } = await loadFulfillmentPreview(request, session);
   const searchParams = new URL(request.url).searchParams;
   const defaultSavedPaymentMethodCategory =
@@ -415,6 +452,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     selectedPaymentMethodCategory,
     savedShippingAddresses,
     savedCheckoutInstruments,
+    guestCheckoutContact,
     canManageShippingAddresses: Boolean(
       actor &&
       actor.roleKey !== "guest-buyer" &&
@@ -602,6 +640,7 @@ export default function CheckoutSessionRoute() {
       fulfillmentPreview={data.fulfillmentPreview}
       savedShippingAddresses={data.savedShippingAddresses}
       savedCheckoutInstruments={data.savedCheckoutInstruments}
+      guestCheckoutContact={data.guestCheckoutContact}
       canManageShippingAddresses={data.canManageShippingAddresses}
       canSavePaymentMethods={data.canSavePaymentMethods}
       isSignedInBuyer={data.isSignedInBuyer}

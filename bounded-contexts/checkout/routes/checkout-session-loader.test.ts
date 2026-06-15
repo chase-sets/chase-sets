@@ -14,6 +14,7 @@ import {
   mockCreatePaymentsRequestApiClient,
   mockCreateSettlementRequestApiClient,
   mockGetCheckoutSession,
+  mockGetGuestCheckoutClaimContext,
   MockMarketplaceApiError,
   mockPreviewCheckoutFulfillment,
   mockPreviewCheckoutStatus,
@@ -326,6 +327,84 @@ describe("checkout web routes: checkout session loader", () => {
       amount: "26.00",
       marketplace_checkout_fee: { total_amount: "27.10" },
       wallet_credit: { applied_amount: "0.00" },
+    });
+  });
+
+  it("loads Auth-owned guest checkout contact as checkout defaults", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(guestCheckoutActor());
+    mockGetCheckoutSession.mockResolvedValue({
+      session_id: "chk_1",
+      source_type: "buy-now",
+      payment_id: null,
+      submitted_offer_id: null,
+      shipping_option: "standard",
+      shipping_address: null,
+      optimization_goal: "lowest-total",
+      fulfillment_preview_revision: null,
+      order_ids: [],
+      lines: [
+        {
+          listingId: "lst_1",
+          cartLineId: null,
+          catalogItemId: "cat_1",
+          productId: "prd_1",
+          itemTitle: "Test card",
+          itemSubtitle: null,
+          selectedOptions: [],
+          productSummary: null,
+          quantity: 1,
+        },
+      ],
+    });
+    mockPreviewCheckoutFulfillment.mockResolvedValue({
+      revision: "rev_1",
+      readyLineKeys: ["lst_1"],
+      unavailableLineKeys: [],
+      unavailableLines: [],
+      materialChangeReasons: [],
+      sellerGroups: [],
+      totals: {
+        itemSubtotalAmount: "20.00",
+        shippingAmount: "4.00",
+        salesTaxAmount: "2.00",
+        totalAmount: "26.00",
+        packageCount: 1,
+      },
+    });
+    mockPreviewCheckoutStatus.mockResolvedValue({
+      amount: "26.00",
+      marketplace_checkout_fee: { total_amount: "27.10" },
+      wallet_credit: { applied_amount: "0.00" },
+    });
+    mockGetGuestCheckoutClaimContext.mockResolvedValue({
+      contactName: "Jane Smith",
+      contactEmail: " Jane@Example.com ",
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCheckoutSession: mockGetCheckoutSession,
+    });
+    mockCreateOrderingRequestApiClient.mockReturnValue({
+      previewCheckoutFulfillment: mockPreviewCheckoutFulfillment,
+    });
+    mockCreatePaymentsRequestApiClient.mockReturnValue({
+      previewCheckoutStatus: mockPreviewCheckoutStatus,
+    });
+    mockCreateAuthRequestApiClient.mockReturnValue({
+      getGuestCheckoutClaimContext: mockGetGuestCheckoutClaimContext,
+    });
+
+    const result = await checkoutSessionLoader({
+      request: new Request("http://localhost/checkout/buy/session/chk_1", {
+        headers: { cookie: "chase_sets_guest_checkout=guest_token" },
+      }),
+      params: { sessionId: "chk_1" },
+      context: undefined,
+    } as never);
+
+    expect(mockGetGuestCheckoutClaimContext).toHaveBeenCalledWith({});
+    expect(result.guestCheckoutContact).toEqual({
+      contactName: "Jane Smith",
+      contactEmail: "jane@example.com",
     });
   });
 
