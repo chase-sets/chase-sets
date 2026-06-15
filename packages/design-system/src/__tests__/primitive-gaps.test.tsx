@@ -456,7 +456,7 @@ describe("QuantityStepper primitive", () => {
     await user.click(screen.getByRole("button", { name: "Remove one" }));
 
     // At min — callback is either not called, or called with the clamped min value (not below it)
-    const calls = onValueChange.mock.calls.map((c: [number | null]) => c[0]);
+    const calls = onValueChange.mock.calls.map((c) => c[0]);
     expect(calls.every((v: number | null) => v === null || v >= 1)).toBe(true);
   });
 
