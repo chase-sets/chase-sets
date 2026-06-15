@@ -2,6 +2,7 @@ import { coerceLocalizedTextMap, t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { DisplayTemplateId } from "../../../ids";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
+import { commandSnapshotResponse } from "../../../support/authoring-support/api-command-response";
 import { CatalogDomainError } from "../../../support/runtime-support/common";
 import type { DisplayTemplateTarget } from "../domain/domain";
 import type { DisplayTemplateServices } from "./runtime";
@@ -29,7 +30,7 @@ export function displayTemplateRoutes(services: DisplayTemplateServices) {
       context: c.get("context"),
     });
 
-    return c.json({ id: displayTemplateId, version: result.version, status: result.state.status }, 201);
+    return c.json(commandSnapshotResponse(displayTemplateId, result), 201);
   });
 
   app.put("/:id", async (c) => {
@@ -51,7 +52,7 @@ export function displayTemplateRoutes(services: DisplayTemplateServices) {
       context: c.get("context"),
     });
 
-    return c.json({ id: displayTemplateId, version: result.version, status: result.state.status });
+    return c.json(commandSnapshotResponse(displayTemplateId, result));
   });
 
   app.post("/:id/publish", async (c) => {
@@ -62,7 +63,7 @@ export function displayTemplateRoutes(services: DisplayTemplateServices) {
       context: c.get("context"),
     });
 
-    return c.json({ id: displayTemplateId, version: result.version, status: result.state.status });
+    return c.json(commandSnapshotResponse(displayTemplateId, result));
   });
 
   app.post("/:id/deprecate", async (c) => {
@@ -73,7 +74,7 @@ export function displayTemplateRoutes(services: DisplayTemplateServices) {
       context: c.get("context"),
     });
 
-    return c.json({ id: displayTemplateId, version: result.version, status: result.state.status });
+    return c.json(commandSnapshotResponse(displayTemplateId, result));
   });
 
   app.post("/:id/archive", async (c) => {
@@ -84,7 +85,7 @@ export function displayTemplateRoutes(services: DisplayTemplateServices) {
       context: c.get("context"),
     });
 
-    return c.json({ id: displayTemplateId, version: result.version, status: result.state.status });
+    return c.json(commandSnapshotResponse(displayTemplateId, result));
   });
 
   app.get("/", async (c) => {

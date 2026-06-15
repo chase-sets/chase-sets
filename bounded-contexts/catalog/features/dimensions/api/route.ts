@@ -2,6 +2,7 @@ import { coerceLocalizedTextMap, t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { DimensionServices } from "./runtime";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
+import { commandSnapshotResponse } from "../../../support/authoring-support/api-command-response";
 import type { CatalogAuthoringBulkJobServices } from "../../../support/authoring-support/bulk-authoring-jobs";
 import type { DimensionId, OptionId } from "../../../ids";
 import { normalizeBulkSelection, toOptionalString } from "../../../support/runtime-support/bulk-lifecycle";
@@ -27,7 +28,7 @@ export function dimensionRoutes(services: DimensionServices, authoringBulkJobs: 
       context,
     });
 
-    return c.json({ id: dimensionId, version: result.version, status: result.state.status }, 201);
+    return c.json(commandSnapshotResponse(dimensionId, result), 201);
   });
 
   app.post("/bulk-lifecycle/preview", async (c) => {
@@ -70,7 +71,7 @@ export function dimensionRoutes(services: DimensionServices, authoringBulkJobs: 
       context,
     });
 
-    return c.json({ id: dimensionId, version: result.version, status: result.state.status });
+    return c.json(commandSnapshotResponse(dimensionId, result));
   });
 
   app.post("/:id/options", async (c) => {
@@ -90,7 +91,7 @@ export function dimensionRoutes(services: DimensionServices, authoringBulkJobs: 
       context,
     });
 
-    return c.json({ id: dimensionId, version: result.version, status: result.state.status }, 201);
+    return c.json(commandSnapshotResponse(dimensionId, result), 201);
   });
 
   app.put("/:id/options/:optionId", async (c) => {
@@ -110,7 +111,7 @@ export function dimensionRoutes(services: DimensionServices, authoringBulkJobs: 
       context,
     });
 
-    return c.json({ id: dimensionId, version: result.version, status: result.state.status });
+    return c.json(commandSnapshotResponse(dimensionId, result));
   });
 
   app.put("/:id/options/order", async (c) => {
@@ -127,7 +128,7 @@ export function dimensionRoutes(services: DimensionServices, authoringBulkJobs: 
       context,
     });
 
-    return c.json({ id: dimensionId, version: result.version, status: result.state.status });
+    return c.json(commandSnapshotResponse(dimensionId, result));
   });
 
   app.post("/:id/options/:optionId/deprecate", async (c) => {
@@ -143,7 +144,7 @@ export function dimensionRoutes(services: DimensionServices, authoringBulkJobs: 
       context,
     });
 
-    return c.json({ id: dimensionId, version: result.version, status: result.state.status });
+    return c.json(commandSnapshotResponse(dimensionId, result));
   });
 
   app.post("/:id/options/:optionId/reactivate", async (c) => {
@@ -159,7 +160,7 @@ export function dimensionRoutes(services: DimensionServices, authoringBulkJobs: 
       context,
     });
 
-    return c.json({ id: dimensionId, version: result.version, status: result.state.status });
+    return c.json(commandSnapshotResponse(dimensionId, result));
   });
 
   app.post("/:id/activate", async (c) => {
@@ -172,7 +173,7 @@ export function dimensionRoutes(services: DimensionServices, authoringBulkJobs: 
       context,
     });
 
-    return c.json({ id: dimensionId, version: result.version, status: result.state.status });
+    return c.json(commandSnapshotResponse(dimensionId, result));
   });
 
   app.post("/:id/deprecate", async (c) => {
@@ -185,7 +186,7 @@ export function dimensionRoutes(services: DimensionServices, authoringBulkJobs: 
       context,
     });
 
-    return c.json({ id: dimensionId, version: result.version, status: result.state.status });
+    return c.json(commandSnapshotResponse(dimensionId, result));
   });
 
   app.post("/:id/archive", async (c) => {
@@ -198,7 +199,7 @@ export function dimensionRoutes(services: DimensionServices, authoringBulkJobs: 
       context,
     });
 
-    return c.json({ id: dimensionId, version: result.version, status: result.state.status });
+    return c.json(commandSnapshotResponse(dimensionId, result));
   });
 
   app.get("/", async (c) => {
