@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { redirect } from "react-router";
+import { appendFreshWriteToken } from "@chase-sets/http/responses";
 import type { DiscoveryItemDetail } from "../../client-support/contracts";
 import {
   createMarketplaceRequestApiClient,
@@ -211,8 +212,11 @@ export async function saveGuestSelectedOfferToSellList(
 ) {
   const offer = getPublicSelectedOfferForSellList(item, offerId);
   const anonymousSellListId = ensureAnonymousSellListId(request);
-  await checkoutApi.addGuestSellListLine(anonymousSellListId, selectedOfferSellListLineFromPublicOffer(item, offer));
-  const response = redirect("/account/sell-list");
+  const result = await checkoutApi.addGuestSellListLine(
+    anonymousSellListId,
+    selectedOfferSellListLineFromPublicOffer(item, offer),
+  );
+  const response = redirect(appendFreshWriteToken("/account/sell-list", result));
   appendAnonymousSellListCookie(response.headers, anonymousSellListId);
   return response;
 }

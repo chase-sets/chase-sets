@@ -87,9 +87,11 @@ export async function action({ request, params }: ActionFunctionArgs) {
         request,
         permission: "accounts.view",
       });
-      await discoveryApi.createProductAlert(body);
+      const result = await discoveryApi.createProductAlert(body);
 
-      return redirect(`/items/${item.slug || item.catalog_item_id}?productAlertCreated=1`);
+      return redirect(
+        appendFreshWriteToken(`/items/${item.slug || item.catalog_item_id}?productAlertCreated=1`, result),
+      );
     }
 
     if (intent === "submit-offer") {
@@ -147,22 +149,24 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
       if (!canUseAccountCheckoutCart(actor)) {
         const anonymousCartId = ensureAnonymousCartId(request);
-        await checkoutApi.addGuestCartLine(anonymousCartId, cartLine);
+        const result = await checkoutApi.addGuestCartLine(anonymousCartId, cartLine);
         const response = Response.json({
           status: "added-to-cart",
           itemTitle: item.title,
           quantity: cartLine.quantity,
+          cartLine: checkoutCommandSnapshot(result),
         } satisfies AddToCartActionData);
         appendAnonymousCartCookie(response.headers, anonymousCartId);
         return response;
       }
 
-      await checkoutApi.addCartLine(cartLine);
+      const result = await checkoutApi.addCartLine(cartLine);
 
       return Response.json({
         status: "added-to-cart",
         itemTitle: item.title,
         quantity: cartLine.quantity,
+        cartLine: checkoutCommandSnapshot(result),
       } satisfies AddToCartActionData);
     }
 
@@ -241,10 +245,10 @@ export async function action({ request, params }: ActionFunctionArgs) {
       });
 
       await getFreshOfferMatchForAction(marketplaceApi, item, offerId);
-      await marketplaceApi.acceptOfferMatch(offerId, {
+      const result = await marketplaceApi.acceptOfferMatch(offerId, {
         feeQuoteFingerprint: String(formData.get("feeQuoteFingerprint") ?? ""),
       });
-      return redirect("/account/sales");
+      return redirect(appendFreshWriteToken("/account/sales", result));
     }
 
     if (intent === "add-to-sell-list") {
@@ -264,7 +268,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
       const offer = await getFreshOfferMatchForAction(marketplaceApi, item, offerId);
 
-      await checkoutApi.addSellListLine({
+      const result = await checkoutApi.addSellListLine({
         lineType: "selected-offer",
         offerId,
         buyerAccountId: offer.buyer_account_id,
@@ -278,7 +282,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
         productSummary: offer.product_summary,
         quantity: offer.quantity_requested,
       });
-      return redirect("/account/sell-list");
+      return redirect(appendFreshWriteToken("/account/sell-list", result));
     }
 
     if (intent === "add-product-to-sell-list") {
@@ -305,14 +309,14 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
       if (!canUseAccountSellList(actor)) {
         const anonymousSellListId = ensureAnonymousSellListId(request);
-        await checkoutApi.addGuestSellListLine(anonymousSellListId, sellListLine);
-        const response = redirect("/account/sell-list");
+        const result = await checkoutApi.addGuestSellListLine(anonymousSellListId, sellListLine);
+        const response = redirect(appendFreshWriteToken("/account/sell-list", result));
         appendAnonymousSellListCookie(response.headers, anonymousSellListId);
         return response;
       }
 
-      await checkoutApi.addSellListLine(sellListLine);
-      return redirect("/account/sell-list");
+      const result = await checkoutApi.addSellListLine(sellListLine);
+      return redirect(appendFreshWriteToken("/account/sell-list", result));
     }
 
     if (intent === "create-listing-stock-location") {
@@ -327,14 +331,14 @@ export async function action({ request, params }: ActionFunctionArgs) {
         throw new Error(t("discovery.routes.itemDetail.ship.from.setup.required"));
       }
 
-      await inventoryApi.createStorageLocation({
+      const result = await inventoryApi.createStorageLocation({
         name: LISTING_STOCK_LOCATION_NAME,
         description: LISTING_STOCK_LOCATION_DESCRIPTION,
         shipFromCode: LISTING_STOCK_SHIP_FROM_CODE,
         shipFromAddress,
       });
 
-      return redirect(`/items/${item.slug || item.catalog_item_id}?market=sell`);
+      return redirect(appendFreshWriteToken(`/items/${item.slug || item.catalog_item_id}?market=sell`, result));
     }
 
     if (intent === "list-at-price") {
@@ -356,11 +360,11 @@ export async function action({ request, params }: ActionFunctionArgs) {
           priceAmount,
           feeQuoteFingerprint: quote.fee_quote_fingerprint,
         });
-        await marketplaceApi.updateListingQuantityCap(listingId, {
+        const result = await marketplaceApi.updateListingQuantityCap(listingId, {
           quantityCap,
           feeQuoteFingerprint: quote.fee_quote_fingerprint,
         });
-        return redirect(`/items/${item.slug || params.id}`);
+        return redirect(appendFreshWriteToken(`/items/${item.slug || params.id}`, result));
       }
 
       const inventoryItemId = String(formData.get("inventoryItemId") ?? "").trim();
@@ -408,14 +412,15 @@ export async function action({ request, params }: ActionFunctionArgs) {
             ).snapshot,
           };
       const result = (await marketplaceApi.createListing(listingBody)) as { id?: string; feeQuoteFingerprint?: string };
+      let latestResult: unknown = result;
 
       if (result.id) {
-        await marketplaceApi.publishListing(result.id, {
+        latestResult = await marketplaceApi.publishListing(result.id, {
           feeQuoteFingerprint: result.feeQuoteFingerprint,
         });
       }
 
-      return redirect(`/items/${item.slug || params.id}`);
+      return redirect(appendFreshWriteToken(`/items/${item.slug || params.id}`, latestResult));
     }
 
     return null;
@@ -428,4 +433,12 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
     throw error;
   }
+}
+
+function checkoutCommandSnapshot(result: Readonly<{ id: string; version: number; status: string }>) {
+  return {
+    id: result.id,
+    version: result.version,
+    status: result.status,
+  };
 }

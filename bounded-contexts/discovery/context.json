@@ -360,11 +360,131 @@
         "reviewBy": "2026-07-31",
         "reason": "The post-write destination is Checkout-owned and tracked by Checkout freshness entries; Discovery does not read its own just-written projection here.",
         "helperUses": ["appendFreshWriteToken"],
-        "files": ["bounded-contexts/discovery/support/route-support/item-detail/action.ts"]
+        "files": [
+          "bounded-contexts/discovery/support/route-support/item-detail/action.ts",
+          "bounded-contexts/discovery/support/route-support/item-detail/action-helpers.ts"
+        ]
       }
     }
   ],
   "mutationConsistencyInventory": [
+    {
+      "id": "discovery.google-shopping-operations-job-snapshots",
+      "owner": "discovery",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-client:bounded-contexts/discovery/features/google-shopping-operations/api/request-client.ts:POST H88a613a07a7a#1",
+        "api-client:bounded-contexts/discovery/features/google-shopping-operations/api/request-client.ts:POST H9c358db09b96#1",
+        "api-client:bounded-contexts/discovery/features/google-shopping-operations/api/request-client.ts:POST Hf60c4a72555f#1",
+        "api-route:bounded-contexts/discovery/features/google-shopping-operations/api/route.ts:POST /diagnostics/refresh-jobs",
+        "api-route:bounded-contexts/discovery/features/google-shopping-operations/api/route.ts:POST /maintenance/sync-jobs",
+        "api-route:bounded-contexts/discovery/features/google-shopping-operations/api/route.ts:POST /sync-jobs",
+        "post-form:bounded-contexts/discovery/features/google-shopping-operations/ui/google-shopping-operations-page.tsx:Hb08a81ecfd73#1",
+        "post-form:bounded-contexts/discovery/features/google-shopping-operations/ui/google-shopping-operations-page.tsx:Hb08a81ecfd73#2",
+        "post-form:bounded-contexts/discovery/features/google-shopping-operations/ui/google-shopping-operations-page.tsx:Hb08a81ecfd73#3",
+        "route-action:bounded-contexts/discovery/routes/admin/google-shopping.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "google-shopping",
+        "description": "Google Shopping operator writes return durable job or maintenance summary snapshots. The admin route redirects with job ids or maintenance totals from the command response and the page renders those notices while progress is corrected by the durable job event stream."
+      },
+      "proof": {
+        "authoritativeResponse": "The sync, maintenance, and diagnostics POST handlers return toGoogleShoppingFullSyncJobStatus snapshots or an exact maintenance summary directly from the command that queued the work; no operator success notice depends on a projected feed-row reload.",
+        "tests": [
+          "bounded-contexts/discovery/tests/google-shopping-sync.test.ts",
+          "bounded-contexts/discovery/features/google-shopping-operations/ui/google-shopping-operations-page.test.tsx"
+        ]
+      }
+    },
+    {
+      "id": "discovery.product-alert-command-snapshots",
+      "owner": "discovery",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-client:bounded-contexts/discovery/client.ts:POST H1ae1909c0cb4#1",
+        "api-client:bounded-contexts/discovery/client.ts:POST H92ef7dabd567#1",
+        "api-route:bounded-contexts/discovery/features/product-alerts/api/route.ts:POST /product-alert-intents",
+        "api-route:bounded-contexts/discovery/features/product-alerts/api/route.ts:POST /product-alert-intents/:id/claim",
+        "api-route:bounded-contexts/discovery/features/product-alerts/api/route.ts:POST /product-alerts",
+        "api-route:bounded-contexts/discovery/features/product-alerts/api/route.ts:POST /product-alerts/:id/delete",
+        "api-route:bounded-contexts/discovery/features/product-alerts/api/route.ts:POST /product-alerts/:id/pause",
+        "api-route:bounded-contexts/discovery/features/product-alerts/api/route.ts:POST /product-alerts/:id/resume",
+        "post-form:bounded-contexts/discovery/features/item-detail/ui/commerce/buy-sections.tsx:H7fc0fad212ad#1",
+        "route-action:bounded-contexts/discovery/routes/account-product-alerts.tsx"
+      ],
+      "visibleDestination": {
+        "routeIds": ["item-detail", "account-product-alerts"],
+        "description": "Product Alert APIs return command-owned alert or anonymous-intent snapshots. Item detail and account Product Alert actions redirect with either the committed snapshot, a claim intent id, or bounded recovery copy rather than reading a just-written projection."
+      },
+      "proof": {
+        "authoritativeResponse": "Product Alert create, claim, pause, resume, and delete responses include the committed id/version/status or anonymous-intent snapshot from the Discovery command; item-detail tests cover guest save, signed-in claim, and recovery paths.",
+        "tests": [
+          "bounded-contexts/discovery/features/product-alerts/api/route.test.ts",
+          "bounded-contexts/discovery/tests/item-detail-buy-now-validation.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "discovery.search-bulk-cart-snapshot-correction",
+      "owner": "discovery",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": ["route-action:bounded-contexts/discovery/routes/search.tsx"],
+      "visibleDestination": {
+        "routeId": "search",
+        "description": "Search bulk add stays on the browse page and renders Checkout command-owned bulk counts. Client-side request keys suppress stale bulk snapshots when the visible Result Set changes before the POST resolves."
+      },
+      "proof": {
+        "authoritativeResponse": "The route action returns the Discovery preview plus Checkout addCartLines/addGuestCartLines counts from the command response.",
+        "correction": "The Search route records the active Result Set key and bulk request id, applies only the latest matching response, and ignores older snapshots after navigation or filter changes.",
+        "tests": ["bounded-contexts/discovery/routes/search-route.test.tsx"]
+      }
+    },
+    {
+      "id": "discovery.item-detail-command-receipt-handoffs",
+      "owner": "discovery",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "post-form:bounded-contexts/discovery/features/item-detail/ui/commerce/purchase-section.tsx:H7fc0fad212ad#1",
+        "post-form:bounded-contexts/discovery/features/item-detail/ui/commerce/buy-sections.tsx:H7fc0fad212ad#2",
+        "post-form:bounded-contexts/discovery/features/item-detail/ui/commerce/listing-submission-section.tsx:H7fc0fad212ad#1",
+        "post-form:bounded-contexts/discovery/features/item-detail/ui/commerce/listing-submission-section.tsx:H7fc0fad212ad#2",
+        "post-form:bounded-contexts/discovery/features/item-detail/ui/commerce/sell-sections.tsx:H7fc0fad212ad#1",
+        "post-form:bounded-contexts/discovery/features/item-detail/ui/commerce/sell-sections.tsx:H7fc0fad212ad#2",
+        "route-action:bounded-contexts/discovery/support/route-support/item-detail/action.ts"
+      ],
+      "visibleDestination": {
+        "routeIds": ["item-detail", "buy-checkout-session", "account-sell-list", "account-sales"],
+        "description": "Item-detail writes that navigate to Checkout, Sell List, Sales, or back to Item Detail preserve the command owner's receipt in afterWrite when the destination is projection-backed; guest checkout readiness carries the command payload in the redirect query instead of relying on a Discovery projection."
+      },
+      "proof": {
+        "authoritativeResponse": "The Discovery action consumes Checkout, Marketplace, Inventory, or Discovery command snapshots in the same request and carries their receipt into redirects. The destination owners govern the actual fresh-read waits for Checkout, Sell List, Sales, and Inventory pages.",
+        "tests": [
+          "bounded-contexts/discovery/tests/item-detail-buy-now-checkout.test.ts",
+          "bounded-contexts/discovery/tests/item-detail-buy-now-validation.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "discovery.item-detail-add-to-cart-snapshot",
+      "owner": "discovery",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "fetcher-submit:bounded-contexts/discovery/features/item-detail/ui/commerce/purchase-section.tsx:Hd8587c34fa67#1"
+      ],
+      "visibleDestination": {
+        "routeId": "item-detail",
+        "description": "The item-detail add-to-cart fetcher remains on the Detail Page and returns the committed Checkout cart-line id, version, status, item title, and quantity so the cart count and success notice do not depend on a stale cart projection."
+      },
+      "proof": {
+        "authoritativeResponse": "The Discovery route action copies the Checkout addCartLine/addGuestCartLine command snapshot into the fetcher JSON response and the UI reconciles the visible success state from that response.",
+        "tests": ["bounded-contexts/discovery/tests/item-detail-buy-now-checkout.test.ts"]
+      }
+    },
     {
       "id": "discovery.item-detail-rail-analytics-capture",
       "owner": "discovery",
