@@ -151,6 +151,144 @@
       }
     }
   ],
+  "mutationConsistencyInventory": [
+    {
+      "id": "payments.payment-command-snapshots",
+      "owner": "payments",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/payments/features/payments/api/route.ts:POST /checkout/recover",
+        "api-route:bounded-contexts/payments/features/payments/api/route.ts:POST /payments"
+      ],
+      "visibleDestination": {
+        "description": "Payment creation and recovery API calls return the Payments-owned payment detail snapshot and command receipt used by browser routes to continue into payment detail."
+      },
+      "proof": {
+        "authoritativeResponse": "The Payments runtime builds the returned payment detail from the same command path that creates the processor payment session; the platform API attaches the Payments commit receipt headers to the response.",
+        "tests": [
+          "bounded-contexts/payments/features/payments/api/route.test.ts",
+          "bounded-contexts/payments/tests/account-payment-new-route.test.tsx",
+          "bounded-contexts/payments/tests/guest-payment-claim-action.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "payments.create-to-detail-fresh-read",
+      "owner": "payments",
+      "risk": "critical",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "post-form:bounded-contexts/payments/routes/marketplace/account-payment-new.tsx:H2a1272bf8c6b#1",
+        "route-action:bounded-contexts/payments/routes/marketplace/account-payment-new.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "account-payment",
+        "apiContextName": "payments",
+        "apiRoutePath": "/account/payments/:id",
+        "readModelTables": ["payments_payment_pages"],
+        "transientRecovery": "Payment creation redirects carry the Payments command receipt as afterWrite; payment detail waits on payments_payment_pages and renders preparing-payment recovery while the receipt is fresh."
+      },
+      "proof": {
+        "tests": [
+          "bounded-contexts/payments/tests/account-payment-new-route.test.tsx",
+          "bounded-contexts/payments/tests/guest-payment-claim-action.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "payments.detail-retry-fresh-read",
+      "owner": "payments",
+      "risk": "critical",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "post-form:bounded-contexts/payments/features/payments/ui/account-payment/account-payment-page.tsx:Hb08a81ecfd73#1",
+        "route-action:bounded-contexts/payments/routes/marketplace/account-payment.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "account-payment",
+        "apiContextName": "payments",
+        "apiRoutePath": "/account/payments/:id",
+        "readModelTables": ["payments_payment_pages"],
+        "transientRecovery": "Guest payment retry redirects carry the recovered Payments command receipt as afterWrite; payment detail waits on payments_payment_pages and keeps fresh 404 or projection timeout as temporary recovery."
+      },
+      "proof": {
+        "tests": ["bounded-contexts/payments/tests/guest-payment-claim-action.test.ts"]
+      }
+    },
+    {
+      "id": "payments.guest-claim-command-snapshots",
+      "owner": "payments",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "post-form:bounded-contexts/payments/routes/marketplace/account-payment.tsx:H02130cc2df9a#1",
+        "post-form:bounded-contexts/payments/routes/marketplace/account-payment.tsx:Hb08a81ecfd73#1",
+        "post-form:bounded-contexts/payments/routes/marketplace/account-payment.tsx:Hb08a81ecfd73#2"
+      ],
+      "visibleDestination": {
+        "description": "Guest claim forms on the payment detail page return Auth-owned inline token/session snapshots or browser-auth redirects; they do not mutate Payments state or rely on realtime payment correction."
+      },
+      "proof": {
+        "authoritativeResponse": "The route action reads the current payment before claim commands, then returns the Auth command result directly as action data or a browser authentication response without re-reading a Payments projection.",
+        "tests": ["bounded-contexts/payments/tests/guest-payment-claim-action.test.ts"]
+      }
+    },
+    {
+      "id": "payments.method-api-snapshots",
+      "owner": "payments",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/payments/features/payments/api/route.ts:POST /payment-methods/:instrumentId/default",
+        "api-route:bounded-contexts/payments/features/payments/api/route.ts:POST /payment-methods/:instrumentId/remove",
+        "api-route:bounded-contexts/payments/features/payments/api/route.ts:POST /payment-methods/reconcile",
+        "api-route:bounded-contexts/payments/features/payments/api/route.ts:POST /payment-methods/setup-sessions",
+        "api-route:bounded-contexts/payments/features/payments/api/route.ts:POST /payment-methods/setup-sessions/:processorSetupReference/reconcile"
+      ],
+      "visibleDestination": {
+        "description": "Saved payment setup, default, removal, and reconciliation responses return sanitized Payments-owned setup or saved-method snapshots directly from command-owned storage."
+      },
+      "proof": {
+        "authoritativeResponse": "The API serializes only user-visible setup and saved-method fields from Payments-owned rows after the provider/setup command completes; reconcile also returns the authoritative saved-method list snapshot.",
+        "tests": ["bounded-contexts/payments/features/payments/api/route.test.ts"]
+      }
+    },
+    {
+      "id": "payments.method-route-snapshots",
+      "owner": "payments",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "post-form:bounded-contexts/payments/routes/marketplace/account-payment-methods.tsx:Hb08a81ecfd73#1",
+        "post-form:bounded-contexts/payments/routes/marketplace/account-payment-methods.tsx:Hb08a81ecfd73#2",
+        "post-form:bounded-contexts/payments/routes/marketplace/account-payment-methods.tsx:Hb08a81ecfd73#3",
+        "post-form:bounded-contexts/payments/routes/marketplace/account-payment-methods.tsx:Hb08a81ecfd73#4",
+        "post-form:bounded-contexts/payments/routes/marketplace/account-payment-methods.tsx:Hb08a81ecfd73#5",
+        "route-action:bounded-contexts/payments/routes/marketplace/account-payment-methods.tsx"
+      ],
+      "visibleDestination": {
+        "description": "The saved payment methods route renders action-returned Payments snapshots for default, remove, setup reconciliation, and reconcile results instead of depending on realtime or a stale loader after mutation."
+      },
+      "proof": {
+        "authoritativeResponse": "The route action returns the sanitized saved-method list from Payments immediately after the mutation, and the component prefers that action snapshot over stale loader data.",
+        "tests": ["bounded-contexts/payments/tests/account-payment-methods-route.test.tsx"]
+      }
+    },
+    {
+      "id": "payments.provider-webhook-internal",
+      "owner": "payments",
+      "risk": "internal",
+      "strategy": "non-user-visible",
+      "surfaces": ["api-route:bounded-contexts/payments/features/payments/api/route.ts:POST /webhooks"],
+      "exception": {
+        "owner": "payments",
+        "reason": "As of 2026-06-15 this is a provider-to-server webhook endpoint with no browser-visible destination; account payment and method pages read through their own GET/fresh-read or setup reconciliation paths.",
+        "reviewBy": "2026-09-30",
+        "issue": "#1828"
+      }
+    }
+  ],
   "deployableContributions": [
     {
       "deployable": "marketplace-web",

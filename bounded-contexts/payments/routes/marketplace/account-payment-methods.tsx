@@ -23,6 +23,13 @@ import {
 } from "@chase-sets/design-system";
 import { createPaymentsRequestApiClient, PaymentsApiError } from "../../support/request-support/api-client";
 
+type PaymentsRequestApiClient = ReturnType<typeof createPaymentsRequestApiClient>;
+type PaymentMethodSnapshot = Awaited<ReturnType<PaymentsRequestApiClient["listPaymentMethods"]>>["items"][number];
+type PaymentMethodsActionData = Readonly<{
+  error?: string;
+  paymentMethods?: readonly PaymentMethodSnapshot[];
+}>;
+
 function paymentMethodCategoryLabel(value: string) {
   return value === "bank-account"
     ? t("payments.routes.marketplace.accountPaymentMethods.bank.account")
@@ -61,7 +68,11 @@ export async function loader({ request }: LoaderFunctionArgs) {
   };
 }
 
-export async function action({ request }: ActionFunctionArgs) {
+async function loadPaymentMethodSnapshot(paymentsApi: PaymentsRequestApiClient) {
+  return (await paymentsApi.listPaymentMethods()).items;
+}
+
+export async function action({ request }: ActionFunctionArgs): Promise<PaymentMethodsActionData> {
   await requireActorFromAuthApi({ request });
   const formData = await request.formData();
   const intent = String(formData.get("intent") ?? "");
@@ -79,15 +90,15 @@ export async function action({ request }: ActionFunctionArgs) {
     }
     if (intent === "default") {
       await paymentsApi.setDefaultPaymentMethod(String(formData.get("instrumentId") ?? ""));
-      return redirect("/account/payment-methods");
+      return { paymentMethods: await loadPaymentMethodSnapshot(paymentsApi) };
     }
     if (intent === "remove") {
       await paymentsApi.removePaymentMethod(String(formData.get("instrumentId") ?? ""));
-      return redirect("/account/payment-methods");
+      return { paymentMethods: await loadPaymentMethodSnapshot(paymentsApi) };
     }
     if (intent === "reconcile") {
-      await paymentsApi.reconcilePaymentMethods();
-      return redirect("/account/payment-methods");
+      const result = await paymentsApi.reconcilePaymentMethods();
+      return { paymentMethods: result.items };
     }
   } catch (error) {
     if (error instanceof Response) {
@@ -110,7 +121,11 @@ export const meta: MetaFunction = () =>
 export default function AccountPaymentMethodsRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
-  const activeMethods = data.paymentMethods.filter((method) => method.readiness !== "removed");
+  const paymentMethods =
+    actionData && "paymentMethods" in actionData && actionData.paymentMethods
+      ? actionData.paymentMethods
+      : data.paymentMethods;
+  const activeMethods = paymentMethods.filter((method) => method.readiness !== "removed");
 
   return (
     <Page>
@@ -169,7 +184,7 @@ export default function AccountPaymentMethodsRoute() {
           />
         ) : (
           <AutoGrid minItemWidth="md" gap={4}>
-            {data.paymentMethods.map((method) => (
+            {paymentMethods.map((method) => (
               <Surface key={method.instrument_id} elevated>
                 <Stack gap={3}>
                   <Inline gap={2} align="center">

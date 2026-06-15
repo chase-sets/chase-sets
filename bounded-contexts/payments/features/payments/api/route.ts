@@ -107,6 +107,48 @@ function canStorePaymentMethod(actor: NonNullable<PaymentsApiEnv["Variables"]["a
   return !actor.permissions.includes("guest-checkout.manage");
 }
 
+type SavedCheckoutInstrumentForApi = Awaited<ReturnType<PaymentServices["listSavedCheckoutInstruments"]>>[number];
+type SavedCheckoutSetupSessionForApi = Awaited<ReturnType<PaymentServices["createSavedCheckoutSetupSession"]>>;
+
+function savedCheckoutSetupSessionSnapshot(setup: SavedCheckoutSetupSessionForApi) {
+  return {
+    setup_reference_id: setup.setup_reference_id,
+    processor_setup_reference: setup.processor_setup_reference,
+    processor_client_secret: setup.processor_client_secret,
+    processor_redirect_url: setup.processor_redirect_url,
+    processor_status: setup.processor_status,
+  };
+}
+
+function savedCheckoutInstrumentSnapshot(
+  instrument: SavedCheckoutInstrumentForApi,
+  options: Readonly<{ includeManagementFields?: boolean }> = {},
+) {
+  const snapshot = {
+    instrument_id: instrument.instrument_id,
+    account_id: instrument.account_id,
+    payment_method_category: instrument.payment_method_category,
+    provider: instrument.provider,
+    display_label: instrument.display_label,
+    confirmation_experience: instrument.confirmation_experience,
+    readiness: instrument.readiness,
+    is_default: instrument.is_default,
+    created_at: instrument.created_at,
+    updated_at: instrument.updated_at,
+  };
+
+  if (!options.includeManagementFields) {
+    return snapshot;
+  }
+
+  return {
+    ...snapshot,
+    allow_redisplay: instrument.allow_redisplay,
+    consent_id: instrument.consent_id,
+    removed_at: instrument.removed_at,
+  };
+}
+
 export function createAccountPaymentRoutes(services: PaymentServices) {
   const app = new Hono<PaymentsApiEnv>();
 
@@ -256,18 +298,7 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
             Boolean(instrument.provider_customer_reference?.trim()) &&
             Boolean(instrument.provider_reference?.trim()),
         )
-        .map((instrument) => ({
-          instrument_id: instrument.instrument_id,
-          account_id: instrument.account_id,
-          payment_method_category: instrument.payment_method_category,
-          provider: instrument.provider,
-          display_label: instrument.display_label,
-          confirmation_experience: instrument.confirmation_experience,
-          readiness: instrument.readiness,
-          is_default: instrument.is_default,
-          created_at: instrument.created_at,
-          updated_at: instrument.updated_at,
-        })),
+        .map((instrument) => savedCheckoutInstrumentSnapshot(instrument)),
     });
   });
 
@@ -279,21 +310,9 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
 
     const instruments = await services.listSavedCheckoutInstruments(access.actor.accountId as AccountId);
     return c.json({
-      items: instruments.map((instrument) => ({
-        instrument_id: instrument.instrument_id,
-        account_id: instrument.account_id,
-        payment_method_category: instrument.payment_method_category,
-        provider: instrument.provider,
-        display_label: instrument.display_label,
-        confirmation_experience: instrument.confirmation_experience,
-        readiness: instrument.readiness,
-        allow_redisplay: instrument.allow_redisplay,
-        is_default: instrument.is_default,
-        consent_id: instrument.consent_id,
-        removed_at: instrument.removed_at,
-        created_at: instrument.created_at,
-        updated_at: instrument.updated_at,
-      })),
+      items: instruments.map((instrument) =>
+        savedCheckoutInstrumentSnapshot(instrument, { includeManagementFields: true }),
+      ),
     });
   });
 
@@ -312,7 +331,7 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
             ? "/account/payment-methods"
             : String(body.returnUrlPath),
       });
-      return c.json(setup, 201);
+      return c.json(savedCheckoutSetupSessionSnapshot(setup), 201);
     } catch (error) {
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
@@ -328,7 +347,9 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
         accountId: access.actor.accountId as AccountId,
         setupReference: c.req.param("processorSetupReference"),
       });
-      return c.json({ instrument });
+      return c.json({
+        instrument: instrument ? savedCheckoutInstrumentSnapshot(instrument, { includeManagementFields: true }) : null,
+      });
     } catch (error) {
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
@@ -354,7 +375,7 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
         404,
       );
     }
-    return c.json(instrument);
+    return c.json(savedCheckoutInstrumentSnapshot(instrument, { includeManagementFields: true }));
   });
 
   app.post("/payment-methods/:instrumentId/remove", async (c) => {
@@ -377,7 +398,7 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
         404,
       );
     }
-    return c.json(instrument);
+    return c.json(savedCheckoutInstrumentSnapshot(instrument, { includeManagementFields: true }));
   });
 
   app.post("/payment-methods/reconcile", async (c) => {
@@ -385,11 +406,17 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
     if (access.response) {
       return access.response;
     }
-    return c.json(
-      await services.reconcileSavedCheckoutInstruments({
-        accountId: access.actor.accountId as AccountId,
-      }),
-    );
+    const accountId = access.actor.accountId as AccountId;
+    const result = await services.reconcileSavedCheckoutInstruments({
+      accountId,
+    });
+    const instruments = await services.listSavedCheckoutInstruments(accountId);
+    return c.json({
+      ...result,
+      items: instruments.map((instrument) =>
+        savedCheckoutInstrumentSnapshot(instrument, { includeManagementFields: true }),
+      ),
+    });
   });
 
   app.get("/marketplace-checkout-fee-policy", async (c) => {

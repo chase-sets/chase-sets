@@ -457,6 +457,233 @@ describe("payments routes", () => {
     expect(services.listSavedCheckoutInstruments).toHaveBeenCalledWith("acc_buyer");
   });
 
+  it("creates saved payment setup sessions as sanitized command snapshots", async () => {
+    const services = createServices();
+    const app = buildAccountApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_1",
+        accountId: "acc_buyer",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["orders.view", "orders.manage"],
+      },
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://payments.test/account/payment-methods/setup-sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ returnUrlPath: "/account/payment-methods" }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    const body = await response.json();
+    expect(body).toEqual({
+      setup_reference_id: "scs_1",
+      processor_setup_reference: "cs_setup_1",
+      processor_client_secret: "cs_setup_1_secret",
+      processor_redirect_url: "https://checkout.stripe.test/setup/cs_setup_1",
+      processor_status: "open",
+    });
+    expect(JSON.stringify(body)).not.toContain("provider_customer_reference");
+    expect(JSON.stringify(body)).not.toContain("consent_text");
+  });
+
+  it("returns setup reconciliation as a sanitized saved-method snapshot", async () => {
+    const services = createServices();
+    vi.mocked(services.reconcileSavedCheckoutSetupSession).mockResolvedValueOnce({
+      instrument_id: "sci_card_1",
+      account_id: "acc_buyer",
+      payment_method_category: "card",
+      provider: "stripe",
+      provider_customer_reference: "cus_buyer",
+      provider_reference: "pm_1",
+      display_label: "Visa ending in 4242",
+      confirmation_experience: "off-session-token",
+      readiness: "ready",
+      allow_redisplay: "always",
+      consent_id: "consent_1",
+      consent_text: "Save for future checkout.",
+      removed_at: null,
+      is_default: true,
+      created_at: "2026-04-01T00:00:00.000Z",
+      updated_at: "2026-04-01T00:00:00.000Z",
+    } as never);
+    const app = buildAccountApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_1",
+        accountId: "acc_buyer",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["orders.view", "orders.manage"],
+      },
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://payments.test/account/payment-methods/setup-sessions/cs_setup_1/reconcile", {
+        method: "POST",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body).toEqual({
+      instrument: {
+        instrument_id: "sci_card_1",
+        account_id: "acc_buyer",
+        payment_method_category: "card",
+        provider: "stripe",
+        display_label: "Visa ending in 4242",
+        confirmation_experience: "off-session-token",
+        readiness: "ready",
+        allow_redisplay: "always",
+        is_default: true,
+        consent_id: "consent_1",
+        removed_at: null,
+        created_at: "2026-04-01T00:00:00.000Z",
+        updated_at: "2026-04-01T00:00:00.000Z",
+      },
+    });
+    expect(JSON.stringify(body)).not.toContain("provider_reference");
+    expect(JSON.stringify(body)).not.toContain("provider_customer_reference");
+  });
+
+  it("returns saved payment method default and removal snapshots without provider credentials", async () => {
+    const services = createServices();
+    const updatedInstrument = {
+      instrument_id: "sci_card_1",
+      account_id: "acc_buyer",
+      payment_method_category: "card",
+      provider: "stripe",
+      provider_customer_reference: "cus_buyer",
+      provider_reference: "pm_1",
+      display_label: "Visa ending in 4242",
+      confirmation_experience: "off-session-token",
+      readiness: "ready",
+      allow_redisplay: "always",
+      consent_id: "consent_1",
+      consent_text: "Save for future checkout.",
+      removed_at: null,
+      is_default: true,
+      created_at: "2026-04-01T00:00:00.000Z",
+      updated_at: "2026-04-01T00:00:00.000Z",
+    };
+    vi.mocked(services.setSavedCheckoutInstrumentDefault).mockResolvedValueOnce(updatedInstrument as never);
+    vi.mocked(services.removeSavedCheckoutInstrument).mockResolvedValueOnce({
+      ...updatedInstrument,
+      readiness: "removed",
+      removed_at: "2026-04-02T00:00:00.000Z",
+      updated_at: "2026-04-02T00:00:00.000Z",
+    } as never);
+    const app = buildAccountApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_1",
+        accountId: "acc_buyer",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["orders.view", "orders.manage"],
+      },
+      services,
+    });
+
+    const defaultResponse = await app.fetch(
+      new Request("http://payments.test/account/payment-methods/sci_card_1/default", { method: "POST" }),
+    );
+    const removeResponse = await app.fetch(
+      new Request("http://payments.test/account/payment-methods/sci_card_1/remove", { method: "POST" }),
+    );
+
+    expect(defaultResponse.status).toBe(200);
+    expect(removeResponse.status).toBe(200);
+    const defaultBody = await defaultResponse.json();
+    const removeBody = await removeResponse.json();
+    expect(defaultBody).toMatchObject({
+      instrument_id: "sci_card_1",
+      is_default: true,
+      readiness: "ready",
+    });
+    expect(removeBody).toMatchObject({
+      instrument_id: "sci_card_1",
+      readiness: "removed",
+      removed_at: "2026-04-02T00:00:00.000Z",
+    });
+    expect(JSON.stringify({ defaultBody, removeBody })).not.toContain("provider_reference");
+    expect(JSON.stringify({ defaultBody, removeBody })).not.toContain("provider_customer_reference");
+  });
+
+  it("returns payment method reconciliation with the authoritative list snapshot", async () => {
+    const services = createServices();
+    vi.mocked(services.listSavedCheckoutInstruments).mockResolvedValueOnce([
+      {
+        instrument_id: "sci_card_1",
+        account_id: "acc_buyer",
+        payment_method_category: "card",
+        provider: "stripe",
+        provider_customer_reference: "cus_buyer",
+        provider_reference: "pm_1",
+        display_label: "Visa ending in 4242",
+        confirmation_experience: "off-session-token",
+        readiness: "removed",
+        allow_redisplay: "always",
+        consent_id: "consent_1",
+        consent_text: "Save for future checkout.",
+        removed_at: "2026-04-02T00:00:00.000Z",
+        is_default: false,
+        created_at: "2026-04-01T00:00:00.000Z",
+        updated_at: "2026-04-02T00:00:00.000Z",
+      } as never,
+    ]);
+    const app = buildAccountApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_1",
+        accountId: "acc_buyer",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["orders.view", "orders.manage"],
+      },
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://payments.test/account/payment-methods/reconcile", { method: "POST" }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      checked: 1,
+      updated: 1,
+      removed: 0,
+      items: [
+        {
+          instrument_id: "sci_card_1",
+          account_id: "acc_buyer",
+          payment_method_category: "card",
+          provider: "stripe",
+          display_label: "Visa ending in 4242",
+          confirmation_experience: "off-session-token",
+          readiness: "removed",
+          allow_redisplay: "always",
+          is_default: false,
+          consent_id: "consent_1",
+          removed_at: "2026-04-02T00:00:00.000Z",
+          created_at: "2026-04-01T00:00:00.000Z",
+          updated_at: "2026-04-02T00:00:00.000Z",
+        },
+      ],
+    });
+  });
+
   it("rejects account payment creation without order permissions", async () => {
     const app = buildAccountApp({
       actor: {
