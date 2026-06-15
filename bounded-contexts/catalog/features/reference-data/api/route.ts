@@ -2,6 +2,7 @@ import { coerceLocalizedTextMap, t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { ReferenceDataServices } from "./runtime";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
+import { commandSnapshotResponse } from "../../../support/authoring-support/api-command-response";
 import type { CatalogAuthoringBulkJobServices } from "../../../support/authoring-support/bulk-authoring-jobs";
 import type { ReferenceRecordId, ReferenceTypeId } from "../../../ids";
 import { normalizeBulkSelection, toOptionalString } from "../../../support/runtime-support/bulk-lifecycle";
@@ -30,7 +31,7 @@ export function referenceDataRoutes(
       context,
     });
 
-    return c.json({ id: referenceTypeId, version: result.version, status: result.state.status }, 201);
+    return c.json(commandSnapshotResponse(referenceTypeId, result), 201);
   });
 
   app.post("/reference-types/bulk-lifecycle/preview", async (c) => {
@@ -73,7 +74,7 @@ export function referenceDataRoutes(
       context,
     });
 
-    return c.json({ id: referenceTypeId, version: result.version, status: result.state.status });
+    return c.json(commandSnapshotResponse(referenceTypeId, result));
   });
 
   app.post("/reference-types/:id/publish", async (c) => {
@@ -86,7 +87,7 @@ export function referenceDataRoutes(
       context,
     });
 
-    return c.json({ id: referenceTypeId, version: result.version, status: result.state.status });
+    return c.json(commandSnapshotResponse(referenceTypeId, result));
   });
 
   app.post("/reference-types/:id/deprecate", async (c) => {
@@ -99,7 +100,7 @@ export function referenceDataRoutes(
       context,
     });
 
-    return c.json({ id: referenceTypeId, version: result.version, status: result.state.status });
+    return c.json(commandSnapshotResponse(referenceTypeId, result));
   });
 
   app.post("/reference-types/:id/archive", async (c) => {
@@ -112,7 +113,7 @@ export function referenceDataRoutes(
       context,
     });
 
-    return c.json({ id: referenceTypeId, version: result.version, status: result.state.status });
+    return c.json(commandSnapshotResponse(referenceTypeId, result));
   });
 
   app.get("/reference-types", async (c) => {
@@ -166,7 +167,7 @@ export function referenceDataRoutes(
       context,
     });
 
-    return c.json({ id: referenceRecordId, version: result.version, status: result.state.status }, 201);
+    return c.json(commandSnapshotResponse(referenceRecordId, result), 201);
   });
 
   app.post("/reference-records/bulk-lifecycle/preview", async (c) => {
@@ -211,7 +212,7 @@ export function referenceDataRoutes(
       context,
     });
 
-    return c.json({ id: referenceRecordId, version: result.version, status: result.state.status });
+    return c.json(commandSnapshotResponse(referenceRecordId, result));
   });
 
   app.post("/reference-records/:id/publish", async (c) => {
@@ -224,7 +225,7 @@ export function referenceDataRoutes(
       context,
     });
 
-    return c.json({ id: referenceRecordId, version: result.version, status: result.state.status });
+    return c.json(commandSnapshotResponse(referenceRecordId, result));
   });
 
   app.post("/reference-records/:id/deprecate", async (c) => {
@@ -237,7 +238,7 @@ export function referenceDataRoutes(
       context,
     });
 
-    return c.json({ id: referenceRecordId, version: result.version, status: result.state.status });
+    return c.json(commandSnapshotResponse(referenceRecordId, result));
   });
 
   app.post("/reference-records/:id/archive", async (c) => {
@@ -250,7 +251,7 @@ export function referenceDataRoutes(
       context,
     });
 
-    return c.json({ id: referenceRecordId, version: result.version, status: result.state.status });
+    return c.json(commandSnapshotResponse(referenceRecordId, result));
   });
 
   app.get("/reference-records", async (c) => {

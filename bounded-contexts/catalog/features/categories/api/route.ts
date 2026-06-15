@@ -2,6 +2,7 @@ import { coerceLocalizedTextMap, t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { CategoryServices } from "./runtime";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
+import { commandSnapshotResponse } from "../../../support/authoring-support/api-command-response";
 import type { CatalogAuthoringBulkJobServices } from "../../../support/authoring-support/bulk-authoring-jobs";
 import type { CategoryId } from "../../../ids";
 import { normalizeBulkSelection, toOptionalString } from "../../../support/runtime-support/bulk-lifecycle";
@@ -28,7 +29,7 @@ export function categoryRoutes(services: CategoryServices, authoringBulkJobs: Ca
       context,
     });
 
-    return c.json({ id: categoryId, version: result.version, status: result.state.status }, 201);
+    return c.json(commandSnapshotResponse(categoryId, result), 201);
   });
 
   app.post("/bulk-lifecycle/preview", async (c) => {
@@ -72,7 +73,7 @@ export function categoryRoutes(services: CategoryServices, authoringBulkJobs: Ca
       context,
     });
 
-    return c.json({ id: categoryId, version: result.version, status: result.state.status });
+    return c.json(commandSnapshotResponse(categoryId, result));
   });
 
   app.post("/:id/publish", async (c) => {
@@ -85,7 +86,7 @@ export function categoryRoutes(services: CategoryServices, authoringBulkJobs: Ca
       context,
     });
 
-    return c.json({ id: categoryId, version: result.version, status: result.state.status });
+    return c.json(commandSnapshotResponse(categoryId, result));
   });
 
   app.post("/:id/deprecate", async (c) => {
@@ -98,7 +99,7 @@ export function categoryRoutes(services: CategoryServices, authoringBulkJobs: Ca
       context,
     });
 
-    return c.json({ id: categoryId, version: result.version, status: result.state.status });
+    return c.json(commandSnapshotResponse(categoryId, result));
   });
 
   app.post("/:id/archive", async (c) => {
@@ -111,7 +112,7 @@ export function categoryRoutes(services: CategoryServices, authoringBulkJobs: Ca
       context,
     });
 
-    return c.json({ id: categoryId, version: result.version, status: result.state.status });
+    return c.json(commandSnapshotResponse(categoryId, result));
   });
 
   app.get("/", async (c) => {

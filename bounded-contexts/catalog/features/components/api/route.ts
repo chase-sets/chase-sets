@@ -2,6 +2,7 @@ import { coerceLocalizedTextMap, t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { ComponentServices } from "./runtime";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
+import { commandSnapshotResponse } from "../../../support/authoring-support/api-command-response";
 import type { CatalogAuthoringBulkJobServices } from "../../../support/authoring-support/bulk-authoring-jobs";
 import type { ComponentId, FieldId, DimensionId, OptionId } from "../../../ids";
 import { normalizeBulkSelection, toOptionalString } from "../../../support/runtime-support/bulk-lifecycle";
@@ -26,7 +27,7 @@ export function componentRoutes(services: ComponentServices, authoringBulkJobs: 
       context,
     });
 
-    return c.json({ id: componentId, version: result.version, status: result.state.status }, 201);
+    return c.json(commandSnapshotResponse(componentId, result), 201);
   });
 
   app.post("/bulk-lifecycle/preview", async (c) => {
@@ -67,7 +68,7 @@ export function componentRoutes(services: ComponentServices, authoringBulkJobs: 
       context,
     });
 
-    return c.json({ id: componentId, version: result.version, status: result.state.status }, 201);
+    return c.json(commandSnapshotResponse(componentId, result), 201);
   });
 
   app.delete("/:id/field-rules/:fieldId", async (c) => {
@@ -83,7 +84,7 @@ export function componentRoutes(services: ComponentServices, authoringBulkJobs: 
       context,
     });
 
-    return c.json({ id: componentId, version: result.version, status: result.state.status });
+    return c.json(commandSnapshotResponse(componentId, result));
   });
 
   app.post("/:id/dimension-rules", async (c) => {
@@ -103,7 +104,7 @@ export function componentRoutes(services: ComponentServices, authoringBulkJobs: 
       context,
     });
 
-    return c.json({ id: componentId, version: result.version, status: result.state.status }, 201);
+    return c.json(commandSnapshotResponse(componentId, result), 201);
   });
 
   app.delete("/:id/dimension-rules/:dimensionId", async (c) => {
@@ -119,7 +120,7 @@ export function componentRoutes(services: ComponentServices, authoringBulkJobs: 
       context,
     });
 
-    return c.json({ id: componentId, version: result.version, status: result.state.status });
+    return c.json(commandSnapshotResponse(componentId, result));
   });
 
   app.put("/:id", async (c) => {
@@ -140,7 +141,7 @@ export function componentRoutes(services: ComponentServices, authoringBulkJobs: 
       context,
     });
 
-    return c.json({ id: componentId, version: result.version, status: result.state.status });
+    return c.json(commandSnapshotResponse(componentId, result));
   });
 
   app.post("/:id/activate", async (c) => {
@@ -153,7 +154,7 @@ export function componentRoutes(services: ComponentServices, authoringBulkJobs: 
       context,
     });
 
-    return c.json({ id: componentId, version: result.version, status: result.state.status });
+    return c.json(commandSnapshotResponse(componentId, result));
   });
 
   app.post("/:id/deprecate", async (c) => {
@@ -166,7 +167,7 @@ export function componentRoutes(services: ComponentServices, authoringBulkJobs: 
       context,
     });
 
-    return c.json({ id: componentId, version: result.version, status: result.state.status });
+    return c.json(commandSnapshotResponse(componentId, result));
   });
 
   app.post("/:id/archive", async (c) => {
@@ -179,7 +180,7 @@ export function componentRoutes(services: ComponentServices, authoringBulkJobs: 
       context,
     });
 
-    return c.json({ id: componentId, version: result.version, status: result.state.status });
+    return c.json(commandSnapshotResponse(componentId, result));
   });
 
   app.get("/", async (c) => {

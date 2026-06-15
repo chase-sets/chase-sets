@@ -2,6 +2,7 @@ import { coerceLocalizedTextMap, t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { FieldServices } from "./runtime";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
+import { commandSnapshotResponse } from "../../../support/authoring-support/api-command-response";
 import type { CatalogAuthoringBulkJobServices } from "../../../support/authoring-support/bulk-authoring-jobs";
 import type { FieldId } from "../../../ids";
 import { normalizeBulkSelection, toOptionalString } from "../../../support/runtime-support/bulk-lifecycle";
@@ -28,7 +29,7 @@ export function fieldRoutes(services: FieldServices, authoringBulkJobs: CatalogA
       context,
     });
 
-    return c.json({ id: fieldId, version: result.version, status: result.state.status }, 201);
+    return c.json(commandSnapshotResponse(fieldId, result), 201);
   });
 
   app.post("/bulk-lifecycle/preview", async (c) => {
@@ -72,7 +73,7 @@ export function fieldRoutes(services: FieldServices, authoringBulkJobs: CatalogA
       context,
     });
 
-    return c.json({ id: fieldId, version: result.version, status: result.state.status });
+    return c.json(commandSnapshotResponse(fieldId, result));
   });
 
   app.post("/:id/activate", async (c) => {
@@ -85,7 +86,7 @@ export function fieldRoutes(services: FieldServices, authoringBulkJobs: CatalogA
       context,
     });
 
-    return c.json({ id: fieldId, version: result.version, status: result.state.status });
+    return c.json(commandSnapshotResponse(fieldId, result));
   });
 
   app.post("/:id/deprecate", async (c) => {
@@ -98,7 +99,7 @@ export function fieldRoutes(services: FieldServices, authoringBulkJobs: CatalogA
       context,
     });
 
-    return c.json({ id: fieldId, version: result.version, status: result.state.status });
+    return c.json(commandSnapshotResponse(fieldId, result));
   });
 
   app.post("/:id/archive", async (c) => {
@@ -111,7 +112,7 @@ export function fieldRoutes(services: FieldServices, authoringBulkJobs: CatalogA
       context,
     });
 
-    return c.json({ id: fieldId, version: result.version, status: result.state.status });
+    return c.json(commandSnapshotResponse(fieldId, result));
   });
 
   app.get("/", async (c) => {
