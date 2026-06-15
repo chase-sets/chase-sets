@@ -25,11 +25,15 @@ function createApp(services: Partial<ResolutionServices>, permissions: readonly 
 describe("commercial terms resolution routes", () => {
   it("returns the calculated listing terms snapshot for preview", async () => {
     const previewListingTerms = vi.fn(async () => ({
-      scope: "listing",
       accountId: "acc_seller",
-      amount: "100.00",
-      marketplaceSalesFeeAmount: "5.00",
-      shippingAllowanceAmount: "7.50",
+      accountType: "business" as const,
+      basisAmount: "100.00",
+      marketplaceSalesFeeUnitAmount: "5.00",
+      sellerNetUnitAmount: "95.00",
+      shippingAllowancePercentageBps: 750,
+      scheduleId: "cts_business",
+      agreementId: null,
+      resolvedAt: "2026-05-01T00:00:00.000Z",
     }));
     const app = createApp({ previewListingTerms }, ["commercial-terms.view"]);
 
@@ -46,11 +50,15 @@ describe("commercial terms resolution routes", () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
-      scope: "listing",
       accountId: "acc_seller",
-      amount: "100.00",
-      marketplaceSalesFeeAmount: "5.00",
-      shippingAllowanceAmount: "7.50",
+      accountType: "business",
+      basisAmount: "100.00",
+      marketplaceSalesFeeUnitAmount: "5.00",
+      sellerNetUnitAmount: "95.00",
+      shippingAllowancePercentageBps: 750,
+      scheduleId: "cts_business",
+      agreementId: null,
+      resolvedAt: "2026-05-01T00:00:00.000Z",
     });
     expect(previewListingTerms).toHaveBeenCalledWith({
       accountId: "acc_seller",
