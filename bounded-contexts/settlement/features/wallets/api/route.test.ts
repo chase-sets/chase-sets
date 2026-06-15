@@ -61,7 +61,26 @@ describe("settlement wallet routes", () => {
   });
 
   it("posts refund debits to the requested seller account with a deterministic ledger entry", async () => {
-    const postEntry = vi.fn(async (_params: unknown) => ({ accountId: "acc_seller" as never, version: 2 }));
+    const postEntry = vi.fn(async (params: Record<string, unknown>) => ({
+      accountId: "acc_seller" as never,
+      version: 2,
+      entry: {
+        ledger_entry_id: params.ledgerEntryId,
+        account_id: params.accountId,
+        kind: params.kind,
+        direction: params.direction,
+        amount: params.amount,
+        currency_code: params.currencyCode,
+        funds_status: params.fundsStatus,
+        order_id: null,
+        payment_id: params.paymentId,
+        payout_id: null,
+        description: params.description,
+        posted_at: params.postedAt,
+        available_at: null,
+        updated_at: params.postedAt,
+      },
+    }));
     const app = createApp({ postEntry }, ["payouts.manage"]);
     const body = {
       accountId: "acc_seller",
@@ -83,6 +102,18 @@ describe("settlement wallet routes", () => {
     });
 
     expect(first.status).toBe(201);
+    await expect(first.json()).resolves.toMatchObject({
+      accountId: "acc_seller",
+      version: 2,
+      entry: {
+        account_id: "acc_seller",
+        kind: "refund",
+        direction: "debit",
+        amount: "4.00",
+        payment_id: "pay_1",
+        description: "Seller refund debit (Customer refund approved)",
+      },
+    });
     expect(second.status).toBe(201);
     expect(postEntry).toHaveBeenCalledTimes(2);
     expect(postEntry.mock.calls[0]?.[0]).toMatchObject({

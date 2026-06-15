@@ -32,6 +32,7 @@ import {
   normalizeCurrencyCode,
   normalizeMoneyAmount,
   SettlementDomainError,
+  type PayoutStatus,
 } from "../../../support/runtime-support/common";
 import { moneyStatusDetails } from "@chase-sets/http/money-status";
 import type { MoneyMovementGateway, MoneyMovementWebhookEvent } from "@chase-sets/money-movement";
@@ -129,6 +130,28 @@ export function toPayoutReconciliationJobStatus(job: PayoutReconciliationJob): P
   return toDurableJobPublicSnapshot(job);
 }
 
+export type PayoutCommandSnapshot = Readonly<{
+  payout_id: string;
+  account_id: string;
+  amount: string;
+  currency_code: string;
+  destination_reference: string | null;
+  note: string | null;
+  status: PayoutStatus;
+  provider_transfer_reference: string | null;
+  provider_payout_reference: string | null;
+  provider_status: string | null;
+  provider_failure_code: string | null;
+  provider_failure_message: string | null;
+  requested_at: string;
+  sent_at: string | null;
+  completed_at: string | null;
+  failed_at: string | null;
+  failure_reason: string | null;
+  updated_at: string;
+  version: number;
+}>;
+
 export type PayoutServices = Readonly<{
   commandHandler: CommandHandler<PayoutCommand, PayoutState, PayoutEvent>;
   listPayouts: (
@@ -204,7 +227,7 @@ export type PayoutServices = Readonly<{
       notificationEmail?: string | null;
     }>,
     context: EventStoreContext,
-  ) => Promise<{ payoutId: PayoutId; version: number }>;
+  ) => Promise<{ payoutId: PayoutId; version: number; payout: PayoutCommandSnapshot }>;
   markPayoutInTransit: (
     params: Readonly<{ payoutId: string; accountId: string; sentAt?: string }>,
     context: EventStoreContext,
@@ -224,7 +247,7 @@ export type PayoutServices = Readonly<{
       failedAt?: string;
     }>,
     context: EventStoreContext,
-  ) => Promise<{ payoutId: string; version: number }>;
+  ) => Promise<{ payoutId: string; version: number; payout: PayoutCommandSnapshot }>;
   processMoneyMovementWebhook: (
     params: Readonly<{ rawBody: string; signatureHeader: string | null }>,
     context: EventStoreContext,
@@ -297,6 +320,41 @@ function payoutReadinessIsStale(updatedAt: string | null) {
     return false;
   }
   return Date.now() - Date.parse(updatedAt) > 30 * 24 * 60 * 60 * 1000;
+}
+
+function requirePayoutSnapshot(state: PayoutState, version: number): PayoutCommandSnapshot {
+  if (
+    !state.payoutId ||
+    !state.accountId ||
+    !state.amount ||
+    !state.currencyCode ||
+    !state.status ||
+    !state.requestedAt
+  ) {
+    throw new SettlementDomainError("Payout command did not produce a committed payout snapshot.");
+  }
+
+  return {
+    payout_id: state.payoutId,
+    account_id: state.accountId,
+    amount: state.amount,
+    currency_code: state.currencyCode,
+    destination_reference: state.destinationReference,
+    note: state.note,
+    status: state.status,
+    provider_transfer_reference: state.providerTransferReference,
+    provider_payout_reference: state.providerPayoutReference,
+    provider_status: state.providerStatus,
+    provider_failure_code: state.providerFailureCode,
+    provider_failure_message: state.providerFailureMessage,
+    requested_at: state.requestedAt,
+    sent_at: state.sentAt,
+    completed_at: state.completedAt,
+    failed_at: state.failedAt,
+    failure_reason: state.failureReason,
+    updated_at: state.completedAt ?? state.failedAt ?? state.sentAt ?? state.requestedAt,
+    version,
+  };
 }
 
 function subtractMoney(left: string, right: string) {
@@ -431,6 +489,7 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
     return {
       payoutId: params.payoutId,
       version: result.version,
+      payout: requirePayoutSnapshot(result.state, result.version),
     };
   }
 
@@ -1001,6 +1060,11 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
         },
         context,
       });
+      let commandSnapshot = {
+        payoutId,
+        version: result.version,
+        payout: requirePayoutSnapshot(result.state, result.version),
+      };
 
       try {
         await deps.wallets.postEntry(
@@ -1115,7 +1179,7 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
           providerPayoutReference: providerPayout.providerPayoutReference,
         });
 
-        await commandHandler({
+        const inTransit = await commandHandler({
           streamId: `settlement.payout-${payoutId}`,
           command: {
             type: "MarkPayoutInTransit",
@@ -1126,14 +1190,21 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
           },
           context,
         });
+        commandSnapshot = {
+          payoutId,
+          version: inTransit.version,
+          payout: requirePayoutSnapshot(inTransit.state, inTransit.version),
+        };
       } catch (error) {
+        const providerFailureMessage = error instanceof Error ? error.message : "Provider payout submission failed.";
+        const safeFailureReason = "Payout account details need review.";
         await recordSettlementProviderOperationFailed(deps.db, {
           operationKey: `payout:${payoutId}:transfer`,
-          errorMessage: error instanceof Error ? error.message : "Provider payout submission failed.",
+          errorMessage: providerFailureMessage,
         });
         await recordSettlementProviderOperationFailed(deps.db, {
           operationKey: `payout:${payoutId}:payout`,
-          errorMessage: error instanceof Error ? error.message : "Provider payout submission failed.",
+          errorMessage: providerFailureMessage,
         });
         await recordOperation({
           kind: "payout-failed",
@@ -1141,26 +1212,28 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
           payoutId,
           amount,
           currencyCode,
-          reason: error instanceof Error ? error.message : "Provider payout submission failed.",
+          reason: providerFailureMessage,
         });
-        await failPayoutAndReverseWallet(
+        const failedSnapshot = await failPayoutAndReverseWallet(
           {
             payoutId,
             accountId: params.accountId,
-            failureReason: error instanceof Error ? error.message : "Provider payout submission failed.",
+            failureReason: safeFailureReason,
             providerStatus: "failed",
-            providerFailureMessage: error instanceof Error ? error.message : "Provider payout submission failed.",
+            providerFailureMessage,
             amount,
             currencyCode,
           },
           context,
         );
+        commandSnapshot = {
+          payoutId,
+          version: failedSnapshot.version,
+          payout: failedSnapshot.payout,
+        };
       }
 
-      return {
-        payoutId,
-        version: result.version,
-      };
+      return commandSnapshot;
     },
     async markPayoutInTransit(params, context) {
       await requireExistingPayout(deps.db, params.payoutId, params.accountId);

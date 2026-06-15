@@ -3,7 +3,7 @@ import { Hono } from "hono";
 import { createDurableJobEventStream } from "@chase-sets/platform-runtime/durable-job-events";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { SettlementApiEnv } from "../../../api";
-import { toPayoutReconciliationJobStatus, type PayoutServices } from "./runtime";
+import { toPayoutReconciliationJobStatus, type PayoutCommandSnapshot, type PayoutServices } from "./runtime";
 import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 
 function requirePayoutAccess(
@@ -51,6 +51,14 @@ function requirePayoutAccess(
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("settlement.features.payouts.api.route.request.failed");
+}
+
+function sellerPayoutSnapshot(payout: PayoutCommandSnapshot): PayoutCommandSnapshot {
+  return {
+    ...payout,
+    provider_failure_code: null,
+    provider_failure_message: null,
+  };
 }
 
 export function createPayoutRoutes(services: PayoutServices) {
@@ -331,7 +339,15 @@ export function createPayoutRoutes(services: PayoutServices) {
       };
       const result = await services.requestPayout(request, context);
 
-      return c.json({ id: result.payoutId, version: result.version, status: "requested" }, 201);
+      return c.json(
+        {
+          id: result.payoutId,
+          version: result.version,
+          status: result.payout.status,
+          payout: sellerPayoutSnapshot(result.payout),
+        },
+        201,
+      );
     } catch (error) {
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }

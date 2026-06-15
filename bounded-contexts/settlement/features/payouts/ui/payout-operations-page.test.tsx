@@ -25,6 +25,32 @@ function readiness(overrides: Partial<SettlementPayoutReadinessRow> = {}): Settl
 }
 
 describe("payout operations page setup signals", () => {
+  it("renders queued reconciliation job snapshots as in-progress correction state", () => {
+    const html = renderToStaticMarkup(
+      <SettlementPayoutOperationsPage
+        payouts={[]}
+        payoutReadiness={readiness()}
+        runResult={{
+          jobId: "job_reconcile",
+          status: "queued",
+          progress: {
+            phase: "queued",
+            completed: 0,
+            total: 3,
+            message: "Payout reconciliation queued.",
+          },
+          result: null,
+        }}
+        lastCheckedAt="2026-06-15T20:00:00.000Z"
+      />,
+    );
+
+    expect(html).toContain("queued");
+    expect(html).toContain("Payout reconciliation queued.");
+    expect(html).toContain("Checked");
+    expect(html).toContain("reconciled");
+  });
+
   it("renders support-safe payout setup health for operators", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-05T15:00:00.000Z"));

@@ -66,6 +66,7 @@ export type SettlementPayoutEmbeddedSession = Readonly<{
   providerReference: string;
   expiresAt: string | null;
   components: readonly ("payout-setup" | "payout-account-management")[];
+  readiness?: SettlementPayoutReadinessRow;
 }>;
 
 export class SettlementApiError extends Error {

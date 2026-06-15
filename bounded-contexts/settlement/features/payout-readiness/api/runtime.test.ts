@@ -107,6 +107,12 @@ describe("payout readiness runtime", () => {
       providerReference: "acct_123",
       expiresAt: "2026-06-01T15:00:00.000Z",
       components: ["payout-setup"],
+      readiness: expect.objectContaining({
+        account_id: "acc_seller",
+        status: "pending",
+        provider_reference: "acct_123",
+        missing_requirements: ["external_account"],
+      }),
     });
     expect(setupKeys).toHaveLength(1);
     expect(setupKeys[0]).toMatch(/^settlement:payout-account:acc_seller:embedded-setup:setup_/);

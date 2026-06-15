@@ -268,5 +268,160 @@
       "expectedConsumers": ["Generated deployable route adapters"]
     }
   },
+  "mutationConsistencyInventory": [
+    {
+      "id": "settlement.payout-readiness-api-session-snapshots",
+      "owner": "settlement",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/settlement/features/payout-readiness/api/route.ts:POST /payout-setup/account-management-embedded-session",
+        "api-route:bounded-contexts/settlement/features/payout-readiness/api/route.ts:POST /payout-setup/embedded-session",
+        "api-route:bounded-contexts/settlement/features/payout-readiness/api/route.ts:POST /payout-setup/refresh"
+      ],
+      "visibleDestination": {
+        "description": "Payout setup API mutations return the provider session or provider-neutral readiness snapshot produced by the Settlement command path, so setup pages do not need to trust a lagging payout-readiness projection for immediate status."
+      },
+      "proof": {
+        "authoritativeResponse": "createPayoutSetupSession returns the embedded session plus the readiness row created from provider readiness recorded by the command; refreshProviderReadiness returns the provider-neutral readiness row built from the same provider response and recorded timestamp; account-management sessions return the provider session needed by the embedded management component without a projection read.",
+        "tests": [
+          "bounded-contexts/settlement/features/payout-readiness/api/runtime.test.ts",
+          "bounded-contexts/settlement/features/payout-readiness/api/route.test.ts",
+          "bounded-contexts/settlement/features/payout-readiness/ui/payout-setup-page.test.tsx"
+        ]
+      }
+    },
+    {
+      "id": "settlement.payout-api-command-snapshots",
+      "owner": "settlement",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/settlement/features/payouts/api/route.ts:POST /payouts",
+        "api-route:bounded-contexts/settlement/features/payouts/api/route.ts:POST /payouts/preview",
+        "api-route:bounded-contexts/settlement/features/payouts/api/route.ts:POST /payouts/reconciliation/run"
+      ],
+      "visibleDestination": {
+        "description": "Payout request, preview, and reconciliation mutations return the command-owned payout status, preview, or durable job snapshot that the seller or operator sees immediately after the write."
+      },
+      "proof": {
+        "authoritativeResponse": "requestPayout now returns the final payout aggregate snapshot after provider submission or failure reversal, previewPayoutRequest returns the computed money-readiness preview, and enqueuePayoutReconciliationJob returns the durable job public snapshot used by the operations page.",
+        "tests": [
+          "bounded-contexts/settlement/features/payouts/api/runtime.test.ts",
+          "bounded-contexts/settlement/features/payouts/api/route.test.ts",
+          "bounded-contexts/settlement/features/payouts/ui/payout-operations-page.test.tsx",
+          "bounded-contexts/settlement/routes/marketplace/account-payout-operations-route.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "settlement.wallet-operator-ledger-entry-snapshots",
+      "owner": "settlement",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/settlement/features/wallets/api/route.ts:POST /wallet/adjustments",
+        "api-route:bounded-contexts/settlement/features/wallets/api/route.ts:POST /wallet/dispute-holds",
+        "api-route:bounded-contexts/settlement/features/wallets/api/route.ts:POST /wallet/dispute-releases",
+        "api-route:bounded-contexts/settlement/features/wallets/api/route.ts:POST /wallet/refund-debits"
+      ],
+      "visibleDestination": {
+        "description": "Operator wallet mutations return the committed ledger-entry snapshot, including deterministic ledger entry id, account, direction, amount, funds status, and audit description, without waiting for the wallet ledger read model."
+      },
+      "proof": {
+        "authoritativeResponse": "WalletServices.postEntry builds the response from the settlement.wallet.ledger-entry-posted event that was just committed, and duplicate idempotency-key retries return an explicit idempotent duplicate response instead of asking the operator to repeat the input.",
+        "tests": [
+          "bounded-contexts/settlement/features/wallets/api/route.test.ts",
+          "bounded-contexts/settlement/features/wallets/domain/domain.test.ts",
+          "bounded-contexts/settlement/features/wallets/read-model/queries.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "settlement.money-movement-webhook-provider-callback",
+      "owner": "settlement",
+      "risk": "internal",
+      "strategy": "non-user-visible",
+      "surfaces": ["api-route:bounded-contexts/settlement/features/payouts/api/route.ts:POST /money-movement/webhooks"],
+      "exception": {
+        "owner": "settlement",
+        "reviewBy": "2026-09-30",
+        "issue": "#1832",
+        "reason": "The money movement webhook route is mounted under the unauthenticated /api/settlement/provider callback surface, records provider events into Settlement commands/inbox rows, and returns only provider acknowledgement state. bounded-contexts/settlement/features/payouts/api/route.test.ts proves the route accepts raw provider callbacks without marketplace auth and returns received/ignored acknowledgements; bounded-contexts/settlement/features/payouts/api/runtime.test.ts proves duplicate provider failure webhooks do not create duplicate wallet reversals."
+      }
+    },
+    {
+      "id": "settlement.account-payouts-route-snapshot-correction",
+      "owner": "settlement",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "post-form:bounded-contexts/settlement/features/payout-readiness/ui/payout-readiness-panel.tsx:H2df726441e2a#1",
+        "post-form:bounded-contexts/settlement/features/payout-readiness/ui/payout-readiness-panel.tsx:H2df726441e2a#2",
+        "post-form:bounded-contexts/settlement/features/payout-readiness/ui/payout-readiness-panel.tsx:H2df726441e2a#3",
+        "post-form:bounded-contexts/settlement/features/payouts/ui/payout-list-page.tsx:H2df726441e2a#1",
+        "post-form:bounded-contexts/settlement/features/payouts/ui/payout-list-page.tsx:H2df726441e2a#2",
+        "post-form:bounded-contexts/settlement/features/payouts/ui/payout-list-page.tsx:H2df726441e2a#3",
+        "route-action:bounded-contexts/settlement/routes/marketplace/account-payouts.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "account-payouts",
+        "description": "The account payouts action returns payout preview, draft, or refreshed readiness snapshots for same-page controls; confirmed payout requests redirect with the original fresh-write receipt to payout detail recovery; start/manage setup intents are navigation-only and do not run a Settlement mutation."
+      },
+      "proof": {
+        "authoritativeResponse": "preview-payout returns the computed preview snapshot, edit-payout returns the submitted draft snapshot, refresh-payout-setup returns and renders the refreshed readiness snapshot, confirm-payout preserves the createPayout commit receipt via appendFreshWriteToken, and start/manage setup branches only redirect to setup routes.",
+        "tests": [
+          "bounded-contexts/settlement/routes/marketplace/account-payouts-route.test.ts",
+          "bounded-contexts/settlement/features/payouts/api/route.test.ts",
+          "bounded-contexts/settlement/features/payouts/ui/payout-detail-page.test.tsx",
+          "bounded-contexts/settlement/features/payout-readiness/ui/payout-readiness-panel.test.tsx"
+        ]
+      }
+    },
+    {
+      "id": "settlement.account-payout-setup-route-snapshot-correction",
+      "owner": "settlement",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "post-form:bounded-contexts/settlement/features/payout-readiness/ui/payout-setup-page.tsx:H2df726441e2a#1",
+        "route-action:bounded-contexts/settlement/routes/marketplace/account-payout-setup.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "account-payout-setup",
+        "description": "The payout setup page refresh form and provider-exit handler render the readiness snapshot returned by the refresh command before any loader revalidation can lag."
+      },
+      "proof": {
+        "authoritativeResponse": "account-payout-setup refresh returns payoutReadiness action data from refreshPayoutSetup, and provider exit stores the same API snapshot locally while triggering route revalidation as a secondary correction path.",
+        "tests": [
+          "bounded-contexts/settlement/routes/marketplace/account-payout-setup-route-action.test.ts",
+          "bounded-contexts/settlement/features/payout-readiness/ui/payout-setup-page.test.tsx",
+          "bounded-contexts/settlement/features/payout-readiness/api/runtime.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "settlement.account-payout-operations-job-snapshot",
+      "owner": "settlement",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "post-form:bounded-contexts/settlement/features/payouts/ui/payout-operations-page.tsx:H2df726441e2a#1",
+        "route-action:bounded-contexts/settlement/routes/marketplace/account-payout-operations.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "account-payout-operations",
+        "description": "The payout operations reconciliation form returns the durable reconciliation job snapshot and renders queued/running/completed progress instead of relying on the reconciliation list projection to update immediately."
+      },
+      "proof": {
+        "authoritativeResponse": "runPayoutReconciliation returns the durable job public snapshot from enqueuePayoutReconciliationJob, and the operations page renders job status/progress/result fields with an explicit queued state until worker convergence updates the durable job.",
+        "tests": [
+          "bounded-contexts/settlement/routes/marketplace/account-payout-operations-route.test.ts",
+          "bounded-contexts/settlement/features/payouts/api/route.test.ts",
+          "bounded-contexts/settlement/features/payouts/ui/payout-operations-page.test.tsx"
+        ]
+      }
+    }
+  ],
   "runtimeDeployables": ["platform-worker"]
 }

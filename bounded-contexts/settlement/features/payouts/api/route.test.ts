@@ -40,7 +40,28 @@ describe("settlement payout routes", () => {
   it("submits confirmed payout requests through the payout runtime", async () => {
     const requestPayout = vi.fn(async () => ({
       payoutId: "pyo_test",
-      version: 1,
+      version: 2,
+      payout: {
+        payout_id: "pyo_test",
+        account_id: "acc_seller",
+        amount: "12.50",
+        currency_code: "usd",
+        destination_reference: null,
+        note: "Weekly payout",
+        status: "in-transit",
+        provider_transfer_reference: "tr_test",
+        provider_payout_reference: "po_test",
+        provider_status: "pending",
+        provider_failure_code: null,
+        provider_failure_message: null,
+        requested_at: "2026-06-01T15:00:00.000Z",
+        sent_at: "2026-06-01T15:00:01.000Z",
+        completed_at: null,
+        failed_at: null,
+        failure_reason: null,
+        updated_at: "2026-06-01T15:00:01.000Z",
+        version: 2,
+      },
     }));
     const app = createAuthenticatedApp({ requestPayout }, ["payouts.request"]);
 
@@ -56,8 +77,13 @@ describe("settlement payout routes", () => {
     expect(response.status).toBe(201);
     await expect(response.json()).resolves.toEqual({
       id: "pyo_test",
-      version: 1,
-      status: "requested",
+      version: 2,
+      status: "in-transit",
+      payout: expect.objectContaining({
+        payout_id: "pyo_test",
+        status: "in-transit",
+        provider_payout_reference: "po_test",
+      }),
     });
     expect(requestPayout).toHaveBeenCalledWith(
       {
@@ -68,6 +94,52 @@ describe("settlement payout routes", () => {
       },
       context,
     );
+  });
+
+  it("returns a support-safe payout snapshot when provider submission fails", async () => {
+    const requestPayout = vi.fn(async () => ({
+      payoutId: "pyo_test",
+      version: 2,
+      payout: {
+        payout_id: "pyo_test",
+        account_id: "acc_seller",
+        amount: "12.50",
+        currency_code: "usd",
+        destination_reference: null,
+        note: null,
+        status: "failed",
+        provider_transfer_reference: "tr_test",
+        provider_payout_reference: null,
+        provider_status: "failed",
+        provider_failure_code: "bank_account_closed",
+        provider_failure_message: "Provider says the bank account is closed.",
+        requested_at: "2026-06-01T15:00:00.000Z",
+        sent_at: null,
+        completed_at: null,
+        failed_at: "2026-06-01T15:00:01.000Z",
+        failure_reason: "Payout account details need review.",
+        updated_at: "2026-06-01T15:00:01.000Z",
+        version: 2,
+      },
+    }));
+    const app = createAuthenticatedApp({ requestPayout }, ["payouts.request"]);
+
+    const response = await app.request("/payouts", {
+      method: "POST",
+      body: JSON.stringify({ amount: "12.50" }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toMatchObject({
+      status: "failed",
+      payout: {
+        status: "failed",
+        failure_reason: "Payout account details need review.",
+        provider_failure_code: null,
+        provider_failure_message: null,
+      },
+    });
   });
 
   it("requires payout request permission before requesting payouts", async () => {

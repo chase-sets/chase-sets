@@ -11,12 +11,23 @@ import {
 } from "../../support/request-support/api-client";
 import { SettlementPayoutOperationsPage } from "../../features/payouts/ui/payout-operations-page";
 
-type ReconciliationRunResult = Readonly<{
-  checked: number;
-  reconciled: number;
-  ignored: number;
-  skipped: number;
-  errors: readonly Readonly<{ payoutId: string; message: string }>[];
+type ReconciliationJobSnapshot = Readonly<{
+  jobId: string;
+  status: string;
+  progress: Readonly<{
+    phase: string;
+    completed: number;
+    total: number;
+    message: string | null;
+  }>;
+  result: Readonly<{
+    checked: number;
+    reconciled: number;
+    ignored: number;
+    skipped: number;
+    errors: readonly Readonly<{ payoutId: string; message: string }>[];
+  }> | null;
+  errorMessage?: string | null;
 }>;
 
 export async function loader({ request }: LoaderFunctionArgs) {
@@ -61,7 +72,7 @@ export const meta: MetaFunction = () =>
 
 export default function MarketplaceAccountPayoutOperationsRoute() {
   const data = useLoaderData<typeof loader>();
-  const actionData = useActionData() as ReconciliationRunResult | null;
+  const actionData = useActionData() as ReconciliationJobSnapshot | null;
 
   return (
     <SettlementPayoutOperationsPage

@@ -19,11 +19,13 @@ import {
   decideWallet,
   evolveWallet,
   initialWalletState,
+  type WalletLedgerEntryPostedEvent,
   type WalletCommand,
   type WalletEvent,
   type WalletState,
 } from "../domain/domain";
 import {
+  SettlementDomainError,
   normalizeCurrencyCode,
   normalizeLedgerEntryDirection,
   normalizeLedgerEntryFundsStatus,
@@ -39,6 +41,23 @@ type WalletRuntimeDeps = Readonly<{
   eventStore: EventStore;
   checkpointStore: ProjectionCheckpointStore;
   db: PgQueryable;
+}>;
+
+export type PostedLedgerEntrySnapshot = Readonly<{
+  ledger_entry_id: string;
+  account_id: string;
+  kind: string;
+  direction: string;
+  amount: string;
+  currency_code: string;
+  funds_status: string;
+  order_id: string | null;
+  payment_id: string | null;
+  payout_id: string | null;
+  description: string | null;
+  posted_at: string;
+  available_at: string | null;
+  updated_at: string;
 }>;
 
 export type WalletServices = Readonly<{
@@ -71,7 +90,7 @@ export type WalletServices = Readonly<{
       postedAt?: string;
     }>,
     context: EventStoreContext,
-  ) => Promise<{ accountId: AccountId; version: number }>;
+  ) => Promise<{ accountId: AccountId; version: number; entry: PostedLedgerEntrySnapshot }>;
   releasePendingEntry: (
     params: Readonly<{
       accountId: AccountId;
@@ -91,6 +110,25 @@ export type WalletServices = Readonly<{
   ) => Promise<{ released: number; skipped: number }>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
+
+function postedEntrySnapshot(event: WalletLedgerEntryPostedEvent): PostedLedgerEntrySnapshot {
+  return {
+    ledger_entry_id: event.data.ledgerEntryId,
+    account_id: event.data.accountId,
+    kind: event.data.kind,
+    direction: event.data.direction,
+    amount: event.data.amount,
+    currency_code: event.data.currencyCode,
+    funds_status: event.data.fundsStatus,
+    order_id: event.data.orderId,
+    payment_id: event.data.paymentId,
+    payout_id: event.data.payoutId,
+    description: event.data.description,
+    posted_at: event.data.postedAt,
+    available_at: null,
+    updated_at: event.data.postedAt,
+  };
+}
 
 export function createWalletRuntime(deps: WalletRuntimeDeps): WalletServices {
   const { commandHandler } = createAggregateCommandHandler({
@@ -159,10 +197,17 @@ export function createWalletRuntime(deps: WalletRuntimeDeps): WalletServices {
         },
         context,
       });
+      const entryEvent = result.newEvents.find(
+        (event): event is WalletLedgerEntryPostedEvent => event.type === "settlement.wallet.ledger-entry-posted",
+      );
+      if (!entryEvent) {
+        throw new SettlementDomainError("Wallet command did not produce a committed ledger entry snapshot.");
+      }
 
       return {
         accountId: params.accountId,
         version: result.version,
+        entry: postedEntrySnapshot(entryEvent),
       };
     },
     async releasePendingEntry(params, context) {

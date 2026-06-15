@@ -59,6 +59,7 @@ export type PayoutReadinessServices = Readonly<{
     providerReference: string;
     expiresAt: string | null;
     components: readonly ["payout-setup"];
+    readiness: SettlementPayoutReadinessRow;
   }>;
   createPayoutAccountManagementSession: (
     params: Readonly<{
@@ -309,6 +310,7 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
           idempotencyKey: `settlement:payout-account:${params.accountId}:embedded-setup:${createId("setup")}`,
         });
 
+        const sessionReadinessRecordedAt = new Date().toISOString();
         await recordProviderReadiness(
           {
             accountId: params.accountId,
@@ -323,6 +325,7 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
             lossesCollector: session.readiness.lossesCollector,
             feesCollector: session.readiness.feesCollector,
             requirementsCollector: session.readiness.requirementsCollector,
+            recordedAt: sessionReadinessRecordedAt,
           },
           context,
         );
@@ -339,6 +342,11 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
           providerReference: session.providerReference,
           expiresAt: session.expiresAt,
           components: session.components,
+          readiness: payoutReadinessRowFromProviderReadiness(
+            params.accountId,
+            session.readiness,
+            sessionReadinessRecordedAt,
+          ),
         };
       } catch (error) {
         await recordOperation({
