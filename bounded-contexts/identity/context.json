@@ -55,6 +55,167 @@
       }
     }
   ],
+  "mutationConsistencyInventory": [
+    {
+      "id": "identity.internal-auth-api-command-snapshots",
+      "owner": "identity",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-client:bounded-contexts/identity/server.ts:POST H7f09e43ec5bd#1",
+        "api-route:bounded-contexts/identity/api.ts:POST /internal/auth/guest-accounts",
+        "api-route:bounded-contexts/identity/api.ts:POST /internal/auth/guest-accounts/:id/claim",
+        "api-route:bounded-contexts/identity/api.ts:POST /internal/auth/invitations/:id/accept",
+        "api-route:bounded-contexts/identity/api.ts:POST /internal/auth/personal-identities",
+        "api-route:bounded-contexts/identity/api.ts:POST /internal/auth/users",
+        "api-route:bounded-contexts/identity/api.ts:POST /internal/auth/users/:id/passkey-credential",
+        "api-route:bounded-contexts/identity/api.ts:POST /internal/auth/users/:id/password-credential",
+        "api-route:bounded-contexts/identity/api.ts:POST /internal/auth/users/:id/sms-code",
+        "api-route:bounded-contexts/identity/api.ts:POST /internal/auth/users/:id/social-login-link"
+      ],
+      "visibleDestination": {
+        "description": "Internal Auth-facing Identity mutations return the committed User, Account, Membership, Invitation, Consent, or credential command snapshots in the same API response used by Auth registration, passkey, social-login, invitation, and guest-checkout flows; Auth can continue from those ids and versions without waiting on Identity projections."
+      },
+      "proof": {
+        "authoritativeResponse": "buildIdentityApi now returns a scoped snapshots array from the command handler results for internal Auth mutations, and createIdentityAuthRequestClient forwards those response snapshots instead of swallowing credential/link results.",
+        "tests": [
+          "bounded-contexts/identity/tests/api-mutation-snapshots.test.ts proves internal Auth mutation routes return committed aggregate snapshots with id, version, and status."
+        ]
+      }
+    },
+    {
+      "id": "identity.account-api-command-snapshots",
+      "owner": "identity",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/identity/features/accounts/api/route.ts:DELETE /:id/badges/:badgeKey",
+        "api-route:bounded-contexts/identity/features/accounts/api/route.ts:POST /",
+        "api-route:bounded-contexts/identity/features/accounts/api/route.ts:POST /:id/badges",
+        "api-route:bounded-contexts/identity/features/accounts/api/route.ts:POST /:id/close",
+        "api-route:bounded-contexts/identity/features/accounts/api/route.ts:POST /:id/reactivate",
+        "api-route:bounded-contexts/identity/features/accounts/api/route.ts:POST /:id/suspend",
+        "api-route:bounded-contexts/identity/features/accounts/api/route.ts:PUT /:id"
+      ],
+      "visibleDestination": {
+        "description": "Account management API writes return the command-owned account id, aggregate version, lifecycle status, and badge list when badges change, so admin and account flows have the committed Account snapshot before any projected list or detail reload catches up."
+      },
+      "proof": {
+        "authoritativeResponse": "accountRoutes builds every mutation response from services.accounts.commandHandler results and includes result.version plus result.state.status and badges where applicable.",
+        "tests": [
+          "bounded-contexts/identity/tests/api-mutation-snapshots.test.ts proves Account create, update, lifecycle, and badge writes return command result snapshots."
+        ]
+      }
+    },
+    {
+      "id": "identity.api-key-api-command-snapshots",
+      "owner": "identity",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/identity/api.ts:POST /api-keys",
+        "api-route:bounded-contexts/identity/api.ts:POST /api-keys/:id/rotate",
+        "api-route:bounded-contexts/identity/api.ts:POST /api-keys/resolve",
+        "api-route:bounded-contexts/identity/features/api-keys/api/route.ts:POST /:id/revoke"
+      ],
+      "visibleDestination": {
+        "description": "API-key creation, rotation, resolution, and revocation return command-local key ids, versions, statuses, secret prefixes, one-time secrets, or lookup results from the same Identity write request without depending on an API-key read-model refresh."
+      },
+      "proof": {
+        "authoritativeResponse": "API-key handlers return commandHandler result.version/result.state.status and the scoped secret or lookup fields produced or verified in the same request; resolve also returns the RecordApiKeyUse command version/status.",
+        "tests": [
+          "bounded-contexts/identity/tests/api-mutation-snapshots.test.ts proves API-key create, rotate, resolve, and revoke writes return committed secret, lookup, and status receipts."
+        ]
+      }
+    },
+    {
+      "id": "identity.invitation-api-command-snapshots",
+      "owner": "identity",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/identity/features/invitations/api/route.ts:POST /",
+        "api-route:bounded-contexts/identity/features/invitations/api/route.ts:POST /:id/cancel",
+        "api-route:bounded-contexts/identity/features/invitations/api/route.ts:POST /:id/decline",
+        "api-route:bounded-contexts/identity/features/invitations/api/route.ts:POST /:id/resend"
+      ],
+      "visibleDestination": {
+        "description": "Invitation API writes return the Invitation id, aggregate version, and lifecycle status from the command result, so team-management callers can show pending, cancelled, declined, or resent state without trusting a lagging invitation projection."
+      },
+      "proof": {
+        "authoritativeResponse": "invitationRoutes returns the command-owned id/version/status immediately after create, resend, cancel, or decline.",
+        "tests": [
+          "bounded-contexts/identity/tests/api-mutation-snapshots.test.ts proves Invitation create, resend, cancel, and decline write responses reflect command result versions and statuses."
+        ]
+      }
+    },
+    {
+      "id": "identity.membership-api-command-snapshots",
+      "owner": "identity",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/identity/features/memberships/api/route.ts:POST /",
+        "api-route:bounded-contexts/identity/features/memberships/api/route.ts:POST /:id/reinstate",
+        "api-route:bounded-contexts/identity/features/memberships/api/route.ts:POST /:id/revoke",
+        "api-route:bounded-contexts/identity/features/memberships/api/route.ts:PUT /:id/role"
+      ],
+      "visibleDestination": {
+        "description": "Membership grant, role-change, revoke, and reinstate responses return the Membership id, aggregate version, and status from the command result, avoiding a projection-backed membership detail read for the committed write result."
+      },
+      "proof": {
+        "authoritativeResponse": "membershipRoutes returns services.memberships.commandHandler result.version and result.state.status for each mutating route.",
+        "tests": [
+          "bounded-contexts/identity/tests/api-mutation-snapshots.test.ts proves Membership grant, role, revoke, and reinstate responses return command snapshots."
+        ]
+      }
+    },
+    {
+      "id": "identity.shipping-address-api-command-snapshots",
+      "owner": "identity",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/identity/features/shipping-addresses/api/route.ts:POST /",
+        "api-route:bounded-contexts/identity/features/shipping-addresses/api/route.ts:POST /:shippingAddressId/archive",
+        "api-route:bounded-contexts/identity/features/shipping-addresses/api/route.ts:POST /:shippingAddressId/default",
+        "api-route:bounded-contexts/identity/features/shipping-addresses/api/route.ts:PUT /:shippingAddressId"
+      ],
+      "visibleDestination": {
+        "description": "Shipping Address API writes return the affected Shipping Address id, aggregate version, and operation status directly from the command response; marketplace account address-book routes can use that receipt while same-route refresh handles non-projection account continuity."
+      },
+      "proof": {
+        "authoritativeResponse": "shippingAddressRoutes returns command result versions and scoped operation statuses for add, update, set default, and archive without reading the Shipping Address projection in the write response.",
+        "tests": [
+          "bounded-contexts/identity/tests/api-mutation-snapshots.test.ts proves Shipping Address writes return id/version/status receipts."
+        ]
+      }
+    },
+    {
+      "id": "identity.user-api-command-snapshots",
+      "owner": "identity",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/identity/features/users/api/route.ts:POST /",
+        "api-route:bounded-contexts/identity/features/users/api/route.ts:POST /:id/auth-methods",
+        "api-route:bounded-contexts/identity/features/users/api/route.ts:POST /:id/contact-methods",
+        "api-route:bounded-contexts/identity/features/users/api/route.ts:POST /:id/contact-methods/:contactMethodId/verify",
+        "api-route:bounded-contexts/identity/features/users/api/route.ts:POST /:id/reactivate",
+        "api-route:bounded-contexts/identity/features/users/api/route.ts:POST /:id/suspend",
+        "api-route:bounded-contexts/identity/features/users/api/route.ts:PUT /:id"
+      ],
+      "visibleDestination": {
+        "description": "User profile, contact-method, authentication-method, suspend, and reactivate API writes return the User id, aggregate version, and status from the command result, allowing admin or account security flows to render the committed User result without waiting on the user projection."
+      },
+      "proof": {
+        "authoritativeResponse": "userRoutes returns services.users.commandHandler result.version and result.state.status after every User mutation.",
+        "tests": [
+          "bounded-contexts/identity/tests/api-mutation-snapshots.test.ts proves User create, update, contact-method, auth-method, suspend, and reactivate responses return command snapshots."
+        ]
+      }
+    }
+  ],
   "deployableContributions": [
     {
       "deployable": "admin-web",

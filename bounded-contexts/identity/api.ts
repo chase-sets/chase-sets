@@ -56,6 +56,26 @@ export function normalizeAccountDisplayNameKey(displayName: string) {
   return displayName.trim().replace(/\s+/g, " ").toLocaleLowerCase("en-US");
 }
 
+type IdentityMutationSnapshot = Readonly<{
+  aggregate: "account" | "api-key" | "consent" | "invitation" | "membership" | "user";
+  id: string;
+  version: number;
+  status: string;
+}>;
+
+function mutationSnapshot(
+  aggregate: IdentityMutationSnapshot["aggregate"],
+  id: string,
+  result: Readonly<{ version: number; state: Readonly<{ status?: string }> }>,
+): IdentityMutationSnapshot {
+  return {
+    aggregate,
+    id,
+    version: result.version,
+    status: String(result.state.status ?? "committed"),
+  };
+}
+
 async function reservePersonalAccountDisplayName(
   services: IdentityServices,
   params: Readonly<{
@@ -122,13 +142,14 @@ async function createPersonalIdentityForAuth(
         verifiedAt: new Date().toISOString(),
       }
     : undefined;
+  const snapshots: IdentityMutationSnapshot[] = [];
 
   await reservePersonalAccountDisplayName(services, {
     accountId,
     displayName,
   });
 
-  await services.accounts.commandHandler({
+  const accountResult = await services.accounts.commandHandler({
     streamId: `identity.account-${accountId}`,
     command: {
       type: "CreateAccount",
@@ -139,8 +160,9 @@ async function createPersonalIdentityForAuth(
     },
     context: params.context,
   });
+  snapshots.push(mutationSnapshot("account", accountId, accountResult));
 
-  await services.users.commandHandler({
+  let userResult = await services.users.commandHandler({
     streamId: `identity.user-${userId}`,
     command: {
       type: "CreateUser",
@@ -154,7 +176,7 @@ async function createPersonalIdentityForAuth(
     context: params.context,
   });
 
-  await services.memberships.commandHandler({
+  const membershipResult = await services.memberships.commandHandler({
     streamId: `identity.membership-${membershipId}`,
     command: {
       type: "GrantMembership",
@@ -165,10 +187,11 @@ async function createPersonalIdentityForAuth(
     },
     context: params.context,
   });
+  snapshots.push(mutationSnapshot("membership", membershipId, membershipResult));
 
   for (const consent of params.consents ?? []) {
     const consentId = createId("cns");
-    await services.consents.commandHandler({
+    const consentResult = await services.consents.commandHandler({
       streamId: `identity.consent-${consentId}`,
       command: {
         type: "RecordConsent",
@@ -182,17 +205,19 @@ async function createPersonalIdentityForAuth(
       },
       context: params.context,
     });
+    snapshots.push(mutationSnapshot("consent", consentId, consentResult));
   }
 
   if (phone) {
-    await services.users.commandHandler({
+    userResult = await services.users.commandHandler({
       streamId: `identity.user-${userId}`,
       command: { type: "EnableAuthMethod", authMethod: "sms-code" },
       context: params.context,
     });
   }
+  snapshots.push(mutationSnapshot("user", userId, userResult));
 
-  return { userId, accountId, membershipId };
+  return { userId, accountId, membershipId, snapshots };
 }
 
 async function createGuestAccountForAuth(
@@ -206,7 +231,7 @@ async function createGuestAccountForAuth(
   const accountId = createId("acc") as AccountId;
   const displayName = params.displayName.trim() || params.email.trim();
 
-  await services.accounts.commandHandler({
+  const result = await services.accounts.commandHandler({
     streamId: `identity.account-${accountId}`,
     command: {
       type: "CreateAccount",
@@ -218,7 +243,7 @@ async function createGuestAccountForAuth(
     context: params.context,
   });
 
-  return { accountId };
+  return { accountId, snapshots: [mutationSnapshot("account", accountId, result)] };
 }
 
 async function createUserForAuth(
@@ -232,7 +257,7 @@ async function createUserForAuth(
   const userId = createId("usr") as UserId;
   const displayName = params.displayName.trim() || params.email.trim();
 
-  await services.users.commandHandler({
+  const result = await services.users.commandHandler({
     streamId: `identity.user-${userId}`,
     command: {
       type: "CreateUser",
@@ -243,7 +268,7 @@ async function createUserForAuth(
     context: params.context,
   });
 
-  return { userId };
+  return { userId, snapshots: [mutationSnapshot("user", userId, result)] };
 }
 
 async function grantGuestAccountForAuth(
@@ -256,7 +281,7 @@ async function grantGuestAccountForAuth(
   }>,
 ) {
   const membershipId = createId("mbr") as MembershipId;
-  await services.memberships.commandHandler({
+  const result = await services.memberships.commandHandler({
     streamId: `identity.membership-${membershipId}`,
     command: {
       type: "GrantMembership",
@@ -268,7 +293,7 @@ async function grantGuestAccountForAuth(
     context: params.context,
   });
 
-  return { membershipId };
+  return { membershipId, snapshots: [mutationSnapshot("membership", membershipId, result)] };
 }
 
 async function enablePasswordCredentialForAuth(
@@ -284,7 +309,7 @@ async function enablePasswordCredentialForAuth(
     command: { type: "EnableAuthMethod", authMethod: "password" },
     context: params.context,
   });
-  await services.users.commandHandler({
+  const result = await services.users.commandHandler({
     streamId: `identity.user-${params.userId}`,
     command: {
       type: "AttachPasswordCredential",
@@ -292,6 +317,7 @@ async function enablePasswordCredentialForAuth(
     },
     context: params.context,
   });
+  return { userId: params.userId, snapshots: [mutationSnapshot("user", params.userId, result)] };
 }
 
 async function registerPasskeyCredentialForAuth(
@@ -307,7 +333,7 @@ async function registerPasskeyCredentialForAuth(
     command: { type: "EnableAuthMethod", authMethod: "passkey" },
     context: params.context,
   });
-  await services.users.commandHandler({
+  const result = await services.users.commandHandler({
     streamId: `identity.user-${params.userId}`,
     command: {
       type: "RegisterPasskeyCredential",
@@ -315,6 +341,7 @@ async function registerPasskeyCredentialForAuth(
     },
     context: params.context,
   });
+  return { userId: params.userId, snapshots: [mutationSnapshot("user", params.userId, result)] };
 }
 
 async function enableSmsCodeForAuth(
@@ -324,16 +351,12 @@ async function enableSmsCodeForAuth(
     context: EventStoreContext;
   }>,
 ) {
-  const user = await services.users.getUser(params.userId);
-  if (user?.auth_methods.includes("sms-code")) {
-    return;
-  }
-
-  await services.users.commandHandler({
+  const result = await services.users.commandHandler({
     streamId: `identity.user-${params.userId}`,
     command: { type: "EnableAuthMethod", authMethod: "sms-code" },
     context: params.context,
   });
+  return { userId: params.userId, snapshots: [mutationSnapshot("user", params.userId, result)] };
 }
 
 class SocialLoginLinkConflictError extends Error {
@@ -367,7 +390,7 @@ async function linkSocialLoginForAuth(
     context: params.context,
   });
 
-  await services.users.commandHandler({
+  const result = await services.users.commandHandler({
     streamId: `identity.user-${params.userId}`,
     command: {
       type: "LinkSocialLogin",
@@ -378,6 +401,7 @@ async function linkSocialLoginForAuth(
     },
     context: params.context,
   });
+  return { userId: params.userId, snapshots: [mutationSnapshot("user", params.userId, result)] };
 }
 
 async function acceptInvitationForUserFromAuth(
@@ -391,7 +415,7 @@ async function acceptInvitationForUserFromAuth(
   }>,
 ) {
   const membershipId = createId("mbr") as MembershipId;
-  await services.memberships.commandHandler({
+  const membershipResult = await services.memberships.commandHandler({
     streamId: `identity.membership-${membershipId}`,
     command: {
       type: "GrantMembership",
@@ -402,7 +426,7 @@ async function acceptInvitationForUserFromAuth(
     },
     context: params.context,
   });
-  await services.invitations.commandHandler({
+  const invitationResult = await services.invitations.commandHandler({
     streamId: `identity.invitation-${params.invitationId}`,
     command: {
       type: "AcceptInvitation",
@@ -410,7 +434,13 @@ async function acceptInvitationForUserFromAuth(
     },
     context: params.context,
   });
-  return membershipId;
+  return {
+    membershipId,
+    snapshots: [
+      mutationSnapshot("membership", membershipId, membershipResult),
+      mutationSnapshot("invitation", params.invitationId, invitationResult),
+    ],
+  };
 }
 
 function requirePermission(readPermission: PermissionKey, writePermission = readPermission) {
@@ -516,31 +546,31 @@ export function buildIdentityApi(services: IdentityServices) {
   });
 
   app.post("/internal/auth/users/:id/sms-code", async (c) => {
-    await enableSmsCodeForAuth(services, {
+    const credential = await enableSmsCodeForAuth(services, {
       userId: c.req.param("id"),
       context: getBootstrapContext(c),
     });
-    return c.json({ ok: true });
+    return c.json({ ok: true, ...credential });
   });
 
   app.post("/internal/auth/users/:id/password-credential", async (c) => {
     const body = await c.req.json();
-    await enablePasswordCredentialForAuth(services, {
+    const credential = await enablePasswordCredentialForAuth(services, {
       userId: c.req.param("id"),
       credentialId: String(body.credentialId ?? ""),
       context: getBootstrapContext(c),
     });
-    return c.json({ ok: true });
+    return c.json({ ok: true, ...credential });
   });
 
   app.post("/internal/auth/users/:id/passkey-credential", async (c) => {
     const body = await c.req.json();
-    await registerPasskeyCredentialForAuth(services, {
+    const credential = await registerPasskeyCredentialForAuth(services, {
       userId: c.req.param("id"),
       credentialId: String(body.credentialId ?? ""),
       context: getBootstrapContext(c),
     });
-    return c.json({ ok: true });
+    return c.json({ ok: true, ...credential });
   });
 
   app.post("/internal/auth/users/:id/social-login-link", async (c) => {
@@ -559,13 +589,14 @@ export function buildIdentityApi(services: IdentityServices) {
     }
 
     try {
-      await linkSocialLoginForAuth(services, {
+      const link = await linkSocialLoginForAuth(services, {
         userId: c.req.param("id"),
         providerName,
         providerSubject: String(body.providerSubject ?? ""),
         email: String(body.email ?? ""),
         context: getBootstrapContext(c),
       });
+      return c.json({ ok: true, ...link });
     } catch (error) {
       if (error instanceof SocialLoginLinkConflictError) {
         return c.json(
@@ -581,19 +612,18 @@ export function buildIdentityApi(services: IdentityServices) {
 
       throw error;
     }
-    return c.json({ ok: true });
   });
 
   app.post("/internal/auth/invitations/:id/accept", async (c) => {
     const body = await c.req.json();
-    const membershipId = await acceptInvitationForUserFromAuth(services, {
+    const membership = await acceptInvitationForUserFromAuth(services, {
       invitationId: c.req.param("id"),
       userId: String(body.userId ?? ""),
       accountId: String(body.accountId ?? ""),
       roleKey: String(body.roleKey ?? ""),
       context: getBootstrapContext(c),
     });
-    return c.json({ membershipId });
+    return c.json(membership);
   });
 
   app.get("/current-actor-display", async (c) => {
@@ -760,7 +790,7 @@ export function buildIdentityApi(services: IdentityServices) {
         401,
       );
     }
-    await services.apiKeys.commandHandler({
+    const result = await services.apiKeys.commandHandler({
       streamId: `identity.api-key-${apiKeySecret.api_key_id}`,
       command: { type: "RecordApiKeyUse", usedAt: new Date().toISOString() },
       context: getBootstrapContext(c),
@@ -769,6 +799,8 @@ export function buildIdentityApi(services: IdentityServices) {
       apiKeyId: apiKeySecret.api_key_id,
       userId: apiKeySecret.user_id as UserId,
       keyPrefix,
+      version: result.version,
+      status: result.state.status,
     });
   });
 
