@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { appendFreshWriteToken } from "@chase-sets/http/responses";
 import {
   applyCheckoutRouteMockDefaults,
+  checkoutCommit,
   expectNoSellerCommitSideEffects,
   mockAcceptOfferMatch,
   mockAddGuestSellListLine,
@@ -85,7 +87,7 @@ vi.mock("@chase-sets/settlement/server", () => ({
   createSettlementRequestApiClient: mockCreateSettlementRequestApiClient,
 }));
 
-import { action as accountSellListAction } from "./account-sell-list";
+import { action as accountSellListAction, loader as accountSellListLoader } from "./account-sell-list";
 
 describe("checkout web routes: account sell list", () => {
   beforeEach(() => {
@@ -95,6 +97,96 @@ describe("checkout web routes: account sell list", () => {
   afterEach(() => {
     vi.resetAllMocks();
     vi.unstubAllEnvs();
+  });
+
+  it("recovers signed-in account Sell List self-refresh when a fresh receipt times out waiting for projection freshness", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
+    const getSellList = vi.fn(async (): Promise<never> => {
+      throw new MockCheckoutApiError(503, {
+        error: {
+          code: "projection_freshness_timeout",
+          message: "Projection read model did not catch up before the freshness timeout.",
+        },
+      });
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellList,
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({});
+    const request = new Request(
+      `http://localhost${appendFreshWriteToken("/account/sell-list", checkoutCommit("42", "evt_checkout"))}`,
+    );
+
+    const result = await accountSellListLoader({
+      request,
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(mockCreateCheckoutRequestApiClient).toHaveBeenCalledWith(request);
+    expect(result).toEqual(
+      expect.objectContaining({
+        isSignedIn: true,
+        sellList: { items: [], count: 0, latestConfirmation: null },
+        freshnessError: expect.any(String),
+        offerReviews: [],
+        productOfferReviews: [],
+        inventoryItems: [],
+      }),
+    );
+  });
+
+  it("treats account Sell List projection timeouts without a fresh receipt as permanent loader failures", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
+    const getSellList = vi.fn(async (): Promise<never> => {
+      throw new MockCheckoutApiError(503, {
+        error: {
+          code: "projection_freshness_timeout",
+          message: "Projection read model did not catch up before the freshness timeout.",
+        },
+      });
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellList,
+    });
+
+    await expect(
+      accountSellListLoader({
+        request: new Request("http://localhost/account/sell-list"),
+        params: {},
+        context: undefined,
+      } as never),
+    ).rejects.toMatchObject({ status: 503 });
+  });
+
+  it("treats account Sell List projection timeouts with expired fresh receipts as permanent loader failures", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
+    const getSellList = vi.fn(async (): Promise<never> => {
+      throw new MockCheckoutApiError(503, {
+        error: {
+          code: "projection_freshness_timeout",
+          message: "Projection read model did not catch up before the freshness timeout.",
+        },
+      });
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellList,
+    });
+    const request = new Request(
+      `http://localhost${appendFreshWriteToken(
+        "/account/sell-list",
+        checkoutCommit("42", "evt_checkout"),
+        Date.now() - 40_000,
+      )}`,
+    );
+
+    await expect(
+      accountSellListLoader({
+        request,
+        params: {},
+        context: undefined,
+      } as never),
+    ).rejects.toMatchObject({ status: 503 });
   });
 
   it("adds a Marketplace offer match to the Checkout-owned sell list", async () => {

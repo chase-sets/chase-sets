@@ -7,6 +7,7 @@ import {
   classifyFreshWriteReadError,
   decodeFreshWriteReceipt,
   encodeCommitReceipt,
+  getMutationResultCommandReceipt,
   getResponseMetadata,
   readFreshWriteToken,
   readFreshWriteTokenState,
@@ -46,12 +47,139 @@ describe("response consistency metadata", () => {
 
     const body = attachResponseMetadata({ id: "lst_1" }, { headers });
     expect(getResponseMetadata(body)?.consistency?.commitPositions).toEqual([source]);
+    expect(getMutationResultCommandReceipt(body)?.commitPositions).toEqual([source]);
 
     const href = appendFreshWriteToken("/account/listings/lst_1", body, 1234);
     expect(readFreshWriteToken(href, 1234)).toEqual({
       observedAtMs: 1234,
       commitPosition: "42",
       sources: [source],
+    });
+  });
+
+  it("exposes command receipts as a typed non-enumerable mutation result contract", () => {
+    const headers = new Headers({
+      "Chase-Sets-Consistency": "eventual",
+      [CHASE_SETS_COMMIT_RECEIPT_HEADER]: encodeCommitReceipt([checkoutSource]),
+    });
+
+    const body = attachResponseMetadata({ status: "accepted", visibleField: "kept" }, { headers });
+
+    expect(getMutationResultCommandReceipt(body)).toEqual({
+      mode: "eventual",
+      commitEventIds: [],
+      commitPositions: [checkoutSource],
+    });
+    expect(Object.keys(body).sort()).toEqual(["status", "visibleField"]);
+    expect(JSON.stringify(body)).toBe('{"status":"accepted","visibleField":"kept"}');
+    expect(getMutationResultCommandReceipt(body)).not.toHaveProperty("accountId");
+    expect(getMutationResultCommandReceipt(body)).not.toHaveProperty("email");
+    expect(getMutationResultCommandReceipt(body)).not.toHaveProperty("paymentId");
+  });
+
+  it("accepts an explicit command receipt when callers construct typed mutation results", () => {
+    const result = {
+      status: "accepted",
+      commandReceipt: {
+        mode: "eventual",
+        commitEventIds: ["evt_checkout"],
+        commitPositions: [checkoutSource],
+      },
+    };
+
+    expect(getMutationResultCommandReceipt(result)).toBe(result.commandReceipt);
+    expect(readFreshWriteToken(appendFreshWriteToken("/account/cart", result, 1234), 1234)).toEqual({
+      observedAtMs: 1234,
+      sources: [checkoutSource],
+    });
+  });
+
+  it("keeps hidden response metadata backward compatible for existing callers", () => {
+    const hiddenOnly = {};
+    Object.defineProperty(hiddenOnly, Symbol.for("@chase-sets/http.response-metadata"), {
+      value: {
+        consistency: {
+          mode: "eventual",
+          commitEventIds: [],
+          commitPositions: [checkoutSource],
+        },
+      },
+      enumerable: false,
+    });
+
+    expect(getMutationResultCommandReceipt(hiddenOnly)).toBeNull();
+    expect(readFreshWriteToken(appendFreshWriteToken("/account/cart", hiddenOnly, 1234), 1234)).toEqual({
+      observedAtMs: 1234,
+      sources: [checkoutSource],
+    });
+  });
+
+  it("distinguishes missing, malformed, and no-op command receipts without fresh-write redirects", () => {
+    const missing = attachResponseMetadata({ status: "accepted" }, { headers: new Headers() });
+    const malformed = attachResponseMetadata(
+      { status: "accepted" },
+      {
+        headers: new Headers({
+          "Chase-Sets-Consistency": "eventual",
+          [CHASE_SETS_COMMIT_RECEIPT_HEADER]: "%7Bnot-json",
+        }),
+      },
+    );
+    const noOp = attachResponseMetadata(
+      { status: "accepted" },
+      { headers: new Headers({ "Chase-Sets-Consistency": "eventual" }) },
+    );
+
+    expect(getMutationResultCommandReceipt(missing)).toBeNull();
+    expect(getMutationResultCommandReceipt(malformed)).toEqual({
+      mode: "eventual",
+      commitEventIds: [],
+      commitPositions: [],
+    });
+    expect(getMutationResultCommandReceipt(noOp)).toEqual({
+      mode: "eventual",
+      commitEventIds: [],
+      commitPositions: [],
+    });
+    expect(appendFreshWriteTokenFromSources("/checkout/chk_1", [missing, malformed, noOp], 1234)).toBe(
+      "/checkout/chk_1",
+    );
+  });
+
+  it("combines multiple typed mutation result command receipts into one fresh-write token", () => {
+    const first = attachResponseMetadata(
+      { status: "accepted" },
+      {
+        headers: new Headers({
+          "Chase-Sets-Consistency": "eventual",
+          [CHASE_SETS_COMMIT_RECEIPT_HEADER]: encodeCommitReceipt([source, checkoutSource]),
+        }),
+      },
+    );
+    const second = attachResponseMetadata(
+      { status: "accepted" },
+      {
+        headers: new Headers({
+          "Chase-Sets-Consistency": "eventual",
+          "Chase-Sets-Commit-Position": "44",
+          [CHASE_SETS_COMMIT_RECEIPT_HEADER]: encodeCommitReceipt([laterSource]),
+        }),
+      },
+    );
+
+    const href = appendFreshWriteTokenFromSources("/checkout/chk_1", [first, second], 1234);
+
+    expect(readFreshWriteToken(href, 1234)).toEqual({
+      observedAtMs: 1234,
+      commitPosition: "44",
+      sources: [
+        checkoutSource,
+        {
+          sourceContextName: "marketplace",
+          maxGlobalPosition: "44",
+          eventIds: ["evt_1", "evt_2"],
+        },
+      ],
     });
   });
 

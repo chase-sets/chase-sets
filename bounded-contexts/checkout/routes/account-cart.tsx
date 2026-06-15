@@ -1,7 +1,11 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
-import { appendFreshWriteToken } from "@chase-sets/http/responses";
+import {
+  appendFreshWriteToken,
+  loadFreshlyWrittenResource,
+  recoverFreshWriteReadError,
+} from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { createCheckoutRequestApiClient } from "../support/request-support/api-client";
@@ -16,6 +20,53 @@ function canUseAccountCart(actor: Awaited<ReturnType<typeof resolveActorFromAuth
 
 function latestWriteResult(results: readonly unknown[]): unknown {
   return [...results].reverse().find((result) => result !== undefined && result !== null) ?? null;
+}
+
+function checkoutApiErrorStatus(error: unknown) {
+  const status = (error as { status?: unknown })?.status;
+  return typeof status === "number" ? status : null;
+}
+
+function checkoutApiErrorBody(error: unknown) {
+  return typeof error === "object" && error !== null && "body" in error ? (error as { body: unknown }).body : null;
+}
+
+function checkoutApiErrorCode(error: unknown) {
+  const body = checkoutApiErrorBody(error);
+  const apiError = typeof body === "object" && body !== null && "error" in body ? body.error : null;
+  const code = typeof apiError === "object" && apiError !== null ? (apiError as { code?: unknown }).code : null;
+  return code === null || code === undefined ? null : String(code);
+}
+
+async function loadAccountCart<TCart extends { items: readonly unknown[]; count: number }>(
+  request: Request,
+  load: () => Promise<TCart>,
+) {
+  try {
+    const cart = await loadFreshlyWrittenResource({
+      request,
+      load,
+      isNotFound: (error) => checkoutApiErrorStatus(error) === 404,
+    });
+    return { cart, freshnessError: null };
+  } catch (error) {
+    const recovery = recoverFreshWriteReadError({
+      request,
+      error,
+      getStatus: checkoutApiErrorStatus,
+      getErrorCode: checkoutApiErrorCode,
+      getBody: checkoutApiErrorBody,
+      recoverTransient: () => ({
+        cart: { items: [], count: 0 },
+        freshnessError: t("checkout.routes.accountCart.request.failed"),
+      }),
+    });
+    if (recovery) {
+      return recovery;
+    }
+
+    throw error;
+  }
 }
 
 function cartLineIdsFromForm(formData: FormData) {
@@ -34,8 +85,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     return { cart };
   }
 
-  const cart = await api.getCart();
-  return { cart };
+  return loadAccountCart(request, () => api.getCart());
 }
 
 export async function action({ request }: ActionFunctionArgs) {
@@ -142,6 +192,7 @@ export const meta: MetaFunction = () =>
 export default function CheckoutAccountCartRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
+  const freshnessError = "freshnessError" in data ? data.freshnessError : null;
 
-  return <CheckoutCartPage cartLines={data.cart.items} errorMessage={actionData?.error ?? null} />;
+  return <CheckoutCartPage cartLines={data.cart.items} errorMessage={actionData?.error ?? freshnessError} />;
 }

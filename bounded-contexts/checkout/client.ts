@@ -1,6 +1,7 @@
 import { hc } from "hono/client";
 import { honoClientResource } from "@chase-sets/http/hono-client";
 import { attachResponseMetadata } from "@chase-sets/http/responses";
+import type { MutationResult } from "@chase-sets/http/responses";
 import type { buildCheckoutApi } from "./api";
 import type { CheckoutCartLine } from "./features/cart/api/contracts";
 import type { CartReadinessDecisionInput, CartReadinessSnapshot } from "./features/cart/api/contracts";
@@ -23,6 +24,9 @@ export type {
   SellListReadinessSnapshot,
   SellListSellerConfirmationEvidence,
 } from "./features/sell-list/api/contracts";
+
+export type CheckoutMutationResult<T extends object> = MutationResult<T>;
+type CheckoutCommandMutationResult = CheckoutMutationResult<Readonly<{ id: string; version: number; status: string }>>;
 
 export type CheckoutSelectedOptionInput = Readonly<{
   dimensionId: string;
@@ -320,13 +324,15 @@ export function createCheckoutApiClient({
         }),
       );
     },
-    async createCartReadiness(body: CartReadinessDecisionInput = {}): Promise<{ readiness: CartReadinessSnapshot }> {
+    async createCartReadiness(
+      body: CartReadinessDecisionInput = {},
+    ): Promise<CheckoutMutationResult<{ readiness: CartReadinessSnapshot }>> {
       return parseJsonResponse(await client.account.cart.readiness.$post({ json: body, header: headers }));
     },
     async createGuestCartReadiness(
       anonymousCartId: string,
       body: CartReadinessDecisionInput = {},
-    ): Promise<{ readiness: CartReadinessSnapshot }> {
+    ): Promise<CheckoutMutationResult<{ readiness: CartReadinessSnapshot }>> {
       return parseJsonResponse(
         await client.guest.cart.readiness.$post({
           json: body,
@@ -336,13 +342,18 @@ export function createCheckoutApiClient({
         }),
       );
     },
-    async addCartLine(body: AddCheckoutCartLineRequest) {
+    async addCartLine(body: AddCheckoutCartLineRequest): Promise<CheckoutCommandMutationResult> {
       return parseJsonResponse(await client.account.cart.$post({ json: body, header: headers }));
     },
-    async addCartLines(body: AddCheckoutCartLinesRequest): Promise<AddCheckoutCartLinesResponse> {
+    async addCartLines(
+      body: AddCheckoutCartLinesRequest,
+    ): Promise<CheckoutMutationResult<AddCheckoutCartLinesResponse>> {
       return parseJsonResponse(await client.account.cart.bulk.$post({ json: body, header: headers }));
     },
-    async addGuestCartLine(anonymousCartId: string, body: AddCheckoutCartLineRequest) {
+    async addGuestCartLine(
+      anonymousCartId: string,
+      body: AddCheckoutCartLineRequest,
+    ): Promise<CheckoutCommandMutationResult> {
       return parseJsonResponse(
         await client.guest.cart.$post({
           json: body,
@@ -355,7 +366,7 @@ export function createCheckoutApiClient({
     async addGuestCartLines(
       anonymousCartId: string,
       body: AddCheckoutCartLinesRequest,
-    ): Promise<AddCheckoutCartLinesResponse> {
+    ): Promise<CheckoutMutationResult<AddCheckoutCartLinesResponse>> {
       return parseJsonResponse(
         await client.guest.cart.bulk.$post({
           json: body,
@@ -386,13 +397,13 @@ export function createCheckoutApiClient({
     },
     async createSellListReadiness(
       body: SellListReadinessDecisionInput = {},
-    ): Promise<{ readiness: SellListReadinessSnapshot }> {
+    ): Promise<CheckoutMutationResult<{ readiness: SellListReadinessSnapshot }>> {
       return parseJsonResponse(await client.account["sell-list"].readiness.$post({ json: body, header: headers }));
     },
     async createGuestSellListReadiness(
       anonymousSellListId: string,
       body: SellListReadinessDecisionInput = {},
-    ): Promise<{ readiness: SellListReadinessSnapshot }> {
+    ): Promise<CheckoutMutationResult<{ readiness: SellListReadinessSnapshot }>> {
       return parseJsonResponse(
         await client.guest["sell-list"].readiness.$post({
           json: body,
@@ -402,10 +413,13 @@ export function createCheckoutApiClient({
         }),
       );
     },
-    async addSellListLine(body: AddCheckoutSellListLineRequest) {
+    async addSellListLine(body: AddCheckoutSellListLineRequest): Promise<CheckoutCommandMutationResult> {
       return parseJsonResponse(await client.account["sell-list"].$post({ json: body, header: headers }));
     },
-    async addGuestSellListLine(anonymousSellListId: string, body: AddCheckoutSellListLineRequest) {
+    async addGuestSellListLine(
+      anonymousSellListId: string,
+      body: AddCheckoutSellListLineRequest,
+    ): Promise<CheckoutCommandMutationResult> {
       return parseJsonResponse(
         await client.guest["sell-list"].$post({
           json: body,
@@ -415,7 +429,7 @@ export function createCheckoutApiClient({
         }),
       );
     },
-    async removeSellListLine(lineId: string) {
+    async removeSellListLine(lineId: string): Promise<CheckoutCommandMutationResult> {
       return parseJsonResponse(
         await client.account["sell-list"][":lineId"].remove.$post({
           param: { lineId },
@@ -443,10 +457,10 @@ export function createCheckoutApiClient({
         sellerEvidence: SellListSellerConfirmationEvidence;
         handoffSummary: SellListConfirmationSummary;
       }>,
-    ) {
+    ): Promise<CheckoutMutationResult<{ confirmation: CheckoutSellListConfirmationRow }>> {
       return parseJsonResponse(await client.account["sell-list"].confirm.$post({ json: body, header: headers }));
     },
-    async removeGuestSellListLine(anonymousSellListId: string, lineId: string) {
+    async removeGuestSellListLine(anonymousSellListId: string, lineId: string): Promise<CheckoutCommandMutationResult> {
       return parseJsonResponse(
         await client.guest["sell-list"][":lineId"].remove.$post({
           param: { lineId },
@@ -457,7 +471,9 @@ export function createCheckoutApiClient({
         }),
       );
     },
-    async mergeGuestCartToAccount(anonymousCartId: string) {
+    async mergeGuestCartToAccount(
+      anonymousCartId: string,
+    ): Promise<CheckoutMutationResult<{ mergedLineCount: number }>> {
       return parseJsonResponse(
         await client.guest.cart["merge-to-account"].$post({
           json: {},
@@ -467,7 +483,9 @@ export function createCheckoutApiClient({
         }),
       );
     },
-    async mergeGuestSellListToAccount(anonymousSellListId: string) {
+    async mergeGuestSellListToAccount(
+      anonymousSellListId: string,
+    ): Promise<CheckoutMutationResult<{ mergedLineCount: number }>> {
       return parseJsonResponse(
         await client.guest["sell-list"]["merge-to-account"].$post({
           json: {},
@@ -477,7 +495,10 @@ export function createCheckoutApiClient({
         }),
       );
     },
-    async updateCartLineQuantity(lineId: string, body: UpdateCheckoutCartLineQuantityRequest) {
+    async updateCartLineQuantity(
+      lineId: string,
+      body: UpdateCheckoutCartLineQuantityRequest,
+    ): Promise<CheckoutCommandMutationResult> {
       return parseJsonResponse(
         await client.account.cart[":lineId"].quantity.$post({
           param: { lineId },
@@ -490,7 +511,7 @@ export function createCheckoutApiClient({
       anonymousCartId: string,
       lineId: string,
       body: UpdateCheckoutCartLineQuantityRequest,
-    ) {
+    ): Promise<CheckoutCommandMutationResult> {
       return parseJsonResponse(
         await client.guest.cart[":lineId"].quantity.$post({
           param: { lineId },
@@ -501,7 +522,10 @@ export function createCheckoutApiClient({
         }),
       );
     },
-    async updateCartLineFulfillment(lineId: string, body: UpdateCheckoutCartLineFulfillmentRequest) {
+    async updateCartLineFulfillment(
+      lineId: string,
+      body: UpdateCheckoutCartLineFulfillmentRequest,
+    ): Promise<CheckoutCommandMutationResult> {
       return parseJsonResponse(
         await client.account.cart[":lineId"].fulfillment.$post({
           param: { lineId },
@@ -514,7 +538,7 @@ export function createCheckoutApiClient({
       anonymousCartId: string,
       lineId: string,
       body: UpdateCheckoutCartLineFulfillmentRequest,
-    ) {
+    ): Promise<CheckoutCommandMutationResult> {
       return parseJsonResponse(
         await client.guest.cart[":lineId"].fulfillment.$post({
           param: { lineId },
@@ -525,7 +549,7 @@ export function createCheckoutApiClient({
         }),
       );
     },
-    async removeCartLine(lineId: string) {
+    async removeCartLine(lineId: string): Promise<CheckoutCommandMutationResult> {
       return parseJsonResponse(
         await client.account.cart[":lineId"].remove.$post({
           param: { lineId },
@@ -534,7 +558,7 @@ export function createCheckoutApiClient({
         }),
       );
     },
-    async removeGuestCartLine(anonymousCartId: string, lineId: string) {
+    async removeGuestCartLine(anonymousCartId: string, lineId: string): Promise<CheckoutCommandMutationResult> {
       return parseJsonResponse(
         await client.guest.cart[":lineId"].remove.$post({
           param: { lineId },
@@ -545,7 +569,9 @@ export function createCheckoutApiClient({
         }),
       );
     },
-    async createCheckoutSession(body: CreateCheckoutSessionRequest): Promise<{ session_id: string }> {
+    async createCheckoutSession(
+      body: CreateCheckoutSessionRequest,
+    ): Promise<CheckoutMutationResult<{ session_id: string }>> {
       return parseJsonResponse(
         await client.account["checkout-sessions"].$post({
           json: body,
@@ -561,7 +587,10 @@ export function createCheckoutApiClient({
         }),
       );
     },
-    async selectShippingOption(sessionId: string, body: SelectCheckoutShippingOptionRequest) {
+    async selectShippingOption(
+      sessionId: string,
+      body: SelectCheckoutShippingOptionRequest,
+    ): Promise<CheckoutMutationResult<{ status: string }>> {
       return parseJsonResponse(
         await client.account["checkout-sessions"][":sessionId"]["shipping-option"].$post({
           param: { sessionId },
@@ -573,7 +602,7 @@ export function createCheckoutApiClient({
     async selectShippingAddress(
       sessionId: string,
       body: Readonly<{ shippingAddress: CheckoutShippingAddressInput | null }>,
-    ) {
+    ): Promise<CheckoutMutationResult<{ status: string }>> {
       return parseJsonResponse(
         await client.account["checkout-sessions"][":sessionId"]["shipping-address"].$post({
           param: { sessionId },
@@ -582,7 +611,10 @@ export function createCheckoutApiClient({
         }),
       );
     },
-    async selectOptimizationGoal(sessionId: string, body: SelectCheckoutOptimizationGoalRequest) {
+    async selectOptimizationGoal(
+      sessionId: string,
+      body: SelectCheckoutOptimizationGoalRequest,
+    ): Promise<CheckoutMutationResult<{ status: string }>> {
       return parseJsonResponse(
         await client.account["checkout-sessions"][":sessionId"]["optimization-goal"].$post({
           param: { sessionId },
@@ -603,12 +635,14 @@ export function createCheckoutApiClient({
         acknowledgedMaterialChanges?: boolean;
         shippingAddress?: CheckoutShippingAddressInput | null;
       }> = {},
-    ): Promise<{
-      payment_id?: string;
-      order_ids?: readonly string[];
-      offer_id?: string;
-      status: string;
-    }> {
+    ): Promise<
+      CheckoutMutationResult<{
+        payment_id?: string;
+        order_ids?: readonly string[];
+        offer_id?: string;
+        status: string;
+      }>
+    > {
       return parseJsonResponse(
         await client.account["checkout-sessions"][":sessionId"].confirm.$post({
           param: { sessionId },
