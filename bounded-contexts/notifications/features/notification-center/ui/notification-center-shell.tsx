@@ -174,16 +174,26 @@ export function NotificationCenterShell({
         }
       }}
       onMarkRead={async (deliveryId) => {
-        await notificationsApi.markRead(deliveryId).catch(() => undefined);
-        await loadFeed();
+        const response = await notificationsApi.markRead(deliveryId).catch(() => null);
+        if (response) {
+          setFeed(response.feed);
+        }
       }}
       onMarkAllRead={async () => {
-        await notificationsApi.markAllRead().catch(() => undefined);
-        await loadFeed();
+        const response = await notificationsApi.markAllRead().catch(() => null);
+        if (response) {
+          setFeed(response.feed);
+        }
       }}
       onPreferenceChange={async (key, enabled) => {
-        await notificationsApi.setPreference(key as NotificationPreference["key"], enabled).catch(() => undefined);
-        await loadSettings();
+        const response = await notificationsApi
+          .setPreference(key as NotificationPreference["key"], enabled)
+          .catch(() => null);
+        if (response) {
+          setPreferences((current) =>
+            current.map((preference) => (preference.key === key ? response.item : preference)),
+          );
+        }
       }}
       onProductAlertPause={(id) => void reloadAfterProductAlertAction(id, "pause")}
       onProductAlertResume={(id) => void reloadAfterProductAlertAction(id, "resume")}

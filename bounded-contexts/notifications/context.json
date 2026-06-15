@@ -80,6 +80,48 @@
       ]
     }
   ],
+  "mutationConsistencyInventory": [
+    {
+      "id": "notifications.notification-center-command-snapshots",
+      "owner": "notifications",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-client:bounded-contexts/notifications/client.ts:POST H5b2651e96967#1",
+        "api-client:bounded-contexts/notifications/client.ts:POST Hc873f0a9aa87#1",
+        "api-client:bounded-contexts/notifications/client.ts:POST He98167eab4d7#1",
+        "api-route:bounded-contexts/notifications/api.ts:POST /center/:deliveryId/read",
+        "api-route:bounded-contexts/notifications/api.ts:POST /center/read-all",
+        "api-route:bounded-contexts/notifications/api.ts:POST /preferences/:key"
+      ],
+      "visibleDestination": {
+        "description": "Notification Center account sheet and notification settings controls receive the committed feed read-state snapshot or saved preference item directly from the Notifications command response."
+      },
+      "proof": {
+        "authoritativeResponse": "Read-state commands return the same-context feed snapshot and unread count after the write commits; preference commands return the saved Notification Preference item for the account and key that was just written.",
+        "tests": [
+          "bounded-contexts/notifications/features/notification-center/api/api.test.ts proves mark-read, mark-all-read, and preference writes return committed snapshots.",
+          "bounded-contexts/notifications/features/notification-center/api/client.test.ts proves the API client exposes the mutation snapshots to UI callers."
+        ]
+      }
+    },
+    {
+      "id": "notifications.provider-webhook-recording",
+      "owner": "notifications",
+      "risk": "internal",
+      "strategy": "non-user-visible",
+      "surfaces": [
+        "api-route:bounded-contexts/notifications/api.ts:POST /email/webhooks",
+        "api-route:bounded-contexts/notifications/api.ts:POST /mobile-messaging/webhooks"
+      ],
+      "exception": {
+        "owner": "notifications",
+        "reviewBy": "2026-07-31",
+        "issue": "#1826",
+        "reason": "Provider webhook routes are unauthenticated infrastructure callbacks under /api/notifications/provider that normalize email and SMS/RCS delivery events into provider event stores. They return provider acknowledgement metadata only and do not perform an immediate marketplace user-visible read."
+      }
+    }
+  ],
   "shellContributions": [
     {
       "deployable": "marketplace-web",

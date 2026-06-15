@@ -78,9 +78,85 @@ describe("notifications api", () => {
       method: "POST",
     });
     expect(read.status).toBe(200);
+    expect(await read.json()).toMatchObject({
+      status: "read",
+      feed: {
+        count: 1,
+        unread: 1,
+        items: [{ deliveryId: "del_1", title: "Order confirmed" }],
+      },
+    });
     expect(services.feed.markWebNotificationRead).toHaveBeenCalledWith({
       accountId: "acc_1",
       deliveryId: "del_1",
+    });
+    expect(services.feed.listWebNotifications).toHaveBeenLastCalledWith({
+      accountId: "acc_1",
+      includeRead: true,
+      limit: 25,
+      offset: 0,
+    });
+  });
+
+  it("returns the committed feed snapshot after marking all notifications read", async () => {
+    const services = {
+      emailMessages: {
+        recordProviderEvent: vi.fn(),
+      },
+      emailWebhookGateway: {
+        processEmailWebhook: vi.fn(),
+      },
+      feed: {
+        listWebNotifications: vi.fn(async () => [
+          {
+            notificationId: "1",
+            deliveryId: "del_1",
+            userId: null,
+            accountId: "acc_1",
+            messageType: "ordering.order.created",
+            criticality: "commerce",
+            title: "Order confirmed",
+            body: "Your order is ready.",
+            actionHref: "/account/purchases/ord_1",
+            correlationId: "ord_1",
+            sourceIdempotencyKey: "order:ord_1",
+            readAt: "2026-05-13T00:05:00.000Z",
+            createdAt: "2026-05-13T00:00:00.000Z",
+          },
+        ]),
+        countUnreadWebNotifications: vi.fn(async () => 0),
+        markWebNotificationRead: vi.fn(),
+        markAllWebNotificationsRead: vi.fn(async () => undefined),
+      },
+      mobileMessages: {
+        recordProviderEvent: vi.fn(),
+      },
+      mobileMessageWebhookGateway: {
+        processMobileMessageWebhook: vi.fn(),
+      },
+      notificationOutbox: {},
+      preferences: {
+        listPreferences: vi.fn(async () => []),
+        setPreference: vi.fn(),
+      },
+    } as unknown as NotificationsServices;
+    const app = buildApp(services);
+
+    const read = await app.request("/api/notifications/center/read-all", {
+      method: "POST",
+    });
+
+    expect(read.status).toBe(200);
+    expect(await read.json()).toMatchObject({
+      status: "read",
+      feed: {
+        count: 1,
+        unread: 0,
+        items: [{ deliveryId: "del_1", readAt: "2026-05-13T00:05:00.000Z" }],
+      },
+    });
+    expect(services.feed.markAllWebNotificationsRead).toHaveBeenCalledWith({
+      accountId: "acc_1",
     });
   });
 
@@ -127,6 +203,9 @@ describe("notifications api", () => {
       body: JSON.stringify({ enabled: false }),
     });
     expect(saved.status).toBe(200);
+    expect(await saved.json()).toEqual({
+      item: { key: "product-alerts", enabled: false },
+    });
     expect(services.preferences.setPreference).toHaveBeenCalledWith({
       accountId: "acc_1",
       key: "product-alerts",
