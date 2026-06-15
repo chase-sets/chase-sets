@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
+import { appendFreshWriteToken, loadFreshlyWrittenResource } from "@chase-sets/http/responses";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import {
@@ -23,7 +24,11 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const reputationApi = createReputationRequestApiClient(request);
 
   try {
-    const purchase = await orderingApi.getPurchase(params.purchaseId!);
+    const purchase = await loadFreshlyWrittenResource({
+      request,
+      load: () => orderingApi.getPurchase(params.purchaseId!),
+      isNotFound: (error) => error instanceof OrderingApiError && error.status === 404,
+    });
     let reviewOpportunity: ReviewOpportunity | null = null;
 
     if (actor.permissions.includes("reputation.view") && actor.permissions.includes("reputation.manage")) {
@@ -57,8 +62,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
   try {
     if (intent === "cancel-purchase") {
-      await api.cancelPurchase(params.purchaseId!);
-      return redirect(`/account/purchases/${params.purchaseId!}`);
+      const result = await api.cancelPurchase(params.purchaseId!);
+      return redirect(appendFreshWriteToken(`/account/purchases/${params.purchaseId!}`, result));
     }
 
     return null;

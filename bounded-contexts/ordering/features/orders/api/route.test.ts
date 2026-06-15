@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import type { OrderingApiEnv } from "../../../api";
-import { createAccountPurchaseOrderRoutes } from "./route";
+import { createAccountPurchaseOrderRoutes, createAccountSaleOrderRoutes } from "./route";
 import type { OrderingOrderServices } from "./runtime";
 
 function buildApp(
@@ -96,6 +96,59 @@ describe("ordering purchase routes", () => {
         audit: expect.objectContaining({
           forAccountId: "acc_buyer",
           performedByUserId: "usr_buyer",
+        }),
+      }),
+    );
+  });
+
+  it("cancels a seller sale through the documented API action", async () => {
+    const services = {
+      ...createServices(),
+      cancelSale: vi.fn(async () => ({ orderId: "ord_1", version: 4 })),
+    } as unknown as OrderingOrderServices;
+    const app = new Hono<OrderingApiEnv>();
+    app.use("*", async (c, next) => {
+      c.set("actor", {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_seller",
+        accountId: "acc_seller",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["orders.view", "orders.manage"],
+      });
+      c.set("context", {
+        tenantId: "tnt_identity" as never,
+        audit: {
+          performedByUserId: "usr_seller" as never,
+          forAccountId: "acc_seller" as never,
+        },
+      });
+      await next();
+    });
+    app.route("/account", createAccountSaleOrderRoutes(services));
+
+    const response = await app.fetch(
+      new Request("http://ordering.test/account/sales/ord_1/cancel", {
+        method: "POST",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      id: "ord_1",
+      version: 4,
+      status: "cancelled",
+    });
+    expect(services.cancelSale).toHaveBeenCalledWith(
+      {
+        orderId: "ord_1",
+        sellerAccountId: "acc_seller",
+      },
+      expect.objectContaining({
+        audit: expect.objectContaining({
+          forAccountId: "acc_seller",
+          performedByUserId: "usr_seller",
         }),
       }),
     );

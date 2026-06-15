@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
+import { appendFreshWriteToken } from "@chase-sets/http/responses";
 import { OrderingApiError, createOrderingRequestApiClient } from "../../support/request-support/api-client";
 import { PostagePolicyListPage } from "../../features/postage-policies/ui/postage-policy-list-page";
 import { postagePolicyRequestFromForm } from "../../features/postage-policies/ui/form-data";
@@ -15,8 +16,8 @@ export async function action({ request }: ActionFunctionArgs) {
   const api = createOrderingRequestApiClient(request);
 
   try {
-    await api.createPostagePolicy(postagePolicyRequestFromForm(formData));
-    return redirect("/commerce/postage-policies");
+    const result = await api.createPostagePolicy(postagePolicyRequestFromForm(formData));
+    return redirect(appendFreshWriteToken("/commerce/postage-policies", result));
   } catch (error) {
     if (error instanceof OrderingApiError || error instanceof Error) {
       return { error: error.message };

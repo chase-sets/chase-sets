@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
+import { appendFreshWriteToken, loadFreshlyWrittenResource } from "@chase-sets/http/responses";
 import { OrderingApiError, createOrderingRequestApiClient } from "../../support/request-support/api-client";
 import { PostagePolicyDetailPage } from "../../features/postage-policies/ui/postage-policy-detail-page";
 import {
@@ -13,7 +14,11 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
     throw new Response(t("ordering.routes.admin.postagePoliciesDetail.not.found"), { status: 404 });
   }
   const api = createOrderingRequestApiClient(request);
-  return api.getPostagePolicy(params.id);
+  return loadFreshlyWrittenResource({
+    request,
+    load: () => api.getPostagePolicy(params.id!),
+    isNotFound: (error) => error instanceof OrderingApiError && error.status === 404,
+  });
 }
 
 export async function action({ params, request }: ActionFunctionArgs) {
@@ -25,23 +30,24 @@ export async function action({ params, request }: ActionFunctionArgs) {
   const api = createOrderingRequestApiClient(request);
 
   try {
+    let result: { id: string; version: number } | null = null;
     if (intent === "activate") {
-      await api.activatePostagePolicy(params.id, String(formData.get("activationReason") ?? ""));
+      result = await api.activatePostagePolicy(params.id, String(formData.get("activationReason") ?? ""));
     } else if (intent === "retire") {
-      await api.retirePostagePolicy(params.id, String(formData.get("retirementReason") ?? ""));
+      result = await api.retirePostagePolicy(params.id, String(formData.get("retirementReason") ?? ""));
     } else if (intent === "clone") {
       const result = await api.clonePostagePolicy(params.id, {
         label: String(formData.get("cloneLabel") ?? ""),
         effectiveFrom: String(formData.get("cloneEffectiveFrom") ?? ""),
         effectiveUntil: String(formData.get("cloneEffectiveUntil") ?? ""),
       });
-      return redirect(`/commerce/postage-policies/${result.id}`);
+      return redirect(appendFreshWriteToken(`/commerce/postage-policies/${result.id}`, result));
     } else if (intent === "preview") {
       return { preview: await api.previewPostagePolicy(postagePolicyPreviewRequestFromForm(formData)) };
     } else {
-      await api.revisePostagePolicy(params.id, postagePolicyRequestFromForm(formData));
+      result = await api.revisePostagePolicy(params.id, postagePolicyRequestFromForm(formData));
     }
-    return redirect(`/commerce/postage-policies/${params.id}`);
+    return redirect(appendFreshWriteToken(`/commerce/postage-policies/${params.id}`, result));
   } catch (error) {
     if (error instanceof OrderingApiError || error instanceof Error) {
       return { error: error.message };
