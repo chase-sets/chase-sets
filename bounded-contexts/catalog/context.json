@@ -62,6 +62,15 @@
       "requiresAuth": true
     }
   ],
+  "projectionGroups": [
+    {
+      "projectionName": "catalog-source-observation-projection",
+      "sourceContextNames": ["catalog"],
+      "ownedTables": ["catalog_source_observations"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    }
+  ],
   "deployableContributions": [
     {
       "deployable": "admin-web",

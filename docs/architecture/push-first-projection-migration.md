@@ -31,9 +31,9 @@ An explicit opt-out (`projectionPushOptOuts` in `projection-push-migration.ts`) 
 
 The validator also rejects opt-outs naming unknown projection groups and duplicates. **Current opt-out count: 0.** Every projection group on the platform is push-first eligible or enabled.
 
-## Projection Groups (58)
+## Projection Groups (59)
 
-Bold source contexts are staging-enabled in the registry (wave 1). `Enabled` counts sources with relay fan-out enabled.
+Bold source contexts are staging-enabled in the registry. `Enabled` counts sources with relay fan-out enabled.
 
 | Projection group | Owner | Source contexts | Status | Enabled |
 | --- | --- | --- | --- | --- |
@@ -41,26 +41,27 @@ Bold source contexts are staging-enabled in the registry (wave 1). `Enabled` cou
 | `auth:auth-identity-invitation-projection` | Auth | identity | push-eligible | 0/1 |
 | `auth:auth-identity-membership-projection` | Auth | identity | push-eligible | 0/1 |
 | `auth:auth-identity-user-projection` | Auth | identity | push-eligible | 0/1 |
-| `checkout:checkout-catalog-item-projection` | Checkout | catalog | push-eligible | 0/1 |
+| `catalog:catalog-source-observation-projection` | Catalog | **catalog** | push-enabled | 1/1 |
+| `checkout:checkout-catalog-item-projection` | Checkout | **catalog** | push-enabled | 1/1 |
 | `checkout:checkout.cart-projection` | Checkout | **checkout** | push-enabled | 1/1 |
 | `checkout:checkout.sell-list-projection` | Checkout | **checkout** | push-enabled | 1/1 |
 | `checkout:checkout.session-projection` | Checkout | **checkout** | push-enabled | 1/1 |
 | `commercial-terms:commercial-terms-account-projection` | Commercial Terms | identity | push-eligible | 0/1 |
-| `discovery:discovery-category-projection` | Discovery | catalog | push-eligible | 0/1 |
-| `discovery:discovery-google-shopping-feed-row-projection` | Discovery | catalog | push-eligible | 0/1 |
-| `discovery:discovery-item-detail-projection` | Discovery | catalog | push-eligible | 0/1 |
+| `discovery:discovery-category-projection` | Discovery | **catalog** | push-enabled | 1/1 |
+| `discovery:discovery-google-shopping-feed-row-projection` | Discovery | **catalog** | push-enabled | 1/1 |
+| `discovery:discovery-item-detail-projection` | Discovery | **catalog** | push-enabled | 1/1 |
 | `discovery:discovery-market-projection` | Discovery | identity, **marketplace** | push-eligible | 1/2 |
 | `discovery:discovery-product-alert-notification-projection` | Discovery | **marketplace** | push-enabled | 1/1 |
 | `discovery:discovery-product-alert-page-projection` | Discovery | discovery | push-eligible | 0/1 |
-| `discovery:discovery-search-item-projection` | Discovery | catalog | push-eligible | 0/1 |
+| `discovery:discovery-search-item-projection` | Discovery | **catalog** | push-enabled | 1/1 |
 | `fulfillment:fulfillment-account-projection` | Fulfillment | identity | push-eligible | 0/1 |
 | `fulfillment:fulfillment-order-source-projection` | Fulfillment | **ordering** | push-enabled | 1/1 |
-| `inventory:inventory-catalog-item-projection` | Inventory | catalog | push-eligible | 0/1 |
+| `inventory:inventory-catalog-item-projection` | Inventory | **catalog** | push-enabled | 1/1 |
 | `inventory:inventory-hold-projection` | Inventory | inventory | push-eligible | 0/1 |
 | `inventory:inventory-item-projection` | Inventory | inventory | push-eligible | 0/1 |
 | `inventory:inventory-order-reservation-workflow` | Inventory | **ordering** | push-enabled | 1/1 |
 | `inventory:inventory-storage-location-projection` | Inventory | inventory | push-eligible | 0/1 |
-| `marketplace:marketplace-catalog-item-projection` | Marketplace | catalog | push-eligible | 0/1 |
+| `marketplace:marketplace-catalog-item-projection` | Marketplace | **catalog** | push-enabled | 1/1 |
 | `marketplace:marketplace-identity-account-projection` | Marketplace | identity, **marketplace** | push-eligible | 1/2 |
 | `marketplace:marketplace-inventory-supply-projection` | Marketplace | inventory | push-eligible | 0/1 |
 | `marketplace:marketplace-listing-projection` | Marketplace | **marketplace** | push-enabled | 1/1 |
@@ -78,7 +79,7 @@ Bold source contexts are staging-enabled in the registry (wave 1). `Enabled` cou
 | `payments:payments-order-input-projection` | Payments | **ordering** | push-enabled | 1/1 |
 | `payments:payments-payment-projection` | Payments | **payments** | push-enabled | 1/1 |
 | `payments:payments-support-refund-effect` | Payments | support | push-eligible | 0/1 |
-| `pricing:pricing-catalog-input-projection` | Pricing | catalog | push-eligible | 0/1 |
+| `pricing:pricing-catalog-input-projection` | Pricing | **catalog** | push-enabled | 1/1 |
 | `pricing:pricing-fulfillment-input-projection` | Pricing | fulfillment | push-eligible | 0/1 |
 | `pricing:pricing-inventory-input-projection` | Pricing | inventory | push-eligible | 0/1 |
 | `pricing:pricing-market-input-projection` | Pricing | **marketplace** | push-enabled | 1/1 |
@@ -96,7 +97,7 @@ Bold source contexts are staging-enabled in the registry (wave 1). `Enabled` cou
 | `platform-operations:support-order-source-projection` | Platform Operations | **ordering** | push-enabled | 1/1 |
 | `platform-operations:support-shipment-source-projection` | Platform Operations | fulfillment | push-eligible | 0/1 |
 
-Totals: 20 `push-enabled`, 38 `push-eligible`, 0 `disabled`, 0 `opted-out`.
+Totals: 29 `push-enabled`, 30 `push-eligible`, 0 `disabled`, 0 `opted-out`.
 
 ## Read-After-Write Route Inventory (18)
 
@@ -129,7 +130,7 @@ Wave membership lives in the registry; this report records the enablement timeli
 
 - **Wave 1 (`checkout`, `marketplace`, `ordering`, `payments`)** — staging-enabled. `checkout` since 2026-06-10 (push-loop evidence in [Push-Wake SLO And Load Proof](./push-wake-slo-load-proof.md)); the wave-1 remainder enabled 2026-06-11 on the back of that evidence. The wave-1 listener URLs and the connection budget in `infrastructure/digitalocean/platform/locals.tf` already cover all four contexts in both staging and the production worst case, so these flips change no Terraform.
 - **Production follow** — production stays inert (`PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED=false`, `WORKER_PROJECTION_WAKE_RELAY_ENABLED=false`, `READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED=false`) until the production gates pass: a green steady-state production proof canary per the #1237 miss analysis and hold-then-gate action set in the SLO/load-proof doc, plus #1243 topology parity evidence. Flipping is a deliberate operator decision via the [rollout-controls runbook](../runbooks/push-wake-rollout-controls.md), not a registry side effect.
-- **Wave 2 (`catalog`, `fulfillment`, `identity`, `inventory`)** — eligible, not staging-enabled. Blocked on the listener/connection-budget expansion decision: `worker_listener_source_contexts` budgets exactly the four wave-1 listeners, and high-volume contexts (catalog, identity, inventory) additionally need the wake-store capacity evidence (#1246 gates in the registry doc) before enablement.
+- **Wave 2 (`catalog`, `fulfillment`, `identity`, `inventory`)** — `catalog` is staging-enabled for Source Observation import/review freshness and Catalog-sourced consumer projections; `fulfillment`, `identity`, and `inventory` remain eligible. The remaining high-volume contexts still need the listener/connection-budget expansion decision and wake-store capacity evidence (#1246 gates in the registry doc) before enablement.
 - **Wave 3 (`discovery`, `public-presence`, `settlement`, `support`)** — eligible, follows wave 2 with owner approval.
 - **Wave 4 (`auth`, `commercial-terms`, `experience`, `insights`, `notifications`, `platform-operations`, `pricing`, `tax`)** — no source-projection fan-out or route dependency requiring event-store wakes; these contexts emit nothing today and need no opt-out because nothing consumes from them.
 

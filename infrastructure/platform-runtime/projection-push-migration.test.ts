@@ -47,11 +47,11 @@ describe("projection push migration inventory", () => {
     }
   });
 
-  it("classifies wave-1 staging-enabled projections as push-enabled and the remainder as push-eligible", () => {
+  it("classifies staging-enabled projections as push-enabled and the remainder as push-eligible", () => {
     const entries = listProjectionPushMigrationEntries();
     const byKey = new Map(entries.map((entry) => [entry.projectionKey, entry]));
 
-    // All sources inside the staging-enabled wave-1 set -> fully push-enabled.
+    // All sources inside the staging-enabled set -> fully push-enabled.
     expect(byKey.get("checkout:checkout.session-projection")).toMatchObject({
       status: "push-enabled",
       owner: "Checkout",
@@ -62,6 +62,13 @@ describe("projection push migration inventory", () => {
     expect(byKey.get("payments:payments-order-input-projection")).toMatchObject({
       status: "push-enabled",
       owner: "Payments",
+    });
+    expect(byKey.get("catalog:catalog-source-observation-projection")).toMatchObject({
+      status: "push-enabled",
+      owner: "Catalog",
+      enabledSourceContextCount: 1,
+      sourceContextCount: 1,
+      consumesDurableWakeIntents: true,
     });
 
     // Mixed sources: marketplace is enabled but identity waits on its wave ->
@@ -74,11 +81,11 @@ describe("projection push migration inventory", () => {
       consumesDurableWakeIntents: true,
     });
 
-    // No enabled source yet -> push-eligible without wake-intent delivery.
+    // Catalog is enabled, so Catalog-sourced projections receive wake-intent delivery.
     expect(byKey.get("pricing:pricing-catalog-input-projection")).toMatchObject({
-      status: "push-eligible",
-      enabledSourceContextCount: 0,
-      consumesDurableWakeIntents: false,
+      status: "push-enabled",
+      enabledSourceContextCount: 1,
+      consumesDurableWakeIntents: true,
     });
 
     expect(summarizeProjectionPushMigration()).toMatchObject({
