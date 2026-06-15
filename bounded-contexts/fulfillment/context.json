@@ -52,6 +52,20 @@
       "ownedTables": ["fulfillment_order_sources", "fulfillment_order_source_lines"],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "fulfillment-shipment-projection",
+      "sourceContextNames": ["fulfillment"],
+      "ownedTables": [
+        "fulfillment_shipment_pages",
+        "fulfillment_shipment_line_pages",
+        "fulfillment_shipment_exception_pages",
+        "fulfillment_label_address_override_audit_pages",
+        "fulfillment_postage_label_operations",
+        "fulfillment_postage_provider_events"
+      ],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
     }
   ],
   "hostPorts": [
@@ -77,12 +91,183 @@
     {
       "mountPath": "/api/marketplace",
       "kind": "primary",
-      "requiresAuth": true
+      "requiresAuth": true,
+      "readFreshnessRoutes": [
+        {
+          "routePath": "/account/sales/shipments/:id",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "fulfillment_shipment_pages"
+            },
+            {
+              "readModelTable": "fulfillment_shipment_line_pages"
+            },
+            {
+              "readModelTable": "fulfillment_shipment_exception_pages"
+            },
+            {
+              "readModelTable": "fulfillment_label_address_override_audit_pages"
+            },
+            {
+              "readModelTable": "fulfillment_postage_label_operations"
+            },
+            {
+              "readModelTable": "fulfillment_postage_provider_events"
+            }
+          ]
+        }
+      ]
     },
     {
       "mountPath": "/api/fulfillment/provider",
       "kind": "additional",
       "requiresAuth": false
+    }
+  ],
+  "readAfterWriteRouteInventory": [
+    {
+      "id": "fulfillment.seller-shipment-self-refresh",
+      "owner": "fulfillment",
+      "risk": "important",
+      "source": {
+        "routeIds": ["account-sale-shipment", "account-sale-shipment-packing"],
+        "actions": [
+          "Start packing",
+          "Complete packing",
+          "Purchase or void label",
+          "Dispatch shipment",
+          "Record delivery, return, or exception"
+        ],
+        "command": "Fulfillment shipment commands",
+        "helperUses": ["appendFreshWriteToken"]
+      },
+      "destination": {
+        "routeIds": ["account-sale-shipment", "account-sale-shipment-packing"],
+        "apiContextName": "fulfillment",
+        "apiRoutePath": "/account/sales/shipments/:id",
+        "readModelTables": [
+          "fulfillment_shipment_pages",
+          "fulfillment_shipment_line_pages",
+          "fulfillment_shipment_exception_pages",
+          "fulfillment_label_address_override_audit_pages",
+          "fulfillment_postage_label_operations",
+          "fulfillment_postage_provider_events"
+        ],
+        "transientRecovery": "Seller shipment redirects carry the Fulfillment command receipt as afterWrite; seller shipment loaders forward the receipt to the Fulfillment API freshness gate and render temporary shipment recovery copy for fresh 404 or projection_freshness_timeout responses."
+      }
+    }
+  ],
+  "mutationConsistencyInventory": [
+    {
+      "id": "fulfillment.shipment-command-snapshots",
+      "owner": "fulfillment",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/fulfillment/features/shipments/api/route.ts:POST /postage/webhooks",
+        "api-route:bounded-contexts/fulfillment/features/shipments/api/route.ts:POST /sales/shipments/:id/deliver",
+        "api-route:bounded-contexts/fulfillment/features/shipments/api/route.ts:POST /sales/shipments/:id/dispatch",
+        "api-route:bounded-contexts/fulfillment/features/shipments/api/route.ts:POST /sales/shipments/:id/exception",
+        "api-route:bounded-contexts/fulfillment/features/shipments/api/route.ts:POST /sales/shipments/:id/label",
+        "api-route:bounded-contexts/fulfillment/features/shipments/api/route.ts:POST /sales/shipments/:id/label/purchase",
+        "api-route:bounded-contexts/fulfillment/features/shipments/api/route.ts:POST /sales/shipments/:id/label/void",
+        "api-route:bounded-contexts/fulfillment/features/shipments/api/route.ts:POST /sales/shipments/:id/pack",
+        "api-route:bounded-contexts/fulfillment/features/shipments/api/route.ts:POST /sales/shipments/:id/packing/lines/:lineId",
+        "api-route:bounded-contexts/fulfillment/features/shipments/api/route.ts:POST /sales/shipments/:id/packing/start",
+        "api-route:bounded-contexts/fulfillment/features/shipments/api/route.ts:POST /sales/shipments/:id/return"
+      ],
+      "visibleDestination": {
+        "description": "Shipment lifecycle, packing, label, provider webhook, tracking, return, and exception API writes return Fulfillment-owned command snapshots with shipment id, aggregate version, committed status or provider processing result, and line/tracking fields where the command owns them."
+      },
+      "proof": {
+        "authoritativeResponse": "bounded-contexts/fulfillment/features/shipments/api/route.ts builds each mutation response from the Fulfillment shipment command result before any projection read; platform API commit receipt headers attach to those responses when mounted.",
+        "tests": ["bounded-contexts/fulfillment/features/shipments/api/route.test.ts"]
+      }
+    },
+    {
+      "id": "fulfillment.seller-shipment-detail-fresh-read",
+      "owner": "fulfillment",
+      "risk": "important",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-detail-page.tsx:H2df726441e2a#1",
+        "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-detail-page.tsx:H2df726441e2a#2",
+        "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-detail-page.tsx:H2df726441e2a#3",
+        "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-detail-page.tsx:H2df726441e2a#4",
+        "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-detail-page.tsx:H2df726441e2a#5",
+        "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-detail-page.tsx:H2df726441e2a#6",
+        "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-detail-page.tsx:H2df726441e2a#7",
+        "route-action:bounded-contexts/fulfillment/routes/marketplace/account-sale-shipment.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "account-sale-shipment",
+        "apiContextName": "fulfillment",
+        "apiRoutePath": "/account/sales/shipments/:id",
+        "readModelTables": [
+          "fulfillment_shipment_pages",
+          "fulfillment_shipment_line_pages",
+          "fulfillment_shipment_exception_pages",
+          "fulfillment_label_address_override_audit_pages",
+          "fulfillment_postage_label_operations",
+          "fulfillment_postage_provider_events"
+        ],
+        "transientRecovery": "Seller shipment detail redirects carry the Fulfillment command receipt as afterWrite; the loader forwards the receipt to the Fulfillment API freshness gate and renders temporary shipment update recovery for fresh 404 or projection_freshness_timeout responses."
+      },
+      "proof": {
+        "tests": [
+          "bounded-contexts/fulfillment/routes/marketplace/account-sale-shipment-route.test.ts",
+          "bounded-contexts/fulfillment/features/shipments/ui/packing-slip-page.test.tsx"
+        ]
+      }
+    },
+    {
+      "id": "fulfillment.seller-shipment-packing-fresh-read",
+      "owner": "fulfillment",
+      "risk": "important",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-packing-page.tsx:H2df726441e2a#1",
+        "post-form:bounded-contexts/fulfillment/features/shipments/ui/shipment-packing-page.tsx:Ha72c19094e96#1"
+      ],
+      "visibleDestination": {
+        "routeId": "account-sale-shipment-packing",
+        "apiContextName": "fulfillment",
+        "apiRoutePath": "/account/sales/shipments/:id",
+        "readModelTables": [
+          "fulfillment_shipment_pages",
+          "fulfillment_shipment_line_pages",
+          "fulfillment_shipment_exception_pages",
+          "fulfillment_label_address_override_audit_pages",
+          "fulfillment_postage_label_operations",
+          "fulfillment_postage_provider_events"
+        ],
+        "transientRecovery": "Packing start and complete redirects carry the Fulfillment command receipt as afterWrite; seller shipment loaders forward the receipt and show temporary shipment recovery while the packing projection catches up."
+      },
+      "proof": {
+        "tests": [
+          "bounded-contexts/fulfillment/routes/marketplace/account-sale-shipment-packing-route.test.ts",
+          "bounded-contexts/fulfillment/features/shipments/ui/packing-slip-page.test.tsx"
+        ]
+      }
+    },
+    {
+      "id": "fulfillment.packing-line-optimistic-correction",
+      "owner": "fulfillment",
+      "risk": "important",
+      "strategy": "optimistic-with-correction",
+      "surfaces": ["route-action:bounded-contexts/fulfillment/routes/marketplace/account-sale-shipment-packing.tsx"],
+      "visibleDestination": {
+        "routeId": "account-sale-shipment-packing",
+        "description": "Packing line quantity controls update the visible packed count immediately, serialize each line's newest write with a per-line request sequence, reconcile to the command snapshot, and roll back only the latest failed write."
+      },
+      "proof": {
+        "correction": "shipment-packing-page.tsx applies the requested packed quantity optimistically, ignores stale command responses for superseded per-line requests, reconciles to the returned line confirmedQuantity snapshot, rolls back failed latest writes, and keeps complete-packing disabled while writes are in flight.",
+        "tests": [
+          "bounded-contexts/fulfillment/features/shipments/ui/shipment-packing-optimistic-correction.test.tsx",
+          "bounded-contexts/fulfillment/routes/marketplace/account-sale-shipment-packing-route.test.ts"
+        ]
+      }
     }
   ],
   "deployableContributions": [

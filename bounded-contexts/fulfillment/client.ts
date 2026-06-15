@@ -1,6 +1,6 @@
 import { hc } from "hono/client";
 import { honoClientResource } from "@chase-sets/http/hono-client";
-import { attachResponseMetadata, type ListResponse } from "@chase-sets/http/responses";
+import { attachResponseMetadata, readApiErrorMessage, type ListResponse } from "@chase-sets/http/responses";
 import type { buildFulfillmentApi } from "./api";
 
 export type {
@@ -29,8 +29,8 @@ export class FulfillmentApiError extends Error {
     public readonly body: unknown,
   ) {
     super(
-      typeof body === "object" && body !== null && "error" in body
-        ? String((body as Record<string, unknown>).error)
+      typeof body === "object" && body !== null
+        ? readApiErrorMessage(body, `API error ${status}`)
         : `API error ${status}`,
     );
   }

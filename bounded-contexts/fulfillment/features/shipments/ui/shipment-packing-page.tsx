@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { t } from "@chase-sets/localization";
 import {
   Form,
@@ -267,6 +267,7 @@ export function FulfillmentShipmentPackingPage({
   } | null>(null);
   const [matchedLineId, setMatchedLineId] = useState<string | null>(null);
   const [packingSlipOpened, setPackingSlipOpened] = useState(false);
+  const lineRequestSequences = useRef<Record<string, number>>({});
   const checkedCount = shipment.lines.reduce((total, line) => total + (packedQuantities[line.line_id] ?? 0), 0);
   const totalQuantity = shipment.total_quantity;
   const progressValue = totalQuantity > 0 ? Math.round((checkedCount / totalQuantity) * 100) : 0;
@@ -308,6 +309,8 @@ export function FulfillmentShipmentPackingPage({
       return next;
     });
     setLineErrors((current) => ({ ...current, [lineId]: null }));
+    const requestSequence = (lineRequestSequences.current[lineId] ?? 0) + 1;
+    lineRequestSequences.current[lineId] = requestSequence;
 
     const formData = new FormData();
     formData.set("intent", "set-line-confirmed");
@@ -321,10 +324,27 @@ export function FulfillmentShipmentPackingPage({
         body: formData,
       });
       if (!response.ok) {
-        throw new Error("Packing line update failed.");
+        const body = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(body?.error ?? t("fulfillment.features.shipments.ui.shipmentPackingPage.line.save.failed"));
       }
+      const result = (await response.json().catch(() => null)) as {
+        lineId?: string;
+        confirmedQuantity?: number;
+      } | null;
+      if (lineRequestSequences.current[lineId] !== requestSequence) {
+        return;
+      }
+      if (result?.lineId !== lineId || typeof result.confirmedQuantity !== "number") {
+        throw new Error(t("fulfillment.features.shipments.ui.shipmentPackingPage.line.save.failed"));
+      }
+
+      const serverQuantity = clampPackedQuantity(line, result.confirmedQuantity);
+      setPackedQuantities((current) => ({ ...current, [lineId]: serverQuantity }));
       setSavedLineIds((current) => new Set(current).add(lineId));
     } catch (error) {
+      if (lineRequestSequences.current[lineId] !== requestSequence) {
+        return;
+      }
       setPackedQuantities((current) => ({ ...current, [lineId]: previousQuantity }));
       setLineErrors((current) => ({
         ...current,
@@ -334,6 +354,9 @@ export function FulfillmentShipmentPackingPage({
             : t("fulfillment.features.shipments.ui.shipmentPackingPage.line.save.failed"),
       }));
     } finally {
+      if (lineRequestSequences.current[lineId] !== requestSequence) {
+        return;
+      }
       setSavingLineIds((current) => {
         const next = new Set(current);
         next.delete(lineId);

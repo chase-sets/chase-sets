@@ -134,6 +134,9 @@ export const fulfillmentEnglishTranslations = {
   "fulfillment.routes.marketplace.accountSaleShipmentPacking.request.failed": "Request failed.",
   "fulfillment.routes.marketplace.accountSaleShipmentPacking.shipment.not.found": "Shipment not found.",
   "fulfillment.routes.marketplace.accountSaleShipmentPacking.unknown.intent": "Unknown packing action.",
+  "fulfillment.routes.marketplace.accountSaleShipmentPacking.update.pending.description":
+    "The shipment update is still being applied. Refresh this shipment in a moment to see the latest packing state.",
+  "fulfillment.routes.marketplace.accountSaleShipmentPacking.update.pending.title": "Shipment update in progress",
   "fulfillment.features.shipments.api.route.authentication.context.missing": "Authentication context missing.",
   "fulfillment.features.shipments.api.route.authentication.context.missing.2": "Authentication context missing.",
   "fulfillment.features.shipments.api.route.authentication.context.missing.3": "Authentication context missing.",
@@ -273,6 +276,9 @@ export const fulfillmentEnglishTranslations = {
   "fulfillment.routes.marketplace.accountSaleShipment.request.failed": "Request failed.",
   "fulfillment.routes.marketplace.accountSaleShipment.sale.shipment.marketplace": "Sale Shipment | Marketplace",
   "fulfillment.routes.marketplace.accountSaleShipment.shipment.not.found": "Shipment not found.",
+  "fulfillment.routes.marketplace.accountSaleShipment.update.pending.description":
+    "The shipment update is still being applied. Refresh this shipment in a moment to see the latest state.",
+  "fulfillment.routes.marketplace.accountSaleShipment.update.pending.title": "Shipment update in progress",
   "fulfillment.routes.marketplace.accountSaleShipments.no.sale.shipments.yet": "No sale shipments yet",
   "fulfillment.routes.marketplace.accountSaleShipments.sale.shipments": "Sale Shipments",
   "fulfillment.routes.marketplace.accountSaleShipments.sale.shipments.marketplace": "Sale Shipments | Marketplace",

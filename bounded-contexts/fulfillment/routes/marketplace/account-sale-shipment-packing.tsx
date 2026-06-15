@@ -1,25 +1,18 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
+import { appendFreshWriteToken, readApiErrorMessage, recoverFreshWriteReadError } from "@chase-sets/http/responses";
+import { LinkButton, MarketplaceNotice, Page, PageHeader } from "@chase-sets/design-system";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { FulfillmentApiError, type FulfillmentShipmentDetail } from "../../support/request-support/api-client";
 import { createFulfillmentRequestApiClient } from "../../support/request-support/api-client";
 import { FulfillmentShipmentPackingPage } from "../../features/shipments/ui/shipment-packing-page";
 
+type ShipmentPackingActionData = Readonly<{ error?: string }>;
+
 function formValue(formData: FormData, key: string) {
   return String(formData.get(key) ?? "");
-}
-
-async function waitForPackingProjection(api: ReturnType<typeof createFulfillmentRequestApiClient>, shipmentId: string) {
-  for (let attempt = 0; attempt < 12; attempt += 1) {
-    const shipment = await api.getSellerShipment(shipmentId);
-    if (shipment.status === "packing") {
-      return;
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 250));
-  }
 }
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
@@ -32,8 +25,24 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   try {
     return {
       shipment: await api.getSellerShipment(params.shipmentId!),
+      freshnessError: null,
     };
   } catch (error) {
+    const recovery = recoverFreshWriteReadError({
+      request,
+      error,
+      recoverTransient: () => ({
+        shipment: null,
+        freshnessError: readApiErrorMessage(
+          error instanceof FulfillmentApiError ? error.body : null,
+          t("fulfillment.routes.marketplace.accountSaleShipmentPacking.update.pending.description"),
+        ),
+      }),
+    });
+    if (recovery) {
+      return recovery;
+    }
+
     if (error instanceof FulfillmentApiError && error.status === 404) {
       throw new Response(t("fulfillment.routes.marketplace.accountSaleShipmentPacking.shipment.not.found"), {
         status: 404,
@@ -56,23 +65,22 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
   try {
     if (intent === "start-packing") {
-      await api.startPackingShipment(shipmentId);
-      await waitForPackingProjection(api, shipmentId);
-      return redirect(`/account/sales/shipments/${shipmentId}/packing`);
+      const result = await api.startPackingShipment(shipmentId);
+      return redirect(appendFreshWriteToken(`/account/sales/shipments/${shipmentId}/packing`, result));
     }
 
     if (intent === "complete-packing") {
-      await api.packShipment(shipmentId, {
+      const result = await api.packShipment(shipmentId, {
         packageCount: Number(formValue(formData, "packageCount") || 1),
       });
-      return redirect(`/account/sales/shipments/${shipmentId}`);
+      return redirect(appendFreshWriteToken(`/account/sales/shipments/${shipmentId}`, result));
     }
 
     if (intent === "set-line-confirmed") {
       const lineId = formValue(formData, "lineId");
       const confirmedQuantity = Number(formValue(formData, "confirmedQuantity"));
-      await api.updatePackingLineQuantity(shipmentId, lineId, confirmedQuantity);
-      return { ok: true, lineId, confirmedQuantity };
+      const result = await api.updatePackingLineQuantity(shipmentId, lineId, confirmedQuantity);
+      return result;
     }
 
     return {
@@ -103,7 +111,29 @@ export const meta: MetaFunction = () =>
 
 export default function MarketplaceAccountSaleShipmentPackingRoute() {
   const data = useLoaderData<typeof loader>();
-  const actionData = useActionData<typeof action>();
+  const actionData = useActionData() as ShipmentPackingActionData | undefined;
+
+  if (!data.shipment) {
+    return (
+      <Page>
+        <PageHeader
+          eyebrow={t("fulfillment.features.shipments.ui.shipmentPackingPage.seller")}
+          title={t("fulfillment.routes.marketplace.accountSaleShipmentPacking.update.pending.title")}
+          description={t("fulfillment.routes.marketplace.accountSaleShipmentPacking.update.pending.description")}
+          actions={
+            <LinkButton href="/account/sales/shipments" tone="secondary">
+              {t("fulfillment.features.shipments.ui.shipmentPackingPage.back")}
+            </LinkButton>
+          }
+        />
+        <MarketplaceNotice
+          tone="info"
+          title={t("fulfillment.routes.marketplace.accountSaleShipmentPacking.update.pending.title")}
+          description={data.freshnessError}
+        />
+      </Page>
+    );
+  }
 
   return (
     <FulfillmentShipmentPackingPage

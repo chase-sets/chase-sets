@@ -1,6 +1,8 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
+import { appendFreshWriteToken, readApiErrorMessage, recoverFreshWriteReadError } from "@chase-sets/http/responses";
+import { LinkButton, MarketplaceNotice, Page, PageHeader } from "@chase-sets/design-system";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { FulfillmentApiError, type FulfillmentShipmentDetail } from "../../support/request-support/api-client";
@@ -56,8 +58,24 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   try {
     return {
       shipment: await api.getSellerShipment(params.shipmentId!),
+      freshnessError: null,
     };
   } catch (error) {
+    const recovery = recoverFreshWriteReadError({
+      request,
+      error,
+      recoverTransient: () => ({
+        shipment: null,
+        freshnessError: readApiErrorMessage(
+          error instanceof FulfillmentApiError ? error.body : null,
+          t("fulfillment.routes.marketplace.accountSaleShipment.update.pending.description"),
+        ),
+      }),
+    });
+    if (recovery) {
+      return recovery;
+    }
+
     if (error instanceof FulfillmentApiError && error.status === 404) {
       throw new Response(t("fulfillment.routes.marketplace.accountSaleShipment.shipment.not.found"), { status: 404 });
     }
@@ -77,13 +95,14 @@ export async function action({ request, params }: ActionFunctionArgs) {
   const shipmentId = params.shipmentId!;
 
   try {
+    let result: unknown = null;
     if (intent === "prepare-package") {
-      await api.packShipment(shipmentId, {
+      result = await api.packShipment(shipmentId, {
         packageCount: Number(formValue(formData, "packageCount") || 1),
       });
     }
     if (intent === "purchase-label") {
-      await api.purchaseUspsLabel(shipmentId, {
+      result = await api.purchaseUspsLabel(shipmentId, {
         serviceLevel: formValue(formData, "serviceLevel"),
         ...(hasAddressInput(formData, "sender") ? addressBody(formData, "sender") : {}),
         ...(hasAddressInput(formData, "recipient") ? addressBody(formData, "recipient") : {}),
@@ -92,27 +111,27 @@ export async function action({ request, params }: ActionFunctionArgs) {
       });
     }
     if (intent === "void-label") {
-      await api.voidLabel(shipmentId);
+      result = await api.voidLabel(shipmentId);
     }
     if (intent === "dispatch-shipment") {
-      await api.dispatchShipment(shipmentId);
+      result = await api.dispatchShipment(shipmentId);
     }
     if (intent === "deliver-shipment") {
-      await api.deliverShipment(shipmentId);
+      result = await api.deliverShipment(shipmentId);
     }
     if (intent === "return-shipment") {
-      await api.returnShipment(shipmentId, {
+      result = await api.returnShipment(shipmentId, {
         reason: formValue(formData, "reason"),
       });
     }
     if (intent === "raise-exception") {
-      await api.raiseShipmentException(shipmentId, {
+      result = await api.raiseShipmentException(shipmentId, {
         exceptionType: formValue(formData, "exceptionType"),
         notes: formValue(formData, "notes"),
       });
     }
 
-    return redirect(`/account/sales/shipments/${shipmentId}`);
+    return redirect(appendFreshWriteToken(`/account/sales/shipments/${shipmentId}`, result));
   } catch (error) {
     return {
       error:
@@ -127,6 +146,28 @@ export const meta: MetaFunction = () =>
 export default function MarketplaceAccountSaleShipmentRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
+
+  if (!data.shipment) {
+    return (
+      <Page>
+        <PageHeader
+          eyebrow={t("fulfillment.features.shipments.ui.shipmentDetailPage.seller")}
+          title={t("fulfillment.routes.marketplace.accountSaleShipment.update.pending.title")}
+          description={t("fulfillment.routes.marketplace.accountSaleShipment.update.pending.description")}
+          actions={
+            <LinkButton href="/account/sales/shipments" tone="secondary">
+              {t("fulfillment.features.shipments.ui.shipmentDetailPage.back")}
+            </LinkButton>
+          }
+        />
+        <MarketplaceNotice
+          tone="info"
+          title={t("fulfillment.routes.marketplace.accountSaleShipment.update.pending.title")}
+          description={data.freshnessError}
+        />
+      </Page>
+    );
+  }
 
   return (
     <FulfillmentShipmentDetailPage
