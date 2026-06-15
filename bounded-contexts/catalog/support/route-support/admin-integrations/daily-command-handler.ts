@@ -62,6 +62,10 @@ export async function handleDailyCommand(input: {
 
   switch (intent) {
     case "start-provider-import": {
+      if (!hasSelectedImportScope(context)) {
+        return dailyResult(intent, "error", "command-failed", { ...context, jobId: null, promotionPreviewId: null });
+      }
+
       const job = await api.enqueueSourceObservationIntegrationJob<CatalogCommandJobResponse>(
         "import",
         integrationScopeFromContext(context),
@@ -182,6 +186,10 @@ export async function handleDailyCommand(input: {
       });
     }
   }
+}
+
+function hasSelectedImportScope(context: RouteContext): boolean {
+  return Boolean(context.providerKey && context.unitKey && context.importScope);
 }
 
 // Every daily result names the import-to-promotion section, so the daily surface

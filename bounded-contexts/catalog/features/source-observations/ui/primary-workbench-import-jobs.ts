@@ -8,6 +8,7 @@ import type {
 import type { CatalogIntegrationControlPlaneOverview, CatalogProviderProfileVersionReview } from "./contracts";
 import { catalogPrimaryWorkbenchHref, catalogPrimaryWorkbenchSupportingHref } from "./primary-workbench-route-context";
 import type { CatalogPrimaryWorkbenchInput } from "./primary-workbench-read-model-input";
+import { scopeContextFromRouteContext } from "./primary-workbench-scope-context";
 import {
   comparableImportScopeKey,
   importScopeMatchesProviderScope,
@@ -28,6 +29,7 @@ export function selectedImportScopeFor(input: {
   importScope: string | null;
   providerKey: string | null;
   providerTransport: readonly CatalogPrimaryWorkbenchProviderTransportCategory[];
+  routeContext: CatalogPrimaryWorkbenchRouteContext;
   rolloutEnabled: boolean;
   unitKey: CatalogIntegrationUnitKey | null;
 }): CatalogPrimaryWorkbenchReadModel["importJobs"]["selectedScope"] {
@@ -59,6 +61,7 @@ export function selectedImportScopeFor(input: {
   return {
     providerKey: input.providerKey,
     unitKey: input.unitKey,
+    scope: scopeContextFromRouteContext(input.routeContext),
     importScope: input.importScope,
     profileVersion: input.activeProfile?.profileVersion ?? null,
     profileSnapshot: profilePointerForProfile(input.activeProfile),
@@ -169,9 +172,50 @@ export function importJobsFor(
         "audit-evidence",
       ),
       observationLinks: [sourceObservationReviewHrefFor(routeContext, job)],
+      result: jobResultFor(routeContext, job),
       blockers: [...blockers],
     };
   });
+}
+
+function jobResultFor(
+  routeContext: CatalogPrimaryWorkbenchRouteContext,
+  job: CatalogIntegrationRecentJobReadModel,
+): CatalogPrimaryWorkbenchReadModel["importJobs"]["jobs"][number]["result"] {
+  if (!job.result) {
+    return null;
+  }
+
+  return {
+    requestedScope: scopeContextFromRouteContext({
+      ...routeContext,
+      providerKey: job.providerKey,
+      importScope: job.importScope,
+    }),
+    requestedCount: job.result.requested,
+    importedSetCount: job.result.imported,
+    observedCount: job.result.observed,
+    reappliedCount: job.result.reapplied,
+    skippedCount: job.result.skipped,
+    failedCount: job.result.failed,
+    replayOrReapplyState: replayOrReapplyStateFor(job),
+  };
+}
+
+function replayOrReapplyStateFor(
+  job: CatalogIntegrationRecentJobReadModel,
+): NonNullable<CatalogPrimaryWorkbenchReadModel["importJobs"]["jobs"][number]["result"]>["replayOrReapplyState"] {
+  if (job.action !== "reapply") {
+    return "not-applicable";
+  }
+  if (job.reapplyProfileMode === "current-active-profile") {
+    return "reapply-current-active-profile";
+  }
+  if (job.reapplyProfileMode === "original-source-profile") {
+    return "replay-original-source-profile";
+  }
+
+  return "unknown";
 }
 
 function sourceObservationReviewHrefFor(

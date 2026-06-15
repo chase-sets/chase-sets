@@ -616,6 +616,27 @@ describe("Catalog integrations route", () => {
     });
   });
 
+  it("does not enqueue a provider import until a concrete source scope is selected", async () => {
+    const enqueueSourceObservationIntegrationJob = vi.fn().mockResolvedValue({ jobId: "job_provider_wide" });
+    mockCreateCatalogRequestApiClient.mockReturnValue({ enqueueSourceObservationIntegrationJob });
+
+    const result = await runDailyAction({
+      _intent: "start-provider-import",
+      providerKey: "tcgdex",
+      unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+      profileVersion: "2026.06.03",
+    });
+
+    expect(enqueueSourceObservationIntegrationJob).not.toHaveBeenCalled();
+    expect(result.section).toBe("import-to-promotion");
+    expect(result.context.jobId).toBeNull();
+    expect(result.feedback).toEqual({
+      status: "error",
+      intent: "start-provider-import",
+      result: "command-failed",
+    });
+  });
+
   it("preserves selected IDs while creating a scoped promotion preview token", async () => {
     const previewBulkPromoteSourceObservationIds = vi.fn().mockResolvedValue({
       matched: 1,
@@ -1391,6 +1412,8 @@ describe("Catalog integrations route", () => {
     const failureResult = await runDailyAction({
       _intent: "start-provider-import",
       providerKey: "tcgdex",
+      unitKey: "tcgdex:pokemon:card:import",
+      importScope: "en:3:base:base1",
     });
 
     expect(invalidResult.feedback.result).toBe("invalid-intent");

@@ -27,6 +27,7 @@ export const catalogSourceObservationsWorkbenchHealthCopyEnglishTranslations = {
     "Import completed with partial data",
   "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.import.context.is.incomplete":
     "Import context is incomplete",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.import.scope.required": "Source scope required",
   "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.job.not.found": "Job not found",
   "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.kill.switch.active": "Kill switch active",
   "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.migration.evidence.missing":
@@ -89,6 +90,8 @@ export const catalogSourceObservationsWorkbenchHealthCopyEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.provider.pull.denied": "Provider pull denied",
   "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.provider.quota.exhausted":
     "Provider quota exhausted",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.provider.selection.required":
+    "Provider selection required",
   "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.provider.throttle": "Provider throttle",
   "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.provider.timeout": "Provider timeout",
   "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.rate.limit.cooldown": "Rate limit cooldown",
@@ -123,6 +126,8 @@ export const catalogSourceObservationsWorkbenchHealthCopyEnglishTranslations = {
     "Unsupported control-plane version",
   "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.unsupported.deployed.version":
     "Unsupported deployed version",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.unit.selection.required":
+    "Unit selection required",
   "catalog.features.sourceObservations.ui.primaryWorkbench.copy.next.prefix": "Next:",
   "catalog.features.sourceObservations.ui.primaryWorkbench.copy.route.context": "Copy route context",
   "catalog.features.sourceObservations.ui.primaryWorkbench.health.affected.units": "{count} affected unit(s)",

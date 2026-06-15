@@ -87,4 +87,21 @@ describe("Catalog primary workbench read model - core composition", () => {
       blockers: ["missing-active-profile"],
     });
   });
+
+  it("blocks provider import until a concrete source scope is selected", () => {
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl: "https://admin.example/catalog/integrations?providerKey=tcgdex",
+      scopes: { items: [], total: 0, count: 0 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: null,
+      canManageCatalog: true,
+    });
+
+    expect(readModel.importJobs.selectedScope).toBeNull();
+    expect(readModel.actions.find((action) => action.key === "start-provider-import")).toMatchObject({
+      state: "blocked",
+      blockers: ["import-scope-required"],
+      copyKey: "catalog.primary.providerScope.required",
+    });
+  });
 });

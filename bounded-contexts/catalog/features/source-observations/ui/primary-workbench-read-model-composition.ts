@@ -190,6 +190,7 @@ function buildCatalogPrimaryWorkbenchCore(
           importScope,
           providerKey,
           providerTransport,
+          routeContext,
           rolloutEnabled,
           unitKey,
         }),
@@ -572,7 +573,9 @@ function buildSurfaceActions(
 ): readonly CatalogPrimaryWorkbenchActionReadModel[] {
   return buildActions({
     canManage: derived.canManage,
-    providerSelected: Boolean(derived.providerKey && derived.unitKey && derived.importScope),
+    providerKey: derived.providerKey,
+    unitKey: derived.unitKey,
+    importScope: derived.importScope,
     activeProfileReady: Boolean(derived.activeProfile),
     eligible: core.promotionPreview.outcomeCounts.eligible,
     reviewable: core.sourceObservationReview.counts.observed + core.sourceObservationReview.counts.changed,
@@ -700,7 +703,9 @@ function readinessBlockersFor(
 
 function buildActions(input: {
   canManage: boolean;
-  providerSelected: boolean;
+  providerKey: string | null;
+  unitKey: string | null;
+  importScope: string | null;
   activeProfileReady: boolean;
   eligible: number;
   reviewable: number;
@@ -712,15 +717,7 @@ function buildActions(input: {
   promotionBlockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
 }): readonly CatalogPrimaryWorkbenchActionReadModel[] {
   const manageState = input.canManage ? "available" : "denied";
-  const importBlockers = input.canManage
-    ? input.providerSelected && input.activeProfileReady
-      ? [
-          ...input.blockers,
-          ...(input.activeJobCount > 0 ? (["active-job-conflict"] as const) : []),
-          ...(input.activeJobCount > 1 ? (["concurrent-job"] as const) : []),
-        ]
-      : ["missing-active-profile" as const]
-    : ["permission-denied" as const];
+  const importBlockers = importBlockersForSelectedScope(input);
   const previewBlockers =
     input.eligible > 0
       ? []
@@ -753,7 +750,12 @@ function buildActions(input: {
       key: "start-provider-import",
       state: importBlockers.length > 0 ? "blocked" : manageState,
       blockers: importBlockers,
-      copyKey: importBlockers.length > 0 ? "catalog.primary.import.blocked" : null,
+      copyKey:
+        importBlockers.length > 0
+          ? importBlockers.some(isProviderScopeBlocker)
+            ? "catalog.primary.providerScope.required"
+            : "catalog.primary.import.blocked"
+          : null,
     },
     {
       key: "select-source-observations",
@@ -820,6 +822,57 @@ function buildActions(input: {
       copyKey: null,
     },
   ];
+}
+
+function importBlockersForSelectedScope(input: {
+  canManage: boolean;
+  providerKey: string | null;
+  unitKey: string | null;
+  importScope: string | null;
+  activeProfileReady: boolean;
+  activeJobCount: number;
+  blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
+}): readonly CatalogPrimaryWorkbenchBlockerCategory[] {
+  const blockers = new Set<CatalogPrimaryWorkbenchBlockerCategory>();
+  if (!input.canManage) {
+    blockers.add("permission-denied");
+    return [...blockers];
+  }
+
+  if (!input.providerKey) {
+    blockers.add("provider-selection-required");
+  }
+  if (!input.unitKey) {
+    blockers.add("unit-selection-required");
+  }
+  if (!input.importScope) {
+    blockers.add("import-scope-required");
+  }
+  if (!input.activeProfileReady) {
+    blockers.add("missing-active-profile");
+  }
+
+  if (blockers.size === 0) {
+    for (const blocker of input.blockers) {
+      blockers.add(blocker);
+    }
+    if (input.activeJobCount > 0) {
+      blockers.add("active-job-conflict");
+    }
+    if (input.activeJobCount > 1) {
+      blockers.add("concurrent-job");
+    }
+  }
+
+  return [...blockers];
+}
+
+function isProviderScopeBlocker(blocker: CatalogPrimaryWorkbenchBlockerCategory): boolean {
+  return (
+    blocker === "provider-selection-required" ||
+    blocker === "unit-selection-required" ||
+    blocker === "import-scope-required"
+  );
 }
 
 function lifecycleAction(
