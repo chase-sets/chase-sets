@@ -93,6 +93,7 @@ export function sourceObservationReviewFor(input: {
     savedFilters: savedReviewFiltersFor(input.routeContext, {
       eligible: input.eligible,
       changed: input.changed,
+      observed: input.observed,
       rejected: input.rejected,
     }),
     pagination: {
@@ -457,7 +458,7 @@ function reviewFiltersFor(
 
 function savedReviewFiltersFor(
   routeContext: CatalogPrimaryWorkbenchRouteContext,
-  counts: { eligible: number; changed: number; rejected: number },
+  counts: { eligible: number; changed: number; observed: number; rejected: number },
 ): CatalogPrimaryWorkbenchReadModel["sourceObservationReview"]["savedFilters"] {
   const providerFilter: Record<string, string> = {};
   if (routeContext.providerKey) {
@@ -468,8 +469,14 @@ function savedReviewFiltersFor(
     {
       key: "ready-for-promotion",
       label: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.saved.ready"),
-      filters: { ...providerFilter, status: "changed" },
+      filters: providerFilter,
       count: counts.eligible,
+    },
+    {
+      key: "new-observations",
+      label: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.saved.new"),
+      filters: { ...providerFilter, status: "observed" },
+      count: counts.observed,
     },
     {
       key: "changed-since-last-pull",
