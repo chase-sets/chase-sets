@@ -290,9 +290,7 @@
         "reviewBy": "2026-07-31",
         "reason": "The route-support action file carries the Checkout commit receipt for the sell-checkout-session route; the post-write read itself is covered by the sell-checkout-confirmation destination above.",
         "helperUses": ["appendFreshWriteToken"],
-        "files": [
-          "bounded-contexts/checkout/support/route-support/sell-checkout-session/sell-checkout-action.ts"
-        ]
+        "files": ["bounded-contexts/checkout/support/route-support/sell-checkout-session/sell-checkout-action.ts"]
       }
     }
   ],
