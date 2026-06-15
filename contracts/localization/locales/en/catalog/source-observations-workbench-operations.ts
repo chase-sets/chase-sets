@@ -236,8 +236,32 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.promote.catalog.facts": "Promote Catalog facts",
   "catalog.features.sourceObservations.ui.primaryWorkbench.pull.provider.data": "Pull provider data",
   "catalog.features.sourceObservations.ui.primaryWorkbench.queue.preview": "Queue preview",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.sourceOptions.degradedNote": "Degraded cache",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.sourceOptions.forceRefresh": "Force refresh",
   "catalog.features.sourceObservations.ui.primaryWorkbench.sourceOptions.notLoaded":
     "The provider source option page was not loaded by this surface.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.sourceOptions.optionCount": "{count} options",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.sourceOptions.parentRequired":
+    "Select a {parent} value first.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.sourceOptions.refreshAll": "Refresh all",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.sourceOptions.reload": "Reload",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.sourceOptions.scope.description":
+    "Pick each level from synced provider options instead of typing a scope string.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.sourceOptions.scope.legend": "Source scope",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.sourceOptions.scope.select": "Select {label}",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.sourceOptions.state.cached": "Cached",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.sourceOptions.state.live": "Live",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.sourceOptions.state.not-requested": "Needs parent",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.sourceOptions.state.rollout-blocked": "Rollout blocked",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.sourceOptions.state.stale": "Stale",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.sourceOptions.state.unavailable": "Unavailable",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.sourceOptions.status.blocked": "Blocked",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.sourceOptions.status.degraded": "Degraded",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.sourceOptions.status.ready": "Ready",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.sourceOptions.status.unavailable": "Unavailable",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.sourceOptions.summary":
+    "{available} options · {loaded}/{declared} groups loaded",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.sourceOptions.title": "Source options",
   "catalog.features.sourceObservations.ui.primaryWorkbench.readiness": "Readiness",
   "catalog.features.sourceObservations.ui.primaryWorkbench.readiness.deploy.skew.description":
     "Unsupported UI/API pairings fail closed before exposing unsafe commands.",

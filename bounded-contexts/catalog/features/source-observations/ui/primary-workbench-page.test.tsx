@@ -59,10 +59,13 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     ).toBeTruthy();
     expect(screen.getByLabelText("Provider")).toBeTruthy();
     expect(screen.getByLabelText("Unit")).toBeTruthy();
-    const importScope = screen.getByLabelText("Import scope") as HTMLInputElement;
-    expect(importScope.value).toBe("en:3:base:base1");
-    fireEvent.change(importScope, { target: { value: "ja:3:SV:SV8" } });
-    expect(importScope.value).toBe("ja:3:SV:SV8");
+    // The raw colon-delimited import-scope text box is replaced by guided,
+    // profile-driven scope selects whose values come from the route context.
+    expect(screen.queryByLabelText("Import scope")).toBeNull();
+    const scopeGroup = screen.getByRole("group", { name: "Source scope" });
+    const series = within(scopeGroup).getByLabelText("Series") as HTMLSelectElement;
+    expect(series.name).toBe("seriesId");
+    expect(series.value).toBe("base");
     expect(screen.getByRole("button", { name: "Apply context" })).toBeTruthy();
     expect(screen.getAllByRole("button", { name: /Pull provider data/i }).length).toBeGreaterThan(0);
     // The daily flow is now an explicit, linear three-stage path. The stepper names
