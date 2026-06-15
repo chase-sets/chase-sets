@@ -41,13 +41,13 @@ describe("provisionCatalogProviderReferenceHierarchy", () => {
       expect.objectContaining({
         referenceRecordId: "ref_tcgdex_series_swsh",
         typeKey: "series",
-        key: "sword-shield",
+        key: "swsh",
         attributes: { "tcgdex-series-id": "swsh" },
       }),
       expect.objectContaining({
         referenceRecordId: "ref_tcgdex_expansion_swsh3",
         typeKey: "expansion",
-        key: "darkness-ablaze",
+        key: "swsh3",
         attributes: {
           "tcgdex-set-id": "swsh3",
           "release-date": "2020-08-14",
@@ -83,6 +83,38 @@ describe("provisionCatalogProviderReferenceHierarchy", () => {
         referenceId: catalogSeedIds.referenceRecords.productLines.pokemonTradingCardGame,
       },
     ]);
+  });
+
+  it("uses provider ids for reference keys when TCGdex names are localized", async () => {
+    const harness = createProvisioningHarness();
+
+    const result = await provisionCatalogProviderReferenceHierarchy({
+      profile: tcgdexPokemonTcgProviderProfile,
+      payload: {
+        ...tcgdexPayload(),
+        expansionId: "SV8",
+        expansionName: "超電ブレイカー",
+        seriesId: "SV",
+        seriesName: null,
+      },
+      provisioner: harness.provisioner,
+    });
+
+    expect(result.targetReferenceRecordId).toBe("ref_tcgdex_expansion_sv8");
+    expect(harness.referenceRecords.map((record) => record.ruleKey)).not.toContain("series");
+    expect(harness.referenceRecords.at(-1)).toMatchObject({
+      referenceRecordId: "ref_tcgdex_expansion_sv8",
+      typeKey: "expansion",
+      key: "sv8",
+      name: "超電ブレイカー",
+      attributes: { "tcgdex-set-id": "SV8" },
+      relationships: [
+        {
+          relationshipType: "part-of",
+          referenceId: catalogSeedIds.referenceRecords.productLines.pokemonTradingCardGame,
+        },
+      ],
+    });
   });
 
   it("represents TCGplayer product-line and set-name evidence through profile rules", async () => {

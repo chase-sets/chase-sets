@@ -192,10 +192,12 @@ describe("catalog provider integration profiles", () => {
         expect.objectContaining({
           ruleKey: "series",
           recordId: { kind: "provider", typeKey: "series", providerValuePaths: ["seriesId", "seriesName"] },
+          key: { kind: "path", path: "seriesId" },
         }),
         expect.objectContaining({
           ruleKey: "expansion",
           recordId: { kind: "provider", typeKey: "expansion", providerValuePaths: ["expansionId"] },
+          key: { kind: "path", path: "expansionId" },
         }),
       ]),
     });

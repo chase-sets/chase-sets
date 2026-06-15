@@ -49,6 +49,39 @@ describe("source observation runtime: promotion and reapply", () => {
     expect(harness.projectorRuns()).toBe(0);
   });
 
+  it("provisions TCGdex references for localized expansion names", async () => {
+    const harness = createReferencePreloadHarness();
+
+    const expansionReferenceId = await ensurePokemonReferenceHierarchy({
+      deps: harness.deps,
+      referenceData: harness.referenceData,
+      profile: tcgdexPokemonTcgProviderProfile,
+      normalized: {
+        ...pokemonObservation({
+          expansionName: "超電ブレイカー",
+          seriesName: "Scarlet & Violet",
+        }),
+        languageCode: "ja",
+        setId: "SV8",
+        expansionId: "SV8",
+        seriesId: "SV",
+      },
+      context,
+    });
+
+    expect(expansionReferenceId).toBe("ref_tcgdex_expansion_sv8");
+    expect(harness.referenceRecordCreateCommands).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          typeKey: "expansion",
+          key: "sv8",
+          name: expect.objectContaining({ values: { en: "超電ブレイカー" } }),
+          attributes: expect.objectContaining({ "tcgdex-set-id": "SV8" }),
+        }),
+      ]),
+    );
+  });
+
   it("promotes changed observations by refreshing the linked Catalog Item", async () => {
     const harness = createChangedObservationRefreshHarness();
     const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
