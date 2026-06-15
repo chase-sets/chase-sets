@@ -21,6 +21,8 @@ import {
 export type CatalogIntegrationRecentJobReadModel =
   CatalogIntegrationControlPlaneOverview["unitActivity"]["units"][number]["recentJobs"][number];
 
+const MAX_PRIMARY_WORKBENCH_IMPORT_JOB_ROWS = 10;
+
 export function selectedImportScopeFor(input: {
   activeProfile: CatalogProviderProfileVersionReview | null;
   activeJobCount: number;
@@ -119,7 +121,8 @@ export function importJobsFor(
       }
 
       return jobOccurredAt(right.job).localeCompare(jobOccurredAt(left.job));
-    });
+    })
+    .slice(0, MAX_PRIMARY_WORKBENCH_IMPORT_JOB_ROWS);
 
   return rows.map(({ unitKey, job }) => {
     const scopeMatchesRoute = jobMatchesRouteScope(job, routeContext);

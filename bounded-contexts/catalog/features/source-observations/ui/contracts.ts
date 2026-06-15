@@ -257,10 +257,20 @@ export interface CatalogIntegrationRecentJobSummary {
   profileVersion: string | null;
   profileSnapshot: CatalogAdminProfileVersionPointer | null;
   reapplyProfileMode: SourceObservationReapplyProfileMode | null;
-  result: SourceObservationIntegrationJobResult | null;
+  result: CatalogIntegrationRecentJobResultSummary | null;
   startedAt: string | null;
   createdAt: string;
   summary: string;
+}
+
+export interface CatalogIntegrationRecentJobResultSummary {
+  requested: number;
+  imported: number;
+  observed: number;
+  reapplied: number;
+  skipped: number;
+  failed: number;
+  outcomeCount: number;
 }
 
 export interface CatalogIntegrationProviderReadiness {

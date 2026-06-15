@@ -74,6 +74,12 @@ describe("Catalog primary workbench read model - per-surface slicing", () => {
     expect(daily.governanceControls.freshness).toBe("partial");
     expect(daily.auditEvidence.projectionState.missingProjection).toBe(true);
     expect(daily.validationReadiness.freshness).not.toBe("fresh");
+    expect(daily.profileAuthoring.status).toBe("missing-profile");
+    expect(daily.profileAuthoring.availableProfiles).toEqual([]);
+    expect(daily.profileAuthoring.sectionWorkspaces).toEqual([]);
+    expect(daily.validationReadiness.fixtureFlows).toEqual([]);
+    expect(daily.validationReadiness.dryRunEvidence).toEqual([]);
+    expect(daily.validationReadiness.semanticCompare.sections).toEqual([]);
   });
 
   it("keeps the daily core slices and rendered action states identical to the full read model", () => {
