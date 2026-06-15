@@ -1,4 +1,5 @@
 import { t } from "@chase-sets/localization";
+import { appendFreshWriteToken } from "@chase-sets/http/responses";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { createMarketplaceRequestApiClient } from "@chase-sets/marketplace/server";
 import { createId } from "@chase-sets/primitives/typed-ids";
@@ -115,7 +116,7 @@ export async function action({
       const marketplaceHandoff = await performMarketplaceHandoff(marketplaceApi, confirmationId, reviewedLines);
       const confirmedAt = new Date().toISOString();
       const sellerEvidence = buildSellerEvidence(values, state.payoutSummary, confirmedAt);
-      await api.confirmSellListCheckout({
+      const result = await api.confirmSellListCheckout({
         confirmationId,
         readinessSnapshotId: state.readiness.snapshotId,
         readinessSourceRevision: state.readiness.sourceRevision,
@@ -126,7 +127,7 @@ export async function action({
         handoffSummary: marketplaceHandoff.summary,
       });
 
-      return redirect(confirmationPathForSession(state.sessionId));
+      return redirect(appendFreshWriteToken(confirmationPathForSession(state.sessionId), result));
     } catch (error) {
       if (error instanceof SellListReviewPlanStaleError) {
         return {

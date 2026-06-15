@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { readFreshWriteToken } from "@chase-sets/http/responses";
 import {
   applyCheckoutRouteMockDefaults,
   expectNoSellerCommitSideEffects,
@@ -337,11 +338,29 @@ describe("checkout web routes: sell checkout session", () => {
     });
   }
 
-  function expectSellConfirmationRedirect(result: unknown) {
+  function expectSellConfirmationRedirect(
+    result: unknown,
+    options: Readonly<{ freshWrite?: "required" | "absent" }> = { freshWrite: "required" },
+  ) {
     expect(result).toBeInstanceOf(Response);
     const response = result as Response;
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/checkout/sell/session/chk_sell_1/confirmation");
+    const location = response.headers.get("Location") ?? "";
+    const url = new URL(location, "http://localhost");
+    expect(url.pathname).toBe("/checkout/sell/session/chk_sell_1/confirmation");
+    if (options.freshWrite === "absent") {
+      expect(url.searchParams.has("afterWrite")).toBe(false);
+      return;
+    }
+
+    expect(url.searchParams.has("afterWrite")).toBe(true);
+    expect(readFreshWriteToken(url.toString())).toMatchObject({
+      sources: expect.arrayContaining([
+        expect.objectContaining({
+          sourceContextName: "checkout",
+        }),
+      ]),
+    });
   }
 
   it("validates signed-in seller checkout saved fields without side effects", async () => {
@@ -530,7 +549,7 @@ describe("checkout web routes: sell checkout session", () => {
       context: undefined,
     } as never);
 
-    expectSellConfirmationRedirect(result);
+    expectSellConfirmationRedirect(result, { freshWrite: "absent" });
     expect(mockPreviewOfferAcceptanceTerms).not.toHaveBeenCalled();
     expect(mockAcceptOfferMatch).not.toHaveBeenCalled();
     expect(mockCreateListing).not.toHaveBeenCalled();

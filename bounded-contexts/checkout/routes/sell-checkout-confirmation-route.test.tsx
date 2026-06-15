@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { appendFreshWriteToken } from "@chase-sets/http/responses";
 import {
   applyCheckoutRouteMockDefaults,
+  checkoutCommit,
   MockCheckoutApiError,
   mockCreateCheckoutRequestApiClient,
   mockGetSellListConfirmation,
@@ -100,6 +102,34 @@ describe("checkout web routes: sell checkout confirmation loader", () => {
     } as never);
 
     expect(mockGetSellListConfirmation).toHaveBeenCalledWith("slc_chk_sell_1");
+    expect(result).toEqual({
+      confirmation: expect.objectContaining({
+        confirmation_id: "slc_chk_sell_1",
+      }),
+    });
+  });
+
+  it("retries a freshly written seller confirmation while the confirmation projection catches up", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
+    mockGetSellListConfirmation
+      .mockRejectedValueOnce(new MockCheckoutApiError(404, { error: { code: "not_found" } }))
+      .mockResolvedValueOnce(confirmationRow());
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellListConfirmation: mockGetSellListConfirmation,
+    });
+
+    const result = await sellCheckoutConfirmationLoader({
+      request: new Request(
+        `http://localhost${appendFreshWriteToken(
+          "/checkout/sell/session/chk_sell_1/confirmation",
+          checkoutCommit("42", "evt_checkout_sell_list_confirmed"),
+        )}`,
+      ),
+      params: { sessionId: "chk_sell_1" },
+      context: undefined,
+    } as never);
+
+    expect(mockGetSellListConfirmation).toHaveBeenCalledTimes(2);
     expect(result).toEqual({
       confirmation: expect.objectContaining({
         confirmation_id: "slc_chk_sell_1",
