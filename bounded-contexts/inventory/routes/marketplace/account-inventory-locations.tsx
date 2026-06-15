@@ -1,7 +1,12 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
-import type { ListResponse } from "@chase-sets/http/responses";
+import {
+  appendFreshWriteToken,
+  loadFreshlyWrittenResource,
+  recoverFreshWriteReadError,
+  type ListResponse,
+} from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { InventoryApiError, type InventoryStorageLocation } from "../../support/request-support/api-client";
@@ -23,13 +28,54 @@ function shipFromAddressFromForm(formData: FormData) {
   };
 }
 
+function inventoryApiErrorStatus(error: unknown) {
+  return error instanceof InventoryApiError ? error.status : null;
+}
+
+function inventoryApiErrorBody(error: unknown) {
+  return error instanceof InventoryApiError ? error.body : null;
+}
+
+function inventoryApiErrorCode(error: unknown) {
+  const body = inventoryApiErrorBody(error);
+  const apiError = typeof body === "object" && body !== null && "error" in body ? body.error : null;
+  const code = typeof apiError === "object" && apiError !== null ? (apiError as { code?: unknown }).code : null;
+  return typeof code === "string" && code.trim() ? code : null;
+}
+
 export async function loader({ request }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({
     request,
     permission: "inventory.view",
   });
   const api = createInventoryRequestApiClient(request);
-  return api.listStorageLocations("includeArchived=true");
+  try {
+    return {
+      locations: await loadFreshlyWrittenResource({
+        request,
+        load: () => api.listStorageLocations("includeArchived=true"),
+        isNotFound: (error) => inventoryApiErrorStatus(error) === 404,
+      }),
+      loadError: null,
+    };
+  } catch (error) {
+    const recovery = recoverFreshWriteReadError({
+      request,
+      error,
+      getStatus: inventoryApiErrorStatus,
+      getErrorCode: inventoryApiErrorCode,
+      getBody: inventoryApiErrorBody,
+      recoverTransient: () => ({
+        locations: { items: [], total: 0, count: 0 } satisfies ListResponse<InventoryStorageLocation>,
+        loadError: "Storage locations are still updating. Reload this page in a moment.",
+      }),
+    });
+    if (recovery) {
+      return recovery;
+    }
+
+    throw error;
+  }
 }
 
 export async function action({ request }: ActionFunctionArgs) {
@@ -42,9 +88,10 @@ export async function action({ request }: ActionFunctionArgs) {
   const api = createInventoryRequestApiClient(request);
 
   try {
+    let result: unknown = null;
     switch (intent) {
       case "create-location":
-        await api.createStorageLocation({
+        result = await api.createStorageLocation({
           name: formData.get("name"),
           description: String(formData.get("description") ?? "").trim() || null,
           shipFromCode: formData.get("shipFromCode"),
@@ -52,7 +99,7 @@ export async function action({ request }: ActionFunctionArgs) {
         });
         break;
       case "update-location":
-        await api.updateStorageLocation(String(formData.get("storageLocationId") ?? ""), {
+        result = await api.updateStorageLocation(String(formData.get("storageLocationId") ?? ""), {
           name: formData.get("name"),
           description: String(formData.get("description") ?? "").trim() || null,
           shipFromCode: formData.get("shipFromCode"),
@@ -61,7 +108,7 @@ export async function action({ request }: ActionFunctionArgs) {
         });
         break;
       case "archive-location":
-        await api.updateStorageLocation(String(formData.get("storageLocationId") ?? ""), {
+        result = await api.updateStorageLocation(String(formData.get("storageLocationId") ?? ""), {
           name: formData.get("name"),
           description: String(formData.get("description") ?? "").trim() || null,
           shipFromCode: formData.get("shipFromCode"),
@@ -73,7 +120,7 @@ export async function action({ request }: ActionFunctionArgs) {
         break;
     }
 
-    return redirect("/account/inventory/locations");
+    return redirect(appendFreshWriteToken("/account/inventory/locations", result));
   } catch (error) {
     if (error instanceof InventoryApiError) {
       return {
@@ -97,8 +144,8 @@ export default function MarketplaceInventoryLocationsRoute() {
 
   return (
     <StorageLocationPage
-      locations={(data as ListResponse<InventoryStorageLocation>).items}
-      errorMessage={actionData?.error ?? null}
+      locations={(data.locations as ListResponse<InventoryStorageLocation>).items}
+      errorMessage={actionData?.error ?? data.loadError ?? null}
     />
   );
 }

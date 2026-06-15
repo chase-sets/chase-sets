@@ -1,13 +1,32 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useSearchParams } from "react-router";
-import { appendFreshWriteToken } from "@chase-sets/http/responses";
+import {
+  appendFreshWriteToken,
+  loadFreshlyWrittenResource,
+  recoverFreshWriteReadError,
+} from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { PlatformFeedbackPrompt } from "@chase-sets/platform-operations/server";
 import { InventoryApiError, type InventoryItemDetail } from "../../support/request-support/api-client";
 import { createInventoryRequestApiClient } from "../../support/request-support/api-client";
 import { InventoryItemDetailPage } from "../../features/inventory-items/ui/inventory-item-detail-page";
+
+function inventoryApiErrorStatus(error: unknown) {
+  return error instanceof InventoryApiError ? error.status : null;
+}
+
+function inventoryApiErrorBody(error: unknown) {
+  return error instanceof InventoryApiError ? error.body : null;
+}
+
+function inventoryApiErrorCode(error: unknown) {
+  const body = inventoryApiErrorBody(error);
+  const apiError = typeof body === "object" && body !== null && "error" in body ? body.error : null;
+  const code = typeof apiError === "object" && apiError !== null ? (apiError as { code?: unknown }).code : null;
+  return typeof code === "string" && code.trim() ? code : null;
+}
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({
@@ -18,10 +37,29 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
   try {
     return {
-      item: await api.getItem(params.itemId!),
+      item: await loadFreshlyWrittenResource({
+        request,
+        load: () => api.getItem(params.itemId!),
+        isNotFound: (error) => inventoryApiErrorStatus(error) === 404,
+      }),
     };
   } catch (error) {
-    if (error instanceof InventoryApiError && error.status === 404) {
+    const recovery = recoverFreshWriteReadError({
+      request,
+      error,
+      getStatus: inventoryApiErrorStatus,
+      getErrorCode: inventoryApiErrorCode,
+      getBody: inventoryApiErrorBody,
+      recoverTransient: () =>
+        new Response("Inventory item is still updating. Reload this page in a moment.", {
+          status: 503,
+        }),
+    });
+    if (recovery) {
+      throw recovery;
+    }
+
+    if (inventoryApiErrorStatus(error) === 404) {
       throw new Response(t("inventory.routes.marketplace.accountInventoryItem.inventory.item.not.found"), {
         status: 404,
       });
@@ -96,20 +134,32 @@ export default function MarketplaceInventoryItemRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const [searchParams] = useSearchParams();
-  const shouldShowFeedback = searchParams.get("feedbackWorkflow") === "inventory-adjust";
+  const feedbackWorkflowParam = searchParams.get("feedbackWorkflow");
+  const feedbackWorkflow =
+    feedbackWorkflowParam === "inventory-adjust" || feedbackWorkflowParam === "inventory-create"
+      ? feedbackWorkflowParam
+      : null;
 
   return (
     <InventoryItemDetailPage
       item={data.item as InventoryItemDetail}
       errorMessage={actionData?.error ?? null}
       feedbackPrompt={
-        shouldShowFeedback ? (
+        feedbackWorkflow ? (
           <PlatformFeedbackPrompt
-            workflow="inventory-adjust"
+            workflow={feedbackWorkflow}
             sourceRoutePath={`/account/inventory/items/${data.item.item_id}`}
             relatedEntities={[{ type: "inventory-item", id: data.item.item_id }]}
-            title={t("inventory.routes.marketplace.accountInventoryItem.feedback.title")}
-            description={t("inventory.routes.marketplace.accountInventoryItem.feedback.description")}
+            title={
+              feedbackWorkflow === "inventory-create"
+                ? t("inventory.routes.marketplace.accountInventory.feedback.title")
+                : t("inventory.routes.marketplace.accountInventoryItem.feedback.title")
+            }
+            description={
+              feedbackWorkflow === "inventory-create"
+                ? t("inventory.routes.marketplace.accountInventory.feedback.description")
+                : t("inventory.routes.marketplace.accountInventoryItem.feedback.description")
+            }
           />
         ) : null
       }
