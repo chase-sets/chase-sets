@@ -107,6 +107,15 @@
           ]
         },
         {
+          "routePath": "/account/sell-list/confirmations/:confirmationId",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "checkout_sell_list_confirmation_pages"
+            }
+          ]
+        },
+        {
           "routePath": "/account/checkout-sessions/:sessionId",
           "methods": ["GET", "HEAD"],
           "dependencies": [
@@ -257,6 +266,32 @@
         "issue": "#1809",
         "reason": "Guest sell checkout revalidates anonymous Sell List readiness through the existing guest Sell List API and needs bounded audit classification before seller runtime orchestration remediation."
       }
+    },
+    {
+      "id": "checkout.sell-checkout-confirmation-detail",
+      "owner": "checkout",
+      "risk": "critical",
+      "source": {
+        "routeId": "sell-checkout-session",
+        "actions": ["Confirm signed-in seller checkout"],
+        "command": "ConfirmSellListCheckout"
+      },
+      "destination": {
+        "routeId": "sell-checkout-confirmation",
+        "apiContextName": "checkout",
+        "apiRoutePath": "/account/sell-list/confirmations/:confirmationId",
+        "readModelTables": ["checkout_sell_list_confirmation_pages"],
+        "helperUses": ["loadFreshlyWrittenResource"],
+        "transientRecovery": "Sell checkout confirmation detail retries valid fresh-write confirmation 404s while checkout_sell_list_confirmation_pages catches up; duplicate no-op confirmations redirect without minting a new token, and permanent missing confirmations return to Sell List recovery."
+      },
+      "exception": {
+        "status": "not-post-write-read",
+        "owner": "checkout",
+        "reviewBy": "2026-07-31",
+        "reason": "The route-support action file carries the Checkout commit receipt for the sell-checkout-session route; the post-write read itself is covered by the sell-checkout-confirmation destination above.",
+        "helperUses": ["appendFreshWriteToken"],
+        "files": ["bounded-contexts/checkout/support/route-support/sell-checkout-session/sell-checkout-action.ts"]
+      }
     }
   ],
   "mutationConsistencyInventory": [
@@ -279,6 +314,211 @@
           "bounded-contexts/checkout/features/cart/ui/optimistic-correction.test.tsx",
           "bounded-contexts/checkout/features/cart/ui/cart-page.test.tsx",
           "bounded-contexts/checkout/routes/account-cart-route.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "checkout.cart-api-command-snapshots",
+      "owner": "checkout",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/checkout/features/cart/api/route.ts:POST /cart",
+        "api-route:bounded-contexts/checkout/features/cart/api/route.ts:POST /cart/:lineId/fulfillment",
+        "api-route:bounded-contexts/checkout/features/cart/api/route.ts:POST /cart/:lineId/quantity",
+        "api-route:bounded-contexts/checkout/features/cart/api/route.ts:POST /cart/:lineId/remove",
+        "api-route:bounded-contexts/checkout/features/cart/api/route.ts:POST /cart/bulk",
+        "api-route:bounded-contexts/checkout/features/cart/api/route.ts:POST /cart/merge-to-account",
+        "api-route:bounded-contexts/checkout/features/cart/api/route.ts:POST /cart/readiness"
+      ],
+      "visibleDestination": {
+        "description": "Buy Cart API commands return Checkout-owned command snapshots: line id/version/status for single-line commands, bulk and merge counts for batch commands, and checkout.cart-readiness.v1 for readiness."
+      },
+      "proof": {
+        "authoritativeResponse": "The cart route responds from the command result before projection reads: add, quantity, fulfillment, and remove return id/version/status; bulk and merge return command-owned counts; readiness returns the checkout.cart-readiness.v1 snapshot consumed by session start.",
+        "tests": [
+          "bounded-contexts/checkout/features/cart/api/route.test.ts",
+          "bounded-contexts/checkout/features/cart/domain/readiness.test.ts",
+          "bounded-contexts/checkout/routes/account-cart-route.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "checkout.cart-self-refresh-fresh-read-forms",
+      "owner": "checkout",
+      "risk": "important",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "post-form:bounded-contexts/checkout/features/cart/ui/add-to-cart-section.tsx:H2df726441e2a#1",
+        "post-form:bounded-contexts/checkout/features/cart/ui/cart-page.tsx:H2df726441e2a#1"
+      ],
+      "visibleDestination": {
+        "routeId": "account-cart",
+        "apiContextName": "checkout",
+        "apiRoutePath": "/account/cart",
+        "readModelTables": ["checkout_cart_line_pages"],
+        "transientRecovery": "Buy Cart non-quantity forms submit through the account cart action, which redirects with a Checkout commit receipt; the account cart loader waits on checkout_cart_line_pages and shows temporary cart recovery for valid fresh-write projection lag."
+      },
+      "proof": {
+        "tests": [
+          "bounded-contexts/checkout/features/cart/ui/cart-page.test.tsx",
+          "bounded-contexts/checkout/routes/account-cart-route.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "checkout.sell-list-api-command-snapshots",
+      "owner": "checkout",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/checkout/features/sell-list/api/route.ts:POST /sell-list",
+        "api-route:bounded-contexts/checkout/features/sell-list/api/route.ts:POST /sell-list/:lineId/remove",
+        "api-route:bounded-contexts/checkout/features/sell-list/api/route.ts:POST /sell-list/confirm",
+        "api-route:bounded-contexts/checkout/features/sell-list/api/route.ts:POST /sell-list/merge-to-account",
+        "api-route:bounded-contexts/checkout/features/sell-list/api/route.ts:POST /sell-list/readiness"
+      ],
+      "visibleDestination": {
+        "description": "Sell List API commands return Checkout-owned command snapshots: line id/version/status for line commands, merge counts for account adoption, checkout.sell-list-readiness.v1 for readiness, and the persisted confirmation snapshot for seller checkout confirmation."
+      },
+      "proof": {
+        "authoritativeResponse": "The Sell List API responds from command results without waiting for list projections; confirmation returns the command-owned confirmation snapshot and idempotent duplicate posts return the existing confirmation snapshot without replaying marketplace handoff.",
+        "tests": [
+          "bounded-contexts/checkout/features/sell-list/api/route.test.ts",
+          "bounded-contexts/checkout/features/sell-list/api/runtime.test.ts",
+          "bounded-contexts/checkout/routes/sell-checkout-session-route.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "checkout.sell-list-self-refresh-fresh-read-forms",
+      "owner": "checkout",
+      "risk": "important",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "post-form:bounded-contexts/checkout/features/sell-list/ui/sell-list-page.tsx:H2df726441e2a#1",
+        "post-form:bounded-contexts/checkout/features/sell-list/ui/sell-list-page.tsx:H2df726441e2a#2",
+        "post-form:bounded-contexts/checkout/features/sell-list/ui/sell-list-page.tsx:H3e14b6cf2e85#1",
+        "route-action:bounded-contexts/checkout/routes/account-sell-list.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "account-sell-list",
+        "apiContextName": "checkout",
+        "apiRoutePath": "/account/sell-list",
+        "readModelTables": ["checkout_sell_list_line_pages", "checkout_sell_list_confirmation_pages"],
+        "transientRecovery": "Sell List add/remove and readiness forms submit through the account Sell List action, which redirects with a Checkout commit receipt; the account Sell List loader waits on line and confirmation projections, while seller checkout start revalidates checkout.sell-list-readiness.v1 before continuing."
+      },
+      "proof": {
+        "tests": [
+          "bounded-contexts/checkout/features/sell-list/ui/sell-list-page.test.tsx",
+          "bounded-contexts/checkout/routes/account-sell-list-route.test.ts",
+          "bounded-contexts/checkout/routes/sell-checkout-session-route.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "checkout.session-api-fresh-read-handoffs",
+      "owner": "checkout",
+      "risk": "critical",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "api-route:bounded-contexts/checkout/features/sessions/api/route.ts:POST /checkout-sessions",
+        "api-route:bounded-contexts/checkout/features/sessions/api/route.ts:POST /checkout-sessions/:sessionId/confirm",
+        "api-route:bounded-contexts/checkout/features/sessions/api/route.ts:POST /checkout-sessions/:sessionId/optimization-goal",
+        "api-route:bounded-contexts/checkout/features/sessions/api/route.ts:POST /checkout-sessions/:sessionId/shipping-address",
+        "api-route:bounded-contexts/checkout/features/sessions/api/route.ts:POST /checkout-sessions/:sessionId/shipping-option"
+      ],
+      "visibleDestination": {
+        "routeId": "buy-checkout-session",
+        "apiContextName": "checkout",
+        "apiRoutePath": "/account/checkout-sessions/:sessionId",
+        "readModelTables": ["checkout_session_pages"],
+        "transientRecovery": "Checkout session start, edit, and confirmation commands return commit receipts that route actions preserve in afterWrite; session and confirmation loaders wait on checkout_session_pages and show bounded Checkout recovery for valid projection lag or service timeout."
+      },
+      "proof": {
+        "tests": [
+          "bounded-contexts/checkout/features/sessions/api/route.test.ts",
+          "bounded-contexts/checkout/routes/checkout-start-route.test.ts",
+          "bounded-contexts/checkout/routes/checkout-session-action.test.ts",
+          "bounded-contexts/checkout/routes/checkout-session-loader.test.ts",
+          "bounded-contexts/checkout/routes/buy-checkout-confirmation-route.test.tsx"
+        ]
+      }
+    },
+    {
+      "id": "checkout.session-start-fresh-read-forms",
+      "owner": "checkout",
+      "risk": "critical",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "post-form:bounded-contexts/checkout/routes/checkout-start.tsx:Hb08a81ecfd73#1",
+        "post-form:bounded-contexts/checkout/routes/checkout-start.tsx:Hb08a81ecfd73#2",
+        "route-action:bounded-contexts/checkout/routes/checkout-start.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "buy-checkout-session",
+        "apiContextName": "checkout",
+        "apiRoutePath": "/account/checkout-sessions/:sessionId",
+        "readModelTables": ["checkout_session_pages"],
+        "transientRecovery": "Signed-in and guest checkout-start forms redirect to the buy checkout session with a Checkout commit receipt; the session loader waits on checkout_session_pages and renders bounded preparing-checkout recovery for fresh projection lag."
+      },
+      "proof": {
+        "tests": [
+          "bounded-contexts/checkout/routes/checkout-start-route.test.ts",
+          "bounded-contexts/checkout/routes/guest-checkout-handoff.test.ts",
+          "bounded-contexts/checkout/routes/signed-in-buy-checkout.test.ts",
+          "bounded-contexts/checkout/routes/checkout-session-loader.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "checkout.session-review-fresh-read-form",
+      "owner": "checkout",
+      "risk": "critical",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "post-form:bounded-contexts/checkout/features/sessions/ui/checkout-page.tsx:H71185e66c09e#1",
+        "route-action:bounded-contexts/checkout/routes/checkout-session.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "buy-checkout-session",
+        "apiContextName": "checkout",
+        "apiRoutePath": "/account/checkout-sessions/:sessionId",
+        "readModelTables": ["checkout_session_pages"],
+        "transientRecovery": "Checkout review updates and confirmation submit through the session action with commit receipts; redirects back to session or confirmation preserve afterWrite, and loaders wait on checkout_session_pages before rendering payable state or handoff copy."
+      },
+      "proof": {
+        "tests": [
+          "bounded-contexts/checkout/features/sessions/ui/checkout-page.test.tsx",
+          "bounded-contexts/checkout/routes/checkout-session-action.test.ts",
+          "bounded-contexts/checkout/routes/checkout-session-loader.test.ts",
+          "bounded-contexts/checkout/routes/buy-checkout-confirmation-route.test.tsx"
+        ]
+      }
+    },
+    {
+      "id": "checkout.sell-checkout-confirmation-fresh-read-form",
+      "owner": "checkout",
+      "risk": "critical",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "post-form:bounded-contexts/checkout/features/sell-list/ui/guest-sell-checkout-page.tsx:Hd7884203e488#1",
+        "post-form:bounded-contexts/checkout/features/sell-list/ui/signed-in-sell-checkout-page.tsx:Hd7884203e488#1",
+        "route-action:bounded-contexts/checkout/support/route-support/sell-checkout-session/sell-checkout-action.ts"
+      ],
+      "visibleDestination": {
+        "routeId": "sell-checkout-confirmation",
+        "apiContextName": "checkout",
+        "apiRoutePath": "/account/sell-list/confirmations/:confirmationId",
+        "readModelTables": ["checkout_sell_list_confirmation_pages"],
+        "transientRecovery": "Signed-in seller checkout confirmation redirects to the confirmation route with a Checkout commit receipt; the confirmation loader retries valid fresh-write 404s against checkout_sell_list_confirmation_pages and redirects only permanent missing confirmations back to Sell List recovery."
+      },
+      "proof": {
+        "tests": [
+          "bounded-contexts/checkout/features/sell-list/ui/guest-sell-checkout-page.test.tsx",
+          "bounded-contexts/checkout/features/sell-list/ui/signed-in-sell-checkout-page.test.tsx",
+          "bounded-contexts/checkout/routes/sell-checkout-session-route.test.ts",
+          "bounded-contexts/checkout/routes/sell-checkout-confirmation-route.test.tsx"
         ]
       }
     },

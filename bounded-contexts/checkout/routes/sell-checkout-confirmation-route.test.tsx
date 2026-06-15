@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { appendFreshWriteToken } from "@chase-sets/http/responses";
 import {
   applyCheckoutRouteMockDefaults,
+  checkoutCommit,
   MockCheckoutApiError,
   mockCreateCheckoutRequestApiClient,
   mockGetSellListConfirmation,
@@ -105,6 +107,61 @@ describe("checkout web routes: sell checkout confirmation loader", () => {
         confirmation_id: "slc_chk_sell_1",
       }),
     });
+  });
+
+  it("retries a freshly written seller confirmation while the confirmation projection catches up", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
+    mockGetSellListConfirmation
+      .mockRejectedValueOnce(new MockCheckoutApiError(404, { error: { code: "not_found" } }))
+      .mockResolvedValueOnce(confirmationRow());
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellListConfirmation: mockGetSellListConfirmation,
+    });
+
+    const result = await sellCheckoutConfirmationLoader({
+      request: new Request(
+        `http://localhost${appendFreshWriteToken(
+          "/checkout/sell/session/chk_sell_1/confirmation",
+          checkoutCommit("42", "evt_checkout_sell_list_confirmed"),
+        )}`,
+      ),
+      params: { sessionId: "chk_sell_1" },
+      context: undefined,
+    } as never);
+
+    expect(mockGetSellListConfirmation).toHaveBeenCalledTimes(2);
+    expect(result).toEqual({
+      confirmation: expect.objectContaining({
+        confirmation_id: "slc_chk_sell_1",
+      }),
+    });
+  });
+
+  it("returns to Sell List preparation when a freshly written seller confirmation is still catching up", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
+    mockGetSellListConfirmation.mockRejectedValue(new MockCheckoutApiError(404, { error: { code: "not_found" } }));
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellListConfirmation: mockGetSellListConfirmation,
+    });
+
+    const redirectResponse = (await sellCheckoutConfirmationLoader({
+      request: new Request(
+        `http://localhost${appendFreshWriteToken(
+          "/checkout/sell/session/chk_sell_1/confirmation",
+          checkoutCommit("42", "evt_checkout_sell_list_confirmed"),
+          Date.now() - 1,
+        )}`,
+      ),
+      params: { sessionId: "chk_sell_1" },
+      context: undefined,
+    } as never).catch((error) => error)) as Response;
+
+    const location = redirectResponse.headers.get("Location") ?? "";
+    const url = new URL(location, "http://localhost");
+    expect(redirectResponse.status).toBe(302);
+    expect(url.pathname).toBe("/account/sell-list");
+    expect(url.searchParams.get("confirmation")).toBe("preparing");
+    expect(url.searchParams.has("afterWrite")).toBe(true);
   });
 
   it("returns missing confirmation links to Sell List without side effects", async () => {

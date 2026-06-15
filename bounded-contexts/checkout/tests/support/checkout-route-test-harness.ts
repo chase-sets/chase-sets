@@ -78,6 +78,7 @@ export function applyCheckoutRouteMockDefaults() {
       seller_evidence: {},
       handoff_summary: body.handoffSummary,
     },
+    commandReceipt: checkoutCommit("42", "evt_checkout_sell_list_confirmed"),
   }));
   mockAcceptOfferMatch.mockResolvedValue({ status: "accepted" });
   mockCreateListing.mockResolvedValue({
