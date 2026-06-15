@@ -77,6 +77,21 @@ function renderNavigationItem(
     );
   }
 
+  if (orientation === "vertical" && item.children?.length) {
+    return (
+      <NavigationTreeItem
+        key={item.key}
+        item={item}
+        active={active}
+        className={className}
+        content={content}
+        groupId={groupId}
+        onSelect={onSelect}
+        activeKey={activeKey}
+      />
+    );
+  }
+
   if (item.href) {
     return (
       <a key={item.key} href={item.href} aria-current={active ? "page" : undefined} className={className}>
@@ -163,6 +178,79 @@ function NavigationItemGroup({
   );
 }
 
+/**
+ * Vertical expandable group for nested admin side navigation. Unlike the
+ * horizontal {@link NavigationItemGroup} (a floating popover), this renders an
+ * inline disclosure: a toggle row whose children stack beneath it on a guide
+ * rail. The toggle is a plain button with `aria-expanded`/`aria-controls`, so
+ * screen readers announce it as a collapsible region and keyboard users get
+ * native Enter/Space activation and focus order. Parent rows highlight whenever
+ * a descendant route is active and auto-expand to reveal that descendant.
+ */
+function NavigationTreeItem({
+  item,
+  active,
+  className,
+  content,
+  groupId,
+  onSelect,
+  activeKey,
+}: {
+  item: NavigationItem;
+  active: boolean;
+  className: string;
+  content: ReactNode;
+  groupId?: string;
+  onSelect?: (key: string) => void;
+  activeKey?: string;
+}) {
+  const regionId = useId();
+  const [open, setOpen] = useState(active);
+  const toggleProps = {
+    className: cx(className, active && "bg-surface-2 text-accent shadow-tokenSm"),
+  };
+  const regionProps = {
+    className: "mt-1 ml-3 flex flex-col gap-1 border-l border-muted pl-2",
+  };
+
+  // Keep the branch open whenever it owns the active route so navigating to a
+  // nested child reveals it without forcing the consumer to manage open state.
+  useEffect(() => {
+    if (active) {
+      setOpen(true);
+    }
+  }, [active]);
+
+  return (
+    <div>
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={regionId}
+        onClick={() => setOpen((previous) => !previous)}
+        {...toggleProps}
+      >
+        <NavItemContent>{content}</NavItemContent>
+        <NavItemContent className={cx("transition-transform duration-200", open && "rotate-90")}>
+          <Icon name="chevronRight" size="sm" tone={active ? "accent" : "secondary"} />
+        </NavItemContent>
+      </button>
+      <div id={regionId} role="group" aria-label={item.label} hidden={!open} {...regionProps}>
+        {item.children?.map((child) =>
+          renderNavigationItem(
+            child,
+            isNavigationItemActive(child, activeKey),
+            "vertical",
+            groupId,
+            onSelect,
+            activeKey,
+          ),
+        )}
+      </div>
+    </div>
+  );
+}
+
 function renderBottomNavigationItem(
   item: NavigationItem,
   active: boolean,
@@ -234,7 +322,7 @@ function renderBottomNavigationItem(
 }
 
 function isNavigationItemActive(item: NavigationItem, activeKey?: string): boolean {
-  return item.key === activeKey || Boolean(item.children?.some((child) => child.key === activeKey));
+  return item.key === activeKey || Boolean(item.children?.some((child) => isNavigationItemActive(child, activeKey)));
 }
 
 export interface TopNavProps extends Omit<HTMLAttributes<HTMLElement>, "className" | "style" | "onSelect"> {
@@ -460,7 +548,7 @@ export function SideNav({ items, activeKey, onSelect, ...rest }: SideNavProps) {
     >
       <LayoutGroup id={groupId}>
         {items.map((item) =>
-          renderNavigationItem(item, item.key === activeKey, "vertical", groupId, onSelect, activeKey),
+          renderNavigationItem(item, isNavigationItemActive(item, activeKey), "vertical", groupId, onSelect, activeKey),
         )}
       </LayoutGroup>
     </nav>

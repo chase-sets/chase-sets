@@ -12,6 +12,7 @@ import {
   Button,
   Dialog,
   NavigationHeader,
+  SideNav,
   TopNav,
   ThemeToggle,
   SideSheet,
@@ -518,6 +519,139 @@ describe("design system panels, navigation, and shells", () => {
     );
 
     expect(screen.getByRole("link", { name: "Catalog Items" })).toBeTruthy();
+  });
+
+  it("renders expandable nested groups in the desktop side nav and highlights the active branch", async () => {
+    render(
+      <SideNav
+        aria-label="Admin navigation"
+        activeKey="import-review"
+        items={[
+          { key: "overview", label: "Overview", href: "/admin", icon: "home" },
+          {
+            key: "catalog-integrations",
+            label: "Catalog Integrations",
+            icon: "refreshCcw",
+            children: [
+              { key: "sources", label: "Sources", href: "/admin/catalog/sources" },
+              {
+                key: "imports",
+                label: "Imports",
+                children: [
+                  { key: "import-review", label: "Import review", href: "/admin/catalog/imports/review" },
+                  { key: "import-history", label: "Import history", href: "/admin/catalog/imports/history" },
+                ],
+              },
+            ],
+          },
+        ]}
+      />,
+    );
+
+    const nav = screen.getByRole("navigation", { name: "Admin navigation" });
+
+    const parentToggle = within(nav).getByRole("button", { name: "Catalog Integrations" });
+    const nestedToggle = within(nav).getByRole("button", { name: "Imports" });
+
+    // The branch that owns the active route auto-expands at every level.
+    expect(parentToggle.getAttribute("aria-expanded")).toBe("true");
+    expect(nestedToggle.getAttribute("aria-expanded")).toBe("true");
+
+    // Disclosure semantics: each toggle controls a labelled region.
+    const parentRegionId = parentToggle.getAttribute("aria-controls");
+    const parentRegion = document.getElementById(parentRegionId ?? "");
+    expect(parentRegion?.getAttribute("role")).toBe("group");
+    expect(parentRegion?.getAttribute("aria-label")).toBe("Catalog Integrations");
+
+    // Active child and every ancestor toggle highlight together.
+    const activeChild = within(nav).getByRole("link", { name: "Import review" });
+    expect(activeChild.getAttribute("aria-current")).toBe("page");
+    expect(parentToggle.className).toContain("text-accent");
+    expect(nestedToggle.className).toContain("text-accent");
+
+    // Sibling leaves stay reachable without the page marker.
+    const sibling = within(nav).getByRole("link", { name: "Import history" });
+    expect(sibling.getAttribute("aria-current")).toBeNull();
+  });
+
+  it("toggles side nav branches with pointer and keyboard while keeping focus", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <SideNav
+        aria-label="Admin navigation"
+        activeKey="overview"
+        items={[
+          { key: "overview", label: "Overview", href: "/admin", icon: "home" },
+          {
+            key: "catalog-integrations",
+            label: "Catalog Integrations",
+            icon: "refreshCcw",
+            children: [{ key: "sources", label: "Sources", href: "/admin/catalog/sources" }],
+          },
+        ]}
+      />,
+    );
+
+    const toggle = screen.getByRole("button", { name: "Catalog Integrations" });
+
+    // Collapsed by default when no descendant is active; children are hidden.
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("link", { name: "Sources" })).toBeNull();
+
+    // Keyboard focus order reaches the toggle, and Enter expands it.
+    await user.tab();
+    expect(document.activeElement).toBe(screen.getByRole("link", { name: "Overview" }));
+    await user.tab();
+    expect(document.activeElement).toBe(toggle);
+
+    await user.keyboard("{Enter}");
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByRole("link", { name: "Sources" })).toBeTruthy();
+    expect(document.activeElement).toBe(toggle);
+
+    // Space collapses the branch again.
+    await user.keyboard("[Space]");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("link", { name: "Sources" })).toBeNull();
+  });
+
+  it("keeps nested children reachable through the mobile bottom nav overflow", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <BottomNav
+        activeKey="import-review"
+        items={[
+          { key: "overview", label: "Overview", href: "/admin", icon: "home" },
+          {
+            key: "catalog",
+            label: "Catalog",
+            icon: "refreshCcw",
+            children: [
+              {
+                key: "imports",
+                label: "Imports",
+                children: [{ key: "import-review", label: "Import review", href: "/admin/catalog/imports/review" }],
+              },
+            ],
+          },
+        ]}
+      />,
+    );
+
+    // The grouped bottom-nav entry opens an overflow dropdown on demand.
+    const summary = screen.getByText("Catalog").closest("summary");
+    expect(summary).toBeTruthy();
+    await user.click(summary!);
+
+    // Nested grandchildren stay reachable: the active branch auto-expands inside the dropdown.
+    const nestedToggle = screen.getByRole("button", { name: "Imports" });
+    expect(nestedToggle.getAttribute("aria-expanded")).toBe("true");
+
+    const activeChild = screen.getByRole("link", { name: "Import review" });
+    expect(activeChild.getAttribute("aria-current")).toBe("page");
+    expect(activeChild.getAttribute("href")).toBe("/admin/catalog/imports/review");
   });
 
   it("collapses top navigation actions into an admin menu for mobile", async () => {
