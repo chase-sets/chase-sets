@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
+import { appendFreshWriteToken } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromIdentityApi } from "../../support/route-support/identity-request";
 import type { Account, CurrentActorDisplay } from "../../support/request-support/api-client";
@@ -29,15 +30,16 @@ export async function action({ request }: ActionFunctionArgs) {
   const api = createIdentityRequestApiClient(request);
   const formData = await request.formData();
   const intent = String(formData.get("intent") ?? "");
+  let result: unknown = null;
 
   if (intent === "update-profile") {
-    await api.updateAccount(actor.accountId, {
+    result = await api.updateAccount(actor.accountId, {
       name: String(formData.get("name") ?? ""),
       displayName: String(formData.get("displayName") ?? ""),
     });
   }
 
-  return redirect("/account");
+  return redirect(appendFreshWriteToken("/account", result));
 }
 
 export const meta: MetaFunction = () =>

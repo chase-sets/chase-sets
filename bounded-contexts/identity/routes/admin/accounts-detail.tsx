@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
+import { appendFreshWriteToken } from "@chase-sets/http/responses";
 import type { Account } from "../../support/request-support/api-client";
 import { AccountDetailPage } from "../../features/accounts/ui/account-detail-page";
 import { createIdentityRequestApiClient } from "../../support/route-support/identity-request";
@@ -18,35 +19,36 @@ export async function action({ request, params }: ActionFunctionArgs) {
   const formData = await request.formData();
   const intent = String(formData.get("intent") ?? "");
   const accountId = params.id!;
+  let result: unknown = null;
 
   if (intent === "update-profile") {
-    await api.updateAccount(accountId, {
+    result = await api.updateAccount(accountId, {
       name: String(formData.get("name") ?? ""),
       displayName: String(formData.get("displayName") ?? ""),
     });
   }
 
   if (intent === "suspend") {
-    await api.suspendAccount(accountId);
+    result = await api.suspendAccount(accountId);
   }
 
   if (intent === "reactivate") {
-    await api.reactivateAccount(accountId);
+    result = await api.reactivateAccount(accountId);
   }
 
   if (intent === "close") {
-    await api.closeAccount(accountId);
+    result = await api.closeAccount(accountId);
   }
 
   if (intent === "assign-founding-account-badge") {
-    await api.assignAccountBadge(accountId, "founding-account");
+    result = await api.assignAccountBadge(accountId, "founding-account");
   }
 
   if (intent === "remove-founding-account-badge") {
-    await api.removeAccountBadge(accountId, "founding-account");
+    result = await api.removeAccountBadge(accountId, "founding-account");
   }
 
-  return redirect(`/access/accounts/${accountId}`);
+  return redirect(appendFreshWriteToken(`/access/accounts/${accountId}`, result));
 }
 
 export const meta: MetaFunction = () => [

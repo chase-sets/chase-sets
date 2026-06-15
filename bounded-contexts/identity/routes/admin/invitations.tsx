@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
+import { appendFreshWriteToken } from "@chase-sets/http/responses";
 import type { Invitation } from "../../support/request-support/api-client";
 import type { ListResponse } from "@chase-sets/http/responses";
 import { createId } from "@chase-sets/primitives/typed-ids";
@@ -16,9 +17,10 @@ export async function action({ request }: ActionFunctionArgs) {
   const api = createIdentityRequestApiClient(request);
   const formData = await request.formData();
   const intent = String(formData.get("intent") ?? "");
+  let result: unknown = null;
 
   if (intent === "create") {
-    await api.createInvitation({
+    result = await api.createInvitation({
       invitationId: createId("ivt"),
       accountId: String(formData.get("accountId") ?? ""),
       email: String(formData.get("email") ?? ""),
@@ -27,7 +29,7 @@ export async function action({ request }: ActionFunctionArgs) {
     });
   }
 
-  return redirect("/access/invitations");
+  return redirect(appendFreshWriteToken("/access/invitations", result));
 }
 
 export const meta: MetaFunction = () => [{ title: t("identity.routes.admin.invitations.invitations.identity.admin") }];

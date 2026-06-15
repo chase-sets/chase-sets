@@ -1,7 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData } from "react-router";
-import type { ListResponse } from "@chase-sets/http/responses";
+import { appendFreshWriteToken, type ListResponse } from "@chase-sets/http/responses";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromIdentityApi } from "../../support/route-support/identity-request";
@@ -31,10 +31,11 @@ export async function action({ request }: ActionFunctionArgs) {
   const api = createIdentityRequestApiClient(request);
   const formData = await request.formData();
   const intent = String(formData.get("intent") ?? "");
+  let result: unknown = null;
 
   if (intent === "create-invitation") {
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-    await api.createInvitation({
+    result = await api.createInvitation({
       invitationId: createId("ivt"),
       accountId: actor.accountId,
       email: String(formData.get("email") ?? ""),
@@ -44,25 +45,25 @@ export async function action({ request }: ActionFunctionArgs) {
   }
 
   if (intent === "change-role") {
-    await api.changeMembershipRole(
+    result = await api.changeMembershipRole(
       String(formData.get("membershipId") ?? ""),
       String(formData.get("roleKey") ?? "viewer"),
     );
   }
 
   if (intent === "revoke") {
-    await api.revokeMembership(String(formData.get("membershipId") ?? ""));
+    result = await api.revokeMembership(String(formData.get("membershipId") ?? ""));
   }
 
   if (intent === "reinstate") {
-    await api.reinstateMembership(String(formData.get("membershipId") ?? ""));
+    result = await api.reinstateMembership(String(formData.get("membershipId") ?? ""));
   }
 
   if (intent === "cancel-invitation") {
-    await api.cancelInvitation(String(formData.get("invitationId") ?? ""));
+    result = await api.cancelInvitation(String(formData.get("invitationId") ?? ""));
   }
 
-  return redirect("/account/team");
+  return redirect(appendFreshWriteToken("/account/team", result));
 }
 
 export const meta: MetaFunction = () =>
