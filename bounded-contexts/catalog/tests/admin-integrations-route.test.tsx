@@ -409,7 +409,18 @@ describe("Catalog integrations route", () => {
       promoted_observations: 0,
       rejected_observations: 0,
     });
-    const scopes = { items: [sv8Scope], total: 1, count: 1 };
+    const additionalScopes = Array.from({ length: 80 }, (_, index) =>
+      sourceObservationScope({
+        language_code: "ja",
+        product_line_id: "",
+        product_line_name: "",
+        series_id: "sv",
+        series_name: "Scarlet & Violet",
+        expansion_id: `sv${index + 20}`,
+        expansion_name: `Oversized scope ${index}`,
+      }),
+    );
+    const scopes = { items: [sv8Scope, ...additionalScopes], total: 81, count: 81 };
     const profileReviews = {
       items: [profileReview({ active: true, lifecycle: "active", profileVersion: "2026.06.03" })],
       total: 1,
@@ -423,19 +434,54 @@ describe("Catalog integrations route", () => {
       listSourceObservationIntegrationOptions: vi.fn(async (query: string) => {
         const params = new URLSearchParams(query);
         const queryKind = params.get("queryKind") ?? "";
-        return sourceOptionResponse(queryKind, {
+        const selectedValue = queryKind === "languages" ? "ja" : queryKind === "series" ? "SV" : "SV8";
+        const selectedLabel =
+          queryKind === "languages"
+            ? "Japanese"
+            : queryKind === "series"
+              ? "Scarlet & Violet"
+              : "Super Electric Breaker";
+        const response = sourceOptionResponse(queryKind, {
           status: queryKind === "expansions" ? "stale" : "fresh",
           source: "cache",
           parentValue: params.get("parentValue"),
           degraded: queryKind === "expansions",
-          value: queryKind === "languages" ? "ja" : queryKind === "series" ? "SV" : "SV8",
-          label:
-            queryKind === "languages"
-              ? "Japanese"
-              : queryKind === "series"
-                ? "Scarlet & Violet"
-                : "Super Electric Breaker",
+          value: selectedValue,
+          label: selectedLabel,
         });
+        return {
+          ...response,
+          items: [
+            {
+              providerKey: "tcgdex",
+              queryKind,
+              value: selectedValue,
+              label: selectedLabel,
+              description: null,
+              parentValue: params.get("parentValue"),
+              imageUrl: null,
+              metadata: { providerPayload: "SENTINEL_ROUTE_OPTION_METADATA_LEAK" },
+            },
+            ...Array.from({ length: 99 }, (_, index) => ({
+              providerKey: "tcgdex",
+              queryKind,
+              value: `${selectedValue}-${index}`,
+              label: `${selectedLabel} ${index}`,
+              description: null,
+              parentValue: params.get("parentValue"),
+              imageUrl: null,
+              metadata: { providerPayload: `SENTINEL_ROUTE_OPTION_METADATA_LEAK_${index}` },
+            })),
+          ],
+          total: 100,
+          count: 100,
+          page: {
+            cursor: null,
+            nextCursor: "offset:25",
+            limit: 25,
+            hasMore: true,
+          },
+        };
       }),
       recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
     });
@@ -457,10 +503,16 @@ describe("Catalog integrations route", () => {
     expect(routeData.readModel.routeContext.importScope).toBe("ja:SV:SV8");
     expect(routeData.readModel.importJobs.selectedScope).not.toBeNull();
     expect(routeData.readModel.importJobs.selectedScope?.importScope).toBe("ja:SV:SV8");
+    expect(routeData.readModel.providerScope.providers[0]?.units[0]?.importScopes.length).toBeLessThanOrEqual(25);
+    expect(routeData.readModel.providerScope.providers[0]?.units[0]?.importScopes[0]).toBe("ja:SV:SV8");
     expect(routeData.readModel.sourceOptions.pages.find((page) => page.queryKind === "expansions")).toMatchObject({
       state: "stale",
-      items: [expect.objectContaining({ value: "SV8", label: "Super Electric Breaker" })],
+      page: expect.objectContaining({ total: 100, count: 25, limit: 25, hasMore: true }),
+      items: expect.arrayContaining([expect.objectContaining({ value: "SV8", label: "Super Electric Breaker" })]),
     });
+    const serialized = JSON.stringify(routeData);
+    expect(serialized).not.toContain("SENTINEL_ROUTE_OPTION_METADATA_LEAK");
+    expect(serialized.length).toBeLessThan(180_000);
   });
 
   it("builds a trimmed read model with denied write actions for catalog view-only operators", async () => {

@@ -43,10 +43,20 @@ export type CatalogIntegrationRecentJobSummary = Readonly<{
   profileVersion: string | null;
   profileSnapshot: CatalogAdminProfileVersionPointer | null;
   reapplyProfileMode: SourceObservationReapplyProfileMode | null;
-  result: SourceObservationIntegrationJobResult | null;
+  result: CatalogIntegrationRecentJobResultSummary | null;
   startedAt: string | null;
   createdAt: string;
   summary: string;
+}>;
+
+export type CatalogIntegrationRecentJobResultSummary = Readonly<{
+  requested: number;
+  imported: number;
+  observed: number;
+  reapplied: number;
+  skipped: number;
+  failed: number;
+  outcomeCount: number;
 }>;
 
 export type CatalogIntegrationProviderReadinessSummary = Readonly<{
@@ -325,7 +335,7 @@ function jobSummary(
     profileVersion: job.profileSnapshot?.profileVersion ?? null,
     profileSnapshot: profileSnapshotPointer(job.profileSnapshot),
     reapplyProfileMode: job.reapplyProfileMode,
-    result: job.result,
+    result: jobResultSummary(job.result),
     startedAt: job.startedAt ?? null,
     createdAt: job.createdAt,
     summary: t("catalog.features.sourceObservations.api.adminControlPlaneOverview.job.summary", {
@@ -335,6 +345,24 @@ function jobSummary(
       completed: String(job.progress.completed),
       total: String(job.progress.total),
     }),
+  };
+}
+
+function jobResultSummary(
+  result: SourceObservationIntegrationJobResult | null,
+): CatalogIntegrationRecentJobResultSummary | null {
+  if (!result) {
+    return null;
+  }
+
+  return {
+    requested: result.requested,
+    imported: result.imported,
+    observed: result.observed,
+    reapplied: result.reapplied,
+    skipped: result.skipped,
+    failed: result.failed,
+    outcomeCount: result.outcomes.length,
   };
 }
 

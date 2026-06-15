@@ -120,7 +120,7 @@ describe("Catalog primary workbench source options", () => {
         parentValue: "sv",
         cacheOnly: true,
       }),
-      items: [expect.objectContaining({ value: "SV8", label: "Super Electric Breaker" })],
+      items: [expect.objectContaining({ value: "SV8", label: "Super Electric Breaker", metadata: {} })],
       cache: expect.objectContaining({
         diagnostics: [expect.objectContaining({ code: "provider-option-query-stale-cache-used" })],
       }),
@@ -129,6 +129,43 @@ describe("Catalog primary workbench source options", () => {
       stalePages: 1,
       degradedPages: 1,
     });
+  });
+
+  it("caps source option page items and strips provider metadata from the route read model", () => {
+    const profile = profileReview({ active: true, lifecycle: "active" });
+    const request = buildCatalogPrimaryWorkbenchSourceOptionRequests({
+      requestUrl,
+      scopes: [sourceObservationScope()],
+      profiles: [profile],
+      cacheOnly: true,
+    }).find((candidate) => candidate.queryKind === "expansions");
+    expect(request).toBeTruthy();
+    const response = optionResponse(
+      request!,
+      "fresh",
+      "cache",
+      Array.from({ length: 75 }, (_, index) => ({
+        value: `base-${index}`,
+        label: `Base option ${index}`,
+        parentValue: "base",
+        metadata: { providerPayload: `SENTINEL_METADATA_LEAK_${index}` },
+      })),
+    );
+
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl,
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profile], total: 1, count: 1 },
+      sourceOptionPages: [{ request: request!, response }],
+      controlPlaneOverview: null,
+      canManageCatalog: true,
+    });
+
+    const page = readModel.sourceOptions.pages.find((candidate) => candidate.queryKind === "expansions");
+    expect(page?.items).toHaveLength(25);
+    expect(page?.page).toMatchObject({ total: 75, count: 25, limit: 25 });
+    expect(page?.items.every((item) => Object.keys(item.metadata).length === 0)).toBe(true);
+    expect(JSON.stringify(page)).not.toContain("SENTINEL_METADATA_LEAK");
   });
 
   it("composes TCGplayer product-line option hierarchy from the same structured scope contract", () => {

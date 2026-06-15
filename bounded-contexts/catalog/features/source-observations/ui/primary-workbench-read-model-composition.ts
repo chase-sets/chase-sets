@@ -17,6 +17,7 @@ import {
 } from "./primary-workbench-route-context";
 import type { CatalogPrimaryWorkbenchInput } from "./primary-workbench-read-model-input";
 import {
+  comparableImportScopeKey,
   credentialBlockerFor,
   importScopeMatchesProviderScope,
   normalizeUnitSegment,
@@ -167,7 +168,7 @@ function buildCatalogPrimaryWorkbenchCore(
     core: {
       routeContext,
       providerScope: {
-        providers: providerScopeProviders(input, providerKey, activeProfile),
+        providers: providerScopeProviders(input, providerKey, activeProfile, routeContext),
       },
       sourceOptions,
       readiness: {
@@ -449,11 +450,13 @@ export function buildCatalogPrimaryWorkbenchReadModelForSurface(
 
   const sliceInput = (wanted: boolean): CatalogPrimaryWorkbenchInput =>
     wanted ? input : emptyControlPlaneInput(input);
+  const providerSliceInput = wantsProviderSlices ? input : emptyProviderSliceInput(input);
+  const providerSliceDerived = wantsProviderSlices ? derived : emptyProviderSliceDerived(derived);
 
   const { profileAuthoring, validationReadiness } = providersSurfaceSlices(
-    sliceInput(wantsProviderSlices),
+    providerSliceInput,
     core,
-    derived,
+    providerSliceDerived,
   );
   const healthTriage = healthTriageSlice(sliceInput(wantsHealthTriage), core, derived);
   const { conflictResolution, lifecycleRecovery } = conflictAndLifecycleSlices(
@@ -511,6 +514,25 @@ function emptyControlPlaneInput(input: CatalogPrimaryWorkbenchInput): CatalogPri
     lifecycleImpacts: null,
     cleanResetEvidence: null,
     temporaryReleaseScaffolding: null,
+  };
+}
+
+function emptyProviderSliceInput(input: CatalogPrimaryWorkbenchInput): CatalogPrimaryWorkbenchInput {
+  return {
+    ...emptyControlPlaneInput(input),
+    scopes: { ...input.scopes, items: [], total: 0, count: 0 },
+    profileReviews: { ...input.profileReviews, items: [], total: 0, count: 0 },
+    reviewObservations: null,
+    sourceOptionPages: null,
+  };
+}
+
+function emptyProviderSliceDerived(derived: CatalogPrimaryWorkbenchDerived): CatalogPrimaryWorkbenchDerived {
+  return {
+    ...derived,
+    activeProfile: null,
+    selectedProfile: null,
+    requestedProfileVersion: null,
   };
 }
 
@@ -918,6 +940,7 @@ function providerScopeProviders(
   input: CatalogPrimaryWorkbenchInput,
   selectedProviderKey: string | null,
   selectedProfile: CatalogProviderProfileVersionReview | null,
+  routeContext: CatalogPrimaryWorkbenchRouteContext,
 ): CatalogPrimaryWorkbenchReadModel["providerScope"]["providers"] {
   const providerKeys = new Set<string>();
   for (const scope of input.scopes.items) {
@@ -953,12 +976,33 @@ function providerScopeProviders(
             }),
           productDomain: profile?.supportedScopes[0]?.split("/")[0] ?? "catalog",
           productForm: profile?.supportedScopes[0]?.split("/")[1] ?? "source-observation",
-          importScopes: providerScopes.map((scope) =>
-            [scope.language_code, scope.product_line_id, scope.series_id, scope.expansion_id].filter(Boolean).join(":"),
-          ),
+          importScopes: providerImportScopes(providerScopes, routeContext.importScope, providerKey),
           activeProfile: profilePointerForProfile(profile),
         },
       ],
     };
   });
+}
+
+function providerImportScopes(
+  scopes: readonly SourceObservationIntegrationScope[],
+  selectedImportScope: string | null,
+  providerKey: string | null,
+): readonly string[] {
+  const maxProviderScopeOptions = 25;
+  const selectedComparable = comparableImportScopeKey(selectedImportScope, providerKey);
+  const selected = scopes.find(
+    (scope) => comparableImportScopeKey(providerScopeValue(scope), providerKey) === selectedComparable,
+  );
+  const values = [
+    ...(selectedImportScope ? [selectedImportScope] : []),
+    ...(selected ? [providerScopeValue(selected)] : []),
+    ...scopes.map(providerScopeValue),
+  ];
+
+  return [...new Set(values.filter(Boolean))].slice(0, maxProviderScopeOptions);
+}
+
+function providerScopeValue(scope: SourceObservationIntegrationScope): string {
+  return [scope.language_code, scope.product_line_id, scope.series_id, scope.expansion_id].filter(Boolean).join(":");
 }

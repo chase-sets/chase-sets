@@ -99,7 +99,7 @@ describe("Catalog primary workbench read model - import jobs", () => {
                     reapplied: 0,
                     skipped: 1,
                     failed: 1,
-                    outcomes: [],
+                    outcomeCount: 3,
                   },
                 }),
               ],

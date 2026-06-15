@@ -361,6 +361,34 @@ describe("source observation routes: integration discovery and profile administr
           currentName: "Base Set",
           status: "imported",
         },
+        result: {
+          requested: 2,
+          imported: 1,
+          observed: 102,
+          reapplied: 0,
+          skipped: 0,
+          failed: 1,
+          outcomes: [
+            {
+              providerKey: "tcgdex",
+              languageCode: "en",
+              expansionId: "base1",
+              status: "imported",
+              observed: 102,
+              reapplied: 0,
+              reason: null,
+            },
+            {
+              providerKey: "tcgdex",
+              languageCode: "en",
+              expansionId: "jungle",
+              status: "failed",
+              observed: 0,
+              reapplied: 0,
+              reason: "Provider timeout while fetching expansion.",
+            },
+          ],
+        },
         startedAt: "2026-06-05T00:01:00.000Z",
       }),
     ]);
@@ -385,7 +413,8 @@ describe("source observation routes: integration discovery and profile administr
     const response = await app.request("/source-observations/integration-control-plane/overview");
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
+    const json = await response.json();
+    expect(json).toMatchObject({
       readiness: {
         units: [
           {
@@ -405,6 +434,15 @@ describe("source observation routes: integration discovery and profile administr
                 operatorStatus: "running",
                 completed: 1,
                 total: 2,
+                result: {
+                  requested: 2,
+                  imported: 1,
+                  observed: 102,
+                  reapplied: 0,
+                  skipped: 0,
+                  failed: 1,
+                  outcomeCount: 2,
+                },
               },
             ],
           },
@@ -437,6 +475,7 @@ describe("source observation routes: integration discovery and profile administr
         ]),
       },
     });
+    expect(json.unitActivity.units[0].recentJobs[0].result).not.toHaveProperty("outcomes");
     expect(listActiveIntegrationJobs).toHaveBeenCalledWith({ context });
   });
 

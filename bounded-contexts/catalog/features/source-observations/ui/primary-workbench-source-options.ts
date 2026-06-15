@@ -331,6 +331,7 @@ function sourceOptionPageReadModel(
       hasMore: false,
     };
     const blockers = sourceOptionBlockersForState(state, cache.degraded);
+    const items = sourceOptionItemsReadModel(response.items, page.limit);
 
     return {
       queryKind: request.queryKind,
@@ -347,13 +348,13 @@ function sourceOptionPageReadModel(
         limit: page.limit,
         hasMore: page.hasMore,
         total: response.total,
-        count: response.count,
+        count: items.length,
       },
       cache: {
         ...cache,
         cacheKey: cache.cacheKey ?? null,
       },
-      items: response.items,
+      items,
       queryHref: request.queryHref,
       refreshHref: request.refreshHref,
       nextPageHref: page.nextCursor ? sourceOptionHref({ ...request, cursor: page.nextCursor }) : null,
@@ -417,6 +418,22 @@ function emptySourceOptionPage(
     refreshHref: request.refreshHref,
     nextPageHref: null,
   };
+}
+
+function sourceOptionItemsReadModel(
+  items: SourceObservationIntegrationOptionResponse["items"],
+  limit: number,
+): SourceObservationIntegrationOptionResponse["items"] {
+  return items.slice(0, limit).map((item) => ({
+    providerKey: item.providerKey,
+    queryKind: item.queryKind,
+    value: item.value,
+    label: item.label,
+    description: item.description,
+    parentValue: item.parentValue,
+    imageUrl: item.imageUrl,
+    metadata: {},
+  }));
 }
 
 function unavailableCache(
