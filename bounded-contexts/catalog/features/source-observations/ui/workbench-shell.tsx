@@ -1,11 +1,17 @@
 import type { ReactNode } from "react";
 import {
   BulkActionSurface,
+  Button,
   DenseAdminWorkbench,
   DenseAdminWorkbenchHeader,
   DenseAdminWorkbenchLayout,
   MetricStrip,
+  NativeSelect,
   OperationalStatusBanner,
+  TextInput,
+  WorkbenchActionRow,
+  WorkbenchForm,
+  WorkbenchFormGrid,
   WorkbenchStack,
   type SectionNavigationGroup,
 } from "@chase-sets/design-system";
@@ -74,6 +80,7 @@ export function CatalogWorkbenchShell({
       />
 
       {commandFeedback ? <CommandFeedbackBanner feedback={commandFeedback} /> : null}
+      {surface === "daily" ? <ProviderImportContextForm readModel={readModel} /> : null}
 
       <MetricStrip
         items={[
@@ -116,6 +123,61 @@ export function CatalogWorkbenchShell({
         </BulkActionSurface>
       </DenseAdminWorkbenchLayout>
     </DenseAdminWorkbench>
+  );
+}
+
+function ProviderImportContextForm({ readModel }: { readModel: CatalogPrimaryWorkbenchReadModel }) {
+  const providerOptions = readModel.providerScope.providers.map((provider) => ({
+    value: provider.providerKey,
+    label: provider.displayName,
+  }));
+  const selectedProviderKey = readModel.routeContext.providerKey ?? providerOptions[0]?.value ?? "";
+  const units = readModel.providerScope.providers.flatMap((provider) =>
+    provider.units.map((unit) => ({ provider, unit })),
+  );
+  const unitOptions = units.map(({ provider, unit }) => ({
+    value: unit.unitKey,
+    label: unit.unitKey,
+    description: [provider.displayName, unit.productDomain, unit.productForm].filter(Boolean).join(" / "),
+  }));
+  const selectedUnit = units.find(({ unit }) => unit.unitKey === readModel.routeContext.unitKey)?.unit;
+  const profileVersion = readModel.routeContext.profileVersion ?? selectedUnit?.activeProfile?.profileVersion ?? "";
+
+  return (
+    <WorkbenchForm method="get" action="/catalog/integrations">
+      <WorkbenchFormGrid columns="three">
+        <NativeSelect
+          name="providerKey"
+          label={t("catalog.features.sourceObservations.ui.primaryWorkbench.importContext.provider")}
+          items={providerOptions}
+          defaultValue={selectedProviderKey}
+          required
+        />
+        <NativeSelect
+          name="unitKey"
+          label={t("catalog.features.sourceObservations.ui.primaryWorkbench.importContext.unit")}
+          items={unitOptions}
+          defaultValue={readModel.routeContext.unitKey ?? unitOptions[0]?.value ?? ""}
+          required
+        />
+        <TextInput
+          name="importScope"
+          label={t("catalog.features.sourceObservations.ui.primaryWorkbench.importContext.scope")}
+          defaultValue={readModel.routeContext.importScope ?? ""}
+          required
+        />
+      </WorkbenchFormGrid>
+      <WorkbenchActionRow align="between" stackOnMobile>
+        <TextInput
+          name="profileVersion"
+          label={t("catalog.features.sourceObservations.ui.primaryWorkbench.importContext.profileVersion")}
+          defaultValue={profileVersion}
+        />
+        <Button type="submit" leadingIcon="check">
+          {t("catalog.features.sourceObservations.ui.primaryWorkbench.importContext.apply")}
+        </Button>
+      </WorkbenchActionRow>
+    </WorkbenchForm>
   );
 }
 
