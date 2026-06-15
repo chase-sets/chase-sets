@@ -1,5 +1,5 @@
 import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
-import { attachResponseMetadata } from "@chase-sets/http/responses";
+import { attachResponseMetadata, type MutationResult } from "@chase-sets/http/responses";
 
 export class CommercialTermsApiError extends Error {
   public constructor(
@@ -26,6 +26,11 @@ export type CommercialTermsApiErrorRequest = Readonly<{
 }>;
 
 type CommercialTermsRequest = Omit<CommercialTermsApiErrorRequest, "contentType">;
+export type CommercialTermsMutationResult<T extends object> = MutationResult<T>;
+type CommercialTermsCommandMutationResult = CommercialTermsMutationResult<Readonly<{ id: string; version: number }>>;
+type CommercialTermsScheduleCreateMutationResult = CommercialTermsMutationResult<
+  Readonly<{ id: string; version: number; preview: unknown | null }>
+>;
 
 function describeRequest(input: string, init?: RequestInit): CommercialTermsRequest {
   const url = new URL(input);
@@ -108,15 +113,15 @@ export function createCommercialTermsRequestApiClient(request: Request) {
     async getSchedule(id: string) {
       return requestJson<CommercialTermsSchedule>(`${baseUrl}/schedules/${id}`);
     },
-    async createSchedule(body: Record<string, unknown>) {
-      return requestJson<{ id: string; version: number }>(`${baseUrl}/schedules`, {
+    async createSchedule(body: Record<string, unknown>): Promise<CommercialTermsScheduleCreateMutationResult> {
+      return requestJson<CommercialTermsScheduleCreateMutationResult>(`${baseUrl}/schedules`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
     },
-    async updateSchedule(id: string, body: Record<string, unknown>) {
-      return requestJson<{ id: string; version: number }>(`${baseUrl}/schedules/${id}`, {
+    async updateSchedule(id: string, body: Record<string, unknown>): Promise<CommercialTermsCommandMutationResult> {
+      return requestJson<CommercialTermsCommandMutationResult>(`${baseUrl}/schedules/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -128,15 +133,15 @@ export function createCommercialTermsRequestApiClient(request: Request) {
     async getAgreement(id: string) {
       return requestJson<CommercialAgreement>(`${baseUrl}/agreements/${id}`);
     },
-    async createAgreement(body: Record<string, unknown>) {
-      return requestJson<{ id: string; version: number }>(`${baseUrl}/agreements`, {
+    async createAgreement(body: Record<string, unknown>): Promise<CommercialTermsCommandMutationResult> {
+      return requestJson<CommercialTermsCommandMutationResult>(`${baseUrl}/agreements`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
     },
-    async updateAgreement(id: string, body: Record<string, unknown>) {
-      return requestJson<{ id: string; version: number }>(`${baseUrl}/agreements/${id}`, {
+    async updateAgreement(id: string, body: Record<string, unknown>): Promise<CommercialTermsCommandMutationResult> {
+      return requestJson<CommercialTermsCommandMutationResult>(`${baseUrl}/agreements/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),

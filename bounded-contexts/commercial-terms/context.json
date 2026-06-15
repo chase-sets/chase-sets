@@ -32,6 +32,20 @@
       "ownedTables": ["commercial_terms_account_pages"],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "commercial-terms-schedule-projection",
+      "sourceContextNames": ["commercial-terms"],
+      "ownedTables": ["commercial_terms_schedule_pages"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "commercial-terms-agreement-projection",
+      "sourceContextNames": ["commercial-terms"],
+      "ownedTables": ["commercial_terms_agreement_pages"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
     }
   ],
   "hostPorts": [],
@@ -40,7 +54,248 @@
     {
       "mountPath": "/api/commercial-terms",
       "kind": "primary",
-      "requiresAuth": true
+      "requiresAuth": true,
+      "readFreshnessRoutes": [
+        {
+          "routePath": "/schedules",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "commercial_terms_schedule_pages"
+            }
+          ]
+        },
+        {
+          "routePath": "/schedules/:id",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "commercial_terms_schedule_pages"
+            }
+          ]
+        },
+        {
+          "routePath": "/agreements",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "commercial_terms_agreement_pages"
+            }
+          ]
+        },
+        {
+          "routePath": "/agreements/:id",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "commercial_terms_agreement_pages"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "readAfterWriteRouteInventory": [
+    {
+      "id": "commercial-terms.schedule-create-to-list",
+      "owner": "commercial-terms",
+      "risk": "important",
+      "source": {
+        "routeId": "commercial-terms-schedules",
+        "actions": ["Create commercial-terms schedule"],
+        "command": "CreateSchedule",
+        "helperUses": ["appendFreshWriteToken"]
+      },
+      "destination": {
+        "routeId": "commercial-terms-schedules",
+        "apiContextName": "commercial-terms",
+        "apiRoutePath": "/schedules",
+        "readModelTables": ["commercial_terms_schedule_pages"],
+        "helperUses": ["loadFreshlyWrittenResource"],
+        "transientRecovery": "Schedule list waits on the schedule page projection after create and falls back to the route-owned admin load error when a valid fresh-write receipt still hits a projection freshness timeout."
+      }
+    },
+    {
+      "id": "commercial-terms.schedule-update-to-detail",
+      "owner": "commercial-terms",
+      "risk": "important",
+      "source": {
+        "routeId": "commercial-terms-schedules-detail",
+        "actions": ["Update commercial-terms schedule"],
+        "command": "ReviseSchedule",
+        "helperUses": ["appendFreshWriteToken"]
+      },
+      "destination": {
+        "routeId": "commercial-terms-schedules-detail",
+        "apiContextName": "commercial-terms",
+        "apiRoutePath": "/schedules/:id",
+        "readModelTables": ["commercial_terms_schedule_pages"],
+        "helperUses": ["loadFreshlyWrittenResource"],
+        "transientRecovery": "Schedule detail waits on the schedule page projection after update and falls back to the route-owned admin load error when a valid fresh-write receipt still hits a projection freshness timeout."
+      }
+    },
+    {
+      "id": "commercial-terms.agreement-create-to-list",
+      "owner": "commercial-terms",
+      "risk": "important",
+      "source": {
+        "routeId": "commercial-terms-agreements",
+        "actions": ["Create commercial agreement"],
+        "command": "CreateAgreement",
+        "helperUses": ["appendFreshWriteToken"]
+      },
+      "destination": {
+        "routeId": "commercial-terms-agreements",
+        "apiContextName": "commercial-terms",
+        "apiRoutePath": "/agreements",
+        "readModelTables": ["commercial_terms_agreement_pages"],
+        "helperUses": ["loadFreshlyWrittenResource"],
+        "transientRecovery": "Agreement list waits on the agreement page projection after create and falls back to the route-owned admin load error when a valid fresh-write receipt still hits a projection freshness timeout."
+      }
+    },
+    {
+      "id": "commercial-terms.agreement-update-to-detail",
+      "owner": "commercial-terms",
+      "risk": "important",
+      "source": {
+        "routeId": "commercial-terms-agreements-detail",
+        "actions": ["Update commercial agreement"],
+        "command": "ReviseAgreement",
+        "helperUses": ["appendFreshWriteToken"]
+      },
+      "destination": {
+        "routeId": "commercial-terms-agreements-detail",
+        "apiContextName": "commercial-terms",
+        "apiRoutePath": "/agreements/:id",
+        "readModelTables": ["commercial_terms_agreement_pages"],
+        "helperUses": ["loadFreshlyWrittenResource"],
+        "transientRecovery": "Agreement detail waits on the agreement page projection after update and falls back to the route-owned admin load error when a valid fresh-write receipt still hits a projection freshness timeout."
+      }
+    }
+  ],
+  "mutationConsistencyInventory": [
+    {
+      "id": "commercial-terms.api-command-snapshots",
+      "owner": "commercial-terms",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/commercial-terms/features/agreements/api/route.ts:POST /",
+        "api-route:bounded-contexts/commercial-terms/features/agreements/api/route.ts:PUT /:id",
+        "api-route:bounded-contexts/commercial-terms/features/schedules/api/route.ts:POST /",
+        "api-route:bounded-contexts/commercial-terms/features/schedules/api/route.ts:PUT /:id",
+        "api-route:bounded-contexts/commercial-terms/features/resolutions/api/route.ts:POST /preview"
+      ],
+      "visibleDestination": {
+        "description": "Commercial Terms API command routes return command-local id/version snapshots, and resolution preview returns the calculated terms snapshot directly."
+      },
+      "proof": {
+        "authoritativeResponse": "Create and revise routes respond from the command result before projection reads; preview responds from the resolver calculation and does not redirect to a projection-backed browser page.",
+        "tests": [
+          "bounded-contexts/commercial-terms/features/agreements/api/route.test.ts",
+          "bounded-contexts/commercial-terms/features/schedules/api/route.test.ts",
+          "bounded-contexts/commercial-terms/features/resolutions/api/route.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "commercial-terms.api-client-command-snapshots",
+      "owner": "commercial-terms",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-client:bounded-contexts/commercial-terms/support/request-support/api-client.ts:POST H5b57320d9a50#1",
+        "api-client:bounded-contexts/commercial-terms/support/request-support/api-client.ts:POST H91104146c650#1",
+        "api-client:bounded-contexts/commercial-terms/support/request-support/api-client.ts:PUT H08ffacdcb3f5#1",
+        "api-client:bounded-contexts/commercial-terms/support/request-support/api-client.ts:PUT H650a18031662#1"
+      ],
+      "visibleDestination": {
+        "description": "Commercial Terms admin request client returns typed command snapshots with commandReceipt metadata attached from platform API response headers."
+      },
+      "proof": {
+        "authoritativeResponse": "The request client attaches response metadata to create/update schedule and agreement results so callers can either consume the id/version snapshot or carry the receipt into a fresh-read redirect.",
+        "tests": ["bounded-contexts/commercial-terms/support/request-support/api-client.test.ts"]
+      }
+    },
+    {
+      "id": "commercial-terms.schedule-create-form-fresh-read",
+      "owner": "commercial-terms",
+      "risk": "important",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "post-form:bounded-contexts/commercial-terms/features/schedules/ui/schedule-list-page.tsx:H2df726441e2a#1",
+        "route-action:bounded-contexts/commercial-terms/routes/admin/schedules.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "commercial-terms-schedules",
+        "apiContextName": "commercial-terms",
+        "apiRoutePath": "/schedules",
+        "readModelTables": ["commercial_terms_schedule_pages"],
+        "transientRecovery": "Schedule create redirects with afterWrite and the schedule list loader waits on the schedule page projection before showing the list."
+      },
+      "proof": {
+        "tests": ["bounded-contexts/commercial-terms/routes/admin/admin-routes.test.ts"]
+      }
+    },
+    {
+      "id": "commercial-terms.schedule-update-form-fresh-read",
+      "owner": "commercial-terms",
+      "risk": "important",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "post-form:bounded-contexts/commercial-terms/features/schedules/ui/schedule-detail-page.tsx:H2df726441e2a#1",
+        "route-action:bounded-contexts/commercial-terms/routes/admin/schedules-detail.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "commercial-terms-schedules-detail",
+        "apiContextName": "commercial-terms",
+        "apiRoutePath": "/schedules/:id",
+        "readModelTables": ["commercial_terms_schedule_pages"],
+        "transientRecovery": "Schedule update redirects with afterWrite and the schedule detail loader waits on the schedule page projection before showing the edited schedule."
+      },
+      "proof": {
+        "tests": ["bounded-contexts/commercial-terms/routes/admin/admin-routes.test.ts"]
+      }
+    },
+    {
+      "id": "commercial-terms.agreement-create-form-fresh-read",
+      "owner": "commercial-terms",
+      "risk": "important",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "post-form:bounded-contexts/commercial-terms/features/agreements/ui/agreement-list-page.tsx:H2df726441e2a#1",
+        "route-action:bounded-contexts/commercial-terms/routes/admin/agreements.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "commercial-terms-agreements",
+        "apiContextName": "commercial-terms",
+        "apiRoutePath": "/agreements",
+        "readModelTables": ["commercial_terms_agreement_pages"],
+        "transientRecovery": "Agreement create redirects with afterWrite and the agreement list loader waits on the agreement page projection before showing the list."
+      },
+      "proof": {
+        "tests": ["bounded-contexts/commercial-terms/routes/admin/admin-routes.test.ts"]
+      }
+    },
+    {
+      "id": "commercial-terms.agreement-update-form-fresh-read",
+      "owner": "commercial-terms",
+      "risk": "important",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "post-form:bounded-contexts/commercial-terms/features/agreements/ui/agreement-detail-page.tsx:H2df726441e2a#1",
+        "route-action:bounded-contexts/commercial-terms/routes/admin/agreements-detail.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "commercial-terms-agreements-detail",
+        "apiContextName": "commercial-terms",
+        "apiRoutePath": "/agreements/:id",
+        "readModelTables": ["commercial_terms_agreement_pages"],
+        "transientRecovery": "Agreement update redirects with afterWrite and the agreement detail loader waits on the agreement page projection before showing the edited agreement."
+      },
+      "proof": {
+        "tests": ["bounded-contexts/commercial-terms/routes/admin/admin-routes.test.ts"]
+      }
     }
   ],
   "deployableContributions": [

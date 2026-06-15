@@ -2,21 +2,50 @@ import { Banner, LinkButton, Page, PageHeader } from "@chase-sets/design-system"
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
+import {
+  appendFreshWriteToken,
+  loadFreshlyWrittenResource,
+  recoverFreshWriteReadError,
+} from "@chase-sets/http/responses";
 import { ScheduleDetailPage } from "../../features/schedules/ui/schedule-detail-page";
 import {
   CommercialTermsApiError,
   createCommercialTermsRequestApiClient,
 } from "../../support/request-support/api-client";
-import { formatCommercialTermsAdminLoadError } from "../../support/request-support/admin-loader-error";
+import {
+  commercialTermsApiErrorBody,
+  commercialTermsApiErrorCode,
+  commercialTermsApiErrorStatus,
+  formatCommercialTermsAdminLoadError,
+} from "../../support/request-support/admin-loader-error";
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const api = createCommercialTermsRequestApiClient(request);
   try {
     return {
-      schedule: await api.getSchedule(params.id!),
+      schedule: await loadFreshlyWrittenResource({
+        request,
+        load: () => api.getSchedule(params.id!),
+        isNotFound: (error) => commercialTermsApiErrorStatus(error) === 404,
+      }),
       loadError: null,
     };
   } catch (error) {
+    const recovery = recoverFreshWriteReadError({
+      request,
+      error,
+      getStatus: commercialTermsApiErrorStatus,
+      getErrorCode: commercialTermsApiErrorCode,
+      getBody: commercialTermsApiErrorBody,
+      recoverTransient: () => ({
+        schedule: null,
+        loadError: formatCommercialTermsAdminLoadError(error),
+      }),
+    });
+    if (recovery) {
+      return recovery;
+    }
+
     return {
       schedule: null,
       loadError: formatCommercialTermsAdminLoadError(error),
@@ -29,7 +58,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
   const api = createCommercialTermsRequestApiClient(request);
 
   try {
-    await api.updateSchedule(params.id!, {
+    const result = await api.updateSchedule(params.id!, {
       label: formData.get("label"),
       marketplaceSalesFeePercentageBps: Number(formData.get("marketplaceSalesFeePercentageBps") ?? 0),
       marketplaceSalesFeeFixedAmount: formData.get("marketplaceSalesFeeFixedAmount"),
@@ -38,7 +67,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
       effectiveFrom: formData.get("effectiveFrom"),
       effectiveUntil: formData.get("effectiveUntil"),
     });
-    return redirect(`/commerce/terms/schedules/${params.id}`);
+    return redirect(appendFreshWriteToken(`/commerce/terms/schedules/${params.id}`, result));
   } catch (error) {
     if (error instanceof CommercialTermsApiError || error instanceof Error) {
       return { error: error.message };

@@ -33,6 +33,36 @@ function createApp(services: Partial<ScheduleServices>, permissions: readonly st
 }
 
 describe("commercial terms schedule routes", () => {
+  it("returns a command snapshot when creating a schedule", async () => {
+    const createSchedule = vi.fn(async () => ({ scheduleId: "cts_business", version: 1 }));
+    const app = createApp({ createSchedule }, ["commercial-terms.manage"]);
+
+    const response = await app.request("/", {
+      method: "POST",
+      body: JSON.stringify({
+        label: "Business",
+        accountType: "business",
+        marketplaceSalesFeePercentageBps: 650,
+        marketplaceSalesFeeFixedAmount: "0.00",
+        shippingAllowancePercentageBps: 750,
+        status: "active",
+        effectiveFrom: "2026-05-01T00:00:00.000Z",
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toEqual({ id: "cts_business", version: 1, preview: null });
+    expect(createSchedule).toHaveBeenCalledWith(
+      expect.objectContaining({
+        label: "Business",
+        accountType: "business",
+        marketplaceSalesFeePercentageBps: 650,
+      }),
+      context,
+    );
+  });
+
   it("requires manage permission for schedule revisions", async () => {
     const reviseSchedule = vi.fn();
     const app = createApp({ reviseSchedule }, ["commercial-terms.view"]);
