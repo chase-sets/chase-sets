@@ -307,6 +307,7 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
     data?: BulkAddActionData;
   }>({ status: "idle" });
   const loadMoreInFlightRef = useRef(false);
+  const bulkAddRequestIdRef = useRef(0);
   let draftSearch = draftSearchState.value;
   const activeExtraPages = extraPageState.key === resultSetKey ? extraPageState.pages : EMPTY_EXTRA_PAGES;
   const accumulatedData = useMemo(
@@ -545,6 +546,9 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
       return;
     }
 
+    const requestId = bulkAddRequestIdRef.current + 1;
+    const requestKey = resultSetKeyRef.current;
+    bulkAddRequestIdRef.current = requestId;
     const formData = new FormData();
     formData.set("intent", intent);
     setBulkAddState((current) => ({ ...current, status: "submitting" }));
@@ -560,13 +564,18 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
         throw new Error(`Bulk cart request failed with ${response.status}.`);
       }
 
-      setBulkAddState({
-        status: "idle",
-        data: (await response.json()) as BulkAddActionData,
-      });
+      const data = (await response.json()) as BulkAddActionData;
+      if (bulkAddRequestIdRef.current === requestId && resultSetKeyRef.current === requestKey) {
+        setBulkAddState({
+          status: "idle",
+          data,
+        });
+      }
     } catch (error) {
       console.error("Bulk add search results failed.", error);
-      setBulkAddState((current) => ({ ...current, status: "idle" }));
+      if (bulkAddRequestIdRef.current === requestId && resultSetKeyRef.current === requestKey) {
+        setBulkAddState((current) => ({ ...current, status: "idle" }));
+      }
     }
   }, []);
 

@@ -76,6 +76,11 @@ export type AddToCartActionData = Readonly<{
   status: "added-to-cart";
   itemTitle: string;
   quantity: number;
+  cartLine: {
+    id: string;
+    version: number;
+    status: string;
+  };
 }>;
 
 export type ItemDetailActionData = AddToCartActionData | Readonly<{ error: string }> | null;

@@ -68,6 +68,32 @@ vi.mock("@chase-sets/inventory/server", () => ({
 
 import { action, loader } from "../routes/item-detail";
 
+function expectFreshWriteRedirect(response: Response, pathname: string) {
+  const location = response.headers.get("Location") ?? "";
+  const redirectUrl = new URL(location, "http://localhost");
+  expect(redirectUrl.pathname).toBe(pathname);
+  expect(redirectUrl.searchParams.has("afterWrite")).toBe(true);
+}
+
+function commandResult<T extends { id?: string; session_id?: string }>(value: T, sourceContextName = "checkout"): T {
+  const id = value.id ?? value.session_id ?? "cmd_1";
+  Object.defineProperty(value, "commandReceipt", {
+    value: {
+      mode: "eventual",
+      commitEventIds: [`evt_${id}`],
+      commitPositions: [
+        {
+          sourceContextName,
+          maxGlobalPosition: "42",
+          eventIds: [`evt_${id}`],
+        },
+      ],
+    },
+    enumerable: false,
+  });
+  return value;
+}
+
 describe("item detail buy now checkout actions", () => {
   afterEach(() => {
     vi.clearAllMocks();
@@ -366,9 +392,11 @@ describe("item detail buy now checkout actions", () => {
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({});
     mockCreateCheckoutRequestApiClient.mockReturnValue({
-      createCheckoutSession: mockCreateCheckoutSession.mockResolvedValue({
-        session_id: "chk_buy_now",
-      }),
+      createCheckoutSession: mockCreateCheckoutSession.mockResolvedValue(
+        commandResult({
+          session_id: "chk_buy_now",
+        }),
+      ),
       addCartLine: mockAddCartLine,
     });
 
@@ -406,7 +434,7 @@ describe("item detail buy now checkout actions", () => {
       },
     });
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_buy_now");
+    expectFreshWriteRedirect(response, "/checkout/buy/session/chk_buy_now");
     expect(mockAddCartLine).not.toHaveBeenCalled();
   });
 
@@ -424,7 +452,7 @@ describe("item detail buy now checkout actions", () => {
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({});
     mockCreateCheckoutRequestApiClient.mockReturnValue({
-      addCartLine: mockAddCartLine.mockResolvedValue({ id: "cli_1" }),
+      addCartLine: mockAddCartLine.mockResolvedValue(commandResult({ id: "cli_1", version: 1, status: "active" })),
       createCheckoutSession: mockCreateCheckoutSession,
       addGuestCartLine: mockAddGuestCartLine,
     });
@@ -469,6 +497,11 @@ describe("item detail buy now checkout actions", () => {
       status: "added-to-cart",
       itemTitle: "Charizard",
       quantity: 2,
+      cartLine: {
+        id: "cli_1",
+        version: 1,
+        status: "active",
+      },
     });
   });
 
@@ -497,7 +530,7 @@ describe("item detail buy now checkout actions", () => {
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({});
     mockCreateCheckoutRequestApiClient.mockReturnValue({
-      addCartLine: mockAddCartLine.mockResolvedValue({ id: "cli_1" }),
+      addCartLine: mockAddCartLine.mockResolvedValue(commandResult({ id: "cli_1", version: 1, status: "active" })),
       addGuestCartLine: mockAddGuestCartLine,
       createCheckoutSession: mockCreateCheckoutSession,
     });
@@ -547,7 +580,9 @@ describe("item detail buy now checkout actions", () => {
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({});
     mockCreateCheckoutRequestApiClient.mockReturnValue({
-      addSellListLine: mockAddSellListLine.mockResolvedValue({ id: "sll_1" }),
+      addSellListLine: mockAddSellListLine.mockResolvedValue(
+        commandResult({ id: "sll_1", version: 1, status: "active" }),
+      ),
     });
 
     const form = new URLSearchParams();
@@ -587,7 +622,7 @@ describe("item detail buy now checkout actions", () => {
       quantity: 3,
     });
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/account/sell-list");
+    expectFreshWriteRedirect(response, "/account/sell-list");
   });
 
   it("adds signed-out product seller intent to an anonymous Sell List", async () => {
@@ -601,7 +636,9 @@ describe("item detail buy now checkout actions", () => {
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({});
     mockCreateCheckoutRequestApiClient.mockReturnValue({
-      addGuestSellListLine: mockAddGuestSellListLine.mockResolvedValue({ id: "sll_1" }),
+      addGuestSellListLine: mockAddGuestSellListLine.mockResolvedValue(
+        commandResult({ id: "sll_1", version: 1, status: "active" }),
+      ),
     });
 
     const form = new URLSearchParams();
@@ -639,7 +676,7 @@ describe("item detail buy now checkout actions", () => {
     });
     expect(mockAppendAnonymousSellListCookie).toHaveBeenCalledWith(expect.any(Headers), "anon_sell_1");
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/account/sell-list");
+    expectFreshWriteRedirect(response, "/account/sell-list");
     expect(response.headers.getSetCookie().join("; ")).toContain("chase_sets_anonymous_sell_list=anon_sell_1");
   });
 
@@ -672,7 +709,9 @@ describe("item detail buy now checkout actions", () => {
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({});
     mockCreateCheckoutRequestApiClient.mockReturnValue({
-      addGuestSellListLine: mockAddGuestSellListLine.mockResolvedValue({ id: "sll_1" }),
+      addGuestSellListLine: mockAddGuestSellListLine.mockResolvedValue(
+        commandResult({ id: "sll_1", version: 1, status: "active" }),
+      ),
     });
 
     const form = new URLSearchParams();
@@ -707,7 +746,7 @@ describe("item detail buy now checkout actions", () => {
       quantity: 1,
     });
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/account/sell-list");
+    expectFreshWriteRedirect(response, "/account/sell-list");
     expect(response.headers.getSetCookie().join("; ")).toContain("chase_sets_anonymous_sell_list=anon_sell_1");
   });
 
@@ -742,7 +781,9 @@ describe("item detail buy now checkout actions", () => {
       acceptOfferMatch: mockAcceptOfferMatch,
     });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
-      addGuestSellListLine: mockAddGuestSellListLine.mockResolvedValue({ id: "sll_1" }),
+      addGuestSellListLine: mockAddGuestSellListLine.mockResolvedValue(
+        commandResult({ id: "sll_1", version: 1, status: "active" }),
+      ),
     });
 
     const form = new URLSearchParams();
@@ -778,7 +819,7 @@ describe("item detail buy now checkout actions", () => {
       quantity: 1,
     });
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/account/sell-list");
+    expectFreshWriteRedirect(response, "/account/sell-list");
     expect(response.headers.getSetCookie().join("; ")).toContain("chase_sets_anonymous_sell_list=anon_sell_1");
   });
 
@@ -907,7 +948,9 @@ describe("item detail buy now checkout actions", () => {
     mockCreateMarketplaceRequestApiClient.mockReturnValue({});
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       addCartLine: mockAddCartLine,
-      addGuestCartLine: mockAddGuestCartLine.mockResolvedValue({ id: "cli_1" }),
+      addGuestCartLine: mockAddGuestCartLine.mockResolvedValue(
+        commandResult({ id: "cli_1", version: 1, status: "active" }),
+      ),
       createCheckoutSession: mockCreateCheckoutSession,
     });
 
@@ -952,6 +995,11 @@ describe("item detail buy now checkout actions", () => {
       status: "added-to-cart",
       itemTitle: "Charizard",
       quantity: 2,
+      cartLine: {
+        id: "cli_1",
+        version: 1,
+        status: "active",
+      },
     });
   });
 
@@ -969,7 +1017,7 @@ describe("item detail buy now checkout actions", () => {
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({});
     mockCreateCheckoutRequestApiClient.mockReturnValue({
-      addCartLine: mockAddCartLine.mockResolvedValue({ id: "cli_1" }),
+      addCartLine: mockAddCartLine.mockResolvedValue(commandResult({ id: "cli_1", version: 1, status: "active" })),
       addGuestCartLine: mockAddGuestCartLine,
       createCheckoutSession: mockCreateCheckoutSession,
     });
@@ -1017,9 +1065,11 @@ describe("item detail buy now checkout actions", () => {
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({});
     mockCreateCheckoutRequestApiClient.mockReturnValue({
-      createCheckoutSession: mockCreateCheckoutSession.mockResolvedValue({
-        session_id: "chk_buy_now",
-      }),
+      createCheckoutSession: mockCreateCheckoutSession.mockResolvedValue(
+        commandResult({
+          session_id: "chk_buy_now",
+        }),
+      ),
       addCartLine: mockAddCartLine,
       addGuestCartLine: mockAddGuestCartLine,
     });
@@ -1050,7 +1100,7 @@ describe("item detail buy now checkout actions", () => {
       }),
     });
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_buy_now");
+    expectFreshWriteRedirect(response, "/checkout/buy/session/chk_buy_now");
     expect(mockAddGuestCartLine).not.toHaveBeenCalled();
   });
 
@@ -1076,9 +1126,11 @@ describe("item detail buy now checkout actions", () => {
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({});
     mockCreateCheckoutRequestApiClient.mockReturnValue({
-      createCheckoutSession: mockCreateCheckoutSession.mockResolvedValue({
-        session_id: "chk_locked",
-      }),
+      createCheckoutSession: mockCreateCheckoutSession.mockResolvedValue(
+        commandResult({
+          session_id: "chk_locked",
+        }),
+      ),
       addCartLine: mockAddCartLine,
       addGuestCartLine: mockAddGuestCartLine,
     });
@@ -1111,7 +1163,7 @@ describe("item detail buy now checkout actions", () => {
       }),
     });
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_locked");
+    expectFreshWriteRedirect(response, "/checkout/buy/session/chk_locked");
     expect(mockAddGuestCartLine).not.toHaveBeenCalled();
   });
 });

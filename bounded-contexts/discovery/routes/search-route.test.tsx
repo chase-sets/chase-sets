@@ -4,6 +4,7 @@ import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RealtimeProjectionPatch } from "@chase-sets/platform-runtime/realtime";
 import type { subscribeRealtimePatches } from "@chase-sets/platform-runtime/realtime-web";
+import type { DiscoveryBulkCartPreview } from "../support/request-support/api-client";
 
 const { mockUseLoaderData, mockUseNavigate, mockUseNavigation, mockUseSearchParams, mockSubscribeRealtimePatches } =
   vi.hoisted(() => ({
@@ -473,4 +474,73 @@ describe("marketplace search route", () => {
 
     await waitFor(() => expect(screen.getByText("From $7.00")).toBeTruthy());
   });
+
+  it("suppresses stale bulk add snapshots after the result set changes", async () => {
+    let resolvePreview: (response: Response) => void = () => undefined;
+    const fetchMock = vi.fn(
+      async () =>
+        new Promise<Response>((resolve) => {
+          resolvePreview = resolve;
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    let loaderData = searchDataWithResults("pikachu");
+    mockUseLoaderData.mockImplementation(() => loaderData);
+    mockUseNavigate.mockReturnValue(vi.fn());
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams("q=pikachu"), vi.fn()]);
+
+    const { rerender } = render(<SearchRoute />);
+    fireEvent.click(screen.getByRole("button", { name: "Add matching products to Buy Cart" }));
+
+    loaderData = searchDataWithResults("raichu");
+    rerender(<SearchRoute />);
+
+    await act(async () => {
+      resolvePreview(
+        new Response(
+          JSON.stringify({
+            status: "bulk-preview",
+            preview: bulkPreview(),
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        ),
+      );
+      await Promise.resolve();
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("Add eligible products")).toBeNull();
+  });
 });
+
+function bulkPreview(): DiscoveryBulkCartPreview {
+  return {
+    totalMatches: 1,
+    eligibleCount: 1,
+    skippedCount: 0,
+    overLimit: false,
+    limit: 24,
+    lines: [
+      {
+        catalog_item_id: "cat_pikachu",
+        slug: "pikachu",
+        product_id: "cat_pikachu::form:raw",
+        title: "Pikachu",
+        subtitle: "Jungle 60/64 Common",
+        image_url: null,
+        image_srcset: null,
+        image_loading_url: null,
+        image_loading_alt: null,
+        image_loading_srcset: null,
+        selected_options: [],
+        product_summary: "Raw",
+        quantity: 1,
+      },
+    ],
+    skippedItems: [],
+  };
+}
