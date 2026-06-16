@@ -1,30 +1,30 @@
+import { catalogProviderTransportFailureConditions } from "../api/catalog-integration-provider-transport-budgets";
+import type { CatalogProviderTransportFailureCondition } from "../api/catalog-integration-provider-transport-budgets";
 import {
-  catalogProviderTransportFailureConditions,
   catalogProviderTransportProofCriteria,
   getCatalogProviderTransportFirstSliceProofProvider,
-  type CatalogProviderTransportFailureCondition,
   type CatalogProviderTransportProofCriterionKey,
-} from "./catalog-integration-provider-transport-budgets";
-import { runCatalogIntegrationDryRun } from "./catalog-integration-engine";
-import type { CatalogIntegrationDryRunResult } from "./catalog-integration-engine";
-import { catalogPrimaryWorkbenchRetirementPolicy } from "./primary-workbench-admin-contracts";
+} from "./catalog-integration-provider-transport-proof";
+import { runCatalogIntegrationDryRun } from "../api/catalog-integration-engine";
+import type { CatalogIntegrationDryRunResult } from "../api/catalog-integration-engine";
+import { catalogPrimaryWorkbenchRetirementPolicy } from "../api/primary-workbench-admin-contracts";
 import {
   getActiveCatalogProviderIntegrationProfileVersion,
   type CatalogProviderIntegrationProfileVersionRecord,
-} from "./provider-integration-profiles";
+} from "../api/provider-integration-profiles";
 import type {
   ProviderAdapter,
   ProviderImportPlan,
   ProviderOptionQueryInput,
   ProviderPayloadEnvelope,
   ProviderPayloadFetchProgress,
-} from "./provider-adapters/provider-adapter";
+} from "../api/provider-adapters/provider-adapter";
 import {
   createTcgdexProviderAdapter,
   TCGDEX_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
   TCGDEX_REAL_PROVIDER_PROOF_SCOPE,
-} from "./provider-adapters/tcgdex";
-import type { TcgdexObservationPayload } from "./tcgdex-client";
+} from "../api/provider-adapters/tcgdex";
+import type { TcgdexObservationPayload } from "../api/tcgdex-client";
 
 export const catalogRealProviderProofSchemaVersion = "catalog-real-provider-proof/v1" as const;
 const catalogRealProviderProofSampleLimit = 20;
@@ -97,7 +97,6 @@ export type CatalogRealProviderProofPacket = Readonly<{
   providerCriteria: readonly Readonly<{
     key: CatalogProviderTransportProofCriterionKey;
     status: CatalogRealProviderProofCriterionStatus;
-    ownerIssues: readonly ("#1062" | "#1064" | "#1065")[];
     evidence: string;
   }>[];
   optionQueries: readonly CatalogRealProviderProofOptionQueryEvidence[];
@@ -135,19 +134,12 @@ export type CatalogRealProviderProofPacket = Readonly<{
     evidence: readonly string[];
   }>;
   securityPrivacy: Readonly<{
-    linkedGateIssue: "#1064";
     redactionApplied: true;
     rawProviderPayloadRetained: false;
     credentialsOrCookiesRetained: false;
     fullProviderUrlsRetained: false;
     providerControlledLabelsRetained: false;
     forbiddenEvidence: readonly string[];
-  }>;
-  rolloutHandoff: Readonly<{
-    productionSignoffIssue: "#1061";
-    providerBudgetIssue: "#1065";
-    securityPrivacyIssue: "#1064";
-    releaseEvidenceRequired: true;
   }>;
   retiredSurfacePolicy: Readonly<{
     requiredDisposition: typeof catalogPrimaryWorkbenchRetirementPolicy.requiredDisposition;
@@ -227,11 +219,11 @@ export async function runCatalogTcgdexRealProviderProof(
     dryRun,
   });
 
-  assertCatalogRealProviderProofPacketIsLaunchSafe(packet);
+  assertCatalogRealProviderProofPacketIsRedactionSafe(packet);
   return packet;
 }
 
-export function assertCatalogRealProviderProofPacketIsLaunchSafe(packet: CatalogRealProviderProofPacket): void {
+export function assertCatalogRealProviderProofPacketIsRedactionSafe(packet: CatalogRealProviderProofPacket): void {
   if (packet.securityPrivacy.rawProviderPayloadRetained) {
     throw new Error("Real-provider proof evidence must not retain raw provider payloads.");
   }
@@ -361,7 +353,6 @@ function buildTcgdexRealProviderProofPacket(input: {
     providerCriteria: catalogProviderTransportProofCriteria.map((criterion) => ({
       key: criterion.key,
       status: criterion.key === "redaction-safe-evidence" ? "covered-by-linked-gate" : "covered",
-      ownerIssues: criterion.ownerIssues,
       evidence: criterionEvidence(criterion.key),
     })),
     optionQueries: input.optionQueries,
@@ -405,7 +396,6 @@ function buildTcgdexRealProviderProofPacket(input: {
     },
     degradedTransport: degradedTransportEvidence(),
     securityPrivacy: {
-      linkedGateIssue: "#1064",
       redactionApplied: true,
       rawProviderPayloadRetained: false,
       credentialsOrCookiesRetained: false,
@@ -419,12 +409,6 @@ function buildTcgdexRealProviderProofPacket(input: {
         "provider-controlled option labels",
         "provider image or asset URLs",
       ],
-    },
-    rolloutHandoff: {
-      productionSignoffIssue: "#1061",
-      providerBudgetIssue: "#1065",
-      securityPrivacyIssue: "#1064",
-      releaseEvidenceRequired: true,
     },
     retiredSurfacePolicy: {
       requiredDisposition: catalogPrimaryWorkbenchRetirementPolicy.requiredDisposition,
@@ -470,7 +454,7 @@ function criterionEvidence(key: CatalogProviderTransportProofCriterionKey): stri
     case "promotion-preview-counts":
       return "The proof packet records matched, eligible, blocked, skipped, conflict, and failed counts before Catalog writes.";
     case "redaction-safe-evidence":
-      return "The proof packet is redacted by contract and links #1064 as the launch security/privacy gate.";
+      return "The proof packet is redacted by contract and links the security/privacy launch gate.";
   }
 }
 

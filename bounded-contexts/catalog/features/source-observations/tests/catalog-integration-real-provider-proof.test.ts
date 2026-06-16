@@ -1,19 +1,19 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  assertCatalogRealProviderProofPacketIsLaunchSafe,
+  assertCatalogRealProviderProofPacketIsRedactionSafe,
   catalogRealProviderProofSchemaVersion,
   runCatalogTcgdexRealProviderProof,
   type CatalogRealProviderProofPacket,
 } from "./catalog-integration-real-provider-proof";
-import { getActiveCatalogProviderIntegrationProfileVersion } from "./provider-integration-profiles";
+import { getActiveCatalogProviderIntegrationProfileVersion } from "../api/provider-integration-profiles";
 import {
   createTcgdexProviderAdapter,
   TCGDEX_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-} from "./provider-adapters/tcgdex";
+} from "../api/provider-adapters/tcgdex";
 
 describe("Catalog real-provider proof", () => {
-  it("builds a #1062 TCGdex import-to-promotion evidence packet through the ProviderAdapter boundary", async () => {
+  it("builds a TCGdex import-to-promotion evidence packet through the ProviderAdapter boundary", async () => {
     const packet = await runProof();
 
     expect(packet).toMatchObject({
@@ -70,18 +70,11 @@ describe("Catalog real-provider proof", () => {
         rawProviderErrorBodyRetained: false,
       },
       securityPrivacy: {
-        linkedGateIssue: "#1064",
         redactionApplied: true,
         rawProviderPayloadRetained: false,
         credentialsOrCookiesRetained: false,
         fullProviderUrlsRetained: false,
         providerControlledLabelsRetained: false,
-      },
-      rolloutHandoff: {
-        productionSignoffIssue: "#1061",
-        providerBudgetIssue: "#1065",
-        securityPrivacyIssue: "#1064",
-        releaseEvidenceRequired: true,
       },
       retiredSurfacePolicy: {
         requiredDisposition: "complete-removal",
@@ -128,7 +121,6 @@ describe("Catalog real-provider proof", () => {
     ]);
     expect(packet.providerCriteria.find((criterion) => criterion.key === "redaction-safe-evidence")).toMatchObject({
       status: "covered-by-linked-gate",
-      ownerIssues: ["#1064"],
     });
   });
 
@@ -169,12 +161,12 @@ describe("Catalog real-provider proof", () => {
       },
     } as unknown as CatalogRealProviderProofPacket;
 
-    expect(() => assertCatalogRealProviderProofPacketIsLaunchSafe(unsafePacket)).toThrow(
+    expect(() => assertCatalogRealProviderProofPacketIsRedactionSafe(unsafePacket)).toThrow(
       "Real-provider proof evidence must not retain raw provider payloads.",
     );
 
     expect(() =>
-      assertCatalogRealProviderProofPacketIsLaunchSafe({
+      assertCatalogRealProviderProofPacketIsRedactionSafe({
         ...packet,
         securityPrivacy: {
           ...packet.securityPrivacy,
@@ -184,7 +176,7 @@ describe("Catalog real-provider proof", () => {
     ).toThrow("Real-provider proof evidence must not retain full provider URLs.");
 
     expect(() =>
-      assertCatalogRealProviderProofPacketIsLaunchSafe({
+      assertCatalogRealProviderProofPacketIsRedactionSafe({
         ...packet,
         retiredSurfacePolicy: {
           ...packet.retiredSurfacePolicy,

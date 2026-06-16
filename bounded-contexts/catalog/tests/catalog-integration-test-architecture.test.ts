@@ -20,7 +20,7 @@ const readModelTestPaths = [
 const pageTestPath = resolve(contextRoot, "features/source-observations/ui/primary-workbench-page.test.tsx");
 const acceptanceGateTestPath = resolve(
   contextRoot,
-  "features/source-observations/api/catalog-integration-no-confusion-ux-acceptance.test.ts",
+  "features/source-observations/tests/catalog-integration-no-confusion-ux-acceptance.test.ts",
 );
 
 describe("Catalog integration test architecture", () => {
