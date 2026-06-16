@@ -249,6 +249,63 @@ describe("CatalogWorkbenchShell guided source-scope selector", () => {
       requestSubmit.mockRestore();
     }
   });
+
+  // A parent filter change must force a live refresh of every dependent option page,
+  // not just reload cache-only options, so the form submits with
+  // sourceOptionAction=force-refresh-all stamped on it.
+  it("forces a refresh-all of source options when a parent filter changes", () => {
+    const requestSubmit = vi.spyOn(HTMLFormElement.prototype, "requestSubmit").mockImplementation(() => undefined);
+
+    try {
+      render(<CatalogIntegrationsSurfacePage surface="daily" readModel={dailyReadModelWithSourceOptions()} />);
+
+      const scopeGroup = screen.getByRole("group", { name: "Source scope" });
+      const language = within(scopeGroup).getByLabelText<HTMLSelectElement>("Language");
+      const form = language.form;
+      expect(form).not.toBeNull();
+
+      // A prior per-group reload/force-refresh left a stale query-kind hint on the
+      // form; the refresh-all submit must drop it since it carries no single group.
+      const staleQueryKind = document.createElement("input");
+      staleQueryKind.type = "hidden";
+      staleQueryKind.name = "sourceOptionQueryKind";
+      staleQueryKind.value = "languages";
+      form!.appendChild(staleQueryKind);
+
+      fireEvent.change(language, { target: { value: "ja" } });
+
+      const action = form!.elements.namedItem("sourceOptionAction");
+      expect(action).toBeInstanceOf(HTMLInputElement);
+      expect((action as HTMLInputElement).type).toBe("hidden");
+      expect((action as HTMLInputElement).value).toBe("force-refresh-all");
+      expect(form!.elements.namedItem("sourceOptionQueryKind")).toBeNull();
+      expect(requestSubmit).toHaveBeenCalledTimes(1);
+    } finally {
+      requestSubmit.mockRestore();
+    }
+  });
+
+  // The leaf field (Expansion) has no dependent option pages to invalidate, so it
+  // submits plainly and stays cache-only — no force-refresh-all is stamped.
+  it("does not force a refresh-all when the leaf filter changes", () => {
+    const requestSubmit = vi.spyOn(HTMLFormElement.prototype, "requestSubmit").mockImplementation(() => undefined);
+
+    try {
+      render(<CatalogIntegrationsSurfacePage surface="daily" readModel={dailyReadModelWithSourceOptions()} />);
+
+      const scopeGroup = screen.getByRole("group", { name: "Source scope" });
+      const expansion = within(scopeGroup).getByLabelText<HTMLSelectElement>("Expansion");
+      const form = expansion.form;
+      expect(form).not.toBeNull();
+
+      fireEvent.change(expansion, { target: { value: "base1" } });
+
+      expect(form!.elements.namedItem("sourceOptionAction")).toBeNull();
+      expect(requestSubmit).toHaveBeenCalledTimes(1);
+    } finally {
+      requestSubmit.mockRestore();
+    }
+  });
 });
 
 describe("CatalogWorkbenchShell source-options status panel", () => {

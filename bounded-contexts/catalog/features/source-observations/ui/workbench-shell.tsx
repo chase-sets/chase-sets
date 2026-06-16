@@ -25,7 +25,11 @@ import { CommandFormButton } from "./admin-control-plane/import-to-promotion/com
 import { WorkbenchReturnLink } from "./admin-control-plane/import-to-promotion/workbench-formatting";
 import type { CatalogPrimaryWorkbenchCommandFeedback } from "./primary-workbench-command-feedback";
 import { commandFeedbackDescription, commandSuccessTitle } from "./primary-workbench-command-feedback";
-import { catalogPrimaryWorkbenchSourceOptionHref } from "./primary-workbench-source-option-refresh";
+import {
+  CATALOG_SOURCE_OPTION_ACTION_PARAM,
+  CATALOG_SOURCE_OPTION_QUERY_KIND_PARAM,
+  catalogPrimaryWorkbenchSourceOptionHref,
+} from "./primary-workbench-source-option-refresh";
 import {
   guidedSourceScopeFields,
   sourceOptionPageStateTone,
@@ -240,7 +244,39 @@ function submitSourceScopeFilter(event: ChangeEvent<HTMLSelectElement>, dependen
     }
   }
 
+  // A parent filter change (a field that has dependent fields) invalidates every
+  // dependent option page, whose cache-only options no longer match the new parent.
+  // Force a live refresh across all groups so the dependent pages fetch fresh
+  // provider options rather than reloading stale cache. Leaf fields (no dependents,
+  // e.g. Expansion) submit plainly and stay cache-only.
+  if (dependentFieldNames.length > 0) {
+    forceRefreshAllSourceOptions(form);
+  }
+
   form.requestSubmit();
+}
+
+// Stamp the GET form with the refresh-all source-option intent so the workbench
+// loader force-refreshes every option group. Any stale per-group query-kind hint
+// (left from a prior reload/force-refresh link the operator followed) is dropped,
+// since refresh-all fans across every group and carries no single query kind.
+function forceRefreshAllSourceOptions(form: HTMLFormElement): void {
+  const staleQueryKind = form.elements.namedItem(CATALOG_SOURCE_OPTION_QUERY_KIND_PARAM);
+  if (staleQueryKind instanceof HTMLInputElement) {
+    staleQueryKind.remove();
+  }
+
+  const existingAction = form.elements.namedItem(CATALOG_SOURCE_OPTION_ACTION_PARAM);
+  if (existingAction instanceof HTMLInputElement) {
+    existingAction.value = "force-refresh-all";
+    return;
+  }
+
+  const action = document.createElement("input");
+  action.type = "hidden";
+  action.name = CATALOG_SOURCE_OPTION_ACTION_PARAM;
+  action.value = "force-refresh-all";
+  form.appendChild(action);
 }
 
 // A compact sync/status panel for the synced provider option groups, rendered next
