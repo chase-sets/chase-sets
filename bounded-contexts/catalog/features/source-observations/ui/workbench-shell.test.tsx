@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildCatalogPrimaryWorkbenchReadModel,
   buildCatalogPrimaryWorkbenchReadModelForSurface,
@@ -55,7 +55,10 @@ function dailyReadModelWithSourceOptions(
 
 function responseFor(request: CatalogPrimaryWorkbenchSourceOptionRequest): SourceObservationIntegrationOptionResponse {
   if (request.queryKind === "languages") {
-    return optionResponse(request, "fresh", "cache", [{ value: "en", label: "en", parentValue: null }]);
+    return optionResponse(request, "fresh", "cache", [
+      { value: "en", label: "en", parentValue: null },
+      { value: "ja", label: "ja", parentValue: null },
+    ]);
   }
   if (request.queryKind === "series") {
     return optionResponse(request, "fresh", "live", [{ value: "base", label: "Base", parentValue: "en" }]);
@@ -215,6 +218,36 @@ describe("CatalogWorkbenchShell guided source-scope selector", () => {
     const language = within(scopeGroup).getByLabelText<HTMLSelectElement>("Language");
     expect(within(language).getByRole("option", { name: "Japanese" })).toBeTruthy();
     expect(language.value).toBe("ja");
+  });
+
+  it("submits dependent source-scope filters and clears stale child selections", () => {
+    const requestSubmit = vi.spyOn(HTMLFormElement.prototype, "requestSubmit").mockImplementation(() => undefined);
+
+    try {
+      render(<CatalogIntegrationsSurfacePage surface="daily" readModel={dailyReadModelWithSourceOptions()} />);
+
+      const scopeGroup = screen.getByRole("group", { name: "Source scope" });
+      const language = within(scopeGroup).getByLabelText<HTMLSelectElement>("Language");
+      const series = within(scopeGroup).getByLabelText<HTMLSelectElement>("Series");
+      const expansion = within(scopeGroup).getByLabelText<HTMLSelectElement>("Expansion");
+
+      expect(series.value).toBe("base");
+      expect(expansion.value).toBe("base1");
+
+      fireEvent.change(language, { target: { value: "ja" } });
+
+      expect(language.value).toBe("ja");
+      expect(series.value).toBe("");
+      expect(expansion.value).toBe("");
+      expect(requestSubmit).toHaveBeenCalledTimes(1);
+
+      fireEvent.change(series, { target: { value: "base" } });
+
+      expect(expansion.value).toBe("");
+      expect(requestSubmit).toHaveBeenCalledTimes(2);
+    } finally {
+      requestSubmit.mockRestore();
+    }
   });
 });
 
