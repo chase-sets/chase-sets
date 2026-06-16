@@ -18,7 +18,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `AccountReputationSummary` | `packages/design-system/src/components/commerce/trust.tsx` | Purpose not documented; symbol name suggests: Account Reputation Summary. | `bounded-contexts/discovery/features/item-detail/ui/commerce/purchase-section.tsx` |
 | `AccountTrustCard` | `packages/design-system/src/components/commerce/trust.tsx` | Purpose not documented; symbol name suggests: Account Trust Card. | `bounded-contexts/discovery/routes/public-listing.tsx` |
 | `ActionBar` | `packages/design-system/src/components/data-display/filter.tsx` | Purpose not documented; symbol name suggests: Action Bar. | `bounded-contexts/auth/features/sessions/ui/admin-pages.tsx` |
-| `ActionRow` | `packages/design-system/src/components/checkout/checkout.tsx` | Purpose not documented; symbol name suggests: Action Row. | `No production consumer yet.` |
+| `ActionRow` | `packages/design-system/src/components/checkout/checkout.tsx` | Purpose not documented; symbol name suggests: Action Row. | `bounded-contexts/checkout/features/sessions/ui/checkout-page.tsx` |
 | `ActionStack` | `packages/design-system/src/components/checkout/checkout.tsx` | Purpose not documented; symbol name suggests: Action Stack. | `bounded-contexts/checkout/features/cart/ui/cart-page.tsx` |
 | `ActivityList` | `packages/design-system/src/components/data-display/timeline.tsx` | Purpose not documented; symbol name suggests: Activity List. | `No production consumer yet.` |
 | `ActivitySheet` | `packages/design-system/src/patterns/commerce-overlays.tsx` | Purpose not documented; symbol name suggests: Activity Sheet. | `No production consumer yet.` |
