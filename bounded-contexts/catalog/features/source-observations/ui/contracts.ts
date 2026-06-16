@@ -143,7 +143,7 @@ export interface SourceObservationIntegrationOptionResponse {
 
 export interface CatalogProviderSourceOptionKind {
   queryKind: string;
-  aliases: string[];
+  queryKeySynonyms: string[];
   displayName: string;
   scope: string;
   parentScope: string | null;

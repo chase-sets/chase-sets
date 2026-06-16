@@ -96,7 +96,7 @@ function sourceOptionKindsForProvider(providerKey: string): CatalogProviderSourc
 
   return (profile ?? tcgdexPokemonTcgProviderProfile).optionQueries.map((query) => ({
     queryKind: query.queryKind,
-    aliases: [...sourceOptionQueryAliases(query)],
+    queryKeySynonyms: [...sourceOptionQueryKeySynonyms(query)],
     displayName: query.displayName,
     scope: query.scope,
     parentScope: query.parentScope,
@@ -106,10 +106,10 @@ function sourceOptionKindsForProvider(providerKey: string): CatalogProviderSourc
   }));
 }
 
-function sourceOptionQueryAliases(
+function sourceOptionQueryKeySynonyms(
   query: CatalogProviderIntegrationProfile["optionQueries"][number],
 ): readonly string[] {
-  return "aliases" in query ? (query.aliases ?? []) : [];
+  return "queryKeySynonyms" in query ? (query.queryKeySynonyms ?? []) : [];
 }
 
 function sourceOptionQueryParentValue(

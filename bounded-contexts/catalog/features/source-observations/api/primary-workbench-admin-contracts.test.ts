@@ -546,7 +546,7 @@ describe("Catalog primary workbench admin contracts", () => {
         optionKinds: [
           {
             queryKind: "languages",
-            aliases: ["language"],
+            queryKeySynonyms: ["language"],
             displayName: "Language",
             scope: "language",
             parentScope: null,

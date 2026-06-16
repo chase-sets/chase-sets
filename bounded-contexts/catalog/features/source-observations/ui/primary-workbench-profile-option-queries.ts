@@ -42,7 +42,7 @@ export function profileSectionOptionQueries(
 
       return {
         queryKind,
-        aliases: stringArrayValue(record.aliases),
+        queryKeySynonyms: stringArrayValue(record.queryKeySynonyms),
         displayName,
         scope,
         parentScope: stringValue(record.parentScope),

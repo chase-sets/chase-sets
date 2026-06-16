@@ -29,6 +29,7 @@ export const tcgdexPokemonCardSourceObservationMappingContract = {
       "merge-identity",
       "external-reference",
       "reference-hierarchy",
+      "alias-candidate",
       "promotion-command",
     ],
   },
@@ -171,6 +172,19 @@ export const tcgdexPokemonCardSourceObservationMappingContract = {
           ]),
         },
       },
+    },
+  ],
+  aliasCandidates: [
+    {
+      aliasCandidateKey: "tcgdex-localized-card-name",
+      target: { kind: "catalog-item", catalogItemFieldKey: "card-name" },
+      aliasType: "provider-localized-name",
+      aliasText: tcgdexPathExpression("card.name", "catalog-alias-evidence", ["alias-candidate"]),
+      aliasLanguage: { kind: "path", path: "languageCode", required: true },
+      confidencePolicy: { sourceCategory: "provider-localized-name", reviewPolicy: "always-review" },
+      evidence: tcgdexPathExpression("externalKey", "catalog-alias-evidence", ["alias-candidate"]),
+      missingEvidencePolicy: "review-evidence",
+      unknownAliasTextPolicy: "omit",
     },
   ],
   duplicatePrevention: {

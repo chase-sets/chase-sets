@@ -145,7 +145,7 @@ export type CatalogProviderProfileVersionReview = Readonly<{
 
 export type CatalogProviderSourceOptionKind = Readonly<{
   queryKind: string;
-  aliases: readonly string[];
+  queryKeySynonyms: readonly string[];
   displayName: string;
   scope: string;
   parentScope: string | null;
@@ -1467,7 +1467,7 @@ function toProfileVersionReview(
 function toSourceOptionKind(query: CatalogProviderOptionQuery): CatalogProviderSourceOptionKind {
   return {
     queryKind: query.queryKind,
-    aliases: query.aliases ?? [],
+    queryKeySynonyms: query.queryKeySynonyms ?? [],
     displayName: query.displayName,
     scope: query.scope,
     parentScope: query.parentScope,

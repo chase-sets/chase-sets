@@ -229,11 +229,11 @@ function optionForProviderValue(
 
 function optionKeyForProviderValue(providerValue: string, rule: SelectedOptionDimensionRule): string | null {
   const normalizedProviderValue = normalizeProviderOption(providerValue);
-  const alias = (rule.optionAliases ?? []).find((candidate) =>
+  const synonym = (rule.valueSynonyms ?? []).find((candidate) =>
     candidate.providerValues.some((value) => normalizeProviderOption(value) === normalizedProviderValue),
   );
 
-  return alias?.optionKey ?? null;
+  return synonym?.optionKey ?? null;
 }
 
 function valueAtPath(value: JsonValue, path: string): JsonValue | undefined {

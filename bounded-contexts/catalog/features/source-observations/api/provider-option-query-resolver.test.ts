@@ -235,7 +235,7 @@ describe("listCatalogProviderIntegrationOptionsFromProfiles", () => {
       optionQueries: [
         {
           queryKind: "sets",
-          aliases: ["expansions"],
+          queryKeySynonyms: ["expansions"],
           displayName: "Set",
           scope: "expansion",
           parentScope: null,

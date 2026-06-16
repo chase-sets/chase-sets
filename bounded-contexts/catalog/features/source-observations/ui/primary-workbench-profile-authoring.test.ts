@@ -179,7 +179,7 @@ describe("Catalog primary workbench read model - profile authoring", () => {
       "expansions",
     ]);
     expect(providerOptions?.optionQueries[1]).toMatchObject({
-      aliases: [],
+      queryKeySynonyms: [],
       scope: "series",
       parentScope: "language",
       parentRequired: false,
@@ -283,7 +283,7 @@ describe("Catalog primary workbench read model - profile authoring", () => {
       ["skus", "tcgplayer-list-skus"],
     ]);
     expect(providerOptions?.optionQueries.find((query) => query.queryKind === "set-names")).toMatchObject({
-      aliases: ["set-name", "sets"],
+      queryKeySynonyms: ["set-name", "sets"],
       parentScope: "product-line/category",
       parentRequired: true,
       parentValueKind: "product-line-id",
@@ -314,7 +314,7 @@ describe("Catalog primary workbench read model - profile authoring", () => {
       optionQueries: [
         {
           queryKind: "sets",
-          aliases: ["expansions"],
+          queryKeySynonyms: ["expansions"],
           displayName: "Set",
           scope: "expansion",
           parentScope: null,
@@ -374,7 +374,7 @@ describe("Catalog primary workbench read model - profile authoring", () => {
     expect(providerOptions?.optionQueries).toEqual([
       expect.objectContaining({
         queryKind: "sets",
-        aliases: ["expansions"],
+        queryKeySynonyms: ["expansions"],
         scope: "expansion",
         operation: "scrydex-list-sets",
         outputMappings: expect.arrayContaining([
