@@ -58,6 +58,76 @@ describe("Catalog primary workbench read model - per-surface slicing", () => {
     }
   });
 
+  it("keeps every control-plane provider selectable when daily profile reviews are selected-provider scoped", () => {
+    const base = fullSurfaceInput("workbench");
+    const overview = controlPlaneOverview();
+    const tcgdexUnit = overview.readiness.units[0]!;
+    const tcgdexProvider = overview.providerReadiness.providers[0]!;
+    const tcgplayerUnitKey = "tcgplayer:pokemon:single-card:source-observation-import";
+    const scrydexUnitKey = "scrydex:magic:single-card:source-observation-import";
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("daily", {
+      ...base,
+      // Staging can trim the daily profile review payload to the selected
+      // provider, but the provider dropdown still needs the provider readiness
+      // inventory so operators can switch to the other integration profiles.
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      controlPlaneOverview: {
+        ...overview,
+        readiness: {
+          ...overview.readiness,
+          units: [
+            tcgdexUnit,
+            {
+              ...tcgdexUnit,
+              unitKey: tcgplayerUnitKey,
+              providerKey: "tcgplayer",
+              displayName: "TCGplayer Pokemon products",
+              productDomain: "pokemon",
+              productForm: "single-card",
+              profileVersion: "2026.06.03",
+            },
+            {
+              ...tcgdexUnit,
+              unitKey: scrydexUnitKey,
+              providerKey: "scrydex",
+              displayName: "Scrydex Magic cards",
+              productDomain: "magic",
+              productForm: "single-card",
+              profileVersion: "2026.06.03",
+            },
+          ],
+        },
+        providerReadiness: {
+          ...overview.providerReadiness,
+          providers: [
+            tcgdexProvider,
+            { ...tcgdexProvider, providerKey: "tcgplayer", adapterKey: "tcgplayer", unitKeys: [tcgplayerUnitKey] },
+            { ...tcgdexProvider, providerKey: "scrydex", adapterKey: "scrydex", unitKeys: [scrydexUnitKey] },
+          ],
+        },
+      },
+    });
+
+    expect(readModel.providerScope.providers.map((provider) => provider.providerKey)).toEqual([
+      "scrydex",
+      "tcgdex",
+      "tcgplayer",
+    ]);
+    const tcgplayerProvider = readModel.providerScope.providers.find(
+      (provider) => provider.providerKey === "tcgplayer",
+    );
+    expect(tcgplayerProvider).toMatchObject({
+      displayName: "TCGplayer Pokemon products",
+      units: [{ unitKey: tcgplayerUnitKey, productDomain: "pokemon", productForm: "single-card" }],
+    });
+    expect(tcgplayerProvider?.units[0]?.activeProfile).toBeNull();
+    expect(readModel.providerScope.providers.find((provider) => provider.providerKey === "scrydex")).toMatchObject({
+      displayName: "Scrydex Magic cards",
+      units: [{ unitKey: scrydexUnitKey, productDomain: "magic", productForm: "single-card" }],
+    });
+  });
+
   it("builds the daily surface without computing governance, lifecycle, release, or audit data", () => {
     // The daily surface drops the authoring-model, lifecycle-impact, and overview
     // inputs that the supporting slices feed on; supplying them but asking for the
