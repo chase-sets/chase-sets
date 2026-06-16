@@ -4,13 +4,13 @@
   "generatedBy": "pnpm run ops design-system:legacy-inventory --write-ledger",
   "description": "Design-system legacy pattern inventory for milestone #12. Entries are file/category level and must map to a milestone issue with no permanent exceptions.",
   "summary": {
-    "fileCount": 8,
+    "fileCount": 9,
     "gatingFileCount": 0,
-    "warningFileCount": 8,
-    "categories": { "rawStructuralElement": 8 },
-    "severity": { "error": 0, "warning": 8 },
-    "owners": { "Auth": 1, "Catalog": 2, "Checkout": 1, "Discovery": 1, "Identity": 3 },
-    "issues": { "#1666": 8 }
+    "warningFileCount": 9,
+    "categories": { "rawStructuralElement": 9 },
+    "severity": { "error": 0, "warning": 9 },
+    "owners": { "Auth": 1, "Catalog": 2, "Checkout": 2, "Discovery": 1, "Identity": 3 },
+    "issues": { "#1666": 9 }
   },
   "entries": [
     {
@@ -44,6 +44,19 @@
       "owner": "Catalog",
       "categories": { "rawStructuralElement": 1 },
       "details": [{ "category": "rawStructuralElement", "line": 185, "column": 18, "detail": "span" }],
+      "phase": "Phase G3",
+      "issueTargets": ["#1666"],
+      "outcome": "migrate-or-promote-to-design-system",
+      "prerequisites": ["#1665"],
+      "closureEvidence": ["documented exception allow-list", "structural element inventory", "warning-tier guardrail"],
+      "status": "open",
+      "ownerStatus": "unassigned until scheduled by #960"
+    },
+    {
+      "file": "bounded-contexts/checkout/features/cart/ui/cart-page.tsx",
+      "owner": "Checkout",
+      "categories": { "rawStructuralElement": 1 },
+      "details": [{ "category": "rawStructuralElement", "line": 335, "column": 6, "detail": "div" }],
       "phase": "Phase G3",
       "issueTargets": ["#1666"],
       "outcome": "migrate-or-promote-to-design-system",

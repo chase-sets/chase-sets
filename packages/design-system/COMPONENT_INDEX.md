@@ -19,7 +19,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `AccountTrustCard` | `packages/design-system/src/components/commerce/trust.tsx` | Purpose not documented; symbol name suggests: Account Trust Card. | `bounded-contexts/discovery/routes/public-listing.tsx` |
 | `ActionBar` | `packages/design-system/src/components/data-display/filter.tsx` | Purpose not documented; symbol name suggests: Action Bar. | `bounded-contexts/auth/features/sessions/ui/admin-pages.tsx` |
 | `ActionRow` | `packages/design-system/src/components/checkout/checkout.tsx` | Purpose not documented; symbol name suggests: Action Row. | `No production consumer yet.` |
-| `ActionStack` | `packages/design-system/src/components/checkout/checkout.tsx` | Purpose not documented; symbol name suggests: Action Stack. | `bounded-contexts/checkout/features/sessions/ui/buy-checkout-confirmation-page.tsx` |
+| `ActionStack` | `packages/design-system/src/components/checkout/checkout.tsx` | Purpose not documented; symbol name suggests: Action Stack. | `bounded-contexts/checkout/features/cart/ui/cart-page.tsx` |
 | `ActivityList` | `packages/design-system/src/components/data-display/timeline.tsx` | Purpose not documented; symbol name suggests: Activity List. | `No production consumer yet.` |
 | `ActivitySheet` | `packages/design-system/src/patterns/commerce-overlays.tsx` | Purpose not documented; symbol name suggests: Activity Sheet. | `No production consumer yet.` |
 | `ActorIdentityCue` | `packages/design-system/src/components/data-display/actor-identity-cue.tsx` | Purpose not documented; symbol name suggests: Actor Identity Cue. | `bounded-contexts/identity/features/accounts/ui/account-profile-page.tsx` |
@@ -65,7 +65,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `CheckoutFormSection` | `packages/design-system/src/components/checkout/checkout.tsx` | Purpose not documented; symbol name suggests: Checkout Form Section. | `bounded-contexts/checkout/features/sell-list/ui/guest-sell-checkout-page.tsx` |
 | `CheckoutLayout` | `packages/design-system/src/patterns/app-shells/content-layouts.tsx` | Purpose not documented; symbol name suggests: Checkout Layout. | `bounded-contexts/checkout/features/sell-list/ui/sell-list-page.tsx` |
 | `CheckoutMobileSummaryDisclosure` | `packages/design-system/src/components/checkout/checkout.tsx` | Purpose not documented; symbol name suggests: Checkout Mobile Summary Disclosure. | `bounded-contexts/checkout/features/sell-list/ui/guest-sell-checkout-page.tsx` |
-| `CheckoutNoticeStack` | `packages/design-system/src/components/checkout/checkout.tsx` | Purpose not documented; symbol name suggests: Checkout Notice Stack. | `No production consumer yet.` |
+| `CheckoutNoticeStack` | `packages/design-system/src/components/checkout/checkout.tsx` | Purpose not documented; symbol name suggests: Checkout Notice Stack. | `bounded-contexts/checkout/features/cart/ui/cart-page.tsx` |
 | `CheckoutReadinessPrompt` | `packages/design-system/src/components/checkout/checkout.tsx` | Purpose not documented; symbol name suggests: Checkout Readiness Prompt. | `bounded-contexts/checkout/features/sell-list/ui/guest-sell-checkout-page.tsx` |
 | `CheckoutSavedInfoGroup` | `packages/design-system/src/components/checkout/checkout.tsx` | Purpose not documented; symbol name suggests: Checkout Saved Info Group. | `bounded-contexts/checkout/features/sell-list/ui/signed-in-sell-checkout-page.tsx` |
 | `CheckoutSavedInfoRow` | `packages/design-system/src/components/checkout/checkout.tsx` | Purpose not documented; symbol name suggests: Checkout Saved Info Row. | `bounded-contexts/checkout/features/sell-list/ui/signed-in-sell-checkout-page.tsx` |
@@ -73,7 +73,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `CheckoutStickyActionBar` | `packages/design-system/src/components/checkout/checkout.tsx` | Purpose not documented; symbol name suggests: Checkout Sticky Action Bar. | `bounded-contexts/checkout/features/sell-list/ui/guest-sell-checkout-page.tsx` |
 | `CheckoutSummaryLineItem` | `packages/design-system/src/components/checkout/checkout.tsx` | Purpose not documented; symbol name suggests: Checkout Summary Line Item. | `No production consumer yet.` |
 | `CheckoutSummaryPanel` | `packages/design-system/src/components/checkout/checkout.tsx` | Purpose not documented; symbol name suggests: Checkout Summary Panel. | `bounded-contexts/checkout/features/sell-list/ui/guest-sell-checkout-page.tsx` |
-| `CheckoutTotals` | `packages/design-system/src/components/checkout/checkout.tsx` | Purpose not documented; symbol name suggests: Checkout Totals. | `No production consumer yet.` |
+| `CheckoutTotals` | `packages/design-system/src/components/checkout/checkout.tsx` | Purpose not documented; symbol name suggests: Checkout Totals. | `bounded-contexts/checkout/features/cart/ui/cart-page.tsx` |
 | `CheckoutTrustPanel` | `packages/design-system/src/patterns/app-shells/checkout-panels.tsx` | Purpose not documented; symbol name suggests: Checkout Trust Panel. | `No production consumer yet.` |
 | `clearFieldError` | `packages/design-system/src/components/forms/form-state.ts` | Purpose not documented; symbol name suggests: clear Field Error. | `No production consumer yet.` |
 | `Cluster` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: Cluster. | `bounded-contexts/discovery/features/google-shopping-operations/ui/google-shopping-operations-page.tsx` |
@@ -105,7 +105,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `DenseAdminWorkbenchLayout` | `packages/design-system/src/patterns/dense-admin-workbench.tsx` | Purpose not documented; symbol name suggests: Dense Admin Workbench Layout. | `bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/profiles/profile-section-workspaces.tsx` |
 | `DenseAdminWorkbenchProof` | `packages/design-system/src/patterns/dense-admin-workbench-proof.tsx` | Purpose not documented; symbol name suggests: Dense Admin Workbench Proof. | `No production consumer yet.` |
 | `DesktopActionBar` | `packages/design-system/src/primitives/layout.tsx` | Desktop-only inline action row. | `bounded-contexts/checkout/features/sell-list/ui/guest-sell-checkout-page.tsx` |
-| `DestructiveAction` | `packages/design-system/src/components/checkout/checkout.tsx` | Purpose not documented; symbol name suggests: Destructive Action. | `No production consumer yet.` |
+| `DestructiveAction` | `packages/design-system/src/components/checkout/checkout.tsx` | Purpose not documented; symbol name suggests: Destructive Action. | `bounded-contexts/checkout/features/cart/ui/cart-page.tsx` |
 | `DetailConfidenceModule` | `packages/design-system/src/components/commerce/detail.tsx` | Purpose not documented; symbol name suggests: Detail Confidence Module. | `bounded-contexts/fulfillment/features/shipments/ui/shipment-detail-page.tsx` |
 | `DetailPanel` | `packages/design-system/src/components/data-display/card.tsx` | Purpose not documented; symbol name suggests: Detail Panel. | `bounded-contexts/discovery/features/google-shopping-operations/ui/google-shopping-operations-page.tsx` |
 | `Dialog` | `packages/design-system/src/components/feedback/dialog.tsx` | Purpose not documented; symbol name suggests: Dialog. | `bounded-contexts/catalog/features/blueprints/ui/blueprint-detail-page.tsx` |
@@ -135,7 +135,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `FormRow` | `packages/design-system/src/primitives/layout.tsx` | Side-by-side form fields. | `No production consumer yet.` |
 | `FormSection` | `packages/design-system/src/components/forms/fieldset.tsx` | Purpose not documented; symbol name suggests: Form Section. | `No production consumer yet.` |
 | `FullPage` | `packages/design-system/src/components/feedback/panel-interactions.tsx` | Purpose not documented; symbol name suggests: Full Page. | `No production consumer yet.` |
-| `Grid` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: Grid. | `bounded-contexts/checkout/features/cart/ui/cart-page.tsx` |
+| `Grid` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: Grid. | `bounded-contexts/checkout/features/sell-list/ui/guest-sell-checkout-page.tsx` |
 | `hasFormErrors` | `packages/design-system/src/components/forms/form-state.ts` | Purpose not documented; symbol name suggests: has Form Errors. | `No production consumer yet.` |
 | `Heading` | `packages/design-system/src/primitives/typography.tsx` | Purpose not documented; symbol name suggests: Heading. | `bounded-contexts/catalog/features/source-observations/ui/mapping-expression-editor.tsx` |
 | `HelperText` | `packages/design-system/src/components/forms/field.tsx` | Purpose not documented; symbol name suggests: Helper Text. | `No production consumer yet.` |
@@ -164,7 +164,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `MarketingImageHero` | `packages/design-system/src/patterns/app-shells/marketing.tsx` | Purpose not documented; symbol name suggests: Marketing Image Hero. | `bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx` |
 | `MarketingVisualCard` | `packages/design-system/src/patterns/app-shells/marketing.tsx` | Purpose not documented; symbol name suggests: Marketing Visual Card. | `bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx` |
 | `MarketplaceActionSheet` | `packages/design-system/src/patterns/commerce-overlays.tsx` | Purpose not documented; symbol name suggests: Marketplace Action Sheet. | `No production consumer yet.` |
-| `MarketplaceCartLineItem` | `packages/design-system/src/components/commerce/cart-line-item.tsx` | Purpose not documented; symbol name suggests: Marketplace Cart Line Item. | `No production consumer yet.` |
+| `MarketplaceCartLineItem` | `packages/design-system/src/components/commerce/cart-line-item.tsx` | Purpose not documented; symbol name suggests: Marketplace Cart Line Item. | `bounded-contexts/checkout/features/cart/ui/cart-page.tsx` |
 | `MarketplaceDashboardPanel` | `packages/design-system/src/components/commerce/panels.tsx` | Purpose not documented; symbol name suggests: Marketplace Dashboard Panel. | `bounded-contexts/identity/features/accounts/ui/account-profile-page.tsx` |
 | `MarketplaceEmptyState` | `packages/design-system/src/components/commerce/panels.tsx` | Purpose not documented; symbol name suggests: Marketplace Empty State. | `bounded-contexts/checkout/features/cart/ui/cart-page.tsx` |
 | `MarketplaceFacetChoiceGroup` | `packages/design-system/src/patterns/app-shells/facets.tsx` | Purpose not documented; symbol name suggests: Marketplace Facet Choice Group. | `bounded-contexts/discovery/features/search/ui/search-page.tsx` |
@@ -183,7 +183,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `MarketplaceStatusTimeline` | `packages/design-system/src/components/commerce/panels.tsx` | Purpose not documented; symbol name suggests: Marketplace Status Timeline. | `bounded-contexts/fulfillment/features/shipments/ui/shipment-detail-page.tsx` |
 | `MarketplaceTemplateGallery` | `packages/design-system/src/components/commerce/panels.tsx` | Purpose not documented; symbol name suggests: Marketplace Template Gallery. | `No production consumer yet.` |
 | `MarketStatusBadge` | `packages/design-system/src/patterns/app-shells/commerce-atoms.tsx` | Purpose not documented; symbol name suggests: Market Status Badge. | `No production consumer yet.` |
-| `MediaFrame` | `packages/design-system/src/primitives/layout.tsx` | Fixed-size, bordered, rounded media container for thumbnails that must not grow or shrink within a flex/grid row. | `bounded-contexts/checkout/features/cart/ui/cart-page.tsx` |
+| `MediaFrame` | `packages/design-system/src/primitives/layout.tsx` | Fixed-size, bordered, rounded media container for thumbnails that must not grow or shrink within a flex/grid row. | `No production consumer yet.` |
 | `Menu` | `packages/design-system/src/components/feedback/menu.tsx` | Purpose not documented; symbol name suggests: Menu. | `No production consumer yet.` |
 | `MessageThreadPreview` | `packages/design-system/src/components/commerce/detail.tsx` | Purpose not documented; symbol name suggests: Message Thread Preview. | `No production consumer yet.` |
 | `MetricStrip` | `packages/design-system/src/patterns/app-shells/checkout-panels.tsx` | Purpose not documented; symbol name suggests: Metric Strip. | `bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/conflicts/conflict-resolution-workspace.tsx` |
@@ -218,7 +218,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `PaymentRecoveryPanel` | `packages/design-system/src/components/checkout/checkout.tsx` | Purpose not documented; symbol name suggests: Payment Recovery Panel. | `bounded-contexts/payments/features/payments/ui/account-payment/account-payment-error-boundary.tsx` |
 | `PlatformCredibilityCue` | `packages/design-system/src/components/commerce/trust.tsx` | Purpose not documented; symbol name suggests: Platform Credibility Cue. | `bounded-contexts/checkout/features/cart/ui/cart-page.tsx` |
 | `Popover` | `packages/design-system/src/components/feedback/popover.tsx` | Purpose not documented; symbol name suggests: Popover. | `No production consumer yet.` |
-| `PriceBreakdown` | `packages/design-system/src/components/checkout/checkout.tsx` | Purpose not documented; symbol name suggests: Price Breakdown. | `bounded-contexts/checkout/features/cart/ui/cart-page.tsx` |
+| `PriceBreakdown` | `packages/design-system/src/components/checkout/checkout.tsx` | Purpose not documented; symbol name suggests: Price Breakdown. | `bounded-contexts/checkout/features/sell-list/ui/sell-list-page.tsx` |
 | `PriceDisplay` | `packages/design-system/src/patterns/app-shells/commerce-atoms.tsx` | Purpose not documented; symbol name suggests: Price Display. | `No production consumer yet.` |
 | `ProductCard` | `packages/design-system/src/patterns/app-shells/product-cards.tsx` | Purpose not documented; symbol name suggests: Product Card. | `No production consumer yet.` |
 | `ProductMediaImage` | `packages/design-system/src/components/data-display/product-media.tsx` | Purpose not documented; symbol name suggests: Product Media Image. | `No production consumer yet.` |
@@ -233,7 +233,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `PromoBar` | `packages/design-system/src/components/feedback/promo-bar.tsx` | Purpose not documented; symbol name suggests: Promo Bar. | `bounded-contexts/public-presence/features/promo-bar/ui/admin-pages.tsx` |
 | `PromoStrip` | `packages/design-system/src/patterns/app-shells/product-cards.tsx` | Purpose not documented; symbol name suggests: Promo Strip. | `bounded-contexts/discovery/features/search/ui/search-page.tsx` |
 | `QuantityChecklistControl` | `packages/design-system/src/components/data-display/operational-workflow/quantity-checklist-control.tsx` | Quantity checklist stepper: a bounded increment/decrement control showing a packed-of-total count that turns success-toned on completion, used to track partial fulfillment of a line item. | `bounded-contexts/fulfillment/features/shipments/ui/shipment-packing-page.tsx` |
-| `QuantityStepper` | `packages/design-system/src/components/forms/quantity-stepper.tsx` | QuantityStepper — canonical compact stepper for cart and order-entry flows. | `No production consumer yet.` |
+| `QuantityStepper` | `packages/design-system/src/components/forms/quantity-stepper.tsx` | QuantityStepper — canonical compact stepper for cart and order-entry flows. | `bounded-contexts/checkout/features/cart/ui/cart-page.tsx` |
 | `Quote` | `packages/design-system/src/primitives/typography.tsx` | Purpose not documented; symbol name suggests: Quote. | `No production consumer yet.` |
 | `RadioGroup` | `packages/design-system/src/components/forms/radio-group.tsx` | Purpose not documented; symbol name suggests: Radio Group. | `No production consumer yet.` |
 | `Rating` | `packages/design-system/src/components/feedback/rating.tsx` | Purpose not documented; symbol name suggests: Rating. | `bounded-contexts/marketplace/features/reviews/ui/review-submission-page.tsx` |
@@ -274,7 +274,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `selectCheckoutNotice` | `packages/design-system/src/components/checkout/checkout.tsx` | Pick the single highest-priority active notice from the candidate ladder. | `No production consumer yet.` |
 | `SelectionToolbar` | `packages/design-system/src/patterns/app-shells/content-layouts.tsx` | Purpose not documented; symbol name suggests: Selection Toolbar. | `No production consumer yet.` |
 | `SellerBadge` | `packages/design-system/src/patterns/app-shells/commerce-atoms.tsx` | Purpose not documented; symbol name suggests: Seller Badge. | `bounded-contexts/catalog/support/shell-support/shell/layout.tsx` |
-| `Show` | `packages/design-system/src/primitives/layout.tsx` | Responsive visibility wrapper. | `bounded-contexts/checkout/features/cart/ui/cart-page.tsx` |
+| `Show` | `packages/design-system/src/primitives/layout.tsx` | Responsive visibility wrapper. | `No production consumer yet.` |
 | `showToast` | `packages/design-system/src/components/feedback/toast.tsx` | Purpose not documented; symbol name suggests: show Toast. | `No production consumer yet.` |
 | `Sidebar` | `packages/design-system/src/components/feedback/panel-interactions.tsx` | Purpose not documented; symbol name suggests: Sidebar. | `No production consumer yet.` |
 | `sidebarWidthClasses` | `packages/design-system/src/primitives/layout.tsx` | Named sidebar widths for use in grid layouts. | `No production consumer yet.` |
