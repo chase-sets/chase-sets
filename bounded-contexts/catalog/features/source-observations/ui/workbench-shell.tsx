@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { ChangeEvent, ReactNode } from "react";
 import {
   Badge,
   BulkActionSurface,
@@ -198,7 +198,7 @@ function GuidedSourceScopeFields({ fields }: { fields: readonly CatalogPrimaryWo
       description={t("catalog.features.sourceObservations.ui.primaryWorkbench.sourceOptions.scope.description")}
     >
       <WorkbenchFormGrid columns="three">
-        {fields.map((field) => (
+        {fields.map((field, index) => (
           <NativeSelect
             key={field.queryKind}
             name={field.fieldName}
@@ -214,11 +214,33 @@ function GuidedSourceScopeFields({ fields }: { fields: readonly CatalogPrimaryWo
             }))}
             defaultValue={field.selectedValue || undefined}
             disabled={field.parentMissing}
+            onChange={(event) =>
+              submitSourceScopeFilter(
+                event,
+                fields.slice(index + 1).map((dependent) => dependent.fieldName),
+              )
+            }
           />
         ))}
       </WorkbenchFormGrid>
     </Fieldset>
   );
+}
+
+function submitSourceScopeFilter(event: ChangeEvent<HTMLSelectElement>, dependentFieldNames: readonly string[]): void {
+  const form = event.currentTarget.form;
+  if (!form) {
+    return;
+  }
+
+  for (const fieldName of dependentFieldNames) {
+    const field = form.elements.namedItem(fieldName);
+    if (field instanceof HTMLSelectElement || field instanceof HTMLInputElement) {
+      field.value = "";
+    }
+  }
+
+  form.requestSubmit();
 }
 
 // A compact sync/status panel for the synced provider option groups, rendered next
