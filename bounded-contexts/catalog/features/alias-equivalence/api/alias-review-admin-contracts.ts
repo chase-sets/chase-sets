@@ -1,4 +1,5 @@
 import type { JsonValue } from "@chase-sets/primitives/json";
+import { t } from "@chase-sets/localization";
 import {
   decideCatalogAliasAcceptance,
   type CatalogAliasSourceCategoryKey,
@@ -354,23 +355,51 @@ function evidenceLines(
   evidence: Record<string, JsonValue>,
 ): readonly CatalogAliasReviewEvidenceLine[] {
   const lines: CatalogAliasReviewEvidenceLine[] = [
-    { key: "sourceCategory", label: "Source category", value: row.source_category },
-    { key: "provider", label: "Provider", value: row.provider_key },
-    { key: "sourceProfileVersion", label: "Profile version", value: row.source_profile_version },
+    {
+      key: "sourceCategory",
+      label: t("catalog.features.sourceObservations.ui.aliasReview.evidence.sourceCategory"),
+      value: row.source_category,
+    },
+    {
+      key: "provider",
+      label: t("catalog.features.sourceObservations.ui.aliasReview.evidence.provider"),
+      value: row.provider_key,
+    },
+    {
+      key: "sourceProfileVersion",
+      label: t("catalog.features.sourceObservations.ui.aliasReview.evidence.profileVersion"),
+      value: row.source_profile_version,
+    },
   ];
   const providerId = stringEvidence(evidence, "providerId");
   if (providerId) {
-    lines.push({ key: "providerId", label: "Shared provider id", value: providerId });
+    lines.push({
+      key: "providerId",
+      label: t("catalog.features.sourceObservations.ui.aliasReview.evidence.providerId"),
+      value: providerId,
+    });
   }
   const evidenceKind = stringEvidence(evidence, "evidenceKind");
   if (evidenceKind) {
-    lines.push({ key: "evidenceKind", label: "Evidence kind", value: evidenceKind });
+    lines.push({
+      key: "evidenceKind",
+      label: t("catalog.features.sourceObservations.ui.aliasReview.evidence.evidenceKind"),
+      value: evidenceKind,
+    });
   }
   if (row.observation_id) {
-    lines.push({ key: "observationId", label: "Source Observation", value: row.observation_id });
+    lines.push({
+      key: "observationId",
+      label: t("catalog.features.sourceObservations.ui.aliasReview.evidence.sourceObservation"),
+      value: row.observation_id,
+    });
   }
   if (row.source_language_code) {
-    lines.push({ key: "sourceLanguageCode", label: "Native language", value: row.source_language_code });
+    lines.push({
+      key: "sourceLanguageCode",
+      label: t("catalog.features.sourceObservations.ui.aliasReview.evidence.nativeLanguage"),
+      value: row.source_language_code,
+    });
   }
   return lines;
 }

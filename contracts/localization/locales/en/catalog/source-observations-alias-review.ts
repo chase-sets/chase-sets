@@ -59,4 +59,11 @@ export const catalogSourceObservationsAliasReviewEnglishTranslations = {
   "catalog.features.sourceObservations.ui.aliasReview.coverage.referencesNeedingReview":
     "Expansions and series needing review",
   "catalog.features.sourceObservations.ui.aliasReview.coverage.empty": "No alias coverage in the selected scope yet.",
+  "catalog.features.sourceObservations.ui.aliasReview.evidence.sourceCategory": "Source category",
+  "catalog.features.sourceObservations.ui.aliasReview.evidence.provider": "Provider",
+  "catalog.features.sourceObservations.ui.aliasReview.evidence.profileVersion": "Profile version",
+  "catalog.features.sourceObservations.ui.aliasReview.evidence.providerId": "Shared provider id",
+  "catalog.features.sourceObservations.ui.aliasReview.evidence.evidenceKind": "Evidence kind",
+  "catalog.features.sourceObservations.ui.aliasReview.evidence.sourceObservation": "Source Observation",
+  "catalog.features.sourceObservations.ui.aliasReview.evidence.nativeLanguage": "Native language",
 } as const;
