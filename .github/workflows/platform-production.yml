@@ -307,6 +307,8 @@ jobs:
       completed_at: ${{ steps.staging_completed.outputs.completed_at }}
       buy_now_canary_result: ${{ steps.buy_now_canaries.outputs.result }}
       buy_now_canary_promotion_decision: ${{ steps.buy_now_canaries.outputs.promotion_decision }}
+      buy_now_canary_guest_failure_reason: ${{ steps.buy_now_canaries.outputs.guest_failure_reason }}
+      buy_now_canary_account_failure_reason: ${{ steps.buy_now_canaries.outputs.account_failure_reason }}
       buy_now_canary_started_at: ${{ steps.buy_now_canaries.outputs.started_at }}
       buy_now_canary_completed_at: ${{ steps.buy_now_canaries.outputs.completed_at }}
     concurrency:
@@ -1001,9 +1003,11 @@ jobs:
           }
           guest_final_state="$(read_field "$guest_out" finalState unknown)"
           guest_promotion_decision="$(read_field "$guest_out" promotionDecision abort)"
+          guest_failure_reason="$(read_field "$guest_out" failureReason unknown)"
           guest_ready_latency_ms="$(read_field "$guest_out" readyLatencyMs unknown)"
           account_final_state="$(read_field "$account_out" finalState unknown)"
           account_promotion_decision="$(read_field "$account_out" promotionDecision abort)"
+          account_failure_reason="$(read_field "$account_out" failureReason unknown)"
           account_ready_latency_ms="$(read_field "$account_out" readyLatencyMs unknown)"
 
           result=success
@@ -1022,19 +1026,21 @@ jobs:
             echo "promotion_decision=${promotion_decision}"
             echo "guest_final_state=${guest_final_state}"
             echo "guest_promotion_decision=${guest_promotion_decision}"
+            echo "guest_failure_reason=${guest_failure_reason}"
             echo "guest_ready_latency_ms=${guest_ready_latency_ms}"
             echo "account_final_state=${account_final_state}"
             echo "account_promotion_decision=${account_promotion_decision}"
+            echo "account_failure_reason=${account_failure_reason}"
             echo "account_ready_latency_ms=${account_ready_latency_ms}"
           } >> "$GITHUB_OUTPUT"
 
           {
             echo "## Staging Buy Now freshness canaries"
             echo ""
-            echo "| Flow | Final state | Promotion decision | Ready latency (ms) | Correlation id |"
-            echo "| --- | --- | --- | --- | --- |"
-            echo "| guest | ${guest_final_state} | ${guest_promotion_decision} | ${guest_ready_latency_ms} | github-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-guest |"
-            echo "| account | ${account_final_state} | ${account_promotion_decision} | ${account_ready_latency_ms} | github-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-account |"
+            echo "| Flow | Final state | Promotion decision | Failure reason | Ready latency (ms) | Correlation id |"
+            echo "| --- | --- | --- | --- | --- | --- |"
+            echo "| guest | ${guest_final_state} | ${guest_promotion_decision} | ${guest_failure_reason} | ${guest_ready_latency_ms} | github-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-guest |"
+            echo "| account | ${account_final_state} | ${account_promotion_decision} | ${account_failure_reason} | ${account_ready_latency_ms} | github-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-account |"
             echo ""
             echo "Interpretation: docs/runbooks/guest-buy-now-freshness-canary.md. Join server-side wake segments by correlation id via the projection wake dashboard and /api/platform/projections/wake-status."
             if [ "$promotion_decision" = "warn" ]; then
@@ -2068,24 +2074,27 @@ jobs:
           if [ -f "$proof_out" ]; then
             final_state="$(jq -r '.finalState // "unknown"' "$proof_out")"
             promotion_decision="$(jq -r '.promotionDecision // "abort"' "$proof_out")"
+            failure_reason="$(jq -r '.failureReason // "unknown"' "$proof_out")"
             ready_latency_ms="$(jq -r '.readyLatencyMs // "unknown"' "$proof_out")"
           else
             final_state=unknown
             promotion_decision=abort
+            failure_reason=unknown
             ready_latency_ms=unknown
           fi
           {
             echo "completed_at=${completed_at}"
             echo "final_state=${final_state}"
             echo "promotion_decision=${promotion_decision}"
+            echo "failure_reason=${failure_reason}"
             echo "ready_latency_ms=${ready_latency_ms}"
           } >> "$GITHUB_OUTPUT"
           {
             echo "## Production proof-mode Buy Now freshness canary"
             echo ""
-            echo "| Flow | Final state | Promotion decision | Ready latency (ms) | Correlation id |"
-            echo "| --- | --- | --- | --- | --- |"
-            echo "| account (proof mode) | ${final_state} | ${promotion_decision} | ${ready_latency_ms} | github-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-production-proof |"
+            echo "| Flow | Final state | Promotion decision | Failure reason | Ready latency (ms) | Correlation id |"
+            echo "| --- | --- | --- | --- | --- | --- |"
+            echo "| account (proof mode) | ${final_state} | ${promotion_decision} | ${failure_reason} | ${ready_latency_ms} | github-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-production-proof |"
             echo ""
             echo "Interpretation: docs/runbooks/guest-buy-now-freshness-canary.md. Join server-side wake segments by correlation id via the projection wake dashboard and /api/platform/projections/wake-status."
             if [ "$promotion_decision" = "warn" ]; then

@@ -10,6 +10,8 @@ import {
   assertRedactedEvidence,
   buildGuestBuyNowCanaryEvidence,
   classifyGuestBuyNowObservation,
+  isBuyReadinessUrl,
+  isBuySessionUrl,
   parseGuestBuyNowCanaryArgs,
   resolveGuestBuyNowItemPath,
   runGuestBuyNowFreshnessCanary,
@@ -458,6 +460,20 @@ describe("guest Buy Now freshness canary", () => {
     ).resolves.toBe("/items/canary");
   });
 
+  it("matches the current Buy Now readiness and checkout session routes", () => {
+    expect(
+      isBuyReadinessUrl(
+        "https://marketplace.staging.chasesets.com/checkout/buy/readiness?source=buy-now&listingId=lst_1",
+      ),
+    ).toBe(true);
+    expect(isBuyReadinessUrl("https://marketplace.staging.chasesets.com/checkout/start")).toBe(false);
+
+    expect(
+      isBuySessionUrl("https://marketplace.staging.chasesets.com/checkout/buy/session/chk_123?afterWrite=redacted"),
+    ).toBe(true);
+    expect(isBuySessionUrl("https://marketplace.staging.chasesets.com/checkout/chk_123")).toBe(false);
+  });
+
   it("discovers the first active buyable item from marketplace search", async () => {
     const requestedUrls = [];
     const responses = [
@@ -617,6 +633,98 @@ describe("guest Buy Now freshness canary", () => {
         readyLatencyMs: 1500,
       },
     ]);
+  });
+
+  it("retries browser navigation timeouts and records redacted runtime evidence", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "chase-sets-guest-buy-now-canary-"));
+    const outFile = join(directory, "guest-buy-now-runtime.json");
+    const attempts = [];
+    const evidence = await runGuestBuyNowFreshnessCanary({
+      outPath: outFile,
+      baseUrl: "https://marketplace.staging.chasesets.com",
+      itemPath: "/items/canary",
+      fixtureKey: "canary-fixture",
+      guestEmail: "guest-buy-now-canary@example.test",
+      environment: "staging",
+      checkedAt: baseOptions.checkedAt,
+      diagnosticCorrelationId: "diag_123",
+      maxAttempts: 2,
+      observe: async (_options, attempt) => {
+        attempts.push(attempt);
+        if (attempt === 1) {
+          throw new Error(
+            'page.waitForURL: Timeout 45000ms exceeded. navigated to "https://marketplace.staging.chasesets.com/checkout/buy/readiness?afterWrite=raw-token&session=chk_123" guest-buy-now-canary@example.test chase_sets_guest_checkout=secret',
+          );
+        }
+
+        return {
+          latencyMs: 1500,
+          readyLatencyMs: 1500,
+          afterWritePresent: true,
+          guestCookiePresent: true,
+          checkoutReviewVisible: true,
+          negativeProbe: healthyProbe,
+        };
+      },
+    });
+
+    expect(attempts).toEqual([1, 2]);
+    expect(evidence.promotionDecision).toBe("promote");
+    expect(evidence.attemptSummaries).toEqual([
+      {
+        attempt: 1,
+        finalState: "fail",
+        promotionDecision: "abort",
+        failureReason: "browser-navigation-timeout",
+        readyLatencyMs: null,
+      },
+      {
+        attempt: 2,
+        finalState: "pass",
+        promotionDecision: "promote",
+        failureReason: null,
+        readyLatencyMs: 1500,
+      },
+    ]);
+    expect(assertRedactedEvidence(evidence)).toEqual([]);
+    expect(JSON.stringify(evidence)).not.toContain("raw-token");
+    expect(JSON.stringify(evidence)).not.toContain("guest-buy-now-canary@example.test");
+    expect(JSON.parse(await readFile(outFile, "utf8"))).toEqual(evidence);
+  });
+
+  it("writes runtime timeout evidence when every attempt fails before observation", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "chase-sets-guest-buy-now-canary-"));
+    const outFile = join(directory, "guest-buy-now-runtime-abort.json");
+    const evidence = await runGuestBuyNowFreshnessCanary({
+      outPath: outFile,
+      baseUrl: "https://marketplace.staging.chasesets.com",
+      itemPath: "/items/canary",
+      fixtureKey: "canary-fixture",
+      guestEmail: "guest-buy-now-canary@example.test",
+      environment: "staging",
+      checkedAt: baseOptions.checkedAt,
+      diagnosticCorrelationId: "diag_123",
+      maxAttempts: 1,
+      observe: async () => {
+        const error = new Error("page.goto: Timeout 45000ms exceeded.");
+        error.stage = "load-buy-now-item-page";
+        throw error;
+      },
+    });
+
+    expect(evidence).toMatchObject({
+      finalState: "fail",
+      promotionDecision: "abort",
+      failureReason: "browser-navigation-timeout",
+      runtimeFailure: {
+        stage: "load-buy-now-item-page",
+        reason: "browser-navigation-timeout",
+        message: "page.goto: Timeout 45000ms exceeded.",
+      },
+      attemptCount: 1,
+      maxAttempts: 1,
+    });
+    expect(JSON.parse(await readFile(outFile, "utf8"))).toEqual(evidence);
   });
 
   it("does not retry hard failures such as permanent not-found", async () => {
