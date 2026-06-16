@@ -35,6 +35,7 @@ export type CatalogNoConfusionUxWorkflowKey =
   | "validation-readiness-support"
   | "conflict-resolution-support"
   | "lifecycle-recovery-support"
+  | "review-alias-candidates"
   | "rbac-rollout-observability-support";
 
 export type CatalogNoConfusionUxRoleKey =
@@ -303,6 +304,7 @@ const catalogNoConfusionUxWorkflows = [
   "validation-readiness-support",
   "conflict-resolution-support",
   "lifecycle-recovery-support",
+  "review-alias-candidates",
   "rbac-rollout-observability-support",
 ] as const satisfies readonly CatalogNoConfusionUxWorkflowKey[];
 
@@ -499,6 +501,9 @@ const catalogNoConfusionUxNewIaProofTests = [
   "ui/workbench-shell.test.tsx",
   // The daily happy-path E2E walked first across the new routes (tag @catalog-admin-integrations).
   "deployables/admin-web/e2e/catalog-integrations.spec.ts",
+  // The alias-review workspace (#1908): candidate display, bulk accept/reject/revoke,
+  // empty states, and generated/low-confidence warnings under the anti-confusion gate.
+  "ui/admin-control-plane/alias-review/alias-review-workspace.test.tsx",
 ] as const;
 
 function buildDefaultWorkflowEvidence(evidenceBase: string): readonly CatalogNoConfusionUxWorkflowEvidence[] {
@@ -636,6 +641,13 @@ function buildDefaultWorkflowEvidence(evidenceBase: string): readonly CatalogNoC
         "start-replay",
       ],
       "Recovery paths handle rollback, deprecation, retirement, replay, reapply, and stale job behavior without legacy fallback.",
+    ),
+    workflow(
+      "review-alias-candidates",
+      null,
+      ["source-observation-review", "supporting-evidence"],
+      ["select-source-observations", "reject-source-observations", "defer-source-observations"],
+      "Operator has reviewed alias candidates (native printed name, proposed alias, type, confidence, source, evidence, review status), accepted/rejected/deferred/revoked or auto-accepted eligible high-confidence candidates, and confirmed coverage before Source Observation promotion.",
     ),
     workflow(
       "rbac-rollout-observability-support",

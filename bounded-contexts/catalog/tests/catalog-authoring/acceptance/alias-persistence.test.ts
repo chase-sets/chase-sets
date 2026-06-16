@@ -322,6 +322,76 @@ describe("Catalog Alias persistence (DB-backed)", () => {
     expect(candidates.filter((c) => c.alias_type === "official-equivalent")).toHaveLength(0);
   });
 
+  it("assembles the admin alias review read model with coverage and auto-accept eligibility (#1908)", async () => {
+    // A pending same-id English official equivalent (held for review).
+    const officialCandidate = itemAliasCandidate({
+      target: { kind: "catalog-item", targetId: "cat_charizard", targetKey: "name" },
+      aliasText: "Sprigatito",
+      aliasLanguageCode: "en",
+      aliasType: "official-equivalent",
+      reviewStatus: "pending",
+      provenance: {
+        providerKey: "tcgdex",
+        observationId: "obs_1",
+        sourceCategory: "provider-same-id-localized-endpoint",
+        sourceProfileKey: "pokemon-tcg",
+        sourceProfileVersion: "2026.06.03",
+        mappingFingerprint: "fp-1",
+      },
+      evidence: { providerId: "sv1a-001", evidenceKind: "card-id", nativeName: "ニャオハ" },
+    });
+    // A curated-operator-mapping candidate the policy would auto-accept.
+    const curatedCandidate = buildCatalogAliasCandidate({
+      target: { kind: "catalog-item", targetId: "cat_pikachu", targetKey: "name" },
+      aliasText: "Pikachu",
+      aliasLanguageCode: "en",
+      aliasType: "official-equivalent",
+      confidence: "manual",
+      reviewStatus: "pending",
+      provenance: {
+        providerKey: "tcgdex",
+        observationId: "obs_2",
+        sourceCategory: "curated-operator-mapping",
+        sourceProfileKey: "pokemon-tcg",
+        sourceProfileVersion: "2026.06.03",
+        mappingFingerprint: "fp-1",
+      },
+      evidence: {},
+    });
+    await services.catalogAliases.upsertSourceObservationAliasCandidates(
+      [officialCandidate, curatedCandidate],
+      "2026-06-16T00:00:00.000Z",
+    );
+
+    // Accept one alias so the coverage view reflects a published English alias.
+    await proposeAndDrain(curatedCandidate, "system");
+    await services.catalogAliases.catalogAliasCommandHandler({
+      streamId: catalogAliasStreamId(curatedCandidate.aliasHash),
+      command: { type: "AcceptCatalogAlias", actor: "usr_review" },
+      context,
+    });
+    await drainCatalogProjections();
+
+    const readModel = await services.catalogAliases.getCatalogAliasReviewReadModel({
+      generatedAt: "2026-06-16T02:00:00.000Z",
+      filter: { providerKey: "tcgdex" },
+    });
+
+    expect(readModel.counts.total).toBeGreaterThanOrEqual(2);
+    const official = readModel.candidates.find((candidate) => candidate.aliasHash === officialCandidate.aliasHash);
+    expect(official?.proposedAlias).toBe("Sprigatito");
+    expect(official?.nativePrintedName).toBe("ニャオハ");
+    expect(official?.reviewStatus).toBe("pending");
+
+    const curated = readModel.candidates.find((candidate) => candidate.aliasHash === curatedCandidate.aliasHash);
+    expect(curated?.autoAccept.governedReviewState).toBe("auto-accepted");
+
+    // The accepted English alias shows up in coverage.
+    expect(readModel.coverage.cardsWithAcceptedEnglishAlias).toBeGreaterThanOrEqual(1);
+    expect(readModel.coverage.cardsNeedingReview).toBeGreaterThanOrEqual(1);
+    expect(readModel.groups.some((group) => group.scope === "provider" && group.value === "tcgdex")).toBe(true);
+  });
+
   it("persists reference-record set-equivalent aliases queryable by Reference Record", async () => {
     const candidate = buildCatalogAliasCandidate({
       target: { kind: "reference-record", targetId: "ref_expansion_1", targetKey: "expansion" },

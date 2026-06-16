@@ -1,4 +1,4 @@
-import { useMemo, type Dispatch, type SetStateAction } from "react";
+import { useMemo, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import {
   Badge,
   BadgeCluster,
@@ -37,12 +37,18 @@ export function CatalogIntegrationSourceObservationReviewModule({
   onSelectedObservationKeysChange,
   selectedEligibleObservationCount,
   selectedReviewableObservationCount,
+  aliasVisibility = null,
 }: Readonly<{
   readModel: CatalogPrimaryWorkbenchReadModel;
   selectedObservationKeys: Set<string>;
   onSelectedObservationKeysChange: Dispatch<SetStateAction<Set<string>>>;
   selectedEligibleObservationCount: number;
   selectedReviewableObservationCount: number;
+  // Optional alias-review visibility (#1908): alias coverage/candidates surfaced
+  // before promotion so operators see proposed equivalents while reviewing
+  // Source Observations. Decoupled as a slot so this module stays agnostic of the
+  // alias read model.
+  aliasVisibility?: ReactNode;
 }>) {
   const reviewColumns = useMemo<DataColumn<SourceObservationReviewRow>[]>(
     () => [
@@ -202,6 +208,8 @@ export function CatalogIntegrationSourceObservationReviewModule({
           tone: "neutral",
         }))}
       />
+
+      {aliasVisibility}
 
       <DataTable
         rows={[...readModel.sourceObservationReview.rows]}

@@ -25,6 +25,11 @@ import {
   listReferenceRecordAliases,
   listSourceObservationAliasCandidates,
 } from "../read-model/queries";
+import {
+  assembleCatalogAliasReviewReadModel,
+  type CatalogAliasReviewFilter,
+  type CatalogAliasReviewReadModel,
+} from "./alias-review-admin-contracts";
 
 export type CatalogAliasServices = Readonly<{
   catalogAliasCommandHandler: CommandHandler<CatalogAliasCommand, CatalogAliasState, CatalogAliasEvent>;
@@ -56,6 +61,15 @@ export type CatalogAliasServices = Readonly<{
     referenceRecordId: string,
   ) => ReturnType<typeof listPublishableReferenceRecordAliases>;
   getReferenceRecordAlias: (aliasHash: string) => ReturnType<typeof getReferenceRecordAlias>;
+  /**
+   * Admin alias review read model (#1908): candidate summaries by scope, coverage
+   * counters, and auto-accept eligibility for the operator review workspace.
+   */
+  getCatalogAliasReviewReadModel: (input: {
+    generatedAt: string;
+    filter?: Partial<CatalogAliasReviewFilter>;
+    candidateLimit?: number;
+  }) => Promise<CatalogAliasReviewReadModel>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
@@ -96,6 +110,16 @@ export function createCatalogAliasRuntime(deps: CatalogRuntimeDeps): CatalogAlia
     listPublishableReferenceRecordAliases: (referenceRecordId) =>
       listPublishableReferenceRecordAliases(deps.db, referenceRecordId),
     getReferenceRecordAlias: (aliasHash) => getReferenceRecordAlias(deps.db, aliasHash),
+    getCatalogAliasReviewReadModel: (input) =>
+      assembleCatalogAliasReviewReadModel(
+        {
+          listSourceObservationAliasCandidates: (filter) => listSourceObservationAliasCandidates(deps.db, filter),
+          listCatalogItemAliases: (catalogItemId, options) => listCatalogItemAliases(deps.db, catalogItemId, options),
+          listReferenceRecordAliases: (referenceRecordId, options) =>
+            listReferenceRecordAliases(deps.db, referenceRecordId, options),
+        },
+        input,
+      ),
     projectors,
   };
 }
