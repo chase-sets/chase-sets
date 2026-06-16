@@ -141,10 +141,7 @@ async function assertNoPriceAtCheckoutText(page: Page, surfaceName: string) {
   // "Estimated total" label + one "Final total confirmed at checkout" caption.
   // The literal string must appear zero times across the whole rendered DOM.
   const matches = await page.locator("text=Price at checkout").count();
-  expect(
-    matches,
-    `"Price at checkout" must appear 0 times on the ${surfaceName} surface (found ${matches})`,
-  ).toBe(0);
+  expect(matches, `"Price at checkout" must appear 0 times on the ${surfaceName} surface (found ${matches})`).toBe(0);
 }
 
 // ─── Helper: assert the single-primary contract per surface ──────────────────
@@ -153,22 +150,20 @@ async function assertSinglePrimaryActionPerSurface(page: Page, surfaceName: stri
   // data-primary-action-count="1" must appear at least once (the action
   // hierarchy primitives stamp it) and every stamped count must be ≤ 1.
   // Cart line cards stamp "0" — that is the per-line contract.
-  const allCounts = await page.locator("[data-primary-action-count]").evaluateAll((els) =>
-    els.map((el) => Number(el.getAttribute("data-primary-action-count"))),
-  );
+  const allCounts = await page
+    .locator("[data-primary-action-count]")
+    .evaluateAll((els) => els.map((el) => Number(el.getAttribute("data-primary-action-count"))));
 
   for (const count of allCounts) {
-    expect(
-      count,
-      `Every data-primary-action-count on ${surfaceName} must be ≤ 1 (found ${count})`,
-    ).toBeLessThanOrEqual(1);
+    expect(count, `Every data-primary-action-count on ${surfaceName} must be ≤ 1 (found ${count})`).toBeLessThanOrEqual(
+      1,
+    );
   }
 
   // The surface must have at least one primary-action region stamped.
-  expect(
-    allCounts.length,
-    `${surfaceName} should have at least one data-primary-action-count region`,
-  ).toBeGreaterThan(0);
+  expect(allCounts.length, `${surfaceName} should have at least one data-primary-action-count region`).toBeGreaterThan(
+    0,
+  );
 }
 
 // ─── Helper: assert QuantityStepper is in use (not bare type=number) ─────────
