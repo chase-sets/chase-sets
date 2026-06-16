@@ -58,6 +58,36 @@ describe("Catalog primary workbench source options", () => {
     });
   });
 
+  it("does not inherit child parents from a representative row for explicit parent-only routes", () => {
+    const profile = profileReview({ active: true, lifecycle: "active" });
+    const requests = buildCatalogPrimaryWorkbenchSourceOptionRequests({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&languageCode=en",
+      scopes: [
+        sourceObservationScope({
+          language_code: "en",
+          product_line_id: "",
+          product_line_name: "",
+          series_id: "me",
+          series_name: "Mega Evolution",
+          expansion_id: "me01",
+          expansion_name: "Mega Evolution Base",
+        }),
+      ],
+      profiles: [profile],
+      cacheOnly: true,
+    });
+
+    expect(requests.find((request) => request.queryKind === "series")).toMatchObject({
+      languageCode: "en",
+      selectedParentValue: "en",
+    });
+    expect(requests.find((request) => request.queryKind === "expansions")).toMatchObject({
+      parentValue: null,
+      selectedParentValue: null,
+    });
+  });
+
   it("surfaces stale Japanese SV8 expansion option cache on the selected-scope path", () => {
     const profile = profileReview({ active: true, lifecycle: "active" });
     const sv8Scope = sourceObservationScope({
