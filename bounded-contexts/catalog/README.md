@@ -28,6 +28,7 @@ Provider-fed catalog data is documented in [Source Observation Integration](./do
 Provider-owned structural setup is documented in [Provider Integration Profiles](./docs/provider-integration-profiles.md).
 External product mapping for seller inventory imports is documented in [External Product References](./docs/external-product-references.md).
 Resolved display copy from Display Templates is documented in [Catalog Resolved Display Identity](./docs/resolved-display-identity.md).
+Alias and translation equivalence facts are documented in [Catalog Alias Vocabulary And Ownership ADR](./docs/catalog-alias-vocabulary-adr.md).
 
 ## Owns
 
@@ -42,6 +43,7 @@ Resolved display copy from Display Templates is documented in [Catalog Resolved 
 - Reference Types and Reference Records that provide rich reusable facts for item fields
 - Display Templates that resolve reusable product-facing title and subtitle copy from Catalog facts
 - Resolved Display Identity as the Catalog-owned item-level display copy fact published to downstream contexts
+- Catalog Aliases and Alias Candidates: the reviewable, typed, confidence-scored alias facts and the auto-accept, revocation, and decay policy published to downstream contexts
 
 ## Does Not Own
 
