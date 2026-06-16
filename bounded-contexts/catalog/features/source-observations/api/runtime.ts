@@ -73,6 +73,9 @@ import {
   type TcgdexSetImportProgress,
   type TcgdexSetImportResult,
 } from "./tcgdex-client";
+import { ingestTcgdexAliasCandidates } from "./tcgdex-alias-intake";
+import { upsertSourceObservationAliasCandidates } from "../../alias-equivalence/read-model/projection";
+import type { CatalogAliasCandidate } from "../../alias-equivalence/domain/alias";
 import {
   buildTcgplayerAutomationSourceObservationPayload,
   type TcgplayerAutomationCatalogClient,
@@ -785,12 +788,25 @@ export type SourceObservationServices = SourceObservationCommandServices &
   SourceObservationRetentionServices &
   SourceObservationProjectorServices;
 
+/**
+ * Persistence sink for alias candidates produced during Source Observation
+ * intake (#1905/#1906). Injected from the composition root so the source
+ * observation runtime stays decoupled from the alias-equivalence runtime;
+ * defaults to the #1905 read-model upsert keyed off the shared `deps.db`.
+ */
+export type SourceObservationAliasCandidateSink = (
+  candidates: readonly CatalogAliasCandidate[],
+  observedAt: string,
+) => Promise<void>;
+
 export function createSourceObservationRuntime(
   deps: CatalogRuntimeDeps,
   items: CatalogItemServices,
   referenceData: ReferenceDataServices,
   profileVersions: CatalogProviderIntegrationProfileVersionReader = staticCatalogProviderIntegrationProfileVersions,
   rolloutControlPolicy: CatalogIntegrationRolloutControlPolicy = createCatalogIntegrationRolloutControlPolicyFromEnv(),
+  aliasCandidateSink: SourceObservationAliasCandidateSink = (candidates, observedAt) =>
+    upsertSourceObservationAliasCandidates(deps.db, candidates, observedAt),
 ): SourceObservationServices {
   const { commandHandler } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
@@ -1566,6 +1582,8 @@ export function createSourceObservationRuntime(
     onProgress?: (progress: TcgdexSetImportProgress) => void | Promise<void>;
     beforeRecordObservation?: () => Promise<void>;
     runRecordObservation?: DurableSideEffectRunner;
+    fetch?: typeof globalThis.fetch;
+    loadEnglishMirrorEntity?: Parameters<typeof ingestTcgdexAliasCandidates>[0]["loadEnglishMirrorEntity"];
   }): Promise<TcgdexSetImportResult> {
     rolloutControlPolicy.assertAllowed({ capability: "import", providerKey: "tcgdex" });
     rolloutControlPolicy.assertAllowed({ capability: "provider-transport", providerKey: "tcgdex" });
@@ -1626,6 +1644,24 @@ export function createSourceObservationRuntime(
       completed: observations.length,
       total: observations.length,
       currentName: null,
+    });
+
+    // Alias intake (#1906): recording an observation produces and persists typed
+    // alias candidates via the #1905 sink. Indonesian (`id`) names are emitted as
+    // Indonesian provider-localized names, never as English official equivalents.
+    await ingestTcgdexAliasCandidates({
+      profile,
+      observations: observationPayloads.map((payload, index) => ({
+        observationId: observations[index]?.observationId ?? "",
+        sourceProfileKey: contract.profileKey,
+        sourceProfileVersion: contract.profileVersion,
+        mappingFingerprint: catalogProviderSourceMappingFingerprint(contract),
+        payload: payload.payload,
+      })),
+      persist: aliasCandidateSink,
+      observedAt: observationPayloads[0]?.observedAt ?? new Date().toISOString(),
+      fetch: input.fetch,
+      loadEnglishMirrorEntity: input.loadEnglishMirrorEntity,
     });
 
     return {

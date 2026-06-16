@@ -20,6 +20,11 @@ import {
   catalogAliasStreamId,
   type CatalogAliasCandidate,
 } from "../../../features/alias-equivalence/domain/domain";
+import {
+  ingestTcgdexAliasCandidates,
+  type TcgdexEnglishMirrorLoader,
+} from "../../../features/source-observations/api/tcgdex-alias-intake";
+import type { CatalogProviderIntegrationProfile } from "../../../features/source-observations/api/provider-integration-profiles";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 const catalogContextNames = ["catalog"] as const;
@@ -210,6 +215,111 @@ describe("Catalog Alias persistence (DB-backed)", () => {
     expect(row?.provider_key).toBe("tcgdex");
     expect(row?.observation_id).toBe("obs_1");
     expect(row?.last_reason).toBe("evidence changed");
+  });
+
+  it("intake persists TCGdex alias candidates for a Japanese card with an English mirror", async () => {
+    const englishMirror: TcgdexEnglishMirrorLoader = async ({ entity, id }) => {
+      if (entity === "card" && id === "sv1a-001") {
+        return { id: "sv1a-001", name: "Sprigatito" };
+      }
+      if (entity === "set" && id === "sv1a") {
+        return { id: "sv1a", name: "Triplet Beat" };
+      }
+      if (entity === "series" && id === "sv") {
+        return { id: "sv", name: "Scarlet & Violet" };
+      }
+      return null;
+    };
+
+    await ingestTcgdexAliasCandidates({
+      profile: {} as CatalogProviderIntegrationProfile,
+      observations: [
+        {
+          observationId: "tcgdex_ja_sv1a_001",
+          sourceProfileKey: "pokemon-tcg",
+          sourceProfileVersion: "2026.06.03",
+          mappingFingerprint: "fp-1",
+          payload: {
+            languageCode: "ja",
+            card: { id: "sv1a-001", name: "ニャオハ", category: "Pokemon", dexId: [906] },
+            set: { id: "sv1a", name: "トリプレットビート" },
+            seriesId: "sv",
+            seriesName: "スカーレット&バイオレット",
+          },
+        },
+      ],
+      persist: services.catalogAliases.upsertSourceObservationAliasCandidates,
+      observedAt: "2026-06-16T00:00:00.000Z",
+      loadEnglishMirrorEntity: englishMirror,
+    });
+
+    const candidates = await services.catalogAliases.listSourceObservationAliasCandidates({
+      providerKey: "tcgdex",
+    });
+    const byType = (type: string) => candidates.filter((c) => c.alias_type === type);
+
+    // Native Japanese card name preserved as Indonesian-safe provider-localized-name.
+    expect(byType("provider-localized-name").map((c) => c.alias_text)).toEqual(["ニャオハ"]);
+    // Same-id English official equivalent, held for review.
+    const official = byType("official-equivalent");
+    expect(official).toHaveLength(1);
+    expect(official[0]?.alias_text).toBe("Sprigatito");
+    expect(official[0]?.alias_language_code).toBe("en");
+    expect(official[0]?.source_language_code).toBe("ja");
+    expect(official[0]?.review_status).toBe("pending");
+    expect(official[0]?.source_category).toBe("provider-same-id-localized-endpoint");
+    // Species alias from dex evidence.
+    expect(byType("species-name").map((c) => c.alias_text)).toEqual(["Sprigatito"]);
+    // Reference-record equivalences for both native and English names.
+    expect(
+      byType("set-equivalent")
+        .map((c) => c.alias_text)
+        .sort(),
+    ).toEqual(["Triplet Beat", "トリプレットビート"].sort());
+  });
+
+  it("intake never persists an English alias sourced from the Indonesian id text", async () => {
+    await ingestTcgdexAliasCandidates({
+      profile: {} as CatalogProviderIntegrationProfile,
+      observations: [
+        {
+          observationId: "tcgdex_id_sv1a_001",
+          sourceProfileKey: "pokemon-tcg",
+          sourceProfileVersion: "2026.06.03",
+          mappingFingerprint: "fp-1",
+          payload: {
+            languageCode: "id",
+            // Indonesian species name reads like English.
+            card: { id: "sv1a-001", name: "Sprigatito", category: "Pokemon", dexId: [906] },
+            set: { id: "sv1a", name: "Triplet Beat" },
+            seriesId: "sv",
+            seriesName: "Scarlet & Violet",
+          },
+        },
+      ],
+      persist: services.catalogAliases.upsertSourceObservationAliasCandidates,
+      observedAt: "2026-06-16T00:00:00.000Z",
+      // Japanese-only / Indonesian set: no English mirror exists.
+      loadEnglishMirrorEntity: async () => null,
+    });
+
+    const candidates = await services.catalogAliases.listSourceObservationAliasCandidates({
+      providerKey: "tcgdex",
+    });
+
+    // No persisted alias is both English-language and a provider-localized-name:
+    // the Indonesian `id` text is never emitted as an English alias.
+    const englishLocalized = candidates.filter(
+      (c) => c.alias_language_code === "en" && c.source_category === "provider-localized-name",
+    );
+    expect(englishLocalized).toHaveLength(0);
+    // The Indonesian name is stored under the Indonesian language code.
+    const localized = candidates.filter((c) => c.source_category === "provider-localized-name");
+    expect(localized).toHaveLength(1);
+    expect(localized[0]?.alias_language_code).toBe("id");
+    expect(localized[0]?.alias_text).toBe("Sprigatito");
+    // No English official equivalent without an English endpoint match.
+    expect(candidates.filter((c) => c.alias_type === "official-equivalent")).toHaveLength(0);
   });
 
   it("persists reference-record set-equivalent aliases queryable by Reference Record", async () => {
