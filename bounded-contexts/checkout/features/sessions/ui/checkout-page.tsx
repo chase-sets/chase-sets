@@ -753,7 +753,7 @@ export function CheckoutSessionPage({
 
   const main = (
     <Stack gap={5}>
-      <PageStepper items={stepperItems} />
+      <PageStepper items={stepperItems} aria-label={t("checkout.features.sessions.ui.checkoutPage.checkout.steps")} />
 
       {errorMessage ? (
         <CheckoutStateNotice

@@ -944,6 +944,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.ui.checkoutPage.estimated.tax": "Estimated tax",
   "checkout.features.sessions.ui.checkoutPage.estimated.total": "Estimated total",
   "checkout.features.sessions.ui.checkoutPage.estimate": "Estimate",
+  "checkout.features.sessions.ui.checkoutPage.checkout.steps": "Checkout steps",
   "checkout.features.sessions.ui.checkoutPage.step.contact": "Contact",
   "checkout.features.sessions.ui.checkoutPage.step.contact.description": "Where receipts and updates go",
   "checkout.features.sessions.ui.checkoutPage.step.delivery": "Delivery",

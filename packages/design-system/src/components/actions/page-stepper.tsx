@@ -28,6 +28,7 @@ export function PageStepper({
 
   return (
     <ol
+      aria-label="Progress"
       {...rest}
       className={cx(
         "grid gap-2",

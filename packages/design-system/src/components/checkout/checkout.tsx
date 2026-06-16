@@ -311,12 +311,18 @@ export function CheckoutMobileSummaryDisclosure({
       className="rounded-tokenLg border border-muted bg-surface shadow-tokenSm lg:hidden"
       open={defaultOpen}
     >
+      {/* list-none removes the native disclosure marker in WebKit; marker:hidden covers
+          other engines. The element remains keyboard-operable as <summary> and the
+          custom chevron gives the visual expand/collapse cue. focus-ring applies a
+          box-shadow outline on :focus-visible so keyboard users see a clear ring. */}
       <summary className="focus-ring flex cursor-pointer list-none items-center justify-between gap-4 rounded-tokenLg px-4 py-3 text-left marker:hidden">
         <span className="min-w-0">
           <span className="block text-sm font-semibold text-accent">{label}</span>
           <span className="block text-xs leading-5 text-secondary">{collapsedSummary}</span>
         </span>
-        <span className="shrink-0 text-right text-lg font-bold tabular-nums text-foreground">{total}</span>
+        <span aria-hidden="true" className="shrink-0 text-right text-lg font-bold tabular-nums text-foreground">
+          {total}
+        </span>
       </summary>
       <div className="border-t border-muted p-4">{children}</div>
     </details>
@@ -343,6 +349,11 @@ export function CheckoutFlowShell({
     <Grid {...rest} templateColumns="minmax(0,1fr) 24rem" stackUntil="lg" gap={{ base: 5, lg: 6 }}>
       <Stack gap={5} minWidth="0">
         {mobileSummary}
+        {/* stickyAction renders before main in the DOM so keyboard/screen-reader
+            focus order stays correct: the sticky bar is encountered naturally after
+            the mobile summary disclosure and before the step forms, matching the
+            visual reading order. CSS sticky positioning keeps it pinned visually
+            without lifting it out of the document flow. */}
         {stickyAction}
         {main}
       </Stack>
@@ -641,6 +652,8 @@ export interface CheckoutStickyActionBarProps extends Omit<HTMLAttributes<HTMLDi
   primaryAction: ReactNode;
   secondaryAction?: ReactNode;
   mobileOffset?: "navigation" | "none";
+  /** Accessible label for the bar region. Defaults to `"Checkout actions"`. */
+  label?: string;
 }
 
 export function CheckoutStickyActionBar({
@@ -651,11 +664,14 @@ export function CheckoutStickyActionBar({
   primaryAction,
   secondaryAction,
   mobileOffset = "navigation",
+  label = "Checkout actions",
   ...rest
 }: CheckoutStickyActionBarProps) {
   return (
     <div
       {...rest}
+      role="region"
+      aria-label={label}
       className={cx(
         "sticky z-sticky rounded-tokenLg border border-muted bg-background/overlay px-3 py-2 shadow-tokenLg backdrop-blur-xl md:hidden",
         mobileOffset === "navigation" ? "bottom-[calc(5.5rem+env(safe-area-inset-bottom))]" : "bottom-0",
@@ -1015,6 +1031,8 @@ export interface StickyCtaBarProps {
   reassurance?: ReactNode;
   primaryAction: ReactNode;
   secondaryAction?: ReactNode;
+  /** Accessible label for the bar region. Defaults to `"Checkout"`. */
+  label?: string;
 }
 
 export function StickyCtaBar({
@@ -1025,11 +1043,16 @@ export function StickyCtaBar({
   reassurance,
   primaryAction,
   secondaryAction,
+  label = "Checkout",
 }: StickyCtaBarProps) {
   const resolvedTotal = total ?? price;
 
   return (
-    <div className="rounded-tokenLg border border-muted bg-background/overlay px-4 py-3 shadow-tokenLg backdrop-blur-xl">
+    <div
+      role="region"
+      aria-label={label}
+      className="rounded-tokenLg border border-muted bg-background/overlay px-4 py-3 shadow-tokenLg backdrop-blur-xl"
+    >
       <div className="mx-auto grid max-w-7xl gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
         <div className="min-w-0">
           {totalLabel ? <div className="text-xs font-medium text-secondary">{totalLabel}</div> : null}
@@ -1168,16 +1191,29 @@ export function selectCheckoutNotice(candidates: CheckoutNoticeCandidate[]): Rea
   return winner?.notice ?? null;
 }
 
-export interface CheckoutNoticeStackProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
+export interface CheckoutNoticeStackProps extends Omit<
+  HTMLAttributes<HTMLDivElement>,
+  "className" | "style" | "role" | "aria-live" | "aria-atomic"
+> {
   candidates: CheckoutNoticeCandidate[];
 }
 
+/**
+ * Renders the single highest-priority active notice from the candidate ladder
+ * (§4 priority ladder). The container is a `role="status"` live region so that
+ * screen readers announce the winning notice when checkout state changes — e.g.
+ * when a fulfillment review warning replaces a savings info notice. `aria-atomic`
+ * ensures the entire notice is re-read, not just the changed text fragment.
+ */
 export function CheckoutNoticeStack({ candidates, ...rest }: CheckoutNoticeStackProps) {
   const notice = selectCheckoutNotice(candidates);
 
-  if (!notice) {
-    return null;
-  }
-
-  return <div {...rest}>{notice}</div>;
+  // Keep the live region in the DOM even when empty so screen readers have a
+  // stable container to observe for changes. When empty, it renders no visual
+  // output but the ARIA attributes remain active.
+  return (
+    <div {...rest} role="status" aria-live="polite" aria-atomic="true">
+      {notice}
+    </div>
+  );
 }
