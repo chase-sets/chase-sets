@@ -3,6 +3,7 @@ import { createRealtimeRouteSubscriptionPreset } from "@chase-sets/platform-runt
 
 export const catalogAdminRealtimeSurfaces = [
   "blueprints",
+  "catalog-aliases",
   "catalog-items",
   "categories",
   "components",
@@ -24,6 +25,7 @@ export const catalogRealtimeTopics = {
 
 export const catalogRealtimeRouteTopics = {
   blueprints: () => createCatalogAdminPreset("blueprints"),
+  catalogAliases: () => createCatalogAdminPreset("catalog-aliases"),
   catalogItems: () => createCatalogAdminPreset("catalog-items"),
   categories: () => createCatalogAdminPreset("categories"),
   components: () => createCatalogAdminPreset("components"),

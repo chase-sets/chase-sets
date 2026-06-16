@@ -16,6 +16,7 @@
   "streamPrefix": "catalog.",
   "apiBasePath": "/api/catalog",
   "slices": [
+    "alias-equivalence",
     "blueprints",
     "catalog-items",
     "categories",
@@ -410,6 +411,11 @@
     }
   ],
   "directoryIntent": {
+    "alias-equivalence": {
+      "classification": "slice",
+      "purpose": "Own Catalog Alias persistence: typed alias candidates from Source Observations and accepted aliases for Catalog Items and Reference Records, with review-state lifecycle and revocation.",
+      "expectedConsumers": ["source-observations", "Internal catalog module composition"]
+    },
     "blueprints": {
       "classification": "slice",
       "purpose": "Own blueprints feature behavior, read models, and UI contracts for the catalog context.",
@@ -468,6 +474,7 @@
       "classification": "support",
       "purpose": "Provide reusable authoring-support assets shared by catalog-owned features and composition seams.",
       "expectedConsumers": [
+        "alias-equivalence",
         "blueprints",
         "catalog-items",
         "categories",
@@ -500,6 +507,7 @@
       "classification": "support",
       "purpose": "Provide reusable projection-support assets shared by catalog-owned features and composition seams.",
       "expectedConsumers": [
+        "alias-equivalence",
         "blueprints",
         "catalog-items",
         "categories",
@@ -531,6 +539,7 @@
       "classification": "support",
       "purpose": "Provide reusable runtime-support assets shared by catalog-owned features and composition seams.",
       "expectedConsumers": [
+        "alias-equivalence",
         "blueprints",
         "catalog-items",
         "categories",
