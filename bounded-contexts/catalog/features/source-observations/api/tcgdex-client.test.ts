@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  fetchTcgdexEnglishMirrorEntity,
   fetchTcgdexExpansionOptions,
   fetchTcgdexSeriesOptions,
   fetchTcgdexSetObservationPayloads,
@@ -618,6 +619,41 @@ describe("TCGdex client", () => {
       ]),
     );
     expect(assetSet.variants).toHaveLength(6);
+  });
+
+  it("fetches a same-id English mirror entity from the explicit English locale", async () => {
+    const requestedUrls: string[] = [];
+    const fetcher: typeof globalThis.fetch = async (input) => {
+      const url = String(input);
+      requestedUrls.push(url);
+      if (url === "https://api.tcgdex.net/v2/en/sets/sv1a") {
+        return new Response(JSON.stringify({ id: "sv1a", name: "Triplet Beat" }), { status: 200 });
+      }
+      return new Response(null, { status: 404 });
+    };
+
+    await expect(
+      fetchTcgdexEnglishMirrorEntity({
+        profile: tcgdexPokemonTcgProviderProfile,
+        entity: "set",
+        id: "sv1a",
+        fetch: fetcher,
+      }),
+    ).resolves.toEqual({ id: "sv1a", name: "Triplet Beat" });
+    expect(requestedUrls).toEqual(["https://api.tcgdex.net/v2/en/sets/sv1a"]);
+  });
+
+  it("returns null when the English mirror endpoint does not exist for a Japanese-only set", async () => {
+    const fetcher: typeof globalThis.fetch = async () => new Response(null, { status: 404 });
+
+    await expect(
+      fetchTcgdexEnglishMirrorEntity({
+        profile: tcgdexPokemonTcgProviderProfile,
+        entity: "card",
+        id: "sv1a-001",
+        fetch: fetcher,
+      }),
+    ).resolves.toBeNull();
   });
 
   it("fails promotion asset normalization when a declared high quality asset cannot be mirrored", async () => {

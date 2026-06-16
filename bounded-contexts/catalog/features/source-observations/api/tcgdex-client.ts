@@ -90,6 +90,8 @@ export type TcgdexCard = Readonly<{
   illustrator?: string;
   rarity?: string;
   updated?: string;
+  /** National Pokedex / species ids. Present for Pokemon, absent for Trainer/Energy. */
+  dexId?: readonly number[];
   set: Readonly<{
     id: string;
     name: string;
@@ -228,6 +230,73 @@ export async function fetchTcgdexSetObservationPayloads(input: {
   }
 
   return observations;
+}
+
+/** An id+name pair from the TCGdex English mirror endpoint, or null when absent. */
+export type TcgdexEnglishMirrorEntity = Readonly<{ id: string; name: string }>;
+
+/**
+ * Fetch a single TCGdex English-mirror entity (set, series, or card) by id.
+ *
+ * Returns null when the English endpoint did not exist (404 or any transport
+ * failure) or did not return a usable id/name. This is the network half of the
+ * same-id English match: the pure alignment rule lives in
+ * `matchTcgdexEnglishEndpointEntity` so #1907 and alias intake share it. Reads
+ * the explicit English locale (`en`), never the Indonesian `id` code.
+ */
+export async function fetchTcgdexEnglishMirrorEntity(input: {
+  profile: CatalogProviderIntegrationProfile;
+  entity: "set" | "series" | "card";
+  id: string;
+  fetch?: typeof globalThis.fetch;
+}): Promise<TcgdexEnglishMirrorEntity | null> {
+  const id = input.id.trim();
+  if (!id) {
+    return null;
+  }
+
+  const fetcher = input.fetch ?? globalThis.fetch;
+  const connector = requireTcgdexConnector(input.profile);
+  const url = tcgdexUrl(connector, englishMirrorEndpoint(connector, input.entity), {
+    language: "en",
+    ...englishMirrorParam(input.entity, id),
+  });
+
+  try {
+    const response = await fetcher(url);
+    if (!response.ok) {
+      return null;
+    }
+    const entity = (await response.json()) as Readonly<{ id?: unknown; name?: unknown }>;
+    const entityId = typeof entity.id === "string" ? entity.id.trim() : "";
+    const entityName = typeof entity.name === "string" ? entity.name.trim() : "";
+    if (!entityId || !entityName) {
+      return null;
+    }
+    return { id: entityId, name: entityName };
+  } catch {
+    return null;
+  }
+}
+
+function englishMirrorEndpoint(connector: TcgdexJsonConnectorProfile, entity: "set" | "series" | "card"): string {
+  if (entity === "set") {
+    return connector.endpoints.expansionDetail;
+  }
+  if (entity === "series") {
+    return connector.endpoints.seriesDetail;
+  }
+  return connector.endpoints.productDetail;
+}
+
+function englishMirrorParam(entity: "set" | "series" | "card", id: string): Readonly<Record<string, string>> {
+  if (entity === "set") {
+    return { expansionId: id };
+  }
+  if (entity === "series") {
+    return { seriesId: id };
+  }
+  return { cardId: id };
 }
 
 function toExpansionOption(
