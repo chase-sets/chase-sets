@@ -180,7 +180,11 @@ function sourceOptionContext(input: {
     null;
   const representativeScope = input.scopes.find((scope) => !providerKey || scope.provider_key === providerKey) ?? null;
   const importScope = parsed.importScope ?? (representativeScope ? scopeKey(representativeScope) : null);
-  const scope = scopeContextFromRouteContext({ ...parsed, providerKey, importScope });
+  const scope = scopeContextFromRouteContext({
+    ...parsed,
+    providerKey,
+    importScope: scopeHasExplicitSelection(parsed.scope) ? null : importScope,
+  });
 
   return { providerKey, importScope, scope, activeProfile };
 }
@@ -193,6 +197,7 @@ function sourceOptionSelections(input: {
 }): ReadonlyMap<string, Readonly<{ value: string; label: string }>> {
   const providerRows = input.scopes.filter((scope) => scope.provider_key === input.providerKey);
   const hasExplicitScopeSelection = scopeHasExplicitSelection(input.scope);
+  const selectedContextScopes = sourceOptionSelectedContextScopes(input.profile, input.scope);
   const matchedRepresentative =
     hasExplicitScopeSelection && input.scope
       ? (providerRows.find((scope) => scopeContextMatchesProviderScope(input.scope!, scope)) ?? null)
@@ -206,20 +211,44 @@ function sourceOptionSelections(input: {
   const selections = new Map<string, Readonly<{ value: string; label: string }>>();
   addLanguageSelection(
     selections,
-    representativeSelectionValue(input, representative, "language", representative?.language_code),
-    representativeSelectionValue(input, representative, "language", representative?.language_code),
+    representativeSelectionValue(
+      input,
+      representative,
+      selectedContextScopes,
+      "language",
+      representative?.language_code,
+    ),
+    representativeSelectionValue(
+      input,
+      representative,
+      selectedContextScopes,
+      "language",
+      representative?.language_code,
+    ),
   );
   addSelection(
     selections,
     "product-line/category",
-    representativeSelectionValue(input, representative, "product-line/category", representative?.product_line_id),
-    representativeSelectionValue(input, representative, "product-line/category", representative?.product_line_name),
+    representativeSelectionValue(
+      input,
+      representative,
+      selectedContextScopes,
+      "product-line/category",
+      representative?.product_line_id,
+    ),
+    representativeSelectionValue(
+      input,
+      representative,
+      selectedContextScopes,
+      "product-line/category",
+      representative?.product_line_name,
+    ),
   );
   addSelection(
     selections,
     "series",
-    representativeSelectionValue(input, representative, "series", representative?.series_id),
-    representativeSelectionValue(input, representative, "series", representative?.series_name),
+    representativeSelectionValue(input, representative, selectedContextScopes, "series", representative?.series_id),
+    representativeSelectionValue(input, representative, selectedContextScopes, "series", representative?.series_name),
   );
   addSelection(
     selections,
@@ -227,12 +256,14 @@ function sourceOptionSelections(input: {
     representativeSelectionValue(
       input,
       representative,
+      selectedContextScopes,
       "expansion",
       representative?.expansion_id || representative?.expansion_name,
     ),
     representativeSelectionValue(
       input,
       representative,
+      selectedContextScopes,
       "expansion",
       representative?.expansion_name || representative?.expansion_id,
     ),
@@ -243,12 +274,14 @@ function sourceOptionSelections(input: {
     representativeSelectionValue(
       input,
       representative,
+      selectedContextScopes,
       "set-name",
       representative?.expansion_name || representative?.expansion_id,
     ),
     representativeSelectionValue(
       input,
       representative,
+      selectedContextScopes,
       "set-name",
       representative?.expansion_name || representative?.expansion_id,
     ),
@@ -259,10 +292,17 @@ function sourceOptionSelections(input: {
     representativeSelectionValue(
       input,
       representative,
+      selectedContextScopes,
       "product/card",
       representative ? scopeKey(representative) : null,
     ),
-    representativeSelectionValue(input, representative, "product/card", representative?.expansion_name),
+    representativeSelectionValue(
+      input,
+      representative,
+      selectedContextScopes,
+      "product/card",
+      representative?.expansion_name,
+    ),
   );
   addLanguageSelection(selections, scope?.languageCode, scope?.languageCode);
   addSelection(
@@ -295,18 +335,46 @@ function representativeSelectionValue(
     scope: CatalogPrimaryWorkbenchRouteContext["scope"];
   }>,
   representative: SourceObservationIntegrationScope | null,
+  selectedContextScopes: ReadonlySet<string>,
   selectionScope: string,
   value: string | null | undefined,
 ): string | null | undefined {
-  if (
-    !representative ||
-    !scopeHasExplicitSelection(input.scope) ||
-    explicitScopeIncludesSelection(input.scope, selectionScope)
-  ) {
+  if (!representative || !scopeHasExplicitSelection(input.scope) || selectedContextScopes.has(selectionScope)) {
     return value;
   }
 
   return null;
+}
+
+function sourceOptionSelectedContextScopes(
+  profile: CatalogProviderProfileVersionReview,
+  scope: CatalogPrimaryWorkbenchRouteContext["scope"],
+): ReadonlySet<string> {
+  const selectedScopes = new Set<string>();
+  if (!scopeHasExplicitSelection(scope)) {
+    return selectedScopes;
+  }
+
+  const parentScopeByScope = new Map(profile.sourceOptionKinds.map((kind) => [kind.scope, kind.parentScope]));
+  for (const kind of profile.sourceOptionKinds) {
+    if (explicitScopeIncludesSelection(scope, kind.scope)) {
+      addScopeAndAncestors(selectedScopes, parentScopeByScope, kind.scope);
+    }
+  }
+
+  return selectedScopes;
+}
+
+function addScopeAndAncestors(
+  selectedScopes: Set<string>,
+  parentScopeByScope: ReadonlyMap<string, string | null>,
+  scope: string | null,
+): void {
+  let current = scope;
+  while (current && !selectedScopes.has(current)) {
+    selectedScopes.add(current);
+    current = parentScopeByScope.get(current) ?? null;
+  }
 }
 
 function scopeHasExplicitSelection(scope: CatalogPrimaryWorkbenchRouteContext["scope"]): boolean {

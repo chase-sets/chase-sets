@@ -53,6 +53,36 @@ function dailyReadModelWithSourceOptions(
   });
 }
 
+function dailyReadModelWithJapaneseExpansionOnly() {
+  const profile = profileReview({ active: true, lifecycle: "active" });
+  const scope = sourceObservationScope({
+    language_code: "ja",
+    product_line_id: "",
+    product_line_name: "",
+    series_id: "SV",
+    series_name: "Scarlet & Violet",
+    expansion_id: "SV8",
+    expansion_name: "Super Electric Breaker",
+  });
+  const requestUrl =
+    "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&expansionId=SV8&profileVersion=2026.06.04";
+  const requests = buildCatalogPrimaryWorkbenchSourceOptionRequests({
+    requestUrl,
+    scopes: [scope],
+    profiles: [profile],
+    cacheOnly: true,
+  });
+
+  return buildCatalogPrimaryWorkbenchReadModel({
+    requestUrl,
+    scopes: { items: [scope], total: 1, count: 1 },
+    profileReviews: { items: [profile], total: 1, count: 1 },
+    sourceOptionPages: requests.map((request) => ({ request, response: japaneseSv8ResponseFor(request) })),
+    controlPlaneOverview: null,
+    canManageCatalog: true,
+  });
+}
+
 function responseFor(request: CatalogPrimaryWorkbenchSourceOptionRequest): SourceObservationIntegrationOptionResponse {
   if (request.queryKind === "languages") {
     return optionResponse(request, "fresh", "cache", [
@@ -64,6 +94,27 @@ function responseFor(request: CatalogPrimaryWorkbenchSourceOptionRequest): Sourc
     return optionResponse(request, "fresh", "live", [{ value: "base", label: "Base", parentValue: "en" }]);
   }
   return optionResponse(request, "stale", "cache", [{ value: "base1", label: "Base Set", parentValue: "base" }], true);
+}
+
+function japaneseSv8ResponseFor(
+  request: CatalogPrimaryWorkbenchSourceOptionRequest,
+): SourceObservationIntegrationOptionResponse {
+  if (request.queryKind === "languages") {
+    return optionResponse(request, "fresh", "cache", [
+      { value: "en", label: "en", parentValue: null },
+      { value: "ja", label: "ja", parentValue: null },
+    ]);
+  }
+  if (request.queryKind === "series") {
+    return optionResponse(request, "fresh", "cache", [
+      { value: "base", label: "Base", parentValue: "en" },
+      { value: "SV", label: "Scarlet & Violet", parentValue: "ja" },
+    ]);
+  }
+  return optionResponse(request, "fresh", "cache", [
+    { value: "base1", label: "Base Set", parentValue: "base" },
+    { value: "SV8", label: "Super Electric Breaker", parentValue: "SV" },
+  ]);
 }
 
 function optionResponse(
@@ -227,6 +278,26 @@ describe("CatalogWorkbenchShell guided source-scope selector", () => {
     expect(within(expansion).queryByRole("option", { name: "Advanced" })).toBeNull();
   });
 
+  it("shows hydrated parents when a child-only source option is selected", () => {
+    render(<CatalogIntegrationsSurfacePage surface="daily" readModel={dailyReadModelWithJapaneseExpansionOnly()} />);
+
+    const scopeGroup = screen.getByRole("group", { name: "Source scope" });
+    const language = within(scopeGroup).getByLabelText<HTMLSelectElement>("Language");
+    const series = within(scopeGroup).getByLabelText<HTMLSelectElement>("Series");
+    const expansion = within(scopeGroup).getByLabelText<HTMLSelectElement>("Expansion");
+
+    expect(language.value).toBe("ja");
+    expect(within(language).getByRole("option", { name: "Japanese" })).toBeTruthy();
+
+    expect(series.value).toBe("SV");
+    expect(within(series).getByRole("option", { name: "Scarlet & Violet" })).toBeTruthy();
+    expect(within(series).queryByRole("option", { name: "Base" })).toBeNull();
+
+    expect(expansion.value).toBe("SV8");
+    expect(within(expansion).getByRole("option", { name: "Super Electric Breaker" })).toBeTruthy();
+    expect(within(expansion).queryByRole("option", { name: "Base Set" })).toBeNull();
+  });
+
   it("does not hard-code TCGdex scope levels for a generic provider", () => {
     const profile = profileReview({ providerKey: "tcgplayer", active: true, lifecycle: "active" });
     const readModel = buildCatalogPrimaryWorkbenchReadModel({
@@ -330,22 +401,29 @@ describe("CatalogWorkbenchShell guided source-scope selector", () => {
     }
   });
 
-  // The leaf field (Expansion) has no dependent option pages to invalidate, so it
-  // submits plainly and stays cache-only — no force-refresh-all is stamped.
-  it("does not force a refresh-all when the leaf filter changes", () => {
+  it("hydrates parent fields and refreshes source options when a leaf filter changes", () => {
     const requestSubmit = vi.spyOn(HTMLFormElement.prototype, "requestSubmit").mockImplementation(() => undefined);
 
     try {
-      render(<CatalogIntegrationsSurfacePage surface="daily" readModel={dailyReadModelWithSourceOptions()} />);
+      render(<CatalogIntegrationsSurfacePage surface="daily" readModel={dailyReadModelWithJapaneseExpansionOnly()} />);
 
       const scopeGroup = screen.getByRole("group", { name: "Source scope" });
+      const language = within(scopeGroup).getByLabelText<HTMLSelectElement>("Language");
+      const series = within(scopeGroup).getByLabelText<HTMLSelectElement>("Series");
       const expansion = within(scopeGroup).getByLabelText<HTMLSelectElement>("Expansion");
       const form = expansion.form;
       expect(form).not.toBeNull();
 
-      fireEvent.change(expansion, { target: { value: "base1" } });
+      language.value = "";
+      series.value = "";
 
-      expect(form!.elements.namedItem("sourceOptionAction")).toBeNull();
+      fireEvent.change(expansion, { target: { value: "SV8" } });
+
+      expect(language.value).toBe("ja");
+      expect(series.value).toBe("SV");
+      const action = form!.elements.namedItem("sourceOptionAction");
+      expect(action).toBeInstanceOf(HTMLInputElement);
+      expect((action as HTMLInputElement).value).toBe("force-refresh-all");
       expect(requestSubmit).toHaveBeenCalledTimes(1);
     } finally {
       requestSubmit.mockRestore();
