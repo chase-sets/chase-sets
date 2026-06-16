@@ -57,6 +57,16 @@ const PERMANENT_RECOVERY_PATTERN =
   /Checkout session not found|We could not find this checkout session|Checkout access required/i;
 const TEMPORARY_RECOVERY_PATTERN = /Preparing checkout|Refresh checkout/i;
 const CHECKOUT_REVIEW_PATTERN = /Continue to payment|Checkout Summary|Payable total/i;
+const BUY_READINESS_URL_PATTERN = /\/checkout\/buy\/readiness(?:[/?#]|$)/;
+const BUY_SESSION_URL_PATTERN = /\/checkout\/buy\/session\/chk_[^/?#]+(?:[/?#]|$)/;
+
+export function isBuyReadinessUrl(value) {
+  return BUY_READINESS_URL_PATTERN.test(String(value ?? ""));
+}
+
+export function isBuySessionUrl(value) {
+  return BUY_SESSION_URL_PATTERN.test(String(value ?? ""));
+}
 
 export function parseGuestBuyNowCanaryArgs(argv, env = process.env) {
   return {
@@ -162,6 +172,9 @@ export function classifyGuestBuyNowObservation(observation, gate = {}) {
   const sloMode = SLO_MODES.includes(gate.sloMode) ? gate.sloMode : DEFAULT_SLO_MODE;
   const pageText = observation.pageText ?? "";
 
+  if (observation.runtimeFailureReason) {
+    return abort("fail", observation.runtimeFailureReason);
+  }
   if (observation.permanentNotFoundVisible || PERMANENT_NOT_FOUND_PATTERN.test(pageText)) {
     return abort("fail", "permanent-checkout-session-not-found");
   }
@@ -276,6 +289,7 @@ export function buildGuestBuyNowCanaryEvidence(input) {
     platformErrorVisible: Boolean(observation.platformErrorVisible),
     checkoutDocumentStatus: normalizeHttpStatus(observation.checkoutDocumentStatus),
     stateWaitOutcome: normalizeStateWaitOutcome(observation.stateWaitOutcome),
+    runtimeFailure: normalizeRuntimeFailure(observation),
     negativeProbe: normalizeNegativeProbe(observation.negativeProbe),
     paymentOrOrderSideEffects: "not-attempted",
     redaction: {
@@ -293,6 +307,18 @@ export function buildGuestBuyNowCanaryEvidence(input) {
       fullUrls: "redacted",
     },
     productionFeasibility: PRODUCTION_FEASIBILITY_DECISION,
+  };
+}
+
+function normalizeRuntimeFailure(observation) {
+  if (!observation.runtimeFailureReason) {
+    return null;
+  }
+
+  return {
+    stage: normalizeString(observation.runtimeFailureStage) ?? "unknown",
+    reason: normalizeString(observation.runtimeFailureReason) ?? "browser-runtime-error",
+    message: normalizeString(observation.runtimeFailureMessage) ?? null,
   };
 }
 
@@ -342,7 +368,7 @@ export async function runGuestBuyNowFreshnessCanary(options) {
   let evidence = null;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    const observation = await observe(options, attempt);
+    const observation = await observe(options, attempt).catch((error) => runtimeFailureObservation(error));
     evidence = buildGuestBuyNowCanaryEvidence({
       checkedAt: options.checkedAt,
       environment: options.environment,
@@ -362,7 +388,7 @@ export async function runGuestBuyNowFreshnessCanary(options) {
       readyLatencyMs: evidence.readyLatencyMs,
     });
 
-    if (evidence.promotionDecision === "promote" || evidence.failureReason !== "checkout-ready-slo-exceeded") {
+    if (evidence.promotionDecision === "promote" || !retryableCanaryFailure(evidence.failureReason)) {
       break;
     }
   }
@@ -381,6 +407,35 @@ export async function runGuestBuyNowFreshnessCanary(options) {
   return evidence;
 }
 
+function retryableCanaryFailure(failureReason) {
+  return failureReason === "checkout-ready-slo-exceeded" || failureReason === "browser-navigation-timeout";
+}
+
+function runtimeFailureObservation(error) {
+  const runtimeFailure = normalizeRuntimeError(error);
+  return {
+    latencyMs: 0,
+    readyLatencyMs: null,
+    segments: {},
+    afterWritePresent: false,
+    guestCookiePresent: false,
+    sessionCookiePresent: false,
+    permanentNotFoundVisible: false,
+    temporaryRecoveryVisible: false,
+    temporaryRecoveryObserved: false,
+    checkoutReviewVisible: false,
+    platformErrorVisible: false,
+    checkoutDocumentStatus: null,
+    stateWaitOutcome: runtimeFailure.reason === "browser-navigation-timeout" ? "timed-out" : null,
+    waitMode: null,
+    pageText: "",
+    runtimeFailureReason: runtimeFailure.reason,
+    runtimeFailureStage: runtimeFailure.stage,
+    runtimeFailureMessage: runtimeFailure.message,
+    negativeProbe: { attempted: false },
+  };
+}
+
 async function observeBuyNowCheckout(options) {
   const { chromium } = await import("@playwright/test");
   const browser = await chromium.launch({ headless: options.headless });
@@ -388,6 +443,7 @@ async function observeBuyNowCheckout(options) {
   const page = await context.newPage();
   const baseUrl = normalizeUrl(options.baseUrl);
   const flow = normalizeFlow(options.flow) ?? "guest";
+  let stage = "initialize-browser";
   const checkoutDocumentStatuses = [];
   page.on("response", (response) => {
     if (response.request().resourceType() !== "document") {
@@ -406,12 +462,15 @@ async function observeBuyNowCheckout(options) {
   try {
     let fixtureFetch;
     if (flow === "account") {
+      stage = "start-account-session";
       await startAccountSession(page, context, options, baseUrl);
       fixtureFetch = createPageRequestFetch(page);
     }
 
+    stage = "resolve-buy-now-fixture";
     const itemPath = await resolveGuestBuyNowItemPath(options, fixtureFetch ?? fetch);
     const itemUrl = new URL(itemPath, baseUrl);
+    stage = "load-buy-now-item-page";
     await page.goto(itemUrl.toString(), { waitUntil: "domcontentloaded", timeout: options.timeoutMs });
     const buyNowButton = page
       .locator(
@@ -422,20 +481,28 @@ async function observeBuyNowCheckout(options) {
     let startedAt;
     if (flow === "account") {
       startedAt = Date.now();
+      stage = "click-account-buy-now";
       await buyNowButton.click({ timeout: options.timeoutMs });
     } else {
+      stage = "click-guest-buy-now";
       await buyNowButton.click({ timeout: options.timeoutMs });
-      await page.waitForURL(/\/checkout\/start/, { timeout: options.timeoutMs });
+      stage = "wait-guest-buy-readiness";
+      await page.waitForURL(BUY_READINESS_URL_PATTERN, { timeout: options.timeoutMs });
+      stage = "fill-guest-contact";
       await page.getByLabel(/contact name/i).fill(options.contactName);
       await page.getByLabel(/email/i).fill(options.guestEmail);
       startedAt = Date.now();
+      stage = "submit-guest-contact";
       await page.getByRole("button", { name: /continue as guest/i }).click({ timeout: options.timeoutMs });
     }
 
-    await page.waitForURL(/\/checkout\/chk_/, { timeout: options.timeoutMs });
+    stage = "wait-buy-checkout-session";
+    await page.waitForURL(BUY_SESSION_URL_PATTERN, { timeout: options.timeoutMs });
     const redirectedAt = Date.now();
+    stage = "load-checkout-session-document";
     await page.waitForLoadState("domcontentloaded", { timeout: options.timeoutMs });
     const documentAt = Date.now();
+    stage = "watch-checkout-readiness";
     const readiness = await watchCheckoutReadiness(page, startedAt, options.readySloMs);
 
     const finalUrl = new URL(page.url());
@@ -467,9 +534,19 @@ async function observeBuyNowCheckout(options) {
     };
 
     return observation;
+  } catch (error) {
+    throw canaryRuntimeError(stage, error);
   } finally {
     await browser.close();
   }
+}
+
+function canaryRuntimeError(stage, error) {
+  const failure = normalizeRuntimeError(error, stage);
+  const runtimeError = new Error(failure.message ?? failure.reason);
+  runtimeError.stage = failure.stage;
+  runtimeError.reason = failure.reason;
+  return runtimeError;
 }
 
 async function startAccountSession(page, context, options, baseUrl) {
@@ -702,6 +779,32 @@ function normalizeWaitMode(value) {
 
 function normalizeStateWaitOutcome(value) {
   return value === "matched" || value === "timed-out" ? value : null;
+}
+
+function normalizeRuntimeError(error, fallbackStage = "observe-buy-now-checkout") {
+  const stage = normalizeString(error?.stage) ?? fallbackStage;
+  const rawMessage = error instanceof Error ? error.message : String(error ?? "");
+  const message = sanitizeRuntimeErrorMessage(rawMessage);
+  return {
+    stage,
+    reason: /timeout/i.test(rawMessage)
+      ? "browser-navigation-timeout"
+      : (normalizeString(error?.reason) ?? "browser-runtime-error"),
+    message,
+  };
+}
+
+function sanitizeRuntimeErrorMessage(message) {
+  return String(message ?? "")
+    .replace(/https?:\/\/[^\s")]+/gi, "[redacted-url]")
+    .replace(RAW_AFTER_WRITE_PATTERN, "afterWrite=[redacted]")
+    .replace(CHECKOUT_SESSION_ID_PATTERN, "chk_[redacted]")
+    .replace(GUEST_COOKIE_PATTERN, "chase_sets_guest_checkout=[redacted]")
+    .replace(SESSION_COOKIE_PATTERN, "chase_sets_session=[redacted]")
+    .replace(EMAIL_PATTERN, "[redacted-email]")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 500);
 }
 
 function normalizeHttpStatus(value) {

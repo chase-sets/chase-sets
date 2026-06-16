@@ -31,6 +31,8 @@ The workflow discovers the first active buyable item from `/api/marketplace/item
 | `guest` | Guest contact form on `/checkout/buy/readiness`; canary-namespaced email | `afterWrite` receipt plus `chase_sets_guest_checkout` cookie |
 | `account` | `POST /api/auth/password-sign-in` with `GUEST_BUY_NOW_CANARY_ACCOUNT_EMAIL`/`PASSWORD` (falls back to `MARKETPLACE_E2E_EMAIL`/`PASSWORD`); on staging without configured credentials it registers a synthetic `buy-now-canary+account-*@chasesets.test` account | `afterWrite` receipt plus `chase_sets_session` cookie; signed-in Buy Now redirects straight to `/checkout/buy/session/:sessionId` |
 
+The browser canary follows the current fresh-state routes: signed-out Buy Now opens `/checkout/buy/readiness`, guest contact submission redirects to `/checkout/buy/session/:sessionId`, and signed-in Buy Now redirects directly to `/checkout/buy/session/:sessionId`.
+
 ## States And Gate Decisions
 
 The canary uses the shared Checkout state model with the tightened #1227 gate:
@@ -43,7 +45,7 @@ The canary uses the shared Checkout state model with the tightened #1227 gate:
 | `fail` | Abort | Permanent checkout-session-not-found, lost receipt/cookie handoff, platform error page, or no recognizable checkout state. |
 | any non-abort state + failed negative probe | Abort (`negative-probe-*`) | Recovery is masking real errors; see below. Probe failures override SLO warnings. |
 
-Exit codes: `0` promote or warn (warning logged and recorded in evidence), `1` abort with evidence written, `2` configuration/runtime error (no evidence).
+Exit codes: `0` promote or warn (warning logged and recorded in evidence), `1` abort with evidence written, `2` configuration error or unexpected script failure before the canary can build evidence. Controlled browser navigation/load timeouts are canary failures, not blind runtime exits: they record `failureReason: "browser-navigation-timeout"`, include a redacted `runtimeFailure` stage/message, skip the negative probe, and retry within the configured attempt budget before failing closed.
 
 ## Negative Invalid-Session Probe
 
@@ -64,6 +66,7 @@ The script writes one evidence file per flow (`artifacts/release-health/guest-bu
 - final state, promotion decision, failure reason, attempt count, per-attempt summaries;
 - readiness SLO budget and write-to-checkout-ready latency;
 - browser-measured segments: write→redirect, redirect→document, document→ready, write→ready;
+- redacted browser runtime failure stage/message when navigation or load timeouts prevent a normal observation;
 - `segmentReferences` naming the #1228 server-side segments (commit-to-notify, notify-to-relay, relay-to-control-plane-store, control-plane-claim-to-worker, checkpoint-readiness, route-wait) and where to join them;
 - wait mode when visible, checkout document status, known-state wait outcome;
 - negative probe outcome and document status;
@@ -105,7 +108,7 @@ A public production guest browser canary remains not feasible: it would create p
 
 ## Release Gates, Rollback Decisions, And Checklists
 
-- **Staging promotion gate**: both staging flows must promote before the Deploy Production job runs; evidence uploads as the `staging-buy-now-freshness-canaries` artifact (30-day retention) and the job summary records state, decision, ready latency, and correlation ids. The staging canary result and promotion decision flow into the staging release-health record.
+- **Staging promotion gate**: both staging flows must promote before the Deploy Production job runs; evidence uploads as the `staging-buy-now-freshness-canaries` artifact (30-day retention) and the job summary records state, decision, failure reason, ready latency, and correlation ids. The staging canary result and promotion decision flow into the staging release-health record.
 - **Production promotion gate**: with proof mode enabled, the proof-mode canary must promote before the release is marked; its result folds into the production release-health `CANARY_RESULT`/`CANARY_PROMOTION_DECISION` and uploads with `production-release-health`.
 - **Rollback decisions**: after any push-wake kill switch or rollback flip, rerun this canary as the read-after-write invariant check ([Push-Wake Rollout Controls](./push-wake-rollout-controls.md)); after an emergency rollback deploy, a passing canary on the rolled-back build is the recovery proof ([Push-Wake Operations](./push-wake-operations.md) checkout triage step 5).
 - **Release checklists**: the [deployment runbook](./digitalocean-platform-deployment.md) step list includes both staging canaries and the proof-mode canary; do not mark a Milestone #19 rollout expansion complete without a passing canary run recorded in release health.
@@ -119,5 +122,6 @@ A public production guest browser canary remains not feasible: it would create p
 5. If `negative-probe-masked-invalid-session`, the recovery route is hiding real errors behind preparing-checkout; treat as a Checkout recovery regression and block promotion.
 6. If fixture discovery reports no active buyable item, refresh representative commerce state or update `STAGING_GUEST_BUY_NOW_CANARY_SEARCH_QUERY`.
 7. If `platform-error-page-detected` or `negative-probe-platform-error`, check whether a customer-facing checkout recovery is returning a 5xx document. App Platform/Cloudflare replaces 5xx documents with its generic error wrapper, so temporary checkout recovery should render with a non-5xx document status while internal API freshness timeouts can remain 503 JSON.
-8. If `checkout-review-state-not-detected`, confirm the resolved fixture still exposes Buy Now and reaches checkout review copy.
-9. Correlate the diagnostic id with read-after-write freshness audit records, the projection wake pipeline dashboard, and projection operations.
+8. If `browser-navigation-timeout`, inspect `runtimeFailure.stage` first. `wait-guest-buy-readiness` points at Buy Now routing from item detail to `/checkout/buy/readiness`; `wait-buy-checkout-session` points at checkout session creation/redirect to `/checkout/buy/session/:sessionId`; `load-buy-now-item-page` points at marketplace item detail availability or edge latency. The runtime message is redacted, so use the correlation id and Playwright artifacts rather than raw URLs.
+9. If `checkout-review-state-not-detected`, confirm the resolved fixture still exposes Buy Now and reaches checkout review copy.
+10. Correlate the diagnostic id with read-after-write freshness audit records, the projection wake pipeline dashboard, and projection operations.

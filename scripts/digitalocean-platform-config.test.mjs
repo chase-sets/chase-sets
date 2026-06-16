@@ -924,6 +924,13 @@ describe("DigitalOcean platform configuration", () => {
     expect(productionProofCanaryStep).toContain(
       "artifacts/release-health/production-proof-buy-now-freshness-canary.json",
     );
+    expect(productionProofCanaryStep).toContain(
+      'failure_reason="$(jq -r \'.failureReason // "unknown"\' "$proof_out")"',
+    );
+    expect(productionProofCanaryStep).toContain('echo "failure_reason=${failure_reason}"');
+    expect(productionProofCanaryStep).toContain(
+      'echo "| Flow | Final state | Promotion decision | Failure reason | Ready latency (ms) | Correlation id |"',
+    );
     expect(platformProductionWorkflow).toContain("Install Playwright Chromium for production proof canary");
     expect(platformProductionWorkflow).toContain("PRODUCTION_RESULT: ${{ job.status }}");
     expect(platformProductionWorkflow).toContain(
@@ -1361,6 +1368,11 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingBuyNowCanariesStep).toContain("--flow account");
     expect(stagingBuyNowCanariesStep).toContain("artifacts/release-health/guest-buy-now-freshness-canary.json");
     expect(stagingBuyNowCanariesStep).toContain("artifacts/release-health/account-buy-now-freshness-canary.json");
+    expect(stagingBuyNowCanariesStep).toContain("guest_failure_reason=");
+    expect(stagingBuyNowCanariesStep).toContain("account_failure_reason=");
+    expect(stagingBuyNowCanariesStep).toContain(
+      'echo "| Flow | Final state | Promotion decision | Failure reason | Ready latency (ms) | Correlation id |"',
+    );
     expect(stagingBuyNowCanariesStep).toContain("MARKETPLACE_E2E_EMAIL: ${{ vars.MARKETPLACE_E2E_EMAIL || '' }}");
     expect(stagingBuyNowCanariesStep).toContain(
       "MARKETPLACE_E2E_PASSWORD: ${{ secrets.MARKETPLACE_E2E_PASSWORD || '' }}",
@@ -1369,6 +1381,12 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingBuyNowEvidenceStep).toContain("staging-buy-now-freshness-canaries");
     expect(stagingBuyNowEvidenceStep).toContain("artifacts/release-health/account-buy-now-freshness-canary.json");
     expect(platformProductionWorkflow).toContain("buy_now_canary_result: ${{ steps.buy_now_canaries.outputs.result }}");
+    expect(platformProductionWorkflow).toContain(
+      "buy_now_canary_guest_failure_reason: ${{ steps.buy_now_canaries.outputs.guest_failure_reason }}",
+    );
+    expect(platformProductionWorkflow).toContain(
+      "buy_now_canary_account_failure_reason: ${{ steps.buy_now_canaries.outputs.account_failure_reason }}",
+    );
     expect(platformProductionWorkflow).toContain(
       "CANARY_RESULT: ${{ needs.deploy-staging.outputs.buy_now_canary_result || 'skipped' }}",
     );
