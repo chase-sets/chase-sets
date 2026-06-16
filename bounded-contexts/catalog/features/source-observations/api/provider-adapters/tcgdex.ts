@@ -211,12 +211,21 @@ async function listTcgdexAdapterOptions(
 
   if (optionKind === "series") {
     const series = await fetchTcgdexSeriesOptions({ profile, languageCode, fetch: options.fetch });
+    const platformLabels = await platformSeriesLabels({ profile, languageCode, fetch: options.fetch });
     return {
-      items: series.map((item) => ({
-        value: item.seriesId,
-        label: item.name,
-        metadata: optionalMetadata({ logoUrl: item.logoUrl }),
-      })),
+      items: series.map((item) => {
+        const platformLabel = platformLabels.get(normalizeOptionKey(item.seriesId)) ?? null;
+        return {
+          value: item.seriesId,
+          label: item.name,
+          metadata: optionalMetadata({
+            logoUrl: item.logoUrl,
+            providerLabel: platformLabel ? item.name : null,
+            platformLabel,
+            platformLanguageCode: platformLabel ? "en" : null,
+          }),
+        };
+      }),
     };
   }
 
@@ -228,23 +237,73 @@ async function listTcgdexAdapterOptions(
       seriesId,
       fetch: options.fetch,
     });
+    const platformLabels = await platformExpansionLabels({ profile, languageCode, fetch: options.fetch });
     return {
-      items: expansions.map((item) => ({
-        value: item.expansionId,
-        label: item.name,
-        parentValue: item.seriesId ?? undefined,
-        metadata: optionalMetadata({
-          seriesName: item.seriesName,
-          logoUrl: item.logoUrl,
-          symbolUrl: item.symbolUrl,
-          cardCount: item.cardCount === null ? null : String(item.cardCount),
-          officialCardCount: item.officialCardCount === null ? null : String(item.officialCardCount),
-        }),
-      })),
+      items: expansions.map((item) => {
+        const platformLabel = platformLabels.get(normalizeOptionKey(item.expansionId)) ?? null;
+        return {
+          value: item.expansionId,
+          label: item.name,
+          parentValue: item.seriesId ?? undefined,
+          metadata: optionalMetadata({
+            providerLabel: platformLabel ? item.name : null,
+            platformLabel,
+            platformLanguageCode: platformLabel ? "en" : null,
+            seriesName: item.seriesName,
+            logoUrl: item.logoUrl,
+            symbolUrl: item.symbolUrl,
+            cardCount: item.cardCount === null ? null : String(item.cardCount),
+            officialCardCount: item.officialCardCount === null ? null : String(item.officialCardCount),
+          }),
+        };
+      }),
     };
   }
 
   return { items: [] };
+}
+
+async function platformSeriesLabels(input: {
+  profile: CatalogProviderIntegrationProfileVersionRecord["profile"];
+  languageCode: string;
+  fetch?: typeof globalThis.fetch;
+}): Promise<ReadonlyMap<string, string>> {
+  if (normalizeOptionKey(input.languageCode) === "en") {
+    return new Map();
+  }
+
+  try {
+    const series = await fetchTcgdexSeriesOptions({
+      profile: input.profile,
+      languageCode: "en",
+      fetch: input.fetch,
+    });
+    return new Map(series.map((item) => [normalizeOptionKey(item.seriesId), item.name]));
+  } catch {
+    return new Map();
+  }
+}
+
+async function platformExpansionLabels(input: {
+  profile: CatalogProviderIntegrationProfileVersionRecord["profile"];
+  languageCode: string;
+  fetch?: typeof globalThis.fetch;
+}): Promise<ReadonlyMap<string, string>> {
+  if (normalizeOptionKey(input.languageCode) === "en") {
+    return new Map();
+  }
+
+  try {
+    const expansions = await fetchTcgdexExpansionOptions({
+      profile: input.profile,
+      languageCode: "en",
+      seriesId: null,
+      fetch: input.fetch,
+    });
+    return new Map(expansions.map((item) => [normalizeOptionKey(item.expansionId), item.name]));
+  } catch {
+    return new Map();
+  }
 }
 
 function toEnvelope(payload: TcgdexObservationPayload): ProviderPayloadEnvelope<TcgdexObservationPayload> {
@@ -275,6 +334,13 @@ function assertTcgdexUnit(unitKey: string): void {
 function optionalMetadata(values: Readonly<Record<string, string | null>>): ProviderOptionItem["metadata"] {
   const entries = Object.entries(values).filter((entry): entry is [string, string] => Boolean(entry[1]));
   return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+function normalizeOptionKey(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/([a-z])0+(\d)/g, "$1$2");
 }
 
 function stringValue(value: unknown): string | null {

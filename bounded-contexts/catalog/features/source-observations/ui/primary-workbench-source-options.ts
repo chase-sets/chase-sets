@@ -613,12 +613,35 @@ function sourceOptionItemsReadModel(
       scope: request.scope,
       value: item.value,
       label: item.label,
+      metadata: item.metadata,
     }),
     description: item.description,
     parentValue: item.parentValue,
     imageUrl: item.imageUrl,
-    metadata: {},
+    metadata: sourceOptionDisplayMetadata(item.metadata),
   }));
+}
+
+function sourceOptionDisplayMetadata(
+  metadata: SourceObservationIntegrationOptionResponse["items"][number]["metadata"],
+): SourceObservationIntegrationOptionResponse["items"][number]["metadata"] {
+  return Object.fromEntries(
+    ["providerLabel", "platformLabel", "platformLanguageCode"]
+      .map((key) => [key, metadataString(metadata, key)] as const)
+      .filter((entry): entry is readonly [string, string] => Boolean(entry[1])),
+  );
+}
+
+function metadataString(
+  metadata: SourceObservationIntegrationOptionResponse["items"][number]["metadata"],
+  key: string,
+): string | null {
+  const value = metadata[key];
+  if (typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean") {
+    return null;
+  }
+  const normalized = String(value).trim();
+  return normalized ? normalized : null;
 }
 
 function unavailableCache(

@@ -83,6 +83,36 @@ function dailyReadModelWithJapaneseExpansionOnly() {
   });
 }
 
+function providerProfile(providerKey: "scrydex" | "tcgdex", displayName: string, supportedScope: string) {
+  return profileReview({
+    providerKey,
+    profileKey: `${providerKey}-profile`,
+    displayName,
+    active: true,
+    lifecycle: "active",
+    profile: {
+      providerKey,
+      supportedScopes: [supportedScope],
+    },
+    supportedScopes: [supportedScope],
+  });
+}
+
+function dailyReadModelWithProviders(requestUrl: string) {
+  const profiles = [
+    providerProfile("scrydex", "Scrydex", "product/card"),
+    providerProfile("tcgdex", "TCGdex", "pokemon/card"),
+  ];
+
+  return buildCatalogPrimaryWorkbenchReadModel({
+    requestUrl,
+    scopes: { items: [], total: 0, count: 0 },
+    profileReviews: { items: profiles, total: profiles.length, count: profiles.length },
+    controlPlaneOverview: null,
+    canManageCatalog: true,
+  });
+}
+
 function responseFor(request: CatalogPrimaryWorkbenchSourceOptionRequest): SourceObservationIntegrationOptionResponse {
   if (request.queryKind === "languages") {
     return optionResponse(request, "fresh", "cache", [
@@ -179,6 +209,87 @@ describe("CatalogWorkbenchShell single per-surface return affordance", () => {
     render(<CatalogIntegrationsSurfacePage surface="daily" readModel={surfaceReadModel("daily")} />);
 
     expect(screen.queryByRole("link", { name: "Back to import workbench" })).toBeNull();
+  });
+});
+
+describe("CatalogWorkbenchShell provider/unit selection", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("keeps the unit selector scoped to the selected provider", () => {
+    render(
+      <CatalogIntegrationsSurfacePage
+        surface="daily"
+        readModel={dailyReadModelWithProviders(
+          "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import",
+        )}
+      />,
+    );
+
+    const unit = screen.getByLabelText<HTMLSelectElement>("Unit");
+    expect(within(unit).getByRole("option", { name: "tcgdex:pokemon:card:import" })).toBeTruthy();
+    expect(within(unit).queryByRole("option", { name: "scrydex:product:card:import" })).toBeNull();
+  });
+
+  it("clears provider-dependent fields before submitting a provider change", () => {
+    const requestSubmit = vi.spyOn(HTMLFormElement.prototype, "requestSubmit").mockImplementation(() => undefined);
+
+    try {
+      render(
+        <CatalogIntegrationsSurfacePage
+          surface="daily"
+          readModel={dailyReadModelWithProviders(
+            "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&languageCode=en&seriesId=base&expansionId=base1&profileVersion=2026.06.04",
+          )}
+        />,
+      );
+
+      const provider = screen.getByLabelText<HTMLSelectElement>("Provider");
+      const unit = screen.getByLabelText<HTMLSelectElement>("Unit");
+      const profileVersion = screen.getByLabelText<HTMLInputElement>("Profile version");
+
+      fireEvent.change(provider, { target: { value: "scrydex" } });
+
+      expect(provider.value).toBe("scrydex");
+      expect(unit.value).toBe("");
+      expect(unit.disabled).toBe(true);
+      expect(profileVersion.value).toBe("");
+      expect(profileVersion.disabled).toBe(true);
+
+      const submitted = new FormData(provider.form!);
+      expect(submitted.get("providerKey")).toBe("scrydex");
+      expect(submitted.has("unitKey")).toBe(false);
+      expect(submitted.has("languageCode")).toBe(false);
+      expect(submitted.has("seriesId")).toBe(false);
+      expect(submitted.has("expansionId")).toBe(false);
+      expect(submitted.has("profileVersion")).toBe(false);
+      expect(requestSubmit).toHaveBeenCalledTimes(1);
+    } finally {
+      requestSubmit.mockRestore();
+    }
+  });
+
+  it("normalizes a stale mismatched provider/unit URL to the selected provider", () => {
+    const readModel = dailyReadModelWithProviders(
+      "https://admin.example/catalog/integrations?providerKey=scrydex&unitKey=tcgdex:pokemon:card:import&languageCode=ja&seriesId=XYb&profileVersion=tcgdex-only",
+    );
+
+    render(<CatalogIntegrationsSurfacePage surface="daily" readModel={readModel} />);
+
+    const provider = screen.getByLabelText<HTMLSelectElement>("Provider");
+    const unit = screen.getByLabelText<HTMLSelectElement>("Unit");
+
+    expect(provider.value).toBe("scrydex");
+    expect(unit.value).toBe("scrydex:product:card:import");
+    expect(within(unit).getByRole("option", { name: "scrydex:product:card:import" })).toBeTruthy();
+    expect(within(unit).queryByRole("option", { name: "tcgdex:pokemon:card:import" })).toBeNull();
+    const scope = readModel.routeContext.scope;
+    expect(scope).toBeDefined();
+    expect(readModel.routeContext.importScope).toBeNull();
+    expect(scope?.languageCode).toBeNull();
+    expect(scope?.seriesId).toBeNull();
+    expect(readModel.routeContext.profileVersion).toBe("2026.06.04");
   });
 });
 

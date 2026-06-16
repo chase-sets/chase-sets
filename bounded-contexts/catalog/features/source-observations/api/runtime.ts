@@ -3748,6 +3748,9 @@ async function listTcgdexSeriesOptionRecordsThroughAdapter(
   return result.items.map((item) => ({
     seriesId: item.value,
     name: item.label,
+    providerLabel: item.metadata?.providerLabel ?? item.label,
+    platformLabel: item.metadata?.platformLabel ?? null,
+    platformLanguageCode: item.metadata?.platformLanguageCode ?? null,
     logoUrl: item.metadata?.logoUrl ?? null,
   }));
 }
@@ -3766,6 +3769,9 @@ async function listTcgdexExpansionOptionRecordsThroughAdapter(
     name: item.label,
     seriesId: item.parentValue ?? null,
     seriesName: item.metadata?.seriesName ?? null,
+    providerLabel: item.metadata?.providerLabel ?? item.label,
+    platformLabel: item.metadata?.platformLabel ?? null,
+    platformLanguageCode: item.metadata?.platformLanguageCode ?? null,
     logoUrl: item.metadata?.logoUrl ?? null,
     symbolUrl: item.metadata?.symbolUrl ?? null,
     cardCount: numberFromString(item.metadata?.cardCount),
