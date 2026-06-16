@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CheckoutCartPage } from "./cart-page";
@@ -71,6 +72,10 @@ const cartLine: CheckoutCartLine = {
   updated_at: "2026-04-28T00:00:00.000Z",
 };
 
+function quantitySpinbutton() {
+  return screen.getByRole("spinbutton", { name: "Quantity" }) as HTMLInputElement;
+}
+
 describe("checkout cart page", () => {
   afterEach(() => {
     cleanup();
@@ -82,7 +87,7 @@ describe("checkout cart page", () => {
     }));
   });
 
-  it("renders a Shopify-simple cart review without dense marketplace panels", () => {
+  it("renders a minimalist cart review with indicative pricing and a single deferred total", () => {
     const markup = renderToString(<CheckoutCartPage cartLines={[cartLine]} />);
 
     expect(markup).toContain("Your cart");
@@ -96,25 +101,47 @@ describe("checkout cart page", () => {
     expect(markup).toContain("Quantity");
     expect(markup).toContain("Decrease");
     expect(markup).toContain("Increase");
-    expect(markup).toContain("Update");
     expect(markup).toContain("Remove");
-    expect(markup).toContain("Subtotal");
+    // Indicative per-line price: an `optimize` line surfaces its known floor.
+    expect(markup).toContain(">from</p>");
     expect(markup).toContain("$778.00");
+    // Exactly one deferred total, stated once.
+    expect(markup).toContain("Estimated total");
+    expect(markup).toContain("Final total confirmed at checkout");
     expect(markup).toContain("Shipping and tax");
     expect(markup).toContain("Calculated at checkout");
-    expect(markup).toContain("Taxes and shipping are calculated at checkout.");
     expect(markup).toContain("Check out");
     expect(markup).toContain('action="/checkout/buy/readiness"');
     expect(markup).toContain('name="readinessSnapshotId"');
     expect(markup).toContain('name="readinessSourceRevision"');
     expect(markup).toContain('name="readinessDecisions"');
+    // The broken "Price at checkout" / duplicate-Subtotal pattern is eliminated.
+    expect(markup).not.toContain("Price at checkout");
+    expect(markup).not.toContain("Subtotal");
+    expect(markup).not.toContain("Update");
+    // Demoted, non-danger Remove (ghost DestructiveAction, not tone="danger").
     expect(markup).not.toContain("Smart Match settings");
-    expect(markup).not.toContain("Landed-cost preview");
-    expect(markup).not.toContain("Shipping credit grows with same-seller cards");
     expect(markup).not.toContain("Seller option");
-    expect(markup).not.toContain("Lock seller");
-    expect(markup).not.toContain("Estimated checkout fee");
-    expect(markup).not.toContain("Early landed-cost signal");
+  });
+
+  it("renders exactly one primary action on the checkout surface", () => {
+    const markup = renderToString(<CheckoutCartPage cartLines={[cartLine]} />);
+
+    const primaryStamps = markup.match(/data-primary-action-count="1"/g) ?? [];
+    // The sticky CTA bar owns the single primary; per-line action stacks stamp 0.
+    expect(primaryStamps.length).toBe(1);
+    expect(markup).toContain('data-primary-action-count="0"');
+  });
+
+  it("uses the canonical quantity stepper instead of the old input + button cluster", () => {
+    const markup = renderToString(<CheckoutCartPage cartLines={[cartLine]} />);
+
+    // Base UI NumberField renders the editable value as a numeric spinbutton;
+    // native spinner chevrons are suppressed globally in DS styles.
+    expect(markup).toContain('role="spinbutton"');
+    expect(markup).toContain('inputMode="numeric"');
+    // The old manual quantity submit button is gone.
+    expect(markup).not.toContain("Update");
   });
 
   it("groups duplicate product intent as one quantity-controlled cart line", () => {
@@ -128,25 +155,20 @@ describe("checkout cart page", () => {
     const markup = renderToString(<CheckoutCartPage cartLines={[cartLine, duplicateLine]} />);
 
     expect(markup).toContain('src="/fake-cdn/assets/charizard.png"');
-    expect(markup).toContain('srcSet="/fake-cdn/assets/charizard.png 1x, /fake-cdn/assets/charizard@2x.png 2x"');
-    expect(markup).toContain('sizes="6rem"');
-    expect(markup).toContain('value="5"');
     expect(markup).toContain('name="lineId" value="cart_line_1"');
     expect(markup).toContain('name="lineId" value="cart_line_2"');
-    expect(markup).toContain('data-optimistic-strategy="optimistic-with-correction"');
-    expect(markup).toContain('data-correction-source="fresh-read:loader-revalidation"');
     expect(markup).toContain("$1,945.00");
     expect(markup).not.toContain("Catalog item:");
     expect(markup).not.toContain("cat_charizard");
   });
 
-  it("updates quantity and subtotal optimistically before loader correction returns", async () => {
+  it("updates quantity and estimated total optimistically before loader correction returns", async () => {
+    const user = userEvent.setup();
     render(<CheckoutCartPage cartLines={[cartLine]} />);
 
-    const quantity = screen.getByLabelText("Quantity") as HTMLInputElement;
-    fireEvent.click(screen.getByRole("button", { name: "Increase" }));
+    await user.click(screen.getByRole("button", { name: "Increase" }));
 
-    await waitFor(() => expect(quantity.value).toBe("3"));
+    await waitFor(() => expect(quantitySpinbutton().value).toBe("3"));
     expect(screen.getAllByText("$1,167.00").length).toBeGreaterThan(0);
     expect(mockFetcherSubmit).toHaveBeenCalledTimes(1);
 
@@ -159,55 +181,41 @@ describe("checkout cart page", () => {
     expect(formData.getAll("lineId")).toEqual(["cart_line_1"]);
   });
 
-  it("keeps typed draft quantities out of subtotal until submitted", async () => {
-    render(<CheckoutCartPage cartLines={[cartLine]} />);
-
-    const quantity = screen.getByLabelText("Quantity") as HTMLInputElement;
-    fireEvent.change(quantity, { target: { value: "5" } });
-
-    expect(quantity.value).toBe("5");
-    expect(screen.getAllByText("$778.00").length).toBeGreaterThan(0);
-    expect(screen.queryByText("$1,945.00")).toBeNull();
-    expect(mockFetcherSubmit).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole("button", { name: "Update" }));
-
-    await waitFor(() => expect(mockFetcherSubmit).toHaveBeenCalledTimes(1));
-    expect(screen.getAllByText("$1,945.00").length).toBeGreaterThan(0);
-  });
-
   it("coalesces rapid repeated quantity clicks for one line", async () => {
+    const user = userEvent.setup();
     render(<CheckoutCartPage cartLines={[cartLine]} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Increase" }));
-    await waitFor(() => expect((screen.getByLabelText("Quantity") as HTMLInputElement).value).toBe("3"));
-    fireEvent.click(screen.getByRole("button", { name: "Increase" }));
-    fireEvent.click(screen.getByRole("button", { name: "Increase" }));
+    await user.click(screen.getByRole("button", { name: "Increase" }));
+    await waitFor(() => expect(quantitySpinbutton().value).toBe("3"));
+    await user.click(screen.getByRole("button", { name: "Increase" }));
+    await user.click(screen.getByRole("button", { name: "Increase" }));
 
-    await waitFor(() => expect((screen.getByLabelText("Quantity") as HTMLInputElement).value).toBe("5"));
+    await waitFor(() => expect(quantitySpinbutton().value).toBe("5"));
     expect(mockFetcherSubmit).toHaveBeenCalledTimes(1);
     expect(screen.getAllByText("$1,945.00").length).toBeGreaterThan(0);
   });
 
-  it("reconciles optimistic quantity and subtotal to server loader truth", async () => {
+  it("reconciles optimistic quantity and estimated total to server loader truth", async () => {
+    const user = userEvent.setup();
     const { rerender } = render(<CheckoutCartPage cartLines={[cartLine]} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Increase" }));
-    await waitFor(() => expect((screen.getByLabelText("Quantity") as HTMLInputElement).value).toBe("3"));
+    await user.click(screen.getByRole("button", { name: "Increase" }));
+    await waitFor(() => expect(quantitySpinbutton().value).toBe("3"));
     expect(screen.getAllByText("$1,167.00").length).toBeGreaterThan(0);
 
     rerender(<CheckoutCartPage cartLines={[{ ...cartLine, quantity: 4 }]} />);
 
-    await waitFor(() => expect((screen.getByLabelText("Quantity") as HTMLInputElement).value).toBe("4"));
+    await waitFor(() => expect(quantitySpinbutton().value).toBe("4"));
     expect(screen.getAllByText("$1,556.00").length).toBeGreaterThan(0);
   });
 
-  it("keeps account cart quantity and subtotal optimistic when stale loader data returns first", async () => {
+  it("keeps account cart quantity and estimated total optimistic when stale loader data returns first", async () => {
+    const user = userEvent.setup();
     const { rerender } = render(<CheckoutCartPage cartLines={[cartLine]} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Increase" }));
+    await user.click(screen.getByRole("button", { name: "Increase" }));
 
-    await waitFor(() => expect((screen.getByLabelText("Quantity") as HTMLInputElement).value).toBe("3"));
+    await waitFor(() => expect(quantitySpinbutton().value).toBe("3"));
     expect(screen.getAllByText("$1,167.00").length).toBeGreaterThan(0);
 
     mockUseFetcher.mockImplementation(() => ({
@@ -217,7 +225,7 @@ describe("checkout cart page", () => {
     }));
     rerender(<CheckoutCartPage cartLines={[{ ...cartLine, quantity: 1 }]} />);
 
-    expect((screen.getByLabelText("Quantity") as HTMLInputElement).value).toBe("3");
+    expect(quantitySpinbutton().value).toBe("3");
     expect(screen.getAllByText("$1,167.00").length).toBeGreaterThan(0);
     expect(screen.queryByText("$389.00")).toBeNull();
 
@@ -228,15 +236,16 @@ describe("checkout cart page", () => {
     }));
     rerender(<CheckoutCartPage cartLines={[{ ...cartLine, quantity: 3 }]} />);
 
-    await waitFor(() => expect((screen.getByLabelText("Quantity") as HTMLInputElement).value).toBe("3"));
+    await waitFor(() => expect(quantitySpinbutton().value).toBe("3"));
     expect(screen.getAllByText("$1,167.00").length).toBeGreaterThan(0);
   });
 
-  it("rolls back visible quantity and subtotal when the route rejects the write", async () => {
+  it("rolls back visible quantity and estimated total when the route rejects the write", async () => {
+    const user = userEvent.setup();
     const { rerender } = render(<CheckoutCartPage cartLines={[cartLine]} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Increase" }));
-    await waitFor(() => expect((screen.getByLabelText("Quantity") as HTMLInputElement).value).toBe("3"));
+    await user.click(screen.getByRole("button", { name: "Increase" }));
+    await waitFor(() => expect(quantitySpinbutton().value).toBe("3"));
 
     mockUseFetcher.mockImplementation(() => ({
       state: "idle",
@@ -245,12 +254,13 @@ describe("checkout cart page", () => {
     }));
     rerender(<CheckoutCartPage cartLines={[cartLine]} errorMessage="Request failed." />);
 
-    await waitFor(() => expect((screen.getByLabelText("Quantity") as HTMLInputElement).value).toBe("2"));
+    await waitFor(() => expect(quantitySpinbutton().value).toBe("2"));
     expect(screen.getByText("Checkout issue")).toBeTruthy();
     expect(screen.getAllByText("$778.00").length).toBeGreaterThan(0);
   });
 
   it("submits grouped duplicate lines as one absolute optimistic target", async () => {
+    const user = userEvent.setup();
     const duplicateLine: CheckoutCartLine = {
       ...cartLine,
       line_id: "cart_line_2",
@@ -260,9 +270,9 @@ describe("checkout cart page", () => {
 
     render(<CheckoutCartPage cartLines={[cartLine, duplicateLine]} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Decrease" }));
+    await user.click(screen.getByRole("button", { name: "Decrease" }));
 
-    await waitFor(() => expect((screen.getByLabelText("Quantity") as HTMLInputElement).value).toBe("4"));
+    await waitFor(() => expect(quantitySpinbutton().value).toBe("4"));
 
     const formData = mockFetcherSubmit.mock.calls[0]?.[0] as FormData;
     expect(formData.get("quantity")).toBe("4");
@@ -288,7 +298,21 @@ describe("checkout cart page", () => {
     expect(markup).not.toContain("Locked listing");
   });
 
-  it("blocks checkout and hands unresolved fulfillment to readiness", () => {
+  it("shows an exact price with no indicative prefix for a locked listing", () => {
+    const lockedLine: CheckoutCartLine = {
+      ...cartLine,
+      fulfillment_mode: "locked-listing",
+      locked_listing_id: "lst_hobby_shop",
+    };
+
+    const markup = renderToString(<CheckoutCartPage cartLines={[lockedLine]} />);
+
+    // Locked listing → exact line price (2 × $395.00), no "from" prefix on it.
+    expect(markup).toContain("$790.00");
+    expect(markup).toContain("is locked for checkout unless availability changes.");
+  });
+
+  it("blocks checkout, defers the price, and hands unresolved fulfillment to readiness", () => {
     const unavailableLine: CheckoutCartLine = {
       ...cartLine,
       line_id: "cart_line_unavailable",
@@ -303,18 +327,21 @@ describe("checkout cart page", () => {
     expect(markup).toContain("Some items need attention");
     expect(markup).toContain("1 item needs fulfillment or availability resolved before checkout.");
     expect(markup).toContain("Waiting for supply");
-    expect(markup).toContain("Resolve this item before checkout or remove it from your cart.");
     expect(markup).toContain("Find alternatives");
     expect(markup).toContain('href="/search?q=Charizard"');
     expect(markup).toContain("Continue to checkout");
-    expect(markup).not.toContain("Resolve items");
+    // No priced options → the single quiet deferred price statement on that line.
+    expect(markup).toContain("Priced at checkout");
     expect(markup).toContain('href="/checkout/buy/readiness"');
     expect(markup).toContain("Resolve item availability before payment starts.");
     expect(markup).not.toContain('action="/checkout/buy/readiness"');
     expect(markup).not.toContain("Check out");
+    // The redundant per-line "Resolve before checkout" sentence is gone; the
+    // badge now carries the per-item state once.
+    expect(markup).not.toContain("Resolve this item before checkout or remove it from your cart.");
   });
 
-  it("offers optional fulfillment savings before checkout starts", () => {
+  it("offers optional fulfillment savings as a secondary action before checkout starts", () => {
     const expensiveLine: CheckoutCartLine = {
       ...cartLine,
       fulfillment_mode: "locked-listing",
@@ -354,6 +381,9 @@ describe("checkout cart page", () => {
     expect(markup).toContain("Use lower price");
     expect(markup).toContain("&quot;decision&quot;:&quot;accepted&quot;");
     expect(markup).toContain("&quot;decision&quot;:&quot;declined&quot;");
+    // Still exactly one primary action even with the optional savings path.
+    const primaryStamps = markup.match(/data-primary-action-count="1"/g) ?? [];
+    expect(primaryStamps.length).toBe(1);
     expect(markup).not.toContain("allocation");
   });
 
@@ -366,7 +396,7 @@ describe("checkout cart page", () => {
       "When you add items, checkout will show final shipping, tax, and payment details before you pay.",
     );
     expect(markup).toContain("Keep shopping");
-    expect(markup).not.toContain("Subtotal");
+    expect(markup).not.toContain("Estimated total");
     expect(markup).not.toContain("Check out");
   });
 });

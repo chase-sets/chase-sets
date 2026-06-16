@@ -348,10 +348,7 @@
       "owner": "checkout",
       "risk": "important",
       "strategy": "fresh-read",
-      "surfaces": [
-        "post-form:bounded-contexts/checkout/features/cart/ui/add-to-cart-section.tsx:H2df726441e2a#1",
-        "post-form:bounded-contexts/checkout/features/cart/ui/cart-page.tsx:H2df726441e2a#1"
-      ],
+      "surfaces": ["post-form:bounded-contexts/checkout/features/cart/ui/add-to-cart-section.tsx:H2df726441e2a#1"],
       "visibleDestination": {
         "routeId": "account-cart",
         "apiContextName": "checkout",
@@ -528,9 +525,9 @@
       "risk": "important",
       "strategy": "migration",
       "surfaces": [
+        "post-form:bounded-contexts/checkout/features/cart/ui/cart-page.tsx:H2df726441e2a#1",
         "post-form:bounded-contexts/checkout/features/cart/ui/cart-page.tsx:H2df726441e2a#2",
-        "post-form:bounded-contexts/checkout/features/cart/ui/cart-page.tsx:H2df726441e2a#3",
-        "post-form:bounded-contexts/checkout/features/cart/ui/cart-page.tsx:H2df726441e2a#4"
+        "post-form:bounded-contexts/checkout/features/cart/ui/cart-page.tsx:H2df726441e2a#3"
       ],
       "exception": {
         "owner": "checkout",
