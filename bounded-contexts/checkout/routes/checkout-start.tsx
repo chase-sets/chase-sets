@@ -13,7 +13,8 @@ import {
   Banner,
   Button,
   OrderProtectionModule,
-  CheckoutLayout,
+  CheckoutFlowShell,
+  CheckoutMobileSummaryDisclosure,
   LinkButton,
   OrderIntentSummary,
   Page,
@@ -657,6 +658,218 @@ export default function CheckoutStartRoute() {
     />
   ) : null;
 
+  const checkoutSummary = (
+    <Stack gap={4}>
+      <PriceBreakdown
+        lines={[
+          {
+            label: source ? t("checkout.routes.checkoutStart.source") : t("checkout.routes.checkoutStart.cart"),
+            value: source
+              ? source.itemTitle || t("checkout.routes.checkoutStart.buy.now")
+              : t("checkout.routes.checkoutStart.item.count", {
+                  count: data.cartCount,
+                  itemLabel:
+                    data.cartCount === 1
+                      ? t("checkout.routes.checkoutStart.item")
+                      : t("checkout.routes.checkoutStart.items"),
+                }),
+          },
+          ...(source
+            ? [
+                {
+                  label: t("checkout.routes.checkoutStart.seller"),
+                  value:
+                    source.type === "buy-now"
+                      ? (source.sellerName ?? t("checkout.routes.checkoutStart.marketplace.seller"))
+                      : t("checkout.routes.checkoutStart.marketplace.seller"),
+                },
+                {
+                  label: t("checkout.routes.checkoutStart.price"),
+                  value:
+                    source.type === "offer-intent"
+                      ? `$${source.offerPriceAmount}`
+                      : source.priceAmount
+                        ? `$${source.priceAmount}`
+                        : t("checkout.routes.checkoutStart.price.confirmed.before.payment"),
+                },
+                {
+                  label: t("checkout.routes.checkoutStart.quantity"),
+                  value: formatMarketplaceNumber(
+                    source.quantity,
+                    t("checkout.routes.checkoutStart.quantity.confirmed.before.payment"),
+                  ),
+                },
+              ]
+            : []),
+          {
+            label: t("checkout.routes.checkoutStart.account.choice"),
+            value: data.isGuestBuyer
+              ? t("checkout.routes.checkoutStart.guest.checkout.active")
+              : data.isSignedIn
+                ? t("checkout.routes.checkoutStart.signed.in")
+                : isOfferIntent
+                  ? t("checkout.routes.checkoutStart.register.or.sign.in")
+                  : t("checkout.routes.checkoutStart.sign.in.or.guest"),
+          },
+          {
+            label: t("checkout.routes.checkoutStart.payment"),
+            value: isOfferIntent
+              ? t("checkout.routes.checkoutStart.no.payment.today")
+              : t("checkout.routes.checkoutStart.not.charged.yet"),
+          },
+        ]}
+        total={t("checkout.routes.checkoutStart.ready")}
+        totalLabel={t("checkout.routes.checkoutStart.checkout.status")}
+        reassurance={
+          <SecurePaymentIndicator
+            label={
+              isOfferIntent
+                ? t("checkout.routes.checkoutStart.no.payment.today")
+                : t("checkout.routes.checkoutStart.secure.payment")
+            }
+          />
+        }
+      />
+      <OrderProtectionModule items={checkoutStartBuyerProtectionItems(isOfferIntent)} />
+    </Stack>
+  );
+
+  const checkoutMain = (
+    <Stack gap={4}>
+      {sourceSummary}
+      {actionData && "recovery" in actionData ? (
+        <Banner
+          title={actionData.recovery.title}
+          description={actionData.recovery.description}
+          tone="warning"
+          actions={
+            <>
+              <LinkButton
+                href={actionData.recovery.primaryAction.href}
+                leadingIcon={actionData.recovery.primaryAction.leadingIcon}
+                tone={actionData.recovery.primaryAction.tone}
+              >
+                {actionData.recovery.primaryAction.label}
+              </LinkButton>
+              {actionData.recovery.secondaryAction ? (
+                <LinkButton
+                  href={actionData.recovery.secondaryAction.href}
+                  leadingIcon={actionData.recovery.secondaryAction.leadingIcon}
+                  tone={actionData.recovery.secondaryAction.tone}
+                >
+                  {actionData.recovery.secondaryAction.label}
+                </LinkButton>
+              ) : null}
+            </>
+          }
+        />
+      ) : null}
+
+      {actionData && "error" in actionData ? (
+        <Banner
+          title={t("checkout.routes.checkoutStart.sign.in.required")}
+          description={actionData.error}
+          tone="warning"
+          actions={
+            <LinkButton href={actionData.signInPath} tone="secondary">
+              {t("checkout.routes.checkoutStart.sign.in")}
+            </LinkButton>
+          }
+        />
+      ) : null}
+
+      {data.isSignedIn || data.isGuestBuyer ? (
+        <PageSection
+          title={
+            data.isGuestBuyer
+              ? t("checkout.routes.checkoutStart.guest.checkout.active")
+              : t("checkout.routes.checkoutStart.account.checkout")
+          }
+        >
+          <Surface elevated glow>
+            <RouterForm method="post" spacing="none">
+              <Stack gap={3}>
+                <Text tone="secondary">
+                  {data.isGuestBuyer
+                    ? t("checkout.routes.checkoutStart.continue.with.guest.checkout")
+                    : t("checkout.routes.checkoutStart.continue.with.your.account.any.saved.guest")}
+                </Text>
+                {sourceFields}
+                <Button type="submit" size="lg" leadingIcon="lock">
+                  {t("checkout.routes.checkoutStart.continue.to.checkout")}
+                </Button>
+              </Stack>
+            </RouterForm>
+          </Surface>
+        </PageSection>
+      ) : isOfferIntent ? (
+        <>
+          <PageSection title={t("checkout.routes.checkoutStart.register.to.place.purchase.intent")}>
+            <Surface elevated glow>
+              <Stack gap={3}>
+                <Text tone="secondary">{t("checkout.routes.checkoutStart.registration.purchase.intent.copy")}</Text>
+                <LinkButton href={registerPath} size="lg" leadingIcon="shield">
+                  {t("checkout.routes.checkoutStart.register.with.passkey")}
+                </LinkButton>
+                <LinkButton href={data.signInPath} tone="secondary" size="lg" leadingIcon="lock">
+                  {t("checkout.routes.checkoutStart.sign.in")}
+                </LinkButton>
+              </Stack>
+            </Surface>
+          </PageSection>
+        </>
+      ) : (
+        <>
+          <PageSection title={t("checkout.routes.checkoutStart.guest.checkout")}>
+            <Surface elevated glow>
+              <RouterForm method="post" spacing="none">
+                <Stack gap={3}>
+                  <Text tone="secondary">{t("checkout.routes.checkoutStart.continue.as.guest.fast.path")}</Text>
+                  <TextInput label={t("checkout.routes.checkoutStart.contact.name")} name="contactName" required />
+                  <TextInput label={t("checkout.routes.checkoutStart.email")} name="email" type="email" required />
+                  {sourceFields}
+                  <Button type="submit" size="lg" leadingIcon="lock">
+                    {t("checkout.routes.checkoutStart.continue.as.guest")}
+                  </Button>
+                </Stack>
+              </RouterForm>
+            </Surface>
+          </PageSection>
+          <PageSection title={t("checkout.routes.checkoutStart.account")}>
+            <Surface elevated>
+              <Stack gap={3}>
+                <Text tone="secondary">{t("checkout.routes.checkoutStart.sign.in.to.keep.purchases.payments")}</Text>
+                <LinkButton href={data.signInPath} tone="secondary" size="lg" leadingIcon="lock">
+                  {t("checkout.routes.checkoutStart.sign.in")}
+                </LinkButton>
+              </Stack>
+            </Surface>
+          </PageSection>
+        </>
+      )}
+    </Stack>
+  );
+
+  const checkoutMobileSummary = (
+    <CheckoutMobileSummaryDisclosure
+      label={t("checkout.routes.checkoutStart.checkout.status")}
+      collapsedSummary={
+        source
+          ? source.itemTitle || t("checkout.routes.checkoutStart.buy.now")
+          : t("checkout.routes.checkoutStart.item.count", {
+              count: data.cartCount,
+              itemLabel:
+                data.cartCount === 1
+                  ? t("checkout.routes.checkoutStart.item")
+                  : t("checkout.routes.checkoutStart.items"),
+            })
+      }
+      total={t("checkout.routes.checkoutStart.ready")}
+    >
+      {checkoutSummary}
+    </CheckoutMobileSummaryDisclosure>
+  );
+
   return (
     <Page>
       <PageHeader
@@ -664,200 +877,12 @@ export default function CheckoutStartRoute() {
         title={headerCopy.title}
         description={headerCopy.description}
       />
-      <CheckoutLayout
-        summaryLabel="Checkout summary"
-        summary={
-          <Stack gap={4}>
-            <PriceBreakdown
-              lines={[
-                {
-                  label: source ? t("checkout.routes.checkoutStart.source") : t("checkout.routes.checkoutStart.cart"),
-                  value: source
-                    ? source.itemTitle || t("checkout.routes.checkoutStart.buy.now")
-                    : t("checkout.routes.checkoutStart.item.count", {
-                        count: data.cartCount,
-                        itemLabel:
-                          data.cartCount === 1
-                            ? t("checkout.routes.checkoutStart.item")
-                            : t("checkout.routes.checkoutStart.items"),
-                      }),
-                },
-                ...(source
-                  ? [
-                      {
-                        label: t("checkout.routes.checkoutStart.seller"),
-                        value:
-                          source.type === "buy-now"
-                            ? (source.sellerName ?? t("checkout.routes.checkoutStart.marketplace.seller"))
-                            : t("checkout.routes.checkoutStart.marketplace.seller"),
-                      },
-                      {
-                        label: t("checkout.routes.checkoutStart.price"),
-                        value:
-                          source.type === "offer-intent"
-                            ? `$${source.offerPriceAmount}`
-                            : source.priceAmount
-                              ? `$${source.priceAmount}`
-                              : t("checkout.routes.checkoutStart.price.confirmed.before.payment"),
-                      },
-                      {
-                        label: t("checkout.routes.checkoutStart.quantity"),
-                        value: formatMarketplaceNumber(
-                          source.quantity,
-                          t("checkout.routes.checkoutStart.quantity.confirmed.before.payment"),
-                        ),
-                      },
-                    ]
-                  : []),
-                {
-                  label: t("checkout.routes.checkoutStart.account.choice"),
-                  value: data.isGuestBuyer
-                    ? t("checkout.routes.checkoutStart.guest.checkout.active")
-                    : data.isSignedIn
-                      ? t("checkout.routes.checkoutStart.signed.in")
-                      : isOfferIntent
-                        ? t("checkout.routes.checkoutStart.register.or.sign.in")
-                        : t("checkout.routes.checkoutStart.sign.in.or.guest"),
-                },
-                {
-                  label: t("checkout.routes.checkoutStart.payment"),
-                  value: isOfferIntent
-                    ? t("checkout.routes.checkoutStart.no.payment.today")
-                    : t("checkout.routes.checkoutStart.not.charged.yet"),
-                },
-              ]}
-              total={t("checkout.routes.checkoutStart.ready")}
-              totalLabel={t("checkout.routes.checkoutStart.checkout.status")}
-              reassurance={
-                <SecurePaymentIndicator
-                  label={
-                    isOfferIntent
-                      ? t("checkout.routes.checkoutStart.no.payment.today")
-                      : t("checkout.routes.checkoutStart.secure.payment")
-                  }
-                />
-              }
-            />
-            <OrderProtectionModule items={checkoutStartBuyerProtectionItems(isOfferIntent)} />
-          </Stack>
-        }
-      >
-        <Stack gap={4}>
-          {sourceSummary}
-          {actionData && "recovery" in actionData ? (
-            <Banner
-              title={actionData.recovery.title}
-              description={actionData.recovery.description}
-              tone="warning"
-              actions={
-                <>
-                  <LinkButton
-                    href={actionData.recovery.primaryAction.href}
-                    leadingIcon={actionData.recovery.primaryAction.leadingIcon}
-                    tone={actionData.recovery.primaryAction.tone}
-                  >
-                    {actionData.recovery.primaryAction.label}
-                  </LinkButton>
-                  {actionData.recovery.secondaryAction ? (
-                    <LinkButton
-                      href={actionData.recovery.secondaryAction.href}
-                      leadingIcon={actionData.recovery.secondaryAction.leadingIcon}
-                      tone={actionData.recovery.secondaryAction.tone}
-                    >
-                      {actionData.recovery.secondaryAction.label}
-                    </LinkButton>
-                  ) : null}
-                </>
-              }
-            />
-          ) : null}
-
-          {actionData && "error" in actionData ? (
-            <Banner
-              title={t("checkout.routes.checkoutStart.sign.in.required")}
-              description={actionData.error}
-              tone="warning"
-              actions={
-                <LinkButton href={actionData.signInPath} tone="secondary">
-                  {t("checkout.routes.checkoutStart.sign.in")}
-                </LinkButton>
-              }
-            />
-          ) : null}
-
-          {data.isSignedIn || data.isGuestBuyer ? (
-            <PageSection
-              title={
-                data.isGuestBuyer
-                  ? t("checkout.routes.checkoutStart.guest.checkout.active")
-                  : t("checkout.routes.checkoutStart.account.checkout")
-              }
-            >
-              <Surface elevated glow>
-                <RouterForm method="post" spacing="none">
-                  <Stack gap={3}>
-                    <Text tone="secondary">
-                      {data.isGuestBuyer
-                        ? t("checkout.routes.checkoutStart.continue.with.guest.checkout")
-                        : t("checkout.routes.checkoutStart.continue.with.your.account.any.saved.guest")}
-                    </Text>
-                    {sourceFields}
-                    <Button type="submit" size="lg" leadingIcon="lock">
-                      {t("checkout.routes.checkoutStart.continue.to.checkout")}
-                    </Button>
-                  </Stack>
-                </RouterForm>
-              </Surface>
-            </PageSection>
-          ) : isOfferIntent ? (
-            <>
-              <PageSection title={t("checkout.routes.checkoutStart.register.to.place.purchase.intent")}>
-                <Surface elevated glow>
-                  <Stack gap={3}>
-                    <Text tone="secondary">{t("checkout.routes.checkoutStart.registration.purchase.intent.copy")}</Text>
-                    <LinkButton href={registerPath} size="lg" leadingIcon="shield">
-                      {t("checkout.routes.checkoutStart.register.with.passkey")}
-                    </LinkButton>
-                    <LinkButton href={data.signInPath} tone="secondary" size="lg" leadingIcon="lock">
-                      {t("checkout.routes.checkoutStart.sign.in")}
-                    </LinkButton>
-                  </Stack>
-                </Surface>
-              </PageSection>
-            </>
-          ) : (
-            <>
-              <PageSection title={t("checkout.routes.checkoutStart.guest.checkout")}>
-                <Surface elevated glow>
-                  <RouterForm method="post" spacing="none">
-                    <Stack gap={3}>
-                      <Text tone="secondary">{t("checkout.routes.checkoutStart.continue.as.guest.fast.path")}</Text>
-                      <TextInput label={t("checkout.routes.checkoutStart.contact.name")} name="contactName" required />
-                      <TextInput label={t("checkout.routes.checkoutStart.email")} name="email" type="email" required />
-                      {sourceFields}
-                      <Button type="submit" size="lg" leadingIcon="lock">
-                        {t("checkout.routes.checkoutStart.continue.as.guest")}
-                      </Button>
-                    </Stack>
-                  </RouterForm>
-                </Surface>
-              </PageSection>
-              <PageSection title={t("checkout.routes.checkoutStart.account")}>
-                <Surface elevated>
-                  <Stack gap={3}>
-                    <Text tone="secondary">
-                      {t("checkout.routes.checkoutStart.sign.in.to.keep.purchases.payments")}
-                    </Text>
-                    <LinkButton href={data.signInPath} tone="secondary" size="lg" leadingIcon="lock">
-                      {t("checkout.routes.checkoutStart.sign.in")}
-                    </LinkButton>
-                  </Stack>
-                </Surface>
-              </PageSection>
-            </>
-          )}
-        </Stack>
-      </CheckoutLayout>
+      <CheckoutFlowShell
+        summaryLabel={t("checkout.routes.checkoutStart.checkout.summary")}
+        main={checkoutMain}
+        desktopSummary={checkoutSummary}
+        mobileSummary={checkoutMobileSummary}
+      />
     </Page>
   );
 }

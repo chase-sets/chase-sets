@@ -25,7 +25,6 @@ const moduleFileExtensions = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"];
 
 const canonicalReserveZeroConsumerExports = [
   "AccountProfileHeader",
-  "ActionRow",
   "ActivityList",
   "ActivitySheet",
   "AspectRatio",

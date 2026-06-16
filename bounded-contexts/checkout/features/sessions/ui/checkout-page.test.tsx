@@ -786,4 +786,98 @@ describe("checkout session page", () => {
 
     requestSubmit.mockRestore();
   });
+
+  it("renders the checkout step spine with per-step status", () => {
+    const { container } = render(
+      <CheckoutSessionPage
+        session={readySession}
+        fulfillmentPreview={readyFulfillmentPreview}
+        paymentPreview={paymentPreview}
+        isSignedInBuyer
+        savedShippingAddresses={[signedInSavedAddress]}
+        savedCheckoutInstruments={[savedCard]}
+      />,
+    );
+
+    const stepper = container.querySelector("ol");
+    expect(stepper).toBeTruthy();
+    const steps = Array.from(stepper?.querySelectorAll("li") ?? []).map((step) => step.textContent ?? "");
+    expect(steps.some((step) => step.includes("Contact"))).toBe(true);
+    expect(steps.some((step) => step.includes("Delivery"))).toBe(true);
+    expect(steps.some((step) => step.includes("Shipping"))).toBe(true);
+    expect(steps.some((step) => step.includes("Payment"))).toBe(true);
+    expect(steps.some((step) => step.includes("Review"))).toBe(true);
+    // The fully-collected returning buyer lands on Review as the current step.
+    expect(stepper?.querySelector('li[aria-current="step"]')?.textContent).toContain("Review");
+  });
+
+  it("drops the payment step from the spine for purchase intent", () => {
+    const { container } = render(
+      <CheckoutSessionPage
+        session={{
+          ...session,
+          session_id: "chk_offer_intent_steps",
+          source_type: "offer-intent",
+          fulfillment_preview_revision: null,
+          lines: [{ ...session.lines[0], cartLineId: null, offerPriceAmount: "350.00" }],
+        }}
+        fulfillmentPreview={null}
+      />,
+    );
+
+    const steps = Array.from(container.querySelectorAll("ol li")).map((step) => step.textContent ?? "");
+    expect(steps.some((step) => step.includes("Contact"))).toBe(true);
+    expect(steps.some((step) => step.includes("Review"))).toBe(true);
+    expect(steps.some((step) => step.includes("How you pay"))).toBe(false);
+  });
+
+  it("collapses overlapping checkout states to a single notice", () => {
+    const markup = renderToString(
+      <CheckoutSessionPage
+        session={session}
+        fulfillmentPreview={{
+          ...fulfillmentPreview,
+          materialChangeReasons: ["Fees changed. Review latest total."],
+        }}
+        reviewRefreshed
+      />,
+    );
+
+    // Cart-review (needs-review) outranks the review-updated success notice and
+    // the fulfillment-changed notice, so exactly one notice surfaces.
+    expect(markup).toContain("Review your buy cart first");
+    expect(markup).not.toContain("Review updated");
+  });
+
+  it("keeps a single primary action across the in-form and sticky commit", () => {
+    const { container } = render(
+      <CheckoutSessionPage
+        session={readySession}
+        fulfillmentPreview={readyFulfillmentPreview}
+        paymentPreview={paymentPreview}
+      />,
+    );
+
+    const primarySlots = Array.from(container.querySelectorAll("[data-primary-action-count]"));
+    expect(primarySlots.length).toBeGreaterThan(0);
+    for (const slot of primarySlots) {
+      expect(slot.getAttribute("data-primary-action-count")).toBe("1");
+    }
+  });
+
+  it("states the deferral once as the summary total caption", () => {
+    const markup = renderToString(
+      <CheckoutSessionPage
+        session={readySession}
+        fulfillmentPreview={readyFulfillmentPreview}
+        paymentPreview={paymentPreview}
+      />,
+    );
+
+    // The deferral statement lives only as the total caption — once per
+    // responsive summary copy (desktop aside + mobile disclosure), never in a
+    // line slot, a subtotal row, and a footer.
+    expect(countText(markup, "Final total confirmed before secure payment.")).toBe(2);
+    expect(markup).not.toContain("Price at checkout");
+  });
 });
