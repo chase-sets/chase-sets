@@ -330,7 +330,7 @@ export function catalogIntegrationProviderDataSignoffChecklist(): readonly strin
 
 /**
  * The semantic governing version of the alias source policy. Auto-accepted and
- * operator-accepted aliases must record this version in their audit evidence so
+ * accepted aliases must record this version in their audit evidence so
  * a later policy change can be reconciled against what was true at acceptance.
  */
 export const CATALOG_ALIAS_SOURCE_GOVERNANCE_POLICY_VERSION = "alias-source-governance-v1";
@@ -365,23 +365,20 @@ export type CatalogAliasTypeKey =
 
 /**
  * Acceptance disposition for a candidate alias from a given source category.
- * `auto-accepted` and `pending-review` are the two values downstream slices gate
- * on; `never-official` marks evidence that may be retained and searched but can
- * never be promoted to or displayed as an official equivalent.
+ * The disposition is an action so it never collides with a review-state noun:
+ * `auto-accept` maps to the `auto-accepted` review state, `require-review` maps to
+ * the `pending` review state, and `never-official` also maps to `pending`
+ * (evidence-only, never official). Downstream slices gate on the resulting review
+ * state, not on this disposition string.
  */
-export type CatalogAliasAcceptancePolicy = "auto-accepted" | "pending-review" | "never-official";
+export type CatalogAliasAcceptancePolicy = "auto-accept" | "require-review" | "never-official";
 
 /**
  * Alias review states locked by the ADR slice (#1903). `auto-accepted` and
  * `revoked` are required here; the full set is declared so downstream review
  * tooling can reference one source of truth.
  */
-export type CatalogAliasReviewStateKey =
-  | "pending-review"
-  | "auto-accepted"
-  | "operator-accepted"
-  | "rejected"
-  | "revoked";
+export type CatalogAliasReviewStateKey = "pending" | "accepted" | "auto-accepted" | "rejected" | "revoked";
 
 export type CatalogAliasSourceGovernancePolicy = Readonly<{
   category: CatalogAliasSourceCategoryKey;
@@ -411,7 +408,7 @@ export const catalogAliasSourceGovernancePolicies = [
     category: "official-english-source",
     displayName: "Official English source",
     canProvideOfficialEnglish: true,
-    acceptancePolicy: "auto-accepted",
+    acceptancePolicy: "auto-accept",
     producibleAliasTypes: ["official-equivalent", "set-equivalent", "series-equivalent"],
     officialEnglishPrecedence: 1,
     evidenceMarkedLowConfidence: false,
@@ -425,7 +422,7 @@ export const catalogAliasSourceGovernancePolicies = [
     category: "curated-operator-mapping",
     displayName: "Curated operator mapping",
     canProvideOfficialEnglish: true,
-    acceptancePolicy: "auto-accepted",
+    acceptancePolicy: "auto-accept",
     producibleAliasTypes: ["official-equivalent", "set-equivalent", "series-equivalent"],
     officialEnglishPrecedence: 2,
     evidenceMarkedLowConfidence: false,
@@ -433,13 +430,13 @@ export const catalogAliasSourceGovernancePolicies = [
     evidenceDataClass: "audit-evidence",
     retentionPolicy: "retain-audit-summary",
     notes:
-      "Operator-maintained dictionary curated against approved sources. Each entry is itself an operator-accepted decision and carries its own audit trail.",
+      "Operator-maintained dictionary curated against approved sources. Each entry is itself an operator-reviewed decision and carries its own audit trail.",
   }),
   aliasSourcePolicy({
     category: "provider-same-id-localized-endpoint",
     displayName: "Provider same-id localized endpoint",
     canProvideOfficialEnglish: true,
-    acceptancePolicy: "pending-review",
+    acceptancePolicy: "require-review",
     producibleAliasTypes: ["official-equivalent", "set-equivalent", "series-equivalent"],
     officialEnglishPrecedence: 3,
     evidenceMarkedLowConfidence: false,
@@ -453,7 +450,7 @@ export const catalogAliasSourceGovernancePolicies = [
     category: "provider-localized-name",
     displayName: "Provider localized name",
     canProvideOfficialEnglish: false,
-    acceptancePolicy: "pending-review",
+    acceptancePolicy: "require-review",
     producibleAliasTypes: ["provider-localized-name"],
     officialEnglishPrecedence: null,
     evidenceMarkedLowConfidence: false,
@@ -467,7 +464,7 @@ export const catalogAliasSourceGovernancePolicies = [
     category: "species-reference",
     displayName: "Species reference",
     canProvideOfficialEnglish: false,
-    acceptancePolicy: "pending-review",
+    acceptancePolicy: "require-review",
     producibleAliasTypes: ["species-name"],
     officialEnglishPrecedence: null,
     evidenceMarkedLowConfidence: false,
@@ -621,7 +618,7 @@ export type CatalogAliasAcceptanceDecisionInput = Readonly<{
 
 export type CatalogAliasAcceptanceDecision = Readonly<{
   category: CatalogAliasSourceCategoryKey;
-  reviewState: Extract<CatalogAliasReviewStateKey, "auto-accepted" | "pending-review">;
+  reviewState: Extract<CatalogAliasReviewStateKey, "auto-accepted" | "pending">;
   /** Whether the resulting alias may be promoted to/displayed as an official equivalent. */
   official: boolean;
   evidenceMarkedLowConfidence: boolean;
@@ -636,11 +633,11 @@ export function decideCatalogAliasAcceptance(
   const policy = getCatalogAliasSourceGovernancePolicy(input.category);
   const reasons: string[] = [];
 
-  let reviewState: Extract<CatalogAliasReviewStateKey, "auto-accepted" | "pending-review"> = "pending-review";
+  let reviewState: Extract<CatalogAliasReviewStateKey, "auto-accepted" | "pending"> = "pending";
 
   if (isRejectedNonEnglishLanguageCode(input.languageCode)) {
     reasons.push(`Language code '${input.languageCode}' is Indonesian and is never English evidence.`);
-  } else if (policy.acceptancePolicy === "auto-accepted") {
+  } else if (policy.acceptancePolicy === "auto-accept") {
     if (policy.requiresLegalSourceApproval && !input.hasLegalSourceApproval) {
       reasons.push(`${policy.displayName} requires recorded legal/source approval before auto-accept.`);
     } else {
@@ -664,16 +661,16 @@ export function decideCatalogAliasAcceptance(
 }
 
 /**
- * Audit fields that must be recorded for every operator-accepted, auto-accepted,
+ * Audit fields that must be recorded for every accepted, auto-accepted,
  * or revoked alias decision so a later policy change can be reconciled.
  */
 export function catalogAliasAcceptanceAuditRequirements(): readonly string[] {
   return [
     "alias type and source category",
-    "review state (auto-accepted, operator-accepted, rejected, or revoked)",
+    "review state (auto-accepted, accepted, rejected, or revoked)",
     `governing policy version (${CATALOG_ALIAS_SOURCE_GOVERNANCE_POLICY_VERSION})`,
     "source category precedence rank used for any official-English winner",
-    "actor (operator id for operator-accepted/revoked, system for auto-accepted)",
+    "actor (operator id for accepted/revoked, system for auto-accepted)",
     "redacted source evidence reference and content hash, never the raw provider body",
     "whether the alias is marked official or low-confidence evidence-only",
     "legal/source approval reference when storing an official English name from a third party",

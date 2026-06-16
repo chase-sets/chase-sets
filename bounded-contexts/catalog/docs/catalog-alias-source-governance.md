@@ -2,11 +2,11 @@
 
 Catalog turns localized provider names into reviewed aliases so marketplace search and identity stay accurate without polluting Catalog truth. This policy decides which external sources may supply an **official English equivalent**, which alias kinds may be auto-accepted versus held for review, how governed sources break ties when they disagree on the official English name, and how generated translations and romanizations are constrained.
 
-This is the policy that #1903, #1906, #1908, #1909, and #1911 reference rather than inventing their own. The auto-accept versus pending-review policy and the source-precedence order are defined here and consumed there. Display of aliases is owned by #1914.
+This is the policy that #1903, #1906, #1908, #1909, and #1911 reference rather than inventing their own. The acceptance-disposition policy (`auto-accept`, `require-review`, `never-official`) and the source-precedence order are defined here and consumed there. Display of aliases is owned by #1914.
 
 The authoritative executable policy lives in `bounded-contexts/catalog/features/source-observations/api/catalog-integration-data-governance.ts` (alias source governance section). Provider-data storage, redaction, retention, and signoff are governed by the sibling [Catalog Integration Data Governance](./catalog-integration-data-governance.md) policy; this doc reuses those governed data classes for alias evidence rather than defining new retention machinery.
 
-The governing policy version is `alias-source-governance-v1`. Every auto-accepted and operator-accepted alias records this version so a later policy change can be reconciled against what was true at acceptance.
+The governing policy version is `alias-source-governance-v1`. Every auto-accepted and accepted alias records this version so a later policy change can be reconciled against what was true at acceptance.
 
 ## Why This Exists
 
@@ -19,25 +19,31 @@ The governing policy version is `alias-source-governance-v1`. Every auto-accepte
 
 A category describes *how* a candidate English equivalent was produced, independent of which concrete provider supplied it.
 
-| Category | Can be official English | Acceptance | Produces alias types |
+| Category | Can be official English | Acceptance disposition | Produces alias types |
 | --- | --- | --- | --- |
-| Official English source | Yes | Auto-accepted (after legal/source approval) | `official-equivalent`, `set-equivalent`, `series-equivalent` |
-| Curated operator mapping | Yes | Auto-accepted | `official-equivalent`, `set-equivalent`, `series-equivalent` |
-| Provider same-id localized endpoint | Yes | Pending review | `official-equivalent`, `set-equivalent`, `series-equivalent` |
-| Provider localized name | No | Pending review | `provider-localized-name` |
-| Species reference | No | Pending review | `species-name` |
-| Machine translation | No | Never official | `literal-translation`, `generated-translation` |
-| Romanization | No | Never official | `romanization` |
+| Official English source | Yes | `auto-accept` (after legal/source approval) | `official-equivalent`, `set-equivalent`, `series-equivalent` |
+| Curated operator mapping | Yes | `auto-accept` | `official-equivalent`, `set-equivalent`, `series-equivalent` |
+| Provider same-id localized endpoint | Yes | `require-review` | `official-equivalent`, `set-equivalent`, `series-equivalent` |
+| Provider localized name | No | `require-review` | `provider-localized-name` |
+| Species reference | No | `require-review` | `species-name` |
+| Machine translation | No | `never-official` | `literal-translation`, `generated-translation` |
+| Romanization | No | `never-official` | `romanization` |
 
-## Auto-Accept Versus Pending Review
+## Acceptance Disposition Versus Review State
 
-This is the policy downstream slices consume.
+This is the policy downstream slices consume. A source category carries an **acceptance disposition** (an action), and the disposition resolves to a **review state** (a noun) that downstream review tooling gates on. The disposition is action-style so it never collides with a review-state noun. The mapping is:
 
-- **Auto-accepted**: official English source (only when legal/source approval for the named source is on record) and curated operator mapping. The alias is promoted to an official equivalent and its acceptance is recorded with the governing policy version.
-- **Pending review**: provider same-id localized endpoint (strong but cross-language id alignment is not guaranteed), provider localized name, and species reference. An operator must accept before it can become official, and a species reference or provider localized name never becomes an official English equivalent on its own.
-- **Never official**: machine translation and romanization. They are retained as low-confidence, evidence-marked aliases for search recall only and can never be promoted to or displayed as official equivalents.
+- `auto-accept` → review state `auto-accepted`
+- `require-review` → review state `pending`
+- `never-official` → review state `pending` (evidence-only, never official)
 
-Any candidate read from the TCGdex `id` (Indonesian) language code is rejected as English evidence regardless of its category and falls back to pending review.
+The categories assigned to each disposition:
+
+- **`auto-accept`**: official English source (only when legal/source approval for the named source is on record) and curated operator mapping. The alias is promoted to an official equivalent and its acceptance is recorded with the governing policy version.
+- **`require-review`**: provider same-id localized endpoint (strong but cross-language id alignment is not guaranteed), provider localized name, and species reference. An operator must accept before it can become official, and a species reference or provider localized name never becomes an official English equivalent on its own.
+- **`never-official`**: machine translation and romanization. They are retained as low-confidence, evidence-marked aliases for search recall only and can never be promoted to or displayed as official equivalents.
+
+Any candidate read from the TCGdex `id` (Indonesian) language code is rejected as English evidence regardless of its category and falls back to the `pending` review state.
 
 ## Source Precedence For Conflicting Official Equivalents
 
@@ -60,7 +66,7 @@ Where no governed source provides an official English name, the card keeps its l
 ## Trainer/Energy And Composite Set Equivalence
 
 - Species reference does not apply to Trainer and Energy cards; those rely on an official English source, curated operator mapping, or a same-id provider English endpoint for any official equivalent.
-- Set and series equivalence (`set-equivalent`, `series-equivalent`) follows the same source precedence as card names. Split or composite set equivalence (one localized set mapping to multiple English sets, or the reverse) defaults to pending review until an operator or curated mapping resolves the composite relationship.
+- Set and series equivalence (`set-equivalent`, `series-equivalent`) follows the same source precedence as card names. Split or composite set equivalence (one localized set mapping to multiple English sets, or the reverse) defaults to the `pending` review state until an operator or curated mapping resolves the composite relationship.
 
 ## Legal And Licensing Constraints
 
@@ -76,13 +82,13 @@ Alias evidence reuses the governed data classes from [Catalog Integration Data G
 
 ## Audit Requirements
 
-Every operator-accepted, auto-accepted, or revoked alias decision records:
+Every accepted, auto-accepted, or revoked alias decision records:
 
 1. Alias type and source category.
-2. Review state (`auto-accepted`, `operator-accepted`, `rejected`, or `revoked`).
+2. Review state (`pending`, `accepted`, `auto-accepted`, `rejected`, or `revoked`).
 3. The governing policy version (`alias-source-governance-v1`).
 4. The source-category precedence rank used for any official-English winner.
-5. Actor (operator id for operator-accepted and revoked decisions, system for auto-accepted).
+5. Actor (operator id for accepted and revoked decisions, system for auto-accepted).
 6. A redacted source-evidence reference and content hash, never the raw provider body.
 7. Whether the alias is marked official or low-confidence evidence-only.
 8. The legal/source approval reference when storing an official English name from a third party.
@@ -101,7 +107,7 @@ Before a translation provider adapter may produce alias evidence:
 ## Related Issues
 
 - #1903 owns the alias ADR and locks the alias type and review-state vocabulary this policy uses.
-- #1906, #1908, #1909, and #1911 consume the auto-accept versus pending-review policy defined here.
+- #1906, #1908, #1909, and #1911 consume the acceptance-disposition policy defined here.
 - #1909 owns promotion conflict handling and consumes the source-precedence order.
 - #1914 owns alias display and the rule that generated translations never show as official.
 - #794 owns the provider-data governed data classes reused for alias evidence retention and redaction.

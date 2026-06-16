@@ -180,11 +180,11 @@ describe("Catalog alias source governance (#1912)", () => {
   it("requires every alias source category to declare a coherent governance shape", () => {
     for (const policy of catalogAliasSourceGovernancePolicies) {
       expect(policy.displayName.length).toBeGreaterThan(3);
-      expect(policy.acceptancePolicy).toMatch(/^(auto-accepted|pending-review|never-official)$/);
+      expect(policy.acceptancePolicy).toMatch(/^(auto-accept|require-review|never-official)$/);
       expect(policy.producibleAliasTypes.length).toBeGreaterThan(0);
       expect(policy.notes.length).toBeGreaterThan(10);
       // Only categories that can be official may auto-accept; never-official is never official.
-      if (policy.acceptancePolicy === "auto-accepted") {
+      if (policy.acceptancePolicy === "auto-accept") {
         expect(policy.canProvideOfficialEnglish).toBe(true);
       }
       if (policy.acceptancePolicy === "never-official") {
@@ -227,7 +227,7 @@ describe("Catalog alias source governance (#1912)", () => {
       hasLegalSourceApproval: false,
     });
 
-    expect(decision.reviewState).toBe("pending-review");
+    expect(decision.reviewState).toBe("pending");
     expect(decision.official).toBe(false);
     expect(decision.reasons.join(" ")).toMatch(/legal\/source approval/i);
   });
@@ -239,13 +239,13 @@ describe("Catalog alias source governance (#1912)", () => {
         languageCode: "en",
         hasLegalSourceApproval: true,
       }).reviewState,
-    ).toBe("pending-review");
+    ).toBe("pending");
   });
 
   it("never lets generated translations or romanizations become official equivalents", () => {
     for (const category of ["machine-translation", "romanization"] as const) {
       const decision = decideCatalogAliasAcceptance({ category });
-      expect(decision.reviewState).toBe("pending-review");
+      expect(decision.reviewState).toBe("pending");
       expect(decision.official).toBe(false);
       expect(decision.evidenceMarkedLowConfidence).toBe(true);
       expect(getCatalogAliasSourceGovernancePolicy(category).producibleAliasTypes).not.toContain("official-equivalent");
@@ -264,7 +264,7 @@ describe("Catalog alias source governance (#1912)", () => {
       languageCode: "id",
       hasLegalSourceApproval: true,
     });
-    expect(decision.reviewState).toBe("pending-review");
+    expect(decision.reviewState).toBe("pending");
     expect(decision.reasons.join(" ")).toMatch(/Indonesian/);
   });
 
