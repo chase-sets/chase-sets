@@ -5,6 +5,7 @@ import type {
   CatalogPrimaryWorkbenchSourceOptionsStatus,
 } from "../api/primary-workbench-admin-contracts";
 import type { CatalogPrimaryWorkbenchScopeQueryKey } from "./primary-workbench-scope-context";
+import { sourceOptionDisplayLabel } from "./primary-workbench-source-option-labels";
 
 // Tone vocabulary shared by the guided scope selector and the source-options
 // status panel. Kept to the semantic Badge tones the design system exposes so the
@@ -74,7 +75,7 @@ export function guidedSourceScopeFields(
         scope: page.scope,
         label: page.displayName,
         fieldName,
-        options: scopeOptions(page.items, selectedValue),
+        options: scopeOptions(page, selectedValue),
         selectedValue,
         parentMissing,
         parentScope: parent?.scope ?? null,
@@ -95,16 +96,28 @@ function scopeFieldValue(
 // a selected value the page has not loaded (stale parent, partial read model), keep
 // it as the leading option so the current scope stays visible and submittable.
 function scopeOptions(
-  items: CatalogPrimaryWorkbenchReadModel["sourceOptions"]["pages"][number]["items"],
+  page: CatalogPrimaryWorkbenchReadModel["sourceOptions"]["pages"][number],
   selectedValue: string,
 ): readonly CatalogPrimaryWorkbenchSourceScopeOption[] {
-  const options = items.map((item) => ({
+  const options = page.items.map((item) => ({
     value: item.value,
     label: item.label,
     description: item.description,
   }));
   if (selectedValue && !options.some((option) => option.value === selectedValue)) {
-    return [{ value: selectedValue, label: selectedValue, description: null }, ...options];
+    return [
+      {
+        value: selectedValue,
+        label: sourceOptionDisplayLabel({
+          queryKind: page.queryKind,
+          scope: page.scope,
+          value: selectedValue,
+          label: selectedValue,
+        }),
+        description: null,
+      },
+      ...options,
+    ];
   }
 
   return options;

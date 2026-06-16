@@ -55,7 +55,7 @@ function dailyReadModelWithSourceOptions(
 
 function responseFor(request: CatalogPrimaryWorkbenchSourceOptionRequest): SourceObservationIntegrationOptionResponse {
   if (request.queryKind === "languages") {
-    return optionResponse(request, "fresh", "cache", [{ value: "en", label: "English", parentValue: null }]);
+    return optionResponse(request, "fresh", "cache", [{ value: "en", label: "en", parentValue: null }]);
   }
   if (request.queryKind === "series") {
     return optionResponse(request, "fresh", "live", [{ value: "base", label: "Base", parentValue: "en" }]);
@@ -196,6 +196,25 @@ describe("CatalogWorkbenchShell guided source-scope selector", () => {
     expect(within(scopeGroup).getByLabelText<HTMLSelectElement>("Product Line").name).toBe("productLineId");
     expect(within(scopeGroup).getByLabelText<HTMLSelectElement>("Set Name").name).toBe("expansionId");
     expect(within(scopeGroup).queryByLabelText("Series")).toBeNull();
+  });
+
+  it("labels a selected language code when the option page has not loaded that value yet", () => {
+    const profile = profileReview({ active: true, lifecycle: "active", languageOptions: ["en", "ja"] });
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&languageCode=ja",
+      scopes: { items: [], total: 0, count: 0 },
+      profileReviews: { items: [profile], total: 1, count: 1 },
+      controlPlaneOverview: null,
+      canManageCatalog: true,
+    });
+
+    render(<CatalogIntegrationsSurfacePage surface="daily" readModel={readModel} />);
+
+    const scopeGroup = screen.getByRole("group", { name: "Source scope" });
+    const language = within(scopeGroup).getByLabelText<HTMLSelectElement>("Language");
+    expect(within(language).getByRole("option", { name: "Japanese" })).toBeTruthy();
+    expect(language.value).toBe("ja");
   });
 });
 

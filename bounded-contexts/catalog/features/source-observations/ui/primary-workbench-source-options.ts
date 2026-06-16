@@ -18,6 +18,7 @@ import {
   scopeContextMatchesProviderScope,
   scopeKey,
 } from "./primary-workbench-scope-context";
+import { sourceOptionDisplayLabel } from "./primary-workbench-source-option-labels";
 
 export type CatalogPrimaryWorkbenchSourceOptionRequest = Readonly<{
   providerKey: string;
@@ -209,7 +210,7 @@ function sourceOptionSelections(input: {
       ? scopeContextFromProviderScope(representative)
       : null;
   const selections = new Map<string, Readonly<{ value: string; label: string }>>();
-  addSelection(selections, "language", representative?.language_code, representative?.language_code);
+  addLanguageSelection(selections, representative?.language_code, representative?.language_code);
   addSelection(selections, "product-line/category", representative?.product_line_id, representative?.product_line_name);
   addSelection(selections, "series", representative?.series_id, representative?.series_name);
   addSelection(
@@ -230,7 +231,7 @@ function sourceOptionSelections(input: {
     representative ? scopeKey(representative) : null,
     representative?.expansion_name,
   );
-  addSelection(selections, "language", scope?.languageCode, scope?.languageCode);
+  addLanguageSelection(selections, scope?.languageCode, scope?.languageCode);
   addSelection(
     selections,
     "product-line/category",
@@ -246,15 +247,36 @@ function sourceOptionSelections(input: {
     scope?.expansionName ?? scope?.expansionId,
   );
   if (!selections.has("language")) {
-    addSelection(
+    addLanguageSelection(
       selections,
-      "language",
       input.profile.languageOptions[0] ?? "en",
       input.profile.languageOptions[0] ?? "en",
     );
   }
 
   return selections;
+}
+
+function addLanguageSelection(
+  selections: Map<string, Readonly<{ value: string; label: string }>>,
+  value: string | null | undefined,
+  label: string | null | undefined,
+): void {
+  const normalizedValue = value?.trim();
+  if (!normalizedValue) {
+    return;
+  }
+  addSelection(
+    selections,
+    "language",
+    normalizedValue,
+    sourceOptionDisplayLabel({
+      queryKind: "languages",
+      scope: "language",
+      value: normalizedValue,
+      label,
+    }),
+  );
 }
 
 function addSelection(
@@ -331,7 +353,7 @@ function sourceOptionPageReadModel(
       hasMore: false,
     };
     const blockers = sourceOptionBlockersForState(state, cache.degraded);
-    const items = sourceOptionItemsReadModel(response.items, page.limit);
+    const items = sourceOptionItemsReadModel(request, response.items, page.limit);
 
     return {
       queryKind: request.queryKind,
@@ -421,6 +443,7 @@ function emptySourceOptionPage(
 }
 
 function sourceOptionItemsReadModel(
+  request: CatalogPrimaryWorkbenchSourceOptionRequest,
   items: SourceObservationIntegrationOptionResponse["items"],
   limit: number,
 ): SourceObservationIntegrationOptionResponse["items"] {
@@ -428,7 +451,12 @@ function sourceOptionItemsReadModel(
     providerKey: item.providerKey,
     queryKind: item.queryKind,
     value: item.value,
-    label: item.label,
+    label: sourceOptionDisplayLabel({
+      queryKind: item.queryKind || request.queryKind,
+      scope: request.scope,
+      value: item.value,
+      label: item.label,
+    }),
     description: item.description,
     parentValue: item.parentValue,
     imageUrl: item.imageUrl,
