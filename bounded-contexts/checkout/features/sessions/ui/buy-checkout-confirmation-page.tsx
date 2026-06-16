@@ -1,14 +1,14 @@
 import { t } from "@chase-sets/localization";
 import {
+  ActionStack,
   CheckoutConfirmationPanel,
-  KeyValueList,
   LinkButton,
+  OrderProtectionModule,
   Page,
   PageHeader,
   PageSection,
+  SecurePaymentIndicator,
   Stack,
-  Surface,
-  Text,
 } from "@chase-sets/design-system";
 import type { CheckoutSessionRow } from "../../../support/request-support/api-client";
 import { buyCheckoutSupportReference, formatBuyCheckoutReferenceList } from "./buy-checkout-confirmation-formatting";
@@ -60,7 +60,6 @@ export function BuyCheckoutConfirmationPage({
   paymentPath: string;
   paymentSummary: BuyCheckoutPaymentSummary | null;
 }) {
-  const itemCount = session.lines.reduce((sum, line) => sum + line.quantity, 0);
   const orderReferenceValue = formatBuyCheckoutReferenceList(session.order_ids);
   const supportReferenceValue = buyCheckoutSupportReference(session);
   const paymentReferenceValue = session.payment_id ?? t("checkout.features.sessions.ui.checkoutPage.pending");
@@ -80,85 +79,80 @@ export function BuyCheckoutConfirmationPage({
           eyebrow={t("checkout.features.sessions.ui.buyCheckoutConfirmationPage.eyebrow")}
           title={t("checkout.features.sessions.ui.buyCheckoutConfirmationPage.title")}
           description={t("checkout.features.sessions.ui.buyCheckoutConfirmationPage.description")}
-          actions={
-            <LinkButton href={paymentPath}>
-              {t("checkout.features.sessions.ui.checkoutPage.continue.to.payment")}
-            </LinkButton>
-          }
         />
 
-        <PageSection title={t("checkout.features.sessions.ui.buyCheckoutConfirmationPage.payment.handoff")}>
-          <CheckoutConfirmationPanel
-            title={t("checkout.features.sessions.ui.checkoutPage.payment.ready.2")}
-            description={t("checkout.features.sessions.ui.checkoutPage.purchases.have.been.created.and.payment")}
-            referenceLabel={t("checkout.features.sessions.ui.buyCheckoutConfirmationPage.payment.reference")}
-            referenceValue={paymentReferenceValue}
-            supportReferenceLabel={t("checkout.features.sessions.ui.checkoutPage.support.reference")}
-            supportReferenceValue={supportReferenceValue}
-            totalLabel={t("checkout.features.sessions.ui.buyCheckoutConfirmationPage.payment.total")}
-            total={paymentTotalValue}
-            nextSteps={[
-              {
-                title: t("checkout.features.sessions.ui.checkoutPage.payment.handoff.title"),
-                description: t("checkout.features.sessions.ui.checkoutPage.payment.handoff.description"),
-                icon: "lock",
-              },
-              {
-                title: t("checkout.features.sessions.ui.checkoutPage.account.fulfillment.pending.title"),
-                description: t("checkout.features.sessions.ui.checkoutPage.account.fulfillment.pending.description"),
-                icon: "truck",
-              },
-              {
-                title: t("checkout.features.sessions.ui.checkoutPage.support.reference.ready.title"),
-                description: t("checkout.features.sessions.ui.checkoutPage.support.reference.ready.description"),
-                icon: "shield",
-              },
-            ]}
-            actions={
-              <LinkButton href={paymentPath}>
-                {t("checkout.features.sessions.ui.checkoutPage.continue.to.payment")}
-              </LinkButton>
-            }
-          />
-        </PageSection>
-
         <PageSection title={t("checkout.features.sessions.ui.buyCheckoutConfirmationPage.summary")}>
-          <Surface elevated>
-            <Stack gap={3}>
-              <KeyValueList
-                layout="split"
-                items={[
-                  {
-                    key: t("checkout.features.sessions.ui.checkoutPage.items"),
-                    value: itemCount,
-                  },
-                  {
-                    key: t("checkout.features.sessions.ui.checkoutPage.order.reference"),
-                    value: orderReferenceValue,
-                  },
-                  {
-                    key: t("checkout.features.sessions.ui.buyCheckoutConfirmationPage.order.status"),
-                    value: orderStatusValue,
-                  },
-                  {
-                    key: t("checkout.features.sessions.ui.buyCheckoutConfirmationPage.payment.reference"),
-                    value: paymentReferenceValue,
-                  },
-                  {
-                    key: t("checkout.features.sessions.ui.buyCheckoutConfirmationPage.payment.status"),
-                    value: paymentStatusValue,
-                  },
-                  {
-                    key: t("checkout.features.sessions.ui.buyCheckoutConfirmationPage.payment.total"),
-                    value: paymentTotalValue,
-                  },
-                ]}
-              />
-              <Text tone="secondary" size="sm">
-                {t("checkout.features.sessions.ui.buyCheckoutConfirmationPage.summary.description")}
-              </Text>
-            </Stack>
-          </Surface>
+          <Stack gap={5}>
+            <CheckoutConfirmationPanel
+              tone="success"
+              title={t("checkout.features.sessions.ui.checkoutPage.payment.ready.2")}
+              description={t("checkout.features.sessions.ui.checkoutPage.purchases.have.been.created.and.payment")}
+              referenceLabel={t("checkout.features.sessions.ui.buyCheckoutConfirmationPage.payment.reference")}
+              referenceValue={paymentReferenceValue}
+              supportReferenceLabel={t("checkout.features.sessions.ui.checkoutPage.support.reference")}
+              supportReferenceValue={supportReferenceValue}
+              totalLabel={t("checkout.features.sessions.ui.buyCheckoutConfirmationPage.payment.total")}
+              total={paymentTotalValue}
+              nextSteps={[
+                {
+                  title: t("checkout.features.sessions.ui.checkoutPage.payment.handoff.title"),
+                  description: t("checkout.features.sessions.ui.checkoutPage.payment.handoff.description"),
+                  icon: "lock",
+                },
+                {
+                  title: t("checkout.features.sessions.ui.checkoutPage.account.fulfillment.pending.title"),
+                  description: t("checkout.features.sessions.ui.checkoutPage.account.fulfillment.pending.description"),
+                  icon: "truck",
+                },
+                {
+                  title: t("checkout.features.sessions.ui.checkoutPage.support.reference.ready.title"),
+                  description: t("checkout.features.sessions.ui.checkoutPage.support.reference.ready.description"),
+                  icon: "shield",
+                },
+              ]}
+              actions={
+                <ActionStack
+                  primary={
+                    <LinkButton href={paymentPath} tone="primary" block>
+                      {t("checkout.features.sessions.ui.checkoutPage.continue.to.payment")}
+                    </LinkButton>
+                  }
+                />
+              }
+            />
+
+            <CheckoutConfirmationPanel
+              tone="neutral"
+              title={t("checkout.features.sessions.ui.buyCheckoutConfirmationPage.order.status")}
+              referenceLabel={t("checkout.features.sessions.ui.checkoutPage.order.reference")}
+              referenceValue={orderReferenceValue}
+              supportReferenceLabel={t("checkout.features.sessions.ui.buyCheckoutConfirmationPage.order.status")}
+              supportReferenceValue={orderStatusValue}
+              totalLabel={t("checkout.features.sessions.ui.buyCheckoutConfirmationPage.payment.status")}
+              total={paymentStatusValue}
+            />
+
+            <OrderProtectionModule
+              items={[
+                {
+                  title: t("checkout.features.sessions.ui.checkoutPage.buyer.protection"),
+                  description: t(
+                    "checkout.features.sessions.ui.checkoutPage.eligible.orders.are.protected.through.payment",
+                  ),
+                  icon: "shield",
+                },
+                {
+                  title: t("checkout.features.sessions.ui.checkoutPage.payment.ready"),
+                  description: t("checkout.features.sessions.ui.checkoutPage.purchases.have.been.created.and.payment"),
+                  icon: "creditCard",
+                },
+              ]}
+            />
+
+            <SecurePaymentIndicator
+              label={t("checkout.features.sessions.ui.buyCheckoutConfirmationPage.payment.handoff")}
+            />
+          </Stack>
         </PageSection>
       </Stack>
     </Page>
