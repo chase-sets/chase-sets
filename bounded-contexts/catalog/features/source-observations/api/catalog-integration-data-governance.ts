@@ -315,6 +315,392 @@ export function catalogIntegrationProviderDataSignoffChecklist(): readonly strin
   ];
 }
 
+// ---------------------------------------------------------------------------
+// Alias source governance (#1912)
+//
+// Governs which external sources may supply an official English equivalent for a
+// localized card/set/series name, which alias kinds may be auto-accepted versus
+// held for review, how governed sources break ties when they disagree on the
+// official English name, and how generated translations/romanizations are
+// constrained. This is the policy that #1903, #1906, #1908, #1909, and #1911
+// reference instead of inventing their own. The alias term and review-state
+// strings here match the ADR slice (#1903) verbatim and are not imported from
+// its not-yet-merged files.
+// ---------------------------------------------------------------------------
+
+/**
+ * The semantic governing version of the alias source policy. Auto-accepted and
+ * accepted aliases must record this version in their audit evidence so
+ * a later policy change can be reconciled against what was true at acceptance.
+ */
+export const CATALOG_ALIAS_SOURCE_GOVERNANCE_POLICY_VERSION = "alias-source-governance-v1";
+
+/**
+ * Approved categories of alias source. A category describes *how* a candidate
+ * English equivalent was produced, independent of which concrete provider
+ * supplied it. Display ownership lives in #1914; this file owns trust only.
+ */
+export type CatalogAliasSourceCategoryKey =
+  | "provider-same-id-localized-endpoint"
+  | "provider-localized-name"
+  | "official-english-source"
+  | "curated-operator-mapping"
+  | "species-reference"
+  | "machine-translation"
+  | "romanization";
+
+/**
+ * Alias term strings locked by the ADR slice (#1903). Used here only to express
+ * which alias kinds each source category may produce.
+ */
+export type CatalogAliasTypeKey =
+  | "official-equivalent"
+  | "provider-localized-name"
+  | "species-name"
+  | "literal-translation"
+  | "romanization"
+  | "generated-translation"
+  | "set-equivalent"
+  | "series-equivalent";
+
+/**
+ * Acceptance disposition for a candidate alias from a given source category.
+ * The disposition is an action so it never collides with a review-state noun:
+ * `auto-accept` maps to the `auto-accepted` review state, `require-review` maps to
+ * the `pending` review state, and `never-official` also maps to `pending`
+ * (evidence-only, never official). Downstream slices gate on the resulting review
+ * state, not on this disposition string.
+ */
+export type CatalogAliasAcceptancePolicy = "auto-accept" | "require-review" | "never-official";
+
+/**
+ * Alias review states locked by the ADR slice (#1903). `auto-accepted` and
+ * `revoked` are required here; the full set is declared so downstream review
+ * tooling can reference one source of truth.
+ */
+export type CatalogAliasReviewStateKey = "pending" | "accepted" | "auto-accepted" | "rejected" | "revoked";
+
+export type CatalogAliasSourceGovernancePolicy = Readonly<{
+  category: CatalogAliasSourceCategoryKey;
+  displayName: string;
+  /** Whether this category may be promoted to an official English equivalent. */
+  canProvideOfficialEnglish: boolean;
+  acceptancePolicy: CatalogAliasAcceptancePolicy;
+  /** Alias kinds this category is allowed to produce. */
+  producibleAliasTypes: readonly CatalogAliasTypeKey[];
+  /**
+   * Lower number wins when governed official-English sources disagree on the
+   * official English name. `null` for categories that can never be official.
+   */
+  officialEnglishPrecedence: number | null;
+  /** Aliases from this category are marked low-confidence, evidence-only. */
+  evidenceMarkedLowConfidence: boolean;
+  /** Storing official English names from this category needs legal/source approval first. */
+  requiresLegalSourceApproval: boolean;
+  /** Governed data class that backs this category's evidence retention/redaction. */
+  evidenceDataClass: CatalogIntegrationGovernedDataClassKey;
+  retentionPolicy: CatalogIntegrationGovernanceRetentionPolicy;
+  notes: string;
+}>;
+
+export const catalogAliasSourceGovernancePolicies = [
+  aliasSourcePolicy({
+    category: "official-english-source",
+    displayName: "Official English source",
+    canProvideOfficialEnglish: true,
+    acceptancePolicy: "auto-accept",
+    producibleAliasTypes: ["official-equivalent", "set-equivalent", "series-equivalent"],
+    officialEnglishPrecedence: 1,
+    evidenceMarkedLowConfidence: false,
+    requiresLegalSourceApproval: true,
+    evidenceDataClass: "audit-evidence",
+    retentionPolicy: "retain-audit-summary",
+    notes:
+      "Pokemon TCG official/card database and equivalent first-party English catalogs. Auto-accept only after legal/source approval for the named source is on record.",
+  }),
+  aliasSourcePolicy({
+    category: "curated-operator-mapping",
+    displayName: "Curated operator mapping",
+    canProvideOfficialEnglish: true,
+    acceptancePolicy: "auto-accept",
+    producibleAliasTypes: ["official-equivalent", "set-equivalent", "series-equivalent"],
+    officialEnglishPrecedence: 2,
+    evidenceMarkedLowConfidence: false,
+    requiresLegalSourceApproval: false,
+    evidenceDataClass: "audit-evidence",
+    retentionPolicy: "retain-audit-summary",
+    notes:
+      "Operator-maintained dictionary curated against approved sources. Each entry is itself an operator-reviewed decision and carries its own audit trail.",
+  }),
+  aliasSourcePolicy({
+    category: "provider-same-id-localized-endpoint",
+    displayName: "Provider same-id localized endpoint",
+    canProvideOfficialEnglish: true,
+    acceptancePolicy: "require-review",
+    producibleAliasTypes: ["official-equivalent", "set-equivalent", "series-equivalent"],
+    officialEnglishPrecedence: 3,
+    evidenceMarkedLowConfidence: false,
+    requiresLegalSourceApproval: true,
+    evidenceDataClass: "audit-evidence",
+    retentionPolicy: "retain-audit-summary",
+    notes:
+      "Same provider record id resolved against its English-language endpoint (e.g. TCGdex `en`). Strong evidence but held for review because cross-language id alignment is not guaranteed. The TCGdex `id` language code is Indonesian and is never English evidence.",
+  }),
+  aliasSourcePolicy({
+    category: "provider-localized-name",
+    displayName: "Provider localized name",
+    canProvideOfficialEnglish: false,
+    acceptancePolicy: "require-review",
+    producibleAliasTypes: ["provider-localized-name"],
+    officialEnglishPrecedence: null,
+    evidenceMarkedLowConfidence: false,
+    requiresLegalSourceApproval: false,
+    evidenceDataClass: "audit-evidence",
+    retentionPolicy: "retain-audit-summary",
+    notes:
+      "A provider's own localized (non-English) name. Useful search and matching evidence but not an official English equivalent on its own.",
+  }),
+  aliasSourcePolicy({
+    category: "species-reference",
+    displayName: "Species reference",
+    canProvideOfficialEnglish: false,
+    acceptancePolicy: "require-review",
+    producibleAliasTypes: ["species-name"],
+    officialEnglishPrecedence: null,
+    evidenceMarkedLowConfidence: false,
+    requiresLegalSourceApproval: false,
+    evidenceDataClass: "audit-evidence",
+    retentionPolicy: "retain-audit-summary",
+    notes:
+      "English species/creature name from a reference dictionary. Improves recall for many cards but is not the official printed card name and does not apply to Trainer/Energy cards.",
+  }),
+  aliasSourcePolicy({
+    category: "machine-translation",
+    displayName: "Machine translation",
+    canProvideOfficialEnglish: false,
+    acceptancePolicy: "never-official",
+    producibleAliasTypes: ["literal-translation", "generated-translation"],
+    officialEnglishPrecedence: null,
+    evidenceMarkedLowConfidence: true,
+    requiresLegalSourceApproval: false,
+    evidenceDataClass: "engine-diagnostic",
+    retentionPolicy: "retain-redacted-summary",
+    notes:
+      "Generated translation. Low-confidence, evidence-marked, reviewable, and never displayed as an official equivalent. May aid search recall only.",
+  }),
+  aliasSourcePolicy({
+    category: "romanization",
+    displayName: "Romanization",
+    canProvideOfficialEnglish: false,
+    acceptancePolicy: "never-official",
+    producibleAliasTypes: ["romanization"],
+    officialEnglishPrecedence: null,
+    evidenceMarkedLowConfidence: true,
+    requiresLegalSourceApproval: false,
+    evidenceDataClass: "engine-diagnostic",
+    retentionPolicy: "retain-redacted-summary",
+    notes:
+      "Transliteration of a localized name into Latin script. Low-confidence, evidence-marked, never an official equivalent.",
+  }),
+] as const satisfies readonly CatalogAliasSourceGovernancePolicy[];
+
+export const catalogAliasSourceGovernancePoliciesByCategory: Readonly<
+  Record<CatalogAliasSourceCategoryKey, CatalogAliasSourceGovernancePolicy>
+> = Object.fromEntries(catalogAliasSourceGovernancePolicies.map((entry) => [entry.category, entry])) as Readonly<
+  Record<CatalogAliasSourceCategoryKey, CatalogAliasSourceGovernancePolicy>
+>;
+
+export function getCatalogAliasSourceGovernancePolicy(
+  category: CatalogAliasSourceCategoryKey,
+): CatalogAliasSourceGovernancePolicy {
+  return catalogAliasSourceGovernancePoliciesByCategory[category];
+}
+
+/**
+ * The ordered list of source categories that may decide the official English
+ * name when governed sources disagree, lowest precedence number first. Consumed
+ * by promotion conflict handling (#1909).
+ */
+export function catalogAliasOfficialEnglishPrecedenceOrder(): readonly CatalogAliasSourceCategoryKey[] {
+  return catalogAliasSourceGovernancePolicies
+    .filter(
+      (entry): entry is CatalogAliasSourceGovernancePolicy & { officialEnglishPrecedence: number } =>
+        entry.canProvideOfficialEnglish && entry.officialEnglishPrecedence !== null,
+    )
+    .slice()
+    .sort((left, right) => left.officialEnglishPrecedence - right.officialEnglishPrecedence)
+    .map((entry) => entry.category);
+}
+
+/**
+ * Resolve the official-English winner when governed sources disagree. Returns
+ * the candidate from the category with the strongest (lowest) precedence. The
+ * TCGdex `id` (Indonesian) language code is rejected up front and never counts
+ * as English evidence regardless of which category cites it.
+ */
+export type CatalogAliasOfficialEnglishCandidate = Readonly<{
+  category: CatalogAliasSourceCategoryKey;
+  englishName: string;
+  /** Provider language code the candidate was read from, when applicable. */
+  languageCode?: string | null;
+}>;
+
+export type CatalogAliasOfficialEnglishResolution = Readonly<{
+  winner: CatalogAliasOfficialEnglishCandidate | null;
+  rejected: readonly Readonly<{
+    candidate: CatalogAliasOfficialEnglishCandidate;
+    reason: "non-english-evidence" | "category-cannot-be-official" | "outranked";
+  }>[];
+}>;
+
+export const TCGDEX_INDONESIAN_LANGUAGE_CODE = "id";
+
+export function resolveCatalogAliasOfficialEnglish(
+  candidates: readonly CatalogAliasOfficialEnglishCandidate[],
+): CatalogAliasOfficialEnglishResolution {
+  const rejected: {
+    candidate: CatalogAliasOfficialEnglishCandidate;
+    reason: "non-english-evidence" | "category-cannot-be-official" | "outranked";
+  }[] = [];
+
+  const eligible = candidates.filter((candidate) => {
+    if (isRejectedNonEnglishLanguageCode(candidate.languageCode)) {
+      rejected.push({ candidate, reason: "non-english-evidence" });
+      return false;
+    }
+
+    if (!getCatalogAliasSourceGovernancePolicy(candidate.category).canProvideOfficialEnglish) {
+      rejected.push({ candidate, reason: "category-cannot-be-official" });
+      return false;
+    }
+
+    return true;
+  });
+
+  const ranked = eligible
+    .slice()
+    .sort(
+      (left, right) => officialEnglishPrecedenceRank(left.category) - officialEnglishPrecedenceRank(right.category),
+    );
+
+  const [winner, ...outranked] = ranked;
+  for (const candidate of outranked) {
+    rejected.push({ candidate, reason: "outranked" });
+  }
+
+  return { winner: winner ?? null, rejected };
+}
+
+/**
+ * The TCGdex `id` language code is Indonesian, not an English identifier, and is
+ * never accepted as English evidence.
+ */
+export function isRejectedNonEnglishLanguageCode(languageCode: string | null | undefined): boolean {
+  if (!languageCode) {
+    return false;
+  }
+
+  return languageCode.trim().toLowerCase() === TCGDEX_INDONESIAN_LANGUAGE_CODE;
+}
+
+/**
+ * Decide the acceptance disposition for a candidate alias. Auto-accept is only
+ * available when the source category allows it *and*, for categories that store
+ * official English names from third parties, legal/source approval is on record.
+ */
+export type CatalogAliasAcceptanceDecisionInput = Readonly<{
+  category: CatalogAliasSourceCategoryKey;
+  /** Provider language code the candidate was read from, when applicable. */
+  languageCode?: string | null;
+  /** Whether the named source has legal/source approval recorded for storing English names. */
+  hasLegalSourceApproval?: boolean;
+}>;
+
+export type CatalogAliasAcceptanceDecision = Readonly<{
+  category: CatalogAliasSourceCategoryKey;
+  reviewState: Extract<CatalogAliasReviewStateKey, "auto-accepted" | "pending">;
+  /** Whether the resulting alias may be promoted to/displayed as an official equivalent. */
+  official: boolean;
+  evidenceMarkedLowConfidence: boolean;
+  /** Governing policy version recorded in the audit trail for this decision. */
+  policyVersion: typeof CATALOG_ALIAS_SOURCE_GOVERNANCE_POLICY_VERSION;
+  reasons: readonly string[];
+}>;
+
+export function decideCatalogAliasAcceptance(
+  input: CatalogAliasAcceptanceDecisionInput,
+): CatalogAliasAcceptanceDecision {
+  const policy = getCatalogAliasSourceGovernancePolicy(input.category);
+  const reasons: string[] = [];
+
+  let reviewState: Extract<CatalogAliasReviewStateKey, "auto-accepted" | "pending"> = "pending";
+
+  if (isRejectedNonEnglishLanguageCode(input.languageCode)) {
+    reasons.push(`Language code '${input.languageCode}' is Indonesian and is never English evidence.`);
+  } else if (policy.acceptancePolicy === "auto-accept") {
+    if (policy.requiresLegalSourceApproval && !input.hasLegalSourceApproval) {
+      reasons.push(`${policy.displayName} requires recorded legal/source approval before auto-accept.`);
+    } else {
+      reviewState = "auto-accepted";
+      reasons.push(`${policy.displayName} is auto-accepted under ${CATALOG_ALIAS_SOURCE_GOVERNANCE_POLICY_VERSION}.`);
+    }
+  } else if (policy.acceptancePolicy === "never-official") {
+    reasons.push(`${policy.displayName} is evidence-only and is held for review; it can never become official.`);
+  } else {
+    reasons.push(`${policy.displayName} is held for pending review.`);
+  }
+
+  return {
+    category: input.category,
+    reviewState,
+    official: reviewState === "auto-accepted" && policy.canProvideOfficialEnglish,
+    evidenceMarkedLowConfidence: policy.evidenceMarkedLowConfidence,
+    policyVersion: CATALOG_ALIAS_SOURCE_GOVERNANCE_POLICY_VERSION,
+    reasons,
+  };
+}
+
+/**
+ * Audit fields that must be recorded for every accepted, auto-accepted,
+ * or revoked alias decision so a later policy change can be reconciled.
+ */
+export function catalogAliasAcceptanceAuditRequirements(): readonly string[] {
+  return [
+    "alias type and source category",
+    "review state (auto-accepted, accepted, rejected, or revoked)",
+    `governing policy version (${CATALOG_ALIAS_SOURCE_GOVERNANCE_POLICY_VERSION})`,
+    "source category precedence rank used for any official-English winner",
+    "actor (operator id for accepted/revoked, system for auto-accepted)",
+    "redacted source evidence reference and content hash, never the raw provider body",
+    "whether the alias is marked official or low-confidence evidence-only",
+    "legal/source approval reference when storing an official English name from a third party",
+  ];
+}
+
+/**
+ * Governance/fixture requirements a future translation provider adapter must
+ * satisfy before it may produce alias evidence.
+ */
+export function catalogAliasTranslationProviderRequirements(): readonly string[] {
+  return [
+    "Generated aliases must be marked low-confidence and evidence-only, never displayed as official equivalents.",
+    "Adapter output must carry deterministic fixtures proving alias type, source category, and confidence marking.",
+    "Adapter must never emit an `official-equivalent` alias type; only `generated-translation`, `literal-translation`, or `romanization`.",
+    "Adapter evidence retention and redaction follow the engine-diagnostic governed data class.",
+    "Adapter must declare its source category and pass language-code validation that rejects TCGdex `id` (Indonesian) as English.",
+    "Legal/source approval is required before any new official English source is wired in; translation adapters never grant official status.",
+  ];
+}
+
+function aliasSourcePolicy(input: CatalogAliasSourceGovernancePolicy): CatalogAliasSourceGovernancePolicy {
+  return input;
+}
+
+function officialEnglishPrecedenceRank(category: CatalogAliasSourceCategoryKey): number {
+  const precedence = getCatalogAliasSourceGovernancePolicy(category).officialEnglishPrecedence;
+  return precedence ?? Number.POSITIVE_INFINITY;
+}
+
 function policy(input: CatalogIntegrationGovernancePolicy): CatalogIntegrationGovernancePolicy {
   return input;
 }
