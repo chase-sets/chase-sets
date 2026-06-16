@@ -26,6 +26,13 @@ Use these terms consistently across APIs, internal tools, docs, and formal UI co
 - `Product Measure Profile`
 - `Resolved Product Measure`
 - `Resolved Display Identity`
+- `Catalog Alias`
+- `Alias Candidate`
+- `Alias Type`
+- `Alias Confidence`
+- `Alias Review Status`
+- `Provider Option Query Key Synonym`
+- `Provider Option Value Synonym`
 
 This glossary focuses on catalog truth and identity. Browsing, filtering, and listing aggregation belong to other bounded contexts such as Discovery and Marketplace.
 
@@ -70,6 +77,29 @@ Use a `Reference Record` when a field value needs its own durable identity, attr
 Reference Record relationships may form a hierarchy. For example, an Expansion can point to a Series, the Series can point to a TCG/Product Line, and the TCG/Product Line can point to a Manufacturer. Catalog Items should select the most specific applicable Reference Record and inherit broader reusable facts through that hierarchy.
 
 Reference Records enrich Catalog Item information. They do not create Product variation and do not affect Product identity unless a Blueprint separately models variation through Dimensions and Options.
+
+## Alias Model
+
+A `Catalog Alias` is reviewable item-level evidence that a piece of text refers to a Catalog Item: an official equivalent in another language or market, a translation, a provider-localized name, a species name, a romanization, or a generated translation. Translation is one kind of alias, not the whole model.
+
+`Catalog Alias` is a distinct concept from the two provider-configuration synonym terms below. A Catalog Alias is reviewable evidence with a type, a confidence, and a review status; the synonym terms are deterministic provider configuration. See [Catalog Alias Vocabulary And Ownership ADR](./docs/catalog-alias-vocabulary-adr.md) for ownership, the auto-accept boundary, revocation semantics, edge cases, and the milestone delivery map.
+
+Alias concepts:
+
+- `Catalog Alias` — an accepted, published fact that a piece of text refers to one or more Catalog Items, carrying its `Alias Type`, `Alias Confidence`, language, and source.
+- `Alias Candidate` — a proposed alias awaiting or undergoing review. It becomes a `Catalog Alias` only when its `Alias Review Status` reaches `accepted` or `auto-accepted`.
+- `Alias Type` — the kind of equivalence the alias asserts. Initial set: `official-equivalent`, `provider-localized-name`, `species-name`, `literal-translation`, `romanization`, `generated-translation`, `set-equivalent`, `series-equivalent`. `set-equivalent` and `series-equivalent` operate at the Reference Record level; the rest operate at the Catalog Item level.
+- `Alias Confidence` — how trustworthy the alias is, independent of type. Initial set: `exact`, `high`, `candidate`, `generated`, `manual`.
+- `Alias Review Status` — the alias lifecycle. Initial set: `pending`, `accepted`, `rejected`, `auto-accepted`, `revoked`. `rejected` was never trusted; `revoked` was previously trusted and is being withdrawn, which triggers downstream removal.
+
+Provider-configuration synonym terms (distinct from `Catalog Alias`, renamed to free the word `alias`):
+
+- `Provider Option Query Key Synonym` — an alternate key that resolves to the same provider option query, expressed in code as `CatalogProviderOptionQuery.queryKeySynonyms`. For example, the query keyed `"languages"` also answers to `"language"`. These are deterministic key synonyms, not aliases.
+- `Provider Option Value Synonym` — a mapping of provider value text to a canonical option key, expressed in code as `CatalogProviderSelectedOptionValueSynonym` within `valueSynonyms`. For example, the provider values `"Holo"` and `"Foil"` both map to the `"holofoil"` option key. These are deterministic value synonyms, not aliases.
+
+Cardinality: one alias text may map to many Catalog Items (species names, alt arts, regional variants) and one Catalog Item may carry many aliases across languages, providers, and types. Catalog publishes the cardinality signal so Discovery can down-weight broad aliases and dedupe by `catalog_item_id`; a broad alias never floods or outranks a precise item match, and an alias never replaces the Resolved Display Identity as the primary label.
+
+Ownership: Catalog owns alias facts, review, confidence, revocation, and the auto-accept boundary. Discovery consumes published alias facts into its search projection and never re-derives them from provider data. This follows the Resolved Display Identity boundary.
 
 ## Product Resolution Model
 
