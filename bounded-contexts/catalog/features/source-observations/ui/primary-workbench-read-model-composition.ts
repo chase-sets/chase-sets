@@ -658,11 +658,11 @@ function findActiveProfile(
   profiles: readonly CatalogProviderProfileVersionReview[],
   providerKey: string | null,
 ): CatalogProviderProfileVersionReview | null {
-  return (
-    profiles.find((profile) => profile.providerKey === providerKey && profile.active) ??
-    profiles.find((profile) => profile.active) ??
-    null
-  );
+  if (providerKey) {
+    return profiles.find((profile) => profile.providerKey === providerKey && profile.active) ?? null;
+  }
+
+  return profiles.find((profile) => profile.active) ?? null;
 }
 
 function findSelectedProfile(
@@ -680,7 +680,7 @@ function findSelectedProfile(
     );
   }
 
-  return activeProfile ?? providerProfiles[0] ?? profiles[0] ?? null;
+  return activeProfile ?? providerProfiles[0] ?? (providerKey ? null : (profiles[0] ?? null));
 }
 
 function readinessBlockersFor(
@@ -949,6 +949,9 @@ function providerScopeProviders(
   for (const profile of input.profileReviews.items) {
     providerKeys.add(profile.providerKey);
   }
+  for (const provider of input.controlPlaneOverview?.providerReadiness.providers ?? []) {
+    providerKeys.add(provider.providerKey);
+  }
   if (selectedProviderKey) {
     providerKeys.add(selectedProviderKey);
   }
@@ -959,11 +962,23 @@ function providerScopeProviders(
         ? selectedProfile
         : findActiveProfile(input.profileReviews.items, providerKey);
     const providerScopes = input.scopes.items.filter((scope) => scope.provider_key === providerKey);
-    const unitKey = inferUnitKey(input, providerKey, profile);
+    const providerReadiness = input.controlPlaneOverview?.providerReadiness.providers.find(
+      (provider) => provider.providerKey === providerKey,
+    );
+    const readinessUnit =
+      input.controlPlaneOverview?.readiness.units.find(
+        (unit) =>
+          unit.providerKey === providerKey &&
+          (!providerReadiness ||
+            providerReadiness.unitKeys.length === 0 ||
+            providerReadiness.unitKeys.includes(unit.unitKey)),
+      ) ?? input.controlPlaneOverview?.readiness.units.find((unit) => unit.providerKey === providerKey);
+    const unitKey = inferUnitKey(input, providerKey, profile) ?? readinessUnit?.unitKey ?? null;
+    const [profileProductDomain, profileProductForm] = profile?.supportedScopes[0]?.split("/") ?? [];
 
     return {
       providerKey,
-      displayName: profile?.displayName ?? providerKey,
+      displayName: profile?.displayName ?? readinessUnit?.displayName ?? providerKey,
       units: [
         {
           unitKey:
@@ -974,8 +989,8 @@ function providerScopeProviders(
               productForm: "source-observation",
               ingestionPurpose: "import",
             }),
-          productDomain: profile?.supportedScopes[0]?.split("/")[0] ?? "catalog",
-          productForm: profile?.supportedScopes[0]?.split("/")[1] ?? "source-observation",
+          productDomain: profileProductDomain ?? readinessUnit?.productDomain ?? "catalog",
+          productForm: profileProductForm ?? readinessUnit?.productForm ?? "source-observation",
           importScopes: providerImportScopes(providerScopes, routeContext.importScope, providerKey),
           activeProfile: profilePointerForProfile(profile),
         },
