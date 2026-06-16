@@ -1,11 +1,23 @@
 import { describe, expect, it } from "vitest";
 import {
+  CATALOG_ALIAS_SOURCE_GOVERNANCE_POLICY_VERSION,
+  TCGDEX_INDONESIAN_LANGUAGE_CODE,
+  catalogAliasAcceptanceAuditRequirements,
+  catalogAliasOfficialEnglishPrecedenceOrder,
+  catalogAliasSourceGovernancePolicies,
+  catalogAliasSourceGovernancePoliciesByCategory,
+  catalogAliasTranslationProviderRequirements,
   catalogIntegrationDataGovernancePolicies,
   catalogIntegrationDataGovernancePoliciesByKey,
   catalogIntegrationProviderDataSignoffChecklist,
+  decideCatalogAliasAcceptance,
   evaluateCatalogIntegrationProviderDataUse,
+  getCatalogAliasSourceGovernancePolicy,
   getCatalogIntegrationDataGovernancePolicy,
+  isRejectedNonEnglishLanguageCode,
   redactCatalogIntegrationProviderData,
+  resolveCatalogAliasOfficialEnglish,
+  type CatalogAliasSourceCategoryKey,
   type CatalogIntegrationGovernedDataClassKey,
 } from "./catalog-integration-data-governance";
 
@@ -146,5 +158,158 @@ describe("Catalog integration data governance", () => {
         expect.stringContaining("logs, metrics, traces"),
       ]),
     );
+  });
+});
+
+describe("Catalog alias source governance (#1912)", () => {
+  it("defines the #1912 approved alias source category inventory", () => {
+    const expected: readonly CatalogAliasSourceCategoryKey[] = [
+      "official-english-source",
+      "curated-operator-mapping",
+      "provider-same-id-localized-endpoint",
+      "provider-localized-name",
+      "species-reference",
+      "machine-translation",
+      "romanization",
+    ];
+
+    expect(catalogAliasSourceGovernancePolicies.map((policy) => policy.category)).toEqual(expected);
+    expect(Object.keys(catalogAliasSourceGovernancePoliciesByCategory).sort()).toEqual([...expected].sort());
+  });
+
+  it("requires every alias source category to declare a coherent governance shape", () => {
+    for (const policy of catalogAliasSourceGovernancePolicies) {
+      expect(policy.displayName.length).toBeGreaterThan(3);
+      expect(policy.acceptancePolicy).toMatch(/^(auto-accepted|pending-review|never-official)$/);
+      expect(policy.producibleAliasTypes.length).toBeGreaterThan(0);
+      expect(policy.notes.length).toBeGreaterThan(10);
+      // Only categories that can be official may auto-accept; never-official is never official.
+      if (policy.acceptancePolicy === "auto-accepted") {
+        expect(policy.canProvideOfficialEnglish).toBe(true);
+      }
+      if (policy.acceptancePolicy === "never-official") {
+        expect(policy.canProvideOfficialEnglish).toBe(false);
+        expect(policy.evidenceMarkedLowConfidence).toBe(true);
+      }
+      // Official-English categories must carry a precedence rank; others must not.
+      if (policy.canProvideOfficialEnglish) {
+        expect(policy.officialEnglishPrecedence).toBeTypeOf("number");
+      } else {
+        expect(policy.officialEnglishPrecedence).toBeNull();
+      }
+    }
+  });
+
+  it("orders official-English source precedence for promotion conflict tiebreaks (#1909)", () => {
+    expect(catalogAliasOfficialEnglishPrecedenceOrder()).toEqual([
+      "official-english-source",
+      "curated-operator-mapping",
+      "provider-same-id-localized-endpoint",
+    ]);
+  });
+
+  it("auto-accepts an approved official English source and stamps the policy version", () => {
+    const decision = decideCatalogAliasAcceptance({
+      category: "official-english-source",
+      languageCode: "en",
+      hasLegalSourceApproval: true,
+    });
+
+    expect(decision.reviewState).toBe("auto-accepted");
+    expect(decision.official).toBe(true);
+    expect(decision.policyVersion).toBe(CATALOG_ALIAS_SOURCE_GOVERNANCE_POLICY_VERSION);
+  });
+
+  it("holds an auto-accept category for review until legal/source approval is recorded", () => {
+    const decision = decideCatalogAliasAcceptance({
+      category: "official-english-source",
+      languageCode: "en",
+      hasLegalSourceApproval: false,
+    });
+
+    expect(decision.reviewState).toBe("pending-review");
+    expect(decision.official).toBe(false);
+    expect(decision.reasons.join(" ")).toMatch(/legal\/source approval/i);
+  });
+
+  it("keeps provider same-id localized endpoint aliases pending review", () => {
+    expect(
+      decideCatalogAliasAcceptance({
+        category: "provider-same-id-localized-endpoint",
+        languageCode: "en",
+        hasLegalSourceApproval: true,
+      }).reviewState,
+    ).toBe("pending-review");
+  });
+
+  it("never lets generated translations or romanizations become official equivalents", () => {
+    for (const category of ["machine-translation", "romanization"] as const) {
+      const decision = decideCatalogAliasAcceptance({ category });
+      expect(decision.reviewState).toBe("pending-review");
+      expect(decision.official).toBe(false);
+      expect(decision.evidenceMarkedLowConfidence).toBe(true);
+      expect(getCatalogAliasSourceGovernancePolicy(category).producibleAliasTypes).not.toContain("official-equivalent");
+    }
+  });
+
+  it("rejects TCGdex `id` (Indonesian) as English evidence everywhere", () => {
+    expect(TCGDEX_INDONESIAN_LANGUAGE_CODE).toBe("id");
+    expect(isRejectedNonEnglishLanguageCode("id")).toBe(true);
+    expect(isRejectedNonEnglishLanguageCode("ID")).toBe(true);
+    expect(isRejectedNonEnglishLanguageCode("en")).toBe(false);
+    expect(isRejectedNonEnglishLanguageCode(null)).toBe(false);
+
+    const decision = decideCatalogAliasAcceptance({
+      category: "official-english-source",
+      languageCode: "id",
+      hasLegalSourceApproval: true,
+    });
+    expect(decision.reviewState).toBe("pending-review");
+    expect(decision.reasons.join(" ")).toMatch(/Indonesian/);
+  });
+
+  it("breaks official-English ties by source precedence and discards Indonesian evidence", () => {
+    const resolution = resolveCatalogAliasOfficialEnglish([
+      { category: "provider-same-id-localized-endpoint", englishName: "Furret (provider)" },
+      { category: "official-english-source", englishName: "Furret" },
+      { category: "official-english-source", englishName: "Furret (id)", languageCode: "id" },
+      { category: "machine-translation", englishName: "Big Ferret" },
+    ]);
+
+    expect(resolution.winner?.category).toBe("official-english-source");
+    expect(resolution.winner?.englishName).toBe("Furret");
+    expect(resolution.rejected.map((entry) => entry.reason).sort()).toEqual([
+      "category-cannot-be-official",
+      "non-english-evidence",
+      "outranked",
+    ]);
+  });
+
+  it("returns no winner when every candidate is non-English or non-official", () => {
+    const resolution = resolveCatalogAliasOfficialEnglish([
+      { category: "official-english-source", englishName: "x", languageCode: "id" },
+      { category: "romanization", englishName: "y" },
+    ]);
+
+    expect(resolution.winner).toBeNull();
+    expect(resolution.rejected).toHaveLength(2);
+  });
+
+  it("requires the governing policy version in alias acceptance audit evidence", () => {
+    expect(catalogAliasAcceptanceAuditRequirements()).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("governing policy version"),
+        expect.stringContaining(CATALOG_ALIAS_SOURCE_GOVERNANCE_POLICY_VERSION),
+        expect.stringContaining("revoked"),
+      ]),
+    );
+  });
+
+  it("publishes translation provider adapter governance requirements", () => {
+    const requirements = catalogAliasTranslationProviderRequirements();
+    expect(requirements.join(" ")).toMatch(/low-confidence/i);
+    expect(requirements.join(" ")).toMatch(/never.*official/i);
+    expect(requirements.join(" ")).toMatch(/fixtures/i);
+    expect(requirements.join(" ")).toMatch(/id.*Indonesian/i);
   });
 });
