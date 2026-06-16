@@ -64,23 +64,39 @@ export function buildCatalogPrimaryWorkbenchSourceOptions(input: {
   readinessBlockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
   canManage: boolean;
 }): CatalogPrimaryWorkbenchReadModel["sourceOptions"] {
+  const context = sourceOptionContext({
+    requestUrl: "https://admin.example/catalog/integrations",
+    scopes: input.scopes,
+    profiles: input.profiles,
+    routeContext: input.routeContext,
+  });
+  const sourceOptionProfile = selectedSourceOptionProfile(
+    input.activeProfile,
+    context.activeProfile,
+    context.providerKey,
+    context.requestedProfileVersion,
+  );
   const requests = buildCatalogPrimaryWorkbenchSourceOptionRequests({
     requestUrl: "https://admin.example/catalog/integrations",
     scopes: input.scopes,
     profiles: input.profiles,
     routeContext: input.routeContext,
-    activeProfile: input.activeProfile,
+    activeProfile: sourceOptionProfile,
     cacheOnly: true,
     limit: SOURCE_OPTION_PAGE_LIMIT,
   });
   const pageSnapshots = new Map(input.sourceOptionPages?.map((page) => [sourceOptionRequestKey(page.request), page]));
-  const optionKinds = requests.map((request) => sourceOptionKindReadModel(request, input.activeProfile));
+  const optionKinds = requests.map((request) => sourceOptionKindReadModel(request, sourceOptionProfile));
   const pages = requests.map((request) =>
     sourceOptionPageReadModel(request, pageSnapshots.get(sourceOptionRequestKey(request))),
   );
   const summary = sourceOptionSummary(pages);
-  const refreshBlockers = sourceOptionRefreshBlockers(input, requests, pages);
-  const status = sourceOptionsStatus(input.activeProfile, summary, input.readinessBlockers);
+  const refreshBlockers = sourceOptionRefreshBlockers(
+    { ...input, activeProfile: sourceOptionProfile },
+    requests,
+    pages,
+  );
+  const status = sourceOptionsStatus(sourceOptionProfile, summary, input.readinessBlockers);
 
   return {
     status,
@@ -88,7 +104,7 @@ export function buildCatalogPrimaryWorkbenchSourceOptions(input: {
     generatedAt: input.generatedAt,
     selectedProviderKey: input.routeContext.providerKey,
     selectedUnitKey: input.routeContext.unitKey,
-    selectedProfile: profilePointerForProfile(input.activeProfile),
+    selectedProfile: profilePointerForProfile(sourceOptionProfile),
     summary,
     optionKinds,
     pages,
@@ -112,8 +128,13 @@ export function buildCatalogPrimaryWorkbenchSourceOptionRequests(input: {
   limit?: number;
 }): readonly CatalogPrimaryWorkbenchSourceOptionRequest[] {
   const context = sourceOptionContext(input);
-  const profile = input.activeProfile ?? context.activeProfile;
   const providerKey = context.providerKey;
+  const profile = selectedSourceOptionProfile(
+    input.activeProfile ?? null,
+    context.activeProfile,
+    providerKey,
+    context.requestedProfileVersion,
+  );
   if (!profile?.sourceOptionKinds.length || !providerKey) {
     return [];
   }
@@ -166,6 +187,7 @@ function sourceOptionContext(input: {
   importScope: string | null;
   scope: NonNullable<CatalogPrimaryWorkbenchRouteContext["scope"]>;
   activeProfile: CatalogProviderProfileVersionReview | null;
+  requestedProfileVersion: string | null;
 }> {
   const parsed = input.routeContext ?? parseCatalogPrimaryWorkbenchRouteContext(input.requestUrl);
   const providerKey =
@@ -174,10 +196,14 @@ function sourceOptionContext(input: {
     input.profiles.find((profile) => profile.active)?.providerKey ??
     input.profiles[0]?.providerKey ??
     null;
-  const activeProfile =
-    input.profiles.find((profile) => profile.providerKey === providerKey && profile.active) ??
-    input.profiles.find((profile) => profile.active) ??
-    null;
+  const providerProfiles = providerKey
+    ? input.profiles.filter((profile) => profile.providerKey === providerKey)
+    : input.profiles;
+  const requestedProfileVersion = parsed.profileVersion;
+  const requestedProfile = requestedProfileVersion
+    ? (providerProfiles.find((profile) => profile.profileVersion === requestedProfileVersion) ?? null)
+    : null;
+  const activeProfile = requestedProfile ?? providerProfiles.find((profile) => profile.active) ?? null;
   const representativeScope = input.scopes.find((scope) => !providerKey || scope.provider_key === providerKey) ?? null;
   const importScope = parsed.importScope ?? (representativeScope ? scopeKey(representativeScope) : null);
   const scope = scopeContextFromRouteContext({
@@ -186,7 +212,26 @@ function sourceOptionContext(input: {
     importScope: scopeHasExplicitSelection(parsed.scope) ? null : importScope,
   });
 
-  return { providerKey, importScope, scope, activeProfile };
+  return { providerKey, importScope, scope, activeProfile, requestedProfileVersion };
+}
+
+function selectedSourceOptionProfile(
+  explicitProfile: CatalogProviderProfileVersionReview | null,
+  contextProfile: CatalogProviderProfileVersionReview | null,
+  providerKey: string | null,
+  requestedProfileVersion: string | null,
+): CatalogProviderProfileVersionReview | null {
+  if (requestedProfileVersion) {
+    return contextProfile;
+  }
+  if (explicitProfile && (!providerKey || explicitProfile.providerKey === providerKey)) {
+    return explicitProfile;
+  }
+  if (contextProfile && (!providerKey || contextProfile.providerKey === providerKey)) {
+    return contextProfile;
+  }
+
+  return null;
 }
 
 function sourceOptionSelections(input: {

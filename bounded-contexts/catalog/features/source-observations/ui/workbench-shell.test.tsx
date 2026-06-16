@@ -248,6 +248,20 @@ describe("CatalogWorkbenchShell provider/unit selection", () => {
       const provider = screen.getByLabelText<HTMLSelectElement>("Provider");
       const unit = screen.getByLabelText<HTMLSelectElement>("Unit");
       const profileVersion = screen.getByLabelText<HTMLInputElement>("Profile version");
+      const form = provider.form;
+      expect(form).not.toBeNull();
+
+      const staleAction = document.createElement("input");
+      staleAction.type = "hidden";
+      staleAction.name = "sourceOptionAction";
+      staleAction.value = "force-refresh-all";
+      form!.appendChild(staleAction);
+
+      const staleQueryKind = document.createElement("input");
+      staleQueryKind.type = "hidden";
+      staleQueryKind.name = "sourceOptionQueryKind";
+      staleQueryKind.value = "expansions";
+      form!.appendChild(staleQueryKind);
 
       fireEvent.change(provider, { target: { value: "scrydex" } });
 
@@ -264,6 +278,55 @@ describe("CatalogWorkbenchShell provider/unit selection", () => {
       expect(submitted.has("seriesId")).toBe(false);
       expect(submitted.has("expansionId")).toBe(false);
       expect(submitted.has("profileVersion")).toBe(false);
+      expect(submitted.has("sourceOptionAction")).toBe(false);
+      expect(submitted.has("sourceOptionQueryKind")).toBe(false);
+      expect(form!.elements.namedItem("sourceOptionAction")).toBeNull();
+      expect(form!.elements.namedItem("sourceOptionQueryKind")).toBeNull();
+      expect(requestSubmit).toHaveBeenCalledTimes(1);
+    } finally {
+      requestSubmit.mockRestore();
+    }
+  });
+
+  it("clears scope and source-option intent fields before submitting a unit change", () => {
+    const requestSubmit = vi.spyOn(HTMLFormElement.prototype, "requestSubmit").mockImplementation(() => undefined);
+
+    try {
+      render(<CatalogIntegrationsSurfacePage surface="daily" readModel={dailyReadModelWithSourceOptions()} />);
+
+      const unit = screen.getByLabelText<HTMLSelectElement>("Unit");
+      const profileVersion = screen.getByLabelText<HTMLInputElement>("Profile version");
+      const form = unit.form;
+      expect(form).not.toBeNull();
+
+      const staleAction = document.createElement("input");
+      staleAction.type = "hidden";
+      staleAction.name = "sourceOptionAction";
+      staleAction.value = "force-refresh-all";
+      form!.appendChild(staleAction);
+
+      const staleQueryKind = document.createElement("input");
+      staleQueryKind.type = "hidden";
+      staleQueryKind.name = "sourceOptionQueryKind";
+      staleQueryKind.value = "expansions";
+      form!.appendChild(staleQueryKind);
+
+      fireEvent.change(unit, { target: { value: unit.value } });
+
+      expect(profileVersion.value).toBe("");
+      expect(profileVersion.disabled).toBe(true);
+
+      const submitted = new FormData(form!);
+      expect(submitted.get("providerKey")).toBe("tcgdex");
+      expect(submitted.get("unitKey")).toBe("tcgdex:pokemon:card:import");
+      expect(submitted.has("languageCode")).toBe(false);
+      expect(submitted.has("seriesId")).toBe(false);
+      expect(submitted.has("expansionId")).toBe(false);
+      expect(submitted.has("profileVersion")).toBe(false);
+      expect(submitted.has("sourceOptionAction")).toBe(false);
+      expect(submitted.has("sourceOptionQueryKind")).toBe(false);
+      expect(form!.elements.namedItem("sourceOptionAction")).toBeNull();
+      expect(form!.elements.namedItem("sourceOptionQueryKind")).toBeNull();
       expect(requestSubmit).toHaveBeenCalledTimes(1);
     } finally {
       requestSubmit.mockRestore();
@@ -426,6 +489,38 @@ describe("CatalogWorkbenchShell guided source-scope selector", () => {
     expect(within(scopeGroup).getByLabelText<HTMLSelectElement>("Product Line").name).toBe("productLineId");
     expect(within(scopeGroup).getByLabelText<HTMLSelectElement>("Set Name").name).toBe("expansionId");
     expect(within(scopeGroup).queryByLabelText("Series")).toBeNull();
+  });
+
+  it("does not render another provider source-scope shape when the selected provider has no active option profile", () => {
+    const tcgdexProfile = profileReview({ active: true, lifecycle: "active" });
+    const scrydexProfile = profileReview({
+      providerKey: "scrydex",
+      profileKey: "scrydex-profile",
+      displayName: "Scrydex",
+      active: false,
+      lifecycle: "test",
+      profile: {
+        providerKey: "scrydex",
+        supportedScopes: ["product/card"],
+      },
+      supportedScopes: ["product/card"],
+    });
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl: "https://admin.example/catalog/integrations?providerKey=scrydex",
+      scopes: { items: [], total: 0, count: 0 },
+      profileReviews: { items: [tcgdexProfile, scrydexProfile], total: 2, count: 2 },
+      controlPlaneOverview: null,
+      canManageCatalog: true,
+    });
+
+    render(<CatalogIntegrationsSurfacePage surface="daily" readModel={readModel} />);
+
+    expect(screen.getByLabelText<HTMLSelectElement>("Provider").value).toBe("scrydex");
+    expect(screen.queryByRole("group", { name: "Source scope" })).toBeNull();
+    expect(screen.queryByLabelText("Language")).toBeNull();
+    expect(screen.queryByLabelText("Series")).toBeNull();
+    expect(screen.queryByLabelText("Expansion")).toBeNull();
+    expect(screen.queryByText("Source options")).toBeNull();
   });
 
   it("labels a selected language code when the option page has not loaded that value yet", () => {
