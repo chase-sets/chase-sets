@@ -8,6 +8,8 @@ import {
   ActorIdentityCue,
   AccountMenu,
   ActionBar,
+  ActionRow,
+  ActionStack,
   AppliedFilterChips,
   BulkActionBar,
   BulkActionPanel,
@@ -561,6 +563,39 @@ describe("design system marketplace patterns", () => {
     expect(markup).toContain("Base Set 4 Standard Set Rare Holo");
     expect(markup).toContain("Buy now");
     expect(markup).not.toContain("View details");
+  });
+
+  it("enforces one-primary-per-surface through the action-hierarchy helpers", () => {
+    // The single-primary contract is enforceable, not just conventional: a guard
+    // that scans any rendered surface for the contract attribute fails if more
+    // than one primary action is present.
+    function expectAtMostOnePrimary(markup: string) {
+      const counts = [...markup.matchAll(/data-primary-action-count="(\d+)"/g)].map((match) => Number(match[1]));
+      for (const count of counts) {
+        expect(count).toBeLessThanOrEqual(1);
+      }
+    }
+
+    const validRow = renderToString(
+      <ActionRow primary={<Button>Check out</Button>} secondary={<Button tone="secondary">Keep shopping</Button>} />,
+    );
+    expect(validRow).toContain('data-primary-action-count="1"');
+    expectAtMostOnePrimary(validRow);
+
+    const validStack = renderToString(
+      <ActionStack primary={<Button>Pay now</Button>} secondary={<Button tone="secondary">Back to cart</Button>} />,
+    );
+    expect(validStack).toContain('data-primary-action-count="1"');
+    expectAtMostOnePrimary(validStack);
+
+    // The guard catches a hand-rolled surface that stamps more than one primary.
+    const twoPrimaries = renderToString(
+      <div data-primary-action-count="2">
+        <Button>Pay now</Button>
+        <Button>Confirm</Button>
+      </div>,
+    );
+    expect(() => expectAtMostOnePrimary(twoPrimaries)).toThrow();
   });
 
   it("surfaces an explicit account trust signal even when the seller is not verified", () => {

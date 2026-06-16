@@ -284,7 +284,29 @@ export function RatingDistribution({ title, average, count, rows, starLabel }: R
   );
 }
 
-export function SecurePaymentIndicator({ label }: { label?: ReactNode }) {
+export interface SecurePaymentIndicatorProps {
+  label?: ReactNode;
+  /**
+   * Optional secondary reassurance line (e.g. `Not charged yet` / `No payment
+   * until checkout`). Renders quietly beneath the trust label so reassurance
+   * lives once, inside this canonical indicator, rather than as an extra banner.
+   */
+  reassurance?: ReactNode;
+}
+
+export function SecurePaymentIndicator({ label, reassurance }: SecurePaymentIndicatorProps) {
+  if (reassurance) {
+    return (
+      <span className="inline-flex flex-col gap-0.5">
+        <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-trust">
+          <Icon name="creditCard" size="sm" tone="inherit" aria-hidden="true" />
+          {label}
+        </span>
+        <span className="text-xs leading-4 text-secondary">{reassurance}</span>
+      </span>
+    );
+  }
+
   return (
     <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-trust">
       <Icon name="creditCard" size="sm" tone="inherit" aria-hidden="true" />
