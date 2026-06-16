@@ -26,7 +26,6 @@ export const checkoutEnglishTranslations = {
   "checkout.features.cart.ui.cartPage.browse.the.marketplace.and.add.a":
     "Browse the marketplace and add a product to start building a Buy Cart checkout.",
   "checkout.features.cart.ui.cartPage.buy.cart": "Buy cart",
-  "checkout.features.cart.ui.cartPage.checkout": "Checkout",
   "checkout.features.cart.ui.cartPage.checkout.issue": "Checkout issue",
   "checkout.features.cart.ui.cartPage.decrease": "Decrease",
   "checkout.features.cart.ui.cartPage.empty.cart.protection.description":
@@ -34,7 +33,10 @@ export const checkoutEnglishTranslations = {
   "checkout.features.cart.ui.cartPage.empty.cart.protection.title": "Checkout protection stays visible",
   "checkout.features.cart.ui.cartPage.calculated.at.checkout": "Calculated at checkout",
   "checkout.features.cart.ui.cartPage.check.out": "Check out",
+  "checkout.features.cart.ui.cartPage.estimated.total": "Estimated total",
+  "checkout.features.cart.ui.cartPage.final.total.confirmed": "Final total confirmed at checkout",
   "checkout.features.cart.ui.cartPage.find.alternatives": "Find alternatives",
+  "checkout.features.cart.ui.cartPage.from": "from",
   "checkout.features.cart.ui.cartPage.fulfillment.needs.review": "Some items need attention",
   "checkout.features.cart.ui.cartPage.fulfillment.needs.review.description.many":
     "{count} items need fulfillment or availability resolved before checkout.",
@@ -43,7 +45,6 @@ export const checkoutEnglishTranslations = {
   "checkout.features.cart.ui.cartPage.items": "Items",
   "checkout.features.cart.ui.cartPage.increase": "Increase",
   "checkout.features.cart.ui.cartPage.lock.this.listing": "Lock this listing",
-  "checkout.features.cart.ui.cartPage.locked.listing": "Locked listing",
   "checkout.features.cart.ui.cartPage.locked.listing.summary":
     "{listing} is locked for checkout unless availability changes.",
   "checkout.features.cart.ui.cartPage.needs.fulfillment": "Needs fulfillment",
@@ -54,30 +55,24 @@ export const checkoutEnglishTranslations = {
   "checkout.features.cart.ui.cartPage.optimization.available.title": "Save ${savings} before checkout",
   "checkout.features.cart.ui.cartPage.product.image.alt": "{title} product",
   "checkout.features.cart.ui.cartPage.quantity": "Quantity",
-  "checkout.features.cart.ui.cartPage.price.at.checkout": "Price at checkout",
+  "checkout.features.cart.ui.cartPage.priced.at.checkout": "Priced at checkout",
   "checkout.features.cart.ui.cartPage.preferred.listing": "Preferred listing",
   "checkout.features.cart.ui.cartPage.preferred.listing.summary":
     "{listing} is the starting preference. Smart Match may choose another available listing.",
   "checkout.features.cart.ui.cartPage.ready": "Ready",
   "checkout.features.cart.ui.cartPage.remove": "Remove",
-  "checkout.features.cart.ui.cartPage.resolve.before.checkout":
-    "Resolve this item before checkout or remove it from your cart.",
   "checkout.features.cart.ui.cartPage.resolve.before.payment": "Resolve item availability before payment starts.",
   "checkout.features.cart.ui.cartPage.resolve.fulfillment": "Continue to checkout",
   "checkout.features.cart.ui.cartPage.review.items.before.checkout":
     "Review quantities and remove anything you do not want before checkout.",
-  "checkout.features.cart.ui.cartPage.review.cart": "Review cart",
   "checkout.features.cart.ui.cartPage.shipping.and.tax": "Shipping and tax",
   "checkout.features.cart.ui.cartPage.selected.listing": "Selected listing",
   "checkout.features.cart.ui.cartPage.keep.shopping": "Keep shopping",
   "checkout.features.cart.ui.cartPage.standard": "Standard",
-  "checkout.features.cart.ui.cartPage.subtotal": "Subtotal",
-  "checkout.features.cart.ui.cartPage.update": "Update",
   "checkout.features.cart.ui.cartPage.use.lower.fulfillment": "Use lower price",
   "checkout.features.cart.ui.cartPage.simple.cart.description":
     "Review your items, then continue to checkout when everything is ready.",
   "checkout.features.cart.ui.cartPage.taxes.and.shipping.calculated": "Taxes and shipping are calculated at checkout.",
-  "checkout.features.cart.ui.cartPage.total": "Total",
   "checkout.features.cart.ui.cartPage.unavailable": "Unavailable",
   "checkout.features.cart.ui.cartPage.waiting.for.supply": "Waiting for supply",
   "checkout.features.cart.ui.cartPage.your.cart": "Your cart",

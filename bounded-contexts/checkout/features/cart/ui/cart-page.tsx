@@ -2,27 +2,27 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useFetcher } from "react-router";
 import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
 import {
-  HiddenInput,
-  Form,
+  ActionStack,
   Badge,
   Banner,
   Box,
   Button,
-  Grid,
-  Image,
+  CheckoutNoticeStack,
+  CheckoutTotals,
+  DestructiveAction,
+  Form,
+  HiddenInput,
   Inline,
   LinkButton,
+  MarketplaceCartLineItem,
   MarketplaceEmptyState,
-  MediaFrame,
-  NumberInput,
   Page,
   PageHeader,
   PageSection,
   PlatformCredibilityCue,
-  PriceBreakdown,
   ProductOptions,
+  QuantityStepper,
   SecurePaymentIndicator,
-  Show,
   Stack,
   StickyCtaBar,
   Surface,
@@ -140,10 +140,22 @@ function hasKnownLinePrice(line: CheckoutCartLineGroup) {
   return selectedUnitPrice(line) !== null;
 }
 
-function linePriceLabel(line: CheckoutCartLineGroup) {
+// A locked listing is pinned, so its price is a charge-grade `exact` value. An
+// `optimize` line resolves its final listing under Smart Match at checkout, so
+// its known floor is surfaced as an `indicative` `from $X`. A line with no
+// priced options defers to a single quiet `Priced at checkout` statement.
+function linePriceState(line: CheckoutCartLineGroup): "exact" | "indicative" | "deferred" {
+  if (!hasKnownLinePrice(line)) {
+    return "deferred";
+  }
+
+  return line.fulfillment_mode === "locked-listing" && line.locked_listing_id ? "exact" : "indicative";
+}
+
+function linePrice(line: CheckoutCartLineGroup): ReactNode {
   const unitPrice = selectedUnitPrice(line);
   if (unitPrice === null) {
-    return t("checkout.features.cart.ui.cartPage.price.at.checkout");
+    return null;
   }
 
   return formatMoney(unitPrice * line.quantity);
@@ -216,14 +228,11 @@ function cartListingLabel(line: CheckoutCartLineGroup, listingId: string | null)
 function ListingPreferenceStatus({ line }: { line: CheckoutCartLineGroup }) {
   if (line.fulfillment_mode === "locked-listing" && line.locked_listing_id) {
     return (
-      <Stack gap={1}>
-        <Badge tone="success">{t("checkout.features.cart.ui.cartPage.locked.listing")}</Badge>
-        <Text size="sm" tone="secondary">
-          {t("checkout.features.cart.ui.cartPage.locked.listing.summary", {
-            listing: cartListingLabel(line, line.locked_listing_id),
-          })}
-        </Text>
-      </Stack>
+      <Text size="sm" tone="secondary">
+        {t("checkout.features.cart.ui.cartPage.locked.listing.summary", {
+          listing: cartListingLabel(line, line.locked_listing_id),
+        })}
+      </Text>
     );
   }
 
@@ -243,21 +252,6 @@ function ListingPreferenceStatus({ line }: { line: CheckoutCartLineGroup }) {
   );
 }
 
-function ProductImage({ line }: { line: CheckoutCartLineGroup }) {
-  return (
-    <MediaFrame size="md">
-      <Image
-        src={line.item_image_url ?? CART_ITEM_FALLBACK_IMAGE_URL}
-        alt={t("checkout.features.cart.ui.cartPage.product.image.alt", { title: line.item_title })}
-        srcSet={line.item_image_srcset ?? undefined}
-        sizes="6rem"
-        fit="contain"
-        loading="lazy"
-      />
-    </MediaFrame>
-  );
-}
-
 function CartLineHiddenFields({ line }: { line: CheckoutCartLineGroup }) {
   return (
     <>
@@ -269,7 +263,30 @@ function CartLineHiddenFields({ line }: { line: CheckoutCartLineGroup }) {
   );
 }
 
-function QuantityControls({
+function LinePrice({ line }: { line: CheckoutCartLineGroup }) {
+  const state = linePriceState(line);
+
+  if (state === "deferred") {
+    return (
+      <Text size="sm" tone="tertiary">
+        {t("checkout.features.cart.ui.cartPage.priced.at.checkout")}
+      </Text>
+    );
+  }
+
+  return (
+    <Inline gap={1} wrap={false}>
+      {state === "indicative" ? (
+        <Text size="xs" tone="secondary">
+          {t("checkout.features.cart.ui.cartPage.from")}
+        </Text>
+      ) : null}
+      <Text weight="semibold">{linePrice(line)}</Text>
+    </Inline>
+  );
+}
+
+function QuantityControl({
   line,
   onQuantityChange,
 }: {
@@ -298,113 +315,79 @@ function QuantityControls({
     },
   });
   const safeQuantity = Math.max(1, Number(correction.value) || 1);
-  const [draftQuantity, setDraftQuantity] = useState(safeQuantity);
-  const pending = correction.status === "pending";
 
   useEffect(() => {
     onQuantityChange(line.groupKey, safeQuantity);
   }, [line.groupKey, onQuantityChange, safeQuantity]);
 
-  useEffect(() => {
-    setDraftQuantity(safeQuantity);
-  }, [safeQuantity]);
-
-  function setQuantity(nextQuantity: number) {
+  function setQuantity(nextQuantity: number | null) {
+    if (nextQuantity === null) {
+      return;
+    }
     const quantity = Math.max(1, nextQuantity);
-    setDraftQuantity(quantity);
+    if (quantity === safeQuantity) {
+      return;
+    }
     correction.setOptimisticValue(quantity);
   }
 
   return (
-    <Form
-      spacing="none"
-      method="post"
+    <div
       data-optimistic-strategy="optimistic-with-correction"
       data-correction-source="fresh-read:loader-revalidation"
       data-optimistic-resource={line.lineIds.join(":")}
       data-optimistic-status={correction.status}
-      onSubmit={(event) => {
-        event.preventDefault();
-        const formData = new FormData(event.currentTarget);
-        const enteredQuantity = Number(formData.get("quantity") ?? safeQuantity);
-        setQuantity(Number.isFinite(enteredQuantity) ? enteredQuantity : safeQuantity);
-      }}
     >
-      <HiddenInput type="hidden" name="intent" value="update-cart-line" />
-      <CartLineHiddenFields line={line} />
-      <Stack gap={2}>
-        <NumberInput
-          label={t("checkout.features.cart.ui.cartPage.quantity")}
-          name="quantity"
-          min="1"
-          value={String(draftQuantity)}
-          onChange={(event) => {
-            const enteredQuantity = Number(event.currentTarget.value);
-            if (Number.isFinite(enteredQuantity) && enteredQuantity >= 1) {
-              setDraftQuantity(enteredQuantity);
-            }
-          }}
-          required
-        />
-        <Inline gap={2} wrap={false}>
-          <Button
-            type="button"
-            size="sm"
-            tone="secondary"
-            name="quantityDelta"
-            value="-1"
-            leadingIcon="minus"
-            aria-busy={pending || undefined}
-            onClick={() => setQuantity(safeQuantity - 1)}
-          >
-            {t("checkout.features.cart.ui.cartPage.decrease")}
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            tone="secondary"
-            name="quantityDelta"
-            value="1"
-            leadingIcon="plus"
-            aria-busy={pending || undefined}
-            onClick={() => setQuantity(safeQuantity + 1)}
-          >
-            {t("checkout.features.cart.ui.cartPage.increase")}
-          </Button>
-        </Inline>
-        <Button type="submit" size="sm" tone="secondary" leadingIcon="check" loading={pending} block>
-          {t("checkout.features.cart.ui.cartPage.update")}
-        </Button>
-      </Stack>
-    </Form>
+      <QuantityStepper
+        label={t("checkout.features.cart.ui.cartPage.quantity")}
+        value={safeQuantity}
+        min={1}
+        onValueChange={setQuantity}
+        decrementLabel={t("checkout.features.cart.ui.cartPage.decrease")}
+        incrementLabel={t("checkout.features.cart.ui.cartPage.increase")}
+      />
+    </div>
   );
 }
 
 function CartLineActions({ line }: { line: CheckoutCartLineGroup }) {
-  return (
-    <Stack gap={2}>
-      {line.seller_preference_id && line.fulfillment_mode !== "locked-listing" ? (
-        <Form spacing="none" method="post">
-          <HiddenInput type="hidden" name="intent" value="lock-preferred-listing" />
-          <CartLineHiddenFields line={line} />
-          <Button type="submit" size="md" tone="secondary" block>
-            {t("checkout.features.cart.ui.cartPage.lock.this.listing")}
-          </Button>
-        </Form>
-      ) : null}
+  const lockAction =
+    line.seller_preference_id && line.fulfillment_mode !== "locked-listing" ? (
       <Form spacing="none" method="post">
-        <HiddenInput type="hidden" name="intent" value="remove-cart-line" />
+        <HiddenInput type="hidden" name="intent" value="lock-preferred-listing" />
         <CartLineHiddenFields line={line} />
-        <Button type="submit" size="md" tone="danger" leadingIcon="trash" block>
-          {t("checkout.features.cart.ui.cartPage.remove")}
+        <Button type="submit" size="sm" tone="secondary" block>
+          {t("checkout.features.cart.ui.cartPage.lock.this.listing")}
         </Button>
       </Form>
-      {!hasFulfillmentPath(line) ? (
-        <LinkButton href={marketRecoveryHref(line.item_title)} tone="secondary" size="md" block>
-          {t("checkout.features.cart.ui.cartPage.find.alternatives")}
-        </LinkButton>
-      ) : null}
-    </Stack>
+    ) : null;
+
+  const alternativesAction = !hasFulfillmentPath(line) ? (
+    <LinkButton href={marketRecoveryHref(line.item_title)} tone="secondary" size="sm" block>
+      {t("checkout.features.cart.ui.cartPage.find.alternatives")}
+    </LinkButton>
+  ) : null;
+
+  const removeAction = (
+    <Form spacing="none" method="post">
+      <HiddenInput type="hidden" name="intent" value="remove-cart-line" />
+      <CartLineHiddenFields line={line} />
+      <DestructiveAction type="submit">{t("checkout.features.cart.ui.cartPage.remove")}</DestructiveAction>
+    </Form>
+  );
+
+  return (
+    <ActionStack
+      secondary={
+        lockAction || alternativesAction ? (
+          <Stack gap={2}>
+            {lockAction}
+            {alternativesAction}
+          </Stack>
+        ) : null
+      }
+      lowEmphasis={removeAction}
+    />
   );
 }
 
@@ -416,61 +399,34 @@ function CartLineRow({
   onQuantityChange: (groupKey: string, quantity: number) => void;
 }) {
   return (
-    <Surface element="article" tone="default" padding={4}>
-      <Grid templateColumns="auto minmax(0,1fr) minmax(10rem,12rem) minmax(9rem,11rem)" stackUntil="md" gap={4}>
-        <Stack direction="row" gap={3} minWidth="0">
-          <ProductImage line={line} />
-          <Show until="md" minWidth="0">
-            <Stack gap={1}>
-              <Text weight="semibold" wrap="anywhere">
-                {line.item_title}
-              </Text>
-              {line.item_subtitle ? (
-                <Text size="sm" tone="secondary" wrap="anywhere">
-                  {line.item_subtitle}
-                </Text>
-              ) : null}
-              <Text weight="semibold">{linePriceLabel(line)}</Text>
-            </Stack>
-          </Show>
-        </Stack>
+    <MarketplaceCartLineItem
+      imageSrc={line.item_image_url ?? CART_ITEM_FALLBACK_IMAGE_URL}
+      imageAlt={t("checkout.features.cart.ui.cartPage.product.image.alt", { title: line.item_title })}
+      imageSrcSet={line.item_image_srcset ?? undefined}
+      imageSizes="6rem"
+      loadingImageSrc={line.item_image_loading_url ?? undefined}
+      loadingImageAlt={line.item_image_loading_alt ?? undefined}
+      loadingImageSrcSet={line.item_image_loading_srcset ?? undefined}
+      title={line.item_title}
+      subtitle={line.item_subtitle ?? undefined}
+      productLabel={
+        <Inline gap={2} align="center">
+          {line.item_language_code ? (
+            <Badge tone="neutral">{formatLanguageCodeLabel(line.item_language_code)}</Badge>
+          ) : null}
+          <Badge tone={readinessTone(line)}>{readinessLabel(line)}</Badge>
+        </Inline>
+      }
+      productSummary={
         <Stack gap={2}>
-          <Show from="md" minWidth="0">
-            <Text weight="semibold" wrap="anywhere">
-              {line.item_title}
-            </Text>
-            {line.item_subtitle ? (
-              <Text size="sm" tone="secondary">
-                {line.item_subtitle}
-              </Text>
-            ) : null}
-          </Show>
-          <Inline gap={2}>
-            {line.item_language_code ? (
-              <Badge tone="neutral">{formatLanguageCodeLabel(line.item_language_code)}</Badge>
-            ) : null}
-            <Badge tone={readinessTone(line)}>{readinessLabel(line)}</Badge>
-          </Inline>
           {renderLineOptions(line)}
           <ListingPreferenceStatus line={line} />
-          {!hasFulfillmentPath(line) ? (
-            <Text size="sm" tone="secondary">
-              {t("checkout.features.cart.ui.cartPage.resolve.before.checkout")}
-            </Text>
-          ) : null}
+          <LinePrice line={line} />
         </Stack>
-        <QuantityControls line={line} onQuantityChange={onQuantityChange} />
-        <Stack gap={3}>
-          <Show from="md">
-            <Text size="sm" tone="secondary">
-              {t("checkout.features.cart.ui.cartPage.total")}
-            </Text>
-            <Text weight="semibold">{linePriceLabel(line)}</Text>
-          </Show>
-          <CartLineActions line={line} />
-        </Stack>
-      </Grid>
-    </Surface>
+      }
+      quantityControl={<QuantityControl line={line} onQuantityChange={onQuantityChange} />}
+      actions={<CartLineActions line={line} />}
+    />
   );
 }
 
@@ -486,10 +442,12 @@ function readinessHiddenFields(snapshot: CartReadinessSnapshot, decisions: CartR
 
 function CheckoutForm({
   label,
+  tone,
   snapshot,
   decisions,
 }: {
   label: string;
+  tone?: "primary" | "secondary";
   snapshot: CartReadinessSnapshot;
   decisions: CartReadinessDecisionInput | null;
 }) {
@@ -497,21 +455,19 @@ function CheckoutForm({
     <Form spacing="none" method="post" action="/checkout/buy/readiness">
       <HiddenInput type="hidden" name="source" value="cart" />
       {readinessHiddenFields(snapshot, decisions)}
-      <Button type="submit" leadingIcon="lock" block>
+      <Button type="submit" tone={tone} leadingIcon="lock" block>
         {label}
       </Button>
     </Form>
   );
 }
 
-function CheckoutAction({
+function CheckoutPrimaryAction({
   snapshot,
   decisions,
-  acceptedOptimization,
 }: {
   snapshot: CartReadinessSnapshot;
   decisions: CartReadinessDecisionInput | null;
-  acceptedOptimization: { snapshot: CartReadinessSnapshot; decisions: CartReadinessDecisionInput } | null;
 }) {
   if (snapshot.status !== "ready") {
     return (
@@ -525,20 +481,12 @@ function CheckoutAction({
 
   return (
     <Box minWidth="action">
-      <Stack gap={2}>
-        <CheckoutForm
-          label={t("checkout.features.cart.ui.cartPage.check.out")}
-          snapshot={snapshot}
-          decisions={decisions}
-        />
-        {acceptedOptimization ? (
-          <CheckoutForm
-            label={t("checkout.features.cart.ui.cartPage.use.lower.fulfillment")}
-            snapshot={acceptedOptimization.snapshot}
-            decisions={acceptedOptimization.decisions}
-          />
-        ) : null}
-      </Stack>
+      <CheckoutForm
+        label={t("checkout.features.cart.ui.cartPage.check.out")}
+        tone="primary"
+        snapshot={snapshot}
+        decisions={decisions}
+      />
     </Box>
   );
 }
@@ -549,14 +497,6 @@ function fulfillmentReviewDescription(count: number) {
       ? "checkout.features.cart.ui.cartPage.fulfillment.needs.review.description.one"
       : "checkout.features.cart.ui.cartPage.fulfillment.needs.review.description.many",
     { count },
-  );
-}
-
-function SummaryText({ children }: { children: ReactNode }) {
-  return (
-    <Text size="sm" tone="secondary">
-      {children}
-    </Text>
   );
 }
 
@@ -616,8 +556,10 @@ export function CheckoutCartPage({
   const cartLineCount = cartLineGroups.reduce((sum, line) => sum + line.quantity, 0);
   const estimatedSubtotal = estimateCartSubtotal(cartLineGroups);
   const pricedLineCount = cartLineGroups.filter(hasKnownLinePrice).length;
-  const subtotalLabel =
-    pricedLineCount > 0 ? formatMoney(estimatedSubtotal) : t("checkout.features.cart.ui.cartPage.price.at.checkout");
+  const hasKnownTotal = pricedLineCount > 0;
+  const estimatedTotal = hasKnownTotal
+    ? formatMoney(estimatedSubtotal)
+    : t("checkout.features.cart.ui.cartPage.priced.at.checkout");
   const blockedLineCount = cartLineGroups.filter((line) => !hasFulfillmentPath(line)).length;
   const baseReadinessSnapshot = createCartReadinessSnapshot(cartLineGroups);
   const declinedOptimizationDecision =
@@ -654,54 +596,52 @@ export function CheckoutCartPage({
       }
     : null;
   const cartReady = cartLineGroups.length > 0 && checkoutReadinessSnapshot.status === "ready";
+  const optimizationAvailable = cartReady && checkoutReadinessSnapshot.optimization.available;
+  const optimizationSavings = checkoutReadinessSnapshot.optimization.savingsAmount ?? "0.00";
 
-  const cartContent = (
-    <Stack gap={4}>
-      {errorMessage ? (
-        <Surface tone="subtle" elevated>
-          <Stack gap={2}>
-            <Badge tone="danger">{t("checkout.features.cart.ui.cartPage.checkout.issue")}</Badge>
-            <Text>{errorMessage}</Text>
-          </Stack>
-        </Surface>
-      ) : null}
-
-      {cartLineGroups.length === 0 ? (
-        <MarketplaceEmptyState
-          title={t("checkout.features.cart.ui.cartPage.your.cart.is.empty")}
-          description={t("checkout.features.cart.ui.cartPage.browse.the.marketplace.and.add.a")}
-          trustCue={
-            <PlatformCredibilityCue
-              title={t("checkout.features.cart.ui.cartPage.empty.cart.protection.title")}
-              description={t("checkout.features.cart.ui.cartPage.empty.cart.protection.description")}
-            />
-          }
-          recoveryActions={
-            <LinkButton href="/search">{t("checkout.features.cart.ui.cartPage.keep.shopping")}</LinkButton>
-          }
-        />
-      ) : (
-        <Stack gap={3}>
-          {!cartReady ? (
+  // §4 priority ladder: a blocking/needs-review banner and a savings notice are
+  // mutually exclusive — `CheckoutNoticeStack` renders exactly the highest
+  // priority active notice. Per-line state lives on each line's badge; this is
+  // the single aggregate notice for the whole surface.
+  const aggregateNotice = (
+    <CheckoutNoticeStack
+      candidates={[
+        {
+          priority: "needs-review",
+          active: cartLineGroups.length > 0 && !cartReady,
+          notice: (
             <Banner
               title={t("checkout.features.cart.ui.cartPage.fulfillment.needs.review")}
               description={fulfillmentReviewDescription(blockedLineCount)}
             />
-          ) : null}
-          {cartReady && checkoutReadinessSnapshot.optimization.available ? (
+          ),
+        },
+        {
+          priority: "savings",
+          active: optimizationAvailable,
+          notice: (
             <Banner
               title={t("checkout.features.cart.ui.cartPage.optimization.available.title", {
-                savings: checkoutReadinessSnapshot.optimization.savingsAmount ?? "0.00",
+                savings: optimizationSavings,
               })}
               description={t("checkout.features.cart.ui.cartPage.optimization.available.description")}
             />
-          ) : null}
-          {cartLineGroups.map((line) => (
-            <CartLineRow key={line.line_id} line={line} onQuantityChange={onQuantityChange} />
-          ))}
-        </Stack>
-      )}
-    </Stack>
+          ),
+        },
+      ]}
+    />
+  );
+
+  const checkoutContext = (
+    <Text size="sm" tone="tertiary">
+      {cartReady
+        ? t("checkout.features.cart.ui.cartPage.taxes.and.shipping.calculated")
+        : t("checkout.features.cart.ui.cartPage.resolve.before.payment")}
+    </Text>
+  );
+
+  const secureIndicator = (
+    <SecurePaymentIndicator label={t("checkout.features.cart.ui.cartPage.no.payment.until.checkout")} />
   );
 
   return (
@@ -717,49 +657,80 @@ export function CheckoutCartPage({
         description={t("checkout.features.cart.ui.cartPage.review.items.before.checkout")}
       >
         <Stack gap={4}>
-          {cartContent}
-          {cartLineGroups.length > 0 ? (
+          {errorMessage ? (
+            <Surface tone="subtle" elevated>
+              <Stack gap={2}>
+                <Badge tone="danger">{t("checkout.features.cart.ui.cartPage.checkout.issue")}</Badge>
+                <Text>{errorMessage}</Text>
+              </Stack>
+            </Surface>
+          ) : null}
+
+          {cartLineGroups.length === 0 ? (
+            <MarketplaceEmptyState
+              title={t("checkout.features.cart.ui.cartPage.your.cart.is.empty")}
+              description={t("checkout.features.cart.ui.cartPage.browse.the.marketplace.and.add.a")}
+              trustCue={
+                <PlatformCredibilityCue
+                  title={t("checkout.features.cart.ui.cartPage.empty.cart.protection.title")}
+                  description={t("checkout.features.cart.ui.cartPage.empty.cart.protection.description")}
+                />
+              }
+              recoveryActions={
+                <LinkButton href="/search">{t("checkout.features.cart.ui.cartPage.keep.shopping")}</LinkButton>
+              }
+            />
+          ) : (
             <>
-              <PriceBreakdown
+              {aggregateNotice}
+              <Stack gap={3}>
+                {cartLineGroups.map((line) => (
+                  <CartLineRow key={line.line_id} line={line} onQuantityChange={onQuantityChange} />
+                ))}
+              </Stack>
+              <CheckoutTotals
                 lines={[
                   { label: t("checkout.features.cart.ui.cartPage.items"), value: cartLineCount },
-                  { label: t("checkout.features.cart.ui.cartPage.subtotal"), value: subtotalLabel },
                   {
                     label: t("checkout.features.cart.ui.cartPage.shipping.and.tax"),
                     value: t("checkout.features.cart.ui.cartPage.calculated.at.checkout"),
                     muted: true,
                   },
                 ]}
-                total={subtotalLabel}
-                totalLabel={t("checkout.features.cart.ui.cartPage.subtotal")}
-                reassurance={
-                  <SecurePaymentIndicator label={t("checkout.features.cart.ui.cartPage.no.payment.until.checkout")} />
-                }
+                totalLabel={t("checkout.features.cart.ui.cartPage.estimated.total")}
+                total={estimatedTotal}
+                totalCaption={t("checkout.features.cart.ui.cartPage.final.total.confirmed")}
+                deferred={!hasKnownTotal}
               />
               <StickyCtaBar
-                price={subtotalLabel}
-                context={
-                  <SummaryText>
-                    {cartReady
-                      ? t("checkout.features.cart.ui.cartPage.taxes.and.shipping.calculated")
-                      : t("checkout.features.cart.ui.cartPage.resolve.before.payment")}
-                  </SummaryText>
-                }
+                totalLabel={t("checkout.features.cart.ui.cartPage.estimated.total")}
+                total={estimatedTotal}
+                context={checkoutContext}
+                reassurance={secureIndicator}
                 primaryAction={
-                  <CheckoutAction
+                  <CheckoutPrimaryAction
                     snapshot={checkoutReadinessSnapshot}
                     decisions={declinedOptimizationDecision}
-                    acceptedOptimization={acceptedOptimization}
                   />
                 }
                 secondaryAction={
-                  <LinkButton href="/search" tone="secondary" block>
-                    {t("checkout.features.cart.ui.cartPage.keep.shopping")}
-                  </LinkButton>
+                  <Stack gap={2}>
+                    {optimizationAvailable && acceptedOptimization ? (
+                      <CheckoutForm
+                        label={t("checkout.features.cart.ui.cartPage.use.lower.fulfillment")}
+                        tone="secondary"
+                        snapshot={acceptedOptimization.snapshot}
+                        decisions={acceptedOptimization.decisions}
+                      />
+                    ) : null}
+                    <LinkButton href="/search" tone="secondary" block>
+                      {t("checkout.features.cart.ui.cartPage.keep.shopping")}
+                    </LinkButton>
+                  </Stack>
                 }
               />
             </>
-          ) : null}
+          )}
         </Stack>
       </PageSection>
     </Page>

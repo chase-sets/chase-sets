@@ -44,9 +44,7 @@ const canonicalReserveZeroConsumerExports = [
   "ChaseSetsLogo",
   "chaseTheme",
   "CheckoutExpressActions",
-  "CheckoutNoticeStack",
   "CheckoutSummaryLineItem",
-  "CheckoutTotals",
   "CheckoutTrustPanel",
   "clearFieldError",
   "ColorModeToggle",
@@ -58,7 +56,6 @@ const canonicalReserveZeroConsumerExports = [
   "cx",
   "defaultToastManager",
   "DenseAdminWorkbenchProof",
-  "DestructiveAction",
   "EmptyStateIllustration",
   "EvidenceCodeBlock",
   "FeatureCard",
@@ -81,7 +78,6 @@ const canonicalReserveZeroConsumerExports = [
   "Label",
   "layoutWidthClasses",
   "MarketplaceActionSheet",
-  "MarketplaceCartLineItem",
   "MarketplaceFacetStrip",
   "MarketplaceProductCard",
   "MarketplaceProductCommerceRail",
@@ -94,7 +90,6 @@ const canonicalReserveZeroConsumerExports = [
   "NavRail",
   "normalizeFormErrors",
   "NumberField",
-  "QuantityStepper",
   "packingSlipPrintStyles",
   "Pagination",
   "Popover",
@@ -191,6 +186,14 @@ const defaultAllowedZeroConsumerExports = [
   {
     symbol: "MarketplaceTemplateGallery",
     reason: "canonical commerce reserve surface; no production consumer yet",
+  },
+  {
+    symbol: "MediaFrame",
+    reason: "internal layout/commerce media primitive; kept after cart adopted MarketplaceCartLineItem",
+  },
+  {
+    symbol: "Show",
+    reason: "internal responsive layout primitive used across DS components; no external consumer yet",
   },
 ];
 
