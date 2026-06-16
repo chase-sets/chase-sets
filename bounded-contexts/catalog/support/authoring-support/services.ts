@@ -3,6 +3,7 @@ import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-s
 import { createPostgresProjectionStore } from "@chase-sets/event-core-postgres";
 import type { PgTransactionalPool, PgQueryable } from "@chase-sets/event-core-postgres";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
+import { createCatalogAliasRuntime } from "../../features/alias-equivalence/api/runtime";
 import { createBlueprintRuntime } from "../../features/blueprints/api/runtime";
 import { createCatalogItemRuntime } from "../../features/catalog-items/api/runtime";
 import { createCategoryRuntime } from "../../features/categories/api/runtime";
@@ -35,6 +36,7 @@ export type CatalogServices = Readonly<{
   productMeasures: ReturnType<typeof createProductMeasureRuntime>;
   providerIntegrationProfiles: ReturnType<typeof createCatalogProviderIntegrationProfileVersionStore>;
   sourceObservations: ReturnType<typeof createSourceObservationRuntime>;
+  catalogAliases: ReturnType<typeof createCatalogAliasRuntime>;
   authoringBulkJobs: ReturnType<typeof createCatalogAuthoringBulkJobServices>;
   projectors: readonly ProjectionHandlerSet[];
   pool: PgTransactionalPool;
@@ -67,6 +69,7 @@ export function createCatalogServices(pool: PgTransactionalPool, ports: CatalogH
   const productMeasures = createProductMeasureRuntime(deps);
   const providerIntegrationProfiles = createCatalogProviderIntegrationProfileVersionStore(db);
   const sourceObservations = createSourceObservationRuntime(deps, items, referenceData, providerIntegrationProfiles);
+  const catalogAliases = createCatalogAliasRuntime(deps);
   const authoringBulkJobs = createCatalogAuthoringBulkJobServices(db);
 
   return {
@@ -81,6 +84,7 @@ export function createCatalogServices(pool: PgTransactionalPool, ports: CatalogH
     productMeasures,
     providerIntegrationProfiles,
     sourceObservations,
+    catalogAliases,
     authoringBulkJobs,
     projectors: [
       ...dimensions.projectors,
@@ -93,6 +97,7 @@ export function createCatalogServices(pool: PgTransactionalPool, ports: CatalogH
       ...items.projectors,
       ...productMeasures.projectors,
       ...sourceObservations.projectors,
+      ...catalogAliases.projectors,
     ],
     pool,
     db,
