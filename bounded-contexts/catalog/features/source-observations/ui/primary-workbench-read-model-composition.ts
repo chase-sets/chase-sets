@@ -10,7 +10,12 @@ import {
 } from "../api/primary-workbench-admin-contracts";
 import { defineCatalogIntegrationUnitKey, type CatalogIntegrationUnitKey } from "../api/integration-unit";
 import type { CatalogControlPlaneRouteSurfaceKey } from "./admin-control-plane/information-architecture";
-import type { CatalogProviderProfileVersionReview, SourceObservationIntegrationScope } from "./contracts";
+import type {
+  CatalogIntegrationControlPlaneUnitReadiness,
+  CatalogIntegrationProviderReadiness,
+  CatalogProviderProfileVersionReview,
+  SourceObservationIntegrationScope,
+} from "./contracts";
 import {
   catalogPrimaryWorkbenchSupportingHref,
   parseCatalogPrimaryWorkbenchRouteContext,
@@ -950,7 +955,9 @@ function providerScopeProviders(
     providerKeys.add(profile.providerKey);
   }
   for (const provider of input.controlPlaneOverview?.providerReadiness.providers ?? []) {
-    providerKeys.add(provider.providerKey);
+    if (providerReadinessHasImportUnit(provider, input.controlPlaneOverview?.readiness.units ?? [])) {
+      providerKeys.add(provider.providerKey);
+    }
   }
   if (selectedProviderKey) {
     providerKeys.add(selectedProviderKey);
@@ -997,6 +1004,18 @@ function providerScopeProviders(
       ],
     };
   });
+}
+
+function providerReadinessHasImportUnit(
+  provider: CatalogIntegrationProviderReadiness,
+  units: readonly CatalogIntegrationControlPlaneUnitReadiness[],
+): boolean {
+  return units.some(
+    (unit) =>
+      unit.providerKey === provider.providerKey &&
+      unit.ingestionPurpose === "import" &&
+      (provider.unitKeys.length === 0 || provider.unitKeys.includes(unit.unitKey)),
+  );
 }
 
 function providerImportScopes(

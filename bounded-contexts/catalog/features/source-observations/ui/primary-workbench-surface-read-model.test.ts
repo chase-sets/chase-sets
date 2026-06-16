@@ -63,6 +63,7 @@ describe("Catalog primary workbench read model - per-surface slicing", () => {
     const overview = controlPlaneOverview();
     const tcgdexUnit = overview.readiness.units[0]!;
     const tcgdexProvider = overview.providerReadiness.providers[0]!;
+    const referenceProofUnitKey = "reference-cards:pokemon:single-card:source-observation-proof";
     const tcgplayerUnitKey = "tcgplayer:pokemon:single-card:source-observation-import";
     const scrydexUnitKey = "scrydex:magic:single-card:source-observation-import";
     const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("daily", {
@@ -78,6 +79,13 @@ describe("Catalog primary workbench read model - per-surface slicing", () => {
           ...overview.readiness,
           units: [
             tcgdexUnit,
+            {
+              ...tcgdexUnit,
+              unitKey: referenceProofUnitKey,
+              providerKey: "reference-cards",
+              displayName: "Reference Pokemon single-card Source Observation proof",
+              ingestionPurpose: "proof",
+            },
             {
               ...tcgdexUnit,
               unitKey: tcgplayerUnitKey,
@@ -102,6 +110,12 @@ describe("Catalog primary workbench read model - per-surface slicing", () => {
           ...overview.providerReadiness,
           providers: [
             tcgdexProvider,
+            {
+              ...tcgdexProvider,
+              providerKey: "reference-cards",
+              adapterKey: "reference-cards",
+              unitKeys: [referenceProofUnitKey],
+            },
             { ...tcgdexProvider, providerKey: "tcgplayer", adapterKey: "tcgplayer", unitKeys: [tcgplayerUnitKey] },
             { ...tcgdexProvider, providerKey: "scrydex", adapterKey: "scrydex", unitKeys: [scrydexUnitKey] },
           ],
