@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   catalogProviderRequiredFixtureFlows,
   validateCatalogProviderExecutableMappingContract,
+  type CatalogProviderAliasCandidateContract,
   type CatalogProviderExecutableMappingContract,
   type CatalogProviderMappingEvidenceOwner,
   type CatalogProviderMappingEvidenceUse,
@@ -100,6 +101,152 @@ describe("provider integration executable mapping contract", () => {
         expect.objectContaining({ code: "missing-fixture-flow", diagnosticText: expect.stringContaining("partial") }),
         expect.objectContaining({ code: "unsafe-owner-for-catalog-use" }),
         expect.objectContaining({ code: "secret-used-as-catalog-fact" }),
+      ]),
+    );
+  });
+
+  it("keeps existing profiles without alias candidate support valid", () => {
+    const contract = tcgdexContract();
+
+    expect(contract.aliasCandidates).toBeUndefined();
+    expect(validateCatalogProviderExecutableMappingContract(contract)).toEqual([]);
+  });
+
+  it("accepts a governed official-equivalent alias candidate extraction without provider runtime branches", () => {
+    const contract: CatalogProviderExecutableMappingContract = {
+      ...tcgdexContract(),
+      aliasCandidates: [
+        // Positive extraction: an English official equivalent resolved from a
+        // governed same-id localized endpoint, supported by the shared record id.
+        aliasCandidate({
+          aliasCandidateKey: "english-official-equivalent",
+          target: { kind: "catalog-item", catalogItemFieldKey: "card-name" },
+          aliasType: "official-equivalent",
+          aliasText: aliasExpr("name"),
+          aliasLanguage: { kind: "static", languageCode: "en" },
+          sourceLanguage: { kind: "path", path: "language", required: true },
+          confidencePolicy: {
+            sourceCategory: "provider-same-id-localized-endpoint",
+            reviewPolicy: "always-review",
+          },
+          evidence: aliasExpr("id"),
+          missingEvidencePolicy: "diagnostic",
+          unknownAliasTextPolicy: "omit",
+        }),
+        // Lookup / missing-evidence review path: a provider-localized name held
+        // for review, surfaced as review evidence when no backing id is present.
+        aliasCandidate({
+          aliasCandidateKey: "provider-localized-name",
+          target: { kind: "catalog-item", catalogItemFieldKey: "card-name" },
+          aliasType: "provider-localized-name",
+          aliasText: aliasExpr("name"),
+          aliasLanguage: { kind: "path", path: "language", required: true },
+          confidencePolicy: { sourceCategory: "provider-localized-name", reviewPolicy: "always-review" },
+          evidence: aliasExpr("id"),
+          missingEvidencePolicy: "review-evidence",
+          unknownAliasTextPolicy: "omit",
+        }),
+        // Reference-record alias: a set-equivalent from a curated mapping that
+        // is eligible for governed auto-accept.
+        aliasCandidate({
+          aliasCandidateKey: "japanese-set-equivalent",
+          target: { kind: "reference-record", referenceTypeKey: "expansion" },
+          aliasType: "set-equivalent",
+          aliasText: aliasExpr("set.name"),
+          aliasLanguage: { kind: "static", languageCode: "ja" },
+          confidencePolicy: { sourceCategory: "curated-operator-mapping", reviewPolicy: "governed-auto-accept" },
+          evidence: aliasExpr("set.id"),
+          missingEvidencePolicy: "diagnostic",
+          unknownAliasTextPolicy: "diagnostic",
+        }),
+      ],
+    };
+
+    expect(validateCatalogProviderExecutableMappingContract(contract)).toEqual([]);
+  });
+
+  it("flags missing alias text, invalid type, invalid language, invalid target, and unsupported confidence policy", () => {
+    const contract: CatalogProviderExecutableMappingContract = {
+      ...tcgdexContract(),
+      aliasCandidates: [
+        // Missing alias text (empty path).
+        aliasCandidate({
+          aliasCandidateKey: "missing-text",
+          target: { kind: "catalog-item", catalogItemFieldKey: "card-name" },
+          aliasType: "literal-translation",
+          aliasText: aliasExpr(""),
+          aliasLanguage: { kind: "static", languageCode: "fr" },
+          confidencePolicy: { sourceCategory: "machine-translation", reviewPolicy: "always-review" },
+          evidence: aliasExpr("id"),
+          missingEvidencePolicy: "review-evidence",
+          unknownAliasTextPolicy: "omit",
+        }),
+        // Invalid alias type.
+        aliasCandidate({
+          aliasCandidateKey: "invalid-type",
+          target: { kind: "catalog-item", catalogItemFieldKey: "card-name" },
+          aliasType: "not-a-real-type" as CatalogProviderAliasCandidateContract["aliasType"],
+          aliasText: aliasExpr("name"),
+          aliasLanguage: { kind: "static", languageCode: "fr" },
+          confidencePolicy: { sourceCategory: "machine-translation", reviewPolicy: "always-review" },
+          evidence: aliasExpr("id"),
+          missingEvidencePolicy: "review-evidence",
+          unknownAliasTextPolicy: "omit",
+        }),
+        // Invalid language: Indonesian `id` used as an English official equivalent.
+        aliasCandidate({
+          aliasCandidateKey: "indonesian-as-english",
+          target: { kind: "catalog-item", catalogItemFieldKey: "card-name" },
+          aliasType: "official-equivalent",
+          aliasText: aliasExpr("name"),
+          aliasLanguage: { kind: "static", languageCode: "id" },
+          confidencePolicy: { sourceCategory: "official-english-source", reviewPolicy: "governed-auto-accept" },
+          evidence: aliasExpr("id"),
+          missingEvidencePolicy: "diagnostic",
+          unknownAliasTextPolicy: "omit",
+        }),
+        // Invalid target: a set-equivalent (reference-level) pointed at a Catalog Item.
+        aliasCandidate({
+          aliasCandidateKey: "set-equivalent-on-item",
+          target: { kind: "catalog-item", catalogItemFieldKey: "card-name" },
+          aliasType: "set-equivalent",
+          aliasText: aliasExpr("set.name"),
+          aliasLanguage: { kind: "static", languageCode: "ja" },
+          confidencePolicy: { sourceCategory: "curated-operator-mapping", reviewPolicy: "governed-auto-accept" },
+          evidence: aliasExpr("set.id"),
+          missingEvidencePolicy: "diagnostic",
+          unknownAliasTextPolicy: "diagnostic",
+        }),
+        // Unsupported confidence policy: machine translation can never auto-accept.
+        aliasCandidate({
+          aliasCandidateKey: "machine-auto-accept",
+          target: { kind: "catalog-item", catalogItemFieldKey: "card-name" },
+          aliasType: "generated-translation",
+          aliasText: aliasExpr("name"),
+          aliasLanguage: { kind: "static", languageCode: "fr" },
+          confidencePolicy: { sourceCategory: "machine-translation", reviewPolicy: "governed-auto-accept" },
+          evidence: aliasExpr("id"),
+          missingEvidencePolicy: "review-evidence",
+          unknownAliasTextPolicy: "omit",
+        }),
+      ],
+    };
+
+    const diagnostics = validateCatalogProviderExecutableMappingContract(contract);
+
+    expect(diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "alias-candidate-missing-text", path: "aliasCandidates.0.aliasText" }),
+        expect.objectContaining({ code: "alias-candidate-invalid-type", path: "aliasCandidates.1.aliasType" }),
+        expect.objectContaining({
+          code: "alias-candidate-invalid-language",
+          path: "aliasCandidates.2.aliasLanguage.languageCode",
+        }),
+        expect.objectContaining({ code: "alias-candidate-invalid-target", path: "aliasCandidates.3.target" }),
+        expect.objectContaining({
+          code: "alias-candidate-unsupported-confidence-policy",
+          path: "aliasCandidates.4.confidencePolicy.reviewPolicy",
+        }),
       ]),
     );
   });
@@ -453,4 +600,22 @@ function nonGoals(): CatalogProviderExecutableMappingContract["nonGoals"] {
     "no-provider-secrets-in-events-logs-or-fixtures",
     "no-provider-transport-branches-in-mapping-interpreter",
   ];
+}
+
+function aliasCandidate(candidate: CatalogProviderAliasCandidateContract): CatalogProviderAliasCandidateContract {
+  return candidate;
+}
+
+function aliasExpr(path: string): CatalogProviderMappingValueExpression {
+  return {
+    selector: {
+      kind: "path",
+      path,
+      required: false,
+      nullPolicy: "omit",
+    },
+    owner: "catalog-alias-evidence",
+    uses: ["alias-candidate"],
+    redaction: "none",
+  };
 }

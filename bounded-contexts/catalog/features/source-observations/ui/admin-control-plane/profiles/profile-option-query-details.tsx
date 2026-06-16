@@ -28,9 +28,9 @@ export function ProviderOptionQueryDetails({ workspace }: { workspace: ProfileSe
           descriptionVariant="mono"
           badges={
             <BadgeCluster
-              items={query.aliases.map((alias) => ({
-                key: alias,
-                label: alias,
+              items={query.queryKeySynonyms.map((synonym) => ({
+                key: synonym,
+                label: synonym,
                 tone: "neutral",
               }))}
             />

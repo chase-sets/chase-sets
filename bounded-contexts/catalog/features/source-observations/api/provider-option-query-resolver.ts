@@ -263,13 +263,13 @@ function unsupportedQueryError(profile: CatalogProviderIntegrationProfile, query
 }
 
 function matchesOptionQuery(query: CatalogProviderOptionQuery, queryKind: string): boolean {
-  return query.queryKind === queryKind || (query.aliases ?? []).includes(queryKind);
+  return query.queryKind === queryKind || (query.queryKeySynonyms ?? []).includes(queryKind);
 }
 
 function catalogProviderListOptionQuery(): CatalogProviderOptionQuery {
   return {
     queryKind: "providers",
-    aliases: ["provider"],
+    queryKeySynonyms: ["provider"],
     displayName: "Provider",
     scope: "product/card",
     parentScope: null,

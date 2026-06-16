@@ -502,7 +502,7 @@ function sourceOptionKindReadModel(
   const missing = Boolean(kind?.parentRequired && kind.parentScope && !request.selectedParentValue);
   return {
     queryKind: request.queryKind,
-    aliases: kind?.aliases ?? [],
+    queryKeySynonyms: kind?.queryKeySynonyms ?? [],
     displayName: request.displayName,
     scope: request.scope,
     parentScope: request.parentScope,

@@ -1,10 +1,18 @@
 import type { JsonValue } from "@chase-sets/primitives/json";
+import {
+  decideCatalogAliasAcceptance,
+  getCatalogAliasSourceGovernancePolicy,
+  isRejectedNonEnglishLanguageCode,
+  type CatalogAliasSourceCategoryKey,
+  type CatalogAliasTypeKey,
+} from "./catalog-integration-data-governance";
 
 export type CatalogProviderProfileLifecycle = "draft" | "test" | "active" | "deprecated" | "retired";
 
 export type CatalogProviderMappingEvidenceOwner =
   | "catalog-truth"
   | "catalog-merge-evidence"
+  | "catalog-alias-evidence"
   | "external-reference"
   | "pricing-signal"
   | "inventory-signal"
@@ -19,6 +27,7 @@ export type CatalogProviderMappingEvidenceUse =
   | "external-reference"
   | "selected-option"
   | "reference-hierarchy"
+  | "alias-candidate"
   | "promotion-command";
 
 export type CatalogProviderMappingSourceContract = Readonly<{
@@ -217,6 +226,66 @@ export type CatalogProviderReferenceHierarchyContract = Readonly<{
   parent?: CatalogProviderReferenceHierarchyContract;
 }>;
 
+// ---------------------------------------------------------------------------
+// Alias candidate extraction (#1904)
+//
+// Declares, as data, how a provider mapping produces an `Alias Candidate`: a
+// reviewable claim that a piece of provider text is an equivalent name for a
+// Catalog Item or Reference Record. The alias type, source category, and
+// acceptance disposition are owned by the alias source-governance policy
+// (`catalog-integration-data-governance.ts`); this contract references those
+// exports rather than declaring a parallel policy. No provider-specific runtime
+// branch is required: a profile declares alias extraction the same way it
+// declares selected options or external references.
+// ---------------------------------------------------------------------------
+
+/**
+ * What an extracted alias candidate is an equivalent name for. Catalog Items are
+ * the default; `set-equivalent` / `series-equivalent` aliases operate at the
+ * Reference Record level (expansion and series) per the ADR.
+ */
+export type CatalogProviderAliasCandidateTargetKind = "catalog-item" | "reference-record";
+
+export type CatalogProviderAliasCandidateTarget =
+  | Readonly<{ kind: "catalog-item"; catalogItemFieldKey: string }>
+  | Readonly<{ kind: "reference-record"; referenceTypeKey: string }>;
+
+/**
+ * How the alias candidate decides confidence and whether it may auto-accept.
+ * The `sourceCategory` is governed by the alias source-governance policy; the
+ * profile never invents its own auto-accept rule. `reviewPolicy` records the
+ * authoring intent and must agree with what the governed category permits:
+ * `governed-auto-accept` is only valid for categories whose acceptance policy is
+ * `auto-accept`; every other category must declare `always-review`.
+ */
+export type CatalogProviderAliasCandidateConfidencePolicy = Readonly<{
+  sourceCategory: CatalogAliasSourceCategoryKey;
+  reviewPolicy: "governed-auto-accept" | "always-review";
+}>;
+
+export type CatalogProviderAliasCandidateContract = Readonly<{
+  aliasCandidateKey: string;
+  target: CatalogProviderAliasCandidateTarget;
+  aliasType: CatalogAliasTypeKey;
+  /** Provider text expression that yields the alias name. */
+  aliasText: CatalogProviderMappingValueExpression;
+  /** Language of the alias text (BCP-47-style code, e.g. "fr", "ja"). */
+  aliasLanguage: CatalogProviderAliasCandidateLanguage;
+  /** Language of the canonical name the alias is an equivalent of, when known. */
+  sourceLanguage?: CatalogProviderAliasCandidateLanguage;
+  confidencePolicy: CatalogProviderAliasCandidateConfidencePolicy;
+  /** Supporting evidence expression (e.g. shared provider id) backing the alias. */
+  evidence: CatalogProviderMappingValueExpression;
+  /** What to do when alias text resolves but no supporting evidence is present. */
+  missingEvidencePolicy: "diagnostic" | "review-evidence";
+  /** What to do when the alias text itself cannot be resolved. */
+  unknownAliasTextPolicy: "diagnostic" | "omit";
+}>;
+
+export type CatalogProviderAliasCandidateLanguage =
+  | Readonly<{ kind: "static"; languageCode: string }>
+  | Readonly<{ kind: "path"; path: string; required: boolean }>;
+
 export type CatalogProviderDuplicatePreventionContract = Readonly<{
   exactExternalCatalogItemReferencesFirst: boolean;
   mergeCandidateEvidence: readonly CatalogProviderMappingValueExpression[];
@@ -273,6 +342,7 @@ export type CatalogProviderExecutableMappingContract = Readonly<{
   normalizedObservation: CatalogProviderNormalizedObservationContract;
   externalReferences: readonly CatalogProviderExternalReferenceContract[];
   referenceHierarchy: readonly CatalogProviderReferenceHierarchyContract[];
+  aliasCandidates?: readonly CatalogProviderAliasCandidateContract[];
   duplicatePrevention: CatalogProviderDuplicatePreventionContract;
   promotionCommandPlan: CatalogProviderPromotionCommandPlanContract;
   nonGoals: readonly CatalogProviderProfileNonGoal[];
@@ -291,7 +361,12 @@ export type CatalogProviderMappingContractDiagnostic = Readonly<{
     | "missing-fixture-flow"
     | "live-provider-calls-in-fixtures"
     | "unsafe-owner-for-catalog-use"
-    | "secret-used-as-catalog-fact";
+    | "secret-used-as-catalog-fact"
+    | "alias-candidate-missing-text"
+    | "alias-candidate-invalid-type"
+    | "alias-candidate-invalid-language"
+    | "alias-candidate-invalid-target"
+    | "alias-candidate-unsupported-confidence-policy";
   path: string;
   diagnosticText: string;
 }>;
@@ -357,6 +432,9 @@ export function validateCatalogProviderExecutableMappingContract(
   contract.referenceHierarchy.forEach((reference, index) =>
     validateReferenceHierarchy(`referenceHierarchy.${index}`, reference, diagnostics),
   );
+  (contract.aliasCandidates ?? []).forEach((aliasCandidate, index) =>
+    validateAliasCandidate(`aliasCandidates.${index}`, aliasCandidate, diagnostics),
+  );
   contract.duplicatePrevention.mergeCandidateEvidence.forEach((expression, index) =>
     validateExpression(`duplicatePrevention.mergeCandidateEvidence.${index}`, expression, diagnostics),
   );
@@ -389,6 +467,195 @@ function validateReferenceHierarchy(
   }
 }
 
+/**
+ * Alias types that operate at the Reference Record level (expansion and series)
+ * per the ADR. Every other alias type operates at the Catalog Item level.
+ */
+const referenceRecordAliasTypes: readonly CatalogAliasTypeKey[] = ["set-equivalent", "series-equivalent"];
+
+const knownAliasTypes: readonly CatalogAliasTypeKey[] = [
+  "official-equivalent",
+  "provider-localized-name",
+  "species-name",
+  "literal-translation",
+  "romanization",
+  "generated-translation",
+  "set-equivalent",
+  "series-equivalent",
+];
+
+function validateAliasCandidate(
+  path: string,
+  aliasCandidate: CatalogProviderAliasCandidateContract,
+  diagnostics: CatalogProviderMappingContractDiagnostic[],
+): void {
+  validateExpression(`${path}.aliasText`, aliasCandidate.aliasText, diagnostics);
+  validateExpression(`${path}.evidence`, aliasCandidate.evidence, diagnostics);
+
+  // Missing alias text: the alias text selector resolves to nothing usable.
+  if (aliasTextIsMissing(aliasCandidate.aliasText)) {
+    diagnostics.push({
+      code: "alias-candidate-missing-text",
+      path: `${path}.aliasText`,
+      diagnosticText: "An alias candidate must declare a provider expression that yields the alias text.",
+    });
+  }
+
+  // Invalid alias type: not a known ADR alias type.
+  if (!knownAliasTypes.includes(aliasCandidate.aliasType)) {
+    diagnostics.push({
+      code: "alias-candidate-invalid-type",
+      path: `${path}.aliasType`,
+      diagnosticText: `Alias type '${aliasCandidate.aliasType}' is not a known Catalog Alias type.`,
+    });
+    return;
+  }
+
+  // Invalid target: target kind and alias-type level must agree, and the target
+  // must name its field/reference type.
+  validateAliasCandidateTarget(path, aliasCandidate, diagnostics);
+
+  // Invalid language: empty static codes, and non-English codes used for an
+  // English-only alias type (TCGdex `id` is Indonesian and is never English).
+  validateAliasCandidateLanguage(`${path}.aliasLanguage`, aliasCandidate.aliasLanguage, aliasCandidate, diagnostics);
+  if (aliasCandidate.sourceLanguage) {
+    validateAliasCandidateLanguage(
+      `${path}.sourceLanguage`,
+      aliasCandidate.sourceLanguage,
+      aliasCandidate,
+      diagnostics,
+    );
+  }
+
+  // Unsupported confidence/review policy: the source category must be able to
+  // produce this alias type, and the declared review policy must agree with the
+  // governed acceptance disposition.
+  validateAliasCandidateConfidencePolicy(path, aliasCandidate, diagnostics);
+}
+
+function validateAliasCandidateTarget(
+  path: string,
+  aliasCandidate: CatalogProviderAliasCandidateContract,
+  diagnostics: CatalogProviderMappingContractDiagnostic[],
+): void {
+  const target = aliasCandidate.target;
+  const aliasTypeIsReferenceLevel = referenceRecordAliasTypes.includes(aliasCandidate.aliasType);
+
+  if (target.kind === "catalog-item") {
+    if (aliasTypeIsReferenceLevel) {
+      diagnostics.push({
+        code: "alias-candidate-invalid-target",
+        path: `${path}.target`,
+        diagnosticText: `Alias type '${aliasCandidate.aliasType}' targets a Reference Record, not a Catalog Item.`,
+      });
+    }
+    if (target.catalogItemFieldKey.trim().length === 0) {
+      diagnostics.push({
+        code: "alias-candidate-invalid-target",
+        path: `${path}.target.catalogItemFieldKey`,
+        diagnosticText: "A Catalog Item alias target must name the Catalog Item field it aliases.",
+      });
+    }
+    return;
+  }
+
+  if (!aliasTypeIsReferenceLevel) {
+    diagnostics.push({
+      code: "alias-candidate-invalid-target",
+      path: `${path}.target`,
+      diagnosticText: `Alias type '${aliasCandidate.aliasType}' targets a Catalog Item, not a Reference Record.`,
+    });
+  }
+  if (target.referenceTypeKey.trim().length === 0) {
+    diagnostics.push({
+      code: "alias-candidate-invalid-target",
+      path: `${path}.target.referenceTypeKey`,
+      diagnosticText: "A Reference Record alias target must name the reference type it aliases.",
+    });
+  }
+}
+
+function validateAliasCandidateLanguage(
+  path: string,
+  language: CatalogProviderAliasCandidateLanguage,
+  aliasCandidate: CatalogProviderAliasCandidateContract,
+  diagnostics: CatalogProviderMappingContractDiagnostic[],
+): void {
+  if (language.kind === "path") {
+    if (language.path.trim().length === 0) {
+      diagnostics.push({
+        code: "alias-candidate-invalid-language",
+        path: `${path}.path`,
+        diagnosticText: "An alias language path must reference a provider field.",
+      });
+    }
+    return;
+  }
+
+  const languageCode = language.languageCode.trim();
+  if (languageCode.length === 0) {
+    diagnostics.push({
+      code: "alias-candidate-invalid-language",
+      path: `${path}.languageCode`,
+      diagnosticText: "An alias language code must not be empty.",
+    });
+    return;
+  }
+
+  // An English official equivalent can never be carried by the TCGdex `id`
+  // (Indonesian) language code.
+  if (aliasCandidate.aliasType === "official-equivalent" && isRejectedNonEnglishLanguageCode(languageCode)) {
+    diagnostics.push({
+      code: "alias-candidate-invalid-language",
+      path: `${path}.languageCode`,
+      diagnosticText: `Language code '${languageCode}' is Indonesian and is never valid English evidence for an official equivalent.`,
+    });
+  }
+}
+
+function validateAliasCandidateConfidencePolicy(
+  path: string,
+  aliasCandidate: CatalogProviderAliasCandidateContract,
+  diagnostics: CatalogProviderMappingContractDiagnostic[],
+): void {
+  const { sourceCategory, reviewPolicy } = aliasCandidate.confidencePolicy;
+  const policy = getCatalogAliasSourceGovernancePolicy(sourceCategory);
+
+  if (!policy.producibleAliasTypes.includes(aliasCandidate.aliasType)) {
+    diagnostics.push({
+      code: "alias-candidate-unsupported-confidence-policy",
+      path: `${path}.confidencePolicy.sourceCategory`,
+      diagnosticText: `Source category '${sourceCategory}' cannot produce alias type '${aliasCandidate.aliasType}'.`,
+    });
+    return;
+  }
+
+  const decision = decideCatalogAliasAcceptance({ category: sourceCategory });
+  const governedAllowsAutoAccept = decision.reviewState === "auto-accepted";
+
+  if (reviewPolicy === "governed-auto-accept" && !governedAllowsAutoAccept) {
+    diagnostics.push({
+      code: "alias-candidate-unsupported-confidence-policy",
+      path: `${path}.confidencePolicy.reviewPolicy`,
+      diagnosticText: `Source category '${sourceCategory}' does not permit auto-accept and must declare 'always-review'.`,
+    });
+  }
+}
+
+function aliasTextIsMissing(expression: CatalogProviderMappingValueExpression): boolean {
+  const selector = expression.selector;
+  if (selector.kind === "path") {
+    return selector.path.trim().length === 0;
+  }
+  if (selector.kind === "constant") {
+    return typeof selector.value !== "string" || selector.value.trim().length === 0;
+  }
+  if (selector.kind === "template") {
+    return selector.template.trim().length === 0;
+  }
+  return false;
+}
+
 function validateExpression(
   path: string,
   expression: CatalogProviderMappingValueExpression,
@@ -402,6 +669,7 @@ function validateExpression(
       use === "external-reference" ||
       use === "selected-option" ||
       use === "reference-hierarchy" ||
+      use === "alias-candidate" ||
       use === "promotion-command",
   );
   const disallowedOwner =

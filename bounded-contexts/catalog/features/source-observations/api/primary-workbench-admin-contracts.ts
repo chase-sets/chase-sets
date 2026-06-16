@@ -391,7 +391,7 @@ export type CatalogPrimaryWorkbenchSourceOptionPageState =
 
 export type CatalogPrimaryWorkbenchSourceOptionKindReadModel = Readonly<{
   queryKind: string;
-  aliases: readonly string[];
+  queryKeySynonyms: readonly string[];
   displayName: string;
   scope: string;
   parentScope: string | null;
@@ -1290,7 +1290,7 @@ export type CatalogPrimaryWorkbenchProfileSectionField = Readonly<{
 
 export type CatalogPrimaryWorkbenchProfileOptionQueryDetail = Readonly<{
   queryKind: string;
-  aliases: readonly string[];
+  queryKeySynonyms: readonly string[];
   displayName: string;
   scope: string;
   parentScope: string | null;

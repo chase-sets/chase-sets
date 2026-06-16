@@ -18,7 +18,8 @@ export type CatalogProviderCapability =
   | "provider-option-query"
   | "source-observation-import"
   | "catalog-item-promotion"
-  | "external-reference-extraction";
+  | "external-reference-extraction"
+  | "alias-candidate-extraction";
 
 export type CatalogProviderScope =
   | "language"
@@ -32,7 +33,7 @@ export type CatalogProviderScope =
 
 export type CatalogProviderOptionQuery = Readonly<{
   queryKind: string;
-  aliases?: readonly string[];
+  queryKeySynonyms?: readonly string[];
   displayName: string;
   scope: CatalogProviderScope;
   parentScope: CatalogProviderScope | null;
@@ -236,11 +237,11 @@ export type CatalogProviderSelectedOptionDimensionMapping = Readonly<{
   }>;
   required: boolean;
   unknownPolicy: "review-evidence";
-  optionAliases?: readonly CatalogProviderSelectedOptionAliasMapping[];
+  valueSynonyms?: readonly CatalogProviderSelectedOptionValueSynonym[];
   valueMappings?: readonly CatalogProviderSelectedOptionValueMapping[];
 }>;
 
-export type CatalogProviderSelectedOptionAliasMapping = Readonly<{
+export type CatalogProviderSelectedOptionValueSynonym = Readonly<{
   optionKey: string;
   providerValues: readonly string[];
 }>;
@@ -447,6 +448,7 @@ export const tcgdexPokemonTcgProviderProfile = {
     "source-observation-import",
     "catalog-item-promotion",
     "external-reference-extraction",
+    "alias-candidate-extraction",
   ],
   supportedScopes: ["language", "series", "expansion", "product/card"],
   languageOptions: [
@@ -471,7 +473,7 @@ export const tcgdexPokemonTcgProviderProfile = {
   optionQueries: [
     {
       queryKind: "languages",
-      aliases: ["language"],
+      queryKeySynonyms: ["language"],
       displayName: "Language",
       scope: "language",
       parentScope: null,
@@ -510,7 +512,7 @@ export const tcgdexPokemonTcgProviderProfile = {
     },
     {
       queryKind: "expansions",
-      aliases: ["expansion"],
+      queryKeySynonyms: ["expansion"],
       displayName: "Expansion",
       scope: "expansion",
       parentScope: "series",
@@ -860,7 +862,7 @@ export const tcgplayerAutomationClientProviderProfile = {
   optionQueries: [
     {
       queryKind: "product-lines",
-      aliases: ["product-line", "categories"],
+      queryKeySynonyms: ["product-line", "categories"],
       displayName: "Product Line",
       scope: "product-line/category",
       parentScope: null,
@@ -879,7 +881,7 @@ export const tcgplayerAutomationClientProviderProfile = {
     },
     {
       queryKind: "set-names",
-      aliases: ["set-name", "sets"],
+      queryKeySynonyms: ["set-name", "sets"],
       displayName: "Set Name",
       scope: "set-name",
       parentScope: "product-line/category",
@@ -1083,7 +1085,7 @@ export const tcgplayerAutomationClientProviderProfile = {
         providerValue: { source: "record", path: "condition" },
         required: true,
         unknownPolicy: "review-evidence",
-        optionAliases: [
+        valueSynonyms: [
           { optionKey: "pristine", providerValues: ["Pristine"] },
           { optionKey: "mint", providerValues: ["Mint"] },
           { optionKey: "near-mint", providerValues: ["Near Mint", "Near-Mint", "NM"] },
@@ -1098,7 +1100,7 @@ export const tcgplayerAutomationClientProviderProfile = {
         providerValue: { source: "record", path: "variant" },
         required: false,
         unknownPolicy: "review-evidence",
-        optionAliases: [
+        valueSynonyms: [
           { optionKey: "normal", providerValues: ["Normal", "Standard"] },
           { optionKey: "holofoil", providerValues: ["Holofoil", "Holo", "Foil"] },
           { optionKey: "reverse-holofoil", providerValues: ["Reverse Holofoil", "Reverse Holo", "Reverse"] },
@@ -1109,7 +1111,7 @@ export const tcgplayerAutomationClientProviderProfile = {
         providerValue: { source: "record", path: "language" },
         required: false,
         unknownPolicy: "review-evidence",
-        optionAliases: [{ optionKey: "english", providerValues: ["English", "EN"] }],
+        valueSynonyms: [{ optionKey: "english", providerValues: ["English", "EN"] }],
       },
       {
         dimensionKey: "product-form",
@@ -1120,7 +1122,7 @@ export const tcgplayerAutomationClientProviderProfile = {
           { from: true, value: "unopened" },
           { from: false, value: "single" },
         ],
-        optionAliases: [
+        valueSynonyms: [
           { optionKey: "unopened", providerValues: ["unopened", "sealed"] },
           { optionKey: "raw", providerValues: ["single", "raw"] },
         ],
