@@ -87,14 +87,10 @@ export function guidedSourceScopeFields(
   });
 }
 
-function selectedSourceScopeValues(
-  readModel: CatalogPrimaryWorkbenchReadModel,
-): ReadonlyMap<string, string> {
+function selectedSourceScopeValues(readModel: CatalogPrimaryWorkbenchReadModel): ReadonlyMap<string, string> {
   const selections = new Map<string, string>();
   const explicitScopes = new Set<string>();
-  const parentScopeByScope = new Map(
-    readModel.sourceOptions.optionKinds.map((kind) => [kind.scope, kind.parentScope]),
-  );
+  const parentScopeByScope = new Map(readModel.sourceOptions.optionKinds.map((kind) => [kind.scope, kind.parentScope]));
 
   for (const scopeName of Object.keys(scopeQueryFieldByProviderScope)) {
     const value = scopeFieldValue(readModel.routeContext.scope, scopeQueryFieldByProviderScope[scopeName]!);
