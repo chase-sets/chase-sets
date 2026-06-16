@@ -90,6 +90,7 @@ describe("checkout web routes: account cart", () => {
 
   afterEach(() => {
     vi.resetAllMocks();
+    vi.useRealTimers();
     vi.unstubAllEnvs();
   });
 
@@ -144,6 +145,64 @@ describe("checkout web routes: account cart", () => {
     });
   });
 
+  it("recovers signed-in account cart self-refresh when a fresh receipt reads a transient not-found cart", async () => {
+    vi.useFakeTimers();
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["checkout.manage"] });
+    mockGetCart.mockRejectedValue(
+      new MockCheckoutApiError(404, {
+        error: {
+          code: "not_found",
+          message: "Cart projection has not caught up yet.",
+        },
+      }),
+    );
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCart: mockGetCart,
+    });
+    const request = new Request(
+      `http://localhost${appendFreshWriteToken("/account/cart", checkoutCommit("42", "evt_checkout"))}`,
+    );
+
+    const resultPromise = accountCartLoader({
+      request,
+      params: {},
+      context: undefined,
+    } as never);
+
+    await vi.runAllTimersAsync();
+
+    await expect(resultPromise).resolves.toEqual({
+      cart: { items: [], count: 0 },
+      freshnessError: expect.any(String),
+    });
+    expect(mockGetCart).toHaveBeenCalledTimes(6);
+  });
+
+  it.each([502, 503, 504])(
+    "recovers signed-in account cart self-refresh when a fresh receipt reads an opaque %i gateway error",
+    async (status) => {
+      mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["checkout.manage"] });
+      mockGetCart.mockRejectedValue(new MockCheckoutApiError(status, null));
+      mockCreateCheckoutRequestApiClient.mockReturnValue({
+        getCart: mockGetCart,
+      });
+      const request = new Request(
+        `http://localhost${appendFreshWriteToken("/account/cart", checkoutCommit("42", "evt_checkout"))}`,
+      );
+
+      const result = await accountCartLoader({
+        request,
+        params: {},
+        context: undefined,
+      } as never);
+
+      expect(result).toEqual({
+        cart: { items: [], count: 0 },
+        freshnessError: expect.any(String),
+      });
+    },
+  );
+
   it("treats account cart projection timeouts without a fresh receipt as permanent loader failures", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["checkout.manage"] });
     mockGetCart.mockRejectedValue(
@@ -166,6 +225,41 @@ describe("checkout web routes: account cart", () => {
       } as never),
     ).rejects.toMatchObject({ status: 503 });
   });
+
+  it.each([
+    {
+      name: "malformed",
+      href: "/account/cart?afterWrite=%7Bnot-json",
+    },
+    {
+      name: "far-future",
+      href: appendFreshWriteToken("/account/cart", checkoutCommit("42", "evt_checkout"), Date.now() + 60_000),
+    },
+  ])(
+    "treats account cart projection timeouts with $name fresh receipts as permanent loader failures",
+    async ({ href }) => {
+      mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["checkout.manage"] });
+      mockGetCart.mockRejectedValue(
+        new MockCheckoutApiError(503, {
+          error: {
+            code: "projection_freshness_timeout",
+            message: "Projection read model did not catch up before the freshness timeout.",
+          },
+        }),
+      );
+      mockCreateCheckoutRequestApiClient.mockReturnValue({
+        getCart: mockGetCart,
+      });
+
+      await expect(
+        accountCartLoader({
+          request: new Request(`http://localhost${href}`),
+          params: {},
+          context: undefined,
+        } as never),
+      ).rejects.toMatchObject({ status: 503 });
+    },
+  );
 
   it("treats account cart projection timeouts with expired fresh receipts as permanent loader failures", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["checkout.manage"] });
@@ -195,6 +289,75 @@ describe("checkout web routes: account cart", () => {
         context: undefined,
       } as never),
     ).rejects.toMatchObject({ status: 503 });
+  });
+
+  it.each([401, 403])(
+    "treats account cart authorization status %i with fresh receipts as permanent loader failures",
+    async (status) => {
+      mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["checkout.manage"] });
+      mockGetCart.mockRejectedValue(
+        new MockCheckoutApiError(status, {
+          error: {
+            code: status === 401 ? "authentication_required" : "authorization_forbidden",
+            message: "Authentication required.",
+          },
+        }),
+      );
+      mockCreateCheckoutRequestApiClient.mockReturnValue({
+        getCart: mockGetCart,
+      });
+      const request = new Request(
+        `http://localhost${appendFreshWriteToken("/account/cart", checkoutCommit("42", "evt_checkout"))}`,
+      );
+
+      await expect(
+        accountCartLoader({
+          request,
+          params: {},
+          context: undefined,
+        } as never),
+      ).rejects.toMatchObject({ status });
+    },
+  );
+
+  it.each([
+    {
+      name: "missing",
+      href: "/account/cart",
+    },
+    {
+      name: "malformed",
+      href: "/account/cart?afterWrite=%7Bnot-json",
+    },
+    {
+      name: "expired",
+      href: appendFreshWriteToken("/account/cart", checkoutCommit("42", "evt_checkout"), Date.now() - 40_000),
+    },
+    {
+      name: "far-future",
+      href: appendFreshWriteToken("/account/cart", checkoutCommit("42", "evt_checkout"), Date.now() + 60_000),
+    },
+  ])("treats account cart not-found reads with $name receipts as permanent loader failures", async ({ href }) => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["checkout.manage"] });
+    mockGetCart.mockRejectedValue(
+      new MockCheckoutApiError(404, {
+        error: {
+          code: "not_found",
+          message: "Cart not found.",
+        },
+      }),
+    );
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCart: mockGetCart,
+    });
+
+    await expect(
+      accountCartLoader({
+        request: new Request(`http://localhost${href}`),
+        params: {},
+        context: undefined,
+      } as never),
+    ).rejects.toMatchObject({ status: 404 });
   });
 
   it("updates the primary grouped cart line and removes duplicate line ids", async () => {

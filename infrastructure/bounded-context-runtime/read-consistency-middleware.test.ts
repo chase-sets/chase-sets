@@ -228,6 +228,98 @@ describe("bounded context read consistency middleware", () => {
     expect(refreshCart).not.toHaveBeenCalled();
   });
 
+  it("waits only on the account cart projection for account cart self-refreshes", async () => {
+    const middlewares: ((context: unknown, next: () => Promise<void>) => Promise<unknown>)[] = [];
+    const receipt = encodeFreshWriteReceipt({
+      observedAtMs: Date.now(),
+      sources: [{ sourceContextName: "checkout", maxGlobalPosition: "5", eventIds: ["evt_5"] }],
+    });
+    const refreshSession = vi.fn(async () => ({
+      lastGlobalPosition: "1",
+      state: "behind",
+      lastError: "session projection should not be inspected",
+    }));
+    const refreshCart = vi.fn(async () => ({
+      lastGlobalPosition: "5",
+      state: "caught-up",
+      lastError: null,
+    }));
+    const refreshSellList = vi.fn(async () => ({
+      lastGlobalPosition: "1",
+      state: "behind",
+      lastError: "sell list projection should not be inspected",
+    }));
+
+    attachReadConsistencyMiddleware(
+      {
+        use: (_path, middleware) => {
+          middlewares.push(middleware);
+        },
+      },
+      [
+        {
+          contextName: "checkout",
+          mountPath: "/api/marketplace",
+          readFreshnessRoutes: [
+            {
+              routePath: "/account/cart",
+              dependencies: [{ readModelTable: "checkout_cart_line_pages" }],
+            },
+            {
+              routePath: "/account/checkout-sessions/:sessionId",
+              dependencies: [{ readModelTable: "checkout_session_pages" }],
+            },
+            {
+              routePath: "/account/sell-list",
+              dependencies: [{ readModelTable: "checkout_sell_list_line_pages" }],
+            },
+          ],
+        },
+      ],
+      [
+        {
+          targetContextName: "checkout",
+          projectionName: "checkout.session-projection",
+          ownedTables: ["checkout_session_pages"],
+          subscriptionRunners: [{ sourceContextName: "checkout", refreshStatus: refreshSession }],
+        },
+        {
+          targetContextName: "checkout",
+          projectionName: "checkout.cart-projection",
+          ownedTables: ["checkout_cart_line_pages"],
+          subscriptionRunners: [{ sourceContextName: "checkout", refreshStatus: refreshCart }],
+        },
+        {
+          targetContextName: "checkout",
+          projectionName: "checkout.sell-list-projection",
+          ownedTables: ["checkout_sell_list_line_pages"],
+          subscriptionRunners: [{ sourceContextName: "checkout", refreshStatus: refreshSellList }],
+        },
+      ],
+      { timeoutMs: 0, pollIntervalMs: 1 },
+    );
+
+    let nextCalled = false;
+    await middlewares[0](
+      {
+        req: {
+          method: "GET",
+          path: "/api/marketplace/account/cart",
+          header: (name: string) => (name === CHASE_SETS_READ_AFTER_WRITE_HEADER ? receipt : undefined),
+        },
+        json: (body: unknown, status: number) => ({ body, status }),
+      },
+      async () => {
+        nextCalled = true;
+      },
+    );
+
+    expect(nextCalled).toBe(true);
+    expect(refreshCart).toHaveBeenCalledTimes(1);
+    expect(refreshSession).not.toHaveBeenCalled();
+    expect(refreshSellList).not.toHaveBeenCalled();
+  });
+
   it("can fall back exact route dependencies to target-context waits through route tuning", async () => {
     const middlewares: ((context: unknown, next: () => Promise<void>) => Promise<unknown>)[] = [];
     const auditRecords: unknown[] = [];

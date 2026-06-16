@@ -133,6 +133,25 @@ pnpm --filter @chase-sets/platform-runtime run test -- realtime-routes.test.ts r
 
 Run broader context tests when touching route code, UI behavior, command handlers, or manifests. With Postgres available, include the realtime DB integration test named in the [Realtime SSE Runbook](../runbooks/realtime-sse.md).
 
+## Audit Telemetry
+
+Post-write flows should emit low-cardinality audit events when they choose, apply, correct, or terminate a consistency strategy. The shared metric is `chase_sets_post_write_consistency_events_total` with `type="post-write.consistency"` and bounded labels for context, surface, strategy, outcome, route id, route template, correction source, actor mode, recovery action, and freshness outcome.
+
+Canonical outcomes are:
+
+| Outcome | Meaning |
+| --- | --- |
+| `missing_strategy` | A mutation reached a user-visible post-write path without an inventory-backed strategy. |
+| `optimistic_applied` | The route applied a bounded optimistic state after a reversible write. |
+| `freshness_timeout` | A fresh-read path exhausted its bounded projection wait or route budget. |
+| `rollback` | The route restored or replaced optimistic state after a failed or rejected write. |
+| `reconciliation` | Server-confirmed state reconciled the local view after a write. |
+| `stale_response_discard` | An older command, snapshot, refetch, or patch was ignored because newer local/server state already won. |
+
+Labels must never contain account ids, cart ids, checkout session ids, item ids, event ids, raw `afterWrite`, cookies, emails, full URLs, or provider payloads. Use route templates such as `/account/cart` and stable surface names such as `account-cart`.
+
+Account cart release evidence uses the [Account Cart Consistency Canary](../runbooks/account-cart-consistency-canary.md). The canary is a redacted observation artifact until the Marketplace/runtime owner adds fixture-owned browser automation with cleanup.
+
 ## Privacy And Redaction
 
 Post-write consistency metadata must stay structural:

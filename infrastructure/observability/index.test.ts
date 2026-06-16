@@ -10,9 +10,11 @@ import {
   itemDetailRailAnalyticsAttributes,
   loadObservabilityConfig,
   parseOtlpHeaders,
+  postWriteConsistencyEventAttributes,
   projectionFreshnessAuditMetricRecords,
   publicPresenceWaitlistAnalyticsAttributes,
   recordCheckoutObservabilityEvent,
+  recordPostWriteConsistencyEvent,
   recordProjectionWakeIntentOutcome,
   recordProjectionWakeNotificationEmitted,
   recordProjectionWakeRelayCatchUp,
@@ -312,6 +314,109 @@ describe("checkout observability", () => {
 
   it("records checkout events through the shared metric without requiring raw ids", () => {
     expect(() => recordCheckoutObservabilityEvent(operatorSignalEvent)).not.toThrow();
+  });
+});
+
+describe("post-write consistency observability", () => {
+  it("maps canonical post-write outcomes to low-cardinality labels", () => {
+    const outcomes = [
+      "missing_strategy",
+      "optimistic_applied",
+      "freshness_timeout",
+      "rollback",
+      "reconciliation",
+      "stale_response_discard",
+    ] as const;
+
+    expect(
+      outcomes.map((outcome) =>
+        postWriteConsistencyEventAttributes({
+          boundedContextName: "checkout",
+          surface: "account-cart",
+          strategy: "optimistic-with-correction",
+          outcome,
+          routeId: "account-cart",
+          routeTemplate: "/account/cart",
+          correctionSource: "fresh-read:loader-revalidation",
+          actorMode: "account",
+          recoveryAction: outcome === "freshness_timeout" ? "reload_prompt" : null,
+          freshnessOutcome: outcome === "freshness_timeout" ? "timeout" : "none",
+        }),
+      ),
+    ).toEqual(
+      outcomes.map((outcome) => ({
+        type: "post-write.consistency",
+        context: "checkout",
+        surface: "account-cart",
+        strategy: "optimistic-with-correction",
+        outcome,
+        route_id: "account-cart",
+        route_template: "/account/cart",
+        correction_source: "fresh-read_loader-revalidation",
+        actor_mode: "account",
+        recovery_action: outcome === "freshness_timeout" ? "reload_prompt" : "none",
+        freshness_outcome: outcome === "freshness_timeout" ? "timeout" : "none",
+      })),
+    );
+  });
+
+  it("collapses raw-looking identifiers and ignores non-whitelisted fields", () => {
+    const attributes = postWriteConsistencyEventAttributes({
+      boundedContextName: "checkout",
+      surface: "account cart raw 123",
+      strategy: "optimistic-with-correction",
+      outcome: "stale_response_discard",
+      routeId: "account-cart/account_123",
+      routeTemplate: "/account/cart/acct_01KTMF9TCCPKGA3J3TYMGGXQ2R",
+      correctionSource: "fresh-read:loader-revalidation",
+      actorMode: "account",
+      recoveryAction: "discarded-stale-snapshot",
+      freshnessOutcome: "not-required",
+      accountId: "account_123",
+      cartId: "cart_123",
+      email: "buyer@example.com",
+      afterWrite: "afterWrite=raw-token",
+      checkoutSessionId: "chk_01KTMF9TCCPKGA3J3TYMGGXQ2R",
+      fullUrl: "https://example.test/account/cart/acct_01KTMF9TCCPKGA3J3TYMGGXQ2R",
+    } as never);
+
+    const serializedAttributes = JSON.stringify(attributes);
+
+    expect(attributes).toEqual({
+      type: "post-write.consistency",
+      context: "checkout",
+      surface: "account_cart_raw_123",
+      strategy: "optimistic-with-correction",
+      outcome: "stale_response_discard",
+      route_id: "account-cart_id",
+      route_template: "/account/cart/:id",
+      correction_source: "fresh-read_loader-revalidation",
+      actor_mode: "account",
+      recovery_action: "discarded-stale-snapshot",
+      freshness_outcome: "not-required",
+    });
+    expect(serializedAttributes).not.toContain("account_123");
+    expect(serializedAttributes).not.toContain("cart_123");
+    expect(serializedAttributes).not.toContain("buyer@example.com");
+    expect(serializedAttributes).not.toContain("raw-token");
+    expect(serializedAttributes).not.toContain("chk_01KTMF9TCCPKGA3J3TYMGGXQ2R");
+  });
+
+  it("records post-write consistency events through the shared metric", () => {
+    expect(() =>
+      recordPostWriteConsistencyEvent({
+        boundedContextName: "checkout",
+        surface: "account-cart",
+        strategy: "optimistic-with-correction",
+        outcome: "rollback",
+        routeId: "account-cart",
+        routeTemplate: "/account/cart",
+        correctionSource: "fresh-read:loader-revalidation",
+        actorMode: "account",
+        recoveryAction: "inline_error",
+        freshnessOutcome: "not-required",
+      }),
+    ).not.toThrow();
   });
 });
 

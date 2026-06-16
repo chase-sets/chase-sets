@@ -48,11 +48,13 @@
 - [ ] Buyer and seller transactional notifications send only from the owning committed facts and include correct totals/support references where customer-visible.
 - [ ] Notification failure does not block checkout completion, and retries suppress duplicates.
 - [ ] Checkout entry, recovery, confirmation, provider-return, failure, and no-side-effect states emit redacted observability signals usable by support.
+- [ ] Account cart post-write consistency evidence uses the redacted canary artifact, covers optimistic apply, reconciliation, stale-response discard, and rollback/freshness outcomes, and keeps `missing_strategy` plus `freshness_timeout` telemetry at zero once runtime emission is live (see `docs/runbooks/account-cart-consistency-canary.md`).
 - [x] Support runbooks cover stuck checkout, payment dispute, missing/failed downstream handoff, and refund requests (covered by PR #1513 and PR #1606).
 
 ## Security, Performance, And Fresh State
 
 - [ ] No raw card, bank, provider secret, webhook signature, cookie, session token, full URL, or unnecessary PII is stored or exposed in UI, logs, support views, or operational artifacts.
+- [ ] Post-write consistency evidence and telemetry contain only structural labels, route templates, context/surface names, outcome codes, durations, and private evidence references; account ids, cart ids, checkout session ids, event ids, raw `afterWrite`, emails, cookies, tokens, full URLs, item details, provider payloads, and screenshots containing those values stay out of launch artifacts.
 - [ ] Terms, privacy, refund policy, guest data handling, payment, payout, shipping, and support expectations are linked or explained where needed (covered by PR #1509).
 - [ ] Checkout meets the performance budgets for Buy Now, cart checkout entry, sell-list entry, checkout render, and slow/degraded recovery (covered by PR #1303).
 - [ ] Checkout availability is governed by fresh route, readiness, ownership, and current-fact validation with no rollout switch or dense checkout fallback.

@@ -109,6 +109,7 @@ const publicPresenceWaitlistEventCounter = lazyCounter("chase_sets_public_presen
 const itemDetailRailEventCounter = lazyCounter("chase_sets_marketplace_item_detail_rail_events_total");
 const settlementOperationCounter = lazyCounter("chase_sets_settlement_operations_total");
 const checkoutObservabilityEventCounter = lazyCounter("chase_sets_checkout_observability_events_total");
+const postWriteConsistencyEventCounter = lazyCounter("chase_sets_post_write_consistency_events_total");
 const catalogIntegrationOptionQueryCounter = lazyCounter("chase_sets_catalog_integration_option_queries_total");
 const catalogIntegrationJobCounter = lazyCounter("chase_sets_catalog_integration_jobs_total");
 const catalogControlPlaneEventCounter = lazyCounter("chase_sets_catalog_control_plane_events_total");
@@ -193,6 +194,27 @@ export type CheckoutObservabilityEventSignal = Readonly<{
   downstreamStatus?: string | null;
   capabilityDecision?: string | null;
   freshStateScanResult?: string | null;
+}>;
+
+export type PostWriteConsistencyOutcome =
+  | "missing_strategy"
+  | "optimistic_applied"
+  | "freshness_timeout"
+  | "rollback"
+  | "reconciliation"
+  | "stale_response_discard";
+
+export type PostWriteConsistencyEventSignal = Readonly<{
+  boundedContextName: string;
+  surface: string;
+  strategy: string;
+  outcome: PostWriteConsistencyOutcome;
+  routeId?: string | null;
+  routeTemplate?: string | null;
+  correctionSource?: string | null;
+  actorMode?: string | null;
+  recoveryAction?: string | null;
+  freshnessOutcome?: string | null;
 }>;
 
 export type CatalogIntegrationOptionQuerySignal = Readonly<{
@@ -855,6 +877,26 @@ export function recordCheckoutObservabilityEvent(event: CheckoutObservabilityEve
   checkoutObservabilityEventCounter.add(1, checkoutObservabilityEventAttributes(event));
 }
 
+export function postWriteConsistencyEventAttributes(event: PostWriteConsistencyEventSignal): Attributes {
+  return {
+    type: "post-write.consistency",
+    context: boundedMetricLabel(event.boundedContextName),
+    surface: boundedMetricLabel(event.surface),
+    strategy: boundedMetricLabel(event.strategy),
+    outcome: event.outcome,
+    route_id: boundedRouteIdLabel(event.routeId),
+    route_template: boundedRouteTemplateLabel(event.routeTemplate),
+    correction_source: boundedMetricLabel(event.correctionSource),
+    actor_mode: boundedMetricLabel(event.actorMode),
+    recovery_action: boundedMetricLabel(event.recoveryAction),
+    freshness_outcome: boundedMetricLabel(event.freshnessOutcome),
+  };
+}
+
+export function recordPostWriteConsistencyEvent(event: PostWriteConsistencyEventSignal): void {
+  postWriteConsistencyEventCounter.add(1, postWriteConsistencyEventAttributes(event));
+}
+
 export function catalogIntegrationOptionQueryAttributes(event: CatalogIntegrationOptionQuerySignal): Attributes {
   return {
     context: "catalog",
@@ -1473,7 +1515,7 @@ function normalizeRouteTemplate(pathname: string): string {
       if (!part) {
         return part;
       }
-      if (/^[a-z]{2,5}_[A-Za-z0-9]+$/.test(part) || /^[0-9A-Fa-f-]{12,}$/.test(part)) {
+      if (/^[a-z]{2,12}_[A-Za-z0-9]+$/.test(part) || /^[0-9A-Fa-f-]{12,}$/.test(part)) {
         return ":id";
       }
       return part;
@@ -1517,7 +1559,7 @@ function boundedRouteTemplateLabel(value: string | null | undefined): string {
       if (!part || part.startsWith(":")) {
         return part;
       }
-      if (/^[a-z]{2,5}_[A-Za-z0-9]+$/.test(part) || /^[0-9A-Fa-f-]{12,}$/.test(part)) {
+      if (/^[a-z]{2,12}_[A-Za-z0-9]+$/.test(part) || /^[0-9A-Fa-f-]{12,}$/.test(part)) {
         return ":id";
       }
       return part;
@@ -1525,6 +1567,15 @@ function boundedRouteTemplateLabel(value: string | null | undefined): string {
     .join("/");
   const normalized = template.replace(/[^a-zA-Z0-9_./:-]+/g, "_").slice(0, 160);
   return normalized || "other";
+}
+
+function boundedRouteIdLabel(value: string | null | undefined): string {
+  const text = value?.trim();
+  if (!text) {
+    return "none";
+  }
+
+  return boundedMetricLabel(text.replace(/\b(?:account|acct|cart|crt|chk|usr|user)_[0-9A-Za-z_.:-]+\b/g, ":id"));
 }
 
 function coerceMetricNumber(value: string): number {

@@ -116,12 +116,32 @@ export function useOptimisticCorrection<TValue>({
 
     previousSourceValueRef.current = sourceValue;
 
-    if (!queuedRef.current) {
-      inFlightRef.current = null;
-      setValue(sourceValue);
-      setStatus("idle");
+    const queued = queuedRef.current;
+    const inFlight = inFlightRef.current;
+
+    if (queued) {
+      if (equals(queued.value, sourceValue)) {
+        inFlightRef.current = null;
+        queuedRef.current = null;
+        setValue(sourceValue);
+        setStatus("idle");
+      }
+      return;
     }
-  }, [equals, sourceValue]);
+
+    if (inFlight && submitting) {
+      if (equals(inFlight.value, sourceValue)) {
+        inFlightRef.current = null;
+        setValue(sourceValue);
+        setStatus("idle");
+      }
+      return;
+    }
+
+    inFlightRef.current = null;
+    setValue(sourceValue);
+    setStatus("idle");
+  }, [equals, sourceValue, submitting]);
 
   useEffect(() => {
     if (rejected && inFlightRef.current) {
@@ -141,15 +161,27 @@ export function useOptimisticCorrection<TValue>({
     }
 
     const queued = queuedRef.current;
-    inFlightRef.current = null;
-    queuedRef.current = null;
 
     if (queued && !equals(queued.value, sourceValue)) {
+      inFlightRef.current = null;
+      queuedRef.current = null;
       submitMutation(queued);
       return;
     }
 
-    setStatus("idle");
+    if (queued) {
+      inFlightRef.current = null;
+      queuedRef.current = null;
+      setValue(sourceValue);
+      setStatus("idle");
+      return;
+    }
+
+    if (equals(inFlightRef.current.value, sourceValue)) {
+      inFlightRef.current = null;
+      setValue(sourceValue);
+      setStatus("idle");
+    }
   }, [equals, rejected, sourceValue, submitMutation, submitting]);
 
   useEffect(() => {
