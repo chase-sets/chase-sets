@@ -8,7 +8,11 @@ import {
   type CatalogPrimaryWorkbenchReadModel,
   type CatalogPrimaryWorkbenchRouteContext,
 } from "../api/primary-workbench-admin-contracts";
-import { defineCatalogIntegrationUnitKey, type CatalogIntegrationUnitKey } from "../api/integration-unit";
+import {
+  defineCatalogIntegrationUnitKey,
+  parseCatalogIntegrationUnitKey,
+  type CatalogIntegrationUnitKey,
+} from "../api/integration-unit";
 import type { CatalogControlPlaneRouteSurfaceKey } from "./admin-control-plane/information-architecture";
 import type {
   CatalogIntegrationControlPlaneUnitReadiness,
@@ -94,13 +98,21 @@ function buildCatalogPrimaryWorkbenchCore(
     parsedContext.profileVersion,
     activeProfile,
   );
-  const unitKey = parsedContext.unitKey ?? inferUnitKey(input, providerKey, activeProfile);
-  const importScope = parsedContext.importScope ?? inferImportScope(input.scopes.items, providerKey);
-  const profileVersion = parsedContext.profileVersion ?? activeProfile?.profileVersion ?? null;
+  const normalizedRouteUnitKey = normalizeSelectedUnitKey(parsedContext.unitKey, providerKey);
+  const unitContextMismatch = Boolean(parsedContext.unitKey && providerKey && !normalizedRouteUnitKey);
+  const unitKey = normalizedRouteUnitKey ?? inferUnitKey(input, providerKey, activeProfile);
+  const routeScope = unitContextMismatch ? providerOnlyScopeContext(providerKey) : parsedContext.scope;
+  const importScope = unitContextMismatch
+    ? null
+    : (parsedContext.importScope ?? inferImportScope(input.scopes.items, providerKey));
+  const profileVersion = unitContextMismatch
+    ? (activeProfile?.profileVersion ?? null)
+    : (parsedContext.profileVersion ?? activeProfile?.profileVersion ?? null);
   const routeContext: CatalogPrimaryWorkbenchRouteContext = {
     ...parsedContext,
     providerKey,
     unitKey,
+    scope: routeScope,
     importScope,
     profileVersion,
     sourceObservationFilters: {
@@ -645,6 +657,38 @@ function inferUnitKey(
     productForm: normalizeUnitSegment(productForm),
     ingestionPurpose: "import",
   });
+}
+
+function normalizeSelectedUnitKey(
+  unitKey: CatalogIntegrationUnitKey | null,
+  providerKey: string | null,
+): CatalogIntegrationUnitKey | null {
+  if (!unitKey) {
+    return null;
+  }
+  if (!providerKey) {
+    return unitKey;
+  }
+
+  try {
+    return parseCatalogIntegrationUnitKey(unitKey).providerKey === providerKey ? unitKey : null;
+  } catch {
+    return null;
+  }
+}
+
+function providerOnlyScopeContext(providerKey: string | null): CatalogPrimaryWorkbenchRouteContext["scope"] {
+  return {
+    providerKey,
+    languageCode: null,
+    productLineId: null,
+    productLineName: null,
+    seriesId: null,
+    seriesName: null,
+    expansionId: null,
+    expansionName: null,
+    status: null,
+  };
 }
 
 function inferImportScope(

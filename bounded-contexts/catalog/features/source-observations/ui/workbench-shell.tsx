@@ -30,6 +30,7 @@ import {
   CATALOG_SOURCE_OPTION_QUERY_KIND_PARAM,
   catalogPrimaryWorkbenchSourceOptionHref,
 } from "./primary-workbench-source-option-refresh";
+import { catalogPrimaryWorkbenchScopeQueryKeys } from "./primary-workbench-scope-context";
 import {
   guidedSourceScopeFields,
   sourceOptionPageStateTone,
@@ -134,9 +135,11 @@ function ProviderImportContextForm({ readModel }: { readModel: CatalogPrimaryWor
     label: provider.displayName,
   }));
   const selectedProviderKey = readModel.routeContext.providerKey ?? providerOptions[0]?.value ?? "";
-  const units = readModel.providerScope.providers.flatMap((provider) =>
-    provider.units.map((unit) => ({ provider, unit })),
-  );
+  const selectedProvider =
+    readModel.providerScope.providers.find((provider) => provider.providerKey === selectedProviderKey) ??
+    readModel.providerScope.providers[0] ??
+    null;
+  const units = selectedProvider?.units.map((unit) => ({ provider: selectedProvider, unit })) ?? [];
   const unitOptions = units.map(({ provider, unit }) => ({
     value: unit.unitKey,
     label: unit.unitKey,
@@ -155,6 +158,7 @@ function ProviderImportContextForm({ readModel }: { readModel: CatalogPrimaryWor
           items={providerOptions}
           defaultValue={selectedProviderKey}
           required
+          onChange={(event) => submitProviderFilter(event)}
         />
         <NativeSelect
           name="unitKey"
@@ -162,6 +166,7 @@ function ProviderImportContextForm({ readModel }: { readModel: CatalogPrimaryWor
           items={unitOptions}
           defaultValue={readModel.routeContext.unitKey ?? unitOptions[0]?.value ?? ""}
           required
+          onChange={(event) => submitUnitFilter(event)}
         />
         {/* The transitional raw importScope text box only survives for providers
             that declare no option queries (no guided controls to drive). Providers
@@ -187,6 +192,43 @@ function ProviderImportContextForm({ readModel }: { readModel: CatalogPrimaryWor
       </WorkbenchActionRow>
     </WorkbenchForm>
   );
+}
+
+function submitProviderFilter(event: ChangeEvent<HTMLSelectElement>): void {
+  submitImportContextFilter(
+    event,
+    ["unitKey", "profileVersion", "importScope", ...catalogPrimaryWorkbenchScopeQueryKeys],
+    {
+      disableClearedFields: true,
+    },
+  );
+}
+
+function submitUnitFilter(event: ChangeEvent<HTMLSelectElement>): void {
+  submitImportContextFilter(event, ["profileVersion", "importScope", ...catalogPrimaryWorkbenchScopeQueryKeys]);
+}
+
+function submitImportContextFilter(
+  event: ChangeEvent<HTMLSelectElement>,
+  dependentFieldNames: readonly string[],
+  options: { disableClearedFields?: boolean } = {},
+): void {
+  const form = event.currentTarget.form;
+  if (!form) {
+    return;
+  }
+
+  for (const fieldName of dependentFieldNames) {
+    const field = form.elements.namedItem(fieldName);
+    if (field instanceof HTMLSelectElement || field instanceof HTMLInputElement) {
+      field.value = "";
+      if (options.disableClearedFields) {
+        field.disabled = true;
+      }
+    }
+  }
+
+  form.requestSubmit();
 }
 
 // The guided source-scope selector: one native select per provider option kind that

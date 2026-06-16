@@ -237,6 +237,65 @@ describe("ProviderAdapterRegistry", () => {
     });
   });
 
+  it("adds English display aliases to non-English TCGdex series and expansion options", async () => {
+    const adapter = createTcgdexProviderAdapter({
+      loadActiveProfileVersion: async () => requireTcgdexProfileVersion(),
+      fetch: tcgdexFetch({
+        "https://api.tcgdex.net/v2/ja/series": [{ id: "SV", name: "ポケモンカードゲーム スカーレット&バイオレット" }],
+        "https://api.tcgdex.net/v2/en/series": [{ id: "sv", name: "Scarlet & Violet" }],
+        "https://api.tcgdex.net/v2/ja/series/sv": {
+          id: "SV",
+          name: "ポケモンカードゲーム スカーレット&バイオレット",
+          sets: [{ id: "SV8", name: "超電ブレイカー", cardCount: { total: 106, official: 106 } }],
+        },
+        "https://api.tcgdex.net/v2/en/sets": [{ id: "sv08", name: "Surging Sparks" }],
+      }),
+    });
+
+    await expect(
+      adapter.listOptions({
+        unitKey: TCGDEX_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        optionKind: "series",
+        parentValues: { languageCode: "ja" },
+      }),
+    ).resolves.toEqual({
+      items: [
+        {
+          value: "SV",
+          label: "ポケモンカードゲーム スカーレット&バイオレット",
+          metadata: {
+            providerLabel: "ポケモンカードゲーム スカーレット&バイオレット",
+            platformLabel: "Scarlet & Violet",
+            platformLanguageCode: "en",
+          },
+        },
+      ],
+    });
+    await expect(
+      adapter.listOptions({
+        unitKey: TCGDEX_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        optionKind: "expansions",
+        parentValues: { languageCode: "ja", seriesId: "SV" },
+      }),
+    ).resolves.toEqual({
+      items: [
+        {
+          value: "SV8",
+          label: "超電ブレイカー",
+          parentValue: "SV",
+          metadata: {
+            providerLabel: "超電ブレイカー",
+            platformLabel: "Surging Sparks",
+            platformLanguageCode: "en",
+            cardCount: "106",
+            officialCardCount: "106",
+            seriesName: "ポケモンカードゲーム スカーレット&バイオレット",
+          },
+        },
+      ],
+    });
+  });
+
   it("plans and fetches TCGdex import payloads with typed provenance", async () => {
     const progress: unknown[] = [];
     const adapter = createTcgdexProviderAdapter({

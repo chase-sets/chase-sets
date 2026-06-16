@@ -294,6 +294,55 @@ describe("Catalog primary workbench source options", () => {
     expect(JSON.stringify(page)).not.toContain("SENTINEL_METADATA_LEAK");
   });
 
+  it("shows platform-language source option labels while preserving provider names", () => {
+    const profile = profileReview({ active: true, lifecycle: "active" });
+    const request = buildCatalogPrimaryWorkbenchSourceOptionRequests({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:single-card:source-observation-import&languageCode=ja&seriesId=SV",
+      scopes: [],
+      profiles: [profile],
+      cacheOnly: true,
+    }).find((candidate) => candidate.queryKind === "expansions");
+    expect(request).toBeTruthy();
+    const response = optionResponse(request!, "fresh", "cache", [
+      {
+        value: "SV8",
+        label: "超電ブレイカー",
+        parentValue: "SV",
+        metadata: {
+          providerLabel: "超電ブレイカー",
+          platformLabel: "Surging Sparks",
+          platformLanguageCode: "en",
+          providerPayload: "SENTINEL_METADATA_LEAK",
+        },
+      },
+    ]);
+
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:single-card:source-observation-import&languageCode=ja&seriesId=SV",
+      scopes: { items: [], total: 0, count: 0 },
+      profileReviews: { items: [profile], total: 1, count: 1 },
+      sourceOptionPages: [{ request: request!, response }],
+      controlPlaneOverview: null,
+      canManageCatalog: true,
+    });
+
+    const page = readModel.sourceOptions.pages.find((candidate) => candidate.queryKind === "expansions");
+    expect(page?.items).toEqual([
+      expect.objectContaining({
+        value: "SV8",
+        label: "Surging Sparks (超電ブレイカー)",
+        metadata: {
+          providerLabel: "超電ブレイカー",
+          platformLabel: "Surging Sparks",
+          platformLanguageCode: "en",
+        },
+      }),
+    ]);
+    expect(JSON.stringify(page)).not.toContain("SENTINEL_METADATA_LEAK");
+  });
+
   it("composes TCGplayer product-line option hierarchy from the same structured scope contract", () => {
     const profile = profileReview({ providerKey: "tcgplayer", active: true, lifecycle: "active" });
     const requests = buildCatalogPrimaryWorkbenchSourceOptionRequests({
