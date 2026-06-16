@@ -363,6 +363,115 @@ describe("Catalog primary workbench source options", () => {
     });
   });
 
+  it("does not borrow another provider active profile for source option requests", () => {
+    const tcgdexProfile = profileReview({ active: true, lifecycle: "active" });
+    const scrydexProfile = profileReview({
+      providerKey: "scrydex",
+      profileKey: "scrydex-profile",
+      displayName: "Scrydex",
+      active: false,
+      lifecycle: "test",
+      profile: {
+        providerKey: "scrydex",
+        supportedScopes: ["product/card"],
+      },
+      supportedScopes: ["product/card"],
+    });
+
+    const requests = buildCatalogPrimaryWorkbenchSourceOptionRequests({
+      requestUrl: "https://admin.example/catalog/integrations?providerKey=scrydex",
+      scopes: [],
+      profiles: [tcgdexProfile, scrydexProfile],
+      cacheOnly: true,
+    });
+
+    expect(requests).toEqual([]);
+  });
+
+  it("uses the selected provider profile when a stale active profile from another provider is supplied", () => {
+    const staleTcgdexProfile = profileReview({ active: true, lifecycle: "active" });
+    const selectedTcgplayerProfile = profileReview({
+      providerKey: "tcgplayer",
+      profileKey: "pokemon-tcg-automation-client",
+      profileVersion: "2026.06.05",
+      displayName: "TCGplayer automation client",
+      connectorKind: "tcgplayer-automation-client",
+      active: true,
+      lifecycle: "active",
+    });
+    const requests = buildCatalogPrimaryWorkbenchSourceOptionRequests({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgplayer&profileVersion=2026.06.05&importScope=en:3",
+      scopes: [],
+      profiles: [staleTcgdexProfile, selectedTcgplayerProfile],
+      activeProfile: staleTcgdexProfile,
+      cacheOnly: true,
+    });
+
+    expect(requests.map((request) => request.queryKind)).toEqual(["product-lines", "set-names", "products", "skus"]);
+    expect(requests.every((request) => request.providerKey === "tcgplayer")).toBe(true);
+    expect(requests.every((request) => request.profileVersion === "2026.06.05")).toBe(true);
+    expect(requests.map((request) => request.queryKind)).not.toEqual(
+      expect.arrayContaining(["languages", "series", "expansions"]),
+    );
+    expect(requests.find((request) => request.queryKind === "set-names")).toMatchObject({
+      parentScope: "product-line/category",
+      languageCode: "en",
+      parentValue: "3",
+      selectedParentValue: "3",
+    });
+  });
+
+  it("does not borrow TCGdex option kinds or pages for a selected Scrydex profile route", () => {
+    const activeTcgdexProfile = profileReview({ active: true, lifecycle: "active" });
+    const selectedScrydexProfile = profileReview({
+      providerKey: "scrydex",
+      profileKey: "scryfall-card-fixture",
+      profileVersion: "2026.06.03",
+      displayName: "Scrydex",
+      connectorKind: "scrydex-scryfall-json",
+      active: false,
+      lifecycle: "test",
+      capabilities: ["source-observation-import", "external-reference-extraction"],
+      supportedScopes: ["product/card"],
+      mappingOutputKind: "provider-product",
+    });
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=scrydex&profileVersion=2026.06.03&languageCode=en&seriesId=base&expansionId=base1",
+      scopes: {
+        items: [
+          sourceObservationScope({
+            provider_key: "scrydex",
+            product_line_id: "",
+            product_line_name: "",
+            series_id: "",
+            series_name: "",
+            expansion_id: "khm",
+            expansion_name: "Kaldheim",
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+      profileReviews: { items: [activeTcgdexProfile, selectedScrydexProfile], total: 2, count: 2 },
+      sourceOptionPages: [],
+      controlPlaneOverview: null,
+      canManageCatalog: true,
+    });
+
+    expect(readModel.sourceOptions.selectedProviderKey).toBe("scrydex");
+    expect(readModel.sourceOptions.selectedProfile).toMatchObject({
+      providerKey: "scrydex",
+      profileVersion: "2026.06.03",
+      active: false,
+    });
+    expect(readModel.sourceOptions.optionKinds).toEqual([]);
+    expect(readModel.sourceOptions.pages).toEqual([]);
+    expect(readModel.sourceOptions.summary).toMatchObject({ declaredKinds: 0, loadedPages: 0, availableOptions: 0 });
+    expect(JSON.stringify(readModel.sourceOptions)).not.toMatch(/languages|series|expansions/);
+  });
+
   it("composes TCGdex language, series, and expansion option pages with parent selections", () => {
     const profile = profileReview({ active: true, lifecycle: "active" });
     const scope = sourceObservationScope();

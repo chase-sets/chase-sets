@@ -200,22 +200,30 @@ function submitProviderFilter(event: ChangeEvent<HTMLSelectElement>): void {
     ["unitKey", "profileVersion", "importScope", ...catalogPrimaryWorkbenchScopeQueryKeys],
     {
       disableClearedFields: true,
+      clearSourceOptionIntent: true,
     },
   );
 }
 
 function submitUnitFilter(event: ChangeEvent<HTMLSelectElement>): void {
-  submitImportContextFilter(event, ["profileVersion", "importScope", ...catalogPrimaryWorkbenchScopeQueryKeys]);
+  submitImportContextFilter(event, ["profileVersion", "importScope", ...catalogPrimaryWorkbenchScopeQueryKeys], {
+    disableClearedFields: true,
+    clearSourceOptionIntent: true,
+  });
 }
 
 function submitImportContextFilter(
   event: ChangeEvent<HTMLSelectElement>,
   dependentFieldNames: readonly string[],
-  options: { disableClearedFields?: boolean } = {},
+  options: { disableClearedFields?: boolean; clearSourceOptionIntent?: boolean } = {},
 ): void {
   const form = event.currentTarget.form;
   if (!form) {
     return;
+  }
+
+  if (options.clearSourceOptionIntent) {
+    clearSourceOptionRefreshIntent(form);
   }
 
   for (const fieldName of dependentFieldNames) {
@@ -229,6 +237,15 @@ function submitImportContextFilter(
   }
 
   form.requestSubmit();
+}
+
+function clearSourceOptionRefreshIntent(form: HTMLFormElement): void {
+  for (const fieldName of [CATALOG_SOURCE_OPTION_ACTION_PARAM, CATALOG_SOURCE_OPTION_QUERY_KIND_PARAM]) {
+    const field = form.elements.namedItem(fieldName);
+    if (field instanceof HTMLInputElement) {
+      field.remove();
+    }
+  }
 }
 
 // The guided source-scope selector: one native select per provider option kind that
