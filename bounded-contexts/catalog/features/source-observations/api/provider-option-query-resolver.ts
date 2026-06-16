@@ -6,6 +6,7 @@ import type {
   CatalogProviderOptionQueryOperation,
   CatalogProviderOptionQueryOutputMapping,
 } from "./provider-integration-profiles";
+import { parseProviderOptionAliasesFromJson, type ProviderOptionAliasRecord } from "./provider-option-aliases";
 
 export type CatalogProviderIntegrationOption = Readonly<{
   providerKey: string;
@@ -15,6 +16,8 @@ export type CatalogProviderIntegrationOption = Readonly<{
   description: string | null;
   parentValue: string | null;
   imageUrl: string | null;
+  /** Typed equivalence aliases sharing the Catalog Alias vocabulary (#1903). */
+  aliases: readonly ProviderOptionAliasRecord[];
   metadata: JsonObject;
 }>;
 
@@ -155,6 +158,7 @@ function mapOptionRecords(input: {
         description: descriptionForMapping(record, input.query.output.description, input),
         parentValue: stringForOptionalMapping(record, input.query.output.parentValuePath, input),
         imageUrl: imageUrlForMapping(record, input.query.output, input),
+        aliases: aliasesForMapping(record, input.query.output.aliasesPath),
         metadata: metadataForMapping(record, input.query.output.metadataPaths, input),
       },
     ];
@@ -204,6 +208,13 @@ function imageUrlForMapping(
   }
 
   return stringForOptionalMapping(record, mapping.imageUrlPath, context);
+}
+
+function aliasesForMapping(record: JsonValue, aliasesPath: string | undefined): readonly ProviderOptionAliasRecord[] {
+  if (!aliasesPath) {
+    return [];
+  }
+  return parseProviderOptionAliasesFromJson(valueAtPath(record, aliasesPath));
 }
 
 function metadataForMapping(

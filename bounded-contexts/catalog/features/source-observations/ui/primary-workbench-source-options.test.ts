@@ -12,7 +12,7 @@ import {
   type CatalogPrimaryWorkbenchSourceOptionPageSnapshot,
   type CatalogPrimaryWorkbenchSourceOptionRequest,
 } from "./primary-workbench-read-model";
-import type { SourceObservationIntegrationOptionResponse } from "./contracts";
+import type { SourceObservationIntegrationOption, SourceObservationIntegrationOptionResponse } from "./contracts";
 
 const requestUrl =
   "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.04";
@@ -294,7 +294,7 @@ describe("Catalog primary workbench source options", () => {
     expect(JSON.stringify(page)).not.toContain("SENTINEL_METADATA_LEAK");
   });
 
-  it("shows platform-language source option labels while preserving provider names", () => {
+  it("renders English alias (native name) from typed option aliases without leaking metadata", () => {
     const profile = profileReview({ active: true, lifecycle: "active" });
     const request = buildCatalogPrimaryWorkbenchSourceOptionRequests({
       requestUrl:
@@ -309,12 +309,18 @@ describe("Catalog primary workbench source options", () => {
         value: "SV8",
         label: "超電ブレイカー",
         parentValue: "SV",
-        metadata: {
-          providerLabel: "超電ブレイカー",
-          platformLabel: "Surging Sparks",
-          platformLanguageCode: "en",
-          providerPayload: "SENTINEL_METADATA_LEAK",
-        },
+        aliases: [
+          {
+            aliasText: "Surging Sparks",
+            aliasLanguageCode: "en",
+            aliasType: "set-equivalent",
+            confidence: "high",
+            reviewStatus: "pending",
+            sourceCategory: "provider-same-id-localized-endpoint",
+            evidence: {},
+          },
+        ],
+        metadata: { providerPayload: "SENTINEL_METADATA_LEAK" },
       },
     ]);
 
@@ -333,14 +339,57 @@ describe("Catalog primary workbench source options", () => {
       expect.objectContaining({
         value: "SV8",
         label: "Surging Sparks (超電ブレイカー)",
-        metadata: {
-          providerLabel: "超電ブレイカー",
-          platformLabel: "Surging Sparks",
-          platformLanguageCode: "en",
-        },
+        metadata: {},
       }),
     ]);
     expect(JSON.stringify(page)).not.toContain("SENTINEL_METADATA_LEAK");
+  });
+
+  it("falls back to the native provider label when an option has no trustworthy English alias", () => {
+    const profile = profileReview({ active: true, lifecycle: "active" });
+    const request = buildCatalogPrimaryWorkbenchSourceOptionRequests({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:single-card:source-observation-import&languageCode=ja&seriesId=SV",
+      scopes: [],
+      profiles: [profile],
+      cacheOnly: true,
+    }).find((candidate) => candidate.queryKind === "expansions");
+    expect(request).toBeTruthy();
+    const response = optionResponse(request!, "fresh", "cache", [
+      // A low-confidence candidate alias is not strong enough to drive the label.
+      {
+        value: "SV8",
+        label: "超電ブレイカー",
+        parentValue: "SV",
+        aliases: [
+          {
+            aliasText: "Surging Sparks",
+            aliasLanguageCode: "en",
+            aliasType: "set-equivalent",
+            confidence: "candidate",
+            reviewStatus: "pending",
+            sourceCategory: "provider-localized-name",
+            evidence: {},
+          },
+        ],
+        metadata: {},
+      },
+      // No aliases at all: provider with no aliases still renders safely.
+      { value: "SV9", label: "バトルパートナーズ", parentValue: "SV", metadata: {} },
+    ]);
+
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:single-card:source-observation-import&languageCode=ja&seriesId=SV",
+      scopes: { items: [], total: 0, count: 0 },
+      profileReviews: { items: [profile], total: 1, count: 1 },
+      sourceOptionPages: [{ request: request!, response }],
+      controlPlaneOverview: null,
+      canManageCatalog: true,
+    });
+
+    const page = readModel.sourceOptions.pages.find((candidate) => candidate.queryKind === "expansions");
+    expect(page?.items.map((item) => item.label)).toEqual(["超電ブレイカー", "バトルパートナーズ"]);
   });
 
   it("composes TCGplayer product-line option hierarchy from the same structured scope contract", () => {
@@ -684,6 +733,7 @@ function optionResponse(
     label: string;
     parentValue: string | null;
     metadata: Record<string, string>;
+    aliases?: SourceObservationIntegrationOption["aliases"];
   }[],
   degraded = false,
 ): SourceObservationIntegrationOptionResponse {
@@ -696,6 +746,7 @@ function optionResponse(
       description: null,
       parentValue: item.parentValue,
       imageUrl: null,
+      aliases: item.aliases ?? [],
       metadata: item.metadata,
     })),
     total: items.length,

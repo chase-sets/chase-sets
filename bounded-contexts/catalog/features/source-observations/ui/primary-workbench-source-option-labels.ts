@@ -1,3 +1,5 @@
+import { optionDisplayLabelFromAliases, type OptionAliasShape } from "../api/provider-option-aliases";
+
 const languageLabelsByCode: Readonly<Record<string, string>> = {
   de: "German",
   en: "English",
@@ -19,17 +21,26 @@ const languageLabelsByCode: Readonly<Record<string, string>> = {
   "zh-tw": "Chinese (Traditional)",
 };
 
+/**
+ * Render a source option's display label deterministically:
+ *   - language options resolve to their English language name;
+ *   - other options prefer an accepted/high-confidence English alias rendered as
+ *     `English alias (native name)`, then the native provider label, then the id.
+ *
+ * The semantic "English equivalent" signal comes from typed option aliases
+ * (#1907) using the shared Catalog Alias vocabulary, never untyped metadata.
+ */
 export function sourceOptionDisplayLabel(input: {
   queryKind: string;
   scope: string | null | undefined;
   value: string;
   label: string | null | undefined;
-  metadata?: Readonly<Record<string, unknown>> | null;
+  aliases?: readonly OptionAliasShape[] | null;
 }): string {
   const value = input.value.trim();
   const label = input.label?.trim() || value;
   if (!isLanguageSourceOption(input.queryKind, input.scope)) {
-    return localizedProviderOptionLabel(label, input.metadata);
+    return optionDisplayLabelFromAliases({ value, nativeLabel: label, aliases: input.aliases });
   }
 
   const languageLabel = languageLabelsByCode[normalizeLanguageCode(value)];
@@ -38,43 +49,6 @@ export function sourceOptionDisplayLabel(input: {
   }
 
   return normalizeLanguageCode(label) === normalizeLanguageCode(value) ? languageLabel : label;
-}
-
-function localizedProviderOptionLabel(
-  providerLabel: string,
-  metadata: Readonly<Record<string, unknown>> | null | undefined,
-): string {
-  const platformLabel =
-    metadataString(metadata, "platformLabel") ??
-    metadataString(metadata, "englishLabel") ??
-    metadataString(metadata, "englishName") ??
-    localizedLabel(metadata, "en");
-
-  if (!platformLabel || normalizeDisplayLabel(platformLabel) === normalizeDisplayLabel(providerLabel)) {
-    return providerLabel;
-  }
-
-  return `${platformLabel} (${providerLabel})`;
-}
-
-function metadataString(metadata: Readonly<Record<string, unknown>> | null | undefined, key: string): string | null {
-  const value = metadata?.[key];
-  if (typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean") {
-    return null;
-  }
-  const normalized = String(value).trim();
-  return normalized ? normalized : null;
-}
-
-function localizedLabel(
-  metadata: Readonly<Record<string, unknown>> | null | undefined,
-  languageCode: string,
-): string | null {
-  const labels = metadata?.localizedLabels;
-  if (!labels || typeof labels !== "object" || Array.isArray(labels)) {
-    return null;
-  }
-  return metadataString(labels as Readonly<Record<string, unknown>>, languageCode);
 }
 
 function isLanguageSourceOption(queryKind: string, scope: string | null | undefined): boolean {
@@ -88,8 +62,4 @@ function isLanguageSourceOption(queryKind: string, scope: string | null | undefi
 
 function normalizeLanguageCode(value: string | null | undefined): string {
   return value?.trim().replaceAll("_", "-").toLowerCase() ?? "";
-}
-
-function normalizeDisplayLabel(value: string): string {
-  return value.trim().toLocaleLowerCase();
 }

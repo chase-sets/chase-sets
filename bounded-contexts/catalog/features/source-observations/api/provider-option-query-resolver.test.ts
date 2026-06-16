@@ -99,6 +99,56 @@ describe("listCatalogProviderIntegrationOptionsFromProfiles", () => {
     ]);
   });
 
+  it("maps typed option aliases from the record onto the resolved option", async () => {
+    const transports = {
+      listTcgdexSeries: async ({ languageCode }: { languageCode: string }) => [
+        {
+          seriesId: "SV",
+          name: "ポケモンカードゲーム スカーレット&バイオレット",
+          languageCode,
+          aliases: [
+            {
+              aliasText: "Scarlet & Violet",
+              aliasLanguageCode: "en",
+              aliasType: "series-equivalent",
+              confidence: "high",
+              reviewStatus: "pending",
+              sourceCategory: "provider-same-id-localized-endpoint",
+              evidence: { providerId: "SV" },
+            },
+            // Malformed alias entries are dropped, never coerced.
+            { aliasText: "broken" },
+          ],
+        },
+      ],
+    };
+
+    const [option] = await listCatalogProviderIntegrationOptionsFromProfiles({
+      profiles: [tcgdexPokemonTcgProviderProfile],
+      providerKey: "tcgdex",
+      queryKind: "series",
+      languageCode: "ja",
+      defaultProviderKey: "tcgdex",
+      transports,
+    });
+
+    expect(option.value).toBe("SV");
+    expect(option.label).toBe("ポケモンカードゲーム スカーレット&バイオレット");
+    expect(option.aliases).toEqual([
+      {
+        aliasText: "Scarlet & Violet",
+        aliasLanguageCode: "en",
+        aliasType: "series-equivalent",
+        confidence: "high",
+        reviewStatus: "pending",
+        sourceCategory: "provider-same-id-localized-endpoint",
+        evidence: { providerId: "SV" },
+      },
+    ]);
+    // The semantic English signal must not leak into metadata.
+    expect(option.metadata.aliases).toBeUndefined();
+  });
+
   it("maps TCGplayer product-line and set-name options through profile selectors", async () => {
     const transports = {
       listTcgplayerProductLines: async () => [

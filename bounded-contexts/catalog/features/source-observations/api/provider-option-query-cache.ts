@@ -370,6 +370,7 @@ function isProviderOption(value: unknown): value is CatalogProviderIntegrationOp
     (typeof record.description === "string" || record.description === null) &&
     (typeof record.parentValue === "string" || record.parentValue === null) &&
     (typeof record.imageUrl === "string" || record.imageUrl === null) &&
+    (record.aliases === undefined || Array.isArray(record.aliases)) &&
     typeof record.metadata === "object" &&
     record.metadata !== null &&
     !Array.isArray(record.metadata)

@@ -1,4 +1,5 @@
 import type { JsonValue } from "@chase-sets/primitives/json";
+import type { ProviderOptionAliasRecord } from "../api/provider-option-aliases";
 import type { SourceObservationNormalized } from "../domain/domain";
 import type { CatalogAdminProfileVersionPointer } from "../api/admin-control-plane-read-model-contracts";
 import type {
@@ -105,6 +106,7 @@ export interface SourceObservationIntegrationOption {
   description: string | null;
   parentValue: string | null;
   imageUrl: string | null;
+  aliases: ProviderOptionAliasRecord[];
   metadata: Record<string, JsonValue>;
 }
 

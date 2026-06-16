@@ -237,18 +237,18 @@ describe("ProviderAdapterRegistry", () => {
     });
   });
 
-  it("adds English display aliases to non-English TCGdex series and expansion options", async () => {
+  it("attaches typed English option aliases from the same-id English endpoint to non-English TCGdex options", async () => {
     const adapter = createTcgdexProviderAdapter({
       loadActiveProfileVersion: async () => requireTcgdexProfileVersion(),
       fetch: tcgdexFetch({
         "https://api.tcgdex.net/v2/ja/series": [{ id: "SV", name: "ポケモンカードゲーム スカーレット&バイオレット" }],
-        "https://api.tcgdex.net/v2/en/series": [{ id: "sv", name: "Scarlet & Violet" }],
+        "https://api.tcgdex.net/v2/en/series/SV": { id: "SV", name: "Scarlet & Violet" },
         "https://api.tcgdex.net/v2/ja/series/sv": {
           id: "SV",
           name: "ポケモンカードゲーム スカーレット&バイオレット",
           sets: [{ id: "SV8", name: "超電ブレイカー", cardCount: { total: 106, official: 106 } }],
         },
-        "https://api.tcgdex.net/v2/en/sets": [{ id: "sv08", name: "Surging Sparks" }],
+        "https://api.tcgdex.net/v2/en/sets/SV8": { id: "SV8", name: "Surging Sparks" },
       }),
     });
 
@@ -263,11 +263,16 @@ describe("ProviderAdapterRegistry", () => {
         {
           value: "SV",
           label: "ポケモンカードゲーム スカーレット&バイオレット",
-          metadata: {
-            providerLabel: "ポケモンカードゲーム スカーレット&バイオレット",
-            platformLabel: "Scarlet & Violet",
-            platformLanguageCode: "en",
-          },
+          aliases: [
+            expect.objectContaining({
+              aliasText: "Scarlet & Violet",
+              aliasLanguageCode: "en",
+              aliasType: "series-equivalent",
+              confidence: "high",
+              reviewStatus: "pending",
+              sourceCategory: "provider-same-id-localized-endpoint",
+            }),
+          ],
         },
       ],
     });
@@ -283,16 +288,57 @@ describe("ProviderAdapterRegistry", () => {
           value: "SV8",
           label: "超電ブレイカー",
           parentValue: "SV",
+          aliases: [
+            expect.objectContaining({
+              aliasText: "Surging Sparks",
+              aliasLanguageCode: "en",
+              aliasType: "set-equivalent",
+              confidence: "high",
+              reviewStatus: "pending",
+              sourceCategory: "provider-same-id-localized-endpoint",
+            }),
+          ],
           metadata: {
-            providerLabel: "超電ブレイカー",
-            platformLabel: "Surging Sparks",
-            platformLanguageCode: "en",
             cardCount: "106",
             officialCardCount: "106",
             seriesName: "ポケモンカードゲーム スカーレット&バイオレット",
           },
         },
       ],
+    });
+  });
+
+  it("emits no option alias for English selections and for non-English options without an English mirror", async () => {
+    const adapter = createTcgdexProviderAdapter({
+      loadActiveProfileVersion: async () => requireTcgdexProfileVersion(),
+      fetch: tcgdexFetch({
+        "https://api.tcgdex.net/v2/en/series": [{ id: "sv", name: "Scarlet & Violet" }],
+        "https://api.tcgdex.net/v2/ja/series": [{ id: "JP-ONLY", name: "日本限定シリーズ" }],
+        // No https://api.tcgdex.net/v2/en/series/JP-ONLY mirror exists (404).
+      }),
+    });
+
+    // English selections have no localized name to translate: no alias attached.
+    await expect(
+      adapter.listOptions({
+        unitKey: TCGDEX_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        optionKind: "series",
+        parentValues: { languageCode: "en" },
+      }),
+    ).resolves.toEqual({
+      items: [{ value: "sv", label: "Scarlet & Violet" }],
+    });
+
+    // Non-English option with no English mirror falls back safely to the native
+    // name with no alias, rather than guessing an English equivalent.
+    await expect(
+      adapter.listOptions({
+        unitKey: TCGDEX_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        optionKind: "series",
+        parentValues: { languageCode: "ja" },
+      }),
+    ).resolves.toEqual({
+      items: [{ value: "JP-ONLY", label: "日本限定シリーズ" }],
     });
   });
 

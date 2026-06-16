@@ -8,16 +8,21 @@ import {
   type CatalogProviderIntegrationProfileVersionRecord,
 } from "../provider-integration-profiles";
 import {
+  fetchTcgdexEnglishMirrorEntity,
   fetchTcgdexExpansionOptions,
   fetchTcgdexSeriesOptions,
   fetchTcgdexSetObservationPayloads,
   listTcgdexLanguageOptions,
   type TcgdexObservationPayload,
 } from "../tcgdex-client";
+import { matchTcgdexEnglishEndpointEntity } from "../tcgdex-alias-extraction";
+import { buildEnglishEndpointOptionAlias, ENGLISH_ALIAS_LANGUAGE_CODE } from "../provider-option-aliases";
+import type { CatalogAliasTypeKey } from "../catalog-integration-data-governance";
 import type {
   ProviderAdapter,
   ProviderImportPlan,
   ProviderImportScope,
+  ProviderOptionAlias,
   ProviderOptionItem,
   ProviderOptionQueryInput,
   ProviderOptionQueryResult,
@@ -211,22 +216,23 @@ async function listTcgdexAdapterOptions(
 
   if (optionKind === "series") {
     const series = await fetchTcgdexSeriesOptions({ profile, languageCode, fetch: options.fetch });
-    const platformLabels = await platformSeriesLabels({ profile, languageCode, fetch: options.fetch });
-    return {
-      items: series.map((item) => {
-        const platformLabel = platformLabels.get(normalizeOptionKey(item.seriesId)) ?? null;
-        return {
-          value: item.seriesId,
-          label: item.name,
-          metadata: optionalMetadata({
-            logoUrl: item.logoUrl,
-            providerLabel: platformLabel ? item.name : null,
-            platformLabel,
-            platformLanguageCode: platformLabel ? "en" : null,
-          }),
-        };
-      }),
-    };
+    const items = await Promise.all(
+      series.map(async (item) => ({
+        value: item.seriesId,
+        label: item.name,
+        aliases: await englishEndpointOptionAliases({
+          profile,
+          languageCode,
+          entity: "series",
+          aliasType: "series-equivalent",
+          evidenceKind: "series-id",
+          id: item.seriesId,
+          fetch: options.fetch,
+        }),
+        metadata: optionalMetadata({ logoUrl: item.logoUrl }),
+      })),
+    );
+    return { items: items.map(toOptionItem) };
   }
 
   if (optionKind === "expansions" || optionKind === "expansion") {
@@ -237,73 +243,87 @@ async function listTcgdexAdapterOptions(
       seriesId,
       fetch: options.fetch,
     });
-    const platformLabels = await platformExpansionLabels({ profile, languageCode, fetch: options.fetch });
-    return {
-      items: expansions.map((item) => {
-        const platformLabel = platformLabels.get(normalizeOptionKey(item.expansionId)) ?? null;
-        return {
-          value: item.expansionId,
-          label: item.name,
-          parentValue: item.seriesId ?? undefined,
-          metadata: optionalMetadata({
-            providerLabel: platformLabel ? item.name : null,
-            platformLabel,
-            platformLanguageCode: platformLabel ? "en" : null,
-            seriesName: item.seriesName,
-            logoUrl: item.logoUrl,
-            symbolUrl: item.symbolUrl,
-            cardCount: item.cardCount === null ? null : String(item.cardCount),
-            officialCardCount: item.officialCardCount === null ? null : String(item.officialCardCount),
-          }),
-        };
-      }),
-    };
+    const items = await Promise.all(
+      expansions.map(async (item) => ({
+        value: item.expansionId,
+        label: item.name,
+        parentValue: item.seriesId ?? undefined,
+        aliases: await englishEndpointOptionAliases({
+          profile,
+          languageCode,
+          entity: "set",
+          aliasType: "set-equivalent",
+          evidenceKind: "set-id",
+          id: item.expansionId,
+          fetch: options.fetch,
+        }),
+        metadata: optionalMetadata({
+          seriesName: item.seriesName,
+          logoUrl: item.logoUrl,
+          symbolUrl: item.symbolUrl,
+          cardCount: item.cardCount === null ? null : String(item.cardCount),
+          officialCardCount: item.officialCardCount === null ? null : String(item.officialCardCount),
+        }),
+      })),
+    );
+    return { items: items.map(toOptionItem) };
   }
 
   return { items: [] };
 }
 
-async function platformSeriesLabels(input: {
+/**
+ * Resolve typed English option aliases for a single non-English option by
+ * fetching the same-id English mirror entity and aligning it with the #1906
+ * reusable matcher (`matchTcgdexEnglishEndpointEntity`). English-language
+ * selections have no localized name to translate, so they carry no alias. A
+ * missing English mirror (404 or id mismatch) yields no alias: providers/options
+ * with no reliable English equivalent fall back safely to the native label.
+ */
+async function englishEndpointOptionAliases(input: {
   profile: CatalogProviderIntegrationProfileVersionRecord["profile"];
   languageCode: string;
+  entity: "set" | "series";
+  aliasType: CatalogAliasTypeKey;
+  evidenceKind: string;
+  id: string;
   fetch?: typeof globalThis.fetch;
-}): Promise<ReadonlyMap<string, string>> {
-  if (normalizeOptionKey(input.languageCode) === "en") {
-    return new Map();
+}): Promise<readonly ProviderOptionAlias[]> {
+  if (normalizeOptionKey(input.languageCode) === ENGLISH_ALIAS_LANGUAGE_CODE) {
+    return [];
   }
 
-  try {
-    const series = await fetchTcgdexSeriesOptions({
-      profile: input.profile,
-      languageCode: "en",
-      fetch: input.fetch,
-    });
-    return new Map(series.map((item) => [normalizeOptionKey(item.seriesId), item.name]));
-  } catch {
-    return new Map();
-  }
+  const englishEntity = await fetchTcgdexEnglishMirrorEntity({
+    profile: input.profile,
+    entity: input.entity,
+    id: input.id,
+    fetch: input.fetch,
+  });
+  const englishName = matchTcgdexEnglishEndpointEntity({ sourceId: input.id, englishEntity });
+  const alias = buildEnglishEndpointOptionAlias({
+    englishName,
+    aliasType: input.aliasType,
+    sourceLanguageCode: input.languageCode,
+    providerId: input.id,
+    evidenceKind: input.evidenceKind,
+  });
+  return alias ? [alias] : [];
 }
 
-async function platformExpansionLabels(input: {
-  profile: CatalogProviderIntegrationProfileVersionRecord["profile"];
-  languageCode: string;
-  fetch?: typeof globalThis.fetch;
-}): Promise<ReadonlyMap<string, string>> {
-  if (normalizeOptionKey(input.languageCode) === "en") {
-    return new Map();
-  }
-
-  try {
-    const expansions = await fetchTcgdexExpansionOptions({
-      profile: input.profile,
-      languageCode: "en",
-      seriesId: null,
-      fetch: input.fetch,
-    });
-    return new Map(expansions.map((item) => [normalizeOptionKey(item.expansionId), item.name]));
-  } catch {
-    return new Map();
-  }
+function toOptionItem(item: {
+  value: string;
+  label: string;
+  parentValue?: string;
+  aliases: readonly ProviderOptionAlias[];
+  metadata: ProviderOptionItem["metadata"];
+}): ProviderOptionItem {
+  return {
+    value: item.value,
+    label: item.label,
+    ...(item.parentValue ? { parentValue: item.parentValue } : {}),
+    ...(item.aliases.length > 0 ? { aliases: item.aliases } : {}),
+    ...(item.metadata ? { metadata: item.metadata } : {}),
+  };
 }
 
 function toEnvelope(payload: TcgdexObservationPayload): ProviderPayloadEnvelope<TcgdexObservationPayload> {

@@ -1,5 +1,12 @@
+import type { JsonObject } from "@chase-sets/primitives/json";
 import type { CatalogIntegrationUnitKey } from "../integration-unit";
 import type { CatalogProviderCredentialReadiness } from "../catalog-integration-credential-readiness";
+import type {
+  CatalogAliasReviewStateKey,
+  CatalogAliasSourceCategoryKey,
+  CatalogAliasTypeKey,
+} from "../catalog-integration-data-governance";
+import type { CatalogAliasConfidenceKey } from "../../../alias-equivalence/domain/alias";
 
 export type CatalogIntegrationUnitDescriptor = Readonly<{
   unitKey: CatalogIntegrationUnitKey;
@@ -23,10 +30,40 @@ export type ProviderOptionQueryInput = Readonly<{
   parentValues?: Readonly<Record<string, string>>;
 }>;
 
+/**
+ * A typed equivalence-name alias for a provider option, using the shared Catalog
+ * Alias vocabulary (#1903) rather than untyped label metadata. Scope selection
+ * is pre-import, so these aliases come from provider option queries / provider
+ * English endpoints rather than durable Catalog Alias candidates; they share the
+ * vocabulary and extraction logic but are a distinct, pre-import data path.
+ *
+ * `metadata` on the option stays for non-semantic display/transport only
+ * (logo/symbol URL, card count, etc.). The semantic "what does this option mean
+ * in English" signal lives here, typed.
+ */
+export type ProviderOptionAlias = Readonly<{
+  /** The alias text, e.g. the English equivalent of a localized set name. */
+  aliasText: string;
+  /** Language of the alias text (e.g. "en"). */
+  aliasLanguageCode: string;
+  aliasType: CatalogAliasTypeKey;
+  /** Trust marking, orthogonal to alias type. */
+  confidence: CatalogAliasConfidenceKey;
+  /** Governed review status; pre-import aliases are evidence held for review. */
+  reviewStatus: CatalogAliasReviewStateKey;
+  /** Source category that produced the alias, per the governance policy (#1912). */
+  sourceCategory: CatalogAliasSourceCategoryKey;
+  /** Supporting evidence (e.g. shared provider id) backing the alias. */
+  evidence?: JsonObject;
+}>;
+
 export type ProviderOptionItem = Readonly<{
   value: string;
   label: string;
   parentValue?: string;
+  /** Typed equivalence aliases for the option, sharing the Catalog Alias vocabulary. */
+  aliases?: readonly ProviderOptionAlias[];
+  /** Non-semantic display/transport metadata only (logo URL, card count, etc.). */
   metadata?: Readonly<Record<string, string>>;
 }>;
 
