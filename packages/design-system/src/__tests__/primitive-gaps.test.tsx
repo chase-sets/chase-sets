@@ -10,6 +10,7 @@ import {
   ActionRow,
   ActionStack,
   CheckoutNoticeStack,
+  CheckoutStickyActionBar,
   CheckoutSummaryLineItem,
   CheckoutTotals,
   DestructiveAction,
@@ -781,12 +782,16 @@ describe("CheckoutNoticeStack single-notice ladder (#1853)", () => {
     expect(notice).toBe("needs-review");
   });
 
-  it("renders nothing when no candidate is active", () => {
+  it("renders no notice content when no candidate is active (but keeps the live region container)", () => {
     const { container } = render(
       <CheckoutNoticeStack candidates={[{ priority: "info", active: false, notice: <span>none</span> }]} />,
     );
 
-    expect(container.textContent).toBe("");
+    // The live region container remains in the DOM (stable observer for screen readers)
+    // but shows no notice text.
+    const region = container.querySelector('[role="status"]');
+    expect(region).toBeTruthy();
+    expect(region?.textContent).toBe("");
   });
 });
 
@@ -825,5 +830,108 @@ describe("PageStepper multi-step spine (#1853)", () => {
     const blocked = screen.getByText("Payment").closest("li");
     expect(blocked?.getAttribute("aria-current")).toBeNull();
     expect(blocked?.className).toContain("border-danger");
+  });
+
+  it("exposes a default accessible label so the list is always named without consumer effort", () => {
+    render(
+      <PageStepper
+        items={[
+          { label: "Contact", status: "current" },
+          { label: "Payment", status: "upcoming" },
+        ]}
+      />,
+    );
+
+    // Default aria-label="Progress" is set; consumers can override via ...rest.
+    const list = screen.getByRole("list", { name: "Progress" });
+    expect(list.tagName).toBe("OL");
+  });
+});
+
+describe("Accessibility — focus, aria, live regions (#1857)", () => {
+  it("CheckoutNoticeStack is a polite live region so screen readers announce state changes", () => {
+    const markup = renderToString(
+      <CheckoutNoticeStack
+        candidates={[{ priority: "needs-review", active: true, notice: <span>Cart needs attention</span> }]}
+      />,
+    );
+
+    expect(markup).toContain('role="status"');
+    expect(markup).toContain('aria-live="polite"');
+    expect(markup).toContain('aria-atomic="true"');
+  });
+
+  it("CheckoutNoticeStack keeps the live region container in the DOM even when empty", () => {
+    const { container } = render(
+      <CheckoutNoticeStack candidates={[{ priority: "info", active: false, notice: <span>None</span> }]} />,
+    );
+
+    // The wrapper div must remain in the DOM (not null-rendered) so the browser
+    // has a stable live region to observe for future insertions.
+    const region = container.querySelector('[role="status"]');
+    expect(region).toBeTruthy();
+    expect(region?.textContent).toBe("");
+  });
+
+  it("StickyCtaBar exposes a named region landmark for assistive technology", () => {
+    const { container } = render(
+      <StickyCtaBar
+        totalLabel="Estimated total"
+        total="$42.00"
+        primaryAction={<button type="submit">Check out</button>}
+      />,
+    );
+
+    const region = container.querySelector('[role="region"]');
+    expect(region).toBeTruthy();
+    expect(region?.getAttribute("aria-label")).toBe("Checkout");
+  });
+
+  it("StickyCtaBar accepts a custom region label", () => {
+    const markup = renderToString(
+      <StickyCtaBar total="$10.00" primaryAction={<button type="submit">Buy</button>} label="Cart checkout" />,
+    );
+
+    expect(markup).toContain('role="region"');
+    expect(markup).toContain('aria-label="Cart checkout"');
+  });
+
+  it("CheckoutStickyActionBar exposes a named region landmark for assistive technology", () => {
+    const markup = renderToString(
+      <CheckoutStickyActionBar
+        totalLabel="Total"
+        total="$42.00"
+        primaryAction={<button type="submit">Pay now</button>}
+      />,
+    );
+
+    expect(markup).toContain('role="region"');
+    expect(markup).toContain('aria-label="Checkout actions"');
+  });
+
+  it("DestructiveAction carries a visible focus ring class for keyboard navigation", () => {
+    const markup = renderToString(<DestructiveAction>Remove</DestructiveAction>);
+
+    // focus-ring applies box-shadow on :focus-visible — the class must be present
+    // on the button element so keyboard users see a ring on dark surfaces.
+    expect(markup).toContain("focus-ring");
+  });
+
+  it("PageStepper completed steps show a check icon for non-text status cues", () => {
+    render(
+      <PageStepper
+        items={[
+          { label: "Contact", status: "complete" },
+          { label: "Payment", status: "current" },
+        ]}
+      />,
+    );
+
+    // The complete step badge renders an icon (SVG) instead of a number so the
+    // status is communicated visually; aria-current="step" on the current item
+    // handles the screen-reader status signal.
+    const completeBadge = screen.getByText("Contact").closest("li");
+    expect(completeBadge?.querySelector("svg")).toBeTruthy();
+    expect(completeBadge?.getAttribute("aria-current")).toBeNull();
   });
 });
