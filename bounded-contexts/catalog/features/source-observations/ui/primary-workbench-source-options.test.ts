@@ -88,6 +88,102 @@ describe("Catalog primary workbench source options", () => {
     });
   });
 
+  it("hydrates parent source option context from an explicit child-only expansion selection", () => {
+    const profile = profileReview({ active: true, lifecycle: "active" });
+    const sv8Scope = sourceObservationScope({
+      language_code: "ja",
+      product_line_id: "",
+      product_line_name: "",
+      series_id: "SV",
+      series_name: "Scarlet & Violet",
+      expansion_id: "SV8",
+      expansion_name: "Super Electric Breaker",
+    });
+    const requestUrl =
+      "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&expansionId=SV8";
+    const requests = buildCatalogPrimaryWorkbenchSourceOptionRequests({
+      requestUrl,
+      scopes: [sv8Scope],
+      profiles: [profile],
+      cacheOnly: true,
+    });
+
+    expect(requests.find((request) => request.queryKind === "series")).toMatchObject({
+      languageCode: "ja",
+      selectedParentValue: "ja",
+      selectedParentLabel: "Japanese",
+    });
+    expect(requests.find((request) => request.queryKind === "expansions")).toMatchObject({
+      languageCode: "ja",
+      parentValue: "SV",
+      selectedParentValue: "SV",
+      selectedParentLabel: "Scarlet & Violet",
+    });
+
+    const pages = requests.map((request) => ({
+      request,
+      response: responseForJapaneseSv8(request),
+    }));
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl,
+      scopes: { items: [sv8Scope], total: 1, count: 1 },
+      profileReviews: { items: [profile], total: 1, count: 1 },
+      sourceOptionPages: pages,
+      controlPlaneOverview: null,
+      canManageCatalog: true,
+    });
+
+    expect(readModel.sourceOptions.optionKinds.find((kind) => kind.queryKind === "series")?.parent).toMatchObject({
+      scope: "language",
+      selectedValue: "ja",
+      selectedLabel: "Japanese",
+      missing: false,
+    });
+    expect(readModel.sourceOptions.optionKinds.find((kind) => kind.queryKind === "expansions")?.parent).toMatchObject({
+      scope: "series",
+      selectedValue: "SV",
+      selectedLabel: "Scarlet & Violet",
+      missing: false,
+    });
+    expect(readModel.sourceOptions.pages.find((page) => page.queryKind === "languages")?.items).toEqual([
+      expect.objectContaining({ value: "ja", label: "Japanese" }),
+    ]);
+    expect(readModel.sourceOptions.pages.find((page) => page.queryKind === "series")?.items).toEqual([
+      expect.objectContaining({ value: "SV", label: "Scarlet & Violet", parentValue: "ja" }),
+    ]);
+  });
+
+  it("hydrates language context from an explicit series selection without inheriting an expansion", () => {
+    const profile = profileReview({ active: true, lifecycle: "active" });
+    const sv8Scope = sourceObservationScope({
+      language_code: "ja",
+      product_line_id: "",
+      product_line_name: "",
+      series_id: "SV",
+      series_name: "Scarlet & Violet",
+      expansion_id: "SV8",
+      expansion_name: "Super Electric Breaker",
+    });
+    const requests = buildCatalogPrimaryWorkbenchSourceOptionRequests({
+      requestUrl: "https://admin.example/catalog/integrations?providerKey=tcgdex&seriesId=SV",
+      scopes: [sv8Scope],
+      profiles: [profile],
+      cacheOnly: true,
+    });
+
+    expect(requests.find((request) => request.queryKind === "series")).toMatchObject({
+      languageCode: "ja",
+      selectedParentValue: "ja",
+    });
+    expect(requests.find((request) => request.queryKind === "expansions")).toMatchObject({
+      languageCode: "ja",
+      parentValue: "SV",
+      selectedParentValue: "SV",
+      selectedParentLabel: "Scarlet & Violet",
+    });
+    expect(requests.find((request) => request.queryKind === "expansions")?.queryHref).toContain("parentValue=SV");
+  });
+
   it("surfaces stale Japanese SV8 expansion option cache on the selected-scope path", () => {
     const profile = profileReview({ active: true, lifecycle: "active" });
     const sv8Scope = sourceObservationScope({
@@ -386,6 +482,39 @@ function responseFor(request: CatalogPrimaryWorkbenchSourceOptionRequest): Sourc
     ],
     true,
   );
+}
+
+function responseForJapaneseSv8(
+  request: CatalogPrimaryWorkbenchSourceOptionRequest,
+): SourceObservationIntegrationOptionResponse {
+  if (request.queryKind === "languages") {
+    return optionResponse(request, "fresh", "cache", [
+      {
+        value: "ja",
+        label: "ja",
+        parentValue: null,
+        metadata: { languageCode: "ja" },
+      },
+    ]);
+  }
+  if (request.queryKind === "series") {
+    return optionResponse(request, "fresh", "cache", [
+      {
+        value: "SV",
+        label: "Scarlet & Violet",
+        parentValue: "ja",
+        metadata: { languageCode: "ja", seriesId: "SV" },
+      },
+    ]);
+  }
+  return optionResponse(request, "fresh", "cache", [
+    {
+      value: "SV8",
+      label: "Super Electric Breaker",
+      parentValue: "SV",
+      metadata: { languageCode: "ja", seriesId: "SV", expansionId: "SV8" },
+    },
+  ]);
 }
 
 function optionResponse(

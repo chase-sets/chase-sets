@@ -221,6 +221,8 @@ function GuidedSourceScopeFields({ fields }: { fields: readonly CatalogPrimaryWo
             onChange={(event) =>
               submitSourceScopeFilter(
                 event,
+                fields.slice(0, index),
+                field.options,
                 fields.slice(index + 1).map((dependent) => dependent.fieldName),
               )
             }
@@ -231,11 +233,18 @@ function GuidedSourceScopeFields({ fields }: { fields: readonly CatalogPrimaryWo
   );
 }
 
-function submitSourceScopeFilter(event: ChangeEvent<HTMLSelectElement>, dependentFieldNames: readonly string[]): void {
+function submitSourceScopeFilter(
+  event: ChangeEvent<HTMLSelectElement>,
+  parentFields: readonly CatalogPrimaryWorkbenchGuidedScopeField[],
+  currentOptions: CatalogPrimaryWorkbenchGuidedScopeField["options"],
+  dependentFieldNames: readonly string[],
+): void {
   const form = event.currentTarget.form;
   if (!form) {
     return;
   }
+
+  hydrateParentScopeFields(form, event.currentTarget.value, parentFields, currentOptions);
 
   for (const fieldName of dependentFieldNames) {
     const field = form.elements.namedItem(fieldName);
@@ -244,16 +253,50 @@ function submitSourceScopeFilter(event: ChangeEvent<HTMLSelectElement>, dependen
     }
   }
 
-  // A parent filter change (a field that has dependent fields) invalidates every
-  // dependent option page, whose cache-only options no longer match the new parent.
-  // Force a live refresh across all groups so the dependent pages fetch fresh
-  // provider options rather than reloading stale cache. Leaf fields (no dependents,
-  // e.g. Expansion) submit plainly and stay cache-only.
-  if (dependentFieldNames.length > 0) {
-    forceRefreshAllSourceOptions(form);
-  }
+  forceRefreshAllSourceOptions(form);
 
   form.requestSubmit();
+}
+
+function hydrateParentScopeFields(
+  form: HTMLFormElement,
+  selectedValue: string,
+  parentFields: readonly CatalogPrimaryWorkbenchGuidedScopeField[],
+  currentOptions: CatalogPrimaryWorkbenchGuidedScopeField["options"],
+): void {
+  let parentValue = currentOptions.find((option) => option.value === selectedValue)?.parentValue ?? null;
+  if (!parentValue) {
+    return;
+  }
+
+  for (let index = parentFields.length - 1; index >= 0; index -= 1) {
+    const parentField = parentFields[index];
+    if (!parentField) {
+      continue;
+    }
+
+    const formField = form.elements.namedItem(parentField.fieldName);
+    if (formField instanceof HTMLSelectElement || formField instanceof HTMLInputElement) {
+      formField.value = parentValue;
+    }
+
+    parentValue = findSourceScopeOption(parentField.options, parentValue)?.parentValue ?? null;
+    if (!parentValue) {
+      return;
+    }
+  }
+}
+
+function findSourceScopeOption(
+  options: CatalogPrimaryWorkbenchGuidedScopeField["options"],
+  value: string,
+): CatalogPrimaryWorkbenchGuidedScopeField["options"][number] | undefined {
+  const exact = options.find((option) => option.value === value);
+  if (exact) {
+    return exact;
+  }
+  const comparableValue = value.trim().toLowerCase();
+  return options.find((option) => option.value.trim().toLowerCase() === comparableValue);
 }
 
 // Stamp the GET form with the refresh-all source-option intent so the workbench

@@ -16,6 +16,7 @@ export type CatalogPrimaryWorkbenchSourceScopeOption = Readonly<{
   value: string;
   label: string;
   description: string | null;
+  parentValue: string | null;
 }>;
 
 // One guided source-scope control, derived from a provider source-option page. The
@@ -56,7 +57,7 @@ const scopeQueryFieldByProviderScope: Readonly<Record<string, CatalogPrimaryWork
 export function guidedSourceScopeFields(
   readModel: CatalogPrimaryWorkbenchReadModel,
 ): readonly CatalogPrimaryWorkbenchGuidedScopeField[] {
-  const scope = readModel.routeContext.scope;
+  const selectedScopeValues = selectedSourceScopeValues(readModel);
   const optionKindsByQueryKind = new Map(readModel.sourceOptions.optionKinds.map((kind) => [kind.queryKind, kind]));
 
   return readModel.sourceOptions.pages.flatMap((page) => {
@@ -67,8 +68,8 @@ export function guidedSourceScopeFields(
 
     const parent = optionKindsByQueryKind.get(page.queryKind)?.parent ?? null;
     const parentMissing = parent?.missing ?? page.state === "not-requested";
-    const selectedValue = scopeFieldValue(scope, fieldName);
-    const parentSelectedValue = parentScopeSelectedValue(scope, parent?.scope ?? null);
+    const selectedValue = selectedScopeValues.get(page.scope) ?? "";
+    const parentSelectedValue = parent?.scope ? (selectedScopeValues.get(parent.scope) ?? null) : null;
 
     return [
       {
@@ -86,6 +87,34 @@ export function guidedSourceScopeFields(
   });
 }
 
+function selectedSourceScopeValues(readModel: CatalogPrimaryWorkbenchReadModel): ReadonlyMap<string, string> {
+  const selections = new Map<string, string>();
+  const explicitScopes = new Set<string>();
+  const parentScopeByScope = new Map(readModel.sourceOptions.optionKinds.map((kind) => [kind.scope, kind.parentScope]));
+
+  for (const scopeName of Object.keys(scopeQueryFieldByProviderScope)) {
+    const value = scopeFieldValue(readModel.routeContext.scope, scopeQueryFieldByProviderScope[scopeName]!);
+    if (value) {
+      selections.set(scopeName, value);
+      explicitScopes.add(scopeName);
+    }
+  }
+
+  for (const kind of readModel.sourceOptions.optionKinds) {
+    const parentScope = kind.parent.scope;
+    if (
+      parentScope &&
+      kind.parent.selectedValue &&
+      !selections.has(parentScope) &&
+      hasExplicitDescendantSelection(parentScopeByScope, explicitScopes, parentScope)
+    ) {
+      selections.set(parentScope, kind.parent.selectedValue);
+    }
+  }
+
+  return selections;
+}
+
 function scopeFieldValue(
   scope: CatalogPrimaryWorkbenchScopeContext | undefined,
   fieldName: CatalogPrimaryWorkbenchScopeQueryKey,
@@ -93,18 +122,22 @@ function scopeFieldValue(
   return scope?.[fieldName] ?? "";
 }
 
-function parentScopeSelectedValue(
-  scope: CatalogPrimaryWorkbenchScopeContext | undefined,
-  parentScope: string | null,
-): string | null {
-  if (!parentScope) {
-    return null;
+function hasExplicitDescendantSelection(
+  parentScopeByScope: ReadonlyMap<string, string | null>,
+  explicitScopes: ReadonlySet<string>,
+  ancestorScope: string,
+): boolean {
+  for (const explicitScope of explicitScopes) {
+    let current = parentScopeByScope.get(explicitScope) ?? null;
+    while (current) {
+      if (current === ancestorScope) {
+        return true;
+      }
+      current = parentScopeByScope.get(current) ?? null;
+    }
   }
-  const parentFieldName = scopeQueryFieldByProviderScope[parentScope];
-  if (!parentFieldName) {
-    return null;
-  }
-  return scopeFieldValue(scope, parentFieldName) || null;
+
+  return false;
 }
 
 // Turn the loaded option items into select options. Parent-scoped items are
@@ -120,6 +153,7 @@ function scopeOptions(
       value: item.value,
       label: item.label,
       description: item.description,
+      parentValue: item.parentValue,
     }));
   if (selectedValue && !options.some((option) => option.value === selectedValue)) {
     return [
@@ -132,6 +166,7 @@ function scopeOptions(
           label: selectedValue,
         }),
         description: null,
+        parentValue: null,
       },
       ...options,
     ];
