@@ -220,6 +220,7 @@ describe("Catalog primary workbench source options", () => {
     expect(readModel.sourceOptions.optionKinds.find((kind) => kind.queryKind === "series")?.parent).toMatchObject({
       scope: "language",
       selectedValue: "en",
+      selectedLabel: "English",
       missing: false,
     });
     expect(readModel.sourceOptions.optionKinds.find((kind) => kind.queryKind === "expansions")?.parent).toMatchObject({
@@ -232,6 +233,9 @@ describe("Catalog primary workbench source options", () => {
       series: "live",
       expansions: "stale",
     });
+    expect(readModel.sourceOptions.pages.find((page) => page.queryKind === "languages")?.items).toEqual([
+      expect.objectContaining({ value: "en", label: "English" }),
+    ]);
     expect(readModel.sourceOptions.pages.find((page) => page.queryKind === "expansions")?.cache.diagnostics).toEqual([
       expect.objectContaining({ code: "provider-option-query-stale-cache-used" }),
     ]);
@@ -322,7 +326,7 @@ function responseFor(request: CatalogPrimaryWorkbenchSourceOptionRequest): Sourc
     return optionResponse(request, "fresh", "cache", [
       {
         value: "en",
-        label: "English",
+        label: "en",
         parentValue: null,
         metadata: { languageCode: "en" },
       },
