@@ -192,13 +192,7 @@ function sourceOptionSelections(input: {
   scopes: readonly SourceObservationIntegrationScope[];
 }): ReadonlyMap<string, Readonly<{ value: string; label: string }>> {
   const providerRows = input.scopes.filter((scope) => scope.provider_key === input.providerKey);
-  const hasExplicitScopeSelection = Boolean(
-    input.scope?.languageCode ||
-    input.scope?.productLineId ||
-    input.scope?.seriesId ||
-    input.scope?.expansionId ||
-    input.scope?.expansionName,
-  );
+  const hasExplicitScopeSelection = scopeHasExplicitSelection(input.scope);
   const matchedRepresentative =
     hasExplicitScopeSelection && input.scope
       ? (providerRows.find((scope) => scopeContextMatchesProviderScope(input.scope!, scope)) ?? null)
@@ -210,26 +204,65 @@ function sourceOptionSelections(input: {
       ? scopeContextFromProviderScope(representative)
       : null;
   const selections = new Map<string, Readonly<{ value: string; label: string }>>();
-  addLanguageSelection(selections, representative?.language_code, representative?.language_code);
-  addSelection(selections, "product-line/category", representative?.product_line_id, representative?.product_line_name);
-  addSelection(selections, "series", representative?.series_id, representative?.series_name);
+  addLanguageSelection(
+    selections,
+    representativeSelectionValue(input, representative, "language", representative?.language_code),
+    representativeSelectionValue(input, representative, "language", representative?.language_code),
+  );
+  addSelection(
+    selections,
+    "product-line/category",
+    representativeSelectionValue(input, representative, "product-line/category", representative?.product_line_id),
+    representativeSelectionValue(input, representative, "product-line/category", representative?.product_line_name),
+  );
+  addSelection(
+    selections,
+    "series",
+    representativeSelectionValue(input, representative, "series", representative?.series_id),
+    representativeSelectionValue(input, representative, "series", representative?.series_name),
+  );
   addSelection(
     selections,
     "expansion",
-    representative?.expansion_id || representative?.expansion_name,
-    representative?.expansion_name || representative?.expansion_id,
+    representativeSelectionValue(
+      input,
+      representative,
+      "expansion",
+      representative?.expansion_id || representative?.expansion_name,
+    ),
+    representativeSelectionValue(
+      input,
+      representative,
+      "expansion",
+      representative?.expansion_name || representative?.expansion_id,
+    ),
   );
   addSelection(
     selections,
     "set-name",
-    representative?.expansion_name || representative?.expansion_id,
-    representative?.expansion_name || representative?.expansion_id,
+    representativeSelectionValue(
+      input,
+      representative,
+      "set-name",
+      representative?.expansion_name || representative?.expansion_id,
+    ),
+    representativeSelectionValue(
+      input,
+      representative,
+      "set-name",
+      representative?.expansion_name || representative?.expansion_id,
+    ),
   );
   addSelection(
     selections,
     "product/card",
-    representative ? scopeKey(representative) : null,
-    representative?.expansion_name,
+    representativeSelectionValue(
+      input,
+      representative,
+      "product/card",
+      representative ? scopeKey(representative) : null,
+    ),
+    representativeSelectionValue(input, representative, "product/card", representative?.expansion_name),
   );
   addLanguageSelection(selections, scope?.languageCode, scope?.languageCode);
   addSelection(
@@ -255,6 +288,62 @@ function sourceOptionSelections(input: {
   }
 
   return selections;
+}
+
+function representativeSelectionValue(
+  input: Readonly<{
+    scope: CatalogPrimaryWorkbenchRouteContext["scope"];
+  }>,
+  representative: SourceObservationIntegrationScope | null,
+  selectionScope: string,
+  value: string | null | undefined,
+): string | null | undefined {
+  if (
+    !representative ||
+    !scopeHasExplicitSelection(input.scope) ||
+    explicitScopeIncludesSelection(input.scope, selectionScope)
+  ) {
+    return value;
+  }
+
+  return null;
+}
+
+function scopeHasExplicitSelection(scope: CatalogPrimaryWorkbenchRouteContext["scope"]): boolean {
+  return Boolean(
+    scope?.languageCode ||
+    scope?.productLineId ||
+    scope?.productLineName ||
+    scope?.seriesId ||
+    scope?.seriesName ||
+    scope?.expansionId ||
+    scope?.expansionName,
+  );
+}
+
+function explicitScopeIncludesSelection(
+  scope: CatalogPrimaryWorkbenchRouteContext["scope"],
+  selectionScope: string,
+): boolean {
+  if (!scope) {
+    return true;
+  }
+
+  switch (selectionScope) {
+    case "language":
+      return Boolean(scope.languageCode);
+    case "product-line/category":
+      return Boolean(scope.productLineId || scope.productLineName);
+    case "series":
+      return Boolean(scope.seriesId || scope.seriesName);
+    case "expansion":
+    case "set-name":
+      return Boolean(scope.expansionId || scope.expansionName);
+    case "product/card":
+      return false;
+    default:
+      return false;
+  }
 }
 
 function addLanguageSelection(
