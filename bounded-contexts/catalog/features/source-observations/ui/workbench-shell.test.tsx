@@ -182,6 +182,51 @@ describe("CatalogWorkbenchShell guided source-scope selector", () => {
     expect(expansion.value).toBe("base1");
   });
 
+  // A stale/mixed option page can carry child items whose parentValue no longer
+  // matches the selected parent (e.g. a Series belonging to ja while Language=en, or
+  // an Expansion belonging to a different series while Series=base). The guided
+  // selects must narrow to the selected parent and never offer those foreign options.
+  it("narrows dependent scope options to the selected parent", () => {
+    const readModel = dailyReadModelWithSourceOptions((request) => {
+      if (request.queryKind === "languages") {
+        return optionResponse(request, "fresh", "cache", [
+          { value: "en", label: "en", parentValue: null },
+          { value: "ja", label: "ja", parentValue: null },
+        ]);
+      }
+      if (request.queryKind === "series") {
+        return optionResponse(request, "fresh", "live", [
+          { value: "base", label: "Base", parentValue: "EN" },
+          { value: "legends", label: "Legends", parentValue: "ja" },
+        ]);
+      }
+      return optionResponse(
+        request,
+        "stale",
+        "cache",
+        [
+          { value: "base1", label: "Base Set", parentValue: "BASE" },
+          { value: "adv1", label: "Advanced", parentValue: "ADV" },
+        ],
+        true,
+      );
+    });
+
+    render(<CatalogIntegrationsSurfacePage surface="daily" readModel={readModel} />);
+
+    const scopeGroup = screen.getByRole("group", { name: "Source scope" });
+    const series = within(scopeGroup).getByLabelText<HTMLSelectElement>("Series");
+    const expansion = within(scopeGroup).getByLabelText<HTMLSelectElement>("Expansion");
+
+    // Series narrows to Language=en: the ja-parented "Legends" series is gone.
+    expect(within(series).getByRole("option", { name: "Base" })).toBeTruthy();
+    expect(within(series).queryByRole("option", { name: "Legends" })).toBeNull();
+
+    // Expansion narrows to Series=base: the ADV-parented "Advanced" expansion is gone.
+    expect(within(expansion).getByRole("option", { name: "Base Set" })).toBeTruthy();
+    expect(within(expansion).queryByRole("option", { name: "Advanced" })).toBeNull();
+  });
+
   it("does not hard-code TCGdex scope levels for a generic provider", () => {
     const profile = profileReview({ providerKey: "tcgplayer", active: true, lifecycle: "active" });
     const readModel = buildCatalogPrimaryWorkbenchReadModel({

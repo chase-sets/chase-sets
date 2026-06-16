@@ -68,6 +68,7 @@ export function guidedSourceScopeFields(
     const parent = optionKindsByQueryKind.get(page.queryKind)?.parent ?? null;
     const parentMissing = parent?.missing ?? page.state === "not-requested";
     const selectedValue = scopeFieldValue(scope, fieldName);
+    const parentSelectedValue = parentScopeSelectedValue(scope, parent?.scope ?? null);
 
     return [
       {
@@ -75,7 +76,7 @@ export function guidedSourceScopeFields(
         scope: page.scope,
         label: page.displayName,
         fieldName,
-        options: scopeOptions(page, selectedValue),
+        options: scopeOptions(page, selectedValue, parentSelectedValue),
         selectedValue,
         parentMissing,
         parentScope: parent?.scope ?? null,
@@ -92,18 +93,34 @@ function scopeFieldValue(
   return scope?.[fieldName] ?? "";
 }
 
-// Turn the loaded option items into select options. When the route already carries
-// a selected value the page has not loaded (stale parent, partial read model), keep
-// it as the leading option so the current scope stays visible and submittable.
+function parentScopeSelectedValue(
+  scope: CatalogPrimaryWorkbenchScopeContext | undefined,
+  parentScope: string | null,
+): string | null {
+  if (!parentScope) {
+    return null;
+  }
+  const parentFieldName = scopeQueryFieldByProviderScope[parentScope];
+  if (!parentFieldName) {
+    return null;
+  }
+  return scopeFieldValue(scope, parentFieldName) || null;
+}
+
+// Turn the loaded option items into select options. Parent-scoped items are
+// narrowed before the fallback selected value is restored for stale/partial pages.
 function scopeOptions(
   page: CatalogPrimaryWorkbenchReadModel["sourceOptions"]["pages"][number],
   selectedValue: string,
+  parentSelectedValue: string | null,
 ): readonly CatalogPrimaryWorkbenchSourceScopeOption[] {
-  const options = page.items.map((item) => ({
-    value: item.value,
-    label: item.label,
-    description: item.description,
-  }));
+  const options = page.items
+    .filter((item) => optionParentMatches(page.request.providerKey, item.parentValue, parentSelectedValue))
+    .map((item) => ({
+      value: item.value,
+      label: item.label,
+      description: item.description,
+    }));
   if (selectedValue && !options.some((option) => option.value === selectedValue)) {
     return [
       {
@@ -121,6 +138,24 @@ function scopeOptions(
   }
 
   return options;
+}
+
+function optionParentMatches(
+  providerKey: string,
+  itemParentValue: string | null,
+  selectedParentValue: string | null,
+): boolean {
+  if (!selectedParentValue || !itemParentValue) {
+    return true;
+  }
+  return (
+    comparableOptionValue(itemParentValue, providerKey) === comparableOptionValue(selectedParentValue, providerKey)
+  );
+}
+
+function comparableOptionValue(value: string, providerKey: string): string {
+  const trimmed = value.trim();
+  return providerKey === "tcgdex" ? trimmed.toLowerCase() : trimmed;
 }
 
 export function sourceOptionsStatusTone(
