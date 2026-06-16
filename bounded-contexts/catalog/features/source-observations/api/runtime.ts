@@ -138,10 +138,12 @@ import {
 import type {
   ProviderAdapter,
   ProviderImportPlan,
+  ProviderOptionAlias,
   ProviderPayloadFetchProgress,
   ProviderTransportDiagnostic,
 } from "./provider-adapters/provider-adapter";
 import { listCatalogProviderIntegrationOptionsFromProfiles } from "./provider-option-query-resolver";
+import type { ProviderOptionAliasRecord } from "./provider-option-aliases";
 import {
   createPgCatalogProviderOptionQueryCacheStore,
   queryCatalogProviderIntegrationOptionsWithCache,
@@ -434,6 +436,7 @@ export type SourceObservationIntegrationOption = Readonly<{
   description: string | null;
   parentValue: string | null;
   imageUrl: string | null;
+  aliases: readonly ProviderOptionAliasRecord[];
   metadata: Readonly<Record<string, JsonValue>>;
 }>;
 
@@ -3784,9 +3787,7 @@ async function listTcgdexSeriesOptionRecordsThroughAdapter(
   return result.items.map((item) => ({
     seriesId: item.value,
     name: item.label,
-    providerLabel: item.metadata?.providerLabel ?? item.label,
-    platformLabel: item.metadata?.platformLabel ?? null,
-    platformLanguageCode: item.metadata?.platformLanguageCode ?? null,
+    aliases: providerOptionAliasesToJson(item.aliases),
     logoUrl: item.metadata?.logoUrl ?? null,
   }));
 }
@@ -3805,9 +3806,7 @@ async function listTcgdexExpansionOptionRecordsThroughAdapter(
     name: item.label,
     seriesId: item.parentValue ?? null,
     seriesName: item.metadata?.seriesName ?? null,
-    providerLabel: item.metadata?.providerLabel ?? item.label,
-    platformLabel: item.metadata?.platformLabel ?? null,
-    platformLanguageCode: item.metadata?.platformLanguageCode ?? null,
+    aliases: providerOptionAliasesToJson(item.aliases),
     logoUrl: item.metadata?.logoUrl ?? null,
     symbolUrl: item.metadata?.symbolUrl ?? null,
     cardCount: numberFromString(item.metadata?.cardCount),
@@ -3990,6 +3989,21 @@ function stringRecordValue(record: JsonValue, key: string): string | null {
     return normalized.length > 0 ? normalized : null;
   }
   return null;
+}
+
+// Serialize typed option aliases to JSON records so they survive the adapter ->
+// option-query record -> resolver hop without losing their typed shape. The
+// resolver maps them back onto the typed `aliases` field on each option DTO.
+function providerOptionAliasesToJson(aliases: readonly ProviderOptionAlias[] | undefined): JsonValue {
+  return (aliases ?? []).map((alias) => ({
+    aliasText: alias.aliasText,
+    aliasLanguageCode: alias.aliasLanguageCode,
+    aliasType: alias.aliasType,
+    confidence: alias.confidence,
+    reviewStatus: alias.reviewStatus,
+    sourceCategory: alias.sourceCategory,
+    ...(alias.evidence ? { evidence: alias.evidence } : {}),
+  }));
 }
 
 function numberRecordValue(record: JsonValue, key: string): number | null {

@@ -114,6 +114,7 @@ function option(value: string): CatalogProviderIntegrationOption {
     description: null,
     parentValue: null,
     imageUrl: null,
+    aliases: [],
     metadata: {},
   };
 }

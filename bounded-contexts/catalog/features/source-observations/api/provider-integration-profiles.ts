@@ -64,6 +64,8 @@ export type CatalogProviderOptionQueryOutputMapping = Readonly<{
   parentValuePath?: string;
   imageUrlPath?: string;
   imageUrlCoalescePaths?: readonly string[];
+  /** Record path to a typed `ProviderOptionAlias[]` produced by the adapter (#1907). */
+  aliasesPath?: string;
   metadataPaths: Readonly<Record<string, string>>;
 }>;
 
@@ -500,12 +502,10 @@ export const tcgdexPokemonTcgProviderProfile = {
         labelPath: "name",
         parentValuePath: "$languageCode",
         imageUrlPath: "logoUrl",
+        aliasesPath: "aliases",
         metadataPaths: {
           languageCode: "$languageCode",
           seriesId: "seriesId",
-          providerLabel: "providerLabel",
-          platformLabel: "platformLabel",
-          platformLanguageCode: "platformLanguageCode",
           logoUrl: "logoUrl",
         },
       },
@@ -528,14 +528,12 @@ export const tcgdexPokemonTcgProviderProfile = {
         description: { kind: "tcgdex-expansion-card-count" },
         parentValuePath: "seriesId",
         imageUrlCoalescePaths: ["symbolUrl", "logoUrl"],
+        aliasesPath: "aliases",
         metadataPaths: {
           languageCode: "$languageCode",
           expansionId: "expansionId",
           seriesId: "seriesId",
           seriesName: "seriesName",
-          providerLabel: "providerLabel",
-          platformLabel: "platformLabel",
-          platformLanguageCode: "platformLanguageCode",
           logoUrl: "logoUrl",
           symbolUrl: "symbolUrl",
           cardCount: "cardCount",

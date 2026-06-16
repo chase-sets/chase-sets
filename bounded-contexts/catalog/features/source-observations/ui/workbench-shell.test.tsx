@@ -163,6 +163,7 @@ function optionResponse(
       description: null,
       parentValue: item.parentValue,
       imageUrl: null,
+      aliases: [],
       metadata: {},
     })),
     total: items.length,
