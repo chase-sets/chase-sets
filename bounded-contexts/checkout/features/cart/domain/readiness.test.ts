@@ -332,6 +332,120 @@ describe("cart readiness snapshots", () => {
     });
   });
 
+  it("keeps a locked line ready and offers a Save-$X proposal when a cheaper option exists", () => {
+    const lockedWithCheaperAlternative: CartReadinessLine = {
+      ...readyLine,
+      line_id: "cli_locked_cheaper",
+      locked_listing_id: "lst_current",
+      seller_options: [
+        { ...readyLine.seller_options[0]!, listing_id: "lst_current", price_amount: "30.00" },
+        { ...readyLine.seller_options[0]!, listing_id: "lst_cheaper", price_amount: "22.00" },
+      ],
+    };
+
+    const snapshot = createCartReadinessSnapshot([lockedWithCheaperAlternative]);
+
+    expect(cartReadinessLineHasFulfillment(lockedWithCheaperAlternative)).toBe(true);
+    expect(snapshot.status).toBe("ready");
+    expect(snapshot.lineOutcomes).toContainEqual({
+      lineId: "cli_locked_cheaper",
+      outcome: "checkout",
+      reason: "ready",
+    });
+    expect(snapshot.optimization).toMatchObject({
+      available: true,
+      proposedLineId: "cli_locked_cheaper",
+      proposedListingId: "lst_cheaper",
+      currentListingId: "lst_current",
+      savingsAmount: "8.00",
+    });
+  });
+
+  it("does not report a locked line ready when its listing is gone from populated options", () => {
+    const goneLockedLine: CartReadinessLine = {
+      ...readyLine,
+      line_id: "cli_gone",
+      locked_listing_id: "lst_withdrawn",
+      seller_options: [{ ...readyLine.seller_options[0]!, listing_id: "lst_other", price_amount: "19.00" }],
+    };
+
+    const snapshot = createCartReadinessSnapshot([readyLine, goneLockedLine]);
+
+    expect(cartReadinessLineHasFulfillment(goneLockedLine)).toBe(false);
+    expect(snapshot.status).toBe("needs-resolution");
+    expect(snapshot.includedLineIds).toEqual(["cli_ready"]);
+    expect(snapshot.unresolvedLineIds).toEqual(["cli_gone"]);
+    expect(snapshot.lineOutcomes).toContainEqual({
+      lineId: "cli_gone",
+      outcome: "checkout",
+      reason: "changed",
+    });
+    // A gone locked listing has no current price, so it yields no Save-$X proposal of its own.
+    expect(snapshot.optimization.proposedLineId).not.toBe("cli_gone");
+  });
+
+  it("degrades gracefully for a locked line with no projected options yet (stays ready)", () => {
+    const lockedWithoutProjectedOptions: CartReadinessLine = {
+      ...readyLine,
+      line_id: "cli_no_data",
+      locked_listing_id: "lst_pinned",
+      seller_options: [],
+    };
+
+    const snapshot = createCartReadinessSnapshot([lockedWithoutProjectedOptions]);
+
+    expect(cartReadinessLineHasFulfillment(lockedWithoutProjectedOptions)).toBe(true);
+    expect(snapshot.status).toBe("ready");
+    expect(snapshot.lineOutcomes).toContainEqual({
+      lineId: "cli_no_data",
+      outcome: "checkout",
+      reason: "ready",
+    });
+  });
+
+  it("marks a Smart Match line ready when active options exist", () => {
+    const optimizeWithOptions: CartReadinessLine = {
+      ...readyLine,
+      line_id: "cli_optimize_ready",
+      fulfillment_mode: "optimize",
+      locked_listing_id: null,
+      seller_options: [
+        { ...readyLine.seller_options[0]!, listing_id: "lst_a", price_amount: "21.00" },
+        { ...readyLine.seller_options[0]!, listing_id: "lst_b", price_amount: "18.00" },
+      ],
+    };
+
+    const snapshot = createCartReadinessSnapshot([optimizeWithOptions]);
+
+    expect(cartReadinessLineHasFulfillment(optimizeWithOptions)).toBe(true);
+    expect(snapshot.status).toBe("ready");
+    expect(snapshot.lineOutcomes).toContainEqual({
+      lineId: "cli_optimize_ready",
+      outcome: "checkout",
+      reason: "ready",
+    });
+  });
+
+  it("flags a Smart Match line needing attention when no active options exist", () => {
+    const optimizeWithoutOptions: CartReadinessLine = {
+      ...readyLine,
+      line_id: "cli_optimize_empty",
+      fulfillment_mode: "optimize",
+      locked_listing_id: null,
+      seller_options: [],
+    };
+
+    const snapshot = createCartReadinessSnapshot([readyLine, optimizeWithoutOptions]);
+
+    expect(cartReadinessLineHasFulfillment(optimizeWithoutOptions)).toBe(false);
+    expect(snapshot.unresolvedLineIds).toEqual(["cli_optimize_empty"]);
+    expect(snapshot.lineOutcomes).toContainEqual({
+      lineId: "cli_optimize_empty",
+      outcome: "checkout",
+      reason: "unassigned-fulfillment",
+    });
+  });
+
   it("rejects stale readiness when seller group facts change", () => {
     const snapshot = createCartReadinessSnapshot([readyLine]);
     const changedSellerLine: CartReadinessLine = {
