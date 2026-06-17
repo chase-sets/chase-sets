@@ -316,6 +316,13 @@ checkout shell. Money lives in DS totals primitives.
   (secondary listing action, secondary alternatives when blocked, ghost Remove).
 - **Status:** at most one `Banner` (priority ladder, §4); per-line `Badge` +
   single inline action.
+- **Quantity stepper stays live during writes (#1935).** The cart deliberately
+  does **not** pass `QuantityStepper`'s `loading` flag while an optimistic write
+  is pending: `loading` disables both −/+ buttons, which would break the
+  rapid-coalescing UX (tap +/+/+ faster than one write settles → coalesce to one
+  absolute target). Pending state is surfaced non-blockingly via the
+  `data-optimistic-status` hook on the stepper's wrapper, not by disabling the
+  control.
 - **Totals + CTA:** one totals primitive (`Estimated total`, one muted
   shipping/tax line, `SecurePaymentIndicator` reassurance) + one `StickyCtaBar`
   whose `price` is the `Estimated total` and whose single primary action is

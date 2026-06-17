@@ -312,6 +312,20 @@ describe("checkout cart page", () => {
     expect(markup).toContain("is locked for checkout unless availability changes.");
   });
 
+  it("falls back to the Standard badge when product_summary yields no options", () => {
+    // A truthy summary that parses to zero usable options (only separators) must
+    // not render an empty `ProductOptions` placeholder (#1936).
+    const optionlessLine: CheckoutCartLine = {
+      ...cartLine,
+      product_summary: " | ",
+    };
+
+    const markup = renderToString(<CheckoutCartPage cartLines={[optionlessLine]} />);
+
+    expect(markup).toContain(">Standard</span>");
+    expect(markup).not.toContain("No product options selected");
+  });
+
   it("blocks checkout, defers the price, and hands unresolved fulfillment to readiness", () => {
     const unavailableLine: CheckoutCartLine = {
       ...cartLine,
@@ -326,6 +340,9 @@ describe("checkout cart page", () => {
 
     expect(markup).toContain("Some items need attention");
     expect(markup).toContain("1 item needs fulfillment or availability resolved before checkout.");
+    // The needs-review banner is warning-toned, not the default info-blue (#1932).
+    expect(markup).toContain("bg-warning-soft");
+    expect(markup).not.toContain("bg-info-soft");
     expect(markup).toContain("Waiting for supply");
     expect(markup).toContain("Find alternatives");
     expect(markup).toContain('href="/search?q=Charizard"');

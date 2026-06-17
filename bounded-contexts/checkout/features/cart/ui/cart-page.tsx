@@ -209,8 +209,13 @@ function readinessTone(line: CheckoutCartLineGroup) {
 }
 
 function renderLineOptions(line: CheckoutCartLineGroup) {
-  return line.product_summary ? (
-    <ProductOptions options={productOptionsFromSummary(line.product_summary)} variant="chips" />
+  const options = line.product_summary ? productOptionsFromSummary(line.product_summary) : [];
+
+  // A truthy `product_summary` can still yield no usable options (e.g. a summary
+  // of only separators). Fall back to the quiet "Standard" badge rather than
+  // rendering an empty `ProductOptions` placeholder.
+  return options.length > 0 ? (
+    <ProductOptions options={options} variant="chips" />
   ) : (
     <Badge tone="neutral">{t("checkout.features.cart.ui.cartPage.standard")}</Badge>
   );
@@ -256,9 +261,9 @@ function CartLineHiddenFields({ line }: { line: CheckoutCartLineGroup }) {
   return (
     <>
       {line.lineIds.map((lineId) => (
-        <HiddenInput key={lineId} type="hidden" name="lineId" value={lineId} />
+        <HiddenInput key={lineId} name="lineId" value={lineId} />
       ))}
-      <HiddenInput type="hidden" name="sellerPreferenceId" value={line.seller_preference_id ?? ""} />
+      <HiddenInput name="sellerPreferenceId" value={line.seller_preference_id ?? ""} />
     </>
   );
 }
@@ -338,6 +343,16 @@ function QuantityControl({
       data-optimistic-resource={line.lineIds.join(":")}
       data-optimistic-status={correction.status}
     >
+      {/*
+       * Intentionally NOT passing `loading={correction.status === "pending"}` here.
+       * The stepper's `loading` prop disables both −/+ buttons while a write is in
+       * flight, which would kill the rapid-coalescing optimistic UX: a buyer can
+       * tap +/+/+ faster than a single write settles, and those edits coalesce into
+       * one absolute target (see optimistic-correction.ts and the "coalesces rapid
+       * repeated quantity clicks" test). A disabled stepper drops every edit after
+       * the first. Pending state is surfaced non-blockingly via the wrapper's
+       * `data-optimistic-status` hook instead; the stepper stays live by design.
+       */}
       <QuantityStepper
         label={t("checkout.features.cart.ui.cartPage.quantity")}
         value={safeQuantity}
@@ -354,7 +369,7 @@ function CartLineActions({ line }: { line: CheckoutCartLineGroup }) {
   const lockAction =
     line.seller_preference_id && line.fulfillment_mode !== "locked-listing" ? (
       <Form spacing="none" method="post">
-        <HiddenInput type="hidden" name="intent" value="lock-preferred-listing" />
+        <HiddenInput name="intent" value="lock-preferred-listing" />
         <CartLineHiddenFields line={line} />
         <Button type="submit" size="sm" tone="secondary" block>
           {t("checkout.features.cart.ui.cartPage.lock.this.listing")}
@@ -370,7 +385,7 @@ function CartLineActions({ line }: { line: CheckoutCartLineGroup }) {
 
   const removeAction = (
     <Form spacing="none" method="post">
-      <HiddenInput type="hidden" name="intent" value="remove-cart-line" />
+      <HiddenInput name="intent" value="remove-cart-line" />
       <CartLineHiddenFields line={line} />
       <DestructiveAction type="submit">{t("checkout.features.cart.ui.cartPage.remove")}</DestructiveAction>
     </Form>
@@ -433,9 +448,9 @@ function CartLineRow({
 function readinessHiddenFields(snapshot: CartReadinessSnapshot, decisions: CartReadinessDecisionInput | null) {
   return (
     <>
-      <HiddenInput type="hidden" name="readinessSnapshotId" value={snapshot.snapshotId} />
-      <HiddenInput type="hidden" name="readinessSourceRevision" value={snapshot.sourceRevision} />
-      <HiddenInput type="hidden" name="readinessDecisions" value={JSON.stringify(decisions ?? {})} />
+      <HiddenInput name="readinessSnapshotId" value={snapshot.snapshotId} />
+      <HiddenInput name="readinessSourceRevision" value={snapshot.sourceRevision} />
+      <HiddenInput name="readinessDecisions" value={JSON.stringify(decisions ?? {})} />
     </>
   );
 }
@@ -453,7 +468,7 @@ function CheckoutForm({
 }) {
   return (
     <Form spacing="none" method="post" action="/checkout/buy/readiness">
-      <HiddenInput type="hidden" name="source" value="cart" />
+      <HiddenInput name="source" value="cart" />
       {readinessHiddenFields(snapshot, decisions)}
       <Button type="submit" tone={tone} leadingIcon="lock" block>
         {label}
@@ -611,6 +626,7 @@ export function CheckoutCartPage({
           active: cartLineGroups.length > 0 && !cartReady,
           notice: (
             <Banner
+              tone="warning"
               title={t("checkout.features.cart.ui.cartPage.fulfillment.needs.review")}
               description={fulfillmentReviewDescription(blockedLineCount)}
             />
@@ -621,6 +637,7 @@ export function CheckoutCartPage({
           active: optimizationAvailable,
           notice: (
             <Banner
+              tone="info"
               title={t("checkout.features.cart.ui.cartPage.optimization.available.title", {
                 savings: optimizationSavings,
               })}
