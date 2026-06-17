@@ -307,6 +307,6 @@ export const catalogSourceObservationsControlPlaneEnglishTranslations = {
   "catalog.features.sourceObservations.ui.auditEvidence.timeline.emptyDescription":
     "The projection is unavailable or the current filters have no matching events.",
   "catalog.features.sourceObservations.ui.auditEvidence.timeline.emptyTitle": "No timeline events",
-  "catalog.features.sourceObservations.ui.auditEvidence.timeline.title": "Audit timeline",
+  "catalog.features.sourceObservations.ui.auditEvidence.timeline.title": "Audit events",
   "catalog.features.sourceObservations.ui.auditEvidence.title": "Audit timeline",
 } as const;
