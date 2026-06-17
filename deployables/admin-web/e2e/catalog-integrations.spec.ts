@@ -190,9 +190,9 @@ test.describe("catalog admin integrations", () => {
     await expect(releaseBackLinks).toHaveCount(1);
     await expect(releaseBackLinks).toHaveAttribute("href", /\/catalog\/integrations(\?|$)/);
     await expect(page.getByRole("heading", { name: "Import to promotion workbench" })).toHaveCount(0);
-    // The release surface stacks all three of its workspaces, so audit evidence is
+    // The release surface stacks all three of its workspaces, so the audit timeline is
     // already rendered alongside health triage; its workspace heading stays visible.
-    await expect(page.getByRole("heading", { name: "Audit and release evidence" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Audit timeline" })).toBeVisible();
     // Return to the desktop side nav for the remaining surface assertions.
     await page.setViewportSize({ width: 1280, height: 900 });
 

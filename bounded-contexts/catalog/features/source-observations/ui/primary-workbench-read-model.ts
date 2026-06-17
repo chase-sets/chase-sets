@@ -31,9 +31,4 @@ export type {
   GovernanceObservabilitySignal,
   GovernanceRbacRow,
 } from "./primary-workbench-governance-controls";
-export type {
-  AuditEvidence,
-  AuditEvidenceLink,
-  AuditTimelineRow,
-  ReleaseEvidenceChecklistRow,
-} from "./primary-workbench-audit-evidence";
+export type { AuditEvidence, AuditEvidenceLink, AuditTimelineRow } from "./primary-workbench-audit-evidence";

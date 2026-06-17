@@ -288,7 +288,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.queryByText(/raw JSON/i)).toBeNull();
   });
 
-  it("renders audit and release evidence with filters, timeline, redacted links, and release checklist", () => {
+  it("renders the audit timeline with filters, timeline, and redacted links", () => {
     const profile = profileReview({ active: true, lifecycle: "active" });
     const readModel = buildCatalogPrimaryWorkbenchReadModel({
       requestUrl:
@@ -327,17 +327,15 @@ describe("CatalogPrimaryWorkbenchPage", () => {
 
     render(<CatalogIntegrationsSurfacePage surface="release" readModel={readModel} />);
 
-    expect(screen.getByRole("heading", { name: "Audit and release evidence" })).toBeTruthy();
+    expect(screen.getAllByRole("heading", { name: "Audit timeline" }).length).toBeGreaterThan(0);
     expect(screen.getByRole("heading", { name: "Timeline filters" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Audit timeline" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Redacted evidence links" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Release evidence checklist" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Release evidence checklist" })).toBeNull();
     expect(screen.getAllByText("Source payload access").length).toBeGreaterThan(0);
     expect(screen.getAllByText("not-required").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Complete retired-surface removal").length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/complete removal of code, patterns, documentation/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText("source-observation-changed").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Release tests and smoke evidence").length).toBeGreaterThan(0);
+    expect(screen.queryByText(/blocks release/i)).toBeNull();
+    expect(screen.queryByText(/Release tests and smoke evidence/i)).toBeNull();
     expect(screen.queryByText(/raw JSON/i)).toBeNull();
     expect(screen.queryByText(/holding area/i)).toBeNull();
   });

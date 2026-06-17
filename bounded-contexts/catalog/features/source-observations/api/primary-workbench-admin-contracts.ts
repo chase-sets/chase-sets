@@ -940,19 +940,7 @@ export type CatalogPrimaryWorkbenchAuditEvidenceTargetType =
   | "import-job"
   | "source-observation"
   | "catalog-item"
-  | "control-plane"
-  | "release";
-
-export type CatalogPrimaryWorkbenchReleaseEvidenceWorkflowKey =
-  | "provider-data-pull"
-  | "source-observation-review"
-  | "promotion"
-  | "dry-run-diagnostics"
-  | "reapply-rollback"
-  | "governance-retirement"
-  | "release-smoke";
-
-export type CatalogPrimaryWorkbenchReleaseEvidenceStatus = "ready" | "partial" | "missing" | "blocked";
+  | "control-plane";
 
 export type CatalogPrimaryWorkbenchAuditEvidenceReadModel = Readonly<{
   status: CatalogPrimaryWorkbenchAuditEvidenceStatus;
@@ -962,10 +950,7 @@ export type CatalogPrimaryWorkbenchAuditEvidenceReadModel = Readonly<{
   summary: Readonly<{
     timelineEvents: number;
     redactedEvidenceLinks: number;
-    releaseChecklistItems: number;
-    missingEvidence: number;
     partialProjectionCount: number;
-    residualDebtItems: number;
   }>;
   filters: readonly Readonly<{
     key: CatalogPrimaryWorkbenchAuditEvidenceFilterKey;
@@ -1010,33 +995,17 @@ export type CatalogPrimaryWorkbenchAuditEvidenceReadModel = Readonly<{
     evidenceLinks: readonly CatalogPrimaryWorkbenchAuditEvidenceLink[];
   }>[];
   evidenceLinks: readonly CatalogPrimaryWorkbenchAuditEvidenceLink[];
-  releaseChecklist: readonly CatalogPrimaryWorkbenchReleaseEvidenceChecklistRow[];
 }>;
 
 export type CatalogPrimaryWorkbenchAuditEvidenceLink = Readonly<{
   key: string;
   label: string;
   href: string;
-  kind: "audit-event" | "diagnostic" | "proof" | "runbook" | "test" | "release-note";
+  kind: "audit-event" | "diagnostic" | "proof" | "runbook" | "test";
   summary: string;
   redactionState: CatalogIntegrationAuditEvidenceRedactionState;
   sourcePayloadAccess: "not-required";
   profileSnapshotAccess: "not-required";
-}>;
-
-export type CatalogPrimaryWorkbenchReleaseEvidenceChecklistRow = Readonly<{
-  workflowKey: CatalogPrimaryWorkbenchReleaseEvidenceWorkflowKey;
-  workflowLabel: string;
-  status: CatalogPrimaryWorkbenchReleaseEvidenceStatus;
-  owner: string;
-  requiredEvidence: readonly string[];
-  proofLinks: readonly CatalogPrimaryWorkbenchAuditEvidenceLink[];
-  tests: readonly string[];
-  e2eProof: string;
-  smokeProof: string;
-  residualDebt: readonly string[];
-  releaseNote: string;
-  blocksRelease: boolean;
 }>;
 
 export type CatalogPrimaryWorkbenchHealthTriageRolloutControl = Readonly<{
@@ -2278,7 +2247,6 @@ export const catalogPrimaryWorkbenchDownstreamContracts = [
       "auditEvidence.redactionPolicy",
       "auditEvidence.timeline",
       "auditEvidence.evidenceLinks",
-      "auditEvidence.releaseChecklist",
     ],
   ),
   downstream(
@@ -2902,48 +2870,11 @@ function assertPrimaryWorkbenchAuditEvidence(
     }
   }
 
-  const requiredReleaseWorkflows: readonly CatalogPrimaryWorkbenchReleaseEvidenceWorkflowKey[] = [
-    "provider-data-pull",
-    "source-observation-review",
-    "promotion",
-    "dry-run-diagnostics",
-    "reapply-rollback",
-    "governance-retirement",
-    "release-smoke",
-  ];
-  const checklistKeys = new Set(value.releaseChecklist.map((entry) => entry.workflowKey));
-  for (const workflowKey of requiredReleaseWorkflows) {
-    if (!checklistKeys.has(workflowKey)) {
-      throw new Error(`Primary workbench release evidence workflow '${workflowKey}' is required.`);
-    }
-  }
-  for (const checklist of value.releaseChecklist) {
-    if (!["ready", "partial", "missing", "blocked"].includes(checklist.status)) {
-      throw new Error("Primary workbench release evidence checklist status must be explicit.");
-    }
-    if (checklist.requiredEvidence.length === 0 || checklist.tests.length === 0) {
-      throw new Error("Primary workbench release evidence checklist rows require evidence and tests.");
-    }
-    if (!checklist.e2eProof || !checklist.smokeProof || !checklist.releaseNote) {
-      throw new Error("Primary workbench release evidence checklist rows require E2E proof, smoke proof, and notes.");
-    }
-    for (const link of checklist.proofLinks) {
-      assertPrimaryWorkbenchAuditEvidenceLink(link);
-    }
-  }
-
   const evidenceText = JSON.stringify(value);
   if (/raw\s+json|payload\s+json|profile\s+json|compatibility holding area/i.test(evidenceText)) {
     throw new Error(
       "Primary workbench audit evidence must expose redacted summaries without legacy document workflows.",
     );
-  }
-  const retirementText = value.releaseChecklist
-    .filter((entry) => entry.workflowKey === "governance-retirement")
-    .map((entry) => `${entry.requiredEvidence.join(" ")} ${entry.releaseNote} ${entry.residualDebt.join(" ")}`)
-    .join(" ");
-  if (!/complete removal/i.test(retirementText) || !/documentation/i.test(retirementText)) {
-    throw new Error("Primary workbench release evidence must state complete code, pattern, and documentation removal.");
   }
 }
 
