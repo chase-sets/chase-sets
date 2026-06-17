@@ -54,8 +54,6 @@ export function healthTriageFor(input: {
     controlId: control.controlId,
     status: control.status,
     severity: control.severity,
-    owner: control.owner,
-    ownerIssue: control.ownerIssue,
     metricKey: control.metricKey,
     message: control.message,
     providerKeys: control.providerKeys,
@@ -63,9 +61,7 @@ export function healthTriageFor(input: {
     nextAction:
       control.status === "open"
         ? t("catalog.features.sourceObservations.ui.primaryWorkbench.health.rollout.next.open")
-        : t("catalog.features.sourceObservations.ui.primaryWorkbench.health.rollout.next.owner", {
-            ownerIssue: String(control.ownerIssue),
-          }),
+        : t("catalog.features.sourceObservations.ui.primaryWorkbench.health.rollout.next.owner"),
   }));
   const unitRows = units.map((unit) => {
     const status = unitStatus(unit);

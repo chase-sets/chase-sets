@@ -239,8 +239,12 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.getAllByText(/Provider pagination cursor failed after page 18/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Catalog integration imports stopped by launch kill switch/i).length).toBeGreaterThan(0);
     expect(
-      screen.getAllByText(/ops-release owns catalog.integration.rollout.stop; issue #801/i).length,
+      screen.getAllByText(
+        /catalog\.integration\.rollout\.stop is failing closed\. Clear the rollout stop before restarting provider pulls\./i,
+      ).length,
     ).toBeGreaterThan(0);
+    expect(screen.queryByText(/issue #801/i)).toBeNull();
+    expect(screen.queryByText(/ops-release owns/i)).toBeNull();
     expect(screen.getAllByText("import job job_failed failed after provider pagination drift.").length).toBeGreaterThan(
       0,
     );
@@ -955,8 +959,6 @@ describe("CatalogPrimaryWorkbenchPage", () => {
             controls: [
               {
                 controlId: "catalog-import-launch-stop",
-                owner: "ops-release",
-                ownerIssue: 801,
                 defaultState: "quarantined",
                 status: "blocked",
                 severity: "error",
@@ -1521,8 +1523,6 @@ function healthTriageStressOverview() {
         controls: [
           {
             controlId: "catalog-import-launch-stop",
-            owner: "ops-release",
-            ownerIssue: 801,
             defaultState: "quarantined",
             status: "blocked",
             severity: "error",

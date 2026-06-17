@@ -58,8 +58,6 @@ describe("Catalog primary workbench read model - governance controls", () => {
     const controls = [
       {
         controlId: "catalog-import-launch-stop",
-        owner: "ops-release" as const,
-        ownerIssue: 801 as const,
         defaultState: "quarantined" as const,
         status: "blocked" as const,
         severity: "error" as const,
@@ -73,8 +71,6 @@ describe("Catalog primary workbench read model - governance controls", () => {
       },
       {
         controlId: "catalog-promotion-launch-stop",
-        owner: "ops-release" as const,
-        ownerIssue: 801 as const,
         defaultState: "quarantined" as const,
         status: "blocked" as const,
         severity: "error" as const,
@@ -88,8 +84,6 @@ describe("Catalog primary workbench read model - governance controls", () => {
       },
       {
         controlId: "catalog-reapply-launch-stop",
-        owner: "ops-release" as const,
-        ownerIssue: 801 as const,
         defaultState: "quarantined" as const,
         status: "blocked" as const,
         severity: "error" as const,
