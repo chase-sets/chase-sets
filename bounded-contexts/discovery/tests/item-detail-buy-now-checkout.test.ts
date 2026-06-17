@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { readFreshWriteToken } from "@chase-sets/http/responses";
 
 import {
   mockAcceptOfferMatch,
@@ -493,7 +494,8 @@ describe("item detail buy now checkout actions", () => {
     });
     expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({
+    const addedToCart = (await response.json()) as { viewCartHref: string };
+    expect(addedToCart).toMatchObject({
       status: "added-to-cart",
       itemTitle: "Charizard",
       quantity: 2,
@@ -502,6 +504,11 @@ describe("item detail buy now checkout actions", () => {
         version: 1,
         status: "active",
       },
+    });
+    const viewCartUrl = new URL(addedToCart.viewCartHref, "http://localhost");
+    expect(viewCartUrl.pathname).toBe("/account/cart");
+    expect(readFreshWriteToken(viewCartUrl)).toMatchObject({
+      sources: [{ sourceContextName: "checkout", maxGlobalPosition: "42", eventIds: ["evt_cli_1"] }],
     });
   });
 
@@ -991,7 +998,8 @@ describe("item detail buy now checkout actions", () => {
     expect(mockAppendAnonymousCartCookie).toHaveBeenCalledWith(response.headers, "anon_cart_1");
     expect(mockAddCartLine).not.toHaveBeenCalled();
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({
+    const addedToCart = (await response.json()) as { viewCartHref: string };
+    expect(addedToCart).toMatchObject({
       status: "added-to-cart",
       itemTitle: "Charizard",
       quantity: 2,
@@ -1000,6 +1008,11 @@ describe("item detail buy now checkout actions", () => {
         version: 1,
         status: "active",
       },
+    });
+    const viewCartUrl = new URL(addedToCart.viewCartHref, "http://localhost");
+    expect(viewCartUrl.pathname).toBe("/account/cart");
+    expect(readFreshWriteToken(viewCartUrl)).toMatchObject({
+      sources: [{ sourceContextName: "checkout", maxGlobalPosition: "42", eventIds: ["evt_cli_1"] }],
     });
   });
 

@@ -479,10 +479,10 @@
       ],
       "visibleDestination": {
         "routeId": "item-detail",
-        "description": "The item-detail add-to-cart fetcher remains on the Detail Page and returns the committed Checkout cart-line id, version, status, item title, and quantity so the cart count and success notice do not depend on a stale cart projection."
+        "description": "The item-detail add-to-cart fetcher remains on the Detail Page and returns the committed Checkout cart-line id, version, status, item title, and quantity so the cart count and success notice do not depend on a stale cart projection. The success notice's View cart link carries the same Checkout command receipt as an afterWrite fresh-write token (viewCartHref) so the cross-route handoff to /account/cart hands the Checkout-owned account cart loader a receipt to wait on its own cart projection freshness instead of reading the lagging projection and showing the empty state; guest checkout reads the anonymous cart store directly and is unaffected by the token."
       },
       "proof": {
-        "authoritativeResponse": "The Discovery route action copies the Checkout addCartLine/addGuestCartLine command snapshot into the fetcher JSON response and the UI reconciles the visible success state from that response.",
+        "authoritativeResponse": "The Discovery route action copies the Checkout addCartLine/addGuestCartLine command snapshot into the fetcher JSON response and the UI reconciles the visible success state from that response. The same Checkout command result is threaded through appendFreshWriteToken to build viewCartHref, so the View cart link to /account/cart preserves the command owner's receipt; the Checkout account cart loader owns the actual fresh-read wait for that destination.",
         "tests": ["bounded-contexts/discovery/tests/item-detail-buy-now-checkout.test.ts"]
       }
     },
