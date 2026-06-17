@@ -927,6 +927,8 @@ export const checkoutEnglishTranslations = {
   "checkout.routes.checkoutStart.sign.in.or.continue.as.guest": "Sign in or continue as guest",
   "checkout.routes.checkoutStart.sign.in.or.guest": "Sign in or guest",
   "checkout.routes.checkoutStart.sign.in.required": "Sign in required",
+  "checkout.routes.checkoutStart.email.already.has.account":
+    "This email already has an account. Sign in, or use a different email to continue as guest.",
   "checkout.routes.checkoutStart.sign.in.to.continue.checkout.with.this.email.your.cart":
     "Sign in to continue checkout with this email. Your Buy Cart will stay ready.",
   "checkout.routes.checkoutStart.sign.in.to.keep.orders.with.your.account":

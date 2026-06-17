@@ -715,7 +715,7 @@ describe("checkout web routes: checkout start", () => {
     expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
   });
 
-  it("returns a sign-in prompt when guest checkout uses an account email", async () => {
+  it("keeps the guest form with an inline email error when guest checkout uses an account email", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(null);
     mockStartGuestCheckout.mockRejectedValue(
       new AuthApiError(409, {
@@ -750,12 +750,57 @@ describe("checkout web routes: checkout start", () => {
       context: undefined,
     } as never);
 
+    // The guest can recover by editing the email, so the action surfaces an
+    // inline field error rather than collapsing the surface to sign-in only.
     expect(result).toEqual({
-      error: "Sign in to continue checkout with this email. Your Buy Cart will stay ready.",
+      emailExistsError: "This email already has an account. Sign in, or use a different email to continue as guest.",
       signInPath: "/sign-in?returnTo=%2Fcheckout%2Fbuy%2Freadiness",
     });
     expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
     expect(mockMergeGuestCartToAccount).not.toHaveBeenCalled();
+  });
+
+  it("lets a guest retry with a brand-new email after the existing-email block and proceeds to checkout", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    mockStartGuestCheckout.mockResolvedValue({
+      accountId: "acc_guest",
+      guestToken: "guest_token",
+      expiresAt: "2026-04-02T00:00:00.000Z",
+    });
+    mockCreateAuthRequestApiClient.mockReturnValue({
+      startGuestCheckout: mockStartGuestCheckout,
+    });
+    mockCreateCheckoutSession.mockResolvedValue({ session_id: "chk_guest_retry" });
+    mockMergeGuestCartToAccount.mockResolvedValue({ status: "merged" });
+    mockGetGuestCart.mockResolvedValue({ items: [], count: 1 });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getGuestCart: mockGetGuestCart,
+      createCartReadiness: mockCreateCartReadiness,
+      createCheckoutSession: mockCreateCheckoutSession,
+      mergeGuestCartToAccount: mockMergeGuestCartToAccount,
+    });
+
+    const form = new URLSearchParams();
+    form.set("contactName", "Jane Smith");
+    form.set("email", "jane.new@example.com");
+    form.set("source", "cart");
+
+    const response = (await checkoutStartAction({
+      request: new Request("http://localhost/checkout/buy/readiness", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never)) as Response;
+
+    expect(mockStartGuestCheckout).toHaveBeenCalledWith({
+      displayName: "Jane Smith",
+      email: "jane.new@example.com",
+    });
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_guest_retry");
   });
 
   it("requires registration or sign-in before starting purchase-intent checkout", async () => {
