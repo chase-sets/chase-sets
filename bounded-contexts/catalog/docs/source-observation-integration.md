@@ -99,6 +99,14 @@ Provider-product Source Observations, including current TCGplayer automation imp
 
 Promoted Catalog Items remain drafts so operators can verify blueprint fields, product resolution, and downstream display before publishing.
 
+### Alias promotion
+
+Promotion also turns reviewed alias candidates into Catalog-owned alias facts. Import records typed alias candidates per Source Observation; operators review them; promotion and reapply write the accepted ones as durable aliases on the resolved Catalog Item and Reference Record. Because the Catalog Item alias projection requires a resolved `catalog_item_id` before a row is written, promotion resolves the Catalog Item id and the Expansion/Series Reference Record ids first, then re-derives each accepted candidate against those ids so the deterministic `alias_hash` carries the resolved target. Reference Record aliases may stay key-only when set/series resolution lags, because the reference-record alias table allows a null `reference_record_id`.
+
+Only `accepted` and `auto-accepted` candidates become publishable alias facts. Pending, generated, rejected, and revoked candidates never silently become Catalog truth: candidates that carry publication intent are proposed evidence-only as `pending`, and rejected or revoked candidates are not re-proposed at all. When a previously accepted alias's candidate is rejected or revoked in review, promotion and reapply drive a revoke so the published alias is retracted rather than left as a silent no-op, letting downstream search and display drop it. Provenance from the Source Observation and the producing profile mapping is preserved on every accepted alias fact.
+
+Alias writes are idempotent: each alias is keyed by its `alias_hash`, so re-promoting or reapplying a scope refreshes aliases without duplicating facts. Changed provider evidence is handled review-first — affected candidates re-enter review as `pending` rather than silently mutating an alias an operator still accepts. When two accepted aliases share the same normalized text but disagree as official equivalents, promotion resolves the conflict by the alias source-precedence order (curated operator mapping over provider same-id endpoint, and so on); the precedence winner publishes and the rest are demoted to evidence-only.
+
 Promotion sets the Catalog Item's `Expansion` field as a Reference Record value. The Expansion Reference Record carries reusable release facts such as release date, card count, abbreviation, TCGdex source ID, and a relationship to its Series. Series records relate to the Pokemon Trading Card Game Product Line, which relates to the Manufacturer/Publisher reference.
 
 Each true TCGdex card variant is imported as its own Source Observation because Source Observation review status, retry behavior, and promotion are one-to-one with Catalog Item creation. The primary variant keeps the provider card's original external key so existing main-card observations refresh into the primary variant. Secondary variant observation external keys append the normalized variant key, such as `swsh3-136:reverse-holo`, so a single provider card can create multiple Catalog Items without colliding with `UNIQUE (provider_key, language_code, external_key)`.
@@ -159,3 +167,8 @@ The Catalog Integrations admin surface summarizes Source Observations by provide
 - TCGdex pricing data must stay out of Catalog payload storage and promotion.
 - TCGplayer Product IDs link to Catalog Items; TCGplayer SKU IDs link to Products with selected Options.
 - If TCGdex repeats the same marketplace Product ID across multiple variants in one card response, promotion must skip that external reference until a more precise provider mapping is available.
+- Promoting a Source Observation persists its accepted item aliases on the resolved Catalog Item and its accepted expansion/series aliases on the resolved Reference Records.
+- Re-promoting or reapplying a scope refreshes aliases without duplicating facts because each alias is keyed by its `alias_hash`.
+- Pending, generated, and rejected alias candidates never become publishable aliases through promotion.
+- Revoking or rejecting a previously accepted alias retracts it through promotion or reapply rather than leaving it published.
+- Two accepted aliases with the same normalized text but disagreeing official-equivalent evidence resolve by alias source precedence; the winner publishes and the rest stay evidence-only.

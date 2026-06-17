@@ -76,6 +76,9 @@ import {
 import { ingestTcgdexAliasCandidates } from "./tcgdex-alias-intake";
 import { upsertSourceObservationAliasCandidates } from "../../alias-equivalence/read-model/projection";
 import type { CatalogAliasCandidate } from "../../alias-equivalence/domain/alias";
+import { writePromotionAliases, type PromotionAliasServices } from "./provider-promotion-alias-writer";
+import { createPromotionAliasReader } from "./provider-promotion-alias-reader";
+import type { PromotionAliasTargetResolution } from "./provider-promotion-alias-planner";
 import {
   buildTcgplayerAutomationSourceObservationPayload,
   type TcgplayerAutomationCatalogClient,
@@ -802,6 +805,18 @@ export type SourceObservationAliasCandidateSink = (
   observedAt: string,
 ) => Promise<void>;
 
+/**
+ * Drives accepted-alias writes and retractions during promotion/reapply
+ * (#1909). Injected from the composition root so the source observation runtime
+ * stays decoupled from the alias-equivalence aggregate. The reader defaults to
+ * the #1905 read-model over the shared `deps.db`; only the alias command handler
+ * (owned by the alias runtime) must be supplied. When omitted, promotion writes
+ * no alias facts so minimal/legacy callers are unaffected.
+ */
+export type SourceObservationAliasPromotion =
+  | PromotionAliasServices
+  | Readonly<{ catalogAliasCommandHandler: PromotionAliasServices["catalogAliasCommandHandler"] }>;
+
 export function createSourceObservationRuntime(
   deps: CatalogRuntimeDeps,
   items: CatalogItemServices,
@@ -810,7 +825,9 @@ export function createSourceObservationRuntime(
   rolloutControlPolicy: CatalogIntegrationRolloutControlPolicy = createCatalogIntegrationRolloutControlPolicyFromEnv(),
   aliasCandidateSink: SourceObservationAliasCandidateSink = (candidates, observedAt) =>
     upsertSourceObservationAliasCandidates(deps.db, candidates, observedAt),
+  aliasPromotion: SourceObservationAliasPromotion | null = null,
 ): SourceObservationServices {
+  const aliasPromotionServices = resolveAliasPromotionServices(deps, aliasPromotion);
   const { commandHandler } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: createPassthroughDomainEventCodec<SourceObservationEvent>(),
@@ -915,6 +932,34 @@ export function createSourceObservationRuntime(
         ...observation,
       },
       context,
+    });
+  }
+
+  /**
+   * Write the accepted-alias facts and retractions for a promoted/reapplied
+   * observation (#1909). The Catalog Item id and Reference Record ids are
+   * already resolved here, satisfying the #1905 rule that an item-level alias
+   * resolves its `catalog_item_id` before a row is written. No-op when alias
+   * promotion was not wired (minimal/legacy callers).
+   */
+  async function promoteAliasesForObservation(input: {
+    observationId: string;
+    catalogItemId: CatalogItemId;
+    referenceRecordIdsByTypeKey: Readonly<Record<string, string>>;
+    context: EventStoreContext;
+  }): Promise<void> {
+    if (!aliasPromotionServices) {
+      return;
+    }
+    const resolution: PromotionAliasTargetResolution = {
+      catalogItemId: input.catalogItemId,
+      referenceRecordIdsByTypeKey: input.referenceRecordIdsByTypeKey,
+    };
+    await writePromotionAliases({
+      services: aliasPromotionServices,
+      observationId: input.observationId,
+      resolution,
+      context: input.context,
     });
   }
 
@@ -1133,7 +1178,7 @@ export function createSourceObservationRuntime(
       (duplicatePreventionResult?.status === "matched" ? duplicatePreventionResult.catalogItemId : null);
     const catalogItemId = reusableCatalogItemId ?? (createId("cat") as CatalogItemId);
 
-    const promotionEvidence = reusableCatalogItemId
+    const { referenceRecordIdsByTypeKey, ...promotionEvidence } = reusableCatalogItemId
       ? await refreshCatalogItemFromObservation({
           items,
           referenceData,
@@ -1160,6 +1205,13 @@ export function createSourceObservationRuntime(
           catalogMapping,
           context: input.context,
         });
+
+    await promoteAliasesForObservation({
+      observationId: input.observation.observation_id,
+      catalogItemId,
+      referenceRecordIdsByTypeKey,
+      context: input.context,
+    });
 
     if (input.observation.status !== "promoted") {
       const promotedAt = new Date().toISOString();
@@ -1308,7 +1360,7 @@ export function createSourceObservationRuntime(
       throw new Error("Promoted source observation is missing its Catalog Item.");
     }
 
-    const promotionEvidence = await refreshCatalogItemFromObservation({
+    const { referenceRecordIdsByTypeKey, ...promotionEvidence } = await refreshCatalogItemFromObservation({
       items,
       referenceData,
       deps,
@@ -1321,6 +1373,14 @@ export function createSourceObservationRuntime(
       catalogMapping: await loadPokemonTcgPromotionProfile(deps, providerProfile),
       context: input.context,
     });
+
+    await promoteAliasesForObservation({
+      observationId: input.observation.observation_id,
+      catalogItemId,
+      referenceRecordIdsByTypeKey,
+      context: input.context,
+    });
+
     await commandHandler({
       streamId: sourceObservationStreamId(input.observation.observation_id),
       command: {
@@ -4628,6 +4688,14 @@ function notEvaluatedDuplicatePreventionPreview(
   };
 }
 
+/**
+ * Promotion evidence plus the resolved reference-record ids keyed by reference
+ * type key, so promotion alias planning (#1909) can resolve set/series-equivalent
+ * Reference Record targets before writing alias facts.
+ */
+type CatalogItemPromotionResult = SourceObservationPromotionProfileEvidence &
+  Readonly<{ referenceRecordIdsByTypeKey: Readonly<Record<string, string>> }>;
+
 async function createCatalogDraftFromObservation(input: {
   items: CatalogItemServices;
   referenceData: ReferenceDataServices;
@@ -4640,15 +4708,16 @@ async function createCatalogDraftFromObservation(input: {
   providerProfileVersion: CatalogProviderIntegrationProfileVersionRecord;
   catalogMapping: CatalogProviderPromotionResolvedCatalogMapping;
   context: EventStoreContext;
-}): Promise<SourceObservationPromotionProfileEvidence> {
+}): Promise<CatalogItemPromotionResult> {
   const streamId = `catalog.item-${input.catalogItemId}`;
-  const expansionReferenceId = await ensurePokemonReferenceHierarchy({
-    deps: input.deps,
-    referenceData: input.referenceData,
-    profile: input.providerProfile,
-    normalized: input.normalized,
-    context: input.context,
-  });
+  const { targetReferenceRecordId: expansionReferenceId, referenceRecordIdsByTypeKey } =
+    await resolvePokemonReferenceHierarchy({
+      deps: input.deps,
+      referenceData: input.referenceData,
+      profile: input.providerProfile,
+      normalized: input.normalized,
+      context: input.context,
+    });
   const metadata = await formatPokemonCardPromotionMetadata({
     deps: input.deps,
     normalized: input.normalized,
@@ -4691,7 +4760,7 @@ async function createCatalogDraftFromObservation(input: {
     context: input.context,
   });
 
-  return promotionEvidenceFromPlan(plan);
+  return { ...promotionEvidenceFromPlan(plan), referenceRecordIdsByTypeKey };
 }
 
 async function refreshCatalogItemFromObservation(input: {
@@ -4706,15 +4775,16 @@ async function refreshCatalogItemFromObservation(input: {
   providerProfileVersion: CatalogProviderIntegrationProfileVersionRecord;
   catalogMapping: CatalogProviderPromotionResolvedCatalogMapping;
   context: EventStoreContext;
-}): Promise<SourceObservationPromotionProfileEvidence> {
+}): Promise<CatalogItemPromotionResult> {
   const streamId = `catalog.item-${input.catalogItemId}`;
-  const expansionReferenceId = await ensurePokemonReferenceHierarchy({
-    deps: input.deps,
-    referenceData: input.referenceData,
-    profile: input.providerProfile,
-    normalized: input.normalized,
-    context: input.context,
-  });
+  const { targetReferenceRecordId: expansionReferenceId, referenceRecordIdsByTypeKey } =
+    await resolvePokemonReferenceHierarchy({
+      deps: input.deps,
+      referenceData: input.referenceData,
+      profile: input.providerProfile,
+      normalized: input.normalized,
+      context: input.context,
+    });
   const metadata = await formatPokemonCardPromotionMetadata({
     deps: input.deps,
     normalized: input.normalized,
@@ -4757,7 +4827,33 @@ async function refreshCatalogItemFromObservation(input: {
     context: input.context,
   });
 
-  return promotionEvidenceFromPlan(plan);
+  return { ...promotionEvidenceFromPlan(plan), referenceRecordIdsByTypeKey };
+}
+
+/**
+ * Build the full promotion alias services from whatever the composition root
+ * injected. Only the alias command handler is required; the read side defaults
+ * to the #1905 read-model over the shared `deps.db`. Returns null when alias
+ * promotion was not wired so promotion writes no alias facts.
+ */
+function resolveAliasPromotionServices(
+  deps: CatalogRuntimeDeps,
+  aliasPromotion: SourceObservationAliasPromotion | null,
+): PromotionAliasServices | null {
+  if (!aliasPromotion) {
+    return null;
+  }
+  if (
+    "listCandidatesForObservation" in aliasPromotion &&
+    "listPublishedCatalogItemAliases" in aliasPromotion &&
+    "listPublishedReferenceRecordAliases" in aliasPromotion
+  ) {
+    return aliasPromotion;
+  }
+  return {
+    ...createPromotionAliasReader(deps.db),
+    catalogAliasCommandHandler: aliasPromotion.catalogAliasCommandHandler,
+  };
 }
 
 function promotionEvidenceFromPlan(
@@ -4873,6 +4969,27 @@ export async function ensurePokemonReferenceHierarchy(input: {
   normalized: SourceObservationPokemonCardNormalized;
   context: EventStoreContext;
 }): Promise<ReferenceRecordId> {
+  const result = await resolvePokemonReferenceHierarchy(input);
+  return result.targetReferenceRecordId;
+}
+
+/**
+ * Provision the Pokemon Reference Type/Record hierarchy and return the resolved
+ * target (expansion) record id plus a map of every reference type key to its
+ * resolved record id. Promotion alias planning (#1909) needs the per-type-key
+ * map so set-equivalent / series-equivalent aliases can resolve their Reference
+ * Record id before they become Catalog facts.
+ */
+export async function resolvePokemonReferenceHierarchy(input: {
+  deps: CatalogRuntimeDeps;
+  referenceData: ReferenceDataServices;
+  profile: CatalogProviderIntegrationProfile;
+  normalized: SourceObservationPokemonCardNormalized;
+  context: EventStoreContext;
+}): Promise<{
+  targetReferenceRecordId: ReferenceRecordId;
+  referenceRecordIdsByTypeKey: Readonly<Record<string, string>>;
+}> {
   const result = await provisionCatalogProviderReferenceHierarchy({
     profile: input.profile,
     payload: toJsonValue(input.normalized),
@@ -4882,7 +4999,19 @@ export async function ensurePokemonReferenceHierarchy(input: {
     },
   });
 
-  return result.targetReferenceRecordId;
+  const referenceRecordIdsByTypeKey: Record<string, string> = {};
+  for (const recordRule of input.profile.referenceHierarchyMapping.referenceRecords) {
+    const referenceRecordId = result.referenceRecordIdsByRuleKey.get(recordRule.ruleKey);
+    if (referenceRecordId) {
+      // Last rule per type key wins; expansion/series each have a single rule.
+      referenceRecordIdsByTypeKey[recordRule.typeKey.trim().toLowerCase()] = referenceRecordId;
+    }
+  }
+
+  return {
+    targetReferenceRecordId: result.targetReferenceRecordId,
+    referenceRecordIdsByTypeKey,
+  };
 }
 
 async function ensureReferenceType(
