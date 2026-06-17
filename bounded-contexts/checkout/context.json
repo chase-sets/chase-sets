@@ -71,6 +71,15 @@
       ],
       "order": 21,
       "projectionHandlerSetNames": ["checkout.inventory-seller-options-supply-projection"]
+    },
+    {
+      "sourceContextName": "identity",
+      "projectionName": "checkout-marketplace-seller-options-projection",
+      "subscriptionVersion": 1,
+      "subscriptionName": "checkout.identity-seller-options-accounts-projection",
+      "eventTypes": ["identity.account.created", "identity.account.profile-updated"],
+      "order": 22,
+      "projectionHandlerSetNames": ["checkout.identity-seller-options-accounts-projection"]
     }
   ],
   "projectionGroups": [
@@ -109,8 +118,13 @@
     },
     {
       "projectionName": "checkout-marketplace-seller-options-projection",
-      "sourceContextNames": ["marketplace", "inventory"],
-      "ownedTables": ["checkout_marketplace_seller_options", "checkout_supply_items", "checkout_supply_holds"],
+      "sourceContextNames": ["marketplace", "inventory", "identity"],
+      "ownedTables": [
+        "checkout_marketplace_seller_options",
+        "checkout_supply_items",
+        "checkout_supply_holds",
+        "checkout_seller_accounts"
+      ],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
     }

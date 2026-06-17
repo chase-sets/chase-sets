@@ -5,6 +5,7 @@ import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
 import { buildCheckoutApi } from "./api";
 import { buildCheckoutCatalogProjectionHandlers } from "./features/cart/integrations/catalog/catalog-projection";
+import { buildCheckoutIdentitySellerAccountsProjectionHandlers } from "./features/cart/integrations/identity/identity-projection";
 import { buildCheckoutInventorySupplyProjectionHandlers } from "./features/cart/integrations/inventory/inventory-projection";
 import { buildCheckoutMarketplaceSellerOptionsProjectionHandlers } from "./features/cart/integrations/marketplace/marketplace-projection";
 import {
@@ -33,6 +34,10 @@ export const module = defineBoundedContextModule<CheckoutServices, PgTransaction
         "inventory.checkout-marketplace-seller-options-projection": {
           subscriptionName: "checkout.inventory-seller-options-supply-projection",
           buildHandlers: () => buildCheckoutInventorySupplyProjectionHandlers(services.db),
+        },
+        "identity.checkout-marketplace-seller-options-projection": {
+          subscriptionName: "checkout.identity-seller-options-accounts-projection",
+          buildHandlers: () => buildCheckoutIdentitySellerAccountsProjectionHandlers(services.db),
         },
       },
     }),
