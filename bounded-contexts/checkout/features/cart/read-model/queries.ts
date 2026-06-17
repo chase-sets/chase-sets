@@ -146,10 +146,32 @@ export async function listCartLines(db: PgQueryable, buyerAccountId: string): Pr
        line.locked_listing_id,
        line.seller_preference_id,
        line.availability_state,
-       '[]'::jsonb AS seller_options,
+       opt.seller_options,
        line.created_at,
        line.updated_at
      FROM checkout_cart_line_pages line
+     LEFT JOIN LATERAL (
+       SELECT COALESCE(
+         json_agg(
+           json_build_object(
+             'listing_id', o.listing_id,
+             'seller_account_id', o.seller_account_id,
+             'seller_slug', o.seller_slug,
+             'seller_display_name', o.seller_display_name,
+             'seller_average_rating', o.seller_average_rating::text,
+             'seller_review_count', COALESCE(o.seller_review_count, 0),
+             'price_amount', o.price_amount::text,
+             'available_quantity', o.listing_quantity_cap,
+             'product_summary', o.product_summary
+           )
+           ORDER BY o.price_amount ASC, o.listing_id ASC
+         ),
+         '[]'::json
+       ) AS seller_options
+       FROM checkout_marketplace_seller_options o
+       WHERE o.product_id = line.product_id
+         AND o.status = 'active'
+     ) opt ON true
      WHERE line.buyer_account_id = $1
      ORDER BY line.updated_at DESC, line.line_id ASC`,
     [buyerAccountId],

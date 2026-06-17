@@ -158,14 +158,41 @@ export function lowestCartReadinessListing(line: CartReadinessLine) {
   );
 }
 
+/**
+ * A locked listing is "gone" when its `locked_listing_id` is absent from a
+ * NON-EMPTY `seller_options` set (the pinned listing was withdrawn or sold
+ * out). Empty options mean no projected data yet, not a gone listing — so we
+ * degrade gracefully and do not treat that as gone.
+ */
+function lockedListingIsGone(line: CartReadinessLine) {
+  return (
+    line.fulfillment_mode === "locked-listing" &&
+    Boolean(line.locked_listing_id) &&
+    line.seller_options.length > 0 &&
+    selectedCartReadinessListing(line) === null
+  );
+}
+
 export function cartReadinessLineHasFulfillment(line: CartReadinessLine) {
   if (line.availability_state !== "available") {
     return false;
   }
 
   if (line.fulfillment_mode === "locked-listing") {
+    if (!line.locked_listing_id) {
+      return false;
+    }
+
     const selected = selectedCartReadinessListing(line);
-    return Boolean(line.locked_listing_id && (!selected || optionCanFulfill(selected, line.quantity)));
+    if (selected) {
+      return optionCanFulfill(selected, line.quantity);
+    }
+
+    // The locked listing is absent from populated options (withdrawn / sold
+    // out): the pinned listing is gone, so the line is not ready. When options
+    // are empty (no projected data yet) we degrade gracefully and keep today's
+    // behavior so products without projected options are not newly flagged.
+    return !lockedListingIsGone(line);
   }
 
   return Boolean(lowestCartReadinessListing(line));
@@ -179,6 +206,9 @@ function lineReason(line: CartReadinessLine): CartReadinessSnapshot["lineOutcome
     return "waiting-for-supply";
   }
   if (line.availability_state === "changed") {
+    return "changed";
+  }
+  if (lockedListingIsGone(line)) {
     return "changed";
   }
   return cartReadinessLineHasFulfillment(line) ? "ready" : "unassigned-fulfillment";
