@@ -28,6 +28,12 @@ type SellerOption = Readonly<{
   seller_review_count: number | null;
 }>;
 
+type SellerAccount = Readonly<{
+  account_id: string;
+  display_name: string;
+  slug: string;
+}>;
+
 function holdsAccurateAvailableQuantity(option: SellerOption): number {
   return Math.min(
     option.listing_quantity_cap,
@@ -40,15 +46,19 @@ function holdsAccurateAvailableQuantity(option: SellerOption): number {
  * joins cart line pages against the seller-options table applying the
  * `status = 'active'` filter, computes the holds-accurate
  * `available_quantity = LEAST(listing_quantity_cap, GREATEST(supply - holds, 0))`,
+ * LEFT JOINs the identity-maintained `checkout_seller_accounts` table by
+ * `seller_account_id` to resolve `seller_display_name` / `seller_slug`
+ * (falling back to the denormalized option columns when no account row exists),
  * excludes options whose available quantity is not `> 0`, and orders
  * cheapest-first — mirroring the LATERAL aggregate so the join semantics
- * (active-only, holds-accurate availability, sold-out exclusion,
- * price-ascending, empty -> []) are actually exercised.
+ * (active-only, holds-accurate availability, sold-out exclusion, seller-identity
+ * resolution, price-ascending, empty -> []) are actually exercised.
  */
 class CartReadModelDb implements PgQueryable {
   constructor(
     private readonly lines: readonly CartLinePage[],
     private readonly options: readonly SellerOption[],
+    private readonly accounts: readonly SellerAccount[] = [],
   ) {}
 
   public lastSql = "";
@@ -77,17 +87,21 @@ class CartReadModelDb implements PgQueryable {
             (left, right) =>
               Number(left.price_amount) - Number(right.price_amount) || left.listing_id.localeCompare(right.listing_id),
           )
-          .map((option) => ({
-            listing_id: option.listing_id,
-            seller_account_id: option.seller_account_id,
-            seller_slug: option.seller_slug,
-            seller_display_name: option.seller_display_name,
-            seller_average_rating: option.seller_average_rating,
-            seller_review_count: option.seller_review_count ?? 0,
-            price_amount: option.price_amount,
-            available_quantity: holdsAccurateAvailableQuantity(option),
-            product_summary: option.product_summary,
-          })),
+          .map((option) => {
+            const account = this.accounts.find((entry) => entry.account_id === option.seller_account_id);
+            return {
+              listing_id: option.listing_id,
+              seller_account_id: option.seller_account_id,
+              // COALESCE(seller.slug, o.seller_slug): join table wins, then denormalized column.
+              seller_slug: account?.slug ?? option.seller_slug,
+              seller_display_name: account?.display_name ?? option.seller_display_name,
+              seller_average_rating: option.seller_average_rating,
+              seller_review_count: option.seller_review_count ?? 0,
+              price_amount: option.price_amount,
+              available_quantity: holdsAccurateAvailableQuantity(option),
+              product_summary: option.product_summary,
+            };
+          }),
       }));
 
     return { rows: rows as Row[], rowCount: rows.length };
@@ -240,6 +254,39 @@ describe("listCartLines seller_options join", () => {
     expect(row?.seller_options).toEqual([]);
   });
 
+  it("carries seller display name and slug resolved from the identity seller-accounts join", async () => {
+    const db = new CartReadModelDb(
+      [line()],
+      [option({ listing_id: "lst_locked", seller_account_id: "acc_seller", price_amount: "25.00" })],
+      [{ account_id: "acc_seller", display_name: "Card Vault", slug: "card-vault-acc-seller" }],
+    );
+
+    const [row] = await listCartLines(db, "acc_buyer");
+
+    expect(row?.seller_options[0]).toMatchObject({
+      listing_id: "lst_locked",
+      seller_account_id: "acc_seller",
+      seller_display_name: "Card Vault",
+      seller_slug: "card-vault-acc-seller",
+    });
+  });
+
+  it("leaves seller display name and slug null when no identity account row exists yet", async () => {
+    const db = new CartReadModelDb(
+      [line()],
+      [option({ listing_id: "lst_locked", seller_account_id: "acc_unknown", price_amount: "25.00" })],
+      [],
+    );
+
+    const [row] = await listCartLines(db, "acc_buyer");
+
+    expect(row?.seller_options[0]).toMatchObject({
+      seller_account_id: "acc_unknown",
+      seller_display_name: null,
+      seller_slug: null,
+    });
+  });
+
   it("builds the LATERAL join against the active seller-options projection", async () => {
     const db = new CartReadModelDb([line()], []);
 
@@ -247,6 +294,12 @@ describe("listCartLines seller_options join", () => {
 
     expect(db.lastSql).toContain("LEFT JOIN LATERAL");
     expect(db.lastSql).toContain("FROM checkout_marketplace_seller_options o");
+    // Seller identity (display name / slug) is resolved through the identity-maintained
+    // seller-accounts join table, with the denormalized columns as a fallback.
+    expect(db.lastSql).toContain("LEFT JOIN checkout_seller_accounts seller");
+    expect(db.lastSql).toContain("seller.account_id = o.seller_account_id");
+    expect(db.lastSql).toContain("COALESCE(seller.slug, o.seller_slug)");
+    expect(db.lastSql).toContain("COALESCE(seller.display_name, o.seller_display_name)");
     expect(db.lastSql).toContain("o.product_id = line.product_id");
     expect(db.lastSql).toContain("o.status = 'active'");
     expect(db.lastSql).toContain("ORDER BY o.price_amount ASC");

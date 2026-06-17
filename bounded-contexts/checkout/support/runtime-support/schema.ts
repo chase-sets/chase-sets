@@ -1,4 +1,5 @@
 import { checkoutCatalogProjectionSchemaSql } from "../../features/cart/integrations/catalog/catalog-schema";
+import { checkoutSellerAccountsSchemaSql } from "../../features/cart/integrations/identity/identity-schema";
 import { checkoutInventorySupplySchemaSql } from "../../features/cart/integrations/inventory/inventory-schema";
 import { checkoutMarketplaceSellerOptionsSchemaSql } from "../../features/cart/integrations/marketplace/marketplace-schema";
 import { checkoutCartSchemaSql } from "../../features/cart/read-model/schema";
@@ -9,6 +10,7 @@ export const checkoutSchemaSql = [
   checkoutCatalogProjectionSchemaSql,
   checkoutMarketplaceSellerOptionsSchemaSql,
   checkoutInventorySupplySchemaSql,
+  checkoutSellerAccountsSchemaSql,
   checkoutCartSchemaSql,
   checkoutSellListSchemaSql,
   checkoutSessionSchemaSql,
