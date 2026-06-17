@@ -5,6 +5,7 @@ import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
 import { buildCheckoutApi } from "./api";
 import { buildCheckoutCatalogProjectionHandlers } from "./features/cart/integrations/catalog/catalog-projection";
+import { buildCheckoutMarketplaceSellerOptionsProjectionHandlers } from "./features/cart/integrations/marketplace/marketplace-projection";
 import {
   createCheckoutServices,
   type CheckoutHostPorts,
@@ -26,6 +27,8 @@ export const module = defineBoundedContextModule<CheckoutServices, PgTransaction
       manifest: contextManifest,
       handlers: {
         "catalog.checkout-catalog-item-projection": () => buildCheckoutCatalogProjectionHandlers(services.db),
+        "marketplace.checkout-marketplace-seller-options-projection": () =>
+          buildCheckoutMarketplaceSellerOptionsProjectionHandlers(services.db),
       },
     }),
 });

@@ -1,0 +1,145 @@
+import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import { extractIdFromStreamId } from "@chase-sets/event-core";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
+
+/**
+ * Checkout-local seller-options projection.
+ *
+ * Mirrors marketplace listing availability per product into a single
+ * denormalized table keyed by `listing_id`. This wave subscribes to
+ * MARKETPLACE events only (price / quantity-cap / lifecycle status +
+ * seller-listing availability gating); holds-accurate supply quantity
+ * (inventory) and seller identity (identity) are added in later waves
+ * through the reserved-nullable columns.
+ *
+ * Seller-listing availability is keyed by `accountId` and gates every
+ * active row for that seller: `disabled` flips active rows to
+ * `seller-unavailable`, `enabled` restores them to `active`. Lifecycle
+ * states (draft / paused / withdrawn) are orthogonal and left untouched
+ * by the availability gate, mirroring the marketplace read model that
+ * keeps listing status and seller availability as separate concerns.
+ */
+export function buildCheckoutMarketplaceSellerOptionsProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+  return {
+    "marketplace.listing.created": async (event) => {
+      const data = event.data as {
+        listingId: string;
+        accountId: string;
+        inventoryItemId?: string | null;
+        catalogItemId: string;
+        productId: string;
+        productSummary?: string | null;
+        priceAmount: string;
+        quantityCap: number;
+      };
+
+      await db.query(
+        `INSERT INTO checkout_marketplace_seller_options (
+           listing_id,
+           seller_account_id,
+           product_id,
+           catalog_catalog_item_id,
+           price_amount,
+           listing_quantity_cap,
+           product_summary,
+           status,
+           updated_at,
+           inventory_item_id
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'draft', $8, $9)
+         ON CONFLICT (listing_id) DO UPDATE
+         SET seller_account_id = EXCLUDED.seller_account_id,
+             product_id = EXCLUDED.product_id,
+             catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
+             price_amount = EXCLUDED.price_amount,
+             listing_quantity_cap = EXCLUDED.listing_quantity_cap,
+             product_summary = EXCLUDED.product_summary,
+             inventory_item_id = EXCLUDED.inventory_item_id,
+             updated_at = EXCLUDED.updated_at`,
+        [
+          data.listingId,
+          data.accountId,
+          data.productId,
+          data.catalogItemId,
+          data.priceAmount,
+          data.quantityCap,
+          data.productSummary ?? null,
+          event.timing.recordedAt,
+          data.inventoryItemId ?? null,
+        ],
+      );
+    },
+    "marketplace.listing.price-updated": async (event) => {
+      const data = event.data as { priceAmount: string };
+
+      await db.query(
+        `UPDATE checkout_marketplace_seller_options
+         SET price_amount = $2,
+             updated_at = $3
+         WHERE listing_id = $1`,
+        [extractIdFromStreamId(event.streamId, "marketplace.listing-"), data.priceAmount, event.timing.recordedAt],
+      );
+    },
+    "marketplace.listing.quantity-cap-updated": async (event) => {
+      const data = event.data as { quantityCap: number };
+
+      await db.query(
+        `UPDATE checkout_marketplace_seller_options
+         SET listing_quantity_cap = $2,
+             updated_at = $3
+         WHERE listing_id = $1`,
+        [extractIdFromStreamId(event.streamId, "marketplace.listing-"), data.quantityCap, event.timing.recordedAt],
+      );
+    },
+    "marketplace.listing.published": async (event) => {
+      await db.query(
+        `UPDATE checkout_marketplace_seller_options
+         SET status = 'active',
+             updated_at = $2
+         WHERE listing_id = $1`,
+        [extractIdFromStreamId(event.streamId, "marketplace.listing-"), event.timing.recordedAt],
+      );
+    },
+    "marketplace.listing.paused": async (event) => {
+      await db.query(
+        `UPDATE checkout_marketplace_seller_options
+         SET status = 'paused',
+             updated_at = $2
+         WHERE listing_id = $1`,
+        [extractIdFromStreamId(event.streamId, "marketplace.listing-"), event.timing.recordedAt],
+      );
+    },
+    "marketplace.listing.withdrawn": async (event) => {
+      await db.query(
+        `UPDATE checkout_marketplace_seller_options
+         SET status = 'withdrawn',
+             updated_at = $2
+         WHERE listing_id = $1`,
+        [extractIdFromStreamId(event.streamId, "marketplace.listing-"), event.timing.recordedAt],
+      );
+    },
+    "marketplace.seller-listing-availability.disabled": async (event) => {
+      const data = event.data as { accountId: string };
+
+      await db.query(
+        `UPDATE checkout_marketplace_seller_options
+         SET status = 'seller-unavailable',
+             updated_at = $2
+         WHERE seller_account_id = $1
+           AND status = 'active'`,
+        [data.accountId, event.timing.recordedAt],
+      );
+    },
+    "marketplace.seller-listing-availability.enabled": async (event) => {
+      const data = event.data as { accountId: string };
+
+      await db.query(
+        `UPDATE checkout_marketplace_seller_options
+         SET status = 'active',
+             updated_at = $2
+         WHERE seller_account_id = $1
+           AND status = 'seller-unavailable'`,
+        [data.accountId, event.timing.recordedAt],
+      );
+    },
+  };
+}
