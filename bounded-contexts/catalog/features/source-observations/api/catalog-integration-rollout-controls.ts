@@ -29,8 +29,6 @@ export type CatalogIntegrationRolloutControlStatus = "open" | "degraded" | "bloc
 
 export type CatalogIntegrationRolloutControl = Readonly<{
   controlId: CatalogIntegrationRolloutControlId;
-  owner: "catalog-source-observations" | "ops-release";
-  ownerIssue: 801;
   defaultState: "open";
   status: CatalogIntegrationRolloutControlStatus;
   severity: "info" | "warning" | "error";
@@ -154,7 +152,6 @@ export function rolloutControlErrorResponse(error: CatalogIntegrationRolloutCont
       message: error.message,
       capability: error.decision.capability,
       controlId: control?.controlId ?? null,
-      ownerIssue: control?.ownerIssue ?? 801,
       auditEventName: control?.auditEventName ?? "rollout-control-denied",
       metricKey: control?.metricKey ?? "catalog.integration.rollout.denied",
       controls: error.decision.controls,
@@ -418,8 +415,6 @@ function control(input: {
 }): CatalogIntegrationRolloutControl {
   return {
     controlId: input.controlId,
-    owner: input.controlId === "rollback-ready-release-mode" ? "ops-release" : "catalog-source-observations",
-    ownerIssue: 801,
     defaultState: input.defaultState ?? "open",
     status: input.status,
     severity: input.severity,

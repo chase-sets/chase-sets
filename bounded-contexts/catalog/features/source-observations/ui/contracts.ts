@@ -167,8 +167,6 @@ export interface CatalogIntegrationRolloutControlSnapshot {
 
 export interface CatalogIntegrationRolloutControl {
   controlId: string;
-  owner: "catalog-source-observations" | "ops-release";
-  ownerIssue: 801;
   defaultState: "open" | "quarantined";
   status: "open" | "degraded" | "blocked";
   severity: "info" | "warning" | "error";

@@ -1043,8 +1043,6 @@ export type CatalogPrimaryWorkbenchHealthTriageRolloutControl = Readonly<{
   controlId: string;
   status: "open" | "degraded" | "blocked";
   severity: "info" | "warning" | "error";
-  owner: string;
-  ownerIssue: number;
   metricKey: string;
   message: string;
   providerKeys: readonly string[];

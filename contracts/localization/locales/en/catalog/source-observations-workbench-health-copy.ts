@@ -208,9 +208,8 @@ export const catalogSourceObservationsWorkbenchHealthCopyEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.health.rollout.next.open":
     "No operator action is needed for this rollout control.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.health.rollout.next.owner":
-    "Coordinate with issue #{ownerIssue} before restarting provider pulls.",
-  "catalog.features.sourceObservations.ui.primaryWorkbench.health.rollout.owner.metric":
-    "{owner} owns {metric}; issue #{ownerIssue}.",
+    "Clear the rollout stop before restarting provider pulls.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.rollout.owner.metric": "{metric} is failing closed.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.health.status.blocked": "Blocked",
   "catalog.features.sourceObservations.ui.primaryWorkbench.health.status.degraded": "Degraded",
   "catalog.features.sourceObservations.ui.primaryWorkbench.health.status.ready": "Ready",

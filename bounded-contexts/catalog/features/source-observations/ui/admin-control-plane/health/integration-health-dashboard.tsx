@@ -325,8 +325,6 @@ function CatalogIntegrationRolloutTriage({
             message: control.message,
             ownerMetric: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.rollout.owner.metric", {
               metric: control.metricKey,
-              owner: control.owner,
-              ownerIssue: String(control.ownerIssue),
             }),
             nextAction: control.nextAction,
           })}
