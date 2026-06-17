@@ -512,7 +512,7 @@ describe("item detail buy now checkout actions", () => {
     });
   });
 
-  it("adds explicit selected listings to Buy Cart as seller preferences instead of locked fulfillment", async () => {
+  it("adds an explicitly selected listing to the account Buy Cart as a locked-listing line", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({
       accountId: "acc_buyer",
       permissions: [],
@@ -563,12 +563,75 @@ describe("item detail buy now checkout actions", () => {
     expect(mockAddCartLine).toHaveBeenCalledWith(
       expect.objectContaining({
         productId: "cat_charizard::form:raw",
-        fulfillmentMode: "optimize",
-        lockedListingId: null,
+        fulfillmentMode: "locked-listing",
+        lockedListingId: "lst_charizard",
         sellerPreferenceId: "lst_charizard",
         quantity: 2,
       }),
     );
+    expect(mockAddGuestCartLine).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+  });
+
+  it("adds an explicitly selected listing to the guest Buy Cart as a locked-listing line", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    mockCreateDiscoveryRequestApiClient.mockReturnValue({
+      getItemDetail: vi.fn().mockResolvedValue({
+        catalog_item_id: "cat_charizard",
+        title: "Charizard",
+        subtitle: "Base Set 4/102 Holo Rare",
+        market_listings: [
+          {
+            listing_id: "lst_charizard",
+            product_id: "cat_charizard::form:raw",
+            status: "active",
+            price_amount: "380.00",
+            seller_display_name: "Card Vault",
+            quantity_cap: 2,
+            visible_quantity: 2,
+          },
+        ],
+      }),
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({});
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      addCartLine: mockAddCartLine,
+      addGuestCartLine: mockAddGuestCartLine.mockResolvedValue(
+        commandResult({ id: "cli_1", version: 1, status: "active" }),
+      ),
+      createCheckoutSession: mockCreateCheckoutSession,
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "add-to-cart");
+    form.set("productId", "cat_charizard::form:raw");
+    form.set("selectedOptions", JSON.stringify([{ dimensionId: "form", optionId: "raw" }]));
+    form.set("productSummary", "Raw");
+    form.set("quantity", "2");
+    form.set("sellerPreferenceId", "lst_charizard");
+
+    const response = (await action({
+      request: new Request("http://localhost/items/cat_charizard", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { id: "cat_charizard" },
+      context: undefined,
+    } as never)) as Response;
+
+    expect(mockAddGuestCartLine).toHaveBeenCalledWith(
+      "anon_cart_1",
+      expect.objectContaining({
+        productId: "cat_charizard::form:raw",
+        fulfillmentMode: "locked-listing",
+        lockedListingId: "lst_charizard",
+        sellerPreferenceId: "lst_charizard",
+        quantity: 2,
+      }),
+    );
+    expect(mockAddCartLine).not.toHaveBeenCalled();
     expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
     expect(response.status).toBe(200);
   });
