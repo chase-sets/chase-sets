@@ -85,6 +85,26 @@ Examples:
 
 **Relevance** is the ranking policy that orders Search Results by how well a catalog item matches the active Discovery Query.
 
+### Catalog Alias
+
+A **Catalog Alias** is an alternate name for a catalog item that Discovery consumes from the published Catalog resolved-alias fact (`catalog.catalog-item.aliases-resolved`) to widen search matching.
+
+Notes:
+
+- Catalog owns alias truth, type, confidence, review state, and revocation; Discovery consumes only the stable resolved fact and never reads alias candidates, provider profiles, or alias internals.
+- An alias adds matchable search text; it never replaces the title, subtitle, or slug. Display is owned by item detail (#1914).
+- Alias text contributes at type- and confidence-aware weights so an official equivalent ranks high while a broad species name or generated translation ranks low and never outranks an exact title match.
+- A `broad` alias (one alias text that fans out to many items, e.g. a species name) is down-weighted so it cannot flood or outrank specific matches; matches dedupe by `catalog_item_id`.
+
+### Search Text Tokenization
+
+**Search Text Tokenization** is how Discovery turns item and alias text into searchable lexemes for the `search_text` (English config) and `search_text_simple` (simple config) tsvectors.
+
+Notes:
+
+- Latin text uses the stock Postgres `english`/`simple` configurations.
+- Native CJK scripts (e.g. Japanese kana) have no word boundaries, so Discovery indexes overlapping character bigrams per CJK run and queries those bigrams, making native-script substring search work under the `simple` config without a database extension.
+
 ### Detail Page
 
 A **Detail Page** is the discovery-owned presentation model used to render a single catalog item for browse and evaluation.

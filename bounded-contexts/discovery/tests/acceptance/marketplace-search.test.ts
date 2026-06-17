@@ -958,4 +958,279 @@ describe("marketplace search", () => {
     );
     expect(Number(result.rows[0].count)).toBe(1);
   });
+
+  describe("Catalog alias facts in search (#1911)", () => {
+    const aliasSeed = {
+      categoryId: "cat_pokemon",
+      blueprintId: "bpr_card",
+      fieldId: "fld_name",
+      englishItemId: "cat_cacnea_en",
+      japaneseItemId: "cat_cacnea_ja",
+    };
+
+    async function seedAliasFixture() {
+      await sendCommand(catalogServices.categories.commandHandler, `catalog.category-${aliasSeed.categoryId}`, {
+        type: "CreateCategory",
+        categoryId: aliasSeed.categoryId as never,
+        key: "pokemon",
+        name: l10n("Pokemon"),
+        description: l10n("Pokemon cards"),
+        displayOrder: 0,
+      });
+      await sendCommand(catalogServices.categories.commandHandler, `catalog.category-${aliasSeed.categoryId}`, {
+        type: "PublishCategory",
+      });
+      await sendCommand(catalogServices.fields.commandHandler, `catalog.field-${aliasSeed.fieldId}`, {
+        type: "CreateField",
+        fieldId: aliasSeed.fieldId as never,
+        key: "card-name",
+        name: l10n("Card Name"),
+        description: l10n("The printed card name"),
+        valueType: "string",
+        behavior: { filterable: true, searchable: true, sortable: true },
+      });
+      await sendCommand(catalogServices.fields.commandHandler, `catalog.field-${aliasSeed.fieldId}`, {
+        type: "ActivateField",
+      });
+      await sendCommand(catalogServices.blueprints.commandHandler, `catalog.blueprint-${aliasSeed.blueprintId}`, {
+        type: "CreateBlueprint",
+        blueprintId: aliasSeed.blueprintId as never,
+        key: "card",
+        name: l10n("Pokemon Card"),
+        description: l10n("A tradable card"),
+      });
+      await sendCommand(catalogServices.blueprints.commandHandler, `catalog.blueprint-${aliasSeed.blueprintId}`, {
+        type: "SetBlueprintFields",
+        fieldRules: [{ fieldId: aliasSeed.fieldId as never, required: true }],
+      });
+      await sendCommand(catalogServices.blueprints.commandHandler, `catalog.blueprint-${aliasSeed.blueprintId}`, {
+        type: "PublishBlueprint",
+      });
+
+      for (const item of [
+        { id: aliasSeed.englishItemId, lang: "en", title: l10n("Cacnea"), name: "Cacnea" },
+        { id: aliasSeed.japaneseItemId, lang: "ja", title: l10n("サボネア"), name: "サボネア" },
+      ]) {
+        await sendCommand(catalogServices.items.commandHandler, `catalog.item-${item.id}`, {
+          type: "CreateCatalogItem",
+          itemId: item.id as never,
+          languageCode: item.lang,
+          title: item.title,
+          subtitle: l10n("Base"),
+          description: l10n("A cactus Pokemon card"),
+        });
+        await sendCommand(catalogServices.items.commandHandler, `catalog.item-${item.id}`, {
+          type: "AssignBlueprintToCatalogItem",
+          blueprintId: aliasSeed.blueprintId as never,
+        });
+        await sendCommand(catalogServices.items.commandHandler, `catalog.item-${item.id}`, {
+          type: "SetCatalogItemFieldValue",
+          fieldId: aliasSeed.fieldId as never,
+          value: item.name,
+        });
+        await sendCommand(catalogServices.items.commandHandler, `catalog.item-${item.id}`, {
+          type: "AssignCatalogItemToCategory",
+          categoryId: aliasSeed.categoryId as never,
+        });
+        await sendCommand(catalogServices.items.commandHandler, `catalog.item-${item.id}`, {
+          type: "PublishCatalogItem",
+          blueprintIsActive: true,
+          requiredFieldIds: [aliasSeed.fieldId as never],
+        });
+      }
+    }
+
+    async function recordJapaneseItemAliases(
+      aliases: ReadonlyArray<Record<string, unknown>>,
+      resolvedAliasHash: string,
+    ) {
+      await sendCommand(catalogServices.items.commandHandler, `catalog.item-${aliasSeed.japaneseItemId}`, {
+        type: "RecordCatalogItemAliases",
+        catalogItemId: aliasSeed.japaneseItemId as never,
+        aliasLanguageCode: "en",
+        aliases: aliases as never,
+        resolvedAliasHash,
+        resolverVersion: 1,
+        resolvedAt: "2026-06-16T00:00:00.000Z",
+      });
+    }
+
+    async function searchItemIds(query: string): Promise<string[]> {
+      const response = await app.request(
+        `/api/marketplace/items?search=${encodeURIComponent(query)}&includeTotal=true`,
+      );
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      return body.items.map((item: { catalog_item_id: string }) => item.catalog_item_id);
+    }
+
+    it("finds a Japanese card by its accepted English official-equivalent alias", async () => {
+      await seedAliasFixture();
+      await drainContextProcesses({ subscriptionRunners });
+
+      // Before the alias fact, an English query never reaches the Japanese card.
+      expect(await searchItemIds("Cacnea")).toEqual([aliasSeed.englishItemId]);
+
+      await recordJapaneseItemAliases(
+        [
+          {
+            aliasHash: "alias-cacnea-en",
+            aliasText: "Cacnea",
+            normalizedAliasText: "cacnea",
+            aliasType: "official-equivalent",
+            confidence: "high",
+            broad: false,
+            providerKey: "tcgdex",
+            sourceCategory: "provider-same-id-localized-endpoint",
+          },
+        ],
+        "resolved-cacnea-1",
+      );
+      await drainContextProcesses({ subscriptionRunners });
+
+      const ids = await searchItemIds("Cacnea");
+      expect(ids).toContain(aliasSeed.englishItemId);
+      expect(ids).toContain(aliasSeed.japaneseItemId);
+    });
+
+    it("keeps native Japanese kana queries searchable, including substrings", async () => {
+      await seedAliasFixture();
+      await drainContextProcesses({ subscriptionRunners });
+
+      // Whole-run native query.
+      expect(await searchItemIds("サボネア")).toEqual([aliasSeed.japaneseItemId]);
+      // Substring native query works under the CJK n-gram tokenization.
+      expect(await searchItemIds("サボネ")).toEqual([aliasSeed.japaneseItemId]);
+    });
+
+    it("ranks an exact English title above a broad species alias match", async () => {
+      await seedAliasFixture();
+      // The English Cacnea also carries a broad species alias for "Cacnea" so a
+      // species match competes with the exact-title English item.
+      await sendCommand(catalogServices.items.commandHandler, `catalog.item-${aliasSeed.englishItemId}`, {
+        type: "RecordCatalogItemAliases",
+        catalogItemId: aliasSeed.englishItemId as never,
+        aliasLanguageCode: "en",
+        aliases: [] as never,
+        resolvedAliasHash: "resolved-en-empty",
+        resolverVersion: 1,
+        resolvedAt: "2026-06-16T00:00:00.000Z",
+      });
+      // Japanese card only matches "Cacnea" through a broad species alias.
+      await recordJapaneseItemAliases(
+        [
+          {
+            aliasHash: "alias-cacnea-species",
+            aliasText: "Cacnea",
+            normalizedAliasText: "cacnea",
+            aliasType: "species-name",
+            confidence: "high",
+            broad: true,
+            providerKey: "tcgdex",
+            sourceCategory: "provider-species-name",
+          },
+        ],
+        "resolved-cacnea-species",
+      );
+      await drainContextProcesses({ subscriptionRunners });
+
+      const ids = await searchItemIds("Cacnea");
+      // Exact English title outranks the broad species alias on the Japanese card.
+      expect(ids[0]).toBe(aliasSeed.englishItemId);
+      expect(ids).toContain(aliasSeed.japaneseItemId);
+    });
+
+    it("does not let a generated low-confidence alias outrank an official English title", async () => {
+      await seedAliasFixture();
+      // A second English item whose only "Cacnea" tie is a generated translation.
+      await sendCommand(catalogServices.items.commandHandler, `catalog.item-cat_generated`, {
+        type: "CreateCatalogItem",
+        itemId: "cat_generated" as never,
+        languageCode: "en",
+        title: l10n("Spiky Cactus"),
+        subtitle: l10n("Base"),
+        description: l10n("Generated translation candidate"),
+      });
+      await sendCommand(catalogServices.items.commandHandler, `catalog.item-cat_generated`, {
+        type: "AssignBlueprintToCatalogItem",
+        blueprintId: aliasSeed.blueprintId as never,
+      });
+      await sendCommand(catalogServices.items.commandHandler, `catalog.item-cat_generated`, {
+        type: "SetCatalogItemFieldValue",
+        fieldId: aliasSeed.fieldId as never,
+        value: "Spiky Cactus",
+      });
+      await sendCommand(catalogServices.items.commandHandler, `catalog.item-cat_generated`, {
+        type: "PublishCatalogItem",
+        blueprintIsActive: true,
+        requiredFieldIds: [aliasSeed.fieldId as never],
+      });
+      await sendCommand(catalogServices.items.commandHandler, `catalog.item-cat_generated`, {
+        type: "RecordCatalogItemAliases",
+        catalogItemId: "cat_generated" as never,
+        aliasLanguageCode: "en",
+        aliases: [
+          {
+            aliasHash: "alias-generated",
+            aliasText: "Cacnea",
+            normalizedAliasText: "cacnea",
+            aliasType: "generated-translation",
+            confidence: "generated",
+            broad: false,
+            providerKey: "tcgdex",
+            sourceCategory: "machine-translation",
+          },
+        ] as never,
+        resolvedAliasHash: "resolved-generated",
+        resolverVersion: 1,
+        resolvedAt: "2026-06-16T00:00:00.000Z",
+      });
+      await drainContextProcesses({ subscriptionRunners });
+
+      const ids = await searchItemIds("Cacnea");
+      // The official English title item outranks the generated-alias item.
+      expect(ids[0]).toBe(aliasSeed.englishItemId);
+      expect(ids.indexOf(aliasSeed.englishItemId)).toBeLessThan(ids.indexOf("cat_generated"));
+    });
+
+    it("removes a revoked alias from search on the retraction fact and on rebuild", async () => {
+      await seedAliasFixture();
+      await recordJapaneseItemAliases(
+        [
+          {
+            aliasHash: "alias-cacnea-en",
+            aliasText: "Cacnea",
+            normalizedAliasText: "cacnea",
+            aliasType: "official-equivalent",
+            confidence: "high",
+            broad: false,
+            providerKey: "tcgdex",
+            sourceCategory: "provider-same-id-localized-endpoint",
+          },
+        ],
+        "resolved-cacnea-1",
+      );
+      await drainContextProcesses({ subscriptionRunners });
+      expect(await searchItemIds("Cacnea")).toContain(aliasSeed.japaneseItemId);
+
+      // Retraction: empty resolved fact for the same (item, language).
+      await recordJapaneseItemAliases([], "resolved-cacnea-empty");
+      await drainContextProcesses({ subscriptionRunners });
+
+      const afterRevoke = await searchItemIds("Cacnea");
+      expect(afterRevoke).not.toContain(aliasSeed.japaneseItemId);
+      // The Japanese card itself is unaffected for native queries.
+      expect(await searchItemIds("サボネア")).toEqual([aliasSeed.japaneseItemId]);
+
+      // Negative projection on rebuild: rebuilding the index keeps the alias gone.
+      await rebuildDiscoverySearchIndex(pools.discovery);
+      expect(await searchItemIds("Cacnea")).not.toContain(aliasSeed.japaneseItemId);
+
+      const aliasRow = await pools.discovery.query<{ resolved_aliases: unknown }>(
+        `SELECT resolved_aliases FROM discovery_search_catalog_items WHERE catalog_item_id = $1`,
+        [aliasSeed.japaneseItemId],
+      );
+      expect(aliasRow.rows[0]?.resolved_aliases).toEqual({});
+    });
+  });
 });

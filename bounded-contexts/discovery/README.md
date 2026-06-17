@@ -37,7 +37,18 @@ Discovery terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 ## Incoming Dependencies
 
 - Catalog for canonical item, category, blueprint, dimension, and field facts
+- Catalog resolved-alias facts (`catalog.catalog-item.aliases-resolved`) for alias-aware search matching
 - Marketplace for future visibility or listing signals when browse behavior needs commercial state
+
+## Catalog Alias Search
+
+Discovery search consumes the published Catalog resolved-alias fact (`catalog.catalog-item.aliases-resolved`, #1910) so an English query can find a non-English imported card and native-script queries stay searchable. Discovery consumes the stable fact only; it never calls provider APIs or reads alias candidates, provider profiles, or the alias review state machine. The search read model (`features/search/read-model`) owns this behavior.
+
+- **Weighting.** Alias text folds into the `search_text` / `search_text_simple` tsvectors at type- and confidence-aware weights: official equivalent and exact set/series at the top tier (A, alongside the title), non-exact set/series and species at medium (B), provider-localized/literal at C, and romanization/generated at the lowest tier (D). Any generated-confidence alias is pinned to D. A `broad` alias is demoted one tier so a species name can never outrank an exact title or an official equivalent. Aliases never replace the title, subtitle, or slug; display is owned by item detail (#1914).
+- **Cardinality.** Matches dedupe by `catalog_item_id` (one row per item), and broad aliases are down-weighted, so a high-fan-out alias text cannot flood or outrank specific matches.
+- **Rollout kill-switch.** Alias contribution to search is gated by the `DISCOVERY_ALIAS_SEARCH` environment value (control id `discovery-alias-search-disabled`), mirroring the Catalog Integration Rollout Controls style. It defaults open. Setting it to a disabling value (`disabled`/`off`/`false`/`0`/`kill`) and rebuilding the search index drops alias text from `search_text` for every item with no code deploy; the resolved alias rows stay stored so re-enabling re-folds them on the next rebuild.
+- **Removal propagation.** A revoked alias arrives as an empty (retracted) resolved fact for an `(item, language)`; Discovery removes that language's aliases from the source row, so the alias drops out of `search_text` both on the event and on a later rebuild (the rebuild reads the same source row). The item, its display identity, and its other-language aliases are unaffected.
+- **Native-script (CJK) searchability.** The stock Postgres `simple` config emits one token for a whole contiguous CJK run, so substring search of native kana would not work and `pg_bigm`/`pgroonga` are not available in this stack. Discovery instead indexes overlapping character bigrams per CJK run and queries those bigrams, which makes native kana whole-run and substring search work under the `simple` config without a database extension. This lives in `features/search/domain/normalization.ts` and is proven by the acceptance test "keeps native Japanese kana queries searchable, including substrings".
 
 ## Product Alerts
 

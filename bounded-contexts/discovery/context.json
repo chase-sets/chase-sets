@@ -83,7 +83,7 @@
     {
       "sourceContextName": "catalog",
       "projectionName": "discovery-search-item-projection",
-      "subscriptionVersion": 3,
+      "subscriptionVersion": 4,
       "eventTypes": [
         "catalog.category.created",
         "catalog.category.revised",
@@ -99,6 +99,7 @@
         "catalog.catalog-item.published",
         "catalog.catalog-item.metadata-revised",
         "catalog.catalog-item.display-identity-resolved",
+        "catalog.catalog-item.aliases-resolved",
         "catalog.catalog-item.tags-set",
         "catalog.catalog-item.image-urls-set",
         "catalog.catalog-item.product-asset-sets-set",
