@@ -22,7 +22,7 @@ import {
 } from "./primary-workbench-read-model-test-support";
 
 describe("Catalog primary workbench read model - audit evidence", () => {
-  it("models audit and release evidence with filters, redacted links, and complete-removal release proof", () => {
+  it("models the audit timeline with filters and redacted evidence links", () => {
     const profile = profileReview({ active: true, lifecycle: "active" });
     const readModel = buildCatalogPrimaryWorkbenchReadModel({
       requestUrl:
@@ -122,24 +122,10 @@ describe("Catalog primary workbench read model - audit evidence", () => {
       profileSnapshotAccess: "not-required",
     });
     expect(JSON.stringify(readModel.auditEvidence)).not.toMatch(/raw\s+json|payload\s+json|profile\s+json/i);
-    expect(readModel.auditEvidence.releaseChecklist.map((entry) => entry.workflowKey)).toEqual([
-      "provider-data-pull",
-      "source-observation-review",
-      "promotion",
-      "dry-run-diagnostics",
-      "reapply-rollback",
-      "governance-retirement",
-      "release-smoke",
-    ]);
-    expect(
-      readModel.auditEvidence.releaseChecklist.find((entry) => entry.workflowKey === "governance-retirement"),
-    ).toMatchObject({
-      status: "ready",
-      requiredEvidence: expect.arrayContaining([
-        expect.stringMatching(/complete removal of code, patterns, documentation/i),
-      ]),
-      releaseNote: expect.stringMatching(/documentation, tests, fixtures, screenshots, runbooks/i),
-    });
+    expect(readModel.auditEvidence).not.toHaveProperty("releaseChecklist");
+    expect(JSON.stringify(readModel.auditEvidence)).not.toMatch(
+      /blocks release|smokeProof|ops-release|catalog-source-observations/i,
+    );
   });
 
   it("keeps audit evidence unavailable when the timeline projection is missing while preserving redaction policy", () => {
@@ -157,12 +143,6 @@ describe("Catalog primary workbench read model - audit evidence", () => {
       queryKey: "audit-evidence-timeline",
       missingProjection: true,
       partialProjection: false,
-    });
-    expect(
-      readModel.auditEvidence.releaseChecklist.find((entry) => entry.workflowKey === "release-smoke"),
-    ).toMatchObject({
-      status: "blocked",
-      blocksRelease: true,
     });
     expect(readModel.auditEvidence.redactionPolicy.forbiddenEvidenceRequests).toEqual(
       expect.arrayContaining(["source payload body download", "provider profile snapshot document"]),

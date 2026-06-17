@@ -353,18 +353,16 @@ function healthTriageSlice(
   });
 }
 
-// Release evidence surface slices (#1739 release route). Audit evidence folds in
-// the governance, conflict, lifecycle, and validation slices it cites, so they
-// are passed in.
+// Audit timeline surface slice (release route). The audit timeline folds in the
+// conflict and validation slices whose real events it surfaces, so they are
+// passed in.
 function releaseSurfaceSlices(
   input: CatalogPrimaryWorkbenchInput,
   core: CatalogPrimaryWorkbenchCore,
   derived: CatalogPrimaryWorkbenchDerived,
   cited: Readonly<{
     conflictResolution: CatalogPrimaryWorkbenchReadModel["conflictResolution"];
-    governanceControls: CatalogPrimaryWorkbenchReadModel["governanceControls"];
     healthTriage: CatalogPrimaryWorkbenchReadModel["healthTriage"];
-    lifecycleRecovery: CatalogPrimaryWorkbenchReadModel["lifecycleRecovery"];
     validationReadiness: CatalogPrimaryWorkbenchReadModel["validationReadiness"];
   }>,
 ): Readonly<{
@@ -374,10 +372,8 @@ function releaseSurfaceSlices(
     conflictResolution: cited.conflictResolution,
     controlPlaneOverview: input.controlPlaneOverview,
     generatedAt: core.generatedAt,
-    governanceControls: cited.governanceControls,
     healthTriage: cited.healthTriage,
     importJobs: derived.importJobRows,
-    lifecycleRecovery: cited.lifecycleRecovery,
     promotionPreview: core.promotionPreview,
     routeContext: core.routeContext,
     securityPrivacy: core.securityPrivacy,
@@ -411,9 +407,7 @@ export function buildCatalogPrimaryWorkbenchReadModel(
   const governanceControls = governanceControlsSlice(input, core, derived, conflictResolution, actions, healthTriage);
   const { auditEvidence } = releaseSurfaceSlices(input, core, derived, {
     conflictResolution,
-    governanceControls,
     healthTriage,
-    lifecycleRecovery,
     validationReadiness,
   });
 
@@ -485,9 +479,7 @@ export function buildCatalogPrimaryWorkbenchReadModelForSurface(
   );
   const { auditEvidence } = releaseSurfaceSlices(sliceInput(wantsReleaseSlices), core, derived, {
     conflictResolution,
-    governanceControls,
     healthTriage,
-    lifecycleRecovery,
     validationReadiness,
   });
 

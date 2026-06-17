@@ -11,23 +11,18 @@ import {
   catalogPrimaryWorkbenchSupportingHref,
 } from "./primary-workbench-route-context";
 import type { ConflictResolution } from "./primary-workbench-conflict-resolution";
-import type { GovernanceControls } from "./primary-workbench-governance-controls";
-import type { LifecycleRecovery } from "./primary-workbench-lifecycle-recovery";
 import type { ValidationReadiness } from "./primary-workbench-validation-readiness";
 
 export type AuditEvidence = CatalogPrimaryWorkbenchReadModel["auditEvidence"];
 export type AuditEvidenceLink = AuditEvidence["evidenceLinks"][number];
 export type AuditTimelineRow = AuditEvidence["timeline"][number];
-export type ReleaseEvidenceChecklistRow = AuditEvidence["releaseChecklist"][number];
 
 export function auditEvidenceFor(input: {
   conflictResolution: ConflictResolution;
   controlPlaneOverview: CatalogIntegrationControlPlaneOverview | null;
   generatedAt: string;
-  governanceControls: GovernanceControls;
   healthTriage: CatalogPrimaryWorkbenchHealthTriageReadModel;
   importJobs: CatalogPrimaryWorkbenchReadModel["importJobs"]["jobs"];
-  lifecycleRecovery: LifecycleRecovery;
   promotionPreview: CatalogPrimaryWorkbenchReadModel["promotionPreview"];
   routeContext: CatalogPrimaryWorkbenchRouteContext;
   securityPrivacy: CatalogPrimaryWorkbenchReadModel["securityPrivacy"];
@@ -72,45 +67,19 @@ export function auditEvidenceFor(input: {
       auditTimelineHref,
       events: input.conflictResolution.recentAuditEvents,
     }),
-    auditGovernanceRemovalRowFor({
-      auditTimelineHref,
-      generatedAt: input.generatedAt,
-      governanceControls: input.governanceControls,
-      routeContext: input.routeContext,
-    }),
   ])
     .filter((row) => auditTimelineRowMatchesContext(row, input.routeContext))
     .slice(0, 50);
-  const releaseChecklist = auditReleaseChecklistFor({
-    auditTimelineHref,
-    conflictResolution: input.conflictResolution,
-    governanceControls: input.governanceControls,
-    importJobs: input.importJobs,
-    lifecycleRecovery: input.lifecycleRecovery,
-    projectionState,
-    promotionPreview: input.promotionPreview,
-    routeContext: input.routeContext,
-    sourceObservationReview: input.sourceObservationReview,
-    validationReadiness: input.validationReadiness,
-  });
-  const evidenceLinks = dedupeAuditEvidenceLinks([
-    ...timeline.flatMap((row) => row.evidenceLinks),
-    ...releaseChecklist.flatMap((row) => row.proofLinks),
-  ]);
-  const missingEvidence = releaseChecklist.filter((row) => row.status === "missing" || row.status === "blocked").length;
+  const evidenceLinks = dedupeAuditEvidenceLinks(timeline.flatMap((row) => row.evidenceLinks));
   const partialProjectionCount =
     (projectionState.partialProjection ? 1 : 0) +
     input.healthTriage.readModels.filter((state) => state.freshness === "partial" || state.freshness === "stale")
       .length;
-  const residualDebtItems = releaseChecklist.reduce((count, row) => count + row.residualDebt.length, 0);
   const status: AuditEvidence["status"] = projectionState.missingProjection
     ? "unavailable"
-    : releaseChecklist.some((row) => row.status === "blocked" && row.blocksRelease)
-      ? "blocked"
-      : projectionState.partialProjection ||
-          releaseChecklist.some((row) => row.status === "partial" || row.status === "missing")
-        ? "partial"
-        : "ready";
+    : projectionState.partialProjection
+      ? "partial"
+      : "ready";
 
   return {
     status,
@@ -120,10 +89,7 @@ export function auditEvidenceFor(input: {
     summary: {
       timelineEvents: timeline.length,
       redactedEvidenceLinks: evidenceLinks.length,
-      releaseChecklistItems: releaseChecklist.length,
-      missingEvidence,
       partialProjectionCount,
-      residualDebtItems,
     },
     filters: auditFiltersFor(input.routeContext, timeline),
     projectionState,
@@ -142,7 +108,6 @@ export function auditEvidenceFor(input: {
     },
     timeline,
     evidenceLinks,
-    releaseChecklist,
   };
 }
 
@@ -404,262 +369,6 @@ function auditConflictRowsFor(input: {
       }),
     ],
   }));
-}
-
-function auditGovernanceRemovalRowFor(input: {
-  auditTimelineHref: string;
-  generatedAt: string;
-  governanceControls: GovernanceControls;
-  routeContext: CatalogPrimaryWorkbenchRouteContext;
-}): AuditTimelineRow {
-  return {
-    eventId: "release:retired-compatibility-removal",
-    occurredAt: input.generatedAt,
-    eventName: "diagnostics-present",
-    category: "diagnostic",
-    actorLabel: t("catalog.features.sourceObservations.ui.auditEvidence.readModel.actor.releaseOwner"),
-    targetType: "release",
-    targetId: "retired-compatibility-removal",
-    providerKey: input.routeContext.providerKey,
-    unitKey: input.routeContext.unitKey,
-    profileVersion: input.routeContext.profileVersion,
-    jobId: input.routeContext.jobId,
-    observationId: null,
-    catalogItemId: null,
-    summary: t("catalog.features.sourceObservations.ui.auditEvidence.readModel.retirement.summary"),
-    diagnosticCodes: input.governanceControls.legacyRemovalEvidence.launchBlockerIfPresent,
-    redactionState: "not-needed",
-    evidenceLinks: input.governanceControls.legacyRemovalEvidence.evidence.map((evidence) =>
-      auditEvidenceLink({
-        href: input.auditTimelineHref,
-        key: `retirement:${evidence.key}`,
-        kind: "release-note",
-        label: evidence.label,
-        redactionState: "not-needed",
-        summary: evidence.detail,
-      }),
-    ),
-  };
-}
-
-function auditReleaseChecklistFor(input: {
-  auditTimelineHref: string;
-  conflictResolution: ConflictResolution;
-  governanceControls: GovernanceControls;
-  importJobs: CatalogPrimaryWorkbenchReadModel["importJobs"]["jobs"];
-  lifecycleRecovery: LifecycleRecovery;
-  projectionState: AuditEvidence["projectionState"];
-  promotionPreview: CatalogPrimaryWorkbenchReadModel["promotionPreview"];
-  routeContext: CatalogPrimaryWorkbenchRouteContext;
-  sourceObservationReview: CatalogPrimaryWorkbenchReadModel["sourceObservationReview"];
-  validationReadiness: ValidationReadiness;
-}): readonly ReleaseEvidenceChecklistRow[] {
-  const failedJobs = input.importJobs.filter((job) => job.state === "failed").length;
-  const activeJobs = input.importJobs.filter((job) => job.state === "queued" || job.state === "running").length;
-  const sourceRows = input.sourceObservationReview.rows.length;
-  const promotionReady =
-    input.promotionPreview.scope.eligibleCount > 0 &&
-    input.promotionPreview.commandPlanHash !== null &&
-    input.promotionPreview.blockers.length === 0;
-  const dryRunCount = input.validationReadiness.dryRunEvidence.length;
-  const lifecycleEvents = input.lifecycleRecovery.recentAuditEvents.length;
-
-  return [
-    releaseChecklistRow({
-      auditTimelineHref: input.auditTimelineHref,
-      blocksRelease: failedJobs > 0,
-      owner: "catalog-source-observations",
-      proofKey: "provider-data-pull",
-      proofSummary: `${input.importJobs.length} job(s), ${activeJobs} active, ${failedJobs} failed`,
-      releaseNote: t("catalog.features.sourceObservations.ui.auditEvidence.readModel.release.provider.releaseNote"),
-      requiredEvidence: [
-        "import job state",
-        "provider/unit scope",
-        "adapter readiness",
-        "job consistency",
-        "redacted job summary",
-      ],
-      residualDebt:
-        input.importJobs.length === 0
-          ? [t("catalog.features.sourceObservations.ui.auditEvidence.readModel.release.provider.noJobs")]
-          : [],
-      smokeProof: "production smoke opens protected Catalog integration workbench after sign-in",
-      status: failedJobs > 0 ? "blocked" : input.importJobs.length > 0 ? "ready" : "partial",
-      tests: [
-        "bounded-contexts/catalog/features/source-observations/ui/primary-workbench-import-jobs.test.ts",
-        "deployables/admin-web/e2e/catalog-integrations.spec.ts",
-      ],
-      workflowKey: "provider-data-pull",
-      workflowLabel: t("catalog.features.sourceObservations.ui.auditEvidence.readModel.release.provider.label"),
-    }),
-    releaseChecklistRow({
-      auditTimelineHref: input.auditTimelineHref,
-      blocksRelease: input.sourceObservationReview.freshness === "unavailable",
-      owner: "catalog-source-observations",
-      proofKey: "source-observation-review",
-      proofSummary: `${sourceRows} row(s), ${input.sourceObservationReview.counts.eligible} eligible`,
-      releaseNote: t("catalog.features.sourceObservations.ui.auditEvidence.readModel.release.review.releaseNote"),
-      requiredEvidence: [
-        "Source Observation filters",
-        "redacted fact summaries",
-        "duplicate/conflict evidence",
-        "review actions",
-      ],
-      residualDebt:
-        sourceRows === 0
-          ? [t("catalog.features.sourceObservations.ui.auditEvidence.readModel.release.review.noRows")]
-          : [],
-      smokeProof: "review table renders with redacted evidence and no document fallback",
-      status:
-        input.sourceObservationReview.freshness === "unavailable" ? "blocked" : sourceRows > 0 ? "ready" : "partial",
-      tests: [
-        "bounded-contexts/catalog/features/source-observations/ui/primary-workbench-page.test.tsx",
-        "bounded-contexts/catalog/features/source-observations/api/catalog-integration-no-confusion-ux-acceptance.test.ts",
-      ],
-      workflowKey: "source-observation-review",
-      workflowLabel: t("catalog.features.sourceObservations.ui.auditEvidence.readModel.release.review.label"),
-    }),
-    releaseChecklistRow({
-      auditTimelineHref: input.auditTimelineHref,
-      blocksRelease: input.promotionPreview.blockers.length > 0,
-      owner: "catalog-source-observations",
-      proofKey: "promotion",
-      proofSummary: input.promotionPreview.commandPlanHash ?? "promotion command plan pending",
-      releaseNote: t("catalog.features.sourceObservations.ui.auditEvidence.readModel.release.promotion.releaseNote"),
-      requiredEvidence: [
-        "promotion plan hash",
-        "eligible/blocked disposition counts",
-        "stale preview safeguards",
-        "idempotency proof",
-      ],
-      residualDebt: promotionReady
-        ? []
-        : input.promotionPreview.blockers.map((blocker) => `promotion blocker: ${blocker}`),
-      smokeProof: "promotion preview and confirmation render with stale preview protection",
-      status: promotionReady ? "ready" : input.promotionPreview.blockers.length > 0 ? "blocked" : "partial",
-      tests: [
-        "bounded-contexts/catalog/features/source-observations/ui/primary-workbench-source-observation-review.test.ts",
-        "bounded-contexts/catalog/features/source-observations/ui/primary-workbench-page.test.tsx",
-      ],
-      workflowKey: "promotion",
-      workflowLabel: t("catalog.features.sourceObservations.ui.auditEvidence.readModel.release.promotion.label"),
-    }),
-    releaseChecklistRow({
-      auditTimelineHref: input.auditTimelineHref,
-      blocksRelease: false,
-      owner: "catalog-source-observations",
-      proofKey: "dry-run-diagnostics",
-      proofSummary: `${dryRunCount} dry-run evidence row(s)`,
-      releaseNote: t("catalog.features.sourceObservations.ui.auditEvidence.readModel.release.dryRun.releaseNote"),
-      requiredEvidence: ["fixture coverage", "dry-run summaries", "diagnostics", "activation readiness"],
-      residualDebt:
-        dryRunCount === 0
-          ? [t("catalog.features.sourceObservations.ui.auditEvidence.readModel.release.dryRun.noEvidence")]
-          : [],
-      smokeProof: "validation readiness workspace links back to import workbench",
-      status: dryRunCount > 0 ? "ready" : "partial",
-      tests: [
-        "bounded-contexts/catalog/features/source-observations/ui/primary-workbench-validation-readiness.test.ts",
-        "bounded-contexts/catalog/features/source-observations/ui/primary-workbench-page.test.tsx",
-      ],
-      workflowKey: "dry-run-diagnostics",
-      workflowLabel: t("catalog.features.sourceObservations.ui.auditEvidence.readModel.release.dryRun.label"),
-    }),
-    releaseChecklistRow({
-      auditTimelineHref: input.auditTimelineHref,
-      blocksRelease: false,
-      owner: "catalog-source-observations",
-      proofKey: "reapply-rollback",
-      proofSummary: `${input.lifecycleRecovery.operations.length} lifecycle action(s), ${lifecycleEvents} event(s)`,
-      releaseNote: t("catalog.features.sourceObservations.ui.auditEvidence.readModel.release.lifecycle.releaseNote"),
-      requiredEvidence: ["reapply semantics", "replay semantics", "rollback impact", "retirement impact"],
-      residualDebt:
-        input.lifecycleRecovery.status === "blocked"
-          ? [t("catalog.features.sourceObservations.ui.auditEvidence.readModel.release.lifecycle.blocked")]
-          : [],
-      smokeProof: "lifecycle recovery workspace exposes confirmation and evidence links",
-      status: input.lifecycleRecovery.status === "blocked" ? "partial" : lifecycleEvents > 0 ? "ready" : "partial",
-      tests: [
-        "bounded-contexts/catalog/features/source-observations/ui/primary-workbench-lifecycle-recovery.test.ts",
-        "bounded-contexts/catalog/features/source-observations/ui/primary-workbench-page.test.tsx",
-      ],
-      workflowKey: "reapply-rollback",
-      workflowLabel: t("catalog.features.sourceObservations.ui.auditEvidence.readModel.release.lifecycle.label"),
-    }),
-    releaseChecklistRow({
-      auditTimelineHref: input.auditTimelineHref,
-      blocksRelease: false,
-      owner: "catalog-source-observations",
-      proofKey: "governance-retirement",
-      proofSummary: `${input.governanceControls.legacyRemovalEvidence.evidence.length} deletion evidence row(s)`,
-      releaseNote: t("catalog.features.sourceObservations.ui.auditEvidence.readModel.release.retirement.releaseNote"),
-      requiredEvidence: [
-        "complete removal of code, patterns, documentation, tests, fixtures, screenshots, runbooks, release notes, and operator instructions",
-        "no hidden flag",
-        "no fallback branch",
-        "no compatibility redirect",
-        "no migration shim",
-      ],
-      residualDebt: [],
-      smokeProof: "governance workspace shows retired compatibility removal as complete-removal",
-      status: "ready",
-      tests: [
-        "bounded-contexts/catalog/features/source-observations/api/primary-workbench-admin-contracts.test.ts",
-        "bounded-contexts/catalog/features/source-observations/ui/primary-workbench-page.test.tsx",
-      ],
-      workflowKey: "governance-retirement",
-      workflowLabel: t("catalog.features.sourceObservations.ui.auditEvidence.readModel.release.retirement.label"),
-    }),
-    releaseChecklistRow({
-      auditTimelineHref: input.auditTimelineHref,
-      blocksRelease: input.projectionState.missingProjection,
-      owner: "ops-release",
-      proofKey: "release-smoke",
-      proofSummary: input.projectionState.statusMessage,
-      releaseNote: t("catalog.features.sourceObservations.ui.auditEvidence.readModel.release.smoke.releaseNote"),
-      requiredEvidence: ["unit tests", "E2E proof", "static verification", "staging smoke", "production smoke"],
-      residualDebt: input.projectionState.partialProjection
-        ? [t("catalog.features.sourceObservations.ui.auditEvidence.readModel.release.smoke.partialProjection")]
-        : [],
-      smokeProof: "release notes link tests, E2E proof, smoke checks, and accepted residual debt",
-      status: input.projectionState.missingProjection
-        ? "blocked"
-        : input.projectionState.partialProjection
-          ? "partial"
-          : "ready",
-      tests: ["pnpm run verify:static", "pnpm --dir bounded-contexts/catalog run test:fast"],
-      workflowKey: "release-smoke",
-      workflowLabel: t("catalog.features.sourceObservations.ui.auditEvidence.readModel.release.smoke.label"),
-    }),
-  ];
-}
-
-function releaseChecklistRow(
-  input: Omit<ReleaseEvidenceChecklistRow, "e2eProof" | "proofLinks"> &
-    Readonly<{ auditTimelineHref: string; proofKey: string; proofSummary: string }>,
-): ReleaseEvidenceChecklistRow {
-  return {
-    workflowKey: input.workflowKey,
-    workflowLabel: input.workflowLabel,
-    status: input.status,
-    owner: input.owner,
-    requiredEvidence: input.requiredEvidence,
-    proofLinks: [
-      auditEvidenceLink({
-        href: input.auditTimelineHref,
-        key: `release:${input.proofKey}`,
-        kind: "proof",
-        label: input.workflowLabel,
-        summary: input.proofSummary,
-      }),
-    ],
-    tests: input.tests,
-    e2eProof: "deployables/admin-web/e2e/catalog-integrations.spec.ts",
-    smokeProof: input.smokeProof,
-    residualDebt: input.residualDebt,
-    releaseNote: input.releaseNote,
-    blocksRelease: input.blocksRelease,
-  };
 }
 
 function auditFiltersFor(

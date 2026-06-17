@@ -20,7 +20,6 @@ type AuditEvidence = CatalogPrimaryWorkbenchReadModel["auditEvidence"];
 type AuditFilter = AuditEvidence["filters"][number];
 type AuditTimelineRow = AuditEvidence["timeline"][number];
 type AuditEvidenceLink = AuditEvidence["evidenceLinks"][number];
-type ReleaseChecklistRow = AuditEvidence["releaseChecklist"][number];
 type BadgeTone = "success" | "warning" | "danger" | "neutral" | "info" | "accent";
 
 export function CatalogIntegrationAuditEvidenceWorkspace({
@@ -56,13 +55,6 @@ export function CatalogIntegrationAuditEvidenceWorkspace({
                 label: t("catalog.features.sourceObservations.ui.auditEvidence.metric.links"),
                 value: String(audit.summary.redactedEvidenceLinks),
                 trend: t("catalog.features.sourceObservations.ui.auditEvidence.metric.linksTrend"),
-              },
-              {
-                label: t("catalog.features.sourceObservations.ui.auditEvidence.metric.checklist"),
-                value: String(audit.summary.releaseChecklistItems),
-                trend: `${audit.summary.missingEvidence} ${t(
-                  "catalog.features.sourceObservations.ui.auditEvidence.metric.missing",
-                )}`,
               },
               {
                 label: t("catalog.features.sourceObservations.ui.auditEvidence.metric.projection"),
@@ -152,22 +144,6 @@ export function CatalogIntegrationAuditEvidenceWorkspace({
           density="compact"
           emptyTitle={t("catalog.features.sourceObservations.ui.auditEvidence.links.emptyTitle")}
           emptyDescription={t("catalog.features.sourceObservations.ui.auditEvidence.links.emptyDescription")}
-        />
-      </WorkflowModule>
-
-      <WorkflowModule
-        title={t("catalog.features.sourceObservations.ui.auditEvidence.release.title")}
-        description={t("catalog.features.sourceObservations.ui.auditEvidence.release.description")}
-        status={<Badge tone={releaseSummaryTone(audit)}>{audit.summary.missingEvidence}</Badge>}
-        density="compact"
-      >
-        <DataTable
-          rows={[...audit.releaseChecklist]}
-          columns={releaseColumns}
-          getRowId={(row) => row.workflowKey}
-          density="compact"
-          emptyTitle={t("catalog.features.sourceObservations.ui.auditEvidence.release.emptyTitle")}
-          emptyDescription={t("catalog.features.sourceObservations.ui.auditEvidence.release.emptyDescription")}
         />
       </WorkflowModule>
     </WorkbenchStack>
@@ -304,65 +280,6 @@ const linkColumns: DataColumn<AuditEvidenceLink>[] = [
   },
 ];
 
-const releaseColumns: DataColumn<ReleaseChecklistRow>[] = [
-  {
-    key: "workflow",
-    header: t("catalog.features.sourceObservations.ui.auditEvidence.table.workflow"),
-    sortable: true,
-    cell: (row) => <WorkbenchDataCell title={row.workflowLabel} description={row.workflowKey} detail={row.owner} />,
-  },
-  {
-    key: "status",
-    header: t("catalog.features.sourceObservations.ui.auditEvidence.table.status"),
-    mobileLabel: t("catalog.features.sourceObservations.ui.auditEvidence.table.status"),
-    cell: (row) => (
-      <WorkbenchStack gap="sm">
-        <Badge tone={checklistTone(row.status)}>{stateLabel(row.status)}</Badge>
-        <WorkbenchText size="xs">
-          {row.blocksRelease
-            ? t("catalog.features.sourceObservations.ui.auditEvidence.release.blocks")
-            : t("catalog.features.sourceObservations.ui.auditEvidence.release.nonBlocking")}
-        </WorkbenchText>
-      </WorkbenchStack>
-    ),
-  },
-  {
-    key: "requiredEvidence",
-    header: t("catalog.features.sourceObservations.ui.auditEvidence.table.requiredEvidence"),
-    mobileLabel: t("catalog.features.sourceObservations.ui.auditEvidence.table.requiredEvidence"),
-    cell: (row) => row.requiredEvidence.slice(0, 4).join(", "),
-  },
-  {
-    key: "proof",
-    header: t("catalog.features.sourceObservations.ui.auditEvidence.table.proof"),
-    mobileLabel: t("catalog.features.sourceObservations.ui.auditEvidence.table.proof"),
-    cell: (row) => (
-      <WorkbenchStack gap="sm">
-        <EvidenceLinkList links={row.proofLinks} />
-        <WorkbenchText size="xs">{row.e2eProof}</WorkbenchText>
-        <WorkbenchText size="xs">{row.smokeProof}</WorkbenchText>
-      </WorkbenchStack>
-    ),
-  },
-  {
-    key: "releaseNote",
-    header: t("catalog.features.sourceObservations.ui.auditEvidence.table.releaseNote"),
-    mobileLabel: t("catalog.features.sourceObservations.ui.auditEvidence.table.releaseNote"),
-    cell: (row) => (
-      <WorkbenchDataCell
-        title={row.releaseNote}
-        titleWeight="regular"
-        description={
-          row.residualDebt.length > 0
-            ? row.residualDebt.join(", ")
-            : t("catalog.features.sourceObservations.ui.auditEvidence.release.noResidualDebt")
-        }
-        detail={row.tests.slice(0, 2).join(", ")}
-      />
-    ),
-  },
-];
-
 function EvidenceLinkList({ links }: Readonly<{ links: readonly AuditEvidenceLink[] }>) {
   return (
     <WorkbenchLinkList align="end">
@@ -441,8 +358,6 @@ function linkTone(kind: AuditEvidenceLink["kind"]): BadgeTone {
       return "accent";
     case "diagnostic":
       return "warning";
-    case "release-note":
-      return "info";
     default:
       return "neutral";
   }
@@ -450,22 +365,6 @@ function linkTone(kind: AuditEvidenceLink["kind"]): BadgeTone {
 
 function redactionTone(state: AuditEvidenceLink["redactionState"]): BadgeTone {
   return state === "not-needed" ? "success" : state === "excluded" ? "danger" : "warning";
-}
-
-function checklistTone(status: ReleaseChecklistRow["status"]): BadgeTone {
-  switch (status) {
-    case "ready":
-      return "success";
-    case "partial":
-    case "missing":
-      return "warning";
-    case "blocked":
-      return "danger";
-  }
-}
-
-function releaseSummaryTone(audit: AuditEvidence): BadgeTone {
-  return audit.summary.missingEvidence > 0 ? "warning" : "success";
 }
 
 function stateLabel(value: string): string {

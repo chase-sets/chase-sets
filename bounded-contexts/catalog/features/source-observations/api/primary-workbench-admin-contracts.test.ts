@@ -1295,10 +1295,7 @@ function auditEvidenceFixture(): CatalogPrimaryWorkbenchReadModel["auditEvidence
     summary: {
       timelineEvents: 1,
       redactedEvidenceLinks: 1,
-      releaseChecklistItems: 7,
-      missingEvidence: 0,
       partialProjectionCount: 1,
-      residualDebtItems: 1,
     },
     filters: [
       auditFilterFixture("provider", "Provider", "tcgdex", ["tcgdex"]),
@@ -1355,28 +1352,6 @@ function auditEvidenceFixture(): CatalogPrimaryWorkbenchReadModel["auditEvidence
       },
     ],
     evidenceLinks: [evidenceLink],
-    releaseChecklist: [
-      releaseChecklistFixture("provider-data-pull", "Provider data pull"),
-      releaseChecklistFixture("source-observation-review", "Source Observation review"),
-      releaseChecklistFixture("promotion", "Promotion evidence"),
-      releaseChecklistFixture("dry-run-diagnostics", "Dry-run and diagnostic evidence"),
-      releaseChecklistFixture("reapply-rollback", "Reapply, replay, rollback, and retirement evidence"),
-      releaseChecklistFixture("governance-retirement", "Complete retired-surface removal", {
-        requiredEvidence: [
-          "complete removal of code, patterns, documentation, tests, fixtures, screenshots, runbooks, release notes, and operator instructions",
-          "no hidden flag",
-          "no fallback branch",
-          "no compatibility redirect",
-          "no migration shim",
-        ],
-        releaseNote:
-          "Retire means complete removal of code, patterns, documentation, tests, fixtures, screenshots, runbooks, release notes, and operator instructions.",
-      }),
-      releaseChecklistFixture("release-smoke", "Release tests and smoke evidence", {
-        status: "partial",
-        residualDebt: ["Audit projection remains partial and is named in release notes."],
-      }),
-    ],
   };
 }
 
@@ -1407,35 +1382,6 @@ function auditEvidenceLinkFixture(
     redactionState: "redacted",
     sourcePayloadAccess: "not-required",
     profileSnapshotAccess: "not-required",
-    ...overrides,
-  };
-}
-
-function releaseChecklistFixture(
-  workflowKey: CatalogPrimaryWorkbenchReadModel["auditEvidence"]["releaseChecklist"][number]["workflowKey"],
-  workflowLabel: string,
-  overrides: Partial<CatalogPrimaryWorkbenchReadModel["auditEvidence"]["releaseChecklist"][number]> = {},
-): CatalogPrimaryWorkbenchReadModel["auditEvidence"]["releaseChecklist"][number] {
-  return {
-    workflowKey,
-    workflowLabel,
-    status: "ready",
-    owner: "catalog-source-observations",
-    requiredEvidence: ["redacted evidence summary", "test evidence"],
-    proofLinks: [
-      auditEvidenceLinkFixture({
-        key: `release:${workflowKey}`,
-        label: workflowLabel,
-        kind: "proof",
-        summary: `${workflowLabel} proof.`,
-      }),
-    ],
-    tests: ["bounded-contexts/catalog/features/source-observations/ui/primary-workbench-core-read-model.test.ts"],
-    e2eProof: "deployables/admin-web/e2e/catalog-integrations.spec.ts",
-    smokeProof: "production smoke opens the protected rebuilt Catalog integration workbench",
-    residualDebt: [],
-    releaseNote: `${workflowLabel} release evidence is present.`,
-    blocksRelease: false,
     ...overrides,
   };
 }
