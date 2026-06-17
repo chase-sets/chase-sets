@@ -264,6 +264,7 @@ export const sourceContextWakeRegistry = [
       "auth:auth-identity-invitation-projection",
       "auth:auth-identity-membership-projection",
       "auth:auth-identity-user-projection",
+      "checkout:checkout-marketplace-seller-options-projection",
       "commercial-terms:commercial-terms-account-projection",
       "discovery:discovery-market-projection",
       "fulfillment:fulfillment-account-projection",
@@ -305,6 +306,7 @@ export const sourceContextWakeRegistry = [
     expectedEventVolume: "high",
     wakeStoreLoadEstimate: "high",
     affectedProjectionNames: [
+      "checkout:checkout-marketplace-seller-options-projection",
       "inventory:inventory-hold-projection",
       "inventory:inventory-item-projection",
       "inventory:inventory-storage-location-projection",
@@ -338,6 +340,7 @@ export const sourceContextWakeRegistry = [
     expectedEventVolume: "high",
     wakeStoreLoadEstimate: "high",
     affectedProjectionNames: [
+      "checkout:checkout-marketplace-seller-options-projection",
       "discovery:discovery-market-projection",
       "discovery:discovery-product-alert-notification-projection",
       "marketplace:marketplace-identity-account-projection",
