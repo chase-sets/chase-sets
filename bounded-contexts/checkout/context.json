@@ -54,10 +54,16 @@
         "marketplace.listing.paused",
         "marketplace.listing.withdrawn",
         "marketplace.seller-listing-availability.disabled",
-        "marketplace.seller-listing-availability.enabled"
+        "marketplace.seller-listing-availability.enabled",
+        "reputation.review.submitted",
+        "reputation.review.updated",
+        "reputation.review.withdrawn"
       ],
       "order": 20,
-      "projectionHandlerSetNames": ["checkout.marketplace-seller-options-projection"]
+      "projectionHandlerSetNames": [
+        "checkout.marketplace-seller-options-projection",
+        "checkout.reputation-seller-options-reviews-projection"
+      ]
     },
     {
       "sourceContextName": "inventory",
@@ -123,7 +129,8 @@
         "checkout_marketplace_seller_options",
         "checkout_supply_items",
         "checkout_supply_holds",
-        "checkout_seller_accounts"
+        "checkout_seller_accounts",
+        "checkout_seller_account_reviews"
       ],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"

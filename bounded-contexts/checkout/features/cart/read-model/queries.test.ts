@@ -32,6 +32,8 @@ type SellerAccount = Readonly<{
   account_id: string;
   display_name: string;
   slug: string;
+  average_rating?: string | null;
+  review_count?: number | null;
 }>;
 
 function holdsAccurateAvailableQuantity(option: SellerOption): number {
@@ -46,8 +48,9 @@ function holdsAccurateAvailableQuantity(option: SellerOption): number {
  * joins cart line pages against the seller-options table applying the
  * `status = 'active'` filter, computes the holds-accurate
  * `available_quantity = LEAST(listing_quantity_cap, GREATEST(supply - holds, 0))`,
- * LEFT JOINs the identity-maintained `checkout_seller_accounts` table by
- * `seller_account_id` to resolve `seller_display_name` / `seller_slug`
+ * LEFT JOINs the identity/reputation-maintained `checkout_seller_accounts`
+ * table by `seller_account_id` to resolve `seller_display_name` / `seller_slug`
+ * and the reputation counters `seller_average_rating` / `seller_review_count`
  * (falling back to the denormalized option columns when no account row exists),
  * excludes options whose available quantity is not `> 0`, and orders
  * cheapest-first — mirroring the LATERAL aggregate so the join semantics
@@ -95,8 +98,10 @@ class CartReadModelDb implements PgQueryable {
               // COALESCE(seller.slug, o.seller_slug): join table wins, then denormalized column.
               seller_slug: account?.slug ?? option.seller_slug,
               seller_display_name: account?.display_name ?? option.seller_display_name,
-              seller_average_rating: option.seller_average_rating,
-              seller_review_count: option.seller_review_count ?? 0,
+              // COALESCE(seller.average_rating, o.seller_average_rating): the
+              // reputation-maintained join column wins, then the denormalized fallback.
+              seller_average_rating: account?.average_rating ?? option.seller_average_rating,
+              seller_review_count: account?.review_count ?? option.seller_review_count ?? 0,
               price_amount: option.price_amount,
               available_quantity: holdsAccurateAvailableQuantity(option),
               product_summary: option.product_summary,
@@ -271,6 +276,53 @@ describe("listCartLines seller_options join", () => {
     });
   });
 
+  it("carries seller average rating and review count resolved from the seller-accounts join", async () => {
+    const db = new CartReadModelDb(
+      [line()],
+      [option({ listing_id: "lst_locked", seller_account_id: "acc_seller", price_amount: "25.00" })],
+      [
+        {
+          account_id: "acc_seller",
+          display_name: "Card Vault",
+          slug: "card-vault-acc-seller",
+          average_rating: "4.90",
+          review_count: 12,
+        },
+      ],
+    );
+
+    const [row] = await listCartLines(db, "acc_buyer");
+
+    expect(row?.seller_options[0]).toMatchObject({
+      seller_account_id: "acc_seller",
+      seller_average_rating: "4.90",
+      seller_review_count: 12,
+    });
+  });
+
+  it("yields a null rating and zero review count for a seller with no reviews yet", async () => {
+    const db = new CartReadModelDb(
+      [line()],
+      [option({ listing_id: "lst_locked", seller_account_id: "acc_seller", price_amount: "25.00" })],
+      [
+        {
+          account_id: "acc_seller",
+          display_name: "New Seller",
+          slug: "new-seller-acc-seller",
+          average_rating: null,
+          review_count: 0,
+        },
+      ],
+    );
+
+    const [row] = await listCartLines(db, "acc_buyer");
+
+    expect(row?.seller_options[0]).toMatchObject({
+      seller_average_rating: null,
+      seller_review_count: 0,
+    });
+  });
+
   it("leaves seller display name and slug null when no identity account row exists yet", async () => {
     const db = new CartReadModelDb(
       [line()],
@@ -300,6 +352,10 @@ describe("listCartLines seller_options join", () => {
     expect(db.lastSql).toContain("seller.account_id = o.seller_account_id");
     expect(db.lastSql).toContain("COALESCE(seller.slug, o.seller_slug)");
     expect(db.lastSql).toContain("COALESCE(seller.display_name, o.seller_display_name)");
+    // Seller reputation (average rating / review count) is resolved through the
+    // same seller-accounts join table, with the denormalized columns as fallback.
+    expect(db.lastSql).toContain("COALESCE(seller.average_rating, o.seller_average_rating)::text");
+    expect(db.lastSql).toContain("COALESCE(seller.review_count, o.seller_review_count, 0)");
     expect(db.lastSql).toContain("o.product_id = line.product_id");
     expect(db.lastSql).toContain("o.status = 'active'");
     expect(db.lastSql).toContain("ORDER BY o.price_amount ASC");
@@ -314,7 +370,6 @@ describe("listCartLines seller_options join", () => {
     expect(db.lastSql).toContain(") > 0");
     // numeric columns must be cast to text to match the row type.
     expect(db.lastSql).toContain("o.price_amount::text");
-    expect(db.lastSql).toContain("o.seller_average_rating::text");
     expect(db.lastSql).toContain("'[]'::json");
   });
 });

@@ -1,0 +1,297 @@
+import { describe, expect, it } from "vitest";
+import type { TransportEvent } from "@chase-sets/event-core/transport";
+import type { PgQueryable, PgQueryResult } from "@chase-sets/event-core-postgres";
+import { buildCheckoutReputationSellerReviewsProjectionHandlers } from "./reputation-projection";
+
+type ReviewRow = {
+  review_id: string;
+  subject_account_id: string;
+  rating: number;
+  status: string;
+  last_stream_version: number;
+};
+type SellerAccountRow = {
+  account_id: string;
+  display_name: string;
+  slug: string;
+  average_rating: number | null;
+  review_count: number;
+};
+
+/**
+ * In-memory fake `PgQueryable` that interprets the reputation seller-reviews
+ * projection SQL by statement shape. It maintains the auxiliary
+ * `checkout_seller_account_reviews` table behind the `last_stream_version`
+ * guard and the recompute that denormalizes `average_rating` (ROUND(AVG, 2))
+ * and `review_count` (COUNT) over the account's `active` reviews onto the
+ * `checkout_seller_accounts` join row.
+ */
+class ReputationProjectionDb implements PgQueryable {
+  public readonly reviews = new Map<string, ReviewRow>();
+  public readonly accounts = new Map<string, SellerAccountRow>();
+
+  seedAccount(row: Partial<SellerAccountRow> & { account_id: string }): void {
+    this.accounts.set(row.account_id, {
+      account_id: row.account_id,
+      display_name: row.display_name ?? "Card Vault",
+      slug: row.slug ?? "card-vault",
+      average_rating: row.average_rating ?? null,
+      review_count: row.review_count ?? 0,
+    });
+  }
+
+  private recompute(accountId: string): void {
+    const active = [...this.reviews.values()].filter(
+      (review) => review.subject_account_id === accountId && review.status === "active",
+    );
+    const count = active.length;
+    const average =
+      count === 0 ? null : Math.round((active.reduce((sum, review) => sum + review.rating, 0) / count) * 100) / 100;
+    const existing = this.accounts.get(accountId);
+    if (existing) {
+      existing.average_rating = average;
+      existing.review_count = count;
+    } else {
+      this.accounts.set(accountId, {
+        account_id: accountId,
+        display_name: "",
+        slug: "",
+        average_rating: average,
+        review_count: count,
+      });
+    }
+  }
+
+  async query<Row = Record<string, unknown>>(
+    sql: string,
+    values: readonly unknown[] = [],
+  ): Promise<PgQueryResult<Row>> {
+    if (sql.includes("INSERT INTO checkout_seller_account_reviews")) {
+      const reviewId = String(values[0]);
+      const subjectAccountId = String(values[1]);
+      const rating = Number(values[2]);
+      const streamVersion = Number(values[3]);
+      const existing = this.reviews.get(reviewId);
+      if (!existing || existing.last_stream_version < streamVersion) {
+        this.reviews.set(reviewId, {
+          review_id: reviewId,
+          subject_account_id: subjectAccountId,
+          rating,
+          status: "active",
+          last_stream_version: streamVersion,
+        });
+      }
+      return { rows: [], rowCount: 1 };
+    }
+
+    if (sql.includes("UPDATE checkout_seller_account_reviews") && sql.includes("rating = $2")) {
+      const reviewId = String(values[0]);
+      const rating = Number(values[1]);
+      const streamVersion = Number(values[3]);
+      const existing = this.reviews.get(reviewId);
+      if (existing && existing.last_stream_version < streamVersion) {
+        existing.rating = rating;
+        existing.last_stream_version = streamVersion;
+        return { rows: [{ subject_account_id: existing.subject_account_id }] as Row[], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 0 };
+    }
+
+    if (sql.includes("UPDATE checkout_seller_account_reviews") && sql.includes("status = 'withdrawn'")) {
+      const reviewId = String(values[0]);
+      const streamVersion = Number(values[2]);
+      const existing = this.reviews.get(reviewId);
+      if (existing && existing.last_stream_version < streamVersion) {
+        existing.status = "withdrawn";
+        existing.last_stream_version = streamVersion;
+        return { rows: [{ subject_account_id: existing.subject_account_id }] as Row[], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 0 };
+    }
+
+    if (sql.includes("INSERT INTO checkout_seller_accounts") && sql.includes("FROM checkout_seller_account_reviews")) {
+      const accountId = String(values[0]);
+      this.recompute(accountId);
+      return { rows: [], rowCount: 1 };
+    }
+
+    throw new Error(`Unexpected query: ${sql}`);
+  }
+}
+
+function event(type: string, streamVersion: number, data: Record<string, unknown>): TransportEvent {
+  return {
+    id: "evt_1" as never,
+    type,
+    streamId: "reputation.review-rev_1" as never,
+    streamVersion: streamVersion as never,
+    globalPosition: streamVersion as never,
+    tenantId: "tnt_1" as never,
+    data: data as never,
+    metadata: {},
+    audit: {
+      performedByUserId: "usr_1" as never,
+      forAccountId: "acc_1" as never,
+    },
+    trace: {},
+    timing: {
+      occurredAt: "2026-06-17T00:00:00.000Z" as never,
+      recordedAt: "2026-06-17T00:00:00.000Z" as never,
+    },
+  };
+}
+
+describe("checkout reputation seller-reviews projection", () => {
+  it("recomputes average_rating and review_count on review.submitted", async () => {
+    const db = new ReputationProjectionDb();
+    db.seedAccount({ account_id: "acc_seller" });
+    const handlers = buildCheckoutReputationSellerReviewsProjectionHandlers(db);
+
+    await handlers["reputation.review.submitted"]!(
+      event("reputation.review.submitted", 1, {
+        reviewId: "rev_1",
+        subjectAccountId: "acc_seller",
+        rating: 5,
+        submittedAt: "2026-06-17T00:00:00.000Z",
+      }),
+    );
+    await handlers["reputation.review.submitted"]!(
+      event("reputation.review.submitted", 1, {
+        reviewId: "rev_2",
+        subjectAccountId: "acc_seller",
+        rating: 4,
+        submittedAt: "2026-06-17T00:00:00.000Z",
+      }),
+    );
+
+    // ROUND(AVG(5, 4), 2) = 4.5, COUNT = 2.
+    expect(db.accounts.get("acc_seller")).toMatchObject({ average_rating: 4.5, review_count: 2 });
+  });
+
+  it("recomputes the rounded average when a review rating is updated", async () => {
+    const db = new ReputationProjectionDb();
+    db.seedAccount({ account_id: "acc_seller" });
+    const handlers = buildCheckoutReputationSellerReviewsProjectionHandlers(db);
+
+    await handlers["reputation.review.submitted"]!(
+      event("reputation.review.submitted", 1, {
+        reviewId: "rev_1",
+        subjectAccountId: "acc_seller",
+        rating: 5,
+        submittedAt: "2026-06-17T00:00:00.000Z",
+      }),
+    );
+    await handlers["reputation.review.submitted"]!(
+      event("reputation.review.submitted", 1, {
+        reviewId: "rev_2",
+        subjectAccountId: "acc_seller",
+        rating: 2,
+        submittedAt: "2026-06-17T00:00:00.000Z",
+      }),
+    );
+    await handlers["reputation.review.updated"]!(
+      event("reputation.review.updated", 2, {
+        reviewId: "rev_2",
+        rating: 4,
+        updatedAt: "2026-06-17T01:00:00.000Z",
+      }),
+    );
+
+    // ROUND(AVG(5, 4), 2) = 4.5.
+    expect(db.accounts.get("acc_seller")).toMatchObject({ average_rating: 4.5, review_count: 2 });
+  });
+
+  it("drops a withdrawn review from the average and count, nulling the rating at zero reviews", async () => {
+    const db = new ReputationProjectionDb();
+    db.seedAccount({ account_id: "acc_seller" });
+    const handlers = buildCheckoutReputationSellerReviewsProjectionHandlers(db);
+
+    await handlers["reputation.review.submitted"]!(
+      event("reputation.review.submitted", 1, {
+        reviewId: "rev_1",
+        subjectAccountId: "acc_seller",
+        rating: 5,
+        submittedAt: "2026-06-17T00:00:00.000Z",
+      }),
+    );
+    await handlers["reputation.review.withdrawn"]!(
+      event("reputation.review.withdrawn", 2, {
+        reviewId: "rev_1",
+        withdrawnAt: "2026-06-17T02:00:00.000Z",
+      }),
+    );
+
+    // No active reviews left → rating null, count 0 (graceful empty state).
+    expect(db.accounts.get("acc_seller")).toMatchObject({ average_rating: null, review_count: 0 });
+  });
+
+  it("is replay-safe: replaying submit/update/withdraw converges to the same recompute", async () => {
+    const db = new ReputationProjectionDb();
+    db.seedAccount({ account_id: "acc_seller" });
+    const handlers = buildCheckoutReputationSellerReviewsProjectionHandlers(db);
+
+    const submit = event("reputation.review.submitted", 1, {
+      reviewId: "rev_1",
+      subjectAccountId: "acc_seller",
+      rating: 3,
+      submittedAt: "2026-06-17T00:00:00.000Z",
+    });
+    const update = event("reputation.review.updated", 2, {
+      reviewId: "rev_1",
+      rating: 5,
+      updatedAt: "2026-06-17T01:00:00.000Z",
+    });
+
+    await handlers["reputation.review.submitted"]!(submit);
+    await handlers["reputation.review.updated"]!(update);
+
+    expect(db.accounts.get("acc_seller")).toMatchObject({ average_rating: 5, review_count: 1 });
+
+    // Replaying the older submit (stream version 1) must not regress the rating
+    // applied by the newer update (stream version 2): the guard ignores it.
+    await handlers["reputation.review.submitted"]!(submit);
+
+    expect(db.accounts.get("acc_seller")).toMatchObject({ average_rating: 5, review_count: 1 });
+  });
+
+  it("records reputation onto an account row that is not projected yet", async () => {
+    const db = new ReputationProjectionDb();
+    const handlers = buildCheckoutReputationSellerReviewsProjectionHandlers(db);
+
+    await handlers["reputation.review.submitted"]!(
+      event("reputation.review.submitted", 1, {
+        reviewId: "rev_1",
+        subjectAccountId: "acc_late",
+        rating: 4,
+        submittedAt: "2026-06-17T00:00:00.000Z",
+      }),
+    );
+
+    // The identity handler can backfill display_name/slug later; reputation only
+    // owns the rating counters.
+    expect(db.accounts.get("acc_late")).toMatchObject({ average_rating: 4, review_count: 1 });
+  });
+
+  it("ignores update/withdraw for an unknown review id", async () => {
+    const db = new ReputationProjectionDb();
+    db.seedAccount({ account_id: "acc_seller", average_rating: 4.5, review_count: 2 });
+    const handlers = buildCheckoutReputationSellerReviewsProjectionHandlers(db);
+
+    await handlers["reputation.review.updated"]!(
+      event("reputation.review.updated", 9, {
+        reviewId: "rev_missing",
+        rating: 1,
+        updatedAt: "2026-06-17T03:00:00.000Z",
+      }),
+    );
+    await handlers["reputation.review.withdrawn"]!(
+      event("reputation.review.withdrawn", 9, {
+        reviewId: "rev_missing",
+        withdrawnAt: "2026-06-17T03:00:00.000Z",
+      }),
+    );
+
+    // Seeded counters are untouched because the review was never recorded.
+    expect(db.accounts.get("acc_seller")).toMatchObject({ average_rating: 4.5, review_count: 2 });
+  });
+});

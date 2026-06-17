@@ -391,7 +391,8 @@ describe("checkout cart page", () => {
 
     const markup = renderToString(<CheckoutCartPage cartLines={[expensiveLine]} />);
 
-    expect(markup).toContain("Save $12.00 before checkout");
+    // The proposed lower-cost option (Card Vault) is named in the savings title.
+    expect(markup).toContain("Save $12.00 by switching to Card Vault");
     expect(markup).toContain(
       "You can keep your current fulfillment or use the lower-cost option before checkout begins.",
     );
@@ -402,6 +403,90 @@ describe("checkout cart page", () => {
     const primaryStamps = markup.match(/data-primary-action-count="1"/g) ?? [];
     expect(primaryStamps.length).toBe(1);
     expect(markup).not.toContain("allocation");
+  });
+
+  it("shows the selected listing's seller rating on the cart line", () => {
+    // The default optimize line resolves the lowest-cost option (Card Vault,
+    // 4.90 from 12 reviews) as the seller it would check out.
+    const markup = renderToString(<CheckoutCartPage cartLines={[cartLine]} />);
+
+    expect(markup).toContain("Card Vault");
+    // RatingSummary renders value.toFixed(1) and the review count in parentheses
+    // (SSR splits the count into its own text node, so assert the parts).
+    expect(markup).toContain("4.9");
+    expect(markup).toContain(">12<");
+    expect(markup).toContain('aria-label="Seller account reputation"');
+  });
+
+  it("renders the no-reviews empty state when the selected seller has no feedback yet", () => {
+    const newSellerLine: CheckoutCartLine = {
+      ...cartLine,
+      fulfillment_mode: "locked-listing",
+      locked_listing_id: "lst_hobby_shop",
+      seller_options: [
+        {
+          listing_id: "lst_hobby_shop",
+          seller_account_id: "acc_hobby_shop",
+          seller_slug: "hobby-shop",
+          seller_display_name: "Hobby Shop",
+          seller_average_rating: null,
+          seller_review_count: 0,
+          price_amount: "395.00",
+          available_quantity: 2,
+          product_summary: "Form: Raw | Condition: Near Mint",
+        },
+      ],
+    };
+
+    const markup = renderToString(<CheckoutCartPage cartLines={[newSellerLine]} />);
+
+    expect(markup).toContain("Hobby Shop");
+    // Graceful empty state: no stars, the "No reviews yet" label instead.
+    expect(markup).toContain("No reviews yet");
+  });
+
+  it("names the proposed seller and shows its rating in the optimization proposal", () => {
+    // A locked Hobby Shop line (395.00) with a cheaper Card Vault option (389.00,
+    // 4.90 from 12 reviews) yields a savings proposal that switches to Card Vault.
+    const expensiveLine: CheckoutCartLine = {
+      ...cartLine,
+      fulfillment_mode: "locked-listing",
+      locked_listing_id: "lst_hobby_shop",
+      seller_options: [
+        {
+          listing_id: "lst_card_vault",
+          seller_account_id: "acc_card_vault",
+          seller_slug: "card-vault",
+          seller_display_name: "Card Vault",
+          seller_average_rating: "4.90",
+          seller_review_count: 12,
+          price_amount: "389.00",
+          available_quantity: 2,
+          product_summary: "Form: Raw | Condition: Near Mint",
+        },
+        {
+          listing_id: "lst_hobby_shop",
+          seller_account_id: "acc_hobby_shop",
+          seller_slug: "hobby-shop",
+          seller_display_name: "Hobby Shop",
+          seller_average_rating: "4.10",
+          seller_review_count: 5,
+          price_amount: "395.00",
+          available_quantity: 2,
+          product_summary: "Form: Raw | Condition: Near Mint",
+        },
+      ],
+    };
+
+    const markup = renderToString(<CheckoutCartPage cartLines={[expensiveLine]} />);
+
+    // The savings notice names the proposed seller in its title.
+    expect(markup).toContain("Save $12.00 by switching to Card Vault");
+    // And renders the proposed seller's reputation alongside it (SSR splits the
+    // count into its own text node, so assert the parts).
+    expect(markup).toContain("4.9");
+    expect(markup).toContain(">12<");
+    expect(markup).toContain('aria-label="Seller account reputation"');
   });
 
   it("shows a simple empty-cart recovery state", () => {
