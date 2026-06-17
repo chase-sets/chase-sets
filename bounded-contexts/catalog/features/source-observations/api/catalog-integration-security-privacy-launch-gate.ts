@@ -12,7 +12,7 @@ import {
   catalogIntegrationDataResetEnvironmentPlans,
   catalogIntegrationDataResetTargetTables,
 } from "./catalog-integration-data-migration-reset";
-import { catalogRealProviderProofSchemaVersion } from "./catalog-integration-real-provider-proof";
+import { catalogRealProviderProofSchemaVersion } from "../tests/catalog-integration-real-provider-proof";
 import {
   catalogPrimaryWorkbenchActions,
   catalogPrimaryWorkbenchDeploySkewPolicies,

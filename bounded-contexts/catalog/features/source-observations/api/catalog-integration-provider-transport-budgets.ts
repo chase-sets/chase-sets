@@ -4,11 +4,10 @@ import {
   type CatalogAdminControlPlanePaginationMode,
   type CatalogAdminControlPlanePerformanceCheckKind,
 } from "./admin-control-plane-read-model-slos";
-import { defineCatalogIntegrationUnitKey, type CatalogIntegrationUnitKey } from "./integration-unit";
+import { defineCatalogIntegrationUnitKey } from "./integration-unit";
 import {
   catalogPrimaryWorkbenchBlockers,
   catalogPrimaryWorkbenchProviderTransportCategories,
-  catalogPrimaryWorkbenchRetirementPolicy,
   type CatalogPrimaryWorkbenchActionState,
   type CatalogPrimaryWorkbenchBlockerCategory,
   type CatalogPrimaryWorkbenchProviderTransportCategory,
@@ -37,15 +36,6 @@ export type CatalogProviderTransportFailureConditionKey =
   | "retryable-provider-error"
   | "permanent-provider-error";
 
-export type CatalogProviderTransportProofCriterionKey =
-  | "provider-scope-option-query-selection"
-  | "provider-pagination-or-multi-step-retrieval"
-  | "image-and-metadata-mapping"
-  | "provider-transport-degraded-condition"
-  | "source-observation-profile-metadata"
-  | "promotion-preview-counts"
-  | "redaction-safe-evidence";
-
 export type CatalogProviderTransportBudgetSurfaceKey =
   | "primary-workbench-initial-load"
   | "provider-scope-selector"
@@ -60,8 +50,6 @@ export type CatalogProviderTransportVerificationKind =
   | "real-provider-proof"
   | "docs-review";
 
-export type CatalogProviderTransportCoverageStatus = "covered" | "covered-by-test" | "planned-proof";
-
 export type CatalogProviderTransportFailureCondition = Readonly<{
   condition: CatalogProviderTransportFailureConditionKey;
   transportCategory: CatalogPrimaryWorkbenchProviderTransportCategory;
@@ -70,30 +58,6 @@ export type CatalogProviderTransportFailureCondition = Readonly<{
   firstSliceRequired: boolean;
   adapterEvidence: readonly string[];
   operatorState: string;
-}>;
-
-export type CatalogProviderTransportProofCriterion = Readonly<{
-  key: CatalogProviderTransportProofCriterionKey;
-  requiredForFirstSlice: boolean;
-  evidenceTarget: string;
-  ownerIssues: readonly ("#1062" | "#1064" | "#1065")[];
-}>;
-
-export type CatalogProviderTransportProofProviderCoverage = Readonly<{
-  criterion: CatalogProviderTransportProofCriterionKey;
-  status: CatalogProviderTransportCoverageStatus;
-  evidence: string;
-  ownerIssue?: "#1062" | "#1064" | "#1065";
-}>;
-
-export type CatalogProviderTransportProofProvider = Readonly<{
-  providerKey: string;
-  unitKey: CatalogIntegrationUnitKey;
-  role: "primary-first-slice" | "supplemental-transport";
-  selectedForFirstSlice: boolean;
-  launchPromotionActive: boolean;
-  rationale: string;
-  coverage: readonly CatalogProviderTransportProofProviderCoverage[];
 }>;
 
 export type CatalogProviderTransportOptionQueryCacheBudget = Readonly<{
@@ -171,117 +135,6 @@ export const catalogProviderTransportFailureConditions = [
     "non-retryable payload parse failure",
   ]),
 ] as const satisfies readonly CatalogProviderTransportFailureCondition[];
-
-export const catalogProviderTransportProofCriteria = [
-  proofCriterion(
-    "provider-scope-option-query-selection",
-    "Operator can choose provider, unit, language, Series, and Expansion through bounded option queries.",
-    ["#1062"],
-  ),
-  proofCriterion(
-    "provider-pagination-or-multi-step-retrieval",
-    "Proof traverses more than one provider transport step before Source Observations are produced.",
-    ["#1062"],
-  ),
-  proofCriterion(
-    "image-and-metadata-mapping",
-    "Provider payloads include image/provenance metadata and normalized Source Observation facts.",
-    ["#1062"],
-  ),
-  proofCriterion(
-    "provider-transport-degraded-condition",
-    "A provider transport failure maps to the canonical providerTransport and blocker categories.",
-    ["#1062", "#1065"],
-  ),
-  proofCriterion(
-    "source-observation-profile-metadata",
-    "Created observations retain provider key, unit key, source profile version, external key, and provenance.",
-    ["#1062"],
-  ),
-  proofCriterion(
-    "promotion-preview-counts",
-    "The selected Source Observation scope can produce eligible, blocked, skipped, and conflict counts before write.",
-    ["#1062"],
-  ),
-  proofCriterion(
-    "redaction-safe-evidence",
-    "Operator evidence excludes credentials, raw payload bodies, secret URLs, and provider terms-sensitive material.",
-    ["#1064"],
-  ),
-] as const satisfies readonly CatalogProviderTransportProofCriterion[];
-
-export const catalogProviderTransportFirstSliceProofProviders = [
-  {
-    providerKey: "tcgdex",
-    unitKey: catalogProviderTransportFirstSliceUnitKey,
-    role: "primary-first-slice",
-    selectedForFirstSlice: true,
-    launchPromotionActive: true,
-    rationale:
-      "TCGdex is the active profile-backed provider path that exercises option queries, expansion/card fetches, image and metadata mapping, Source Observation metadata, and promotion planning without provider-specific Admin branches.",
-    coverage: [
-      coverage(
-        "provider-scope-option-query-selection",
-        "covered",
-        "TCGdex exposes language, Series, and Expansion option queries through the ProviderAdapter boundary.",
-      ),
-      coverage(
-        "provider-pagination-or-multi-step-retrieval",
-        "covered",
-        "The TCGdex import plan fetches Expansion metadata, then card payloads, then attaches payload provenance.",
-      ),
-      coverage(
-        "image-and-metadata-mapping",
-        "covered-by-test",
-        "The TCGdex dry-run proof maps card identity, rarity, variant label, source URL, source update time, and image evidence.",
-      ),
-      coverage(
-        "provider-transport-degraded-condition",
-        "covered-by-test",
-        "The #1062 real-provider proof packet records a timeout condition against the canonical providerTransport and blocker vocabulary.",
-        "#1062",
-      ),
-      coverage(
-        "source-observation-profile-metadata",
-        "covered-by-test",
-        "The dry-run proof carries provider key, selected unit key, profile version, external key, source URL, and source update time.",
-      ),
-      coverage(
-        "promotion-preview-counts",
-        "covered-by-test",
-        "The #1062 real-provider proof packet captures promotion preview counts before any Catalog Item write.",
-        "#1062",
-      ),
-      coverage(
-        "redaction-safe-evidence",
-        "covered-by-test",
-        "The #1062 proof packet is redacted by contract, with #1064 still owning launch security/privacy signoff.",
-        "#1064",
-      ),
-    ],
-  },
-  {
-    providerKey: "tcgplayer",
-    unitKey: catalogProviderTransportSupplementalTcgplayerUnitKey,
-    role: "supplemental-transport",
-    selectedForFirstSlice: false,
-    launchPromotionActive: false,
-    rationale:
-      "TCGplayer contributes supplemental credential, session, domain, retry, and rate-limit transport evidence until its promotion path is launch-active.",
-    coverage: [
-      coverage(
-        "provider-scope-option-query-selection",
-        "covered-by-test",
-        "TCGplayer product-line, set-name, product, and SKU option queries exercise credentialed transport.",
-      ),
-      coverage(
-        "provider-transport-degraded-condition",
-        "covered-by-test",
-        "TCGplayer diagnostics report unconfigured client and domain rate-limit policy without exposing credential material.",
-      ),
-    ],
-  },
-] as const satisfies readonly CatalogProviderTransportProofProvider[];
 
 export const catalogProviderTransportFirstSliceBudgets = [
   {
@@ -362,36 +215,11 @@ export const catalogProviderTransportFirstSliceBudgets = [
     highVolume: true,
     verification: ["real-provider-proof", "smoke", "load-sample", "docs-review"],
     exitEvidence:
-      "The #1062 evidence packet links selected provider scope, transport diagnostics, Source Observation rows, and promotion preview counts.",
+      "The real-provider proof packet links selected provider scope, transport diagnostics, Source Observation rows, and promotion preview counts.",
   },
 ] as const satisfies readonly CatalogProviderTransportPerformanceBudget[];
 
-export const catalogProviderTransportRetiredSurfaceRule = {
-  policy: catalogPrimaryWorkbenchRetirementPolicy,
-  appliesTo: [
-    "retired Catalog admin page modules",
-    "legacy provider selectors",
-    "raw JSON authoring and broad patch escape hatches",
-    "support-only route variants",
-    "compatibility redirects, aliases, shims, and hidden feature flags",
-    "API, client, and read-model compatibility behavior",
-    "tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, and operator instructions that teach retired behavior",
-  ],
-  ownerIssue: "#1090",
-} as const;
-
-export function getCatalogProviderTransportFirstSliceProofProvider(): CatalogProviderTransportProofProvider {
-  const selected = catalogProviderTransportFirstSliceProofProviders.filter(
-    (provider) => provider.selectedForFirstSlice,
-  );
-  if (selected.length !== 1) {
-    throw new Error("Exactly one first-slice provider transport proof provider must be selected.");
-  }
-
-  return selected[0];
-}
-
-export function assertCatalogProviderTransportBudgetCoverage(): void {
+export function assertCatalogProviderTransportBudgetsAreValid(): void {
   const blockerCategories = new Set(catalogPrimaryWorkbenchBlockers.map((blocker) => blocker.category));
 
   for (const category of catalogPrimaryWorkbenchProviderTransportCategories) {
@@ -412,18 +240,6 @@ export function assertCatalogProviderTransportBudgetCoverage(): void {
     }
     if (condition.adapterEvidence.length === 0) {
       throw new Error(`Provider transport condition '${condition.condition}' needs adapter evidence.`);
-    }
-  }
-
-  const selectedProvider = getCatalogProviderTransportFirstSliceProofProvider();
-  const selectedCoverage = new Map(selectedProvider.coverage.map((entry) => [entry.criterion, entry]));
-  for (const criterion of catalogProviderTransportProofCriteria) {
-    const coverageEntry = selectedCoverage.get(criterion.key);
-    if (!coverageEntry) {
-      throw new Error(`Selected provider '${selectedProvider.providerKey}' does not cover '${criterion.key}'.`);
-    }
-    if (coverageEntry.status === "planned-proof" && !coverageEntry.ownerIssue) {
-      throw new Error(`Planned proof criterion '${criterion.key}' must name an owner issue.`);
     }
   }
 
@@ -448,12 +264,6 @@ export function assertCatalogProviderTransportBudgetCoverage(): void {
       throw new Error(`High-volume provider transport budget '${budget.surface}' needs query-plan evidence.`);
     }
   }
-
-  for (const requiredSurface of ["runtime code", "product patterns", "documentation", "compatibility shims"] as const) {
-    if (!catalogProviderTransportRetiredSurfaceRule.policy.surfaces.includes(requiredSurface)) {
-      throw new Error(`Retired surface policy must remove ${requiredSurface}.`);
-    }
-  }
 }
 
 function failureCondition(
@@ -474,33 +284,6 @@ function failureCondition(
       actionState === "blocked"
         ? "Block the affected import or promotion workflow until safe evidence is available."
         : "Show degraded transport state, preserve operator context, and allow only safe retries or cached reads.",
-  };
-}
-
-function proofCriterion(
-  key: CatalogProviderTransportProofCriterionKey,
-  evidenceTarget: string,
-  ownerIssues: readonly ("#1062" | "#1064" | "#1065")[],
-): CatalogProviderTransportProofCriterion {
-  return {
-    key,
-    requiredForFirstSlice: true,
-    evidenceTarget,
-    ownerIssues,
-  };
-}
-
-function coverage(
-  criterion: CatalogProviderTransportProofCriterionKey,
-  status: CatalogProviderTransportCoverageStatus,
-  evidence: string,
-  ownerIssue?: "#1062" | "#1064" | "#1065",
-): CatalogProviderTransportProofProviderCoverage {
-  return {
-    criterion,
-    status,
-    evidence,
-    ...(ownerIssue ? { ownerIssue } : {}),
   };
 }
 

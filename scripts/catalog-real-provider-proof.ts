@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import process from "node:process";
-import { runCatalogTcgdexRealProviderProof } from "../bounded-contexts/catalog/features/source-observations/api/catalog-integration-real-provider-proof.ts";
+import { runCatalogTcgdexRealProviderProof } from "../bounded-contexts/catalog/features/source-observations/tests/catalog-integration-real-provider-proof.ts";
 
 try {
   const options = parseArgs(process.argv.slice(2), process.env);

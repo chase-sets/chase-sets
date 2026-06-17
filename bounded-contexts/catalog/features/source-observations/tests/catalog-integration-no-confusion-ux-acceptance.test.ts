@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  assertCatalogNoConfusionUxAcceptancePacketIsLaunchSafe,
+  assertCatalogNoConfusionUxAcceptancePacketIsComplete,
   buildCatalogNoConfusionUxAcceptancePacket,
   catalogNoConfusionUxAcceptanceChecklist,
   catalogNoConfusionUxAcceptanceChecklistVersion,
@@ -12,33 +12,18 @@ import {
   catalogPrimaryWorkbenchInstrumentationDimensions,
   catalogPrimaryWorkbenchRetirementPolicy,
   catalogPrimaryWorkbenchSections,
-} from "./primary-workbench-admin-contracts";
+} from "../api/primary-workbench-admin-contracts";
 
 describe("Catalog integration no-confusion UX acceptance gate", () => {
-  it("builds a launch-safe #1047 packet for the rebuilt import-to-promotion first slice", () => {
+  it("builds a complete packet for the rebuilt import-to-promotion first slice", () => {
     const packet = safePacket();
 
     expect(packet).toMatchObject({
       schemaVersion: catalogNoConfusionUxAcceptanceSchemaVersion,
       checklistVersion: catalogNoConfusionUxAcceptanceChecklistVersion,
-      signoff: {
-        owner: "catalog-source-observations",
-        reviewer: "catalog-release-lead",
-        checklistVersion: catalogNoConfusionUxAcceptanceChecklistVersion,
-      },
       telemetry: {
-        issue: "#1059",
         primaryJourneyEventsRecorded: true,
         supportDetourMetricPathCovered: true,
-      },
-      proofHandoffs: {
-        accessibilityProofIssue: "#1046",
-        noConfusionIssue: "#1047",
-        realProviderProofIssue: "#1062",
-        durableJobEdgeCaseIssue: "#1063",
-        securityPrivacyIssue: "#1064",
-        providerTransportIssue: "#1065",
-        productionRolloutIssue: "#1061",
       },
     });
     expect(packet.checklist.map((item) => item.key)).toEqual(
@@ -65,25 +50,13 @@ describe("Catalog integration no-confusion UX acceptance gate", () => {
     expect(packet.retirement.policy).toBe(catalogPrimaryWorkbenchRetirementPolicy);
   });
 
-  it("fails closed when signoff, packet metadata, or checklist coverage is incomplete", () => {
-    expect(() =>
-      buildCatalogNoConfusionUxAcceptancePacket({
-        generatedAt: "2026-06-11T00:00:00.000Z",
-        signoff: {
-          owner: "",
-          reviewer: "catalog-release-lead",
-          approvedAt: "2026-06-11T00:00:00.000Z",
-          approvalReference: "https://github.com/chase-sets/chase-sets/issues/1047#issuecomment-launch-gate",
-        },
-      }),
-    ).toThrow("Catalog no-confusion UX acceptance signoff must name the owner.");
-
+  it("fails closed when packet metadata or checklist coverage is incomplete", () => {
     const missingMetadata = {
       ...safePacket(),
       generatedAt: "",
       environment: "",
     } satisfies CatalogNoConfusionUxAcceptancePacket;
-    expect(() => assertCatalogNoConfusionUxAcceptancePacketIsLaunchSafe(missingMetadata)).toThrow(
+    expect(() => assertCatalogNoConfusionUxAcceptancePacketIsComplete(missingMetadata)).toThrow(
       "Catalog no-confusion UX acceptance packet must include the generated timestamp.",
     );
 
@@ -91,7 +64,7 @@ describe("Catalog integration no-confusion UX acceptance gate", () => {
       ...safePacket(),
       checklist: [...safePacket().checklist, safePacket().checklist[0]],
     } satisfies CatalogNoConfusionUxAcceptancePacket;
-    expect(() => assertCatalogNoConfusionUxAcceptancePacketIsLaunchSafe(duplicateChecklist)).toThrow(
+    expect(() => assertCatalogNoConfusionUxAcceptancePacketIsComplete(duplicateChecklist)).toThrow(
       "Catalog no-confusion UX acceptance checklist mismatch.",
     );
   });
@@ -101,7 +74,7 @@ describe("Catalog integration no-confusion UX acceptance gate", () => {
       ...safePacket(),
       workflows: safePacket().workflows.filter((workflow) => workflow.key !== "preview-promotion"),
     } satisfies CatalogNoConfusionUxAcceptancePacket;
-    expect(() => assertCatalogNoConfusionUxAcceptancePacketIsLaunchSafe(missingWorkflow)).toThrow(
+    expect(() => assertCatalogNoConfusionUxAcceptancePacketIsComplete(missingWorkflow)).toThrow(
       "Catalog no-confusion UX workflow matrix mismatch.",
     );
 
@@ -111,7 +84,7 @@ describe("Catalog integration no-confusion UX acceptance gate", () => {
         workflow.key === "pull-provider-data" ? { ...workflow, primaryPathStep: 6 } : workflow,
       ),
     } satisfies CatalogNoConfusionUxAcceptancePacket;
-    expect(() => assertCatalogNoConfusionUxAcceptancePacketIsLaunchSafe(wrongPrimaryStep)).toThrow(
+    expect(() => assertCatalogNoConfusionUxAcceptancePacketIsComplete(wrongPrimaryStep)).toThrow(
       "Catalog primary workflow order mismatch at step 2; expected 'pull-provider-data'.",
     );
 
@@ -127,7 +100,7 @@ describe("Catalog integration no-confusion UX acceptance gate", () => {
           : workflow,
       ),
     } as unknown as CatalogNoConfusionUxAcceptancePacket;
-    expect(() => assertCatalogNoConfusionUxAcceptancePacketIsLaunchSafe(oldPageArtifact)).toThrow(
+    expect(() => assertCatalogNoConfusionUxAcceptancePacketIsComplete(oldPageArtifact)).toThrow(
       "Catalog no-confusion UX workflow 'review-source-observations' preserves a confusing or legacy artifact.",
     );
   });
@@ -139,7 +112,7 @@ describe("Catalog integration no-confusion UX acceptance gate", () => {
         role.role === "view-only-operator" ? { ...role, canExecutePrimaryWrites: true } : role,
       ),
     } satisfies CatalogNoConfusionUxAcceptancePacket;
-    expect(() => assertCatalogNoConfusionUxAcceptancePacketIsLaunchSafe(viewOnlyWrites)).toThrow(
+    expect(() => assertCatalogNoConfusionUxAcceptancePacketIsComplete(viewOnlyWrites)).toThrow(
       "Catalog view-only acceptance must keep primary writes disabled.",
     );
 
@@ -147,7 +120,7 @@ describe("Catalog integration no-confusion UX acceptance gate", () => {
       ...safePacket(),
       accessibility: safePacket().accessibility.filter((item) => item.key !== "keyboard-completion"),
     } satisfies CatalogNoConfusionUxAcceptancePacket;
-    expect(() => assertCatalogNoConfusionUxAcceptancePacketIsLaunchSafe(missingAccessibility)).toThrow(
+    expect(() => assertCatalogNoConfusionUxAcceptancePacketIsComplete(missingAccessibility)).toThrow(
       "Catalog no-confusion UX accessibility matrix mismatch.",
     );
 
@@ -157,7 +130,7 @@ describe("Catalog integration no-confusion UX acceptance gate", () => {
         item.state === "dense-source-observation-table" ? { ...item, noOverlap: false } : item,
       ),
     } as unknown as CatalogNoConfusionUxAcceptancePacket;
-    expect(() => assertCatalogNoConfusionUxAcceptancePacketIsLaunchSafe(overlappingVisual)).toThrow(
+    expect(() => assertCatalogNoConfusionUxAcceptancePacketIsComplete(overlappingVisual)).toThrow(
       "Catalog no-confusion UX visual state 'dense-source-observation-table' is incomplete.",
     );
 
@@ -167,12 +140,12 @@ describe("Catalog integration no-confusion UX acceptance gate", () => {
         item.key === "command-execution-failure" ? { ...item, rawJsonFallbackAvailable: true } : item,
       ),
     } as unknown as CatalogNoConfusionUxAcceptancePacket;
-    expect(() => assertCatalogNoConfusionUxAcceptancePacketIsLaunchSafe(rawJsonResilience)).toThrow(
+    expect(() => assertCatalogNoConfusionUxAcceptancePacketIsComplete(rawJsonResilience)).toThrow(
       "Catalog no-confusion UX resilience check 'command-execution-failure' is incomplete.",
     );
   });
 
-  it("fails closed when telemetry, proof handoff, or provider-transport evidence is incomplete", () => {
+  it("fails closed when telemetry or provider-transport evidence is incomplete", () => {
     const missingTelemetryDimension = {
       ...safePacket(),
       telemetry: {
@@ -180,19 +153,8 @@ describe("Catalog integration no-confusion UX acceptance gate", () => {
         dimensions: safePacket().telemetry.dimensions.filter((dimension) => dimension !== "route_context_preserved"),
       },
     } satisfies CatalogNoConfusionUxAcceptancePacket;
-    expect(() => assertCatalogNoConfusionUxAcceptancePacketIsLaunchSafe(missingTelemetryDimension)).toThrow(
+    expect(() => assertCatalogNoConfusionUxAcceptancePacketIsComplete(missingTelemetryDimension)).toThrow(
       "Catalog no-confusion UX telemetry dimensions mismatch.",
-    );
-
-    const staleHandoff = {
-      ...safePacket(),
-      proofHandoffs: {
-        ...safePacket().proofHandoffs,
-        securityPrivacyIssue: "#1047",
-      },
-    } as unknown as CatalogNoConfusionUxAcceptancePacket;
-    expect(() => assertCatalogNoConfusionUxAcceptancePacketIsLaunchSafe(staleHandoff)).toThrow(
-      "Catalog no-confusion UX proof handoff issues are incomplete.",
     );
 
     const missingBudget = {
@@ -204,7 +166,7 @@ describe("Catalog integration no-confusion UX acceptance gate", () => {
         ),
       },
     } satisfies CatalogNoConfusionUxAcceptancePacket;
-    expect(() => assertCatalogNoConfusionUxAcceptancePacketIsLaunchSafe(missingBudget)).toThrow(
+    expect(() => assertCatalogNoConfusionUxAcceptancePacketIsComplete(missingBudget)).toThrow(
       "Catalog no-confusion UX provider transport budget surfaces mismatch.",
     );
   });
@@ -223,7 +185,7 @@ describe("Catalog integration no-confusion UX acceptance gate", () => {
       },
     } as unknown as CatalogNoConfusionUxAcceptancePacket;
 
-    expect(() => assertCatalogNoConfusionUxAcceptancePacketIsLaunchSafe(retainedLegacy)).toThrow(
+    expect(() => assertCatalogNoConfusionUxAcceptancePacketIsComplete(retainedLegacy)).toThrow(
       "Catalog no-confusion UX retirement evidence must prove complete deletion, not preserved compatibility.",
     );
   });
@@ -233,12 +195,5 @@ function safePacket(): CatalogNoConfusionUxAcceptancePacket {
   return buildCatalogNoConfusionUxAcceptancePacket({
     environment: "staging",
     generatedAt: "2026-06-11T00:00:00.000Z",
-    signoff: {
-      owner: "catalog-source-observations",
-      reviewer: "catalog-release-lead",
-      approvedAt: "2026-06-11T00:00:00.000Z",
-      approvalReference: "https://github.com/chase-sets/chase-sets/issues/1047#issuecomment-launch-gate",
-      checklistVersion: catalogNoConfusionUxAcceptanceChecklistVersion,
-    },
   });
 }

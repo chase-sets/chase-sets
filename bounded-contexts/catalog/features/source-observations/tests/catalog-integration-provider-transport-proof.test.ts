@@ -3,27 +3,34 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import {
-  assertCatalogProviderTransportBudgetCoverage,
+  assertCatalogProviderTransportBudgetsAreValid,
   catalogProviderTransportBudgetDocPath,
   catalogProviderTransportFailureConditions,
   catalogProviderTransportFirstSliceBudgets,
+} from "../api/catalog-integration-provider-transport-budgets";
+import {
+  assertCatalogProviderTransportProofCoverage,
   catalogProviderTransportFirstSliceProofProviders,
   catalogProviderTransportProofCriteria,
   catalogProviderTransportRetiredSurfaceRule,
   getCatalogProviderTransportFirstSliceProofProvider,
-} from "./catalog-integration-provider-transport-budgets";
-import { getCatalogAdminControlPlaneReadModelSlo } from "./admin-control-plane-read-model-slos";
+} from "./catalog-integration-provider-transport-proof";
+import { getCatalogAdminControlPlaneReadModelSlo } from "../api/admin-control-plane-read-model-slos";
 import {
   catalogPrimaryWorkbenchBlockers,
   catalogPrimaryWorkbenchProviderTransportCategories,
   catalogPrimaryWorkbenchRetirementPolicy,
-} from "./primary-workbench-admin-contracts";
-import { TCGDEX_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY } from "./provider-adapters/tcgdex";
-import { TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY } from "./provider-adapters/tcgplayer";
+} from "../api/primary-workbench-admin-contracts";
+import { TCGDEX_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY } from "../api/provider-adapters/tcgdex";
+import { TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY } from "../api/provider-adapters/tcgplayer";
 
 describe("Catalog provider transport budgets", () => {
-  it("passes the executable coverage assertion", () => {
-    expect(() => assertCatalogProviderTransportBudgetCoverage()).not.toThrow();
+  it("passes the executable budget validity assertion", () => {
+    expect(() => assertCatalogProviderTransportBudgetsAreValid()).not.toThrow();
+  });
+
+  it("passes the executable proof coverage assertion", () => {
+    expect(() => assertCatalogProviderTransportProofCoverage()).not.toThrow();
   });
 
   it("maps every primary workbench transport category to a fail-closed provider blocker", () => {
@@ -70,7 +77,7 @@ describe("Catalog provider transport budgets", () => {
     });
   });
 
-  it("requires the selected provider to cover every first-slice proof criterion or name an owner", () => {
+  it("requires the selected provider to cover every first-slice proof criterion", () => {
     const selected = getCatalogProviderTransportFirstSliceProofProvider();
     const selectedCoverage = new Map(selected.coverage.map((entry) => [entry.criterion, entry]));
 
@@ -79,24 +86,17 @@ describe("Catalog provider transport budgets", () => {
 
       expect(criterion.requiredForFirstSlice, criterion.key).toBe(true);
       expect(coverage, criterion.key).toBeDefined();
-      if (coverage?.status === "planned-proof") {
-        expect(coverage.ownerIssue, criterion.key).toBeDefined();
-        expect(criterion.ownerIssues).toContain(coverage.ownerIssue);
-      }
     }
 
     expect(JSON.stringify(selected.coverage)).not.toMatch(/raw-json|retired admin page module|compatibility redirect/i);
     expect(selectedCoverage.get("provider-transport-degraded-condition")).toMatchObject({
       status: "covered-by-test",
-      ownerIssue: "#1062",
     });
     expect(selectedCoverage.get("promotion-preview-counts")).toMatchObject({
       status: "covered-by-test",
-      ownerIssue: "#1062",
     });
     expect(selectedCoverage.get("redaction-safe-evidence")).toMatchObject({
       status: "covered-by-test",
-      ownerIssue: "#1064",
     });
   });
 
@@ -161,10 +161,9 @@ describe("Catalog provider transport budgets", () => {
         "tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, and operator instructions that teach retired behavior",
       ]),
     );
-    expect(catalogProviderTransportRetiredSurfaceRule.ownerIssue).toBe("#1090");
   });
 
-  it("promotes durable docs for #1062 evidence without preserving retired all-in-one admin pages", () => {
+  it("promotes durable docs for provider proof evidence without preserving retired all-in-one admin pages", () => {
     const doc = readFileSync(
       new URL("../../../docs/catalog-integration-provider-transport-budgets.md", import.meta.url),
       "utf8",

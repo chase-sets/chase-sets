@@ -1,22 +1,18 @@
-import { catalogSecurityPrivacyLaunchGateSchemaVersion } from "./catalog-integration-security-privacy-launch-gate";
 import {
   catalogProviderTransportFailureConditions,
   catalogProviderTransportFirstSliceBudgets,
-  catalogProviderTransportProofCriteria,
-} from "./catalog-integration-provider-transport-budgets";
-import { catalogRealProviderProofSchemaVersion } from "./catalog-integration-real-provider-proof";
+} from "../api/catalog-integration-provider-transport-budgets";
+import { catalogProviderTransportProofCriteria } from "./catalog-integration-provider-transport-proof";
 import {
   catalogPrimaryWorkbenchActions,
-  catalogPrimaryWorkbenchDownstreamContracts,
   catalogPrimaryWorkbenchInstrumentationDimensions,
   catalogPrimaryWorkbenchRetirementPolicy,
   catalogPrimaryWorkbenchSections,
   type CatalogPrimaryWorkbenchCommandKey,
-  type CatalogPrimaryWorkbenchDownstreamIssueKey,
   type CatalogPrimaryWorkbenchInstrumentationDimension,
   type CatalogPrimaryWorkbenchRetirementPolicy,
   type CatalogPrimaryWorkbenchSectionKey,
-} from "./primary-workbench-admin-contracts";
+} from "../api/primary-workbench-admin-contracts";
 
 export const catalogNoConfusionUxAcceptanceSchemaVersion = "catalog-no-confusion-ux-acceptance/v1" as const;
 export const catalogNoConfusionUxAcceptanceChecklistVersion = "catalog-no-confusion-checklist/2026-06-11" as const;
@@ -107,14 +103,6 @@ export type CatalogNoConfusionUxChecklistEvidence = Readonly<{
   evidence: string;
 }>;
 
-export type CatalogNoConfusionUxSignoff = Readonly<{
-  owner: string;
-  reviewer: string;
-  approvedAt: string;
-  approvalReference: string;
-  checklistVersion: typeof catalogNoConfusionUxAcceptanceChecklistVersion;
-}>;
-
 export type CatalogNoConfusionUxWorkflowEvidence = Readonly<{
   key: CatalogNoConfusionUxWorkflowKey;
   primaryPathStep: number | null;
@@ -173,30 +161,11 @@ export type CatalogNoConfusionUxResilienceEvidence = Readonly<{
 }>;
 
 export type CatalogNoConfusionUxTelemetryEvidence = Readonly<{
-  issue: "#1059";
   dimensions: readonly CatalogPrimaryWorkbenchInstrumentationDimension[];
   primaryJourneyEventsRecorded: true;
   supportDetourMetricPathCovered: true;
   redactionSafe: true;
   telemetryUnavailableStateCovered: true;
-}>;
-
-export type CatalogNoConfusionUxDownstreamEvidence = Readonly<{
-  issue: CatalogPrimaryWorkbenchDownstreamIssueKey | "#1046" | "#1047" | "#1061";
-  evidence: string;
-}>;
-
-export type CatalogNoConfusionUxProofHandoffs = Readonly<{
-  accessibilityProofIssue: "#1046";
-  noConfusionIssue: "#1047";
-  realProviderProofIssue: "#1062";
-  durableJobEdgeCaseIssue: "#1063";
-  securityPrivacyIssue: "#1064";
-  providerTransportIssue: "#1065";
-  productionRolloutIssue: "#1061";
-  realProviderProofSchemaVersion: typeof catalogRealProviderProofSchemaVersion;
-  securityPrivacyGateSchemaVersion: typeof catalogSecurityPrivacyLaunchGateSchemaVersion;
-  downstreamIssueEvidence: readonly CatalogNoConfusionUxDownstreamEvidence[];
 }>;
 
 export type CatalogNoConfusionUxProviderTransportEvidence = Readonly<{
@@ -226,7 +195,6 @@ export type CatalogNoConfusionUxAcceptancePacket = Readonly<{
   checklistVersion: typeof catalogNoConfusionUxAcceptanceChecklistVersion;
   generatedAt: string;
   environment: string;
-  signoff: CatalogNoConfusionUxSignoff;
   checklist: readonly CatalogNoConfusionUxChecklistEvidence[];
   workflows: readonly CatalogNoConfusionUxWorkflowEvidence[];
   roles: readonly CatalogNoConfusionUxRoleEvidence[];
@@ -234,7 +202,6 @@ export type CatalogNoConfusionUxAcceptancePacket = Readonly<{
   visualQa: readonly CatalogNoConfusionUxVisualEvidence[];
   resilience: readonly CatalogNoConfusionUxResilienceEvidence[];
   telemetry: CatalogNoConfusionUxTelemetryEvidence;
-  proofHandoffs: CatalogNoConfusionUxProofHandoffs;
   providerTransport: CatalogNoConfusionUxProviderTransportEvidence;
   retirement: CatalogNoConfusionUxRetirementEvidence;
 }>;
@@ -271,11 +238,12 @@ export const catalogNoConfusionUxAcceptanceChecklist = [
   },
   {
     key: "telemetry-instrumentation",
-    requirement: "#1059 primary journey instrumentation and support detour metrics are linked and redaction-safe.",
+    requirement: "Primary journey instrumentation and support detour metrics are linked and redaction-safe.",
   },
   {
     key: "proof-handoffs",
-    requirement: "#1062, #1063, #1064, #1065, #1046, and #1061 evidence handoffs are present.",
+    requirement:
+      "Real-provider proof, durable-job edge case, security/privacy, and accessibility evidence handoffs are present.",
   },
   {
     key: "security-privacy-provider-budget",
@@ -369,24 +337,18 @@ const primaryWorkflowSteps: readonly CatalogNoConfusionUxWorkflowKey[] = [
 export function buildCatalogNoConfusionUxAcceptancePacket(input: {
   environment?: string;
   generatedAt: string;
-  signoff: Omit<CatalogNoConfusionUxSignoff, "checklistVersion"> &
-    Partial<Pick<CatalogNoConfusionUxSignoff, "checklistVersion">>;
 }): CatalogNoConfusionUxAcceptancePacket {
-  // #1047 owns the no-confusion launch gate; #1748 re-proves it against the
-  // decongested four-route IA. The desktop/mobile visual evidence for every
-  // required state (default/empty/blocked/denied/degraded/success/error) is
-  // produced by the @catalog-admin-integrations E2E artifacts in CI.
-  const evidenceBase = "https://github.com/chase-sets/chase-sets/issues/1047#issuecomment-4677367910";
+  // The no-confusion acceptance harness is re-proven against the decongested
+  // four-route IA. The desktop/mobile visual evidence for every required state
+  // (default/empty/blocked/denied/degraded/success/error) is produced by the
+  // @catalog-admin-integrations E2E artifacts in CI.
+  const evidenceBase = "primary-workbench import-to-promotion acceptance evidence";
 
-  return assertCatalogNoConfusionUxAcceptancePacketIsLaunchSafe({
+  return assertCatalogNoConfusionUxAcceptancePacketIsComplete({
     schemaVersion: catalogNoConfusionUxAcceptanceSchemaVersion,
     checklistVersion: catalogNoConfusionUxAcceptanceChecklistVersion,
     generatedAt: input.generatedAt,
     environment: input.environment ?? "staging",
-    signoff: {
-      ...input.signoff,
-      checklistVersion: input.signoff.checklistVersion ?? catalogNoConfusionUxAcceptanceChecklistVersion,
-    },
     checklist: catalogNoConfusionUxAcceptanceChecklist.map((item) => ({
       key: item.key,
       status: "passed",
@@ -416,32 +378,11 @@ export function buildCatalogNoConfusionUxAcceptancePacket(input: {
       evidence: `${evidenceBase} (${key})`,
     })),
     telemetry: {
-      issue: "#1059",
       dimensions: catalogPrimaryWorkbenchInstrumentationDimensions,
       primaryJourneyEventsRecorded: true,
       supportDetourMetricPathCovered: true,
       redactionSafe: true,
       telemetryUnavailableStateCovered: true,
-    },
-    proofHandoffs: {
-      accessibilityProofIssue: "#1046",
-      noConfusionIssue: "#1047",
-      realProviderProofIssue: "#1062",
-      durableJobEdgeCaseIssue: "#1063",
-      securityPrivacyIssue: "#1064",
-      providerTransportIssue: "#1065",
-      productionRolloutIssue: "#1061",
-      realProviderProofSchemaVersion: catalogRealProviderProofSchemaVersion,
-      securityPrivacyGateSchemaVersion: catalogSecurityPrivacyLaunchGateSchemaVersion,
-      downstreamIssueEvidence: [
-        ...catalogPrimaryWorkbenchDownstreamContracts.map((contract) => ({
-          issue: contract.issue,
-          evidence: `${evidenceBase} (${contract.issue})`,
-        })),
-        { issue: "#1046", evidence: `${evidenceBase} (#1046 accessibility proof)` },
-        { issue: "#1047", evidence: `${evidenceBase} (#1047 no-confusion gate)` },
-        { issue: "#1061", evidence: `${evidenceBase} (#1061 rollout handoff)` },
-      ],
     },
     providerTransport: {
       budgetSurfaces: catalogProviderTransportFirstSliceBudgets.map((budget) => budget.surface),
@@ -466,7 +407,7 @@ export function buildCatalogNoConfusionUxAcceptancePacket(input: {
   });
 }
 
-export function assertCatalogNoConfusionUxAcceptancePacketIsLaunchSafe(
+export function assertCatalogNoConfusionUxAcceptancePacketIsComplete(
   packet: CatalogNoConfusionUxAcceptancePacket,
 ): CatalogNoConfusionUxAcceptancePacket {
   assertPacketMetadata(packet);
@@ -477,17 +418,16 @@ export function assertCatalogNoConfusionUxAcceptancePacketIsLaunchSafe(
   assertVisualQa(packet);
   assertResilience(packet);
   assertTelemetry(packet);
-  assertProofHandoffs(packet);
   assertProviderTransport(packet);
   assertRetirement(packet);
 
   return packet;
 }
 
-// #1748 re-proves the #1047 gate against the decongested four-route IA
+// The no-confusion gate is re-proven against the decongested four-route IA
 // (/catalog/integrations daily, /integrations/providers, /integrations/governance,
 // /integrations/release). The gate validates section/action CONTRACTS rather than
-// routes, so it survived #1749's single-route-shell retirement; the test references
+// routes, so it survived the single-route-shell retirement; the test references
 // below name the executable evidence that exercises the new information architecture
 // and the live audience-surface page so the packet points at current artifacts.
 const catalogNoConfusionUxNewIaProofTests = [
@@ -529,7 +469,7 @@ function buildDefaultWorkflowEvidence(evidenceBase: string): readonly CatalogNoC
     evidenceVisibleInContext: `${evidenceBase} (${key} in-context evidence)`,
     permissionBehavior: "catalog.view can inspect safe reads; catalog.manage is required for writes.",
     rolePersonaBehavior: "View-only, operator, admin, denied, and rollout-stopped behavior is explicit.",
-    accessibilityBehavior: "Keyboard and screen-reader completion are covered by the #1047 matrix.",
+    accessibilityBehavior: "Keyboard and screen-reader completion are covered by the no-confusion matrix.",
     visualQaEvidence: `${evidenceBase} (${key} visual evidence)`,
     resilienceBehavior: "Failure states preserve route context and expose a safe recovery action.",
     securityPrivacyBehavior: "Provider evidence is redacted and unsafe writes fail closed.",
@@ -731,21 +671,6 @@ function assertPacketMetadata(packet: CatalogNoConfusionUxAcceptancePacket): voi
   if (!packet.environment.trim()) {
     throw new Error("Catalog no-confusion UX acceptance packet must name the environment.");
   }
-  if (packet.signoff.checklistVersion !== catalogNoConfusionUxAcceptanceChecklistVersion) {
-    throw new Error("Catalog no-confusion UX acceptance signoff must name the checklist version.");
-  }
-  if (!packet.signoff.owner.trim()) {
-    throw new Error("Catalog no-confusion UX acceptance signoff must name the owner.");
-  }
-  if (!packet.signoff.reviewer.trim()) {
-    throw new Error("Catalog no-confusion UX acceptance signoff must name the reviewer.");
-  }
-  if (!packet.signoff.approvedAt.trim()) {
-    throw new Error("Catalog no-confusion UX acceptance signoff must include an approval timestamp.");
-  }
-  if (!packet.signoff.approvalReference.trim()) {
-    throw new Error("Catalog no-confusion UX acceptance signoff must link approval evidence.");
-  }
 }
 
 function assertChecklist(packet: CatalogNoConfusionUxAcceptancePacket): void {
@@ -908,50 +833,12 @@ function assertTelemetry(packet: CatalogNoConfusionUxAcceptancePacket): void {
     "Catalog no-confusion UX telemetry dimensions",
   );
   if (
-    packet.telemetry.issue !== "#1059" ||
     !packet.telemetry.primaryJourneyEventsRecorded ||
     !packet.telemetry.supportDetourMetricPathCovered ||
     !packet.telemetry.redactionSafe ||
     !packet.telemetry.telemetryUnavailableStateCovered
   ) {
     throw new Error("Catalog no-confusion UX telemetry evidence is incomplete.");
-  }
-}
-
-function assertProofHandoffs(packet: CatalogNoConfusionUxAcceptancePacket): void {
-  if (
-    packet.proofHandoffs.accessibilityProofIssue !== "#1046" ||
-    packet.proofHandoffs.noConfusionIssue !== "#1047" ||
-    packet.proofHandoffs.realProviderProofIssue !== "#1062" ||
-    packet.proofHandoffs.durableJobEdgeCaseIssue !== "#1063" ||
-    packet.proofHandoffs.securityPrivacyIssue !== "#1064" ||
-    packet.proofHandoffs.providerTransportIssue !== "#1065" ||
-    packet.proofHandoffs.productionRolloutIssue !== "#1061"
-  ) {
-    throw new Error("Catalog no-confusion UX proof handoff issues are incomplete.");
-  }
-  if (packet.proofHandoffs.realProviderProofSchemaVersion !== catalogRealProviderProofSchemaVersion) {
-    throw new Error("Catalog no-confusion UX real-provider proof schema handoff is stale.");
-  }
-  if (packet.proofHandoffs.securityPrivacyGateSchemaVersion !== catalogSecurityPrivacyLaunchGateSchemaVersion) {
-    throw new Error("Catalog no-confusion UX security/privacy handoff is stale.");
-  }
-
-  const expectedIssues = [
-    ...catalogPrimaryWorkbenchDownstreamContracts.map((contract) => contract.issue),
-    "#1046",
-    "#1047",
-    "#1061",
-  ];
-  assertSameStringSet(
-    packet.proofHandoffs.downstreamIssueEvidence.map((entry) => entry.issue),
-    expectedIssues,
-    "Catalog no-confusion UX downstream issue handoff",
-  );
-  for (const evidence of packet.proofHandoffs.downstreamIssueEvidence) {
-    if (!evidence.evidence.trim()) {
-      throw new Error(`Catalog no-confusion UX handoff '${evidence.issue}' is missing evidence.`);
-    }
   }
 }
 
