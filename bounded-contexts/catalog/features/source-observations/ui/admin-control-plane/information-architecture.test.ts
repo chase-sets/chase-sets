@@ -84,7 +84,6 @@ describe("Catalog Control Plane information architecture", () => {
       "Validation, dry run, compare, and activation readiness",
       "Imports, jobs, Source Observation review, promotion, reapply, replay",
       "Conflict resolution and source precedence",
-      "Clean reset, backfill, and release evidence",
       "Lifecycle, rollout, RBAC, observability, and audit evidence",
     ]);
 
@@ -239,7 +238,7 @@ describe("Catalog Control Plane route surfaces", () => {
     expect(surfaceWorkspaces.daily).toEqual(["import-to-promotion"]);
     expect(surfaceWorkspaces.providers).toEqual(["profile-authoring", "validation-readiness"]);
     expect(surfaceWorkspaces.governance).toEqual(["conflict-resolution", "lifecycle-recovery", "governance-controls"]);
-    expect(surfaceWorkspaces.release).toEqual(["clean-reset-release", "audit-evidence", "health-triage"]);
+    expect(surfaceWorkspaces.release).toEqual(["audit-evidence", "health-triage"]);
   });
 
   it("assigns every workspace to exactly one surface and renders every surface workspace", () => {

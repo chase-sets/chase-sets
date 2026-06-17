@@ -218,7 +218,6 @@ describe("Catalog primary workbench read model - per-surface slicing", () => {
     const full = buildCatalogPrimaryWorkbenchReadModel(input);
     const release = buildCatalogPrimaryWorkbenchReadModelForSurface("release", input);
 
-    expect(release.cleanResetRelease).toEqual(full.cleanResetRelease);
     expect(release.auditEvidence).toEqual(full.auditEvidence);
     expect(release.healthTriage).toEqual(full.healthTriage);
   });

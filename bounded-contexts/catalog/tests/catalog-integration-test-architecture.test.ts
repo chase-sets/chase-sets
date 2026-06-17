@@ -16,7 +16,6 @@ const readModelTestPaths = [
   "primary-workbench-conflict-resolution.test.ts",
   "primary-workbench-governance-controls.test.ts",
   "primary-workbench-audit-evidence.test.ts",
-  "primary-workbench-clean-reset-release.test.ts",
 ].map((fileName) => resolve(contextRoot, "features/source-observations/ui", fileName));
 const pageTestPath = resolve(contextRoot, "features/source-observations/ui/primary-workbench-page.test.tsx");
 const acceptanceGateTestPath = resolve(
@@ -48,7 +47,6 @@ describe("Catalog integration test architecture", () => {
       "primary-workbench-conflict-resolution.test.ts",
       "primary-workbench-governance-controls.test.ts",
       "primary-workbench-audit-evidence.test.ts",
-      "primary-workbench-clean-reset-release.test.ts",
       "primary-workbench-page.test.tsx",
       "primary-workbench-route-context.test.ts",
       "primary-workbench-copy.test.ts",

@@ -65,7 +65,10 @@ describe("Catalog primary workbench read model - import jobs", () => {
     });
     expect(readModel.importJobs.jobs[0]?.sourceObservationReviewHref).toContain("section=source-observation-review");
     expect(readModel.importJobs.jobs[0]?.sourceObservationReviewHref).toContain("providerKey=tcgdex");
-    expect(readModel.importJobs.jobs[0]?.auditEvidenceUrl).toContain("section=evidence");
+    // Audit evidence is the default workspace of the release surface, so its href is
+    // the canonical /release route and carries no redundant ?section= param.
+    expect(readModel.importJobs.jobs[0]?.auditEvidenceUrl).toContain("/catalog/integrations/release");
+    expect(readModel.importJobs.jobs[0]?.auditEvidenceUrl).not.toContain("section=");
     expect(readModel.importJobs.jobs[0]?.auditEvidenceUrl).toContain("returnPath=");
     expect(readModel.actions.find((action) => action.key === "start-provider-import")).toMatchObject({
       state: "blocked",

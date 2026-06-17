@@ -18,7 +18,6 @@ export type CatalogControlPlaneWorkspaceKey =
   | "conflict-resolution"
   | "lifecycle-recovery"
   | "governance-controls"
-  | "clean-reset-release"
   | "audit-evidence";
 
 export type CatalogControlPlaneNavigationGroupKey = "primary" | "unblock" | "govern" | "verify";
@@ -231,27 +230,6 @@ export const CATALOG_CONTROL_PLANE_WORKSPACES = [
     consumesIssues: [1043, 1059, 1064],
   },
   {
-    key: "clean-reset-release",
-    routeSegment: "reset-release",
-    routeSurface: "release",
-    accessibleName: "Clean reset release",
-    group: "verify",
-    keyboardOrder: 90,
-    operatorJob: "Verify clean reset, drop, backfill, deploy-skew, and removal evidence before release signoff.",
-    startsAt: "Prelaunch reset/drop, retained-data, backfill, or release cleanup evidence request.",
-    completesAt: "Release blockers are resolved with #1054 reset evidence, #1061 signoff, and #1090 complete removal.",
-    evidenceScope: [
-      "Reset/drop evidence",
-      "Backup or accepted data-loss decision",
-      "Backfill state",
-      "Temporary scaffolding deletion",
-      "Complete old-surface removal",
-    ],
-    primaryPathRole: "supporting-detour",
-    linkBackContextKeys: ["section", "providerKey", "unitKey", "importScope", "profileVersion", "jobId", "returnPath"],
-    consumesIssues: [1045, 1054, 1061, 1090],
-  },
-  {
     key: "audit-evidence",
     routeSegment: "evidence",
     routeSurface: "release",
@@ -298,7 +276,7 @@ export const CATALOG_CONTROL_PLANE_NAVIGATION_GROUPS = [
   {
     key: "verify",
     accessibleName: "Verify release evidence",
-    items: ["clean-reset-release", "audit-evidence"],
+    items: ["audit-evidence"],
   },
 ] as const satisfies readonly CatalogControlPlaneNavigationGroup[];
 
@@ -328,7 +306,7 @@ export const CATALOG_CONTROL_PLANE_ROUTE_SURFACES = [
     key: "release",
     pathSegment: "release",
     accessibleName: "Release evidence and health",
-    workspaces: ["clean-reset-release", "audit-evidence", "health-triage"],
+    workspaces: ["audit-evidence", "health-triage"],
   },
 ] as const satisfies readonly CatalogControlPlaneRouteSurface[];
 
@@ -389,13 +367,6 @@ export const CATALOG_CONTROL_PLANE_WORKFLOW_MAP = [
     startsIn: "conflict-resolution",
     completesIn: "import-to-promotion",
     requiredEvidence: ["Affected facts", "Candidate values", "Precedence rule", "Audit evidence"],
-    blockedBy: ["governance-controls", "audit-evidence"],
-  },
-  {
-    workflow: "Clean reset, backfill, and release evidence",
-    startsIn: "clean-reset-release",
-    completesIn: "audit-evidence",
-    requiredEvidence: ["Reset/drop evidence", "Backfill decision", "Scaffolding deletion", "Release signoff"],
     blockedBy: ["governance-controls", "audit-evidence"],
   },
   {

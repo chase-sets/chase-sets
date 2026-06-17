@@ -37,10 +37,3 @@ export type {
   AuditTimelineRow,
   ReleaseEvidenceChecklistRow,
 } from "./primary-workbench-audit-evidence";
-export type {
-  CatalogPrimaryWorkbenchTemporaryReleaseScaffoldingInput,
-  CleanResetBackfillRow,
-  CleanResetDecisionRow,
-  CleanResetRelease,
-  CleanResetScaffoldingRow,
-} from "./primary-workbench-clean-reset-release";
