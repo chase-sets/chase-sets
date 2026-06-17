@@ -542,7 +542,10 @@ test.describe("buy funnel redesign — defect verification", () => {
       expect(deferralCount, '"Final total confirmed at checkout" must appear exactly once').toBe(1);
 
       // "Shipping & tax" line must have "Calculated at checkout" (once, muted).
-      const shippingTaxLine = await page.locator("text=Calculated at checkout").count();
+      // Exact match: a ready cart also renders the sticky-bar context copy
+      // ("Taxes and shipping are calculated at checkout."), which a
+      // case-insensitive substring locator would match a second time.
+      const shippingTaxLine = await page.getByText("Calculated at checkout", { exact: true }).count();
       expect(shippingTaxLine, '"Calculated at checkout" should appear exactly once for the shipping/tax line').toBe(1);
 
       await captureScreenshot(page, "cart-estimated-total-contract");
