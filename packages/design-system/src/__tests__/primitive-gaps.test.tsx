@@ -63,6 +63,97 @@ describe("Image primitive", () => {
     expect(screen.getByAltText("Charizard").className).toContain("opacity-100");
   });
 
+  /**
+   * JSDOM never dispatches a `load` event for an <img>, and it always reports
+   * `complete === false` / `naturalWidth === 0`. To model an SSR image whose load
+   * settled before React's synthetic handlers attached, we stub the prototype getters
+   * the component's mount effect reads, render, then restore the originals. `byHref`
+   * lets a single render expose different states per source (for the fallback path).
+   */
+  function withStubbedImageState(
+    byHref: (href: string) => { complete: boolean; naturalWidth: number },
+    run: () => void,
+  ) {
+    const proto = HTMLImageElement.prototype;
+    const originalComplete = Object.getOwnPropertyDescriptor(proto, "complete");
+    const originalNaturalWidth = Object.getOwnPropertyDescriptor(proto, "naturalWidth");
+
+    Object.defineProperty(proto, "complete", {
+      configurable: true,
+      get(this: HTMLImageElement) {
+        return byHref(this.getAttribute("src") ?? "").complete;
+      },
+    });
+    Object.defineProperty(proto, "naturalWidth", {
+      configurable: true,
+      get(this: HTMLImageElement) {
+        return byHref(this.getAttribute("src") ?? "").naturalWidth;
+      },
+    });
+
+    try {
+      run();
+    } finally {
+      restore(proto, "complete", originalComplete);
+      restore(proto, "naturalWidth", originalNaturalWidth);
+    }
+  }
+
+  function restore(target: object, key: string, descriptor: PropertyDescriptor | undefined) {
+    if (descriptor) {
+      Object.defineProperty(target, key, descriptor);
+    } else {
+      delete (target as Record<string, unknown>)[key];
+    }
+  }
+
+  it("clears the skeleton when the image completed before hydration attached onLoad", () => {
+    // The on-mount effect must reconcile from the live <img> rather than wait for onLoad.
+    withStubbedImageState(
+      () => ({ complete: true, naturalWidth: 1 }),
+      () => {
+        const { container } = render(<Image src="/card.jpg" alt="Charizard" />);
+
+        const image = screen.getByAltText("Charizard");
+        expect(image.className).toContain("opacity-100");
+        expect(image.className).not.toContain("opacity-0");
+        expect(container.querySelector(".animate-pulse")).toBeNull();
+      },
+    );
+  });
+
+  it("keeps the skeleton for an image that is still downloading at mount", () => {
+    // An incomplete <img> must stay covered by the skeleton until it actually loads.
+    withStubbedImageState(
+      () => ({ complete: false, naturalWidth: 0 }),
+      () => {
+        const { container } = render(<Image src="/card.jpg" alt="Charizard" />);
+
+        const image = screen.getByAltText("Charizard");
+        expect(image.className).toContain("opacity-0");
+        expect(container.querySelector(".animate-pulse")).toBeTruthy();
+
+        fireEvent.load(image);
+
+        expect(screen.getByAltText("Charizard").className).toContain("opacity-100");
+        expect(container.querySelector(".animate-pulse")).toBeNull();
+      },
+    );
+  });
+
+  it("falls back when the image errored before hydration attached onError", () => {
+    // The primary source completed with zero natural width (a pre-hydration error); the
+    // effect must route to the fallback source without ever seeing a synthetic onError.
+    withStubbedImageState(
+      (href) => (href === "/missing.png" ? { complete: true, naturalWidth: 0 } : { complete: true, naturalWidth: 1 }),
+      () => {
+        render(<Image src="/missing.png" alt="Charizard" fallbackSrc="/card-back.png" />);
+
+        expect(screen.getByAltText("Charizard").getAttribute("src")).toBe("/card-back.png");
+      },
+    );
+  });
+
   it("can opt out of the skeleton placeholder", () => {
     const { container } = render(<Image src="/card.jpg" alt="Charizard" skeleton={false} />);
 

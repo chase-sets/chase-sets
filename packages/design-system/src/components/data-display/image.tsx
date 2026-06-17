@@ -1,4 +1,4 @@
-import { useState, type ImgHTMLAttributes, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ImgHTMLAttributes, type ReactNode } from "react";
 import { cx } from "../../utils/cx";
 
 export interface ImageProps extends Omit<ImgHTMLAttributes<HTMLImageElement>, "className" | "style"> {
@@ -52,9 +52,33 @@ export function Image({
 }: ImageProps) {
   const [failedSources, setFailedSources] = useState<ReadonlySet<string>>(() => new Set());
   const [loaded, setLoaded] = useState(false);
+  const imgRef = useRef<HTMLImageElement>(null);
 
   const resolvedSrc =
     src && !failedSources.has(src) ? src : fallbackSrc && !failedSources.has(fallbackSrc) ? fallbackSrc : undefined;
+
+  // After SSR, an image can finish loading (or fail) before hydration attaches the
+  // synthetic onLoad/onError handlers, so those events never fire. Reconcile the
+  // image's actual state on mount and whenever the resolved source changes:
+  // re-arm the skeleton, then settle it from the live <img> if it is already complete.
+  useEffect(() => {
+    setLoaded(false);
+
+    if (!resolvedSrc) {
+      return;
+    }
+
+    const img = imgRef.current;
+    if (!img?.complete) {
+      return;
+    }
+
+    if (img.naturalWidth > 0) {
+      setLoaded(true);
+    } else {
+      setFailedSources((current) => (current.has(resolvedSrc) ? current : new Set(current).add(resolvedSrc)));
+    }
+  }, [resolvedSrc]);
 
   // Every source failed and a custom fallback node was supplied.
   if (!resolvedSrc && fallback !== undefined) {
@@ -78,6 +102,7 @@ export function Image({
       {resolvedSrc ? (
         <img
           {...rest}
+          ref={imgRef}
           src={resolvedSrc}
           alt={alt}
           loading={loading}
