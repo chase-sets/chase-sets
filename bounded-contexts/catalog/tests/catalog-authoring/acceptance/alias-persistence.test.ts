@@ -950,4 +950,227 @@ describe("Catalog Alias persistence (DB-backed)", () => {
     const refAliases = await services.catalogAliases.listPublishableReferenceRecordAliases("ref_display_set");
     expect(refAliases.map((alias) => alias.alias_text)).toEqual(["Triplet Beat"]);
   });
+
+  // -------------------------------------------------------------------------
+  // #1913 full milestone flow: one end-to-end walk through every hop against the
+  // database — TCGdex Japanese intake -> alias candidates -> review (accept the
+  // species-helps card, leave the Trainer pending, no mirror for the promo) ->
+  // promotion -> published resolved fact -> English display -> revocation. The
+  // published `catalog_item_resolved_aliases` row is exactly what Discovery
+  // search (#1911) consumes, and the display identity is what an English-locale
+  // buyer reads (#1914). This is the connective DB proof for the deterministic
+  // packet in catalog-integration-alias-equivalence-e2e-proof.ts.
+  // -------------------------------------------------------------------------
+  it("walks TCGdex Japanese import -> review -> promote -> publish -> English search fact + display, then revokes (#1913)", async () => {
+    const englishMirror: TcgdexEnglishMirrorLoader = async ({ entity, id }) => {
+      // Cacnea (サボネア): species help, English mirror present.
+      if (entity === "card" && id === "sv1a-024") {
+        return { id: "sv1a-024", name: "Cacnea" };
+      }
+      // Iono (ナンジャモ): Trainer, mirror present but no dex species help.
+      if (entity === "card" && id === "sv1a-066") {
+        return { id: "sv1a-066", name: "Iono" };
+      }
+      // ピカチュウ promo: no `/en/` mirror -> no English equivalent (valid state).
+      if (entity === "set" && id === "sv1a") {
+        return { id: "sv1a", name: "Triplet Beat" };
+      }
+      if (entity === "series" && id === "sv") {
+        return { id: "sv", name: "Scarlet & Violet" };
+      }
+      return null;
+    };
+
+    // Real Catalog Items for the two Japanese cards a buyer will search/display.
+    await createCatalogItem("cat_e2e_cacnea", "サボネア");
+    await createCatalogItem("cat_e2e_pikachu_promo", "ピカチュウ");
+
+    // Stage: intake. Three observations: Cacnea (species help), Iono (Trainer no
+    // dex), and a promo Pikachu whose English mirror is missing.
+    await ingestTcgdexAliasCandidates({
+      profile: {} as CatalogProviderIntegrationProfile,
+      observations: [
+        {
+          observationId: "obs_e2e_cacnea",
+          sourceProfileKey: "pokemon-tcg",
+          sourceProfileVersion: "2026.06.03",
+          mappingFingerprint: "fp-e2e",
+          payload: {
+            languageCode: "ja",
+            card: { id: "sv1a-024", name: "サボネア", category: "Pokemon", dexId: [331] },
+            set: { id: "sv1a", name: "トリプレットビート" },
+            seriesId: "sv",
+            seriesName: "スカーレット&バイオレット",
+          },
+        },
+        {
+          observationId: "obs_e2e_iono",
+          sourceProfileKey: "pokemon-tcg",
+          sourceProfileVersion: "2026.06.03",
+          mappingFingerprint: "fp-e2e",
+          payload: {
+            languageCode: "ja",
+            card: { id: "sv1a-066", name: "ナンジャモ", category: "Trainer" },
+            set: { id: "sv1a", name: "トリプレットビート" },
+            seriesId: "sv",
+            seriesName: "スカーレット&バイオレット",
+          },
+        },
+        {
+          observationId: "obs_e2e_pikachu",
+          sourceProfileKey: "pokemon-tcg",
+          sourceProfileVersion: "2026.06.03",
+          mappingFingerprint: "fp-e2e",
+          payload: {
+            languageCode: "ja",
+            card: { id: "sv1a-198", name: "ピカチュウ", category: "Pokemon", dexId: [25] },
+            set: { id: "sv1a", name: "トリプレットビート" },
+            seriesId: "sv",
+            seriesName: "スカーレット&バイオレット",
+          },
+        },
+      ],
+      persist: services.catalogAliases.upsertSourceObservationAliasCandidates,
+      observedAt: "2026-06-16T00:00:00.000Z",
+      loadEnglishMirrorEntity: englishMirror,
+    });
+
+    // Stage: candidates. The Cacnea card has an English official equivalent +
+    // species alias; the Trainer has an official equivalent but no species alias;
+    // the promo Pikachu has neither (no mirror) — absence is a valid state.
+    const cacneaCandidates = await services.catalogAliases.listSourceObservationAliasCandidates({
+      observationId: "obs_e2e_cacnea",
+    });
+    expect(cacneaCandidates.filter((c) => c.alias_type === "species-name")).toHaveLength(1);
+    const cacneaOfficial = cacneaCandidates.find(
+      (c) => c.alias_type === "official-equivalent" && c.alias_language_code === "en",
+    );
+    expect(cacneaOfficial?.alias_text).toBe("Cacnea");
+
+    const ionoCandidates = await services.catalogAliases.listSourceObservationAliasCandidates({
+      observationId: "obs_e2e_iono",
+    });
+    // Trainer: dexId cannot give a species equivalent.
+    expect(ionoCandidates.filter((c) => c.alias_type === "species-name")).toHaveLength(0);
+
+    const pikachuCandidates = await services.catalogAliases.listSourceObservationAliasCandidates({
+      observationId: "obs_e2e_pikachu",
+    });
+    // Missing `/en/` mirror: no English official equivalent at all.
+    expect(
+      pikachuCandidates.filter((c) => c.alias_type === "official-equivalent" && c.alias_language_code === "en"),
+    ).toHaveLength(0);
+
+    // Stage: review. Operator accepts the Cacnea English official equivalent.
+    expect(cacneaOfficial).toBeDefined();
+    await proposeAndDrain(
+      buildCatalogAliasCandidate({
+        target: { kind: "catalog-item", targetId: "cat_e2e_cacnea", targetKey: "name" },
+        aliasText: "Cacnea",
+        aliasLanguageCode: "en",
+        sourceLanguageCode: "ja",
+        aliasType: "official-equivalent",
+        confidence: "high",
+        reviewStatus: "pending",
+        provenance: {
+          providerKey: "tcgdex",
+          observationId: "obs_e2e_cacnea",
+          sourceCategory: "provider-same-id-localized-endpoint",
+          sourceProfileKey: "pokemon-tcg",
+          sourceProfileVersion: "2026.06.03",
+          mappingFingerprint: "fp-e2e",
+        },
+        evidence: { providerId: "sv1a-024", nativeName: "サボネア" },
+      }),
+      "usr_reviewer",
+    );
+    const cacneaResolvedAlias = buildCatalogAliasCandidate({
+      target: { kind: "catalog-item", targetId: "cat_e2e_cacnea", targetKey: "name" },
+      aliasText: "Cacnea",
+      aliasLanguageCode: "en",
+      sourceLanguageCode: "ja",
+      aliasType: "official-equivalent",
+      confidence: "high",
+      reviewStatus: "pending",
+      provenance: {
+        providerKey: "tcgdex",
+        observationId: "obs_e2e_cacnea",
+        sourceCategory: "provider-same-id-localized-endpoint",
+        sourceProfileKey: "pokemon-tcg",
+        sourceProfileVersion: "2026.06.03",
+        mappingFingerprint: "fp-e2e",
+      },
+      evidence: { providerId: "sv1a-024", nativeName: "サボネア" },
+    });
+    await services.catalogAliases.catalogAliasCommandHandler({
+      streamId: catalogAliasStreamId(cacneaResolvedAlias.aliasHash),
+      command: { type: "AcceptCatalogAlias", actor: "usr_reviewer", reason: "verified same-id English equivalent" },
+      context,
+    });
+    await drainCatalogProjections();
+
+    // Stage: publish resolved fact. Recompute resolves the publishable alias and
+    // appends the `catalog.catalog-item.aliases-resolved` fact Discovery consumes.
+    await processItemAliasRecompute();
+    await drainCatalogProjections();
+
+    const cacneaFact = await pool.query<{ alias_language_code: string; aliases: unknown[] }>(
+      `SELECT alias_language_code, aliases FROM catalog_item_resolved_aliases WHERE catalog_item_id = $1`,
+      ["cat_e2e_cacnea"],
+    );
+    const englishCacneaFact = cacneaFact.rows.find((row) => row.alias_language_code === "en");
+    expect(englishCacneaFact?.aliases).toEqual([
+      expect.objectContaining({ aliasText: "Cacnea", aliasType: "official-equivalent" }),
+    ]);
+
+    // The published fact is the cross-context handoff: it is the row Discovery's
+    // search projection folds into search_text, so English `Cacnea` reaches the
+    // Japanese サボネア card (#1911). The discovery acceptance suite proves the
+    // search half against the real HTTP API.
+    const published = await pool.query<{ event_type: string }>(
+      `SELECT event_type FROM event_store_events
+       WHERE stream_id = $1 AND event_type = 'catalog.catalog-item.aliases-resolved'`,
+      ["catalog.item-cat_e2e_cacnea"],
+    );
+    expect(published.rows.length).toBeGreaterThanOrEqual(1);
+
+    // The promo Pikachu has no accepted English alias, so its resolved fact is the
+    // empty (native-only) state — it is never silently backfilled with a guess.
+    await processItemAliasRecompute();
+    await drainCatalogProjections();
+    const pikachuPublishable = await services.catalogAliases.listPublishableCatalogItemAliases("cat_e2e_pikachu_promo");
+    expect(pikachuPublishable).toHaveLength(0);
+
+    // Stage: English display. The Cacnea card resolves to the English name with the
+    // native name as secondary; the promo keeps its native name (#1914).
+    await processItemDisplayIdentityRecompute();
+    await drainCatalogProjections();
+    expect(await resolvedDisplayTitle("cat_e2e_cacnea")).toBe("Cacnea (サボネア)");
+    expect(await resolvedDisplayTitle("cat_e2e_pikachu_promo")).toBe("ピカチュウ");
+
+    // Stage: revocation. Revoking the accepted alias publishes the empty
+    // (retracted) resolved fact and reverts the display to the native name.
+    await services.catalogAliases.catalogAliasCommandHandler({
+      streamId: catalogAliasStreamId(cacneaResolvedAlias.aliasHash),
+      command: { type: "RevokeCatalogAlias", actor: "usr_reviewer", reason: "equivalence reversed in review" },
+      context,
+    });
+    await drainCatalogProjections();
+    await processItemAliasRecompute();
+    await drainCatalogProjections();
+
+    // No longer publishable -> resolved fact for English drops to empty, which is
+    // the removal signal Discovery acts on to drop the alias from search.
+    expect(await services.catalogAliases.listPublishableCatalogItemAliases("cat_e2e_cacnea")).toHaveLength(0);
+    const afterRevoke = await pool.query<{ aliases: unknown[] }>(
+      `SELECT aliases FROM catalog_item_resolved_aliases WHERE catalog_item_id = $1 AND alias_language_code = 'en'`,
+      ["cat_e2e_cacnea"],
+    );
+    expect(afterRevoke.rows[0]?.aliases).toEqual([]);
+
+    // Display reverts to the native name.
+    await processItemDisplayIdentityRecompute();
+    await drainCatalogProjections();
+    expect(await resolvedDisplayTitle("cat_e2e_cacnea")).toBe("サボネア");
+  });
 });

@@ -36,6 +36,7 @@ describe("Catalog Integration diagnostic taxonomy", () => {
         "credential-readiness",
         "projection-lag",
         "admin-route",
+        "alias-equivalence",
       ]),
     );
     expect(new Set(catalogIntegrationDiagnosticTaxonomy.map((entry) => entry.severity))).toEqual(
@@ -128,6 +129,46 @@ describe("Catalog Integration diagnostic taxonomy", () => {
     ] as const;
 
     expect(() => assertCatalogIntegrationDiagnosticTaxonomyCoverage(existingCodes)).not.toThrow();
+  });
+
+  it("covers the alias-equivalence pipeline diagnostics required by #1913", () => {
+    const aliasCodes = [
+      "alias-provider-endpoint-missing",
+      "alias-coverage-incomplete",
+      "alias-pending-candidates-block-high-confidence-search",
+      "alias-resolved-projection-lag",
+      "alias-stale-resolved-hash",
+      "alias-search-rollout-disabled",
+      "alias-native-script-tokenization-gap",
+    ] as const;
+
+    expect(() => assertCatalogIntegrationDiagnosticTaxonomyCoverage(aliasCodes)).not.toThrow();
+
+    // The seven cover provider endpoint missing, alias coverage incomplete,
+    // pending candidates blocking high-confidence search, projection lag, a stale
+    // resolved-alias hash, the rollout kill-switch, and native-script tokenization
+    // gaps — the failure modes the e2e proof exercises.
+    expect(getCatalogIntegrationDiagnosticDefinition("alias-coverage-incomplete")).toMatchObject({
+      source: "alias-equivalence",
+      blockingBehavior: "advisory",
+    });
+    expect(getCatalogIntegrationDiagnosticDefinition("alias-resolved-projection-lag")).toMatchObject({
+      source: "projection-lag",
+      blockingBehavior: "retryable",
+      evidencePolicy: "projection-metadata-only",
+    });
+    expect(getCatalogIntegrationDiagnosticDefinition("alias-search-rollout-disabled")).toMatchObject({
+      source: "alias-equivalence",
+      severity: "info",
+    });
+    // Every alias-equivalence diagnostic groups by the alias target/type/language
+    // dimensions so operators can triage by what failed, not just by provider.
+    for (const code of aliasCodes) {
+      const definition = getCatalogIntegrationDiagnosticDefinition(code);
+      if (definition.source === "alias-equivalence") {
+        expect(definition.groupingKeys).toContain("aliasType");
+      }
+    }
   });
 
   it("uses blocking behavior consistently for readiness and destructive workflow gates", () => {

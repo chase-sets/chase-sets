@@ -78,6 +78,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Playwright E2E](./runbooks/playwright-e2e.md): e2e charter (what the browser layer owns vs vitest), suite coverage, local setup, and sandbox-aware run commands.
 - [Catalog Asset Storage](./runbooks/catalog-asset-storage.md): owned storage for provider-fed catalog imagery.
 - [Catalog Provider Integration Profiles](./runbooks/catalog-provider-integration-profiles.md): profile activation, rollback, retirement, and bootstrap failure response.
+- [Catalog Alias Equivalence Staging Proof](./runbooks/catalog-alias-equivalence-staging-proof.md): UI-driven staging walkthrough for Japanese TCGdex import -> alias review -> promotion -> English search and display, with expected stage counts, revocation, and alias backfill / Discovery reindex / display recompute rollback.
 - [TCGplayer Automation Operations](./runbooks/tcgplayer-automation-operations.md): provider cookie handling, throttling, redaction, retention, and recovery for the automation-app client.
 - [Realtime SSE](./runbooks/realtime-sse.md): projection patch transport and operational checks.
 - [Projection Poison Events](./runbooks/projection-poison-events.md): triage and repair for degraded projection consumers.
