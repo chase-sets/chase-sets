@@ -14,7 +14,9 @@ import {
   type PgQueryable,
 } from "@chase-sets/event-core-postgres";
 import { localizedTextMapValues } from "@chase-sets/localization";
-import { normalizeSimpleSearchText } from "../domain/normalization";
+import { buildSimpleSearchText } from "../domain/normalization";
+import { aliasTextByWeight, type ResolvedAlias, type SearchTextWeight } from "../domain/alias-weighting";
+import { aliasSearchContributionEnabled } from "../domain/alias-rollout";
 import { uniqueStrings } from "../../../support/item-support/unique-strings";
 import {
   collectReferenceRecords,
@@ -150,6 +152,7 @@ type SearchCatalogItemRow = Readonly<{
   image_urls: unknown;
   product_asset_sets: unknown;
   image_fallback: unknown;
+  resolved_aliases: unknown;
   updated_at: string;
 }>;
 
@@ -158,6 +161,17 @@ type CatalogItemDisplayIdentityResolvedEventData = Readonly<{
   languageCode?: string;
   title: string;
   subtitle?: string | null;
+}>;
+
+// Published Catalog resolved-alias fact (#1910). Discovery consumes this stable
+// per-target, per-language fact only; an empty `aliases` list is a retraction.
+type CatalogItemAliasesResolvedEventData = Readonly<{
+  catalogItemId: string;
+  aliasLanguageCode: string;
+  aliases: readonly ResolvedAlias[];
+  resolvedAliasHash?: string;
+  resolverVersion?: number;
+  resolvedAt?: string;
 }>;
 
 async function upsertSearchCatalogBlueprint(
@@ -508,18 +522,30 @@ async function refreshDiscoverySearchItem(db: PgQueryable, itemId: string): Prom
     .concat(localizedMapValues(item.description_i18n))
     .join(" ");
 
-  const searchText = [
-    item.title,
-    item.subtitle ?? "",
-    item.description,
-    localizedText,
-    ...tags,
-    fieldValuesText,
-    blueprintName ?? "",
-    ...categoryNameList,
-  ]
-    .filter(Boolean)
-    .join(" ");
+  // Resolved Catalog alias text (#1910) folds into search only when the rollout
+  // kill-switch is open. Title/subtitle/description keep ownership of display and
+  // slugs; aliases add matchable text at type-aware weights so a broad species
+  // alias never outranks an exact title or an official equivalent.
+  const aliasWeights = aliasSearchContributionEnabled()
+    ? aliasTextByWeight(collectResolvedAliases(item.resolved_aliases))
+    : EMPTY_ALIAS_WEIGHTS;
+
+  // Base item text keeps weight ordering title > subtitle > body so existing
+  // English relevance ranks the resolved display identity highest; aliases merge
+  // into the same tiers per their resolved weight.
+  const baseTextByWeight: Record<SearchTextWeight, string> = {
+    A: [item.title].filter(Boolean).join(" "),
+    B: [item.subtitle ?? ""].filter(Boolean).join(" "),
+    C: [localizedText, ...tags, fieldValuesText, blueprintName ?? "", ...categoryNameList].filter(Boolean).join(" "),
+    D: item.description,
+  };
+
+  const weightedText: Record<SearchTextWeight, string> = {
+    A: joinSearchText(baseTextByWeight.A, aliasWeights.A),
+    B: joinSearchText(baseTextByWeight.B, aliasWeights.B),
+    C: joinSearchText(baseTextByWeight.C, aliasWeights.C),
+    D: joinSearchText(baseTextByWeight.D, aliasWeights.D),
+  };
 
   await db.query(
     `INSERT INTO discovery_search_items (
@@ -548,7 +574,16 @@ async function refreshDiscoverySearchItem(db: PgQueryable, itemId: string): Prom
       search_text,
       search_text_simple,
       updated_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, to_tsvector('english', $23), to_tsvector('simple', $24), $25)
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22,
+      setweight(to_tsvector('english', $23), 'A') ||
+        setweight(to_tsvector('english', $24), 'B') ||
+        setweight(to_tsvector('english', $25), 'C') ||
+        setweight(to_tsvector('english', $26), 'D'),
+      setweight(to_tsvector('simple', $27), 'A') ||
+        setweight(to_tsvector('simple', $28), 'B') ||
+        setweight(to_tsvector('simple', $29), 'C') ||
+        setweight(to_tsvector('simple', $30), 'D'),
+      $31)
     ON CONFLICT (catalog_item_id) DO UPDATE SET
       slug = EXCLUDED.slug,
       language_code = EXCLUDED.language_code,
@@ -597,10 +632,47 @@ async function refreshDiscoverySearchItem(db: PgQueryable, itemId: string): Prom
       JSON.stringify(imageUrls),
       JSON.stringify(productAssetSets),
       item.image_fallback === null ? null : JSON.stringify(item.image_fallback),
-      searchText,
-      normalizeSimpleSearchText(searchText),
+      weightedText.A,
+      weightedText.B,
+      weightedText.C,
+      weightedText.D,
+      buildSimpleSearchText(weightedText.A),
+      buildSimpleSearchText(weightedText.B),
+      buildSimpleSearchText(weightedText.C),
+      buildSimpleSearchText(weightedText.D),
       item.updated_at,
     ],
+  );
+}
+
+const EMPTY_ALIAS_WEIGHTS: Readonly<Record<SearchTextWeight, string>> = { A: "", B: "", C: "", D: "" };
+
+function joinSearchText(...parts: readonly string[]): string {
+  return parts.filter((part) => part.trim().length > 0).join(" ");
+}
+
+/**
+ * Flattens the per-language resolved alias map stored on the search source row
+ * into one alias list. Discovery dedupes downstream by alias hash and by
+ * catalog_item_id, so carrying every language here is safe and keeps English and
+ * native-script aliases both searchable.
+ */
+function collectResolvedAliases(value: unknown): ResolvedAlias[] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return [];
+  }
+
+  return Object.values(value as Record<string, unknown>).flatMap((entry) =>
+    Array.isArray(entry) ? (entry.filter(isResolvedAlias) as ResolvedAlias[]) : [],
+  );
+}
+
+function isResolvedAlias(value: unknown): value is ResolvedAlias {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { aliasText?: unknown }).aliasText === "string" &&
+    typeof (value as { aliasType?: unknown }).aliasType === "string"
   );
 }
 
@@ -835,6 +907,42 @@ async function applyCatalogItemDisplayIdentity(
   await refreshDiscoverySearchItem(db, input.catalogItemId);
 }
 
+/**
+ * Applies a published resolved-alias fact (#1910) to the search source row,
+ * per alias language. A non-empty list sets that language's aliases; an empty
+ * list is a retraction and removes the language key so the aliases drop out of
+ * search_text on the event (and on rebuild, since rebuild reads the same row).
+ * Display columns (title/subtitle/slug) are never touched here.
+ */
+async function applyCatalogItemResolvedAliases(
+  db: PgQueryable,
+  input: CatalogItemAliasesResolvedEventData,
+  updatedAt: string,
+): Promise<void> {
+  const languageCode = input.aliasLanguageCode;
+  const aliases = Array.isArray(input.aliases) ? input.aliases : [];
+
+  if (aliases.length === 0) {
+    await db.query(
+      `UPDATE discovery_search_catalog_items
+       SET resolved_aliases = COALESCE(resolved_aliases, '{}'::jsonb) - $2,
+           updated_at = $3
+       WHERE catalog_item_id = $1`,
+      [input.catalogItemId, languageCode, updatedAt],
+    );
+  } else {
+    await db.query(
+      `UPDATE discovery_search_catalog_items
+       SET resolved_aliases = COALESCE(resolved_aliases, '{}'::jsonb) || jsonb_build_object($2::text, $3::jsonb),
+           updated_at = $4
+       WHERE catalog_item_id = $1`,
+      [input.catalogItemId, languageCode, JSON.stringify(aliases), updatedAt],
+    );
+  }
+
+  await refreshDiscoverySearchItem(db, input.catalogItemId);
+}
+
 export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "catalog.catalog-item.created": async (event) => {
@@ -964,6 +1072,13 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
       await applyCatalogItemDisplayIdentity(
         db,
         event.data as CatalogItemDisplayIdentityResolvedEventData,
+        event.timing.recordedAt,
+      );
+    },
+    "catalog.catalog-item.aliases-resolved": async (event) => {
+      await applyCatalogItemResolvedAliases(
+        db,
+        event.data as CatalogItemAliasesResolvedEventData,
         event.timing.recordedAt,
       );
     },

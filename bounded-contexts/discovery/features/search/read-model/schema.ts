@@ -32,6 +32,14 @@ ALTER TABLE discovery_search_catalog_items
   ADD COLUMN IF NOT EXISTS product_asset_sets jsonb NOT NULL DEFAULT '[]'::jsonb,
   ADD COLUMN IF NOT EXISTS image_fallback jsonb NULL;
 
+-- Resolved Catalog alias facts (#1910) consumed by Discovery search (#1911).
+-- The published alias list per language is stored on the search source table so
+-- rebuild folds aliases into the tsvectors idempotently and a retracted (empty)
+-- resolved fact removes them. Display (title/subtitle/slug) is owned elsewhere
+-- (#1914); these columns never feed display.
+ALTER TABLE discovery_search_catalog_items
+  ADD COLUMN IF NOT EXISTS resolved_aliases jsonb NOT NULL DEFAULT '{}'::jsonb;
+
 CREATE UNIQUE INDEX IF NOT EXISTS discovery_search_catalog_items_slug_idx ON discovery_search_catalog_items (slug) WHERE slug <> '';
 CREATE INDEX IF NOT EXISTS discovery_search_catalog_items_language_idx ON discovery_search_catalog_items (language_code);
 CREATE INDEX IF NOT EXISTS discovery_search_catalog_items_blueprint_idx ON discovery_search_catalog_items (blueprint_id);

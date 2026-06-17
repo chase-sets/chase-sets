@@ -1,5 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { normalizeSimpleSearchText } from "../domain/normalization";
+import { buildSimpleSearchQuery } from "../domain/normalization";
 import type { ProductSchema } from "../../../support/client-support/contracts";
 import { dimensionFacetValueOrderSql, facetGroupDecisionPriority, fieldFacetValueOrderSql } from "./facet-ordering";
 
@@ -187,7 +187,7 @@ function buildSearchFilter(params: DiscoverySearchParams, options: SearchFilterB
     conditions.push(
       `(${itemColumn("search_text")} @@ plainto_tsquery('english', $${englishSearchParamIndex}) OR ${itemColumn("search_text_simple")} @@ plainto_tsquery('simple', $${simpleSearchParamIndex}))`,
     );
-    values.push(normalizeSimpleSearchText(params.search));
+    values.push(buildSimpleSearchQuery(params.search));
     paramIndex++;
     hasSearch = true;
   }

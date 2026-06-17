@@ -156,13 +156,15 @@ describe("resolved alias fact declaration site and shape", () => {
     expect(readme).toContain(REFERENCE_RECORD_ALIASES_RESOLVED_EVENT);
   });
 
-  it("keeps existing consumers working before they subscribe (deploy-skew safety)", () => {
-    // Subscription versioning + deploy skew: existing Discovery projections must
-    // not reference the new alias events until #1911 / #1914 bump their
-    // subscriptionVersion. Adding the alias events to a subscription before its
-    // consumer code handles them would replay unknown events. This test fails if
-    // a future edit subscribes a projection to the alias facts without bumping
-    // the version, surfacing the deploy-skew checklist.
+  it("keeps alias-fact consumers on versioned subscriptions (deploy-skew safety)", () => {
+    // Subscription versioning + deploy skew: a Discovery projection may consume an
+    // alias fact only under a bumped, intentional subscriptionVersion, so a replay
+    // never delivers a new event type to consumer code that predates it. Discovery
+    // search (#1911) consumes the Catalog Item alias fact; Discovery display
+    // (#1914) consumes the Reference Record alias fact. Any subscription that
+    // references either alias event must declare a deploy-skew-safe version (>= 2,
+    // since the new event types were added on top of an already-versioned
+    // subscription), surfacing the deploy-skew checklist for that slice.
     const discovery = JSON.parse(readFileSync(new URL("../../discovery/context.json", import.meta.url), "utf8")) as {
       eventSubscriptions: Array<{ subscriptionVersion: number; eventTypes: string[] }>;
     };
@@ -171,18 +173,8 @@ describe("resolved alias fact declaration site and shape", () => {
         subscription.eventTypes.includes(ITEM_ALIASES_RESOLVED_EVENT) ||
         subscription.eventTypes.includes(REFERENCE_RECORD_ALIASES_RESOLVED_EVENT)
       ) {
-        // If a consumer subscribes, it must declare a versioned subscription so
-        // deploy skew is intentional and tracked.
-        expect(subscription.subscriptionVersion).toBeGreaterThanOrEqual(1);
+        expect(subscription.subscriptionVersion).toBeGreaterThanOrEqual(2);
       }
     }
-    // Until #1911 / #1914 land, no Discovery subscription consumes the alias
-    // facts, so existing consumers continue on their current subscription.
-    const subscribesToAliasFacts = discovery.eventSubscriptions.some(
-      (subscription) =>
-        subscription.eventTypes.includes(ITEM_ALIASES_RESOLVED_EVENT) ||
-        subscription.eventTypes.includes(REFERENCE_RECORD_ALIASES_RESOLVED_EVENT),
-    );
-    expect(subscribesToAliasFacts).toBe(false);
   });
 });
