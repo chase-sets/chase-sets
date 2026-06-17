@@ -449,6 +449,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
 type CheckoutStartActionData =
   | Readonly<{ error: string; signInPath: string }>
+  | Readonly<{ emailExistsError: string; signInPath: string }>
   | Readonly<{ recovery: CheckoutRecovery }>;
 
 function recoverCheckoutStartError(
@@ -530,7 +531,7 @@ export async function action({ request }: ActionFunctionArgs) {
   } catch (error) {
     if (isAccountSignInRequiredError(error)) {
       return {
-        error: t("checkout.routes.checkoutStart.sign.in.to.continue.checkout.with.this.email.your.cart"),
+        emailExistsError: t("checkout.routes.checkoutStart.email.already.has.account"),
         signInPath: signInPathForReturnTo(currentPathWithSearch(request)),
       };
     }
@@ -576,6 +577,9 @@ export default function CheckoutStartRoute() {
   const signInReturnTo =
     new URLSearchParams(data.signInPath.split("?")[1] ?? "").get("returnTo") ?? "/checkout/buy/readiness";
   const registerPath = `/register?returnTo=${encodeURIComponent(signInReturnTo)}`;
+  const emailExistsError = actionData && "emailExistsError" in actionData ? actionData.emailExistsError : null;
+  const emailExistsSignInPath =
+    actionData && "emailExistsError" in actionData ? actionData.signInPath : data.signInPath;
   const sourceFields = source ? (
     <>
       <HiddenInput type="hidden" name="entryAttemptKey" value={data.entryAttemptKey} />
@@ -825,8 +829,26 @@ export default function CheckoutStartRoute() {
               <RouterForm method="post" spacing="none">
                 <Stack gap={3}>
                   <Text tone="secondary">{t("checkout.routes.checkoutStart.continue.as.guest.fast.path")}</Text>
+                  {emailExistsError ? (
+                    <Banner
+                      title={t("checkout.routes.checkoutStart.sign.in.required")}
+                      description={emailExistsError}
+                      tone="warning"
+                      actions={
+                        <LinkButton href={emailExistsSignInPath} tone="secondary">
+                          {t("checkout.routes.checkoutStart.sign.in")}
+                        </LinkButton>
+                      }
+                    />
+                  ) : null}
                   <TextInput label={t("checkout.routes.checkoutStart.contact.name")} name="contactName" required />
-                  <TextInput label={t("checkout.routes.checkoutStart.email")} name="email" type="email" required />
+                  <TextInput
+                    label={t("checkout.routes.checkoutStart.email")}
+                    name="email"
+                    type="email"
+                    required
+                    error={emailExistsError ?? undefined}
+                  />
                   {sourceFields}
                   <Button type="submit" size="lg" leadingIcon="lock">
                     {t("checkout.routes.checkoutStart.continue.as.guest")}
