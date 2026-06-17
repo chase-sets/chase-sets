@@ -66,4 +66,8 @@ export const catalogSourceObservationsAliasReviewEnglishTranslations = {
   "catalog.features.sourceObservations.ui.aliasReview.evidence.evidenceKind": "Evidence kind",
   "catalog.features.sourceObservations.ui.aliasReview.evidence.sourceObservation": "Source Observation",
   "catalog.features.sourceObservations.ui.aliasReview.evidence.nativeLanguage": "Native language",
+  "catalog.features.aliasEquivalence.api.route.invalid.intent":
+    "Alias review action must be accept, reject, or revoke.",
+  "catalog.features.aliasEquivalence.api.route.no.candidates": "Select at least one alias candidate to review.",
+  "catalog.features.aliasEquivalence.api.route.reason.required": "Rejecting or revoking an alias requires a reason.",
 } as const;

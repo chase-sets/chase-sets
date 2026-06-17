@@ -33,6 +33,7 @@ import {
 } from "../../../features/source-observations/ui/primary-workbench-source-option-refresh";
 import type { CatalogControlPlaneRouteSurfaceKey } from "../../../features/source-observations/ui/admin-control-plane/information-architecture";
 import type { CatalogPrimaryWorkbenchCommandFeedback } from "../../../features/source-observations/ui/primary-workbench-command-feedback";
+import type { CatalogAliasReviewReadModel } from "../../../features/alias-equivalence/api/alias-review-admin-contracts";
 import { CatalogApiError } from "../../../client";
 import { createCatalogRequestApiClient } from "../../../support/request-support/api-client";
 import { loadCatalogListRouteData } from "../../../support/shell-support/list-query-state";
@@ -93,6 +94,7 @@ async function finalizeSurfaceLoad(input: {
   reviewObservations?: ListResponse<SourceObservationListItem> | null;
   reviewPagination?: Readonly<{ limit: number; offset: number }>;
   sourceOptionPages?: readonly CatalogPrimaryWorkbenchSourceOptionPageSnapshot[] | null;
+  aliasReview?: CatalogAliasReviewReadModel | null;
 }) {
   const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface(input.surface, {
     requestUrl: input.request.url,
@@ -112,6 +114,7 @@ async function finalizeSurfaceLoad(input: {
     readModel,
     requestUrl: input.request.url,
     commandFeedback: commandFeedbackFromUrl(input.request.url),
+    aliasReview: input.aliasReview ?? null,
   };
 }
 
@@ -123,9 +126,10 @@ export async function loadDailySurface({ request }: LoaderFunctionArgs) {
   const { api, baseline, routeContext } = await loadIntegrationsBaseline(request);
   const reviewPagination = { limit: 25, offset: 0 };
   const reviewQuery = buildCatalogPrimaryWorkbenchSourceObservationReviewQuery(routeContext, reviewPagination);
-  const [reviewObservations, sourceOptionPages] = await Promise.all([
+  const [reviewObservations, sourceOptionPages, aliasReview] = await Promise.all([
     reviewQuery ? api.listSourceObservations<ListResponse<SourceObservationListItem>>(reviewQuery) : null,
     selectedProviderSourceOptionPages(api, request, baseline, routeContext),
+    selectedScopeAliasReview(api, routeContext),
   ]);
 
   return finalizeSurfaceLoad({
@@ -136,7 +140,36 @@ export async function loadDailySurface({ request }: LoaderFunctionArgs) {
     reviewObservations,
     reviewPagination,
     sourceOptionPages,
+    aliasReview,
   });
+}
+
+// Fetch the #1908 alias-review read model for the selected provider/profile scope
+// so the daily surface can surface alias candidates before promotion. Alias
+// review is supplementary context: a missing endpoint (older API) or a transient
+// failure must never break the import-to-promotion workflow, so this resolves to
+// null on absence/error.
+async function selectedScopeAliasReview(
+  api: ReturnType<typeof createCatalogRequestApiClient>,
+  context: CatalogPrimaryWorkbenchRouteContext,
+): Promise<CatalogAliasReviewReadModel | null> {
+  if (typeof api.getCatalogAliasReviewReadModel !== "function") {
+    return null;
+  }
+
+  const query = new URLSearchParams();
+  if (context.providerKey) {
+    query.set("providerKey", context.providerKey);
+  }
+  if (context.profileVersion) {
+    query.set("sourceProfileVersion", context.profileVersion);
+  }
+
+  try {
+    return await api.getCatalogAliasReviewReadModel<CatalogAliasReviewReadModel>(query.toString());
+  } catch {
+    return null;
+  }
 }
 
 // Provider profiles + readiness surface (/admin/integrations/providers). Loads

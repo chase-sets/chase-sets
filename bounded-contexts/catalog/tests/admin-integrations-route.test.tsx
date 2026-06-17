@@ -1841,7 +1841,165 @@ describe("Catalog integrations route", () => {
     // The sanitized result never carries the underlying error message.
     expect(JSON.stringify(failureResult)).not.toContain("provider secret leaked");
   });
+
+  it("loads the alias-review read model into the daily surface route data (#1908)", async () => {
+    const scopes = { items: [sourceObservationScope()], total: 1, count: 1 };
+    const profileReviews = { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 };
+    const getCatalogAliasReviewReadModel = vi.fn().mockResolvedValue(aliasReviewReadModel());
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listSourceObservationIntegrationScopes: vi.fn().mockResolvedValue(scopes),
+      listSourceObservationProviderProfiles: vi.fn().mockResolvedValue(profileReviews),
+      getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(null),
+      listSourceObservations: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      getCatalogAliasReviewReadModel,
+      recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+    });
+
+    const routeData = await loader({
+      request: new Request(
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.04",
+      ),
+      params: {},
+      context: {},
+    } as Parameters<typeof loader>[0]);
+
+    const aliasReviewQuery = new URLSearchParams(getCatalogAliasReviewReadModel.mock.calls[0]?.[0] ?? "");
+    expect(aliasReviewQuery.get("providerKey")).toBe("tcgdex");
+    expect(aliasReviewQuery.get("sourceProfileVersion")).toBe("2026.06.04");
+    expect(routeData.aliasReview?.counts.needsReview).toBe(1);
+  });
+
+  it("keeps the daily surface rendering when the alias-review read model is unavailable", async () => {
+    const scopes = { items: [sourceObservationScope()], total: 1, count: 1 };
+    const profileReviews = { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 };
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listSourceObservationIntegrationScopes: vi.fn().mockResolvedValue(scopes),
+      listSourceObservationProviderProfiles: vi.fn().mockResolvedValue(profileReviews),
+      getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(null),
+      listSourceObservations: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      getCatalogAliasReviewReadModel: vi.fn().mockRejectedValue(new CatalogApiError(503, { error: { code: "boom" } })),
+      recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+    });
+
+    const routeData = await loader({
+      request: new Request("https://admin.example/catalog/integrations?providerKey=tcgdex"),
+      params: {},
+      context: {},
+    } as Parameters<typeof loader>[0]);
+
+    // Alias review is supplementary: a transient failure resolves to null, never
+    // breaking the import-to-promotion workflow.
+    expect(routeData.aliasReview).toBeNull();
+  });
+
+  it("renders the alias-review workspace inline on the daily surface when the loader provides it", () => {
+    const scopes = { items: [sourceObservationScope()], total: 1, count: 1 };
+    const profileReviews = { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 };
+    const requestUrl = "https://admin.example/catalog/integrations?providerKey=tcgdex";
+    mockUseLoaderData.mockReturnValue({
+      requestUrl,
+      commandFeedback: null,
+      aliasReview: aliasReviewReadModel(),
+      readModel: buildCatalogPrimaryWorkbenchReadModel({
+        requestUrl,
+        scopes,
+        profileReviews,
+        controlPlaneOverview: null,
+        canManageCatalog: true,
+      }),
+    });
+    mockUseRouteLoaderData.mockReturnValue({
+      actor: { permissions: ["catalog.view", "catalog.manage"] },
+    });
+
+    render(<IntegrationsRoute />);
+
+    expect(screen.getAllByText("Alias review").length).toBeGreaterThan(0);
+  });
+
+  it("dispatches the #1905 accept command for the alias-review accept action and stays on the daily surface", async () => {
+    const dispatchCatalogAliasReviewCommand = vi.fn().mockResolvedValue({
+      intent: "accept",
+      count: 1,
+      applied: [{ aliasHash: "hash_a", reviewStatus: "accepted", version: 2 }],
+    });
+    mockCreateCatalogRequestApiClient.mockReturnValue({ dispatchCatalogAliasReviewCommand });
+
+    const result = await runDailyAction({ _intent: "accept", aliasHashes: "hash_a" });
+
+    expect(dispatchCatalogAliasReviewCommand).toHaveBeenCalledWith({ intent: "accept", aliasHashes: ["hash_a"] });
+    expect(result.section).toBe("import-to-promotion");
+    expect(result.feedback.status).toBe("success");
+  });
+
+  it("dispatches the #1905 reject command with the operator reason for the alias-review reject action", async () => {
+    const dispatchCatalogAliasReviewCommand = vi.fn().mockResolvedValue({
+      intent: "reject",
+      count: 1,
+      applied: [{ aliasHash: "hash_a", reviewStatus: "rejected", version: 2 }],
+    });
+    mockCreateCatalogRequestApiClient.mockReturnValue({ dispatchCatalogAliasReviewCommand });
+
+    const result = await runDailyAction({
+      _intent: "reject",
+      aliasHashes: "hash_a",
+      reason: "Generated, not official",
+    });
+
+    expect(dispatchCatalogAliasReviewCommand).toHaveBeenCalledWith({
+      intent: "reject",
+      aliasHashes: ["hash_a"],
+      reason: "Generated, not official",
+    });
+    expect(result.feedback.status).toBe("success");
+  });
+
+  it("fails the alias-review reject action closed when no reason is supplied", async () => {
+    const dispatchCatalogAliasReviewCommand = vi.fn();
+    mockCreateCatalogRequestApiClient.mockReturnValue({ dispatchCatalogAliasReviewCommand });
+
+    const result = await runDailyAction({ _intent: "reject", aliasHashes: "hash_a" });
+
+    expect(dispatchCatalogAliasReviewCommand).not.toHaveBeenCalled();
+    expect(result.feedback.status).toBe("error");
+    expect(result.feedback.result).toBe("reason-required");
+  });
 });
+
+function aliasReviewReadModel() {
+  return {
+    schemaVersion: "catalog-alias-review-v1" as const,
+    generatedAt: "2026-06-16T00:00:00.000Z",
+    filter: {
+      providerKey: "tcgdex",
+      sourceProfileVersion: "2026.06.04",
+      aliasType: null,
+      reviewStatuses: [],
+      observationId: null,
+    },
+    counts: {
+      total: 1,
+      pending: 1,
+      accepted: 0,
+      autoAccepted: 0,
+      rejected: 0,
+      revoked: 0,
+      needsReview: 1,
+      autoAcceptEligible: 0,
+      warned: 0,
+    },
+    candidates: [],
+    groups: [],
+    coverage: {
+      cardsWithAcceptedEnglishAlias: 0,
+      cardsWithOnlySpeciesAliases: 0,
+      cardsNeedingReview: 0,
+      expansionsAndSeriesNeedingReview: 0,
+      cards: [],
+      referenceScopes: [],
+    },
+  };
+}
 
 function sourceOptionResponse(
   queryKind: string,
