@@ -1,9 +1,18 @@
 import { createHash } from "node:crypto";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { asArray, asStringArray, type FieldValue } from "../../../support/projection-support/read-model-support";
+import {
+  composeDisplayWithNativeSecondary,
+  loadCatalogItemDisplayAlias,
+  loadReferenceRecordDisplayAliasesById,
+  type ResolvedDisplayAlias,
+} from "./display-alias-policy";
 
 const MAX_REFERENCE_EXPANSION_DEPTH = 4;
-const DISPLAY_IDENTITY_RESOLVER_VERSION = 1;
+// Bumped to 2 when accepted English aliases began feeding display identity (#1914):
+// the resolved hash now also reflects the chosen display alias, so a resolver
+// upgrade must re-resolve every item even when the template output is unchanged.
+const DISPLAY_IDENTITY_RESOLVER_VERSION = 2;
 
 export type DisplayIdentityItem = Readonly<{
   catalog_item_id: string;
@@ -79,7 +88,26 @@ type ResolutionContext = Readonly<{
   referencesByType: ReadonlyMap<string, ReferenceRecordRef>;
   referencesById: ReadonlyMap<string, ReferenceRecordRef>;
   referenceDepths: ReadonlyMap<string, number>;
+  /** Chosen accepted English alias for the item, if any qualifies and the locale prefers it. */
+  itemDisplayAlias: ResolvedDisplayAlias | null;
+  /** Chosen accepted English alias per Reference Record (set/series display). */
+  referenceDisplayAliasesById: ReadonlyMap<string, ResolvedDisplayAlias>;
 }>;
+
+/**
+ * Catalog Item + Reference Record display aliases the resolver folds into the
+ * resolved title/subtitle for an English-locale viewer. Loaded from the
+ * publishable alias queries (#1905) and selected by the display policy (#1914).
+ */
+export type DisplayIdentityAliases = Readonly<{
+  itemDisplayAlias: ResolvedDisplayAlias | null;
+  referenceDisplayAliasesById: ReadonlyMap<string, ResolvedDisplayAlias>;
+}>;
+
+const NO_DISPLAY_ALIASES: DisplayIdentityAliases = {
+  itemDisplayAlias: null,
+  referenceDisplayAliasesById: new Map(),
+};
 
 type ExistingDisplayIdentityHashRow = Readonly<{
   catalog_item_id: string;
@@ -92,21 +120,24 @@ export async function resolveCatalogItemDisplayIdentity(
   item: DisplayIdentityItem,
 ): Promise<ResolvedDisplayIdentity> {
   const fieldValues = asArray<FieldValue>(item.field_values);
-  const [fieldDefinitions, templates, references] = await Promise.all([
+  const referenceIds = fieldValues
+    .map((fieldValue) => referenceIdFromValue(fieldValue.value))
+    .filter((referenceId): referenceId is string => referenceId !== null);
+  const [fieldDefinitions, templates, references, itemDisplayAlias, referenceDisplayAliasesById] = await Promise.all([
     loadFieldDefinitions(
       db,
       fieldValues.map((fieldValue) => fieldValue.fieldId),
     ),
     loadActiveDisplayTemplates(db),
-    loadReferenceRecordMap(
-      db,
-      fieldValues
-        .map((fieldValue) => referenceIdFromValue(fieldValue.value))
-        .filter((referenceId): referenceId is string => referenceId !== null),
-    ),
+    loadReferenceRecordMap(db, referenceIds),
+    loadCatalogItemDisplayAlias(db, item.catalog_item_id),
+    loadReferenceRecordDisplayAliasesById(db, referenceIds),
   ]);
 
-  return resolveCatalogItemDisplayIdentityWithLoadedData(item, fieldValues, fieldDefinitions, templates, references);
+  return resolveCatalogItemDisplayIdentityWithLoadedData(item, fieldValues, fieldDefinitions, templates, references, {
+    itemDisplayAlias,
+    referenceDisplayAliasesById,
+  });
 }
 
 export async function resolveAndPersistCatalogItemDisplayIdentities<TItem extends DisplayIdentityItem>(
@@ -145,6 +176,16 @@ export async function resolveAndPersistCatalogItemDisplayIdentities<TItem extend
     db,
     uniqueItems.flatMap((item) => directReferenceIdsByItemId.get(item.catalog_item_id) ?? []),
   );
+  // Sequential alias loads: the admin projection refresh runs on one DB
+  // connection with backpressure, so these must not fan out concurrent queries.
+  const itemDisplayAliasesById = new Map<string, Awaited<ReturnType<typeof loadCatalogItemDisplayAlias>>>();
+  for (const item of uniqueItems) {
+    itemDisplayAliasesById.set(item.catalog_item_id, await loadCatalogItemDisplayAlias(db, item.catalog_item_id));
+  }
+  const referenceDisplayAliasesById = await loadReferenceRecordDisplayAliasesById(
+    db,
+    uniqueItems.flatMap((item) => directReferenceIdsByItemId.get(item.catalog_item_id) ?? []),
+  );
   const identities = uniqueItems.map((item) =>
     resolveCatalogItemDisplayIdentityWithLoadedData(
       item,
@@ -152,6 +193,10 @@ export async function resolveAndPersistCatalogItemDisplayIdentities<TItem extend
       fieldDefinitions,
       templates,
       buildReferenceRecordMap(directReferenceIdsByItemId.get(item.catalog_item_id) ?? [], referenceRowsById),
+      {
+        itemDisplayAlias: itemDisplayAliasesById.get(item.catalog_item_id) ?? null,
+        referenceDisplayAliasesById,
+      },
     ),
   );
   const existingHashes = await loadExistingDisplayIdentityHashes(db, identities);
@@ -189,8 +234,11 @@ function resolveCatalogItemDisplayIdentityWithLoadedData(
   fieldDefinitions: ReadonlyMap<string, FieldDefinitionRow>,
   templates: readonly DisplayTemplateRow[],
   references: ReadonlyMap<string, ReferenceRecordRef>,
+  aliases: DisplayIdentityAliases = NO_DISPLAY_ALIASES,
 ): ResolvedDisplayIdentity {
   const fieldsByKey = fieldValueMap(fieldValues, fieldDefinitions);
+  const languageCode = normalizeLanguageCode(item.language_code);
+  const prefersEnglishAlias = isEnglishDisplayLocale(languageCode);
   const context: ResolutionContext = {
     item,
     fieldsByKey,
@@ -199,30 +247,50 @@ function resolveCatalogItemDisplayIdentityWithLoadedData(
     referenceDepths: new Map(
       [...references.entries()].map(([referenceId, reference]) => [referenceId, reference.depth]),
     ),
+    itemDisplayAlias: prefersEnglishAlias ? aliases.itemDisplayAlias : null,
+    referenceDisplayAliasesById: prefersEnglishAlias ? aliases.referenceDisplayAliasesById : new Map(),
   };
   const template = chooseTemplate(context, templates);
-  const languageCode = normalizeLanguageCode(item.language_code);
 
   if (!template) {
+    const nativeTitle = item.title;
     return withDisplayIdentityMetadata(item, languageCode, {
-      title: item.title,
+      title: applyItemDisplayAlias(context, nativeTitle),
       subtitle: item.subtitle?.trim() || null,
       templateKey: null,
       templateTargetKind: null,
       templateTargetId: null,
+      displayAlias: context.itemDisplayAlias,
     });
   }
 
-  const title = renderTemplate(template.title_template, context).trim();
+  const nativeTitle = renderTemplate(template.title_template, context).trim() || item.title;
   const subtitle = template.subtitle_template ? renderTemplate(template.subtitle_template, context).trim() : "";
 
   return withDisplayIdentityMetadata(item, languageCode, {
-    title: title || item.title,
+    title: applyItemDisplayAlias(context, nativeTitle),
     subtitle: subtitle || null,
     templateKey: template.key,
     templateTargetKind: template.target_kind,
     templateTargetId: template.target_id,
+    displayAlias: context.itemDisplayAlias,
   });
+}
+
+/**
+ * Fold the chosen English display alias into the resolved title, keeping the
+ * native (template-resolved) name as secondary: `Cacnea (サボネア)`. When no alias
+ * qualifies the native name stays the primary display name untouched.
+ */
+function applyItemDisplayAlias(context: ResolutionContext, nativeTitle: string): string {
+  if (!context.itemDisplayAlias) {
+    return nativeTitle;
+  }
+  return composeDisplayWithNativeSecondary(context.itemDisplayAlias.aliasText, nativeTitle);
+}
+
+function isEnglishDisplayLocale(languageCode: string): boolean {
+  return languageCode === "en" || languageCode.startsWith("en-");
 }
 
 export async function resolveAndPersistCatalogItemDisplayIdentity(
@@ -393,7 +461,7 @@ function withDisplayIdentityMetadata(
   identity: Pick<
     ResolvedDisplayIdentity,
     "title" | "subtitle" | "templateKey" | "templateTargetKind" | "templateTargetId"
-  >,
+  > & { displayAlias: ResolvedDisplayAlias | null },
 ): ResolvedDisplayIdentity {
   const snapshot = {
     catalogItemId: item.catalog_item_id,
@@ -408,7 +476,7 @@ function withDisplayIdentityMetadata(
 
   return {
     ...snapshot,
-    hash: displayIdentityHash(snapshot),
+    hash: displayIdentityHash({ ...snapshot, displayAlias: identity.displayAlias }),
   };
 }
 
@@ -421,6 +489,7 @@ function displayIdentityHash(input: {
   templateTargetKind: string | null;
   templateTargetId: string | null;
   resolverVersion: number;
+  displayAlias: ResolvedDisplayAlias | null;
 }): string {
   return createHash("sha256")
     .update(
@@ -433,6 +502,16 @@ function displayIdentityHash(input: {
         templateTargetKind: input.templateTargetKind,
         templateTargetId: input.templateTargetId,
         resolverVersion: input.resolverVersion,
+        // The chosen display alias is part of resolved display truth: include its
+        // identity so the hash changes when the display-relevant alias changes,
+        // even if the rendered title text happens to collide.
+        displayAlias: input.displayAlias
+          ? {
+              normalizedAliasText: input.displayAlias.normalizedAliasText,
+              aliasType: input.displayAlias.aliasType,
+              confidence: input.displayAlias.confidence,
+            }
+          : null,
       }),
     )
     .digest("hex");
@@ -521,7 +600,7 @@ function resolveToken(token: string, context: ResolutionContext): string | null 
       return null;
     }
 
-    return resolveReferencePath(reference, parts.slice(2));
+    return resolveReferencePath(reference, parts.slice(2), context);
   }
 
   if (parts[0] === "item" && parts[1] === "title") {
@@ -535,9 +614,13 @@ function resolveToken(token: string, context: ResolutionContext): string | null 
   return null;
 }
 
-function resolveReferencePath(reference: ReferenceRecordRef, path: readonly string[]): string | null {
+function resolveReferencePath(
+  reference: ReferenceRecordRef,
+  path: readonly string[],
+  context: ResolutionContext,
+): string | null {
   if (path.length === 0 || path[0] === "name") {
-    return reference.name;
+    return referenceDisplayName(reference, context);
   }
 
   if (path[0] === "key") {
@@ -550,10 +633,21 @@ function resolveReferencePath(reference: ReferenceRecordRef, path: readonly stri
 
   if (path[0] === "relationship" && path[1]) {
     const relationship = reference.relationships.find((entry) => entry.relationshipType === path[1]);
-    return relationship?.reference ? resolveReferencePath(relationship.reference, path.slice(2)) : null;
+    return relationship?.reference ? resolveReferencePath(relationship.reference, path.slice(2), context) : null;
   }
 
   return null;
+}
+
+/**
+ * The display name for a Reference Record (set/series): the accepted English
+ * alias as primary with the native provider name as secondary when one qualifies
+ * (`Triplet Beat (トリプレットビート)`), otherwise the native name unchanged. Mirrors
+ * the Catalog Item display policy so set/series display follows the same rule.
+ */
+function referenceDisplayName(reference: ReferenceRecordRef, context: ResolutionContext): string {
+  const alias = context.referenceDisplayAliasesById.get(reference.referenceId);
+  return alias ? composeDisplayWithNativeSecondary(alias.aliasText, reference.name) : reference.name;
 }
 
 function fieldValueMap(
