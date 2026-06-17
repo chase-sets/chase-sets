@@ -190,10 +190,6 @@ const defaultAllowedZeroConsumerExports = [
     symbol: "MediaFrame",
     reason: "internal layout/commerce media primitive; kept after cart adopted MarketplaceCartLineItem",
   },
-  {
-    symbol: "Show",
-    reason: "internal responsive layout primitive used across DS components; no external consumer yet",
-  },
 ];
 
 function isSourceFile(filePath) {

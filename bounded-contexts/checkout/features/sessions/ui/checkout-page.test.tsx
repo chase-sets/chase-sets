@@ -532,6 +532,12 @@ describe("checkout session page", () => {
     expect(markup).not.toContain("Payment method");
     expect(markup).not.toContain("Live fulfillment preview");
     expect(markup).not.toContain("Destination is required before purchases are created");
+    // #1933: the summary total reads "No payment today"; the caption beneath it
+    // must carry the distinct reassurance, never repeat the total verbatim. The
+    // caption paragraph uses the `text-tertiary` recipe, so a tertiary caption
+    // echoing the total value would be the regressed duplicate.
+    expect(markup).not.toContain('text-tertiary">No payment today');
+    expect(markup).toContain("Sellers can accept your purchase intent before an order and payment are created.");
   });
 
   it("renders saved shipping address selection with explicit address preferences", () => {
@@ -863,6 +869,21 @@ describe("checkout session page", () => {
     for (const slot of primarySlots) {
       expect(slot.getAttribute("data-primary-action-count")).toBe("1");
     }
+
+    // #1934: exactly one primary per viewport. The sticky bar primary targets
+    // the form via `form="checkout-confirmation-form"` and lives in a md:hidden
+    // (mobile-only) container; the in-form primary submits its enclosing form
+    // (no `form` attribute) and must be wrapped to show at md+ only. The two
+    // therefore never stack on the same viewport.
+    const stickyPrimary = container.querySelector(
+      "button[type='submit'][value='confirm-checkout'][form='checkout-confirmation-form']",
+    );
+    expect(stickyPrimary).not.toBeNull();
+    expect(stickyPrimary?.closest(".md\\:hidden")).not.toBeNull();
+
+    const inFormPrimary = container.querySelector("button[type='submit'][value='confirm-checkout']:not([form])");
+    expect(inFormPrimary).not.toBeNull();
+    expect(inFormPrimary?.closest(".hidden.md\\:block")).not.toBeNull();
   });
 
   it("states the deferral once as the summary total caption", () => {

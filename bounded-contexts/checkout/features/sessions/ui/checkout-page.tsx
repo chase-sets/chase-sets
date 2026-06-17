@@ -27,6 +27,7 @@ import {
   ProductOptions,
   ProgressiveDisclosure,
   SecurePaymentIndicator,
+  Show,
   Stack,
   Surface,
   TextInput,
@@ -530,8 +531,10 @@ export function CheckoutSessionPage({
       ? `$${previewPayableTotal}`
       : t("checkout.features.sessions.ui.checkoutPage.pending");
   // The single deferral statement for this surface lives once, beneath the total.
+  // For offer intent the total already reads "No payment today", so the caption
+  // carries a distinct reassurance instead of repeating the total verbatim.
   const totalsCaption = isOfferIntent
-    ? t("checkout.features.sessions.ui.checkoutPage.no.payment.today")
+    ? t("checkout.features.sessions.ui.checkoutPage.sellers.can.accept.purchase.intent.before.order")
     : t("checkout.features.sessions.ui.checkoutPage.secure.payment.confirmed.caption");
   const totalsDeferred = !isOfferIntent && !previewPayableTotal;
 
@@ -1207,15 +1210,20 @@ export function CheckoutSessionPage({
                 </CheckoutFormSection>
               </Surface>
             ) : null}
-            <ActionRow
-              align="between"
-              primary={commitButton()}
-              secondary={
-                <LinkButton href="/account/cart" tone="secondary">
-                  {t("checkout.features.sessions.ui.checkoutPage.back.to.cart")}
-                </LinkButton>
-              }
-            />
+            {/* The mobile primary lives in CheckoutStickyActionBar (md:hidden). This
+                in-form row is the md+ counterpart, so it hides below md to keep exactly
+                one visible "Pay now" per viewport. Both submit checkout-confirmation-form. */}
+            <Show from="md">
+              <ActionRow
+                align="between"
+                primary={commitButton()}
+                secondary={
+                  <LinkButton href="/account/cart" tone="secondary">
+                    {t("checkout.features.sessions.ui.checkoutPage.back.to.cart")}
+                  </LinkButton>
+                }
+              />
+            </Show>
             <CheckoutPolicyLinks
               guestDataDescription={
                 isSignedInBuyer ? null : t("checkout.features.sessions.ui.checkoutPage.guest.data.description")
