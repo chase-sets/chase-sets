@@ -145,6 +145,62 @@ describe("checkout web routes: account cart", () => {
     });
   });
 
+  it("engages the account cart projection wait when discovery's View cart link carries an add-to-cart receipt, but reads empty without one (#1930)", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["checkout.manage"] });
+
+    // Discovery's add-to-cart action builds viewCartHref the same way: it threads the
+    // Checkout addCartLine command receipt through appendFreshWriteToken("/account/cart", result).
+    const viewCartHref = appendFreshWriteToken("/account/cart", checkoutCommit("42", "evt_cart_line"));
+    expect(readFreshWriteToken(new URL(viewCartHref, "http://localhost"))).toMatchObject({
+      sources: [{ sourceContextName: "checkout", maxGlobalPosition: "42", eventIds: ["evt_cart_line"] }],
+    });
+
+    // With the token, a still-lagging cart projection is a transient freshness timeout the
+    // loader recovers from after engaging the projection wait, rather than surfacing as a hard failure.
+    mockGetCart.mockRejectedValue(
+      new MockCheckoutApiError(503, {
+        error: {
+          code: "projection_freshness_timeout",
+          message: "Projection read model did not catch up before the freshness timeout.",
+        },
+      }),
+    );
+    mockCreateCheckoutRequestApiClient.mockReturnValue({ getCart: mockGetCart });
+
+    const withToken = await accountCartLoader({
+      request: new Request(`http://localhost${viewCartHref}`),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(withToken).toEqual({
+      cart: { items: [], count: 0 },
+      freshnessError: expect.any(String),
+    });
+
+    // Without the token (the pre-fix static href="/account/cart"), the same lagging projection
+    // is treated as a permanent failure: the loader never waits and the cart cannot self-heal.
+    vi.clearAllMocks();
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["checkout.manage"] });
+    mockGetCart.mockRejectedValue(
+      new MockCheckoutApiError(503, {
+        error: {
+          code: "projection_freshness_timeout",
+          message: "Projection read model did not catch up before the freshness timeout.",
+        },
+      }),
+    );
+    mockCreateCheckoutRequestApiClient.mockReturnValue({ getCart: mockGetCart });
+
+    await expect(
+      accountCartLoader({
+        request: new Request("http://localhost/account/cart"),
+        params: {},
+        context: undefined,
+      } as never),
+    ).rejects.toMatchObject({ status: 503 });
+  });
+
   it("recovers signed-in account cart self-refresh when a fresh receipt reads a transient not-found cart", async () => {
     vi.useFakeTimers();
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["checkout.manage"] });

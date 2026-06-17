@@ -363,7 +363,7 @@ export function CheckoutPurchaseIntentSection({
               itemTitle: addToCartSuccessData.itemTitle,
             })}
             actions={
-              <LinkButton href="/account/cart" tone="secondary" size="sm">
+              <LinkButton href={addToCartSuccessData.viewCartHref ?? "/account/cart"} tone="secondary" size="sm">
                 {t("discovery.routes.itemDetail.view.cart")}
               </LinkButton>
             }

@@ -155,6 +155,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
           itemTitle: item.title,
           quantity: cartLine.quantity,
           cartLine: checkoutCommandSnapshot(result),
+          viewCartHref: appendFreshWriteToken("/account/cart", result),
         } satisfies AddToCartActionData);
         appendAnonymousCartCookie(response.headers, anonymousCartId);
         return response;
@@ -167,6 +168,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
         itemTitle: item.title,
         quantity: cartLine.quantity,
         cartLine: checkoutCommandSnapshot(result),
+        viewCartHref: appendFreshWriteToken("/account/cart", result),
       } satisfies AddToCartActionData);
     }
 

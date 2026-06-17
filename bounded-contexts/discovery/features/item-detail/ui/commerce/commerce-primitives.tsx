@@ -81,6 +81,7 @@ export type AddToCartActionData = Readonly<{
     version: number;
     status: string;
   };
+  viewCartHref?: string;
 }>;
 
 export type ItemDetailActionData = AddToCartActionData | Readonly<{ error: string }> | null;
