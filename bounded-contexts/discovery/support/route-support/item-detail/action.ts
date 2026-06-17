@@ -129,6 +129,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
         }
         assertSelectedListingQuantityAvailable(preferredListing, quantity);
       }
+      const lockedListingId = preferredListing?.listing_id ?? null;
       const cartLine = {
         catalogItemId: item.catalog_item_id,
         productId,
@@ -142,9 +143,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
         selectedOptions: parseSelectedOptions(formData.get("selectedOptions")),
         productSummary: String(formData.get("productSummary") ?? "") || null,
         quantity,
-        fulfillmentMode: "optimize" as const,
-        lockedListingId: null,
-        sellerPreferenceId: preferredListing?.listing_id ?? null,
+        fulfillmentMode: lockedListingId ? ("locked-listing" as const) : ("optimize" as const),
+        lockedListingId,
+        sellerPreferenceId: lockedListingId,
       };
 
       if (!canUseAccountCheckoutCart(actor)) {
