@@ -68,7 +68,10 @@ export function createCatalogServices(pool: PgTransactionalPool, ports: CatalogH
   const items = createCatalogItemRuntime(deps);
   const productMeasures = createProductMeasureRuntime(deps);
   const providerIntegrationProfiles = createCatalogProviderIntegrationProfileVersionStore(db);
-  const catalogAliases = createCatalogAliasRuntime(deps);
+  const catalogAliases = createCatalogAliasRuntime(deps, {
+    catalogItemCommandHandler: items.commandHandler,
+    referenceRecordCommandHandler: referenceData.referenceRecordCommandHandler,
+  });
   const sourceObservations = createSourceObservationRuntime(
     deps,
     items,

@@ -11,6 +11,11 @@ import type {
   CatalogAliasTarget,
   CatalogAliasTypeKey,
 } from "../domain/alias";
+import {
+  enqueueCatalogItemAliasRecomputeWork,
+  enqueueReferenceRecordAliasRecomputeWork,
+  type AliasRecomputeReason,
+} from "./alias-recompute";
 
 // ---------------------------------------------------------------------------
 // Catalog Alias projections (#1905)
@@ -25,6 +30,13 @@ import type {
 //      alias into `catalog_item_aliases` / `catalog_reference_record_aliases`.
 //      Acceptance writes the row; rejection/revocation flip review_status in
 //      place so provenance and audit history survive (no hard delete).
+//
+// Because the set of publishable aliases for a target can change with any of
+// these events, each handler enqueues bounded, idempotent resolved-alias
+// recompute work for the affected target (#1910). The recompute worker resolves
+// the new publishable set and publishes the `aliases-resolved` fact only when
+// the resolved hash changes, including the empty (retracted) fact when the last
+// publishable alias is revoked or rejected.
 // ---------------------------------------------------------------------------
 
 type CatalogAliasProposedData = {
@@ -133,17 +145,85 @@ export function buildCatalogAliasProjectionHandlers(db: PgQueryable): ProjectorH
       } else {
         await upsertReferenceRecordAlias(db, data, recordedAt, reviewedAt);
       }
+
+      await enqueueAliasRecompute(
+        db,
+        data.target.kind,
+        data.target.targetId,
+        "alias-proposed",
+        event.streamId,
+        recordedAt,
+      );
     },
     "catalog.alias.accepted": async (event) => {
       await applyAliasReview(db, event.streamId, event.data as CatalogAliasReviewData, event.timing.recordedAt);
+      await enqueueAliasRecomputeForStream(db, event.streamId, "alias-accepted", event.timing.recordedAt);
     },
     "catalog.alias.rejected": async (event) => {
       await applyAliasReview(db, event.streamId, event.data as CatalogAliasReviewData, event.timing.recordedAt);
+      await enqueueAliasRecomputeForStream(db, event.streamId, "alias-rejected", event.timing.recordedAt);
     },
     "catalog.alias.revoked": async (event) => {
       await applyAliasReview(db, event.streamId, event.data as CatalogAliasReviewData, event.timing.recordedAt);
+      await enqueueAliasRecomputeForStream(db, event.streamId, "alias-revoked", event.timing.recordedAt);
     },
   };
+}
+
+/**
+ * Enqueue resolved-alias recompute for the target of a known alias kind/id. Used
+ * by the proposed handler, which carries the target on the event.
+ */
+async function enqueueAliasRecompute(
+  db: PgQueryable,
+  targetKind: CatalogAliasTarget["kind"],
+  targetId: string | null,
+  reason: AliasRecomputeReason,
+  streamId: string,
+  recordedAt: string,
+): Promise<void> {
+  if (!targetId) {
+    return;
+  }
+  const source = { eventType: "catalog.alias.proposed", streamId, recordedAt };
+  if (targetKind === "catalog-item") {
+    await enqueueCatalogItemAliasRecomputeWork(db, [targetId], reason, source);
+  } else {
+    await enqueueReferenceRecordAliasRecomputeWork(db, [targetId], reason, source);
+  }
+}
+
+/**
+ * Enqueue recompute for an accept/reject/revoke event, which only carries the
+ * alias hash. The persisted alias row routes the hash to its target table and
+ * id; the unique hash matches at most one row across both tables.
+ */
+async function enqueueAliasRecomputeForStream(
+  db: PgQueryable,
+  streamId: string,
+  reason: AliasRecomputeReason,
+  recordedAt: string,
+): Promise<void> {
+  const aliasHash = extractIdFromStreamId(streamId, CATALOG_ALIAS_STREAM_PREFIX);
+  const source = { streamId, recordedAt };
+
+  const catalogItem = await db.query<{ catalog_item_id: string }>(
+    `SELECT catalog_item_id FROM catalog_item_aliases WHERE alias_hash = $1`,
+    [aliasHash],
+  );
+  if (catalogItem.rows[0]?.catalog_item_id) {
+    await enqueueCatalogItemAliasRecomputeWork(db, [catalogItem.rows[0].catalog_item_id], reason, source);
+    return;
+  }
+
+  const referenceRecord = await db.query<{ reference_record_id: string | null }>(
+    `SELECT reference_record_id FROM catalog_reference_record_aliases WHERE alias_hash = $1`,
+    [aliasHash],
+  );
+  const referenceRecordId = referenceRecord.rows[0]?.reference_record_id;
+  if (referenceRecordId) {
+    await enqueueReferenceRecordAliasRecomputeWork(db, [referenceRecordId], reason, source);
+  }
 }
 
 async function applyAliasReview(

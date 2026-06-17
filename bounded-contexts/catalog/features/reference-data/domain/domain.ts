@@ -142,6 +142,32 @@ export type ReviseReferenceRecordCommand = Readonly<{
   relationships?: readonly ReferenceRelationship[];
 }>;
 
+/**
+ * One resolved alias entry in a published Reference Record alias fact
+ * (set-equivalent / series-equivalent). Mirrors the Catalog Item resolved alias
+ * entry so downstream consumers read one stable shape across both target kinds.
+ */
+export type ReferenceRecordResolvedAliasEntry = Readonly<{
+  aliasHash: string;
+  aliasText: string;
+  normalizedAliasText: string;
+  aliasType: string;
+  confidence: string;
+  broad: boolean;
+  providerKey: string;
+  sourceCategory: string;
+}>;
+
+export type RecordReferenceRecordAliasesCommand = Readonly<{
+  type: "RecordReferenceRecordAliases";
+  referenceRecordId: ReferenceRecordId;
+  aliasLanguageCode: string;
+  aliases: readonly ReferenceRecordResolvedAliasEntry[];
+  resolvedAliasHash: string;
+  resolverVersion: number;
+  resolvedAt: string;
+}>;
+
 export type PublishReferenceRecordCommand = Readonly<{
   type: "PublishReferenceRecord";
 }>;
@@ -157,6 +183,7 @@ export type ArchiveReferenceRecordCommand = Readonly<{
 export type ReferenceRecordCommand =
   | CreateReferenceRecordCommand
   | ReviseReferenceRecordCommand
+  | RecordReferenceRecordAliasesCommand
   | PublishReferenceRecordCommand
   | DeprecateReferenceRecordCommand
   | ArchiveReferenceRecordCommand;
@@ -177,6 +204,20 @@ export type ReferenceRecordCreatedEvent = DomainEvent<
 
 export type ReferenceRecordRevisedEvent = DomainEvent<"catalog.reference-record.revised", ReferenceRecordSnapshot>;
 
+export type ReferenceRecordAliasesResolvedData = Readonly<{
+  referenceRecordId: ReferenceRecordId;
+  aliasLanguageCode: string;
+  aliases: readonly ReferenceRecordResolvedAliasEntry[];
+  resolvedAliasHash: string;
+  resolverVersion: number;
+  resolvedAt: string;
+}>;
+
+export type ReferenceRecordAliasesResolvedEvent = DomainEvent<
+  "catalog.reference-record.aliases-resolved",
+  ReferenceRecordAliasesResolvedData
+>;
+
 export type ReferenceRecordPublishedEvent = DomainEvent<"catalog.reference-record.published", EmptyEventData>;
 
 export type ReferenceRecordDeprecatedEvent = DomainEvent<"catalog.reference-record.deprecated", EmptyEventData>;
@@ -186,6 +227,7 @@ export type ReferenceRecordArchivedEvent = DomainEvent<"catalog.reference-record
 export type ReferenceRecordEvent =
   | ReferenceRecordCreatedEvent
   | ReferenceRecordRevisedEvent
+  | ReferenceRecordAliasesResolvedEvent
   | ReferenceRecordPublishedEvent
   | ReferenceRecordDeprecatedEvent
   | ReferenceRecordArchivedEvent;
@@ -320,6 +362,17 @@ export const decideReferenceRecord: AggregateDecider<
           },
         },
       ];
+    case "RecordReferenceRecordAliases": {
+      requireCreatedReferenceRecord(state);
+      assert(command.referenceRecordId === state.id, "Resolved aliases must target the current Reference Record.");
+
+      return [
+        {
+          type: "catalog.reference-record.aliases-resolved",
+          data: normalizeReferenceRecordAliasesResolvedData(command),
+        },
+      ];
+    }
     case "PublishReferenceRecord":
       requireCreatedReferenceRecord(state);
       assert(state.status === "draft", "Only draft reference records can be published.");
@@ -364,6 +417,8 @@ export const evolveReferenceRecord: AggregateEvolver<ReferenceRecordState, Refer
         attributes: event.data.attributes,
         relationships: event.data.relationships,
       };
+    case "catalog.reference-record.aliases-resolved":
+      return state;
     case "catalog.reference-record.published":
       return { ...state, status: "active" };
     case "catalog.reference-record.deprecated":
@@ -374,6 +429,61 @@ export const evolveReferenceRecord: AggregateEvolver<ReferenceRecordState, Refer
       return assertNever(event);
   }
 };
+
+function normalizeReferenceRecordAliasesResolvedData(
+  command: RecordReferenceRecordAliasesCommand,
+): ReferenceRecordAliasesResolvedData {
+  const aliasLanguageCode = command.aliasLanguageCode.trim().toLowerCase();
+  const resolvedAliasHash = command.resolvedAliasHash.trim();
+  const resolvedAt = command.resolvedAt.trim();
+
+  assert(aliasLanguageCode.length > 0, "Resolved aliases require an alias language code.");
+  assert(resolvedAliasHash.length > 0, "Resolved aliases require a hash.");
+  assert(
+    Number.isInteger(command.resolverVersion) && command.resolverVersion > 0,
+    "Resolved aliases require a positive resolver version.",
+  );
+  assert(!Number.isNaN(Date.parse(resolvedAt)), "Resolved aliases require a valid resolved timestamp.");
+
+  const aliases = command.aliases.map((alias) => ({
+    aliasHash: alias.aliasHash.trim(),
+    aliasText: alias.aliasText.trim(),
+    normalizedAliasText: alias.normalizedAliasText.trim(),
+    aliasType: alias.aliasType.trim(),
+    confidence: alias.confidence.trim(),
+    broad: alias.broad,
+    providerKey: alias.providerKey.trim(),
+    sourceCategory: alias.sourceCategory.trim(),
+  }));
+
+  for (const alias of aliases) {
+    assert(alias.aliasHash.length > 0, "Resolved alias entries require an alias hash.");
+    assert(alias.aliasText.length > 0, "Resolved alias entries require alias text.");
+  }
+
+  const hashes = new Set<string>();
+  for (const alias of aliases) {
+    assert(!hashes.has(alias.aliasHash), "Resolved aliases must be unique per alias hash.");
+    hashes.add(alias.aliasHash);
+  }
+
+  // Deterministic ordering keeps the published fact and its hash stable
+  // regardless of query order, so replay/backfill reproduce the same fact.
+  const sorted = [...aliases].sort((left, right) =>
+    left.normalizedAliasText === right.normalizedAliasText
+      ? left.aliasHash.localeCompare(right.aliasHash)
+      : left.normalizedAliasText.localeCompare(right.normalizedAliasText),
+  );
+
+  return {
+    referenceRecordId: command.referenceRecordId,
+    aliasLanguageCode,
+    aliases: sorted,
+    resolvedAliasHash,
+    resolverVersion: command.resolverVersion,
+    resolvedAt,
+  };
+}
 
 function requireCreatedReferenceType(state: ReferenceTypeState): void {
   assert(state.id !== null, "Reference type must be created first.");
