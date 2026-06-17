@@ -40,6 +40,23 @@
       ],
       "order": 10,
       "projectionHandlerSetNames": ["checkout.catalog-projection"]
+    },
+    {
+      "sourceContextName": "marketplace",
+      "projectionName": "checkout-marketplace-seller-options-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": [
+        "marketplace.listing.created",
+        "marketplace.listing.price-updated",
+        "marketplace.listing.quantity-cap-updated",
+        "marketplace.listing.published",
+        "marketplace.listing.paused",
+        "marketplace.listing.withdrawn",
+        "marketplace.seller-listing-availability.disabled",
+        "marketplace.seller-listing-availability.enabled"
+      ],
+      "order": 20,
+      "projectionHandlerSetNames": ["checkout.marketplace-seller-options-projection"]
     }
   ],
   "projectionGroups": [
@@ -73,6 +90,13 @@
         "checkout_catalog_dimensions",
         "checkout_catalog_dimension_options"
       ],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "checkout-marketplace-seller-options-projection",
+      "sourceContextNames": ["marketplace"],
+      "ownedTables": ["checkout_marketplace_seller_options"],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
     }
