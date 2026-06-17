@@ -83,6 +83,15 @@ class ProjectionDb implements PgQueryable {
       return this.flipSellerStatus(String(values[0]), "seller-unavailable", "active", String(values[1]));
     }
 
+    // Supply-counter backfill recompute issued by listing.created. No inventory
+    // supply is projected in this marketplace-only test, so it affects no rows.
+    if (
+      sql.includes("UPDATE checkout_marketplace_seller_options AS o") &&
+      sql.includes("supply_total_quantity = supply.total_quantity")
+    ) {
+      return { rows: [], rowCount: 0 };
+    }
+
     throw new Error(`Unexpected query: ${sql}`);
   }
 

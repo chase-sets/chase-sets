@@ -10,6 +10,7 @@
   "allowedContextDependencies": [
     "@chase-sets/auth",
     "@chase-sets/identity",
+    "@chase-sets/inventory",
     "@chase-sets/marketplace",
     "@chase-sets/ordering",
     "@chase-sets/payments",
@@ -57,6 +58,19 @@
       ],
       "order": 20,
       "projectionHandlerSetNames": ["checkout.marketplace-seller-options-projection"]
+    },
+    {
+      "sourceContextName": "inventory",
+      "projectionName": "checkout-marketplace-seller-options-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": [
+        "inventory.item.created",
+        "inventory.item.adjusted",
+        "inventory.hold.placed",
+        "inventory.hold.released"
+      ],
+      "order": 21,
+      "projectionHandlerSetNames": ["checkout.inventory-seller-options-supply-projection"]
     }
   ],
   "projectionGroups": [
@@ -95,8 +109,8 @@
     },
     {
       "projectionName": "checkout-marketplace-seller-options-projection",
-      "sourceContextNames": ["marketplace"],
-      "ownedTables": ["checkout_marketplace_seller_options"],
+      "sourceContextNames": ["marketplace", "inventory"],
+      "ownedTables": ["checkout_marketplace_seller_options", "checkout_supply_items", "checkout_supply_holds"],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
     }

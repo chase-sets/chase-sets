@@ -161,7 +161,10 @@ export async function listCartLines(db: PgQueryable, buyerAccountId: string): Pr
              'seller_average_rating', o.seller_average_rating::text,
              'seller_review_count', COALESCE(o.seller_review_count, 0),
              'price_amount', o.price_amount::text,
-             'available_quantity', o.listing_quantity_cap,
+             'available_quantity', LEAST(
+               o.listing_quantity_cap,
+               GREATEST(COALESCE(o.supply_total_quantity, 0) - COALESCE(o.active_held_quantity, 0), 0)
+             ),
              'product_summary', o.product_summary
            )
            ORDER BY o.price_amount ASC, o.listing_id ASC
@@ -171,6 +174,10 @@ export async function listCartLines(db: PgQueryable, buyerAccountId: string): Pr
        FROM checkout_marketplace_seller_options o
        WHERE o.product_id = line.product_id
          AND o.status = 'active'
+         AND LEAST(
+           o.listing_quantity_cap,
+           GREATEST(COALESCE(o.supply_total_quantity, 0) - COALESCE(o.active_held_quantity, 0), 0)
+         ) > 0
      ) opt ON true
      WHERE line.buyer_account_id = $1
      ORDER BY line.updated_at DESC, line.line_id ASC`,

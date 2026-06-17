@@ -18,6 +18,8 @@ type SellerOption = Readonly<{
   product_id: string;
   price_amount: string;
   listing_quantity_cap: number;
+  supply_total_quantity: number | null;
+  active_held_quantity: number | null;
   product_summary: string | null;
   status: string;
   seller_slug: string | null;
@@ -26,12 +28,22 @@ type SellerOption = Readonly<{
   seller_review_count: number | null;
 }>;
 
+function holdsAccurateAvailableQuantity(option: SellerOption): number {
+  return Math.min(
+    option.listing_quantity_cap,
+    Math.max((option.supply_total_quantity ?? 0) - (option.active_held_quantity ?? 0), 0),
+  );
+}
+
 /**
  * In-memory fake `PgQueryable` that interprets the `listCartLines` SQL: it
  * joins cart line pages against the seller-options table applying the
- * `status = 'active'` filter, maps `available_quantity := listing_quantity_cap`,
- * and orders cheapest-first — mirroring the LATERAL aggregate so the join
- * semantics (active-only, price-ascending, empty -> []) are actually exercised.
+ * `status = 'active'` filter, computes the holds-accurate
+ * `available_quantity = LEAST(listing_quantity_cap, GREATEST(supply - holds, 0))`,
+ * excludes options whose available quantity is not `> 0`, and orders
+ * cheapest-first — mirroring the LATERAL aggregate so the join semantics
+ * (active-only, holds-accurate availability, sold-out exclusion,
+ * price-ascending, empty -> []) are actually exercised.
  */
 class CartReadModelDb implements PgQueryable {
   constructor(
@@ -55,7 +67,12 @@ class CartReadModelDb implements PgQueryable {
       .map((line) => ({
         ...line,
         seller_options: this.options
-          .filter((option) => option.product_id === line.product_id && option.status === "active")
+          .filter(
+            (option) =>
+              option.product_id === line.product_id &&
+              option.status === "active" &&
+              holdsAccurateAvailableQuantity(option) > 0,
+          )
           .sort(
             (left, right) =>
               Number(left.price_amount) - Number(right.price_amount) || left.listing_id.localeCompare(right.listing_id),
@@ -68,7 +85,7 @@ class CartReadModelDb implements PgQueryable {
             seller_average_rating: option.seller_average_rating,
             seller_review_count: option.seller_review_count ?? 0,
             price_amount: option.price_amount,
-            available_quantity: option.listing_quantity_cap,
+            available_quantity: holdsAccurateAvailableQuantity(option),
             product_summary: option.product_summary,
           })),
       }));
@@ -97,6 +114,10 @@ function option(overrides: Partial<SellerOption> = {}): SellerOption {
     product_id: "prd_1",
     price_amount: "25.00",
     listing_quantity_cap: 3,
+    // Ample supply with no holds by default so the quantity cap is the binding
+    // constraint; individual cases override supply/holds to exercise the formula.
+    supply_total_quantity: 100,
+    active_held_quantity: 0,
     product_summary: "Raw",
     status: "active",
     seller_slug: null,
@@ -120,13 +141,78 @@ describe("listCartLines seller_options join", () => {
     const [row] = await listCartLines(db, "acc_buyer");
 
     expect(row?.seller_options.map((sellerOption) => sellerOption.listing_id)).toEqual(["lst_locked", "lst_high"]);
-    // available_quantity is sourced from listing_quantity_cap for this wave.
+    // available_quantity is capped by listing_quantity_cap when supply is ample.
     expect(row?.seller_options[0]).toMatchObject({
       listing_id: "lst_locked",
       price_amount: "25.00",
       available_quantity: 3,
       seller_review_count: 0,
     });
+  });
+
+  it("computes holds-accurate available_quantity as LEAST(cap, GREATEST(supply - holds, 0))", async () => {
+    const db = new CartReadModelDb(
+      [line()],
+      [
+        // Supply minus holds (8 - 3 = 5) is below the cap (10) -> available 5.
+        option({
+          listing_id: "lst_supply_bound",
+          listing_quantity_cap: 10,
+          supply_total_quantity: 8,
+          active_held_quantity: 3,
+        }),
+        // Cap (2) is below supply minus holds (20 - 1 = 19) -> available 2.
+        option({
+          listing_id: "lst_cap_bound",
+          price_amount: "30.00",
+          listing_quantity_cap: 2,
+          supply_total_quantity: 20,
+          active_held_quantity: 1,
+        }),
+      ],
+    );
+
+    const [row] = await listCartLines(db, "acc_buyer");
+
+    expect(row?.seller_options).toEqual([
+      expect.objectContaining({ listing_id: "lst_supply_bound", available_quantity: 5 }),
+      expect.objectContaining({ listing_id: "lst_cap_bound", available_quantity: 2 }),
+    ]);
+  });
+
+  it("excludes listings whose active holds meet or exceed supply (not falsely ready)", async () => {
+    const db = new CartReadModelDb(
+      [line()],
+      [
+        option({ listing_id: "lst_ready", listing_quantity_cap: 5, supply_total_quantity: 5, active_held_quantity: 2 }),
+        // Fully held: holds (4) >= supply (4) -> available 0 -> excluded.
+        option({
+          listing_id: "lst_fully_held",
+          listing_quantity_cap: 5,
+          supply_total_quantity: 4,
+          active_held_quantity: 4,
+        }),
+        // Sold out: zero supply -> available 0 -> excluded.
+        option({
+          listing_id: "lst_sold_out",
+          listing_quantity_cap: 5,
+          supply_total_quantity: 0,
+          active_held_quantity: 0,
+        }),
+        // Supply not yet projected: NULL counters -> available 0 -> excluded (fail-safe).
+        option({
+          listing_id: "lst_unknown_supply",
+          listing_quantity_cap: 5,
+          supply_total_quantity: null,
+          active_held_quantity: null,
+        }),
+      ],
+    );
+
+    const [row] = await listCartLines(db, "acc_buyer");
+
+    expect(row?.seller_options.map((sellerOption) => sellerOption.listing_id)).toEqual(["lst_ready"]);
+    expect(row?.seller_options[0]).toMatchObject({ listing_id: "lst_ready", available_quantity: 3 });
   });
 
   it("excludes non-active listings (seller-unavailable / withdrawn / paused / draft)", async () => {
@@ -164,8 +250,15 @@ describe("listCartLines seller_options join", () => {
     expect(db.lastSql).toContain("o.product_id = line.product_id");
     expect(db.lastSql).toContain("o.status = 'active'");
     expect(db.lastSql).toContain("ORDER BY o.price_amount ASC");
-    // available_quantity must be sourced from the listing quantity cap this wave.
-    expect(db.lastSql).toContain("'available_quantity', o.listing_quantity_cap");
+    // available_quantity must be holds-accurate: capped by the listing quantity
+    // cap and reduced by active holds against the inventory supply.
+    expect(db.lastSql).toContain(
+      "GREATEST(COALESCE(o.supply_total_quantity, 0) - COALESCE(o.active_held_quantity, 0), 0)",
+    );
+    expect(db.lastSql).toContain("LEAST(");
+    expect(db.lastSql).toContain("o.listing_quantity_cap");
+    // Sold-out / fully-held listings (available_quantity not > 0) are excluded.
+    expect(db.lastSql).toContain(") > 0");
     // numeric columns must be cast to text to match the row type.
     expect(db.lastSql).toContain("o.price_amount::text");
     expect(db.lastSql).toContain("o.seller_average_rating::text");
