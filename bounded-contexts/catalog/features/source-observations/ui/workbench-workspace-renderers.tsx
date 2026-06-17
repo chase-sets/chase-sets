@@ -3,7 +3,6 @@ import type { CatalogPrimaryWorkbenchReadModel } from "../api/primary-workbench-
 import type { CatalogControlPlaneWorkspaceKey } from "./admin-control-plane/information-architecture";
 import { CatalogIntegrationConflictResolutionWorkspace } from "./admin-control-plane/conflicts/conflict-resolution-workspace";
 import { CatalogIntegrationAuditEvidenceWorkspace } from "./admin-control-plane/evidence/audit-evidence-workspace";
-import { CatalogIntegrationCleanResetReleaseWorkspace } from "./admin-control-plane/evidence/clean-reset-release-workspace";
 import { CatalogIntegrationGovernanceControlsWorkspace } from "./admin-control-plane/governance/governance-controls-workspace";
 import { CatalogIntegrationHealthTriageWorkspace } from "./admin-control-plane/health/integration-health-dashboard";
 import { CatalogIntegrationImportToPromotionWorkspace } from "./admin-control-plane/import-to-promotion/import-to-promotion-workspace";
@@ -38,7 +37,6 @@ export const CATALOG_PRIMARY_WORKBENCH_WORKSPACE_RENDERERS: Readonly<
   "conflict-resolution": (readModel) => <CatalogIntegrationConflictResolutionWorkspace readModel={readModel} />,
   "lifecycle-recovery": (readModel) => <CatalogIntegrationLifecycleRecoveryWorkspace readModel={readModel} />,
   "governance-controls": (readModel) => <CatalogIntegrationGovernanceControlsWorkspace readModel={readModel} />,
-  "clean-reset-release": (readModel) => <CatalogIntegrationCleanResetReleaseWorkspace readModel={readModel} />,
   "audit-evidence": (readModel) => <CatalogIntegrationAuditEvidenceWorkspace readModel={readModel} />,
 };
 

@@ -231,19 +231,6 @@ const surfaceChecks = [
     mustNotInclude: catalogControlPlaneForbiddenSignals,
   },
   {
-    id: "catalog-clean-reset-workspace-patterns",
-    owner: "Catalog",
-    scope: "bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/evidence",
-    visualEvidence: [
-      "Clean reset release tables use workbench stacks and data cells instead of raw release-proof markup.",
-    ],
-    accessibilityEvidence: [
-      "Release proof and audit-evidence links remain buttons while surrounding evidence text is centralized in dense workbench cells.",
-    ],
-    mustInclude: ["WorkbenchDataCell", "WorkbenchStack", "LinkButton"],
-    mustNotInclude: catalogControlPlaneForbiddenSignals,
-  },
-  {
     id: "discovery-commerce-comparison-list",
     owner: "Discovery",
     scope: "bounded-contexts/discovery/features/item-detail/ui",

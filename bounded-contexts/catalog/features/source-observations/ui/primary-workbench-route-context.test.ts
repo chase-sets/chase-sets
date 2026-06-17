@@ -187,7 +187,7 @@ describe("Catalog primary workbench route context", () => {
       parseCatalogPrimaryWorkbenchRouteContext("https://admin.example/catalog/integrations/governance").section,
     ).toBe("conflict-resolution");
     expect(parseCatalogPrimaryWorkbenchRouteContext("https://admin.example/catalog/integrations/release").section).toBe(
-      "clean-reset-release",
+      "audit-evidence",
     );
     expect(parseCatalogPrimaryWorkbenchRouteContext("https://admin.example/catalog/integrations").section).toBe(
       "import-to-promotion",
@@ -216,8 +216,10 @@ describe("Catalog primary workbench route context", () => {
     expect(returnPath.searchParams.get("providerKey")).toBe("tcgdex");
     expect(returnPath.searchParams.get("filter.status")).toBe("changed");
     // The detour deep-links to the audience surface route that hosts the workspace.
+    // Audit evidence is the default workspace of the release surface, so the
+    // canonical href drops the redundant ?section= param.
     expect(supportHref.pathname).toBe("/catalog/integrations/release");
-    expect(supportHref.searchParams.get("section")).toBe("evidence");
+    expect(supportHref.searchParams.has("section")).toBe(false);
     expect(supportHref.searchParams.get("providerKey")).toBe("tcgdex");
     expect(supportHref.searchParams.get("returnPath")).toBeTruthy();
     // The carried return path round-trips back to the daily surface route.

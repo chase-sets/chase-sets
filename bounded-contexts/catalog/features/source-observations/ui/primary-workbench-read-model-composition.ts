@@ -44,7 +44,6 @@ import { promotionPreviewFor, sourceObservationReviewFor } from "./primary-workb
 import { conflictResolutionFor } from "./primary-workbench-conflict-resolution";
 import { governanceControlsFor } from "./primary-workbench-governance-controls";
 import { auditEvidenceFor } from "./primary-workbench-audit-evidence";
-import { cleanResetReleaseFor } from "./primary-workbench-clean-reset-release";
 import { buildCatalogPrimaryWorkbenchSourceOptions } from "./primary-workbench-source-options";
 
 // The slices the metric strip and grouped navigation render on EVERY surface
@@ -84,7 +83,7 @@ type CatalogPrimaryWorkbenchDerived = Readonly<{
 
 // Build the shared core every surface renders. This does NOT compute any of the
 // supporting-surface slices (profile authoring, validation, conflict, lifecycle,
-// governance, clean-reset, audit, health); those are surface-specific and built
+// governance, audit, health); those are surface-specific and built
 // independently by the per-surface slice builders below.
 function buildCatalogPrimaryWorkbenchCore(
   input: CatalogPrimaryWorkbenchInput,
@@ -356,7 +355,7 @@ function healthTriageSlice(
 
 // Release evidence surface slices (#1739 release route). Audit evidence folds in
 // the governance, conflict, lifecycle, and validation slices it cites, so they
-// are passed in; clean reset release in turn cites audit evidence.
+// are passed in.
 function releaseSurfaceSlices(
   input: CatalogPrimaryWorkbenchInput,
   core: CatalogPrimaryWorkbenchCore,
@@ -370,7 +369,6 @@ function releaseSurfaceSlices(
   }>,
 ): Readonly<{
   auditEvidence: CatalogPrimaryWorkbenchReadModel["auditEvidence"];
-  cleanResetRelease: CatalogPrimaryWorkbenchReadModel["cleanResetRelease"];
 }> {
   const auditEvidence = auditEvidenceFor({
     conflictResolution: cited.conflictResolution,
@@ -386,17 +384,8 @@ function releaseSurfaceSlices(
     sourceObservationReview: core.sourceObservationReview,
     validationReadiness: cited.validationReadiness,
   });
-  const cleanResetRelease = cleanResetReleaseFor({
-    auditEvidence,
-    cleanResetEvidence: input.cleanResetEvidence ?? null,
-    generatedAt: core.generatedAt,
-    importJobs: derived.importJobRows,
-    routeContext: core.routeContext,
-    sourceObservationReview: core.sourceObservationReview,
-    temporaryReleaseScaffolding: input.temporaryReleaseScaffolding ?? null,
-  });
 
-  return { auditEvidence, cleanResetRelease };
+  return { auditEvidence };
 }
 
 // Assemble a fully-validated read model from the shared core and every surface
@@ -420,7 +409,7 @@ export function buildCatalogPrimaryWorkbenchReadModel(
     lifecycleRecovery,
   });
   const governanceControls = governanceControlsSlice(input, core, derived, conflictResolution, actions, healthTriage);
-  const { auditEvidence, cleanResetRelease } = releaseSurfaceSlices(input, core, derived, {
+  const { auditEvidence } = releaseSurfaceSlices(input, core, derived, {
     conflictResolution,
     governanceControls,
     healthTriage,
@@ -438,7 +427,6 @@ export function buildCatalogPrimaryWorkbenchReadModel(
     lifecycleRecovery,
     governanceControls,
     auditEvidence,
-    cleanResetRelease,
   });
 }
 
@@ -495,7 +483,7 @@ export function buildCatalogPrimaryWorkbenchReadModelForSurface(
     actions,
     healthTriage,
   );
-  const { auditEvidence, cleanResetRelease } = releaseSurfaceSlices(sliceInput(wantsReleaseSlices), core, derived, {
+  const { auditEvidence } = releaseSurfaceSlices(sliceInput(wantsReleaseSlices), core, derived, {
     conflictResolution,
     governanceControls,
     healthTriage,
@@ -513,7 +501,6 @@ export function buildCatalogPrimaryWorkbenchReadModelForSurface(
     lifecycleRecovery,
     governanceControls,
     auditEvidence,
-    cleanResetRelease,
   });
 }
 
@@ -529,8 +516,6 @@ function emptyControlPlaneInput(input: CatalogPrimaryWorkbenchInput): CatalogPri
     controlPlaneOverview: null,
     profileAuthoringModel: null,
     lifecycleImpacts: null,
-    cleanResetEvidence: null,
-    temporaryReleaseScaffolding: null,
   };
 }
 
@@ -564,7 +549,6 @@ function assembleReadModel(
     lifecycleRecovery: CatalogPrimaryWorkbenchReadModel["lifecycleRecovery"];
     governanceControls: CatalogPrimaryWorkbenchReadModel["governanceControls"];
     auditEvidence: CatalogPrimaryWorkbenchReadModel["auditEvidence"];
-    cleanResetRelease: CatalogPrimaryWorkbenchReadModel["cleanResetRelease"];
   }>,
 ): CatalogPrimaryWorkbenchReadModel {
   const { core } = parts;
@@ -579,7 +563,6 @@ function assembleReadModel(
     validationReadiness: parts.validationReadiness,
     lifecycleRecovery: parts.lifecycleRecovery,
     governanceControls: parts.governanceControls,
-    cleanResetRelease: parts.cleanResetRelease,
     auditEvidence: parts.auditEvidence,
     importJobs: core.importJobs,
     sourceObservationReview: core.sourceObservationReview,
