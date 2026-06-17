@@ -76,6 +76,7 @@ export function createCatalogServices(pool: PgTransactionalPool, ports: CatalogH
     providerIntegrationProfiles,
     undefined,
     catalogAliases.upsertSourceObservationAliasCandidates,
+    { catalogAliasCommandHandler: catalogAliases.catalogAliasCommandHandler },
   );
   const authoringBulkJobs = createCatalogAuthoringBulkJobServices(db);
 

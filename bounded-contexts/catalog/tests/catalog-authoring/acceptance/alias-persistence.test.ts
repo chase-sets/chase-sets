@@ -25,6 +25,12 @@ import {
   type TcgdexEnglishMirrorLoader,
 } from "../../../features/source-observations/api/tcgdex-alias-intake";
 import type { CatalogProviderIntegrationProfile } from "../../../features/source-observations/api/provider-integration-profiles";
+import { createPromotionAliasReader } from "../../../features/source-observations/api/provider-promotion-alias-reader";
+import {
+  writePromotionAliases,
+  type PromotionAliasServices,
+} from "../../../features/source-observations/api/provider-promotion-alias-writer";
+import type { PromotionAliasCandidate } from "../../../features/source-observations/api/provider-promotion-alias-planner";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 const catalogContextNames = ["catalog"] as const;
@@ -416,5 +422,249 @@ describe("Catalog Alias persistence (DB-backed)", () => {
     expect(aliases).toHaveLength(1);
     expect(aliases[0]?.type_key).toBe("expansion");
     expect(aliases[0]?.alias_type).toBe("set-equivalent");
+  });
+
+  // -------------------------------------------------------------------------
+  // Promotion writes aliases (#1909): seeds reviewed candidate rows, runs the
+  // promotion alias writer with the real read-model + alias aggregate against
+  // the database, and asserts the durable alias_rows that result.
+  // -------------------------------------------------------------------------
+  function promotionAliasServices(): PromotionAliasServices {
+    return {
+      ...createPromotionAliasReader(pool),
+      catalogAliasCommandHandler: services.catalogAliases.catalogAliasCommandHandler,
+    };
+  }
+
+  function observationItemCandidate(
+    overrides: Partial<Parameters<typeof buildCatalogAliasCandidate>[0]> = {},
+  ): CatalogAliasCandidate {
+    return buildCatalogAliasCandidate({
+      // Persisted before promotion: the Catalog Item id is unresolved.
+      target: { kind: "catalog-item", targetId: null, targetKey: "card-name" },
+      aliasText: "ニャオハ",
+      aliasLanguageCode: "ja",
+      aliasType: "provider-localized-name",
+      confidence: "high",
+      reviewStatus: "accepted",
+      provenance: {
+        providerKey: "tcgdex",
+        observationId: "obs_promote_1",
+        sourceCategory: "provider-localized-name",
+        sourceProfileKey: "pokemon-tcg",
+        sourceProfileVersion: "2026.06.03",
+        mappingFingerprint: "fp-1",
+      },
+      evidence: { sharedId: "sv1a-001" },
+      ...overrides,
+    });
+  }
+
+  async function seedCandidates(candidates: readonly CatalogAliasCandidate[]) {
+    await services.catalogAliases.upsertSourceObservationAliasCandidates(candidates, "2026-06-16T00:00:00.000Z");
+  }
+
+  const promoteResolution = {
+    catalogItemId: "cat_promoted_charizard",
+    referenceRecordIdsByTypeKey: { expansion: "ref_expansion_promoted", series: "ref_series_promoted" },
+  } as const;
+
+  it("promotes accepted item aliases into Catalog Item facts with the resolved id (#1909)", async () => {
+    await seedCandidates([observationItemCandidate()]);
+
+    const result = await writePromotionAliases({
+      services: promotionAliasServices(),
+      observationId: "obs_promote_1",
+      resolution: promoteResolution,
+      context,
+    });
+    await drainCatalogProjections();
+
+    expect(result.proposed).toBe(1);
+    expect(result.accepted).toBe(1);
+    const aliases = await services.catalogAliases.listPublishableCatalogItemAliases("cat_promoted_charizard");
+    expect(aliases).toHaveLength(1);
+    expect(aliases[0]?.catalog_item_id).toBe("cat_promoted_charizard");
+    expect(aliases[0]?.alias_text).toBe("ニャオハ");
+    expect(aliases[0]?.observation_id).toBe("obs_promote_1");
+    expect(aliases[0]?.provider_key).toBe("tcgdex");
+  });
+
+  it("promotes accepted set-equivalent aliases into Reference Record facts (#1909)", async () => {
+    await seedCandidates([
+      buildCatalogAliasCandidate({
+        target: { kind: "reference-record", targetId: null, targetKey: "expansion" },
+        aliasText: "トリプレットビート",
+        aliasLanguageCode: "ja",
+        aliasType: "set-equivalent",
+        confidence: "exact",
+        reviewStatus: "auto-accepted",
+        provenance: {
+          providerKey: "tcgdex",
+          observationId: "obs_promote_1",
+          sourceCategory: "provider-same-id-localized-endpoint",
+          sourceProfileKey: "pokemon-tcg",
+          sourceProfileVersion: "2026.06.03",
+          mappingFingerprint: "fp-1",
+        },
+        evidence: {},
+      }),
+    ]);
+
+    await writePromotionAliases({
+      services: promotionAliasServices(),
+      observationId: "obs_promote_1",
+      resolution: promoteResolution,
+      context,
+    });
+    await drainCatalogProjections();
+
+    const aliases = await services.catalogAliases.listPublishableReferenceRecordAliases("ref_expansion_promoted");
+    expect(aliases).toHaveLength(1);
+    expect(aliases[0]?.reference_record_id).toBe("ref_expansion_promoted");
+    expect(aliases[0]?.alias_type).toBe("set-equivalent");
+  });
+
+  it("does not promote pending or rejected candidates into publishable facts (#1909)", async () => {
+    await seedCandidates([
+      observationItemCandidate({ aliasText: "Pending Name", reviewStatus: "pending" }),
+      observationItemCandidate({ aliasText: "Rejected Name", reviewStatus: "rejected" }),
+    ]);
+
+    await writePromotionAliases({
+      services: promotionAliasServices(),
+      observationId: "obs_promote_1",
+      resolution: promoteResolution,
+      context,
+    });
+    await drainCatalogProjections();
+
+    expect(await services.catalogAliases.listPublishableCatalogItemAliases("cat_promoted_charizard")).toHaveLength(0);
+  });
+
+  it("re-promoting the same scope is idempotent and does not duplicate facts (#1909)", async () => {
+    await seedCandidates([observationItemCandidate()]);
+
+    for (let i = 0; i < 2; i += 1) {
+      await writePromotionAliases({
+        services: promotionAliasServices(),
+        observationId: "obs_promote_1",
+        resolution: promoteResolution,
+        context,
+      });
+    }
+    await drainCatalogProjections();
+
+    const aliases = await services.catalogAliases.listCatalogItemAliases("cat_promoted_charizard");
+    expect(aliases).toHaveLength(1);
+    expect(aliases[0]?.review_status).toBe("accepted");
+  });
+
+  it("retracts a previously promoted alias when its candidate is rejected on re-promotion (#1909)", async () => {
+    await seedCandidates([observationItemCandidate()]);
+    await writePromotionAliases({
+      services: promotionAliasServices(),
+      observationId: "obs_promote_1",
+      resolution: promoteResolution,
+      context,
+    });
+    await drainCatalogProjections();
+    expect(await services.catalogAliases.listPublishableCatalogItemAliases("cat_promoted_charizard")).toHaveLength(1);
+
+    // The candidate is rejected in review, then promotion is re-run.
+    await seedCandidates([observationItemCandidate({ reviewStatus: "rejected" })]);
+    const result = await writePromotionAliases({
+      services: promotionAliasServices(),
+      observationId: "obs_promote_1",
+      resolution: promoteResolution,
+      context,
+    });
+    await drainCatalogProjections();
+
+    expect(result.retracted).toBe(1);
+    expect(await services.catalogAliases.listPublishableCatalogItemAliases("cat_promoted_charizard")).toHaveLength(0);
+    // The row survives for audit; only the review_status flips to revoked.
+    const all = await services.catalogAliases.listCatalogItemAliases("cat_promoted_charizard");
+    expect(all).toHaveLength(1);
+    expect(all[0]?.review_status).toBe("revoked");
+  });
+
+  it("retracts a promoted alias when its candidate is revoked, while a fresh accepted alias publishes (#1909)", async () => {
+    await seedCandidates([observationItemCandidate({ aliasText: "Old Localized Name" })]);
+    await writePromotionAliases({
+      services: promotionAliasServices(),
+      observationId: "obs_promote_1",
+      resolution: promoteResolution,
+      context,
+    });
+    await drainCatalogProjections();
+
+    // The old candidate is revoked in review and a fresh accepted candidate is
+    // recorded; re-promotion publishes the new alias and retracts the old one.
+    await seedCandidates([
+      observationItemCandidate({ aliasText: "Old Localized Name", reviewStatus: "revoked" }),
+      observationItemCandidate({ aliasText: "New Localized Name", reviewStatus: "accepted" }),
+    ]);
+    await writePromotionAliases({
+      services: promotionAliasServices(),
+      observationId: "obs_promote_1",
+      resolution: promoteResolution,
+      context,
+    });
+    await drainCatalogProjections();
+
+    const publishable = await services.catalogAliases.listPublishableCatalogItemAliases("cat_promoted_charizard");
+    expect(publishable.map((alias) => alias.alias_text)).toEqual(["New Localized Name"]);
+  });
+
+  it("resolves conflicting official equivalents through #1912 source precedence (#1909)", async () => {
+    const sameIdEndpoint = buildCatalogAliasCandidate({
+      target: { kind: "catalog-item", targetId: null, targetKey: "card-name" },
+      aliasText: "Sprigatito",
+      aliasLanguageCode: "en",
+      aliasType: "official-equivalent",
+      confidence: "high",
+      reviewStatus: "accepted",
+      provenance: {
+        providerKey: "tcgdex",
+        observationId: "obs_promote_1",
+        sourceCategory: "provider-same-id-localized-endpoint",
+        sourceProfileKey: "pokemon-tcg",
+        sourceProfileVersion: "2026.06.03",
+        mappingFingerprint: "fp-1",
+      },
+      evidence: {},
+    });
+    const curated = buildCatalogAliasCandidate({
+      target: { kind: "catalog-item", targetId: null, targetKey: "card-name" },
+      aliasText: "Sprigatito",
+      aliasLanguageCode: "en",
+      aliasType: "official-equivalent",
+      confidence: "manual",
+      reviewStatus: "accepted",
+      provenance: {
+        providerKey: "tcgdex",
+        observationId: "obs_promote_1",
+        sourceCategory: "curated-operator-mapping",
+        sourceProfileKey: "pokemon-tcg",
+        sourceProfileVersion: "2026.06.03",
+        mappingFingerprint: "fp-1",
+      },
+      evidence: {},
+    });
+    await seedCandidates([sameIdEndpoint, curated]);
+
+    await writePromotionAliases({
+      services: promotionAliasServices(),
+      observationId: "obs_promote_1",
+      resolution: promoteResolution,
+      context,
+    });
+    await drainCatalogProjections();
+
+    const publishable = await services.catalogAliases.listPublishableCatalogItemAliases("cat_promoted_charizard");
+    // The curated operator mapping (precedence 2) wins over same-id endpoint (3).
+    expect(publishable).toHaveLength(1);
+    expect(publishable[0]?.source_category).toBe("curated-operator-mapping");
   });
 });
