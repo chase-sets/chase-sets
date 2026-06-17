@@ -504,6 +504,13 @@ const catalogNoConfusionUxNewIaProofTests = [
   // The alias-review workspace (#1908): candidate display, bulk accept/reject/revoke,
   // empty states, and generated/low-confidence warnings under the anti-confusion gate.
   "ui/admin-control-plane/alias-review/alias-review-workspace.test.tsx",
+  // The milestone end-to-end alias-equivalence proof (#1913): TCGdex Japanese
+  // scope -> import -> candidates -> review -> promotion -> published fact ->
+  // English search + display, with stage counts and the revocation scenario.
+  "features/source-observations/api/catalog-integration-alias-equivalence-e2e-proof.test.ts",
+  // The DB-backed alias persistence acceptance suite that proves the same hops
+  // against Postgres, including the #1913 full-milestone-flow test.
+  "tests/catalog-authoring/acceptance/alias-persistence.test.ts",
 ] as const;
 
 function buildDefaultWorkflowEvidence(evidenceBase: string): readonly CatalogNoConfusionUxWorkflowEvidence[] {

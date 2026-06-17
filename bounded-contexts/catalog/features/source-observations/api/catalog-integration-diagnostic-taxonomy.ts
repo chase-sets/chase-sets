@@ -7,7 +7,8 @@ export type CatalogIntegrationDiagnosticSource =
   | "read-model"
   | "credential-readiness"
   | "projection-lag"
-  | "admin-route";
+  | "admin-route"
+  | "alias-equivalence";
 
 export type CatalogIntegrationDiagnosticSeverity = "info" | "warning" | "error" | "blocked";
 
@@ -52,7 +53,10 @@ export type CatalogIntegrationDiagnosticGroupingKey =
   | "jobKind"
   | "jobId"
   | "readModelKey"
-  | "projectionName";
+  | "projectionName"
+  | "aliasTargetKind"
+  | "aliasType"
+  | "aliasLanguageCode";
 
 export type CatalogIntegrationDiagnosticInstance = Readonly<{
   code: CatalogIntegrationDiagnosticCode;
@@ -675,6 +679,75 @@ export const catalogIntegrationDiagnosticTaxonomy = [
     "summary",
     "Resolve nested activation diagnostics.",
   ),
+
+  // -------------------------------------------------------------------------
+  // Catalog Alias equivalence diagnostics (#1913)
+  //
+  // The end-to-end alias pipeline (TCGdex Japanese import -> Source Observation
+  // -> alias candidate -> review -> promotion -> published resolved fact ->
+  // Discovery search -> English display) has its own failure modes that the
+  // generic provider/engine diagnostics do not name. These cover the seven
+  // failures the milestone e2e proof exercises, with operator-safe remediation.
+  // -------------------------------------------------------------------------
+  entry(
+    "alias-provider-endpoint-missing",
+    "alias-equivalence",
+    "warning",
+    "advisory",
+    "detail",
+    "The provider English mirror endpoint did not exist for this id; keep the native alias and review for an English equivalent later.",
+    "redacted-provider-evidence",
+  ),
+  entry(
+    "alias-coverage-incomplete",
+    "alias-equivalence",
+    "warning",
+    "advisory",
+    "summary",
+    "Some cards in scope still lack an accepted English alias; finish review before relying on English search and display for them.",
+  ),
+  entry(
+    "alias-pending-candidates-block-high-confidence-search",
+    "alias-equivalence",
+    "warning",
+    "advisory",
+    "summary",
+    "Pending alias candidates are not published; accept them in alias review so English search reaches the card with high-confidence weight.",
+  ),
+  entry(
+    "alias-resolved-projection-lag",
+    "projection-lag",
+    "warning",
+    "retryable",
+    "summary",
+    "Resolved-alias recompute or the Discovery alias projection is behind; wait for catch-up or drain the recompute work before checking search.",
+    "projection-metadata-only",
+  ),
+  entry(
+    "alias-stale-resolved-hash",
+    "alias-equivalence",
+    "warning",
+    "retryable",
+    "support",
+    "The published resolved-alias hash no longer matches the publishable aliases; run alias backfill to rebuild the resolved fact.",
+    "projection-metadata-only",
+  ),
+  entry(
+    "alias-search-rollout-disabled",
+    "alias-equivalence",
+    "info",
+    "advisory",
+    "summary",
+    "Alias contribution to Discovery search is disabled by the DISCOVERY_ALIAS_SEARCH kill-switch; re-enable it and rebuild the search index to restore alias recall.",
+  ),
+  entry(
+    "alias-native-script-tokenization-gap",
+    "alias-equivalence",
+    "warning",
+    "advisory",
+    "support",
+    "A native CJK alias produced no search bigrams, so native substring search will miss it; check the alias text and Discovery normalization.",
+  ),
 ] as const satisfies readonly CatalogIntegrationDiagnosticTaxonomyEntry[];
 
 export type CatalogIntegrationDiagnosticCode = (typeof catalogIntegrationDiagnosticTaxonomy)[number]["code"];
@@ -757,5 +830,7 @@ function groupingKeysFor(
       return ["projectionName", "unitKey"];
     case "admin-route":
       return ["providerKey", "profileVersion", "path"];
+    case "alias-equivalence":
+      return ["providerKey", "aliasTargetKind", "aliasType", "aliasLanguageCode"];
   }
 }
