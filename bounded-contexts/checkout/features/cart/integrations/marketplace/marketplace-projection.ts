@@ -1,16 +1,21 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import { extractIdFromStreamId } from "@chase-sets/event-core";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { recomputeCheckoutSellerOptionSupply } from "../inventory/inventory-projection";
 
 /**
  * Checkout-local seller-options projection.
  *
  * Mirrors marketplace listing availability per product into a single
- * denormalized table keyed by `listing_id`. This wave subscribes to
- * MARKETPLACE events only (price / quantity-cap / lifecycle status +
- * seller-listing availability gating); holds-accurate supply quantity
- * (inventory) and seller identity (identity) are added in later waves
- * through the reserved-nullable columns.
+ * denormalized table keyed by `listing_id`. These handlers cover the
+ * MARKETPLACE events (price / quantity-cap / lifecycle status +
+ * seller-listing availability gating); holds-accurate supply quantity is
+ * maintained by the sibling inventory handler set
+ * (`integrations/inventory/inventory-projection.ts`) feeding the SAME
+ * projection through the reserved-nullable supply counters. On
+ * `marketplace.listing.created` we backfill those counters so a listing
+ * created after its inventory item already has supply/holds is immediately
+ * accurate. Seller identity (identity) is added in a later wave.
  *
  * Seller-listing availability is keyed by `accountId` and gates every
  * active row for that seller: `disabled` flips active rows to
@@ -67,6 +72,13 @@ export function buildCheckoutMarketplaceSellerOptionsProjectionHandlers(db: PgQu
           data.inventoryItemId ?? null,
         ],
       );
+
+      // Backfill holds-accurate supply counters from the auxiliary supply/hold
+      // tables in case the inventory item already had supply or holds projected
+      // before this listing row existed (event-ordering independence).
+      if (data.inventoryItemId) {
+        await recomputeCheckoutSellerOptionSupply(db, data.inventoryItemId);
+      }
     },
     "marketplace.listing.price-updated": async (event) => {
       const data = event.data as { priceAmount: string };
