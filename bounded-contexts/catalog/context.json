@@ -835,6 +835,27 @@
         "authoritativeResponse": "integrationsAction dispatches CatalogIntegrationsCommandResult snapshots from command handlers; promotion execution re-previews live context to suppress stale preview submissions, durable job commands return job ids/status, and actions clear stale preview/job context when a new command snapshot supersedes it.",
         "tests": ["bounded-contexts/catalog/tests/admin-integrations-route.test.tsx"]
       }
+    },
+    {
+      "id": "catalog.alias-review-command-snapshots",
+      "owner": "catalog",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/catalog/features/alias-equivalence/api/route.ts:POST /commands",
+        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST Hd32f89aae94c#1"
+      ],
+      "visibleDestination": {
+        "routeId": "integrations",
+        "description": "The alias-review workspace accept/reject/revoke actions stay on the daily integrations surface and return the committed #1905 Catalog Alias aggregate snapshot (review status and version per alias hash); the next loader re-reads the alias-review read model so the operator never sees a stale candidate row after a review write."
+      },
+      "proof": {
+        "authoritativeResponse": "The alias-review POST /commands route dispatches the #1905 AcceptCatalogAlias/RejectCatalogAlias/RevokeCatalogAlias aggregate commands keyed by alias hash with the operator as actor, and responds from the command handler's evolved aggregate state (reviewStatus + version per applied alias hash). The client dispatchCatalogAliasReviewCommand returns that committed snapshot directly, and the daily route action result stays on the import-to-promotion surface so the next loader re-reads the alias-review read model.",
+        "tests": [
+          "bounded-contexts/catalog/features/alias-equivalence/api/route.test.ts",
+          "bounded-contexts/catalog/tests/admin-integrations-route.test.tsx"
+        ]
+      }
     }
   ]
 }

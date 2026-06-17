@@ -1703,6 +1703,33 @@ export function createCatalogApiClient({
         errorMessage: "Source Observation integration job failed.",
       });
     },
+    async getCatalogAliasReviewReadModel<T>(query = ""): Promise<T> {
+      const search = query ? `?${new URLSearchParams(queryFromString(query)).toString()}` : "";
+      const response = await configuredFetch(`${baseUrl.replace(/\/$/, "")}/alias-review${search}`, {
+        method: "GET",
+        headers: headersToRecord(headers),
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async dispatchCatalogAliasReviewCommand<T>(input: {
+      intent: "accept" | "reject" | "revoke";
+      aliasHashes: readonly string[];
+      reason?: string;
+    }): Promise<T> {
+      const response = await configuredFetch(`${baseUrl.replace(/\/$/, "")}/alias-review/commands`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...headersToRecord(headers),
+        },
+        body: JSON.stringify({
+          intent: input.intent,
+          aliasHashes: input.aliasHashes.join(","),
+          ...(input.reason !== undefined ? { reason: input.reason } : {}),
+        }),
+      });
+      return parseJsonResponse<T>(response);
+    },
   };
 }
 

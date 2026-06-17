@@ -29,8 +29,14 @@ import {
 // confirmation of the create/update action (no separate stale-able preview step).
 export function CatalogIntegrationImportToPromotionWorkspace({
   readModel,
+  aliasVisibility = null,
 }: Readonly<{
   readModel: CatalogPrimaryWorkbenchReadModel;
+  // Optional alias-review visibility slot (#1908): the composition root supplies
+  // the alias-review workspace so operators see proposed alias equivalents while
+  // reviewing Source Observations before promotion. The workspace stays agnostic
+  // of the alias read model by accepting it as a rendered node.
+  aliasVisibility?: React.ReactNode;
 }>) {
   const {
     activeStage,
@@ -68,6 +74,7 @@ export function CatalogIntegrationImportToPromotionWorkspace({
         onSelectedObservationKeysChange={setSelectedObservationKeys}
         selectedEligibleObservationCount={selectedEligibleObservationCount}
         selectedReviewableObservationCount={selectedReviewableObservationCount}
+        aliasVisibility={aliasVisibility}
       />
     ),
     "create-items": <CatalogIntegrationCreateItemsStage readModel={readModel} />,

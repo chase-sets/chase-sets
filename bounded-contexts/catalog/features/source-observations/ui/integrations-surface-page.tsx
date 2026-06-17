@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, type ReactElement } from "react";
 import type { CatalogPrimaryWorkbenchReadModel } from "../api/primary-workbench-admin-contracts";
 import {
   catalogControlPlaneRouteSurface,
@@ -12,6 +12,10 @@ export interface CatalogIntegrationsSurfacePageProps {
   surface: CatalogControlPlaneRouteSurfaceKey;
   readModel: CatalogPrimaryWorkbenchReadModel;
   commandFeedback?: CatalogPrimaryWorkbenchCommandFeedback | null;
+  // Optional alias-review visibility slot (#1908) supplied by the composition
+  // root for the daily surface so operators see proposed alias equivalents while
+  // reviewing Source Observations before promotion.
+  aliasVisibility?: ReactElement | null;
 }
 
 // One audience surface route body: composes the shared workbench shell around the
@@ -23,12 +27,13 @@ export function CatalogIntegrationsSurfacePage({
   surface,
   readModel,
   commandFeedback = null,
+  aliasVisibility = null,
 }: CatalogIntegrationsSurfacePageProps) {
   const surfaceDefinition = useMemo(() => catalogControlPlaneRouteSurface(surface), [surface]);
 
   return (
     <CatalogWorkbenchShell readModel={readModel} commandFeedback={commandFeedback} surface={surface}>
-      {renderCatalogWorkbenchSurfaceWorkspaces(readModel, surfaceDefinition.workspaces)}
+      {renderCatalogWorkbenchSurfaceWorkspaces(readModel, surfaceDefinition.workspaces, { aliasVisibility })}
     </CatalogWorkbenchShell>
   );
 }
