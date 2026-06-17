@@ -29,6 +29,7 @@ Provider-owned structural setup is documented in [Provider Integration Profiles]
 External product mapping for seller inventory imports is documented in [External Product References](./docs/external-product-references.md).
 Resolved display copy from Display Templates is documented in [Catalog Resolved Display Identity](./docs/resolved-display-identity.md).
 Alias and translation equivalence facts are documented in [Catalog Alias Vocabulary And Ownership ADR](./docs/catalog-alias-vocabulary-adr.md).
+Published resolved alias facts for downstream search and display are documented in [Catalog Resolved Aliases](./docs/resolved-aliases.md).
 
 ## Owns
 
@@ -44,6 +45,7 @@ Alias and translation equivalence facts are documented in [Catalog Alias Vocabul
 - Display Templates that resolve reusable product-facing title and subtitle copy from Catalog facts
 - Resolved Display Identity as the Catalog-owned item-level display copy fact published to downstream contexts
 - Catalog Aliases and Alias Candidates: the reviewable, typed, confidence-scored alias facts and the auto-accept, revocation, and decay policy published to downstream contexts
+- Resolved Aliases: the Catalog-owned per-target, per-language published alias fact derived from accepted aliases, published to downstream search and display
 
 ## Does Not Own
 
@@ -199,10 +201,14 @@ Initial integration surface:
 - `CatalogItemUpdated`
 - `CatalogItemArchived`
 - `catalog.catalog-item.display-identity-resolved`
+- `catalog.catalog-item.aliases-resolved`
+- `catalog.reference-record.aliases-resolved`
 
 Those events should carry the Catalog Item snapshot plus the `product_schema` downstream consumers need to validate `selected_options` and compute `product_id`.
 
 Display Template authoring events are Catalog-internal. Downstream contexts should consume the item-level display identity fact when title/subtitle copy changes because of template policy.
+
+Alias review and source-governance events are Catalog-internal. Downstream search (#1911) and display (#1914) consume only the resolved alias facts `catalog.catalog-item.aliases-resolved` and `catalog.reference-record.aliases-resolved`, never `Alias Candidate` records, provider profiles, or the alias review state machine. The resolved alias fact follows the same derived-fact pattern as Resolved Display Identity: Catalog publishes a stable per-target, per-language alias list with hash/version metadata only when the resolved hash changes, and a revoked or rejected alias publishes a resolved fact that drops it (an empty/retracted list) so consumers remove it. See [Catalog Resolved Aliases](./docs/resolved-aliases.md).
 
 ## Invariants
 

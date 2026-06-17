@@ -1,9 +1,16 @@
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import { withCatalogAdminRealtimeInvalidation } from "../../../support/projection-support/realtime-invalidation";
+import type { CatalogItemCommand, CatalogItemEvent, CatalogItemState } from "../../catalog-items/domain/domain";
+import type {
+  ReferenceRecordCommand,
+  ReferenceRecordEvent,
+  ReferenceRecordState,
+} from "../../reference-data/domain/domain";
 import {
   decideCatalogAlias,
   evolveCatalogAlias,
@@ -13,6 +20,19 @@ import {
   type CatalogAliasState,
 } from "../domain/domain";
 import { buildCatalogAliasProjectionHandlers, upsertSourceObservationAliasCandidates } from "../read-model/projection";
+import {
+  enqueueAllCatalogItemAliasRecomputeWork,
+  enqueueAllReferenceRecordAliasRecomputeWork,
+  getCatalogItemAliasRecomputeHealth,
+  getReferenceRecordAliasRecomputeHealth,
+  processCatalogItemAliasRecomputeBatch,
+  processReferenceRecordAliasRecomputeBatch,
+  purgeCompletedCatalogItemAliasRecomputeWork,
+  purgeCompletedReferenceRecordAliasRecomputeWork,
+  type AliasRecomputeBatchResult,
+  type AliasRecomputeHealth,
+  type AliasRecomputeRetentionOptions,
+} from "../read-model/alias-recompute";
 import {
   countCatalogItemsForAliasText,
   countSourceObservationAliasCandidatesByProfileVersion,
@@ -30,6 +50,15 @@ import {
   type CatalogAliasReviewFilter,
   type CatalogAliasReviewReadModel,
 } from "./alias-review-admin-contracts";
+
+/**
+ * Aggregate command handlers the resolved-alias publisher drives to emit the
+ * `aliases-resolved` facts on the owning Catalog Item / Reference Record streams.
+ */
+export type CatalogAliasPublisherDeps = Readonly<{
+  catalogItemCommandHandler: CommandHandler<CatalogItemCommand, CatalogItemState, CatalogItemEvent>;
+  referenceRecordCommandHandler: CommandHandler<ReferenceRecordCommand, ReferenceRecordState, ReferenceRecordEvent>;
+}>;
 
 export type CatalogAliasServices = Readonly<{
   catalogAliasCommandHandler: CommandHandler<CatalogAliasCommand, CatalogAliasState, CatalogAliasEvent>;
@@ -70,10 +99,31 @@ export type CatalogAliasServices = Readonly<{
     filter?: Partial<CatalogAliasReviewFilter>;
     candidateLimit?: number;
   }) => Promise<CatalogAliasReviewReadModel>;
+  /** Drain pending Catalog Item resolved-alias recompute work and publish changed facts. */
+  processCatalogItemAliasRecomputeBatch: (
+    context: EventStoreContext,
+    options?: Readonly<{ limit?: number }>,
+  ) => Promise<AliasRecomputeBatchResult>;
+  /** Drain pending Reference Record resolved-alias recompute work and publish changed facts. */
+  processReferenceRecordAliasRecomputeBatch: (
+    context: EventStoreContext,
+    options?: Readonly<{ limit?: number }>,
+  ) => Promise<AliasRecomputeBatchResult>;
+  /** Backfill: enqueue resolved-alias recompute for every Catalog Item with published aliases. */
+  enqueueAllCatalogItemAliasRecomputeWork: () => Promise<number>;
+  /** Backfill: enqueue resolved-alias recompute for every Reference Record with published aliases. */
+  enqueueAllReferenceRecordAliasRecomputeWork: () => Promise<number>;
+  getCatalogItemAliasRecomputeHealth: () => Promise<AliasRecomputeHealth>;
+  getReferenceRecordAliasRecomputeHealth: () => Promise<AliasRecomputeHealth>;
+  purgeCompletedCatalogItemAliasRecomputeWork: (options?: AliasRecomputeRetentionOptions) => Promise<number>;
+  purgeCompletedReferenceRecordAliasRecomputeWork: (options?: AliasRecomputeRetentionOptions) => Promise<number>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
-export function createCatalogAliasRuntime(deps: CatalogRuntimeDeps): CatalogAliasServices {
+export function createCatalogAliasRuntime(
+  deps: CatalogRuntimeDeps,
+  publisher: CatalogAliasPublisherDeps,
+): CatalogAliasServices {
   const { commandHandler: catalogAliasCommandHandler } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: createPassthroughDomainEventCodec<CatalogAliasEvent>(),
@@ -120,6 +170,19 @@ export function createCatalogAliasRuntime(deps: CatalogRuntimeDeps): CatalogAlia
         },
         input,
       ),
+    processCatalogItemAliasRecomputeBatch: (context, options) =>
+      processCatalogItemAliasRecomputeBatch(deps.db, publisher.catalogItemCommandHandler, context, options),
+    processReferenceRecordAliasRecomputeBatch: (context, options) =>
+      processReferenceRecordAliasRecomputeBatch(deps.db, publisher.referenceRecordCommandHandler, context, options),
+    enqueueAllCatalogItemAliasRecomputeWork: () => enqueueAllCatalogItemAliasRecomputeWork(deps.db, "manual-backfill"),
+    enqueueAllReferenceRecordAliasRecomputeWork: () =>
+      enqueueAllReferenceRecordAliasRecomputeWork(deps.db, "manual-backfill"),
+    getCatalogItemAliasRecomputeHealth: () => getCatalogItemAliasRecomputeHealth(deps.db),
+    getReferenceRecordAliasRecomputeHealth: () => getReferenceRecordAliasRecomputeHealth(deps.db),
+    purgeCompletedCatalogItemAliasRecomputeWork: (options) =>
+      purgeCompletedCatalogItemAliasRecomputeWork(deps.db, options),
+    purgeCompletedReferenceRecordAliasRecomputeWork: (options) =>
+      purgeCompletedReferenceRecordAliasRecomputeWork(deps.db, options),
     projectors,
   };
 }

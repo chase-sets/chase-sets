@@ -129,4 +129,83 @@ CREATE INDEX IF NOT EXISTS catalog_reference_record_aliases_text_idx
   ON catalog_reference_record_aliases (normalized_alias_text, alias_language_code);
 CREATE INDEX IF NOT EXISTS catalog_reference_record_aliases_published_idx
   ON catalog_reference_record_aliases (reference_record_id, alias_type)
-  WHERE review_status IN ('accepted', 'auto-accepted');`;
+  WHERE review_status IN ('accepted', 'auto-accepted');
+
+-- Resolved Alias facts (#1910).
+--
+-- Following the Resolved Display Identity derived-fact pattern: the publishable
+-- aliases for a target are resolved into one stable fact per (target, language),
+-- persisted with a deterministic resolved hash and resolver version, and
+-- published downstream only when that hash changes. Removal is explicit: when no
+-- publishable aliases remain for a (target, language) the resolved fact persists
+-- an empty alias list (retracted), so a revoked/rejected alias produces a fact
+-- change that consumers act on instead of a silent disappearance. These tables
+-- are the source of truth for backfill, rebuild, replay, and publish-on-change.
+CREATE TABLE IF NOT EXISTS catalog_item_resolved_aliases (
+  catalog_item_id text NOT NULL,
+  alias_language_code text NOT NULL,
+  aliases jsonb NOT NULL DEFAULT '[]'::jsonb,
+  resolved_alias_hash text NOT NULL,
+  resolver_version integer NOT NULL,
+  resolved_at timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (catalog_item_id, alias_language_code)
+);
+
+CREATE INDEX IF NOT EXISTS catalog_item_resolved_aliases_hash_idx
+  ON catalog_item_resolved_aliases (resolved_alias_hash);
+
+CREATE TABLE IF NOT EXISTS catalog_reference_record_resolved_aliases (
+  reference_record_id text NOT NULL,
+  alias_language_code text NOT NULL,
+  aliases jsonb NOT NULL DEFAULT '[]'::jsonb,
+  resolved_alias_hash text NOT NULL,
+  resolver_version integer NOT NULL,
+  resolved_at timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (reference_record_id, alias_language_code)
+);
+
+CREATE INDEX IF NOT EXISTS catalog_reference_record_resolved_aliases_hash_idx
+  ON catalog_reference_record_resolved_aliases (resolved_alias_hash);
+
+-- Bounded, resumable recompute work for resolved alias facts. One row per
+-- target id (Catalog Item or Reference Record); accepted-alias changes upsert a
+-- pending row, the worker resolves and publishes only changed facts, and
+-- completed rows are purged on a retention cutoff. Mirrors
+-- catalog_item_display_identity_recompute_work.
+CREATE TABLE IF NOT EXISTS catalog_item_alias_recompute_work (
+  catalog_item_id text PRIMARY KEY,
+  reason text NOT NULL,
+  source_event_type text NULL,
+  source_stream_id text NULL,
+  source_recorded_at timestamptz NULL,
+  status text NOT NULL DEFAULT 'pending',
+  attempts integer NOT NULL DEFAULT 0,
+  last_error text NULL,
+  available_at timestamptz NOT NULL DEFAULT now(),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  completed_at timestamptz NULL
+);
+
+CREATE INDEX IF NOT EXISTS catalog_item_alias_recompute_work_status_idx
+  ON catalog_item_alias_recompute_work (status, available_at, updated_at);
+
+CREATE TABLE IF NOT EXISTS catalog_reference_record_alias_recompute_work (
+  reference_record_id text PRIMARY KEY,
+  reason text NOT NULL,
+  source_event_type text NULL,
+  source_stream_id text NULL,
+  source_recorded_at timestamptz NULL,
+  status text NOT NULL DEFAULT 'pending',
+  attempts integer NOT NULL DEFAULT 0,
+  last_error text NULL,
+  available_at timestamptz NOT NULL DEFAULT now(),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  completed_at timestamptz NULL
+);
+
+CREATE INDEX IF NOT EXISTS catalog_reference_record_alias_recompute_work_status_idx
+  ON catalog_reference_record_alias_recompute_work (status, available_at, updated_at);`;

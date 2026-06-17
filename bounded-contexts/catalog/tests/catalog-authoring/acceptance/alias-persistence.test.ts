@@ -617,6 +617,157 @@ describe("Catalog Alias persistence (DB-backed)", () => {
     expect(publishable.map((alias) => alias.alias_text)).toEqual(["New Localized Name"]);
   });
 
+  // -------------------------------------------------------------------------
+  // Publish resolved alias facts (#1910): create a real Catalog Item /
+  // Reference Record, write accepted aliases, drain the projection (which
+  // enqueues recompute), process the recompute batch, and assert the resolved
+  // fact persists and the aliases-resolved fact publishes only on hash change.
+  // -------------------------------------------------------------------------
+  function l10n(en: string) {
+    return { defaultLocale: "en" as const, values: { en } };
+  }
+
+  async function createCatalogItem(itemId: string, title: string) {
+    await services.items.commandHandler({
+      streamId: `catalog.item-${itemId}`,
+      command: { type: "CreateCatalogItem", itemId: itemId as never, title: l10n(title) as never },
+      context,
+    });
+  }
+
+  async function createReferenceRecord(referenceRecordId: string, typeKey: string, key: string, name: string) {
+    await services.referenceData.referenceRecordCommandHandler({
+      streamId: `catalog.reference-record-${referenceRecordId}`,
+      command: {
+        type: "CreateReferenceRecord",
+        referenceRecordId: referenceRecordId as never,
+        typeKey,
+        key,
+        name: l10n(name) as never,
+      },
+      context,
+    });
+  }
+
+  async function processItemAliasRecompute() {
+    return services.catalogAliases.processCatalogItemAliasRecomputeBatch(context, { limit: 50 });
+  }
+
+  it("publishes a resolved Catalog Item alias fact only when the resolved hash changes (#1910)", async () => {
+    await createCatalogItem("cat_resolved_1", "Charizard");
+    const candidate = itemAliasCandidate({
+      target: { kind: "catalog-item", targetId: "cat_resolved_1", targetKey: "name" },
+      reviewStatus: "auto-accepted",
+      confidence: "exact",
+    });
+    await proposeAndDrain(candidate, "system");
+
+    const first = await processItemAliasRecompute();
+    await drainCatalogProjections();
+    expect(first.changed).toBe(1);
+
+    const facts = await pool.query(
+      `SELECT alias_language_code, aliases, resolved_alias_hash, resolver_version
+       FROM catalog_item_resolved_aliases WHERE catalog_item_id = $1`,
+      ["cat_resolved_1"],
+    );
+    expect(facts.rows).toHaveLength(1);
+    expect(facts.rows[0]?.alias_language_code).toBe("fr");
+    expect(facts.rows[0]?.aliases).toEqual([
+      expect.objectContaining({ aliasHash: candidate.aliasHash, aliasText: "Dracaufeu", broad: false }),
+    ]);
+
+    // The aliases-resolved fact was appended to the Catalog Item stream.
+    const published = await pool.query(
+      `SELECT event_type FROM event_store_events
+       WHERE stream_id = $1 AND event_type = 'catalog.catalog-item.aliases-resolved'`,
+      ["catalog.item-cat_resolved_1"],
+    );
+    expect(published.rows.length).toBeGreaterThanOrEqual(1);
+
+    // Re-running recompute with no alias change publishes nothing new.
+    await services.catalogAliases.enqueueAllCatalogItemAliasRecomputeWork();
+    const second = await processItemAliasRecompute();
+    await drainCatalogProjections();
+    expect(second.changed).toBe(0);
+    expect(second.unchanged).toBe(1);
+  });
+
+  it("publishes an empty resolved fact when the last accepted alias is revoked (#1910)", async () => {
+    await createCatalogItem("cat_resolved_2", "Pikachu");
+    const candidate = itemAliasCandidate({
+      target: { kind: "catalog-item", targetId: "cat_resolved_2", targetKey: "name" },
+      reviewStatus: "auto-accepted",
+      confidence: "exact",
+    });
+    await proposeAndDrain(candidate, "system");
+    await processItemAliasRecompute();
+    await drainCatalogProjections();
+
+    const beforeHash = (
+      await pool.query(`SELECT resolved_alias_hash FROM catalog_item_resolved_aliases WHERE catalog_item_id = $1`, [
+        "cat_resolved_2",
+      ])
+    ).rows[0]?.resolved_alias_hash;
+
+    // Revoke the alias; the projection enqueues recompute, which publishes the
+    // empty/retracted fact.
+    await services.catalogAliases.catalogAliasCommandHandler({
+      streamId: catalogAliasStreamId(candidate.aliasHash),
+      command: { type: "RevokeCatalogAlias", actor: "usr_3", reason: "evidence changed" },
+      context,
+    });
+    await drainCatalogProjections();
+    const revoke = await processItemAliasRecompute();
+    await drainCatalogProjections();
+
+    expect(revoke.changed).toBe(1);
+    const fact = await pool.query(
+      `SELECT aliases, resolved_alias_hash FROM catalog_item_resolved_aliases WHERE catalog_item_id = $1`,
+      ["cat_resolved_2"],
+    );
+    expect(fact.rows[0]?.aliases).toEqual([]);
+    expect(fact.rows[0]?.resolved_alias_hash).not.toBe(beforeHash);
+  });
+
+  it("backfill rebuilds resolved alias facts for existing promoted Reference Records (#1910)", async () => {
+    await createReferenceRecord("ref_resolved_1", "expansion", "triplet-beat", "Triplet Beat");
+    const candidate = buildCatalogAliasCandidate({
+      target: { kind: "reference-record", targetId: "ref_resolved_1", targetKey: "expansion" },
+      aliasText: "トリプレットビート",
+      aliasLanguageCode: "ja",
+      aliasType: "set-equivalent",
+      confidence: "exact",
+      reviewStatus: "auto-accepted",
+      provenance: {
+        providerKey: "tcgdex",
+        observationId: "obs_set",
+        sourceCategory: "provider-same-id-localized-endpoint",
+        sourceProfileKey: "pokemon-tcg",
+        sourceProfileVersion: "2026.06.03",
+        mappingFingerprint: "fp-1",
+      },
+      evidence: {},
+    });
+    await proposeAndDrain(candidate, "system");
+
+    // Backfill enqueues every Reference Record with published aliases.
+    const enqueued = await services.catalogAliases.enqueueAllReferenceRecordAliasRecomputeWork();
+    expect(enqueued).toBeGreaterThanOrEqual(1);
+    const result = await services.catalogAliases.processReferenceRecordAliasRecomputeBatch(context, { limit: 50 });
+    await drainCatalogProjections();
+    expect(result.changed).toBeGreaterThanOrEqual(1);
+
+    const fact = await pool.query(
+      `SELECT aliases FROM catalog_reference_record_resolved_aliases WHERE reference_record_id = $1`,
+      ["ref_resolved_1"],
+    );
+    expect(fact.rows).toHaveLength(1);
+    expect(fact.rows[0]?.aliases).toEqual([
+      expect.objectContaining({ aliasText: "トリプレットビート", aliasType: "set-equivalent" }),
+    ]);
+  });
+
   it("resolves conflicting official equivalents through #1912 source precedence (#1909)", async () => {
     const sameIdEndpoint = buildCatalogAliasCandidate({
       target: { kind: "catalog-item", targetId: null, targetKey: "card-name" },

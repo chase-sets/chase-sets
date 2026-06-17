@@ -151,6 +151,35 @@ export type RecordCatalogItemDisplayIdentityCommand = Readonly<{
   resolvedAt: string;
 }>;
 
+/**
+ * One resolved alias entry in a published Catalog Item alias fact. Carries the
+ * matchable text plus the type/confidence/provenance summary a downstream search
+ * or display consumer needs without reading alias candidates or provider
+ * internals.
+ */
+export type CatalogItemResolvedAliasEntry = Readonly<{
+  aliasHash: string;
+  aliasText: string;
+  normalizedAliasText: string;
+  aliasType: string;
+  confidence: string;
+  /** True when this alias text resolves to many Catalog Items (broad/species). */
+  broad: boolean;
+  /** Provenance summary: the provider and source-governance category. */
+  providerKey: string;
+  sourceCategory: string;
+}>;
+
+export type RecordCatalogItemAliasesCommand = Readonly<{
+  type: "RecordCatalogItemAliases";
+  catalogItemId: CatalogItemId;
+  aliasLanguageCode: string;
+  aliases: readonly CatalogItemResolvedAliasEntry[];
+  resolvedAliasHash: string;
+  resolverVersion: number;
+  resolvedAt: string;
+}>;
+
 export type SetCatalogItemTagsCommand = Readonly<{
   type: "SetCatalogItemTags";
   tags: readonly string[];
@@ -218,6 +247,7 @@ export type CatalogItemCommand =
   | PublishCatalogItemCommand
   | ReviseCatalogItemMetadataCommand
   | RecordCatalogItemDisplayIdentityCommand
+  | RecordCatalogItemAliasesCommand
   | SetCatalogItemTagsCommand
   | SetCatalogItemImageUrlsCommand
   | SetCatalogItemProductAssetSetsCommand
@@ -302,6 +332,17 @@ export type ItemDisplayIdentityResolvedEvent = DomainEvent<
   ItemDisplayIdentityResolvedData
 >;
 
+export type ItemAliasesResolvedData = Readonly<{
+  catalogItemId: CatalogItemId;
+  aliasLanguageCode: string;
+  aliases: readonly CatalogItemResolvedAliasEntry[];
+  resolvedAliasHash: string;
+  resolverVersion: number;
+  resolvedAt: string;
+}>;
+
+export type ItemAliasesResolvedEvent = DomainEvent<"catalog.catalog-item.aliases-resolved", ItemAliasesResolvedData>;
+
 export type ItemTagsSetEvent = DomainEvent<
   "catalog.catalog-item.tags-set",
   Readonly<{
@@ -371,6 +412,7 @@ export type CatalogItemEvent =
   | ItemPublishedEvent
   | ItemMetadataRevisedEvent
   | ItemDisplayIdentityResolvedEvent
+  | ItemAliasesResolvedEvent
   | ItemTagsSetEvent
   | ItemImageUrlsSetEvent
   | ItemProductAssetSetsSetEvent
@@ -532,6 +574,17 @@ export const decideCatalogItem: AggregateDecider<CatalogItemState, CatalogItemCo
         {
           type: "catalog.catalog-item.display-identity-resolved",
           data: normalizeDisplayIdentityResolvedData(command),
+        },
+      ];
+    }
+    case "RecordCatalogItemAliases": {
+      requireCreatedItem(state);
+      assert(command.catalogItemId === state.id, "Resolved aliases must target the current Catalog Item.");
+
+      return [
+        {
+          type: "catalog.catalog-item.aliases-resolved",
+          data: normalizeItemAliasesResolvedData(command),
         },
       ];
     }
@@ -743,6 +796,8 @@ export const evolveCatalogItem: AggregateEvolver<CatalogItemState, CatalogItemEv
       };
     case "catalog.catalog-item.display-identity-resolved":
       return state;
+    case "catalog.catalog-item.aliases-resolved":
+      return state;
     case "catalog.catalog-item.tags-set":
       return {
         ...state,
@@ -889,6 +944,58 @@ function normalizeDisplayIdentityResolvedData(
     resolverVersion: command.resolverVersion,
     resolvedAt,
   };
+}
+
+function normalizeItemAliasesResolvedData(command: RecordCatalogItemAliasesCommand): ItemAliasesResolvedData {
+  const aliasLanguageCode = normalizeLanguageCode(command.aliasLanguageCode);
+  const resolvedAliasHash = command.resolvedAliasHash.trim();
+  const resolvedAt = command.resolvedAt.trim();
+
+  assert(resolvedAliasHash.length > 0, "Resolved aliases require a hash.");
+  assert(
+    Number.isInteger(command.resolverVersion) && command.resolverVersion > 0,
+    "Resolved aliases require a positive resolver version.",
+  );
+  assert(!Number.isNaN(Date.parse(resolvedAt)), "Resolved aliases require a valid resolved timestamp.");
+
+  return {
+    catalogItemId: command.catalogItemId,
+    aliasLanguageCode,
+    aliases: normalizeResolvedAliasEntries(command.aliases),
+    resolvedAliasHash,
+    resolverVersion: command.resolverVersion,
+    resolvedAt,
+  };
+}
+
+function normalizeResolvedAliasEntries(
+  aliases: readonly CatalogItemResolvedAliasEntry[],
+): readonly CatalogItemResolvedAliasEntry[] {
+  const normalized = aliases.map((alias) => ({
+    aliasHash: alias.aliasHash.trim(),
+    aliasText: alias.aliasText.trim(),
+    normalizedAliasText: alias.normalizedAliasText.trim(),
+    aliasType: alias.aliasType.trim(),
+    confidence: alias.confidence.trim(),
+    broad: alias.broad,
+    providerKey: alias.providerKey.trim(),
+    sourceCategory: alias.sourceCategory.trim(),
+  }));
+
+  for (const alias of normalized) {
+    assert(alias.aliasHash.length > 0, "Resolved alias entries require an alias hash.");
+    assert(alias.aliasText.length > 0, "Resolved alias entries require alias text.");
+  }
+
+  ensureUniqueBy(normalized, (alias) => alias.aliasHash, "Resolved aliases must be unique per alias hash.");
+
+  // Deterministic ordering keeps the published fact and its hash stable
+  // regardless of query order, so replay/backfill reproduce the same fact.
+  return [...normalized].sort((left, right) =>
+    left.normalizedAliasText === right.normalizedAliasText
+      ? left.aliasHash.localeCompare(right.aliasHash)
+      : left.normalizedAliasText.localeCompare(right.normalizedAliasText),
+  );
 }
 
 function normalizeNullableString(value: string | null | undefined): string | null {
