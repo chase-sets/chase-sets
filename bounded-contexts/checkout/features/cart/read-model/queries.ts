@@ -158,8 +158,8 @@ export async function listCartLines(db: PgQueryable, buyerAccountId: string): Pr
              'seller_account_id', o.seller_account_id,
              'seller_slug', COALESCE(seller.slug, o.seller_slug),
              'seller_display_name', COALESCE(seller.display_name, o.seller_display_name),
-             'seller_average_rating', o.seller_average_rating::text,
-             'seller_review_count', COALESCE(o.seller_review_count, 0),
+             'seller_average_rating', COALESCE(seller.average_rating, o.seller_average_rating)::text,
+             'seller_review_count', COALESCE(seller.review_count, o.seller_review_count, 0),
              'price_amount', o.price_amount::text,
              'available_quantity', LEAST(
                o.listing_quantity_cap,

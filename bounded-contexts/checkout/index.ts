@@ -8,6 +8,7 @@ import { buildCheckoutCatalogProjectionHandlers } from "./features/cart/integrat
 import { buildCheckoutIdentitySellerAccountsProjectionHandlers } from "./features/cart/integrations/identity/identity-projection";
 import { buildCheckoutInventorySupplyProjectionHandlers } from "./features/cart/integrations/inventory/inventory-projection";
 import { buildCheckoutMarketplaceSellerOptionsProjectionHandlers } from "./features/cart/integrations/marketplace/marketplace-projection";
+import { buildCheckoutReputationSellerReviewsProjectionHandlers } from "./features/cart/integrations/reputation/reputation-projection";
 import {
   createCheckoutServices,
   type CheckoutHostPorts,
@@ -29,8 +30,16 @@ export const module = defineBoundedContextModule<CheckoutServices, PgTransaction
       manifest: contextManifest,
       handlers: {
         "catalog.checkout-catalog-item-projection": () => buildCheckoutCatalogProjectionHandlers(services.db),
-        "marketplace.checkout-marketplace-seller-options-projection": () =>
-          buildCheckoutMarketplaceSellerOptionsProjectionHandlers(services.db),
+        // The marketplace subscription feeds this projection both the listing
+        // lifecycle handlers and — because the `reputation.review.*` events are
+        // emitted by the marketplace context — the seller-review reputation
+        // handlers, composed under the single marketplace -> projection key the
+        // manifest builder allows. The event-type keys are disjoint
+        // (`marketplace.*` vs `reputation.*`), so the spread cannot collide.
+        "marketplace.checkout-marketplace-seller-options-projection": () => ({
+          ...buildCheckoutMarketplaceSellerOptionsProjectionHandlers(services.db),
+          ...buildCheckoutReputationSellerReviewsProjectionHandlers(services.db),
+        }),
         "inventory.checkout-marketplace-seller-options-projection": {
           subscriptionName: "checkout.inventory-seller-options-supply-projection",
           buildHandlers: () => buildCheckoutInventorySupplyProjectionHandlers(services.db),

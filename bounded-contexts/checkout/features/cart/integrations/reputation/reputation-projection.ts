@@ -1,0 +1,146 @@
+import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
+
+/**
+ * Recomputes the denormalized seller reputation counters (`average_rating` /
+ * `review_count`) onto the `checkout_seller_accounts` join row for the given
+ * account from the auxiliary `checkout_seller_account_reviews` table.
+ *
+ * `average_rating = ROUND(AVG(rating), 2)` over the account's `active` reviews
+ * (NULL when there are none) and `review_count = COUNT(*)`, mirroring
+ * discovery's `refreshAccountReputation`. Recomputing from the auxiliary review
+ * rows (rather than applying deltas in place) keeps the projection replay-safe
+ * and event-ordering independent: the counters are derived state, so re-running
+ * any review event converges to the same values. The reputation row is upserted
+ * onto a possibly-not-yet-projected account so a review observed before the
+ * `identity.account.created` event still records counters once the identity
+ * handler backfills `display_name` / `slug`.
+ */
+async function refreshCheckoutSellerAccountReputation(
+  db: PgQueryable,
+  accountId: string,
+  updatedAt: string,
+): Promise<void> {
+  await db.query(
+    `INSERT INTO checkout_seller_accounts (
+       account_id,
+       display_name,
+       slug,
+       average_rating,
+       review_count,
+       updated_at
+     )
+     SELECT
+       $1,
+       '',
+       '',
+       CASE WHEN COUNT(*) = 0 THEN NULL ELSE ROUND(AVG(rating)::numeric, 2) END,
+       COUNT(*)::integer,
+       $2
+     FROM checkout_seller_account_reviews
+     WHERE subject_account_id = $1
+       AND status = 'active'
+     ON CONFLICT (account_id) DO UPDATE SET
+       average_rating = EXCLUDED.average_rating,
+       review_count = EXCLUDED.review_count,
+       updated_at = EXCLUDED.updated_at`,
+    [accountId, updatedAt],
+  );
+}
+
+/**
+ * Checkout-local reputation handler set feeding the SAME
+ * `checkout-marketplace-seller-options-projection` as the marketplace listing,
+ * inventory supply, and identity account handlers. It maintains a replay-safe
+ * auxiliary `checkout_seller_account_reviews` table keyed by `review_id` and
+ * recomputes the seller's `average_rating` / `review_count` onto the
+ * `checkout_seller_accounts` join row so the cart seller-options read model can
+ * surface a seller rating per option.
+ *
+ * Each handler upserts/transitions behind a `last_stream_version` guard,
+ * mirroring the inventory/identity auxiliary tables, so replaying review events
+ * converges to the same row without regressing a newer review state.
+ * `reputation.review.updated` / `.withdrawn` carry only the `review_id`, so the
+ * affected account is resolved back through the auxiliary review row before
+ * recomputing its counters.
+ */
+export function buildCheckoutReputationSellerReviewsProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+  return {
+    "reputation.review.submitted": async (event) => {
+      const data = event.data as {
+        reviewId: string;
+        subjectAccountId: string;
+        rating: number;
+        submittedAt: string;
+      };
+
+      await db.query(
+        `INSERT INTO checkout_seller_account_reviews (
+           review_id,
+           subject_account_id,
+           rating,
+           status,
+           last_stream_version,
+           submitted_at,
+           updated_at
+         ) VALUES ($1, $2, $3, 'active', $4, $5, $5)
+         ON CONFLICT (review_id) DO UPDATE SET
+           subject_account_id = EXCLUDED.subject_account_id,
+           rating = EXCLUDED.rating,
+           status = EXCLUDED.status,
+           last_stream_version = EXCLUDED.last_stream_version,
+           submitted_at = COALESCE(checkout_seller_account_reviews.submitted_at, EXCLUDED.submitted_at),
+           updated_at = EXCLUDED.updated_at
+         WHERE checkout_seller_account_reviews.last_stream_version < EXCLUDED.last_stream_version`,
+        [data.reviewId, data.subjectAccountId, data.rating, event.streamVersion, data.submittedAt],
+      );
+
+      await refreshCheckoutSellerAccountReputation(db, data.subjectAccountId, data.submittedAt);
+    },
+    "reputation.review.updated": async (event) => {
+      const data = event.data as {
+        reviewId: string;
+        rating: number;
+        updatedAt: string;
+      };
+
+      const updated = await db.query<{ subject_account_id: string }>(
+        `UPDATE checkout_seller_account_reviews
+         SET rating = $2,
+             updated_at = $3,
+             last_stream_version = $4
+         WHERE review_id = $1
+           AND last_stream_version < $4
+         RETURNING subject_account_id`,
+        [data.reviewId, data.rating, data.updatedAt, event.streamVersion],
+      );
+
+      const subjectAccountId = updated.rows[0]?.subject_account_id;
+      if (subjectAccountId) {
+        await refreshCheckoutSellerAccountReputation(db, subjectAccountId, data.updatedAt);
+      }
+    },
+    "reputation.review.withdrawn": async (event) => {
+      const data = event.data as {
+        reviewId: string;
+        withdrawnAt: string;
+      };
+
+      const withdrawn = await db.query<{ subject_account_id: string }>(
+        `UPDATE checkout_seller_account_reviews
+         SET status = 'withdrawn',
+             updated_at = $2,
+             last_stream_version = $3
+         WHERE review_id = $1
+           AND last_stream_version < $3
+         RETURNING subject_account_id`,
+        [data.reviewId, data.withdrawnAt, event.streamVersion],
+      );
+
+      const subjectAccountId = withdrawn.rows[0]?.subject_account_id;
+      if (subjectAccountId) {
+        await refreshCheckoutSellerAccountReputation(db, subjectAccountId, data.withdrawnAt);
+      }
+    },
+  };
+}

@@ -53,6 +53,9 @@ export const checkoutEnglishTranslations = {
   "checkout.features.cart.ui.cartPage.optimization.available.description":
     "You can keep your current fulfillment or use the lower-cost option before checkout begins.",
   "checkout.features.cart.ui.cartPage.optimization.available.title": "Save ${savings} before checkout",
+  "checkout.features.cart.ui.cartPage.optimization.switch.to.seller.title": "Save ${savings} by switching to {seller}",
+  "checkout.features.cart.ui.cartPage.seller.reputation.empty": "No reviews yet",
+  "checkout.features.cart.ui.cartPage.seller.reputation.label": "Seller account reputation",
   "checkout.features.cart.ui.cartPage.product.image.alt": "{title} product",
   "checkout.features.cart.ui.cartPage.quantity": "Quantity",
   "checkout.features.cart.ui.cartPage.priced.at.checkout": "Priced at checkout",

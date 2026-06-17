@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useFetcher } from "react-router";
 import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
 import {
+  AccountReputationSummary,
   ActionStack,
   Badge,
   Banner,
@@ -31,6 +32,8 @@ import {
 } from "@chase-sets/design-system";
 import {
   createCartReadinessSnapshot,
+  lowestCartReadinessListing,
+  selectedCartReadinessListing,
   type CartReadinessDecisionInput,
   type CartReadinessSnapshot,
 } from "../domain/readiness";
@@ -221,13 +224,56 @@ function renderLineOptions(line: CheckoutCartLineGroup) {
   );
 }
 
-function cartListingLabel(line: CheckoutCartLineGroup, listingId: string | null) {
+type CheckoutCartSellerOption = CheckoutCartLineGroup["seller_options"][number];
+
+function findSellerOption(line: CheckoutCartLineGroup, listingId: string | null): CheckoutCartSellerOption | null {
   if (!listingId) {
-    return t("checkout.features.cart.ui.cartPage.selected.listing");
+    return null;
   }
 
-  const listing = line.seller_options.find((option) => option.listing_id === listingId);
+  return line.seller_options.find((option) => option.listing_id === listingId) ?? null;
+}
+
+function cartListingLabel(line: CheckoutCartLineGroup, listingId: string | null) {
+  const listing = findSellerOption(line, listingId);
   return listing?.seller_display_name ?? t("checkout.features.cart.ui.cartPage.selected.listing");
+}
+
+/**
+ * Resolves the seller option the cart would check out for a line: the pinned
+ * listing for a `locked-listing` line, otherwise the lowest-cost fulfillable
+ * option Smart Match would pick. Returns null when nothing is resolvable yet
+ * (no projected options), so the seller attribution simply omits.
+ */
+function selectedListingSellerOption(line: CheckoutCartLineGroup): CheckoutCartSellerOption | null {
+  const resolved =
+    line.fulfillment_mode === "locked-listing" ? selectedCartReadinessListing(line) : lowestCartReadinessListing(line);
+
+  return findSellerOption(line, resolved?.listing_id ?? null);
+}
+
+/**
+ * Renders the seller's account reputation for a resolved listing via the DS
+ * `AccountReputationSummary` primitive. The primitive owns the empty state: a
+ * null `seller_average_rating` or zero `seller_review_count` renders the "No
+ * reviews yet" label instead of stars, so a seller with no feedback degrades
+ * gracefully without a custom branch here.
+ */
+function SellerReputation({ option }: { option: CheckoutCartSellerOption | null }) {
+  if (!option?.seller_display_name) {
+    return null;
+  }
+
+  return (
+    <AccountReputationSummary
+      accountName={option.seller_display_name}
+      averageRating={option.seller_average_rating}
+      reviewCount={option.seller_review_count ?? 0}
+      ratingLabel={t("checkout.features.cart.ui.cartPage.seller.reputation.label")}
+      emptyLabel={t("checkout.features.cart.ui.cartPage.seller.reputation.empty")}
+      emptyAccessibleLabel={t("checkout.features.cart.ui.cartPage.seller.reputation.empty")}
+    />
+  );
 }
 
 function ListingPreferenceStatus({ line }: { line: CheckoutCartLineGroup }) {
@@ -436,6 +482,7 @@ function CartLineRow({
         <Stack gap={2}>
           {renderLineOptions(line)}
           <ListingPreferenceStatus line={line} />
+          <SellerReputation option={selectedListingSellerOption(line)} />
           <LinePrice line={line} />
         </Stack>
       }
@@ -613,6 +660,17 @@ export function CheckoutCartPage({
   const cartReady = cartLineGroups.length > 0 && checkoutReadinessSnapshot.status === "ready";
   const optimizationAvailable = cartReady && checkoutReadinessSnapshot.optimization.available;
   const optimizationSavings = checkoutReadinessSnapshot.optimization.savingsAmount ?? "0.00";
+  // Resolve the seller behind the proposed lower-cost listing so the savings
+  // notice can name the seller and show its reputation (helps the buyer decide
+  // whether the switch is worth it), falling back to the seller-less copy when
+  // the proposed seller has no display name projected yet.
+  const proposedOptimizationLine = checkoutReadinessSnapshot.optimization.proposedLineId
+    ? (cartLineGroups.find((line) => line.line_id === checkoutReadinessSnapshot.optimization.proposedLineId) ?? null)
+    : null;
+  const proposedOptimizationOption = proposedOptimizationLine
+    ? findSellerOption(proposedOptimizationLine, checkoutReadinessSnapshot.optimization.proposedListingId)
+    : null;
+  const proposedOptimizationSeller = proposedOptimizationOption?.seller_display_name ?? null;
 
   // §4 priority ladder: a blocking/needs-review banner and a savings notice are
   // mutually exclusive — `CheckoutNoticeStack` renders exactly the highest
@@ -638,10 +696,24 @@ export function CheckoutCartPage({
           notice: (
             <Banner
               tone="info"
-              title={t("checkout.features.cart.ui.cartPage.optimization.available.title", {
-                savings: optimizationSavings,
-              })}
-              description={t("checkout.features.cart.ui.cartPage.optimization.available.description")}
+              title={
+                proposedOptimizationSeller
+                  ? t("checkout.features.cart.ui.cartPage.optimization.switch.to.seller.title", {
+                      savings: optimizationSavings,
+                      seller: proposedOptimizationSeller,
+                    })
+                  : t("checkout.features.cart.ui.cartPage.optimization.available.title", {
+                      savings: optimizationSavings,
+                    })
+              }
+              description={
+                <Stack gap={2}>
+                  <Text size="sm" tone="inherit">
+                    {t("checkout.features.cart.ui.cartPage.optimization.available.description")}
+                  </Text>
+                  <SellerReputation option={proposedOptimizationOption} />
+                </Stack>
+              }
             />
           ),
         },
