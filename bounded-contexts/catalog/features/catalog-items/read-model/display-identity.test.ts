@@ -152,7 +152,7 @@ describe("resolveCatalogItemDisplayIdentity", () => {
       templateKey: "global-card",
       templateTargetKind: "global",
       templateTargetId: null,
-      resolverVersion: 1,
+      resolverVersion: 2,
     });
     expect(first.hash).toMatch(/^[a-f0-9]{64}$/);
     expect(second.hash).toBe(first.hash);
@@ -204,11 +204,155 @@ describe("resolveCatalogItemDisplayIdentity", () => {
       "global",
       null,
       result.identity.hash,
-      1,
+      2,
       "2026-06-06T22:00:00.000Z",
     ]);
   });
+
+  function japaneseCard() {
+    return {
+      catalog_item_id: "cat_sabonea",
+      language_code: "en",
+      title: "サボネア",
+      subtitle: null,
+      blueprint_id: null,
+      category_ids: [],
+      field_values: [
+        { fieldId: "fld_name", value: "サボネア" },
+        { fieldId: "fld_expansion", value: { referenceId: "ref_set" } },
+      ],
+    };
+  }
+
+  const japaneseCardData: Parameters<typeof displayIdentityDb>[0] = {
+    fields: [
+      { field_id: "fld_name", key: "card-name" },
+      { field_id: "fld_expansion", key: "expansion" },
+    ],
+    references: [
+      {
+        reference_record_id: "ref_set",
+        type_key: "expansion",
+        key: "triplet-beat",
+        name: "トリプレットビート",
+        attributes: {},
+        relationships: [],
+        status: "active",
+      },
+    ],
+    templates: [
+      {
+        key: "global-card",
+        target_kind: "global",
+        target_id: null,
+        priority: 1,
+        title_template: "{field.card-name}",
+        subtitle_template: "{reference.expansion.name}",
+        required_field_keys: ["card-name"],
+      },
+    ],
+  };
+
+  it("English-locale display shows the accepted English name with the native name as secondary", async () => {
+    const db = displayIdentityDb({
+      ...japaneseCardData,
+      itemAliases: [englishAlias()],
+    });
+
+    await expect(resolveCatalogItemDisplayIdentity(db, japaneseCard())).resolves.toMatchObject({
+      languageCode: "en",
+      title: "Cacnea (サボネア)",
+    });
+  });
+
+  it("applies the same locale/confidence policy to Reference Record (set/series) display", async () => {
+    const db = displayIdentityDb({
+      ...japaneseCardData,
+      itemAliases: [englishAlias()],
+      referenceAliasesById: {
+        ref_set: [
+          englishAlias({
+            alias_text: "Triplet Beat",
+            normalized_alias_text: "triplet beat",
+            alias_type: "set-equivalent",
+            confidence: "exact",
+          }),
+        ],
+      },
+    });
+
+    await expect(resolveCatalogItemDisplayIdentity(db, japaneseCard())).resolves.toMatchObject({
+      title: "Cacnea (サボネア)",
+      subtitle: "Triplet Beat (トリプレットビート)",
+    });
+  });
+
+  it("never promotes a generated or species alias to the primary display name", async () => {
+    const db = displayIdentityDb({
+      ...japaneseCardData,
+      itemAliases: [
+        englishAlias({ alias_text: "Cactus", alias_type: "species-name", confidence: "exact" }),
+        englishAlias({ alias_text: "Cacnea (gen)", alias_type: "generated-translation", confidence: "exact" }),
+      ],
+    });
+
+    // Neither qualifies, so the native provider name stays the primary display.
+    await expect(resolveCatalogItemDisplayIdentity(db, japaneseCard())).resolves.toMatchObject({
+      title: "サボネア",
+    });
+  });
+
+  it("leaves native-locale display unchanged (no English alias applied)", async () => {
+    const db = displayIdentityDb({
+      ...japaneseCardData,
+      itemAliases: [englishAlias()],
+    });
+
+    // A non-English resolved locale must not surface the English alias.
+    await expect(
+      resolveCatalogItemDisplayIdentity(db, { ...japaneseCard(), language_code: "ja" }),
+    ).resolves.toMatchObject({
+      languageCode: "ja",
+      title: "サボネア",
+    });
+  });
+
+  it("republishes only when the display-relevant alias changes (idempotent)", async () => {
+    const withAlias = displayIdentityDb({ ...japaneseCardData, itemAliases: [englishAlias()] });
+    const sameAliasAgain = displayIdentityDb({ ...japaneseCardData, itemAliases: [englishAlias()] });
+    const differentAlias = displayIdentityDb({
+      ...japaneseCardData,
+      itemAliases: [englishAlias({ alias_text: "Cactus Pokemon", normalized_alias_text: "cactus pokemon" })],
+    });
+    const nonDisplayAliasAdded = displayIdentityDb({
+      ...japaneseCardData,
+      itemAliases: [
+        englishAlias(),
+        englishAlias({ alias_text: "cacnea", alias_type: "species-name", confidence: "candidate" }),
+      ],
+    });
+
+    const base = await resolveCatalogItemDisplayIdentity(withAlias, japaneseCard());
+    const stable = await resolveCatalogItemDisplayIdentity(sameAliasAgain, japaneseCard());
+    const changed = await resolveCatalogItemDisplayIdentity(differentAlias, japaneseCard());
+    const unaffected = await resolveCatalogItemDisplayIdentity(nonDisplayAliasAdded, japaneseCard());
+
+    // Re-resolving the same display-relevant evidence is stable.
+    expect(stable.hash).toBe(base.hash);
+    // Changing the chosen display alias changes the hash.
+    expect(changed.hash).not.toBe(base.hash);
+    // Adding a non-display alias (species/low-confidence) does not change display.
+    expect(unaffected.hash).toBe(base.hash);
+  });
 });
+
+type AliasRow = {
+  alias_text: string;
+  normalized_alias_text: string;
+  alias_language_code: string;
+  alias_type: string;
+  confidence: string;
+};
 
 function displayIdentityDb(
   data: {
@@ -231,6 +375,8 @@ function displayIdentityDb(
       subtitle_template: string | null;
       required_field_keys: unknown;
     }>;
+    itemAliases?: AliasRow[];
+    referenceAliasesById?: Record<string, AliasRow[]>;
   },
   options: { existingHash?: string; persistedWrites?: unknown[][] } = {},
 ) {
@@ -256,6 +402,15 @@ function displayIdentityDb(
         return { rows: data.templates as T[] };
       }
 
+      if (sql.includes("FROM catalog_item_aliases")) {
+        return { rows: (data.itemAliases ?? []) as T[] };
+      }
+
+      if (sql.includes("FROM catalog_reference_record_aliases")) {
+        const referenceRecordId = String(params?.[0] ?? "");
+        return { rows: ((data.referenceAliasesById ?? {})[referenceRecordId] ?? []) as T[] };
+      }
+
       if (sql.includes("FROM catalog_reference_records")) {
         const ids = Array.isArray(params?.[0]) ? params[0] : [];
         return { rows: data.references.filter((reference) => ids.includes(reference.reference_record_id)) as T[] };
@@ -263,5 +418,16 @@ function displayIdentityDb(
 
       return { rows: [] };
     },
+  };
+}
+
+function englishAlias(overrides: Partial<AliasRow> = {}): AliasRow {
+  return {
+    alias_text: "Cacnea",
+    normalized_alias_text: "cacnea",
+    alias_language_code: "en",
+    alias_type: "official-equivalent",
+    confidence: "high",
+    ...overrides,
   };
 }

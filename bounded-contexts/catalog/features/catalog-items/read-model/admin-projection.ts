@@ -748,6 +748,13 @@ export function buildCatalogAdminCatalogItemProjectionHandlers(db: PgQueryable):
     await refreshCatalogItemIds(db, [...new Set(itemIds)], "reference-record-changed", source);
   }
 
+  async function refreshReferenceAliasDependents(referenceRecordId: string, source: DisplayIdentityRecomputeSource) {
+    const relatedRecordIds = await findReferenceRecordIdsByRelatedReferenceGraph(db, referenceRecordId);
+    const itemIds = await findCatalogItemIdsByReferenceRecords(db, [referenceRecordId, ...relatedRecordIds]);
+
+    await refreshCatalogItemIds(db, [...new Set(itemIds)], "alias-resolved", source);
+  }
+
   return {
     "catalog.catalog-item.created": async (event) => {
       await enqueueItemAndRefresh(db, event.data.itemId as string, "catalog-item-changed", sourceFromEvent(event));
@@ -846,6 +853,28 @@ export function buildCatalogAdminCatalogItemProjectionHandlers(db: PgQueryable):
 
       await db.query(`DELETE FROM catalog_admin_catalog_item_list_pages WHERE catalog_item_id = $1`, [itemId]);
       await db.query(`DELETE FROM catalog_admin_catalog_item_detail_pages WHERE catalog_item_id = $1`, [itemId]);
+    },
+
+    // An accepted Catalog Item alias set changed (#1914): the resolved English
+    // display name may change, so re-resolve display identity for this item. The
+    // resolver reads the publishable aliases and republishes only on hash change.
+    "catalog.catalog-item.aliases-resolved": async (event) => {
+      await enqueueItemAndRefresh(
+        db,
+        extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX),
+        "alias-resolved",
+        sourceFromEvent(event),
+      );
+    },
+
+    // An accepted set/series (Reference Record) alias set changed (#1914): every
+    // Catalog Item whose display copy references that record may change its
+    // resolved set/series display, so re-resolve those items' display identity.
+    "catalog.reference-record.aliases-resolved": async (event) => {
+      await refreshReferenceAliasDependents(
+        extractIdFromStreamId(event.streamId, REFERENCE_RECORD_STREAM_PREFIX),
+        sourceFromEvent(event),
+      );
     },
 
     "catalog.blueprint.revised": async (event) => {

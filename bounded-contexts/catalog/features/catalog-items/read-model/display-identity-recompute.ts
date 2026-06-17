@@ -16,6 +16,7 @@ export type DisplayIdentityRecomputeReason =
   | "category-changed"
   | "field-changed"
   | "reference-record-changed"
+  | "alias-resolved"
   | "seed-template-reconciled"
   | "manual-backfill"
   | "repair";

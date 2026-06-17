@@ -818,4 +818,136 @@ describe("Catalog Alias persistence (DB-backed)", () => {
     expect(publishable).toHaveLength(1);
     expect(publishable[0]?.source_category).toBe("curated-operator-mapping");
   });
+
+  // -------------------------------------------------------------------------
+  // Project accepted aliases into Resolved Display Identity (#1914): accept an
+  // English alias for a promoted Japanese card, drain (which resolves aliases and
+  // enqueues display-identity recompute), process display recompute, and assert
+  // the English-locale display name surfaces with the native name as secondary.
+  // -------------------------------------------------------------------------
+  async function processItemDisplayIdentityRecompute() {
+    return services.items.processDisplayIdentityRecomputeBatch(context, { limit: 50 });
+  }
+
+  async function resolvedDisplayTitle(catalogItemId: string): Promise<string | undefined> {
+    const result = await pool.query<{ language_code: string; title: string }>(
+      `SELECT language_code, title FROM catalog_item_display_identities WHERE catalog_item_id = $1`,
+      [catalogItemId],
+    );
+    return result.rows.find((row) => row.language_code === "en")?.title;
+  }
+
+  async function acceptItemAlias(
+    catalogItemId: string,
+    overrides: Partial<Parameters<typeof buildCatalogAliasCandidate>[0]> = {},
+  ) {
+    const candidate = itemAliasCandidate({
+      target: { kind: "catalog-item", targetId: catalogItemId, targetKey: "name" },
+      aliasText: "Cacnea",
+      aliasLanguageCode: "en",
+      aliasType: "official-equivalent",
+      confidence: "high",
+      reviewStatus: "auto-accepted",
+      ...overrides,
+    });
+    await proposeAndDrain(candidate, "system");
+    // Resolve the alias fact, which publishes `aliases-resolved`; draining that
+    // runs the catalog-item display-identity trigger.
+    await processItemAliasRecompute();
+    await drainCatalogProjections();
+    return candidate;
+  }
+
+  it("English-locale display shows the accepted English name with the native name as secondary (#1914)", async () => {
+    await createCatalogItem("cat_display_1", "サボネア");
+    // Before any alias is accepted the native provider name is the display name.
+    await processItemDisplayIdentityRecompute();
+    await drainCatalogProjections();
+    expect(await resolvedDisplayTitle("cat_display_1")).toBe("サボネア");
+
+    // Accepting the English alias resolves the alias fact, which triggers the
+    // display-identity recompute; the resolved English display name surfaces with
+    // the native name kept as secondary.
+    await acceptItemAlias("cat_display_1");
+    await processItemDisplayIdentityRecompute();
+    await drainCatalogProjections();
+
+    expect(await resolvedDisplayTitle("cat_display_1")).toBe("Cacnea (サボネア)");
+  });
+
+  it("never promotes a generated or species alias to the primary display name (#1914)", async () => {
+    await createCatalogItem("cat_display_2", "サボネア");
+    await acceptItemAlias("cat_display_2", {
+      aliasText: "Cactus",
+      aliasType: "species-name",
+      confidence: "candidate",
+    });
+
+    await processItemDisplayIdentityRecompute();
+    await drainCatalogProjections();
+
+    // The species alias is excluded from primary display; native name stays.
+    expect(await resolvedDisplayTitle("cat_display_2")).toBe("サボネア");
+  });
+
+  it("republishes display identity only when the display-relevant alias changes (#1914)", async () => {
+    await createCatalogItem("cat_display_3", "サボネア");
+    await acceptItemAlias("cat_display_3");
+
+    await processItemDisplayIdentityRecompute();
+    await drainCatalogProjections();
+    expect(await resolvedDisplayTitle("cat_display_3")).toBe("Cacnea (サボネア)");
+
+    // Re-running display recompute on unchanged evidence publishes nothing new.
+    const reenqueued = await pool.query(
+      `INSERT INTO catalog_item_display_identity_recompute_work (
+         catalog_item_id, reason, status, attempts, available_at, updated_at
+       ) VALUES ($1, 'repair', 'pending', 0, now(), now())
+       ON CONFLICT (catalog_item_id) DO UPDATE SET status = 'pending', available_at = now(), updated_at = now()`,
+      ["cat_display_3"],
+    );
+    expect(reenqueued.rowCount).toBeGreaterThanOrEqual(1);
+    const second = await processItemDisplayIdentityRecompute();
+    await drainCatalogProjections();
+    expect(second.changed).toBe(0);
+    expect(second.unchanged).toBe(1);
+  });
+
+  it("surfaces the accepted set/series (Reference Record) name in English display (#1914)", async () => {
+    await createReferenceRecord("ref_display_set", "expansion", "triplet-beat", "トリプレットビート");
+    // A blueprint-free card whose subtitle template renders the expansion name.
+    await createCatalogItem("cat_display_set", "サボネア");
+
+    // Accept a set-equivalent English alias for the Reference Record.
+    const setAlias = buildCatalogAliasCandidate({
+      target: { kind: "reference-record", targetId: "ref_display_set", targetKey: "expansion" },
+      aliasText: "Triplet Beat",
+      aliasLanguageCode: "en",
+      aliasType: "set-equivalent",
+      confidence: "exact",
+      reviewStatus: "auto-accepted",
+      provenance: {
+        providerKey: "tcgdex",
+        observationId: "obs_set_display",
+        sourceCategory: "provider-same-id-localized-endpoint",
+        sourceProfileKey: "pokemon-tcg",
+        sourceProfileVersion: "2026.06.03",
+        mappingFingerprint: "fp-1",
+      },
+      evidence: {},
+    });
+    await proposeAndDrain(setAlias, "system");
+    await services.catalogAliases.processReferenceRecordAliasRecomputeBatch(context, { limit: 50 });
+    await drainCatalogProjections();
+
+    // The reference-record aliases-resolved fact should have enqueued display
+    // recompute for items referencing the record; process it.
+    const result = await processItemDisplayIdentityRecompute();
+    await drainCatalogProjections();
+    expect(result.selected).toBeGreaterThanOrEqual(0);
+
+    // The set-equivalent English alias is publishable for the Reference Record.
+    const refAliases = await services.catalogAliases.listPublishableReferenceRecordAliases("ref_display_set");
+    expect(refAliases.map((alias) => alias.alias_text)).toEqual(["Triplet Beat"]);
+  });
 });
