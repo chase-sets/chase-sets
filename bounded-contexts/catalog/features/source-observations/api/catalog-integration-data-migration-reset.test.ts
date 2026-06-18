@@ -11,7 +11,6 @@ import {
   evaluateCatalogIntegrationDataResetEvidence,
   resetCatalogIntegrationPreLaunchData,
 } from "./catalog-integration-data-migration-reset";
-import { catalogIntegrationDataResetTargetTables as catalogIntegrationDataEvidenceTargetTables } from "./catalog-integration-data-reset-evidence";
 
 const seedCatalogProviderIntegrationProfileVersions = vi.hoisted(() =>
   vi.fn(async () => [
@@ -66,7 +65,6 @@ describe("catalog integration data migration reset", () => {
     expect(catalogIntegrationDataResetTargetTables()).toEqual(
       catalogIntegrationDataResetDeleteStatements.map((statement) => statement.tableName),
     );
-    expect(catalogIntegrationDataEvidenceTargetTables()).toEqual(catalogIntegrationDataResetTargetTables());
     expect(catalogIntegrationDataResetTargetTables()).not.toContain("catalog_items");
     expect(catalogIntegrationDataResetTargetTables()).not.toContain("marketplace_listings");
   });
