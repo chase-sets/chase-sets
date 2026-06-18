@@ -26,7 +26,7 @@ export type CatalogControlPlaneNavigationGroupKey = "primary" | "unblock" | "gov
 // The route path is the screen router; the workspace key (carried as ?section=)
 // only identifies the precise workspace within a multi-workspace surface for
 // active-nav highlighting and detour telemetry.
-export type CatalogControlPlaneRouteSurfaceKey = "daily" | "providers" | "governance" | "release";
+export type CatalogControlPlaneRouteSurfaceKey = "daily" | "providers" | "governance" | "health";
 
 export type CatalogControlPlaneWorkspace = Readonly<{
   key: CatalogControlPlaneWorkspaceKey;
@@ -114,7 +114,7 @@ export const CATALOG_CONTROL_PLANE_WORKSPACES = [
   {
     key: "health-triage",
     routeSegment: "triage",
-    routeSurface: "release",
+    routeSurface: "health",
     accessibleName: "Health triage",
     group: "unblock",
     keyboardOrder: 20,
@@ -232,7 +232,7 @@ export const CATALOG_CONTROL_PLANE_WORKSPACES = [
   {
     key: "audit-evidence",
     routeSegment: "evidence",
-    routeSurface: "release",
+    routeSurface: "health",
     accessibleName: "Audit evidence",
     group: "verify",
     keyboardOrder: 100,
@@ -275,7 +275,7 @@ export const CATALOG_CONTROL_PLANE_NAVIGATION_GROUPS = [
   },
   {
     key: "verify",
-    accessibleName: "Verify release evidence",
+    accessibleName: "Integration health",
     items: ["audit-evidence"],
   },
 ] as const satisfies readonly CatalogControlPlaneNavigationGroup[];
@@ -303,9 +303,9 @@ export const CATALOG_CONTROL_PLANE_ROUTE_SURFACES = [
     workspaces: ["conflict-resolution", "lifecycle-recovery", "governance-controls"],
   },
   {
-    key: "release",
-    pathSegment: "release",
-    accessibleName: "Release evidence and health",
+    key: "health",
+    pathSegment: "health",
+    accessibleName: "Integration health",
     workspaces: ["audit-evidence", "health-triage"],
   },
 ] as const satisfies readonly CatalogControlPlaneRouteSurface[];

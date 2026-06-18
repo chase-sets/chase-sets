@@ -138,9 +138,9 @@ export function DailyGovernanceStatusIndicator({
 
 // Health triage is observability work kept off the daily route: the full
 // readiness/transport/rollout/job/audit dashboard lives on
-// /admin/integrations/release. When the daily working set is health-degraded or
+// /admin/integrations/health. When the daily working set is health-degraded or
 // blocked, the daily flow does NOT host that dashboard — it shows only this slim
-// indicator that deep-links into health triage on the release surface carrying
+// indicator that deep-links into health triage on the health surface carrying
 // return context back to the daily job. Mirrors DailyGovernanceStatusIndicator.
 type CatalogDailyHealthStatus = "degraded" | "blocked";
 

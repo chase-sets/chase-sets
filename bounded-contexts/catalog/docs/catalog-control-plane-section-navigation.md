@@ -38,7 +38,7 @@ The rebuild must not preserve retired admin patterns as cleaned-up pages. It mus
 
 Each screen must have one cohesive job. A screen that needs several unrelated headings, tab sets, or action clusters is a decomposition failure and should be split before implementation.
 
-Each audience surface is its own route (`/admin/integrations`, `/admin/integrations/providers`, `/admin/integrations/governance`, `/admin/integrations/release`) with its own loader, composed from the shared workbench shell. The daily route renders only the import-to-promotion job; the other three render their grouped supporting workspaces. Navigation between surfaces is real route navigation, so deep links, browser back/forward, and bookmarks work without a query-param section router.
+Each audience surface is its own route (`/admin/integrations`, `/admin/integrations/providers`, `/admin/integrations/governance`, `/admin/integrations/health`) with its own loader, composed from the shared workbench shell. The daily route renders only the import-to-promotion job; the other three render their grouped supporting workspaces. Navigation between surfaces is real route navigation, so deep links, browser back/forward, and bookmarks work without a query-param section router.
 
 ## Desktop And Mobile
 

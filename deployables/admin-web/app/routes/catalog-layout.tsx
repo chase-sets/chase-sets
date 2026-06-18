@@ -14,7 +14,7 @@ const config = {
     integrations: "integrations-import",
     "integrations/providers": "integrations-providers",
     "integrations/governance": "integrations-governance",
-    "integrations/release": "integrations-release",
+    "integrations/health": "integrations-health",
   },
 } as const;
 

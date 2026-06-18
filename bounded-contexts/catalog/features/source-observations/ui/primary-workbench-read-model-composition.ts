@@ -338,8 +338,8 @@ function governanceControlsSlice(
   });
 }
 
-// Health-triage slice (#1739 release route renders it alongside release
-// evidence). Derived purely from the control plane overview and the core import
+// Health-triage slice (the health route renders it alongside the audit
+// timeline). Derived purely from the control plane overview and the core import
 // job rows.
 function healthTriageSlice(
   input: CatalogPrimaryWorkbenchInput,
@@ -353,10 +353,10 @@ function healthTriageSlice(
   });
 }
 
-// Audit timeline surface slice (release route). The audit timeline folds in the
+// Audit timeline surface slice (health route). The audit timeline folds in the
 // conflict and validation slices whose real events it surfaces, so they are
 // passed in.
-function releaseSurfaceSlices(
+function healthSurfaceSlices(
   input: CatalogPrimaryWorkbenchInput,
   core: CatalogPrimaryWorkbenchCore,
   derived: CatalogPrimaryWorkbenchDerived,
@@ -405,7 +405,7 @@ export function buildCatalogPrimaryWorkbenchReadModel(
     lifecycleRecovery,
   });
   const governanceControls = governanceControlsSlice(input, core, derived, conflictResolution, actions, healthTriage);
-  const { auditEvidence } = releaseSurfaceSlices(input, core, derived, {
+  const { auditEvidence } = healthSurfaceSlices(input, core, derived, {
     conflictResolution,
     healthTriage,
     validationReadiness,
@@ -427,8 +427,8 @@ export function buildCatalogPrimaryWorkbenchReadModel(
 // Assemble a fully-validated read model for ONE audience surface route, computing
 // only the supporting slices that surface renders and substituting cheap default
 // slices (no provider-row iteration, no cross-surface inputs) for the rest. The
-// daily surface therefore never computes governance, lifecycle, release, or audit
-// sub-models; providers never computes governance/release; and so on. Behavior is
+// daily surface therefore never computes governance, lifecycle, or audit
+// sub-models; providers never computes governance/health; and so on. Behavior is
 // preserved because each non-rendered slice is identical to what the full builder
 // would produce from the same absent inputs.
 export function buildCatalogPrimaryWorkbenchReadModelForSurface(
@@ -440,12 +440,12 @@ export function buildCatalogPrimaryWorkbenchReadModelForSurface(
   // Surfaces that fully render (or cite) each supporting slice. The daily surface
   // renders none of them, so it computes every supporting slice from the
   // empty-input defaults below — never iterating provider readiness, lifecycle,
-  // governance, release, or audit data. Providers cites nothing downstream;
-  // governance and release cite the upstream slices they fold into their evidence.
-  const wantsProviderSlices = surface === "providers" || surface === "governance" || surface === "release";
-  const wantsHealthTriage = surface === "governance" || surface === "release";
-  const wantsGovernanceSlices = surface === "governance" || surface === "release";
-  const wantsReleaseSlices = surface === "release";
+  // governance, health, or audit data. Providers cites nothing downstream;
+  // governance and health cite the upstream slices they fold into their evidence.
+  const wantsProviderSlices = surface === "providers" || surface === "governance" || surface === "health";
+  const wantsHealthTriage = surface === "governance" || surface === "health";
+  const wantsGovernanceSlices = surface === "governance" || surface === "health";
+  const wantsHealthSlices = surface === "health";
 
   const sliceInput = (wanted: boolean): CatalogPrimaryWorkbenchInput =>
     wanted ? input : emptyControlPlaneInput(input);
@@ -477,7 +477,7 @@ export function buildCatalogPrimaryWorkbenchReadModelForSurface(
     actions,
     healthTriage,
   );
-  const { auditEvidence } = releaseSurfaceSlices(sliceInput(wantsReleaseSlices), core, derived, {
+  const { auditEvidence } = healthSurfaceSlices(sliceInput(wantsHealthSlices), core, derived, {
     conflictResolution,
     healthTriage,
     validationReadiness,

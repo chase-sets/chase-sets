@@ -192,10 +192,11 @@ describe("Catalog Control Plane IA <-> render parity", () => {
   // IA that the live surface routes render from.
   it("rejects retired and legacy tokens in every IA key, route segment, and nav item", () => {
     const retiredPattern = /legacy|compat|raw-json|adapter-readiness|section-switch|two-page|god-page/i;
-    // The retired single page switched between these ten top-level destinations via
+    // The retired single page switched between these top-level destinations via
     // ?section=; they are not workspace keys in the rebuilt IA and must never return.
+    // ("health" is intentionally absent: it is now the live Integration Health
+    // surface's real route path segment (#1893), not the dead ?section=health page.)
     const retiredTopLevelSections = new Set([
-      "health",
       "authoring",
       "validation",
       "operations",
@@ -229,7 +230,7 @@ describe("Catalog Control Plane route surfaces", () => {
       ["daily", ""],
       ["providers", "providers"],
       ["governance", "governance"],
-      ["release", "release"],
+      ["health", "health"],
     ]);
 
     const surfaceWorkspaces = Object.fromEntries(
@@ -238,7 +239,7 @@ describe("Catalog Control Plane route surfaces", () => {
     expect(surfaceWorkspaces.daily).toEqual(["import-to-promotion"]);
     expect(surfaceWorkspaces.providers).toEqual(["profile-authoring", "validation-readiness"]);
     expect(surfaceWorkspaces.governance).toEqual(["conflict-resolution", "lifecycle-recovery", "governance-controls"]);
-    expect(surfaceWorkspaces.release).toEqual(["audit-evidence", "health-triage"]);
+    expect(surfaceWorkspaces.health).toEqual(["audit-evidence", "health-triage"]);
   });
 
   it("assigns every workspace to exactly one surface and renders every surface workspace", () => {

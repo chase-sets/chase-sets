@@ -2510,7 +2510,7 @@ const safePrimaryWorkbenchSurfacePaths = new Set<string>([
   "/catalog/integrations",
   "/catalog/integrations/providers",
   "/catalog/integrations/governance",
-  "/catalog/integrations/release",
+  "/catalog/integrations/health",
 ]);
 
 function isSafePrimaryWorkbenchReturnPath(path: string): boolean {

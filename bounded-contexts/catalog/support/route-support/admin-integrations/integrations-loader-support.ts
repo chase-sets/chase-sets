@@ -46,7 +46,7 @@ import { commandFeedbackFromUrl } from "./integrations-command-feedback";
 // and readiness summary are derived from them on all four routes. Each route adds
 // only the extra API waves its own surface slices consume (daily → review
 // observations; providers → the selected authoring model; governance → lifecycle
-// impacts; release → none beyond the baseline).
+// impacts; health → none beyond the baseline).
 type CatalogIntegrationsBaseline = Readonly<{
   routeData: Awaited<ReturnType<typeof loadCatalogListRouteData<SourceObservationIntegrationScope>>>;
   profileReviews: ListResponse<CatalogProviderProfileVersionReview>;
@@ -292,11 +292,11 @@ export async function loadGovernanceSurface({ request }: LoaderFunctionArgs) {
   });
 }
 
-// Release evidence and health surface (/admin/integrations/release). Loads the
-// baseline plus the selected profile authoring model and lifecycle impacts that
-// the audit evidence slice folds in (it cites validation readiness and lifecycle
+// Integration health surface (/admin/integrations/health). Loads the baseline
+// plus the selected profile authoring model and lifecycle impacts that the audit
+// timeline slice folds in (it cites validation readiness and lifecycle
 // recovery); the review wave is not fetched.
-export async function loadReleaseSurface({ request }: LoaderFunctionArgs) {
+export async function loadHealthSurface({ request }: LoaderFunctionArgs) {
   const { api, baseline, routeContext } = await loadIntegrationsBaseline(request);
   const [profileAuthoringModel, lifecycleImpacts] = await Promise.all([
     selectedProviderProfileAuthoringModel(api, routeContext),
@@ -306,7 +306,7 @@ export async function loadReleaseSurface({ request }: LoaderFunctionArgs) {
   return finalizeSurfaceLoad({
     api,
     request,
-    surface: "release",
+    surface: "health",
     baseline,
     profileAuthoringModel,
     lifecycleImpacts,
@@ -330,7 +330,7 @@ async function selectedProviderProfileAuthoringModel(
     // A deep-link from a missing/invalid-profile blocker can carry a provider +
     // a stale/unknown profileVersion. The backend answers that with 404; treat
     // it as the existing "no authoring model" absent state so the providers,
-    // governance, and release surfaces render the author-a-profile path instead
+    // governance, and health surfaces render the author-a-profile path instead
     // of crashing. Genuine 5xx / unexpected errors still propagate.
     if (error instanceof CatalogApiError && error.status === 404) {
       return null;

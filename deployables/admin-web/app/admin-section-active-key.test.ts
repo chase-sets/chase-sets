@@ -8,7 +8,7 @@ const catalogConfig = {
     integrations: "integrations-import",
     "integrations/providers": "integrations-providers",
     "integrations/governance": "integrations-governance",
-    "integrations/release": "integrations-release",
+    "integrations/health": "integrations-health",
   },
 } as const;
 
@@ -17,11 +17,11 @@ describe("resolveActiveKey", () => {
     expect(resolveActiveKey("/catalog/integrations", catalogConfig)).toBe("integrations-import");
     expect(resolveActiveKey("/catalog/integrations/providers", catalogConfig)).toBe("integrations-providers");
     expect(resolveActiveKey("/catalog/integrations/governance", catalogConfig)).toBe("integrations-governance");
-    expect(resolveActiveKey("/catalog/integrations/release", catalogConfig)).toBe("integrations-release");
+    expect(resolveActiveKey("/catalog/integrations/health", catalogConfig)).toBe("integrations-health");
   });
 
   it("keeps a deep-linked surface active when extra trailing/query segments are present", () => {
-    expect(resolveActiveKey("/catalog/integrations/release/", catalogConfig)).toBe("integrations-release");
+    expect(resolveActiveKey("/catalog/integrations/health/", catalogConfig)).toBe("integrations-health");
   });
 
   it("falls back to a single-segment alias mapping for detail routes", () => {

@@ -245,9 +245,9 @@
           "section": "catalog"
         },
         {
-          "routeId": "integrations-release",
-          "routePath": "integrations/release",
-          "fileExport": "./routes/admin/integrations-release",
+          "routeId": "integrations-health",
+          "routePath": "integrations/health",
+          "fileExport": "./routes/admin/integrations-health",
           "routeType": "route",
           "sourceContext": "catalog",
           "section": "catalog"
@@ -399,10 +399,10 @@
           "requiredPermissions": []
         },
         {
-          "key": "integrations-release",
-          "label": "Release health and evidence",
+          "key": "integrations-health",
+          "label": "Integration health",
           "icon": "checkCircle",
-          "href": "/integrations/release",
+          "href": "/integrations/health",
           "order": 40,
           "visibility": "signed-in",
           "requiredPermissions": []

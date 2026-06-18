@@ -426,7 +426,7 @@ export function assertCatalogNoConfusionUxAcceptancePacketIsComplete(
 
 // The no-confusion gate is re-proven against the decongested four-route IA
 // (/catalog/integrations daily, /integrations/providers, /integrations/governance,
-// /integrations/release). The gate validates section/action CONTRACTS rather than
+// /integrations/health). The gate validates section/action CONTRACTS rather than
 // routes, so it survived the single-route-shell retirement; the test references
 // below name the executable evidence that exercises the new information architecture
 // and the live audience-surface page so the packet points at current artifacts.

@@ -70,10 +70,10 @@ describe("admin web host context registry", () => {
           href: "/catalog/integrations/governance",
         },
         {
-          key: "integrations-release",
-          label: "Release health and evidence",
+          key: "integrations-health",
+          label: "Integration health",
           icon: "checkCircle",
-          href: "/catalog/integrations/release",
+          href: "/catalog/integrations/health",
         },
       ],
     });

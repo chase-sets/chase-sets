@@ -225,8 +225,8 @@ describe("CatalogWorkbenchShell single per-surface return affordance", () => {
 
   // The supporting surfaces stack multiple workspaces; the back-link is rendered
   // once by the surface header rather than repeated per stacked workspace (#1739
-  // left three on the release surface, forcing e2e .first()).
-  it.each(["providers", "governance", "release"] as const)(
+  // left three on the health surface, forcing e2e .first()).
+  it.each(["providers", "governance", "health"] as const)(
     "renders exactly one back-link on the %s surface even though it stacks multiple workspaces",
     (surface) => {
       render(<CatalogIntegrationsSurfacePage surface={surface} readModel={surfaceReadModel(surface)} />);
@@ -392,7 +392,7 @@ describe("CatalogWorkbenchShell no page-local cross-surface navigation", () => {
   // Cross-surface navigation now lives in the admin shell side nav (the nested
   // "Integrations" manifest group), so the integrations surface must not render its
   // own "Catalog control plane workflows" navigation or the mobile workflow combobox.
-  it.each(["daily", "providers", "governance", "release"] as const)(
+  it.each(["daily", "providers", "governance", "health"] as const)(
     "does not render the page-local workflow nav on the %s surface",
     (surface) => {
       render(<CatalogIntegrationsSurfacePage surface={surface} readModel={surfaceReadModel(surface)} />);
