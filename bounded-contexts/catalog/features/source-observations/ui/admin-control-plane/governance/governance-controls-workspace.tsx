@@ -218,21 +218,10 @@ const controlColumns: DataColumn<GovernanceControl>[] = [
     ),
   },
   {
-    key: "owner",
-    header: t("catalog.features.sourceObservations.ui.governanceControls.table.ownerMetric"),
-    mobileLabel: t("catalog.features.sourceObservations.ui.governanceControls.table.ownerMetric"),
-    cell: (row) => (
-      <WorkbenchDataCell
-        title={row.owner}
-        titleWeight="regular"
-        description={row.metricKey}
-        detail={
-          row.ownerIssue
-            ? t("catalog.features.sourceObservations.ui.governanceControls.issue", { value: row.ownerIssue })
-            : t("catalog.features.sourceObservations.ui.governanceControls.noIssue")
-        }
-      />
-    ),
+    key: "metric",
+    header: t("catalog.features.sourceObservations.ui.governanceControls.table.metric"),
+    mobileLabel: t("catalog.features.sourceObservations.ui.governanceControls.table.metric"),
+    cell: (row) => <WorkbenchDataCell title={row.metricKey} titleWeight="regular" />,
   },
   {
     key: "scope",

@@ -151,7 +151,7 @@ export function profileSectionDescription(section: CatalogProviderProfileEditabl
     case "promotion-plan":
       return "Catalog promotion command plan controls and command-count evidence.";
     case "retirement-plan":
-      return "Complete removal plan evidence for profiles that will be retired.";
+      return "Removal plan evidence for profiles that will be retired.";
     case "migration-evidence":
       return "Evidence proving profile changes were validated before activation.";
   }

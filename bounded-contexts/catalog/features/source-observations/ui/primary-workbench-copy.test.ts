@@ -121,14 +121,13 @@ describe("Catalog primary workbench operator copy", () => {
     const retireTerm = catalogPrimaryWorkbenchGlossaryTerms.find((entry) => entry.term === "Retire");
 
     expect(retireTerm).toMatchObject({
-      definition: expect.stringContaining("Complete removal"),
+      definition: expect.stringContaining("Full removal of the provider profile behavior"),
       avoid: expect.stringContaining("compatibility redirects"),
     });
-    expect(retireTerm?.definition).toContain("associated code");
-    expect(retireTerm?.definition).toContain("product patterns");
-    expect(retireTerm?.definition).toContain("documentation");
-    expect(retireTerm?.useWhen).toContain("associated code, product patterns");
-    expect(retireTerm?.useWhen).toContain("documentation");
+    expect(retireTerm?.definition).toContain("mapping and promotion paths");
+    expect(retireTerm?.definition).not.toMatch(/runbooks|release notes|operator instructions/i);
+    expect(retireTerm?.useWhen).toContain("provider profile behavior has been fully removed");
+    expect(retireTerm?.useWhen).not.toMatch(/runbooks|release notes|operator instructions/i);
   });
 });
 

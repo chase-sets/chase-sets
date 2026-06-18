@@ -21,7 +21,7 @@ export const catalogSourceObservationsControlPlaneEnglishTranslations = {
   "catalog.features.sourceObservations.ui.lifecycleRecovery.confirmation.default":
     "I confirm {action} impact and audit evidence.",
   "catalog.features.sourceObservations.ui.lifecycleRecovery.confirmation.retire":
-    "I confirm retirement means complete removal and all impact evidence is clear.",
+    "I confirm retirement removes this provider profile behavior entirely and all impact evidence is clear.",
   "catalog.features.sourceObservations.ui.lifecycleRecovery.description":
     "Rollback, deprecation, and retirement decisions for provider profile behavior that can affect import-to-promotion.",
   "catalog.features.sourceObservations.ui.lifecycleRecovery.metric.activeJobs": "Active jobs",
@@ -46,13 +46,13 @@ export const catalogSourceObservationsControlPlaneEnglishTranslations = {
     "Choose a provider before running profile lifecycle recovery.",
   "catalog.features.sourceObservations.ui.lifecycleRecovery.profileCandidates.emptyTitle": "No provider profiles",
   "catalog.features.sourceObservations.ui.lifecycleRecovery.profileCandidates.title": "Profile candidates",
-  "catalog.features.sourceObservations.ui.lifecycleRecovery.strictRetirement.badge": "complete removal",
+  "catalog.features.sourceObservations.ui.lifecycleRecovery.strictRetirement.badge": "fully removed",
   "catalog.features.sourceObservations.ui.lifecycleRecovery.strictRetirement.description":
-    "Retirement is complete removal, not soft deprecation or hidden compatibility support.",
+    "Retirement fully removes the profile behavior, not a soft deprecation or hidden compatibility support.",
   "catalog.features.sourceObservations.ui.lifecycleRecovery.strictRetirement.ruleTitle":
-    "Retire means complete removal",
+    "Retirement removes the profile behavior",
   "catalog.features.sourceObservations.ui.lifecycleRecovery.strictRetirement.summary":
-    "Retire means complete removal of code, product patterns, route/API/client behavior, tests, fixtures, screenshots, documentation, runbooks, release notes, and operator instructions. Lifecycle recovery cannot preserve compatibility routes, aliases, shims, fallbacks, hidden flags, support-only paths, old tests, old fixtures, old screenshots, or legacy documentation.",
+    "Retiring a provider profile removes its mapping and promotion behavior entirely. Lifecycle recovery cannot keep a compatibility route, alias, shim, fallback, hidden flag, or support-only path that preserves the retired behavior.",
   "catalog.features.sourceObservations.ui.lifecycleRecovery.strictRetirement.title": "Strict retirement rule",
   "catalog.features.sourceObservations.ui.lifecycleRecovery.table.action": "Action",
   "catalog.features.sourceObservations.ui.lifecycleRecovery.table.event": "Event",
@@ -70,7 +70,7 @@ export const catalogSourceObservationsControlPlaneEnglishTranslations = {
   "catalog.features.sourceObservations.ui.conflictResolution.audit.notRecorded": "not recorded",
   "catalog.features.sourceObservations.ui.conflictResolution.audit.title": "Conflict audit evidence",
   "catalog.features.sourceObservations.ui.conflictResolution.banner.blockedDescription":
-    "Promotion is blocked until the conflicting facts are reviewed with evidence and a launch-ready command path.",
+    "Promotion is blocked until the conflicting facts are reviewed with evidence and a ready command path.",
   "catalog.features.sourceObservations.ui.conflictResolution.banner.blockedTitle": "Conflicts are blocking promotion",
   "catalog.features.sourceObservations.ui.conflictResolution.banner.emptyDescription":
     "The selected Source Observations do not have duplicate, precedence, or promotion conflict evidence.",
@@ -106,14 +106,13 @@ export const catalogSourceObservationsControlPlaneEnglishTranslations = {
   "catalog.features.sourceObservations.ui.conflictResolution.metric.overrides": "Overrides",
   "catalog.features.sourceObservations.ui.conflictResolution.metric.reviewRequired": "need review",
   "catalog.features.sourceObservations.ui.conflictResolution.override.audit.required": "Audit required",
-  "catalog.features.sourceObservations.ui.conflictResolution.override.banner.title":
-    "Overrides fail closed until rebuilt",
+  "catalog.features.sourceObservations.ui.conflictResolution.override.banner.title": "Overrides fail closed",
   "catalog.features.sourceObservations.ui.conflictResolution.override.description":
     "Override affordances are permission-aware and auditable, but no compatibility override path exists.",
   "catalog.features.sourceObservations.ui.conflictResolution.override.key.audit": "Audit evidence",
   "catalog.features.sourceObservations.ui.conflictResolution.override.key.permission": "Required permission",
   "catalog.features.sourceObservations.ui.conflictResolution.override.policy.reason":
-    "Conflict overrides need a rebuilt backend command with evidence capture; compatibility override paths are retired.",
+    "Conflict overrides run through an audited backend command with evidence capture; no compatibility override path is available.",
   "catalog.features.sourceObservations.ui.conflictResolution.override.title": "Override policy",
   "catalog.features.sourceObservations.ui.conflictResolution.rule.catalogAuthority": "Catalog promotion policy",
   "catalog.features.sourceObservations.ui.conflictResolution.rule.duplicate.description":
@@ -165,14 +164,12 @@ export const catalogSourceObservationsControlPlaneEnglishTranslations = {
   "catalog.features.sourceObservations.ui.governanceControls.controls.title": "Rollout and worker controls",
   "catalog.features.sourceObservations.ui.governanceControls.description":
     "Inspect rollout mode, kill switches, RBAC, worker state, observability, alert/runbook links, and removal evidence without leaving the primary import context.",
-  "catalog.features.sourceObservations.ui.governanceControls.issue": "issue #{value}",
   "catalog.features.sourceObservations.ui.governanceControls.metric.blockedCommands": "Blocked commands",
   "catalog.features.sourceObservations.ui.governanceControls.metric.deletionEvidence": "Deletion evidence",
   "catalog.features.sourceObservations.ui.governanceControls.metric.deniedCommands": "Denied commands",
   "catalog.features.sourceObservations.ui.governanceControls.metric.observability": "Degraded signals",
   "catalog.features.sourceObservations.ui.governanceControls.metric.rolloutStops": "Rollout stops",
   "catalog.features.sourceObservations.ui.governanceControls.noConfirmation": "no confirmation",
-  "catalog.features.sourceObservations.ui.governanceControls.noIssue": "no issue",
   "catalog.features.sourceObservations.ui.governanceControls.observability.description":
     "Operational signals show option query latency, job failure rate, projection freshness, quarantine counts, conflict spikes, and alert/runbook links.",
   "catalog.features.sourceObservations.ui.governanceControls.observability.emptyDescription":
@@ -183,23 +180,23 @@ export const catalogSourceObservationsControlPlaneEnglishTranslations = {
   "catalog.features.sourceObservations.ui.governanceControls.rbac.description":
     "Sensitive actions name view/manage permissions, destructive confirmations, current state, blockers, and denied-state copy.",
   "catalog.features.sourceObservations.ui.governanceControls.rbac.emptyDescription":
-    "Sensitive action contracts must be present before launch.",
+    "Sensitive actions are not available; their permission and confirmation rules are missing.",
   "catalog.features.sourceObservations.ui.governanceControls.rbac.emptyTitle": "No RBAC actions",
   "catalog.features.sourceObservations.ui.governanceControls.rbac.actionCount": "{count} actions",
   "catalog.features.sourceObservations.ui.governanceControls.rbac.title": "RBAC action matrix",
   "catalog.features.sourceObservations.ui.governanceControls.readModel.alert": "Alert {value}",
   "catalog.features.sourceObservations.ui.governanceControls.readModel.removal.broadPatch.detail":
-    "Complete removal is required before launch; no broad patch route, client, fallback branch, fixture, old test, or documentation may preserve this behavior.",
+    "This compatibility behavior is fully removed; no broad patch route, client, or fallback branch preserves it.",
   "catalog.features.sourceObservations.ui.governanceControls.readModel.removal.broadPatch.label":
     "Broad patch compatibility",
   "catalog.features.sourceObservations.ui.governanceControls.readModel.removal.label": "Retired compatibility removal",
   "catalog.features.sourceObservations.ui.governanceControls.readModel.removal.message":
-    "Retired payload escape hatches, broad patch behavior, and legacy selectors are deletion evidence only; they are not launch controls.",
+    "Retired payload escape hatches, broad patch behavior, and legacy selectors are deletion evidence only; they are not operator controls.",
   "catalog.features.sourceObservations.ui.governanceControls.readModel.removal.payload.detail":
-    "Complete removal verified across runtime code, UI modules, tests, fixtures, screenshots, documentation, runbooks, release notes, and operator instructions.",
+    "The payload escape hatch is fully removed across runtime, UI, and stored behavior.",
   "catalog.features.sourceObservations.ui.governanceControls.readModel.removal.payload.label": "Payload escape hatch",
   "catalog.features.sourceObservations.ui.governanceControls.readModel.removal.selector.detail":
-    "Complete removal covers old selector UX, aliases, redirects, screenshots, runbooks, release notes, and operator instructions.",
+    "The legacy selector pattern is fully removed, including its old UX, aliases, and redirects.",
   "catalog.features.sourceObservations.ui.governanceControls.readModel.removal.selector.label":
     "Legacy selector pattern",
   "catalog.features.sourceObservations.ui.governanceControls.readModel.runbook": "Runbook {value}",
@@ -217,17 +214,17 @@ export const catalogSourceObservationsControlPlaneEnglishTranslations = {
   "catalog.features.sourceObservations.ui.governanceControls.readModel.worker.running":
     "Workers are accepting import, reapply, and replay work; {count} active job(s) are in scope.",
   "catalog.features.sourceObservations.ui.governanceControls.removal.bannerDescription":
-    "Retired behavior is deletion evidence only. No hidden flag, support route, fallback branch, fixture, screenshot, documentation, runbook, release note, or operator instruction may preserve it.",
-  "catalog.features.sourceObservations.ui.governanceControls.removal.bannerTitle": "Retirement means complete removal",
+    "Retired behavior is deletion evidence only. No hidden flag, support route, or fallback branch preserves it.",
+  "catalog.features.sourceObservations.ui.governanceControls.removal.bannerTitle": "Retired behavior is fully removed",
   "catalog.features.sourceObservations.ui.governanceControls.removal.description":
-    "The controls workspace can prove removed compatibility artifacts, but cannot present them as launch controls.",
+    "This workspace can show that compatibility behavior was removed, but cannot present it as an operator control.",
   "catalog.features.sourceObservations.ui.governanceControls.removal.title": "Retired compatibility removal",
   "catalog.features.sourceObservations.ui.governanceControls.staleEvidence": "stale evidence",
   "catalog.features.sourceObservations.ui.governanceControls.table.action": "Action",
   "catalog.features.sourceObservations.ui.governanceControls.table.alertRunbook": "Alert/runbook",
   "catalog.features.sourceObservations.ui.governanceControls.table.control": "Control",
   "catalog.features.sourceObservations.ui.governanceControls.table.evidence": "Evidence",
-  "catalog.features.sourceObservations.ui.governanceControls.table.ownerMetric": "Owner and metric",
+  "catalog.features.sourceObservations.ui.governanceControls.table.metric": "Metric",
   "catalog.features.sourceObservations.ui.governanceControls.table.permission": "Permission",
   "catalog.features.sourceObservations.ui.governanceControls.table.scope": "Scope",
   "catalog.features.sourceObservations.ui.governanceControls.table.signal": "Signal",
@@ -261,7 +258,7 @@ export const catalogSourceObservationsControlPlaneEnglishTranslations = {
   "catalog.features.sourceObservations.ui.auditEvidence.key.projection": "Projection state",
   "catalog.features.sourceObservations.ui.auditEvidence.key.sourcePayload": "Source payload access",
   "catalog.features.sourceObservations.ui.auditEvidence.links.description":
-    "Every link opens a redacted summary, proof, diagnostic, test, runbook, or release-note artifact in the rebuilt workbench.",
+    "Every link opens a redacted summary, proof, or diagnostic for the selected timeline event.",
   "catalog.features.sourceObservations.ui.auditEvidence.links.emptyDescription":
     "Evidence links appear when timeline rows are available.",
   "catalog.features.sourceObservations.ui.auditEvidence.links.emptyTitle": "No evidence links",
