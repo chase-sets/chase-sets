@@ -149,7 +149,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `ImageGallery` | `packages/design-system/src/components/data-display/image-gallery.tsx` | Purpose not documented; symbol name suggests: Image Gallery. | `bounded-contexts/discovery/features/item-detail/ui/item-detail-page.tsx` |
 | `Inline` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: Inline. | `bounded-contexts/auth/features/registration/ui/register-page.tsx` |
 | `InlineMessage` | `packages/design-system/src/components/forms/field.tsx` | Purpose not documented; symbol name suggests: Inline Message. | `No production consumer yet.` |
-| `InlineTextGroup` | `packages/design-system/src/primitives/typography.tsx` | Purpose not documented; symbol name suggests: Inline Text Group. | `bounded-contexts/discovery/features/item-detail/ui/commerce/commerce-primitives.tsx` |
+| `InlineTextGroup` | `packages/design-system/src/primitives/typography.tsx` | Purpose not documented; symbol name suggests: Inline Text Group. | `bounded-contexts/identity/features/accounts/ui/account-profile-page.tsx` |
 | `Inset` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: Inset. | `bounded-contexts/checkout/features/sell-list/ui/sell-list-page.tsx` |
 | `InspectorLayout` | `packages/design-system/src/patterns/app-shells/content-layouts.tsx` | Purpose not documented; symbol name suggests: Inspector Layout. | `No production consumer yet.` |
 | `KeyValueList` | `packages/design-system/src/components/data-display/key-value-list.tsx` | Purpose not documented; symbol name suggests: Key Value List. | `bounded-contexts/catalog/features/blueprints/ui/blueprint-detail-page.tsx` |

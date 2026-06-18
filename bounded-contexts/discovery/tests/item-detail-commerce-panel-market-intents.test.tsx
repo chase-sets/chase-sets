@@ -301,11 +301,12 @@ describe("item detail commerce panel market intents and listing selection", () =
     expect(screen.queryByText("Selected for checkout")).toBeNull();
     expect(screen.getAllByText("New")).toHaveLength(2);
     expect(screen.getByText("2 available")).toBeTruthy();
-    expect(
-      within(screen.getByRole("article", { name: "Listing $399.99 from Chase Sets" })).getByText("Raw · Near Mint"),
-    ).toBeTruthy();
-    const selectedListingText =
-      screen.getByRole("article", { name: "Listing $399.99 from Chase Sets" }).textContent ?? "";
+    const selectedListingRow = screen.getByRole("article", { name: "Listing $399.99 from Chase Sets" });
+    expect(within(selectedListingRow).getByText("Raw · Near Mint")).toBeTruthy();
+    const selectedListingAvailability = within(selectedListingRow).getByText("2 available");
+    expect(selectedListingAvailability.parentElement?.className).toContain("flex-col");
+    expect(selectedListingAvailability.parentElement?.lastElementChild).toBe(selectedListingAvailability);
+    const selectedListingText = selectedListingRow.textContent ?? "";
     expect(selectedListingText.indexOf("Raw · Near Mint")).toBeLessThan(selectedListingText.indexOf("2 available"));
     expect(screen.getByText("2 available · Raw · Near Mint")).toBeTruthy();
     expect(screen.getByTestId("selected-listing-id")).toHaveProperty("value", "listing_charizard");
