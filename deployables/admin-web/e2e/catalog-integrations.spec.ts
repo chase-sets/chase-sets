@@ -118,15 +118,24 @@ test.describe("catalog admin integrations", () => {
 
     await expect(page.getByRole("button", { name: "Apply context" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Select source scope" }).first()).toBeVisible();
-    await expect(page.getByRole("button", { name: /Pull provider data/i }).first()).toBeVisible();
-    await expect(page.getByRole("button", { name: /Preview promotion/i }).first()).toBeVisible();
     // The daily route is now an explicit, linear three-stage flow. The ordered
     // stepper and the stage controls name each stage so "where do I run a sync /
     // create items?" is answerable at a glance. These labels render in the always-
-    // visible stepper (and the stage controls), independent of which stage is open.
+    // visible stepper (and the stage accordion triggers), independent of which
+    // stage is open.
     await expectVisibleText(page, "Run sync");
     await expectVisibleText(page, "Review changes");
     await expectVisibleText(page, "Create / update items");
+    // #1967 consolidation: the primary actions are no longer duplicated in the
+    // shell header. Each action lives once in its owning stage. The header carries
+    // only the per-surface return affordance (none on the daily route). Open each
+    // owning stage and confirm its single canonical action; the run-sync stage is
+    // the default landing when there is nothing to review yet.
+    await page.getByRole("button", { name: "Run sync" }).first().click();
+    await expect(page.getByRole("button", { name: /Pull provider data/i })).toHaveCount(1);
+    await expect(page.getByRole("button", { name: /Pull provider data/i }).first()).toBeVisible();
+    await page.getByRole("button", { name: "Create / update items" }).first().click();
+    await expect(page.getByRole("button", { name: /Preview promotion/i }).first()).toBeVisible();
     await expect(page.getByRole("textbox", { name: /JSON/i })).toHaveCount(0);
     await expect(page.getByText(/Old integrations surface/i)).toHaveCount(0);
 
@@ -180,8 +189,12 @@ test.describe("catalog admin integrations", () => {
     // navigation is the admin shell's responsibility now.
     await expect(page.getByRole("navigation", { name: "Catalog control plane workflows" })).toHaveCount(0);
     await expect(page.getByRole("combobox", { name: "Choose Catalog workflow" })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: /Pull provider data/i }).first()).toBeVisible();
-    await expect(page.getByRole("button", { name: /Preview promotion/i }).first()).toBeVisible();
+    // #1967: the primary "Pull provider data" / "Preview promotion" actions are no
+    // longer duplicated in the shell header, so the supporting surfaces (this is the
+    // release surface) no longer surface them — they live only in the daily flow's
+    // owning stages, asserted on the daily route above.
+    await expect(page.getByRole("button", { name: /Pull provider data/i })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /Preview promotion/i })).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "Integration health triage" })).toBeVisible();
     // The release surface stacks three workspaces but renders the "Back to import
     // workbench" affordance exactly once, in the surface header (no longer once per

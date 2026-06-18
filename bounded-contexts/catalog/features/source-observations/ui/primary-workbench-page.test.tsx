@@ -181,7 +181,6 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(within(expansion).getByRole("option", { name: "Super Electric Breaker" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Apply context" })).toBeNull();
     expect(screen.getByRole("button", { name: "Select source scope" })).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: /Pull provider data/i }).length).toBeGreaterThan(0);
     // The daily flow is now an explicit, linear three-stage path. The stepper names
     // each stage; the review and create stages expose their work below it.
     expect(screen.getAllByText("Run sync").length).toBeGreaterThan(0);
@@ -210,6 +209,13 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.queryByRole("combobox", { name: "Choose Catalog workflow" })).toBeNull();
     expect(screen.queryByText("Old integrations surface")).toBeNull();
     expect(screen.queryByText(/raw JSON/i)).toBeNull();
+
+    // "Pull provider data" now lives once, in the Run sync stage (the duplicate
+    // shell-header copy was removed in #1967). Open that stage and confirm exactly
+    // one such action renders. Done last because opening Run sync collapses the
+    // review/create stages asserted above.
+    fireEvent.click(screen.getByRole("button", { name: /Run sync/i }));
+    expect(screen.getAllByRole("button", { name: /Pull provider data/i }).length).toBe(1);
   });
 
   it("renders dense health triage with distinct semantic, transport, rollout, job, and audit evidence", () => {
@@ -784,8 +790,8 @@ describe("CatalogPrimaryWorkbenchPage", () => {
 
     render(<CatalogIntegrationsSurfacePage surface="daily" readModel={readModel} />);
 
-    // Open the Run sync stage to monitor the durable import; the provider pull stays
-    // accessible from the page header regardless of the active stage.
+    // Open the Run sync stage to monitor the durable import; "Pull provider data"
+    // now lives once in this stage (the duplicate header copy was removed in #1967).
     fireEvent.click(screen.getByRole("button", { name: /Run sync/i }));
 
     expect(screen.getByRole("heading", { name: "Provider import operations" })).toBeTruthy();
@@ -1425,7 +1431,10 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.getAllByText("Blocked").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Skipped").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Conflicts").length).toBeGreaterThan(0);
-    expect(screen.getByText("Draft Catalog Item updates")).toBeTruthy();
+    // "Draft Catalog Item updates" now labels both the create-stage count and the
+    // operational metric strip (the consolidated blast-radius metric that replaced
+    // the duplicated "Blockers" count), so match all occurrences.
+    expect(screen.getAllByText("Draft Catalog Item updates").length).toBeGreaterThan(0);
     expect(screen.getByText(/No other provider scope is promoted by this action/i)).toBeTruthy();
 
     const confirmation = screen.getByLabelText(
