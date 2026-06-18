@@ -402,6 +402,46 @@ describe("Catalog integrations route", () => {
     });
   });
 
+  it("fetches the audit-trimmed daily overview from the daily loader and the full overview from the providers loader", async () => {
+    const scopes = { items: [sourceObservationScope()], total: 1, count: 1 };
+    const profileReviews = { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 };
+    const dailyOverview = vi.fn().mockResolvedValue(null);
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listSourceObservationIntegrationScopes: vi.fn().mockResolvedValue(scopes),
+      listSourceObservationProviderProfiles: vi.fn().mockResolvedValue(profileReviews),
+      getSourceObservationProviderProfileAuthoringModel: vi.fn().mockResolvedValue(null),
+      getCatalogIntegrationControlPlaneOverview: dailyOverview,
+      listSourceObservations: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+    });
+
+    await loader({
+      request: new Request("https://admin.example/catalog/integrations?providerKey=tcgdex"),
+      params: {},
+      context: {},
+    } as Parameters<typeof loader>[0]);
+    // The daily surface opts into the audit-lifecycle-trimmed projection (#1972).
+    expect(dailyOverview).toHaveBeenCalledWith("daily");
+
+    const providersOverview = vi.fn().mockResolvedValue(null);
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listSourceObservationIntegrationScopes: vi.fn().mockResolvedValue(scopes),
+      listSourceObservationProviderProfiles: vi.fn().mockResolvedValue(profileReviews),
+      getSourceObservationProviderProfileAuthoringModel: vi.fn().mockResolvedValue(null),
+      getCatalogIntegrationControlPlaneOverview: providersOverview,
+      listSourceObservations: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+    });
+
+    await providersLoader({
+      request: new Request("https://admin.example/catalog/integrations/providers?providerKey=tcgdex"),
+      params: {},
+      context: {},
+    } as Parameters<typeof providersLoader>[0]);
+    // The providers surface keeps the full overview (no daily audience).
+    expect(providersOverview).toHaveBeenCalledWith("full");
+  });
+
   it("keeps the staging Japanese SV8 deep-link payload trimmed", async () => {
     const sv8Scope = sourceObservationScope({
       language_code: "ja",
