@@ -1,14 +1,6 @@
-import {
-  Accordion,
-  LinkButton,
-  OperationalStatusBanner,
-  ProgressiveDisclosure,
-  WorkbenchStack,
-  WorkbenchText,
-} from "@chase-sets/design-system";
+import { Accordion, ProgressiveDisclosure, WorkbenchStack, WorkbenchText } from "@chase-sets/design-system";
 import { t } from "@chase-sets/localization";
 import type { CatalogPrimaryWorkbenchReadModel } from "../../../api/primary-workbench-admin-contracts";
-import { catalogPrimaryWorkbenchSupportingHref } from "../../primary-workbench-route-context";
 import { CatalogIntegrationImportJobsModule } from "../import-jobs/import-jobs-module";
 import { CatalogIntegrationSourceObservationReviewModule } from "../source-observation-review/source-observation-review-module";
 import { CommandFormButton } from "./command-controls";
@@ -82,33 +74,13 @@ export function CatalogIntegrationImportToPromotionWorkspace({
 
   return (
     <WorkbenchStack>
-      <OperationalStatusBanner
-        tone={blockers.length > 0 ? "warning" : "success"}
-        title={
-          blockers.length > 0
-            ? t("catalog.features.sourceObservations.ui.primaryWorkbench.banner.blocked.title")
-            : t("catalog.features.sourceObservations.ui.primaryWorkbench.banner.ready.title")
-        }
-        description={
-          blockers.length > 0
-            ? t("catalog.features.sourceObservations.ui.primaryWorkbench.banner.blocked.description")
-            : t("catalog.features.sourceObservations.ui.primaryWorkbench.banner.ready.description")
-        }
-        action={
-          <LinkButton
-            size="sm"
-            tone="secondary"
-            leadingIcon="externalLink"
-            href={
-              readModel.readiness.auditEvidenceUrl ??
-              catalogPrimaryWorkbenchSupportingHref(readModel.routeContext, "audit-evidence")
-            }
-          >
-            {t("catalog.features.sourceObservations.ui.primaryWorkbench.view.supporting.evidence")}
-          </LinkButton>
-        }
-      />
-
+      {/* Governance (denied/stopped) and health (degraded/blocked) are genuinely
+          distinct signals — each fires only on its specific signal and renders
+          nothing in the common case — so they stay as scoped indicators. The
+          generic "ready / blocked" status banner was removed: the stepper carries
+          per-stage blocked status (structural) and WorkspaceBlockerPanel is the one
+          authoritative "is the path blocked and why" region, so a third generic
+          restatement only added noise. */}
       <DailyGovernanceStatusIndicator readModel={readModel} />
 
       <DailyHealthStatusIndicator readModel={readModel} />

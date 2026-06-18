@@ -21,7 +21,6 @@ import {
 import { t } from "@chase-sets/localization";
 import type { CatalogPrimaryWorkbenchReadModel } from "../api/primary-workbench-admin-contracts";
 import type { CatalogControlPlaneRouteSurfaceKey } from "./admin-control-plane/information-architecture";
-import { CommandFormButton } from "./admin-control-plane/import-to-promotion/command-controls";
 import { WorkbenchReturnLink } from "./admin-control-plane/import-to-promotion/workbench-formatting";
 import type { CatalogPrimaryWorkbenchCommandFeedback } from "./primary-workbench-command-feedback";
 import { commandFeedbackDescription, commandSuccessTitle } from "./primary-workbench-command-feedback";
@@ -72,17 +71,13 @@ export function CatalogWorkbenchShell({
         eyebrow={t("catalog.features.sourceObservations.ui.primaryWorkbench.eyebrow")}
         title={t("catalog.features.sourceObservations.ui.primaryWorkbench.title")}
         description={t("catalog.features.sourceObservations.ui.primaryWorkbench.description")}
-        actions={
-          <>
-            {showReturnLink ? <WorkbenchReturnLink routeContext={readModel.routeContext} /> : null}
-            <CommandFormButton readModel={readModel} intent="start-provider-import" leadingIcon="refreshCcw">
-              {t("catalog.features.sourceObservations.ui.primaryWorkbench.pull.provider.data")}
-            </CommandFormButton>
-            <CommandFormButton readModel={readModel} intent="preview-promotion" tone="secondary" leadingIcon="check">
-              {t("catalog.features.sourceObservations.ui.primaryWorkbench.preview.promotion")}
-            </CommandFormButton>
-          </>
-        }
+        // The header carries only the per-surface return link. The primary
+        // actions are NOT duplicated here: each stage owns its action exactly
+        // once ("Pull provider data" in Run sync, "Preview promotion" in the
+        // review selection surface and the Create / update stage), and the
+        // three-stage stepper provides the at-a-glance wayfinding the header
+        // copies used to duplicate.
+        actions={showReturnLink ? <WorkbenchReturnLink routeContext={readModel.routeContext} /> : null}
       />
 
       {commandFeedback ? <CommandFeedbackBanner feedback={commandFeedback} /> : null}
@@ -115,8 +110,14 @@ export function CatalogWorkbenchShell({
             }),
           },
           {
-            label: t("catalog.features.sourceObservations.ui.primaryWorkbench.metric.blockers"),
-            value: String(readModel.readiness.blockers.length + readModel.promotionPreview.blockers.length),
+            // Blockers are no longer counted here: they live once in the
+            // authoritative WorkspaceBlockerPanel (with the stepper's per-stage
+            // blocked status as the structural cue). This slot instead surfaces
+            // the promotion's write blast radius — the count of draft Catalog
+            // Item updates the previewed promotion will make — a fail-closed fact
+            // the stepper summaries do not restate.
+            label: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.count.catalogItemUpdates"),
+            value: String(readModel.promotionPreview.destructiveCount),
             trend: t("catalog.features.sourceObservations.ui.primaryWorkbench.metric.fail.closed"),
           },
         ]}

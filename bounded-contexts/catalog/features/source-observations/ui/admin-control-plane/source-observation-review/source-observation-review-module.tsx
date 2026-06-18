@@ -164,19 +164,17 @@ export function CatalogIntegrationSourceObservationReviewModule({
         </Badge>
       }
       actions={
-        <>
-          <LinkButton
-            size="sm"
-            tone="secondary"
-            leadingIcon="filter"
-            href={catalogPrimaryWorkbenchHref(readModel.routeContext, "source-observation-review")}
-          >
-            {t("catalog.features.sourceObservations.ui.primaryWorkbench.save.context")}
-          </LinkButton>
-          <CommandFormButton readModel={readModel} intent="preview-promotion" size="sm" leadingIcon="check">
-            {t("catalog.features.sourceObservations.ui.primaryWorkbench.preview.promotion")}
-          </CommandFormButton>
-        </>
+        // "Preview promotion" is NOT duplicated on the module action row: it
+        // belongs to the selection/bulk surface below (and the Create / update
+        // stage). The module header keeps only the save-context affordance.
+        <LinkButton
+          size="sm"
+          tone="secondary"
+          leadingIcon="filter"
+          href={catalogPrimaryWorkbenchHref(readModel.routeContext, "source-observation-review")}
+        >
+          {t("catalog.features.sourceObservations.ui.primaryWorkbench.save.context")}
+        </LinkButton>
       }
       headingLevel={2}
       density="compact"
