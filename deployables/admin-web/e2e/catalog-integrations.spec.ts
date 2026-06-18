@@ -150,10 +150,10 @@ test.describe("catalog admin integrations", () => {
     const urlBeforeToggle = page.url();
     // Collapse to the one-line summary: the form's provider select hides.
     await contextBarTrigger.first().click();
-    await expect(page.getByLabel("Provider")).toBeHidden();
+    await expect(page.getByRole("combobox", { name: "Provider" })).toBeHidden();
     // Edit: re-expand to the form. The apply control returns, proving the round trip.
     await contextBarTrigger.first().click();
-    await expect(page.getByLabel("Provider")).toBeVisible();
+    await expect(page.getByRole("combobox", { name: "Provider" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Select source scope" }).first()).toBeVisible();
     // No navigation happened: collapse/expand never touched the URL or reloaded.
     expect(page.url()).toBe(urlBeforeToggle);
@@ -185,7 +185,7 @@ test.describe("catalog admin integrations", () => {
     // networkidle: the change triggers a streamed/deferred revalidation that may
     // never settle the network; assert the stage button's continued visibility
     // directly.
-    const providerSelect = page.getByLabel("Provider");
+    const providerSelect = page.getByRole("combobox", { name: "Provider" });
     if (await providerSelect.count()) {
       const currentProvider = await providerSelect.first().inputValue();
       await providerSelect.first().selectOption(currentProvider);
