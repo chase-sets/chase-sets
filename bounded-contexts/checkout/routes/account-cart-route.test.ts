@@ -125,8 +125,7 @@ describe("checkout web routes: account cart", () => {
 
     expect(result).toEqual({
       cart: { items: [], count: 0 },
-      freshnessError: null,
-      pendingCartMessage: null,
+      cartRecovery: null,
     });
     expect(mockGetGuestCart).toHaveBeenCalledWith("anon_cart_1");
     expect(mockGetCart).not.toHaveBeenCalled();
@@ -157,9 +156,11 @@ describe("checkout web routes: account cart", () => {
 
     expect(mockCreateCheckoutRequestApiClient).toHaveBeenCalledWith(request);
     expect(result).toEqual({
-      cart: { items: [], count: 0 },
-      freshnessError: expect.any(String),
-      pendingCartMessage: null,
+      cart: null,
+      cartRecovery: {
+        kind: "pending-fresh-write",
+        message: expect.any(String),
+      },
     });
   });
 
@@ -192,9 +193,11 @@ describe("checkout web routes: account cart", () => {
     } as never);
 
     expect(withToken).toEqual({
-      cart: { items: [], count: 0 },
-      freshnessError: expect.any(String),
-      pendingCartMessage: null,
+      cart: null,
+      cartRecovery: {
+        kind: "pending-fresh-write",
+        message: expect.any(String),
+      },
     });
 
     // Without the token (the pre-fix static href="/account/cart"), the same lagging projection
@@ -239,8 +242,10 @@ describe("checkout web routes: account cart", () => {
 
     expect(result).toEqual({
       cart: { items: [], count: 0 },
-      freshnessError: null,
-      pendingCartMessage: expect.any(String),
+      cartRecovery: {
+        kind: "pending-fresh-write",
+        message: expect.any(String),
+      },
     });
     expect(mockPostWriteConsistencyRecorder).toHaveBeenCalledWith({
       boundedContextName: "checkout",
@@ -278,8 +283,10 @@ describe("checkout web routes: account cart", () => {
 
     expect(result).toEqual({
       cart: { items: [], count: 0 },
-      freshnessError: null,
-      pendingCartMessage: expect.any(String),
+      cartRecovery: {
+        kind: "pending-fresh-write",
+        message: expect.any(String),
+      },
     });
     expect(mockGetGuestCart).toHaveBeenCalledWith("anon_cart_1");
     expect(mockGetCart).not.toHaveBeenCalled();
@@ -307,8 +314,7 @@ describe("checkout web routes: account cart", () => {
 
     expect(result).toEqual({
       cart: { items: [], count: 0 },
-      freshnessError: null,
-      pendingCartMessage: null,
+      cartRecovery: null,
     });
     expect(mockPostWriteConsistencyRecorder).not.toHaveBeenCalled();
   });
@@ -332,8 +338,7 @@ describe("checkout web routes: account cart", () => {
 
     expect(result).toEqual({
       cart: { items: [{ line_id: "cli_1" }], count: 1 },
-      freshnessError: null,
-      pendingCartMessage: null,
+      cartRecovery: null,
     });
     expect(mockPostWriteConsistencyRecorder).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -405,8 +410,7 @@ describe("checkout web routes: account cart", () => {
 
       expect(result).toEqual({
         cart: { items: [], count: 0 },
-        freshnessError: null,
-        pendingCartMessage: null,
+        cartRecovery: null,
       });
       expect(mockPostWriteConsistencyRecorder).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -445,9 +449,11 @@ describe("checkout web routes: account cart", () => {
     await vi.runAllTimersAsync();
 
     await expect(resultPromise).resolves.toEqual({
-      cart: { items: [], count: 0 },
-      freshnessError: expect.any(String),
-      pendingCartMessage: null,
+      cart: null,
+      cartRecovery: {
+        kind: "pending-fresh-write",
+        message: expect.any(String),
+      },
     });
     expect(mockGetCart).toHaveBeenCalledTimes(6);
   });
@@ -471,9 +477,11 @@ describe("checkout web routes: account cart", () => {
       } as never);
 
       expect(result).toEqual({
-        cart: { items: [], count: 0 },
-        freshnessError: expect.any(String),
-        pendingCartMessage: null,
+        cart: null,
+        cartRecovery: {
+          kind: "pending-fresh-write",
+          message: expect.any(String),
+        },
       });
     },
   );
@@ -637,7 +645,13 @@ describe("checkout web routes: account cart", () => {
 
   it("updates the primary grouped cart line and removes duplicate line ids", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["checkout.manage"] });
-    mockUpdateCartLineQuantity.mockResolvedValue(checkoutCommit("43", "evt_quantity"));
+    let resolveQuantityWrite!: (value: unknown) => void;
+    mockUpdateCartLineQuantity.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveQuantityWrite = resolve;
+        }),
+    );
     mockRemoveCartLine.mockResolvedValue(checkoutCommit("44", "evt_duplicate_removed"));
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       updateCartLineQuantity: mockUpdateCartLineQuantity,
@@ -651,7 +665,7 @@ describe("checkout web routes: account cart", () => {
     form.set("quantityDelta", "1");
     form.set("intent", "update-cart-line");
 
-    const response = (await accountCartAction({
+    const actionPromise = accountCartAction({
       request: new Request("http://localhost/account/cart", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -659,14 +673,26 @@ describe("checkout web routes: account cart", () => {
       }),
       params: {},
       context: undefined,
-    } as never)) as Response;
+    } as never);
 
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(mockUpdateCartLineQuantity).toHaveBeenCalledWith("cli_primary", { quantity: 3 });
+    expect(mockRemoveCartLine).not.toHaveBeenCalled();
+
+    resolveQuantityWrite(checkoutCommit("43", "evt_quantity"));
+    const response = (await actionPromise) as Response;
+
     expect(mockRemoveCartLine).toHaveBeenCalledWith("cli_duplicate");
     expect(response.status).toBe(302);
     expect(readFreshWriteToken(response.headers.get("Location") ?? "")).toMatchObject({
       commitPosition: "44",
-      sources: [{ sourceContextName: "checkout", maxGlobalPosition: "44", eventIds: ["evt_duplicate_removed"] }],
+      sources: [
+        {
+          sourceContextName: "checkout",
+          maxGlobalPosition: "44",
+          eventIds: ["evt_quantity", "evt_duplicate_removed"],
+        },
+      ],
     });
   });
 
@@ -701,6 +727,9 @@ describe("checkout web routes: account cart", () => {
 
     expect(mockUpdateCartLineQuantity).toHaveBeenCalledWith("cli_primary", { quantity: 5 });
     expect(mockRemoveCartLine).toHaveBeenCalledWith("cli_duplicate");
+    expect(mockUpdateCartLineQuantity.mock.invocationCallOrder[0]).toBeLessThan(
+      mockRemoveCartLine.mock.invocationCallOrder[0] ?? 0,
+    );
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toContain("/account/cart?afterWrite=");
   });
@@ -777,10 +806,19 @@ describe("checkout web routes: account cart", () => {
       sellerPreferenceId: "lst_card_vault",
       availabilityState: "available",
     });
+    expect(mockUpdateCartLineFulfillment.mock.invocationCallOrder[0]).toBeLessThan(
+      mockUpdateCartLineFulfillment.mock.invocationCallOrder[1] ?? 0,
+    );
     expect(response.status).toBe(302);
     expect(readFreshWriteToken(response.headers.get("Location") ?? "")).toMatchObject({
       commitPosition: "46",
-      sources: [{ sourceContextName: "checkout", maxGlobalPosition: "46", eventIds: ["evt_duplicate_locked"] }],
+      sources: [
+        {
+          sourceContextName: "checkout",
+          maxGlobalPosition: "46",
+          eventIds: ["evt_primary_locked", "evt_duplicate_locked"],
+        },
+      ],
     });
   });
 
@@ -848,10 +886,73 @@ describe("checkout web routes: account cart", () => {
 
     expect(mockRemoveCartLine).toHaveBeenCalledWith("cli_primary");
     expect(mockRemoveCartLine).toHaveBeenCalledWith("cli_duplicate");
+    expect(mockRemoveCartLine.mock.invocationCallOrder[0]).toBeLessThan(
+      mockRemoveCartLine.mock.invocationCallOrder[1] ?? 0,
+    );
     expect(response.status).toBe(302);
     expect(readFreshWriteToken(response.headers.get("Location") ?? "")).toMatchObject({
       commitPosition: "46",
-      sources: [{ sourceContextName: "checkout", maxGlobalPosition: "46", eventIds: ["evt_duplicate_removed"] }],
+      sources: [
+        {
+          sourceContextName: "checkout",
+          maxGlobalPosition: "46",
+          eventIds: ["evt_primary_removed", "evt_duplicate_removed"],
+        },
+      ],
+    });
+  });
+
+  it("removes grouped guest cart lines in order and preserves every fresh-write receipt", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(guestCheckoutActor());
+    let resolvePrimaryRemove!: (value: unknown) => void;
+    mockRemoveGuestCartLine
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolvePrimaryRemove = resolve;
+          }),
+      )
+      .mockResolvedValueOnce(checkoutCommit("52", "evt_guest_duplicate_removed"));
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      removeGuestCartLine: mockRemoveGuestCartLine,
+    });
+
+    const form = new URLSearchParams();
+    form.append("lineId", "cli_guest_primary");
+    form.append("lineId", "cli_guest_duplicate");
+    form.set("intent", "remove-cart-line");
+
+    const actionPromise = accountCartAction({
+      request: new Request("http://localhost/account/cart", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          cookie: "chase_sets_anonymous_cart=anon_cart_1",
+        },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mockRemoveGuestCartLine).toHaveBeenCalledWith("anon_cart_1", "cli_guest_primary");
+    expect(mockRemoveGuestCartLine).not.toHaveBeenCalledWith("anon_cart_1", "cli_guest_duplicate");
+
+    resolvePrimaryRemove(checkoutCommit("51", "evt_guest_primary_removed"));
+    const response = (await actionPromise) as Response;
+
+    expect(mockRemoveGuestCartLine).toHaveBeenCalledWith("anon_cart_1", "cli_guest_duplicate");
+    expect(response.status).toBe(302);
+    expect(readFreshWriteToken(response.headers.get("Location") ?? "")).toMatchObject({
+      commitPosition: "52",
+      sources: [
+        {
+          sourceContextName: "checkout",
+          maxGlobalPosition: "52",
+          eventIds: ["evt_guest_primary_removed", "evt_guest_duplicate_removed"],
+        },
+      ],
     });
   });
 });

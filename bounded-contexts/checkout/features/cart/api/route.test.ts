@@ -180,6 +180,57 @@ describe("checkout cart routes", () => {
     );
   });
 
+  it("passes selected listing snapshots through account cart adds", async () => {
+    const services = createServices();
+    const app = buildApp({
+      actor: accountCartActor(),
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/cart", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          catalogItemId: "cat_charizard",
+          productId: "cat_charizard::form=raw",
+          itemTitle: "Charizard",
+          selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+          productSummary: "Form: Raw",
+          quantity: 1,
+          fulfillmentMode: "locked-listing",
+          lockedListingId: "lst_card_vault",
+          sellerPreferenceId: "lst_card_vault",
+          selectedListingSnapshot: {
+            listingId: "lst_card_vault",
+            sellerAccountId: "acc_card_vault",
+            sellerDisplayName: "Card Vault",
+            sellerSlug: "card-vault",
+            priceAmount: "389.00",
+            source: "discovery.item-detail.add-to-cart",
+          },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    expect(services.addLine).toHaveBeenCalledWith(
+      expect.objectContaining({
+        lockedListingId: "lst_card_vault",
+        sellerPreferenceId: "lst_card_vault",
+        selectedListingSnapshot: {
+          listingId: "lst_card_vault",
+          sellerAccountId: "acc_card_vault",
+          sellerDisplayName: "Card Vault",
+          sellerSlug: "card-vault",
+          priceAmount: "389.00",
+          source: "discovery.item-detail.add-to-cart",
+        },
+      }),
+      expect.anything(),
+    );
+  });
+
   it("creates a signed-in cart readiness snapshot with customer decisions", async () => {
     const services = createServices();
     const app = buildApp({

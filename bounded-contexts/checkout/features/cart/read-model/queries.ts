@@ -19,6 +19,13 @@ export type CheckoutCartLineRow = Readonly<{
   quantity: number;
   fulfillment_mode: "optimize" | "locked-listing";
   locked_listing_id: string | null;
+  selected_listing_id: string | null;
+  selected_listing_seller_account_id: string | null;
+  selected_listing_seller_display_name: string | null;
+  selected_listing_seller_slug: string | null;
+  selected_listing_price_amount: string | null;
+  selected_listing_snapshot_source: string | null;
+  selected_listing_snapshot_captured_at: string | null;
   seller_preference_id: string | null;
   availability_state: "available" | "unavailable" | "changed" | "waiting-for-supply";
   seller_options: readonly CheckoutCartSellerOptionRow[];
@@ -56,6 +63,13 @@ type CartLinePageRow = Readonly<{
   quantity: number;
   fulfillment_mode: string;
   locked_listing_id: string | null;
+  selected_listing_id: string | null;
+  selected_listing_seller_account_id: string | null;
+  selected_listing_seller_display_name: string | null;
+  selected_listing_seller_slug: string | null;
+  selected_listing_price_amount: string | null;
+  selected_listing_snapshot_source: string | null;
+  selected_listing_snapshot_captured_at: string | null;
   seller_preference_id: string | null;
   availability_state: string;
   seller_options: unknown;
@@ -105,6 +119,10 @@ function mapSellerOption(value: unknown): CheckoutCartSellerOptionRow | null {
   };
 }
 
+function mapNullableText(value: unknown) {
+  return value === null || value === undefined ? null : String(value).trim() || null;
+}
+
 function mapCartLineRow(row: CartLinePageRow): CheckoutCartLineRow {
   return {
     ...row,
@@ -115,6 +133,13 @@ function mapCartLineRow(row: CartLinePageRow): CheckoutCartLineRow {
       row.availability_state === "waiting-for-supply"
         ? row.availability_state
         : "available",
+    selected_listing_id: mapNullableText(row.selected_listing_id),
+    selected_listing_seller_account_id: mapNullableText(row.selected_listing_seller_account_id),
+    selected_listing_seller_display_name: mapNullableText(row.selected_listing_seller_display_name),
+    selected_listing_seller_slug: mapNullableText(row.selected_listing_seller_slug),
+    selected_listing_price_amount: mapNullableText(row.selected_listing_price_amount),
+    selected_listing_snapshot_source: mapNullableText(row.selected_listing_snapshot_source),
+    selected_listing_snapshot_captured_at: mapNullableText(row.selected_listing_snapshot_captured_at),
     selected_options: Array.isArray(row.selected_options) ? (row.selected_options as VersionSelectedOptionEntry[]) : [],
     seller_options: Array.isArray(row.seller_options)
       ? row.seller_options
@@ -144,6 +169,13 @@ export async function listCartLines(db: PgQueryable, buyerAccountId: string): Pr
        line.quantity,
        line.fulfillment_mode,
        line.locked_listing_id,
+       line.selected_listing_id,
+       line.selected_listing_seller_account_id,
+       line.selected_listing_seller_display_name,
+       line.selected_listing_seller_slug,
+       line.selected_listing_price_amount::text AS selected_listing_price_amount,
+       line.selected_listing_snapshot_source,
+       line.selected_listing_snapshot_captured_at::text AS selected_listing_snapshot_captured_at,
        line.seller_preference_id,
        line.availability_state,
        opt.seller_options,

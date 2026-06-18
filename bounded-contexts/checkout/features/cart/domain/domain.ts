@@ -29,7 +29,26 @@ export type CheckoutCartLine = Readonly<{
   fulfillmentMode: "optimize" | "locked-listing";
   lockedListingId: string | null;
   sellerPreferenceId: string | null;
+  selectedListingSnapshot: CheckoutSelectedListingSnapshot | null;
   availabilityState: "available" | "unavailable" | "changed" | "waiting-for-supply";
+}>;
+
+export type CheckoutSelectedListingSnapshot = Readonly<{
+  listingId: string;
+  sellerAccountId: string | null;
+  sellerDisplayName: string | null;
+  sellerSlug: string | null;
+  priceAmount: string | null;
+  source: string;
+}>;
+
+export type CheckoutSelectedListingSnapshotInput = Readonly<{
+  listingId: string;
+  sellerAccountId?: string | null;
+  sellerDisplayName?: string | null;
+  sellerSlug?: string | null;
+  priceAmount?: string | null;
+  source?: string | null;
 }>;
 
 export type CheckoutCartState = Readonly<{
@@ -64,6 +83,7 @@ export type AddCartLineCommand = Readonly<{
   fulfillmentMode?: "optimize" | "locked-listing";
   lockedListingId?: string | null;
   sellerPreferenceId?: string | null;
+  selectedListingSnapshot?: CheckoutSelectedListingSnapshotInput | null;
   availabilityState?: "available" | "unavailable" | "changed" | "waiting-for-supply";
 }>;
 
@@ -79,6 +99,7 @@ export type SetCartLineFulfillmentCommand = Readonly<{
   fulfillmentMode: "optimize" | "locked-listing";
   lockedListingId?: string | null;
   sellerPreferenceId?: string | null;
+  selectedListingSnapshot?: CheckoutSelectedListingSnapshotInput | null;
   availabilityState?: "available" | "unavailable" | "changed" | "waiting-for-supply";
 }>;
 
@@ -120,6 +141,7 @@ export type CartLineAddedEvent = DomainEvent<
     fulfillmentMode?: "optimize" | "locked-listing";
     lockedListingId?: string | null;
     sellerPreferenceId?: string | null;
+    selectedListingSnapshot?: CheckoutSelectedListingSnapshot | null;
     availabilityState?: "available" | "unavailable" | "changed" | "waiting-for-supply";
   }>
 >;
@@ -139,6 +161,7 @@ export type CartLineFulfillmentSetEvent = DomainEvent<
     fulfillmentMode: "optimize" | "locked-listing";
     lockedListingId: string | null;
     sellerPreferenceId: string | null;
+    selectedListingSnapshot: CheckoutSelectedListingSnapshot | null;
     availabilityState: "available" | "unavailable" | "changed" | "waiting-for-supply";
   }>
 >;
@@ -189,6 +212,46 @@ function normalizeAvailabilityState(value: "available" | "unavailable" | "change
   }
 }
 
+function normalizeOptionalPriceAmount(value?: string | null) {
+  const normalized = normalizeOptionalText(value);
+  if (!normalized) {
+    return null;
+  }
+
+  assert(/^\d+(\.\d{1,2})?$/.test(normalized), "Selected listing price must be a valid amount.");
+  const amount = Number.parseFloat(normalized);
+  assert(Number.isFinite(amount) && amount > 0, "Selected listing price must be a positive amount.");
+  return amount.toFixed(2);
+}
+
+function normalizeSelectedListingSnapshot(
+  value: CheckoutSelectedListingSnapshotInput | CheckoutSelectedListingSnapshot | null | undefined,
+  lockedListingId: string | null | undefined,
+) {
+  if (!value) {
+    return null;
+  }
+
+  const normalizedLockedListingId = normalizeOptionalText(lockedListingId);
+  const listingId = normalizeRequiredText(value.listingId, "Selected listing snapshot must include a listing.");
+  assert(
+    normalizedLockedListingId !== null && listingId === normalizedLockedListingId,
+    "Selected listing snapshot must match the locked listing.",
+  );
+
+  return {
+    listingId,
+    sellerAccountId: normalizeOptionalText(value.sellerAccountId),
+    sellerDisplayName: normalizeOptionalText(value.sellerDisplayName),
+    sellerSlug: normalizeOptionalText(value.sellerSlug),
+    priceAmount: normalizeOptionalPriceAmount(value.priceAmount),
+    source: normalizeRequiredText(
+      value.source ?? "checkout-cart-request",
+      "Selected listing snapshot source is required.",
+    ),
+  };
+}
+
 export const decideCheckoutCart: AggregateDecider<CheckoutCartState, CheckoutCartCommand, CheckoutCartEvent> = (
   state,
   command,
@@ -222,6 +285,10 @@ export const decideCheckoutCart: AggregateDecider<CheckoutCartState, CheckoutCar
             fulfillmentMode: normalizeFulfillmentMode(command.fulfillmentMode, command.lockedListingId),
             lockedListingId: normalizeOptionalText(command.lockedListingId),
             sellerPreferenceId: normalizeOptionalText(command.sellerPreferenceId),
+            selectedListingSnapshot: normalizeSelectedListingSnapshot(
+              command.selectedListingSnapshot,
+              command.lockedListingId,
+            ),
             availabilityState: normalizeAvailabilityState(command.availabilityState),
           },
         },
@@ -242,6 +309,10 @@ export const decideCheckoutCart: AggregateDecider<CheckoutCartState, CheckoutCar
       const lockedListingId = normalizeOptionalText(command.lockedListingId);
       const fulfillmentMode = normalizeFulfillmentMode(command.fulfillmentMode, lockedListingId);
       assert(fulfillmentMode === "optimize" || Boolean(lockedListingId), "Locked cart lines must reference a listing.");
+      const selectedListingSnapshot =
+        fulfillmentMode === "locked-listing"
+          ? normalizeSelectedListingSnapshot(command.selectedListingSnapshot, lockedListingId)
+          : null;
       return [
         {
           type: "checkout.cart.line-fulfillment-set",
@@ -250,6 +321,7 @@ export const decideCheckoutCart: AggregateDecider<CheckoutCartState, CheckoutCar
             fulfillmentMode,
             lockedListingId: fulfillmentMode === "locked-listing" ? lockedListingId : null,
             sellerPreferenceId: normalizeOptionalText(command.sellerPreferenceId),
+            selectedListingSnapshot,
             availabilityState: normalizeAvailabilityState(command.availabilityState),
           },
         },
@@ -307,6 +379,10 @@ export const evolveCheckoutCart: AggregateEvolver<CheckoutCartState, CheckoutCar
             fulfillmentMode: normalizeFulfillmentMode(event.data.fulfillmentMode, event.data.lockedListingId),
             lockedListingId: normalizeOptionalText(event.data.lockedListingId),
             sellerPreferenceId: normalizeOptionalText(event.data.sellerPreferenceId),
+            selectedListingSnapshot: normalizeSelectedListingSnapshot(
+              event.data.selectedListingSnapshot,
+              event.data.lockedListingId,
+            ),
             availabilityState: normalizeAvailabilityState(event.data.availabilityState),
           },
         ],
@@ -329,6 +405,10 @@ export const evolveCheckoutCart: AggregateEvolver<CheckoutCartState, CheckoutCar
                 fulfillmentMode: event.data.fulfillmentMode,
                 lockedListingId: event.data.lockedListingId,
                 sellerPreferenceId: event.data.sellerPreferenceId,
+                selectedListingSnapshot: normalizeSelectedListingSnapshot(
+                  event.data.selectedListingSnapshot,
+                  event.data.lockedListingId,
+                ),
                 availabilityState: event.data.availabilityState,
               }
             : line,

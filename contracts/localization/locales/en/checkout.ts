@@ -26,7 +26,9 @@ export const checkoutEnglishTranslations = {
   "checkout.features.cart.ui.cartPage.browse.the.marketplace.and.add.a":
     "Browse the marketplace and add a product to start building a Buy Cart checkout.",
   "checkout.features.cart.ui.cartPage.buy.cart": "Buy cart",
-  "checkout.features.cart.ui.cartPage.adding.item": "Adding your item",
+  "checkout.features.cart.ui.cartPage.cart.update.pending": "Updating cart",
+  "checkout.features.cart.ui.cartPage.cart.update.pending.title": "Your cart is catching up",
+  "checkout.features.cart.ui.cartPage.cart.update.refreshing": "Refreshing cart",
   "checkout.features.cart.ui.cartPage.checkout.issue": "Checkout issue",
   "checkout.features.cart.ui.cartPage.decrease": "Decrease",
   "checkout.features.cart.ui.cartPage.empty.cart.protection.description":
@@ -64,6 +66,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.cart.ui.cartPage.preferred.listing.summary":
     "{listing} is the starting preference. Smart Match may choose another available listing.",
   "checkout.features.cart.ui.cartPage.ready": "Ready",
+  "checkout.features.cart.ui.cartPage.refresh.cart": "Refresh cart",
   "checkout.features.cart.ui.cartPage.remove": "Remove",
   "checkout.features.cart.ui.cartPage.resolve.before.payment": "Resolve item availability before payment starts.",
   "checkout.features.cart.ui.cartPage.resolve.fulfillment": "Continue to checkout",
@@ -742,6 +745,8 @@ export const checkoutEnglishTranslations = {
   "checkout.routes.accountCart.cart.marketplace": "Buy Cart | Marketplace",
   "checkout.routes.accountCart.adding.item.description":
     "Your item was added. The Buy Cart is catching up before checkout continues.",
+  "checkout.routes.accountCart.cart.pending.fresh.write":
+    "We saved your cart change and are refreshing the cart view. Your items will appear here as soon as checkout catches up.",
   "checkout.routes.accountCart.preferred.listing.missing": "Choose a preferred listing before locking this cart line.",
   "checkout.routes.accountCart.request.failed": "Request failed.",
   "checkout.routes.accountCart.review.cart.lines.adjust.quantity.and":

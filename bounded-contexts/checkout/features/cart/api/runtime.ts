@@ -20,6 +20,7 @@ import {
   initialCheckoutCartState,
   type CheckoutCartCommand,
   type CheckoutCartEvent,
+  type CheckoutSelectedListingSnapshotInput,
   type CheckoutCartState,
 } from "../domain/domain";
 import {
@@ -64,6 +65,7 @@ export type CheckoutCartServices = Readonly<{
       fulfillmentMode?: "optimize" | "locked-listing";
       lockedListingId?: string | null;
       sellerPreferenceId?: string | null;
+      selectedListingSnapshot?: CheckoutSelectedListingSnapshotInput | null;
     }>,
     context: EventStoreContext,
   ) => Promise<{ lineId: CartLineId; version: number; status: "added" | "merged" }>;
@@ -86,6 +88,7 @@ export type CheckoutCartServices = Readonly<{
         fulfillmentMode?: "optimize" | "locked-listing";
         lockedListingId?: string | null;
         sellerPreferenceId?: string | null;
+        selectedListingSnapshot?: CheckoutSelectedListingSnapshotInput | null;
       }[];
     }>,
     context: EventStoreContext,
@@ -116,6 +119,7 @@ export type CheckoutCartServices = Readonly<{
       fulfillmentMode: "optimize" | "locked-listing";
       lockedListingId?: string | null;
       sellerPreferenceId?: string | null;
+      selectedListingSnapshot?: CheckoutSelectedListingSnapshotInput | null;
       availabilityState?: "available" | "unavailable" | "changed" | "waiting-for-supply";
     }>,
     context: EventStoreContext,
@@ -248,6 +252,7 @@ export function createCheckoutCartRuntime(deps: CheckoutCartRuntimeDeps): Checko
         fulfillmentMode,
         lockedListingId,
         sellerPreferenceId,
+        selectedListingSnapshot: params.selectedListingSnapshot,
         availabilityState: "available",
       },
       context,
@@ -333,6 +338,7 @@ export function createCheckoutCartRuntime(deps: CheckoutCartRuntimeDeps): Checko
           fulfillmentMode: params.fulfillmentMode,
           lockedListingId: params.lockedListingId,
           sellerPreferenceId: params.sellerPreferenceId,
+          selectedListingSnapshot: params.selectedListingSnapshot,
           availabilityState: params.availabilityState,
         },
         context,
@@ -397,6 +403,16 @@ export function createCheckoutCartRuntime(deps: CheckoutCartRuntimeDeps): Checko
               fulfillmentMode: line.fulfillment_mode,
               lockedListingId: line.locked_listing_id,
               sellerPreferenceId: line.seller_preference_id,
+              selectedListingSnapshot: line.selected_listing_id
+                ? {
+                    listingId: line.selected_listing_id,
+                    sellerAccountId: line.selected_listing_seller_account_id,
+                    sellerDisplayName: line.selected_listing_seller_display_name,
+                    sellerSlug: line.selected_listing_seller_slug,
+                    priceAmount: line.selected_listing_price_amount,
+                    source: line.selected_listing_snapshot_source,
+                  }
+                : null,
               availabilityState: line.availability_state,
             },
             context,

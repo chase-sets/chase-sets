@@ -8,6 +8,13 @@ type CartLinePage = Readonly<{
   product_id: string;
   fulfillment_mode: string;
   locked_listing_id: string | null;
+  selected_listing_id: string | null;
+  selected_listing_seller_account_id: string | null;
+  selected_listing_seller_display_name: string | null;
+  selected_listing_seller_slug: string | null;
+  selected_listing_price_amount: string | null;
+  selected_listing_snapshot_source: string | null;
+  selected_listing_snapshot_captured_at: string | null;
   availability_state: string;
   updated_at: string;
 }>;
@@ -120,6 +127,13 @@ function line(overrides: Partial<CartLinePage> = {}): CartLinePage {
     product_id: "prd_1",
     fulfillment_mode: "locked-listing",
     locked_listing_id: "lst_locked",
+    selected_listing_id: null,
+    selected_listing_seller_account_id: null,
+    selected_listing_seller_display_name: null,
+    selected_listing_seller_slug: null,
+    selected_listing_price_amount: null,
+    selected_listing_snapshot_source: null,
+    selected_listing_snapshot_captured_at: null,
     availability_state: "available",
     updated_at: "2026-06-16T00:00:00.000Z",
     ...overrides,
@@ -259,6 +273,39 @@ describe("listCartLines seller_options join", () => {
     expect(row?.seller_options).toEqual([]);
   });
 
+  it("exposes selected listing snapshot fields independently of current seller options", async () => {
+    const db = new CartReadModelDb(
+      [
+        line({
+          product_id: "prd_empty",
+          locked_listing_id: "lst_snapshot",
+          selected_listing_id: "lst_snapshot",
+          selected_listing_seller_account_id: "acc_snapshot",
+          selected_listing_seller_display_name: "Snapshot Seller",
+          selected_listing_seller_slug: "snapshot-seller",
+          selected_listing_price_amount: "42.00",
+          selected_listing_snapshot_source: "discovery.item-detail.add-to-cart",
+          selected_listing_snapshot_captured_at: "2026-06-18T00:00:00.000Z",
+        }),
+      ],
+      [option({ product_id: "prd_other" })],
+    );
+
+    const [row] = await listCartLines(db, "acc_buyer");
+
+    expect(row).toMatchObject({
+      locked_listing_id: "lst_snapshot",
+      selected_listing_id: "lst_snapshot",
+      selected_listing_seller_account_id: "acc_snapshot",
+      selected_listing_seller_display_name: "Snapshot Seller",
+      selected_listing_seller_slug: "snapshot-seller",
+      selected_listing_price_amount: "42.00",
+      selected_listing_snapshot_source: "discovery.item-detail.add-to-cart",
+      selected_listing_snapshot_captured_at: "2026-06-18T00:00:00.000Z",
+      seller_options: [],
+    });
+  });
+
   it("carries seller display name and slug resolved from the identity seller-accounts join", async () => {
     const db = new CartReadModelDb(
       [line()],
@@ -356,6 +403,11 @@ describe("listCartLines seller_options join", () => {
     // same seller-accounts join table, with the denormalized columns as fallback.
     expect(db.lastSql).toContain("COALESCE(seller.average_rating, o.seller_average_rating)::text");
     expect(db.lastSql).toContain("COALESCE(seller.review_count, o.seller_review_count, 0)");
+    expect(db.lastSql).toContain("line.selected_listing_id");
+    expect(db.lastSql).toContain("line.selected_listing_price_amount::text AS selected_listing_price_amount");
+    expect(db.lastSql).toContain(
+      "line.selected_listing_snapshot_captured_at::text AS selected_listing_snapshot_captured_at",
+    );
     expect(db.lastSql).toContain("o.product_id = line.product_id");
     expect(db.lastSql).toContain("o.status = 'active'");
     expect(db.lastSql).toContain("ORDER BY o.price_amount ASC");

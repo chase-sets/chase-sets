@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import type { ApiHostRuntime } from "@chase-sets/platform-runtime/api";
+import { CHASE_SETS_READ_AFTER_WRITE_HEADER, encodeFreshWriteReceipt } from "@chase-sets/http/responses";
 import { buildAdminSupportApiApp } from "../src/app";
 
 function createEmptyRuntime(): ApiHostRuntime {
@@ -90,6 +91,81 @@ function createCatalogRuntime(): ApiHostRuntime {
       identity: {},
     },
     projectionGroups: [],
+    subscriptionRunners: [],
+  } as unknown as ApiHostRuntime;
+}
+
+function createFreshnessRuntime(): ApiHostRuntime {
+  const catalogRouter = new Hono();
+  catalogRouter.get("/items/:itemId", (c) => c.json({ itemId: c.req.param("itemId") }));
+  const catalogModule = {
+    contextName: "catalog",
+    apiMounts: [
+      {
+        mountPath: "/api/catalog",
+        kind: "primary",
+        requiresAuth: false,
+        readFreshnessRoutes: [
+          {
+            routePath: "/items/:itemId",
+            dependencies: [{ projectionName: "catalog.item-projection" }],
+          },
+        ],
+      },
+    ],
+    buildApis: () => [catalogRouter],
+    projectionHandlerSets: () => [],
+  };
+
+  return {
+    mountedContexts: [
+      {
+        contextName: "catalog",
+        mountRole: "active",
+        module: catalogModule,
+        services: {},
+        pool: {},
+        projectionHandlerSets: [],
+      },
+    ],
+    mountedModules: [{ module: catalogModule, services: {} }],
+    services: {
+      auth: {},
+      catalog: {},
+      identity: {},
+    },
+    projectionGroups: [
+      {
+        targetContextName: "catalog",
+        projectionName: "catalog.item-projection",
+        subscriptionRunners: [
+          {
+            sourceContextName: "catalog",
+            refreshStatus: async () => ({
+              lastGlobalPosition: "5",
+              state: "caught-up",
+              lastError: null,
+            }),
+          },
+        ],
+      },
+      {
+        targetContextName: "catalog",
+        projectionName: "catalog.search-projection",
+        subscriptionRunners: [
+          {
+            sourceContextName: "catalog",
+            checkpointKey: "catalog:search",
+            refreshStatus: async () => ({
+              lastGlobalPosition: "1",
+              sourceHeadGlobalPosition: "5",
+              state: "behind",
+              lastError: null,
+            }),
+          },
+        ],
+      },
+    ],
     subscriptionRunners: [],
   } as unknown as ApiHostRuntime;
 }
@@ -469,6 +545,56 @@ describe("admin-support API app", () => {
     expect(response.status).toBe(401);
     await expect(response.json()).resolves.toMatchObject({
       error: { code: "authentication_required" },
+    });
+  });
+
+  it("applies read consistency route tuning and wake-before-wait gateway options", async () => {
+    const requestWake = vi.fn(async () => 1);
+    const receipt = encodeFreshWriteReceipt({
+      observedAtMs: Date.now(),
+      sources: [{ sourceContextName: "catalog", maxGlobalPosition: "5", eventIds: ["evt_5"] }],
+    });
+    const app = buildAdminSupportApiApp(createFreshnessRuntime(), {
+      readConsistency: {
+        routeTuning: [
+          {
+            mountPath: "/api/catalog",
+            routePath: "/items/:itemId",
+            exactDependencyMode: "target-context",
+            timeoutMs: 1,
+            pollIntervalMs: 1,
+          },
+        ],
+        workSignalGateway: { requestWake },
+      },
+    });
+
+    const response = await app.request("/api/catalog/items/cat_1", {
+      headers: { [CHASE_SETS_READ_AFTER_WRITE_HEADER]: receipt },
+    });
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "projection_freshness_timeout",
+        waitMode: "target-context",
+        pending: [{ projectionName: "catalog.search-projection" }],
+      },
+    });
+    expect(requestWake).toHaveBeenCalledWith({
+      requests: [
+        {
+          sourceContextName: "catalog",
+          targetContextName: "catalog",
+          projectionName: "catalog.search-projection",
+          checkpointKey: "catalog:search",
+          requiredPosition: "5",
+        },
+      ],
+      metadata: {
+        mountPath: "/api/catalog",
+        routePaths: ["/items/:itemId"],
+      },
     });
   });
 });

@@ -80,7 +80,7 @@ export type AddToCartActionData = Readonly<{
     version: number;
     status: string;
   };
-  viewCartHref?: string;
+  viewCartHref: string;
 }>;
 
 export type ItemDetailActionData = AddToCartActionData | Readonly<{ error: string }> | null;
@@ -90,7 +90,9 @@ export function isAddToCartActionData(value: unknown): value is AddToCartActionD
     value &&
     typeof value === "object" &&
     "status" in value &&
-    (value as { status?: unknown }).status === "added-to-cart",
+    (value as { status?: unknown }).status === "added-to-cart" &&
+    typeof (value as { viewCartHref?: unknown }).viewCartHref === "string" &&
+    Boolean((value as { viewCartHref?: string }).viewCartHref?.trim()),
   );
 }
 

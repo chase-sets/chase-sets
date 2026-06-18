@@ -101,6 +101,75 @@ describe("admin-support API configuration", () => {
       rootDir: "artifacts/catalog-assets",
       publicBaseUrl: "http://localhost:7552/catalog-assets",
     });
+    expect(config.readConsistency).toEqual({
+      timeoutMs: 2_500,
+      pollIntervalMs: 75,
+      exactDependencyMode: "enabled",
+      routeTuning: [],
+      wakeBeforeWaitEnabled: false,
+    });
+  });
+
+  it("loads read consistency controls from environment variables", () => {
+    vi.stubEnv("DATABASE_URL", "postgres://shared");
+    vi.stubEnv("PLATFORM_INTERNAL_AUTH_SECRET", "dev-internal-secret");
+    vi.stubEnv("READ_CONSISTENCY_TIMEOUT_MS", "1500");
+    vi.stubEnv("READ_CONSISTENCY_POLL_INTERVAL_MS", "25");
+    vi.stubEnv("READ_CONSISTENCY_EXACT_DEPENDENCY_MODE", "target-context");
+    vi.stubEnv("READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED", "true");
+    vi.stubEnv(
+      "READ_CONSISTENCY_ROUTE_TUNING_JSON",
+      JSON.stringify([
+        {
+          mountPath: "/api/catalog",
+          routePath: "/source-observations/provider-profiles",
+          targetContextName: "catalog",
+          timeoutMs: 900,
+          pollIntervalMs: 15,
+          exactDependencyMode: "enabled",
+        },
+      ]),
+    );
+
+    expect(loadConfig().readConsistency).toEqual({
+      timeoutMs: 1_500,
+      pollIntervalMs: 25,
+      exactDependencyMode: "target-context",
+      routeTuning: [
+        {
+          mountPath: "/api/catalog",
+          routePath: "/source-observations/provider-profiles",
+          targetContextName: "catalog",
+          timeoutMs: 900,
+          pollIntervalMs: 15,
+          exactDependencyMode: "enabled",
+        },
+      ],
+      wakeBeforeWaitEnabled: true,
+    });
+  });
+
+  it("rejects invalid read consistency controls", () => {
+    vi.stubEnv("DATABASE_URL", "postgres://shared");
+    vi.stubEnv("PLATFORM_INTERNAL_AUTH_SECRET", "dev-internal-secret");
+    vi.stubEnv("READ_CONSISTENCY_EXACT_DEPENDENCY_MODE", "off");
+
+    expect(() => loadConfig()).toThrow("READ_CONSISTENCY_EXACT_DEPENDENCY_MODE must be enabled or target-context.");
+
+    vi.stubEnv("READ_CONSISTENCY_EXACT_DEPENDENCY_MODE", "enabled");
+    vi.stubEnv("READ_CONSISTENCY_TIMEOUT_MS", "0");
+
+    expect(() => loadConfig()).toThrow("READ_CONSISTENCY_TIMEOUT_MS must be a positive number.");
+
+    vi.stubEnv("READ_CONSISTENCY_TIMEOUT_MS", "2500");
+    vi.stubEnv(
+      "READ_CONSISTENCY_ROUTE_TUNING_JSON",
+      JSON.stringify([{ mountPath: "/api/catalog", routePath: "source-observations/provider-profiles" }]),
+    );
+
+    expect(() => loadConfig()).toThrow(
+      "READ_CONSISTENCY_ROUTE_TUNING_JSON[0].routePath must be an absolute path string.",
+    );
   });
 
   it("treats staging as production-like data with no scenario seed", () => {
