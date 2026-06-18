@@ -1,6 +1,6 @@
 # Push-First Projection Migration Inventory
 
-Status: migration report for #1224 (Milestone #19). Last regenerated: 2026-06-15.
+Status: migration report for #1224 (Milestone #19). Last regenerated: 2026-06-18.
 
 This is the migration report that classifies every projection group and every read-after-write route inventory entry into an explicit push-first disposition. The machine-readable source of truth is `@chase-sets/platform-runtime/projection-push-migration`, which derives every row below from the [source-context wake registry](./source-context-wake-registry.md) (#1245); registry tests pin that registry to `bounded-contexts/*/context.json`, and `projection-push-migration.test.ts` pins this document to the same inventory, so a new projection group or route entry fails CI until both are classified here.
 
@@ -31,7 +31,7 @@ An explicit opt-out (`projectionPushOptOuts` in `projection-push-migration.ts`) 
 
 The validator also rejects opt-outs naming unknown projection groups and duplicates. **Current opt-out count: 0.** Every projection group on the platform is push-first eligible or enabled.
 
-## Projection Groups (73)
+## Projection Groups (74)
 
 Bold source contexts are staging-enabled in the registry. `Enabled` counts sources with relay fan-out enabled.
 
@@ -109,9 +109,10 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `settlement:settlement-account-risk-source-projection` | Settlement | identity, **marketplace** | push-eligible | 1/2 |
 | `settlement:settlement-fulfillment-source-projection` | Settlement | fulfillment | push-eligible | 0/1 |
 | `settlement:settlement-payment-input-projection` | Settlement | **payments** | push-enabled | 1/1 |
+| `settlement:settlement-payout-projection` | Settlement | settlement | push-eligible | 0/1 |
 | `settlement:settlement-support-hold-projection` | Settlement | platform-operations | push-eligible | 0/1 |
 
-Totals: 31 `push-enabled`, 42 `push-eligible`, 0 `disabled`, 0 `opted-out`.
+Totals: 31 `push-enabled`, 43 `push-eligible`, 0 `disabled`, 0 `opted-out`.
 
 ## Read-After-Write Route Inventory (46)
 
@@ -164,7 +165,7 @@ Every route inventory entry keeps its exact durable wait or carries an owner-app
 | `payments.create-to-detail` | payments | critical | exact wait | push-accelerated |
 | `payments.detail-self-refresh` | payments | important | exact wait | push-accelerated |
 | `reputation.review-submit-to-detail` | marketplace | important | exact wait | push-accelerated |
-| `settlement.payout-request-to-detail` | settlement | important | accepted exception (settlement, review 2026-07-31, #1809) | poll-bounded until wave 3 |
+| `settlement.payout-request-to-detail` | settlement | critical | exact wait | poll-bounded until wave 3 |
 
 ## Rollout Waves: Staging First, Production Gated
 
