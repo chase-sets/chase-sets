@@ -12,7 +12,7 @@ bounded-contexts/catalog/features/source-observations/api/catalog-integration-fi
 
 - Catalog Source Observations owns fixture repository records, coverage sufficiency, profile-version compatibility, validation input selection, redaction state, dry-run history links, and activation-readiness diagnostics.
 - Provider adapters own live transport, provider endpoints, credentials, pagination, throttling, retries, and raw payload acquisition. Adapters may supply sampled payload metadata, but they do not decide Catalog fixture coverage sufficiency.
-- Ops, Security, and Legal own provider-data signoff. Catalog enforces the governed data-class and retained-data exception gates before retained sampled or fixture bodies can be used as release evidence.
+- Ops, Security, and Legal own provider-data review and approval. Catalog enforces the governed data-class and retained-data exception gates before retained sampled or fixture bodies can be used as release evidence.
 
 ## Repository Records
 
@@ -73,7 +73,7 @@ Fixture provenance is one of:
 - `manual`: manually attached by an operator as controlled fixture evidence.
 - `sampled-provider`: derived from a real provider response.
 
-Provenance may include sampled time, actor kind, source URL, source hash, job id, operator user id, account id, policy/legal signoff state, and retained-data exception issue.
+Provenance may include sampled time, actor kind, source URL, source hash, job id, operator user id, account id, policy/legal approval state, and retained-data exception issue.
 
 Generated and manual fixtures are preferred for normal activation validation. Sampled-provider fixtures are allowed only when provider-data governance allows their retention and redacted use.
 
@@ -89,7 +89,7 @@ Fixture payloads are governed as `fixture-payload` unless their provenance is `s
 
 Fixture previews must redact provider secrets, seller/account facts, prices, inventory, quantities, listings, and other provider-controlled commerce fields that Catalog does not own. Raw provider payload bodies remain excluded from normal Catalog evidence.
 
-Retained sampled payload bodies, fixture bodies, provider imagery in fixture evidence, and exported provider content require policy/legal signoff plus a retained-data exception issue when the governance policy requires one.
+Retained sampled payload bodies, fixture bodies, provider imagery in fixture evidence, and exported provider content require policy/legal approval plus a retained-data exception issue when the governance policy requires one.
 
 ## Coverage Sufficiency
 
@@ -141,11 +141,11 @@ Current executable profiles already declare compact fixture contracts and hard-c
 3. existing fixture case inventory,
 4. audit/evidence history when available.
 
-Backfill should preserve profile-version compatibility and should not mark sampled-provider fixture bodies retained without signoff and retained-data exception evidence.
+Backfill should preserve profile-version compatibility and should not mark sampled-provider fixture bodies retained without approval and retained-data exception evidence.
 
-## Related Issues
+## Related Behavior
 
-- #778 owns fixture validation, dry-run, compare, and activation UI workflows.
-- #783 owns canonical audit/evidence records.
-- #794 and #803 own provider-data governance and signoff.
-- #806 owns final no-core-change external provider validation.
+- Fixture validation, dry-run, compare, and activation UI workflows are owned by the Admin Control Plane fixture surfaces.
+- Canonical audit/evidence records are owned by the audit/evidence model.
+- Provider-data governance and approval are owned by the data-governance policy.
+- Final no-core-change external provider validation is owned by the new-provider walkthrough.

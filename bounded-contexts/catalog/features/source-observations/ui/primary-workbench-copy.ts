@@ -824,8 +824,8 @@ export const catalogPrimaryWorkbenchResilienceCopy = {
   }),
   "telemetry-unavailable": copy({
     label: catalogPrimaryWorkbenchCopyLabels.telemetryUnavailable,
-    reason: "Instrumentation evidence is missing, so release proof may be incomplete.",
-    nextStep: "Open audit evidence and verify telemetry before release signoff.",
+    reason: "Instrumentation evidence is missing, so operational signals may be incomplete.",
+    nextStep: "Open audit evidence and confirm telemetry is reporting before relying on it.",
     supportTarget: "audit-evidence",
     group: "resilience",
   }),
@@ -946,8 +946,8 @@ export const catalogPrimaryWorkbenchGlossaryTerms = [
   ),
   glossary(
     "Audit evidence",
-    "Redacted proof of operator actions, provider context, command safeguards, and release-signoff facts.",
-    "Use for release verification and incident/recovery trails.",
+    "Redacted proof of operator actions, provider context, and command safeguards across the integration.",
+    "Use for traceability and incident/recovery trails.",
     "Do not expose provider payloads or operator secrets.",
   ),
   glossary(

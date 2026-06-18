@@ -1,6 +1,6 @@
 # Catalog Integration Provider Transport Budgets
 
-This document defines the #1065 proof criteria, reliability vocabulary, and first-slice budgets that must be satisfied before #1062 runs real-provider proof for the rebuilt Catalog control plane.
+This document defines the proof criteria, reliability vocabulary, and first-slice budgets that must be satisfied before the real-provider proof runs for the rebuilt Catalog control plane.
 
 The primary operator path stays front and center: pull provider data, review Source Observations, and promote eligible sources into Catalog Items or Catalog-owned references. Supporting diagnostics, profile authoring, lifecycle recovery, audit, and governance flows exist to explain or unblock that path. They are not peers that can bury the import-to-promotion workflow.
 
@@ -18,20 +18,20 @@ Catalog provider profiles own mapping semantics, duplicate prevention, Source Ob
 
 | Role | Provider unit | Decision | Why |
 | --- | --- | --- | --- |
-| Primary proof | `tcgdex:pokemon:single-card:source-observation-import` | Selected for #1062 | Active profile-backed path that exercises provider scope selection, language/Series/Expansion option queries, Expansion/card payload fetches, image and metadata mapping, Source Observation profile metadata, and promotion planning without provider-specific Admin branches. |
-| Supplemental transport evidence | `tcgplayer:pokemon:single-card:source-observation-import` | Not selected as primary proof | Useful for credential/session/domain/rate-limit diagnostics, but its promotion path is not launch-active. It cannot be used to satisfy the first-slice import-to-promotion proof unless #1062 explicitly changes the provider choice with evidence. |
+| Primary proof | `tcgdex:pokemon:single-card:source-observation-import` | Selected as primary proof | Active profile-backed path that exercises provider scope selection, language/Series/Expansion option queries, Expansion/card payload fetches, image and metadata mapping, Source Observation profile metadata, and promotion planning without provider-specific Admin branches. |
+| Supplemental transport evidence | `tcgplayer:pokemon:single-card:source-observation-import` | Not selected as primary proof | Useful for credential/session/domain/rate-limit diagnostics, but its promotion path is not launch-active. It cannot be used to satisfy the first-slice import-to-promotion proof unless the provider choice is explicitly changed with evidence. |
 
 ## Proof Criteria
 
-| Criterion | Required evidence | Owner |
-| --- | --- | --- |
-| Provider scope option-query selection | Operator can select TCGdex provider, unit, language, Series, and Expansion through bounded option queries. | #1062 |
-| Provider pagination or multi-step retrieval | Proof traverses more than one provider transport step before producing Source Observations. TCGdex must fetch Expansion metadata and then card payloads. | #1062 |
-| Image and metadata mapping | Source Observations include provider image/provenance metadata and normalized facts required for review and promotion preview. | #1062 |
-| Provider transport degraded condition | The #1062 proof packet maps at least one degraded provider transport condition to the canonical `providerTransport` and blocker vocabulary. | #1062, #1065 |
-| Source Observation profile metadata | Created observations retain provider key, unit key, source profile version, external key, source URL, source update time when available, and safe provenance. | #1062 |
-| Promotion preview counts | The #1062 proof packet records eligible, blocked, skipped, conflict, and failed counts before any Catalog write. | #1062 |
-| Redaction-safe evidence | The #1062 proof packet excludes credentials, cookies, raw payload bodies, full provider URLs, account/user identifiers, provider-controlled labels, and provider-sensitive material; #1064 still owns launch security/privacy signoff. | #1064 |
+| Criterion | Required evidence |
+| --- | --- |
+| Provider scope option-query selection | Operator can select TCGdex provider, unit, language, Series, and Expansion through bounded option queries. |
+| Provider pagination or multi-step retrieval | Proof traverses more than one provider transport step before producing Source Observations. TCGdex must fetch Expansion metadata and then card payloads. |
+| Image and metadata mapping | Source Observations include provider image/provenance metadata and normalized facts required for review and promotion preview. |
+| Provider transport degraded condition | The proof packet maps at least one degraded provider transport condition to the canonical `providerTransport` and blocker vocabulary. |
+| Source Observation profile metadata | Created observations retain provider key, unit key, source profile version, external key, source URL, source update time when available, and safe provenance. |
+| Promotion preview counts | The proof packet records eligible, blocked, skipped, conflict, and failed counts before any Catalog write. |
+| Redaction-safe evidence | The proof packet excludes credentials, cookies, raw payload bodies, full provider URLs, account/user identifiers, provider-controlled labels, and provider-sensitive material; the security/privacy launch gate still owns launch security/privacy approval. |
 
 ## Provider Transport Reliability Vocabulary
 
@@ -69,7 +69,7 @@ Provider option-query cache policy remains:
 
 ## Verification Expectations
 
-#1062 cannot sign off the first-slice real-provider proof until it links:
+The first-slice real-provider proof is not complete until it links:
 
 - selected TCGdex provider scope and active profile version;
 - option-query evidence for language, Series, and Expansion;
@@ -85,9 +85,9 @@ The durable proof command is:
 pnpm run catalog:real-provider-proof -- --environment staging --transport-mode staging-provider-proof
 ```
 
-It emits a redacted `catalog-real-provider-proof/v1` packet. See [Catalog Integration Real-Provider Proof](./catalog-integration-real-provider-proof.md) for packet fields, redaction rules, live/local usage, and #1061/#1064/#1065 handoff expectations.
+It emits a redacted `catalog-real-provider-proof/v1` packet. See [Catalog Integration Real-Provider Proof](./catalog-integration-real-provider-proof.md) for packet fields, redaction rules, live/local usage, and rollout, security/privacy, and transport-budget handoff expectations.
 
-#1064 owns redaction and privacy hardening for evidence produced by this proof. #1090 owns complete deletion of old control-plane pages, routes, module patterns, route/API/client/read-model behavior, documentation, tests, fixtures, seeds, screenshots, runbooks, release notes, and operator instructions after the rebuilt workbench is accepted.
+Redaction and privacy hardening for evidence produced by this proof is owned by the security/privacy launch gate. Complete deletion of old control-plane pages, routes, module patterns, route/API/client/read-model behavior, documentation, tests, fixtures, seeds, screenshots, runbooks, release notes, and operator instructions follows once the rebuilt workbench is accepted.
 
 ## Forbidden Outcomes
 

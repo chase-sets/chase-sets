@@ -1,6 +1,6 @@
 # Catalog Primary Workbench Admin Contract
 
-Issue #1060 defines the authoritative admin API and read-model contract for the rebuilt Catalog Control Plane primary workbench. The primary workbench is not a migration of retired admin pages. It is a clean-launch workflow centered on pulling provider data, reviewing Source Observations, and promoting eligible observations into Catalog Items or Catalog-owned references.
+This note defines the authoritative admin API and read-model contract for the rebuilt Catalog Control Plane primary workbench. The primary workbench is not a migration of retired admin pages. It is a clean-launch workflow centered on pulling provider data, reviewing Source Observations, and promoting eligible observations into Catalog Items or Catalog-owned references.
 
 The authoritative TypeScript surface lives in:
 
@@ -78,7 +78,7 @@ Blocked and degraded rows must name the affected provider or ingestion unit, exp
 
 ## Profile Authoring Support Workspace
 
-`profileAuthoring` is rendered only when the rebuilt route selects the Profile authoring support workspace, such as `section=profile-work` or `section=profile-authoring`. It is a context-preserving detour for issue #1033, not a migration of the retired profile review page and not a second default route. The detour replaces the primary workbench body while preserving the global provider-data pull command and an explicit return link back to pulling provider data, reviewing Source Observations, and promoting Catalog facts.
+`profileAuthoring` is rendered only when the rebuilt route selects the Profile authoring support workspace, such as `section=profile-work` or `section=profile-authoring`. It is a context-preserving detour, not a migration of the retired profile review page and not a second default route. The detour replaces the primary workbench body while preserving the global provider-data pull command and an explicit return link back to pulling provider data, reviewing Source Observations, and promoting Catalog facts.
 
 The read model must be built from typed `CatalogProviderProfileVersionReview` records, the active route context, and existing control-plane evidence. It must not parse profile payload JSON or preserve old profile-review page selectors. The selected profile overview includes provider key, profile key, version, lifecycle, active state, status, connector kind, capabilities, supported scopes, language options, validation diagnostics, fixture coverage, source contract evidence, mapping fingerprint when reported by typed evidence, reference count, migration evidence, authoring audit, and immutable identity facts.
 
@@ -159,19 +159,19 @@ Forbidden outcomes include compatibility shims, legacy support paths, migration 
 
 ## Downstream Issue Handoff
 
-| Issue | Consumes | Required fields |
-| --- | --- | --- |
-| #1033 | Profile overview and draft creation support detour | `profileAuthoring.status`, `profileAuthoring.selectedProfile`, `profileAuthoring.availableProfiles`, `profileAuthoring.cloneDraft` |
-| #1056 | Primary workbench assembly | `schemaVersion`, `routeContext`, `providerScope`, `readiness`, `importJobs`, `sourceObservationReview`, `promotionPreview`, `actions` |
-| #1038 | Provider/scope/import controls | `providerScope.providers.units.importScopes`, `readiness.providerTransport`, `importJobs.jobs.consistency` |
-| #1039 | Source Observation review | `sourceObservationReview.counts`, `sourceObservationReview.cursor`, `sourceObservationReview.evidenceSummariesRedacted`, `promotionPreview.dispositions` |
-| #1040 | Promotion preview and execution | `promotionPreview.commandPlanHash`, `promotionPreview.dispositions`, `promotionResult.auditEvidenceIds` |
-| #1057 | Route-context preservation | `routeContext.providerKey`, `routeContext.unitKey`, `routeContext.importScope`, `routeContext.selectedObservationIds`, `routeContext.promotionPreviewId` |
-| #1058 | Operator copy and blocked-state clarity | `actions.copyKey`, `readiness.blockers`, `primary-workbench-copy.ts`, `catalogPrimaryWorkbenchBlockerCopy`, `catalogPrimaryWorkbenchProviderTransportCopy`, `catalogPrimaryWorkbenchGlossaryTerms` |
-| #1059 | Telemetry and instrumentation | `instrumentation.dimensions`, `instrumentation.redactionSafe` |
-| #1062 | Real-provider proof | `providerScope.providers.providerKey`, `readiness.providerTransport`, `promotionResult.promotedCatalogItemIds` |
-| #1063 | Durable-job edge cases | `importJobs.jobs.consistency`, `promotionPreview.blockers` |
-| #1064 | Security/privacy | `securityPrivacy.redactionApplied`, `securityPrivacy.unsafeEvidenceBlocked`, `securityPrivacy.missingSecurityFieldsBlocker` |
-| #1065 | Provider transport budgets | `readiness.providerTransport`, `readiness.blockers` |
+| Consumes | Required fields |
+| --- | --- |
+| Profile overview and draft creation support detour | `profileAuthoring.status`, `profileAuthoring.selectedProfile`, `profileAuthoring.availableProfiles`, `profileAuthoring.cloneDraft` |
+| Primary workbench assembly | `schemaVersion`, `routeContext`, `providerScope`, `readiness`, `importJobs`, `sourceObservationReview`, `promotionPreview`, `actions` |
+| Provider/scope/import controls | `providerScope.providers.units.importScopes`, `readiness.providerTransport`, `importJobs.jobs.consistency` |
+| Source Observation review | `sourceObservationReview.counts`, `sourceObservationReview.cursor`, `sourceObservationReview.evidenceSummariesRedacted`, `promotionPreview.dispositions` |
+| Promotion preview and execution | `promotionPreview.commandPlanHash`, `promotionPreview.dispositions`, `promotionResult.auditEvidenceIds` |
+| Route-context preservation | `routeContext.providerKey`, `routeContext.unitKey`, `routeContext.importScope`, `routeContext.selectedObservationIds`, `routeContext.promotionPreviewId` |
+| Operator copy and blocked-state clarity | `actions.copyKey`, `readiness.blockers`, `primary-workbench-copy.ts`, `catalogPrimaryWorkbenchBlockerCopy`, `catalogPrimaryWorkbenchProviderTransportCopy`, `catalogPrimaryWorkbenchGlossaryTerms` |
+| Telemetry and instrumentation | `instrumentation.dimensions`, `instrumentation.redactionSafe` |
+| Real-provider proof | `providerScope.providers.providerKey`, `readiness.providerTransport`, `promotionResult.promotedCatalogItemIds` |
+| Durable-job edge cases | `importJobs.jobs.consistency`, `promotionPreview.blockers` |
+| Security/privacy | `securityPrivacy.redactionApplied`, `securityPrivacy.unsafeEvidenceBlocked`, `securityPrivacy.missingSecurityFieldsBlocker` |
+| Provider transport budgets | `readiness.providerTransport`, `readiness.blockers` |
 
 Downstream issues may add implementation-specific fields, but they must not weaken this contract by adding provider-specific workbench branches, generic disabled-only states, raw provider payload reads, or legacy route fallbacks.

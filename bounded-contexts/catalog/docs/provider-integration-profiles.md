@@ -12,7 +12,7 @@ Executable mapping semantics are documented in [Provider Integration Mapping Con
 
 The operator-facing workflow is documented in [Provider Integration Admin Module](./provider-integration-admin-module.md). Normal profile authoring, validation, dry-run, comparison, activation, import, promotion/reapply, rollback, migration-evidence, and retirement workflows must be typed and guided in admin. Operators should not need to edit raw JSON to complete supported work.
 
-Idempotency, lifecycle concurrency, retry/resume, partial-failure, and deploy-skew guarantees are documented in [Catalog Integration Job Consistency](./catalog-integration-job-consistency.md). Schema versioning, launched-data compatibility, and resettable pre-launch data policy are documented in [Catalog Integration Schema Compatibility](./catalog-integration-schema-compatibility.md). Provider payload, fixture, dry-run, diagnostics, audit, logging, export, and policy/legal signoff rules are documented in [Catalog Integration Data Governance](./catalog-integration-data-governance.md). Fixture storage, provenance, sampling, coverage sufficiency, validation inputs, and activation-readiness behavior are documented in [Catalog Integration Fixture Lifecycle](./catalog-integration-fixture-lifecycle.md). Activation, rollback, retirement, replay, and reapply workload previews are documented in [Catalog Integration Impact Analysis](./catalog-integration-impact-analysis.md). The executable pre-launch wipe/rebuild and rollback plan is documented in [Catalog Integration Data Migration Reset](./catalog-integration-data-migration-reset.md). The cleanup inventory is documented in [Catalog Integration Legacy Cleanup](./catalog-integration-legacy-cleanup.md). First-slice provider proof criteria, transport reliability categories, selected proof provider, and performance budgets are documented in [Catalog Integration Provider Transport Budgets](./catalog-integration-provider-transport-budgets.md).
+Idempotency, lifecycle concurrency, retry/resume, partial-failure, and deploy-skew guarantees are documented in [Catalog Integration Job Consistency](./catalog-integration-job-consistency.md). Schema versioning, launched-data compatibility, and resettable pre-launch data policy are documented in [Catalog Integration Schema Compatibility](./catalog-integration-schema-compatibility.md). Provider payload, fixture, dry-run, diagnostics, audit, logging, export, and policy/legal review and approval rules are documented in [Catalog Integration Data Governance](./catalog-integration-data-governance.md). Fixture storage, provenance, sampling, coverage sufficiency, validation inputs, and activation-readiness behavior are documented in [Catalog Integration Fixture Lifecycle](./catalog-integration-fixture-lifecycle.md). Activation, rollback, retirement, replay, and reapply workload previews are documented in [Catalog Integration Impact Analysis](./catalog-integration-impact-analysis.md). The executable pre-launch wipe/rebuild and rollback plan is documented in [Catalog Integration Data Migration Reset](./catalog-integration-data-migration-reset.md). The cleanup inventory is documented in [Catalog Integration Legacy Cleanup](./catalog-integration-legacy-cleanup.md). First-slice provider proof criteria, transport reliability categories, selected proof provider, and performance budgets are documented in [Catalog Integration Provider Transport Budgets](./catalog-integration-provider-transport-budgets.md).
 
 ## Versioned Data Path
 
@@ -101,9 +101,9 @@ Expansion Reference Records may carry `printed-card-count` when the number print
 
 TCGdex imports still write Source Observations. Promotion remains a Catalog review action. Staging and production do not auto-import provider content during bootstrap.
 
-The active TCGdex profile version carries an executable mapping contract for Source Observation IDs, external keys, normalized Pokemon card facts, source hash material, merge identity, external reference evidence, duplicate-prevention evidence, reference hierarchy evidence, and promotion command-plan intent. The TCGdex ProviderAdapter is the live transport boundary for #785: it lists the `tcgdex:pokemon:single-card:source-observation-import` ingestion unit, serves language/Series/Expansion option queries, plans Expansion import scopes, fetches TCGdex JSON payloads, attaches source provenance, and emits transport diagnostics. It must not decide which provider fields are Catalog fields, which identifiers are Catalog Item references, which identifiers are Product SKU references, or how duplicate marketplace identifiers are handled.
+The active TCGdex profile version carries an executable mapping contract for Source Observation IDs, external keys, normalized Pokemon card facts, source hash material, merge identity, external reference evidence, duplicate-prevention evidence, reference hierarchy evidence, and promotion command-plan intent. The TCGdex ProviderAdapter is the live transport boundary: it lists the `tcgdex:pokemon:single-card:source-observation-import` ingestion unit, serves language/Series/Expansion option queries, plans Expansion import scopes, fetches TCGdex JSON payloads, attaches source provenance, and emits transport diagnostics. It must not decide which provider fields are Catalog fields, which identifiers are Catalog Item references, which identifiers are Product SKU references, or how duplicate marketplace identifiers are handled.
 
-#1062 proves this profile-backed real-provider unit with a redacted proof packet keyed to `tcgdex:pokemon:single-card:source-observation-import`. The packet runs through bounded option queries, TCGdex ProviderAdapter import planning/fetch, the Catalog Integration Engine, Source Observation review summaries, and promotion-preview counts before any Catalog Item write. CI keeps deterministic adapter-response coverage for the same contract; staging/local operator proof uses live or staging TCGdex transport through `pnpm run catalog:real-provider-proof`. Neither path may add provider-specific runtime/API/Admin/promotion branches, raw payload shortcuts, compatibility redirects, support-only retired routes, or retired admin patterns. The current adapter provenance does not include a payload content hash, so readiness and proof evidence document `sourceHash: null` until hash material is implemented against the governed payload and retention policy.
+The real-provider proof exercises this profile-backed unit with a redacted proof packet keyed to `tcgdex:pokemon:single-card:source-observation-import`. The packet runs through bounded option queries, TCGdex ProviderAdapter import planning/fetch, the Catalog Integration Engine, Source Observation review summaries, and promotion-preview counts before any Catalog Item write. CI keeps deterministic adapter-response coverage for the same contract; staging/local operator proof uses live or staging TCGdex transport through `pnpm run catalog:real-provider-proof`. Neither path may add provider-specific runtime/API/Admin/promotion branches, raw payload shortcuts, compatibility redirects, support-only retired routes, or retired admin patterns. The current adapter provenance does not include a payload content hash, so readiness and proof evidence document `sourceHash: null` until hash material is implemented against the governed payload and retention policy.
 
 TCGdex variant expansion, marketplace reference extraction, Pokemon Reference Record hierarchy provisioning, and Pokemon Catalog Item promotion planning use reviewed named semantic helpers referenced by the executable mapping contract and provider profile data where generic profile interpretation cannot yet express the behavior safely. These helpers are clean launch extension points only when they are deterministic, fixture-backed, free of live provider calls, and covered by profile contract evidence; they are not retained compatibility branches.
 
@@ -114,7 +114,7 @@ through the registered TCGdex ProviderAdapter; profile data decides which
 operation and mapping are used. Cache keys, TTLs, stale fallback, cursor
 pagination, cache-only rollout behavior, and degraded Admin display are governed
 by [Catalog Integration Provider Option Query Controls](./catalog-integration-provider-option-query-controls.md).
-Issue #1065 first-slice proof budgets select this TCGdex unit as the primary proof
+The first-slice proof budgets select this TCGdex unit as the primary proof
 provider; see [Catalog Integration Provider Transport Budgets](./catalog-integration-provider-transport-budgets.md).
 
 Reference hierarchy provisioning is profile-driven. The TCGdex profile declares
@@ -171,7 +171,7 @@ Unknown, inactive, or missing selected-option evidence remains review evidence.
 The TCGplayer profile can represent product-line and set-name Reference Record
 evidence through the same hierarchy rules, including `tcgplayer-product-line-id`
 and `tcgplayer-set-name` attributes. The TCGplayer ProviderAdapter is the live
-transport boundary for #786: it lists the
+transport boundary: it lists the
 `tcgplayer:pokemon:single-card:source-observation-import` ingestion unit, serves
 product-line, set-name, product, and SKU option-query transport, plans Product
 and Set Name import scopes, fetches automation-app Product Detail payloads,
@@ -200,7 +200,7 @@ command plan. Its duplicate-prevention mapping still records review-only
 identity evidence such as sealed product form, barcode/GTIN values, and future
 bridge provider references.
 
-For #1065, TCGplayer remains supplemental transport evidence for
+For the transport budgets, TCGplayer remains supplemental transport evidence for
 credential/session/domain/rate-limit behavior. It must not replace the selected
 TCGdex first-slice proof provider until its promotion path is launch-active and
 the provider choice is explicitly changed with evidence.
@@ -216,8 +216,8 @@ deleted completely. These helpers must not import price, listing, seller,
 inventory, order, or message facts into Catalog truth or hash material.
 
 The runtime dispatches TCGplayer import work through the reviewed provider
-transport and durable-job boundary. #1090 owns complete deletion of retired page
-or route patterns after the rebuilt workbench is accepted. Future generic
+transport and durable-job boundary. Complete deletion of retired page
+or route patterns follows once the rebuilt workbench is accepted. Future generic
 executor replacement must remove the replaced branch, tests, fixtures, seeds,
 screenshots, documentation, runbooks, release notes, and operator instructions
 in the same cleanup, not leave a compatibility alias.

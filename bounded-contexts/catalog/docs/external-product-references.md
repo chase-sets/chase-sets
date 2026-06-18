@@ -20,7 +20,7 @@ The `externalKey` should include a natural namespace when the provider exposes m
 
 - `tcgplayer` + `product:12345` as an external catalog item reference
 - `tcgplayer` + `sku:987654` as an external product reference
-- `ebay` + `listing:1001`
+- `ebay` + `listing:2001`
 - `ebay` + `sku:box-a-001`
 - `shopify` + `variant:987`
 - `shopify` + `barcode:012345678905`

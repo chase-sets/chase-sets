@@ -1,6 +1,6 @@
 # Catalog Integration Security Privacy Launch Gate
 
-Issue #1064 owns the security/privacy launch gate for the rebuilt Catalog Control Plane. The gate supports the primary operator path, provider import -> Source Observation review -> promotion, and blocks release when security/privacy evidence is missing, unsafe, or framed as compatibility for retired admin behavior.
+This note defines the security/privacy launch gate for the rebuilt Catalog Control Plane. The gate supports the primary operator path, provider import -> Source Observation review -> promotion, and blocks release when security/privacy evidence is missing, unsafe, or framed as compatibility for retired admin behavior.
 
 The authoritative executable gate lives in:
 
@@ -16,15 +16,15 @@ The launch packet uses schema `catalog-security-privacy-launch-gate/v1` and chec
 - approval timestamp;
 - approval issue comment or evidence reference;
 - checklist version;
-- #1062 real-provider proof handoff;
-- #1047 no-confusion acceptance handoff;
-- #1061 production rollout/signoff handoff.
+- real-provider proof handoff;
+- no-confusion acceptance handoff;
+- production rollout/approval handoff.
 
 Missing owner, reviewer, checklist version, approval reference, or handoff evidence fails closed.
 
 ## Required Checklist
 
-The #1064 checklist covers:
+The checklist covers:
 
 - admin route protection and authenticated actor requirements;
 - authorization boundaries for view-only, operator/admin, denied, rollout-stopped, destructive, and high-impact actions;
@@ -33,7 +33,7 @@ The #1064 checklist covers:
 - provider-controlled content safety for provider text, URLs, images, diagnostics, labels, commerce values, seller/account facts, credentials, cookies, and PII;
 - telemetry, logs, metrics, traces, screenshots, CI artifacts, and launch evidence redaction;
 - audit evidence integrity for high-impact actions;
-- #1062 real-provider proof privacy;
+- real-provider proof privacy;
 - reset/drop safeguards for prelaunch data loss;
 - complete retirement of old control-plane surfaces.
 
@@ -47,7 +47,7 @@ The gate blocks launch when:
 - primary write actions lack idempotency or destructive confirmation where required;
 - raw provider payloads, credentials, cookies, seller/account facts, PII, provider commerce values, full provider URLs, provider-controlled labels, provider imagery, raw diagnostics, or unsafe evidence are retained;
 - audit evidence omits actor, action, target, timestamp, result, or redaction-safe context;
-- #1062 real-provider proof retains raw payloads, full URLs, credentials/cookies, provider-controlled labels, or performs Catalog writes;
+- the real-provider proof retains raw payloads, full URLs, credentials/cookies, provider-controlled labels, or performs Catalog writes;
 - production-prelaunch reset/drop lacks approval, backup/data-loss decision, dry-run counts, before/after verification, staging rehearsal, smoke verification, or bounded target tables;
 - retained data is used as clean reset completion;
 - migration evidence is used as an exception to retirement.

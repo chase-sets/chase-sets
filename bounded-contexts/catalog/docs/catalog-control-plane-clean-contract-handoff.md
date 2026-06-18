@@ -4,12 +4,12 @@ This handoff closes the Stage 0 cleanup gate for the Catalog Control Plane UX re
 
 ## Stage 0 Evidence
 
-| Issue | Cleanup outcome | Merge evidence |
-| --- | --- | --- |
-| #1051 | Legacy provider compatibility routes and scripted import endpoints were removed from launch routing, tests, documentation, runbooks, release notes, and operator instructions. | PR #1091 |
-| #1052 | Silent active-profile fallback and legacy Source Observation profile semantics were removed; missing or `legacy` profile markers now fail closed and remain reset/drop evidence only. | PR #1125 |
-| #1053 | Transitional static profile mode and raw JSON broad patch compatibility were retired from normal authoring; section-scoped typed commands are the launch workflow. | PR #1094 |
-| #1054 | Prelaunch integration data reset/drop evidence now requires environment plans, backup/snapshot/export or accepted data-loss decisions, dry-run and before/after reports, staging rehearsal, smoke proof, target-table scope, and clean postconditions. | PR #1138 |
+| Cleanup outcome |
+| --- |
+| Legacy provider compatibility routes and scripted import endpoints were removed from launch routing, tests, documentation, runbooks, release notes, and operator instructions. |
+| Silent active-profile fallback and legacy Source Observation profile semantics were removed; missing or `legacy` profile markers now fail closed and remain reset/drop evidence only. |
+| Transitional static profile mode and raw JSON broad patch compatibility were retired from normal authoring; section-scoped typed commands are the launch workflow. |
+| Prelaunch integration data reset/drop evidence now requires environment plans, backup/snapshot/export or accepted data-loss decisions, dry-run and before/after reports, staging rehearsal, smoke proof, target-table scope, and clean postconditions. |
 
 ## Clean Launch Contracts
 
@@ -25,11 +25,9 @@ This handoff closes the Stage 0 cleanup gate for the Catalog Control Plane UX re
 - Stage 1 contract and IA issues can proceed against the clean launch contracts above.
 - Stage 2 primary workbench issues can proceed after Stage 1 contracts identify the admin API/read-model surface, route/deep-link rules, design-system section navigation, and primary import-to-promotion framing.
 - Stage 3 hardening issues can proceed when their upstream Stage 1 or Stage 2 contracts exist; they no longer wait on generic phase-0 cleanup.
-- #1061 remains blocked by first-slice completion because production rollout and signoff must verify the accepted rebuilt MVP slice, not just cleanup.
-- P2 support-workspace issues remain follow-up work after the first slice unless #1087 promotes one because it directly blocks the primary import-to-promotion path.
-- #1090 owns complete deletion of retired admin pages, modules, route/client/read-model behavior, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, and operator instructions after the rebuilt workbench is accepted.
-
-The operational stage board for applying these rules is [Catalog Control Plane First-Slice Stage Board](./catalog-control-plane-first-slice-stage-board.md).
+- Production rollout remains blocked by first-slice completion because it must verify the accepted rebuilt MVP slice, not just cleanup.
+- Support-workspace follow-up work happens after the first slice unless it directly blocks the primary import-to-promotion path.
+- Complete deletion of retired admin pages, modules, route/client/read-model behavior, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, and operator instructions follows once the rebuilt workbench is accepted.
 
 ## Stale Pattern Rejection
 

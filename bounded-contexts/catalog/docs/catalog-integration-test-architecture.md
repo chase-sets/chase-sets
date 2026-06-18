@@ -1,6 +1,6 @@
 # Catalog Integration Test Architecture
 
-Catalog Integration Control Plane tests should prove the decomposed boundaries directly through rebuilt contracts. Launch acceptance must use rebuilt primary workbench contracts, rebuilt UI modules, route/API/read-model tests, and #1047 no-confusion evidence.
+Catalog Integration Control Plane tests should prove the decomposed boundaries directly through rebuilt contracts. Launch acceptance must use rebuilt primary workbench contracts, rebuilt UI modules, route/API/read-model tests, and no-confusion evidence.
 
 ## Boundary Map
 
@@ -32,13 +32,13 @@ Fixtures should document realistic TCGdex, TCGplayer, and reference-provider beh
 
 ## Release Verification
 
-For release signoff, verify:
+For release approval, verify:
 
 - retired implementation artifacts are not accepted as launch evidence;
 - provider adapter behavior can be tested without Catalog promotion/Admin concerns;
 - Catalog Integration Engine behavior can be tested without live provider transport concerns;
 - API and runtime tests prove focused service boundaries;
 - UI section/helper tests cover guided controls close to the Admin Control Plane components they support;
-- operator acceptance, #1047 no-confusion evidence, and E2E smoke remain anchored to full rebuilt workflows without absorbing every section behavior.
+- operator acceptance, no-confusion evidence, and E2E smoke remain anchored to full rebuilt workflows without absorbing every section behavior.
 
 Retire, deprecate, remove legacy, and cleanup mean complete deletion of associated code, patterns, tests, fixtures, screenshots, docs, runbooks, release notes, and operator instructions. No hidden flag, fallback, compatibility redirect, support-only path, alias, shim, retired fixture/test/screenshot, or legacy documentation can preserve retired behavior.

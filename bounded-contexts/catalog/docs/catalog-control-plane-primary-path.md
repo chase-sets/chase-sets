@@ -2,7 +2,7 @@
 
 The rebuilt Catalog Control Plane starts with the operator job that matters most: pull provider data, review Source Observations, and promote eligible sources into Catalog Items or Catalog-owned references. Supporting workflows exist to explain, unblock, govern, recover, or verify that path. They must not bury it behind implementation-oriented modules or preserve retired admin structure as the target architecture.
 
-This framing is the Stage 1 product contract for #1049. It complements the rebuilt route/workspace contract in [Catalog Control Plane Information Architecture](./catalog-control-plane-information-architecture.md), the first-slice sequencing in [Catalog Control Plane First-Slice Stage Board](./catalog-control-plane-first-slice-stage-board.md), and the clean-launch rules in [Catalog Control Plane Clean Contract Handoff](./catalog-control-plane-clean-contract-handoff.md).
+This framing is the Stage 1 product contract. It complements the rebuilt route/workspace contract in [Catalog Control Plane Information Architecture](./catalog-control-plane-information-architecture.md) and the clean-launch rules in [Catalog Control Plane Clean Contract Handoff](./catalog-control-plane-clean-contract-handoff.md).
 Operator-facing labels, blocked-state explanations, next steps, provider transport copy, resilience copy, and glossary terms are owned by [Catalog Control Plane Operator Copy](./catalog-control-plane-operator-copy.md).
 
 ## Default Journey
@@ -47,7 +47,7 @@ The first screen may include compact health or readiness summaries, but those su
 | Adapter readiness and option queries | Explains provider transport availability and import-scope choices. | Preserve provider/unit/scope selection and show whether the primary import can proceed. |
 | Lifecycle, rollback, deprecation, and retirement | Recovers or retires profile behavior that affects the primary path. | Return to affected jobs, observations, promotion previews, and profile versions. |
 | RBAC, rollout controls, and observability | Governs whether primary actions are allowed, disabled, degraded, or unsafe. | Link back to denied/disabled/degraded primary actions with owner and remediation. |
-| Audit and release evidence | Records who changed what and what proof ships with release/signoff. | Link back to the provider/unit/scope/job/observation/promotion evidence that generated the audit record. |
+| Audit and release evidence | Records who changed what and what proof ships with release approval. | Link back to the provider/unit/scope/job/observation/promotion evidence that generated the audit record. |
 
 Supporting workflow labels, navigation groups, and route names should describe the operator job they solve. Avoid names that expose implementation modules as destinations when the operator is trying to finish import/review/promotion.
 
@@ -63,11 +63,11 @@ Primary-path blockers must be explicit categories, not generic disabled states. 
 - audit/evidence expectation when the operator resolves or overrides the blocker.
 
 Unknown blocker categories must fail closed and should link to diagnostics or release evidence instead of falling back to raw JSON, legacy selectors, or the old page modules.
-Visible blocker copy must use the #1058 operator-copy contract: every blocked or disabled primary-path action needs a human label, reason, next step, and supporting workflow target.
+Visible blocker copy must use the [Catalog Control Plane Operator Copy](./catalog-control-plane-operator-copy.md) contract: every blocked or disabled primary-path action needs a human label, reason, next step, and supporting workflow target.
 
 ## Route And Context Rules
 
-Route and deep-link contracts are owned by #1057, but primary-path framing requires these invariants:
+Route and deep-link contracts are defined separately, but primary-path framing requires these invariants:
 
 - provider, ingestion unit, selected source scope, profile version, Source Observation filters, selected row IDs, job ID, promotion preview ID, and return path are durable context keys;
 - primary path links should move forward and backward through import -> review -> preview -> promote without dropping context;
@@ -84,7 +84,7 @@ Stage 2 and Stage 3 implementation should cite these operator journeys from [Cat
 - J11 Reapply mapping changes;
 - J14 Audit and release evidence.
 
-Happy-path acceptance for #1056 should prove provider source option loading, TCGdex Japanese SV8 source-scope selection, durable import, observed Source Observation review, promotion preview, and promote-all execution can complete as one workflow in a non-production environment. Recovery acceptance should prove at least one blocked import, one blocked promotion, and one reapply/replay branch returns to the same provider/unit/scope context.
+Happy-path acceptance for the primary workbench should prove provider source option loading, TCGdex Japanese SV8 source-scope selection, durable import, observed Source Observation review, promotion preview, and promote-all execution can complete as one workflow in a non-production environment. Recovery acceptance should prove at least one blocked import, one blocked promotion, and one reapply/replay branch returns to the same provider/unit/scope context.
 
 ## Rejected Patterns
 
@@ -100,7 +100,6 @@ Any exception is launch-blocking until it is rebuilt as a clean launch contract 
 
 ## Related References
 
-- [Catalog Control Plane First-Slice Stage Board](./catalog-control-plane-first-slice-stage-board.md)
 - [Catalog Control Plane Information Architecture](./catalog-control-plane-information-architecture.md)
 - [Catalog Control Plane Clean Contract Handoff](./catalog-control-plane-clean-contract-handoff.md)
 - [Catalog Control Plane Operator Copy](./catalog-control-plane-operator-copy.md)

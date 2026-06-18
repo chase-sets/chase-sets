@@ -22,7 +22,7 @@ The module should be organized around operator jobs rather than storage shape:
 
 ## Rebuilt Profile Overview And Draft Creation
 
-Issue #1033 implements the launch profile overview and draft creation surface inside the rebuilt `/catalog/integrations` control plane. It is a support detour reached through `section=profile-work`; it is not a migration of the retired two-page catalog integrations experience and it must not revive old profile review patterns.
+The launch profile overview and draft creation surface lives inside the rebuilt `/catalog/integrations` control plane. It is a support detour reached through `section=profile-work`; it is not a migration of the retired two-page catalog integrations experience and it must not revive old profile review patterns.
 
 The overview consumes typed `CatalogProviderProfileVersionReview` evidence and shows provider/profile/version identity, lifecycle, active state, validation, capabilities, scopes, fixture coverage, mapping fingerprint when typed evidence reports one, reference count, source contract, migration evidence, and authoring audit. It must not parse profile JSON snapshots or ask operators to inspect payload JSON.
 

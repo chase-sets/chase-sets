@@ -4,7 +4,7 @@ Catalog turns localized provider names into reviewed aliases so marketplace sear
 
 This is the policy that #1903, #1906, #1908, #1909, and #1911 reference rather than inventing their own. The acceptance-disposition policy (`auto-accept`, `require-review`, `never-official`) and the source-precedence order are defined here and consumed there. Display of aliases is owned by #1914.
 
-The authoritative executable policy lives in `bounded-contexts/catalog/features/source-observations/api/catalog-integration-data-governance.ts` (alias source governance section). Provider-data storage, redaction, retention, and signoff are governed by the sibling [Catalog Integration Data Governance](./catalog-integration-data-governance.md) policy; this doc reuses those governed data classes for alias evidence rather than defining new retention machinery.
+The authoritative executable policy lives in `bounded-contexts/catalog/features/source-observations/api/catalog-integration-data-governance.ts` (alias source governance section). Provider-data storage, redaction, retention, and approval are governed by the sibling [Catalog Integration Data Governance](./catalog-integration-data-governance.md) policy; this doc reuses those governed data classes for alias evidence rather than defining new retention machinery.
 
 The governing policy version is `alias-source-governance-v1`. Every auto-accepted and accepted alias records this version so a later policy change can be reconciled against what was true at acceptance.
 
@@ -110,4 +110,4 @@ Before a translation provider adapter may produce alias evidence:
 - #1906, #1908, #1909, and #1911 consume the acceptance-disposition policy defined here.
 - #1909 owns promotion conflict handling and consumes the source-precedence order.
 - #1914 owns alias display and the rule that generated translations never show as official.
-- #794 owns the provider-data governed data classes reused for alias evidence retention and redaction.
+- The provider-data governed data classes reused for alias evidence retention and redaction are defined in [Catalog Integration Data Governance](./catalog-integration-data-governance.md).

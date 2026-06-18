@@ -1,6 +1,6 @@
 # Catalog Control Plane Information Architecture
 
-This note is the Stage 1 IA contract for #1031. It defines how the rebuilt Catalog Control Plane is organized before #1048 and #1046 implement the grouped navigation and dense-workbench primitives.
+This note is the Stage 1 IA contract. It defines how the rebuilt Catalog Control Plane is organized before the grouped navigation and dense-workbench primitives are implemented.
 
 The IA starts from the primary operator job: pull provider data, review Source Observations, and promote eligible sources into Catalog Items or Catalog-owned references. Supporting workspaces exist to unblock, govern, recover, or verify that job. They are not equal peers that bury the default workflow, and they are not a cleanup of retired admin patterns.
 
@@ -15,7 +15,7 @@ The authoritative TypeScript manifest is `bounded-contexts/catalog/features/sour
 | Govern and recover | Lifecycle recovery, governance controls | Handle rollback, retirement, reapply, replay, RBAC, rollout controls, degraded states, and operational ownership. |
 | Verify release evidence | Audit evidence | Trace who changed what, what proof exists, and what release/smoke/risk evidence applies. |
 
-Desktop navigation should render these groups as left-side headings or submenu groups. Mobile navigation is owned by #1048, but it must preserve the same group order and avoid mystery tabs, horizontal scrolling, or tiny tap targets.
+Desktop navigation should render these groups as left-side headings or submenu groups. Mobile navigation must preserve the same group order and avoid mystery tabs, horizontal scrolling, or tiny tap targets.
 
 ## Default Journey
 
@@ -66,22 +66,21 @@ The IA manifest is covered by `information-architecture.test.ts`. The tests prov
 - Import to promotion is the first navigation target and only default workspace.
 - Navigation groups have stable accessible names and keyboard traversal order.
 - Every supporting workspace preserves return context to the primary path.
-- #1031 workflow coverage exists without making support workflows equal peers.
+- Workflow coverage exists without making support workflows equal peers.
 - Release rules prove one rebuilt primary workbench, context-preserving support detours, and complete removal of retired artifacts.
 
 ## Downstream Use
 
-- #1048 implements grouped section navigation/submenus and the mobile translation against this group order, using [Catalog Control Plane Section Navigation](./catalog-control-plane-section-navigation.md) and the design-system [Section Navigation](../../../packages/design-system/SECTION_NAVIGATION.md) pattern.
-- #1046 implements dense-workbench primitives that can render the workspace responsibilities and evidence states.
-- #1057 owns route, deep-link, and context preservation details.
-- #1056 owns the cohesive default import-to-promotion workbench.
-- #1090 owns complete deletion of retired admin pages, supporting artifacts, route/client/read-model behavior, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, and operator instructions after the rebuilt first slice is accepted.
+- Grouped section navigation/submenus and the mobile translation are implemented against this group order, using [Catalog Control Plane Section Navigation](./catalog-control-plane-section-navigation.md) and the design-system [Section Navigation](../../../packages/design-system/SECTION_NAVIGATION.md) pattern.
+- Dense-workbench primitives render the workspace responsibilities and evidence states.
+- Route, deep-link, and context preservation details build on this IA.
+- The cohesive default import-to-promotion workbench is assembled from these workspace groups.
+- Complete deletion of retired admin pages, supporting artifacts, route/client/read-model behavior, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, and operator instructions follows once the rebuilt first slice is accepted.
 
 ## Related References
 
 - [Catalog Control Plane Primary Path](./catalog-control-plane-primary-path.md)
 - [Catalog Control Plane Section Navigation](./catalog-control-plane-section-navigation.md)
-- [Catalog Control Plane First-Slice Stage Board](./catalog-control-plane-first-slice-stage-board.md)
 - [Catalog Control Plane Clean Contract Handoff](./catalog-control-plane-clean-contract-handoff.md)
 - [Catalog Integration Control Plane](./catalog-integration-control-plane.md)
 - [Catalog Integration Admin UX And Accessibility Acceptance](./catalog-integration-admin-ux-accessibility.md)

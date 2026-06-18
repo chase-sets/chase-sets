@@ -1,12 +1,12 @@
 # Catalog Integration Real-Provider Proof
 
-Issue #1062 proves the rebuilt Catalog control plane's primary path with the launch-selected real provider adapter:
+This proof exercises the rebuilt Catalog control plane's primary path with the launch-selected real provider adapter:
 
 1. select TCGdex provider scope through bounded option queries;
 2. pull provider data through the TCGdex ProviderAdapter;
 3. review redacted Source Observation evidence with profile metadata;
 4. capture promotion-preview counts before any Catalog Item write;
-5. link the [security/privacy launch gate](./catalog-integration-security-privacy-launch-gate.md) (#1064), provider budget (#1065), and rollout signoff (#1061) evidence.
+5. link the [security/privacy launch gate](./catalog-integration-security-privacy-launch-gate.md), provider transport budget, and rollout approval evidence.
 
 The proof is not a migration or reskin of retired admin structure. Health, profile authoring, validation, lifecycle, RBAC, observability, audit, and rollout controls remain supporting workflows. They explain or unblock import-to-promotion; they must not bury it.
 
@@ -20,9 +20,9 @@ The first-slice provider is:
 - Series: `swsh`
 - Expansion: `swsh3`
 
-This scope satisfies #1065 because it exercises language, Series, and Expansion option queries, multi-step Expansion/card retrieval, image and metadata mapping, Source Observation profile metadata, promotion-preview evidence, and canonical degraded transport handling without provider-specific Admin branches.
+This scope satisfies the provider transport budgets because it exercises language, Series, and Expansion option queries, multi-step Expansion/card retrieval, image and metadata mapping, Source Observation profile metadata, promotion-preview evidence, and canonical degraded transport handling without provider-specific Admin branches.
 
-TCGplayer remains supplemental transport evidence for credential/session/rate-limit behavior. It does not satisfy #1062's primary import-to-promotion proof unless the provider choice is explicitly changed with new #1065 evidence.
+TCGplayer remains supplemental transport evidence for credential/session/rate-limit behavior. It does not satisfy the primary import-to-promotion proof unless the provider choice is explicitly changed with new transport-budget evidence.
 
 ## Evidence Command
 
@@ -38,7 +38,7 @@ For local live transport:
 pnpm run catalog:real-provider-proof -- --environment local --transport-mode live-provider
 ```
 
-The command uses the active TCGdex profile, the TCGdex ProviderAdapter, and live provider fetch by default. It prints a redacted `catalog-real-provider-proof/v1` JSON packet. Attach or link that packet from #1062 and then link #1062 from #1061 rollout signoff.
+The command uses the active TCGdex profile, the TCGdex ProviderAdapter, and live provider fetch by default. It prints a redacted `catalog-real-provider-proof/v1` JSON packet. Attach or link that packet to the real-provider proof and then to rollout approval.
 
 CI and unit tests use deterministic adapter responses so provider availability cannot make the build flaky. Deterministic tests prove the packet contract; the operator command proves live provider transport.
 
@@ -52,7 +52,7 @@ The packet must include:
 - Source Observation review counts plus capped sample rows with provider key, unit key, external key, source profile version, source URL host only, source update/hash presence, and normalized fact keys;
 - promotion-preview counts for matched, eligible, blocked, skipped, conflicting, failed, and terminal rows before any Catalog write;
 - a canonical degraded transport condition mapped to `providerTransport` and blocker vocabulary;
-- #1064, #1065, and #1061 handoff fields, with #1064 pointing at the security/privacy launch gate;
+- security/privacy, transport-budget, and rollout handoff fields, with the security/privacy field pointing at the launch gate;
 - explicit retired-surface booleans showing no migration, raw JSON escape hatch, compatibility route, or legacy documentation was retained.
 
 The packet must not include raw provider payload bodies, provider-controlled labels, full provider URLs, image URLs, credentials, cookies, account/user identifiers, broad JSON patches, retired route instructions, compatibility redirects, support-only legacy paths, screenshots of retired surfaces, or documentation that teaches retired behavior.
@@ -65,7 +65,7 @@ If production execution is unsafe before public launch, staging/dev must prove t
 
 ## Degraded Transport
 
-#1062 must show at least one degraded transport condition. The proof packet records the canonical timeout mapping:
+The proof must show at least one degraded transport condition. The proof packet records the canonical timeout mapping:
 
 - condition: `timeout`
 - workbench transport category: `timeout`

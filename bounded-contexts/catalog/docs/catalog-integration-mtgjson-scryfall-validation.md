@@ -1,6 +1,6 @@
 # Catalog Integration MTGJSON And Scryfall Validation
 
-This document records the final external-provider validation for milestone issue #806.
+This document records the final external-provider validation for MTGJSON and Scryfall.
 
 ## Result
 
@@ -8,7 +8,7 @@ Status: pass for architecture validation.
 
 MTGJSON and Scryfall can be represented through Catalog Integration Control Plane extension points without adding provider-specific branches to Catalog runtime, API routes, Admin page logic, promotion/reapply code, or raw JSON authoring paths.
 
-This is validation evidence, not production enablement. Live sampling, retained provider payloads, exported raw evidence, and production activation still require the provider-data governance and policy/legal signoff described in [Catalog Integration Data Governance](./catalog-integration-data-governance.md).
+This is validation evidence, not production enablement. Live sampling, retained provider payloads, exported raw evidence, and production activation still require the provider-data governance and policy/legal review and approval described in [Catalog Integration Data Governance](./catalog-integration-data-governance.md).
 
 ## Current Provider Shape Checked
 
@@ -92,7 +92,7 @@ Explanation: Scryfall print data wins the card-print rarity conflict because the
 The validation intentionally does not register MTGJSON or Scryfall in the production Source Observation runtime registry. Production enablement requires:
 
 - governed provider payload sampling and fixture retention approval;
-- provider attribution and terms/policy signoff;
+- provider attribution and terms/policy review and approval;
 - profile section activation readiness for the selected production units;
 - provider option query caching/backpressure configuration for live operator use;
-- release plan go/no-go evidence in [Catalog Integration Milestone Release Plan](./catalog-integration-milestone-release-plan.md).
+- release plan go/no-go evidence.

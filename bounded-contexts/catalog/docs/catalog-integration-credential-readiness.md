@@ -58,7 +58,7 @@ Rotation replaces the secret value in the adapter-owned secret store, then rerun
 
 ## Local And Test Credentials
 
-Local/dev/test flows may use explicit `local-fake` credential source metadata for deterministic tests and fixtures. Fake credentials never count as production signoff and must not be copied into production/staging secret stores. Fixture-backed providers and public transports should report `not-required` instead of pretending a fake credential exists.
+Local/dev/test flows may use explicit `local-fake` credential source metadata for deterministic tests and fixtures. Fake credentials never count as production approval and must not be copied into production/staging secret stores. Fixture-backed providers and public transports should report `not-required` instead of pretending a fake credential exists.
 
 ## Current Provider Policy
 
