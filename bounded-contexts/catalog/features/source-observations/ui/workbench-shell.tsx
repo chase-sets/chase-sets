@@ -19,7 +19,7 @@ export interface CatalogWorkbenchShellProps {
   readModel: CatalogPrimaryWorkbenchReadModel;
   commandFeedback?: CatalogPrimaryWorkbenchCommandFeedback | null;
   // The audience surface this shell wraps. Drives the single per-surface return
-  // affordance: the supporting surfaces (providers, governance, release) render
+  // affordance: the supporting surfaces (providers, governance, health) render
   // one "Back to import workbench" link; the daily surface is the primary job and
   // renders none.
   surface: CatalogControlPlaneRouteSurfaceKey;

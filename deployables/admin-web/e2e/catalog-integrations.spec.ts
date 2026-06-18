@@ -133,7 +133,7 @@ test.describe("catalog admin integrations", () => {
     await expect(page.locator('a[href="/catalog/integrations"]').first()).toHaveAttribute("aria-current", "page");
     await expect(page.locator('a[href="/catalog/integrations/providers"]').first()).toBeVisible();
     await expect(page.locator('a[href="/catalog/integrations/governance"]').first()).toBeVisible();
-    await expect(page.locator('a[href="/catalog/integrations/release"]').first()).toBeVisible();
+    await expect(page.locator('a[href="/catalog/integrations/health"]').first()).toBeVisible();
 
     await expect(page.getByRole("button", { name: "Apply context" })).toHaveCount(0);
     // #1973: "choosing what to import" lives in a collapsible "Step 0" import-context
@@ -260,7 +260,7 @@ test.describe("catalog admin integrations", () => {
     await page.waitForLoadState("networkidle");
 
     // #1748 acceptance gate (criterion 1): the daily route is the DEFAULT landing, not a
-    // detour. The supporting surfaces (providers/governance/release) each carry a single
+    // detour. The supporting surfaces (providers/governance/health) each carry a single
     // "Back to import workbench" return affordance; the daily route itself must NOT — there
     // is nowhere "up" from the primary job. This is the explicit deliberate-detour property:
     // daily is home, the supporting surfaces are reached on purpose and always offer a way
@@ -289,16 +289,16 @@ test.describe("catalog admin integrations", () => {
     expect(retiredListResponse?.status() ?? 0).toBeGreaterThanOrEqual(400);
     await expect(page.getByRole("heading", { name: "Source Observations" })).toHaveCount(0);
 
-    // Health triage now lives on the real /catalog/integrations/release surface route.
+    // Health triage now lives on the real /catalog/integrations/health surface route.
     await expectPageOk(
       page,
-      "/catalog/integrations/release?providerKey=tcgdex&section=triage&filter.status=changed&selectedObservationIds=obs_001",
+      "/catalog/integrations/health?providerKey=tcgdex&section=triage&filter.status=changed&selectedObservationIds=obs_001",
     );
     await page.waitForLoadState("networkidle");
-    await expect(page).toHaveURL(/\/catalog\/integrations\/release\?.*section=triage/);
-    // The release surface is the nested "Release health and evidence" child, so its
+    await expect(page).toHaveURL(/\/catalog\/integrations\/health\?.*section=triage/);
+    // The health surface is the nested "Integration health" child, so its
     // side-nav link is current and the Import child still links back to the daily route.
-    await expect(page.locator('a[href="/catalog/integrations/release"]').first()).toHaveAttribute(
+    await expect(page.locator('a[href="/catalog/integrations/health"]').first()).toHaveAttribute(
       "aria-current",
       "page",
     );
@@ -311,19 +311,19 @@ test.describe("catalog admin integrations", () => {
     await expect(page.getByRole("combobox", { name: "Choose Catalog workflow" })).toHaveCount(0);
     // #1967: the primary "Pull provider data" / "Preview promotion" actions are no
     // longer duplicated in the shell header, so the supporting surfaces (this is the
-    // release surface) no longer surface them — they live only in the daily flow's
+    // health surface) no longer surface them — they live only in the daily flow's
     // owning stages, asserted on the daily route above.
     await expect(page.getByRole("button", { name: /Pull provider data/i })).toHaveCount(0);
     await expect(page.getByRole("button", { name: /Preview promotion/i })).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "Integration health triage" })).toBeVisible();
-    // The release surface stacks three workspaces but renders the "Back to import
+    // The health surface stacks three workspaces but renders the "Back to import
     // workbench" affordance exactly once, in the surface header (no longer once per
     // stacked workspace), so this no longer needs a .first() disambiguator.
-    const releaseBackLinks = page.getByRole("link", { name: "Back to import workbench" });
-    await expect(releaseBackLinks).toHaveCount(1);
-    await expect(releaseBackLinks).toHaveAttribute("href", /\/catalog\/integrations(\?|$)/);
+    const healthBackLinks = page.getByRole("link", { name: "Back to import workbench" });
+    await expect(healthBackLinks).toHaveCount(1);
+    await expect(healthBackLinks).toHaveAttribute("href", /\/catalog\/integrations(\?|$)/);
     await expect(page.getByRole("heading", { name: "Import to promotion workbench" })).toHaveCount(0);
-    // The release surface stacks all three of its workspaces, so the audit timeline is
+    // The health surface stacks all three of its workspaces, so the audit timeline is
     // already rendered alongside health triage; its workspace heading stays visible.
     await expect(page.getByRole("heading", { name: "Audit timeline" })).toBeVisible();
     // Return to the desktop side nav for the remaining surface assertions.
@@ -406,17 +406,17 @@ test.describe("catalog admin integrations", () => {
     expect(backFromGovernanceUrl.searchParams.has("section")).toBe(false);
     expect(backFromGovernanceUrl.searchParams.get("providerKey")).toBe("tcgdex");
 
-    // The compact daily health signal deep-links into health triage on the release
+    // The compact daily health signal deep-links into health triage on the health
     // surface. Land on that exact deep-link shape — including a stale/unknown
     // profileVersion (the shape a missing/invalid-profile blocker carries) — and confirm
-    // the release loader recovers from the backend's 404 into the absent-authoring-model
+    // the health loader recovers from the backend's 404 into the absent-authoring-model
     // state and renders (HTTP < 400) rather than surfacing a 500.
     await expectPageOk(
       page,
-      "/catalog/integrations/release?providerKey=tcgdex&unitKey=tcgdex%3Apokemon%3Acard%3Aimport&importScope=en%3A3%3Abase%3Abase1&profileVersion=2026.06.04&section=triage",
+      "/catalog/integrations/health?providerKey=tcgdex&unitKey=tcgdex%3Apokemon%3Acard%3Aimport&importScope=en%3A3%3Abase%3Abase1&profileVersion=2026.06.04&section=triage",
     );
     await page.waitForLoadState("networkidle");
-    await expect(page).toHaveURL(/\/catalog\/integrations\/release\?.*section=triage/);
+    await expect(page).toHaveURL(/\/catalog\/integrations\/health\?.*section=triage/);
     await expect(page.getByRole("heading", { name: "Integration health triage" })).toBeVisible();
   });
 });

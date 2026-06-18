@@ -255,7 +255,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       canManageCatalog: true,
     });
 
-    render(<CatalogIntegrationsSurfacePage surface="release" readModel={readModel} />);
+    render(<CatalogIntegrationsSurfacePage surface="health" readModel={readModel} />);
 
     expect(screen.getByRole("heading", { name: "Integration health triage" })).toBeTruthy();
     expectBackToWorkbenchHref(screen.getByRole("link", { name: "Back to import workbench" }).getAttribute("href"));
@@ -359,7 +359,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       canManageCatalog: true,
     });
 
-    render(<CatalogIntegrationsSurfacePage surface="release" readModel={readModel} />);
+    render(<CatalogIntegrationsSurfacePage surface="health" readModel={readModel} />);
 
     expect(screen.getAllByRole("heading", { name: "Audit timeline" }).length).toBeGreaterThan(0);
     expect(screen.getByRole("heading", { name: "Timeline filters" })).toBeTruthy();
@@ -504,7 +504,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(validation.getAllByText("Migration evidence missing").length).toBeGreaterThan(0);
     expect(validation.getAllByText("Reference impact review required").length).toBeGreaterThan(0);
     expect(validation.getByRole("link", { name: "Open audit evidence" }).getAttribute("href")).toContain(
-      "/catalog/integrations/release",
+      "/catalog/integrations/health",
     );
     expect(validation.getAllByText(/Sprigatito/).length).toBeGreaterThan(0);
     expect(validation.getAllByText(/sha256:candidate-mapping/).length).toBeGreaterThan(0);
@@ -1050,7 +1050,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.queryByRole("link", { name: "Open governance controls" })).toBeNull();
   });
 
-  it("surfaces a slim degraded health indicator on the daily surface that deep-links into health triage on the release surface", () => {
+  it("surfaces a slim degraded health indicator on the daily surface that deep-links into health triage on the health surface", () => {
     const baseOverview = controlPlaneOverview();
     // The daily surface deliberately omits the full health-triage slice (#1744), so
     // build the actual daily surface read model and prove the compact signal still
@@ -1089,11 +1089,11 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.getByText("Integration health is degraded")).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Integration health triage" })).toBeNull();
 
-    // It deep-links into health triage on the release surface with return context.
+    // It deep-links into health triage on the health surface with return context.
     const healthLink = screen
       .getAllByRole("link", { name: "Open health triage" })
       .map((link) => new URL(link.getAttribute("href") ?? "", "https://admin.example"))
-      .find((url) => url.pathname === "/catalog/integrations/release");
+      .find((url) => url.pathname === "/catalog/integrations/health");
     expect(healthLink).toBeTruthy();
     expect(healthLink!.searchParams.get("section")).toBe("triage");
     expect(healthLink!.searchParams.get("providerKey")).toBe("tcgdex");

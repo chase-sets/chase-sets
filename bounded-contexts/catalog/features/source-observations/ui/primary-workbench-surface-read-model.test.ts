@@ -52,7 +52,7 @@ const dailyRenderedActionKeys = [
 
 describe("Catalog primary workbench read model - per-surface slicing", () => {
   it("validates a read model for every audience surface route", () => {
-    for (const surface of ["daily", "providers", "governance", "release"] as const) {
+    for (const surface of ["daily", "providers", "governance", "health"] as const) {
       const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface(surface, fullSurfaceInput("workbench"));
       expect(() => validateCatalogPrimaryWorkbenchReadModelContract(readModel)).not.toThrow();
     }
@@ -213,12 +213,12 @@ describe("Catalog primary workbench read model - per-surface slicing", () => {
     expect(governance.governanceControls).toEqual(full.governanceControls);
   });
 
-  it("computes the release surface slices identically to the full read model", () => {
+  it("computes the health surface slices identically to the full read model", () => {
     const input = fullSurfaceInput("evidence");
     const full = buildCatalogPrimaryWorkbenchReadModel(input);
-    const release = buildCatalogPrimaryWorkbenchReadModelForSurface("release", input);
+    const health = buildCatalogPrimaryWorkbenchReadModelForSurface("health", input);
 
-    expect(release.auditEvidence).toEqual(full.auditEvidence);
-    expect(release.healthTriage).toEqual(full.healthTriage);
+    expect(health.auditEvidence).toEqual(full.auditEvidence);
+    expect(health.healthTriage).toEqual(full.healthTriage);
   });
 });

@@ -9,14 +9,14 @@ This note is the route-level information architecture for the Catalog integratio
 | `/admin/integrations` | daily | import-to-promotion | `support/route-support/admin-integrations/integrations-loader.ts` |
 | `/admin/integrations/providers` | providers | profile-authoring, validation-readiness | `support/route-support/admin-integrations/providers-loader.ts` |
 | `/admin/integrations/governance` | governance | conflict-resolution, lifecycle-recovery, governance-controls | `support/route-support/admin-integrations/governance-loader.ts` |
-| `/admin/integrations/release` | release | clean-reset-release, audit-evidence, health-triage | `support/route-support/admin-integrations/release-loader.ts` |
+| `/admin/integrations/health` | health | audit-evidence, health-triage | `support/route-support/admin-integrations/health-loader.ts` |
 
 The daily route is the default and renders only the primary import-to-promotion job. The other three routes render their grouped supporting workspaces stacked.
 
 ## Source of truth
 
 - The surfaces, their path segments, and their workspaces are declared in `features/source-observations/ui/admin-control-plane/information-architecture.ts` as `CATALOG_CONTROL_PLANE_ROUTE_SURFACES`. Each workspace also carries a `routeSurface` field, and the IA↔render parity test (`information-architecture.test.ts`) asserts that every workspace belongs to exactly one surface and that every surface workspace is renderable.
-- The routes are registered as thin composition roots in the catalog deployable contribution (`context.json`, `deployableContributions[].routes`) with route IDs `integrations`, `integrations-providers`, `integrations-governance`, `integrations-release`. The admin-web deployable resolves them through the established `resolveWebHostRouteConfigRecords` → `toRouteConfigEntry` framework (React Router v7), the same path each sibling catalog admin route uses.
+- The routes are registered as thin composition roots in the catalog deployable contribution (`context.json`, `deployableContributions[].routes`) with route IDs `integrations`, `integrations-providers`, `integrations-governance`, `integrations-health`. The admin-web deployable resolves them through the established `resolveWebHostRouteConfigRecords` → `toRouteConfigEntry` framework (React Router v7), the same path each sibling catalog admin route uses.
 - The route files (`routes/admin/integrations*.tsx`) are thin roots: they re-export the loader/action and render `CatalogIntegrationsSurfaceRouteView` with their surface key. The shared shell lives in `features/source-observations/ui/workbench-shell.tsx`; the surface body composition lives in `integrations-surface-page.tsx`; the render registry lives in `workbench-workspace-renderers.tsx`.
 
 ## Section state vs route path

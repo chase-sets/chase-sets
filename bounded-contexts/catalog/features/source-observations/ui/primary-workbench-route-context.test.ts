@@ -159,7 +159,7 @@ describe("Catalog primary workbench route context", () => {
       ),
       "https://admin.example",
     );
-    expect(triageHref.pathname).toBe("/catalog/integrations/release");
+    expect(triageHref.pathname).toBe("/catalog/integrations/health");
     expect(triageHref.searchParams.get("section")).toBe("triage");
 
     // The first workspace of a surface is its default and needs no ?section=.
@@ -194,7 +194,7 @@ describe("Catalog primary workbench route context", () => {
     expect(
       parseCatalogPrimaryWorkbenchRouteContext("https://admin.example/catalog/integrations/governance").section,
     ).toBe("conflict-resolution");
-    expect(parseCatalogPrimaryWorkbenchRouteContext("https://admin.example/catalog/integrations/release").section).toBe(
+    expect(parseCatalogPrimaryWorkbenchRouteContext("https://admin.example/catalog/integrations/health").section).toBe(
       "audit-evidence",
     );
     expect(parseCatalogPrimaryWorkbenchRouteContext("https://admin.example/catalog/integrations").section).toBe(
@@ -271,9 +271,9 @@ describe("Catalog primary workbench route context", () => {
     expect(returnPath.searchParams.get("providerKey")).toBe("tcgdex");
     expect(returnPath.searchParams.get("filter.status")).toBe("changed");
     // The detour deep-links to the audience surface route that hosts the workspace.
-    // Audit evidence is the default workspace of the release surface, so the
+    // Audit evidence is the default workspace of the health surface, so the
     // canonical href drops the redundant ?section= param.
-    expect(supportHref.pathname).toBe("/catalog/integrations/release");
+    expect(supportHref.pathname).toBe("/catalog/integrations/health");
     expect(supportHref.searchParams.has("section")).toBe(false);
     expect(supportHref.searchParams.get("providerKey")).toBe("tcgdex");
     expect(supportHref.searchParams.get("returnPath")).toBeTruthy();
