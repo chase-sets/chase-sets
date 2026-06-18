@@ -4,6 +4,7 @@ import type {
   CatalogPrimaryWorkbenchHealthTriageReadModel,
   CatalogPrimaryWorkbenchReadModel,
   CatalogPrimaryWorkbenchRouteContext,
+  CatalogPrimaryWorkbenchSourceObservationEvidenceDetail,
 } from "../api/primary-workbench-admin-contracts";
 import type { CatalogIntegrationControlPlaneOverview } from "./contracts";
 import {
@@ -27,6 +28,10 @@ export function auditEvidenceFor(input: {
   routeContext: CatalogPrimaryWorkbenchRouteContext;
   securityPrivacy: CatalogPrimaryWorkbenchReadModel["securityPrivacy"];
   sourceObservationReview: CatalogPrimaryWorkbenchReadModel["sourceObservationReview"];
+  // Deep-evidence index keyed by observationId. The slim review row no longer
+  // carries duplicate/conflict evidence (#1971), so the source-observation audit
+  // rows read those diagnostic codes from the index instead.
+  reviewEvidenceByObservationId: ReadonlyMap<string, CatalogPrimaryWorkbenchSourceObservationEvidenceDetail>;
   validationReadiness: ValidationReadiness;
 }): AuditEvidence {
   const auditTimelineHref = catalogPrimaryWorkbenchSupportingHref(input.routeContext, "audit-evidence");
@@ -52,6 +57,7 @@ export function auditEvidenceFor(input: {
       auditTimelineHref,
       routeContext: input.routeContext,
       rows: input.sourceObservationReview.rows,
+      reviewEvidenceByObservationId: input.reviewEvidenceByObservationId,
     }),
     ...auditDryRunRowsFor({
       auditTimelineHref,
@@ -211,42 +217,50 @@ function auditSourceObservationRowsFor(input: {
   auditTimelineHref: string;
   routeContext: CatalogPrimaryWorkbenchRouteContext;
   rows: CatalogPrimaryWorkbenchReadModel["sourceObservationReview"]["rows"];
+  reviewEvidenceByObservationId: ReadonlyMap<string, CatalogPrimaryWorkbenchSourceObservationEvidenceDetail>;
 }): readonly AuditTimelineRow[] {
-  return input.rows.slice(0, 16).map((row) => ({
-    eventId: `source-observation:${row.observationId}:${row.status}`,
-    occurredAt: row.changedAt ?? row.observedAt,
-    eventName: row.status === "changed" ? "source-observation-changed" : "source-observation-recorded",
-    category: "source-observation",
-    actorLabel: t("catalog.features.sourceObservations.ui.auditEvidence.readModel.actor.providerAdapter"),
-    targetType: "source-observation",
-    targetId: row.observationId,
-    providerKey: row.providerKey,
-    unitKey: input.routeContext.unitKey,
-    profileVersion: row.sourceProfileVersion,
-    jobId: input.routeContext.jobId,
-    observationId: row.observationId,
-    catalogItemId: null,
-    summary: t("catalog.features.sourceObservations.ui.auditEvidence.readModel.sourceObservation.summary", {
-      name: row.displayName,
-      summary: row.redactionSummary,
-    }),
-    diagnosticCodes: [...row.promotionReadiness.blockers, ...row.duplicateEvidence, ...row.conflictEvidence].slice(
-      0,
-      8,
-    ),
-    redactionState: "redacted",
-    evidenceLinks: [
-      auditEvidenceLink({
-        href: row.detailHref || input.auditTimelineHref,
-        key: `source-observation:${row.observationId}`,
-        kind: row.promotionReadiness.blockers.length > 0 ? "diagnostic" : "audit-event",
-        label: t("catalog.features.sourceObservations.ui.auditEvidence.readModel.link.observation", {
-          value: row.observationId,
-        }),
-        summary: row.payloadSummary,
+  return input.rows.slice(0, 16).map((row) => {
+    // The slim review row dropped the source profile version and the deep
+    // duplicate/conflict evidence (#1971); read them from the in-process evidence
+    // index, defaulting empty so the audit timeline stays total even if absent.
+    const evidence = input.reviewEvidenceByObservationId.get(row.observationId);
+    return {
+      eventId: `source-observation:${row.observationId}:${row.status}`,
+      occurredAt: row.changedAt ?? evidence?.observedAt ?? row.changedAt,
+      eventName: row.status === "changed" ? "source-observation-changed" : "source-observation-recorded",
+      category: "source-observation",
+      actorLabel: t("catalog.features.sourceObservations.ui.auditEvidence.readModel.actor.providerAdapter"),
+      targetType: "source-observation",
+      targetId: row.observationId,
+      providerKey: row.providerKey,
+      unitKey: input.routeContext.unitKey,
+      profileVersion: evidence?.sourceProfileVersion ?? null,
+      jobId: input.routeContext.jobId,
+      observationId: row.observationId,
+      catalogItemId: null,
+      summary: t("catalog.features.sourceObservations.ui.auditEvidence.readModel.sourceObservation.summary", {
+        name: row.displayName,
+        summary: row.redactionSummary,
       }),
-    ],
-  }));
+      diagnosticCodes: [
+        ...row.promotionReadiness.blockers,
+        ...(evidence?.duplicateEvidence ?? []),
+        ...(evidence?.conflictEvidence ?? []),
+      ].slice(0, 8),
+      redactionState: "redacted",
+      evidenceLinks: [
+        auditEvidenceLink({
+          href: row.detailHref || input.auditTimelineHref,
+          key: `source-observation:${row.observationId}`,
+          kind: row.promotionReadiness.blockers.length > 0 ? "diagnostic" : "audit-event",
+          label: t("catalog.features.sourceObservations.ui.auditEvidence.readModel.link.observation", {
+            value: row.observationId,
+          }),
+          summary: row.payloadSummary,
+        }),
+      ],
+    } satisfies AuditTimelineRow;
+  });
 }
 
 function auditDryRunRowsFor(input: {

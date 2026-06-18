@@ -222,6 +222,27 @@ test.describe("catalog admin integrations", () => {
       await expect(page.getByRole("button", { name: /Preview promotion/i })).toHaveCount(0);
     }
 
+    // #1971: the review list ships slim rows; a row's deep evidence (full normalized
+    // facts, duplicate/conflict/audit lists, and the provenance KeyValueList) is
+    // lazy-loaded via a useFetcher to the per-observation evidence endpoint only when
+    // the row's evidence SideSheet opens. Open the first row's "Evidence" sheet (IF the
+    // seed holds a review row) and prove the deep content arrives AFTER open with an
+    // explicit visibility wait — never networkidle, which can race the fetcher. Assert
+    // the sheet's lazily-loaded provenance ("Source URL") and a deep evidence section
+    // ("Normalized facts") become visible, and that no raw provider JSON leaks. This is
+    // data-dependent, so it is guarded on an "Evidence" trigger actually rendering.
+    const evidenceTrigger = page.getByRole("button", { name: "Evidence" });
+    if (await evidenceTrigger.count()) {
+      await evidenceTrigger.first().click();
+      // The lazily-fetched evidence detail populates the KeyValueList and the deep
+      // evidence sections; wait for that fetched content explicitly (it is not present
+      // at sheet-open time, only after the fetcher resolves).
+      await expect(page.getByText("Source URL").first()).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByText("Normalized facts").first()).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByText(/raw JSON/i)).toHaveCount(0);
+      await page.keyboard.press("Escape");
+    }
+
     await page.getByRole("button", { name: "Create / update items" }).first().click();
     await expect(page.getByRole("button", { name: /Preview promotion/i }).first()).toBeVisible();
     await expect(page.getByRole("textbox", { name: /JSON/i })).toHaveCount(0);

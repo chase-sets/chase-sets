@@ -253,6 +253,14 @@
           "section": "catalog"
         },
         {
+          "routeId": "integrations-observation-evidence",
+          "routePath": "integrations/observation-evidence/:id",
+          "fileExport": "./routes/admin/integrations-observation-evidence",
+          "routeType": "route",
+          "sourceContext": "catalog",
+          "section": "catalog"
+        },
+        {
           "routeId": "source-observations-detail",
           "routePath": "source-observations/:id",
           "fileExport": "./routes/admin/source-observations-detail",

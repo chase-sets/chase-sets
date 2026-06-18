@@ -4,6 +4,7 @@ import type {
   CatalogPrimaryWorkbenchBlockerCategory,
   CatalogPrimaryWorkbenchReadModel,
   CatalogPrimaryWorkbenchRouteContext,
+  CatalogPrimaryWorkbenchSourceObservationEvidenceDetail,
 } from "../api/primary-workbench-admin-contracts";
 import type { CatalogIntegrationControlPlaneOverview } from "./contracts";
 import {
@@ -14,6 +15,27 @@ import {
 export type ConflictResolution = CatalogPrimaryWorkbenchReadModel["conflictResolution"];
 export type ConflictResolutionRow = ConflictResolution["rows"][number];
 
+type ReviewRow = CatalogPrimaryWorkbenchReadModel["sourceObservationReview"]["rows"][number];
+
+// The review row paired with its deep evidence detail. The slim review row no
+// longer carries the full fact/duplicate/conflict/audit evidence (#1971), so the
+// conflict-resolution composer reads it from the in-process evidence index instead.
+// Empty-evidence defaults keep the composer total even if an index entry is absent.
+type ConflictReviewRow = Readonly<{
+  row: ReviewRow;
+  evidence: Pick<
+    CatalogPrimaryWorkbenchSourceObservationEvidenceDetail,
+    "normalizedFactSummaries" | "duplicateEvidence" | "conflictEvidence" | "auditTrail"
+  >;
+}>;
+
+const emptyConflictEvidence: ConflictReviewRow["evidence"] = {
+  normalizedFactSummaries: [],
+  duplicateEvidence: [],
+  conflictEvidence: [],
+  auditTrail: [],
+};
+
 export function conflictResolutionFor(input: {
   canManage: boolean;
   controlPlaneOverview: CatalogIntegrationControlPlaneOverview | null;
@@ -21,18 +43,27 @@ export function conflictResolutionFor(input: {
   promotionPreview: CatalogPrimaryWorkbenchReadModel["promotionPreview"];
   routeContext: CatalogPrimaryWorkbenchRouteContext;
   sourceObservationReview: CatalogPrimaryWorkbenchReadModel["sourceObservationReview"];
+  reviewEvidenceByObservationId: ReadonlyMap<string, CatalogPrimaryWorkbenchSourceObservationEvidenceDetail>;
 }): ConflictResolution {
   const selectedIds = new Set(input.routeContext.selectedObservationIds);
   const sourceRows =
     selectedIds.size > 0
       ? input.sourceObservationReview.rows.filter((row) => selectedIds.has(row.observationId))
       : input.sourceObservationReview.rows;
-  const rows = sourceRows.filter(hasConflictResolutionEvidence).map((row) =>
-    conflictResolutionRowFor(row, {
-      canManage: input.canManage,
-      promotionPreview: input.promotionPreview,
-    }),
-  );
+  const rows = sourceRows
+    .map(
+      (row): ConflictReviewRow => ({
+        row,
+        evidence: input.reviewEvidenceByObservationId.get(row.observationId) ?? emptyConflictEvidence,
+      }),
+    )
+    .filter(hasConflictResolutionEvidence)
+    .map((conflictRow) =>
+      conflictResolutionRowFor(conflictRow, {
+        canManage: input.canManage,
+        promotionPreview: input.promotionPreview,
+      }),
+    );
   const blockingCount = rows.filter((row) => row.resolutionState === "blocks-promotion").length;
   const autoResolvedCount = rows.filter((row) => row.resolutionState === "auto-resolved").length;
   const reviewRequiredCount = rows.filter((row) => row.resolutionState === "requires-review").length;
@@ -78,27 +109,27 @@ export function conflictResolutionFor(input: {
   };
 }
 
-function hasConflictResolutionEvidence(
-  row: CatalogPrimaryWorkbenchReadModel["sourceObservationReview"]["rows"][number],
-): boolean {
+function hasConflictResolutionEvidence(conflictRow: ConflictReviewRow): boolean {
+  const { row, evidence } = conflictRow;
   return (
-    row.duplicateEvidence.length > 0 ||
-    row.conflictEvidence.length > 0 ||
+    evidence.duplicateEvidence.length > 0 ||
+    evidence.conflictEvidence.length > 0 ||
     row.promotionReadiness.blockers.includes("promotion-conflict") ||
     row.commandPreview.disposition === "conflicting"
   );
 }
 
 function conflictResolutionRowFor(
-  row: CatalogPrimaryWorkbenchReadModel["sourceObservationReview"]["rows"][number],
+  conflictRow: ConflictReviewRow,
   input: {
     canManage: boolean;
     promotionPreview: CatalogPrimaryWorkbenchReadModel["promotionPreview"];
   },
 ): ConflictResolutionRow {
-  const resolutionState = conflictResolutionStateFor(row);
+  const { row, evidence } = conflictRow;
+  const resolutionState = conflictResolutionStateFor(conflictRow);
   const blockers = new Set<CatalogPrimaryWorkbenchBlockerCategory>(row.promotionReadiness.blockers);
-  if (row.duplicateEvidence.length > 0) {
+  if (evidence.duplicateEvidence.length > 0) {
     blockers.add("duplicate-conflict");
   }
   if (
@@ -116,16 +147,16 @@ function conflictResolutionRowFor(
     displayName: row.displayName,
     providerKey: row.providerKey,
     externalKey: row.externalKey,
-    affectedFact: row.normalizedFactSummaries[0] ?? row.displayName,
-    factKey: conflictFactKeyFor(row),
+    affectedFact: evidence.normalizedFactSummaries[0] ?? row.displayName,
+    factKey: conflictFactKeyFor(conflictRow),
     resolutionState,
     promotionReadinessState: row.promotionReadiness.state,
-    precedenceRuleId: conflictPrecedenceRuleIdFor(row, resolutionState),
-    candidateValues: conflictCandidateValuesFor(row),
-    evidencePaths: conflictEvidencePathsFor(row),
-    diagnostics: conflictDiagnosticsFor(row, blockers),
+    precedenceRuleId: conflictPrecedenceRuleIdFor(conflictRow, resolutionState),
+    candidateValues: conflictCandidateValuesFor(conflictRow),
+    evidencePaths: conflictEvidencePathsFor(conflictRow),
+    diagnostics: conflictDiagnosticsFor(conflictRow, blockers),
     blockers: [...blockers],
-    auditTrail: row.auditTrail,
+    auditTrail: evidence.auditTrail,
     detailHref: row.detailHref,
     overrideAction: {
       state: input.canManage ? "unavailable" : "denied",
@@ -135,24 +166,22 @@ function conflictResolutionRowFor(
   };
 }
 
-function conflictResolutionStateFor(
-  row: CatalogPrimaryWorkbenchReadModel["sourceObservationReview"]["rows"][number],
-): ConflictResolutionRow["resolutionState"] {
-  if (row.promotionReadiness.blockers.includes("promotion-conflict")) {
+function conflictResolutionStateFor(conflictRow: ConflictReviewRow): ConflictResolutionRow["resolutionState"] {
+  if (conflictRow.row.promotionReadiness.blockers.includes("promotion-conflict")) {
     return "blocks-promotion";
   }
-  if (row.duplicateEvidence.length > 0) {
+  if (conflictRow.evidence.duplicateEvidence.length > 0) {
     return "requires-review";
   }
 
   return "auto-resolved";
 }
 
-function conflictFactKeyFor(row: CatalogPrimaryWorkbenchReadModel["sourceObservationReview"]["rows"][number]): string {
-  if (row.duplicateEvidence.length > 0) {
+function conflictFactKeyFor(conflictRow: ConflictReviewRow): string {
+  if (conflictRow.evidence.duplicateEvidence.length > 0) {
     return "merge-identity";
   }
-  if (row.statusReason) {
+  if (conflictRow.row.statusReason) {
     return "status-reason";
   }
 
@@ -160,24 +189,23 @@ function conflictFactKeyFor(row: CatalogPrimaryWorkbenchReadModel["sourceObserva
 }
 
 function conflictPrecedenceRuleIdFor(
-  row: CatalogPrimaryWorkbenchReadModel["sourceObservationReview"]["rows"][number],
+  conflictRow: ConflictReviewRow,
   resolutionState: ConflictResolutionRow["resolutionState"],
 ): string {
   if (resolutionState === "blocks-promotion") {
     return "promotion-command.conflict-blocking.v1";
   }
-  if (row.duplicateEvidence.length > 0) {
+  if (conflictRow.evidence.duplicateEvidence.length > 0) {
     return "duplicate-prevention.merge-identity.v1";
   }
 
   return "source-observation.field-precedence.v1";
 }
 
-function conflictCandidateValuesFor(
-  row: CatalogPrimaryWorkbenchReadModel["sourceObservationReview"]["rows"][number],
-): ConflictResolutionRow["candidateValues"] {
-  const primaryValue = row.normalizedFactSummaries[0] ?? row.displayName;
-  const competingValue = row.conflictEvidence[0] ?? row.duplicateEvidence[0] ?? row.externalKey;
+function conflictCandidateValuesFor(conflictRow: ConflictReviewRow): ConflictResolutionRow["candidateValues"] {
+  const { row, evidence } = conflictRow;
+  const primaryValue = evidence.normalizedFactSummaries[0] ?? row.displayName;
+  const competingValue = evidence.conflictEvidence[0] ?? evidence.duplicateEvidence[0] ?? row.externalKey;
   const unresolvedPromotionConflict = row.promotionReadiness.blockers.includes("promotion-conflict");
   const values: ConflictResolutionRow["candidateValues"] = [
     {
@@ -191,17 +219,17 @@ function conflictCandidateValuesFor(
       value: competingValue,
       role: unresolvedPromotionConflict ? "candidate" : "loser",
       evidencePath:
-        row.conflictEvidence.length > 0
+        evidence.conflictEvidence.length > 0
           ? "sourceObservationReview.rows.conflictEvidence"
           : "sourceObservationReview.rows.duplicateEvidence",
     },
   ];
-  if (row.duplicateEvidence[0] && row.duplicateEvidence[0] !== competingValue) {
+  if (evidence.duplicateEvidence[0] && evidence.duplicateEvidence[0] !== competingValue) {
     return [
       ...values,
       {
         source: t("catalog.features.sourceObservations.ui.conflictResolution.source.duplicateEvidence"),
-        value: row.duplicateEvidence[0],
+        value: evidence.duplicateEvidence[0],
         role: "candidate",
         evidencePath: "sourceObservationReview.rows.duplicateEvidence",
       },
@@ -211,24 +239,22 @@ function conflictCandidateValuesFor(
   return values;
 }
 
-function conflictEvidencePathsFor(
-  row: CatalogPrimaryWorkbenchReadModel["sourceObservationReview"]["rows"][number],
-): readonly string[] {
+function conflictEvidencePathsFor(conflictRow: ConflictReviewRow): readonly string[] {
   return [
     "sourceObservationReview.rows.normalizedFactSummaries",
-    ...(row.conflictEvidence.length > 0 ? ["sourceObservationReview.rows.conflictEvidence"] : []),
-    ...(row.duplicateEvidence.length > 0 ? ["sourceObservationReview.rows.duplicateEvidence"] : []),
+    ...(conflictRow.evidence.conflictEvidence.length > 0 ? ["sourceObservationReview.rows.conflictEvidence"] : []),
+    ...(conflictRow.evidence.duplicateEvidence.length > 0 ? ["sourceObservationReview.rows.duplicateEvidence"] : []),
     "sourceObservationReview.rows.promotionReadiness",
   ];
 }
 
 function conflictDiagnosticsFor(
-  row: CatalogPrimaryWorkbenchReadModel["sourceObservationReview"]["rows"][number],
+  conflictRow: ConflictReviewRow,
   blockers: ReadonlySet<CatalogPrimaryWorkbenchBlockerCategory>,
 ): readonly string[] {
   const diagnostics = [
-    ...row.conflictEvidence,
-    ...row.duplicateEvidence,
+    ...conflictRow.evidence.conflictEvidence,
+    ...conflictRow.evidence.duplicateEvidence,
     ...[...blockers].map((blocker) => getConflictResolutionBlockerDiagnostic(blocker)),
   ].filter(Boolean);
 

@@ -280,7 +280,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `sidebarWidthClasses` | `packages/design-system/src/primitives/layout.tsx` | Named sidebar widths for use in grid layouts. | `No production consumer yet.` |
 | `SideNav` | `packages/design-system/src/components/actions/navigation.tsx` | Purpose not documented; symbol name suggests: Side Nav. | `No production consumer yet.` |
 | `SideSheet` | `packages/design-system/src/components/feedback/panel-interactions.tsx` | Purpose not documented; symbol name suggests: Side Sheet. | `bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/alias-review/alias-review-workspace.tsx` |
-| `Skeleton` | `packages/design-system/src/components/feedback/loading.tsx` | Purpose not documented; symbol name suggests: Skeleton. | `bounded-contexts/catalog/features/source-observations/ui/deferred-supplementary-panel.tsx` |
+| `Skeleton` | `packages/design-system/src/components/feedback/loading.tsx` | Purpose not documented; symbol name suggests: Skeleton. | `bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/source-observation-review/source-observation-review-module.tsx` |
 | `SkipLink` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: Skip Link. | `bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx` |
 | `Slider` | `packages/design-system/src/components/forms/slider.tsx` | Purpose not documented; symbol name suggests: Slider. | `No production consumer yet.` |
 | `Spacer` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: Spacer. | `No production consumer yet.` |

@@ -344,6 +344,10 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.description":
     "Source provenance, normalized facts, redaction summaries, duplicate clues, command preview, and audit context stay together.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.duplicates": "Duplicate evidence",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.error.description":
+    "We could not load the evidence for this observation. Close and reopen to try again.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.error.title": "Evidence unavailable",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.loading": "Loading evidence…",
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.no.conflicts":
     "No conflict evidence reported",
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.no.duplicates":

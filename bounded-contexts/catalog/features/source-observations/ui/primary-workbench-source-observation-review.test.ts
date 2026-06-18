@@ -20,6 +20,26 @@ import {
   validateCatalogPrimaryWorkbenchReadModelContract,
   type CatalogProviderIntegrationProfile,
 } from "./primary-workbench-read-model-test-support";
+import {
+  sourceObservationEvidenceDetailFor,
+  sourceObservationReviewCompositionFor,
+} from "./primary-workbench-source-observation-review";
+import type { CatalogPrimaryWorkbenchRouteContext } from "../api/primary-workbench-admin-contracts";
+
+const slimRowRouteContext: CatalogPrimaryWorkbenchRouteContext = {
+  section: "import-to-promotion",
+  providerKey: "tcgdex",
+  unitKey: null,
+  importScope: null,
+  profileVersion: null,
+  sourceObservationFilters: {},
+  selectedObservationIds: [],
+  reviewOffset: null,
+  reviewLimit: null,
+  jobId: null,
+  promotionPreviewId: null,
+  returnPath: null,
+};
 
 describe("Catalog primary workbench read model - source observation review", () => {
   it("maps Source Observation rows into redaction-safe review evidence with command readiness", () => {
@@ -418,5 +438,93 @@ describe("Catalog primary workbench read model - source observation review", () 
         }),
       ]),
     );
+  });
+});
+
+describe("Catalog primary workbench review payload split (#1971)", () => {
+  it("ships slim review rows without the deep evidence/audit arrays", () => {
+    const { review } = sourceObservationReviewCompositionFor({
+      canManage: true,
+      changed: 1,
+      eligible: 1,
+      observed: 1,
+      promoted: 0,
+      readinessBlockers: [],
+      rejected: 0,
+      reviewObservations: { items: [sourceObservationListItem()], total: 1, count: 1 },
+      reviewPagination: { limit: 25, offset: 0 },
+      routeContext: slimRowRouteContext,
+      scopeRows: [sourceObservationScope()],
+    });
+
+    const row = review.rows[0]!;
+    // Cell-only data: the badge preview is capped at the first 3 facts and the cell
+    // renders a duplicate COUNT, not the full duplicate list.
+    expect(row.factSummaryPreview.length).toBeLessThanOrEqual(3);
+    expect(row.duplicateCount).toBeGreaterThanOrEqual(0);
+    expect(row).toMatchObject({ observationId: "obs_001", promotionReadiness: { state: "eligible" } });
+
+    // The deep evidence/audit arrays and the sheet-only provenance fields never
+    // ship on the row — they move to the lazily-fetched evidence detail.
+    for (const movedField of [
+      "normalizedFactSummaries",
+      "duplicateEvidence",
+      "conflictEvidence",
+      "auditTrail",
+      "sourceUrl",
+      "sourceRecordHash",
+      "observedAt",
+      "sourceProfileVersion",
+      "languageCode",
+      "promotionProfileVersion",
+    ]) {
+      expect(row).not.toHaveProperty(movedField);
+    }
+
+    // The serialized review slice carries no evidence index — that stays in-process.
+    expect(review).not.toHaveProperty("evidenceByObservationId");
+  });
+
+  it("composes a deep evidence detail keyed by observationId for every row", () => {
+    const { review, evidenceByObservationId } = sourceObservationReviewCompositionFor({
+      canManage: true,
+      changed: 1,
+      eligible: 1,
+      observed: 1,
+      promoted: 0,
+      readinessBlockers: [],
+      rejected: 0,
+      reviewObservations: { items: [sourceObservationListItem({ status: "changed" })], total: 1, count: 1 },
+      reviewPagination: { limit: 25, offset: 0 },
+      routeContext: slimRowRouteContext,
+      scopeRows: [sourceObservationScope()],
+    });
+
+    expect(evidenceByObservationId.size).toBe(review.rows.length);
+    const detail = evidenceByObservationId.get("obs_001")!;
+    // The detail carries the FULL fact list, the duplicate/conflict/audit evidence,
+    // and the provenance fields the SideSheet's KeyValueList renders.
+    expect(detail.normalizedFactSummaries.length).toBeGreaterThan(review.rows[0]!.factSummaryPreview.length);
+    expect(detail.duplicateEvidence.length).toBe(review.rows[0]!.duplicateCount);
+    expect(detail.conflictEvidence.length).toBeGreaterThan(0);
+    expect(detail.auditTrail.length).toBeGreaterThan(0);
+    expect(detail).toMatchObject({
+      observationId: "obs_001",
+      sourceUrl: "https://api.tcgdex.example/cards/base1-4",
+      sourceProfileVersion: "2026.06.04",
+      languageCode: "en",
+    });
+  });
+
+  it("composes the evidence detail standalone for the lazy endpoint", () => {
+    const detail = sourceObservationEvidenceDetailFor(sourceObservationListItem(), { canManage: true });
+
+    expect(detail).toMatchObject({
+      observationId: "obs_001",
+      providerKey: "tcgdex",
+      promotionReadiness: { state: "eligible" },
+      commandPreview: { disposition: "eligible" },
+    });
+    expect(detail.redactionSummary).toContain("Provider payload withheld");
   });
 });

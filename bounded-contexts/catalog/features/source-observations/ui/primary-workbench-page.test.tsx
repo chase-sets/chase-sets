@@ -20,15 +20,20 @@ import {
   sourceObservationScope,
 } from "./primary-workbench-test-fixtures";
 
-// The import-jobs module polls live progress via useRevalidator and the daily
-// import-context form submits context changes via useSubmit; these pages render
-// bare (no data router), so stub both to no-ops for the workbench tree.
+// The import-jobs module polls live progress via useRevalidator, the daily
+// import-context form submits context changes via useSubmit, and the review
+// evidence SideSheet lazy-loads deep evidence via useFetcher (#1971); these pages
+// render bare (no data router), so stub all three for the workbench tree. The
+// useFetcher stub stays in the idle/no-data state, so opening the evidence sheet
+// renders its DS loading state — the deep-evidence composition is covered directly
+// by the read-model unit tests and end-to-end by the integrations e2e spec.
 vi.mock("react-router", async () => {
   const actual = await vi.importActual<typeof import("react-router")>("react-router");
   return {
     ...actual,
     useRevalidator: () => ({ revalidate: () => undefined, state: "idle" }),
     useSubmit: () => () => undefined,
+    useFetcher: () => ({ state: "idle", data: undefined, load: () => undefined }),
   };
 });
 
@@ -1209,8 +1214,13 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     const evidenceButtons = screen.getAllByRole("button", { name: "Evidence" });
     fireEvent.click(evidenceButtons[evidenceButtons.length - 1]!);
 
+    // The sheet chrome (title/description) renders inline; the deep evidence is
+    // lazy-loaded via useFetcher (#1971), which the stubbed router keeps in the
+    // loading state, so the DS loading affordance shows instead of the deep arrays.
+    // The composed evidence (including the status-reason conflict line) is asserted
+    // directly in the read-model unit tests and end-to-end in the e2e spec.
     expect(screen.getByText(/Source provenance, normalized facts/)).toBeTruthy();
-    expect(screen.getByText("Provider changed rarity evidence during the latest pull.")).toBeTruthy();
+    expect(screen.getByText("Loading evidence…")).toBeTruthy();
     expect(screen.queryByText(/raw JSON/i)).toBeNull();
   });
 
