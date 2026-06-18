@@ -496,6 +496,21 @@ export function buildCatalogPrimaryWorkbenchReadModelForSurface(
   });
 }
 
+// Build ONLY the source-options slice from the same baseline inputs the full
+// read model derives from, plus the (now resolved) source-option fan-out pages.
+// The daily loader streams this slice behind a Suspense boundary so the shell,
+// metric strip, and 3-stage flow paint before the ~150–250 KB option fan-out
+// resolves (#1970). It reuses the shared core derivation so the populated slice
+// is byte-identical to what the synchronous builder would have produced from the
+// same pages, and it never re-derives or re-emits the rest of the read model —
+// keeping the deferred value small and the browser free of the raw baseline
+// inputs the slice was computed from.
+export function buildCatalogPrimaryWorkbenchDeferredSourceOptions(
+  input: CatalogPrimaryWorkbenchInput,
+): CatalogPrimaryWorkbenchReadModel["sourceOptions"] {
+  return buildCatalogPrimaryWorkbenchCore(input).core.sourceOptions;
+}
+
 // The inputs that are absent on a surface which does not render a slice. With no
 // control plane overview, authoring model, lifecycle impacts, or release
 // scaffolding present, the supporting slice builders collapse to constant-cost

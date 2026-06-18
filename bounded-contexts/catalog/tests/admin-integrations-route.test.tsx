@@ -388,9 +388,12 @@ describe("Catalog integrations route", () => {
     expect(routeData).not.toHaveProperty("profileReviews");
     expect(routeData).not.toHaveProperty("controlPlaneOverview");
     expect(routeData).not.toHaveProperty("reviewObservations");
-    expect(
-      Object.fromEntries(routeData.readModel.sourceOptions.pages.map((page) => [page.queryKind, page.state])),
-    ).toEqual({
+    // The source-option fan-out is deferred (#1970): the synchronous read model
+    // ships the structural skeleton (pages not yet loaded), and the populated
+    // pages stream in behind the deferred slice the route view awaits.
+    expect(routeData.readModel.sourceOptions.pages.every((page) => page.state === "unavailable")).toBe(true);
+    const deferredSourceOptions = await routeData.deferredSourceOptions;
+    expect(Object.fromEntries(deferredSourceOptions.pages.map((page) => [page.queryKind, page.state]))).toEqual({
       languages: "cached",
       series: "cached",
       expansions: "stale",
@@ -508,12 +511,17 @@ describe("Catalog integrations route", () => {
     expect(routeData.readModel.importJobs.selectedScope?.importScope).toBe("ja:SV:SV8");
     expect(routeData.readModel.providerScope.providers[0]?.units[0]?.importScopes.length).toBeLessThanOrEqual(25);
     expect(routeData.readModel.providerScope.providers[0]?.units[0]?.importScopes[0]).toBe("ja:SV:SV8");
-    expect(routeData.readModel.sourceOptions.pages.find((page) => page.queryKind === "expansions")).toMatchObject({
+    // The populated option pages stream in behind the deferred slice (#1970); the
+    // synchronous read model carries only the not-yet-loaded skeleton.
+    const deferredSourceOptions = await routeData.deferredSourceOptions;
+    expect(deferredSourceOptions.pages.find((page) => page.queryKind === "expansions")).toMatchObject({
       state: "stale",
       page: expect.objectContaining({ total: 100, count: 25, limit: 25, hasMore: true }),
       items: expect.arrayContaining([expect.objectContaining({ value: "SV8", label: "Super Electric Breaker" })]),
     });
-    const serialized = JSON.stringify(routeData);
+    // The leak guard and payload bound now apply to the streamed slice — the part
+    // that carries the provider option items — plus the synchronous route data.
+    const serialized = JSON.stringify(routeData) + JSON.stringify(deferredSourceOptions);
     expect(serialized).not.toContain("SENTINEL_ROUTE_OPTION_METADATA_LEAK");
     expect(serialized.length).toBeLessThan(180_000);
   });
@@ -659,7 +667,9 @@ describe("Catalog integrations route", () => {
       changedCount: 130,
       promotedCount: 0,
     });
-    expect(routeData.readModel.sourceOptions.pages.find((page) => page.queryKind === "expansions")).toMatchObject({
+    // Source options stream in behind the deferred slice (#1970).
+    const deferredSourceOptions = await routeData.deferredSourceOptions;
+    expect(deferredSourceOptions.pages.find((page) => page.queryKind === "expansions")).toMatchObject({
       state: "stale",
       items: [expect.objectContaining({ value: "SV8", label: "Super Electric Breaker" })],
     });
@@ -1869,7 +1879,8 @@ describe("Catalog integrations route", () => {
     const aliasReviewQuery = new URLSearchParams(getCatalogAliasReviewReadModel.mock.calls[0]?.[0] ?? "");
     expect(aliasReviewQuery.get("providerKey")).toBe("tcgdex");
     expect(aliasReviewQuery.get("sourceProfileVersion")).toBe("2026.06.04");
-    expect(routeData.aliasReview?.counts.needsReview).toBe(1);
+    // Alias review is deferred (#1970): it streams in behind the deferred slice.
+    expect((await routeData.deferredAliasReview)?.counts.needsReview).toBe(1);
   });
 
   it("keeps the daily surface rendering when the alias-review read model is unavailable", async () => {
@@ -1890,19 +1901,23 @@ describe("Catalog integrations route", () => {
       context: {},
     } as Parameters<typeof loader>[0]);
 
-    // Alias review is supplementary: a transient failure resolves to null, never
-    // breaking the import-to-promotion workflow.
-    expect(routeData.aliasReview).toBeNull();
+    // Alias review is supplementary and deferred (#1970): a transient failure
+    // resolves to null inside the streamed boundary, never breaking the
+    // import-to-promotion workflow or rejecting the boundary into an error page.
+    expect(await routeData.deferredAliasReview).toBeNull();
   });
 
-  it("renders the alias-review workspace inline on the daily surface when the loader provides it", () => {
+  it("streams the alias-review workspace inline on the daily surface when the loader defers it", async () => {
     const scopes = { items: [sourceObservationScope()], total: 1, count: 1 };
     const profileReviews = { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 };
     const requestUrl = "https://admin.example/catalog/integrations?providerKey=tcgdex";
+    // The daily loader defers the alias-review read model (#1970); the route view
+    // renders it behind a Suspense/Await boundary, so the workspace appears once
+    // the streamed promise resolves rather than at first paint.
     mockUseLoaderData.mockReturnValue({
       requestUrl,
       commandFeedback: null,
-      aliasReview: aliasReviewReadModel(),
+      deferredAliasReview: Promise.resolve(aliasReviewReadModel()),
       readModel: buildCatalogPrimaryWorkbenchReadModel({
         requestUrl,
         scopes,
@@ -1917,7 +1932,7 @@ describe("Catalog integrations route", () => {
 
     render(<IntegrationsRoute />);
 
-    expect(screen.getAllByText("Alias review").length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("Alias review")).length).toBeGreaterThan(0);
   });
 
   it("dispatches the #1905 accept command for the alias-review accept action and stays on the daily surface", async () => {

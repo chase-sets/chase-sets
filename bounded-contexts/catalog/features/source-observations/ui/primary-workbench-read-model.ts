@@ -1,6 +1,7 @@
 export {
   buildCatalogPrimaryWorkbenchReadModel,
   buildCatalogPrimaryWorkbenchReadModelForSurface,
+  buildCatalogPrimaryWorkbenchDeferredSourceOptions,
 } from "./primary-workbench-read-model-composition";
 export type { CatalogPrimaryWorkbenchInput } from "./primary-workbench-read-model-input";
 export { buildCatalogPrimaryWorkbenchSourceObservationReviewQuery } from "./primary-workbench-source-observation-review";
