@@ -1,4 +1,5 @@
-import type { ChangeEvent, ReactNode } from "react";
+import { Suspense, type ChangeEvent, type ReactNode } from "react";
+import { Await } from "react-router";
 import {
   Badge,
   BulkActionSurface,
@@ -21,6 +22,7 @@ import {
 import { t } from "@chase-sets/localization";
 import type { CatalogPrimaryWorkbenchReadModel } from "../api/primary-workbench-admin-contracts";
 import type { CatalogControlPlaneRouteSurfaceKey } from "./admin-control-plane/information-architecture";
+import { DeferredSupplementaryPanel } from "./deferred-supplementary-panel";
 import { WorkbenchReturnLink } from "./admin-control-plane/import-to-promotion/workbench-formatting";
 import type { CatalogPrimaryWorkbenchCommandFeedback } from "./primary-workbench-command-feedback";
 import { commandFeedbackDescription, commandSuccessTitle } from "./primary-workbench-command-feedback";
@@ -45,6 +47,12 @@ export interface CatalogWorkbenchShellProps {
   // one "Back to import workbench" link; the daily surface is the primary job and
   // renders none.
   surface: CatalogControlPlaneRouteSurfaceKey;
+  // Streamed source-options slice (#1970). When the daily loader defers the
+  // option fan-out it passes the promise here and the status panel renders behind
+  // a Suspense boundary; when absent (the other surfaces, or a test that supplies
+  // a fully-populated read model), the panel reads the synchronous slice on
+  // `readModel.sourceOptions` directly.
+  deferredSourceOptions?: Promise<CatalogPrimaryWorkbenchReadModel["sourceOptions"]> | null;
   // The composed surface body (one workspace for the daily route, the grouped
   // workspaces for the other three). The shell owns no per-surface logic.
   children: ReactNode;
@@ -58,6 +66,7 @@ export function CatalogWorkbenchShell({
   readModel,
   commandFeedback = null,
   surface,
+  deferredSourceOptions = null,
   children,
 }: CatalogWorkbenchShellProps) {
   // The daily surface is the primary import-to-promotion job, so it carries no
@@ -83,8 +92,8 @@ export function CatalogWorkbenchShell({
       {commandFeedback ? <CommandFeedbackBanner feedback={commandFeedback} /> : null}
       {surface === "daily" ? (
         <>
-          <ProviderImportContextForm readModel={readModel} />
-          <SourceOptionsStatusPanel readModel={readModel} />
+          <ProviderImportContextForm readModel={readModel} deferredSourceOptions={deferredSourceOptions} />
+          <DeferredSourceOptionsStatusPanel readModel={readModel} deferredSourceOptions={deferredSourceOptions} />
         </>
       ) : null}
 
@@ -130,7 +139,13 @@ export function CatalogWorkbenchShell({
   );
 }
 
-function ProviderImportContextForm({ readModel }: { readModel: CatalogPrimaryWorkbenchReadModel }) {
+function ProviderImportContextForm({
+  readModel,
+  deferredSourceOptions,
+}: {
+  readModel: CatalogPrimaryWorkbenchReadModel;
+  deferredSourceOptions: Promise<CatalogPrimaryWorkbenchReadModel["sourceOptions"]> | null;
+}) {
   const providerOptions = readModel.providerScope.providers.map((provider) => ({
     value: provider.providerKey,
     label: provider.displayName,
@@ -148,7 +163,13 @@ function ProviderImportContextForm({ readModel }: { readModel: CatalogPrimaryWor
   }));
   const selectedUnit = units.find(({ unit }) => unit.unitKey === readModel.routeContext.unitKey)?.unit;
   const profileVersion = readModel.routeContext.profileVersion ?? selectedUnit?.activeProfile?.profileVersion ?? "";
-  const scopeFields = guidedSourceScopeFields(readModel);
+  // Build the guided scope fields from the synchronous (skeleton) slice: the
+  // declared option kinds and the operator's current scope selection are present
+  // immediately (they derive from the active profile + route context, not the
+  // fan-out), so the raw-importScope-vs-guided gate is decided at first paint and
+  // each guided select renders preselected. The full per-group option lists stream
+  // in behind the same deferred slice the status panel awaits (#1970).
+  const skeletonScopeFields = guidedSourceScopeFields(readModel);
 
   return (
     <WorkbenchForm method="get" action="/catalog/integrations">
@@ -172,7 +193,7 @@ function ProviderImportContextForm({ readModel }: { readModel: CatalogPrimaryWor
         {/* The transitional raw importScope text box only survives for providers
             that declare no option queries (no guided controls to drive). Providers
             with option kinds get the structured selector below instead. */}
-        {scopeFields.length === 0 ? (
+        {skeletonScopeFields.length === 0 ? (
           <TextInput
             name="importScope"
             label={t("catalog.features.sourceObservations.ui.primaryWorkbench.importContext.scope")}
@@ -180,7 +201,13 @@ function ProviderImportContextForm({ readModel }: { readModel: CatalogPrimaryWor
           />
         ) : null}
       </WorkbenchFormGrid>
-      {scopeFields.length > 0 ? <GuidedSourceScopeFields fields={scopeFields} /> : null}
+      {skeletonScopeFields.length > 0 ? (
+        <DeferredGuidedSourceScopeFields
+          readModel={readModel}
+          skeletonScopeFields={skeletonScopeFields}
+          deferredSourceOptions={deferredSourceOptions}
+        />
+      ) : null}
       <WorkbenchActionRow align="between" stackOnMobile>
         <TextInput
           name="profileVersion"
@@ -247,6 +274,36 @@ function clearSourceOptionRefreshIntent(form: HTMLFormElement): void {
       field.remove();
     }
   }
+}
+
+// Stream the guided scope selects' full option lists (#1970). The fields render
+// immediately from the skeleton slice — gated, labelled, and preselected to the
+// route's current scope — and the resolved deferred slice repopulates each select
+// with its full per-group option list once the fan-out streams in. When no promise
+// is supplied (the other surfaces, or a test with a fully-populated read model),
+// the fields render synchronously from the read model's own slice.
+function DeferredGuidedSourceScopeFields({
+  readModel,
+  skeletonScopeFields,
+  deferredSourceOptions,
+}: {
+  readModel: CatalogPrimaryWorkbenchReadModel;
+  skeletonScopeFields: readonly CatalogPrimaryWorkbenchGuidedScopeField[];
+  deferredSourceOptions: Promise<CatalogPrimaryWorkbenchReadModel["sourceOptions"]> | null;
+}) {
+  if (!deferredSourceOptions) {
+    return <GuidedSourceScopeFields fields={skeletonScopeFields} />;
+  }
+
+  return (
+    <Suspense fallback={<GuidedSourceScopeFields fields={skeletonScopeFields} />}>
+      <Await resolve={deferredSourceOptions}>
+        {(sourceOptions) => (
+          <GuidedSourceScopeFields fields={guidedSourceScopeFields({ ...readModel, sourceOptions })} />
+        )}
+      </Await>
+    </Suspense>
+  );
 }
 
 // The guided source-scope selector: one native select per provider option kind that
@@ -382,6 +439,48 @@ function forceRefreshAllSourceOptions(form: HTMLFormElement): void {
   form.appendChild(action);
 }
 
+// Stream the source-options status panel (#1970). The option fan-out only feeds
+// this secondary panel, so the daily loader defers it: the shell paints first and
+// the populated panel streams in behind a Suspense/Await boundary. The skeleton
+// read model still carries the declared `optionKinds` (derived from the active
+// profile, not the fetched pages), so the gate "does this provider declare any
+// option groups?" and the loading fallback both resolve before the fan-out does.
+// When no promise is supplied (the back-compat path used by tests that build a
+// fully-populated read model), the panel renders synchronously from the read
+// model's own slice.
+function DeferredSourceOptionsStatusPanel({
+  readModel,
+  deferredSourceOptions,
+}: {
+  readModel: CatalogPrimaryWorkbenchReadModel;
+  deferredSourceOptions: Promise<CatalogPrimaryWorkbenchReadModel["sourceOptions"]> | null;
+}) {
+  // No option groups for this provider → no panel at all (and nothing to stream).
+  if (readModel.sourceOptions.optionKinds.length === 0) {
+    return null;
+  }
+  if (!deferredSourceOptions) {
+    return <SourceOptionsStatusPanel sourceOptions={readModel.sourceOptions} routeContext={readModel.routeContext} />;
+  }
+
+  return (
+    <Suspense
+      fallback={
+        <DeferredSupplementaryPanel
+          title={t("catalog.features.sourceObservations.ui.primaryWorkbench.sourceOptions.title")}
+          label={t("catalog.features.sourceObservations.ui.primaryWorkbench.deferred.sourceOptions.loading")}
+        />
+      }
+    >
+      <Await resolve={deferredSourceOptions}>
+        {(sourceOptions) => (
+          <SourceOptionsStatusPanel sourceOptions={sourceOptions} routeContext={readModel.routeContext} />
+        )}
+      </Await>
+    </Suspense>
+  );
+}
+
 // A compact sync/status panel for the synced provider option groups, rendered next
 // to the context form on the daily surface. It names each option group with its
 // natural label, surfaces freshness/degraded/missing-parent state per group, and
@@ -390,12 +489,16 @@ function forceRefreshAllSourceOptions(form: HTMLFormElement): void {
 // the raw provider-options API hrefs — so the operator stays in the workbench and
 // the loader re-fetches the option pages. Renders nothing when the selected
 // provider declares no option kinds.
-function SourceOptionsStatusPanel({ readModel }: { readModel: CatalogPrimaryWorkbenchReadModel }) {
-  const sourceOptions = readModel.sourceOptions;
+function SourceOptionsStatusPanel({
+  sourceOptions,
+  routeContext,
+}: {
+  sourceOptions: CatalogPrimaryWorkbenchReadModel["sourceOptions"];
+  routeContext: CatalogPrimaryWorkbenchReadModel["routeContext"];
+}) {
   if (sourceOptions.optionKinds.length === 0) {
     return null;
   }
-  const { routeContext } = readModel;
   const { refresh, summary } = sourceOptions;
   const canRefreshAll =
     refresh.refreshAllHref !== null && (refresh.state === "available" || refresh.state === "degraded");

@@ -21,11 +21,13 @@ import {
   recordCatalogControlPlaneEvents,
 } from "../../../features/source-observations/ui/primary-workbench-telemetry";
 import {
+  buildCatalogPrimaryWorkbenchDeferredSourceOptions,
   buildCatalogPrimaryWorkbenchReadModelForSurface,
   buildCatalogPrimaryWorkbenchSourceOptionRequests,
   buildCatalogPrimaryWorkbenchSourceObservationReviewQuery,
   type CatalogPrimaryWorkbenchSourceOptionPageSnapshot,
 } from "../../../features/source-observations/ui/primary-workbench-read-model";
+import type { CatalogPrimaryWorkbenchReadModel } from "../../../features/source-observations/api/primary-workbench-admin-contracts";
 import { parseCatalogPrimaryWorkbenchRouteContext } from "../../../features/source-observations/ui/primary-workbench-route-context";
 import {
   catalogPrimaryWorkbenchSourceOptionForcesRefresh,
@@ -93,9 +95,11 @@ async function finalizeSurfaceLoad(input: {
   > | null;
   reviewObservations?: ListResponse<SourceObservationListItem> | null;
   reviewPagination?: Readonly<{ limit: number; offset: number }>;
-  sourceOptionPages?: readonly CatalogPrimaryWorkbenchSourceOptionPageSnapshot[] | null;
-  aliasReview?: CatalogAliasReviewReadModel | null;
 }) {
+  // The source-option fan-out is no longer fetched here: every surface builds its
+  // read model without the option pages, so `sourceOptions` is the structural
+  // skeleton. The daily surface streams the populated slice separately (#1970);
+  // the other surfaces do not render the status panel at all.
   const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface(input.surface, {
     requestUrl: input.request.url,
     scopes: input.baseline.routeData.data,
@@ -105,7 +109,7 @@ async function finalizeSurfaceLoad(input: {
     controlPlaneOverview: input.baseline.controlPlaneOverview,
     reviewObservations: input.reviewObservations ?? null,
     reviewPagination: input.reviewPagination,
-    sourceOptionPages: input.sourceOptionPages ?? null,
+    sourceOptionPages: null,
     canManageCatalog: input.baseline.canManageCatalog,
   });
   await recordCatalogControlPlaneEvents(input.api, loaderTelemetryEvents(readModel));
@@ -114,33 +118,79 @@ async function finalizeSurfaceLoad(input: {
     readModel,
     requestUrl: input.request.url,
     commandFeedback: commandFeedbackFromUrl(input.request.url),
-    aliasReview: input.aliasReview ?? null,
   };
 }
 
-// Daily import-to-promotion surface (/admin/integrations). Loads the baseline
-// plus the paginated Source Observation review wave; it never fetches the
-// selected authoring model or lifecycle impacts, and the read model never
-// computes the governance, lifecycle, release, or audit sub-models.
+// Daily import-to-promotion surface (/admin/integrations). Awaits only the
+// baseline plus the paginated Source Observation review wave — the data the
+// shell, metric strip, and 3-stage flow paint from — and DEFERS the supplementary
+// loads behind streamed promises (#1970): the source-option fan-out (~150–250 KB,
+// feeds only the secondary status panel) and the alias-review read model
+// (supplementary pre-promotion context). The read model is built without the
+// option pages, so `sourceOptions` is its structural skeleton (declared kinds +
+// not-loaded pages) at first paint; the populated slice streams in behind a
+// Suspense boundary. It never fetches the selected authoring model or lifecycle
+// impacts, and the read model never computes the governance, lifecycle, release,
+// or audit sub-models.
 export async function loadDailySurface({ request }: LoaderFunctionArgs) {
   const { api, baseline, routeContext } = await loadIntegrationsBaseline(request);
   const reviewPagination = dailyReviewPaginationFor(routeContext);
   const reviewQuery = buildCatalogPrimaryWorkbenchSourceObservationReviewQuery(routeContext, reviewPagination);
-  const [reviewObservations, sourceOptionPages, aliasReview] = await Promise.all([
-    reviewQuery ? api.listSourceObservations<ListResponse<SourceObservationListItem>>(reviewQuery) : null,
-    selectedProviderSourceOptionPages(api, request, baseline, routeContext),
-    selectedScopeAliasReview(api, routeContext),
-  ]);
+  const reviewObservations = reviewQuery
+    ? await api.listSourceObservations<ListResponse<SourceObservationListItem>>(reviewQuery)
+    : null;
 
-  return finalizeSurfaceLoad({
+  const { readModel, requestUrl, commandFeedback } = await finalizeSurfaceLoad({
     api,
     request,
     surface: "daily",
     baseline,
     reviewObservations,
     reviewPagination,
+  });
+
+  return {
+    readModel,
+    requestUrl,
+    commandFeedback,
+    // Streamed supplementary values. Each is a plain promise the route view
+    // renders behind <Suspense>/<Await>; react-router serializes them so the
+    // document flushes the shell first and the panels stream in. The fail-soft
+    // boundary (null/empty on absence/error) lives INSIDE each promise, so a
+    // missing endpoint or transient failure resolves to an empty/absent panel
+    // rather than rejecting the boundary into an error page.
+    deferredSourceOptions: deferredSourceOptionsSlice(api, request, baseline, routeContext),
+    deferredAliasReview: selectedScopeAliasReview(api, routeContext),
+  };
+}
+
+// Resolve the streamed source-options slice: fetch the option fan-out (fail-soft
+// per page, as `selectedProviderSourceOptionPages` already guarantees) and build
+// the populated `sourceOptions` slice from the same baseline inputs the shell's
+// skeleton was derived from. Returning the fully-built slice (not the raw pages)
+// keeps the large provider option snapshots out of the browser payload while the
+// status panel consumes a ready-to-render value behind its Await boundary.
+async function deferredSourceOptionsSlice(
+  api: ReturnType<typeof createCatalogRequestApiClient>,
+  request: Request,
+  baseline: CatalogIntegrationsBaseline,
+  routeContext: CatalogPrimaryWorkbenchRouteContext,
+): Promise<CatalogPrimaryWorkbenchReadModel["sourceOptions"]> {
+  // Fail-soft to the not-loaded skeleton on any unexpected error so the streamed
+  // boundary always RESOLVES (never rejects into an error page). Per-page fetch
+  // failures already resolve to empty/error page snapshots inside
+  // selectedProviderSourceOptionPages; this guards the surrounding build too.
+  const sourceOptionPages = await selectedProviderSourceOptionPages(api, request, baseline, routeContext).catch(
+    () => null,
+  );
+
+  return buildCatalogPrimaryWorkbenchDeferredSourceOptions({
+    requestUrl: request.url,
+    scopes: baseline.routeData.data,
+    profileReviews: baseline.profileReviews,
+    controlPlaneOverview: baseline.controlPlaneOverview,
     sourceOptionPages,
-    aliasReview,
+    canManageCatalog: baseline.canManageCatalog,
   });
 }
 

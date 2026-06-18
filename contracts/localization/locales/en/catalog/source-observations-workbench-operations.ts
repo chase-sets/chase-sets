@@ -111,6 +111,8 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.context.unit": "Unit: {value}",
   "catalog.features.sourceObservations.ui.primaryWorkbench.current": "Current",
   "catalog.features.sourceObservations.ui.primaryWorkbench.default.workspace": "Default workspace",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.deferred.aliasReview.loading": "Loading alias review…",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.deferred.sourceOptions.loading": "Loading source options…",
   "catalog.features.sourceObservations.ui.primaryWorkbench.degraded": "Degraded",
   "catalog.features.sourceObservations.ui.primaryWorkbench.description":
     "The rebuilt default workbench keeps provider import, Source Observation review, promotion preview, and promotion outcome evidence together. Supporting workflows explain or unblock this path.",

@@ -1,9 +1,13 @@
+import { Suspense, type ReactElement } from "react";
+import { Await } from "react-router";
+import { t } from "@chase-sets/localization";
 import type { CatalogControlPlaneRouteSurfaceKey } from "./admin-control-plane/information-architecture";
 import type { CatalogPrimaryWorkbenchReadModel } from "../api/primary-workbench-admin-contracts";
 import type { CatalogAliasReviewReadModel } from "../../alias-equivalence/api/alias-review-admin-contracts";
 import type { CatalogPrimaryWorkbenchCommandFeedback } from "./primary-workbench-command-feedback";
 import { CatalogIntegrationsSurfacePage } from "./integrations-surface-page";
 import { CatalogIntegrationAliasReviewWorkspace } from "./admin-control-plane/alias-review/alias-review-workspace";
+import { DeferredSupplementaryPanel } from "./deferred-supplementary-panel";
 import { catalogPrimaryWorkbenchHref } from "./primary-workbench-route-context";
 
 // The data every integrations surface loader returns. The server owns read-model
@@ -13,10 +17,16 @@ export type CatalogIntegrationsRouteData = Readonly<{
   readModel: CatalogPrimaryWorkbenchReadModel;
   commandFeedback?: CatalogPrimaryWorkbenchCommandFeedback | null;
   requestUrl: string;
-  // Optional alias-review read model (#1908). The daily surface loader fetches it
-  // so the composition root can render the alias-review workspace inline before
-  // promotion; the other surfaces leave it absent.
-  aliasReview?: CatalogAliasReviewReadModel | null;
+  // Streamed supplementary values (#1970). The daily surface loader returns these
+  // as promises so the shell, metric strip, and 3-stage flow paint before the
+  // ~150–250 KB source-option fan-out and the supplementary alias-review resolve;
+  // the other surfaces leave them absent. The server builds the full
+  // `sourceOptions` slice inside the promise (not the raw pages), so the populated
+  // value the status panel consumes is ready-to-render and the large provider
+  // option snapshots never reach the browser payload. Each promise resolves
+  // null/empty on absence/error, so the streamed boundary stays fail-soft.
+  deferredSourceOptions?: Promise<CatalogPrimaryWorkbenchReadModel["sourceOptions"]> | null;
+  deferredAliasReview?: Promise<CatalogAliasReviewReadModel | null> | null;
 }>;
 
 // Shared thin view for the four integrations surface routes. The route loaders
@@ -37,14 +47,12 @@ export function CatalogIntegrationsSurfaceRouteView({
 }>) {
   // The alias-review workspace POSTs its accept/reject/revoke forms to the daily
   // integrations route action (the composition root supplies this href), which
-  // dispatches the #1905 aggregate commands. Only render it when the loader
-  // attached the alias read model (the daily surface).
-  const aliasVisibility = routeData.aliasReview ? (
-    <CatalogIntegrationAliasReviewWorkspace
-      readModel={routeData.aliasReview}
-      actionHref={catalogPrimaryWorkbenchHref(routeData.readModel.routeContext, "import-to-promotion")}
-      canManageAliases={routeData.readModel.readiness.rbacAllowed}
-    />
+  // dispatches the #1905 aggregate commands. Only the daily loader streams the
+  // alias read model, so the slot renders behind a Suspense boundary that shows a
+  // skeleton while the supplementary load streams in and resolves to nothing when
+  // the (fail-soft) promise yields null.
+  const aliasVisibility = routeData.deferredAliasReview ? (
+    <DeferredAliasReviewSlot deferredAliasReview={routeData.deferredAliasReview} readModel={routeData.readModel} />
   ) : null;
 
   return (
@@ -53,6 +61,42 @@ export function CatalogIntegrationsSurfaceRouteView({
       readModel={routeData.readModel}
       commandFeedback={commandFeedback ?? routeData.commandFeedback}
       aliasVisibility={aliasVisibility}
+      deferredSourceOptions={routeData.deferredSourceOptions ?? null}
     />
+  );
+}
+
+// Stream the supplementary alias-review workspace behind a Suspense/Await
+// boundary. The promise is fail-soft (null on absence/error), so a resolved null
+// renders nothing — never an error page — and the skeleton paints while the
+// supplementary alias read model streams in after the primary review queue.
+function DeferredAliasReviewSlot({
+  deferredAliasReview,
+  readModel,
+}: Readonly<{
+  deferredAliasReview: Promise<CatalogAliasReviewReadModel | null>;
+  readModel: CatalogPrimaryWorkbenchReadModel;
+}>): ReactElement {
+  return (
+    <Suspense
+      fallback={
+        <DeferredSupplementaryPanel
+          title={t("catalog.features.sourceObservations.ui.aliasReview.title")}
+          label={t("catalog.features.sourceObservations.ui.primaryWorkbench.deferred.aliasReview.loading")}
+        />
+      }
+    >
+      <Await resolve={deferredAliasReview}>
+        {(aliasReview) =>
+          aliasReview ? (
+            <CatalogIntegrationAliasReviewWorkspace
+              readModel={aliasReview}
+              actionHref={catalogPrimaryWorkbenchHref(readModel.routeContext, "import-to-promotion")}
+              canManageAliases={readModel.readiness.rbacAllowed}
+            />
+          ) : null
+        }
+      </Await>
+    </Suspense>
   );
 }

@@ -16,6 +16,10 @@ export interface CatalogIntegrationsSurfacePageProps {
   // root for the daily surface so operators see proposed alias equivalents while
   // reviewing Source Observations before promotion.
   aliasVisibility?: ReactElement | null;
+  // Streamed source-options slice (#1970). The daily surface defers the option
+  // fan-out, so the shell renders the status panel behind a Suspense boundary
+  // around this promise; the other surfaces leave it absent and render no panel.
+  deferredSourceOptions?: Promise<CatalogPrimaryWorkbenchReadModel["sourceOptions"]> | null;
 }
 
 // One audience surface route body: composes the shared workbench shell around the
@@ -28,11 +32,17 @@ export function CatalogIntegrationsSurfacePage({
   readModel,
   commandFeedback = null,
   aliasVisibility = null,
+  deferredSourceOptions = null,
 }: CatalogIntegrationsSurfacePageProps) {
   const surfaceDefinition = useMemo(() => catalogControlPlaneRouteSurface(surface), [surface]);
 
   return (
-    <CatalogWorkbenchShell readModel={readModel} commandFeedback={commandFeedback} surface={surface}>
+    <CatalogWorkbenchShell
+      readModel={readModel}
+      commandFeedback={commandFeedback}
+      surface={surface}
+      deferredSourceOptions={deferredSourceOptions}
+    >
       {renderCatalogWorkbenchSurfaceWorkspaces(readModel, surfaceDefinition.workspaces, { aliasVisibility })}
     </CatalogWorkbenchShell>
   );

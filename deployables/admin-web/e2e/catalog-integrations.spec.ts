@@ -91,8 +91,13 @@ test.describe("catalog admin integrations", () => {
 
     await authenticateCatalogAdmin(page);
     await expectPageOk(page, "/catalog/integrations");
-    await page.waitForLoadState("networkidle");
-
+    // #1970: the daily loader now DEFERS the source-option fan-out and the
+    // supplementary alias-review behind streamed Suspense boundaries, so the shell,
+    // metric strip, and 3-stage flow paint before those resolve. Do NOT wait for
+    // "networkidle" around the streaming boundary — the document streams in chunks
+    // as the deferred promises settle, and a wait that assumes a fully-idle network
+    // can race the streamed flush. Assert the shell paints first with an explicit
+    // visibility wait on the always-synchronous heading.
     await expect(page).toHaveURL(/\/catalog\/integrations$/);
     await expect(
       page.getByRole("heading", {
@@ -100,6 +105,20 @@ test.describe("catalog admin integrations", () => {
       }),
     ).toBeVisible();
     await expectVisibleText(page, "Catalog control plane");
+    // #1970: the deferred source-options status panel streams in after first paint.
+    // The seed's tcgdex profile declares source-option groups, so the panel renders
+    // once the streamed slice resolves. Assert it EVENTUALLY becomes visible (it is
+    // not present at first paint) without asserting any option volume — the seed has
+    // ≤25 changed observations and the streamed groups may be cache-only or degraded.
+    await expect(page.getByText("Source options").first()).toBeVisible({ timeout: 30_000 });
+    // The supplementary alias-review workspace also streams behind its own boundary,
+    // but its content is data-dependent (it resolves to nothing when there are no
+    // alias candidates for the scope). Assert it only when it actually rendered, so
+    // the test never assumes the seed carries alias candidates.
+    const aliasReviewHeading = page.getByRole("heading", { name: "Alias review" });
+    if (await aliasReviewHeading.count()) {
+      await expect(aliasReviewHeading.first()).toBeVisible({ timeout: 30_000 });
+    }
     // The rebuilt daily surface no longer renders a page-local "Import to promotion
     // workbench" label; that text was tied to the removed page-local workflow/module
     // nav. The workbench identity is now carried by the heading (asserted above) and the
