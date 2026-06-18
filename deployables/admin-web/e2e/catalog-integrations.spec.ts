@@ -211,6 +211,13 @@ test.describe("catalog admin integrations", () => {
       await expect(page.getByRole("button", { name: /Preview promotion/i }).first()).toBeVisible();
       await expect(page.getByRole("button", { name: "Defer" }).first()).toBeVisible();
       await expect(page.getByRole("button", { name: "Clear selection" }).first()).toBeVisible();
+      // #1975: selection now has a single, URL-backed source of truth. Checking a row
+      // persists it straight to the URL via a client GET navigation (no full reload,
+      // no hand-rolled "Save context" round-trip), so the selection survives in-place
+      // revalidation and round-trips to the pager / deep links. The write is a replace
+      // navigation, so poll the URL rather than asserting it synchronously; do NOT wait
+      // for networkidle (the revalidation may defer-stream and never settle).
+      await expect.poll(() => new URL(page.url()).searchParams.get("selectedObservationIds")).not.toBeNull();
       // Reject is reason-required, so it lives behind a panel trigger rather than inline.
       const rejectPanelTrigger = page.getByRole("button", { name: "Reject…" });
       await expect(rejectPanelTrigger.first()).toBeVisible();
@@ -220,6 +227,9 @@ test.describe("catalog admin integrations", () => {
       // "Clear selection" tears the bar back down, proving it is selection-scoped.
       await page.getByRole("button", { name: "Clear selection" }).first().click();
       await expect(page.getByRole("button", { name: /Preview promotion/i })).toHaveCount(0);
+      // Clearing flows through the same single URL write: the durable selection is
+      // dropped from the URL too (no orphaned selectedObservationIds left behind).
+      await expect.poll(() => new URL(page.url()).searchParams.get("selectedObservationIds")).toBeNull();
     }
 
     // #1971: the review list ships slim rows; a row's deep evidence (full normalized

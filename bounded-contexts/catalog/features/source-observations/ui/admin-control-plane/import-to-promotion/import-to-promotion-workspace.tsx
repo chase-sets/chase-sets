@@ -93,6 +93,10 @@ export function CatalogIntegrationImportToPromotionWorkspace({
         type="single"
         collapsible={false}
         value={activeStage}
+        // An explicit stage click is the operator's override: it wins over server
+        // truth until the next command moves the work (see useReconciledActiveStage).
+        // A single-collapsible accordion only ever emits a real stage value, so the
+        // `|| activeStage` guards the (unreachable) empty-collapse case.
         onValueChange={(value) => setActiveStage((value || activeStage) as ImportToPromotionStageKey)}
         items={stages.map((stage) => ({
           value: stage.key,
