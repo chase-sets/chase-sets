@@ -139,6 +139,30 @@ test.describe("catalog admin integrations", () => {
     await expect(page.getByRole("textbox", { name: /JSON/i })).toHaveCount(0);
     await expect(page.getByText(/Old integrations surface/i)).toHaveCount(0);
 
+    // #1966: the Source Observation review queue paginates past the first 25 rows. The
+    // pager is a GET navigation that moves a durable reviewOffset cursor in the URL while
+    // preserving provider/filters/selection, so the second page is reachable by carrying
+    // reviewOffset=25 (alongside provider context + a current selection) and the daily
+    // loader re-reads it to fetch that page. The deep-linked page must load (HTTP < 400),
+    // round-trip the cursor, and keep the selection — proving the queue is navigable and
+    // the count badge maps to a reachable list rather than a fixed 25-row dead end.
+    await expectPageOk(
+      page,
+      "/catalog/integrations?providerKey=tcgdex&filter.status=changed&selectedObservationIds=obs_001&reviewOffset=25",
+    );
+    await page.waitForLoadState("networkidle");
+    const reviewPageTwoUrl = new URL(page.url());
+    expect(reviewPageTwoUrl.pathname).toBe("/catalog/integrations");
+    expect(reviewPageTwoUrl.searchParams.get("reviewOffset")).toBe("25");
+    expect(reviewPageTwoUrl.searchParams.get("providerKey")).toBe("tcgdex");
+    expect(reviewPageTwoUrl.searchParams.get("selectedObservationIds")).toBe("obs_001");
+    // The "Previous page" pager affordance is present on page 2, so the operator can
+    // navigate back toward page 1 — the queue is bidirectionally navigable, not a dead end.
+    await expect(page.getByRole("link", { name: "Previous page" }).first()).toBeVisible();
+    // Return to the canonical daily route for the remaining assertions.
+    await expectPageOk(page, "/catalog/integrations");
+    await page.waitForLoadState("networkidle");
+
     // #1748 acceptance gate (criterion 1): the daily route is the DEFAULT landing, not a
     // detour. The supporting surfaces (providers/governance/release) each carry a single
     // "Back to import workbench" return affordance; the daily route itself must NOT — there

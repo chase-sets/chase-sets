@@ -71,6 +71,48 @@ describe("Catalog primary workbench read model - source observation review", () 
     expect(readModel.sourceObservationReview.rows[0]?.payloadSummary).not.toMatch(/raw JSON/i);
   });
 
+  it("exposes a navigable offset page window when the queue exceeds one page", () => {
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&filter.status=changed&reviewOffset=25&reviewLimit=25",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: null,
+      reviewObservations: { items: [sourceObservationListItem()], total: 80, count: 1 },
+      reviewPagination: { limit: 25, offset: 25 },
+      canManageCatalog: true,
+    });
+
+    expect(readModel.sourceObservationReview.pagination).toMatchObject({
+      mode: "offset",
+      limit: 25,
+      offset: 25,
+      total: 80,
+      previousCursor: "offset:0",
+      nextCursor: "offset:50",
+    });
+    expect(readModel.sourceObservationReview.cursor).toBe("offset:25");
+  });
+
+  it("closes the next cursor on the final page", () => {
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl: "https://admin.example/catalog/integrations?providerKey=tcgdex&reviewOffset=75&reviewLimit=25",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: null,
+      reviewObservations: { items: [sourceObservationListItem()], total: 80, count: 1 },
+      reviewPagination: { limit: 25, offset: 75 },
+      canManageCatalog: true,
+    });
+
+    expect(readModel.sourceObservationReview.pagination).toMatchObject({
+      offset: 75,
+      total: 80,
+      previousCursor: "offset:50",
+      nextCursor: null,
+    });
+  });
+
   it("distinguishes new, changed, and eligible promotion saved filters", () => {
     const readModel = buildCatalogPrimaryWorkbenchReadModel({
       requestUrl:
@@ -297,6 +339,8 @@ describe("Catalog primary workbench read model - source observation review", () 
       profileVersion: "2026.06.03",
       sourceObservationFilters: {},
       selectedObservationIds: [],
+      reviewOffset: null,
+      reviewLimit: null,
       jobId: null,
       promotionPreviewId: null,
       returnPath: null,
@@ -318,6 +362,8 @@ describe("Catalog primary workbench read model - source observation review", () 
       profileVersion: "2026.06.03",
       sourceObservationFilters: {},
       selectedObservationIds: [],
+      reviewOffset: null,
+      reviewLimit: null,
       jobId: null,
       promotionPreviewId: null,
       returnPath: null,
@@ -340,6 +386,8 @@ describe("Catalog primary workbench read model - source observation review", () 
       profileVersion: null,
       sourceObservationFilters: {},
       selectedObservationIds: [],
+      reviewOffset: null,
+      reviewLimit: null,
       jobId: null,
       promotionPreviewId: null,
       returnPath: null,

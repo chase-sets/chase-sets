@@ -185,6 +185,8 @@ export type CatalogPrimaryWorkbenchRouteContextKey =
   | "profileVersion"
   | "sourceObservationFilters"
   | "selectedObservationIds"
+  | "reviewOffset"
+  | "reviewLimit"
   | "jobId"
   | "promotionPreviewId"
   | "returnPath";
@@ -339,6 +341,13 @@ export type CatalogPrimaryWorkbenchRouteContext = Readonly<{
   profileVersion: string | null;
   sourceObservationFilters: Readonly<Record<string, string>>;
   selectedObservationIds: readonly string[];
+  // Source Observation review page window. reviewOffset is the durable, URL-backed
+  // pager cursor (null = first page); reviewLimit overrides the default page size
+  // only when present. Kept on the route context so catalogPrimaryWorkbenchHref
+  // round-trips the page through the loader alongside provider/unit/scope/filters
+  // and the current selection.
+  reviewOffset: number | null;
+  reviewLimit: number | null;
   jobId: string | null;
   promotionPreviewId: string | null;
   returnPath: string | null;

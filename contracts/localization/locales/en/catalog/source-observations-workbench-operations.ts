@@ -348,6 +348,11 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.key.redaction": "Redaction summary",
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.key.source.url": "Source URL",
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.observations": "Review observations",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.pager.label": "Review queue pages",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.pager.next": "Next page",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.pager.previous": "Previous page",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.pager.summary":
+    "{rangeStart}–{rangeEnd} of {total} (page {currentPage} of {pageCount})",
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.payload.summary":
     "{kind}; {imageCount} image URL(s); {externalReferenceCount} external reference(s) summarized.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.preview.required": "Preview required",

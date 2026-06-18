@@ -221,6 +221,8 @@ export function CatalogIntegrationSourceObservationReviewModule({
         emptyDescription={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.empty.description")}
       />
 
+      <SourceObservationReviewPager readModel={readModel} />
+
       {selectedObservationKeys.size > 0 ? (
         <WorkbenchDetailPanel>
           <WorkbenchActionRow align="between">
@@ -308,6 +310,79 @@ export function CatalogIntegrationSourceObservationReviewModule({
         </WorkbenchDetailPanel>
       ) : null}
     </WorkflowModule>
+  );
+}
+
+// GET-navigation pager for the Source Observation review queue. The daily surface
+// is loader-driven, so each page is a full navigation: building the prev/next
+// hrefs from the current routeContext (only overriding reviewOffset) preserves
+// provider/unit/scope/filters AND the current selection (selectedObservationIds)
+// across pages, and the loader re-reads the offset to fetch that page. Prev/next
+// render only when a page exists in that direction, so the boundaries are dead
+// ends by absence rather than disabled controls.
+function SourceObservationReviewPager({ readModel }: { readModel: CatalogPrimaryWorkbenchReadModel }) {
+  const { limit, offset, total, nextCursor, previousCursor } = readModel.sourceObservationReview.pagination;
+  if (total <= limit) {
+    return null;
+  }
+
+  const pageCount = Math.max(Math.ceil(total / limit), 1);
+  const currentPage = Math.floor(offset / limit) + 1;
+  const rangeStart = total === 0 ? 0 : offset + 1;
+  const rangeEnd = Math.min(offset + limit, total);
+
+  return (
+    <WorkbenchActionRow
+      align="between"
+      aria-label={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.pager.label")}
+    >
+      <WorkbenchText size="xs" tone="secondary">
+        {t("catalog.features.sourceObservations.ui.primaryWorkbench.review.pager.summary", {
+          rangeStart,
+          rangeEnd,
+          total,
+          currentPage,
+          pageCount,
+        })}
+      </WorkbenchText>
+      <WorkbenchActionRow>
+        {previousCursor ? (
+          <LinkButton
+            size="sm"
+            tone="secondary"
+            leadingIcon="chevronLeft"
+            href={reviewPageHref(readModel, Math.max(offset - limit, 0))}
+            rel="prev"
+          >
+            {t("catalog.features.sourceObservations.ui.primaryWorkbench.review.pager.previous")}
+          </LinkButton>
+        ) : null}
+        {nextCursor ? (
+          <LinkButton
+            size="sm"
+            tone="secondary"
+            trailingIcon="chevronRight"
+            href={reviewPageHref(readModel, offset + limit)}
+            rel="next"
+          >
+            {t("catalog.features.sourceObservations.ui.primaryWorkbench.review.pager.next")}
+          </LinkButton>
+        ) : null}
+      </WorkbenchActionRow>
+    </WorkbenchActionRow>
+  );
+}
+
+// Build a review-page GET href that preserves the full working set and only moves
+// the durable reviewOffset cursor. The first page drops the offset entirely so the
+// canonical URL stays clean (serialization omits offset 0).
+function reviewPageHref(readModel: CatalogPrimaryWorkbenchReadModel, targetOffset: number): string {
+  return catalogPrimaryWorkbenchHref(
+    {
+      ...readModel.routeContext,
+      reviewOffset: targetOffset > 0 ? targetOffset : null,
+    },
+    "source-observation-review",
   );
 }
 
