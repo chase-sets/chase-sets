@@ -68,6 +68,34 @@ function ListingTrustSignal({
   );
 }
 
+function ProductQuantityLine({
+  selectionDetails,
+  emptyLabel,
+  quantity,
+  children,
+}: {
+  selectionDetails: readonly { label: ReactNode; value: ReactNode }[];
+  emptyLabel: ReactNode;
+  quantity: ReactNode;
+  children?: ReactNode;
+}) {
+  return (
+    <Stack gap={1} minWidth="0">
+      <ProductOptions
+        options={productOptionsFromSelectionDetails(selectionDetails)}
+        emptyLabel={emptyLabel}
+        variant="compact"
+        size="sm"
+        truncate
+      />
+      <Text element="span" size="xs" tone="secondary" weight="medium">
+        {quantity}
+      </Text>
+      {children}
+    </Stack>
+  );
+}
+
 export type ItemDetailMarketBookProps = Readonly<{
   marketBookTab: MarketBookTab;
   onMarketBookTabChange: (tab: MarketBookTab) => void;
@@ -168,9 +196,10 @@ export function ItemDetailMarketBook({
                       const sellerFeedbackHref = listing.seller_slug
                         ? `/accounts/${listing.seller_slug}#feedback`
                         : null;
+                      const productSelectionDetails = getProductSelectionDetails(listing.selected_options);
                       const compactProductSummary = formatCompactProductSummary(
                         listing.product_summary,
-                        getProductSelectionDetails(listing.selected_options),
+                        productSelectionDetails,
                         t("discovery.features.itemDetail.ui.itemDetailPage.standard"),
                       );
 
@@ -203,23 +232,13 @@ export function ItemDetailMarketBook({
                               />
                             </ComparisonListCell>
                             <ComparisonListCell area="product">
-                              <ProductOptions
-                                options={productOptionsFromSelectionDetails(
-                                  getProductSelectionDetails(listing.selected_options),
-                                )}
+                              <ProductQuantityLine
+                                selectionDetails={productSelectionDetails}
                                 emptyLabel={compactProductSummary}
-                                variant="compact"
-                                size="sm"
-                                truncate
-                              />
-                              <Text element="span" size="xs" tone="secondary" weight="medium">
-                                {formatListingAvailability(listing)}
-                              </Text>
-                              {purchaseLimit ? (
-                                <Stack gap={1}>
-                                  <Badge tone="neutral">{purchaseLimit}</Badge>
-                                </Stack>
-                              ) : null}
+                                quantity={formatListingAvailability(listing)}
+                              >
+                                {purchaseLimit ? <Badge tone="neutral">{purchaseLimit}</Badge> : null}
+                              </ProductQuantityLine>
                             </ComparisonListCell>
                             <ComparisonListCell area="action">
                               <Button
@@ -315,9 +334,10 @@ export function ItemDetailMarketBook({
                       const isBestOfferPrice = isBestOffer(offer, matchingOffers);
                       const buyerName = offer.buyer_display_name ?? offer.buyer_account_id;
                       const buyerFeedbackHref = offer.buyer_slug ? `/accounts/${offer.buyer_slug}#feedback` : null;
+                      const productSelectionDetails = getProductSelectionDetails(offer.selected_options);
                       const compactProductSummary = formatCompactProductSummary(
                         offer.product_summary,
-                        getProductSelectionDetails(offer.selected_options),
+                        productSelectionDetails,
                         t("discovery.features.itemDetail.ui.itemDetailPage.standard.2"),
                       );
 
@@ -362,18 +382,11 @@ export function ItemDetailMarketBook({
                               ) : null}
                             </ComparisonListCell>
                             <ComparisonListCell area="product">
-                              <ProductOptions
-                                options={productOptionsFromSelectionDetails(
-                                  getProductSelectionDetails(offer.selected_options),
-                                )}
+                              <ProductQuantityLine
+                                selectionDetails={productSelectionDetails}
                                 emptyLabel={compactProductSummary}
-                                variant="compact"
-                                size="sm"
-                                truncate
+                                quantity={formatOfferRequestedQuantity(offer)}
                               />
-                              <Text element="span" size="xs" tone="secondary" weight="medium">
-                                {formatOfferRequestedQuantity(offer)}
-                              </Text>
                             </ComparisonListCell>
                             <ComparisonListCell area="action">
                               <Button

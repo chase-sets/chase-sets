@@ -190,7 +190,8 @@ describe("item detail commerce panel purchase workflows and offers", () => {
     expect(screen.getByText("Selected price")).toBeTruthy();
     expect(screen.getByText("$399.99")).toBeTruthy();
     expect(screen.getByText("Chase Sets")).toBeTruthy();
-    expect(screen.getByText("2 available")).toBeTruthy();
+    const availabilityLine = screen.getByText("2 available");
+    expect(availabilityLine).toBeTruthy();
     expect(screen.getByLabelText("Product options: Form Raw, Condition Excellent")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "View buying this listing details" }));
     const buyListingDialog = screen.getByRole("dialog", { name: "Buying this listing" });
@@ -201,7 +202,10 @@ describe("item detail commerce panel purchase workflows and offers", () => {
       within(buyListingDialog).getByText("Quantity, price, and availability are checked again before payment."),
     ).toBeTruthy();
     fireEvent.click(within(buyListingDialog).getByRole("button", { name: "Close reference detail" }));
-    const productQuantityText = screen.getByText("2 available").parentElement?.textContent ?? "";
+    const productQuantitySummary = availabilityLine.parentElement;
+    expect(productQuantitySummary?.className).toContain("flex-col");
+    expect(productQuantitySummary?.lastElementChild).toBe(availabilityLine);
+    const productQuantityText = productQuantitySummary?.textContent ?? "";
     expect(productQuantityText.indexOf("Raw")).toBeGreaterThanOrEqual(0);
     expect(productQuantityText.indexOf("Raw")).toBeLessThan(productQuantityText.indexOf("2 available"));
     expect(screen.getByRole("button", { name: "Buy this listing" })).toBeTruthy();
@@ -463,6 +467,10 @@ describe("item detail commerce panel purchase workflows and offers", () => {
 
     expect(screen.getByTestId("selected-offer-id")).toHaveProperty("value", "offer_charizard");
     expect(screen.getByTestId("selected-offer-source")).toHaveProperty("value", "explicit");
+    const selectedOfferRow = screen.getByRole("article", { name: "Offer $350.00 from Ash Ketchum" });
+    const selectedOfferQuantity = within(selectedOfferRow).getByText("1 requested");
+    expect(selectedOfferQuantity.parentElement?.className).toContain("flex-col");
+    expect(selectedOfferQuantity.parentElement?.lastElementChild).toBe(selectedOfferQuantity);
     expect(screen.getByRole("button", { name: "Selected Ash Ketchum offer at $350.00" })).toBeTruthy();
   });
 

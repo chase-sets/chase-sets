@@ -1,7 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { useState, type FormEvent, type ReactNode } from "react";
 import {
-  InlineTextGroup,
   ProductOptions,
   ReferenceInfoDialog,
   type ReferenceInfoSection,
@@ -57,7 +56,7 @@ export function ProductQuantitySummary({
   fallback: ReactNode;
 }) {
   return (
-    <InlineTextGroup gap={3} align="end">
+    <Stack gap={1} minWidth="0">
       <ProductOptions
         options={productOptionsFromSelectionDetails(productSelectionDetails)}
         emptyLabel={productSummary ?? fallback}
@@ -68,7 +67,7 @@ export function ProductQuantitySummary({
       <Text element="span" size="sm" tone="secondary" weight="medium">
         {availability}
       </Text>
-    </InlineTextGroup>
+    </Stack>
   );
 }
 
