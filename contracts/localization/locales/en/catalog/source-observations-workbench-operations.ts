@@ -300,6 +300,21 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.bulk.preview.description":
     "Selected eligible observations can be previewed before any Catalog-owned write runs.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.bulk.preview.title": "Preview selected observations",
+  // Accessible denial labels for the bulk command bar: a disabled action announces
+  // why the command is unavailable for the current selection, mirroring the
+  // per-row denial labels so the surface stays self-explanatory.
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.bulk.preview.denied":
+    "Preview promotion is unavailable: no selected observation is eligible for promotion preview.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.bulk.defer.denied":
+    "Defer is unavailable: no selected observation is in a reviewable state, or the defer command is blocked.",
+  // Reject is a destructive, reason-required command, so it lives behind a
+  // BulkActionPanel rather than as a bare bulk action.
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.bulk.reject.trigger": "Reject…",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.bulk.reject.title": "Reject selected observations",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.bulk.reject.description":
+    "Reject the selected observations with a recorded reason. Rejected observations leave the review queue and are auditable.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.bulk.reject.denied":
+    "Reject is unavailable: no selected observation is in a reviewable state, or the reject command is blocked.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.reviewable.observations": "Reviewable observations",
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.conflict.changed":
     "Changed normalized facts require promotion preview before Catalog writes.",

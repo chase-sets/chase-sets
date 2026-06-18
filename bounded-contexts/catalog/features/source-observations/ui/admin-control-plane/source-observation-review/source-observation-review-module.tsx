@@ -1,7 +1,9 @@
-import { useMemo, type Dispatch, type ReactNode, type SetStateAction } from "react";
+import { useId, useMemo, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import {
   Badge,
   BadgeCluster,
+  BulkActionBar,
+  BulkActionPanel,
   Button,
   DataTable,
   EvidenceStringList,
@@ -12,7 +14,6 @@ import {
   TextInput,
   WorkbenchActionRow,
   WorkbenchDataCell,
-  WorkbenchDetailPanel,
   WorkbenchForm,
   WorkbenchStack,
   WorkbenchText,
@@ -224,92 +225,186 @@ export function CatalogIntegrationSourceObservationReviewModule({
       <SourceObservationReviewPager readModel={readModel} />
 
       {selectedObservationKeys.size > 0 ? (
-        <WorkbenchDetailPanel>
-          <WorkbenchActionRow align="between">
-            <WorkbenchText tone="foreground" weight="semibold">
-              {t("catalog.features.sourceObservations.ui.primaryWorkbench.review.selected", {
-                count: selectedObservationKeys.size,
-              })}
-            </WorkbenchText>
-            <WorkbenchActionRow>
-              <CommandFormButton
-                readModel={readModel}
-                intent="preview-promotion"
-                size="sm"
-                selectedObservationIds={[...selectedObservationKeys]}
-                disabled={selectedEligibleObservationCount === 0}
-              >
-                {t("catalog.features.sourceObservations.ui.primaryWorkbench.preview.promotion")}
-              </CommandFormButton>
-              <CommandFormButton
-                readModel={readModel}
-                intent="defer-source-observations"
-                size="sm"
-                tone="secondary"
-                selectedObservationIds={[...selectedObservationKeys]}
-                reason={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.defer.reason")}
-                disabled={
-                  selectedReviewableObservationCount === 0 || !isActionAvailable(readModel, "defer-source-observations")
-                }
-              >
-                {t("catalog.features.sourceObservations.ui.primaryWorkbench.review.defer")}
-              </CommandFormButton>
-              <Button size="sm" tone="secondary" onClick={() => onSelectedObservationKeysChange(new Set())}>
-                {t("catalog.features.sourceObservations.ui.primaryWorkbench.clear.selection")}
-              </Button>
-            </WorkbenchActionRow>
-          </WorkbenchActionRow>
-          <KeyValueList
-            items={[
-              {
-                key: t("catalog.features.sourceObservations.ui.primaryWorkbench.reviewable.observations"),
-                value: selectedReviewableObservationCount,
-              },
-              {
-                key: t("catalog.features.sourceObservations.ui.primaryWorkbench.eligible.observations"),
-                value: selectedEligibleObservationCount,
-              },
-              {
-                key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.plan"),
-                value:
-                  readModel.promotionPreview.commandPlanHash ??
-                  t("catalog.features.sourceObservations.ui.primaryWorkbench.review.preview.required"),
-              },
-            ]}
-          />
-          <WorkbenchForm
-            variant="inline"
-            method="post"
-            action={catalogPrimaryWorkbenchHref(readModel.routeContext, "import-to-promotion")}
-            data-catalog-primary-workbench-command="reject-source-observations"
-          >
-            <CommandHiddenInputs
-              readModel={readModel}
-              intent="reject-source-observations"
-              selectedObservationIds={[...selectedObservationKeys]}
-            />
-            <TextInput
-              label={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.reject.reason")}
-              name="reason"
-              required
-              disabled={
-                selectedReviewableObservationCount === 0 || !isActionAvailable(readModel, "reject-source-observations")
-              }
-            />
-            <Button
-              type="submit"
-              size="sm"
-              tone="secondary"
-              disabled={
-                selectedReviewableObservationCount === 0 || !isActionAvailable(readModel, "reject-source-observations")
-              }
-            >
-              {t("catalog.features.sourceObservations.ui.primaryWorkbench.review.reject")}
-            </Button>
-          </WorkbenchForm>
-        </WorkbenchDetailPanel>
+        <SourceObservationReviewBulkActionBar
+          readModel={readModel}
+          selectedObservationKeys={selectedObservationKeys}
+          onSelectedObservationKeysChange={onSelectedObservationKeysChange}
+          selectedEligibleObservationCount={selectedEligibleObservationCount}
+          selectedReviewableObservationCount={selectedReviewableObservationCount}
+        />
       ) : null}
     </WorkflowModule>
+  );
+}
+
+// The selected-record command surface is the ONE canonical BulkActionBar the dense
+// admin workbench DS mandates (the shell already wraps the module in
+// BulkActionSurface, which enforces a single bar). Primary = "Preview promotion"
+// (eligible-gated); secondary = "Defer" / "Clear selection"; the destructive,
+// reason-required "Reject" lives in a BulkActionPanel. Each command keeps the same
+// CommandFormButton / CommandHiddenInputs POST semantics (and the same
+// eligible/reviewable + isActionAvailable gating) it had hand-rolled — only the
+// presentation moves into the DS primitive. Disabled commands carry an accessible
+// denial label, mirroring the per-row action taxonomy.
+function SourceObservationReviewBulkActionBar({
+  readModel,
+  selectedObservationKeys,
+  onSelectedObservationKeysChange,
+  selectedEligibleObservationCount,
+  selectedReviewableObservationCount,
+}: Readonly<{
+  readModel: CatalogPrimaryWorkbenchReadModel;
+  selectedObservationKeys: Set<string>;
+  onSelectedObservationKeysChange: Dispatch<SetStateAction<Set<string>>>;
+  selectedEligibleObservationCount: number;
+  selectedReviewableObservationCount: number;
+}>) {
+  const selectedObservationIds = [...selectedObservationKeys];
+  const previewDisabled = selectedEligibleObservationCount === 0;
+  const deferDisabled =
+    selectedReviewableObservationCount === 0 || !isActionAvailable(readModel, "defer-source-observations");
+
+  return (
+    <BulkActionBar
+      count={selectedObservationKeys.size}
+      formatSelectedLabel={(count) =>
+        t("catalog.features.sourceObservations.ui.primaryWorkbench.review.selected", { count })
+      }
+      primaryActions={
+        <CommandFormButton
+          readModel={readModel}
+          intent="preview-promotion"
+          size="sm"
+          selectedObservationIds={selectedObservationIds}
+          disabled={previewDisabled}
+          aria-label={
+            previewDisabled
+              ? t("catalog.features.sourceObservations.ui.primaryWorkbench.review.bulk.preview.denied")
+              : undefined
+          }
+        >
+          {t("catalog.features.sourceObservations.ui.primaryWorkbench.preview.promotion")}
+        </CommandFormButton>
+      }
+      secondaryActions={
+        <>
+          <CommandFormButton
+            readModel={readModel}
+            intent="defer-source-observations"
+            size="sm"
+            tone="secondary"
+            selectedObservationIds={selectedObservationIds}
+            reason={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.defer.reason")}
+            disabled={deferDisabled}
+            aria-label={
+              deferDisabled
+                ? t("catalog.features.sourceObservations.ui.primaryWorkbench.review.bulk.defer.denied")
+                : undefined
+            }
+          >
+            {t("catalog.features.sourceObservations.ui.primaryWorkbench.review.defer")}
+          </CommandFormButton>
+          <SourceObservationRejectPanel
+            readModel={readModel}
+            selectedObservationIds={selectedObservationIds}
+            selectedEligibleObservationCount={selectedEligibleObservationCount}
+            selectedReviewableObservationCount={selectedReviewableObservationCount}
+          />
+          <Button size="sm" tone="secondary" onClick={() => onSelectedObservationKeysChange(new Set())}>
+            {t("catalog.features.sourceObservations.ui.primaryWorkbench.clear.selection")}
+          </Button>
+        </>
+      }
+    />
+  );
+}
+
+// Reject is destructive and reason-required, so it belongs in a BulkActionPanel
+// rather than as a bare bulk action (DS Command Safety: "advanced or risky
+// selected-record choices belong in BulkActionPanel"). The panel body carries the
+// selection-impact facts (reviewable / eligible / command plan) and the free-text
+// reason input; the reject command keeps its CommandHiddenInputs POST semantics.
+// The submit button lives in the panel footer and associates to the body form via
+// the native form/id association, so a single <form> spans body + footer without
+// re-adding app-owned layout markup.
+function SourceObservationRejectPanel({
+  readModel,
+  selectedObservationIds,
+  selectedEligibleObservationCount,
+  selectedReviewableObservationCount,
+}: Readonly<{
+  readModel: CatalogPrimaryWorkbenchReadModel;
+  selectedObservationIds: readonly string[];
+  selectedEligibleObservationCount: number;
+  selectedReviewableObservationCount: number;
+}>) {
+  const rejectFormId = useId();
+  const rejectDisabled =
+    selectedReviewableObservationCount === 0 || !isActionAvailable(readModel, "reject-source-observations");
+  const rejectDeniedLabel = rejectDisabled
+    ? t("catalog.features.sourceObservations.ui.primaryWorkbench.review.bulk.reject.denied")
+    : undefined;
+
+  return (
+    <BulkActionPanel
+      title={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.bulk.reject.title")}
+      description={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.bulk.reject.description")}
+      trigger={
+        <Button size="sm" tone="secondary" leadingIcon="trash">
+          {t("catalog.features.sourceObservations.ui.primaryWorkbench.review.bulk.reject.trigger")}
+        </Button>
+      }
+      footer={
+        <Button
+          type="submit"
+          form={rejectFormId}
+          size="sm"
+          tone="secondary"
+          disabled={rejectDisabled}
+          aria-label={rejectDeniedLabel}
+        >
+          {t("catalog.features.sourceObservations.ui.primaryWorkbench.review.reject")}
+        </Button>
+      }
+    >
+      <KeyValueList
+        items={[
+          {
+            key: t("catalog.features.sourceObservations.ui.primaryWorkbench.reviewable.observations"),
+            value: selectedReviewableObservationCount,
+          },
+          {
+            key: t("catalog.features.sourceObservations.ui.primaryWorkbench.eligible.observations"),
+            value: selectedEligibleObservationCount,
+          },
+          {
+            key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.plan"),
+            value:
+              readModel.promotionPreview.commandPlanHash ??
+              t("catalog.features.sourceObservations.ui.primaryWorkbench.review.preview.required"),
+          },
+        ]}
+      />
+      <WorkbenchForm
+        id={rejectFormId}
+        variant="plain"
+        method="post"
+        action={catalogPrimaryWorkbenchHref(readModel.routeContext, "import-to-promotion")}
+        data-catalog-primary-workbench-command="reject-source-observations"
+      >
+        <CommandHiddenInputs
+          readModel={readModel}
+          intent="reject-source-observations"
+          selectedObservationIds={selectedObservationIds}
+        />
+        <TextInput
+          label={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.reject.reason")}
+          name="reason"
+          required
+          disabled={rejectDisabled}
+        />
+      </WorkbenchForm>
+    </BulkActionPanel>
   );
 }
 

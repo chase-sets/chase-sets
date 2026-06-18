@@ -1255,23 +1255,34 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     const checkbox = within(reviewModule as HTMLElement).getAllByRole("checkbox")[0];
     fireEvent.click(checkbox);
 
+    // Selecting a reviewable row surfaces the canonical BulkActionBar: the preview and
+    // defer commands render eagerly as the bar's primary/secondary CommandFormButtons,
+    // so their forms are queryable immediately.
     const selectedPreviewForm = Array.from(
       document.querySelectorAll<HTMLFormElement>('form[data-catalog-primary-workbench-command="preview-promotion"]'),
     ).find((form) => form.querySelector<HTMLInputElement>('input[name="selectedObservationIds"]')?.value === "obs_001");
-    const rejectForm = document.querySelector<HTMLFormElement>(
-      'form[data-catalog-primary-workbench-command="reject-source-observations"]',
-    );
     const deferForm = document.querySelector<HTMLFormElement>(
       'form[data-catalog-primary-workbench-command="defer-source-observations"]',
     );
 
     expect(selectedPreviewForm).toBeTruthy();
-    expect(rejectForm?.querySelector<HTMLInputElement>('input[name="selectedObservationIds"]')?.value).toBe("obs_001");
-    expect(rejectForm?.querySelector<HTMLInputElement>('input[name="reason"]')?.required).toBe(true);
     expect(deferForm?.querySelector<HTMLInputElement>('input[name="selectedObservationIds"]')?.value).toBe("obs_001");
     expect(deferForm?.querySelector<HTMLInputElement>('input[name="reason"]')?.value).toBe(
       "Deferred from the primary workbench; observation remains in review.",
     );
+
+    // Reject is destructive and reason-required, so it lives behind the BulkActionPanel
+    // trigger. Opening the panel mounts the reject form (and its required reason input);
+    // before it is opened the form is intentionally absent from the DOM.
+    expect(
+      document.querySelector('form[data-catalog-primary-workbench-command="reject-source-observations"]'),
+    ).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Reject…" }));
+    const rejectForm = document.querySelector<HTMLFormElement>(
+      'form[data-catalog-primary-workbench-command="reject-source-observations"]',
+    );
+    expect(rejectForm?.querySelector<HTMLInputElement>('input[name="selectedObservationIds"]')?.value).toBe("obs_001");
+    expect(rejectForm?.querySelector<HTMLInputElement>('input[name="reason"]')?.required).toBe(true);
   });
 
   it("submits reapply and replay commands for promoted Source Observations as durable jobs", () => {

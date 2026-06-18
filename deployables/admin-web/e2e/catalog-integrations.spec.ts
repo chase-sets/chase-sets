@@ -173,6 +173,35 @@ test.describe("catalog admin integrations", () => {
       await expect(page.getByRole("button", { name: /Pull provider data/i }).first()).toBeVisible();
     }
 
+    // #1974: the selected-record command surface is the canonical BulkActionBar /
+    // BulkActionPanel (no hand-rolled WorkbenchDetailPanel selection block). Open the
+    // "Review changes" stage and, IF the seed holds a selectable Source Observation,
+    // select its row checkbox and prove the bulk bar surfaces the consolidated command
+    // taxonomy: primary "Preview promotion", secondary "Defer" / "Clear selection", and
+    // the destructive reason-required "Reject" behind a BulkActionPanel trigger that opens
+    // a reason input. This is data-dependent (an empty review queue renders no selectable
+    // rows), so every assertion is guarded on a row actually being selectable — the test
+    // never assumes a non-empty seed.
+    await page.getByRole("button", { name: "Review changes" }).first().click();
+    const reviewRowCheckbox = page.getByRole("row").getByRole("checkbox");
+    if (await reviewRowCheckbox.count()) {
+      await reviewRowCheckbox.first().check();
+      // The bar replaces the old hand-rolled panel: its primary/secondary commands and
+      // the reject panel trigger are now the only selection-command affordances.
+      await expect(page.getByRole("button", { name: /Preview promotion/i }).first()).toBeVisible();
+      await expect(page.getByRole("button", { name: "Defer" }).first()).toBeVisible();
+      await expect(page.getByRole("button", { name: "Clear selection" }).first()).toBeVisible();
+      // Reject is reason-required, so it lives behind a panel trigger rather than inline.
+      const rejectPanelTrigger = page.getByRole("button", { name: "Reject…" });
+      await expect(rejectPanelTrigger.first()).toBeVisible();
+      await rejectPanelTrigger.first().click();
+      await expect(page.getByRole("textbox", { name: /Reject reason/i }).first()).toBeVisible();
+      await page.keyboard.press("Escape");
+      // "Clear selection" tears the bar back down, proving it is selection-scoped.
+      await page.getByRole("button", { name: "Clear selection" }).first().click();
+      await expect(page.getByRole("button", { name: /Preview promotion/i })).toHaveCount(0);
+    }
+
     await page.getByRole("button", { name: "Create / update items" }).first().click();
     await expect(page.getByRole("button", { name: /Preview promotion/i }).first()).toBeVisible();
     await expect(page.getByRole("textbox", { name: /JSON/i })).toHaveCount(0);
