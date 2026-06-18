@@ -307,16 +307,17 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.getAllByText("Provider emergency stop").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Worker pause/resume state").length).toBeGreaterThan(0);
     expect(screen.getAllByText("catalog.integration.rollout.stop").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("issue #801").length).toBeGreaterThan(0);
+    expect(screen.queryByText(/issue #801/i)).toBeNull();
+    expect(screen.queryByText(/ops-release/i)).toBeNull();
+    expect(screen.queryByText(/no issue/i)).toBeNull();
     expect(screen.getAllByText("start-provider-import").length).toBeGreaterThan(0);
     expect(screen.getAllByText("execute-promotion").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Alert catalog.integration.jobs.failure_rate").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Runbook Projection freshness").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Payload escape hatch").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Broad patch compatibility").length).toBeGreaterThan(0);
-    expect(
-      screen.getAllByText(/documentation, runbooks, release notes, and operator instructions/i).length,
-    ).toBeGreaterThan(0);
+    expect(screen.queryByText(/runbooks, release notes, and operator instructions/i)).toBeNull();
+    expect(screen.queryByText(/before launch/i)).toBeNull();
     expect(screen.queryByText(/holding area/i)).toBeNull();
     expect(screen.queryByText(/raw JSON/i)).toBeNull();
   });
@@ -580,8 +581,10 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.getByRole("heading", { name: "Rollback profile" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Deprecate profile" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Retire profile" })).toBeTruthy();
-    expect(screen.getByText("Retire means complete removal")).toBeTruthy();
-    expect(screen.getAllByText(/complete removal of code, product patterns/i).length).toBeGreaterThan(0);
+    expect(screen.getByText("Retirement removes the profile behavior")).toBeTruthy();
+    expect(
+      screen.getAllByText(/Retiring a provider profile removes its mapping and promotion behavior/i).length,
+    ).toBeGreaterThan(0);
     expect(screen.getAllByText("Profile retirement references").length).toBeGreaterThan(0);
 
     const rollbackForm = document.querySelector<HTMLFormElement>('form[data-catalog-lifecycle-command="rollback"]');
@@ -601,7 +604,9 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.getByLabelText(/I confirm rollback profile impact and audit evidence/i)).toBeTruthy();
     expect(screen.getByLabelText(/I confirm deprecate profile impact and audit evidence/i)).toBeTruthy();
     expect(
-      screen.getByLabelText(/I confirm retirement means complete removal and all impact evidence is clear/i),
+      screen.getByLabelText(
+        /I confirm retirement removes this provider profile behavior entirely and all impact evidence is clear/i,
+      ),
     ).toBeTruthy();
     expect(retireForm?.querySelector<HTMLInputElement>('input[name="providerKey"]')?.value).toBe("tcgdex");
     expect(retireForm?.querySelector<HTMLInputElement>('input[name="profileVersion"]')?.value).toBe("2026.06.04");
@@ -665,8 +670,8 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.getByRole("heading", { name: "Conflict audit evidence" })).toBeTruthy();
     expect(screen.getAllByText("promotion-command.conflict-blocking.v1").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Promotion blocking").length).toBeGreaterThan(0);
-    expect(screen.getByText("Overrides fail closed until rebuilt")).toBeTruthy();
-    expect(screen.getByText(/compatibility override paths are retired/i)).toBeTruthy();
+    expect(screen.getByText("Overrides fail closed")).toBeTruthy();
+    expect(screen.getByText(/no compatibility override path is available/i)).toBeTruthy();
     expect(screen.getAllByText("Promotion mapping reviewed for conflicting Catalog item.").length).toBeGreaterThan(0);
     expectBackToWorkbenchHref(screen.getByRole("link", { name: "Back to import workbench" }).getAttribute("href"));
     expect(screen.queryByText(/raw JSON|Profile JSON|Candidate JSON|Active JSON/i)).toBeNull();

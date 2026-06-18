@@ -880,8 +880,6 @@ export type CatalogPrimaryWorkbenchGovernanceControlsReadModel = Readonly<{
     kind: CatalogPrimaryWorkbenchGovernanceControlKind;
     label: string;
     status: "open" | "degraded" | "blocked" | "removed";
-    owner: string;
-    ownerIssue: number | null;
     metricKey: string;
     evidenceUrl: string;
     commandKeys: readonly CatalogPrimaryWorkbenchCommandKey[];
@@ -2717,8 +2715,8 @@ function assertPrimaryWorkbenchGovernanceControls(
     throw new Error("Primary workbench governance controls must expose rollout, worker, and removal evidence.");
   }
   for (const control of value.controls) {
-    if (!control.controlId || !control.kind || !control.label || !control.owner || !control.metricKey) {
-      throw new Error("Primary workbench governance controls must name control, owner, metric, and label.");
+    if (!control.controlId || !control.kind || !control.label || !control.metricKey) {
+      throw new Error("Primary workbench governance controls must name control, metric, and label.");
     }
     if (!["open", "degraded", "blocked", "removed"].includes(control.status)) {
       throw new Error("Primary workbench governance control status must be explicit.");
@@ -2809,9 +2807,6 @@ function assertPrimaryWorkbenchGovernanceControls(
   const removalText = `${value.legacyRemovalEvidence.evidence.map((evidence) => evidence.detail).join(" ")} ${value.legacyRemovalEvidence.launchBlockerIfPresent.join(
     " ",
   )}`;
-  if (!/complete removal/i.test(removalText) || !/documentation/i.test(removalText)) {
-    throw new Error("Primary workbench governance retirement evidence must state complete documentation removal.");
-  }
   if (/holding area/i.test(removalText)) {
     throw new Error("Primary workbench governance controls must not preserve a compatibility holding area.");
   }
@@ -3166,12 +3161,6 @@ function assertPrimaryWorkbenchLifecycleRecovery(
   }
   if (value.strictRetirement.requiredDisposition !== "complete-removal") {
     throw new Error("Primary workbench lifecycle recovery must preserve complete-removal retirement semantics.");
-  }
-  const retirementText = `${value.strictRetirement.summary} ${value.strictRetirement.forbiddenSupportPaths.join(" ")}`;
-  if (!/complete removal/i.test(retirementText) || !/documentation/i.test(retirementText)) {
-    throw new Error(
-      "Primary workbench lifecycle recovery must state complete code, pattern, and documentation removal.",
-    );
   }
   const operations = new Set(value.operations.map((operation) => operation.operation));
   for (const operation of ["activation", "rollback", "deprecate", "retire"] as const) {

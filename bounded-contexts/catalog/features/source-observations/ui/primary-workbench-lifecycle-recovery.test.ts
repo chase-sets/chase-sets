@@ -80,8 +80,12 @@ describe("Catalog primary workbench read model - lifecycle recovery", () => {
         impactedJobCount: 1,
       },
     });
-    expect(readModel.lifecycleRecovery.strictRetirement.summary).toMatch(/complete removal/i);
-    expect(readModel.lifecycleRecovery.strictRetirement.summary).toMatch(/documentation/i);
+    expect(readModel.lifecycleRecovery.strictRetirement.summary).toMatch(
+      /removes its mapping and promotion behavior entirely/i,
+    );
+    expect(readModel.lifecycleRecovery.strictRetirement.summary).not.toMatch(
+      /runbooks|release notes|operator instructions/i,
+    );
     expect(readModel.actions.find((action) => action.key === "retire-provider-profile")).toMatchObject({
       state: "blocked",
       blockers: expect.arrayContaining(["profile-retirement-references"]),

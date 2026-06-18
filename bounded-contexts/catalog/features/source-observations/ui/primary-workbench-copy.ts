@@ -970,8 +970,8 @@ export const catalogPrimaryWorkbenchGlossaryTerms = [
   ),
   glossary(
     "Retire",
-    "Complete removal of associated code, product patterns, route/API/client behavior, tests, fixtures, screenshots, documentation, runbooks, release notes, and operator instructions.",
-    "Use only when associated code, product patterns, route/API/client behavior, tests, fixtures, screenshots, documentation, runbooks, release notes, and operator instructions have been deleted.",
+    "Full removal of the provider profile behavior, including its mapping and promotion paths.",
+    "Use only when the provider profile behavior has been fully removed.",
     "Do not use for soft deprecation, compatibility redirects, hidden support paths, aliases, shims, or preserved tests.",
   ),
 ] as const satisfies readonly CatalogPrimaryWorkbenchGlossaryTerm[];

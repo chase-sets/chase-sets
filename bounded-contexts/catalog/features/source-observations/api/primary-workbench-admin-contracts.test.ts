@@ -1592,8 +1592,6 @@ function governanceControlsFixture(): CatalogPrimaryWorkbenchReadModel["governan
         kind: "provider-emergency-stop",
         label: "Provider emergency stop",
         status: "blocked",
-        owner: "ops-release",
-        ownerIssue: 801,
         metricKey: "catalog.integration.rollout.stop",
         evidenceUrl: auditEvidenceUrl,
         commandKeys: ["start-provider-import"],
@@ -1607,8 +1605,6 @@ function governanceControlsFixture(): CatalogPrimaryWorkbenchReadModel["governan
         kind: "worker-pause",
         label: "Worker pause/resume state",
         status: "blocked",
-        owner: "ops-release",
-        ownerIssue: 801,
         metricKey: "catalog.integration.worker.state",
         evidenceUrl: auditEvidenceUrl,
         commandKeys: ["start-provider-import", "start-reapply", "start-replay"],
@@ -1622,8 +1618,6 @@ function governanceControlsFixture(): CatalogPrimaryWorkbenchReadModel["governan
         kind: "legacy-removal",
         label: "Retired compatibility removal",
         status: "removed",
-        owner: "catalog-source-observations",
-        ownerIssue: 1090,
         metricKey: "catalog.integration.retired_surfaces.removed",
         evidenceUrl: auditEvidenceUrl,
         commandKeys: [],
@@ -1685,8 +1679,7 @@ function governanceControlsFixture(): CatalogPrimaryWorkbenchReadModel["governan
           label: "Payload escape hatch",
           status: "removed",
           evidenceUrl: auditEvidenceUrl,
-          detail:
-            "Complete removal verified across runtime code, UI modules, tests, fixtures, screenshots, documentation, runbooks, release notes, and operator instructions.",
+          detail: "The payload escape hatch is fully removed across runtime, UI, and stored behavior.",
         },
         {
           key: "broad-patch-compatibility",
@@ -1694,15 +1687,14 @@ function governanceControlsFixture(): CatalogPrimaryWorkbenchReadModel["governan
           status: "removed",
           evidenceUrl: auditEvidenceUrl,
           detail:
-            "Complete removal is required before launch; no broad patch route, client, fallback branch, fixture, old test, or documentation may preserve this behavior.",
+            "This compatibility behavior is fully removed; no broad patch route, client, or fallback branch preserves it.",
         },
         {
           key: "legacy-selector-pattern",
           label: "Legacy selector pattern",
           status: "removed",
           evidenceUrl: auditEvidenceUrl,
-          detail:
-            "Complete removal covers old selector UX, aliases, redirects, screenshots, runbooks, release notes, and operator instructions.",
+          detail: "The legacy selector pattern is fully removed, including its old UX, aliases, and redirects.",
         },
       ],
       launchBlockerIfPresent: catalogPrimaryWorkbenchRetirementPolicy.forbiddenOutcomes,
@@ -1886,7 +1878,7 @@ function lifecycleRecoveryFixture(): CatalogPrimaryWorkbenchReadModel["lifecycle
         "hidden flag fallback",
       ],
       summary:
-        "Retire means complete removal of code, product patterns, tests, fixtures, screenshots, documentation, runbooks, release notes, and operator instructions.",
+        "Retiring a provider profile removes its mapping and promotion behavior entirely. Lifecycle recovery cannot keep a compatibility route, alias, shim, fallback, hidden flag, or support-only path that preserves the retired behavior.",
     },
   };
 }

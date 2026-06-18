@@ -44,7 +44,7 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.failed":
     "The command did not complete. Review the named blockers, then retry from this workbench.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.invalid.intent":
-    "The submitted command is not part of the rebuilt primary workbench contract.",
+    "The submitted command is not part of the primary workbench contract.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.job.required":
     "Choose a durable import job before retrying, resuming, or cancelling it.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.lifecycle.conflict":
@@ -74,7 +74,7 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
     "The section command did not pass validation. Review the section diagnostics and field values.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.section.title": "Profile section saved",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.unsupported":
-    "This command has no launch-ready backend path yet, so the workbench fails closed.",
+    "This command has no available backend path yet, so the workbench fails closed.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.execution.preview.fresh": "Preview freshness",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.execution.stale.guard": "Stale preview guard",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.execution.stale.value":
@@ -115,7 +115,7 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.deferred.sourceOptions.loading": "Loading source options…",
   "catalog.features.sourceObservations.ui.primaryWorkbench.degraded": "Degraded",
   "catalog.features.sourceObservations.ui.primaryWorkbench.description":
-    "The rebuilt default workbench keeps provider import, Source Observation review, promotion preview, and promotion outcome evidence together. Supporting workflows explain or unblock this path.",
+    "The default workbench keeps provider import, Source Observation review, promotion preview, and promotion outcome evidence together. Supporting workflows explain or unblock this path.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.eligible.observations": "Eligible observations",
   "catalog.features.sourceObservations.ui.primaryWorkbench.empty.provider.scopes.description":
     "Create an active typed provider profile before using the primary workbench.",
