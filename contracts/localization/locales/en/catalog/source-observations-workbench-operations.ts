@@ -401,7 +401,6 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.table.status": "Status",
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.title": "Source Observation review",
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.view": "View",
-  "catalog.features.sourceObservations.ui.primaryWorkbench.save.context": "Save context",
   "catalog.features.sourceObservations.ui.primaryWorkbench.stage.blockers.resolveIn": "Resolve in {workspace}",
   "catalog.features.sourceObservations.ui.primaryWorkbench.stage.blockers.summary":
     "{count} blocker(s) across this provider context and the promotion command plan.",

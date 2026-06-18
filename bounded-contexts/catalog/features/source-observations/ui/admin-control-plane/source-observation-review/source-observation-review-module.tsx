@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
+import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { useFetcher } from "react-router";
 import {
   Badge,
@@ -48,8 +48,12 @@ export function CatalogIntegrationSourceObservationReviewModule({
   aliasVisibility = null,
 }: Readonly<{
   readModel: CatalogPrimaryWorkbenchReadModel;
+  // Selection is URL-backed (single source of truth): the `Set` is the ephemeral
+  // mirror the checkboxes and commands read, and the change handler persists each
+  // edit to the URL. The handler takes the next `Set` directly (DataTable hands it
+  // a concrete next selection), not a state-updater function.
   selectedObservationKeys: Set<string>;
-  onSelectedObservationKeysChange: Dispatch<SetStateAction<Set<string>>>;
+  onSelectedObservationKeysChange: (keys: Set<string>) => void;
   selectedEligibleObservationCount: number;
   selectedReviewableObservationCount: number;
   // Optional alias-review visibility (#1908): alias coverage/candidates surfaced
@@ -171,19 +175,11 @@ export function CatalogIntegrationSourceObservationReviewModule({
           })}
         </Badge>
       }
-      actions={
-        // "Preview promotion" is NOT duplicated on the module action row: it
-        // belongs to the selection/bulk surface below (and the Create / update
-        // stage). The module header keeps only the save-context affordance.
-        <LinkButton
-          size="sm"
-          tone="secondary"
-          leadingIcon="filter"
-          href={catalogPrimaryWorkbenchHref(readModel.routeContext, "source-observation-review")}
-        >
-          {t("catalog.features.sourceObservations.ui.primaryWorkbench.save.context")}
-        </LinkButton>
-      }
+      // No module-header action: "Preview promotion" belongs to the selection/bulk
+      // surface below (and the Create / update stage), and the old "Save context"
+      // GET round-trip is gone — selection is now continuously URL-backed (every
+      // checkbox edit persists to the URL), so there is nothing left to manually
+      // save.
       headingLevel={2}
       density="compact"
     >
@@ -262,7 +258,7 @@ function SourceObservationReviewBulkActionBar({
 }: Readonly<{
   readModel: CatalogPrimaryWorkbenchReadModel;
   selectedObservationKeys: Set<string>;
-  onSelectedObservationKeysChange: Dispatch<SetStateAction<Set<string>>>;
+  onSelectedObservationKeysChange: (keys: Set<string>) => void;
   selectedEligibleObservationCount: number;
   selectedReviewableObservationCount: number;
 }>) {

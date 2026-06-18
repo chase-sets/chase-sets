@@ -1,9 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSubmit } from "react-router";
 import type { CatalogPrimaryWorkbenchReadModel } from "../../../api/primary-workbench-admin-contracts";
+import { catalogPrimaryWorkbenchHref } from "../../primary-workbench-route-context";
 import { isReviewableObservationRow } from "../source-observation-review/source-observation-review-module";
 
 type SourceObservationReviewRow = CatalogPrimaryWorkbenchReadModel["sourceObservationReview"]["rows"][number];
 
+// Unit separator: joins the selected observation ids into one comparable key so a
+// URL-driven selection change is detected by value, not by array identity.
 const OBSERVATION_KEY_SEPARATOR = String.fromCharCode(0x1f);
 
 // The three ordered stages of the daily flow. Only one stage is expanded at a
@@ -17,15 +21,18 @@ export type ImportToPromotionWorkspaceState = Readonly<{
   setActiveStage: (stage: ImportToPromotionStageKey) => void;
   blockers: readonly CatalogPrimaryWorkbenchReadModel["readiness"]["blockers"][number][];
   selectedObservationKeys: Set<string>;
-  setSelectedObservationKeys: React.Dispatch<React.SetStateAction<Set<string>>>;
+  setSelectedObservationKeys: (keys: Set<string>) => void;
   selectedEligibleObservationCount: number;
   selectedReviewableObservationCount: number;
 }>;
 
-// Pick the stage the operator should land on: the first stage that still has work
+// The stage the read model implies right now: the first stage that still has work
 // or a blocker, so "where do I run a sync / create items?" is answerable at a
-// glance without hunting through collapsed sections.
-function defaultActiveStage(readModel: CatalogPrimaryWorkbenchReadModel): ImportToPromotionStageKey {
+// glance without hunting through collapsed sections. This is SERVER TRUTH — it is
+// recomputed from the latest read model on every render, so an in-place command
+// revalidation (a returned-data command, #1968's live poll, or #1969's fetcher
+// submit) re-derives it and moves the stepper to where work actually moved.
+function serverDerivedActiveStage(readModel: CatalogPrimaryWorkbenchReadModel): ImportToPromotionStageKey {
   if (readModel.promotionResult || readModel.promotionPreview.previewId) {
     return "create-items";
   }
@@ -46,8 +53,8 @@ function defaultActiveStage(readModel: CatalogPrimaryWorkbenchReadModel): Import
 export function useImportToPromotionWorkspace(
   readModel: CatalogPrimaryWorkbenchReadModel,
 ): ImportToPromotionWorkspaceState {
-  const initialStage = useMemo(() => defaultActiveStage(readModel), [readModel]);
-  const [activeStage, setActiveStage] = useState<ImportToPromotionStageKey>(initialStage);
+  const { activeStage, setActiveStage } = useReconciledActiveStage(readModel);
+  const { selectedObservationKeys, setSelectedObservationKeys } = useUrlBackedObservationSelection(readModel);
 
   // One normalized blocker set for the whole flow: deduplicate readiness and
   // promotion-command blockers so the consolidated affordance renders each once.
@@ -56,18 +63,6 @@ export function useImportToPromotionWorkspace(
     [readModel.readiness.blockers, readModel.promotionPreview.blockers],
   );
 
-  const [selectedObservationKeys, setSelectedObservationKeys] = useState<Set<string>>(
-    () => new Set(readModel.sourceObservationReview.selectedObservationIds),
-  );
-  const selectedObservationRouteKey =
-    readModel.sourceObservationReview.selectedObservationIds.join(OBSERVATION_KEY_SEPARATOR);
-  useEffect(() => {
-    setSelectedObservationKeys(
-      new Set(
-        selectedObservationRouteKey.length > 0 ? selectedObservationRouteKey.split(OBSERVATION_KEY_SEPARATOR) : [],
-      ),
-    );
-  }, [selectedObservationRouteKey]);
   const selectedObservationRows = readModel.sourceObservationReview.rows.filter((row: SourceObservationReviewRow) =>
     selectedObservationKeys.has(row.observationId),
   );
@@ -85,4 +80,115 @@ export function useImportToPromotionWorkspace(
     selectedEligibleObservationCount,
     selectedReviewableObservationCount,
   };
+}
+
+// Reconcile the open stage with server truth while letting an explicit operator
+// stage click win until the next command.
+//
+// The stage is NO LONGER a frozen `useState(useMemo(...))` initial value (which
+// ignored every recomputed default after mount). Instead the server-derived stage
+// is recomputed each render and a thin, ephemeral manual override is layered on
+// top:
+//   - The override is remembered alongside the server stage that was in effect
+//     when the operator clicked. While the server stage is unchanged (a #1968 poll
+//     or #1969 fetcher submit refreshes the read model but does not move where work
+//     is), the override holds — so an explicit click survives an in-place
+//     revalidation.
+//   - When the server stage CHANGES (a command — preview/promote/defer/reject —
+//     moved the work), the override is stale by definition, so it is dropped and
+//     the stepper follows server truth to the new stage.
+// Comparing the server stage against the value captured at click time during
+// render (not in an effect) keeps `activeStage` a pure derivation with no extra
+// commit, so the stepper never flickers through an intermediate stage.
+function useReconciledActiveStage(readModel: CatalogPrimaryWorkbenchReadModel): {
+  activeStage: ImportToPromotionStageKey;
+  setActiveStage: (stage: ImportToPromotionStageKey) => void;
+} {
+  const serverStage = serverDerivedActiveStage(readModel);
+  // The operator's explicit choice and the server stage that was in effect when
+  // they made it. A null override means "follow server truth".
+  const [override, setOverride] = useState<{
+    stage: ImportToPromotionStageKey;
+    serverStageAtSelection: ImportToPromotionStageKey;
+  } | null>(null);
+
+  // A command moved the work: the override predates it, so discard it and let the
+  // server stage win. Reconciled during render so the very next paint already
+  // shows the server stage — no transitional render on the stale override.
+  const overrideIsStale = override !== null && override.serverStageAtSelection !== serverStage;
+  if (overrideIsStale) {
+    setOverride(null);
+  }
+
+  const activeStage = overrideIsStale || override === null ? serverStage : override.stage;
+
+  const setActiveStage = useCallback(
+    (stage: ImportToPromotionStageKey) => {
+      // Capture the server stage in effect at click time so the override is
+      // invalidated the moment a later command changes server truth.
+      setOverride({ stage, serverStageAtSelection: serverDerivedActiveStage(readModel) });
+    },
+    [readModel],
+  );
+
+  return { activeStage, setActiveStage };
+}
+
+// Collapse observation selection to ONE durable source of truth: the URL-backed
+// `selectedObservationIds` (the pager and deep links already round-trip it through
+// the loader). The client `Set` is now purely an ephemeral mirror of that truth —
+// it gives the checkboxes instant feedback and is what selected-record commands
+// read live — and every selection change is written straight to the URL via the
+// #1969 client-navigation idiom, so the durable selection never drifts from the
+// `Set` and the old heavyweight "Save context" GET round-trip is gone.
+//
+// Removing the drift: the previous effect blindly reseeded the `Set` from the URL
+// on any route-key change, silently discarding checkbox selections that had never
+// been persisted (e.g. a pager navigation loaded the stale URL selection and wiped
+// the unsaved one). Now the change handler persists to the URL itself, so the only
+// time the URL selection changes WITHOUT a checkbox edit is a navigation that is
+// the new truth — which the reconcile below adopts. A change handler's own URL
+// write resolves to the same value the `Set` already holds, so it is a no-op.
+function useUrlBackedObservationSelection(readModel: CatalogPrimaryWorkbenchReadModel): {
+  selectedObservationKeys: Set<string>;
+  setSelectedObservationKeys: (keys: Set<string>) => void;
+} {
+  const submit = useSubmit();
+  const urlSelectionKey = readModel.routeContext.selectedObservationIds.join(OBSERVATION_KEY_SEPARATOR);
+
+  const [selectedObservationKeys, setSelectedObservationKeys] = useState<Set<string>>(
+    () => new Set(readModel.routeContext.selectedObservationIds),
+  );
+
+  // Adopt a navigation-driven selection: when the URL's selection changes (a deep
+  // link, the pager, a reload), that is the durable truth, so re-seed the
+  // ephemeral mirror from it. A checkbox edit's own URL write lands here too, but
+  // with the value the `Set` already holds, so it is a no-op.
+  useEffect(() => {
+    setSelectedObservationKeys(
+      new Set(urlSelectionKey.length > 0 ? urlSelectionKey.split(OBSERVATION_KEY_SEPARATOR) : []),
+    );
+  }, [urlSelectionKey]);
+
+  const persistSelection = useCallback(
+    (keys: Set<string>) => {
+      // Mirror instantly for responsive checkboxes, then persist to the URL as a
+      // client GET navigation (no full reload, no extra history frame, scroll
+      // preserved) so the durable selection stays in lockstep for pager / deep-link
+      // round-trips and reloads — the same submit idiom the import-context bar uses.
+      setSelectedObservationKeys(keys);
+      submit(null, {
+        method: "get",
+        replace: true,
+        preventScrollReset: true,
+        action: catalogPrimaryWorkbenchHref(
+          { ...readModel.routeContext, selectedObservationIds: [...keys] },
+          "source-observation-review",
+        ),
+      });
+    },
+    [readModel.routeContext, submit],
+  );
+
+  return { selectedObservationKeys, setSelectedObservationKeys: persistSelection };
 }
