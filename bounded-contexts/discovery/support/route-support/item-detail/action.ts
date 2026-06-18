@@ -2,7 +2,7 @@ import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs } from "react-router";
 import { redirect } from "react-router";
 import { requireActorFromAuthApi, resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import { appendFreshWriteToken } from "@chase-sets/http/responses";
+import { appendFreshWriteToken, appendPostWriteHandoff } from "@chase-sets/http/responses";
 import { createDiscoveryRequestApiClient } from "../../request-support/api-client";
 import {
   appendAnonymousProductAlertCookie,
@@ -17,6 +17,7 @@ import {
 import { createInventoryRequestApiClient } from "@chase-sets/inventory/server";
 import {
   appendAnonymousCartCookie,
+  ACCOUNT_CART_ADD_LINE_HANDOFF,
   appendAnonymousSellListCookie,
   createCheckoutRequestApiClient,
   ensureAnonymousCartId,
@@ -156,7 +157,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
           itemTitle: item.title,
           quantity: cartLine.quantity,
           cartLine: checkoutCommandSnapshot(result),
-          viewCartHref: appendFreshWriteToken("/account/cart", result),
+          viewCartHref: appendPostWriteHandoff("/account/cart", result, ACCOUNT_CART_ADD_LINE_HANDOFF),
         } satisfies AddToCartActionData);
         appendAnonymousCartCookie(response.headers, anonymousCartId);
         return response;
@@ -169,7 +170,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
         itemTitle: item.title,
         quantity: cartLine.quantity,
         cartLine: checkoutCommandSnapshot(result),
-        viewCartHref: appendFreshWriteToken("/account/cart", result),
+        viewCartHref: appendPostWriteHandoff("/account/cart", result, ACCOUNT_CART_ADD_LINE_HANDOFF),
       } satisfies AddToCartActionData);
     }
 

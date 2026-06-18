@@ -8,9 +8,16 @@ const ignoredDirectories = new Set([".git", "node_modules", "dist", "build", "co
 const freshWriteHelperNames = new Set([
   "appendFreshWriteToken",
   "appendFreshWriteTokenFromSources",
+  "appendPostWriteHandoff",
+  "appendPostWriteHandoffFromSources",
+  "evaluatePostWriteHandoff",
   "loadFreshlyWrittenResource",
+  "readPostWriteHandoff",
+  "readPostWriteHandoffState",
 ]);
 const helperImportPattern = /from\s+["']@chase-sets\/http\/responses["']/;
+const rawPostWriteHandoffMetadataPattern =
+  /\bsearchParams\.(?:set|append)\(\s*["']postWriteHandoff["']|[?&]postWriteHandoff=|new\s+URLSearchParams\(\s*\{[^}]*\bpostWriteHandoff\b/s;
 const supportedRiskClassifications = new Set(["critical", "important", "internal", "informational"]);
 const supportedExceptionStatuses = new Set(["accepted", "not-read-model-backed", "not-post-write-read"]);
 const mutatingHttpMethods = new Set(["POST", "PUT", "PATCH", "DELETE"]);
@@ -325,6 +332,33 @@ export async function collectFreshWriteHelperUsage(options) {
   }
 
   return usages.sort((left, right) => left.file.localeCompare(right.file));
+}
+
+async function collectRawPostWriteHandoffMetadataUsage(options) {
+  const { repoRoot } = options;
+  const boundedContextRoot = path.join(repoRoot, "bounded-contexts");
+  const files = await walkSourceFiles(boundedContextRoot);
+  const usages = [];
+
+  for (const file of files) {
+    const relativeFile = normalizeRelative(file, repoRoot);
+    if (
+      relativeFile.includes("/tests/") ||
+      relativeFile.endsWith(".test.ts") ||
+      relativeFile.endsWith(".test.tsx") ||
+      relativeFile.endsWith(".test.js") ||
+      relativeFile.endsWith(".test.jsx")
+    ) {
+      continue;
+    }
+
+    const content = readFileSync(file, "utf8");
+    if (rawPostWriteHandoffMetadataPattern.test(content)) {
+      usages.push(relativeFile);
+    }
+  }
+
+  return usages.sort();
 }
 
 export async function collectMutationConsistencySurfaces(options) {
@@ -1041,6 +1075,7 @@ export async function validateReadAfterWriteRouteInventory(options) {
   const { repoRoot, contextManifests, reportOutputPath = "artifacts/read-after-write-route-inventory.md" } = options;
   const indexes = collectReadAfterWriteRouteIndexes(contextManifests);
   const helperUsages = await collectFreshWriteHelperUsage({ repoRoot, contextManifests });
+  const rawPostWriteHandoffMetadataUsages = await collectRawPostWriteHandoffMetadataUsage({ repoRoot });
   const mutationSurfaces = await collectMutationConsistencySurfaces({ repoRoot, contextManifests });
   const { helpersUsedByFile, helpersUsedByRoute } = collectHelperUsageIndexes(helperUsages);
   const violations = [];
@@ -1051,6 +1086,12 @@ export async function validateReadAfterWriteRouteInventory(options) {
   const helperCoverageByFile = new Map();
   const freshnessRoutesCovered = new Set();
   const reportEntries = [];
+
+  for (const file of rawPostWriteHandoffMetadataUsages) {
+    violations.push(
+      `${file}: raw postWriteHandoff query metadata is not allowed; use appendPostWriteHandoff or appendPostWriteHandoffFromSources`,
+    );
+  }
 
   for (const context of contextManifests.values()) {
     for (const [mountIndex, mount] of (context.manifest.apiMounts ?? []).entries()) {

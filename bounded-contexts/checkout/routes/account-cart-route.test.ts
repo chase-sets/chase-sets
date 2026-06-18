@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { appendFreshWriteToken, readFreshWriteToken } from "@chase-sets/http/responses";
+import {
+  appendFreshWriteToken,
+  appendPostWriteHandoff,
+  encodePostWriteHandoff,
+  readFreshWriteToken,
+} from "@chase-sets/http/responses";
+import { registerPostWriteConsistencyRecorder } from "@chase-sets/platform-runtime/post-write-consistency";
+import { ACCOUNT_CART_ADD_LINE_HANDOFF } from "../support/request-support/account-cart-handoffs";
 import {
   applyCheckoutRouteMockDefaults,
   checkoutCommit,
@@ -83,12 +90,18 @@ vi.mock("@chase-sets/settlement/server", () => ({
 
 import { action as accountCartAction, loader as accountCartLoader } from "./account-cart";
 
+const mockPostWriteConsistencyRecorder = vi.fn();
+let unregisterPostWriteConsistencyRecorder: (() => void) | null = null;
+
 describe("checkout web routes: account cart", () => {
   beforeEach(() => {
     applyCheckoutRouteMockDefaults();
+    unregisterPostWriteConsistencyRecorder = registerPostWriteConsistencyRecorder(mockPostWriteConsistencyRecorder);
   });
 
   afterEach(() => {
+    unregisterPostWriteConsistencyRecorder?.();
+    unregisterPostWriteConsistencyRecorder = null;
     vi.resetAllMocks();
     vi.useRealTimers();
     vi.unstubAllEnvs();
@@ -110,7 +123,11 @@ describe("checkout web routes: account cart", () => {
       context: undefined,
     } as never);
 
-    expect(result).toEqual({ cart: { items: [], count: 0 } });
+    expect(result).toEqual({
+      cart: { items: [], count: 0 },
+      freshnessError: null,
+      pendingCartMessage: null,
+    });
     expect(mockGetGuestCart).toHaveBeenCalledWith("anon_cart_1");
     expect(mockGetCart).not.toHaveBeenCalled();
   });
@@ -142,14 +159,15 @@ describe("checkout web routes: account cart", () => {
     expect(result).toEqual({
       cart: { items: [], count: 0 },
       freshnessError: expect.any(String),
+      pendingCartMessage: null,
     });
   });
 
-  it("engages the account cart projection wait when discovery's View cart link carries an add-to-cart receipt, but reads empty without one (#1930)", async () => {
+  it("engages the account cart projection wait when discovery's View cart link carries an add-to-cart receipt, but reads empty without one", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["checkout.manage"] });
 
-    // Discovery's add-to-cart action builds viewCartHref the same way: it threads the
-    // Checkout addCartLine command receipt through appendFreshWriteToken("/account/cart", result).
+    // Freshness still matters for projection timeouts; the semantic add-line
+    // handoff below covers successful reads that are still stale-empty.
     const viewCartHref = appendFreshWriteToken("/account/cart", checkoutCommit("42", "evt_cart_line"));
     expect(readFreshWriteToken(new URL(viewCartHref, "http://localhost"))).toMatchObject({
       sources: [{ sourceContextName: "checkout", maxGlobalPosition: "42", eventIds: ["evt_cart_line"] }],
@@ -176,6 +194,7 @@ describe("checkout web routes: account cart", () => {
     expect(withToken).toEqual({
       cart: { items: [], count: 0 },
       freshnessError: expect.any(String),
+      pendingCartMessage: null,
     });
 
     // Without the token (the pre-fix static href="/account/cart"), the same lagging projection
@@ -200,6 +219,204 @@ describe("checkout web routes: account cart", () => {
       } as never),
     ).rejects.toMatchObject({ status: 503 });
   });
+
+  it("shows temporary cart recovery when a valid add-line handoff still reads an empty projection", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["checkout.manage"] });
+    mockGetCart.mockResolvedValue({ items: [], count: 0 });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({ getCart: mockGetCart });
+
+    const result = await accountCartLoader({
+      request: new Request(
+        `http://localhost${appendPostWriteHandoff(
+          "/account/cart",
+          checkoutCommit("42", "evt_cart_line"),
+          ACCOUNT_CART_ADD_LINE_HANDOFF,
+        )}`,
+      ),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result).toEqual({
+      cart: { items: [], count: 0 },
+      freshnessError: null,
+      pendingCartMessage: expect.any(String),
+    });
+    expect(mockPostWriteConsistencyRecorder).toHaveBeenCalledWith({
+      boundedContextName: "checkout",
+      surface: "account-cart",
+      strategy: "fresh-read",
+      outcome: "handoff_pending",
+      routeId: "account-cart",
+      routeTemplate: "/account/cart",
+      correctionSource: "semantic-handoff:checkout.cart.add-line",
+      actorMode: "account",
+      recoveryAction: "pending_empty_state",
+      freshnessOutcome: "valid-after-write",
+    });
+  });
+
+  it("shows temporary guest cart recovery when a valid add-line handoff still reads an empty projection", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(guestCheckoutActor());
+    mockGetGuestCart.mockResolvedValue({ items: [], count: 0 });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({ getGuestCart: mockGetGuestCart });
+
+    const result = await accountCartLoader({
+      request: new Request(
+        `http://localhost${appendPostWriteHandoff(
+          "/account/cart",
+          checkoutCommit("42", "evt_guest_cart_line"),
+          ACCOUNT_CART_ADD_LINE_HANDOFF,
+        )}`,
+        {
+          headers: { cookie: "chase_sets_anonymous_cart=anon_cart_1" },
+        },
+      ),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result).toEqual({
+      cart: { items: [], count: 0 },
+      freshnessError: null,
+      pendingCartMessage: expect.any(String),
+    });
+    expect(mockGetGuestCart).toHaveBeenCalledWith("anon_cart_1");
+    expect(mockGetCart).not.toHaveBeenCalled();
+    expect(mockPostWriteConsistencyRecorder).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outcome: "handoff_pending",
+        actorMode: "guest",
+        recoveryAction: "pending_empty_state",
+      }),
+    );
+  });
+
+  it("keeps the normal empty-cart state when an empty projection is not tied to an add-line handoff", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["checkout.manage"] });
+    mockGetCart.mockResolvedValue({ items: [], count: 0 });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({ getCart: mockGetCart });
+
+    const result = await accountCartLoader({
+      request: new Request(
+        `http://localhost${appendFreshWriteToken("/account/cart", checkoutCommit("42", "evt_remove_line"))}`,
+      ),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result).toEqual({
+      cart: { items: [], count: 0 },
+      freshnessError: null,
+      pendingCartMessage: null,
+    });
+    expect(mockPostWriteConsistencyRecorder).not.toHaveBeenCalled();
+  });
+
+  it("records satisfied account cart add-line handoffs when the cart projection contains lines", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["checkout.manage"] });
+    mockGetCart.mockResolvedValue({ items: [{ line_id: "cli_1" }], count: 1 });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({ getCart: mockGetCart });
+
+    const result = await accountCartLoader({
+      request: new Request(
+        `http://localhost${appendPostWriteHandoff(
+          "/account/cart",
+          checkoutCommit("42", "evt_cart_line"),
+          ACCOUNT_CART_ADD_LINE_HANDOFF,
+        )}`,
+      ),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result).toEqual({
+      cart: { items: [{ line_id: "cli_1" }], count: 1 },
+      freshnessError: null,
+      pendingCartMessage: null,
+    });
+    expect(mockPostWriteConsistencyRecorder).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outcome: "handoff_satisfied",
+        actorMode: "account",
+        recoveryAction: "none",
+        freshnessOutcome: "valid-after-write",
+      }),
+    );
+  });
+
+  it.each([
+    {
+      name: "unpaired",
+      href: `/account/cart?postWriteHandoff=${encodePostWriteHandoff(ACCOUNT_CART_ADD_LINE_HANDOFF)}`,
+      outcome: "handoff_invalid",
+      freshnessOutcome: "missing-after-write",
+    },
+    {
+      name: "malformed",
+      href: `${appendFreshWriteToken("/account/cart", checkoutCommit("42", "evt_cart_line"))}&postWriteHandoff=%7Bnot-json`,
+      outcome: "handoff_malformed",
+      freshnessOutcome: "malformed-handoff",
+    },
+    {
+      name: "expired",
+      href: appendPostWriteHandoff(
+        "/account/cart",
+        checkoutCommit("42", "evt_cart_line"),
+        ACCOUNT_CART_ADD_LINE_HANDOFF,
+        Date.now() - 40_000,
+      ),
+      outcome: "handoff_expired",
+      freshnessOutcome: "expired-after-write",
+    },
+    {
+      name: "far-future",
+      href: appendPostWriteHandoff(
+        "/account/cart",
+        checkoutCommit("42", "evt_cart_line"),
+        ACCOUNT_CART_ADD_LINE_HANDOFF,
+        Date.now() + 60_000,
+      ),
+      outcome: "handoff_invalid",
+      freshnessOutcome: "future-after-write",
+    },
+    {
+      name: "wrong-kind",
+      href: appendPostWriteHandoff("/account/cart", checkoutCommit("42", "evt_cart_line"), {
+        kind: "marketplace.listing.publish",
+        expectation: "collection-non-empty",
+        surface: "account-cart",
+      }),
+      outcome: "handoff_invalid",
+      freshnessOutcome: "valid-after-write",
+    },
+  ])(
+    "keeps normal empty-cart state for $name semantic handoff metadata",
+    async ({ href, outcome, freshnessOutcome }) => {
+      mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["checkout.manage"] });
+      mockGetCart.mockResolvedValue({ items: [], count: 0 });
+      mockCreateCheckoutRequestApiClient.mockReturnValue({ getCart: mockGetCart });
+
+      const result = await accountCartLoader({
+        request: new Request(`http://localhost${href}`),
+        params: {},
+        context: undefined,
+      } as never);
+
+      expect(result).toEqual({
+        cart: { items: [], count: 0 },
+        freshnessError: null,
+        pendingCartMessage: null,
+      });
+      expect(mockPostWriteConsistencyRecorder).toHaveBeenCalledWith(
+        expect.objectContaining({
+          outcome,
+          freshnessOutcome,
+          recoveryAction: "none",
+        }),
+      );
+    },
+  );
 
   it("recovers signed-in account cart self-refresh when a fresh receipt reads a transient not-found cart", async () => {
     vi.useFakeTimers();
@@ -230,6 +447,7 @@ describe("checkout web routes: account cart", () => {
     await expect(resultPromise).resolves.toEqual({
       cart: { items: [], count: 0 },
       freshnessError: expect.any(String),
+      pendingCartMessage: null,
     });
     expect(mockGetCart).toHaveBeenCalledTimes(6);
   });
@@ -255,6 +473,7 @@ describe("checkout web routes: account cart", () => {
       expect(result).toEqual({
         cart: { items: [], count: 0 },
         freshnessError: expect.any(String),
+        pendingCartMessage: null,
       });
     },
   );

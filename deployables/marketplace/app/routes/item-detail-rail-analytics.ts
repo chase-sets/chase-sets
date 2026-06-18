@@ -1,6 +1,7 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { itemDetailRailAnalyticsEventNames } from "@chase-sets/discovery/web";
-import { loadObservabilityConfig, recordItemDetailRailAnalytics, startObservability } from "@chase-sets/observability";
+import { recordItemDetailRailAnalytics } from "@chase-sets/observability";
+import { getMarketplaceObservability } from "../observability.server";
 
 const allowedEvents = new Set<string>(itemDetailRailAnalyticsEventNames);
 const invalidAnalyticsLabel = Symbol("invalid analytics label");
@@ -55,15 +56,6 @@ export async function action({ request }: ActionFunctionArgs) {
   });
 
   return new Response(null, { status: 204 });
-}
-
-function getMarketplaceObservability() {
-  return startObservability(
-    loadObservabilityConfig(process.env, {
-      serviceName: "marketplace-web",
-      serviceVersion: "0.1.0",
-    }),
-  );
 }
 
 function parsePayload(text: string): ItemDetailRailAnalyticsPayload | null {

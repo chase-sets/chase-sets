@@ -58,6 +58,11 @@ vi.mock("@chase-sets/marketplace/server", () => ({
 }));
 
 vi.mock("@chase-sets/checkout/server", () => ({
+  ACCOUNT_CART_ADD_LINE_HANDOFF: {
+    kind: "checkout.cart.add-line",
+    expectation: "collection-non-empty",
+    surface: "account-cart",
+  },
   appendAnonymousCartCookie: mockAppendAnonymousCartCookie,
   appendAnonymousSellListCookie: mockAppendAnonymousSellListCookie,
   createCheckoutRequestApiClient: mockCreateCheckoutRequestApiClient,

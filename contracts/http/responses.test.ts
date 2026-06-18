@@ -3,17 +3,28 @@ import {
   CHASE_SETS_COMMIT_RECEIPT_HEADER,
   appendFreshWriteToken,
   appendFreshWriteTokenFromSources,
+  appendPostWriteHandoff,
+  appendPostWriteHandoffFromSources,
   attachResponseMetadata,
   classifyFreshWriteReadError,
   decodeFreshWriteReceipt,
   encodeCommitReceipt,
+  evaluatePostWriteHandoff,
   getMutationResultCommandReceipt,
   getResponseMetadata,
   readFreshWriteToken,
   readFreshWriteTokenState,
+  readPostWriteHandoff,
+  readPostWriteHandoffState,
   readResponseConsistencyMetadata,
   recoverFreshWriteReadError,
 } from "./responses";
+import {
+  semanticHandoffFixtureAddLine,
+  semanticHandoffFixtureCartStates,
+  semanticHandoffFixtureDetailStates,
+  semanticHandoffFixtureUrls,
+} from "./semantic-handoff-test-fixtures";
 
 const source = {
   sourceContextName: "marketplace",
@@ -273,6 +284,216 @@ describe("response consistency metadata", () => {
     expect(
       appendFreshWriteTokenFromSources("/checkout/chk_1?paymentMethodCategory=card", [{ status: "ok" }], 1234),
     ).toBe("/checkout/chk_1?paymentMethodCategory=card");
+  });
+
+  it("carries semantic post-write handoff metadata only with a fresh-write receipt", () => {
+    const href = appendPostWriteHandoff(
+      "/account/cart?view=full",
+      { commitPositions: [checkoutSource], commitEventIds: [] },
+      {
+        kind: "checkout.cart.add-line",
+        expectation: "collection-non-empty",
+        surface: "account-cart",
+      },
+      1234,
+    );
+
+    expect(href).toContain("afterWrite=");
+    expect(href).toContain("postWriteHandoff=");
+    expect(readPostWriteHandoff(href, 1234)).toEqual({
+      kind: "checkout.cart.add-line",
+      expectation: "collection-non-empty",
+      surface: "account-cart",
+    });
+    expect(readPostWriteHandoffState(href, 1234)).toMatchObject({
+      kind: "valid",
+      ageMs: 0,
+      receipt: {
+        sources: [checkoutSource],
+      },
+    });
+
+    expect(
+      appendPostWriteHandoff(
+        "/account/cart",
+        { status: "accepted" },
+        {
+          kind: "checkout.cart.add-line",
+          expectation: "collection-non-empty",
+        },
+        1234,
+      ),
+    ).toBe("/account/cart");
+  });
+
+  it("combines multiple command receipts for semantic post-write handoffs", () => {
+    const href = appendPostWriteHandoffFromSources(
+      "/account/listings/lst_1",
+      [
+        { commitPositions: [source], commitEventIds: ["evt_1"] },
+        { commitPosition: "44", commitPositions: [laterSource], commitEventIds: ["evt_2"] },
+      ],
+      {
+        kind: "marketplace.listing.publish",
+        expectation: "resource-updated",
+        surface: "account-listing",
+      },
+      1234,
+    );
+
+    expect(readFreshWriteToken(href, 1234)).toMatchObject({
+      commitPosition: "44",
+      sources: [
+        {
+          sourceContextName: "marketplace",
+          maxGlobalPosition: "44",
+          eventIds: ["evt_1", "evt_2"],
+        },
+      ],
+    });
+    expect(readPostWriteHandoff(href, 1234)).toEqual({
+      kind: "marketplace.listing.publish",
+      expectation: "resource-updated",
+      surface: "account-listing",
+    });
+  });
+
+  it("rejects sensitive or arbitrary semantic handoff fields", () => {
+    expect(() =>
+      appendPostWriteHandoff(
+        "/account/cart",
+        { commitPositions: [checkoutSource], commitEventIds: [] },
+        {
+          kind: "checkout.cart.add-line",
+          expectation: "collection-non-empty",
+          email: "buyer@example.com",
+        } as never,
+        1234,
+      ),
+    ).toThrow("safe semantic fields");
+
+    expect(() =>
+      appendPostWriteHandoff(
+        "/account/cart",
+        { commitPositions: [checkoutSource], commitEventIds: [] },
+        {
+          kind: "checkout cart add line",
+          expectation: "collection-non-empty",
+        },
+        1234,
+      ),
+    ).toThrow("safe semantic fields");
+
+    expect(() =>
+      appendPostWriteHandoff(
+        "/account/listings/lst_1",
+        { commitPositions: [source], commitEventIds: [] },
+        {
+          kind: "marketplace.listing.publish",
+          expectation: "resource-updated",
+          surface: "account-listing",
+          resource: { id: "lst_1" },
+        } as never,
+        1234,
+      ),
+    ).toThrow("safe semantic fields");
+  });
+
+  it("does not treat handoff metadata as valid without a valid fresh-write receipt", () => {
+    const href = appendPostWriteHandoff(
+      "/account/cart",
+      { commitPositions: [checkoutSource], commitEventIds: [] },
+      {
+        kind: "checkout.cart.add-line",
+        expectation: "collection-non-empty",
+      },
+      1,
+    );
+
+    expect(readPostWriteHandoffState(href, 40_000)).toMatchObject({
+      kind: "not-fresh-write",
+      handoff: {
+        kind: "checkout.cart.add-line",
+      },
+      freshWrite: {
+        kind: "expired",
+      },
+    });
+    expect(readPostWriteHandoff(href, 40_000)).toBeNull();
+    expect(readPostWriteHandoffState("/account/cart?postWriteHandoff=%7Bnot-json", 1)).toEqual({
+      kind: "malformed",
+      handoff: null,
+      freshWrite: { kind: "missing", receipt: null },
+    });
+  });
+
+  it("lets destination routes evaluate semantic handoff satisfaction with local predicates", () => {
+    const href = appendPostWriteHandoff(
+      "/account/cart",
+      { commitPositions: [checkoutSource], commitEventIds: [] },
+      {
+        kind: "checkout.cart.add-line",
+        expectation: "collection-non-empty",
+      },
+      1234,
+    );
+
+    expect(
+      evaluatePostWriteHandoff({
+        request: href,
+        data: { items: [], count: 0 },
+        nowMs: 1234,
+        isSatisfied: (cart, handoff) => handoff.expectation === "collection-non-empty" && cart.items.length > 0,
+      }),
+    ).toMatchObject({
+      kind: "pending",
+      handoff: { kind: "checkout.cart.add-line" },
+    });
+
+    expect(
+      evaluatePostWriteHandoff({
+        request: href,
+        data: { items: [{ id: "line_1" }], count: 1 },
+        nowMs: 1234,
+        isSatisfied: (cart, handoff) => handoff.expectation === "collection-non-empty" && cart.items.length > 0,
+      }),
+    ).toMatchObject({
+      kind: "satisfied",
+      handoff: { kind: "checkout.cart.add-line" },
+    });
+
+    expect(
+      evaluatePostWriteHandoff({
+        request: "/account/cart",
+        data: { items: [], count: 0 },
+        nowMs: 1234,
+        isSatisfied: () => false,
+      }),
+    ).toMatchObject({
+      kind: "not-applicable",
+      state: { kind: "missing" },
+    });
+  });
+
+  it("provides copyable semantic handoff fixtures for route tests", () => {
+    const urls = semanticHandoffFixtureUrls(1_000);
+
+    expect(readPostWriteHandoff(urls.valid, 1_000)).toEqual(semanticHandoffFixtureAddLine);
+    expect(readPostWriteHandoff(urls.expired, 1_000)).toBeNull();
+    expect(readPostWriteHandoffState(urls.expired, 1_000)).toMatchObject({ kind: "not-fresh-write" });
+    expect(readPostWriteHandoffState(urls.farFuture, 1_000)).toMatchObject({ kind: "not-fresh-write" });
+    expect(readPostWriteHandoffState(urls.malformed, 1_000)).toMatchObject({ kind: "malformed" });
+    expect(readPostWriteHandoffState(urls.unpaired, 1_000)).toMatchObject({ kind: "not-fresh-write" });
+    expect(readPostWriteHandoffState(urls.wrongKind, 1_000)).toMatchObject({
+      kind: "valid",
+      handoff: { kind: "marketplace.listing.publish" },
+    });
+    expect(urls.noOp).toBe("/account/cart");
+
+    expect(semanticHandoffFixtureCartStates.staleEmpty).toEqual({ items: [], count: 0 });
+    expect(semanticHandoffFixtureCartStates.satisfied.items).toHaveLength(1);
+    expect(semanticHandoffFixtureDetailStates.stale).toMatchObject({ status: "draft" });
+    expect(semanticHandoffFixtureDetailStates.updated).toMatchObject({ status: "published" });
   });
 
   it("classifies fresh-write not-found and projection freshness timeouts as transient", () => {

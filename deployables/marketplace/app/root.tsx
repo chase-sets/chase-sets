@@ -107,6 +107,9 @@ async function resolveCurrentActorDisplay(request: Request, actor: MarketplaceRo
 }
 
 export async function loader({ request }: LoaderFunctionArgs) {
+  const { registerMarketplacePostWriteConsistencyRecorder } = await import("./observability.server");
+  registerMarketplacePostWriteConsistencyRecorder();
+
   const proofAccessActor = await requireMarketplaceProofAccess(request);
   const actor = proofAccessActor ?? (await resolveMarketplaceActor(request));
 

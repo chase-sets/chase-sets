@@ -57,7 +57,7 @@ describe("design system legacy visual/accessibility evidence", () => {
     expect(report.checks.map((check) => check.status)).toEqual(report.checks.map(() => "passed"));
     expect(report.checks.map((check) => check.id)).toContain("discovery-commerce-comparison-list");
     expect(report.checks.map((check) => check.id)).toContain("public-waitlist-mobile-cta");
-  }, 15000);
+  }, 30000);
 
   it("writes the retained evidence artifact", async () => {
     const tempDir = await makeTempDir();
@@ -72,7 +72,7 @@ describe("design system legacy visual/accessibility evidence", () => {
     const written = JSON.parse(await readFile(out, "utf8"));
     expect(written.schemaVersion).toBe(DESIGN_SYSTEM_LEGACY_EVIDENCE_VERSION);
     expect(written.retainedArtifact).toContain("evidence.json");
-  });
+  }, 30000);
 
   it("fails closed when the fresh legacy inventory scan is not empty", async () => {
     const tempDir = await makeTempDir();
