@@ -19,6 +19,8 @@ const canonicalKeys = new Set([
   ...catalogPrimaryWorkbenchScopeQueryKeys,
   "profileVersion",
   "selectedObservationIds",
+  "reviewOffset",
+  "reviewLimit",
   "jobId",
   "promotionPreviewId",
   "returnPath",
@@ -169,6 +171,8 @@ function routeContextFromLocation(
     profileVersion: nullableParam(searchParams, "profileVersion"),
     sourceObservationFilters,
     selectedObservationIds: parseCsvParam(searchParams, "selectedObservationIds"),
+    reviewOffset: nonNegativeIntParam(searchParams, "reviewOffset"),
+    reviewLimit: positiveIntParam(searchParams, "reviewLimit"),
     jobId: nullableParam(searchParams, "jobId"),
     promotionPreviewId: nullableParam(searchParams, "promotionPreviewId"),
     returnPath: includeReturnPath ? sanitizeReturnPath(nullableParam(searchParams, "returnPath")) : null,
@@ -189,6 +193,14 @@ export function serializeCatalogPrimaryWorkbenchRouteContext(
   setNullable(searchParams, "profileVersion", context.profileVersion);
   if (context.selectedObservationIds.length > 0) {
     searchParams.set("selectedObservationIds", context.selectedObservationIds.join(","));
+  }
+  // The first page is the canonical default, so only a positive offset is emitted;
+  // reviewLimit only when an explicit non-default page size is in play.
+  if (typeof context.reviewOffset === "number" && context.reviewOffset > 0) {
+    searchParams.set("reviewOffset", String(context.reviewOffset));
+  }
+  if (typeof context.reviewLimit === "number" && context.reviewLimit > 0) {
+    searchParams.set("reviewLimit", String(context.reviewLimit));
   }
   setNullable(searchParams, "jobId", context.jobId);
   setNullable(searchParams, "promotionPreviewId", context.promotionPreviewId);
@@ -250,6 +262,20 @@ function parseCsvParam(searchParams: URLSearchParams, key: string): readonly str
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
+}
+
+function nonNegativeIntParam(searchParams: URLSearchParams, key: string): number | null {
+  const raw = searchParams.get(key)?.trim();
+  if (!raw || !/^\d+$/.test(raw)) {
+    return null;
+  }
+  const value = Number.parseInt(raw, 10);
+  return Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+function positiveIntParam(searchParams: URLSearchParams, key: string): number | null {
+  const value = nonNegativeIntParam(searchParams, key);
+  return value !== null && value > 0 ? value : null;
 }
 
 function parseSourceObservationFilters(searchParams: URLSearchParams): Readonly<Record<string, string>> {

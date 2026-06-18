@@ -102,6 +102,8 @@ describe("Catalog primary workbench route context", () => {
       profileVersion: "2026.06.04",
       sourceObservationFilters: { status: "changed" },
       selectedObservationIds: ["obs_1"],
+      reviewOffset: null,
+      reviewLimit: null,
       jobId: null,
       promotionPreviewId: null,
       returnPath: "/catalog/integrations",
@@ -123,6 +125,8 @@ describe("Catalog primary workbench route context", () => {
           profileVersion: "2026.06.04",
           sourceObservationFilters: {},
           selectedObservationIds: [],
+          reviewOffset: null,
+          reviewLimit: null,
           jobId: null,
           promotionPreviewId: null,
           returnPath: null,
@@ -145,6 +149,8 @@ describe("Catalog primary workbench route context", () => {
           profileVersion: null,
           sourceObservationFilters: {},
           selectedObservationIds: [],
+          reviewOffset: null,
+          reviewLimit: null,
           jobId: null,
           promotionPreviewId: null,
           returnPath: null,
@@ -167,6 +173,8 @@ describe("Catalog primary workbench route context", () => {
           profileVersion: null,
           sourceObservationFilters: {},
           selectedObservationIds: [],
+          reviewOffset: null,
+          reviewLimit: null,
           jobId: null,
           promotionPreviewId: null,
           returnPath: null,
@@ -197,6 +205,53 @@ describe("Catalog primary workbench route context", () => {
       parseCatalogPrimaryWorkbenchRouteContext("https://admin.example/catalog/integrations/providers?section=readiness")
         .section,
     ).toBe("validation-readiness");
+  });
+
+  it("round-trips the durable review pager cursor (reviewOffset/reviewLimit) through the URL", () => {
+    const context = parseCatalogPrimaryWorkbenchRouteContext(
+      "https://admin.example/catalog/integrations?providerKey=tcgdex&filter.status=changed&selectedObservationIds=obs_1&reviewOffset=50&reviewLimit=25",
+    );
+    expect(context.reviewOffset).toBe(50);
+    expect(context.reviewLimit).toBe(25);
+
+    // The pager href keeps provider/filters/selection and only moves the offset; the
+    // first page drops the offset so the canonical URL stays clean.
+    const nextHref = new URL(
+      catalogPrimaryWorkbenchHref({ ...context, reviewOffset: 75 }, "source-observation-review"),
+      "https://admin.example",
+    );
+    expect(nextHref.searchParams.get("reviewOffset")).toBe("75");
+    expect(nextHref.searchParams.get("providerKey")).toBe("tcgdex");
+    expect(nextHref.searchParams.get("filter.status")).toBe("changed");
+    expect(nextHref.searchParams.get("selectedObservationIds")).toBe("obs_1");
+
+    const firstPageHref = new URL(
+      catalogPrimaryWorkbenchHref({ ...context, reviewOffset: null }, "source-observation-review"),
+      "https://admin.example",
+    );
+    expect(firstPageHref.searchParams.has("reviewOffset")).toBe(false);
+    expect(firstPageHref.searchParams.get("selectedObservationIds")).toBe("obs_1");
+  });
+
+  it("rejects malformed and zero review pager cursors", () => {
+    const negative = parseCatalogPrimaryWorkbenchRouteContext(
+      "https://admin.example/catalog/integrations?providerKey=tcgdex&reviewOffset=-5&reviewLimit=0",
+    );
+    expect(negative.reviewOffset).toBeNull();
+    expect(negative.reviewLimit).toBeNull();
+
+    const garbage = parseCatalogPrimaryWorkbenchRouteContext(
+      "https://admin.example/catalog/integrations?providerKey=tcgdex&reviewOffset=abc&reviewLimit=2.5",
+    );
+    expect(garbage.reviewOffset).toBeNull();
+    expect(garbage.reviewLimit).toBeNull();
+
+    // Offset 0 is the canonical first page and is parsed but never re-serialized.
+    const firstPage = parseCatalogPrimaryWorkbenchRouteContext(
+      "https://admin.example/catalog/integrations?providerKey=tcgdex&reviewOffset=0",
+    );
+    expect(firstPage.reviewOffset).toBe(0);
+    expect(serializeCatalogPrimaryWorkbenchRouteContext(firstPage).has("reviewOffset")).toBe(false);
   });
 
   it("builds supporting detours with a safe return path to the primary workbench", () => {

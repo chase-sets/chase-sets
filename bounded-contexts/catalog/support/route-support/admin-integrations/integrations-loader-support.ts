@@ -124,7 +124,7 @@ async function finalizeSurfaceLoad(input: {
 // computes the governance, lifecycle, release, or audit sub-models.
 export async function loadDailySurface({ request }: LoaderFunctionArgs) {
   const { api, baseline, routeContext } = await loadIntegrationsBaseline(request);
-  const reviewPagination = { limit: 25, offset: 0 };
+  const reviewPagination = dailyReviewPaginationFor(routeContext);
   const reviewQuery = buildCatalogPrimaryWorkbenchSourceObservationReviewQuery(routeContext, reviewPagination);
   const [reviewObservations, sourceOptionPages, aliasReview] = await Promise.all([
     reviewQuery ? api.listSourceObservations<ListResponse<SourceObservationListItem>>(reviewQuery) : null,
@@ -142,6 +142,24 @@ export async function loadDailySurface({ request }: LoaderFunctionArgs) {
     sourceOptionPages,
     aliasReview,
   });
+}
+
+// Resolve the Source Observation review page window from the durable, URL-backed
+// pager cursor (reviewOffset/reviewLimit) the route context carries. The offset
+// and limit are already parsed and validated as non-negative/positive integers;
+// here we only clamp the page size to a sane band and snap the offset onto a page
+// boundary so the daily loader and the pager hrefs agree on every reachable page.
+const dailyReviewPageSize = 25;
+const dailyReviewMaxPageSize = 100;
+
+function dailyReviewPaginationFor(
+  routeContext: CatalogPrimaryWorkbenchRouteContext,
+): Readonly<{ limit: number; offset: number }> {
+  const limit = Math.min(Math.max(routeContext.reviewLimit ?? dailyReviewPageSize, 1), dailyReviewMaxPageSize);
+  const requestedOffset = Math.max(routeContext.reviewOffset ?? 0, 0);
+  const offset = Math.floor(requestedOffset / limit) * limit;
+
+  return { limit, offset };
 }
 
 // Fetch the #1908 alias-review read model for the selected provider/profile scope

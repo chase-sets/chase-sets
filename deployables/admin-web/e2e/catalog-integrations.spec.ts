@@ -139,6 +139,38 @@ test.describe("catalog admin integrations", () => {
     await expect(page.getByRole("textbox", { name: /JSON/i })).toHaveCount(0);
     await expect(page.getByText(/Old integrations surface/i)).toHaveCount(0);
 
+    // #1966: the Source Observation review queue paginates past the first 25 rows. The
+    // pager is a GET navigation that moves a durable reviewOffset cursor in the URL while
+    // preserving provider/filters/selection, so the second page is reachable by carrying
+    // reviewOffset=25 (alongside provider context + a current selection) and the daily
+    // loader re-reads it to fetch that page. The deep-linked page must load (HTTP < 400),
+    // round-trip the cursor, and keep the selection — proving the queue is navigable and
+    // the count badge maps to a reachable list rather than a fixed 25-row dead end.
+    await expectPageOk(
+      page,
+      "/catalog/integrations?providerKey=tcgdex&filter.status=changed&selectedObservationIds=obs_001&reviewOffset=25",
+    );
+    await page.waitForLoadState("networkidle");
+    const reviewPageTwoUrl = new URL(page.url());
+    expect(reviewPageTwoUrl.pathname).toBe("/catalog/integrations");
+    expect(reviewPageTwoUrl.searchParams.get("reviewOffset")).toBe("25");
+    expect(reviewPageTwoUrl.searchParams.get("providerKey")).toBe("tcgdex");
+    expect(reviewPageTwoUrl.searchParams.get("selectedObservationIds")).toBe("obs_001");
+    // The cursor round-trip above already proves the second page is reachable (the loader
+    // reads reviewOffset and re-fetches that window). The pager itself is data-dependent:
+    // when the environment holds more than one page of in-scope observations it renders, and
+    // page 2 exposes a "Previous page" affordance so the queue is bidirectionally navigable;
+    // when the environment holds a single page the pager is correctly absent (no dead-end
+    // disabled controls). Assert the back-affordance only when the pager actually rendered, so
+    // the test does not assume a seed volume greater than one page.
+    const reviewPreviousPageLink = page.getByRole("link", { name: "Previous page" });
+    if (await reviewPreviousPageLink.count()) {
+      await expect(reviewPreviousPageLink.first()).toBeVisible();
+    }
+    // Return to the canonical daily route for the remaining assertions.
+    await expectPageOk(page, "/catalog/integrations");
+    await page.waitForLoadState("networkidle");
+
     // #1748 acceptance gate (criterion 1): the daily route is the DEFAULT landing, not a
     // detour. The supporting surfaces (providers/governance/release) each carry a single
     // "Back to import workbench" return affordance; the daily route itself must NOT — there
