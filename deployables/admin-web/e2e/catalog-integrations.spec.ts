@@ -153,6 +153,26 @@ test.describe("catalog admin integrations", () => {
     await page.getByRole("button", { name: "Run sync" }).first().click();
     await expect(page.getByRole("button", { name: /Pull provider data/i })).toHaveCount(1);
     await expect(page.getByRole("button", { name: /Pull provider data/i }).first()).toBeVisible();
+
+    // #1969: an import-context change is now a fetcher-scoped CLIENT navigation,
+    // not a full-document GET reload. The provider/unit/scope selects submit on
+    // change and revalidate only the affected slices, so the open stage and the
+    // mounted page survive. Re-select the provider's current value (a guaranteed,
+    // seed-independent context submit) and confirm the "Run sync" stage stays open
+    // — its "Pull provider data" action remains visible — and the URL is unchanged.
+    // A pre-#1969 full reload would re-run the loader and reset to the default
+    // stage, dropping the open "Pull provider data" action. Do NOT wait for
+    // networkidle: the change triggers a streamed/deferred revalidation that may
+    // never settle the network; assert the stage button's continued visibility
+    // directly.
+    const providerSelect = page.getByLabel("Provider");
+    if (await providerSelect.count()) {
+      const currentProvider = await providerSelect.first().inputValue();
+      await providerSelect.first().selectOption(currentProvider);
+      await expect(page).toHaveURL(/\/catalog\/integrations(\?|$)/);
+      await expect(page.getByRole("button", { name: /Pull provider data/i }).first()).toBeVisible();
+    }
+
     await page.getByRole("button", { name: "Create / update items" }).first().click();
     await expect(page.getByRole("button", { name: /Preview promotion/i }).first()).toBeVisible();
     await expect(page.getByRole("textbox", { name: /JSON/i })).toHaveCount(0);
