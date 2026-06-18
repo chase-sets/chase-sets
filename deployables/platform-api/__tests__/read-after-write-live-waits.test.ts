@@ -286,6 +286,30 @@ describe("checkout exact read-after-write waits (#1225)", () => {
     ]);
   });
 
+  it("backs settlement payout detail freshness with the payout projection dependency", () => {
+    const settlementPayoutLiveRoutes = findLiveFreshnessRoutes("settlement", "/payouts/:id");
+    expect(settlementPayoutLiveRoutes).toEqual([
+      {
+        mountPath: "/api/settlement",
+        route: {
+          routePath: "/payouts/:id",
+          methods: ["GET", "HEAD"],
+          dependencies: [{ readModelTable: "settlement_payout_pages" }],
+        },
+      },
+    ]);
+
+    const resolvedDependencies = settlementPayoutLiveRoutes.flatMap(({ route }) =>
+      route.dependencies.flatMap((dependency) =>
+        resolveReadConsistencyDependency("settlement", dependency, mountedProjectionGroups),
+      ),
+    );
+
+    expect(resolvedDependencies).toEqual([
+      { targetContextName: "settlement", projectionName: "settlement-payout-projection" },
+    ]);
+  });
+
   it("keeps every critical route tuning entry matched to a live module freshness route", () => {
     const violations: string[] = [];
 

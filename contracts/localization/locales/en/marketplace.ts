@@ -464,6 +464,9 @@ export const marketplaceEnglishTranslations = {
     "Inspect listing inventory, pricing, quantity caps, and publication status.",
   "marketplace.routes.accountListing.listing.marketplace": "Listing | Marketplace",
   "marketplace.routes.accountListing.listing.not.found": "Listing not found.",
+  "marketplace.routes.accountListing.listing.preparing": "Preparing listing",
+  "marketplace.routes.accountListing.listing.preparing.description":
+    "We're preparing your listing details. Try again in a moment.",
   "marketplace.routes.accountListing.fee.quote.stale": "Fee quote is stale. Refresh the fee preview before continuing.",
   "marketplace.routes.accountListings.listings.marketplace": "Listings | Marketplace",
   "marketplace.routes.accountListings.listing.draft.not.found":

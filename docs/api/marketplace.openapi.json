@@ -38,25 +38,25 @@
     "/api/marketplace/products/{productId}/market-summary": { "get": { "tags": ["Discovery"], "summary": "Get market summary for a product.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
     "/api/marketplace/products/{productId}/listings": { "get": { "tags": ["Discovery"], "summary": "List public listings for a product.", "responses": { "200": { "$ref": "#/components/responses/List" } } } },
 
-    "/api/marketplace/account/cart": { "get": { "tags": ["Cart and Checkout"], "summary": "Get the current account cart.", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "401": { "$ref": "#/components/responses/AuthenticationRequired" } } }, "post": { "tags": ["Cart and Checkout"], "summary": "Add a cart line.", "responses": { "201": { "$ref": "#/components/responses/Command" }, "400": { "$ref": "#/components/responses/ValidationFailed" } } } },
+    "/api/marketplace/account/cart": {"get":{"tags":["Cart and Checkout"],"summary":"Get the current account cart.","responses":{"200":{"$ref":"#/components/responses/Ok"},"401":{"$ref":"#/components/responses/AuthenticationRequired"},"503":{"$ref":"#/components/responses/ProjectionFreshnessTimeout"}},"parameters":[{"$ref":"#/components/parameters/ReadAfterWrite"},{"$ref":"#/components/parameters/ReadTargetContext"}]},"post":{"tags":["Cart and Checkout"],"summary":"Add a cart line.","responses":{"201":{"$ref":"#/components/responses/Command"},"400":{"$ref":"#/components/responses/ValidationFailed"}}}},
     "/api/marketplace/account/cart/{lineId}/quantity": { "post": { "tags": ["Cart and Checkout"], "summary": "Set cart line quantity.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
     "/api/marketplace/account/cart/{lineId}/remove": { "post": { "tags": ["Cart and Checkout"], "summary": "Remove a cart line.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
-    "/api/marketplace/account/sell-list": { "get": { "tags": ["Cart and Checkout"], "summary": "Get the current account Sell List.", "responses": { "200": { "$ref": "#/components/responses/List" }, "401": { "$ref": "#/components/responses/AuthenticationRequired" }, "403": { "$ref": "#/components/responses/Forbidden" } } }, "post": { "tags": ["Cart and Checkout"], "summary": "Add a selected offer or product line to the Checkout-owned Sell List.", "responses": { "201": { "$ref": "#/components/responses/Command" }, "400": { "$ref": "#/components/responses/ValidationFailed" }, "401": { "$ref": "#/components/responses/AuthenticationRequired" }, "403": { "$ref": "#/components/responses/Forbidden" } } } },
+    "/api/marketplace/account/sell-list": {"get":{"tags":["Cart and Checkout"],"summary":"Get the current account Sell List.","responses":{"200":{"$ref":"#/components/responses/List"},"401":{"$ref":"#/components/responses/AuthenticationRequired"},"403":{"$ref":"#/components/responses/Forbidden"},"503":{"$ref":"#/components/responses/ProjectionFreshnessTimeout"}},"parameters":[{"$ref":"#/components/parameters/ReadAfterWrite"},{"$ref":"#/components/parameters/ReadTargetContext"}]},"post":{"tags":["Cart and Checkout"],"summary":"Add a selected offer or product line to the Checkout-owned Sell List.","responses":{"201":{"$ref":"#/components/responses/Command"},"400":{"$ref":"#/components/responses/ValidationFailed"},"401":{"$ref":"#/components/responses/AuthenticationRequired"},"403":{"$ref":"#/components/responses/Forbidden"}}}},
     "/api/marketplace/account/sell-list/{lineId}/remove": { "post": { "tags": ["Cart and Checkout"], "summary": "Remove a Sell List line.", "responses": { "200": { "$ref": "#/components/responses/Command" }, "401": { "$ref": "#/components/responses/AuthenticationRequired" }, "403": { "$ref": "#/components/responses/Forbidden" }, "400": { "$ref": "#/components/responses/ValidationFailed" } } } },
     "/api/marketplace/account/checkout-sessions": { "post": { "tags": ["Cart and Checkout"], "summary": "Create a checkout session from cart or buy-now intent.", "responses": { "201": { "$ref": "#/components/responses/Ok" } } } },
-    "/api/marketplace/account/checkout-sessions/{sessionId}": { "get": { "tags": ["Cart and Checkout"], "summary": "Get checkout session state.", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/NotFound" } } } },
+    "/api/marketplace/account/checkout-sessions/{sessionId}": {"get":{"tags":["Cart and Checkout"],"summary":"Get checkout session state.","responses":{"200":{"$ref":"#/components/responses/Ok"},"404":{"$ref":"#/components/responses/NotFound"},"503":{"$ref":"#/components/responses/ProjectionFreshnessTimeout"}},"parameters":[{"$ref":"#/components/parameters/ReadAfterWrite"},{"$ref":"#/components/parameters/ReadTargetContext"}]}},
     "/api/marketplace/account/checkout-sessions/{sessionId}/shipping-option": { "post": { "tags": ["Cart and Checkout"], "summary": "Select checkout shipping option.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
     "/api/marketplace/account/checkout-sessions/{sessionId}/confirm": { "post": { "tags": ["Cart and Checkout"], "summary": "Confirm checkout and create orders/payment intent.", "responses": { "201": { "$ref": "#/components/responses/Ok" } } } },
 
     "/api/inventory/items/listing-stock/ensure": { "post": { "tags": ["Inventory"], "summary": "Create or reuse automatic Inventory stock backing a standard listing.", "responses": { "201": { "$ref": "#/components/responses/Ok" }, "400": { "$ref": "#/components/responses/ValidationFailed" } } } },
     "/api/marketplace/account/listing-inventory": { "get": { "tags": ["Listings and Offers"], "summary": "List account inventory available for listings.", "responses": { "200": { "$ref": "#/components/responses/List" } } } },
-    "/api/marketplace/account/listing-availability": { "get": { "tags": ["Listings and Offers"], "summary": "Get the account listing availability overlay.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/marketplace/account/listing-availability": {"get":{"tags":["Listings and Offers"],"summary":"Get the account listing availability overlay.","responses":{"200":{"$ref":"#/components/responses/Ok"},"503":{"$ref":"#/components/responses/ProjectionFreshnessTimeout"}},"parameters":[{"$ref":"#/components/parameters/ReadAfterWrite"},{"$ref":"#/components/parameters/ReadTargetContext"}]}},
     "/api/marketplace/account/listing-availability/disable": { "post": { "tags": ["Listings and Offers"], "summary": "Turn off the account's listings for new purchase commitments.", "responses": { "200": { "$ref": "#/components/responses/Command" }, "400": { "$ref": "#/components/responses/ValidationFailed" } } } },
     "/api/marketplace/account/listing-availability/enable": { "post": { "tags": ["Listings and Offers"], "summary": "Turn on the account's listings for new purchase commitments.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
-    "/api/marketplace/account/listings": { "get": { "tags": ["Listings and Offers"], "summary": "List account listings.", "responses": { "200": { "$ref": "#/components/responses/List" } } }, "post": { "tags": ["Listings and Offers"], "summary": "Create a listing.", "responses": { "201": { "$ref": "#/components/responses/Command" } } } },
+    "/api/marketplace/account/listings": {"get":{"tags":["Listings and Offers"],"summary":"List account listings.","responses":{"200":{"$ref":"#/components/responses/List"},"503":{"$ref":"#/components/responses/ProjectionFreshnessTimeout"}},"parameters":[{"$ref":"#/components/parameters/ReadAfterWrite"},{"$ref":"#/components/parameters/ReadTargetContext"}]},"post":{"tags":["Listings and Offers"],"summary":"Create a listing.","responses":{"201":{"$ref":"#/components/responses/Command"}}}},
     "/api/marketplace/account/listings/preview": { "post": { "tags": ["Listings and Offers"], "summary": "Preview seller-confirmed Marketplace Sales Fee terms for a listing.", "responses": { "200": { "$ref": "#/components/responses/ListingTermsPreview" } } } },
-    "/api/marketplace/account/listings/fee-lock-report": { "get": { "tags": ["Listings and Offers"], "summary": "List seller-visible fee lock report rows for listing management and support.", "responses": { "200": { "$ref": "#/components/responses/ListingFeeLockReport" } } } },
-    "/api/marketplace/account/listings/{id}": { "get": { "tags": ["Listings and Offers"], "summary": "Get an account listing.", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/NotFound" } } } },
+    "/api/marketplace/account/listings/fee-lock-report": {"get":{"tags":["Listings and Offers"],"summary":"List seller-visible fee lock report rows for listing management and support.","responses":{"200":{"$ref":"#/components/responses/ListingFeeLockReport"},"503":{"$ref":"#/components/responses/ProjectionFreshnessTimeout"}},"parameters":[{"$ref":"#/components/parameters/ReadAfterWrite"},{"$ref":"#/components/parameters/ReadTargetContext"}]}},
+    "/api/marketplace/account/listings/{id}": {"get":{"tags":["Listings and Offers"],"summary":"Get an account listing.","responses":{"200":{"$ref":"#/components/responses/Ok"},"404":{"$ref":"#/components/responses/NotFound"},"503":{"$ref":"#/components/responses/ProjectionFreshnessTimeout"}},"parameters":[{"$ref":"#/components/parameters/ReadAfterWrite"},{"$ref":"#/components/parameters/ReadTargetContext"}]}},
     "/api/marketplace/account/listings/{id}/fee-history": { "get": { "tags": ["Listings and Offers"], "summary": "List seller-visible listing fee lock history.", "responses": { "200": { "$ref": "#/components/responses/ListingFeeHistory" }, "404": { "$ref": "#/components/responses/NotFound" } } } },
     "/api/marketplace/account/listings/{id}/photos": { "post": { "tags": ["Listings and Offers"], "summary": "Attach listing photos, normalizing uploads into WebP asset variants stored in the environment asset bucket.", "responses": { "200": { "$ref": "#/components/responses/Command" }, "400": { "$ref": "#/components/responses/ValidationFailed" }, "401": { "$ref": "#/components/responses/AuthenticationRequired" }, "403": { "$ref": "#/components/responses/Forbidden" } } } },
     "/api/marketplace/account/listings/{id}/price": { "post": { "tags": ["Listings and Offers"], "summary": "Update listing price with confirmed feeQuoteFingerprint.", "responses": { "200": { "$ref": "#/components/responses/Command" }, "409": { "$ref": "#/components/responses/FeeQuoteStale" } } } },
@@ -65,9 +65,9 @@
     "/api/marketplace/account/listings/{id}/pause": { "post": { "tags": ["Listings and Offers"], "summary": "Pause listing.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
     "/api/marketplace/account/listings/{id}/withdraw": { "post": { "tags": ["Listings and Offers"], "summary": "Withdraw listing.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
     "/api/marketplace/account/offers/submitted": { "get": { "tags": ["Listings and Offers"], "summary": "List submitted buyer offers.", "responses": { "200": { "$ref": "#/components/responses/List" } } }, "post": { "tags": ["Listings and Offers"], "summary": "Submit a buyer offer.", "responses": { "201": { "$ref": "#/components/responses/Command" } } } },
-    "/api/marketplace/account/offers/submitted/{id}": { "get": { "tags": ["Listings and Offers"], "summary": "Get submitted offer detail.", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/NotFound" } } } },
+    "/api/marketplace/account/offers/submitted/{id}": {"get":{"tags":["Listings and Offers"],"summary":"Get submitted offer detail.","responses":{"200":{"$ref":"#/components/responses/Ok"},"404":{"$ref":"#/components/responses/NotFound"},"503":{"$ref":"#/components/responses/ProjectionFreshnessTimeout"}},"parameters":[{"$ref":"#/components/parameters/ReadAfterWrite"},{"$ref":"#/components/parameters/ReadTargetContext"}]}},
     "/api/marketplace/account/offers/matches": { "get": { "tags": ["Listings and Offers"], "summary": "List offer matches for account listings.", "responses": { "200": { "$ref": "#/components/responses/List" } } } },
-    "/api/marketplace/account/offers/matches/{id}": { "get": { "tags": ["Listings and Offers"], "summary": "Get offer match detail for an account listing.", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/NotFound" } } } },
+    "/api/marketplace/account/offers/matches/{id}": {"get":{"tags":["Listings and Offers"],"summary":"Get offer match detail for an account listing.","responses":{"200":{"$ref":"#/components/responses/Ok"},"404":{"$ref":"#/components/responses/NotFound"},"503":{"$ref":"#/components/responses/ProjectionFreshnessTimeout"}},"parameters":[{"$ref":"#/components/parameters/ReadAfterWrite"},{"$ref":"#/components/parameters/ReadTargetContext"}]}},
     "/api/marketplace/account/offers/matches/{id}/terms-preview": { "get": { "tags": ["Listings and Offers"], "summary": "Preview accepted-offer marketplace sales fee terms.", "responses": { "200": { "$ref": "#/components/responses/ListingTermsPreview" }, "404": { "$ref": "#/components/responses/NotFound" } } } },
     "/api/marketplace/account/offers/matches/{id}/accept": { "post": { "tags": ["Listings and Offers"], "summary": "Accept a matched offer with confirmed feeQuoteFingerprint.", "responses": { "201": { "$ref": "#/components/responses/Command" }, "409": { "$ref": "#/components/responses/FeeQuoteStale" } } } },
 
@@ -82,7 +82,7 @@
     "/api/marketplace/account/shipments/{id}": { "get": { "tags": ["Orders and Shipments"], "summary": "Get buyer shipment detail.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
     "/api/marketplace/account/sales/shipments": { "get": { "tags": ["Orders and Shipments"], "summary": "List seller shipments.", "responses": { "200": { "$ref": "#/components/responses/List" } } } },
     "/api/marketplace/account/sales/shipments/packing-slips": { "get": { "tags": ["Orders and Shipments"], "summary": "Get seller packing slips for selected shipments.", "responses": { "200": { "$ref": "#/components/responses/List" }, "400": { "$ref": "#/components/responses/ValidationFailed" } } } },
-    "/api/marketplace/account/sales/shipments/{id}": { "get": { "tags": ["Orders and Shipments"], "summary": "Get seller shipment detail.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/marketplace/account/sales/shipments/{id}": {"get":{"tags":["Orders and Shipments"],"summary":"Get seller shipment detail.","responses":{"200":{"$ref":"#/components/responses/Ok"},"503":{"$ref":"#/components/responses/ProjectionFreshnessTimeout"}},"parameters":[{"$ref":"#/components/parameters/ReadAfterWrite"},{"$ref":"#/components/parameters/ReadTargetContext"}]}},
     "/api/marketplace/account/sales/shipments/{id}/pack": { "post": { "tags": ["Orders and Shipments"], "summary": "Pack seller shipment.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
     "/api/marketplace/account/sales/shipments/{id}/label": { "post": { "tags": ["Orders and Shipments"], "summary": "Attach seller shipment label.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
     "/api/marketplace/account/sales/shipments/{id}/dispatch": { "post": { "tags": ["Orders and Shipments"], "summary": "Dispatch seller shipment.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
@@ -109,14 +109,14 @@
     "/api/marketplace/account/marketplace-checkout-fee-policy": { "get": { "tags": ["Payments and Settlement"], "summary": "Get active Marketplace Checkout Fee policy and quote audit settings.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
     "/api/marketplace/account/checkout/recover": { "post": { "tags": ["Payments and Settlement"], "summary": "Recover checkout payment.", "responses": { "201": { "$ref": "#/components/responses/Ok" } } } },
     "/api/marketplace/account/checkout/recovery": { "get": { "tags": ["Payments and Settlement"], "summary": "Get checkout recovery options.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
-    "/api/marketplace/account/payments/{id}": { "get": { "tags": ["Payments and Settlement"], "summary": "Get payment detail.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/marketplace/account/payments/{id}": {"get":{"tags":["Payments and Settlement"],"summary":"Get payment detail.","responses":{"200":{"$ref":"#/components/responses/Ok"},"503":{"$ref":"#/components/responses/ProjectionFreshnessTimeout"}},"parameters":[{"$ref":"#/components/parameters/ReadAfterWrite"},{"$ref":"#/components/parameters/ReadTargetContext"}]}},
     "/api/marketplace/account/payments/{id}/timeline": { "get": { "tags": ["Payments and Settlement"], "summary": "Get payment money timeline.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
     "/api/marketplace/accounts/{accountId}/review-summary": { "get": { "tags": ["Reputation"], "summary": "Get public account review summary.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
     "/api/marketplace/accounts/{accountId}/reviews": { "get": { "tags": ["Reputation"], "summary": "List public account reviews.", "responses": { "200": { "$ref": "#/components/responses/List" } } } },
     "/api/marketplace/reviews/written": { "get": { "tags": ["Reputation"], "summary": "List reviews written by current account.", "responses": { "200": { "$ref": "#/components/responses/List" } } } },
     "/api/marketplace/reviews/received": { "get": { "tags": ["Reputation"], "summary": "List reviews received by current account.", "responses": { "200": { "$ref": "#/components/responses/List" } } } },
     "/api/marketplace/reviews/opportunities/orders/{orderId}": { "get": { "tags": ["Reputation"], "summary": "Get review opportunity for an order.", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/NotFound" } } } },
-    "/api/marketplace/reviews/{id}": { "get": { "tags": ["Reputation"], "summary": "Get account review detail.", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/NotFound" } } } },
+    "/api/marketplace/reviews/{id}": {"get":{"tags":["Reputation"],"summary":"Get account review detail.","responses":{"200":{"$ref":"#/components/responses/Ok"},"404":{"$ref":"#/components/responses/NotFound"},"503":{"$ref":"#/components/responses/ProjectionFreshnessTimeout"}},"parameters":[{"$ref":"#/components/parameters/ReadAfterWrite"},{"$ref":"#/components/parameters/ReadTargetContext"}]}},
     "/api/marketplace/reviews": { "post": { "tags": ["Reputation"], "summary": "Submit a review.", "responses": { "201": { "$ref": "#/components/responses/Command" } } } },
     "/api/marketplace/reviews/{id}/update": { "post": { "tags": ["Reputation"], "summary": "Update a review.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
     "/api/marketplace/reviews/{id}/withdraw": { "post": { "tags": ["Reputation"], "summary": "Withdraw a review.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
@@ -126,27 +126,27 @@
     "/api/inventory/import-batches": { "get": { "tags": ["Inventory"], "summary": "List review-first inventory import batches.", "responses": { "200": { "$ref": "#/components/responses/List" } } }, "post": { "tags": ["Inventory"], "summary": "Create an inventory import batch from CSV text or parsed rows.", "responses": { "201": { "$ref": "#/components/responses/Ok" }, "400": { "$ref": "#/components/responses/ValidationFailed" } } } },
     "/api/inventory/import-batches/{id}": { "get": { "tags": ["Inventory"], "summary": "Get import batch match, validation, and draft-listing outcomes.", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/NotFound" } } } },
     "/api/inventory/import-batches/{id}/commit": { "post": { "tags": ["Inventory"], "summary": "Commit accepted import rows into Inventory Items and draft Listings when listing fields are present.", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "400": { "$ref": "#/components/responses/ValidationFailed" } } } },
-    "/api/inventory/storage-locations": { "get": { "tags": ["Inventory"], "summary": "List storage locations.", "responses": { "200": { "$ref": "#/components/responses/List" } } }, "post": { "tags": ["Inventory"], "summary": "Create storage location.", "responses": { "201": { "$ref": "#/components/responses/Command" } } } },
+    "/api/inventory/storage-locations": {"get":{"tags":["Inventory"],"summary":"List storage locations.","responses":{"200":{"$ref":"#/components/responses/List"},"503":{"$ref":"#/components/responses/ProjectionFreshnessTimeout"}},"parameters":[{"$ref":"#/components/parameters/ReadAfterWrite"},{"$ref":"#/components/parameters/ReadTargetContext"}]},"post":{"tags":["Inventory"],"summary":"Create storage location.","responses":{"201":{"$ref":"#/components/responses/Command"}}}},
     "/api/inventory/storage-locations/{id}": { "patch": { "tags": ["Inventory"], "summary": "Update storage location.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
     "/api/inventory/items": { "get": { "tags": ["Inventory"], "summary": "List inventory items.", "responses": { "200": { "$ref": "#/components/responses/List" } } }, "post": { "tags": ["Inventory"], "summary": "Create inventory item.", "responses": { "201": { "$ref": "#/components/responses/Command" } } } },
-    "/api/inventory/items/{id}": { "get": { "tags": ["Inventory"], "summary": "Get inventory item.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/inventory/items/{id}": {"get":{"tags":["Inventory"],"summary":"Get inventory item.","responses":{"200":{"$ref":"#/components/responses/Ok"},"503":{"$ref":"#/components/responses/ProjectionFreshnessTimeout"}},"parameters":[{"$ref":"#/components/parameters/ReadAfterWrite"},{"$ref":"#/components/parameters/ReadTargetContext"}]}},
     "/api/inventory/items/{id}/adjustments": { "post": { "tags": ["Inventory"], "summary": "Adjust inventory item quantity.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
     "/api/inventory/items/{id}/holds": { "post": { "tags": ["Inventory"], "summary": "Place inventory hold.", "responses": { "201": { "$ref": "#/components/responses/Command" } } } },
     "/api/inventory/holds/{id}/release": { "post": { "tags": ["Inventory"], "summary": "Release inventory hold.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
 
     "/api/identity/accounts": { "get": { "tags": ["Identity"], "summary": "List accounts.", "responses": { "200": { "$ref": "#/components/responses/List" } } }, "post": { "tags": ["Identity"], "summary": "Create account.", "responses": { "201": { "$ref": "#/components/responses/Command" } } } },
-    "/api/identity/accounts/{id}": { "get": { "tags": ["Identity"], "summary": "Get account.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } }, "put": { "tags": ["Identity"], "summary": "Update account profile.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
-    "/api/identity/memberships": { "get": { "tags": ["Identity"], "summary": "List account team memberships.", "responses": { "200": { "$ref": "#/components/responses/List" } } }, "post": { "tags": ["Identity"], "summary": "Grant membership.", "responses": { "201": { "$ref": "#/components/responses/Command" } } } },
-    "/api/identity/memberships/{id}": { "get": { "tags": ["Identity"], "summary": "Get membership.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/identity/accounts/{id}": {"get":{"tags":["Identity"],"summary":"Get account.","responses":{"200":{"$ref":"#/components/responses/Ok"},"503":{"$ref":"#/components/responses/ProjectionFreshnessTimeout"}},"parameters":[{"$ref":"#/components/parameters/ReadAfterWrite"},{"$ref":"#/components/parameters/ReadTargetContext"}]},"put":{"tags":["Identity"],"summary":"Update account profile.","responses":{"200":{"$ref":"#/components/responses/Command"}}}},
+    "/api/identity/memberships": {"get":{"tags":["Identity"],"summary":"List account team memberships.","responses":{"200":{"$ref":"#/components/responses/List"},"503":{"$ref":"#/components/responses/ProjectionFreshnessTimeout"}},"parameters":[{"$ref":"#/components/parameters/ReadAfterWrite"},{"$ref":"#/components/parameters/ReadTargetContext"}]},"post":{"tags":["Identity"],"summary":"Grant membership.","responses":{"201":{"$ref":"#/components/responses/Command"}}}},
+    "/api/identity/memberships/{id}": {"get":{"tags":["Identity"],"summary":"Get membership.","responses":{"200":{"$ref":"#/components/responses/Ok"},"503":{"$ref":"#/components/responses/ProjectionFreshnessTimeout"}},"parameters":[{"$ref":"#/components/parameters/ReadAfterWrite"},{"$ref":"#/components/parameters/ReadTargetContext"}]}},
     "/api/identity/memberships/{id}/role": { "put": { "tags": ["Identity"], "summary": "Change membership role.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
     "/api/identity/memberships/{id}/revoke": { "post": { "tags": ["Identity"], "summary": "Revoke membership.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
     "/api/identity/memberships/{id}/reinstate": { "post": { "tags": ["Identity"], "summary": "Reinstate membership.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
-    "/api/identity/invitations": { "get": { "tags": ["Identity"], "summary": "List invitations.", "responses": { "200": { "$ref": "#/components/responses/List" } } }, "post": { "tags": ["Identity"], "summary": "Create invitation.", "responses": { "201": { "$ref": "#/components/responses/Command" } } } },
-    "/api/identity/invitations/{id}": { "get": { "tags": ["Identity"], "summary": "Get invitation.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/identity/invitations": {"get":{"tags":["Identity"],"summary":"List invitations.","responses":{"200":{"$ref":"#/components/responses/List"},"503":{"$ref":"#/components/responses/ProjectionFreshnessTimeout"}},"parameters":[{"$ref":"#/components/parameters/ReadAfterWrite"},{"$ref":"#/components/parameters/ReadTargetContext"}]},"post":{"tags":["Identity"],"summary":"Create invitation.","responses":{"201":{"$ref":"#/components/responses/Command"}}}},
+    "/api/identity/invitations/{id}": {"get":{"tags":["Identity"],"summary":"Get invitation.","responses":{"200":{"$ref":"#/components/responses/Ok"},"503":{"$ref":"#/components/responses/ProjectionFreshnessTimeout"}},"parameters":[{"$ref":"#/components/parameters/ReadAfterWrite"},{"$ref":"#/components/parameters/ReadTargetContext"}]}},
     "/api/identity/invitations/{id}/resend": { "post": { "tags": ["Identity"], "summary": "Resend invitation.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
     "/api/identity/invitations/{id}/cancel": { "post": { "tags": ["Identity"], "summary": "Cancel invitation.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
-    "/api/identity/api-keys": { "get": { "tags": ["Identity"], "summary": "List API keys.", "responses": { "200": { "$ref": "#/components/responses/List" } } }, "post": { "tags": ["Identity"], "summary": "Create API key.", "responses": { "201": { "$ref": "#/components/responses/Command" } } } },
-    "/api/identity/api-keys/{id}": { "get": { "tags": ["Identity"], "summary": "Get API key.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/identity/api-keys": {"get":{"tags":["Identity"],"summary":"List API keys.","responses":{"200":{"$ref":"#/components/responses/List"},"503":{"$ref":"#/components/responses/ProjectionFreshnessTimeout"}},"parameters":[{"$ref":"#/components/parameters/ReadAfterWrite"},{"$ref":"#/components/parameters/ReadTargetContext"}]},"post":{"tags":["Identity"],"summary":"Create API key.","responses":{"201":{"$ref":"#/components/responses/Command"}}}},
+    "/api/identity/api-keys/{id}": {"get":{"tags":["Identity"],"summary":"Get API key.","responses":{"200":{"$ref":"#/components/responses/Ok"},"503":{"$ref":"#/components/responses/ProjectionFreshnessTimeout"}},"parameters":[{"$ref":"#/components/parameters/ReadAfterWrite"},{"$ref":"#/components/parameters/ReadTargetContext"}]}},
     "/api/identity/api-keys/{id}/revoke": { "post": { "tags": ["Identity"], "summary": "Revoke API key.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
     "/api/identity/api-keys/{id}/rotate": { "post": { "tags": ["Identity"], "summary": "Rotate API key secret.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
     "/api/identity/consents": { "get": { "tags": ["Identity"], "summary": "List account consents.", "responses": { "200": { "$ref": "#/components/responses/List" } } } },
@@ -168,7 +168,7 @@
     "/api/settlement/payout-setup/refresh": { "post": { "tags": ["Payments and Settlement"], "summary": "Refresh payout setup state.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
     "/api/settlement/payouts": { "get": { "tags": ["Payments and Settlement"], "summary": "List account payouts.", "responses": { "200": { "$ref": "#/components/responses/List" } } }, "post": { "tags": ["Payments and Settlement"], "summary": "Request payout.", "responses": { "201": { "$ref": "#/components/responses/Command" } } } },
     "/api/settlement/payouts/preview": { "post": { "tags": ["Payments and Settlement"], "summary": "Preview payout request.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
-    "/api/settlement/payouts/{id}": { "get": { "tags": ["Payments and Settlement"], "summary": "Get payout.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/settlement/payouts/{id}": {"get":{"tags":["Payments and Settlement"],"summary":"Get payout.","responses":{"200":{"$ref":"#/components/responses/Ok"},"503":{"$ref":"#/components/responses/ProjectionFreshnessTimeout"}},"parameters":[{"$ref":"#/components/parameters/ReadAfterWrite"},{"$ref":"#/components/parameters/ReadTargetContext"}]}},
     "/api/settlement/payouts/{id}/timeline": { "get": { "tags": ["Payments and Settlement"], "summary": "Get payout money timeline.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
     "/api/settlement/money-health": { "get": { "tags": ["Payments and Settlement"], "summary": "Get money operations health.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
     "/api/settlement/provider-health": { "get": { "tags": ["Payments and Settlement"], "summary": "Get payout provider health.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } }
@@ -183,6 +183,49 @@
       "apiKeyBearer": {
         "type": "http",
         "scheme": "bearer"
+      }
+    },
+    "parameters": {
+      "ReadAfterWrite": {
+        "name": "Chase-Sets-Read-After-Write",
+        "in": "header",
+        "required": false,
+        "description": "Short-lived source-context commit receipt from a previous write. When present on a read-model-backed GET or HEAD request, the API waits for the declared projection dependencies before serving the read model.",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "ReadTargetContext": {
+        "name": "Chase-Sets-Read-Target-Context",
+        "in": "header",
+        "required": false,
+        "description": "Bounded context that owns the target read model on shared API mounts. Server-side clients set this with the request forwarding helpers so exact read freshness routes can be selected.",
+        "schema": {
+          "type": "string"
+        }
+      }
+    },
+    "headers": {
+      "Consistency": {
+        "description": "Consistency mode for a write response. Event-sourced commands that committed events return eventual.",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "eventual"
+          ]
+        }
+      },
+      "CommitPosition": {
+        "description": "Highest global event position committed by the write response, when committed events were recorded.",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "CommitReceipt": {
+        "description": "Encoded source-context commit receipt that clients can forward as Chase-Sets-Read-After-Write on the next read-model-backed request.",
+        "schema": {
+          "type": "string"
+        }
       }
     },
     "schemas": {
@@ -318,6 +361,32 @@
           }
         }
       },
+      "ProjectionFreshnessTimeoutError": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": [
+              "code",
+              "message"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "projection_freshness_timeout"
+                ]
+              },
+              "message": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
       "FeeQuoteStaleError": {
         "type": "object",
         "required": ["error"],
@@ -341,11 +410,12 @@
       "ListingFeeHistory": { "description": "Listing fee lock history.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ListingFeeHistoryResponse" } } } },
       "ListingFeeLockReport": { "description": "Marketplace sales fee lock report.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ListingFeeLockReportResponse" } } } },
       "PayoutEmbeddedSession": { "description": "Embedded payout setup or account management session. Client secrets are returned only to the authenticated caller and must not be stored.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PayoutEmbeddedSessionResponse" } } } },
-      "Command": { "description": "Command accepted.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CommandResponse" } } } },
+      "Command": {"description":"Command accepted.","content":{"application/json":{"schema":{"$ref":"#/components/schemas/CommandResponse"}}},"headers":{"Chase-Sets-Consistency":{"$ref":"#/components/headers/Consistency"},"Chase-Sets-Commit-Position":{"$ref":"#/components/headers/CommitPosition"},"Chase-Sets-Commit-Receipt":{"$ref":"#/components/headers/CommitReceipt"}}},
       "AuthenticationRequired": { "description": "Authentication required.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
       "Forbidden": { "description": "Forbidden.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
       "ValidationFailed": { "description": "Validation failed.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
       "FeeQuoteStale": { "description": "Confirmed fee quote is missing or stale. Response includes error.currentQuote.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/FeeQuoteStaleError" } } } },
+      "ProjectionFreshnessTimeout": {"description":"The fresh-write receipt is valid, but the required projection checkpoints did not catch up before the bounded read consistency timeout. Retry with the same receipt while it remains fresh or show a temporary recovery state.","content":{"application/json":{"schema":{"$ref":"#/components/schemas/ProjectionFreshnessTimeoutError"}}}},
       "NotFound": { "description": "Resource not found.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
     }
   }

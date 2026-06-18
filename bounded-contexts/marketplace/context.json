@@ -324,7 +324,7 @@
         "apiRoutePath": "/account/listings/:id",
         "readModelTables": ["marketplace_listing_pages"],
         "helperUses": ["loadFreshlyWrittenResource"],
-        "transientRecovery": "Listing detail loader retries fresh-write not-found while the marketplace listing projection catches up."
+        "transientRecovery": "Listing detail loader treats valid fresh-write not-found and projection freshness timeout responses as temporary listing preparation while the marketplace listing projection catches up."
       }
     },
     {
@@ -567,7 +567,7 @@
         "apiContextName": "marketplace",
         "apiRoutePath": "/account/listings/:id",
         "readModelTables": ["marketplace_listing_pages"],
-        "transientRecovery": "Listing detail forms redirect back to the listing detail with a Marketplace commit receipt; the loader forwards afterWrite to the listing API and retries fresh-write not-found while the listing projection catches up."
+        "transientRecovery": "Listing detail forms redirect back to the listing detail with a Marketplace commit receipt; the loader forwards afterWrite to the listing API and treats fresh not-found or projection freshness timeout as temporary listing preparation while the listing projection catches up."
       },
       "proof": {
         "tests": [

@@ -102,6 +102,13 @@
       "ownedTables": ["settlement_account_risk_sources", "settlement_account_review_sources"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "settlement-payout-projection",
+      "sourceContextNames": ["settlement"],
+      "ownedTables": ["settlement_payout_pages"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
     }
   ],
   "hostPorts": [
@@ -121,7 +128,18 @@
     {
       "mountPath": "/api/settlement",
       "kind": "primary",
-      "requiresAuth": true
+      "requiresAuth": true,
+      "readFreshnessRoutes": [
+        {
+          "routePath": "/payouts/:id",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "settlement_payout_pages"
+            }
+          ]
+        }
+      ]
     },
     {
       "mountPath": "/api/settlement/provider",
@@ -133,7 +151,7 @@
     {
       "id": "settlement.payout-request-to-detail",
       "owner": "settlement",
-      "risk": "important",
+      "risk": "critical",
       "source": {
         "routeId": "account-payouts",
         "actions": ["Request payout"],
@@ -142,15 +160,11 @@
       },
       "destination": {
         "routeId": "account-payout",
+        "apiContextName": "settlement",
+        "apiRoutePath": "/payouts/:id",
+        "readModelTables": ["settlement_payout_pages"],
         "helperUses": ["loadFreshlyWrittenResource"],
-        "transientRecovery": "Payout detail uses compatibility fresh-write recovery while exact Settlement read-model dependencies are audited."
-      },
-      "exception": {
-        "status": "accepted",
-        "owner": "settlement",
-        "reviewBy": "2026-07-31",
-        "issue": "#1809",
-        "reason": "Payout detail projection dependency migration remains a current audit/remediation gap."
+        "transientRecovery": "Payout detail redirects carry the Settlement payout request receipt; the API waits on settlement_payout_pages and the loader treats fresh 404 or projection freshness timeout as temporary payout preparation."
       }
     }
   ],

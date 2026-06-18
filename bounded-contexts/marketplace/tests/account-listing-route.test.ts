@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { appendFreshWriteToken } from "@chase-sets/http/responses";
 import { action as listingAction, loader as listingLoader } from "../routes/account-listing";
 import type { MarketplaceListingTermsPreview } from "@chase-sets/marketplace/server";
 
@@ -30,6 +31,25 @@ const currentQuote: MarketplaceListingTermsPreview = {
   resolved_at: "2026-04-17T00:00:00.000Z",
   fee_quote_fingerprint: "current-fingerprint",
 };
+
+function marketplaceCommit(position = "42", eventId = "evt_marketplace_listing") {
+  return {
+    mode: "eventual",
+    commitPosition: position,
+    commitEventIds: [eventId],
+    commitPositions: [
+      {
+        sourceContextName: "marketplace",
+        maxGlobalPosition: position,
+        eventIds: [eventId],
+      },
+    ],
+  };
+}
+
+function freshListingRequest(path = "/account/listings/lst_1") {
+  return new Request(`http://localhost${appendFreshWriteToken(path, marketplaceCommit())}`);
+}
 
 describe("marketplace listing detail route", () => {
   it("retries a fresh create redirect before treating the listing as missing", async () => {
@@ -70,6 +90,46 @@ describe("marketplace listing detail route", () => {
 
     expect(result.listing).toMatchObject({ listing_id: "lst_1" });
     expect(listingReads).toBe(2);
+  });
+
+  it("returns temporary recovery when a fresh listing read hits projection freshness timeout", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = String(input);
+
+        if (url.includes("/api/auth/session")) {
+          return Promise.resolve(jsonResponse({ actor: sellerActor }));
+        }
+
+        return Promise.resolve(
+          jsonResponse(
+            {
+              error: {
+                code: "projection_freshness_timeout",
+                message: "Projection read model did not catch up before the freshness timeout.",
+              },
+            },
+            503,
+          ),
+        );
+      }),
+    );
+
+    let response: Response | null = null;
+    try {
+      await listingLoader({
+        request: freshListingRequest(),
+        params: { listingId: "lst_1" },
+        context: undefined,
+      } as never);
+    } catch (error) {
+      response = error as Response;
+    }
+
+    expect(response?.status).toBe(503);
+    expect(response?.statusText).toBe("Preparing listing");
+    await expect(response?.text()).resolves.toContain("preparing your listing details");
   });
 
   it("returns the current quote when a confirmed price update is stale", async () => {

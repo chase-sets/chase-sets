@@ -11,15 +11,29 @@ const openApiPath = join(repoRoot, "docs/api/marketplace.openapi.json");
 const apiDocPath = join(repoRoot, "docs/api/marketplace-api.md");
 
 type OpenApiDocument = Readonly<{
-  paths: Record<string, Record<string, unknown>>;
+  paths: Record<string, Record<string, OpenApiOperation | unknown>>;
   components?: {
+    parameters?: Record<string, unknown>;
+    responses?: Record<string, unknown>;
     schemas?: Record<string, unknown>;
   };
+}>;
+
+type OpenApiOperation = Readonly<{
+  parameters?: readonly Readonly<{ $ref?: string }>[];
+  responses?: Record<string, Readonly<{ $ref?: string }> | unknown>;
 }>;
 
 type HonoRoute = Readonly<{
   method: string;
   path: string;
+}>;
+
+type ContextManifestForOpenApi = Readonly<{
+  apiMounts?: readonly Readonly<{
+    mountPath: string;
+    readFreshnessRoutes?: readonly Readonly<{ routePath: string; methods?: readonly string[] }>[];
+  }>[];
 }>;
 
 type RouteInventoryRuntime = Parameters<typeof buildPlatformApiApp>[0];
@@ -46,10 +60,47 @@ function normalizeRoutePattern(path: string): string {
   return normalized;
 }
 
+function toOpenApiPath(mountPath: string, routePath: string): string {
+  return `${mountPath}${routePath}`.replace(/:([^/]+)/g, "{$1}");
+}
+
 function normalizeEndpointKey(endpointKey: string): string {
   const [method, path] = endpointKey.split(" ");
 
   return `${method} ${normalizeRoutePattern(path)}`;
+}
+
+function readReadFreshnessEndpointKeys(): readonly string[] {
+  return diskContextManifests().flatMap((manifest) =>
+    (manifest.apiMounts ?? []).flatMap((mount) =>
+      (mount.readFreshnessRoutes ?? []).flatMap((route) =>
+        (route.methods ?? ["GET", "HEAD"])
+          .map((method) => method.toLowerCase())
+          .filter((method) => method !== "head")
+          .map((method) => `${method} ${toOpenApiPath(mount.mountPath, route.routePath)}`),
+      ),
+    ),
+  );
+}
+
+function diskContextManifests(): readonly ContextManifestForOpenApi[] {
+  const boundedContextsRoot = join(repoRoot, "bounded-contexts");
+  const manifests: unknown[] = [];
+
+  for (const entry of readdirSync(boundedContextsRoot, { withFileTypes: true })) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+
+    const contextPath = join(boundedContextsRoot, entry.name, "context.json");
+    try {
+      manifests.push(readJson(contextPath));
+    } catch {
+      // Ignore non-context folders.
+    }
+  }
+
+  return manifests as readonly ContextManifestForOpenApi[];
 }
 
 function createServiceProxy(): unknown {
@@ -219,5 +270,65 @@ describe("marketplace OpenAPI parity", () => {
         },
       },
     });
+  });
+
+  it("documents the read-after-write freshness contract for generated clients", () => {
+    const openApi = readJson<OpenApiDocument>(openApiPath);
+
+    expect(openApi.components?.parameters).toMatchObject({
+      ReadAfterWrite: {
+        name: "Chase-Sets-Read-After-Write",
+        in: "header",
+        required: false,
+      },
+      ReadTargetContext: {
+        name: "Chase-Sets-Read-Target-Context",
+        in: "header",
+        required: false,
+      },
+    });
+    expect(openApi.components?.responses?.Command).toMatchObject({
+      headers: {
+        "Chase-Sets-Consistency": { $ref: "#/components/headers/Consistency" },
+        "Chase-Sets-Commit-Position": { $ref: "#/components/headers/CommitPosition" },
+        "Chase-Sets-Commit-Receipt": { $ref: "#/components/headers/CommitReceipt" },
+      },
+    });
+    expect(openApi.components?.responses?.ProjectionFreshnessTimeout).toMatchObject({
+      content: {
+        "application/json": {
+          schema: { $ref: "#/components/schemas/ProjectionFreshnessTimeoutError" },
+        },
+      },
+    });
+
+    let documentedFreshReadOperations = 0;
+    const violations: string[] = [];
+    for (const endpointKey of readReadFreshnessEndpointKeys()) {
+      const [method, path] = endpointKey.split(" ");
+      const operation = openApi.paths[path]?.[method] as OpenApiOperation | undefined;
+
+      if (!operation) {
+        continue;
+      }
+      documentedFreshReadOperations += 1;
+
+      const parameterRefs = new Set((operation.parameters ?? []).map((parameter) => parameter.$ref));
+      if (!parameterRefs.has("#/components/parameters/ReadAfterWrite")) {
+        violations.push(`${endpointKey}: missing Chase-Sets-Read-After-Write parameter`);
+      }
+      if (!parameterRefs.has("#/components/parameters/ReadTargetContext")) {
+        violations.push(`${endpointKey}: missing Chase-Sets-Read-Target-Context parameter`);
+      }
+      if (
+        (operation.responses?.["503"] as { $ref?: string } | undefined)?.$ref !==
+        "#/components/responses/ProjectionFreshnessTimeout"
+      ) {
+        violations.push(`${endpointKey}: missing projection freshness timeout response`);
+      }
+    }
+
+    expect(documentedFreshReadOperations).toBeGreaterThan(0);
+    expect(violations).toEqual([]);
   });
 });
