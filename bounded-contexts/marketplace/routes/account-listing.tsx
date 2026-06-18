@@ -1,7 +1,11 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useSearchParams } from "react-router";
-import { appendFreshWriteToken, loadFreshlyWrittenResource } from "@chase-sets/http/responses";
+import {
+  appendFreshWriteToken,
+  loadFreshlyWrittenResource,
+  recoverFreshWriteReadError,
+} from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { PlatformFeedbackPrompt } from "@chase-sets/platform-operations/server";
@@ -16,6 +20,13 @@ import {
 import { MarketplaceListingDetailPage } from "../features/listings/ui/listing-detail-page";
 
 const MARKETPLACE_DESCRIPTION = t("marketplace.routes.accountListing.inspect.listing.inventory.pricing.quantity.caps");
+
+function listingPreparingResponse() {
+  return new Response(t("marketplace.routes.accountListing.listing.preparing.description"), {
+    status: 503,
+    statusText: t("marketplace.routes.accountListing.listing.preparing"),
+  });
+}
 
 function staleQuoteFromError(error: MarketplaceApiError) {
   if (error.status !== 409) {
@@ -67,6 +78,15 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       }),
     });
   } catch (error) {
+    const freshWriteRecovery = recoverFreshWriteReadError({
+      request,
+      error,
+      recoverTransient: listingPreparingResponse,
+    });
+    if (freshWriteRecovery) {
+      throw freshWriteRecovery;
+    }
+
     if (error instanceof MarketplaceApiError && error.status === 404) {
       throw new Response(t("marketplace.routes.accountListing.listing.not.found"), { status: 404 });
     }

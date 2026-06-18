@@ -480,7 +480,7 @@ export const sourceContextWakeRegistry = [
     priorityLane: "standard",
     expectedEventVolume: "medium",
     wakeStoreLoadEstimate: "low",
-    affectedProjectionNames: [],
+    affectedProjectionNames: ["settlement:settlement-payout-projection"],
     routeDependencyIds: ["settlement.payout-request-to-detail"],
   }),
 ] as const satisfies readonly SourceContextWakeRegistryEntry[];

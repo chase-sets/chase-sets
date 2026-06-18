@@ -514,6 +514,9 @@ export const settlementEnglishTranslations = {
   "settlement.routes.marketplace.accountMoneyHealth.money.health.marketplace": "Money Health | Marketplace",
   "settlement.routes.marketplace.accountPayout.payout.marketplace": "Payout | Marketplace",
   "settlement.routes.marketplace.accountPayout.payout.not.found": "Payout not found.",
+  "settlement.routes.marketplace.accountPayout.payout.preparing": "Preparing payout",
+  "settlement.routes.marketplace.accountPayout.payout.preparing.description":
+    "We're preparing your payout details. Try again in a moment.",
   "settlement.routes.marketplace.accountPayoutSetup.payout.setup.marketplace": "Payout Setup | Marketplace",
   "settlement.routes.marketplace.accountPayoutSetup.payout.setup.status.could.not":
     "Payout setup status could not be refreshed.",
