@@ -204,6 +204,20 @@ function optionResponse(
   };
 }
 
+// The import-context concern (provider/unit/guided-scope/profile + the source-
+// options status) now lives in the collapsible "Step 0" import-context bar (#1973).
+// When a scope is already chosen the bar renders COLLAPSED to a one-line summary, so
+// its form internals are mounted but `hidden` (base-ui collapses the disclosure
+// panel). Expand it via its trigger before asserting on those internals — this is
+// the same edit round trip an operator performs. Render models without a chosen
+// scope render the bar already open, so expanding is a safe no-op.
+function expandImportContextBar(): void {
+  const trigger = screen.queryByRole("button", { name: /Step 0 · Choose import scope/ });
+  if (trigger && trigger.getAttribute("aria-expanded") === "false") {
+    fireEvent.click(trigger);
+  }
+}
+
 describe("CatalogWorkbenchShell single per-surface return affordance", () => {
   afterEach(() => {
     cleanup();
@@ -396,6 +410,7 @@ describe("CatalogWorkbenchShell guided source-scope selector", () => {
 
   it("replaces the raw importScope text box with profile-driven scope selects", () => {
     render(<CatalogIntegrationsSurfacePage surface="daily" readModel={dailyReadModelWithSourceOptions()} />);
+    expandImportContextBar();
 
     // The transitional free-text import scope field is gone on a provider that
     // declares option queries; the operator picks structured scope levels instead.
@@ -452,6 +467,7 @@ describe("CatalogWorkbenchShell guided source-scope selector", () => {
     });
 
     render(<CatalogIntegrationsSurfacePage surface="daily" readModel={readModel} />);
+    expandImportContextBar();
 
     const scopeGroup = screen.getByRole("group", { name: "Source scope" });
     const series = within(scopeGroup).getByLabelText<HTMLSelectElement>("Series");
@@ -468,6 +484,7 @@ describe("CatalogWorkbenchShell guided source-scope selector", () => {
 
   it("shows hydrated parents when a child-only source option is selected", () => {
     render(<CatalogIntegrationsSurfacePage surface="daily" readModel={dailyReadModelWithJapaneseExpansionOnly()} />);
+    expandImportContextBar();
 
     const scopeGroup = screen.getByRole("group", { name: "Source scope" });
     const language = within(scopeGroup).getByLabelText<HTMLSelectElement>("Language");
@@ -497,6 +514,7 @@ describe("CatalogWorkbenchShell guided source-scope selector", () => {
     });
 
     render(<CatalogIntegrationsSurfacePage surface="daily" readModel={readModel} />);
+    expandImportContextBar();
 
     const scopeGroup = screen.getByRole("group", { name: "Source scope" });
     // TCGplayer's profile declares Product Line / Set Name, not language/series.
@@ -528,6 +546,7 @@ describe("CatalogWorkbenchShell guided source-scope selector", () => {
     });
 
     render(<CatalogIntegrationsSurfacePage surface="daily" readModel={readModel} />);
+    expandImportContextBar();
 
     expect(screen.getByLabelText<HTMLSelectElement>("Provider").value).toBe("scrydex");
     expect(screen.queryByRole("group", { name: "Source scope" })).toBeNull();
@@ -549,6 +568,7 @@ describe("CatalogWorkbenchShell guided source-scope selector", () => {
     });
 
     render(<CatalogIntegrationsSurfacePage surface="daily" readModel={readModel} />);
+    expandImportContextBar();
 
     const scopeGroup = screen.getByRole("group", { name: "Source scope" });
     const language = within(scopeGroup).getByLabelText<HTMLSelectElement>("Language");
@@ -558,6 +578,7 @@ describe("CatalogWorkbenchShell guided source-scope selector", () => {
 
   it("submits dependent source-scope filters and clears stale child selections", () => {
     render(<CatalogIntegrationsSurfacePage surface="daily" readModel={dailyReadModelWithSourceOptions()} />);
+    expandImportContextBar();
 
     const scopeGroup = screen.getByRole("group", { name: "Source scope" });
     const language = within(scopeGroup).getByLabelText<HTMLSelectElement>("Language");
@@ -585,6 +606,7 @@ describe("CatalogWorkbenchShell guided source-scope selector", () => {
   // sourceOptionAction=force-refresh-all stamped on it.
   it("forces a refresh-all of source options when a parent filter changes", () => {
     render(<CatalogIntegrationsSurfacePage surface="daily" readModel={dailyReadModelWithSourceOptions()} />);
+    expandImportContextBar();
 
     const scopeGroup = screen.getByRole("group", { name: "Source scope" });
     const language = within(scopeGroup).getByLabelText<HTMLSelectElement>("Language");
@@ -612,6 +634,7 @@ describe("CatalogWorkbenchShell guided source-scope selector", () => {
 
   it("hydrates parent fields and refreshes source options when a leaf filter changes", () => {
     render(<CatalogIntegrationsSurfacePage surface="daily" readModel={dailyReadModelWithJapaneseExpansionOnly()} />);
+    expandImportContextBar();
 
     const scopeGroup = screen.getByRole("group", { name: "Source scope" });
     const language = within(scopeGroup).getByLabelText<HTMLSelectElement>("Language");
@@ -644,6 +667,7 @@ describe("CatalogWorkbenchShell source-options status panel", () => {
     const { container } = render(
       <CatalogIntegrationsSurfacePage surface="daily" readModel={dailyReadModelWithSourceOptions()} />,
     );
+    expandImportContextBar();
 
     // One stale expansions page degrades the overall status.
     const panel = container.querySelector('[data-catalog-source-options-status="degraded"]');
@@ -726,6 +750,7 @@ describe("CatalogWorkbenchShell source-options status panel", () => {
     });
 
     const { container } = render(<CatalogIntegrationsSurfacePage surface="daily" readModel={readModel} />);
+    expandImportContextBar();
 
     expect(
       container.querySelector('[data-source-option-page="set-names"][data-source-option-state="not-requested"]'),
@@ -734,5 +759,63 @@ describe("CatalogWorkbenchShell source-options status panel", () => {
     // is chosen.
     const setName = screen.getByLabelText<HTMLSelectElement>("Set Name");
     expect(setName.disabled).toBe(true);
+  });
+});
+
+// #1973: the import-context concern is a collapsible "Step 0" bar. Expanded while no
+// scope is chosen (the operator must pick one); collapsed to a one-line summary once
+// a scope is set, with the disclosure trigger as the edit affordance. Collapse/expand
+// is pure client state — it never navigates, so it never full-reloads (no submit).
+describe("CatalogWorkbenchShell collapsible import-context bar (Step 0)", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("renders the bar expanded with no collapsed summary when no scope is chosen", () => {
+    render(
+      <CatalogIntegrationsSurfacePage
+        surface="daily"
+        readModel={dailyReadModelWithProviders(
+          "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import",
+        )}
+      />,
+    );
+
+    const trigger = screen.getByRole("button", { name: /Step 0 · Choose import scope/ });
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    // No scope chosen yet → no collapsed summary, and the form is reachable.
+    expect(screen.queryByText(/— edit$/)).toBeNull();
+    expect(screen.getByLabelText<HTMLSelectElement>("Provider")).toBeTruthy();
+  });
+
+  it("collapses to a provider · unit · scope · profile summary once a scope is chosen", () => {
+    render(<CatalogIntegrationsSurfacePage surface="daily" readModel={dailyReadModelWithSourceOptions()} />);
+
+    const trigger = screen.getByRole("button", { name: /Step 0 · Choose import scope/ });
+    // A scope is chosen (en/base/base1) → the bar lands collapsed, summarizing the
+    // current import context, and its form internals are hidden until expanded.
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(
+      screen.getByText("tcgdex · tcgdex:pokemon:card:import · en/base/base1 · profile 2026.06.04 — edit"),
+    ).toBeTruthy();
+    expect(screen.queryByRole("group", { name: "Source scope" })).toBeNull();
+  });
+
+  it("expands in place to edit and collapses again without any navigation submit", () => {
+    render(<CatalogIntegrationsSurfacePage surface="daily" readModel={dailyReadModelWithSourceOptions()} />);
+
+    const trigger = screen.getByRole("button", { name: /Step 0 · Choose import scope/ });
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+
+    // Edit: clicking the summary trigger reveals the guided scope form…
+    fireEvent.click(trigger);
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByRole("group", { name: "Source scope" })).toBeTruthy();
+
+    // …and collapsing again hides it. Neither toggle submits a navigation: the
+    // collapse/expand is client state, so the page is never re-loaded by editing.
+    fireEvent.click(trigger);
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(submitSpy).not.toHaveBeenCalled();
   });
 });

@@ -136,7 +136,27 @@ test.describe("catalog admin integrations", () => {
     await expect(page.locator('a[href="/catalog/integrations/release"]').first()).toBeVisible();
 
     await expect(page.getByRole("button", { name: "Apply context" })).toHaveCount(0);
+    // #1973: "choosing what to import" lives in a collapsible "Step 0" import-context
+    // bar ahead of the three-stage flow. Its trigger names the step and toggles the
+    // provider/unit/guided-scope form. The seed daily route lands with the bar open
+    // (its apply control "Select source scope" is reachable), so collapsing then
+    // re-expanding it exercises the edit round trip. The toggle is pure client state
+    // — it must NOT navigate (the URL is unchanged) and must NOT full-reload. Do not
+    // wait for networkidle around it; assert the form's visibility transitions
+    // directly with explicit waits.
+    const contextBarTrigger = page.getByRole("button", { name: /Step 0 · Choose import scope/ });
+    await expect(contextBarTrigger.first()).toBeVisible();
     await expect(page.getByRole("button", { name: "Select source scope" }).first()).toBeVisible();
+    const urlBeforeToggle = page.url();
+    // Collapse to the one-line summary: the form's provider select hides.
+    await contextBarTrigger.first().click();
+    await expect(page.getByLabel("Provider")).toBeHidden();
+    // Edit: re-expand to the form. The apply control returns, proving the round trip.
+    await contextBarTrigger.first().click();
+    await expect(page.getByLabel("Provider")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Select source scope" }).first()).toBeVisible();
+    // No navigation happened: collapse/expand never touched the URL or reloaded.
+    expect(page.url()).toBe(urlBeforeToggle);
     // The daily route is now an explicit, linear three-stage flow. The ordered
     // stepper and the stage controls name each stage so "where do I run a sync /
     // create items?" is answerable at a glance. These labels render in the always-

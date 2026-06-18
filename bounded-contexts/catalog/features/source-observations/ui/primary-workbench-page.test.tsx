@@ -36,6 +36,18 @@ function jsonClone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+// The import-context controls (provider/unit/guided-scope/profile) now live in the
+// collapsible "Step 0" bar (#1973). With a scope already chosen the bar renders
+// COLLAPSED to a summary, so its form internals are mounted but `hidden`. Expand it
+// via its trigger before asserting on those controls — the same edit round trip an
+// operator performs.
+function expandImportContextBar(): void {
+  const trigger = screen.queryByRole("button", { name: /Step 0 · Choose import scope/ });
+  if (trigger && trigger.getAttribute("aria-expanded") === "false") {
+    fireEvent.click(trigger);
+  }
+}
+
 // Supporting workspaces link back to the daily import-to-promotion surface route,
 // which is the base /catalog/integrations path and carries no ?section= (it is the
 // default workspace of its surface).
@@ -173,6 +185,9 @@ describe("CatalogPrimaryWorkbenchPage", () => {
         name: "Pull provider data, review Source Observations, promote Catalog facts",
       }),
     ).toBeTruthy();
+    // The Japanese SV8 scope is already chosen, so the Step 0 bar lands collapsed;
+    // expand it to drive the provider-options -> guided-scope walkthrough.
+    expandImportContextBar();
     expect(screen.getByLabelText("Provider")).toBeTruthy();
     expect(screen.getByLabelText("Unit")).toBeTruthy();
     // The raw colon-delimited import-scope text box is replaced by guided,

@@ -189,6 +189,11 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.importContext.profileVersion": "Profile version",
   "catalog.features.sourceObservations.ui.primaryWorkbench.importContext.provider": "Provider",
   "catalog.features.sourceObservations.ui.primaryWorkbench.importContext.scope": "Import scope",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.importContext.step.description":
+    "Pick the provider, ingestion unit, scope, and active profile to import before running the flow.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.importContext.step.profile": "profile {profileVersion}",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.importContext.step.summary": "{summary} — edit",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.importContext.step.title": "Step 0 · Choose import scope",
   "catalog.features.sourceObservations.ui.primaryWorkbench.importContext.unit": "Unit",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.adapter": "Adapter",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.changed": "Changed observations",
