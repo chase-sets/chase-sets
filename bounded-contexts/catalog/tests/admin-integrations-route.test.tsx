@@ -37,6 +37,9 @@ vi.mock("react-router", async () => {
     useLoaderData: mockUseLoaderData,
     useRouteLoaderData: mockUseRouteLoaderData,
     useActionData: mockUseActionData,
+    // The import-jobs module polls live progress via useRevalidator; outside a data
+    // router (this bare render) it needs a stub so the workbench still renders.
+    useRevalidator: () => ({ revalidate: () => undefined, state: "idle" }),
   };
 });
 

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { tcgdexPokemonCardSourceObservationMappingContract } from "../api/tcgdex-executable-mapping-contract";
 import { tcgdexPokemonTcgProviderProfile } from "../api/provider-integration-profiles";
 import { catalogProviderProfileEditableSectionKeys } from "../api/provider-profile-section-registry";
@@ -19,6 +19,16 @@ import {
   sourceObservationListItem,
   sourceObservationScope,
 } from "./primary-workbench-test-fixtures";
+
+// The import-jobs module polls live progress via useRevalidator; these pages render
+// bare (no data router), so stub the revalidator to a no-op for the workbench tree.
+vi.mock("react-router", async () => {
+  const actual = await vi.importActual<typeof import("react-router")>("react-router");
+  return {
+    ...actual,
+    useRevalidator: () => ({ revalidate: () => undefined, state: "idle" }),
+  };
+});
 
 function jsonClone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;

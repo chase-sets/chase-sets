@@ -31,6 +31,7 @@ import { catalogPrimaryWorkbenchHref } from "../../primary-workbench-route-conte
 import { scopeContextFromImportScope, scopeDisplayLabel } from "../../primary-workbench-scope-context";
 import { CommandHiddenInputs, type CatalogPrimaryWorkbenchSubmitIntent } from "../import-to-promotion/command-controls";
 import { BlockerList, profileSnapshotLabel, stateLabel } from "../import-to-promotion/workbench-formatting";
+import { useLiveImportJobs } from "./use-live-import-jobs";
 
 type ImportJobRow = CatalogPrimaryWorkbenchReadModel["importJobs"]["jobs"][number];
 
@@ -39,6 +40,11 @@ export function CatalogIntegrationImportJobsModule({
 }: Readonly<{
   readModel: CatalogPrimaryWorkbenchReadModel;
 }>) {
+  // Live progress: while a durable import is active and the tab is visible, the
+  // loader revalidates on a bounded interval and `jobProgress` carries the
+  // monotonic-gated completed/total/percent so a row never visibly counts backward.
+  const { live, jobProgress } = useLiveImportJobs(readModel);
+
   const jobColumns = useMemo<DataColumn<ImportJobRow>[]>(
     () => [
       {
@@ -83,34 +89,40 @@ export function CatalogIntegrationImportJobsModule({
         key: "progress",
         header: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.table.progress"),
         mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.table.progress"),
-        cell: (job) => (
-          <WorkbenchStack gap="sm">
-            <Badge tone={jobStateTone(job.state)}>{stateLabel(job.state)}</Badge>
-            <WorkbenchText size="xs">
-              {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.operator.status", {
-                status: stateLabel(job.operatorStatus),
-              })}
-            </WorkbenchText>
-            <WorkbenchText size="xs">
-              {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.progress.value", {
-                completed: job.completed,
-                total: job.total,
-                percent: job.progressPercent,
-              })}
-            </WorkbenchText>
-            <WorkbenchText size="xs">
-              {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.created", {
-                value: job.createdAt,
-              })}
-            </WorkbenchText>
-            <WorkbenchText size="xs">
-              {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.started", {
-                value:
-                  job.startedAt ?? t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.not.started"),
-              })}
-            </WorkbenchText>
-          </WorkbenchStack>
-        ),
+        cell: (job) => {
+          // Render the monotonic-gated progress when present so a live refresh
+          // never shows the row counting backward; fall back to the server snapshot.
+          const progress = jobProgress.get(job.jobId);
+          return (
+            <WorkbenchStack gap="sm">
+              <Badge tone={jobStateTone(job.state)}>{stateLabel(job.state)}</Badge>
+              <WorkbenchText size="xs">
+                {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.operator.status", {
+                  status: stateLabel(job.operatorStatus),
+                })}
+              </WorkbenchText>
+              <WorkbenchText size="xs">
+                {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.progress.value", {
+                  completed: progress?.completed ?? job.completed,
+                  total: progress?.total ?? job.total,
+                  percent: progress?.progressPercent ?? job.progressPercent,
+                })}
+              </WorkbenchText>
+              <WorkbenchText size="xs">
+                {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.created", {
+                  value: job.createdAt,
+                })}
+              </WorkbenchText>
+              <WorkbenchText size="xs">
+                {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.started", {
+                  value:
+                    job.startedAt ??
+                    t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.not.started"),
+                })}
+              </WorkbenchText>
+            </WorkbenchStack>
+          );
+        },
       },
       {
         key: "consistency",
@@ -187,7 +199,7 @@ export function CatalogIntegrationImportJobsModule({
         ),
       },
     ],
-    [readModel],
+    [readModel, jobProgress],
   );
 
   return (
@@ -195,11 +207,29 @@ export function CatalogIntegrationImportJobsModule({
       title={t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.title")}
       description={t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.description")}
       status={
-        <Badge tone={readModel.importJobs.activeJobCount > 0 ? "warning" : "success"}>
-          {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.status", {
-            count: readModel.importJobs.activeJobCount,
-          })}
-        </Badge>
+        <BadgeCluster
+          items={[
+            {
+              key: "active",
+              tone: readModel.importJobs.activeJobCount > 0 ? "warning" : "success",
+              label: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.status", {
+                count: readModel.importJobs.activeJobCount,
+              }),
+            },
+            // The live indicator renders only while the bounded poll is actually
+            // refreshing (active job + visible tab), so operators can tell at a
+            // glance that the table is advancing on its own.
+            ...(live
+              ? [
+                  {
+                    key: "live",
+                    tone: "info" as const,
+                    label: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.live"),
+                  },
+                ]
+              : []),
+          ]}
+        />
       }
       headingLevel={2}
       density="compact"
