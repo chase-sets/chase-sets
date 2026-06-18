@@ -114,13 +114,29 @@ export type CatalogIntegrationAuditLifecycleEntry = Readonly<{
   diagnosticCodes: readonly string[];
 }>;
 
+// Which audience the overview is being assembled for. The daily import-to-promotion
+// surface (#1972) renders the metric strip, the import-jobs activity strip, and the
+// provider-scope selector — derived from `readiness`, `unitActivity`, and
+// `providerReadiness`. It never reads the audit-lifecycle entries (those feed only
+// the governance/release evidence slices), so `daily` skips assembling that
+// projection: the (churn-sized, ~11% of the at-scale payload) audit window is neither
+// computed server-side nor serialized for the highest-traffic surface. The
+// `auditLifecycle` field stays present as its "unavailable" sentinel so the contract
+// shape — and every consumer that reads `projectionStatus`/`entries` — is unchanged.
+export type CatalogIntegrationControlPlaneOverviewAudience = "full" | "daily";
+
+const dailyAuditLifecycleStatusMessage =
+  "Lifecycle audit evidence is not assembled for the daily import surface; open the governance or release surface for the full lifecycle timeline.";
+
 export function buildCatalogIntegrationControlPlaneOverview(input: {
   readiness: CatalogIntegrationControlPlaneReadiness;
   profiles: readonly CatalogProviderProfileVersionReview[];
   activeJobs: readonly SourceObservationIntegrationJob[];
   generatedAt?: string;
+  audience?: CatalogIntegrationControlPlaneOverviewAudience;
 }): CatalogIntegrationControlPlaneOverview {
   const generatedAt = input.generatedAt ?? new Date().toISOString();
+  const audience = input.audience ?? "full";
 
   return {
     generatedAt,
@@ -133,14 +149,32 @@ export function buildCatalogIntegrationControlPlaneOverview(input: {
       generatedAt,
       providers: buildProviderReadiness(input.readiness.units),
     },
-    auditLifecycle: {
-      generatedAt,
-      projectionStatus: "partial",
-      statusMessage:
-        "Lifecycle audit is assembled from current profile and active job metadata until the append-only audit projection is available.",
-      entries: buildAuditLifecycleEntries(input.profiles, input.activeJobs, input.readiness.units, generatedAt),
-    },
+    auditLifecycle:
+      audience === "daily"
+        ? {
+            generatedAt,
+            projectionStatus: "unavailable",
+            statusMessage: dailyAuditLifecycleStatusMessage,
+            entries: [],
+          }
+        : {
+            generatedAt,
+            projectionStatus: "partial",
+            statusMessage:
+              "Lifecycle audit is assembled from current profile and active job metadata until the append-only audit projection is available.",
+            entries: buildAuditLifecycleEntries(input.profiles, input.activeJobs, input.readiness.units, generatedAt),
+          },
   };
+}
+
+// Parse the audience query parameter for the overview endpoint. Defaults to `full`
+// so existing callers and the providers/governance/release surfaces keep receiving
+// the complete overview; only an explicit `?audience=daily` opts into the
+// audit-lifecycle-trimmed projection.
+export function parseCatalogIntegrationControlPlaneOverviewAudience(
+  value: string | undefined,
+): CatalogIntegrationControlPlaneOverviewAudience {
+  return value === "daily" ? "daily" : "full";
 }
 
 function buildUnitActivity(

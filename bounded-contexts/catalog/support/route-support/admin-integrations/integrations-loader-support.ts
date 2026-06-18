@@ -54,7 +54,20 @@ type CatalogIntegrationsBaseline = Readonly<{
   canManageCatalog: boolean;
 }>;
 
-async function loadIntegrationsBaseline(request: Request): Promise<{
+// The daily import surface consumes only `readiness`, `unitActivity`, and
+// `providerReadiness` from the control-plane overview (the metric strip, the
+// import-jobs activity strip, and the provider-scope selector); it never reads the
+// audit-lifecycle entries, which feed only the governance/release evidence slices.
+// So the daily loader requests the audit-trimmed `daily` overview (#1972) — skipping
+// the server-side audit projection and ~11% of the at-scale payload — while the
+// providers/governance/release surfaces keep fetching the `full` overview their
+// evidence slices cite.
+type CatalogIntegrationsBaselineAudience = "full" | "daily";
+
+async function loadIntegrationsBaseline(
+  request: Request,
+  audience: CatalogIntegrationsBaselineAudience = "full",
+): Promise<{
   api: ReturnType<typeof createCatalogRequestApiClient>;
   baseline: CatalogIntegrationsBaseline;
   routeContext: CatalogPrimaryWorkbenchRouteContext;
@@ -65,7 +78,7 @@ async function loadIntegrationsBaseline(request: Request): Promise<{
       api.listSourceObservationIntegrationScopes(query),
     ),
     api.listSourceObservationProviderProfiles<ListResponse<CatalogProviderProfileVersionReview>>(),
-    api.getCatalogIntegrationControlPlaneOverview<CatalogIntegrationControlPlaneOverview>(),
+    api.getCatalogIntegrationControlPlaneOverview<CatalogIntegrationControlPlaneOverview>(audience),
     resolveActorFromAuthApi({ request }),
   ]);
 
@@ -133,7 +146,7 @@ async function finalizeSurfaceLoad(input: {
 // impacts, and the read model never computes the governance, lifecycle, release,
 // or audit sub-models.
 export async function loadDailySurface({ request }: LoaderFunctionArgs) {
-  const { api, baseline, routeContext } = await loadIntegrationsBaseline(request);
+  const { api, baseline, routeContext } = await loadIntegrationsBaseline(request, "daily");
   const reviewPagination = dailyReviewPaginationFor(routeContext);
   const reviewQuery = buildCatalogPrimaryWorkbenchSourceObservationReviewQuery(routeContext, reviewPagination);
   const reviewObservations = reviewQuery

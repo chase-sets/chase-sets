@@ -19,7 +19,10 @@ import { promotionReviewRoutes } from "./promotion-review-routes";
 import { providerOptionRoutes } from "./provider-options-routes";
 import { providerProfileRoutes } from "./provider-profile-routes";
 import { sourceObservationReadReviewRoutes } from "./source-observation-review-routes";
-import { buildCatalogIntegrationControlPlaneOverview } from "./admin-control-plane-overview";
+import {
+  buildCatalogIntegrationControlPlaneOverview,
+  parseCatalogIntegrationControlPlaneOverviewAudience,
+} from "./admin-control-plane-overview";
 import { listCatalogProviderProfileVersionReviews } from "./provider-profile-review";
 import { requireCatalogIntegrationControlPlanePermission } from "./admin-control-plane-rbac";
 
@@ -52,13 +55,18 @@ export function sourceObservationRoutes(
       return permissionError;
     }
 
+    // The daily import surface requests `?audience=daily` to skip the audit-lifecycle
+    // projection it never renders (#1972); providers/governance/release omit the
+    // parameter and receive the full overview, including the lifecycle timeline their
+    // evidence slices cite.
+    const audience = parseCatalogIntegrationControlPlaneOverviewAudience(c.req.query("audience"));
     const [readiness, profiles, activeJobs] = await Promise.all([
       services.getCatalogIntegrationControlPlaneReadiness(),
       profileVersions ? listCatalogProviderProfileVersionReviews(profileVersions) : Promise.resolve([]),
       services.listActiveIntegrationJobs({ context: c.get("context") }),
     ]);
 
-    return c.json(buildCatalogIntegrationControlPlaneOverview({ readiness, profiles, activeJobs }));
+    return c.json(buildCatalogIntegrationControlPlaneOverview({ readiness, profiles, activeJobs, audience }));
   });
 
   return app;

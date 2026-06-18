@@ -479,6 +479,87 @@ describe("source observation routes: integration discovery and profile administr
     expect(listActiveIntegrationJobs).toHaveBeenCalledWith({ context });
   });
 
+  it("trims the audit-lifecycle projection from the daily-audience overview while keeping the daily slices", async () => {
+    const getCatalogIntegrationControlPlaneReadiness = vi.fn(async () => ({
+      generatedAt: "2026-06-05T00:00:00.000Z",
+      units: [
+        {
+          unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+          providerKey: "tcgdex",
+          displayName: "TCGdex Pokemon single-card Source Observation import",
+          productDomain: "pokemon",
+          productForm: "single-card",
+          ingestionPurpose: "source-observation-import",
+          profileVersion: "2026.06.04",
+          semanticReadiness: "ready",
+          credentialReadiness: "not-required",
+          credentialReadinessState: "not-required",
+          credentialRequirement: "not-required",
+          credentialDiagnosticCode: null,
+          transportReadiness: "ready",
+          fixtureValidationStatus: "ready",
+          dryRunStatus: "completed",
+          observationFacts: 1,
+          diagnosticCounts: { info: 0, warning: 0, error: 0 },
+          diagnostics: [],
+          latestDiagnosticText: null,
+          dryRunEvidence: [],
+        },
+      ],
+    }));
+    const listActiveIntegrationJobs = vi.fn(async () => [
+      integrationJobFixture({
+        jobId: "job_import_base",
+        action: "import",
+        scope: { provider: "tcgdex", language: "en", setId: "base1" },
+        profileSnapshot: {
+          providerKey: "tcgdex",
+          profileKey: "pokemon-tcg",
+          profileVersion: "2026.06.04",
+          lifecycle: "active",
+          connectorKind: "tcgdex-json",
+          connectorSourceVersion: null,
+          sourceMappingFingerprint: "fingerprint",
+        },
+        operatorStatus: "running",
+        progress: { phase: "processing", completed: 1, total: 2 },
+        startedAt: "2026-06-05T00:01:00.000Z",
+      }),
+    ]);
+    const services = {
+      getCatalogIntegrationControlPlaneReadiness,
+      listActiveIntegrationJobs,
+    } as unknown as SourceObservationRouteServices;
+    const store = mutableProfileStore([
+      profileVersion("tcgdex", {
+        profileVersion: "2026.06.04",
+        lifecycle: "active",
+        active: true,
+        authoringAudit: {
+          createdAt: "2026-06-05T00:00:00.000Z",
+          createdByUserId: "usr_test",
+          createdForAccountId: "acc_test",
+        },
+      }),
+    ]);
+    const app = buildApp(services, store);
+
+    const response = await app.request("/source-observations/integration-control-plane/overview?audience=daily");
+
+    expect(response.status).toBe(200);
+    const json = await response.json();
+    // The daily surface still receives the slices it renders: the metric/blocker
+    // strip (readiness), the import-jobs activity strip (unitActivity), and the
+    // provider-scope selector (providerReadiness).
+    expect(json.readiness.units).toHaveLength(1);
+    expect(json.unitActivity.units[0].recentJobs).toHaveLength(1);
+    expect(json.providerReadiness.providers[0].providerKey).toBe("tcgdex");
+    // The audit-lifecycle projection it never renders collapses to its trimmed
+    // "unavailable" sentinel — no entries assembled or serialized.
+    expect(json.auditLifecycle.projectionStatus).toBe("unavailable");
+    expect(json.auditLifecycle.entries).toEqual([]);
+  });
+
   it("clones provider profile versions through the admin API", async () => {
     const services = {} as SourceObservationRouteServices;
     const store = mutableProfileStore();
