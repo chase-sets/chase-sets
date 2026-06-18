@@ -1,5 +1,5 @@
-import { Suspense, type ChangeEvent, type ReactNode } from "react";
-import { Await } from "react-router";
+import { Suspense, type ChangeEvent, type FormEvent, type ReactNode } from "react";
+import { Await, useSubmit, type SubmitFunction } from "react-router";
 import {
   Badge,
   BulkActionSurface,
@@ -7,7 +7,6 @@ import {
   DenseAdminWorkbench,
   DenseAdminWorkbenchHeader,
   Fieldset,
-  LinkButton,
   MetricStrip,
   NativeSelect,
   OperationalStatusBanner,
@@ -139,6 +138,19 @@ export function CatalogWorkbenchShell({
   );
 }
 
+// A context change submits the URL-backed import context as a CLIENT navigation
+// (`useSubmit`, method="get") rather than a full-document GET. The page stays
+// mounted, so the operator's open stage / scroll / selection survive, and the
+// loader revalidates IN PLACE — refreshing `useLoaderData` and the deferred
+// source-options promise (#1970) — instead of remounting the whole route. Every
+// submit replaces the history entry (`replace`) so live-on-change selects do not
+// stack a history frame per change, and preserves scroll (`preventScrollReset`).
+const importContextSubmitOptions = {
+  method: "get",
+  replace: true,
+  preventScrollReset: true,
+} as const;
+
 function ProviderImportContextForm({
   readModel,
   deferredSourceOptions,
@@ -146,6 +158,7 @@ function ProviderImportContextForm({
   readModel: CatalogPrimaryWorkbenchReadModel;
   deferredSourceOptions: Promise<CatalogPrimaryWorkbenchReadModel["sourceOptions"]> | null;
 }) {
+  const submit = useSubmit();
   const providerOptions = readModel.providerScope.providers.map((provider) => ({
     value: provider.providerKey,
     label: provider.displayName,
@@ -172,7 +185,7 @@ function ProviderImportContextForm({
   const skeletonScopeFields = guidedSourceScopeFields(readModel);
 
   return (
-    <WorkbenchForm method="get" action="/catalog/integrations">
+    <WorkbenchForm method="get" action="/catalog/integrations" onSubmit={(event) => submitImportContext(event, submit)}>
       <WorkbenchFormGrid columns="three">
         <NativeSelect
           name="providerKey"
@@ -180,7 +193,7 @@ function ProviderImportContextForm({
           items={providerOptions}
           defaultValue={selectedProviderKey}
           required
-          onChange={(event) => submitProviderFilter(event)}
+          onChange={(event) => submitProviderFilter(event, submit)}
         />
         <NativeSelect
           name="unitKey"
@@ -188,11 +201,13 @@ function ProviderImportContextForm({
           items={unitOptions}
           defaultValue={readModel.routeContext.unitKey ?? unitOptions[0]?.value ?? ""}
           required
-          onChange={(event) => submitUnitFilter(event)}
+          onChange={(event) => submitUnitFilter(event, submit)}
         />
         {/* The transitional raw importScope text box only survives for providers
             that declare no option queries (no guided controls to drive). Providers
-            with option kinds get the structured selector below instead. */}
+            with option kinds get the structured selector below instead. As a
+            free-text field it stays on the single confirming "Apply" path — the
+            form's submit — rather than submitting per keystroke. */}
         {skeletonScopeFields.length === 0 ? (
           <TextInput
             name="importScope"
@@ -206,6 +221,7 @@ function ProviderImportContextForm({
           readModel={readModel}
           skeletonScopeFields={skeletonScopeFields}
           deferredSourceOptions={deferredSourceOptions}
+          submit={submit}
         />
       ) : null}
       <WorkbenchActionRow align="between" stackOnMobile>
@@ -222,9 +238,18 @@ function ProviderImportContextForm({
   );
 }
 
-function submitProviderFilter(event: ChangeEvent<HTMLSelectElement>): void {
+// Free-text apply (profileVersion / transitional importScope) and any explicit
+// form submit. Intercept the native GET so it never full-reloads: submit the form
+// as a client navigation that revalidates the loader in place.
+function submitImportContext(event: FormEvent<HTMLFormElement>, submit: SubmitFunction): void {
+  event.preventDefault();
+  submit(event.currentTarget, importContextSubmitOptions);
+}
+
+function submitProviderFilter(event: ChangeEvent<HTMLSelectElement>, submit: SubmitFunction): void {
   submitImportContextFilter(
     event,
+    submit,
     ["unitKey", "profileVersion", "importScope", ...catalogPrimaryWorkbenchScopeQueryKeys],
     {
       disableClearedFields: true,
@@ -233,15 +258,21 @@ function submitProviderFilter(event: ChangeEvent<HTMLSelectElement>): void {
   );
 }
 
-function submitUnitFilter(event: ChangeEvent<HTMLSelectElement>): void {
-  submitImportContextFilter(event, ["profileVersion", "importScope", ...catalogPrimaryWorkbenchScopeQueryKeys], {
-    disableClearedFields: true,
-    clearSourceOptionIntent: true,
-  });
+function submitUnitFilter(event: ChangeEvent<HTMLSelectElement>, submit: SubmitFunction): void {
+  submitImportContextFilter(
+    event,
+    submit,
+    ["profileVersion", "importScope", ...catalogPrimaryWorkbenchScopeQueryKeys],
+    {
+      disableClearedFields: true,
+      clearSourceOptionIntent: true,
+    },
+  );
 }
 
 function submitImportContextFilter(
   event: ChangeEvent<HTMLSelectElement>,
+  submit: SubmitFunction,
   dependentFieldNames: readonly string[],
   options: { disableClearedFields?: boolean; clearSourceOptionIntent?: boolean } = {},
 ): void {
@@ -264,7 +295,10 @@ function submitImportContextFilter(
     }
   }
 
-  form.requestSubmit();
+  // A client GET navigation (not form.requestSubmit()): revalidates the loader in
+  // place so the page stays mounted and the changed select keeps focus, instead of
+  // a full-document reload that strands keyboard focus mid-navigation.
+  submit(form, importContextSubmitOptions);
 }
 
 function clearSourceOptionRefreshIntent(form: HTMLFormElement): void {
@@ -286,20 +320,22 @@ function DeferredGuidedSourceScopeFields({
   readModel,
   skeletonScopeFields,
   deferredSourceOptions,
+  submit,
 }: {
   readModel: CatalogPrimaryWorkbenchReadModel;
   skeletonScopeFields: readonly CatalogPrimaryWorkbenchGuidedScopeField[];
   deferredSourceOptions: Promise<CatalogPrimaryWorkbenchReadModel["sourceOptions"]> | null;
+  submit: SubmitFunction;
 }) {
   if (!deferredSourceOptions) {
-    return <GuidedSourceScopeFields fields={skeletonScopeFields} />;
+    return <GuidedSourceScopeFields fields={skeletonScopeFields} submit={submit} />;
   }
 
   return (
-    <Suspense fallback={<GuidedSourceScopeFields fields={skeletonScopeFields} />}>
+    <Suspense fallback={<GuidedSourceScopeFields fields={skeletonScopeFields} submit={submit} />}>
       <Await resolve={deferredSourceOptions}>
         {(sourceOptions) => (
-          <GuidedSourceScopeFields fields={guidedSourceScopeFields({ ...readModel, sourceOptions })} />
+          <GuidedSourceScopeFields fields={guidedSourceScopeFields({ ...readModel, sourceOptions })} submit={submit} />
         )}
       </Await>
     </Suspense>
@@ -312,7 +348,13 @@ function DeferredGuidedSourceScopeFields({
 // so the route updates from real synced provider options instead of a hand-typed
 // importScope string. A child whose parent is unselected renders disabled with the
 // provider's own "select the parent first" diagnostic.
-function GuidedSourceScopeFields({ fields }: { fields: readonly CatalogPrimaryWorkbenchGuidedScopeField[] }) {
+function GuidedSourceScopeFields({
+  fields,
+  submit,
+}: {
+  fields: readonly CatalogPrimaryWorkbenchGuidedScopeField[];
+  submit: SubmitFunction;
+}) {
   return (
     <Fieldset
       legend={t("catalog.features.sourceObservations.ui.primaryWorkbench.sourceOptions.scope.legend")}
@@ -338,6 +380,7 @@ function GuidedSourceScopeFields({ fields }: { fields: readonly CatalogPrimaryWo
             onChange={(event) =>
               submitSourceScopeFilter(
                 event,
+                submit,
                 fields.slice(0, index),
                 field.options,
                 fields.slice(index + 1).map((dependent) => dependent.fieldName),
@@ -352,6 +395,7 @@ function GuidedSourceScopeFields({ fields }: { fields: readonly CatalogPrimaryWo
 
 function submitSourceScopeFilter(
   event: ChangeEvent<HTMLSelectElement>,
+  submit: SubmitFunction,
   parentFields: readonly CatalogPrimaryWorkbenchGuidedScopeField[],
   currentOptions: CatalogPrimaryWorkbenchGuidedScopeField["options"],
   dependentFieldNames: readonly string[],
@@ -372,7 +416,10 @@ function submitSourceScopeFilter(
 
   forceRefreshAllSourceOptions(form);
 
-  form.requestSubmit();
+  // Client GET navigation (not form.requestSubmit()): a parent scope change
+  // refreshes the streamed source-options slice in place without reloading the
+  // page or stranding focus on the just-changed select.
+  submit(form, importContextSubmitOptions);
 }
 
 function hydrateParentScopeFields(
@@ -481,6 +528,40 @@ function DeferredSourceOptionsStatusPanel({
   );
 }
 
+// Refresh a source-option group in place. The intent (reload / force-refresh /
+// force-refresh-all) and the full route context already live in the workbench
+// href; submitting it as a client GET navigation (rather than following it as a
+// document link) revalidates the loader, which re-fetches the option pages with
+// the requested freshness and re-resolves the deferred source-options slice
+// (#1970) WITHOUT reloading the whole page or resetting scroll/stage.
+function SourceOptionRefreshButton({
+  href,
+  size,
+  tone,
+  leadingIcon,
+  children,
+}: {
+  href: string;
+  size: "sm";
+  tone: "secondary" | "ghost";
+  leadingIcon: "refreshCcw" | "spark";
+  children: ReactNode;
+}) {
+  const submit = useSubmit();
+
+  return (
+    <Button
+      type="button"
+      size={size}
+      tone={tone}
+      leadingIcon={leadingIcon}
+      onClick={() => submit(null, { ...importContextSubmitOptions, action: href })}
+    >
+      {children}
+    </Button>
+  );
+}
+
 // A compact sync/status panel for the synced provider option groups, rendered next
 // to the context form on the daily surface. It names each option group with its
 // natural label, surfaces freshness/degraded/missing-parent state per group, and
@@ -526,7 +607,7 @@ function SourceOptionsStatusPanel({
               )}
             </Badge>
             {canRefreshAll ? (
-              <LinkButton
+              <SourceOptionRefreshButton
                 size="sm"
                 tone="secondary"
                 leadingIcon="refreshCcw"
@@ -536,7 +617,7 @@ function SourceOptionsStatusPanel({
                 })}
               >
                 {t("catalog.features.sourceObservations.ui.primaryWorkbench.sourceOptions.refreshAll")}
-              </LinkButton>
+              </SourceOptionRefreshButton>
             ) : null}
           </WorkbenchStack>
         </WorkbenchActionRow>
@@ -576,7 +657,7 @@ function SourceOptionsStatusPanel({
               </WorkbenchStack>
             </WorkbenchActionRow>
             <WorkbenchActionRow align="start" stackOnMobile>
-              <LinkButton
+              <SourceOptionRefreshButton
                 size="sm"
                 tone="ghost"
                 leadingIcon="refreshCcw"
@@ -586,9 +667,9 @@ function SourceOptionsStatusPanel({
                 })}
               >
                 {t("catalog.features.sourceObservations.ui.primaryWorkbench.sourceOptions.reload")}
-              </LinkButton>
+              </SourceOptionRefreshButton>
               {page.refreshHref ? (
-                <LinkButton
+                <SourceOptionRefreshButton
                   size="sm"
                   tone="ghost"
                   leadingIcon="spark"
@@ -598,7 +679,7 @@ function SourceOptionsStatusPanel({
                   })}
                 >
                   {t("catalog.features.sourceObservations.ui.primaryWorkbench.sourceOptions.forceRefresh")}
-                </LinkButton>
+                </SourceOptionRefreshButton>
               ) : null}
             </WorkbenchActionRow>
           </WorkbenchStack>

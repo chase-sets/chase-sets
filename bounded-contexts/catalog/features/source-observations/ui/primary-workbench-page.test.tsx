@@ -20,13 +20,15 @@ import {
   sourceObservationScope,
 } from "./primary-workbench-test-fixtures";
 
-// The import-jobs module polls live progress via useRevalidator; these pages render
-// bare (no data router), so stub the revalidator to a no-op for the workbench tree.
+// The import-jobs module polls live progress via useRevalidator and the daily
+// import-context form submits context changes via useSubmit; these pages render
+// bare (no data router), so stub both to no-ops for the workbench tree.
 vi.mock("react-router", async () => {
   const actual = await vi.importActual<typeof import("react-router")>("react-router");
   return {
     ...actual,
     useRevalidator: () => ({ revalidate: () => undefined, state: "idle" }),
+    useSubmit: () => () => undefined,
   };
 });
 

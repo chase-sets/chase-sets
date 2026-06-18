@@ -12,14 +12,24 @@ import type { CatalogControlPlaneRouteSurfaceKey } from "./admin-control-plane/i
 import type { SourceObservationIntegrationOptionResponse } from "./contracts";
 import { profileReview, sourceObservationScope } from "./primary-workbench-test-fixtures";
 
-// The import-jobs module polls live progress via useRevalidator; these pages render
-// bare (no data router), so stub the revalidator to a no-op for the workbench tree.
+// The import-jobs module polls live progress via useRevalidator and the import
+// context form submits context changes via useSubmit; these pages render bare (no
+// data router), so stub both for the workbench tree. A single shared submit spy
+// captures the client-navigation submits the context form/source-option controls
+// now issue (replacing the former full-document form.requestSubmit()).
+const submitSpy = vi.fn();
+
 vi.mock("react-router", async () => {
   const actual = await vi.importActual<typeof import("react-router")>("react-router");
   return {
     ...actual,
     useRevalidator: () => ({ revalidate: () => undefined, state: "idle" }),
+    useSubmit: () => submitSpy,
   };
+});
+
+afterEach(() => {
+  submitSpy.mockClear();
 });
 
 function surfaceReadModel(surface: CatalogControlPlaneRouteSurfaceKey) {
@@ -244,104 +254,97 @@ describe("CatalogWorkbenchShell provider/unit selection", () => {
   });
 
   it("clears provider-dependent fields before submitting a provider change", () => {
-    const requestSubmit = vi.spyOn(HTMLFormElement.prototype, "requestSubmit").mockImplementation(() => undefined);
+    render(
+      <CatalogIntegrationsSurfacePage
+        surface="daily"
+        readModel={dailyReadModelWithProviders(
+          "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&languageCode=en&seriesId=base&expansionId=base1&profileVersion=2026.06.04",
+        )}
+      />,
+    );
 
-    try {
-      render(
-        <CatalogIntegrationsSurfacePage
-          surface="daily"
-          readModel={dailyReadModelWithProviders(
-            "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&languageCode=en&seriesId=base&expansionId=base1&profileVersion=2026.06.04",
-          )}
-        />,
-      );
+    const provider = screen.getByLabelText<HTMLSelectElement>("Provider");
+    const unit = screen.getByLabelText<HTMLSelectElement>("Unit");
+    const profileVersion = screen.getByLabelText<HTMLInputElement>("Profile version");
+    const form = provider.form;
+    expect(form).not.toBeNull();
 
-      const provider = screen.getByLabelText<HTMLSelectElement>("Provider");
-      const unit = screen.getByLabelText<HTMLSelectElement>("Unit");
-      const profileVersion = screen.getByLabelText<HTMLInputElement>("Profile version");
-      const form = provider.form;
-      expect(form).not.toBeNull();
+    const staleAction = document.createElement("input");
+    staleAction.type = "hidden";
+    staleAction.name = "sourceOptionAction";
+    staleAction.value = "force-refresh-all";
+    form!.appendChild(staleAction);
 
-      const staleAction = document.createElement("input");
-      staleAction.type = "hidden";
-      staleAction.name = "sourceOptionAction";
-      staleAction.value = "force-refresh-all";
-      form!.appendChild(staleAction);
+    const staleQueryKind = document.createElement("input");
+    staleQueryKind.type = "hidden";
+    staleQueryKind.name = "sourceOptionQueryKind";
+    staleQueryKind.value = "expansions";
+    form!.appendChild(staleQueryKind);
 
-      const staleQueryKind = document.createElement("input");
-      staleQueryKind.type = "hidden";
-      staleQueryKind.name = "sourceOptionQueryKind";
-      staleQueryKind.value = "expansions";
-      form!.appendChild(staleQueryKind);
+    fireEvent.change(provider, { target: { value: "scrydex" } });
 
-      fireEvent.change(provider, { target: { value: "scrydex" } });
+    expect(provider.value).toBe("scrydex");
+    expect(unit.value).toBe("");
+    expect(unit.disabled).toBe(true);
+    expect(profileVersion.value).toBe("");
+    expect(profileVersion.disabled).toBe(true);
 
-      expect(provider.value).toBe("scrydex");
-      expect(unit.value).toBe("");
-      expect(unit.disabled).toBe(true);
-      expect(profileVersion.value).toBe("");
-      expect(profileVersion.disabled).toBe(true);
-
-      const submitted = new FormData(provider.form!);
-      expect(submitted.get("providerKey")).toBe("scrydex");
-      expect(submitted.has("unitKey")).toBe(false);
-      expect(submitted.has("languageCode")).toBe(false);
-      expect(submitted.has("seriesId")).toBe(false);
-      expect(submitted.has("expansionId")).toBe(false);
-      expect(submitted.has("profileVersion")).toBe(false);
-      expect(submitted.has("sourceOptionAction")).toBe(false);
-      expect(submitted.has("sourceOptionQueryKind")).toBe(false);
-      expect(form!.elements.namedItem("sourceOptionAction")).toBeNull();
-      expect(form!.elements.namedItem("sourceOptionQueryKind")).toBeNull();
-      expect(requestSubmit).toHaveBeenCalledTimes(1);
-    } finally {
-      requestSubmit.mockRestore();
-    }
+    const submitted = new FormData(provider.form!);
+    expect(submitted.get("providerKey")).toBe("scrydex");
+    expect(submitted.has("unitKey")).toBe(false);
+    expect(submitted.has("languageCode")).toBe(false);
+    expect(submitted.has("seriesId")).toBe(false);
+    expect(submitted.has("expansionId")).toBe(false);
+    expect(submitted.has("profileVersion")).toBe(false);
+    expect(submitted.has("sourceOptionAction")).toBe(false);
+    expect(submitted.has("sourceOptionQueryKind")).toBe(false);
+    expect(form!.elements.namedItem("sourceOptionAction")).toBeNull();
+    expect(form!.elements.namedItem("sourceOptionQueryKind")).toBeNull();
+    // The context change submits as a client GET navigation (no full reload), not
+    // a full-document form.requestSubmit().
+    expect(submitSpy).toHaveBeenCalledTimes(1);
+    expect(submitSpy.mock.calls[0]![0]).toBe(form);
+    expect(submitSpy.mock.calls[0]![1]).toMatchObject({ method: "get", replace: true, preventScrollReset: true });
   });
 
   it("clears scope and source-option intent fields before submitting a unit change", () => {
-    const requestSubmit = vi.spyOn(HTMLFormElement.prototype, "requestSubmit").mockImplementation(() => undefined);
+    render(<CatalogIntegrationsSurfacePage surface="daily" readModel={dailyReadModelWithSourceOptions()} />);
 
-    try {
-      render(<CatalogIntegrationsSurfacePage surface="daily" readModel={dailyReadModelWithSourceOptions()} />);
+    const unit = screen.getByLabelText<HTMLSelectElement>("Unit");
+    const profileVersion = screen.getByLabelText<HTMLInputElement>("Profile version");
+    const form = unit.form;
+    expect(form).not.toBeNull();
 
-      const unit = screen.getByLabelText<HTMLSelectElement>("Unit");
-      const profileVersion = screen.getByLabelText<HTMLInputElement>("Profile version");
-      const form = unit.form;
-      expect(form).not.toBeNull();
+    const staleAction = document.createElement("input");
+    staleAction.type = "hidden";
+    staleAction.name = "sourceOptionAction";
+    staleAction.value = "force-refresh-all";
+    form!.appendChild(staleAction);
 
-      const staleAction = document.createElement("input");
-      staleAction.type = "hidden";
-      staleAction.name = "sourceOptionAction";
-      staleAction.value = "force-refresh-all";
-      form!.appendChild(staleAction);
+    const staleQueryKind = document.createElement("input");
+    staleQueryKind.type = "hidden";
+    staleQueryKind.name = "sourceOptionQueryKind";
+    staleQueryKind.value = "expansions";
+    form!.appendChild(staleQueryKind);
 
-      const staleQueryKind = document.createElement("input");
-      staleQueryKind.type = "hidden";
-      staleQueryKind.name = "sourceOptionQueryKind";
-      staleQueryKind.value = "expansions";
-      form!.appendChild(staleQueryKind);
+    fireEvent.change(unit, { target: { value: unit.value } });
 
-      fireEvent.change(unit, { target: { value: unit.value } });
+    expect(profileVersion.value).toBe("");
+    expect(profileVersion.disabled).toBe(true);
 
-      expect(profileVersion.value).toBe("");
-      expect(profileVersion.disabled).toBe(true);
-
-      const submitted = new FormData(form!);
-      expect(submitted.get("providerKey")).toBe("tcgdex");
-      expect(submitted.get("unitKey")).toBe("tcgdex:pokemon:card:import");
-      expect(submitted.has("languageCode")).toBe(false);
-      expect(submitted.has("seriesId")).toBe(false);
-      expect(submitted.has("expansionId")).toBe(false);
-      expect(submitted.has("profileVersion")).toBe(false);
-      expect(submitted.has("sourceOptionAction")).toBe(false);
-      expect(submitted.has("sourceOptionQueryKind")).toBe(false);
-      expect(form!.elements.namedItem("sourceOptionAction")).toBeNull();
-      expect(form!.elements.namedItem("sourceOptionQueryKind")).toBeNull();
-      expect(requestSubmit).toHaveBeenCalledTimes(1);
-    } finally {
-      requestSubmit.mockRestore();
-    }
+    const submitted = new FormData(form!);
+    expect(submitted.get("providerKey")).toBe("tcgdex");
+    expect(submitted.get("unitKey")).toBe("tcgdex:pokemon:card:import");
+    expect(submitted.has("languageCode")).toBe(false);
+    expect(submitted.has("seriesId")).toBe(false);
+    expect(submitted.has("expansionId")).toBe(false);
+    expect(submitted.has("profileVersion")).toBe(false);
+    expect(submitted.has("sourceOptionAction")).toBe(false);
+    expect(submitted.has("sourceOptionQueryKind")).toBe(false);
+    expect(form!.elements.namedItem("sourceOptionAction")).toBeNull();
+    expect(form!.elements.namedItem("sourceOptionQueryKind")).toBeNull();
+    expect(submitSpy).toHaveBeenCalledTimes(1);
+    expect(submitSpy.mock.calls[0]![0]).toBe(form);
   });
 
   it("normalizes a stale mismatched provider/unit URL to the selected provider", () => {
@@ -554,97 +557,81 @@ describe("CatalogWorkbenchShell guided source-scope selector", () => {
   });
 
   it("submits dependent source-scope filters and clears stale child selections", () => {
-    const requestSubmit = vi.spyOn(HTMLFormElement.prototype, "requestSubmit").mockImplementation(() => undefined);
+    render(<CatalogIntegrationsSurfacePage surface="daily" readModel={dailyReadModelWithSourceOptions()} />);
 
-    try {
-      render(<CatalogIntegrationsSurfacePage surface="daily" readModel={dailyReadModelWithSourceOptions()} />);
+    const scopeGroup = screen.getByRole("group", { name: "Source scope" });
+    const language = within(scopeGroup).getByLabelText<HTMLSelectElement>("Language");
+    const series = within(scopeGroup).getByLabelText<HTMLSelectElement>("Series");
+    const expansion = within(scopeGroup).getByLabelText<HTMLSelectElement>("Expansion");
 
-      const scopeGroup = screen.getByRole("group", { name: "Source scope" });
-      const language = within(scopeGroup).getByLabelText<HTMLSelectElement>("Language");
-      const series = within(scopeGroup).getByLabelText<HTMLSelectElement>("Series");
-      const expansion = within(scopeGroup).getByLabelText<HTMLSelectElement>("Expansion");
+    expect(series.value).toBe("base");
+    expect(expansion.value).toBe("base1");
 
-      expect(series.value).toBe("base");
-      expect(expansion.value).toBe("base1");
+    fireEvent.change(language, { target: { value: "ja" } });
 
-      fireEvent.change(language, { target: { value: "ja" } });
+    expect(language.value).toBe("ja");
+    expect(series.value).toBe("");
+    expect(expansion.value).toBe("");
+    expect(submitSpy).toHaveBeenCalledTimes(1);
 
-      expect(language.value).toBe("ja");
-      expect(series.value).toBe("");
-      expect(expansion.value).toBe("");
-      expect(requestSubmit).toHaveBeenCalledTimes(1);
+    fireEvent.change(series, { target: { value: "base" } });
 
-      fireEvent.change(series, { target: { value: "base" } });
-
-      expect(expansion.value).toBe("");
-      expect(requestSubmit).toHaveBeenCalledTimes(2);
-    } finally {
-      requestSubmit.mockRestore();
-    }
+    expect(expansion.value).toBe("");
+    expect(submitSpy).toHaveBeenCalledTimes(2);
   });
 
   // A parent filter change must force a live refresh of every dependent option page,
   // not just reload cache-only options, so the form submits with
   // sourceOptionAction=force-refresh-all stamped on it.
   it("forces a refresh-all of source options when a parent filter changes", () => {
-    const requestSubmit = vi.spyOn(HTMLFormElement.prototype, "requestSubmit").mockImplementation(() => undefined);
+    render(<CatalogIntegrationsSurfacePage surface="daily" readModel={dailyReadModelWithSourceOptions()} />);
 
-    try {
-      render(<CatalogIntegrationsSurfacePage surface="daily" readModel={dailyReadModelWithSourceOptions()} />);
+    const scopeGroup = screen.getByRole("group", { name: "Source scope" });
+    const language = within(scopeGroup).getByLabelText<HTMLSelectElement>("Language");
+    const form = language.form;
+    expect(form).not.toBeNull();
 
-      const scopeGroup = screen.getByRole("group", { name: "Source scope" });
-      const language = within(scopeGroup).getByLabelText<HTMLSelectElement>("Language");
-      const form = language.form;
-      expect(form).not.toBeNull();
+    // A prior per-group reload/force-refresh left a stale query-kind hint on the
+    // form; the refresh-all submit must drop it since it carries no single group.
+    const staleQueryKind = document.createElement("input");
+    staleQueryKind.type = "hidden";
+    staleQueryKind.name = "sourceOptionQueryKind";
+    staleQueryKind.value = "languages";
+    form!.appendChild(staleQueryKind);
 
-      // A prior per-group reload/force-refresh left a stale query-kind hint on the
-      // form; the refresh-all submit must drop it since it carries no single group.
-      const staleQueryKind = document.createElement("input");
-      staleQueryKind.type = "hidden";
-      staleQueryKind.name = "sourceOptionQueryKind";
-      staleQueryKind.value = "languages";
-      form!.appendChild(staleQueryKind);
+    fireEvent.change(language, { target: { value: "ja" } });
 
-      fireEvent.change(language, { target: { value: "ja" } });
-
-      const action = form!.elements.namedItem("sourceOptionAction");
-      expect(action).toBeInstanceOf(HTMLInputElement);
-      expect((action as HTMLInputElement).type).toBe("hidden");
-      expect((action as HTMLInputElement).value).toBe("force-refresh-all");
-      expect(form!.elements.namedItem("sourceOptionQueryKind")).toBeNull();
-      expect(requestSubmit).toHaveBeenCalledTimes(1);
-    } finally {
-      requestSubmit.mockRestore();
-    }
+    const action = form!.elements.namedItem("sourceOptionAction");
+    expect(action).toBeInstanceOf(HTMLInputElement);
+    expect((action as HTMLInputElement).type).toBe("hidden");
+    expect((action as HTMLInputElement).value).toBe("force-refresh-all");
+    expect(form!.elements.namedItem("sourceOptionQueryKind")).toBeNull();
+    expect(submitSpy).toHaveBeenCalledTimes(1);
+    expect(submitSpy.mock.calls[0]![0]).toBe(form);
   });
 
   it("hydrates parent fields and refreshes source options when a leaf filter changes", () => {
-    const requestSubmit = vi.spyOn(HTMLFormElement.prototype, "requestSubmit").mockImplementation(() => undefined);
+    render(<CatalogIntegrationsSurfacePage surface="daily" readModel={dailyReadModelWithJapaneseExpansionOnly()} />);
 
-    try {
-      render(<CatalogIntegrationsSurfacePage surface="daily" readModel={dailyReadModelWithJapaneseExpansionOnly()} />);
+    const scopeGroup = screen.getByRole("group", { name: "Source scope" });
+    const language = within(scopeGroup).getByLabelText<HTMLSelectElement>("Language");
+    const series = within(scopeGroup).getByLabelText<HTMLSelectElement>("Series");
+    const expansion = within(scopeGroup).getByLabelText<HTMLSelectElement>("Expansion");
+    const form = expansion.form;
+    expect(form).not.toBeNull();
 
-      const scopeGroup = screen.getByRole("group", { name: "Source scope" });
-      const language = within(scopeGroup).getByLabelText<HTMLSelectElement>("Language");
-      const series = within(scopeGroup).getByLabelText<HTMLSelectElement>("Series");
-      const expansion = within(scopeGroup).getByLabelText<HTMLSelectElement>("Expansion");
-      const form = expansion.form;
-      expect(form).not.toBeNull();
+    language.value = "";
+    series.value = "";
 
-      language.value = "";
-      series.value = "";
+    fireEvent.change(expansion, { target: { value: "SV8" } });
 
-      fireEvent.change(expansion, { target: { value: "SV8" } });
-
-      expect(language.value).toBe("ja");
-      expect(series.value).toBe("SV");
-      const action = form!.elements.namedItem("sourceOptionAction");
-      expect(action).toBeInstanceOf(HTMLInputElement);
-      expect((action as HTMLInputElement).value).toBe("force-refresh-all");
-      expect(requestSubmit).toHaveBeenCalledTimes(1);
-    } finally {
-      requestSubmit.mockRestore();
-    }
+    expect(language.value).toBe("ja");
+    expect(series.value).toBe("SV");
+    const action = form!.elements.namedItem("sourceOptionAction");
+    expect(action).toBeInstanceOf(HTMLInputElement);
+    expect((action as HTMLInputElement).value).toBe("force-refresh-all");
+    expect(submitSpy).toHaveBeenCalledTimes(1);
+    expect(submitSpy.mock.calls[0]![0]).toBe(form);
   });
 });
 
@@ -653,7 +640,7 @@ describe("CatalogWorkbenchShell source-options status panel", () => {
     cleanup();
   });
 
-  it("summarizes per-group freshness with reload and force-refresh links", () => {
+  it("summarizes per-group freshness with reload and force-refresh controls", () => {
     const { container } = render(
       <CatalogIntegrationsSurfacePage surface="daily" readModel={dailyReadModelWithSourceOptions()} />,
     );
@@ -675,13 +662,21 @@ describe("CatalogWorkbenchShell source-options status panel", () => {
 
     const panelScope = within(panel as HTMLElement);
     // Reload (cache) is offered per group; force-refresh (live) per group. The
-    // operator must stay in the Catalog Integrations workbench, so every control
-    // links to /catalog/integrations with a source-option intent — never to the raw
-    // provider-options API href the read model still carries for the loader.
-    const reload = panelScope.getAllByRole("link", { name: "Reload" });
+    // controls are no longer GET-link navigations — each refreshes the streamed
+    // source-options slice in place via a client GET navigation (`useSubmit`) so
+    // the page never full-reloads. The submit target stays /catalog/integrations
+    // with the source-option intent — never the raw provider-options API href the
+    // read model still carries for the loader.
+    const reload = panelScope.getAllByRole("button", { name: "Reload" });
     expect(reload).toHaveLength(3);
-    for (const link of reload) {
-      const target = new URL(link.getAttribute("href") ?? "", "https://admin.example");
+    for (const control of reload) {
+      submitSpy.mockClear();
+      fireEvent.click(control);
+      expect(submitSpy).toHaveBeenCalledTimes(1);
+      expect(submitSpy.mock.calls[0]![0]).toBeNull();
+      const submitOptions = submitSpy.mock.calls[0]![1] as { action: string; method: string };
+      expect(submitOptions.method).toBe("get");
+      const target = new URL(submitOptions.action, "https://admin.example");
       expect(target.pathname).toBe("/catalog/integrations");
       expect(target.pathname).not.toContain("/api/catalog");
       expect(target.searchParams.get("sourceOptionAction")).toBe("reload");
@@ -691,16 +686,26 @@ describe("CatalogWorkbenchShell source-options status panel", () => {
       expect(target.searchParams.has("forceRefresh")).toBe(false);
     }
 
-    const forceRefresh = panelScope.getAllByRole("link", { name: "Force refresh" });
+    const forceRefresh = panelScope.getAllByRole("button", { name: "Force refresh" });
     expect(forceRefresh.length).toBeGreaterThan(0);
-    const forceRefreshTarget = new URL(forceRefresh[0]!.getAttribute("href") ?? "", "https://admin.example");
+    submitSpy.mockClear();
+    fireEvent.click(forceRefresh[0]!);
+    const forceRefreshTarget = new URL(
+      (submitSpy.mock.calls[0]![1] as { action: string }).action,
+      "https://admin.example",
+    );
     expect(forceRefreshTarget.pathname).toBe("/catalog/integrations");
     expect(forceRefreshTarget.searchParams.get("sourceOptionAction")).toBe("force-refresh");
     expect(forceRefreshTarget.searchParams.get("sourceOptionQueryKind")).toBeTruthy();
     expect(forceRefreshTarget.searchParams.has("forceRefresh")).toBe(false);
 
-    const refreshAll = panelScope.getByRole("link", { name: "Refresh all" });
-    const refreshAllTarget = new URL(refreshAll.getAttribute("href") ?? "", "https://admin.example");
+    const refreshAll = panelScope.getByRole("button", { name: "Refresh all" });
+    submitSpy.mockClear();
+    fireEvent.click(refreshAll);
+    const refreshAllTarget = new URL(
+      (submitSpy.mock.calls[0]![1] as { action: string }).action,
+      "https://admin.example",
+    );
     expect(refreshAllTarget.pathname).toBe("/catalog/integrations");
     expect(refreshAllTarget.searchParams.get("sourceOptionAction")).toBe("force-refresh-all");
     // Refresh-all fans across every group, so it carries no single queryKind.
