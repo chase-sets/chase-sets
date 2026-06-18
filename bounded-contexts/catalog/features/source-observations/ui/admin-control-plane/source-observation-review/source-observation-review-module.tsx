@@ -1,7 +1,9 @@
-import { useId, useMemo, type Dispatch, type ReactNode, type SetStateAction } from "react";
+import { useEffect, useId, useMemo, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
+import { useFetcher } from "react-router";
 import {
   Badge,
   BadgeCluster,
+  Banner,
   BulkActionBar,
   BulkActionPanel,
   Button,
@@ -11,6 +13,7 @@ import {
   KeyValueList,
   LinkButton,
   SideSheet,
+  Skeleton,
   TextInput,
   WorkbenchActionRow,
   WorkbenchDataCell,
@@ -21,7 +24,11 @@ import {
   type DataColumn,
 } from "@chase-sets/design-system";
 import { t } from "@chase-sets/localization";
-import type { CatalogPrimaryWorkbenchReadModel } from "../../../api/primary-workbench-admin-contracts";
+import type {
+  CatalogPrimaryWorkbenchReadModel,
+  CatalogPrimaryWorkbenchSourceObservationEvidenceDetail,
+  CatalogPrimaryWorkbenchSourceObservationEvidenceRouteData,
+} from "../../../api/primary-workbench-admin-contracts";
 import { catalogPrimaryWorkbenchHref } from "../../primary-workbench-route-context";
 import { CommandFormButton, CommandHiddenInputs, isActionAvailable } from "../import-to-promotion/command-controls";
 import { BlockerList, stateLabel, uniqueBlockers } from "../import-to-promotion/workbench-formatting";
@@ -67,7 +74,7 @@ export function CatalogIntegrationSourceObservationReviewModule({
             })}
             badges={
               <BadgeCluster
-                items={row.normalizedFactSummaries.slice(0, 3).map((fact) => ({
+                items={row.factSummaryPreview.map((fact) => ({
                   key: fact,
                   label: fact,
                   tone: "neutral",
@@ -102,10 +109,10 @@ export function CatalogIntegrationSourceObservationReviewModule({
             titleWeight="regular"
             detail={row.redactionSummary}
             badges={
-              row.duplicateEvidence.length > 0 ? (
+              row.duplicateCount > 0 ? (
                 <Badge tone="warning">
                   {t("catalog.features.sourceObservations.ui.primaryWorkbench.review.duplicate.count", {
-                    count: row.duplicateEvidence.length,
+                    count: row.duplicateCount,
                   })}
                 </Badge>
               ) : null
@@ -529,9 +536,43 @@ function RowCommandAction({
   );
 }
 
+// Lazy evidence endpoint URL for one observation. The review list ships slim rows
+// (#1971); the deep evidence is fetched from this resource route only when the
+// sheet opens, keyed by observationId. Built as an absolute path so the fetcher
+// hits the catalog-mounted route regardless of the current import surface URL.
+function observationEvidenceHref(observationId: string): string {
+  return `/catalog/integrations/observation-evidence/${encodeURIComponent(observationId)}`;
+}
+
+// Evidence SideSheet for one review row. The slim row carries everything the cell,
+// the row actions, and this sheet's footer/blockers need inline; the deep facts /
+// duplicates / conflicts / audit trail and the full provenance KeyValueList are
+// lazy-loaded via a react-router fetcher to the evidence endpoint when the sheet
+// opens (#1971). A DS skeleton shows while loading and a DS Banner shows if the
+// fetch fails or the observation is gone, so the operator still sees the same
+// evidence — only WHEN it is fetched changed. The fetch fires once per open and is
+// not re-issued while the sheet stays open.
 function SourceObservationEvidenceSheet({ row }: { row: SourceObservationReviewRow }) {
+  const fetcher = useFetcher<CatalogPrimaryWorkbenchSourceObservationEvidenceRouteData>();
+  const [open, setOpen] = useState(false);
+
+  // Load the evidence the first time the sheet opens for this row. `fetcher.load`
+  // is idempotent for an already-loaded URL, but gating on `idle` + no data keeps
+  // it to a single request and lets the operator reopen without a redundant fetch.
+  useEffect(() => {
+    if (open && fetcher.state === "idle" && !fetcher.data) {
+      fetcher.load(observationEvidenceHref(row.observationId));
+    }
+  }, [open, fetcher, row.observationId]);
+
+  const detail = fetcher.data?.detail ?? null;
+  const loading = fetcher.state === "loading" || (open && !fetcher.data);
+  const failed = fetcher.state === "idle" && Boolean(fetcher.data) && detail === null;
+
   return (
     <SideSheet
+      open={open}
+      onOpenChange={setOpen}
       title={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.title", {
         name: row.displayName,
       })}
@@ -551,83 +592,123 @@ function SourceObservationEvidenceSheet({ row }: { row: SourceObservationReviewR
         </Button>
       }
     >
-      <WorkbenchStack>
-        <KeyValueList
-          items={[
-            {
-              key: t("catalog.features.sourceObservations.ui.primaryWorkbench.key.provider"),
-              value: row.providerKey,
-            },
-            {
-              key: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.key.external"),
-              value: row.externalKey,
-            },
-            {
-              key: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.key.source.url"),
-              value: row.sourceUrl,
-            },
-            {
-              key: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.key.hash"),
-              value: row.sourceRecordHash,
-            },
-            {
-              key: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.key.observed"),
-              value: row.observedAt,
-            },
-            {
-              key: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.key.changed"),
-              value: row.sourceUpdatedAt ?? row.changedAt,
-            },
-            {
-              key: t("catalog.features.sourceObservations.ui.primaryWorkbench.key.profile"),
-              value: row.sourceProfileVersion,
-            },
-            {
-              key: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.key.promotion.profile"),
-              value:
-                row.promotionProfileVersion ??
-                t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected"),
-            },
-            {
-              key: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.key.payload"),
-              value: row.payloadSummary,
-            },
-            {
-              key: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.key.redaction"),
-              value: row.redactionSummary,
-            },
-            {
-              key: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.key.command.preview"),
-              value:
-                row.commandPreview.promotionPlanHash ??
-                t("catalog.features.sourceObservations.ui.primaryWorkbench.review.preview.required"),
-            },
-          ]}
-        />
-
-        <EvidenceStringList
-          title={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.normalized")}
-          items={row.normalizedFactSummaries}
-          emptyLabel={t("catalog.features.sourceObservations.ui.primaryWorkbench.none")}
-        />
-        <EvidenceStringList
-          title={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.duplicates")}
-          items={row.duplicateEvidence}
-          emptyLabel={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.no.duplicates")}
-        />
-        <EvidenceStringList
-          title={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.conflicts")}
-          items={row.conflictEvidence}
-          emptyLabel={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.no.conflicts")}
-        />
-        <EvidenceStringList
-          title={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.audit")}
-          items={row.auditTrail}
-          emptyLabel={t("catalog.features.sourceObservations.ui.primaryWorkbench.none")}
-        />
-        <BlockerList blockers={row.promotionReadiness.blockers} />
-      </WorkbenchStack>
+      <SourceObservationEvidenceSheetBody row={row} detail={detail} loading={loading} failed={failed} />
     </SideSheet>
+  );
+}
+
+function SourceObservationEvidenceSheetBody({
+  row,
+  detail,
+  loading,
+  failed,
+}: Readonly<{
+  row: SourceObservationReviewRow;
+  detail: CatalogPrimaryWorkbenchSourceObservationEvidenceDetail | null;
+  loading: boolean;
+  failed: boolean;
+}>) {
+  if (loading) {
+    return (
+      <WorkbenchStack gap="sm" data-catalog-observation-evidence="loading">
+        <WorkbenchText size="xs" tone="secondary" role="status">
+          {t("catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.loading")}
+        </WorkbenchText>
+        <Skeleton height="sm" />
+        <Skeleton height="md" />
+        <Skeleton height="md" />
+      </WorkbenchStack>
+    );
+  }
+
+  if (failed || !detail) {
+    return (
+      <Banner
+        tone="danger"
+        title={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.error.title")}
+        description={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.error.description")}
+        data-catalog-observation-evidence="error"
+      />
+    );
+  }
+
+  return (
+    <WorkbenchStack data-catalog-observation-evidence="loaded">
+      <KeyValueList
+        items={[
+          {
+            key: t("catalog.features.sourceObservations.ui.primaryWorkbench.key.provider"),
+            value: detail.providerKey,
+          },
+          {
+            key: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.key.external"),
+            value: detail.externalKey,
+          },
+          {
+            key: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.key.source.url"),
+            value: detail.sourceUrl,
+          },
+          {
+            key: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.key.hash"),
+            value: detail.sourceRecordHash,
+          },
+          {
+            key: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.key.observed"),
+            value: detail.observedAt,
+          },
+          {
+            key: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.key.changed"),
+            value: detail.sourceUpdatedAt ?? detail.changedAt,
+          },
+          {
+            key: t("catalog.features.sourceObservations.ui.primaryWorkbench.key.profile"),
+            value: detail.sourceProfileVersion,
+          },
+          {
+            key: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.key.promotion.profile"),
+            value:
+              detail.promotionProfileVersion ??
+              t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected"),
+          },
+          {
+            key: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.key.payload"),
+            value: detail.payloadSummary,
+          },
+          {
+            key: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.key.redaction"),
+            value: detail.redactionSummary,
+          },
+          {
+            key: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.key.command.preview"),
+            value:
+              detail.commandPreview.promotionPlanHash ??
+              t("catalog.features.sourceObservations.ui.primaryWorkbench.review.preview.required"),
+          },
+        ]}
+      />
+
+      <EvidenceStringList
+        title={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.normalized")}
+        items={detail.normalizedFactSummaries}
+        emptyLabel={t("catalog.features.sourceObservations.ui.primaryWorkbench.none")}
+      />
+      <EvidenceStringList
+        title={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.duplicates")}
+        items={detail.duplicateEvidence}
+        emptyLabel={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.no.duplicates")}
+      />
+      <EvidenceStringList
+        title={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.conflicts")}
+        items={detail.conflictEvidence}
+        emptyLabel={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.no.conflicts")}
+      />
+      <EvidenceStringList
+        title={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.audit")}
+        items={detail.auditTrail}
+        emptyLabel={t("catalog.features.sourceObservations.ui.primaryWorkbench.none")}
+      />
+      <BlockerList blockers={row.promotionReadiness.blockers} />
+    </WorkbenchStack>
   );
 }
 

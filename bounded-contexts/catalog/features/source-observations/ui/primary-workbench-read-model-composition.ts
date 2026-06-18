@@ -40,7 +40,11 @@ import { healthTriageFor } from "./primary-workbench-health-triage";
 import { validationReadinessFor } from "./primary-workbench-validation-readiness";
 import { lifecycleRecoveryFor, type LifecycleOperationRow } from "./primary-workbench-lifecycle-recovery";
 import { importJobsFor, selectedImportScopeFor } from "./primary-workbench-import-jobs";
-import { promotionPreviewFor, sourceObservationReviewFor } from "./primary-workbench-source-observation-review";
+import {
+  promotionPreviewFor,
+  sourceObservationReviewCompositionFor,
+} from "./primary-workbench-source-observation-review";
+import type { CatalogPrimaryWorkbenchSourceObservationEvidenceDetail } from "../api/primary-workbench-admin-contracts";
 import { conflictResolutionFor } from "./primary-workbench-conflict-resolution";
 import { governanceControlsFor } from "./primary-workbench-governance-controls";
 import { auditEvidenceFor } from "./primary-workbench-audit-evidence";
@@ -57,6 +61,11 @@ type CatalogPrimaryWorkbenchCore = Readonly<{
   readiness: CatalogPrimaryWorkbenchReadModel["readiness"];
   importJobs: CatalogPrimaryWorkbenchReadModel["importJobs"];
   sourceObservationReview: CatalogPrimaryWorkbenchReadModel["sourceObservationReview"];
+  // Deep-evidence index keyed by observationId. NOT serialized into the read model
+  // — it stays in-process to feed the conflict-resolution and audit-evidence
+  // composers (which read full fact/duplicate/conflict/audit evidence) without
+  // shipping that evidence on every review row (#1971).
+  reviewEvidenceByObservationId: ReadonlyMap<string, CatalogPrimaryWorkbenchSourceObservationEvidenceDetail>;
   promotionPreview: CatalogPrimaryWorkbenchReadModel["promotionPreview"];
   securityPrivacy: CatalogPrimaryWorkbenchReadModel["securityPrivacy"];
   generatedAt: string;
@@ -141,19 +150,20 @@ function buildCatalogPrimaryWorkbenchCore(
   const failedJobCount = importJobRows.filter((job) => job.state === "failed").length;
   const canManage = input.canManageCatalog;
   const generatedAt = input.controlPlaneOverview?.generatedAt ?? new Date().toISOString();
-  const sourceObservationReview = sourceObservationReviewFor({
-    canManage,
-    changed,
-    eligible,
-    observed,
-    promoted,
-    readinessBlockers,
-    rejected,
-    reviewObservations: input.reviewObservations ?? null,
-    reviewPagination: input.reviewPagination,
-    routeContext,
-    scopeRows,
-  });
+  const { review: sourceObservationReview, evidenceByObservationId: reviewEvidenceByObservationId } =
+    sourceObservationReviewCompositionFor({
+      canManage,
+      changed,
+      eligible,
+      observed,
+      promoted,
+      readinessBlockers,
+      rejected,
+      reviewObservations: input.reviewObservations ?? null,
+      reviewPagination: input.reviewPagination,
+      routeContext,
+      scopeRows,
+    });
   const promotionPreview = promotionPreviewFor({
     activeJobCount,
     activeProfileVersion: activeProfile?.profileVersion ?? null,
@@ -162,6 +172,7 @@ function buildCatalogPrimaryWorkbenchCore(
     readinessBlockers,
     routeContext,
     sourceObservationReview,
+    reviewEvidenceByObservationId,
   });
   const securityPrivacy = {
     redactionApplied: true,
@@ -214,6 +225,7 @@ function buildCatalogPrimaryWorkbenchCore(
         jobs: importJobRows,
       },
       sourceObservationReview,
+      reviewEvidenceByObservationId,
       promotionPreview,
       securityPrivacy,
       generatedAt,
@@ -295,6 +307,7 @@ function conflictAndLifecycleSlices(
     promotionPreview: core.promotionPreview,
     routeContext: core.routeContext,
     sourceObservationReview: core.sourceObservationReview,
+    reviewEvidenceByObservationId: core.reviewEvidenceByObservationId,
   });
   const lifecycleRecovery = lifecycleRecoveryFor({
     activeJobCount: derived.activeJobCount,
@@ -378,6 +391,7 @@ function healthSurfaceSlices(
     routeContext: core.routeContext,
     securityPrivacy: core.securityPrivacy,
     sourceObservationReview: core.sourceObservationReview,
+    reviewEvidenceByObservationId: core.reviewEvidenceByObservationId,
     validationReadiness: cited.validationReadiness,
   });
 

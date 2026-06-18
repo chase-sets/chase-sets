@@ -1412,6 +1412,16 @@ export type CatalogPrimaryWorkbenchSourceObservationReviewReadModel = Readonly<{
   rows: readonly CatalogPrimaryWorkbenchSourceObservationReviewRow[];
 }>;
 
+// Slim review-row contract (#1971). A review row carries ONLY what the dense table
+// cell and the per-row action buttons render: identity, status, the first-N fact
+// summaries the cell badges show, a duplicate count, the redaction-safe payload
+// summary, promotion readiness, command disposition, and the inline `actions[]`
+// that drive row buttons and readiness. The full fact/duplicate/conflict/audit
+// evidence and the deep KeyValueList fields the SideSheet renders are NOT shipped
+// per row; they live in `CatalogPrimaryWorkbenchSourceObservationEvidenceDetail`
+// and are lazy-loaded when the evidence sheet opens. This keeps a 25-row review
+// page small at first paint instead of serializing every row's deep evidence the
+// table never shows.
 export type CatalogPrimaryWorkbenchSourceObservationReviewRow = Readonly<{
   observationId: string;
   providerKey: string;
@@ -1419,19 +1429,16 @@ export type CatalogPrimaryWorkbenchSourceObservationReviewRow = Readonly<{
   displayName: string;
   status: string;
   statusReason: string | null;
-  languageCode: string;
-  sourceUrl: string;
-  sourceRecordHash: string;
   sourceUpdatedAt: string | null;
-  observedAt: string;
   changedAt: string;
-  sourceProfileVersion: string;
-  promotionProfileVersion: string | null;
-  normalizedFactSummaries: readonly string[];
+  // The first-N normalized fact summaries the dense cell renders as badges. The
+  // full list lives on the lazily-fetched evidence detail.
+  factSummaryPreview: readonly string[];
   payloadSummary: string;
   redactionSummary: string;
-  duplicateEvidence: readonly string[];
-  conflictEvidence: readonly string[];
+  // The duplicate-evidence COUNT the cell renders as a warning badge. The full
+  // duplicate evidence list lives on the lazily-fetched evidence detail.
+  duplicateCount: number;
   promotionReadiness: Readonly<{
     state: "eligible" | "blocked" | "already-promoted" | "rejected";
     blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
@@ -1441,7 +1448,6 @@ export type CatalogPrimaryWorkbenchSourceObservationReviewRow = Readonly<{
     disposition: CatalogPrimaryWorkbenchPromotionDisposition;
     confirmationRequired: boolean;
   }>;
-  auditTrail: readonly string[];
   detailHref: string;
   actions: readonly Readonly<{
     key: CatalogPrimaryWorkbenchSourceObservationRowActionKey;
@@ -1449,6 +1455,54 @@ export type CatalogPrimaryWorkbenchSourceObservationReviewRow = Readonly<{
     blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
     href: string | null;
   }>[];
+}>;
+
+// Deep evidence for a single Source Observation, separated from the review row so
+// it ships only when the operator opens the evidence SideSheet (#1971). It carries
+// the full normalized-fact / duplicate / conflict / audit lists and every
+// provenance field the sheet's KeyValueList renders. Composed from the same Source
+// Observation the slim row is, so the sheet shows exactly what it showed before —
+// only WHEN the data is fetched changes. Fetched via a small evidence endpoint
+// keyed by `observationId`.
+export type CatalogPrimaryWorkbenchSourceObservationEvidenceDetail = Readonly<{
+  observationId: string;
+  providerKey: string;
+  externalKey: string;
+  displayName: string;
+  languageCode: string;
+  sourceUrl: string;
+  sourceRecordHash: string;
+  sourceUpdatedAt: string | null;
+  observedAt: string;
+  changedAt: string;
+  sourceProfileVersion: string;
+  promotionProfileVersion: string | null;
+  payloadSummary: string;
+  redactionSummary: string;
+  normalizedFactSummaries: readonly string[];
+  duplicateEvidence: readonly string[];
+  conflictEvidence: readonly string[];
+  auditTrail: readonly string[];
+  promotionReadiness: Readonly<{
+    state: "eligible" | "blocked" | "already-promoted" | "rejected";
+    blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
+  }>;
+  commandPreview: Readonly<{
+    promotionPlanHash: string | null;
+    disposition: CatalogPrimaryWorkbenchPromotionDisposition;
+    confirmationRequired: boolean;
+  }>;
+}>;
+
+// Response contract for the lazy evidence endpoint the review SideSheet fetches
+// (#1971). On success `detail` carries the composed deep evidence; on absence or a
+// transient failure it is null so the sheet renders its error fallback instead of
+// the route boundary throwing. Lives on the feature contract so both the route
+// loader (server) and the evidence sheet (client) depend on the feature, not on a
+// deployable route module.
+export type CatalogPrimaryWorkbenchSourceObservationEvidenceRouteData = Readonly<{
+  observationId: string;
+  detail: CatalogPrimaryWorkbenchSourceObservationEvidenceDetail | null;
 }>;
 
 export type CatalogPrimaryWorkbenchConflictResolutionStatus = "ready" | "empty" | "blocked" | "unavailable";

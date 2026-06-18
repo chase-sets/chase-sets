@@ -6,6 +6,7 @@ import type {
   CatalogPrimaryWorkbenchPromotionStaleProtectionKey,
   CatalogPrimaryWorkbenchReadModel,
   CatalogPrimaryWorkbenchRouteContext,
+  CatalogPrimaryWorkbenchSourceObservationEvidenceDetail,
 } from "../api/primary-workbench-admin-contracts";
 import type { SourceObservationIntegrationScope, SourceObservationListItem } from "./contracts";
 import { catalogPrimaryWorkbenchHref } from "./primary-workbench-route-context";
@@ -13,6 +14,23 @@ import { actionStateForBlockers, setQueryParam } from "./primary-workbench-read-
 import { scopeContextFromRouteContext, scopeContextToObservationFilterScope } from "./primary-workbench-scope-context";
 
 const defaultReviewPageSize = 25;
+
+// How many normalized fact summaries the dense review cell renders as badges. The
+// slim row ships only this preview slice; the full list rides the lazily-fetched
+// evidence detail.
+const reviewFactSummaryPreviewSize = 3;
+
+// In-process pairing of the slim serialized review with the deep evidence index
+// keyed by observationId. The evidence index is NEVER serialized into the daily
+// list payload — it feeds the server-side conflict-resolution and audit-evidence
+// composers (which read full fact/duplicate/conflict/audit evidence) and is the
+// source the lazy evidence endpoint serves one row at a time. Splitting it here is
+// what keeps the per-row review payload slim while preserving evidence parity
+// everywhere the deep arrays were previously read.
+export type CatalogPrimaryWorkbenchSourceObservationReviewComposition = Readonly<{
+  review: CatalogPrimaryWorkbenchReadModel["sourceObservationReview"];
+  evidenceByObservationId: ReadonlyMap<string, CatalogPrimaryWorkbenchSourceObservationEvidenceDetail>;
+}>;
 
 export function buildCatalogPrimaryWorkbenchSourceObservationReviewQuery(
   context: CatalogPrimaryWorkbenchRouteContext,
@@ -41,7 +59,11 @@ export function buildCatalogPrimaryWorkbenchSourceObservationReviewQuery(
   return params.toString();
 }
 
-export function sourceObservationReviewFor(input: {
+// Compose the Source Observation review wave: the slim serialized review plus the
+// in-process deep-evidence index. The slim review is what ships to the browser;
+// the evidence index stays server-side for the conflict/audit composers and the
+// lazy evidence endpoint (#1971).
+export function sourceObservationReviewCompositionFor(input: {
   canManage: boolean;
   changed: number;
   eligible: number;
@@ -53,58 +75,114 @@ export function sourceObservationReviewFor(input: {
   reviewPagination: Readonly<{ limit: number; offset: number }> | undefined;
   routeContext: CatalogPrimaryWorkbenchRouteContext;
   scopeRows: readonly SourceObservationIntegrationScope[];
-}): CatalogPrimaryWorkbenchReadModel["sourceObservationReview"] {
+}): CatalogPrimaryWorkbenchSourceObservationReviewComposition {
   const limit = input.reviewPagination?.limit ?? defaultReviewPageSize;
   const offset = input.reviewPagination?.offset ?? 0;
   const total = input.reviewObservations?.total ?? 0;
-  const rows = (input.reviewObservations?.items ?? []).map((observation) =>
+  const observations = input.reviewObservations?.items ?? [];
+  const rows = observations.map((observation) =>
     sourceObservationReviewRowFor(observation, {
       canManage: input.canManage,
       routeContext: input.routeContext,
     }),
   );
-  const duplicateConflictCount = rows.filter((row) => row.duplicateEvidence.length > 0).length;
+  const evidenceByObservationId = new Map<string, CatalogPrimaryWorkbenchSourceObservationEvidenceDetail>(
+    observations.map((observation) => [
+      observation.observation_id,
+      sourceObservationEvidenceDetailFor(observation, { canManage: input.canManage }),
+    ]),
+  );
+  const duplicateConflictCount = rows.filter((row) => row.duplicateCount > 0).length;
   const promotionReadyRowCount = rows.filter((row) => row.promotionReadiness.state === "eligible").length;
   const promotionReadyCount = input.reviewObservations ? promotionReadyRowCount : input.eligible;
   const selectedObservationIds = input.routeContext.selectedObservationIds;
   const selectedRows = rows.filter((row) => selectedObservationIds.includes(row.observationId));
 
   return {
-    freshness: input.scopeRows.length > 0 ? "fresh" : "partial",
-    counts: {
-      observed: input.observed,
-      changed: input.changed,
-      promoted: input.promoted,
-      rejected: input.rejected,
-      blocked: input.readinessBlockers.length,
-      eligible: input.eligible,
+    review: {
+      freshness: input.scopeRows.length > 0 ? "fresh" : "partial",
+      counts: {
+        observed: input.observed,
+        changed: input.changed,
+        promoted: input.promoted,
+        rejected: input.rejected,
+        blocked: input.readinessBlockers.length,
+        eligible: input.eligible,
+      },
+      cursor: offset > 0 ? `offset:${offset}` : null,
+      selectedObservationIds,
+      evidenceSummariesRedacted: true,
+      duplicateConflictCount,
+      promotionReadyCount,
+      filters: reviewFiltersFor(input.routeContext),
+      savedFilters: savedReviewFiltersFor(input.routeContext, {
+        eligible: input.eligible,
+        changed: input.changed,
+        observed: input.observed,
+        rejected: input.rejected,
+      }),
+      pagination: {
+        mode: "offset",
+        limit,
+        offset,
+        total,
+        nextCursor: offset + limit < total ? `offset:${offset + limit}` : null,
+        previousCursor: offset > 0 ? `offset:${Math.max(0, offset - limit)}` : null,
+      },
+      bulkSelection: {
+        selectedCount: selectedObservationIds.length,
+        eligibleSelectedCount: selectedRows.filter((row) => row.promotionReadiness.state === "eligible").length,
+        actions: ["preview-promotion", "reject-source-observations", "defer-source-observations"],
+      },
+      rows,
     },
-    cursor: offset > 0 ? `offset:${offset}` : null,
-    selectedObservationIds,
-    evidenceSummariesRedacted: true,
-    duplicateConflictCount,
-    promotionReadyCount,
-    filters: reviewFiltersFor(input.routeContext),
-    savedFilters: savedReviewFiltersFor(input.routeContext, {
-      eligible: input.eligible,
-      changed: input.changed,
-      observed: input.observed,
-      rejected: input.rejected,
-    }),
-    pagination: {
-      mode: "offset",
-      limit,
-      offset,
-      total,
-      nextCursor: offset + limit < total ? `offset:${offset + limit}` : null,
-      previousCursor: offset > 0 ? `offset:${Math.max(0, offset - limit)}` : null,
+    evidenceByObservationId,
+  };
+}
+
+// Convenience wrapper for callers that only need the serialized review slice.
+export function sourceObservationReviewFor(
+  input: Parameters<typeof sourceObservationReviewCompositionFor>[0],
+): CatalogPrimaryWorkbenchReadModel["sourceObservationReview"] {
+  return sourceObservationReviewCompositionFor(input).review;
+}
+
+// Compose the deep evidence detail for one Source Observation: the full normalized
+// facts, duplicate and conflict evidence, audit trail, and every provenance field
+// the evidence SideSheet's KeyValueList renders. This is the value the lazy
+// evidence endpoint serves and the server composers read — kept byte-identical to
+// what the row used to carry inline so evidence parity is preserved (#1971).
+export function sourceObservationEvidenceDetailFor(
+  observation: SourceObservationListItem,
+  input: { canManage: boolean },
+): CatalogPrimaryWorkbenchSourceObservationEvidenceDetail {
+  const promotionReadiness = promotionReadinessFor(observation, input.canManage);
+
+  return {
+    observationId: observation.observation_id,
+    providerKey: observation.provider_key,
+    externalKey: observation.external_key,
+    displayName: observation.normalized.name,
+    languageCode: observation.language_code,
+    sourceUrl: observation.source_url,
+    sourceRecordHash: observation.source_record_hash,
+    sourceUpdatedAt: observation.source_updated_at,
+    observedAt: observation.observed_at,
+    changedAt: observation.updated_at,
+    sourceProfileVersion: observation.source_profile_version,
+    promotionProfileVersion: observation.promotion_profile_version,
+    payloadSummary: payloadSummaryFor(observation),
+    redactionSummary: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.redaction.summary"),
+    normalizedFactSummaries: normalizedFactSummariesFor(observation),
+    duplicateEvidence: duplicateEvidenceFor(observation),
+    conflictEvidence: conflictEvidenceFor(observation),
+    auditTrail: auditTrailFor(observation),
+    promotionReadiness,
+    commandPreview: {
+      promotionPlanHash: observation.promotion_plan_fingerprint,
+      disposition: promotionDispositionFor(promotionReadiness.state),
+      confirmationRequired: promotionReadiness.state === "eligible",
     },
-    bulkSelection: {
-      selectedCount: selectedObservationIds.length,
-      eligibleSelectedCount: selectedRows.filter((row) => row.promotionReadiness.state === "eligible").length,
-      actions: ["preview-promotion", "reject-source-observations", "defer-source-observations"],
-    },
-    rows,
   };
 }
 
@@ -116,6 +194,11 @@ export function promotionPreviewFor(input: {
   readinessBlockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
   routeContext: CatalogPrimaryWorkbenchRouteContext;
   sourceObservationReview: CatalogPrimaryWorkbenchReadModel["sourceObservationReview"];
+  // Deep-evidence index keyed by observationId. The slim review row no longer
+  // carries conflict evidence or the source profile version, so the preview reads
+  // those (conflicting-disposition count + the replay profile semantics) from the
+  // composed evidence index instead (#1971).
+  reviewEvidenceByObservationId: ReadonlyMap<string, CatalogPrimaryWorkbenchSourceObservationEvidenceDetail>;
 }): CatalogPrimaryWorkbenchReadModel["promotionPreview"] {
   const selectedObservationIds = input.routeContext.selectedObservationIds;
   const selectedIdSet = new Set(selectedObservationIds);
@@ -143,7 +226,11 @@ export function promotionPreviewFor(input: {
         : input.sourceObservationReview.counts.rejected;
   const conflictingCount =
     scopedRows.length > 0
-      ? scopedRows.filter((row) => row.duplicateEvidence.length > 0 || row.conflictEvidence.length > 0).length
+      ? scopedRows.filter(
+          (row) =>
+            row.duplicateCount > 0 ||
+            (input.reviewEvidenceByObservationId.get(row.observationId)?.conflictEvidence.length ?? 0) > 0,
+        ).length
       : input.sourceObservationReview.duplicateConflictCount;
   const scope: CatalogPrimaryWorkbenchReadModel["promotionPreview"]["scope"] = {
     kind: hasExplicitRows ? "explicit-rows" : "matching-filter",
@@ -253,7 +340,10 @@ export function promotionPreviewFor(input: {
       replay: {
         profileSemantics: "original-source-profile-version",
         target: "source-observation-evidence",
-        profileVersion: scopedRows[0]?.sourceProfileVersion ?? input.routeContext.profileVersion,
+        profileVersion:
+          (scopedRows[0]
+            ? input.reviewEvidenceByObservationId.get(scopedRows[0].observationId)?.sourceProfileVersion
+            : null) ?? input.routeContext.profileVersion,
       },
     },
     blockers: [...blockers],
@@ -331,8 +421,6 @@ function sourceObservationReviewRowFor(
   input: { canManage: boolean; routeContext: CatalogPrimaryWorkbenchRouteContext },
 ): CatalogPrimaryWorkbenchReadModel["sourceObservationReview"]["rows"][number] {
   const promotionReadiness = promotionReadinessFor(observation, input.canManage);
-  const duplicateEvidence = duplicateEvidenceFor(observation);
-  const conflictEvidence = conflictEvidenceFor(observation);
   const detailHref = catalogPrimaryWorkbenchHref(
     {
       ...input.routeContext,
@@ -353,26 +441,21 @@ function sourceObservationReviewRowFor(
     displayName: observation.normalized.name,
     status: observation.status,
     statusReason: observation.status_reason,
-    languageCode: observation.language_code,
-    sourceUrl: observation.source_url,
-    sourceRecordHash: observation.source_record_hash,
     sourceUpdatedAt: observation.source_updated_at,
-    observedAt: observation.observed_at,
     changedAt: observation.updated_at,
-    sourceProfileVersion: observation.source_profile_version,
-    promotionProfileVersion: observation.promotion_profile_version,
-    normalizedFactSummaries: normalizedFactSummariesFor(observation),
+    // Cell-only data: the first-N facts the badges render and the duplicate COUNT
+    // the warning badge shows. The full fact/duplicate lists ship lazily with the
+    // evidence detail, not per row.
+    factSummaryPreview: normalizedFactSummariesFor(observation).slice(0, reviewFactSummaryPreviewSize),
     payloadSummary: payloadSummaryFor(observation),
     redactionSummary: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.redaction.summary"),
-    duplicateEvidence,
-    conflictEvidence,
+    duplicateCount: duplicateEvidenceFor(observation).length,
     promotionReadiness,
     commandPreview: {
       promotionPlanHash: observation.promotion_plan_fingerprint,
       disposition: promotionDispositionFor(promotionReadiness.state),
       confirmationRequired: promotionReadiness.state === "eligible",
     },
-    auditTrail: auditTrailFor(observation),
     detailHref,
     actions: rowActionsFor(observation, {
       canManage: input.canManage,
