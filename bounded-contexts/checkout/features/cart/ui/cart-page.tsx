@@ -565,9 +565,11 @@ function fulfillmentReviewDescription(count: number) {
 export function CheckoutCartPage({
   cartLines,
   errorMessage,
+  pendingEmptyMessage,
 }: {
   cartLines: readonly CheckoutCartLine[];
   errorMessage?: string | null;
+  pendingEmptyMessage?: string | null;
 }) {
   const sourceCartLineGroups = useMemo(() => groupCartLines(cartLines), [cartLines]);
   const [optimisticQuantities, setOptimisticQuantities] = useState<Record<string, number>>({});
@@ -755,7 +757,12 @@ export function CheckoutCartPage({
             </Surface>
           ) : null}
 
-          {cartLineGroups.length === 0 ? (
+          {cartLineGroups.length === 0 && pendingEmptyMessage ? (
+            <MarketplaceEmptyState
+              title={t("checkout.features.cart.ui.cartPage.adding.item")}
+              description={pendingEmptyMessage}
+            />
+          ) : cartLineGroups.length === 0 ? (
             <MarketplaceEmptyState
               title={t("checkout.features.cart.ui.cartPage.your.cart.is.empty")}
               description={t("checkout.features.cart.ui.cartPage.browse.the.marketplace.and.add.a")}

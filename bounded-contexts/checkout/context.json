@@ -272,7 +272,7 @@
       "risk": "critical",
       "source": {
         "routeId": "account-cart",
-        "actions": ["Update account cart"],
+        "actions": ["Update Buy Cart"],
         "command": "Checkout cart commands",
         "helperUses": ["appendFreshWriteToken"]
       },
@@ -281,8 +281,8 @@
         "apiContextName": "checkout",
         "apiRoutePath": "/account/cart",
         "readModelTables": ["checkout_cart_line_pages"],
-        "helperUses": ["loadFreshlyWrittenResource"],
-        "transientRecovery": "Account cart self-refresh uses the fresh-read strategy: it waits on the exact checkout cart line page projection and converts valid afterWrite projection timeouts into temporary cart recovery while missing, malformed, or expired receipts stay on the permanent API error path."
+        "helperUses": ["loadFreshlyWrittenResource", "readPostWriteHandoffState", "evaluatePostWriteHandoff"],
+        "transientRecovery": "Buy Cart self-refresh uses the fresh-read strategy for signed-in and anonymous cart reads: it waits on the exact checkout cart line page projection, evaluates any semantic add-line post-write handoff against the loaded cart, and converts valid afterWrite projection timeouts or valid add-line empty-cart handoffs into temporary cart recovery while missing, malformed, expired, or remove-to-empty receipts stay on the normal permanent/empty-cart path."
       }
     },
     {

@@ -61,7 +61,7 @@
       "owner": "checkout/account-cart",
       "required": false,
       "source": "Prometheus account-cart post-write consistency outcome telemetry",
-      "currentState": "needs-runtime-emission",
+      "currentState": "available-now",
       "baselineQuery": "vector(0)",
       "canaryQuery": "sum(rate(chase_sets_post_write_consistency_events_total{context=\"checkout\",surface=\"account-cart\",outcome=~\"missing_strategy|freshness_timeout\"}[15m]))",
       "maxIncrease": 0,

@@ -3,13 +3,25 @@ import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react
 import { redirect, useActionData, useLoaderData } from "react-router";
 import {
   appendFreshWriteToken,
+  evaluatePostWriteHandoff,
   loadFreshlyWrittenResource,
+  readPostWriteHandoffState,
   recoverFreshWriteReadError,
+  type PostWriteHandoffState,
 } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
+import {
+  recordPlatformPostWriteConsistencyEvent,
+  type PlatformPostWriteConsistencyOutcome,
+} from "@chase-sets/platform-runtime/post-write-consistency";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { createCheckoutRequestApiClient } from "../support/request-support/api-client";
 import { readAnonymousCartId } from "../support/request-support/guest-checkout";
+import {
+  ACCOUNT_CART_ADD_LINE_HANDOFF_KIND,
+  isAccountCartAddLineHandoff,
+  isPendingAccountCartAddLineHandoff,
+} from "../support/request-support/account-cart-handoffs";
 import { CheckoutCartPage } from "../features/cart/ui/cart-page";
 
 const MARKETPLACE_DESCRIPTION = t("checkout.routes.accountCart.review.cart.lines.adjust.quantity.and");
@@ -38,9 +50,69 @@ function checkoutApiErrorCode(error: unknown) {
   return code === null || code === undefined ? null : String(code);
 }
 
-async function loadAccountCart<TCart extends { items: readonly unknown[]; count: number }>(
+type AccountCartActorMode = "account" | "guest";
+
+function freshnessOutcomeForHandoffState(state: PostWriteHandoffState) {
+  if (state.kind === "valid") {
+    return "valid-after-write";
+  }
+
+  if (state.kind === "malformed") {
+    return "malformed-handoff";
+  }
+
+  switch (state.freshWrite.kind) {
+    case "expired":
+      return "expired-after-write";
+    case "malformed":
+      return "malformed-after-write";
+    case "future":
+      return "future-after-write";
+    case "missing":
+      return "missing-after-write";
+    case "valid":
+      return "valid-after-write";
+  }
+}
+
+function recordAccountCartSemanticHandoffOutcome(
+  actorMode: AccountCartActorMode,
+  outcome: PlatformPostWriteConsistencyOutcome,
+  freshnessOutcome: string,
+  recoveryAction: string,
+) {
+  recordPlatformPostWriteConsistencyEvent({
+    boundedContextName: "checkout",
+    surface: "account-cart",
+    strategy: "fresh-read",
+    outcome,
+    routeId: "account-cart",
+    routeTemplate: "/account/cart",
+    correctionSource: `semantic-handoff:${ACCOUNT_CART_ADD_LINE_HANDOFF_KIND}`,
+    actorMode,
+    recoveryAction,
+    freshnessOutcome,
+  });
+}
+
+function recordNotApplicableAccountCartHandoffState(actorMode: AccountCartActorMode, state: PostWriteHandoffState) {
+  if (state.kind === "missing") {
+    return;
+  }
+
+  const outcome =
+    state.kind === "malformed"
+      ? "handoff_malformed"
+      : state.freshWrite.kind === "expired"
+        ? "handoff_expired"
+        : "handoff_invalid";
+  recordAccountCartSemanticHandoffOutcome(actorMode, outcome, freshnessOutcomeForHandoffState(state), "none");
+}
+
+async function loadCartWithPostWriteRecovery<TCart extends { items: readonly unknown[]; count: number }>(
   request: Request,
   load: () => Promise<TCart>,
+  actorMode: AccountCartActorMode,
 ) {
   try {
     const cart = await loadFreshlyWrittenResource({
@@ -48,7 +120,42 @@ async function loadAccountCart<TCart extends { items: readonly unknown[]; count:
       load,
       isNotFound: (error) => checkoutApiErrorStatus(error) === 404,
     });
-    return { cart, freshnessError: null };
+    const handoffDecisionAtMs = Date.now();
+    const handoffState = readPostWriteHandoffState(request, handoffDecisionAtMs);
+    const handoff = evaluatePostWriteHandoff({
+      request,
+      data: cart,
+      nowMs: handoffDecisionAtMs,
+      isSatisfied: (candidate, postWriteHandoff) =>
+        isAccountCartAddLineHandoff(postWriteHandoff) &&
+        !isPendingAccountCartAddLineHandoff(candidate, postWriteHandoff),
+    });
+    if (handoff.kind === "not-applicable") {
+      recordNotApplicableAccountCartHandoffState(actorMode, handoff.state);
+    } else if (!isAccountCartAddLineHandoff(handoff.handoff)) {
+      recordAccountCartSemanticHandoffOutcome(actorMode, "handoff_invalid", "valid-after-write", "none");
+    } else if (handoff.kind === "pending") {
+      recordAccountCartSemanticHandoffOutcome(
+        actorMode,
+        "handoff_pending",
+        freshnessOutcomeForHandoffState(handoffState),
+        "pending_empty_state",
+      );
+      return {
+        cart,
+        freshnessError: null,
+        pendingCartMessage: t("checkout.routes.accountCart.adding.item.description"),
+      };
+    } else {
+      recordAccountCartSemanticHandoffOutcome(
+        actorMode,
+        "handoff_satisfied",
+        freshnessOutcomeForHandoffState(handoffState),
+        "none",
+      );
+    }
+
+    return { cart, freshnessError: null, pendingCartMessage: null };
   } catch (error) {
     const recovery = recoverFreshWriteReadError({
       request,
@@ -59,6 +166,7 @@ async function loadAccountCart<TCart extends { items: readonly unknown[]; count:
       recoverTransient: () => ({
         cart: { items: [], count: 0 },
         freshnessError: t("checkout.routes.accountCart.request.failed"),
+        pendingCartMessage: null,
       }),
     });
     if (recovery) {
@@ -81,11 +189,10 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const actor = await resolveActorFromAuthApi({ request });
 
   if (!canUseAccountCart(actor)) {
-    const cart = await api.getGuestCart(readAnonymousCartId(request));
-    return { cart };
+    return loadCartWithPostWriteRecovery(request, () => api.getGuestCart(readAnonymousCartId(request)), "guest");
   }
 
-  return loadAccountCart(request, () => api.getCart());
+  return loadCartWithPostWriteRecovery(request, () => api.getCart(), "account");
 }
 
 export async function action({ request }: ActionFunctionArgs) {
@@ -202,6 +309,13 @@ export default function CheckoutAccountCartRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const freshnessError = "freshnessError" in data ? data.freshnessError : null;
+  const pendingCartMessage = "pendingCartMessage" in data ? data.pendingCartMessage : null;
 
-  return <CheckoutCartPage cartLines={data.cart.items} errorMessage={actionData?.error ?? freshnessError} />;
+  return (
+    <CheckoutCartPage
+      cartLines={data.cart.items}
+      errorMessage={actionData?.error ?? freshnessError}
+      pendingEmptyMessage={pendingCartMessage}
+    />
+  );
 }

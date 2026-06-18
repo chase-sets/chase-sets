@@ -366,6 +366,28 @@
           "bounded-contexts/discovery/support/route-support/item-detail/action-helpers.ts"
         ]
       }
+    },
+    {
+      "id": "discovery.item-detail-add-to-cart-semantic-handoff",
+      "owner": "discovery",
+      "risk": "critical",
+      "source": {
+        "routeId": "item-detail",
+        "actions": ["Build View cart link after item detail add-to-cart"],
+        "command": "Checkout addCartLine/addGuestCartLine semantic handoff"
+      },
+      "destination": {
+        "routeId": "account-cart",
+        "transientRecovery": "Discovery carries the Checkout-owned add-line semantic handoff to /account/cart; Checkout owns the destination fresh-read wait, pending empty-cart state, and diagnostics in checkout.cart-self-refresh."
+      },
+      "exception": {
+        "status": "not-post-write-read",
+        "owner": "discovery",
+        "reviewBy": "2026-07-31",
+        "reason": "Discovery builds the View cart URL from the Checkout command receipt but does not read a Discovery projection after the write. The account-cart destination is owned and tested in Checkout.",
+        "helperUses": ["appendPostWriteHandoff"],
+        "files": ["bounded-contexts/discovery/support/route-support/item-detail/action.ts"]
+      }
     }
   ],
   "mutationConsistencyInventory": [
@@ -479,10 +501,10 @@
       ],
       "visibleDestination": {
         "routeId": "item-detail",
-        "description": "The item-detail add-to-cart fetcher remains on the Detail Page and returns the committed Checkout cart-line id, version, status, item title, and quantity so the cart count and success notice do not depend on a stale cart projection. The success notice's View cart link carries the same Checkout command receipt as an afterWrite fresh-write token (viewCartHref) so the cross-route handoff to /account/cart hands the Checkout-owned account cart loader a receipt to wait on its own cart projection freshness instead of reading the lagging projection and showing the empty state; guest checkout reads the anonymous cart store directly and is unaffected by the token."
+        "description": "The item-detail add-to-cart fetcher remains on the Detail Page and returns the committed Checkout cart-line id, version, status, item title, and quantity so the cart count and success notice do not depend on a stale cart projection. The success notice's View cart link carries the same Checkout command receipt as an afterWrite fresh-write token plus the Checkout-owned semantic add-line post-write handoff (viewCartHref), so /account/cart can treat signed-in or anonymous empty reads as pending only for this add-line intent while remove-to-empty or normal visits keep the ordinary empty-cart state."
       },
       "proof": {
-        "authoritativeResponse": "The Discovery route action copies the Checkout addCartLine/addGuestCartLine command snapshot into the fetcher JSON response and the UI reconciles the visible success state from that response. The same Checkout command result is threaded through appendFreshWriteToken to build viewCartHref, so the View cart link to /account/cart preserves the command owner's receipt; the Checkout account cart loader owns the actual fresh-read wait for that destination.",
+        "authoritativeResponse": "The Discovery route action copies the Checkout addCartLine/addGuestCartLine command snapshot into the fetcher JSON response and the UI reconciles the visible success state from that response. The same Checkout command result is threaded through appendPostWriteHandoff with the Checkout-owned add-line handoff constant to build viewCartHref, so the View cart link to /account/cart preserves the command owner's receipt and semantic add-line expectation; the Checkout account cart loader owns the actual fresh-read wait and pending/empty distinction for that destination.",
         "tests": ["bounded-contexts/discovery/tests/item-detail-buy-now-checkout.test.ts"]
       }
     },

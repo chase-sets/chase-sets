@@ -26,6 +26,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.cart.ui.cartPage.browse.the.marketplace.and.add.a":
     "Browse the marketplace and add a product to start building a Buy Cart checkout.",
   "checkout.features.cart.ui.cartPage.buy.cart": "Buy cart",
+  "checkout.features.cart.ui.cartPage.adding.item": "Adding your item",
   "checkout.features.cart.ui.cartPage.checkout.issue": "Checkout issue",
   "checkout.features.cart.ui.cartPage.decrease": "Decrease",
   "checkout.features.cart.ui.cartPage.empty.cart.protection.description":
@@ -739,6 +740,8 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.unavailable": "Unavailable",
   "checkout.features.sellList.ui.sellListPage.your.sell.list.is.empty": "Your Sell List is empty",
   "checkout.routes.accountCart.cart.marketplace": "Buy Cart | Marketplace",
+  "checkout.routes.accountCart.adding.item.description":
+    "Your item was added. The Buy Cart is catching up before checkout continues.",
   "checkout.routes.accountCart.preferred.listing.missing": "Choose a preferred listing before locking this cart line.",
   "checkout.routes.accountCart.request.failed": "Request failed.",
   "checkout.routes.accountCart.review.cart.lines.adjust.quantity.and":

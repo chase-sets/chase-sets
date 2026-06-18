@@ -326,6 +326,13 @@ describe("post-write consistency observability", () => {
       "rollback",
       "reconciliation",
       "stale_response_discard",
+      "handoff_parsed",
+      "handoff_satisfied",
+      "handoff_pending",
+      "handoff_expired",
+      "handoff_invalid",
+      "handoff_malformed",
+      "handoff_permanent",
     ] as const;
 
     expect(
@@ -417,6 +424,51 @@ describe("post-write consistency observability", () => {
         freshnessOutcome: "not-required",
       }),
     ).not.toThrow();
+  });
+
+  it("maps semantic handoff diagnostics without exposing handoff payloads", () => {
+    const attributes = postWriteConsistencyEventAttributes({
+      boundedContextName: "checkout",
+      surface: "account-cart",
+      strategy: "fresh-read",
+      outcome: "handoff_pending",
+      routeId: "account-cart",
+      routeTemplate: "/account/cart",
+      correctionSource: "semantic-handoff:checkout.cart.add-line",
+      actorMode: "guest",
+      recoveryAction: "pending_empty_state",
+      freshnessOutcome: "valid-after-write",
+      afterWrite: "afterWrite=raw-token",
+      postWriteHandoff: encodeURIComponent(
+        JSON.stringify({
+          kind: "checkout.cart.add-line",
+          expectation: "collection-non-empty",
+          cartId: "cart_123",
+        }),
+      ),
+      accountId: "account_123",
+      fullUrl: "https://example.test/account/cart?postWriteHandoff=raw",
+    } as never);
+
+    const serializedAttributes = JSON.stringify(attributes);
+
+    expect(attributes).toEqual({
+      type: "post-write.consistency",
+      context: "checkout",
+      surface: "account-cart",
+      strategy: "fresh-read",
+      outcome: "handoff_pending",
+      route_id: "account-cart",
+      route_template: "/account/cart",
+      correction_source: "semantic-handoff_checkout.cart.add-line",
+      actor_mode: "guest",
+      recovery_action: "pending_empty_state",
+      freshness_outcome: "valid-after-write",
+    });
+    expect(serializedAttributes).not.toContain("raw-token");
+    expect(serializedAttributes).not.toContain("postWriteHandoff");
+    expect(serializedAttributes).not.toContain("cart_123");
+    expect(serializedAttributes).not.toContain("account_123");
   });
 });
 

@@ -228,7 +228,10 @@ export const sourceContextWakeRegistry = [
     expectedEventVolume: "medium",
     wakeStoreLoadEstimate: "low",
     affectedProjectionNames: ["discovery:discovery-product-alert-page-projection"],
-    routeDependencyIds: ["discovery.item-detail-checkout-handoff"],
+    routeDependencyIds: [
+      "discovery.item-detail-add-to-cart-semantic-handoff",
+      "discovery.item-detail-checkout-handoff",
+    ],
   }),
   registryEntry({
     sourceContextName: "fulfillment",

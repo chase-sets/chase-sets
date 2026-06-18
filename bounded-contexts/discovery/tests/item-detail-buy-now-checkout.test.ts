@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { readFreshWriteToken } from "@chase-sets/http/responses";
+import { readFreshWriteToken, readPostWriteHandoff } from "@chase-sets/http/responses";
 
 import {
   mockAcceptOfferMatch,
@@ -56,6 +56,11 @@ vi.mock("@chase-sets/marketplace/server", () => ({
 }));
 
 vi.mock("@chase-sets/checkout/server", () => ({
+  ACCOUNT_CART_ADD_LINE_HANDOFF: {
+    kind: "checkout.cart.add-line",
+    expectation: "collection-non-empty",
+    surface: "account-cart",
+  },
   appendAnonymousCartCookie: mockAppendAnonymousCartCookie,
   appendAnonymousSellListCookie: mockAppendAnonymousSellListCookie,
   createCheckoutRequestApiClient: mockCreateCheckoutRequestApiClient,
@@ -510,6 +515,58 @@ describe("item detail buy now checkout actions", () => {
     expect(readFreshWriteToken(viewCartUrl)).toMatchObject({
       sources: [{ sourceContextName: "checkout", maxGlobalPosition: "42", eventIds: ["evt_cli_1"] }],
     });
+    expect(readPostWriteHandoff(viewCartUrl)).toEqual({
+      kind: "checkout.cart.add-line",
+      expectation: "collection-non-empty",
+      surface: "account-cart",
+    });
+  });
+
+  it("omits fresh-write and semantic handoff metadata when add-to-cart returns no command receipt", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer",
+      permissions: ["orders.manage"],
+    });
+    mockCreateDiscoveryRequestApiClient.mockReturnValue({
+      getItemDetail: vi.fn().mockResolvedValue({
+        catalog_item_id: "cat_charizard",
+        title: "Charizard",
+        subtitle: "Base Set 4/102 Holo Rare",
+      }),
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({});
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      addCartLine: mockAddCartLine.mockResolvedValue({ id: "cli_1", version: 1, status: "active" }),
+      createCheckoutSession: mockCreateCheckoutSession,
+      addGuestCartLine: mockAddGuestCartLine,
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "add-to-cart");
+    form.set("productId", "cat_charizard::form:raw");
+    form.set("selectedOptions", JSON.stringify([{ dimensionId: "form", optionId: "raw" }]));
+    form.set("productSummary", "Raw");
+    form.set("quantity", "1");
+
+    const response = (await action({
+      request: new Request("http://localhost/items/cat_charizard", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { id: "cat_charizard" },
+      context: undefined,
+    } as never)) as Response;
+
+    expect(response.status).toBe(200);
+    const addedToCart = (await response.json()) as { viewCartHref: string };
+    const viewCartUrl = new URL(addedToCart.viewCartHref, "http://localhost");
+
+    expect(viewCartUrl.pathname).toBe("/account/cart");
+    expect(viewCartUrl.searchParams.has("afterWrite")).toBe(false);
+    expect(viewCartUrl.searchParams.has("postWriteHandoff")).toBe(false);
+    expect(readFreshWriteToken(viewCartUrl)).toBeNull();
+    expect(readPostWriteHandoff(viewCartUrl)).toBeNull();
   });
 
   it("adds an explicitly selected listing to the account Buy Cart as a locked-listing line", async () => {
@@ -1076,6 +1133,11 @@ describe("item detail buy now checkout actions", () => {
     expect(viewCartUrl.pathname).toBe("/account/cart");
     expect(readFreshWriteToken(viewCartUrl)).toMatchObject({
       sources: [{ sourceContextName: "checkout", maxGlobalPosition: "42", eventIds: ["evt_cli_1"] }],
+    });
+    expect(readPostWriteHandoff(viewCartUrl)).toEqual({
+      kind: "checkout.cart.add-line",
+      expectation: "collection-non-empty",
+      surface: "account-cart",
     });
   });
 

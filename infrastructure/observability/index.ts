@@ -202,7 +202,14 @@ export type PostWriteConsistencyOutcome =
   | "freshness_timeout"
   | "rollback"
   | "reconciliation"
-  | "stale_response_discard";
+  | "stale_response_discard"
+  | "handoff_parsed"
+  | "handoff_satisfied"
+  | "handoff_pending"
+  | "handoff_expired"
+  | "handoff_invalid"
+  | "handoff_malformed"
+  | "handoff_permanent";
 
 export type PostWriteConsistencyEventSignal = Readonly<{
   boundedContextName: string;

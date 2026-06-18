@@ -12,6 +12,8 @@ Use this checklist when a browser action writes durable state and immediately re
 
 This pattern prevents a user-facing "not found" after a successful write without turning every read into a synchronous projection drain.
 
+When the destination can return a stale but successful shape, use the [Semantic Post-Write Handoffs](./semantic-post-write-handoffs.md) extension. `postWriteHandoff` is query metadata paired with `afterWrite`; it lets the destination distinguish an expected post-command outcome from a stale `200` empty collection, stale unchanged resource, or `404`. It is not a new header and does not change API freshness waits.
+
 For flows that do not need a projection-backed immediate read, first choose the strategy in the [Post-Write Consistency Policy](./post-write-consistency.md). Realtime/SSE may supplement this checklist, but it is not the sole guarantee for critical immediate feedback unless the route documents and tests an authoritative reload/refetch fallback.
 
 ## Required Authoring Steps
@@ -20,7 +22,9 @@ For flows that do not need a projection-backed immediate read, first choose the 
 - Identify the destination browser route, API context, API `GET` or `HEAD` route, and read-model table or projection group used by the first loader read.
 - Ensure the write result includes `Chase-Sets-Commit-Receipt` or source-aware commit metadata that `appendFreshWriteToken` can encode.
 - Add the `afterWrite` token with `appendFreshWriteToken` or `appendFreshWriteTokenFromSources` when redirecting to the destination.
+- Use `appendPostWriteHandoff` or `appendPostWriteHandoffFromSources` when the destination also needs semantic pending recovery for a stale `200` empty, stale unchanged resource, or `404`.
 - Load the destination with `loadFreshlyWrittenResource` only for the projection-backed resource that may lag.
+- Evaluate semantic expectations in the destination with `readPostWriteHandoffState`, `readPostWriteHandoff`, or `evaluatePostWriteHandoff` against the browser request and loaded data; missing, malformed, expired, or unpaired handoffs are normal non-applicable states.
 - Use request clients built on `@chase-sets/platform-runtime/http` so server-side fetches preserve `Chase-Sets-Read-After-Write`.
 - Pass `readTargetContextName` from context-owned request clients on shared mounts such as `/api/marketplace`.
 - Declare the destination API route in the owning context's `apiMounts[].readFreshnessRoutes`.
@@ -58,12 +62,12 @@ Every helper use in production route modules must be represented in `readAfterWr
 - `source.routeId` or `source.routeIds`: route contribution that creates or refreshes the write.
 - `source.actions`: customer or operator actions that trigger the write.
 - `source.command`: domain command or command family.
-- `source.helperUses`: `appendFreshWriteToken`, `appendFreshWriteTokenFromSources`, or both.
+- `source.helperUses`: `appendFreshWriteToken`, `appendFreshWriteTokenFromSources`, `appendPostWriteHandoff`, `appendPostWriteHandoffFromSources`, or the subset used by the route.
 - `destination.routeId`: browser route that performs the post-write read.
 - `destination.apiContextName`: context serving the API read.
 - `destination.apiRoutePath`: route path matching `apiMounts[].readFreshnessRoutes[].routePath`.
 - `destination.readModelTables` or `destination.projectionDependencies`: exact dependency proof.
-- `destination.helperUses`: loader helper, usually `loadFreshlyWrittenResource`.
+- `destination.helperUses`: loader helper, usually `loadFreshlyWrittenResource`; include `readPostWriteHandoffState`, `readPostWriteHandoff`, or `evaluatePostWriteHandoff` when semantic handoff metadata is consumed.
 - `destination.transientRecovery`: route-owned behavior for temporary lag.
 
 File-level entries are allowed only when the scanner cannot map a helper use to a deployable route contribution. Prefer route ids whenever possible.
@@ -100,6 +104,7 @@ Temporary states:
 - Fresh token plus `404`: the route may show preparation or refresh UI.
 - Fresh token plus `503 projection_freshness_timeout`: the route may show the same temporary recovery UI.
 - Fresh token plus a route-bounded opaque `502`, `503`, or `504`: the route may show the same temporary recovery UI when the request client intentionally prevents an outer platform timeout.
+- Fresh token plus valid `postWriteHandoff` whose expectation is not yet visible in a stale `200` response: the route may show the same bounded pending UI.
 
 Permanent states:
 
@@ -110,6 +115,8 @@ Permanent states:
 - `401`, `403`, or unrelated API errors unless the route has separate protected-resource recovery.
 
 Do not mint a replacement token after timeout, refresh indefinitely, or convert old manual URLs into temporary states. Token validity and retry budgets are the termination rule.
+
+Semantic handoffs should be added only when an audit finds a successful command can be hidden by stale `200` empty, stale unchanged resource, or `404`. Durable job/status flows, admin operation pages, and command responses that already carry a committed visible snapshot should stay with their existing `mutationConsistencyInventory` strategies instead of being forced into browser handoffs.
 
 ## Cookie-Backed Continuations
 
@@ -131,6 +138,17 @@ Checkout guest Buy Now:
 - Inventory id: `checkout.session-start-to-detail`.
 - Recovery: valid fresh-write `404`, `projection_freshness_timeout`, or route-bounded gateway/service timeout renders temporary checkout preparation UI; expired handoff renders safe restart copy that confirms payment has not started.
 
+Item detail add-to-cart to Buy Cart semantic handoff:
+
+- Source route: `item-detail`.
+- Source behavior: Discovery returns the committed Checkout cart-line snapshot and builds `viewCartHref` with `appendPostWriteHandoff("/account/cart", result, ACCOUNT_CART_ADD_LINE_HANDOFF)`.
+- Destination route: `account-cart`.
+- API route: Checkout `/account/cart`.
+- Dependency: `checkout_cart_line_pages`, owned by `checkout.cart-projection`.
+- Inventory ids: `discovery.item-detail-checkout-handoff` for the cross-context token carrier and `checkout.cart-self-refresh` for the destination wait and pending state.
+- Recovery: a valid `checkout.cart.add-line` handoff with `collection-non-empty` renders temporary "Adding your item" copy only when the loaded cart is still empty. Satisfied carts render normally; missing, malformed, expired, far-future, unpaired, wrong-kind, remove-to-empty, and normal empty visits do not show add-line pending recovery.
+- Diagnostics: emit `chase_sets_post_write_consistency_events_total` through the platform post-write telemetry port with `strategy="fresh-read"` and `correction_source="semantic-handoff:checkout.cart.add-line"`.
+
 Payments create to detail:
 
 - Source route: `account-payment-new`.
@@ -149,6 +167,14 @@ Marketplace listing create to detail:
 - Inventory id: `marketplace.listing-create-to-detail`.
 - Recovery: listing detail retries fresh-write not-found while the listing projection catches up.
 
+Admin durable job/status non-example:
+
+- Source route: Catalog Source Observations import, promotion, bulk review, reapply, or reject action.
+- Destination route: durable job/status or operator control-plane page.
+- Strategy: durable job/status snapshot plus realtime correction.
+- Rule: do not add browser `postWriteHandoff` metadata. Operators need job ids, status rows, progress events, retries, and diagnostics that outlive a short browser receipt.
+- Evidence: `bounded-contexts/catalog/features/source-observations/api/route-integration-jobs.test.ts` and `bounded-contexts/catalog/tests/admin-integrations-route.test.tsx`.
+
 ## Guardrails And Checks
 
 Local checks:
@@ -157,7 +183,7 @@ Local checks:
 - `pnpm run test:structure` covers structural guardrail behavior, including retired freshness-dropping forwarding imports.
 - `pnpm run check:localization` catches route-owned recovery copy gaps.
 - `pnpm run check:no-any` and type checks catch unsafe helper and request-client drift.
-- Route or context tests must cover the source redirect, token forwarding, fresh temporary recovery, expired-token permanent recovery, and expected protected-resource failures.
+- Route or context tests must cover the source redirect, token forwarding, fresh temporary recovery, expired-token permanent recovery, and expected protected-resource failures. Semantic handoff routes must also cover valid pending, satisfied, missing/malformed, and expired or unpaired handoff states.
 
 The inventory report is generated at `artifacts/read-after-write-route-inventory.md`. It lists routes, helper uses, dependencies, recovery behavior, exceptions, and validation findings. Regenerate it through `pnpm run check:structure`; do not edit it by hand.
 

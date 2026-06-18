@@ -189,6 +189,54 @@ describe("read-after-write route inventory guard", () => {
     );
   });
 
+  it("accepts semantic post-write handoff helpers represented by the same freshness inventory", async () => {
+    const root = createTempRepo();
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-start.tsx", ["appendPostWriteHandoff"]);
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-session.tsx", [
+      "loadFreshlyWrittenResource",
+      "evaluatePostWriteHandoff",
+    ]);
+
+    const result = await validate(
+      root,
+      createContextManifest(root, {
+        readAfterWriteRouteInventory: [
+          {
+            id: "checkout.session-start-to-detail",
+            owner: "checkout",
+            risk: "critical",
+            source: {
+              routeId: "buy-checkout-readiness",
+              helperUses: ["appendPostWriteHandoff"],
+            },
+            destination: {
+              routeId: "buy-checkout-session",
+              apiContextName: "checkout",
+              apiRoutePath: "/account/checkout-sessions/:sessionId",
+              readModelTables: ["checkout_session_pages"],
+              helperUses: ["loadFreshlyWrittenResource", "evaluatePostWriteHandoff"],
+              transientRecovery: "temporary checkout recovery from projection lag or unmet semantic handoff",
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(result.violations).toEqual([]);
+    expect(result.helperUsages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          file: "bounded-contexts/checkout/routes/checkout-start.tsx",
+          helpers: ["appendPostWriteHandoff"],
+        }),
+        expect.objectContaining({
+          file: "bounded-contexts/checkout/routes/checkout-session.tsx",
+          helpers: ["evaluatePostWriteHandoff", "loadFreshlyWrittenResource"],
+        }),
+      ]),
+    );
+  });
+
   it("discovers API freshness routes registered through nested route support modules", async () => {
     const root = createTempRepo();
     writeFileSync(
@@ -300,6 +348,48 @@ describe("read-after-write route inventory guard", () => {
 
     expect(result.violations).toContain(
       "bounded-contexts/checkout/routes/checkout-start.tsx: fresh-write helper(s) appendFreshWriteToken on route 'buy-checkout-readiness' must be declared in readAfterWriteRouteInventory or an exception",
+    );
+  });
+
+  it("fails when semantic handoff helper usage is missing inventory coverage", async () => {
+    const root = createTempRepo();
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-start.tsx", ["appendPostWriteHandoff"]);
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-session.tsx", ["loadFreshlyWrittenResource"]);
+
+    const result = await validate(
+      root,
+      createContextManifest(root, {
+        readAfterWriteRouteInventory: [],
+      }),
+    );
+
+    expect(result.violations).toContain(
+      "bounded-contexts/checkout/routes/checkout-start.tsx: fresh-write helper(s) appendPostWriteHandoff on route 'buy-checkout-readiness' must be declared in readAfterWriteRouteInventory or an exception",
+    );
+  });
+
+  it("fails when production code writes raw postWriteHandoff metadata without the shared response helper", async () => {
+    const root = createTempRepo();
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-start.tsx", ["appendFreshWriteToken"]);
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-session.tsx", ["loadFreshlyWrittenResource"]);
+    mkdirSync(path.join(root, "bounded-contexts", "checkout", "support", "request-support"), { recursive: true });
+    writeFileSync(
+      path.join(root, "bounded-contexts", "checkout", "support", "request-support", "raw-handoff.ts"),
+      [
+        "export function unsafeHandoff(path) {",
+        "  const url = new URL(path, 'https://chase-sets.local');",
+        "  url.searchParams.set('postWriteHandoff', '{}');",
+        "  return url.pathname + url.search;",
+        "}",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const result = await validate(root, createContextManifest(root));
+
+    expect(result.violations).toContain(
+      "bounded-contexts/checkout/support/request-support/raw-handoff.ts: raw postWriteHandoff query metadata is not allowed; use appendPostWriteHandoff or appendPostWriteHandoffFromSources",
     );
   });
 

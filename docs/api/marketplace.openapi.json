@@ -3,7 +3,8 @@
   "info": {
     "title": "Chase Sets Headless Marketplace API",
     "version": "0.1.0",
-    "summary": "REST API surface for marketplace-web account commerce experiences."
+    "summary": "REST API surface for marketplace-web account commerce experiences.",
+    "description": "Read-after-write API requests use Chase-Sets-Read-After-Write and Chase-Sets-Read-Target-Context headers after browser routes translate the afterWrite query receipt. Browser routes may also carry postWriteHandoff as query metadata paired with afterWrite; it is not a header and is valid only while the paired afterWrite receipt is fresh."
   },
   "servers": [
     {
@@ -195,6 +196,25 @@
           "type": "string"
         }
       },
+      "BrowserAfterWrite": {
+        "name": "afterWrite",
+        "in": "query",
+        "required": false,
+        "description": "Browser-route query token encoded from a write response commit receipt. Server-side route clients translate this value to Chase-Sets-Read-After-Write for read-model-backed API fetches.",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "PostWriteHandoff": {
+        "name": "postWriteHandoff",
+        "in": "query",
+        "required": false,
+        "description": "Optional URL-encoded semantic handoff metadata paired with afterWrite on browser routes. Use only to let a destination distinguish a stale 200 empty, stale resource, or 404 from the expected visible outcome of a successful command; do not send it as a header.",
+        "schema": {
+          "type": "string",
+          "description": "URL-encoded JSON matching PostWriteHandoff."
+        }
+      },
       "ReadTargetContext": {
         "name": "Chase-Sets-Read-Target-Context",
         "in": "header",
@@ -275,6 +295,26 @@
           "version": { "type": "integer" },
           "status": { "type": "string" }
         }
+      },
+      "PostWriteHandoff": {
+        "type": "object",
+        "required": ["kind", "expectation"],
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string",
+            "description": "Stable structural handoff kind such as checkout.cart.add-line. Must not contain customer or resource identifiers."
+          },
+          "expectation": {
+            "type": "string",
+            "enum": ["resource-present", "resource-updated", "resource-absent", "collection-non-empty"]
+          },
+          "surface": {
+            "type": "string",
+            "description": "Optional stable route or surface label such as account-cart."
+          }
+        },
+        "description": "Safe semantic browser-route metadata carried as the postWriteHandoff query parameter beside afterWrite. It is not an API header and does not alter projection freshness dependencies."
       },
       "MarketplaceListingTermsPreview": {
         "type": "object",

@@ -101,6 +101,7 @@ export function commandResponse(id: string, version: number, status = "accepted"
 
 const RESPONSE_METADATA = Symbol.for("@chase-sets/http.response-metadata");
 const FRESH_WRITE_PARAM = "afterWrite";
+const POST_WRITE_HANDOFF_PARAM = "postWriteHandoff";
 const DEFAULT_FRESH_WRITE_MAX_AGE_MS = 30_000;
 const DEFAULT_FRESH_WRITE_CLOCK_SKEW_MS = 5_000;
 const DEFAULT_FRESH_WRITE_RETRY_DELAYS_MS = [75, 150, 300, 600, 1_000] as const;
@@ -136,6 +137,50 @@ export type FreshWriteReadErrorClassification = Readonly<{
   status: number | null;
   errorCode: string | null;
 }>;
+
+export const POST_WRITE_HANDOFF_EXPECTATIONS = [
+  "resource-present",
+  "resource-updated",
+  "resource-absent",
+  "collection-non-empty",
+] as const;
+
+export type PostWriteHandoffExpectation = (typeof POST_WRITE_HANDOFF_EXPECTATIONS)[number];
+
+export type PostWriteHandoff = Readonly<{
+  kind: string;
+  expectation: PostWriteHandoffExpectation;
+  surface?: string;
+}>;
+
+export type PostWriteHandoffState =
+  | Readonly<{ kind: "missing"; handoff: null; freshWrite: FreshWriteTokenState }>
+  | Readonly<{ kind: "malformed"; handoff: null; freshWrite: FreshWriteTokenState }>
+  | Readonly<{ kind: "not-fresh-write"; handoff: PostWriteHandoff; freshWrite: FreshWriteTokenState }>
+  | Readonly<{
+      kind: "valid";
+      handoff: PostWriteHandoff;
+      receipt: FreshWriteReceipt;
+      ageMs: number;
+      freshWrite: Extract<FreshWriteTokenState, { kind: "valid" }>;
+    }>;
+
+export type PostWriteHandoffEvaluation<T> =
+  | Readonly<{ kind: "not-applicable"; data: T; state: Exclude<PostWriteHandoffState, { kind: "valid" }> }>
+  | Readonly<{
+      kind: "satisfied";
+      data: T;
+      handoff: PostWriteHandoff;
+      receipt: FreshWriteReceipt;
+      ageMs: number;
+    }>
+  | Readonly<{
+      kind: "pending";
+      data: T;
+      handoff: PostWriteHandoff;
+      receipt: FreshWriteReceipt;
+      ageMs: number;
+    }>;
 
 export type FreshWriteReadRecoveryOptions<T> = Readonly<{
   request: Request | string | URL;
@@ -409,6 +454,67 @@ function tokenFromMetadataSources(sources: readonly unknown[], nowMs: number): s
   return receipt ? encodeFreshWriteReceipt(receipt) : null;
 }
 
+function isPortableHandoffText(value: unknown): value is string {
+  return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value);
+}
+
+function hasOnlyKeys(value: Record<string, unknown>, keys: readonly string[]) {
+  const allowed = new Set(keys);
+  return Object.keys(value).every((key) => allowed.has(key));
+}
+
+function isPostWriteHandoff(value: unknown): value is PostWriteHandoff {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+
+  const handoff = value as Record<string, unknown>;
+  return (
+    hasOnlyKeys(handoff, ["kind", "expectation", "surface"]) &&
+    isPortableHandoffText(handoff.kind) &&
+    POST_WRITE_HANDOFF_EXPECTATIONS.includes(handoff.expectation as PostWriteHandoffExpectation) &&
+    (handoff.surface === undefined || isPortableHandoffText(handoff.surface))
+  );
+}
+
+export function encodePostWriteHandoff(handoff: PostWriteHandoff): string {
+  if (!isPostWriteHandoff(handoff)) {
+    throw new TypeError("Post-write handoff metadata must use safe semantic fields only.");
+  }
+
+  return encodeURIComponent(JSON.stringify(handoff));
+}
+
+function decodePostWriteHandoff(value: string | null | undefined): "missing" | "malformed" | PostWriteHandoff {
+  if (!value) {
+    return "missing";
+  }
+
+  try {
+    const parsed = JSON.parse(decodeURIComponent(value)) as unknown;
+    return isPostWriteHandoff(parsed) ? parsed : "malformed";
+  } catch {
+    return "malformed";
+  }
+}
+
+function appendPostWriteHandoffFromMetadataSources(
+  path: string,
+  sources: readonly unknown[],
+  handoff: PostWriteHandoff,
+  nowMs: number,
+): string {
+  const token = tokenFromMetadataSources(sources, nowMs);
+  if (!token) {
+    return path;
+  }
+
+  const url = new URL(path, "https://chase-sets.local");
+  url.searchParams.set(FRESH_WRITE_PARAM, token);
+  url.searchParams.set(POST_WRITE_HANDOFF_PARAM, encodePostWriteHandoff(handoff));
+  return pathFromUrl(url, path);
+}
+
 export function appendFreshWriteToken(path: string, source: unknown, nowMs = Date.now()): string {
   const token = tokenFromMetadataSources([source], nowMs);
   if (!token) {
@@ -433,6 +539,24 @@ export function appendFreshWriteTokenFromSources(
   const url = new URL(path, "https://chase-sets.local");
   url.searchParams.set(FRESH_WRITE_PARAM, token);
   return pathFromUrl(url, path);
+}
+
+export function appendPostWriteHandoff(
+  path: string,
+  source: unknown,
+  handoff: PostWriteHandoff,
+  nowMs = Date.now(),
+): string {
+  return appendPostWriteHandoffFromMetadataSources(path, [source], handoff, nowMs);
+}
+
+export function appendPostWriteHandoffFromSources(
+  path: string,
+  sources: readonly unknown[],
+  handoff: PostWriteHandoff,
+  nowMs = Date.now(),
+): string {
+  return appendPostWriteHandoffFromMetadataSources(path, sources, handoff, nowMs);
 }
 
 export function readFreshWriteToken(
@@ -581,6 +705,80 @@ export function classifyFreshWriteReadError(
     status,
     errorCode,
   };
+}
+
+export function readPostWriteHandoffState(
+  requestOrUrl: Request | string | URL,
+  nowMs = Date.now(),
+  maxAgeMs = DEFAULT_FRESH_WRITE_MAX_AGE_MS,
+  clockSkewMs = DEFAULT_FRESH_WRITE_CLOCK_SKEW_MS,
+): PostWriteHandoffState {
+  const url =
+    requestOrUrl instanceof URL
+      ? requestOrUrl
+      : new URL(typeof requestOrUrl === "string" ? requestOrUrl : requestOrUrl.url, "https://chase-sets.local");
+  const freshWrite = readFreshWriteTokenState(url, nowMs, maxAgeMs, clockSkewMs);
+  const decoded = decodePostWriteHandoff(url.searchParams.get(POST_WRITE_HANDOFF_PARAM));
+
+  if (decoded === "missing") {
+    return { kind: "missing", handoff: null, freshWrite };
+  }
+
+  if (decoded === "malformed") {
+    return { kind: "malformed", handoff: null, freshWrite };
+  }
+
+  if (freshWrite.kind !== "valid") {
+    return { kind: "not-fresh-write", handoff: decoded, freshWrite };
+  }
+
+  return {
+    kind: "valid",
+    handoff: decoded,
+    receipt: freshWrite.receipt,
+    ageMs: freshWrite.ageMs,
+    freshWrite,
+  };
+}
+
+export function readPostWriteHandoff(
+  requestOrUrl: Request | string | URL,
+  nowMs = Date.now(),
+  maxAgeMs = DEFAULT_FRESH_WRITE_MAX_AGE_MS,
+  clockSkewMs = DEFAULT_FRESH_WRITE_CLOCK_SKEW_MS,
+): PostWriteHandoff | null {
+  const state = readPostWriteHandoffState(requestOrUrl, nowMs, maxAgeMs, clockSkewMs);
+  return state.kind === "valid" ? state.handoff : null;
+}
+
+export function evaluatePostWriteHandoff<T>(
+  options: Readonly<{
+    request: Request | string | URL;
+    data: T;
+    isSatisfied: (data: T, handoff: PostWriteHandoff) => boolean;
+    nowMs?: number;
+    maxAgeMs?: number;
+    clockSkewMs?: number;
+  }>,
+): PostWriteHandoffEvaluation<T> {
+  const state = readPostWriteHandoffState(options.request, options.nowMs, options.maxAgeMs, options.clockSkewMs);
+  if (state.kind !== "valid") {
+    return {
+      kind: "not-applicable",
+      data: options.data,
+      state,
+    };
+  }
+
+  const base = {
+    data: options.data,
+    handoff: state.handoff,
+    receipt: state.receipt,
+    ageMs: state.ageMs,
+  };
+  return options.isSatisfied(options.data, state.handoff)
+    ? { kind: "satisfied", ...base }
+    : { kind: "pending", ...base };
 }
 
 export function recoverFreshWriteReadError<T>(options: FreshWriteReadRecoveryOptions<T>): T | null {

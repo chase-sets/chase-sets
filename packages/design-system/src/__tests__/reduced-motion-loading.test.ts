@@ -1,9 +1,10 @@
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-const stylesPath = resolve(process.cwd(), "src/styles/styles.css");
+const stylesPath = resolve(dirname(fileURLToPath(import.meta.url)), "../styles/styles.css");
 
 describe("reduced motion loading affordances", () => {
   it("neutralizes looping Tailwind loading animations when reduced motion is requested", () => {

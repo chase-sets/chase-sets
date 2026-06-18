@@ -85,6 +85,15 @@ For account cart, the expected low-cardinality label set is `context="checkout"`
 - `reconciliation`
 - `stale_response_discard`
 
+The add-to-cart View cart handoff uses the same metric family with `strategy="fresh-read"` and `correction_source="semantic-handoff:checkout.cart.add-line"`. Expected semantic outcomes are:
+
+- `handoff_satisfied`
+- `handoff_pending`
+- `handoff_expired`
+- `handoff_invalid`
+- `handoff_malformed`
+- `handoff_permanent`
+
 Safe Prometheus check for release monitoring:
 
 ```promql

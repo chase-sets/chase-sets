@@ -501,4 +501,18 @@ describe("checkout cart page", () => {
     expect(markup).not.toContain("Estimated total");
     expect(markup).not.toContain("Check out");
   });
+
+  it("shows pending add-to-cart recovery instead of the normal empty-cart state", () => {
+    const markup = renderToString(
+      <CheckoutCartPage
+        cartLines={[]}
+        pendingEmptyMessage="Your item was added. The Buy Cart is catching up before checkout continues."
+      />,
+    );
+
+    expect(markup).toContain("Adding your item");
+    expect(markup).toContain("Your item was added. The Buy Cart is catching up before checkout continues.");
+    expect(markup).not.toContain("Your buy cart is empty");
+    expect(markup).not.toContain("Browse the marketplace and add a product to start building a Buy Cart checkout.");
+  });
 });
