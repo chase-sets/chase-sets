@@ -198,6 +198,7 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.empty.title":
     "Import context is incomplete",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.expected": "Expected observations",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.live": "Live",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.observed": "Observed observations",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.profile.snapshot": "Profile snapshot",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.promoted": "Promoted observations",

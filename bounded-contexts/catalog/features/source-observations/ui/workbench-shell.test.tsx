@@ -12,6 +12,16 @@ import type { CatalogControlPlaneRouteSurfaceKey } from "./admin-control-plane/i
 import type { SourceObservationIntegrationOptionResponse } from "./contracts";
 import { profileReview, sourceObservationScope } from "./primary-workbench-test-fixtures";
 
+// The import-jobs module polls live progress via useRevalidator; these pages render
+// bare (no data router), so stub the revalidator to a no-op for the workbench tree.
+vi.mock("react-router", async () => {
+  const actual = await vi.importActual<typeof import("react-router")>("react-router");
+  return {
+    ...actual,
+    useRevalidator: () => ({ revalidate: () => undefined, state: "idle" }),
+  };
+});
+
 function surfaceReadModel(surface: CatalogControlPlaneRouteSurfaceKey) {
   return buildCatalogPrimaryWorkbenchReadModelForSurface(surface, {
     requestUrl:
