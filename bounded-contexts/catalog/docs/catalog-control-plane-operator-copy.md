@@ -1,6 +1,6 @@
 # Catalog Control Plane Operator Copy
 
-Issue #1058 owns the operator-facing language system for the rebuilt Catalog Control Plane primary workbench. The copy system keeps the main operator job front and center: pull provider data, review Source Observations, and promote eligible sources into Catalog Items or Catalog-owned references. Supporting workflows may explain, unblock, govern, recover, or verify that job, but they must not read like equal primary destinations.
+This note defines the operator-facing language system for the rebuilt Catalog Control Plane primary workbench. The copy system keeps the main operator job front and center: pull provider data, review Source Observations, and promote eligible sources into Catalog Items or Catalog-owned references. Supporting workflows may explain, unblock, govern, recover, or verify that job, but they must not read like equal primary destinations.
 
 The implementation source of truth is:
 
@@ -45,7 +45,7 @@ Blocked or disabled actions must show both the reason and next step. Denied stat
 
 ## Provider Transport Language
 
-Provider transport terms come from #1065 and must stay distinct:
+Provider transport terms come from the [Catalog Integration Provider Transport Budgets](./catalog-integration-provider-transport-budgets.md) vocabulary and must stay distinct:
 
 | Category | Label | Operator next step |
 | --- | --- | --- |
@@ -120,4 +120,3 @@ Operator copy may say a removed behavior is unavailable only to explain why the 
 - [Catalog Control Plane Section Navigation](./catalog-control-plane-section-navigation.md)
 - [Catalog Primary Workbench Admin Contract](./primary-workbench-admin-contract.md)
 - [Catalog Integration Provider Transport Budgets](./catalog-integration-provider-transport-budgets.md)
-- [Catalog Control Plane First-Slice Stage Board](./catalog-control-plane-first-slice-stage-board.md)

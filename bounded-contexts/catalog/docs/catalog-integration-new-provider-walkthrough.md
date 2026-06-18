@@ -8,7 +8,7 @@ The example provider is `reference-cards`, using the Phase 0 proof ingestion uni
 reference-cards:pokemon:single-card:source-observation-proof
 ```
 
-It is fixture-backed and has no live provider dependency. The #1062 real-provider proof follows with the launch-selected TCGdex adapter and a redacted evidence packet.
+It is fixture-backed and has no live provider dependency. The real-provider proof follows with the launch-selected TCGdex adapter and a redacted evidence packet.
 
 ## Target Flow
 
@@ -142,4 +142,4 @@ The first slice passes when:
 
 ## Real-Provider Follow-Up
 
-After the reference slice passes, #1062 adds one real-provider proof using `tcgdex:pokemon:single-card:source-observation-import`. The real-provider slice must keep the same architecture shape and should treat live transport, provider-data policy, fixture retention, redaction, promotion-preview counts, and legal/policy gates as explicit readiness inputs rather than hidden implementation details. It must not add provider-specific runtime/API/Admin/promotion branches, retired control-plane paths, raw provider payload shortcuts, or compatibility redirects.
+After the reference slice passes, the real-provider proof adds one real-provider run using `tcgdex:pokemon:single-card:source-observation-import`. The real-provider slice must keep the same architecture shape and should treat live transport, provider-data policy, fixture retention, redaction, promotion-preview counts, and legal/policy gates as explicit readiness inputs rather than hidden implementation details. It must not add provider-specific runtime/API/Admin/promotion branches, retired control-plane paths, raw provider payload shortcuts, or compatibility redirects.

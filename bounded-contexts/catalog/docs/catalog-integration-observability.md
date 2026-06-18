@@ -141,4 +141,4 @@ Release verification should include:
 - platform worker/request/projection metrics still present in Grafana/Prometheus;
 - runbook links available from release notes and docs map;
 - redaction checks proving provider credentials and raw payload data are absent from logs and metric labels.
-- #1062 provider proof evidence that links at least one degraded transport condition to the canonical workbench `providerTransport` and blocker categories from [Catalog Integration Provider Transport Budgets](./catalog-integration-provider-transport-budgets.md).
+- provider proof evidence that links at least one degraded transport condition to the canonical workbench `providerTransport` and blocker categories from [Catalog Integration Provider Transport Budgets](./catalog-integration-provider-transport-budgets.md).

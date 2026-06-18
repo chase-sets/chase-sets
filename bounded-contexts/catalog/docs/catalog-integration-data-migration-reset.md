@@ -119,7 +119,7 @@ Post-reset evidence is not accepted while Source Observations, legacy Source Obs
 
 ## Relationship To Adjacent Issues
 
-- #1054 owns the reset/drop evidence contract, #1055 owns the cleanup handoff evidence, and #1090 owns complete removal of retired admin surfaces, route/client/read-model behavior, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, and operator instructions after the rebuilt workbench is accepted.
-- [Catalog Integration Data Governance](./catalog-integration-data-governance.md) owns provider payload, fixture, dry-run, diagnostic retention, redaction, and policy/legal signoff.
-- #791 owns job idempotency and deploy-skew behavior.
-- #793 owns wire schema compatibility policy and retained-data rules by surface.
+- The reset/drop evidence contract and cleanup handoff evidence are defined alongside complete removal of retired admin surfaces, route/client/read-model behavior, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, and operator instructions after the rebuilt workbench is accepted.
+- [Catalog Integration Data Governance](./catalog-integration-data-governance.md) owns provider payload, fixture, dry-run, diagnostic retention, redaction, and policy/legal review and approval.
+- Job idempotency and deploy-skew behavior are governed by the durable job contract.
+- Wire schema compatibility policy and retained-data rules by surface are defined in [Catalog Integration Schema Compatibility](./catalog-integration-schema-compatibility.md).

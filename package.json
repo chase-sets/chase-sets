@@ -126,7 +126,7 @@
     "verify": "pnpm run sync:workspace-metadata && pnpm run verify:static && pnpm run verify:typecheck && pnpm run verify:test && pnpm run verify:test-db && pnpm run verify:build",
     "verify:metadata": "node ./scripts/sync-workspace-metadata.mjs --check",
     "test:scripts": "vitest run --config ./vitest.scripts.config.mjs",
-    "verify:static": "pnpm run format:check && pnpm run check:postage-adapters && pnpm run check:github-actions-runtime && pnpm run check:no-legacy-forms && pnpm run check:design-system-legacy-inventory && pnpm run check:design-system-hoc-budget && pnpm run check:design-system-component-index && pnpm run check:structure && pnpm run check:localization && pnpm run test:scripts",
+    "verify:static": "pnpm run format:check && pnpm run check:postage-adapters && pnpm run check:github-actions-runtime && pnpm run check:no-legacy-forms && pnpm run check:design-system-legacy-inventory && pnpm run check:design-system-hoc-budget && pnpm run check:design-system-component-index && pnpm run check:structure && pnpm run check:localization && pnpm run check:operator-surface-pm && pnpm run test:scripts",
     "verify:typecheck": "node ./scripts/verify-typecheck.mjs",
     "verify:test": "node ./scripts/run-vitest-projects.mjs",
     "verify:test-db": "node ./scripts/db-test-preflight.mjs && node ./scripts/run-workspaces.mjs test:db --concurrency=2",
@@ -158,7 +158,8 @@
     "test:typecheck": "tsc -p ./tsconfig.tests.json --noEmit",
     "check:github-actions-runtime": "node ./scripts/check-github-actions-runtime.mjs",
     "check:postage-adapters": "node ./scripts/check-postage-adapter-boundaries.mjs",
-    "check:localization": "node ./scripts/check-localization.mjs"
+    "check:localization": "node ./scripts/check-localization.mjs",
+    "check:operator-surface-pm": "node ./scripts/check-operator-surface-pm-content.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.60.0",

@@ -30,10 +30,10 @@ Seeded Provider Integration Profile versions are intentional bootstrap data. Adm
 
 ## Legacy Path Removal
 
-| Path | Owner issue | Removal expectation | Launch gate |
-| --- | --- | --- | --- |
-| Transitional static profile compatibility | #1053, #1055 | deleted before clean launch handoff | No `transitional-static-profile` code, rows, route/API/client/read-model behavior, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, or operator instructions remain at launch. |
-| Broad Provider Integration Profile patch route | #1053, #1090 | deleted before rebuilt workbench acceptance | Broad raw patch code, controls, route/API/client/read-model behavior, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, and operator instructions are removed; section-scoped typed commands are the named supported workflow. |
+| Path | Removal expectation | Launch gate |
+| --- | --- | --- |
+| Transitional static profile compatibility | deleted before clean launch handoff | No `transitional-static-profile` code, rows, route/API/client/read-model behavior, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, or operator instructions remain at launch. |
+| Broad Provider Integration Profile patch route | deleted before rebuilt workbench acceptance | Broad raw patch code, controls, route/API/client/read-model behavior, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, and operator instructions are removed; section-scoped typed commands are the named supported workflow. |
 
 These paths are not normal authoring workflows and are not allowed to survive as hidden or support-only compatibility. Retiring one means completely deleting its code, runtime behavior, product pattern, route/API/client/read-model behavior, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, and operator instructions. Adding a new retained path is launch-blocking unless the path is rebuilt as a clean launch contract with focused tests and owner-approved evidence.
 
@@ -83,9 +83,7 @@ SELECT COUNT(*) AS profile_sections FROM catalog_provider_profile_version_sectio
 SELECT COUNT(*) AS profile_section_diagnostics FROM catalog_provider_profile_version_section_diagnostics;
 ```
 
-## Related Issues
+## Related Behavior
 
-- #1054 provides executable pre-launch reset evidence.
-- #793 owns schema compatibility policy.
-- #1055 owns the clean-contract handoff evidence.
-- #1090 owns complete deletion of retired Catalog integration admin pages, modules, route/client/read-model behavior, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, and operator instructions after the rebuilt workbench is accepted.
+- Schema compatibility policy is defined in [Catalog Integration Schema Compatibility](./catalog-integration-schema-compatibility.md).
+- Complete deletion of retired Catalog integration admin pages, modules, route/client/read-model behavior, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, and operator instructions follows once the rebuilt workbench is accepted.

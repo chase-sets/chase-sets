@@ -257,6 +257,13 @@ The repo includes automated checks for architecture boundaries and localization.
 ```bash
 pnpm run check:structure
 pnpm run check:localization
+pnpm run check:operator-surface-pm
 ```
 
 CI enforces structure with stricter single-slice support rules. If a change wants new shared code, make the ownership explicit before moving it out of the slice.
+
+### Operator surfaces hold no project-management content
+
+`check:operator-surface-pm` (in `verify:static`) keeps our own launch tracking out of the product. The app holds the data an operator needs to **run** an integration; our launch sequencing — GitHub issue/PR numbers, release-blocker severity (`P0`/`P1`), internal owner-team names (`ops-release`), and release-engineering vocabulary (signoff, deploy skew, scaffolding, residual debt, release notes, operator instructions, "before launch", "retire means complete removal") — lives in GitHub issues, milestones, and CI, not in operator-facing read models, UI, or localization copy.
+
+The guard (`scripts/check-operator-surface-pm-content.mjs`) scans only operator surfaces — feature/shell UI under `bounded-contexts/**/ui/**` and catalog localization values under `contracts/localization/locales/**/catalog/**` — and inspects only rendered copy (string/template literals and JSX text), so code comments and internal identifiers are out of scope. Tests, fixtures, the relocated verification harnesses, and genuine operational content (diagnostic `info`/`warning`/`error` levels, alert/runbook **links**, and stable system tokens such as the `deploy-skew-unsupported-version` fail-closed blocker) are allowed on purpose.

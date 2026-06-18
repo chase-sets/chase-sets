@@ -95,7 +95,7 @@ Do not use this policy to keep retired code, patterns, or documentation alive. A
 
 The pre-launch reset mode deletes integration jobs, work units, Source Observations, learned provider option rate limits, and non-admin-authored provider profile versions, then rebuilds seeded profile versions and section projections. Active jobs block reset unless an operator records an explicit forced pre-launch wipe decision.
 
-The Stage 0 cleanup gate requires every temporary transitional static profile or broad profile patch route to be deleted or named as launch-blocking. Legacy Source Observation marker reads are not retained paths; they are reset/drop verification only. Normal Admin workflows must stay section-scoped and typed with `rawJsonBacked=false`; broad raw profile patching is not a launch workflow. #1090 owns complete deletion of current-page code, route/API/client/read-model behavior, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, and operator instructions after the rebuilt workbench is accepted.
+The Stage 0 cleanup gate requires every temporary transitional static profile or broad profile patch route to be deleted or named as launch-blocking. Legacy Source Observation marker reads are not retained paths; they are reset/drop verification only. Normal Admin workflows must stay section-scoped and typed with `rawJsonBacked=false`; broad raw profile patching is not a launch workflow. Complete deletion of current-page code, route/API/client/read-model behavior, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, and operator instructions follows once the rebuilt workbench is accepted.
 
 ## Test Expectations
 
@@ -109,4 +109,4 @@ Every compatibility surface must have focused tests for its current contract. At
 - Admin read-model contract tests pin query keys, source inventory, stale states, job/profile schema metadata, and job consistency
 - runtime job tests cover profile snapshots, duplicate active-job reuse, retry/resume, partial outcomes, and worker/API skew
 
-Do not mark #793 complete if a surface in this document lacks a policy owner, version marker, retention rule, deploy-skew rule, and test expectation.
+This compatibility policy is not complete while any surface in this document lacks a policy owner, version marker, retention rule, deploy-skew rule, and test expectation.

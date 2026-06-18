@@ -23,7 +23,7 @@ Default policy:
 - default page size: 50;
 - max page size: 200.
 
-The first-slice selector budget, degraded fallback expectation, and #1062 proof
+The first-slice selector budget, degraded fallback expectation, and real-provider proof
 evidence target are documented in
 [Catalog Integration Provider Transport Budgets](./catalog-integration-provider-transport-budgets.md).
 
@@ -39,7 +39,7 @@ Catalog cursors currently use `offset:<n>` over the cached result set. Future pr
 
 ## Force Refresh And Cache-Only Rollout
 
-`forceRefresh=true` bypasses fresh cache and attempts one live refresh. UI should expose force refresh only for operator roles allowed to run provider-affecting reads; #788 owns final RBAC and destructive-action permission policy.
+`forceRefresh=true` bypasses fresh cache and attempts one live refresh. UI should expose force refresh only for operator roles allowed to run provider-affecting reads; the admin control-plane RBAC contract owns final RBAC and destructive-action permission policy.
 
 `CATALOG_INTEGRATION_PROVIDER_OPTION_QUERIES=cache-only` is degraded read mode. It must not call live provider transport. It may serve fresh or stale cached options, and it surfaces cache-only status in Admin UI. `disabled` remains a hard rollout block.
 

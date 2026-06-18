@@ -55,7 +55,7 @@ This keeps controls server-side and worker-side; Admin UI button state is not th
 
 ## Admin Surfacing
 
-`GET /api/catalog/source-observations/integration-control-plane/readiness` includes `rolloutControls` with every control id, owner, owner issue, default state, status, severity, scoped providers/profiles/units, capabilities, audit event name, metric key, and operator message.
+`GET /api/catalog/source-observations/integration-control-plane/readiness` includes `rolloutControls` with every control id, owner, default state, status, severity, scoped providers/profiles/units, capabilities, audit event name, metric key, and operator message.
 
 The Admin Health view shows a Rollout controls summary and active blocked/degraded controls. Unit readiness also receives Catalog diagnostics when provider transport, option queries, or imports are blocked for that unit.
 
@@ -66,7 +66,6 @@ Denied controls return structured evidence:
 - `code: catalog_integration_rollout_control_denied`
 - `diagnosticCode: catalog-integration-rollout-control-denied`
 - `controlId`
-- `ownerIssue: 801`
 - `auditEventName: rollout-control-denied`
 - `metricKey: catalog.integration.rollout.<control_id>`
 - full control snapshot for the denied decision
@@ -99,7 +98,6 @@ Rollback verification should record the active env values, Admin readiness rollo
 ## Related Docs
 
 - [Catalog Integration Control Plane](./catalog-integration-control-plane.md)
-- [Catalog Integration Milestone Release Plan](./catalog-integration-milestone-release-plan.md)
 - [Catalog Integration Audit Evidence](./catalog-integration-audit-evidence.md)
 - [Catalog Integration Job Consistency](./catalog-integration-job-consistency.md)
 - [Catalog Integration Provider Option Query Controls](./catalog-integration-provider-option-query-controls.md)

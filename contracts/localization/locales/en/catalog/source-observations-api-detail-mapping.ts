@@ -92,7 +92,7 @@ export const catalogSourceObservationsApiDetailMappingEnglishTranslations = {
   "catalog.features.sourceObservations.api.route.profile.review.invalid.json.valid.object":
     "Expected a valid JSON object request body.",
   "catalog.features.sourceObservations.api.route.profile.review.raw.patch.quarantined":
-    "Broad Provider Integration Profile patching is quarantined under #789; use section-scoped typed commands for normal authoring.",
+    "Broad Provider Integration Profile patching is quarantined; use section-scoped typed commands for normal authoring.",
   "catalog.features.sourceObservations.api.route.bulk.deferral.requires.selection.or.scope":
     "Bulk deferral requires selected observations or an explicit review scope.",
   "catalog.features.sourceObservations.api.route.bulk.rejection.requires.reason": "Bulk rejection requires a reason.",

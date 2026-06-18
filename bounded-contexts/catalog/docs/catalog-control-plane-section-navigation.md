@@ -1,8 +1,8 @@
 # Catalog Control Plane Section Navigation
 
-This note is the Catalog-specific application contract for #1048. It applies the design-system [Section Navigation](../../../packages/design-system/SECTION_NAVIGATION.md) pattern to the rebuilt Catalog Control Plane.
+This note is the Catalog-specific application contract for grouped section navigation. It applies the design-system [Section Navigation](../../../packages/design-system/SECTION_NAVIGATION.md) pattern to the Catalog Control Plane.
 
-> Routing update (#1739): the workbench is no longer a single `?section=` mini-app. The control plane is split into four real nested routes — the daily import-to-promotion route plus the `providers`, `governance`, and `release` surfaces — each with its own loader and composed from a shared workbench shell. See [Catalog Integrations Route IA](./catalog-integrations-route-ia.md) for the route map. The route path is the screen router; `?section=` only names the precise workspace inside a multi-workspace surface (active-nav highlight and detour telemetry) and is never the screen router.
+> The control plane is not a single `?section=` mini-app. It is split into four real nested routes — the daily import-to-promotion route plus the `providers`, `governance`, and `health` (Integration Health) surfaces — each with its own loader and composed from a shared workbench shell. See [Catalog Integrations Route IA](./catalog-integrations-route-ia.md) for the route map. The route path is the screen router; `?section=` only names the precise workspace inside a multi-workspace surface (active-nav highlight and detour telemetry).
 
 ## Product Priority
 
@@ -21,20 +21,20 @@ Every other screen exists to unblock, govern, recover, or verify that job. Navig
 | Primary workflow | Import to promotion workbench | Choose provider/unit/source scope from synced options, confirm readiness, pull provider data, monitor jobs, review observations, preview promotion, promote, and recover common branches without leaving the workflow. |
 | Unblock provider data | Health triage | Resolve provider/profile/adapter/validation blockers only when they prevent import, review, or promotion. |
 | Govern and recover | Lifecycle recovery | Roll back, reapply, replay, retire, and govern risky operations with impact evidence and return context. |
-| Verify release evidence | Audit evidence | Trace operator actions, release proof, smoke evidence, and risk decisions. |
+| Integration health | Audit evidence | Trace who changed what, when, and with what redaction state, and confirm import/review/promotion is safe right now. |
 
 The primary workflow group must render first on desktop and first in the mobile grouped selector. The default route target must be the Import to promotion workbench.
 
 ## Screen Boundaries
 
-The rebuild must not preserve retired admin patterns as cleaned-up pages. It must create cohesive screens around jobs:
+Each screen is built around a cohesive operator job rather than a retired tabbed module:
 
 - Import to promotion workbench owns import setup, job progress, Source Observation review, promotion preview, promotion, and common recovery branches.
 - Health triage owns stale read models, provider transport failures, semantic readiness gaps, and related return links.
 - Profile authoring owns draft/edit/review of provider profile sections only when needed to unblock the primary path.
 - Validation readiness owns fixture results, dry-run evidence, semantic compare, and activation readiness.
 - Governance controls owns rollout, RBAC, dangerous operation confirmation, and degraded-state controls.
-- Audit evidence owns history and proof. It does not become a general operations dashboard.
+- Audit evidence owns the change history and traceability timeline. It does not become a general operations dashboard.
 
 Each screen must have one cohesive job. A screen that needs several unrelated headings, tab sets, or action clusters is a decomposition failure and should be split before implementation.
 
@@ -60,11 +60,11 @@ Every supporting detour must preserve enough context to return to the primary pa
 - promotion preview ID;
 - return path.
 
-The return target should be the Import to promotion workbench unless the operator intentionally entered a verification-only screen. Across the four routes, every supporting detour carries these context keys plus a `returnPath` query param that points back to the daily import-to-promotion route, so a blocked-sync detour from the daily route into a provider, governance, or release surface deep-links with full working context and returns to the right place.
+The return target should be the Import to promotion workbench unless the operator intentionally entered a verification-only screen. Across the four routes, every supporting detour carries these context keys plus a `returnPath` query param that points back to the daily import-to-promotion route, so a blocked-sync detour from the daily route into a provider, governance, or Integration Health surface deep-links with full working context and returns to the right place.
 
 ## Retirement Contract
 
-Retire, remove, deprecate, and cleanup mean complete deletion of the old catalog control-plane code, product patterns, routes, APIs, read-model contracts, clients, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, and operator instructions.
+In this context, retire, remove, deprecate, and cleanup mean complete deletion of the superseded code, product patterns, routes, APIs, read-model contracts, clients, tests, fixtures, and seeds — not a soft toggle.
 
 Do not keep:
 
@@ -72,10 +72,9 @@ Do not keep:
 - compatibility redirects to retired screens;
 - aliases, compatibility shims, or migration shims for retired module names;
 - support-only routes that still render retired surfaces;
-- documentation that tells operators how to use retired screens;
 - tests or fixtures that preserve old raw JSON or provider-specific UI branches.
 
-The product has not launched, so preserving legacy data or interaction patterns is not a requirement. Data loss is acceptable when it removes pre-launch legacy state and simplifies the launch contract.
+The product is pre-launch, so preserving legacy data or interaction patterns is not a requirement. Data loss is acceptable when it removes pre-launch legacy state and simplifies the contract.
 
 ## Acceptance Checks
 
@@ -84,6 +83,6 @@ The product has not launched, so preserving legacy data or interaction patterns 
 - Pull provider data, review Source Observations, and promote are reachable without detouring through support screens.
 - TCGdex operators can select Language `Japanese`, Series `SV`, and Expansion `SV8` from loaded provider options before syncing the scope.
 - Supporting screens include context-preserving return behavior.
-- No screen maps one-to-one to retired tabbed modules.
-- No retired code, product patterns, route/API/client/read-model behavior, documentation, tests, fixtures, seeds, screenshots, runbooks, release notes, or operator instructions remain.
-- No raw JSON fallback or provider-specific Catalog UI branch survives the rebuild.
+- No screen maps one-to-one to a retired tabbed module.
+- No retired code, product patterns, route/API/client/read-model behavior, tests, fixtures, or seeds remain.
+- No raw JSON fallback or provider-specific Catalog UI branch survives.

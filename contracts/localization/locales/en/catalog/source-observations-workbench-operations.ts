@@ -274,9 +274,6 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
     "{available} options · {loaded}/{declared} groups loaded",
   "catalog.features.sourceObservations.ui.primaryWorkbench.sourceOptions.title": "Source options",
   "catalog.features.sourceObservations.ui.primaryWorkbench.readiness": "Readiness",
-  "catalog.features.sourceObservations.ui.primaryWorkbench.readiness.deploy.skew.description":
-    "Unsupported UI/API pairings fail closed before exposing unsafe commands.",
-  "catalog.features.sourceObservations.ui.primaryWorkbench.readiness.deploy.skew.label": "Deploy skew",
   "catalog.features.sourceObservations.ui.primaryWorkbench.readiness.rbac.description":
     "Primary commands distinguish denied, disabled, blocked, unavailable, unsafe, and degraded states.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.readiness.rbac.label": "RBAC and rollout",

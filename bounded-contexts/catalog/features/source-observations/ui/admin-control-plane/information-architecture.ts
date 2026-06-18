@@ -41,7 +41,6 @@ export type CatalogControlPlaneWorkspace = Readonly<{
   evidenceScope: readonly string[];
   primaryPathRole: "default" | "supporting-detour";
   linkBackContextKeys: readonly CatalogControlPlaneContextKey[];
-  consumesIssues: readonly number[];
 }>;
 
 export type CatalogControlPlaneRouteSurface = Readonly<{
@@ -67,12 +66,6 @@ export type CatalogControlPlaneWorkflowMapEntry = Readonly<{
   completesIn: CatalogControlPlaneWorkspaceKey;
   requiredEvidence: readonly string[];
   blockedBy: readonly CatalogControlPlaneWorkspaceKey[];
-}>;
-
-export type CatalogControlPlaneRebuildReleaseRule = Readonly<{
-  key: string;
-  rule: string;
-  verification: string;
 }>;
 
 export const CATALOG_CONTROL_PLANE_CONTEXT_KEYS = [
@@ -109,7 +102,6 @@ export const CATALOG_CONTROL_PLANE_WORKSPACES = [
     ],
     primaryPathRole: "default",
     linkBackContextKeys: CATALOG_CONTROL_PLANE_CONTEXT_KEYS,
-    consumesIssues: [1049, 1056, 1038, 1039, 1040],
   },
   {
     key: "health-triage",
@@ -124,7 +116,6 @@ export const CATALOG_CONTROL_PLANE_WORKSPACES = [
     evidenceScope: ["Semantic readiness", "Transport readiness", "Projection freshness", "Diagnostic counts"],
     primaryPathRole: "supporting-detour",
     linkBackContextKeys: ["section", "providerKey", "unitKey", "importScope", "jobId", "returnPath"],
-    consumesIssues: [1032, 1060, 1058],
   },
   {
     key: "profile-authoring",
@@ -139,7 +130,6 @@ export const CATALOG_CONTROL_PLANE_WORKSPACES = [
     evidenceScope: ["Profile overview", "Section diagnostics", "Dirty state", "Save outcome"],
     primaryPathRole: "supporting-detour",
     linkBackContextKeys: ["section", "providerKey", "unitKey", "profileVersion", "returnPath"],
-    consumesIssues: [1033, 1034, 1035],
   },
   {
     key: "validation-readiness",
@@ -162,7 +152,6 @@ export const CATALOG_CONTROL_PLANE_WORKSPACES = [
     ],
     primaryPathRole: "supporting-detour",
     linkBackContextKeys: ["section", "providerKey", "unitKey", "importScope", "profileVersion", "returnPath"],
-    consumesIssues: [1036, 1037, 1065],
   },
   {
     key: "conflict-resolution",
@@ -187,7 +176,6 @@ export const CATALOG_CONTROL_PLANE_WORKSPACES = [
       "promotionPreviewId",
       "returnPath",
     ],
-    consumesIssues: [1041],
   },
   {
     key: "lifecycle-recovery",
@@ -212,7 +200,6 @@ export const CATALOG_CONTROL_PLANE_WORKSPACES = [
       "promotionPreviewId",
       "returnPath",
     ],
-    consumesIssues: [1040, 1042, 1045, 1063],
   },
   {
     key: "governance-controls",
@@ -227,7 +214,6 @@ export const CATALOG_CONTROL_PLANE_WORKSPACES = [
     evidenceScope: ["RBAC matrix", "Rollout mode", "Kill switches", "Operational metrics"],
     primaryPathRole: "supporting-detour",
     linkBackContextKeys: ["section", "providerKey", "unitKey", "importScope", "jobId", "returnPath"],
-    consumesIssues: [1043, 1059, 1064],
   },
   {
     key: "audit-evidence",
@@ -236,10 +222,10 @@ export const CATALOG_CONTROL_PLANE_WORKSPACES = [
     accessibleName: "Audit evidence",
     group: "verify",
     keyboardOrder: 100,
-    operatorJob: "Verify who changed what, what evidence shipped, and what release proof exists.",
-    startsAt: "Audit, smoke, release, or signoff evidence request.",
-    completesAt: "Traceable audit/release evidence linked to the primary work item.",
-    evidenceScope: ["Audit timeline", "Release evidence", "Smoke proof", "Risk register links"],
+    operatorJob: "Trace who changed what, when, and with what redaction state across the integration.",
+    startsAt: "An audit or traceability request for a provider, profile, job, or promotion.",
+    completesAt: "A traceable audit timeline linked back to the primary work item.",
+    evidenceScope: ["Audit timeline", "Change attribution", "Redaction state", "Affected work item links"],
     primaryPathRole: "supporting-detour",
     linkBackContextKeys: [
       "section",
@@ -253,7 +239,6 @@ export const CATALOG_CONTROL_PLANE_WORKSPACES = [
       "promotionPreviewId",
       "returnPath",
     ],
-    consumesIssues: [1044, 1061, 1088],
   },
 ] as const satisfies readonly CatalogControlPlaneWorkspace[];
 
@@ -377,25 +362,6 @@ export const CATALOG_CONTROL_PLANE_WORKFLOW_MAP = [
     blockedBy: ["lifecycle-recovery"],
   },
 ] as const satisfies readonly CatalogControlPlaneWorkflowMapEntry[];
-
-export const CATALOG_CONTROL_PLANE_REBUILD_RELEASE_RULES = [
-  {
-    key: "single-primary-workbench",
-    rule: "The launch admin experience starts on one rebuilt import-to-promotion workbench.",
-    verification: "The Catalog context contributes the Integrations route for the primary workbench.",
-  },
-  {
-    key: "support-detours",
-    rule: "Support workspaces exist only to unblock, govern, recover, or verify the primary job.",
-    verification: "Every supporting workspace preserves return context back to the primary workbench.",
-  },
-  {
-    key: "complete-retirement",
-    rule: "Retire means complete removal of all retired code, product patterns, tests, fixtures, scripts, screenshots, documentation, runbooks, release notes, and operator instructions.",
-    verification:
-      "Static guards fail when retired page artifacts, compatibility shims, aliases, flags, namespaces, nav entries, file paths, docs, runbooks, release notes, or operator instructions reappear.",
-  },
-] as const satisfies readonly CatalogControlPlaneRebuildReleaseRule[];
 
 export function catalogControlPlaneWorkspaceByKey(key: CatalogControlPlaneWorkspaceKey): CatalogControlPlaneWorkspace {
   const workspace = CATALOG_CONTROL_PLANE_WORKSPACES.find((candidate) => candidate.key === key);

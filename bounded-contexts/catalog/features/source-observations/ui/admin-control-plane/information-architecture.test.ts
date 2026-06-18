@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
   CATALOG_CONTROL_PLANE_CONTEXT_KEYS,
   CATALOG_CONTROL_PLANE_NAVIGATION_GROUPS,
-  CATALOG_CONTROL_PLANE_REBUILD_RELEASE_RULES,
   CATALOG_CONTROL_PLANE_ROUTE_SURFACES,
   CATALOG_CONTROL_PLANE_WORKFLOW_MAP,
   CATALOG_CONTROL_PLANE_WORKSPACES,
@@ -67,14 +66,22 @@ describe("Catalog Control Plane information architecture", () => {
       expect(workspace.linkBackContextKeys).toContain("section");
       expect(workspace.linkBackContextKeys).toContain("providerKey");
       expect(workspace.linkBackContextKeys).toContain("unitKey");
-      expect(workspace.consumesIssues.length).toBeGreaterThan(0);
     }
 
     const primary = catalogControlPlaneWorkspaceByKey("import-to-promotion");
     expect(primary.linkBackContextKeys).toEqual(CATALOG_CONTROL_PLANE_CONTEXT_KEYS);
   });
 
-  it("covers every #1031 workflow without making support workflows equal peers", () => {
+  it("describes each workspace as an operator job with start and completion states", () => {
+    for (const workspace of CATALOG_CONTROL_PLANE_WORKSPACES) {
+      expect(workspace.operatorJob.length).toBeGreaterThan(0);
+      expect(workspace.startsAt.length).toBeGreaterThan(0);
+      expect(workspace.completesAt.length).toBeGreaterThan(0);
+      expect(workspace.evidenceScope.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("covers every operator workflow without making support workflows equal peers", () => {
     const workflows = CATALOG_CONTROL_PLANE_WORKFLOW_MAP.map((entry) => entry.workflow);
 
     expect(workflows).toEqual([
@@ -95,9 +102,8 @@ describe("Catalog Control Plane information architecture", () => {
     }
   });
 
-  it("defines launch release rules without preserving retired page concepts", () => {
+  it("keeps retired top-level section names out of the operator route segments", () => {
     const oldDestinations = [
-      "health",
       "authoring",
       "validation",
       "operations",
@@ -112,26 +118,14 @@ describe("Catalog Control Plane information architecture", () => {
     for (const oldDestination of oldDestinations) {
       expect(routeSegments).not.toContain(oldDestination);
     }
+  });
 
-    expect(CATALOG_CONTROL_PLANE_REBUILD_RELEASE_RULES.map((rule) => rule.key)).toEqual([
-      "single-primary-workbench",
-      "support-detours",
-      "complete-retirement",
-    ]);
-
-    const serializedRules = JSON.stringify(CATALOG_CONTROL_PLANE_REBUILD_RELEASE_RULES);
-    expect(serializedRules).toContain("Retire means complete removal");
-    expect(serializedRules).toContain("all retired code");
-    expect(serializedRules).toContain("product patterns");
-    expect(serializedRules).toContain("documentation");
-    expect(serializedRules).toContain("operator instructions");
-    expect(serializedRules).toContain("compatibility shims");
-    for (const forbidden of [["two", "page"].join("-"), ["god", "page"].join(" "), ["list", "import"].join("/")]) {
-      expect(serializedRules).not.toContain(forbidden);
-    }
-    for (const rule of CATALOG_CONTROL_PLANE_REBUILD_RELEASE_RULES) {
-      expect(rule.rule).not.toHaveLength(0);
-      expect(rule.verification).not.toHaveLength(0);
+  it("carries no project-management metadata on workspace entries", () => {
+    for (const workspace of CATALOG_CONTROL_PLANE_WORKSPACES) {
+      // The IA is an operator read model, not a launch tracker: no issue-number
+      // arrays or release-tracking fields may reappear on a workspace entry.
+      expect(workspace).not.toHaveProperty("consumesIssues");
+      expect(workspace).not.toHaveProperty("ownerIssue");
     }
   });
 });
