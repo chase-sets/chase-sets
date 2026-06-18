@@ -1,5 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { useFetcher } from "react-router";
+import { useMemo, type ReactNode } from "react";
 import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
 import {
   AccountReputationSummary,
@@ -38,13 +37,20 @@ import {
   type CartReadinessSnapshot,
 } from "../domain/readiness";
 import type { CheckoutCartLine } from "./contracts";
-import { useOptimisticCorrection } from "./optimistic-correction";
+import { useOptimisticCartMutationConsistency, type OptimisticCorrectionStatus } from "./optimistic-correction";
 
 type CheckoutCartLineGroup = CheckoutCartLine & {
   groupKey: string;
   lineIds: readonly string[];
   sourceQuantity: number;
 };
+
+type CartRecoveryState = Readonly<{
+  kind: "pending-fresh-write";
+  message: string;
+  refreshHref: string;
+  isAutoRevalidating?: boolean;
+}>;
 
 const CART_ITEM_FALLBACK_IMAGE_URL = "/fake-cdn/assets/pokemon-card-back.png";
 const BUY_READINESS_ROUTE = "/checkout/buy/readiness";
@@ -82,6 +88,7 @@ function groupCartLines(cartLines: readonly CheckoutCartLine[]): CheckoutCartLin
       sourceQuantity: existing.sourceQuantity + line.quantity,
       lineIds: [...existing.lineIds, line.line_id],
       seller_options: mergeSellerOptions(existing.seller_options, line.seller_options),
+      ...selectedListingSnapshotFields(existing.selected_listing_id ? existing : line),
       updated_at:
         new Date(line.updated_at).getTime() > new Date(existing.updated_at).getTime()
           ? line.updated_at
@@ -100,6 +107,29 @@ function mergeSellerOptions(left: CheckoutCartLine["seller_options"], right: Che
   return [...new Map([...left, ...right].map((option) => [option.listing_id, option] as const)).values()].sort(
     (a, b) => Number(a.price_amount) - Number(b.price_amount) || a.listing_id.localeCompare(b.listing_id),
   );
+}
+
+function selectedListingSnapshotFields(
+  line: Pick<
+    CheckoutCartLine,
+    | "selected_listing_id"
+    | "selected_listing_seller_account_id"
+    | "selected_listing_seller_display_name"
+    | "selected_listing_seller_slug"
+    | "selected_listing_price_amount"
+    | "selected_listing_snapshot_source"
+    | "selected_listing_snapshot_captured_at"
+  >,
+) {
+  return {
+    selected_listing_id: line.selected_listing_id,
+    selected_listing_seller_account_id: line.selected_listing_seller_account_id,
+    selected_listing_seller_display_name: line.selected_listing_seller_display_name,
+    selected_listing_seller_slug: line.selected_listing_seller_slug,
+    selected_listing_price_amount: line.selected_listing_price_amount,
+    selected_listing_snapshot_source: line.selected_listing_snapshot_source,
+    selected_listing_snapshot_captured_at: line.selected_listing_snapshot_captured_at,
+  };
 }
 
 function formatMoney(amount: number) {
@@ -127,6 +157,13 @@ function selectedUnitPrice(line: CheckoutCartLineGroup) {
     if (Number.isFinite(selectedPrice) && selectedPrice >= 0) {
       return selectedPrice;
     }
+
+    const snapshotPrice = Number(line.selected_listing_price_amount);
+    if (line.selected_listing_id === line.locked_listing_id && Number.isFinite(snapshotPrice) && snapshotPrice >= 0) {
+      return snapshotPrice;
+    }
+
+    return null;
   }
 
   return lowestKnownUnitPrice(line);
@@ -162,13 +199,6 @@ function linePrice(line: CheckoutCartLineGroup): ReactNode {
   }
 
   return formatMoney(unitPrice * line.quantity);
-}
-
-function lineWithQuantity(line: CheckoutCartLineGroup, quantity: number): CheckoutCartLineGroup {
-  return {
-    ...line,
-    quantity,
-  };
 }
 
 function marketRecoveryHref(itemTitle: string) {
@@ -225,6 +255,10 @@ function renderLineOptions(line: CheckoutCartLineGroup) {
 }
 
 type CheckoutCartSellerOption = CheckoutCartLineGroup["seller_options"][number];
+type CheckoutCartSellerAttribution = Pick<
+  CheckoutCartSellerOption,
+  "seller_display_name" | "seller_average_rating" | "seller_review_count"
+>;
 
 function findSellerOption(line: CheckoutCartLineGroup, listingId: string | null): CheckoutCartSellerOption | null {
   if (!listingId) {
@@ -234,21 +268,41 @@ function findSellerOption(line: CheckoutCartLineGroup, listingId: string | null)
   return line.seller_options.find((option) => option.listing_id === listingId) ?? null;
 }
 
+function selectedListingSnapshotSeller(line: CheckoutCartLineGroup, listingId: string | null) {
+  if (!listingId || line.selected_listing_id !== listingId || !line.selected_listing_seller_display_name) {
+    return null;
+  }
+
+  return {
+    seller_display_name: line.selected_listing_seller_display_name,
+    seller_average_rating: null,
+    seller_review_count: 0,
+  };
+}
+
 function cartListingLabel(line: CheckoutCartLineGroup, listingId: string | null) {
   const listing = findSellerOption(line, listingId);
-  return listing?.seller_display_name ?? t("checkout.features.cart.ui.cartPage.selected.listing");
+  const snapshot = selectedListingSnapshotSeller(line, listingId);
+  return (
+    listing?.seller_display_name ??
+    snapshot?.seller_display_name ??
+    t("checkout.features.cart.ui.cartPage.selected.listing")
+  );
 }
 
 /**
- * Resolves the seller option the cart would check out for a line: the pinned
- * listing for a `locked-listing` line, otherwise the lowest-cost fulfillable
- * option Smart Match would pick. Returns null when nothing is resolvable yet
- * (no projected options), so the seller attribution simply omits.
+ * Resolves the seller the cart would check out for a line: a pinned listing can
+ * use either the current seller option or the durable selected-listing snapshot,
+ * while Smart Match still resolves from current seller options.
  */
-function selectedListingSellerOption(line: CheckoutCartLineGroup): CheckoutCartSellerOption | null {
-  const resolved =
-    line.fulfillment_mode === "locked-listing" ? selectedCartReadinessListing(line) : lowestCartReadinessListing(line);
+function selectedListingSellerOption(line: CheckoutCartLineGroup): CheckoutCartSellerAttribution | null {
+  if (line.fulfillment_mode === "locked-listing") {
+    return (
+      findSellerOption(line, line.locked_listing_id) ?? selectedListingSnapshotSeller(line, line.locked_listing_id)
+    );
+  }
 
+  const resolved = lowestCartReadinessListing(line);
   return findSellerOption(line, resolved?.listing_id ?? null);
 }
 
@@ -259,7 +313,7 @@ function selectedListingSellerOption(line: CheckoutCartLineGroup): CheckoutCartS
  * reviews yet" label instead of stars, so a seller with no feedback degrades
  * gracefully without a custom branch here.
  */
-function SellerReputation({ option }: { option: CheckoutCartSellerOption | null }) {
+function SellerReputation({ option }: { option: CheckoutCartSellerAttribution | null }) {
   if (!option?.seller_display_name) {
     return null;
   }
@@ -303,17 +357,6 @@ function ListingPreferenceStatus({ line }: { line: CheckoutCartLineGroup }) {
   );
 }
 
-function CartLineHiddenFields({ line }: { line: CheckoutCartLineGroup }) {
-  return (
-    <>
-      {line.lineIds.map((lineId) => (
-        <HiddenInput key={lineId} name="lineId" value={lineId} />
-      ))}
-      <HiddenInput name="sellerPreferenceId" value={line.seller_preference_id ?? ""} />
-    </>
-  );
-}
-
 function LinePrice({ line }: { line: CheckoutCartLineGroup }) {
   const state = linePriceState(line);
 
@@ -339,37 +382,14 @@ function LinePrice({ line }: { line: CheckoutCartLineGroup }) {
 
 function QuantityControl({
   line,
+  status,
   onQuantityChange,
 }: {
   line: CheckoutCartLineGroup;
-  onQuantityChange: (groupKey: string, quantity: number) => void;
+  status: OptimisticCorrectionStatus;
+  onQuantityChange: (line: CheckoutCartLineGroup, quantity: number) => void;
 }) {
-  const fetcher = useFetcher<{ error?: string }>();
-  const correction = useOptimisticCorrection({
-    resourceKey: line.groupKey,
-    sourceValue: line.sourceQuantity,
-    correctionSource: "loader-revalidation",
-    submitting: fetcher.state !== "idle",
-    rejected: Boolean(fetcher.data?.error),
-    submit: ({ value, sequence, correctionSource }) => {
-      const formData = new FormData();
-      formData.set("intent", "update-cart-line");
-      for (const lineId of line.lineIds) {
-        formData.append("lineId", lineId);
-      }
-      formData.set("sellerPreferenceId", line.seller_preference_id ?? "");
-      formData.set("quantity", String(value));
-      formData.set("optimisticSequence", String(sequence));
-      formData.set("optimisticStrategy", "optimistic-with-correction");
-      formData.set("correctionSource", `fresh-read:${correctionSource}`);
-      fetcher.submit(formData, { method: "post", action: "/account/cart" });
-    },
-  });
-  const safeQuantity = Math.max(1, Number(correction.value) || 1);
-
-  useEffect(() => {
-    onQuantityChange(line.groupKey, safeQuantity);
-  }, [line.groupKey, onQuantityChange, safeQuantity]);
+  const safeQuantity = Math.max(1, Number(line.quantity) || 1);
 
   function setQuantity(nextQuantity: number | null) {
     if (nextQuantity === null) {
@@ -379,7 +399,7 @@ function QuantityControl({
     if (quantity === safeQuantity) {
       return;
     }
-    correction.setOptimisticValue(quantity);
+    onQuantityChange(line, quantity);
   }
 
   return (
@@ -387,14 +407,14 @@ function QuantityControl({
       data-optimistic-strategy="optimistic-with-correction"
       data-correction-source="fresh-read:loader-revalidation"
       data-optimistic-resource={line.lineIds.join(":")}
-      data-optimistic-status={correction.status}
+      data-optimistic-status={status}
     >
       {/*
-       * Intentionally NOT passing `loading={correction.status === "pending"}` here.
+       * Intentionally NOT passing `loading={status === "pending"}` here.
        * The stepper's `loading` prop disables both −/+ buttons while a write is in
        * flight, which would kill the rapid-coalescing optimistic UX: a buyer can
        * tap +/+/+ faster than a single write settles, and those edits coalesce into
-       * one absolute target (see optimistic-correction.ts and the "coalesces rapid
+       * one cart-level target (see optimistic-correction.ts and the "coalesces rapid
        * repeated quantity clicks" test). A disabled stepper drops every edit after
        * the first. Pending state is surfaced non-blockingly via the wrapper's
        * `data-optimistic-status` hook instead; the stepper stays live by design.
@@ -411,16 +431,32 @@ function QuantityControl({
   );
 }
 
-function CartLineActions({ line }: { line: CheckoutCartLineGroup }) {
+function CartLineActions({
+  line,
+  status,
+  onRemove,
+  onLockPreferredListing,
+}: {
+  line: CheckoutCartLineGroup;
+  status: OptimisticCorrectionStatus;
+  onRemove: (line: CheckoutCartLineGroup) => void;
+  onLockPreferredListing: (line: CheckoutCartLineGroup) => void;
+}) {
   const lockAction =
     line.seller_preference_id && line.fulfillment_mode !== "locked-listing" ? (
-      <Form spacing="none" method="post">
-        <HiddenInput name="intent" value="lock-preferred-listing" />
-        <CartLineHiddenFields line={line} />
-        <Button type="submit" size="sm" tone="secondary" block>
-          {t("checkout.features.cart.ui.cartPage.lock.this.listing")}
-        </Button>
-      </Form>
+      <Button
+        type="button"
+        size="sm"
+        tone="secondary"
+        block
+        data-optimistic-strategy="optimistic-with-correction"
+        data-correction-source="fresh-read:loader-revalidation"
+        data-optimistic-resource={line.lineIds.join(":")}
+        data-optimistic-status={status}
+        onClick={() => onLockPreferredListing(line)}
+      >
+        {t("checkout.features.cart.ui.cartPage.lock.this.listing")}
+      </Button>
     ) : null;
 
   const alternativesAction = !hasFulfillmentPath(line) ? (
@@ -430,11 +466,16 @@ function CartLineActions({ line }: { line: CheckoutCartLineGroup }) {
   ) : null;
 
   const removeAction = (
-    <Form spacing="none" method="post">
-      <HiddenInput name="intent" value="remove-cart-line" />
-      <CartLineHiddenFields line={line} />
-      <DestructiveAction type="submit">{t("checkout.features.cart.ui.cartPage.remove")}</DestructiveAction>
-    </Form>
+    <DestructiveAction
+      type="button"
+      data-optimistic-strategy="optimistic-with-correction"
+      data-correction-source="fresh-read:loader-revalidation"
+      data-optimistic-resource={line.lineIds.join(":")}
+      data-optimistic-status={status}
+      onClick={() => onRemove(line)}
+    >
+      {t("checkout.features.cart.ui.cartPage.remove")}
+    </DestructiveAction>
   );
 
   return (
@@ -454,10 +495,16 @@ function CartLineActions({ line }: { line: CheckoutCartLineGroup }) {
 
 function CartLineRow({
   line,
+  status,
   onQuantityChange,
+  onRemove,
+  onLockPreferredListing,
 }: {
   line: CheckoutCartLineGroup;
-  onQuantityChange: (groupKey: string, quantity: number) => void;
+  status: OptimisticCorrectionStatus;
+  onQuantityChange: (line: CheckoutCartLineGroup, quantity: number) => void;
+  onRemove: (line: CheckoutCartLineGroup) => void;
+  onLockPreferredListing: (line: CheckoutCartLineGroup) => void;
 }) {
   return (
     <MarketplaceCartLineItem
@@ -486,8 +533,15 @@ function CartLineRow({
           <LinePrice line={line} />
         </Stack>
       }
-      quantityControl={<QuantityControl line={line} onQuantityChange={onQuantityChange} />}
-      actions={<CartLineActions line={line} />}
+      quantityControl={<QuantityControl line={line} status={status} onQuantityChange={onQuantityChange} />}
+      actions={
+        <CartLineActions
+          line={line}
+          status={status}
+          onRemove={onRemove}
+          onLockPreferredListing={onLockPreferredListing}
+        />
+      }
     />
   );
 }
@@ -565,58 +619,16 @@ function fulfillmentReviewDescription(count: number) {
 export function CheckoutCartPage({
   cartLines,
   errorMessage,
-  pendingEmptyMessage,
+  recoveryState,
 }: {
   cartLines: readonly CheckoutCartLine[];
   errorMessage?: string | null;
-  pendingEmptyMessage?: string | null;
+  recoveryState?: CartRecoveryState | null;
 }) {
   const sourceCartLineGroups = useMemo(() => groupCartLines(cartLines), [cartLines]);
-  const [optimisticQuantities, setOptimisticQuantities] = useState<Record<string, number>>({});
-  const onQuantityChange = useMemo(
-    () => (groupKey: string, quantity: number) => {
-      setOptimisticQuantities((current) =>
-        current[groupKey] === quantity
-          ? current
-          : {
-              ...current,
-              [groupKey]: quantity,
-            },
-      );
-    },
-    [],
-  );
-  const cartLineGroups = useMemo(
-    () =>
-      sourceCartLineGroups.map((line) =>
-        lineWithQuantity(line, Math.max(1, optimisticQuantities[line.groupKey] ?? line.quantity)),
-      ),
-    [optimisticQuantities, sourceCartLineGroups],
-  );
-
-  useEffect(() => {
-    setOptimisticQuantities((current) => {
-      const next: Record<string, number> = {};
-      let changed = false;
-      const sourceKeys = new Set(sourceCartLineGroups.map((line) => line.groupKey));
-
-      for (const line of sourceCartLineGroups) {
-        if (current[line.groupKey] !== undefined && current[line.groupKey] !== line.quantity) {
-          next[line.groupKey] = current[line.groupKey]!;
-        }
-      }
-
-      for (const key of Object.keys(current)) {
-        if (!sourceKeys.has(key)) {
-          changed = true;
-        } else if (current[key] !== next[key] && next[key] === undefined) {
-          changed = true;
-        }
-      }
-
-      return changed ? next : current;
-    });
-  }, [sourceCartLineGroups]);
+  const cartMutations = useOptimisticCartMutationConsistency({ sourceCartLineGroups });
+  const cartLineGroups = cartMutations.cartLineGroups;
+  const visibleErrorMessage = cartMutations.errorMessage ?? errorMessage;
   const cartLineCount = cartLineGroups.reduce((sum, line) => sum + line.quantity, 0);
   const estimatedSubtotal = estimateCartSubtotal(cartLineGroups);
   const pricedLineCount = cartLineGroups.filter(hasKnownLinePrice).length;
@@ -748,20 +760,32 @@ export function CheckoutCartPage({
         description={t("checkout.features.cart.ui.cartPage.review.items.before.checkout")}
       >
         <Stack gap={4}>
-          {errorMessage ? (
+          {visibleErrorMessage ? (
             <Surface tone="subtle" elevated>
               <Stack gap={2}>
                 <Badge tone="danger">{t("checkout.features.cart.ui.cartPage.checkout.issue")}</Badge>
-                <Text>{errorMessage}</Text>
+                <Text>{visibleErrorMessage}</Text>
               </Stack>
             </Surface>
           ) : null}
 
-          {cartLineGroups.length === 0 && pendingEmptyMessage ? (
-            <MarketplaceEmptyState
-              title={t("checkout.features.cart.ui.cartPage.adding.item")}
-              description={pendingEmptyMessage}
-            />
+          {recoveryState?.kind === "pending-fresh-write" ? (
+            <Surface tone="subtle" elevated>
+              <Stack gap={3}>
+                <Badge tone="neutral">
+                  {recoveryState.isAutoRevalidating
+                    ? t("checkout.features.cart.ui.cartPage.cart.update.pending")
+                    : t("checkout.features.cart.ui.cartPage.cart.update.refreshing")}
+                </Badge>
+                <Stack gap={1}>
+                  <Text weight="semibold">{t("checkout.features.cart.ui.cartPage.cart.update.pending.title")}</Text>
+                  <Text tone="secondary">{recoveryState.message}</Text>
+                </Stack>
+                <LinkButton href={recoveryState.refreshHref} tone="secondary">
+                  {t("checkout.features.cart.ui.cartPage.refresh.cart")}
+                </LinkButton>
+              </Stack>
+            </Surface>
           ) : cartLineGroups.length === 0 ? (
             <MarketplaceEmptyState
               title={t("checkout.features.cart.ui.cartPage.your.cart.is.empty")}
@@ -781,7 +805,14 @@ export function CheckoutCartPage({
               {aggregateNotice}
               <Stack gap={3}>
                 {cartLineGroups.map((line) => (
-                  <CartLineRow key={line.line_id} line={line} onQuantityChange={onQuantityChange} />
+                  <CartLineRow
+                    key={line.line_id}
+                    line={line}
+                    status={cartMutations.statusForLine(line)}
+                    onQuantityChange={cartMutations.setQuantity}
+                    onRemove={cartMutations.removeLine}
+                    onLockPreferredListing={cartMutations.lockPreferredListing}
+                  />
                 ))}
               </Stack>
               <CheckoutTotals

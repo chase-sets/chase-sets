@@ -495,6 +495,7 @@ describe("item detail buy now checkout actions", () => {
       fulfillmentMode: "optimize",
       lockedListingId: null,
       sellerPreferenceId: null,
+      selectedListingSnapshot: null,
       quantity: 2,
     });
     expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
@@ -512,6 +513,7 @@ describe("item detail buy now checkout actions", () => {
     });
     const viewCartUrl = new URL(addedToCart.viewCartHref, "http://localhost");
     expect(viewCartUrl.pathname).toBe("/account/cart");
+    expect(viewCartUrl.searchParams.has("afterWrite")).toBe(true);
     expect(readFreshWriteToken(viewCartUrl)).toMatchObject({
       sources: [{ sourceContextName: "checkout", maxGlobalPosition: "42", eventIds: ["evt_cli_1"] }],
     });
@@ -582,10 +584,12 @@ describe("item detail buy now checkout actions", () => {
         market_listings: [
           {
             listing_id: "lst_charizard",
+            account_id: "acc_card_vault",
             product_id: "cat_charizard::form:raw",
             status: "active",
             price_amount: "380.00",
             seller_display_name: "Card Vault",
+            seller_slug: "card-vault",
             quantity_cap: 2,
             visible_quantity: 2,
           },
@@ -623,6 +627,14 @@ describe("item detail buy now checkout actions", () => {
         fulfillmentMode: "locked-listing",
         lockedListingId: "lst_charizard",
         sellerPreferenceId: "lst_charizard",
+        selectedListingSnapshot: {
+          listingId: "lst_charizard",
+          sellerAccountId: "acc_card_vault",
+          sellerDisplayName: "Card Vault",
+          sellerSlug: "card-vault",
+          priceAmount: "380.00",
+          source: "discovery.item-detail.add-to-cart",
+        },
         quantity: 2,
       }),
     );
@@ -641,10 +653,12 @@ describe("item detail buy now checkout actions", () => {
         market_listings: [
           {
             listing_id: "lst_charizard",
+            account_id: "acc_card_vault",
             product_id: "cat_charizard::form:raw",
             status: "active",
             price_amount: "380.00",
             seller_display_name: "Card Vault",
+            seller_slug: "card-vault",
             quantity_cap: 2,
             visible_quantity: 2,
           },
@@ -685,6 +699,14 @@ describe("item detail buy now checkout actions", () => {
         fulfillmentMode: "locked-listing",
         lockedListingId: "lst_charizard",
         sellerPreferenceId: "lst_charizard",
+        selectedListingSnapshot: {
+          listingId: "lst_charizard",
+          sellerAccountId: "acc_card_vault",
+          sellerDisplayName: "Card Vault",
+          sellerSlug: "card-vault",
+          priceAmount: "380.00",
+          source: "discovery.item-detail.add-to-cart",
+        },
         quantity: 2,
       }),
     );
@@ -1113,6 +1135,7 @@ describe("item detail buy now checkout actions", () => {
       fulfillmentMode: "optimize",
       lockedListingId: null,
       sellerPreferenceId: null,
+      selectedListingSnapshot: null,
       quantity: 2,
     });
     expect(mockAppendAnonymousCartCookie).toHaveBeenCalledWith(response.headers, "anon_cart_1");
@@ -1131,6 +1154,7 @@ describe("item detail buy now checkout actions", () => {
     });
     const viewCartUrl = new URL(addedToCart.viewCartHref, "http://localhost");
     expect(viewCartUrl.pathname).toBe("/account/cart");
+    expect(viewCartUrl.searchParams.has("afterWrite")).toBe(true);
     expect(readFreshWriteToken(viewCartUrl)).toMatchObject({
       sources: [{ sourceContextName: "checkout", maxGlobalPosition: "42", eventIds: ["evt_cli_1"] }],
     });

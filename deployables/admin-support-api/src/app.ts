@@ -7,6 +7,7 @@ import {
   attachWriteConsistencyMiddleware,
   mountApiRouters,
   type ReadConsistencyAuditRecord,
+  type ReadConsistencyMiddlewareOptions,
 } from "@chase-sets/bounded-context-runtime";
 import { createHonoObservabilityMiddleware, recordProjectionFreshnessAudit } from "@chase-sets/observability";
 import {
@@ -47,6 +48,10 @@ export type BuildAdminSupportApiOptions = Readonly<{
   readConsistencyAuditLogger?: Readonly<{
     info: (message: string, fields?: Readonly<Record<string, unknown>>) => void;
   }>;
+  readConsistency?: Pick<
+    ReadConsistencyMiddlewareOptions,
+    "timeoutMs" | "pollIntervalMs" | "exactDependencyMode" | "routeTuning" | "workSignalGateway"
+  >;
 }>;
 
 export function createAdminSupportApiHost(options: Parameters<typeof createApiHost>[2]): ApiHostRuntime {
@@ -121,6 +126,11 @@ export function buildAdminSupportApiApp(runtime: ApiHostRuntime, options: BuildA
 
   attachWriteConsistencyMiddleware(app, apiMounts);
   attachReadConsistencyMiddleware(app, apiMounts, runtime.projectionGroups, {
+    timeoutMs: options.readConsistency?.timeoutMs,
+    pollIntervalMs: options.readConsistency?.pollIntervalMs,
+    exactDependencyMode: options.readConsistency?.exactDependencyMode,
+    routeTuning: options.readConsistency?.routeTuning,
+    workSignalGateway: options.readConsistency?.workSignalGateway,
     recordReadConsistencyAudit: (record: ReadConsistencyAuditRecord) => {
       recordProjectionFreshnessAudit(record);
       options.readConsistencyAuditLogger?.info("Read-after-write freshness evaluated.", record);

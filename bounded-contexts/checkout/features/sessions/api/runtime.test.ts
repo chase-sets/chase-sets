@@ -97,6 +97,13 @@ const readyCartLine: CheckoutCartLineRow = {
   quantity: 1,
   fulfillment_mode: "locked-listing",
   locked_listing_id: "lst_1",
+  selected_listing_id: null,
+  selected_listing_seller_account_id: null,
+  selected_listing_seller_display_name: null,
+  selected_listing_seller_slug: null,
+  selected_listing_price_amount: null,
+  selected_listing_snapshot_source: null,
+  selected_listing_snapshot_captured_at: null,
   seller_preference_id: null,
   availability_state: "available",
   seller_options: [

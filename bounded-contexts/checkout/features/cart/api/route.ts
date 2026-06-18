@@ -66,6 +66,27 @@ function parseFulfillmentMode(body: Record<string, unknown>) {
   };
 }
 
+function parseSelectedListingSnapshot(value: unknown) {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const source = value as Record<string, unknown>;
+  const listingId = source.listingId === null || source.listingId === undefined ? "" : String(source.listingId).trim();
+  if (!listingId) {
+    return null;
+  }
+
+  return {
+    listingId,
+    sellerAccountId: optionalBodyString(source.sellerAccountId),
+    sellerDisplayName: optionalBodyString(source.sellerDisplayName),
+    sellerSlug: optionalBodyString(source.sellerSlug),
+    priceAmount: optionalBodyString(source.priceAmount),
+    source: optionalBodyString(source.source),
+  };
+}
+
 function parseCartLineBody(body: Record<string, unknown>) {
   const fulfillment = parseFulfillmentMode(body);
 
@@ -84,6 +105,7 @@ function parseCartLineBody(body: Record<string, unknown>) {
       body.productSummary === null || body.productSummary === undefined ? null : String(body.productSummary),
     quantity: Number(body.quantity ?? 0),
     ...fulfillment,
+    selectedListingSnapshot: parseSelectedListingSnapshot(body.selectedListingSnapshot),
   };
 }
 
@@ -320,6 +342,10 @@ export function createAccountCartRoutes(
 
     const body = await c.req.json();
     const fulfillment = parseFulfillmentMode(body);
+    const selectedListingSnapshot =
+      body && typeof body === "object"
+        ? parseSelectedListingSnapshot((body as Record<string, unknown>).selectedListingSnapshot)
+        : null;
 
     try {
       const result = await services.setLineFulfillment(
@@ -333,6 +359,7 @@ export function createAccountCartRoutes(
               ? body.availabilityState
               : "available",
           ...fulfillment,
+          selectedListingSnapshot,
         },
         context,
       );
@@ -583,6 +610,10 @@ export function createGuestCartRoutes(
     const context = c.get("context") ?? createGuestCartContext();
     const body = await c.req.json();
     const fulfillment = parseFulfillmentMode(body);
+    const selectedListingSnapshot =
+      body && typeof body === "object"
+        ? parseSelectedListingSnapshot((body as Record<string, unknown>).selectedListingSnapshot)
+        : null;
 
     try {
       const result = await services.setLineFulfillment(
@@ -596,6 +627,7 @@ export function createGuestCartRoutes(
               ? body.availabilityState
               : "available",
           ...fulfillment,
+          selectedListingSnapshot,
         },
         context,
       );

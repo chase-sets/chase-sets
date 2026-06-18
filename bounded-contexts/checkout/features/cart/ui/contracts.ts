@@ -16,6 +16,13 @@ export interface CheckoutCartLine {
   quantity: number;
   fulfillment_mode: "optimize" | "locked-listing";
   locked_listing_id: string | null;
+  selected_listing_id: string | null;
+  selected_listing_seller_account_id: string | null;
+  selected_listing_seller_display_name: string | null;
+  selected_listing_seller_slug: string | null;
+  selected_listing_price_amount: string | null;
+  selected_listing_snapshot_source: string | null;
+  selected_listing_snapshot_captured_at: string | null;
   seller_preference_id: string | null;
   availability_state: "available" | "unavailable" | "changed" | "waiting-for-supply";
   seller_options: readonly {

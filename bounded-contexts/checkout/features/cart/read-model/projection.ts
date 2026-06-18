@@ -23,8 +23,17 @@ export function buildCheckoutCartProjectionHandlers(db: PgQueryable): ProjectorH
         fulfillmentMode?: string;
         lockedListingId?: string | null;
         sellerPreferenceId?: string | null;
+        selectedListingSnapshot?: {
+          listingId: string;
+          sellerAccountId: string | null;
+          sellerDisplayName: string | null;
+          sellerSlug: string | null;
+          priceAmount: string | null;
+          source: string;
+        } | null;
         availabilityState?: string;
       };
+      const selectedListing = data.selectedListingSnapshot ?? null;
 
       await db.query(
         `INSERT INTO checkout_cart_line_pages (
@@ -45,11 +54,18 @@ export function buildCheckoutCartProjectionHandlers(db: PgQueryable): ProjectorH
            quantity,
            fulfillment_mode,
            locked_listing_id,
+           selected_listing_id,
+           selected_listing_seller_account_id,
+           selected_listing_seller_display_name,
+           selected_listing_seller_slug,
+           selected_listing_price_amount,
+           selected_listing_snapshot_source,
+           selected_listing_snapshot_captured_at,
            seller_preference_id,
            availability_state,
            created_at,
            updated_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $20)
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $27)
          ON CONFLICT (buyer_account_id, line_id) DO UPDATE
          SET catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
              product_id = EXCLUDED.product_id,
@@ -66,6 +82,13 @@ export function buildCheckoutCartProjectionHandlers(db: PgQueryable): ProjectorH
              quantity = EXCLUDED.quantity,
              fulfillment_mode = EXCLUDED.fulfillment_mode,
              locked_listing_id = EXCLUDED.locked_listing_id,
+             selected_listing_id = EXCLUDED.selected_listing_id,
+             selected_listing_seller_account_id = EXCLUDED.selected_listing_seller_account_id,
+             selected_listing_seller_display_name = EXCLUDED.selected_listing_seller_display_name,
+             selected_listing_seller_slug = EXCLUDED.selected_listing_seller_slug,
+             selected_listing_price_amount = EXCLUDED.selected_listing_price_amount,
+             selected_listing_snapshot_source = EXCLUDED.selected_listing_snapshot_source,
+             selected_listing_snapshot_captured_at = EXCLUDED.selected_listing_snapshot_captured_at,
              seller_preference_id = EXCLUDED.seller_preference_id,
              availability_state = EXCLUDED.availability_state,
              updated_at = EXCLUDED.updated_at`,
@@ -87,6 +110,13 @@ export function buildCheckoutCartProjectionHandlers(db: PgQueryable): ProjectorH
           data.quantity,
           data.fulfillmentMode === "locked-listing" ? "locked-listing" : "optimize",
           data.lockedListingId ?? null,
+          selectedListing?.listingId ?? null,
+          selectedListing?.sellerAccountId ?? null,
+          selectedListing?.sellerDisplayName ?? null,
+          selectedListing?.sellerSlug ?? null,
+          selectedListing?.priceAmount ?? null,
+          selectedListing?.source ?? null,
+          selectedListing ? event.timing.recordedAt : null,
           data.sellerPreferenceId ?? null,
           data.availabilityState ?? "available",
           event.timing.recordedAt,
@@ -110,21 +140,44 @@ export function buildCheckoutCartProjectionHandlers(db: PgQueryable): ProjectorH
         fulfillmentMode: string;
         lockedListingId: string | null;
         sellerPreferenceId: string | null;
+        selectedListingSnapshot: {
+          listingId: string;
+          sellerAccountId: string | null;
+          sellerDisplayName: string | null;
+          sellerSlug: string | null;
+          priceAmount: string | null;
+          source: string;
+        } | null;
         availabilityState: string;
       };
+      const selectedListing = data.selectedListingSnapshot ?? null;
 
       await db.query(
         `UPDATE checkout_cart_line_pages
          SET fulfillment_mode = $2,
              locked_listing_id = $3,
-             seller_preference_id = $4,
-             availability_state = $5,
-             updated_at = $6
+             selected_listing_id = $4,
+             selected_listing_seller_account_id = $5,
+             selected_listing_seller_display_name = $6,
+             selected_listing_seller_slug = $7,
+             selected_listing_price_amount = $8,
+             selected_listing_snapshot_source = $9,
+             selected_listing_snapshot_captured_at = $10,
+             seller_preference_id = $11,
+             availability_state = $12,
+             updated_at = $13
          WHERE line_id = $1`,
         [
           data.lineId,
           data.fulfillmentMode === "locked-listing" ? "locked-listing" : "optimize",
           data.lockedListingId,
+          selectedListing?.listingId ?? null,
+          selectedListing?.sellerAccountId ?? null,
+          selectedListing?.sellerDisplayName ?? null,
+          selectedListing?.sellerSlug ?? null,
+          selectedListing?.priceAmount ?? null,
+          selectedListing?.source ?? null,
+          selectedListing ? event.timing.recordedAt : null,
           data.sellerPreferenceId,
           data.availabilityState,
           event.timing.recordedAt,

@@ -62,13 +62,20 @@ const runtime = createAdminSupportApiHost({
   },
 });
 const drainState = createProcessDrainState();
+const workSignalStore = createPostgresWorkSignalStore(pools.control, {
+  ...(config.readConsistency.wakeBeforeWaitEnabled ? { readConsistencyGateway: {} } : {}),
+});
 const app = buildAdminSupportApiApp(runtime, {
   internalAuthSecret: config.internalAuthSecret,
   adminRegistrationEnabled: config.adminRegistrationEnabled,
   controlPlane,
-  workSignalStore: createPostgresWorkSignalStore(pools.control),
+  workSignalStore,
   getProjectionReplay: () => refreshProjectionReplaySummary(runtime),
   readConsistencyAuditLogger: logger,
+  readConsistency: {
+    ...config.readConsistency,
+    workSignalGateway: workSignalStore.readConsistencyGateway,
+  },
   readinessChecks: runtime.mountedContexts.map((entry) => ({
     name: `${entry.contextName}.database`,
     check: async () => {

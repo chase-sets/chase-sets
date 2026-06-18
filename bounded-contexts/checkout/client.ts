@@ -33,6 +33,15 @@ export type CheckoutSelectedOptionInput = Readonly<{
   optionId: string;
 }>;
 
+export type CheckoutSelectedListingSnapshotInput = Readonly<{
+  listingId: string;
+  sellerAccountId?: string | null;
+  sellerDisplayName?: string | null;
+  sellerSlug?: string | null;
+  priceAmount?: string | null;
+  source?: string | null;
+}>;
+
 export type AddCheckoutCartLineRequest = Readonly<{
   catalogItemId: string;
   productId: string;
@@ -49,6 +58,7 @@ export type AddCheckoutCartLineRequest = Readonly<{
   fulfillmentMode?: "optimize" | "locked-listing";
   lockedListingId?: string | null;
   sellerPreferenceId?: string | null;
+  selectedListingSnapshot?: CheckoutSelectedListingSnapshotInput | null;
 }>;
 
 export type AddCheckoutCartLinesRequest = Readonly<{
@@ -95,6 +105,7 @@ export type UpdateCheckoutCartLineFulfillmentRequest = Readonly<{
   lockedListingId?: string | null;
   sellerPreferenceId?: string | null;
   availabilityState?: "available" | "unavailable" | "changed" | "waiting-for-supply";
+  selectedListingSnapshot?: CheckoutSelectedListingSnapshotInput | null;
 }>;
 
 export type CheckoutEntryAttemptInput = Readonly<{

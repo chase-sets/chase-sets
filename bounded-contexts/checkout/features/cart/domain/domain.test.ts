@@ -60,6 +60,52 @@ describe("checkout cart domain", () => {
     expect(checkedOut.lastCheckedOutAt).toBe("2026-03-31T00:00:00.000Z");
   });
 
+  it("persists selected listing snapshots on locked cart lines", () => {
+    const [event] = decideCheckoutCart(initialCheckoutCartState, {
+      type: "AddCartLine",
+      buyerAccountId: "acc_buyer" as never,
+      lineId: "cli_1" as never,
+      catalogItemId: "cat_1",
+      productId: "cat_1::" as never,
+      itemTitle: "Charizard",
+      itemSubtitle: null,
+      itemImageUrl: null,
+      selectedOptions: [],
+      productSummary: null,
+      quantity: 1,
+      fulfillmentMode: "locked-listing",
+      lockedListingId: "lst_selected",
+      sellerPreferenceId: "lst_selected",
+      selectedListingSnapshot: {
+        listingId: "lst_selected",
+        sellerAccountId: "acc_seller",
+        sellerDisplayName: "Card Vault",
+        sellerSlug: "card-vault",
+        priceAmount: "25",
+        source: "discovery.item-detail.add-to-cart",
+      },
+    });
+    const state = event ? evolveCheckoutCart(initialCheckoutCartState, event) : initialCheckoutCartState;
+
+    expect(event).toMatchObject({
+      data: {
+        lockedListingId: "lst_selected",
+        selectedListingSnapshot: {
+          listingId: "lst_selected",
+          sellerAccountId: "acc_seller",
+          sellerDisplayName: "Card Vault",
+          sellerSlug: "card-vault",
+          priceAmount: "25.00",
+          source: "discovery.item-detail.add-to-cart",
+        },
+      },
+    });
+    expect(state.lines[0]?.selectedListingSnapshot).toMatchObject({
+      listingId: "lst_selected",
+      priceAmount: "25.00",
+    });
+  });
+
   it("rejects invalid cart line operations", () => {
     expect(() =>
       decideCheckoutCart(initialCheckoutCartState, {
@@ -83,5 +129,28 @@ describe("checkout cart domain", () => {
         checkedOutAt: "2026-03-31T00:00:00.000Z",
       }),
     ).toThrow("Cart has not been initialized.");
+
+    expect(() =>
+      decideCheckoutCart(initialCheckoutCartState, {
+        type: "AddCartLine",
+        buyerAccountId: "acc_buyer" as never,
+        lineId: "cli_2" as never,
+        catalogItemId: "cat_1",
+        productId: "cat_1::" as never,
+        itemTitle: "Charizard",
+        itemSubtitle: null,
+        itemImageUrl: null,
+        selectedOptions: [],
+        productSummary: null,
+        quantity: 1,
+        fulfillmentMode: "locked-listing",
+        lockedListingId: "lst_selected",
+        selectedListingSnapshot: {
+          listingId: "lst_other",
+          priceAmount: "25.00",
+          source: "discovery.item-detail.add-to-cart",
+        },
+      }),
+    ).toThrow("Selected listing snapshot must match the locked listing.");
   });
 });

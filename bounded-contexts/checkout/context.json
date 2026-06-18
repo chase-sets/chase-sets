@@ -256,14 +256,13 @@
       },
       "destination": {
         "routeId": "account-offer-submitted",
-        "transientRecovery": "Marketplace submitted-offer detail owns exact offer-page freshness and bounded fresh-write not-found retry."
+        "transientRecovery": "Checkout originates the cross-context offer handoff and preserves the Checkout receipt; Marketplace submitted-offer detail owns exact offer-page freshness and bounded fresh-write not-found retry before the buyer sees the submitted offer."
       },
       "exception": {
-        "status": "accepted",
+        "status": "not-post-write-read",
         "owner": "checkout",
         "reviewBy": "2026-07-31",
-        "issue": "#1809",
-        "reason": "Checkout only originates the cross-context offer handoff; exact destination freshness is owned by marketplace.submitted-offer-detail in the Marketplace context."
+        "reason": "Checkout only originates the offer handoff and does not own the destination read model. The post-write read is classified and enforced by marketplace.submitted-offer-detail, whose route forwards afterWrite to Marketplace offer-page freshness."
       }
     },
     {
@@ -274,7 +273,7 @@
         "routeId": "account-cart",
         "actions": ["Update Buy Cart"],
         "command": "Checkout cart commands",
-        "helperUses": ["appendFreshWriteToken"]
+        "helperUses": ["appendFreshWriteTokenFromSources"]
       },
       "destination": {
         "routeId": "account-cart",
@@ -319,11 +318,10 @@
         "transientRecovery": "Guest sell checkout revalidates checkout.sell-list-readiness.v1 from the anonymous Sell List and fails closed to Sell List readiness recovery; no label, payout, sale, settlement, notification, or account-history side effects are attempted in this slice."
       },
       "exception": {
-        "status": "accepted",
+        "status": "not-post-write-read",
         "owner": "checkout",
         "reviewBy": "2026-07-31",
-        "issue": "#1809",
-        "reason": "Guest sell checkout revalidates anonymous Sell List readiness through the existing guest Sell List API and needs bounded audit classification before seller runtime orchestration remediation."
+        "reason": "Guest sell checkout is a readiness handoff, not a projection-backed destination read: the route revalidates checkout.sell-list-readiness.v1 from the anonymous Sell List before registration and fails closed to Sell List recovery without attempting sale, payout, shipment, settlement, notification, or account-history side effects."
       }
     },
     {
@@ -355,20 +353,20 @@
   ],
   "mutationConsistencyInventory": [
     {
-      "id": "checkout.cart-quantity-optimistic-correction",
+      "id": "checkout.cart-ui-optimistic-correction",
       "owner": "checkout",
       "risk": "important",
       "strategy": "optimistic-with-correction",
       "surfaces": [
-        "fetcher-submit:bounded-contexts/checkout/features/cart/ui/cart-page.tsx:H7f1ccc11975d#1",
+        "fetcher-submit:bounded-contexts/checkout/features/cart/ui/optimistic-correction.ts:Hc481875f8ef5#1",
         "route-action:bounded-contexts/checkout/routes/account-cart.tsx"
       ],
       "visibleDestination": {
         "routeId": "account-cart",
-        "description": "Buy Cart quantity controls update visible quantity, line total, subtotal, and cart count immediately, then reconcile to the authoritative cart loader state."
+        "description": "Buy Cart quantity, remove, and preferred-listing lock controls update visible rows, line totals, subtotal, cart count, seller context, and readiness immediately, then reconcile to the authoritative cart loader state."
       },
       "proof": {
-        "correction": "The control submits absolute target quantities with optimisticStrategy=optimistic-with-correction and correctionSource=fresh-read:loader-revalidation; per-line writes are serialized and coalesced, fresh loader quantity clears the optimistic override, and route-owned errors roll back to loader truth.",
+        "correction": "The cart page uses one cart-level optimistic mutation controller that submits absolute quantity targets, remove, and preferred-listing lock writes with optimisticStrategy=optimistic-with-correction and correctionSource=fresh-read:loader-revalidation; quantity writes are serialized and coalesced per line group, stale loader data cannot replace newer optimistic cart state, fresh loader truth clears the optimistic override, and route-owned errors roll back to loader truth.",
         "tests": [
           "bounded-contexts/checkout/features/cart/ui/optimistic-correction.test.tsx",
           "bounded-contexts/checkout/features/cart/ui/cart-page.test.tsx",
@@ -413,7 +411,7 @@
         "apiContextName": "checkout",
         "apiRoutePath": "/account/cart",
         "readModelTables": ["checkout_cart_line_pages"],
-        "transientRecovery": "Buy Cart non-quantity forms submit through the account cart action, which redirects with a Checkout commit receipt; the account cart loader waits on checkout_cart_line_pages and shows temporary cart recovery for valid fresh-write projection lag."
+        "transientRecovery": "Buy Cart add-to-cart forms submit through the account cart action, which redirects with a Checkout commit receipt; the account cart loader waits on checkout_cart_line_pages and shows temporary cart recovery for valid fresh-write projection lag."
       },
       "proof": {
         "tests": [
@@ -507,6 +505,7 @@
       "risk": "critical",
       "strategy": "fresh-read",
       "surfaces": [
+        "post-form:bounded-contexts/checkout/features/cart/ui/cart-page.tsx:H2df726441e2a#1",
         "post-form:bounded-contexts/checkout/routes/checkout-start.tsx:Hb08a81ecfd73#1",
         "post-form:bounded-contexts/checkout/routes/checkout-start.tsx:Hb08a81ecfd73#2",
         "route-action:bounded-contexts/checkout/routes/checkout-start.tsx"
@@ -576,23 +575,6 @@
           "bounded-contexts/checkout/routes/sell-checkout-session-route.test.ts",
           "bounded-contexts/checkout/routes/sell-checkout-confirmation-route.test.tsx"
         ]
-      }
-    },
-    {
-      "id": "checkout.cart-non-quantity-form-migration",
-      "owner": "checkout",
-      "risk": "important",
-      "strategy": "migration",
-      "surfaces": [
-        "post-form:bounded-contexts/checkout/features/cart/ui/cart-page.tsx:H2df726441e2a#1",
-        "post-form:bounded-contexts/checkout/features/cart/ui/cart-page.tsx:H2df726441e2a#2",
-        "post-form:bounded-contexts/checkout/features/cart/ui/cart-page.tsx:H2df726441e2a#3"
-      ],
-      "exception": {
-        "owner": "checkout",
-        "issue": "#1809",
-        "reviewBy": "2026-07-31",
-        "reason": "Lock listing, remove line, and checkout-readiness forms were reclassified only because the cart page split nested forms while preserving existing behavior; full non-quantity cart mutation strategy audit remains in the #1809 baseline."
       }
     }
   ],

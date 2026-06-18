@@ -184,11 +184,10 @@
         "transientRecovery": "Import batch detail uses compatibility fresh-write not-found retries while job-backed inventory routes are classified."
       },
       "exception": {
-        "status": "accepted",
+        "status": "not-read-model-backed",
         "owner": "inventory",
         "reviewBy": "2026-07-31",
-        "issue": "#1809",
-        "reason": "Import batch route freshness is job-backed and remains a current audit/remediation classification gap."
+        "reason": "Import create and commit commands return durable InventoryImportBatchJobStatus snapshots and the page follows the job event stream; the later batch detail loader keeps compatibility fresh-write not-found retry, but the authoritative post-write contract is the job snapshot rather than a read-model freshness wait."
       }
     },
     {

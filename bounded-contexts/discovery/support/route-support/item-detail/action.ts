@@ -45,6 +45,22 @@ import {
   saveGuestSelectedOfferToSellList,
   shipFromAddressFromForm,
 } from "./action-helpers";
+import type { DiscoveryItemDetail } from "../../client-support/contracts";
+
+function selectedListingSnapshotFromListing(listing: DiscoveryItemDetail["market_listings"][number] | null) {
+  if (!listing) {
+    return null;
+  }
+
+  return {
+    listingId: listing.listing_id,
+    sellerAccountId: listing.account_id,
+    sellerDisplayName: listing.seller_display_name,
+    sellerSlug: listing.seller_slug ?? null,
+    priceAmount: listing.price_amount,
+    source: "discovery.item-detail.add-to-cart",
+  };
+}
 
 export async function action({ request, params }: ActionFunctionArgs) {
   const formData = await request.formData();
@@ -147,6 +163,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
         fulfillmentMode: lockedListingId ? ("locked-listing" as const) : ("optimize" as const),
         lockedListingId,
         sellerPreferenceId: lockedListingId,
+        selectedListingSnapshot: selectedListingSnapshotFromListing(preferredListing),
       };
 
       if (!canUseAccountCheckoutCart(actor)) {

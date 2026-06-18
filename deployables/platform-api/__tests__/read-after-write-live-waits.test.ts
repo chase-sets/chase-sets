@@ -4,7 +4,9 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+import { CHASE_SETS_READ_AFTER_WRITE_HEADER, encodeFreshWriteReceipt } from "@chase-sets/http/responses";
 import {
+  attachReadConsistencyMiddleware,
   resolveReadConsistencyDependency,
   type ReadConsistencyProjectionGroup,
 } from "@chase-sets/bounded-context-runtime";
@@ -219,6 +221,16 @@ describe("read-after-write live wait declarations", () => {
     expect(violations).toEqual([]);
   });
 
+  it("has no accepted read-after-write inventory exceptions left to burn down", () => {
+    const acceptedExceptions = diskContexts.flatMap((context) =>
+      (context.manifest.readAfterWriteRouteInventory ?? [])
+        .filter((entry) => entry.exception?.status === "accepted")
+        .map((entry) => `${context.manifest.contextName ?? context.directoryName}:${entry.id ?? "(missing id)"}`),
+    );
+
+    expect(acceptedExceptions).toEqual([]);
+  });
+
   it("keeps runtime module declarations identical to the structurally validated context.json", () => {
     for (const entry of apiContextRegistry) {
       const diskContext = diskContextsByName.get(entry.contextName);
@@ -308,6 +320,85 @@ describe("checkout exact read-after-write waits (#1225)", () => {
     expect(resolvedDependencies).toEqual([
       { targetContextName: "settlement", projectionName: "settlement-payout-projection" },
     ]);
+  });
+
+  it("blocks stale non-cart platform API command-to-GET reads before the handler runs", async () => {
+    const middlewares: ((context: unknown, next: () => Promise<void>) => Promise<unknown>)[] = [];
+    const settlementProjectionLag = async () => ({
+      lastGlobalPosition: "7",
+      sourceHeadGlobalPosition: "42",
+      state: "behind",
+      lastError: "settlement payout projection is behind",
+    });
+    const receipt = encodeFreshWriteReceipt({
+      observedAtMs: Date.now(),
+      sources: [{ sourceContextName: "settlement", maxGlobalPosition: "42", eventIds: ["evt_payout_requested"] }],
+    });
+    const settlementMounts = apiContextRegistry
+      .filter((entry) => entry.contextName === "settlement")
+      .flatMap((entry) =>
+        entry.module.apiMounts.map((mount) => ({
+          contextName: entry.contextName as string,
+          mountPath: mount.mountPath,
+          readFreshnessRoutes: mount.readFreshnessRoutes,
+        })),
+      );
+    const platformProjectionGroups: readonly ReadConsistencyProjectionGroup[] = mountedProjectionGroups.map((group) =>
+      group.targetContextName === "settlement" && group.projectionName === "settlement-payout-projection"
+        ? {
+            ...group,
+            subscriptionRunners: [{ sourceContextName: "settlement", refreshStatus: settlementProjectionLag }],
+          }
+        : group,
+    );
+
+    attachReadConsistencyMiddleware(
+      {
+        use: (_path, middleware) => {
+          middlewares.push(middleware);
+        },
+      },
+      settlementMounts,
+      platformProjectionGroups,
+      { timeoutMs: 0, pollIntervalMs: 1, exactDependencyMode: "enabled" },
+    );
+
+    let handlerRan = false;
+    const result = await middlewares[0]?.(
+      {
+        req: {
+          method: "GET",
+          path: "/api/settlement/payouts/pay_1",
+          header: (name: string) => (name === CHASE_SETS_READ_AFTER_WRITE_HEADER ? receipt : undefined),
+        },
+        json: (body: unknown, status: number) => ({ body, status }),
+      },
+      async () => {
+        handlerRan = true;
+      },
+    );
+
+    expect(handlerRan).toBe(false);
+    expect(result).toMatchObject({
+      status: 503,
+      body: {
+        error: {
+          code: "projection_freshness_timeout",
+          waitMode: "exact-dependency",
+          dependencies: [{ targetContextName: "settlement", projectionName: "settlement-payout-projection" }],
+          pending: [
+            {
+              targetContextName: "settlement",
+              projectionName: "settlement-payout-projection",
+              sourceContextName: "settlement",
+              requiredGlobalPosition: "42",
+              lastGlobalPosition: "7",
+              lastError: "present",
+            },
+          ],
+        },
+      },
+    });
   });
 
   it("keeps every critical route tuning entry matched to a live module freshness route", () => {

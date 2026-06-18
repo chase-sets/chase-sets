@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -42,6 +42,13 @@ const cartLine: CheckoutCartLine = {
   quantity: 2,
   fulfillment_mode: "optimize",
   locked_listing_id: null,
+  selected_listing_id: null,
+  selected_listing_seller_account_id: null,
+  selected_listing_seller_display_name: null,
+  selected_listing_seller_slug: null,
+  selected_listing_price_amount: null,
+  selected_listing_snapshot_source: null,
+  selected_listing_snapshot_captured_at: null,
   seller_preference_id: null,
   availability_state: "available",
   seller_options: [
@@ -74,6 +81,10 @@ const cartLine: CheckoutCartLine = {
 
 function quantitySpinbutton() {
   return screen.getByRole("spinbutton", { name: "Quantity" }) as HTMLInputElement;
+}
+
+function submittedFormData(callIndex = 0) {
+  return mockFetcherSubmit.mock.calls[callIndex]?.[0] as FormData;
 }
 
 describe("checkout cart page", () => {
@@ -155,8 +166,6 @@ describe("checkout cart page", () => {
     const markup = renderToString(<CheckoutCartPage cartLines={[cartLine, duplicateLine]} />);
 
     expect(markup).toContain('src="/fake-cdn/assets/charizard.png"');
-    expect(markup).toContain('name="lineId" value="cart_line_1"');
-    expect(markup).toContain('name="lineId" value="cart_line_2"');
     expect(markup).toContain("$1,945.00");
     expect(markup).not.toContain("Catalog item:");
     expect(markup).not.toContain("cat_charizard");
@@ -172,7 +181,7 @@ describe("checkout cart page", () => {
     expect(screen.getAllByText("$1,167.00").length).toBeGreaterThan(0);
     expect(mockFetcherSubmit).toHaveBeenCalledTimes(1);
 
-    const formData = mockFetcherSubmit.mock.calls[0]?.[0] as FormData;
+    const formData = submittedFormData();
     expect(formData.get("intent")).toBe("update-cart-line");
     expect(formData.get("quantity")).toBe("3");
     expect(formData.get("optimisticStrategy")).toBe("optimistic-with-correction");
@@ -207,6 +216,25 @@ describe("checkout cart page", () => {
 
     await waitFor(() => expect(quantitySpinbutton().value).toBe("4"));
     expect(screen.getAllByText("$1,556.00").length).toBeGreaterThan(0);
+  });
+
+  it("submits another quantity change after the first write is corrected by loader truth", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<CheckoutCartPage cartLines={[cartLine]} />);
+
+    await user.click(screen.getByRole("button", { name: "Increase" }));
+    await waitFor(() => expect(quantitySpinbutton().value).toBe("3"));
+    expect(mockFetcherSubmit).toHaveBeenCalledTimes(1);
+
+    rerender(<CheckoutCartPage cartLines={[{ ...cartLine, quantity: 3 }]} />);
+    await waitFor(() => expect(quantitySpinbutton().value).toBe("3"));
+
+    await user.click(screen.getByRole("button", { name: "Increase" }));
+
+    await waitFor(() => expect(quantitySpinbutton().value).toBe("4"));
+    expect(mockFetcherSubmit).toHaveBeenCalledTimes(2);
+    expect(submittedFormData(1).get("quantity")).toBe("4");
+    expect(submittedFormData(1).get("optimisticSequence")).toBe("2");
   });
 
   it("keeps account cart quantity and estimated total optimistic when stale loader data returns first", async () => {
@@ -252,7 +280,7 @@ describe("checkout cart page", () => {
       data: { error: "Request failed." },
       submit: mockFetcherSubmit,
     }));
-    rerender(<CheckoutCartPage cartLines={[cartLine]} errorMessage="Request failed." />);
+    rerender(<CheckoutCartPage cartLines={[cartLine]} />);
 
     await waitFor(() => expect(quantitySpinbutton().value).toBe("2"));
     expect(screen.getByText("Checkout issue")).toBeTruthy();
@@ -274,9 +302,75 @@ describe("checkout cart page", () => {
 
     await waitFor(() => expect(quantitySpinbutton().value).toBe("4"));
 
-    const formData = mockFetcherSubmit.mock.calls[0]?.[0] as FormData;
+    const formData = submittedFormData();
     expect(formData.get("quantity")).toBe("4");
     expect(formData.getAll("lineId")).toEqual(["cart_line_1", "cart_line_2"]);
+  });
+
+  it("removes a cart line optimistically and submits through the cart mutation controller", async () => {
+    const user = userEvent.setup();
+    render(<CheckoutCartPage cartLines={[cartLine]} />);
+
+    await user.click(screen.getByRole("button", { name: "Remove" }));
+
+    await waitFor(() => expect(screen.getByText("Your buy cart is empty")).toBeTruthy());
+    expect(screen.queryByText("Estimated total")).toBeNull();
+    expect(mockFetcherSubmit).toHaveBeenCalledTimes(1);
+
+    const formData = submittedFormData();
+    expect(formData.get("intent")).toBe("remove-cart-line");
+    expect(formData.getAll("lineId")).toEqual(["cart_line_1"]);
+    expect(formData.get("sellerPreferenceId")).toBe("");
+    expect(formData.get("optimisticStrategy")).toBe("optimistic-with-correction");
+    expect(formData.get("correctionSource")).toBe("fresh-read:loader-revalidation");
+    expect(formData.get("optimisticSequence")).toBe("1");
+  });
+
+  it("keeps an optimistically removed line hidden while stale loader data returns first", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<CheckoutCartPage cartLines={[cartLine]} />);
+
+    await user.click(screen.getByRole("button", { name: "Remove" }));
+    await waitFor(() => expect(screen.getByText("Your buy cart is empty")).toBeTruthy());
+
+    mockUseFetcher.mockImplementation(() => ({
+      state: "loading",
+      data: null,
+      submit: mockFetcherSubmit,
+    }));
+    rerender(<CheckoutCartPage cartLines={[cartLine]} />);
+
+    expect(screen.getByText("Your buy cart is empty")).toBeTruthy();
+    expect(screen.queryByText("Charizard")).toBeNull();
+
+    mockUseFetcher.mockImplementation(() => ({
+      state: "idle",
+      data: null,
+      submit: mockFetcherSubmit,
+    }));
+    rerender(<CheckoutCartPage cartLines={[cartLine]} />);
+
+    expect(screen.getByText("Your buy cart is empty")).toBeTruthy();
+    expect(screen.queryByText("Charizard")).toBeNull();
+  });
+
+  it("rolls back an optimistic remove when the route rejects the write", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<CheckoutCartPage cartLines={[cartLine]} />);
+
+    await user.click(screen.getByRole("button", { name: "Remove" }));
+    await waitFor(() => expect(screen.getByText("Your buy cart is empty")).toBeTruthy());
+
+    mockUseFetcher.mockImplementation(() => ({
+      state: "idle",
+      data: { error: "Request failed." },
+      submit: mockFetcherSubmit,
+    }));
+    rerender(<CheckoutCartPage cartLines={[cartLine]} />);
+
+    await waitFor(() => expect(screen.getByText("Charizard")).toBeTruthy());
+    expect(screen.getByText("Checkout issue")).toBeTruthy();
+    expect(screen.getAllByText("$778.00").length).toBeGreaterThan(0);
   });
 
   it("shows preferred listing context and a cart-side lock action", () => {
@@ -292,10 +386,55 @@ describe("checkout cart page", () => {
       "Card Vault is the starting preference. Smart Match may choose another available listing.",
     );
     expect(markup).toContain("Lock this listing");
-    expect(markup).toContain('value="lock-preferred-listing"');
-    expect(markup).toContain('name="intent"');
-    expect(markup).toContain('name="sellerPreferenceId" value="lst_card_vault"');
+    expect(markup).toContain('data-optimistic-strategy="optimistic-with-correction"');
+    expect(markup).not.toContain('value="lock-preferred-listing"');
     expect(markup).not.toContain("Locked listing");
+  });
+
+  it("locks the preferred listing optimistically and submits through the cart mutation controller", async () => {
+    const user = userEvent.setup();
+    const preferredLine: CheckoutCartLine = {
+      ...cartLine,
+      seller_preference_id: "lst_card_vault",
+    };
+    render(<CheckoutCartPage cartLines={[preferredLine]} />);
+
+    await user.click(screen.getByRole("button", { name: "Lock this listing" }));
+
+    await waitFor(() => expect(screen.getByText(/is locked for checkout unless availability changes/)).toBeTruthy());
+    expect(screen.queryByText("Preferred listing")).toBeNull();
+    expect(mockFetcherSubmit).toHaveBeenCalledTimes(1);
+
+    const formData = submittedFormData();
+    expect(formData.get("intent")).toBe("lock-preferred-listing");
+    expect(formData.getAll("lineId")).toEqual(["cart_line_1"]);
+    expect(formData.get("sellerPreferenceId")).toBe("lst_card_vault");
+    expect(formData.get("optimisticStrategy")).toBe("optimistic-with-correction");
+    expect(formData.get("correctionSource")).toBe("fresh-read:loader-revalidation");
+    expect(formData.get("optimisticSequence")).toBe("1");
+  });
+
+  it("rolls back an optimistic preferred-listing lock when the route rejects the write", async () => {
+    const user = userEvent.setup();
+    const preferredLine: CheckoutCartLine = {
+      ...cartLine,
+      seller_preference_id: "lst_card_vault",
+    };
+    const { rerender } = render(<CheckoutCartPage cartLines={[preferredLine]} />);
+
+    await user.click(screen.getByRole("button", { name: "Lock this listing" }));
+    await waitFor(() => expect(screen.getByText(/is locked for checkout unless availability changes/)).toBeTruthy());
+
+    mockUseFetcher.mockImplementation(() => ({
+      state: "idle",
+      data: { error: "Request failed." },
+      submit: mockFetcherSubmit,
+    }));
+    rerender(<CheckoutCartPage cartLines={[preferredLine]} />);
+
+    await waitFor(() => expect(screen.getByText("Preferred listing")).toBeTruthy());
+    expect(screen.getByRole("button", { name: "Lock this listing" })).toBeTruthy();
+    expect(screen.getByText("Checkout issue")).toBeTruthy();
   });
 
   it("shows an exact price with no indicative prefix for a locked listing", () => {
@@ -310,6 +449,41 @@ describe("checkout cart page", () => {
     // Locked listing → exact line price (2 × $395.00), no "from" prefix on it.
     expect(markup).toContain("$790.00");
     expect(markup).toContain("is locked for checkout unless availability changes.");
+  });
+
+  it("uses the selected listing snapshot when seller options do not include the locked listing", () => {
+    const lockedSnapshotLine: CheckoutCartLine = {
+      ...cartLine,
+      fulfillment_mode: "locked-listing",
+      locked_listing_id: "lst_hobby_shop",
+      selected_listing_id: "lst_hobby_shop",
+      selected_listing_seller_account_id: "acc_hobby_shop",
+      selected_listing_seller_display_name: "Hobby Shop",
+      selected_listing_seller_slug: "hobby-shop",
+      selected_listing_price_amount: "395.00",
+      selected_listing_snapshot_source: "discovery.item-detail.add-to-cart",
+      selected_listing_snapshot_captured_at: "2026-06-18T00:00:00.000Z",
+      seller_options: [
+        {
+          listing_id: "lst_card_vault",
+          seller_account_id: "acc_card_vault",
+          seller_slug: "card-vault",
+          seller_display_name: "Card Vault",
+          seller_average_rating: "4.90",
+          seller_review_count: 12,
+          price_amount: "389.00",
+          available_quantity: 2,
+          product_summary: "Form: Raw | Condition: Near Mint",
+        },
+      ],
+    };
+
+    const markup = renderToString(<CheckoutCartPage cartLines={[lockedSnapshotLine]} />);
+
+    expect(markup).toContain("Hobby Shop");
+    expect(markup).toContain("$790.00");
+    expect(markup).not.toContain("$778.00");
+    expect(markup).not.toContain(">from</p>");
   });
 
   it("falls back to the Standard badge when product_summary yields no options", () => {
@@ -502,16 +676,24 @@ describe("checkout cart page", () => {
     expect(markup).not.toContain("Check out");
   });
 
-  it("shows pending add-to-cart recovery instead of the normal empty-cart state", () => {
+  it("shows pending fresh-write recovery instead of the normal empty-cart state", () => {
     const markup = renderToString(
       <CheckoutCartPage
         cartLines={[]}
-        pendingEmptyMessage="Your item was added. The Buy Cart is catching up before checkout continues."
+        recoveryState={{
+          kind: "pending-fresh-write",
+          message: "We saved your cart change and are refreshing the cart view.",
+          refreshHref: "/account/cart?afterWrite=receipt",
+          isAutoRevalidating: true,
+        }}
       />,
     );
 
-    expect(markup).toContain("Adding your item");
-    expect(markup).toContain("Your item was added. The Buy Cart is catching up before checkout continues.");
+    expect(markup).toContain("Your cart is catching up");
+    expect(markup).toContain("We saved your cart change and are refreshing the cart view.");
+    expect(markup).toContain("Updating cart");
+    expect(markup).toContain("Refresh cart");
+    expect(markup).toContain('href="/account/cart?afterWrite=receipt"');
     expect(markup).not.toContain("Your buy cart is empty");
     expect(markup).not.toContain("Browse the marketplace and add a product to start building a Buy Cart checkout.");
   });

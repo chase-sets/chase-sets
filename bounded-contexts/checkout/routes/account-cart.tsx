@@ -1,10 +1,12 @@
 import { t } from "@chase-sets/localization";
+import { useEffect, useRef, useState } from "react";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useActionData, useLoaderData } from "react-router";
+import { redirect, useActionData, useLoaderData, useLocation, useNavigate, useNavigation } from "react-router";
 import {
-  appendFreshWriteToken,
+  appendFreshWriteTokenFromSources,
   evaluatePostWriteHandoff,
   loadFreshlyWrittenResource,
+  readFreshWriteTokenState,
   readPostWriteHandoffState,
   recoverFreshWriteReadError,
   type PostWriteHandoffState,
@@ -25,13 +27,23 @@ import {
 import { CheckoutCartPage } from "../features/cart/ui/cart-page";
 
 const MARKETPLACE_DESCRIPTION = t("checkout.routes.accountCart.review.cart.lines.adjust.quantity.and");
+const CART_RECOVERY_REVALIDATE_INTERVAL_MS = 2_000;
+const CART_RECOVERY_MAX_REVALIDATIONS = 15;
 
 function canUseAccountCart(actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>) {
   return Boolean(actor && !actor.permissions.includes("guest-checkout.manage"));
 }
 
-function latestWriteResult(results: readonly unknown[]): unknown {
-  return [...results].reverse().find((result) => result !== undefined && result !== null) ?? null;
+async function writeCartCommandsInOrder(writes: readonly (() => Promise<unknown>)[]) {
+  const results: unknown[] = [];
+  for (const write of writes) {
+    results.push(await write());
+  }
+  return results;
+}
+
+function redirectToFreshAccountCart(writeResults: readonly unknown[]) {
+  return redirect(appendFreshWriteTokenFromSources("/account/cart", writeResults));
 }
 
 function checkoutApiErrorStatus(error: unknown) {
@@ -143,8 +155,10 @@ async function loadCartWithPostWriteRecovery<TCart extends { items: readonly unk
       );
       return {
         cart,
-        freshnessError: null,
-        pendingCartMessage: t("checkout.routes.accountCart.adding.item.description"),
+        cartRecovery: {
+          kind: "pending-fresh-write" as const,
+          message: t("checkout.routes.accountCart.adding.item.description"),
+        },
       };
     } else {
       recordAccountCartSemanticHandoffOutcome(
@@ -155,7 +169,7 @@ async function loadCartWithPostWriteRecovery<TCart extends { items: readonly unk
       );
     }
 
-    return { cart, freshnessError: null, pendingCartMessage: null };
+    return { cart, cartRecovery: null };
   } catch (error) {
     const recovery = recoverFreshWriteReadError({
       request,
@@ -164,9 +178,11 @@ async function loadCartWithPostWriteRecovery<TCart extends { items: readonly unk
       getErrorCode: checkoutApiErrorCode,
       getBody: checkoutApiErrorBody,
       recoverTransient: () => ({
-        cart: { items: [], count: 0 },
-        freshnessError: t("checkout.routes.accountCart.request.failed"),
-        pendingCartMessage: null,
+        cart: null,
+        cartRecovery: {
+          kind: "pending-fresh-write" as const,
+          message: t("checkout.routes.accountCart.cart.pending.fresh.write"),
+        },
       }),
     });
     if (recovery) {
@@ -224,26 +240,28 @@ export async function action({ request }: ActionFunctionArgs) {
       );
 
       if (!useAccountCart && anonymousCartId) {
-        const results = await Promise.all([
-          api.updateGuestCartLineQuantity(anonymousCartId, primaryLineId ?? "", {
-            quantity: nextQuantity,
-          }),
-          ...duplicateLineIds.map((lineId) => api.removeGuestCartLine(anonymousCartId, lineId)),
+        const results = await writeCartCommandsInOrder([
+          () =>
+            api.updateGuestCartLineQuantity(anonymousCartId, primaryLineId ?? "", {
+              quantity: nextQuantity,
+            }),
+          ...duplicateLineIds.map((lineId) => () => api.removeGuestCartLine(anonymousCartId, lineId)),
         ]);
-        return redirect(appendFreshWriteToken("/account/cart", latestWriteResult(results)));
+        return redirectToFreshAccountCart(results);
       }
 
       if (!useAccountCart) {
         throw new Error(t("checkout.routes.accountCart.request.failed"));
       }
 
-      const results = await Promise.all([
-        api.updateCartLineQuantity(primaryLineId ?? "", {
-          quantity: nextQuantity,
-        }),
-        ...duplicateLineIds.map((lineId) => api.removeCartLine(lineId)),
+      const results = await writeCartCommandsInOrder([
+        () =>
+          api.updateCartLineQuantity(primaryLineId ?? "", {
+            quantity: nextQuantity,
+          }),
+        ...duplicateLineIds.map((lineId) => () => api.removeCartLine(lineId)),
       ]);
-      return redirect(appendFreshWriteToken("/account/cart", latestWriteResult(results)));
+      return redirectToFreshAccountCart(results);
     }
 
     if (intent === "lock-preferred-listing") {
@@ -261,34 +279,38 @@ export async function action({ request }: ActionFunctionArgs) {
       };
 
       if (!useAccountCart && anonymousCartId) {
-        const results = await Promise.all(
-          lineIds.map((lineId) => api.updateGuestCartLineFulfillment(anonymousCartId, lineId, fulfillment)),
+        const results = await writeCartCommandsInOrder(
+          lineIds.map((lineId) => () => api.updateGuestCartLineFulfillment(anonymousCartId, lineId, fulfillment)),
         );
-        return redirect(appendFreshWriteToken("/account/cart", latestWriteResult(results)));
+        return redirectToFreshAccountCart(results);
       }
 
       if (!useAccountCart) {
         throw new Error(t("checkout.routes.accountCart.request.failed"));
       }
 
-      const results = await Promise.all(lineIds.map((lineId) => api.updateCartLineFulfillment(lineId, fulfillment)));
-      return redirect(appendFreshWriteToken("/account/cart", latestWriteResult(results)));
+      const results = await writeCartCommandsInOrder(
+        lineIds.map((lineId) => () => api.updateCartLineFulfillment(lineId, fulfillment)),
+      );
+      return redirectToFreshAccountCart(results);
     }
 
     if (intent === "remove-cart-line") {
       const lineIds = cartLineIdsFromForm(formData);
 
       if (!useAccountCart && anonymousCartId) {
-        const results = await Promise.all(lineIds.map((lineId) => api.removeGuestCartLine(anonymousCartId, lineId)));
-        return redirect(appendFreshWriteToken("/account/cart", latestWriteResult(results)));
+        const results = await writeCartCommandsInOrder(
+          lineIds.map((lineId) => () => api.removeGuestCartLine(anonymousCartId, lineId)),
+        );
+        return redirectToFreshAccountCart(results);
       }
 
       if (!useAccountCart) {
         throw new Error(t("checkout.routes.accountCart.request.failed"));
       }
 
-      const results = await Promise.all(lineIds.map((lineId) => api.removeCartLine(lineId)));
-      return redirect(appendFreshWriteToken("/account/cart", latestWriteResult(results)));
+      const results = await writeCartCommandsInOrder(lineIds.map((lineId) => () => api.removeCartLine(lineId)));
+      return redirectToFreshAccountCart(results);
     }
 
     return null;
@@ -305,17 +327,121 @@ export const meta: MetaFunction = () =>
     description: MARKETPLACE_DESCRIPTION,
   });
 
+function usePendingCartRecoveryRevalidation(enabled: boolean) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const navigation = useNavigation();
+  const currentPath = `${location.pathname}${location.search}${location.hash}`;
+  const navigateRef = useRef(navigate);
+  const navigationStateRef = useRef(navigation.state);
+  const attemptCountRef = useRef(0);
+  const finalAttemptDoneRef = useRef(false);
+  const [isAutoRevalidating, setIsAutoRevalidating] = useState(false);
+
+  useEffect(() => {
+    navigateRef.current = navigate;
+    navigationStateRef.current = navigation.state;
+  });
+
+  useEffect(() => {
+    if (!enabled) {
+      attemptCountRef.current = 0;
+      finalAttemptDoneRef.current = false;
+      setIsAutoRevalidating(false);
+      return;
+    }
+
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    attemptCountRef.current = 0;
+    finalAttemptDoneRef.current = false;
+
+    function hasAttemptBudget() {
+      return attemptCountRef.current < CART_RECOVERY_MAX_REVALIDATIONS;
+    }
+
+    function revalidateCurrentPath() {
+      if (!hasAttemptBudget()) {
+        return;
+      }
+      attemptCountRef.current += 1;
+      void navigateRef.current(currentPath, { replace: true, preventScrollReset: true });
+    }
+
+    function runFinalRevalidation() {
+      if (finalAttemptDoneRef.current || !hasAttemptBudget()) {
+        return;
+      }
+
+      finalAttemptDoneRef.current = true;
+      revalidateCurrentPath();
+    }
+
+    function tick() {
+      timeout = null;
+      const tokenState = readFreshWriteTokenState(currentPath);
+
+      if (tokenState.kind === "valid" && hasAttemptBudget()) {
+        if (navigationStateRef.current === "idle") {
+          revalidateCurrentPath();
+        }
+
+        timeout = setTimeout(tick, CART_RECOVERY_REVALIDATE_INTERVAL_MS);
+        return;
+      }
+
+      if (tokenState.kind === "expired") {
+        runFinalRevalidation();
+      }
+
+      setIsAutoRevalidating(false);
+    }
+
+    const initialTokenState = readFreshWriteTokenState(currentPath);
+    if (initialTokenState.kind === "expired") {
+      runFinalRevalidation();
+      setIsAutoRevalidating(false);
+      return;
+    }
+
+    if (initialTokenState.kind !== "valid" || !hasAttemptBudget()) {
+      setIsAutoRevalidating(false);
+      return;
+    }
+
+    setIsAutoRevalidating(true);
+    timeout = setTimeout(tick, CART_RECOVERY_REVALIDATE_INTERVAL_MS);
+
+    return () => {
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+    };
+  }, [currentPath, enabled]);
+
+  return { isAutoRevalidating };
+}
+
 export default function CheckoutAccountCartRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
-  const freshnessError = "freshnessError" in data ? data.freshnessError : null;
-  const pendingCartMessage = "pendingCartMessage" in data ? data.pendingCartMessage : null;
+  const location = useLocation();
+  const currentPath = `${location.pathname}${location.search}${location.hash}`;
+  const cartRecovery = "cartRecovery" in data ? data.cartRecovery : null;
+  const { isAutoRevalidating } = usePendingCartRecoveryRevalidation(cartRecovery?.kind === "pending-fresh-write");
 
   return (
     <CheckoutCartPage
-      cartLines={data.cart.items}
-      errorMessage={actionData?.error ?? freshnessError}
-      pendingEmptyMessage={pendingCartMessage}
+      cartLines={data.cart?.items ?? []}
+      errorMessage={actionData?.error ?? null}
+      recoveryState={
+        cartRecovery
+          ? {
+              ...cartRecovery,
+              refreshHref: currentPath,
+              isAutoRevalidating,
+            }
+          : null
+      }
     />
   );
 }
