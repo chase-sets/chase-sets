@@ -17,6 +17,7 @@ export interface DataColumn<T> {
 export interface DataTableProps<T> extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
   rows: T[];
   columns: DataColumn<T>[];
+  caption?: ReactNode;
   mobileMode?: "stack" | "scroll";
   getRowId?: (row: T, index: number) => string;
   emptyTitle?: ReactNode;
@@ -37,6 +38,7 @@ const skeletonWidths = ["w-3/4", "w-1/2", "w-2/3", "w-5/6", "w-2/5"] as const;
 export function DataTable<T>({
   rows,
   columns,
+  caption,
   mobileMode = "stack",
   getRowId,
   emptyTitle = "Nothing to review",
@@ -137,7 +139,7 @@ export function DataTable<T>({
   }
 
   const table = (
-    <TableShell surface="inset">
+    <TableShell surface="inset" caption={caption}>
       <thead>
         <TableRow head surface="inset">
           {selectable ? (

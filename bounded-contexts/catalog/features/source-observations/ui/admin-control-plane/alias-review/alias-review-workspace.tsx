@@ -209,6 +209,7 @@ export function CatalogIntegrationAliasReviewWorkspace({
         <DataTable
           rows={[...readModel.candidates]}
           columns={columns}
+          caption={t("catalog.features.sourceObservations.ui.aliasReview.title")}
           getRowId={(row) => row.aliasHash}
           selectedKeys={selectedAliasHashes}
           onSelectionChange={setSelectedAliasHashes}

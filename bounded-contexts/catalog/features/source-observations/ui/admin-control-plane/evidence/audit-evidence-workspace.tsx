@@ -103,6 +103,7 @@ export function CatalogIntegrationAuditEvidenceWorkspace({
         <DataTable
           rows={[...audit.filters]}
           columns={filterColumns}
+          caption={t("catalog.features.sourceObservations.ui.auditEvidence.filters.title")}
           getRowId={(filter) => filter.key}
           density="compact"
           emptyTitle={t("catalog.features.sourceObservations.ui.auditEvidence.filters.emptyTitle")}
@@ -120,6 +121,7 @@ export function CatalogIntegrationAuditEvidenceWorkspace({
           <DataTable
             rows={[...audit.timeline]}
             columns={timelineColumns}
+            caption={t("catalog.features.sourceObservations.ui.auditEvidence.timeline.title")}
             getRowId={(row) => row.eventId}
             density="compact"
           />
@@ -140,6 +142,7 @@ export function CatalogIntegrationAuditEvidenceWorkspace({
         <DataTable
           rows={[...audit.evidenceLinks]}
           columns={linkColumns}
+          caption={t("catalog.features.sourceObservations.ui.auditEvidence.links.title")}
           getRowId={(link) => link.key}
           density="compact"
           emptyTitle={t("catalog.features.sourceObservations.ui.auditEvidence.links.emptyTitle")}

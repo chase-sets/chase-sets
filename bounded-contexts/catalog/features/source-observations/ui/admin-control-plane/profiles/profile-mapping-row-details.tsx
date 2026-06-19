@@ -94,7 +94,12 @@ export function MappingRowDetails({ workspace }: { workspace: ProfileSectionWork
       )}
       status={<Badge tone="neutral">{workspace.mappingRows.length}</Badge>}
     >
-      <DataTable rows={[...workspace.mappingRows]} columns={columns} getRowId={(row) => row.key} />
+      <DataTable
+        rows={[...workspace.mappingRows]}
+        columns={columns}
+        caption={t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.mappingRows.title")}
+        getRowId={(row) => row.key}
+      />
     </EvidencePanel>
   );
 }

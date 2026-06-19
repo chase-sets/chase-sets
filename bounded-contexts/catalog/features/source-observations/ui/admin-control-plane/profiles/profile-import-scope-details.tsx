@@ -105,7 +105,12 @@ export function ImportScopeControlDetails({ workspace }: { workspace: ProfileSec
       )}
       status={<Badge tone="neutral">{workspace.importScopeControls.length}</Badge>}
     >
-      <DataTable rows={[...workspace.importScopeControls]} columns={columns} getRowId={(scope) => scope.scope} />
+      <DataTable
+        rows={[...workspace.importScopeControls]}
+        columns={columns}
+        caption={t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.importScopes.title")}
+        getRowId={(scope) => scope.scope}
+      />
     </EvidencePanel>
   );
 }

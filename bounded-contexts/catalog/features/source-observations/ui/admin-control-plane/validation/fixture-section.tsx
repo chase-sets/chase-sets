@@ -36,6 +36,7 @@ export function FixtureSection({ validation }: { validation: ValidationReadiness
       <DataTable
         rows={[...validation.fixtureFlows]}
         columns={fixtureColumns}
+        caption={t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.fixture.title")}
         getRowId={(row) => row.flow}
         density="compact"
         emptyTitle={t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.fixture.emptyTitle")}

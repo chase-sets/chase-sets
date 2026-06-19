@@ -91,6 +91,7 @@ export function CatalogIntegrationLifecycleRecoveryWorkspace({
         <DataTable
           rows={[...lifecycle.profiles]}
           columns={profileColumns}
+          caption={t("catalog.features.sourceObservations.ui.lifecycleRecovery.profileCandidates.title")}
           getRowId={(profile) => `${profile.providerKey}:${profile.profileVersion}`}
           density="compact"
           emptyTitle={t("catalog.features.sourceObservations.ui.lifecycleRecovery.profileCandidates.emptyTitle")}
@@ -143,6 +144,7 @@ export function CatalogIntegrationLifecycleRecoveryWorkspace({
           <DataTable
             rows={[...lifecycle.recentAuditEvents]}
             columns={auditColumns}
+            caption={t("catalog.features.sourceObservations.ui.lifecycleRecovery.audit.title")}
             getRowId={(event) => event.eventId}
             density="compact"
           />

@@ -45,6 +45,17 @@ describe("TableShell scaffolding", () => {
     expect(wrapper).not.toBeNull();
     expect(wrapper?.querySelector("table")?.className).toBe("min-w-full border-collapse text-left text-sm");
   });
+
+  it("forwards DataTable captions to the table shell as a hidden accessible name", () => {
+    const { container } = render(
+      <DataTable rows={baseRows} columns={baseColumns} caption="Catalog profile versions" mobileMode="scroll" />,
+    );
+
+    expect(screen.getByRole("table", { name: "Catalog profile versions" })).toBeTruthy();
+    const caption = container.querySelector("caption");
+    expect(caption?.textContent).toBe("Catalog profile versions");
+    expect(caption?.className).toBe("sr-only");
+  });
 });
 
 describe("DataTable density", () => {

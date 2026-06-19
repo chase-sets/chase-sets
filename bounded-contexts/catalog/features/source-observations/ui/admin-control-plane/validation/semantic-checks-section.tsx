@@ -51,6 +51,7 @@ export function SemanticCompareSection({ validation }: { validation: ValidationR
         <DataTable
           rows={[...validation.semanticCompare.sections]}
           columns={semanticColumns}
+          caption={t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.compare.title")}
           getRowId={(row) => row.sectionKey}
           density="compact"
           emptyTitle={t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.compare.emptyTitle")}

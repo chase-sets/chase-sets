@@ -37,6 +37,7 @@ export function DryRunSection({ validation }: { validation: ValidationReadiness 
       <DataTable
         rows={[...validation.dryRunEvidence]}
         columns={dryRunColumns}
+        caption={t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.dryRun.title")}
         getRowId={(row, index) => `${row.externalKey}-${index}`}
         density="compact"
         emptyTitle={t("catalog.features.sourceObservations.ui.primaryWorkbench.validation.dryRun.emptyTitle")}

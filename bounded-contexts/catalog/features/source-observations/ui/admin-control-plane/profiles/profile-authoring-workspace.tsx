@@ -245,6 +245,7 @@ export function CatalogIntegrationProfileAuthoringWorkspace({
         <DataTable
           rows={[...authoring.availableProfiles]}
           columns={columns}
+          caption={t("catalog.features.sourceObservations.ui.primaryWorkbench.profile.list.title")}
           getRowId={(profile) => `${profile.providerKey}:${profile.profileVersion}`}
         />
       </WorkflowModule>
