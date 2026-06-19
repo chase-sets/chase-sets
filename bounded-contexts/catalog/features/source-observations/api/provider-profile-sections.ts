@@ -1,5 +1,5 @@
 import type { CatalogIntegrationUnitKey } from "./integration-unit";
-import { defineCatalogIntegrationUnitKey, parseCatalogIntegrationUnitKey } from "./integration-unit";
+import { parseCatalogIntegrationUnitKey } from "./integration-unit";
 import type {
   CatalogProviderIntegrationProfileMigrationEvidence,
   CatalogProviderIntegrationProfileVersionDiagnostic,
@@ -7,20 +7,24 @@ import type {
 } from "./provider-integration-profiles";
 import { validateCatalogProviderIntegrationProfileVersion } from "./provider-integration-profiles";
 import type {
+  CatalogProviderIngestionPurpose,
+  CatalogProviderIngestionUnitIdentityContract,
+  CatalogProviderIngestionUnitProductDomain,
+  CatalogProviderIngestionUnitProductForm,
   CatalogProviderProfileFixtureFlow,
   CatalogProviderProfileLifecycle,
 } from "./provider-integration-mapping-contract";
-import { catalogProviderRequiredFixtureFlows } from "./provider-integration-mapping-contract";
-
-export type CatalogProviderIngestionUnitProductDomain = "pokemon" | "mtg";
-export type CatalogProviderIngestionUnitProductForm = "single-card" | "sealed-product";
+import {
+  catalogProviderRequiredFixtureFlows,
+  defineCatalogProviderIngestionUnitIdentityContract,
+} from "./provider-integration-mapping-contract";
 
 export type CatalogProviderIngestionUnitProfileIdentity = Readonly<{
   unitKey: CatalogIntegrationUnitKey;
   providerKey: string;
   productDomain: CatalogProviderIngestionUnitProductDomain;
   productForm: CatalogProviderIngestionUnitProductForm;
-  ingestionPurpose: "source-observation-import";
+  ingestionPurpose: CatalogProviderIngestionPurpose;
   displayName: string;
 }>;
 
@@ -247,6 +251,7 @@ export function defineCatalogProviderIngestionUnitProfileIdentity(
     providerKey: string;
     productDomain: CatalogProviderIngestionUnitProductDomain;
     productForm: CatalogProviderIngestionUnitProductForm | "raw-card" | "graded-card";
+    ingestionPurpose?: CatalogProviderIngestionPurpose;
     displayName: string;
   }>,
 ): CatalogProviderIngestionUnitProfileIdentity {
@@ -256,20 +261,15 @@ export function defineCatalogProviderIngestionUnitProfileIdentity(
     );
   }
 
-  const unitKey = defineCatalogIntegrationUnitKey({
+  const identity = defineCatalogProviderIngestionUnitIdentityContract({
     providerKey: input.providerKey,
     productDomain: input.productDomain,
     productForm: input.productForm,
-    ingestionPurpose: "source-observation-import",
+    ingestionPurpose: input.ingestionPurpose ?? "source-observation-import",
   });
-  const parsed = parseCatalogIntegrationUnitKey(unitKey);
 
   return {
-    unitKey,
-    providerKey: parsed.providerKey,
-    productDomain: parsed.productDomain as CatalogProviderIngestionUnitProductDomain,
-    productForm: parsed.productForm as CatalogProviderIngestionUnitProductForm,
-    ingestionPurpose: "source-observation-import",
+    ...identity,
     displayName: input.displayName,
   };
 }
@@ -539,12 +539,26 @@ export function catalogProviderProfileModelsRawGradedAsConditionSemantics(
 function inferCatalogProviderIngestionUnitProfileIdentity(
   version: CatalogProviderIntegrationProfileVersionRecord,
 ): CatalogProviderIngestionUnitProfileIdentity {
+  if (version.ingestionUnitIdentity) {
+    return toProfileIdentity(version.ingestionUnitIdentity, version.profile.displayName);
+  }
+
   return defineCatalogProviderIngestionUnitProfileIdentity({
     providerKey: version.providerKey,
     productDomain: inferProductDomain(version),
     productForm: inferProductForm(version),
     displayName: `${version.profile.displayName} ${inferProductDomain(version)} ${inferProductForm(version)}`,
   });
+}
+
+function toProfileIdentity(
+  identity: CatalogProviderIngestionUnitIdentityContract,
+  displayName: string,
+): CatalogProviderIngestionUnitProfileIdentity {
+  return {
+    ...identity,
+    displayName,
+  };
 }
 
 function inferProductDomain(
@@ -641,6 +655,36 @@ function validateIngestionUnitIdentity(
         "ingestion-unit-provider-mismatch",
         "ingestionUnit.providerKey",
         "Ingestion unit provider key must match the provider profile version.",
+      ),
+    );
+  }
+
+  let parsed: ReturnType<typeof parseCatalogIntegrationUnitKey> | null;
+  try {
+    parsed = parseCatalogIntegrationUnitKey(identity.unitKey);
+  } catch {
+    diagnostics.push(
+      diagnostic(
+        "ingestion-unit-invalid-key",
+        "ingestionUnit.unitKey",
+        "Ingestion unit key must use provider, product domain, product form, and ingestion purpose segments.",
+      ),
+    );
+    parsed = null;
+  }
+
+  if (
+    parsed &&
+    (parsed.providerKey !== identity.providerKey ||
+      parsed.productDomain !== identity.productDomain ||
+      parsed.productForm !== identity.productForm ||
+      parsed.ingestionPurpose !== identity.ingestionPurpose)
+  ) {
+    diagnostics.push(
+      diagnostic(
+        "ingestion-unit-key-mismatch",
+        "ingestionUnit.unitKey",
+        "Ingestion unit key must match the declared provider, product domain, product form, and ingestion purpose.",
       ),
     );
   }

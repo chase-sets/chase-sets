@@ -10,6 +10,11 @@ import {
   evaluateCatalogProviderProfileLifecyclePolicy,
 } from "./provider-profile-sections";
 import {
+  defineCatalogProviderIngestionUnitIdentityContract,
+  type CatalogProviderIngestionPurpose,
+  type CatalogProviderIngestionUnitProductForm,
+} from "./provider-integration-mapping-contract";
+import {
   catalogProviderIntegrationProfileVersions,
   type CatalogProviderIntegrationProfileVersionRecord,
 } from "./provider-integration-profiles";
@@ -64,6 +69,77 @@ describe("Catalog provider profile section domain", () => {
         displayName: "TCGplayer graded Pokemon cards",
       }),
     ).toThrow("Raw and graded cards must be modeled as condition/certification semantics inside a single-card");
+  });
+
+  it("represents production Magic ingestion-unit identities by provider, domain, form, and purpose", () => {
+    const magicUnits = [
+      ["mtgjson", "set", "reference-data"],
+      ["mtgjson", "single-card", "reference-data"],
+      ["scryfall", "single-card", "image-evidence"],
+      ["scryfall", "single-card", "source-observation-import"],
+      ["tcgplayer", "single-card", "source-observation-import"],
+      ["tcgplayer", "sealed-product", "source-observation-import"],
+    ] as const satisfies readonly (readonly [
+      string,
+      CatalogProviderIngestionUnitProductForm,
+      CatalogProviderIngestionPurpose,
+    ])[];
+
+    const unitKeys = magicUnits.map(
+      ([providerKey, productForm, ingestionPurpose]) =>
+        defineCatalogProviderIngestionUnitProfileIdentity({
+          providerKey,
+          productDomain: "mtg",
+          productForm,
+          ingestionPurpose,
+          displayName: `${providerKey} MTG ${productForm} ${ingestionPurpose}`,
+        }).unitKey,
+    );
+
+    expect(unitKeys).toEqual([
+      "mtgjson:mtg:set:reference-data",
+      "mtgjson:mtg:single-card:reference-data",
+      "scryfall:mtg:single-card:image-evidence",
+      "scryfall:mtg:single-card:source-observation-import",
+      "tcgplayer:mtg:single-card:source-observation-import",
+      "tcgplayer:mtg:sealed-product:source-observation-import",
+    ]);
+  });
+
+  it("uses explicit ingestion-unit profile identity when inference is too narrow for Magic units", () => {
+    const baseVersion = catalogProviderIntegrationProfileVersions.find(
+      (version) => version.providerKey === "tcgplayer",
+    )!;
+    const version = {
+      ...baseVersion,
+      providerKey: "mtgjson",
+      profileKey: "mtgjson-mtg-set-reference-data",
+      ingestionUnitIdentity: defineCatalogProviderIngestionUnitIdentityContract({
+        providerKey: "mtgjson",
+        productDomain: "mtg",
+        productForm: "set",
+        ingestionPurpose: "reference-data",
+      }),
+      profile: {
+        ...baseVersion.profile,
+        providerKey: "mtgjson",
+        displayName: "MTGJSON MTG Set Reference Data",
+        status: "planned",
+        capabilities: ["provider-option-query"],
+      },
+      executableMappingContract: undefined,
+    } as CatalogProviderIntegrationProfileVersionRecord;
+
+    const sections = assembleCatalogProviderIngestionUnitProfileSections(version);
+
+    expect(sections.ingestionUnitIdentity.value).toMatchObject({
+      unitKey: "mtgjson:mtg:set:reference-data",
+      providerKey: "mtgjson",
+      productDomain: "mtg",
+      productForm: "set",
+      ingestionPurpose: "reference-data",
+    });
+    expect(sections.ingestionUnitIdentity.validation.status).toBe("valid");
   });
 
   it("exposes activation readiness inputs and lifecycle policy decisions", () => {

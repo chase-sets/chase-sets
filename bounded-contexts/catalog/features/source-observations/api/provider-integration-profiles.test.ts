@@ -18,6 +18,7 @@ import {
 } from "./provider-integration-profiles";
 import {
   catalogProviderRequiredFixtureFlows,
+  defineCatalogProviderIngestionUnitIdentityContract,
   type CatalogProviderExecutableMappingContract,
   type CatalogProviderMappingEvidenceOwner,
   type CatalogProviderMappingEvidenceUse,
@@ -363,6 +364,31 @@ describe("catalog provider integration profiles", () => {
         expect.objectContaining({ code: "missing-executable-mapping-contract" }),
       ]),
     );
+  });
+
+  it("blocks explicit ingestion-unit identity drift between profile versions and executable contracts", () => {
+    const tcgplayerVersion = executableTcgplayerVersion();
+
+    expect(
+      validateCatalogProviderIntegrationProfileVersion({
+        ...tcgplayerVersion,
+        ingestionUnitIdentity: defineCatalogProviderIngestionUnitIdentityContract({
+          providerKey: "tcgplayer",
+          productDomain: "mtg",
+          productForm: "sealed-product",
+          ingestionPurpose: "source-observation-import",
+        }),
+        executableMappingContract: {
+          ...tcgplayerVersion.executableMappingContract!,
+          ingestionUnitIdentity: defineCatalogProviderIngestionUnitIdentityContract({
+            providerKey: "tcgplayer",
+            productDomain: "mtg",
+            productForm: "single-card",
+            ingestionPurpose: "source-observation-import",
+          }),
+        },
+      }),
+    ).toEqual(expect.arrayContaining([expect.objectContaining({ code: "ingestion-unit-identity-mismatch" })]));
   });
 
   it("activates a validated executable profile version and deprecates the prior active version", () => {

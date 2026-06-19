@@ -2,6 +2,7 @@ import type { JsonValue } from "@chase-sets/primitives/json";
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import type {
   CatalogProviderExecutableMappingContract,
+  CatalogProviderIngestionUnitIdentityContract,
   CatalogProviderMappingContractDiagnostic,
   CatalogProviderMappingSourceContract,
   CatalogProviderProfileFixtureContract,
@@ -415,6 +416,7 @@ export type CatalogProviderIntegrationProfileVersionRecord = Readonly<{
   providerKey: string;
   profileKey: string;
   profileVersion: string;
+  ingestionUnitIdentity?: CatalogProviderIngestionUnitIdentityContract;
   lifecycle: CatalogProviderProfileLifecycle;
   active: boolean;
   profile: CatalogProviderIntegrationProfile;
@@ -429,6 +431,7 @@ export type CatalogProviderIntegrationProfileVersionRecord = Readonly<{
 export type CatalogProviderIntegrationProfileVersionDiagnostic = Readonly<{
   code:
     | "provider-key-mismatch"
+    | "ingestion-unit-identity-mismatch"
     | "missing-profile-version"
     | "missing-profile-fixture-flow"
     | "fixture-live-provider-calls"
@@ -1524,6 +1527,17 @@ export function validateCatalogProviderIntegrationProfileVersion(
     });
   }
 
+  if (
+    version.ingestionUnitIdentity &&
+    !sameIngestionUnitIdentity(version.ingestionUnitIdentity, version.executableMappingContract.ingestionUnitIdentity)
+  ) {
+    diagnostics.push({
+      code: "ingestion-unit-identity-mismatch",
+      path: "executableMappingContract.ingestionUnitIdentity",
+      diagnosticText: "The executable mapping contract ingestion-unit identity must match the profile version record.",
+    });
+  }
+
   for (const mappingDiagnostic of validateCatalogProviderExecutableMappingContract(version.executableMappingContract)) {
     diagnostics.push({
       code: "mapping-contract-diagnostic",
@@ -1534,6 +1548,23 @@ export function validateCatalogProviderIntegrationProfileVersion(
   }
 
   return diagnostics;
+}
+
+function sameIngestionUnitIdentity(
+  expected: CatalogProviderIngestionUnitIdentityContract,
+  actual: CatalogProviderIngestionUnitIdentityContract | undefined,
+): boolean {
+  if (!actual) {
+    return false;
+  }
+
+  return (
+    actual.unitKey === expected.unitKey &&
+    actual.providerKey === expected.providerKey &&
+    actual.productDomain === expected.productDomain &&
+    actual.productForm === expected.productForm &&
+    actual.ingestionPurpose === expected.ingestionPurpose
+  );
 }
 
 export function activateCatalogProviderIntegrationProfileVersion(
