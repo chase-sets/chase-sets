@@ -18,6 +18,7 @@ import {
   scryfallMtgImageEvidenceProviderProfile,
   tcgdexPokemonTcgProviderProfile,
   tcgplayerAutomationClientProviderProfile,
+  tcgplayerMtgSingleCardProviderProfile,
   type CatalogProviderIntegrationProfileVersionRecord,
 } from "./provider-integration-profiles";
 import {
@@ -30,13 +31,14 @@ import {
 } from "./provider-integration-mapping-contract";
 
 describe("catalog provider integration profiles", () => {
-  it("registers TCGplayer as a planned automation-client connector sourced from the automation app", () => {
+  it("registers TCGplayer as an active Magic automation-client connector sourced from the automation app", () => {
     const profile = getCatalogProviderIntegrationProfile("TCGPLAYER");
 
-    expect(profile).toBe(tcgplayerAutomationClientProviderProfile);
+    expect(profile).toBe(tcgplayerMtgSingleCardProviderProfile);
     expect(profile).toMatchObject({
       providerKey: "tcgplayer",
-      status: "planned",
+      displayName: "TCGplayer Magic Single Cards",
+      status: "active",
       capabilities: ["provider-option-query", "source-observation-import", "external-reference-extraction"],
       supportedScopes: ["product-line/category", "set-name", "product", "sku"],
       optionQueries: [
@@ -74,6 +76,26 @@ describe("catalog provider integration profiles", () => {
           productConditionIdSource: "sku-product-condition-id",
         },
       },
+      normalizedObservationMapping: { kind: "provider-product" },
+      catalogFieldMapping: {
+        blueprintKey: "magic-card-print",
+        categoryKey: "magic-card-prints",
+        fieldKeys: expect.objectContaining({ set: "set" }),
+      },
+    });
+  });
+
+  it("keeps the Pokemon TCGplayer automation profile available as a test-only unit", () => {
+    const profile = getCatalogProviderIntegrationProfileVersion("tcgplayer", "2026.06.03", {
+      profileKey: "pokemon-tcg-automation-client",
+    })?.profile;
+
+    expect(profile).toBe(tcgplayerAutomationClientProviderProfile);
+    expect(profile).toMatchObject({
+      providerKey: "tcgplayer",
+      status: "planned",
+      normalizedObservationMapping: { kind: "pokemon-card" },
+      catalogFieldMapping: tcgdexPokemonTcgProviderProfile.catalogFieldMapping,
     });
   });
 
@@ -329,6 +351,67 @@ describe("catalog provider integration profiles", () => {
     });
   });
 
+  it("keeps TCGplayer Magic and Pokemon profile units distinct", () => {
+    const magic = getActiveCatalogProviderIntegrationProfileVersion("tcgplayer", {
+      profileKey: "mtg-single-card-product-sku",
+    });
+    const pokemon = getCatalogProviderIntegrationProfileVersion("tcgplayer", "2026.06.03", {
+      profileKey: "pokemon-tcg-automation-client",
+    });
+
+    expect(magic).toMatchObject({
+      providerKey: "tcgplayer",
+      profileKey: "mtg-single-card-product-sku",
+      lifecycle: "active",
+      active: true,
+      ingestionUnitIdentity: {
+        unitKey: "tcgplayer:mtg:single-card:source-observation-import",
+        productDomain: "mtg",
+      },
+      profile: {
+        normalizedObservationMapping: { kind: "provider-product" },
+        catalogFieldMapping: { blueprintKey: "magic-card-print" },
+      },
+    });
+    expect(pokemon).toMatchObject({
+      providerKey: "tcgplayer",
+      profileKey: "pokemon-tcg-automation-client",
+      lifecycle: "test",
+      active: false,
+      ingestionUnitIdentity: {
+        unitKey: "tcgplayer:pokemon:single-card:source-observation-import",
+        productDomain: "pokemon",
+      },
+      profile: {
+        normalizedObservationMapping: { kind: "pokemon-card" },
+        catalogFieldMapping: { blueprintKey: "pokemon-card-single" },
+      },
+    });
+    expect(magic?.profile.selectedOptionMapping?.dimensions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          dimensionKey: "printing",
+          valueSynonyms: [
+            { optionKey: "normal", providerValues: ["Normal", "Standard", "Nonfoil", "Non-Foil"] },
+            { optionKey: "foil", providerValues: ["Foil", "Holofoil"] },
+          ],
+        }),
+      ]),
+    );
+    expect(pokemon?.profile.selectedOptionMapping?.dimensions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          dimensionKey: "printing",
+          valueSynonyms: [
+            { optionKey: "normal", providerValues: ["Normal", "Standard"] },
+            { optionKey: "holofoil", providerValues: ["Holofoil", "Holo", "Foil"] },
+            { optionKey: "reverse-holofoil", providerValues: ["Reverse Holofoil", "Reverse Holo", "Reverse"] },
+          ],
+        }),
+      ]),
+    );
+  });
+
   it("lists active and planned providers through the same provider catalog", () => {
     expect(listCatalogProviderIntegrationProfiles().map((profile) => [profile.providerKey, profile.status])).toEqual([
       ["mtgjson", "active"],
@@ -336,6 +419,7 @@ describe("catalog provider integration profiles", () => {
       ["scryfall", "active"],
       ["scryfall", "active"],
       ["tcgdex", "active"],
+      ["tcgplayer", "active"],
       ["tcgplayer", "planned"],
     ]);
   });
@@ -349,6 +433,7 @@ describe("catalog provider integration profiles", () => {
       ["scryfall", "2026.06.19", "active"],
       ["scryfall", "2026.06.19", "active"],
       ["tcgdex", "2026.06.03", "active"],
+      ["tcgplayer", "2026.06.19", "active"],
       ["tcgplayer", "2026.06.03", "test"],
     ]);
     expect(getCatalogProviderIntegrationProfileVersion("mtgjson")).toMatchObject({
@@ -444,6 +529,35 @@ describe("catalog provider integration profiles", () => {
     });
     expect(getCatalogProviderIntegrationProfileVersion("tcgplayer")).toMatchObject({
       providerKey: "tcgplayer",
+      profileKey: "mtg-single-card-product-sku",
+      profileVersion: "2026.06.19",
+      active: true,
+      sourceContract: {
+        repository: "chase-sets/chase-sets",
+        fixtureSetVersion: "tcgplayer-mtg-single-card-production-v1",
+      },
+      retirementPlan: null,
+      executableMappingContract: expect.objectContaining({
+        providerKey: "tcgplayer",
+        profileKey: "mtg-single-card-product-sku",
+        profileVersion: "2026.06.19",
+        lifecycle: "active",
+        sourceObservation: expect.any(Object),
+      }),
+    });
+    expect(getCatalogProviderSourceObservationMappingContract("TCGPLAYER")).toMatchObject({
+      providerKey: "tcgplayer",
+      profileKey: "mtg-single-card-product-sku",
+      sourceObservation: {
+        observationId: expect.any(Object),
+      },
+    });
+    expect(
+      getCatalogProviderIntegrationProfileVersion("tcgplayer", "2026.06.03", {
+        profileKey: "pokemon-tcg-automation-client",
+      }),
+    ).toMatchObject({
+      providerKey: "tcgplayer",
       profileKey: "pokemon-tcg-automation-client",
       profileVersion: "2026.06.03",
       active: false,
@@ -460,12 +574,6 @@ describe("catalog provider integration profiles", () => {
         lifecycle: "test",
         sourceObservation: expect.any(Object),
       }),
-    });
-    expect(getCatalogProviderSourceObservationMappingContract("TCGPLAYER")).toMatchObject({
-      providerKey: "tcgplayer",
-      sourceObservation: {
-        observationId: expect.any(Object),
-      },
     });
   });
 

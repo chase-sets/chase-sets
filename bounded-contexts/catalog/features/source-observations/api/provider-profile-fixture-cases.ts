@@ -238,7 +238,82 @@ export function catalogProviderProfileFixtureCases(): readonly CatalogProviderPr
     ),
     ...providerCases(
       "tcgplayer",
-      {},
+      {
+        profileKey: "mtg-single-card-product-sku",
+        ingestionUnitKey: "tcgplayer:mtg:single-card:source-observation-import",
+        profileVersion: "2026.06.19",
+      },
+      {
+        normal: {
+          expectedObservation: {
+            externalKey: "14240",
+            normalizedKind: "provider-product",
+            normalizedFields: {
+              name: "Fury Sliver",
+              productForm: "single",
+              productLineName: "Magic",
+              tcg: "magic",
+            },
+            externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:14240" }],
+            externalProductReferences: [
+              {
+                providerKey: "tcgplayer",
+                externalKey: "sku:50014240",
+                selectedOptions: [
+                  { dimensionKey: "condition", optionKey: "near-mint", providerValue: "Near Mint" },
+                  { dimensionKey: "printing", optionKey: "normal", providerValue: "Normal" },
+                  { dimensionKey: "language", optionKey: "english", providerValue: "English" },
+                ],
+              },
+            ],
+          },
+          expectedHashEvidencePaths: ["normalizedObservation.hashMaterial.0"],
+          expectedMergeEvidencePaths: [
+            "duplicatePrevention.mergeCandidateEvidence.0",
+            "duplicatePrevention.mergeCandidateEvidence.1",
+            "duplicatePrevention.mergeCandidateEvidence.2",
+          ],
+        },
+        "sealed-product": {
+          expectedObservation: {
+            externalKey: "96601",
+            normalizedKind: "provider-product",
+            normalizedFields: {
+              productForm: "sealed",
+              name: "Time Spiral Booster Pack",
+            },
+            externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:96601" }],
+            externalProductReferences: [
+              {
+                providerKey: "tcgplayer",
+                externalKey: "sku:50096601",
+                selectedOptions: [{ dimensionKey: "product-form", optionKey: "unopened", providerValue: "Sealed" }],
+              },
+            ],
+          },
+        },
+        "unknown-option": {
+          expectedObservation: {
+            externalKey: "14240-unknown-option",
+            normalizedKind: "provider-product",
+            externalProductReferences: [
+              {
+                providerKey: "tcgplayer",
+                externalKey: "sku:50014242",
+                selectedOptions: [{ dimensionKey: "printing", optionKey: null, providerValue: "Surge Foil" }],
+              },
+            ],
+          },
+        },
+      },
+    ),
+    ...providerCases(
+      "tcgplayer",
+      {
+        profileKey: "pokemon-tcg-automation-client",
+        ingestionUnitKey: "tcgplayer:pokemon:single-card:source-observation-import",
+        profileVersion: "2026.06.03",
+      },
       {
         normal: {
           expectedObservation: {

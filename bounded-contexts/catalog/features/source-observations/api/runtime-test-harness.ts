@@ -38,22 +38,29 @@ export type ReferenceRecordRow = {
   attributes: Readonly<Record<string, JsonValue>>;
 };
 
-export function createActiveTcgplayerProfileVersions(): {
+export function createActiveTcgplayerProfileVersions(input: { profileKey?: string } = {}): {
   listProfileVersions: (
     providerKey?: string | null,
   ) => Promise<readonly CatalogProviderIntegrationProfileVersionRecord[]>;
   getActiveProfileVersion: (providerKey: string) => Promise<CatalogProviderIntegrationProfileVersionRecord | null>;
 } {
+  const activeProfileKey = input.profileKey ?? "pokemon-tcg-automation-client";
   const versions = catalogProviderIntegrationProfileVersions.map((version) =>
     version.providerKey === "tcgplayer"
       ? {
           ...version,
-          lifecycle: "active" as const,
-          active: true,
+          lifecycle: version.profileKey === activeProfileKey ? ("active" as const) : ("test" as const),
+          active: version.profileKey === activeProfileKey,
           profile: {
             ...version.profile,
-            status: "active" as const,
+            status: version.profileKey === activeProfileKey ? ("active" as const) : ("planned" as const),
           },
+          executableMappingContract: version.executableMappingContract
+            ? {
+                ...version.executableMappingContract,
+                lifecycle: version.profileKey === activeProfileKey ? ("active" as const) : ("test" as const),
+              }
+            : undefined,
         }
       : version,
   );
@@ -280,12 +287,38 @@ export function sourceObservationDetailRow(overrides: Record<string, unknown> = 
   };
 }
 
-export function createTcgplayerImportHarness(input: { failProductIds?: ReadonlySet<number> } = {}) {
+export function createTcgplayerImportHarness(
+  input: { failProductIds?: ReadonlySet<number>; productDomain?: "pokemon" | "mtg" } = {},
+) {
   const appendedSourceEvents: Array<{ eventType: string; payload: Record<string, unknown> }> = [];
-  const productDetails = new Map<number, TcgplayerAutomationProductDetail>([
-    [610001, tcgplayerProductDetail({ productId: 610001, productName: "Eevee ex", number: "131", sku: 987654 })],
-    [610002, tcgplayerProductDetail({ productId: 610002, productName: "Umbreon ex", number: "161", sku: 987655 })],
-  ]);
+  const productDomain = input.productDomain ?? "pokemon";
+  const productDetails = new Map<number, TcgplayerAutomationProductDetail>(
+    productDomain === "mtg"
+      ? [
+          [
+            14240,
+            tcgplayerMagicProductDetail({ productId: 14240, productName: "Fury Sliver", number: "157", sku: 50014240 }),
+          ],
+          [
+            96601,
+            tcgplayerMagicProductDetail({
+              productId: 96601,
+              productName: "Time Spiral Booster Pack",
+              number: "PACK",
+              sku: 50096601,
+              sealed: true,
+              productTypeName: "Sealed Products",
+            }),
+          ],
+        ]
+      : [
+          [610001, tcgplayerProductDetail({ productId: 610001, productName: "Eevee ex", number: "131", sku: 987654 })],
+          [
+            610002,
+            tcgplayerProductDetail({ productId: 610002, productName: "Umbreon ex", number: "161", sku: 987655 }),
+          ],
+        ],
+  );
   const client: TcgplayerAutomationCatalogClient = {
     listProductLines: async () => [
       {
@@ -294,57 +327,113 @@ export function createTcgplayerImportHarness(input: { failProductIds?: ReadonlyS
         productLineUrlName: "pokemon",
         isDirect: true,
       },
+      {
+        productLineId: 1,
+        productLineName: "Magic",
+        productLineUrlName: "magic",
+        isDirect: true,
+      },
     ],
-    listCatalogSetNames: async () => ({
-      errors: [],
-      results: [
-        {
-          setNameId: 7001,
-          categoryId: 3,
-          name: "Prismatic Evolutions",
-          cleanSetName: "Prismatic Evolutions",
-          urlName: "prismatic-evolutions",
-          abbreviation: "PRE",
-          releaseDate: "2025-01-17",
-          isSupplemental: false,
-          active: true,
-        },
-      ],
-    }),
+    listCatalogSetNames: async ({ categoryId }) =>
+      categoryId === 1
+        ? {
+            errors: [],
+            results: [
+              {
+                setNameId: 1001,
+                categoryId: 1,
+                name: "Time Spiral",
+                cleanSetName: "Time Spiral",
+                urlName: "time-spiral",
+                abbreviation: "TSP",
+                releaseDate: "2006-10-06",
+                isSupplemental: false,
+                active: true,
+              },
+            ],
+          }
+        : {
+            errors: [],
+            results: [
+              {
+                setNameId: 7001,
+                categoryId: 3,
+                name: "Prismatic Evolutions",
+                cleanSetName: "Prismatic Evolutions",
+                urlName: "prismatic-evolutions",
+                abbreviation: "PRE",
+                releaseDate: "2025-01-17",
+                isSupplemental: false,
+                active: true,
+              },
+            ],
+          },
     searchProducts: async () => ({
       errors: [],
       results: [],
     }),
-    listAllProducts: async () => [
-      {
-        productId: 610001,
-        productName: "Eevee ex",
-        productLineId: 3,
-        productLineName: "Pokemon",
-        productTypeName: "Cards",
-        setId: 7001,
-        setName: "Prismatic Evolutions",
-        setUrlName: "prismatic-evolutions",
-        rarityName: "Special Illustration Rare",
-        sealed: false,
-        productStatusId: 1,
-        customAttributes: { number: "131", releaseDate: "2025-01-17", cardType: ["Pokemon"] },
-      },
-      {
-        productId: 610002,
-        productName: "Umbreon ex",
-        productLineId: 3,
-        productLineName: "Pokemon",
-        productTypeName: "Cards",
-        setId: 7001,
-        setName: "Prismatic Evolutions",
-        setUrlName: "prismatic-evolutions",
-        rarityName: "Special Illustration Rare",
-        sealed: false,
-        productStatusId: 1,
-        customAttributes: { number: "161", releaseDate: "2025-01-17", cardType: ["Pokemon"] },
-      },
-    ],
+    listAllProducts: async () =>
+      productDomain === "mtg"
+        ? [
+            {
+              productId: 14240,
+              productName: "Fury Sliver",
+              productLineId: 1,
+              productLineName: "Magic",
+              productTypeName: "Cards",
+              setId: 1001,
+              setName: "Time Spiral",
+              setUrlName: "time-spiral",
+              rarityName: "Uncommon",
+              sealed: false,
+              productStatusId: 1,
+              customAttributes: { number: "157", releaseDate: "2006-10-06", cardType: ["Creature"] },
+            },
+            {
+              productId: 96601,
+              productName: "Time Spiral Booster Pack",
+              productLineId: 1,
+              productLineName: "Magic",
+              productTypeName: "Sealed Products",
+              setId: 1001,
+              setName: "Time Spiral",
+              setUrlName: "time-spiral",
+              rarityName: "Sealed",
+              sealed: true,
+              productStatusId: 1,
+              customAttributes: { number: "PACK", releaseDate: "2006-10-06", cardType: ["Sealed"] },
+            },
+          ]
+        : [
+            {
+              productId: 610001,
+              productName: "Eevee ex",
+              productLineId: 3,
+              productLineName: "Pokemon",
+              productTypeName: "Cards",
+              setId: 7001,
+              setName: "Prismatic Evolutions",
+              setUrlName: "prismatic-evolutions",
+              rarityName: "Special Illustration Rare",
+              sealed: false,
+              productStatusId: 1,
+              customAttributes: { number: "131", releaseDate: "2025-01-17", cardType: ["Pokemon"] },
+            },
+            {
+              productId: 610002,
+              productName: "Umbreon ex",
+              productLineId: 3,
+              productLineName: "Pokemon",
+              productTypeName: "Cards",
+              setId: 7001,
+              setName: "Prismatic Evolutions",
+              setUrlName: "prismatic-evolutions",
+              rarityName: "Special Illustration Rare",
+              sealed: false,
+              productStatusId: 1,
+              customAttributes: { number: "161", releaseDate: "2025-01-17", cardType: ["Pokemon"] },
+            },
+          ],
     getProductDetail: async ({ productId }) => {
       if (input.failProductIds?.has(productId)) {
         throw new Error(`Product ${productId} unavailable.`);
@@ -425,6 +514,52 @@ export function tcgplayerProductDetail(input: {
     lowestPrice: 10.01,
     lowestPriceWithShipping: 11.23,
     medianPrice: 12.5,
+    listings: 25,
+  };
+}
+
+export function tcgplayerMagicProductDetail(input: {
+  productId: number;
+  productName: string;
+  number: string;
+  sku: number;
+  sealed?: boolean;
+  productTypeName?: string;
+}): TcgplayerAutomationProductDetail {
+  const sealed = input.sealed ?? false;
+  return {
+    productTypeName: input.productTypeName ?? "Cards",
+    rarityName: sealed ? "Sealed" : "Uncommon",
+    sealed,
+    productName: input.productName,
+    setId: 1001,
+    setCode: "TSP",
+    productId: input.productId,
+    setName: "Time Spiral",
+    productLineId: 1,
+    productStatusId: 1,
+    productLineName: "Magic",
+    customAttributes: {
+      number: input.number,
+      releaseDate: "2006-10-06",
+      cardType: sealed ? ["Sealed"] : ["Creature"],
+      barcode: sealed ? "0653569123456" : undefined,
+    },
+    formattedAttributes: {
+      Artist: "Paolo Parente",
+    },
+    skus: [
+      {
+        sku: input.sku,
+        condition: sealed ? "Sealed" : "Near Mint",
+        variant: sealed ? "Sealed" : "Normal",
+        language: "English",
+      },
+    ],
+    marketPrice: 1.23,
+    lowestPrice: 1.01,
+    lowestPriceWithShipping: 1.23,
+    medianPrice: 1.5,
     listings: 25,
   };
 }

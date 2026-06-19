@@ -23,7 +23,11 @@ import {
   scryfallMtgCardPrintSourceObservationMappingContract,
   scryfallMtgImageEvidenceSourceObservationMappingContract,
 } from "./scryfall-executable-mapping-contract";
-import { tcgplayerProviderProductSourceObservationMappingContract } from "./tcgplayer-executable-mapping-contract";
+import {
+  TCGPLAYER_MTG_SINGLE_CARD_PROFILE_VERSION,
+  tcgplayerMtgSingleCardProviderProductSourceObservationMappingContract,
+  tcgplayerProviderProductSourceObservationMappingContract,
+} from "./tcgplayer-executable-mapping-contract";
 import { tcgdexPokemonCardSourceObservationMappingContract } from "./tcgdex-executable-mapping-contract";
 
 export type CatalogProviderCapability =
@@ -1275,6 +1279,117 @@ export const tcgplayerAutomationClientProviderProfile = {
   },
 } as const satisfies CatalogProviderIntegrationProfile;
 
+export const tcgplayerMtgSingleCardProviderProfile = {
+  ...tcgplayerAutomationClientProviderProfile,
+  displayName: "TCGplayer Magic Single Cards",
+  status: "active",
+  normalizedObservationMapping: {
+    kind: "provider-product",
+    variantRules: [],
+    unknownVariantLabelPrefix: "Unclassified TCGplayer Magic Variant",
+    duplicateReferenceRule: "drop-repeated-across-variants",
+  },
+  catalogFieldMapping: {
+    blueprintKey: "magic-card-print",
+    categoryKey: "magic-card-prints",
+    fieldKeys: {
+      cardNumber: "card-number",
+      cardName: "card-name",
+      set: "set",
+      expansion: "set",
+      rarity: "rarity",
+      cardVariant: "card-variant",
+      cardIllustrator: "card-illustrator",
+      releaseYear: "release-year",
+    },
+  },
+  referenceHierarchyMapping: {
+    providerReferenceIdPrefix: "ref_tcgplayer_mtg",
+    providerAttributes: [
+      { typeKey: "product-line", providerAttributeKey: "tcgplayer-product-line-id" },
+      { typeKey: "set", providerAttributeKey: "tcgplayer-set-name" },
+    ],
+    targetRecordRuleKey: "set",
+    referenceTypes: [
+      {
+        referenceTypeId: catalogSeedIds.referenceTypes.productLine,
+        typeKey: "product-line",
+        name: "Product Line",
+        descriptionText: "A branded collectible product line.",
+        attributeKeys: ["official-name", "short-name", "tcgplayer-product-line-id"],
+      },
+      {
+        referenceTypeId: catalogSeedIds.referenceTypes.set,
+        typeKey: "set",
+        name: "Set",
+        descriptionText: "A Magic: The Gathering set or release group.",
+        attributeKeys: ["tcgplayer-set-name", "tcgplayer-set-id"],
+      },
+    ],
+    referenceRecords: [
+      {
+        ruleKey: "magic-product-line",
+        typeKey: "product-line",
+        recordId: {
+          kind: "static",
+          referenceRecordId: catalogSeedIds.referenceRecords.productLines.magicTheGathering,
+        },
+        key: { kind: "static", value: "magic-the-gathering" },
+        name: { kind: "static", value: "Magic: The Gathering" },
+        description: { kind: "static", value: "Magic: The Gathering trading card game." },
+        attributes: [
+          { attributeKey: "official-name", value: { kind: "static", value: "Magic: The Gathering" } },
+          { attributeKey: "short-name", value: { kind: "static", value: "MTG" } },
+          { attributeKey: "tcgplayer-product-line-id", value: { kind: "path", path: "productLineId" }, optional: true },
+        ],
+      },
+      {
+        ruleKey: "set",
+        typeKey: "set",
+        recordId: { kind: "provider", typeKey: "set", providerValuePaths: ["setNameId", "setName"] },
+        key: { kind: "path", path: "setName" },
+        name: { kind: "path", path: "setName" },
+        description: {
+          kind: "template",
+          template: "{setName} Magic: The Gathering set.",
+          values: { setName: { kind: "path", path: "setName" } },
+        },
+        requiredPaths: ["setName"],
+        attributes: [
+          { attributeKey: "tcgplayer-set-name", value: { kind: "path", path: "setName" } },
+          { attributeKey: "tcgplayer-set-id", value: { kind: "path", path: "setNameId" }, optional: true },
+        ],
+        relationships: [{ relationshipType: "part-of", ruleKey: "magic-product-line" }],
+      },
+    ],
+  },
+  selectedOptionMapping: {
+    ...tcgplayerAutomationClientProviderProfile.selectedOptionMapping,
+    dimensions: tcgplayerAutomationClientProviderProfile.selectedOptionMapping.dimensions.map((dimension) =>
+      dimension.dimensionKey === "printing"
+        ? {
+            ...dimension,
+            valueSynonyms: [
+              { optionKey: "normal", providerValues: ["Normal", "Standard", "Nonfoil", "Non-Foil"] },
+              { optionKey: "foil", providerValues: ["Foil", "Holofoil"] },
+            ],
+          }
+        : dimension,
+    ),
+  },
+  duplicatePreventionMapping: {
+    ...tcgplayerAutomationClientProviderProfile.duplicatePreventionMapping,
+    rules: tcgplayerAutomationClientProviderProfile.duplicatePreventionMapping.rules.map((rule) =>
+      rule.ruleKey === "future-provider-bridge-review"
+        ? {
+            ...rule,
+            bridgeReferenceProviderKeys: ["scryfall", "mtgjson", "tcgplayer"],
+          }
+        : rule,
+    ),
+  },
+} as const satisfies CatalogProviderIntegrationProfile;
+
 export const scrydexScryfallCardProviderProfile = {
   providerKey: "scrydex",
   displayName: "Scrydex",
@@ -1890,6 +2005,7 @@ export const catalogProviderIntegrationProfiles = [
   scryfallMtgCardPrintProviderProfile,
   scryfallMtgImageEvidenceProviderProfile,
   tcgdexPokemonTcgProviderProfile,
+  tcgplayerMtgSingleCardProviderProfile,
   tcgplayerAutomationClientProviderProfile,
 ] as const satisfies readonly CatalogProviderIntegrationProfile[];
 
@@ -1960,8 +2076,22 @@ export const catalogProviderIntegrationProfileVersions = [
   },
   {
     providerKey: "tcgplayer",
+    profileKey: "mtg-single-card-product-sku",
+    profileVersion: TCGPLAYER_MTG_SINGLE_CARD_PROFILE_VERSION,
+    ingestionUnitIdentity: tcgplayerMtgSingleCardProviderProductSourceObservationMappingContract.ingestionUnitIdentity,
+    lifecycle: "active",
+    active: true,
+    profile: tcgplayerMtgSingleCardProviderProfile,
+    sourceContract: tcgplayerMtgSingleCardProviderProductSourceObservationMappingContract.sourceContract,
+    fixtures: tcgplayerMtgSingleCardProviderProductSourceObservationMappingContract.fixtures,
+    retirementPlan: null,
+    executableMappingContract: tcgplayerMtgSingleCardProviderProductSourceObservationMappingContract,
+  },
+  {
+    providerKey: "tcgplayer",
     profileKey: "pokemon-tcg-automation-client",
     profileVersion: "2026.06.03",
+    ingestionUnitIdentity: tcgplayerProviderProductSourceObservationMappingContract.ingestionUnitIdentity,
     lifecycle: "test",
     active: false,
     profile: tcgplayerAutomationClientProviderProfile,

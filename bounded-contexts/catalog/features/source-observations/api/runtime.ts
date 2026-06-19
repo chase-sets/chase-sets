@@ -138,7 +138,7 @@ import {
 } from "./provider-adapters/tcgdex";
 import {
   createTcgplayerProviderAdapter,
-  TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+  TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
   type TcgplayerProviderPayload,
 } from "./provider-adapters/tcgplayer";
 import {
@@ -3314,7 +3314,7 @@ export function createSourceObservationRuntime(
     }>
   > {
     throwIfJobRunCancelled(input.context);
-    const targets = await resolveTcgplayerImportTargets(input.scope);
+    const targets = await resolveTcgplayerImportTargets(input.scope, input.providerProfileVersion);
     throwIfJobRunCancelled(input.context);
     const previousResult = input.job.result ?? summarizeIntegrationJobOutcomes(targets.length, []);
     const completedTargetIds = new Set(
@@ -3408,7 +3408,7 @@ export function createSourceObservationRuntime(
     if (providerProfile.providerKey !== "tcgplayer") {
       throw new Error(`Provider '${providerProfile.providerKey}' is not supported by the TCGplayer import worker.`);
     }
-    const targets = await resolveTcgplayerImportTargets(scope);
+    const targets = await resolveTcgplayerImportTargets(scope, providerProfileVersion);
     const outcomes: SourceObservationIntegrationJobOutcome[] = [];
     await input.onProgress?.(bulkProgress(0, targets.length));
 
@@ -3440,6 +3440,7 @@ export function createSourceObservationRuntime(
 
   async function resolveTcgplayerImportTargets(
     scope: SourceObservationIntegrationJobScope,
+    providerProfileVersion: CatalogProviderIntegrationProfileVersionRecord,
   ): Promise<readonly TcgplayerIntegrationImportTarget[]> {
     const productId = parsePositiveInteger(scope.productId);
     if (productId !== null) {
@@ -3457,7 +3458,10 @@ export function createSourceObservationRuntime(
       throw new Error("TCGplayer import requires productLineId/categoryId or productId.");
     }
 
-    const productLines = await listTcgplayerProductLineOptionRecordsThroughAdapter(providerAdapterRegistry);
+    const unitKey = catalogProviderProfileVersionIngestionUnitKey(providerProfileVersion);
+    const productLines = await listTcgplayerProductLineOptionRecordsThroughAdapter(providerAdapterRegistry, {
+      unitKey,
+    });
     const productLine = productLines.find((item) => numberRecordValue(item, "productLineId") === productLineId);
     if (!productLine) {
       throw new Error(`TCGplayer product line '${productLineId}' was not found.`);
@@ -3477,7 +3481,10 @@ export function createSourceObservationRuntime(
       ];
     }
 
-    const setNames = await listTcgplayerSetNameOptionRecordsThroughAdapter(providerAdapterRegistry, { productLineId });
+    const setNames = await listTcgplayerSetNameOptionRecordsThroughAdapter(providerAdapterRegistry, {
+      productLineId,
+      unitKey,
+    });
     return setNames
       .filter((setNameOption) => booleanRecordValue(setNameOption, "active") !== false)
       .map((setNameOption) => ({
@@ -3584,8 +3591,9 @@ export function createSourceObservationRuntime(
       providerProfileVersion,
       deps.tcgplayerAutomationCatalogClient,
     );
+    const unitKey = catalogProviderProfileVersionIngestionUnitKey(providerProfileVersion);
     const plan = await adapter.planImport({
-      unitKey: TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      unitKey,
       scopeKey: target.productId !== undefined ? "product" : "set-name",
       values:
         target.productId !== undefined
@@ -3979,6 +3987,10 @@ async function listProviderIntegrationOptions(
     profileKey: input.profileKey,
     ingestionUnitKey: input.ingestionUnitKey,
   });
+  const tcgplayerOptionUnitKey =
+    selectedVersion?.providerKey === "tcgplayer"
+      ? catalogProviderProfileVersionIngestionUnitKey(selectedVersion)
+      : null;
   return listCatalogProviderIntegrationOptionsFromProfiles({
     profiles: (selectedVersion ? [selectedVersion] : activeOptionQueryVersions).map((version) => version.profile),
     providerKey: input.providerKey,
@@ -3992,13 +4004,25 @@ async function listProviderIntegrationOptions(
         listTcgdexSeriesOptionRecordsThroughAdapter(providerAdapterRegistry, { languageCode }),
       listTcgdexExpansions: ({ languageCode, seriesId }) =>
         listTcgdexExpansionOptionRecordsThroughAdapter(providerAdapterRegistry, { languageCode, seriesId }),
-      listTcgplayerProductLines: () => listTcgplayerProductLineOptionRecordsThroughAdapter(providerAdapterRegistry),
+      listTcgplayerProductLines: () =>
+        listTcgplayerProductLineOptionRecordsThroughAdapter(providerAdapterRegistry, {
+          unitKey: tcgplayerOptionUnitKey,
+        }),
       listTcgplayerSetNames: ({ productLineId }) =>
-        listTcgplayerSetNameOptionRecordsThroughAdapter(providerAdapterRegistry, { productLineId }),
+        listTcgplayerSetNameOptionRecordsThroughAdapter(providerAdapterRegistry, {
+          productLineId,
+          unitKey: tcgplayerOptionUnitKey,
+        }),
       listTcgplayerProducts: ({ setName }) =>
-        listTcgplayerProductOptionRecordsThroughAdapter(providerAdapterRegistry, { setName }),
+        listTcgplayerProductOptionRecordsThroughAdapter(providerAdapterRegistry, {
+          setName,
+          unitKey: tcgplayerOptionUnitKey,
+        }),
       listTcgplayerSkus: ({ productId }) =>
-        listTcgplayerSkuOptionRecordsThroughAdapter(providerAdapterRegistry, { productId }),
+        listTcgplayerSkuOptionRecordsThroughAdapter(providerAdapterRegistry, {
+          productId,
+          unitKey: tcgplayerOptionUnitKey,
+        }),
       listMtgjsonSets: () => listMtgjsonSetOptionRecordsThroughAdapter(providerAdapterRegistry),
       listMtgjsonCards: ({ setCode }) =>
         listMtgjsonCardOptionRecordsThroughAdapter(providerAdapterRegistry, { setCode }),
@@ -4063,6 +4087,8 @@ async function queryProviderIntegrationOptions(
     profileKey: input.profileKey,
     ingestionUnitKey: input.ingestionUnitKey,
   });
+  const tcgplayerOptionUnitKey =
+    profileVersion?.providerKey === "tcgplayer" ? catalogProviderProfileVersionIngestionUnitKey(profileVersion) : null;
   const liveVersions = profileVersion
     ? activeOptionQueryVersions.filter(
         (version) =>
@@ -4112,13 +4138,24 @@ async function queryProviderIntegrationOptions(
             listTcgdexExpansions: ({ languageCode, seriesId }) =>
               listTcgdexExpansionOptionRecordsThroughAdapter(providerAdapterRegistry, { languageCode, seriesId }),
             listTcgplayerProductLines: () =>
-              listTcgplayerProductLineOptionRecordsThroughAdapter(providerAdapterRegistry),
+              listTcgplayerProductLineOptionRecordsThroughAdapter(providerAdapterRegistry, {
+                unitKey: tcgplayerOptionUnitKey,
+              }),
             listTcgplayerSetNames: ({ productLineId }) =>
-              listTcgplayerSetNameOptionRecordsThroughAdapter(providerAdapterRegistry, { productLineId }),
+              listTcgplayerSetNameOptionRecordsThroughAdapter(providerAdapterRegistry, {
+                productLineId,
+                unitKey: tcgplayerOptionUnitKey,
+              }),
             listTcgplayerProducts: ({ setName }) =>
-              listTcgplayerProductOptionRecordsThroughAdapter(providerAdapterRegistry, { setName }),
+              listTcgplayerProductOptionRecordsThroughAdapter(providerAdapterRegistry, {
+                setName,
+                unitKey: tcgplayerOptionUnitKey,
+              }),
             listTcgplayerSkus: ({ productId }) =>
-              listTcgplayerSkuOptionRecordsThroughAdapter(providerAdapterRegistry, { productId }),
+              listTcgplayerSkuOptionRecordsThroughAdapter(providerAdapterRegistry, {
+                productId,
+                unitKey: tcgplayerOptionUnitKey,
+              }),
             listMtgjsonSets: () => listMtgjsonSetOptionRecordsThroughAdapter(providerAdapterRegistry),
             listMtgjsonCards: ({ setCode }) =>
               listMtgjsonCardOptionRecordsThroughAdapter(providerAdapterRegistry, { setCode }),
@@ -4421,9 +4458,10 @@ function requireScryfallAdapter(
 
 async function listTcgplayerProductLineOptionRecordsThroughAdapter(
   providerAdapterRegistry: ProviderAdapterRegistry,
+  input: { unitKey?: string | null } = {},
 ): Promise<readonly JsonValue[]> {
   const result = await requireTcgplayerAdapter(providerAdapterRegistry).listOptions({
-    unitKey: TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+    unitKey: input.unitKey ?? TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
     optionKind: "product-lines",
   });
   return result.items.map((item) => ({
@@ -4436,10 +4474,10 @@ async function listTcgplayerProductLineOptionRecordsThroughAdapter(
 
 async function listTcgplayerSetNameOptionRecordsThroughAdapter(
   providerAdapterRegistry: ProviderAdapterRegistry,
-  input: { productLineId: number },
+  input: { productLineId: number; unitKey?: string | null },
 ): Promise<readonly JsonValue[]> {
   const result = await requireTcgplayerAdapter(providerAdapterRegistry).listOptions({
-    unitKey: TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+    unitKey: input.unitKey ?? TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
     optionKind: "set-names",
     parentValues: { productLineId: String(input.productLineId) },
   });
@@ -4458,10 +4496,10 @@ async function listTcgplayerSetNameOptionRecordsThroughAdapter(
 
 async function listTcgplayerProductOptionRecordsThroughAdapter(
   providerAdapterRegistry: ProviderAdapterRegistry,
-  input: { setName: string },
+  input: { setName: string; unitKey?: string | null },
 ): Promise<readonly JsonValue[]> {
   const result = await requireTcgplayerAdapter(providerAdapterRegistry).listOptions({
-    unitKey: TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+    unitKey: input.unitKey ?? TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
     optionKind: "products",
     parentValues: { setName: input.setName },
   });
@@ -4480,10 +4518,10 @@ async function listTcgplayerProductOptionRecordsThroughAdapter(
 
 async function listTcgplayerSkuOptionRecordsThroughAdapter(
   providerAdapterRegistry: ProviderAdapterRegistry,
-  input: { productId: number },
+  input: { productId: number; unitKey?: string | null },
 ): Promise<readonly JsonValue[]> {
   const result = await requireTcgplayerAdapter(providerAdapterRegistry).listOptions({
-    unitKey: TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+    unitKey: input.unitKey ?? TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
     optionKind: "skus",
     parentValues: { productId: String(input.productId) },
   });

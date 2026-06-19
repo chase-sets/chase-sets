@@ -12,6 +12,7 @@ import {
 import {
   requireCatalogProviderSourceObservationMappingContract,
   tcgplayerAutomationClientProviderProfile,
+  tcgplayerMtgSingleCardProviderProfile,
 } from "./provider-integration-profiles";
 import { requireCatalogProviderSourceObservation } from "./provider-source-observation-normalizer";
 import { tcgplayerAutomationResponseFixtures } from "./tcgplayer-automation-response-fixtures.test-data";
@@ -258,6 +259,76 @@ describe("TCGplayer automation Catalog client", () => {
     ]);
   });
 
+  it("normalizes Magic product details through the Magic single-card profile without Pokemon printing assumptions", () => {
+    const magicDetail: TcgplayerAutomationProductDetail = {
+      ...tcgplayerAutomationResponseFixtures.productDetail,
+      productId: 14240,
+      productName: "Fury Sliver",
+      productLineId: 1,
+      productLineName: "Magic",
+      productTypeName: "Cards",
+      rarityName: "Uncommon",
+      setId: 1001,
+      setCode: "TSP",
+      setName: "Time Spiral",
+      customAttributes: {
+        number: "157",
+        releaseDate: "2006-10-06",
+        cardType: ["Creature"],
+      },
+      formattedAttributes: {
+        Artist: "Paolo Parente",
+      },
+      skus: [
+        {
+          sku: 50014240,
+          condition: "Near Mint",
+          variant: "Foil",
+          language: "English",
+        },
+      ],
+    };
+
+    const observation = requireCatalogProviderSourceObservation({
+      contract: requireCatalogProviderSourceObservationMappingContract("tcgplayer", "2026.06.19"),
+      payload: buildTcgplayerAutomationSourceObservationPayload({
+        detail: magicDetail,
+        selectedOptionMapping: tcgplayerMtgSingleCardProviderProfile.selectedOptionMapping,
+        externalReferenceRules: tcgplayerMtgSingleCardProviderProfile.externalReferenceExtractionRules.rules,
+      }),
+      observedAt: "2026-06-02T00:00:00.000Z",
+    });
+
+    expect(observation.normalized).toMatchObject({
+      kind: "provider-product",
+      tcg: "magic",
+      providerProductId: "14240",
+      providerProductName: "Fury Sliver",
+      productLineName: "Magic",
+      mergeIdentity: {
+        tcg: "magic",
+        productLineName: "Magic",
+        setName: "Time Spiral",
+        collectorNumber: "157",
+        productForm: "single",
+      },
+      skuReferences: [
+        expect.objectContaining({
+          externalKey: "sku:50014240",
+          reviewEvidence: expect.objectContaining({ printing: "Foil" }),
+        }),
+      ],
+    });
+    expect(
+      tcgplayerMtgSingleCardProviderProfile.selectedOptionMapping?.dimensions.find(
+        (dimension) => dimension.dimensionKey === "printing",
+      )?.valueSynonyms,
+    ).toEqual([
+      { optionKey: "normal", providerValues: ["Normal", "Standard", "Nonfoil", "Non-Foil"] },
+      { optionKey: "foil", providerValues: ["Foil", "Holofoil"] },
+    ]);
+  });
+
   it("excludes price and listing fields from the Catalog observation hash material", () => {
     const detail = tcgplayerAutomationResponseFixtures.productDetail;
     const repriced: TcgplayerAutomationProductDetail = {
@@ -308,7 +379,7 @@ function normalizeAutomationDetail(input: {
   productReferenceSchema?: TcgplayerProductReferenceSchema | null;
 }) {
   return requireCatalogProviderSourceObservation({
-    contract: requireCatalogProviderSourceObservationMappingContract("tcgplayer"),
+    contract: requireCatalogProviderSourceObservationMappingContract("tcgplayer", "2026.06.03"),
     payload: buildTcgplayerAutomationSourceObservationPayload({
       ...input,
       selectedOptionMapping: tcgplayerAutomationClientProviderProfile.selectedOptionMapping,

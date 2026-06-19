@@ -1,0 +1,60 @@
+{
+  "observationId": "tcgplayer_mtg_product_14240_unknown_option",
+  "externalKey": "14240-unknown-option",
+  "sourceUrl": "https://www.tcgplayer.com/product/14240",
+  "sourceUpdatedAt": "2026-06-01T00:00:00.000Z",
+  "productId": 14240,
+  "productName": "Fury Sliver",
+  "setName": "Time Spiral",
+  "productLineId": 1,
+  "productLineName": "Magic",
+  "productTypeName": "Cards",
+  "customAttributes": {
+    "number": "157"
+  },
+  "productForm": "single",
+  "barcode": null,
+  "skuReferences": ["sku:50014242"],
+  "externalCatalogItemReferences": [
+    {
+      "providerKey": "tcgplayer",
+      "externalKey": "product:14240"
+    }
+  ],
+  "externalProductReferences": [
+    {
+      "providerKey": "tcgplayer",
+      "externalKey": "sku:50014242",
+      "selectedOptions": [
+        {
+          "dimensionKey": "printing",
+          "optionKey": null,
+          "providerValue": "Surge Foil"
+        }
+      ]
+    }
+  ],
+  "mergeIdentity": {
+    "tcg": "magic",
+    "productLineName": "Magic",
+    "setName": "Time Spiral",
+    "printedProductName": "Fury Sliver",
+    "collectorNumber": "157",
+    "languageCode": "en",
+    "productForm": "single",
+    "barcode": null
+  },
+  "catalogHashMaterial": {
+    "productId": 14240,
+    "productName": "Fury Sliver",
+    "setName": "Time Spiral",
+    "productLineName": "Magic",
+    "productForm": "single",
+    "skuIds": [50014242]
+  },
+  "sourcePayload": {
+    "provider": "tcgplayer",
+    "payloadKind": "product-detail-with-skus",
+    "fixtureFlow": "unknown-option"
+  }
+}
