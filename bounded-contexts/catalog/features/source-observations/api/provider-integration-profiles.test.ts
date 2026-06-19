@@ -269,7 +269,7 @@ describe("catalog provider integration profiles", () => {
       providerKey: "mtgjson",
       displayName: "MTGJSON Set Reference",
       status: "active",
-      capabilities: ["source-observation-import"],
+      capabilities: ["source-observation-import", "reference-data-promotion"],
       normalizedObservationMapping: { kind: "magic-set-reference" },
       optionQueries: [],
     });

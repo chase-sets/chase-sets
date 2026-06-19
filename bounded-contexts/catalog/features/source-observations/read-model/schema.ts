@@ -18,6 +18,7 @@ export const catalogSourceObservationSchemaSql = `CREATE TABLE IF NOT EXISTS cat
   status text NOT NULL DEFAULT 'observed',
   status_reason text NULL,
   promoted_catalog_item_id text NULL,
+  promoted_reference_record_id text NULL,
   promoted_at timestamptz NULL,
   promotion_profile_key text NULL,
   promotion_profile_version text NULL,
@@ -30,6 +31,7 @@ ALTER TABLE catalog_source_observations
   ADD COLUMN IF NOT EXISTS source_profile_key text,
   ADD COLUMN IF NOT EXISTS source_profile_version text,
   ADD COLUMN IF NOT EXISTS source_mapping_fingerprint text,
+  ADD COLUMN IF NOT EXISTS promoted_reference_record_id text NULL,
   ADD COLUMN IF NOT EXISTS promotion_profile_key text NULL,
   ADD COLUMN IF NOT EXISTS promotion_profile_version text NULL,
   ADD COLUMN IF NOT EXISTS promotion_plan_fingerprint text NULL;

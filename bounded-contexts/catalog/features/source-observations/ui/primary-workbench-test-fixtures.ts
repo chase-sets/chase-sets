@@ -489,6 +489,7 @@ export function sourceObservationListItem(
     status: "changed",
     status_reason: null,
     promoted_catalog_item_id: null,
+    promoted_reference_record_id: null,
     promoted_at: null,
     promotion_profile_key: null,
     promotion_profile_version: null,

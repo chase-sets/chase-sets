@@ -134,6 +134,53 @@ describe("source observation domain", () => {
     });
   });
 
+  it("promotes Magic set reference observations to Reference Records", () => {
+    const recorded = decideSourceObservation(initialSourceObservationState, {
+      ...recordCommand,
+      observationId: "mtgjson_en_tsp",
+      providerKey: "mtgjson",
+      externalKey: "set:TSP",
+      sourceUrl: "https://mtgjson.com/api/v5/TSP.json",
+      sourceProfileKey: "mtg-set-reference-data",
+      sourceProfileVersion: "2026.06.19",
+      normalized: {
+        kind: "magic-set-reference",
+        tcg: "magic",
+        languageCode: "en",
+        name: "Time Spiral",
+        cardNumber: null,
+        setCode: "TSP",
+        setName: "Time Spiral",
+        expansionName: "Time Spiral",
+        setId: "00000000-0000-0000-0000-000000000tsp",
+        releaseDate: "2006-10-06",
+        releaseYear: 2006,
+        cardCount: 301,
+        productLineName: "Magic: The Gathering",
+        imageUrls: [],
+      },
+      sourcePayload: { code: "TSP" },
+    });
+    const observed = evolveSourceObservation(initialSourceObservationState, recorded[0]);
+
+    const promoted = decideSourceObservation(observed, {
+      type: "PromoteSourceObservationReference",
+      referenceRecordId: "ref_mtgjson_set_tsp",
+      promotedAt: "2026-06-19T10:00:00.000Z",
+      promotionProfileKey: "mtg-set-reference-data",
+      promotionProfileVersion: "2026.06.19",
+      promotionPlanFingerprint: "sha256:reference",
+    });
+
+    expect(evolveSourceObservation(observed, promoted[0])).toMatchObject({
+      status: "promoted",
+      promotedCatalogItemId: null,
+      promotedReferenceRecordId: "ref_mtgjson_set_tsp",
+      promotionProfileKey: "mtg-set-reference-data",
+      promotionProfileVersion: "2026.06.19",
+    });
+  });
+
   it("rejects retired legacy profile markers instead of recording fallback metadata", () => {
     expect(() =>
       decideSourceObservation(initialSourceObservationState, {

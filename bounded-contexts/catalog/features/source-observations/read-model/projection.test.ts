@@ -46,6 +46,7 @@ describe("Source Observation projections", () => {
         status: "promoted",
         statusReason: null,
         promotedCatalogItemId: "cat_1",
+        promotedReferenceRecordId: null,
         promotedAt: "2026-05-28T14:00:00.000Z",
       },
       timing: { recordedAt: "2026-05-28T14:05:00.000Z" },
@@ -68,6 +69,7 @@ describe("Source Observation projections", () => {
       "promoted",
       null,
       "cat_1",
+      null,
       "2026-05-28T14:00:00.000Z",
       null,
       null,
@@ -76,6 +78,7 @@ describe("Source Observation projections", () => {
     ]);
     expect(query.mock.calls[0]?.[0]).toContain("ON CONFLICT (observation_id) DO UPDATE");
     expect(query.mock.calls[0]?.[0]).toContain("promoted_catalog_item_id = EXCLUDED.promoted_catalog_item_id");
+    expect(query.mock.calls[0]?.[0]).toContain("promoted_reference_record_id = EXCLUDED.promoted_reference_record_id");
   });
 
   it("upserts changed observations so a new change can repair a missing row", async () => {
@@ -91,7 +94,38 @@ describe("Source Observation projections", () => {
     expect(query.mock.calls[0]?.[0]).toContain("INSERT INTO catalog_source_observations");
     expect(query.mock.calls[0]?.[0]).toContain("ON CONFLICT (observation_id) DO UPDATE");
     expect(query.mock.calls[0]?.[0]).not.toContain("promoted_catalog_item_id = EXCLUDED.promoted_catalog_item_id");
+    expect(query.mock.calls[0]?.[0]).not.toContain(
+      "promoted_reference_record_id = EXCLUDED.promoted_reference_record_id",
+    );
     expect(query.mock.calls[0]?.[1]?.[13]).toBe("changed");
+  });
+
+  it("projects Reference Record promotion targets separately from Catalog Item targets", async () => {
+    const query = vi.fn(async (_sql: string, _params?: readonly unknown[]) => ({ rows: [] }));
+    const handlers = buildSourceObservationProjectionHandlers({ query });
+
+    await handlers["catalog.source-observation.reference-promoted"]?.({
+      streamId: "catalog.source-observation-mtgjson_en_tsp",
+      data: {
+        referenceRecordId: "ref_mtgjson_set_tsp",
+        promotedAt: "2026-06-19T10:00:00.000Z",
+        promotionProfileKey: "mtg-set-reference-data",
+        promotionProfileVersion: "2026.06.19",
+        promotionPlanFingerprint: "sha256:reference",
+      },
+      timing: { recordedAt: "2026-06-19T10:00:01.000Z" },
+    } as never);
+
+    expect(query).toHaveBeenCalledWith(expect.stringContaining("promoted_reference_record_id = $2"), [
+      "mtgjson_en_tsp",
+      "ref_mtgjson_set_tsp",
+      "2026-06-19T10:00:00.000Z",
+      "mtg-set-reference-data",
+      "2026.06.19",
+      "sha256:reference",
+      "2026-06-19T10:00:01.000Z",
+    ]);
+    expect(query.mock.calls[0]?.[0]).toContain("promoted_catalog_item_id = NULL");
   });
 
   it("projects deferrals without removing the observation from review", async () => {
