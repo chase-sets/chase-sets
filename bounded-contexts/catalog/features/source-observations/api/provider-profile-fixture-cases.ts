@@ -11,6 +11,16 @@ export function catalogProviderProfileFixtureCases(): readonly CatalogProviderPr
         profileVersion: "2026.06.19",
       },
       {
+        partial: {
+          expectedStatus: "blocked",
+          expectedDiagnosticPaths: [
+            "normalizedObservation.fields.name.selector.path",
+            "normalizedObservation.fields.mergeIdentity.selector.fields.printedProductName.selector.path",
+            "normalizedObservation.hashMaterial.0.selector.fields.name.selector.path",
+            "normalizedObservation.fields.name",
+          ],
+          expectedObservation: undefined,
+        },
         normal: {
           expectedObservation: {
             externalKey: "card:13fd9d47-9aa7-5f7c-8f47-fury-sliver",
@@ -30,6 +40,13 @@ export function catalogProviderProfileFixtureCases(): readonly CatalogProviderPr
             "duplicatePrevention.mergeCandidateEvidence.1",
             "duplicatePrevention.mergeCandidateEvidence.2",
           ],
+          expectedDuplicatePrevention: mtgjsonBridgeDuplicatePrevention(),
+        },
+        ambiguous: {
+          expectedDuplicatePrevention: mtgjsonBridgeDuplicatePrevention(),
+        },
+        replay: {
+          expectedDuplicatePrevention: mtgjsonBridgeDuplicatePrevention(),
         },
         "sealed-product": {
           expectedObservation: {
@@ -61,6 +78,17 @@ export function catalogProviderProfileFixtureCases(): readonly CatalogProviderPr
         profileVersion: "2026.06.19",
       },
       {
+        partial: {
+          expectedStatus: "blocked",
+          expectedDiagnosticPaths: [
+            "normalizedObservation.fields.name.selector.path",
+            "normalizedObservation.fields.setName.selector.path",
+            "normalizedObservation.hashMaterial.0.selector.fields.name.selector.path",
+            "normalizedObservation.fields.name",
+            "normalizedObservation.fields.setName",
+          ],
+          expectedObservation: undefined,
+        },
         normal: {
           expectedObservation: {
             externalKey: "set:TSP",
@@ -77,6 +105,29 @@ export function catalogProviderProfileFixtureCases(): readonly CatalogProviderPr
             "duplicatePrevention.mergeCandidateEvidence.0",
             "duplicatePrevention.mergeCandidateEvidence.1",
           ],
+          forbiddenPromotionCommands: catalogItemPromotionCommands(),
+          expectedDuplicatePrevention: {
+            ambiguousCandidatePolicy: "block-promotion",
+            replayPolicy: "same-profile-version",
+            exactExternalCatalogItemReferencesFirst: false,
+            rulePolicies: [{ ruleKey: "source-observation-link", candidatePolicy: "review-only" }],
+          },
+        },
+        ambiguous: {
+          forbiddenPromotionCommands: catalogItemPromotionCommands(),
+          expectedDuplicatePrevention: {
+            ambiguousCandidatePolicy: "block-promotion",
+            replayPolicy: "same-profile-version",
+            rulePolicies: [{ ruleKey: "source-observation-link", candidatePolicy: "review-only" }],
+          },
+        },
+        replay: {
+          forbiddenPromotionCommands: catalogItemPromotionCommands(),
+          expectedDuplicatePrevention: {
+            ambiguousCandidatePolicy: "block-promotion",
+            replayPolicy: "same-profile-version",
+            rulePolicies: [{ ruleKey: "source-observation-link", candidatePolicy: "review-only" }],
+          },
         },
         "unknown-option": {
           expectedObservation: {
@@ -98,6 +149,16 @@ export function catalogProviderProfileFixtureCases(): readonly CatalogProviderPr
         profileVersion: "2026.06.19",
       },
       {
+        partial: {
+          expectedStatus: "blocked",
+          expectedDiagnosticPaths: [
+            "normalizedObservation.fields.name.selector",
+            "normalizedObservation.fields.mergeIdentity.selector.fields.printedProductName.selector.path",
+            "normalizedObservation.hashMaterial.0.selector.fields.name.selector.path",
+            "normalizedObservation.fields.name",
+          ],
+          expectedObservation: undefined,
+        },
         normal: {
           expectedObservation: {
             externalKey: "card:0000579f-7b35-4ed3-b44c-db2a538066fe",
@@ -115,6 +176,27 @@ export function catalogProviderProfileFixtureCases(): readonly CatalogProviderPr
             "duplicatePrevention.mergeCandidateEvidence.1",
             "duplicatePrevention.mergeCandidateEvidence.2",
           ],
+          expectedPromotionCommands: [
+            "CreateCatalogItem",
+            "SetCatalogItemFieldValue",
+            "LinkExternalCatalogItemReference",
+          ],
+          expectedPromotionInputPaths: [
+            "CreateCatalogItem.title",
+            "SetCatalogItemFieldValue.fieldKey",
+            "SetCatalogItemFieldValue.value",
+            "LinkExternalCatalogItemReference.externalKey",
+          ],
+          expectedDuplicatePrevention: scryfallBridgeDuplicatePrevention(),
+        },
+        ambiguous: {
+          expectedDuplicatePrevention: scryfallBridgeDuplicatePrevention(),
+        },
+        changed: {
+          expectedPromotionInputPaths: ["SetCatalogItemFieldValue.value"],
+        },
+        replay: {
+          expectedDuplicatePrevention: scryfallBridgeDuplicatePrevention(),
         },
         "sealed-product": {
           expectedObservation: {
@@ -146,6 +228,16 @@ export function catalogProviderProfileFixtureCases(): readonly CatalogProviderPr
         profileVersion: "2026.06.19",
       },
       {
+        partial: {
+          expectedStatus: "blocked",
+          expectedDiagnosticPaths: [
+            "normalizedObservation.fields.name.selector",
+            "normalizedObservation.fields.mergeIdentity.selector.fields.printedProductName.selector.path",
+            "normalizedObservation.hashMaterial.0.selector.fields.name.selector.path",
+            "normalizedObservation.fields.name",
+          ],
+          expectedObservation: undefined,
+        },
         normal: {
           expectedObservation: {
             externalKey: "image:0000579f-7b35-4ed3-b44c-db2a538066fe",
@@ -163,6 +255,27 @@ export function catalogProviderProfileFixtureCases(): readonly CatalogProviderPr
             "duplicatePrevention.mergeCandidateEvidence.1",
             "duplicatePrevention.mergeCandidateEvidence.2",
           ],
+          expectedPromotionCommands: [
+            "CreateCatalogItem",
+            "SetCatalogItemFieldValue",
+            "LinkExternalCatalogItemReference",
+          ],
+          expectedPromotionInputPaths: [
+            "CreateCatalogItem.title",
+            "SetCatalogItemFieldValue.fieldKey",
+            "SetCatalogItemFieldValue.value",
+            "LinkExternalCatalogItemReference.externalKey",
+          ],
+          expectedDuplicatePrevention: scryfallBridgeDuplicatePrevention(),
+        },
+        ambiguous: {
+          expectedDuplicatePrevention: scryfallBridgeDuplicatePrevention(),
+        },
+        changed: {
+          expectedPromotionInputPaths: ["SetCatalogItemFieldValue.value"],
+        },
+        replay: {
+          expectedDuplicatePrevention: scryfallBridgeDuplicatePrevention(),
         },
         "sealed-product": {
           expectedObservation: {
@@ -244,6 +357,11 @@ export function catalogProviderProfileFixtureCases(): readonly CatalogProviderPr
         profileVersion: "2026.06.19",
       },
       {
+        partial: {
+          expectedStatus: "blocked",
+          expectedDiagnosticPaths: ["sourceObservation.externalKey.selector.path", "sourceObservation.externalKey"],
+          expectedObservation: undefined,
+        },
         normal: {
           expectedObservation: {
             externalKey: "14240",
@@ -273,6 +391,14 @@ export function catalogProviderProfileFixtureCases(): readonly CatalogProviderPr
             "duplicatePrevention.mergeCandidateEvidence.1",
             "duplicatePrevention.mergeCandidateEvidence.2",
           ],
+          forbiddenPromotionCommands: catalogItemPromotionCommands(),
+          expectedDuplicatePrevention: tcgplayerDuplicatePrevention(),
+        },
+        ambiguous: {
+          expectedDuplicatePrevention: tcgplayerDuplicatePrevention(),
+        },
+        replay: {
+          expectedDuplicatePrevention: tcgplayerDuplicatePrevention(),
         },
         "sealed-product": {
           expectedObservation: {
@@ -315,6 +441,14 @@ export function catalogProviderProfileFixtureCases(): readonly CatalogProviderPr
         profileVersion: "2026.06.19",
       },
       {
+        partial: {
+          expectedStatus: "blocked",
+          expectedDiagnosticPaths: [
+            "normalizedObservation.fields.packCount.selector.path",
+            "normalizedObservation.fields.packCount",
+          ],
+          expectedObservation: undefined,
+        },
         normal: {
           expectedObservation: {
             externalKey: "96601",
@@ -350,6 +484,29 @@ export function catalogProviderProfileFixtureCases(): readonly CatalogProviderPr
             "AssignCatalogItemToCategory",
             "LinkExternalCatalogItemReference",
           ],
+          expectedPromotionInputPaths: [
+            "CreateCatalogItem.title",
+            "AssignBlueprintToCatalogItem.blueprintKey",
+            "SetCatalogItemFieldValue.fieldKey",
+            "SetCatalogItemFieldValue.value",
+            "AssignCatalogItemToCategory.categoryKey",
+            "LinkExternalCatalogItemReference.references",
+          ],
+          expectedDuplicatePrevention: tcgplayerDuplicatePrevention(),
+        },
+        ambiguous: {
+          expectedDuplicatePrevention: tcgplayerDuplicatePrevention(),
+        },
+        changed: {
+          expectedPromotionInputPaths: [
+            "CreateCatalogItem.title",
+            "AssignBlueprintToCatalogItem.blueprintKey",
+            "SetCatalogItemFieldValue.value",
+            "LinkExternalCatalogItemReference.references",
+          ],
+        },
+        replay: {
+          expectedDuplicatePrevention: tcgplayerDuplicatePrevention(),
         },
         "sealed-product": {
           expectedObservation: {
@@ -454,6 +611,59 @@ export function catalogProviderProfileFixtureCases(): readonly CatalogProviderPr
         },
       },
     ),
+  ];
+}
+
+function mtgjsonBridgeDuplicatePrevention(): CatalogProviderProfileFixtureCase["expectedDuplicatePrevention"] {
+  return {
+    ambiguousCandidatePolicy: "block-promotion",
+    replayPolicy: "same-profile-version",
+    exactExternalCatalogItemReferencesFirst: true,
+    rulePolicies: [
+      { ruleKey: "exact-scryfall-bridge-reference", candidatePolicy: "reuse" },
+      { ruleKey: "future-provider-bridge-review", candidatePolicy: "review-only" },
+    ],
+  };
+}
+
+function scryfallBridgeDuplicatePrevention(): CatalogProviderProfileFixtureCase["expectedDuplicatePrevention"] {
+  return {
+    ambiguousCandidatePolicy: "block-promotion",
+    replayPolicy: "same-profile-version",
+    exactExternalCatalogItemReferencesFirst: true,
+    rulePolicies: [
+      { ruleKey: "exact-external-catalog-item-reference", candidatePolicy: "reuse" },
+      { ruleKey: "future-provider-bridge-review", candidatePolicy: "review-only" },
+    ],
+  };
+}
+
+function tcgplayerDuplicatePrevention(): CatalogProviderProfileFixtureCase["expectedDuplicatePrevention"] {
+  return {
+    ambiguousCandidatePolicy: "block-promotion",
+    replayPolicy: "same-profile-version",
+    exactExternalCatalogItemReferencesFirst: true,
+    rulePolicies: [
+      { ruleKey: "exact-external-catalog-item-reference", candidatePolicy: "reuse" },
+      { ruleKey: "exact-external-product-reference", candidatePolicy: "reuse" },
+      { ruleKey: "future-provider-bridge-review", candidatePolicy: "review-only" },
+    ],
+  };
+}
+
+function catalogItemPromotionCommands(): readonly string[] {
+  return [
+    "CreateCatalogItem",
+    "RefreshCatalogItem",
+    "ReviseCatalogItemMetadata",
+    "AssignBlueprintToCatalogItem",
+    "AssignCatalogItemToCategory",
+    "SetCatalogItemFieldValue",
+    "SetCatalogItemTags",
+    "SetCatalogItemImageUrls",
+    "SetCatalogItemProductAssetSets",
+    "LinkExternalCatalogItemReference",
+    "LinkExternalProductReference",
   ];
 }
 

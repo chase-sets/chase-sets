@@ -7,6 +7,7 @@ import {
   catalogProviderIntegrationProfileVersions,
   type CatalogProviderIntegrationProfileVersionRecord,
 } from "./provider-integration-profiles";
+import type { CatalogProviderProfileFixtureFlow } from "./provider-integration-mapping-contract";
 import {
   formatCatalogProviderProfileFixtureFailures,
   validateCatalogProviderProfileFixtures,
@@ -68,6 +69,80 @@ describe("Catalog provider profile contract harness", () => {
     }
   });
 
+  it("classifies Magic fixture dry-runs as blocked, changed, ambiguous, promotable, and replay-safe", async () => {
+    const [blockedPartial, normalSet, replaySet, changedSet, ambiguousSealed, promotableSealed] = await Promise.all([
+      dryRunFixture(
+        { providerKey: "scryfall", profileKey: "mtg-card-print-reference-data", profileVersion: "2026.06.19" },
+        "partial",
+      ),
+      dryRunFixture(
+        { providerKey: "mtgjson", profileKey: "mtg-set-reference-data", profileVersion: "2026.06.19" },
+        "normal",
+      ),
+      dryRunFixture(
+        { providerKey: "mtgjson", profileKey: "mtg-set-reference-data", profileVersion: "2026.06.19" },
+        "replay",
+      ),
+      dryRunFixture(
+        { providerKey: "mtgjson", profileKey: "mtg-set-reference-data", profileVersion: "2026.06.19" },
+        "changed",
+      ),
+      dryRunFixture(
+        { providerKey: "tcgplayer", profileKey: "mtg-sealed-product-sku", profileVersion: "2026.06.19" },
+        "ambiguous",
+      ),
+      dryRunFixture(
+        { providerKey: "tcgplayer", profileKey: "mtg-sealed-product-sku", profileVersion: "2026.06.19" },
+        "normal",
+      ),
+    ]);
+
+    expect(blockedPartial.status).toBe("blocked");
+    expect(blockedPartial.diagnosticLinks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: "normalizedObservation.fields.name.selector",
+          sectionKey: "normalized-observation",
+          fixtureFlow: "partial",
+        }),
+      ]),
+    );
+    expect(normalSet.observation?.sourceRecordHash).toBe(replaySet.observation?.sourceRecordHash);
+    expect(normalSet.observation?.sourceRecordHash).not.toBe(changedSet.observation?.sourceRecordHash);
+    expect(normalSet.observation?.sourceMappingFingerprint).toBe(replaySet.observation?.sourceMappingFingerprint);
+    expect(normalSet.promotionCommandPlan.commands).toEqual([]);
+    expect(ambiguousSealed).toMatchObject({
+      status: "completed",
+      duplicatePreventionPolicy: {
+        ambiguousCandidatePolicy: "block-promotion",
+        replayPolicy: "same-profile-version",
+      },
+    });
+    expect(ambiguousSealed.duplicatePreventionRules).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ ruleKey: "sealed-product-deterministic-fields", candidatePolicy: "review-only" }),
+        expect.objectContaining({ ruleKey: "barcode-gtin-review", candidatePolicy: "review-only" }),
+      ]),
+    );
+    expect(promotableSealed.promotionCommandPlan.commands.map((command) => command.commandName)).toEqual([
+      "CreateCatalogItem",
+      "AssignBlueprintToCatalogItem",
+      "SetCatalogItemFieldValue",
+      "AssignCatalogItemToCategory",
+      "LinkExternalCatalogItemReference",
+    ]);
+    expect(
+      promotableSealed.promotionCommandPlan.commands.flatMap((command) => command.inputs.map((input) => input.path)),
+    ).toEqual(
+      expect.arrayContaining([
+        "CreateCatalogItem.title",
+        "AssignBlueprintToCatalogItem.blueprintKey",
+        "SetCatalogItemFieldValue.value",
+        "LinkExternalCatalogItemReference.references",
+      ]),
+    );
+  });
+
   it("guards Catalog truth from pricing, inventory, seller, and secret evidence", () => {
     for (const version of catalogProviderIntegrationProfileVersions) {
       const contract = version.executableMappingContract;
@@ -92,7 +167,7 @@ describe("Catalog provider profile contract harness", () => {
 
 async function dryRunFixture(
   identity: Readonly<{ providerKey: string; profileKey?: string; profileVersion: string }>,
-  flow: "normal" | "changed" | "replay",
+  flow: CatalogProviderProfileFixtureFlow,
 ) {
   const fixtureCase = catalogProviderProfileFixtureCases().find(
     (candidate) =>
@@ -125,6 +200,7 @@ async function dryRunFixture(
     ingestionUnitKey: fixtureCase.ingestionUnitKey,
     payload,
     observedAt: "2026-06-03T00:00:00.000Z",
+    fixtureFlow: flow,
   });
 }
 

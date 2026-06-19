@@ -30,6 +30,7 @@ import {
   type CatalogProviderMappingEvidenceUse,
   type CatalogProviderMappingValueExpression,
 } from "./provider-integration-mapping-contract";
+import { catalogProviderProfileFixtureCases } from "./provider-profile-fixture-cases";
 
 describe("catalog provider integration profiles", () => {
   it("registers TCGplayer as an active Magic automation-client connector sourced from the automation app", () => {
@@ -651,6 +652,45 @@ describe("catalog provider integration profiles", () => {
     );
   });
 
+  it("gates every active Magic profile version on executable fixture-backed mapping coverage", () => {
+    const fixtureCases = catalogProviderProfileFixtureCases();
+    const activeMagicVersions = catalogProviderIntegrationProfileVersions.filter(
+      (version) =>
+        version.active &&
+        version.lifecycle === "active" &&
+        executableContractProductDomain(version.executableMappingContract) === "mtg" &&
+        ["mtgjson", "scryfall", "tcgplayer"].includes(version.providerKey),
+    );
+
+    expect(activeMagicVersions.map((version) => version.profileKey)).toEqual([
+      "mtg-card-reference-data",
+      "mtg-set-reference-data",
+      "mtg-card-print-reference-data",
+      "mtg-card-image-evidence",
+      "mtg-single-card-product-sku",
+      "mtg-sealed-product-sku",
+    ]);
+
+    for (const version of activeMagicVersions) {
+      expect(version.executableMappingContract, version.profileKey).toBeDefined();
+      expect(version.fixtures.liveProviderCallsAllowed, version.profileKey).toBe(false);
+      expect(version.fixtures.coveredFlows, version.profileKey).toEqual(catalogProviderRequiredFixtureFlows);
+      expect(validateCatalogProviderIntegrationProfileVersion(version), version.profileKey).toEqual([]);
+
+      const matchingCases = fixtureCases.filter(
+        (fixtureCase) =>
+          fixtureCase.providerKey === version.providerKey &&
+          fixtureCase.profileKey === version.profileKey &&
+          fixtureCase.profileVersion === version.profileVersion &&
+          fixtureCase.ingestionUnitKey === catalogProviderProfileVersionIngestionUnitKey(version),
+      );
+      expect(
+        matchingCases.map((fixtureCase) => fixtureCase.flow),
+        version.profileKey,
+      ).toEqual(catalogProviderRequiredFixtureFlows);
+    }
+  });
+
   it("blocks explicit ingestion-unit identity drift between profile versions and executable contracts", () => {
     const tcgplayerVersion = executableTcgplayerVersion();
 
@@ -866,6 +906,15 @@ function executableTcgplayerVersion(): CatalogProviderIntegrationProfileVersionR
     ...tcgplayerVersion,
     profileVersion: "2026.06.02",
   };
+}
+
+function executableContractProductDomain(
+  contract: CatalogProviderIntegrationProfileVersionRecord["executableMappingContract"],
+): string | null {
+  return (
+    (contract as Readonly<{ ingestionUnitIdentity?: Readonly<{ productDomain?: string }> }> | undefined)
+      ?.ingestionUnitIdentity?.productDomain ?? null
+  );
 }
 
 function mappingContract(
