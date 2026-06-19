@@ -37,6 +37,9 @@ describe("Catalog provider profile section domain", () => {
     expect(sectionsByProfile["mtg-single-card-product-sku"].ingestionUnitIdentity.value.unitKey).toBe(
       "tcgplayer:mtg:single-card:source-observation-import",
     );
+    expect(sectionsByProfile["mtg-sealed-product-sku"].ingestionUnitIdentity.value.unitKey).toBe(
+      "tcgplayer:mtg:sealed-product:source-observation-import",
+    );
     expect(sectionsByProfile["mtg-card-reference-data"].ingestionUnitIdentity.value.unitKey).toBe(
       "mtgjson:mtg:single-card:reference-data",
     );

@@ -34,6 +34,7 @@ import {
 import {
   createTcgplayerProviderAdapter,
   TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+  TCGPLAYER_MTG_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
   TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
 } from "./tcgplayer";
 import {
@@ -659,6 +660,122 @@ describe("ProviderAdapterRegistry", () => {
     ]);
   });
 
+  it("serves TCGplayer Magic sealed-product transport through the active profile unit", async () => {
+    const progress: unknown[] = [];
+    const adapter = createTcgplayerProviderAdapter({
+      loadProfileVersions: async () => [
+        requireTcgplayerMtgProfileVersion(),
+        requireTcgplayerMtgSealedProfileVersion(),
+        requireTcgplayerPokemonProfileVersion(),
+      ],
+      client: magicTcgplayerClient(),
+      now: () => new Date("2026-06-06T00:00:00.000Z"),
+    });
+
+    await expect(adapter.listIntegrationUnits()).resolves.toEqual([
+      expect.objectContaining({
+        unitKey: TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        displayName: "TCGplayer Magic Single Cards",
+        productForm: "single-card",
+      }),
+      expect.objectContaining({
+        unitKey: TCGPLAYER_MTG_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        displayName: "TCGplayer Magic Sealed Products",
+        productForm: "sealed-product",
+      }),
+    ]);
+    await expect(
+      adapter.listOptions({
+        unitKey: TCGPLAYER_MTG_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        optionKind: "products",
+        parentValues: { setName: "Time Spiral" },
+      }),
+    ).resolves.toEqual({
+      items: [
+        expect.objectContaining({
+          value: "96601",
+          label: "Time Spiral Booster Pack",
+          metadata: expect.objectContaining({ productLineName: "Magic", sealed: "true" }),
+        }),
+      ],
+    });
+    await expect(
+      adapter.listOptions({
+        unitKey: TCGPLAYER_MTG_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        optionKind: "skus",
+        parentValues: { productId: "96601" },
+      }),
+    ).resolves.toEqual({
+      items: [
+        {
+          value: "50096601",
+          label: "50096601",
+          metadata: { sku: "50096601", condition: "Sealed", variant: "Sealed", language: "English" },
+        },
+      ],
+    });
+    await expect(
+      adapter.listOptions({
+        unitKey: TCGPLAYER_MTG_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        optionKind: "skus",
+        parentValues: { productId: "14240" },
+      }),
+    ).resolves.toEqual({ items: [] });
+
+    const plan = await adapter.planImport({
+      unitKey: TCGPLAYER_MTG_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      scopeKey: "set-name",
+      values: { productLineId: "1", setName: "Time Spiral" },
+    });
+    const payloads = await collectPayloads(
+      adapter.fetchPayloads(plan, {
+        onProgress: (event) => {
+          progress.push(event);
+        },
+      }),
+    );
+
+    expect(plan).toMatchObject({
+      unitKey: TCGPLAYER_MTG_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      planKey: "tcgplayer:set:1:Time Spiral",
+    });
+    expect(payloads).toEqual([
+      expect.objectContaining({
+        unitKey: TCGPLAYER_MTG_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        providerKey: "tcgplayer",
+        externalKey: "product:96601",
+        payload: {
+          kind: "product-detail",
+          detail: expect.objectContaining({
+            productId: 96601,
+            productName: "Time Spiral Booster Pack",
+            productLineName: "Magic",
+            productTypeName: "Sealed Products",
+            sealed: true,
+          }),
+        },
+      }),
+    ]);
+    expect(progress).toEqual([
+      { phase: "fetching", completed: 0, total: 1, currentLabel: "Time Spiral" },
+      { phase: "fetching", completed: 1, total: 1, currentLabel: "Time Spiral Booster Pack" },
+    ]);
+
+    const rejectedPlan = await adapter.planImport({
+      unitKey: TCGPLAYER_MTG_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      scopeKey: "product",
+      values: { productId: "14240" },
+    });
+    await expect(collectPayloads(adapter.fetchPayloads(rejectedPlan))).resolves.toEqual([
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          kind: "product-detail-failure",
+          reason: expect.stringContaining("only imports Magic sealed products"),
+        }),
+      }),
+    ]);
+  });
+
   it("plans and fetches TCGplayer product detail payloads with typed provenance", async () => {
     const progress: unknown[] = [];
     const adapter = createTcgplayerProviderAdapter({
@@ -1101,6 +1218,16 @@ function requireTcgplayerMtgProfileVersion() {
   });
   if (!version) {
     throw new Error("Expected TCGplayer Magic profile version.");
+  }
+  return version;
+}
+
+function requireTcgplayerMtgSealedProfileVersion() {
+  const version = getCatalogProviderIntegrationProfileVersion("tcgplayer", "2026.06.19", {
+    profileKey: "mtg-sealed-product-sku",
+  });
+  if (!version) {
+    throw new Error("Expected TCGplayer Magic sealed profile version.");
   }
   return version;
 }

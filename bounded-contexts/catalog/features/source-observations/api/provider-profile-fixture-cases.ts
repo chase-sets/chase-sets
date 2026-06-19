@@ -310,6 +310,84 @@ export function catalogProviderProfileFixtureCases(): readonly CatalogProviderPr
     ...providerCases(
       "tcgplayer",
       {
+        profileKey: "mtg-sealed-product-sku",
+        ingestionUnitKey: "tcgplayer:mtg:sealed-product:source-observation-import",
+        profileVersion: "2026.06.19",
+      },
+      {
+        normal: {
+          expectedObservation: {
+            externalKey: "96601",
+            normalizedKind: "magic-sealed-product",
+            normalizedFields: {
+              name: "Time Spiral Booster Pack",
+              setCode: "TSP",
+              setName: "Time Spiral",
+              sealedProductForm: "booster-pack",
+              packCount: 1,
+              tcg: "magic",
+              productLineName: "Magic: The Gathering",
+            },
+            externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:96601" }],
+            externalProductReferences: [
+              {
+                providerKey: "tcgplayer",
+                externalKey: "sku:50096601",
+                selectedOptions: [{ dimensionKey: "product-form", optionKey: "unopened", providerValue: "Sealed" }],
+              },
+            ],
+          },
+          expectedHashEvidencePaths: ["normalizedObservation.hashMaterial.0"],
+          expectedMergeEvidencePaths: [
+            "duplicatePrevention.mergeCandidateEvidence.0",
+            "duplicatePrevention.mergeCandidateEvidence.1",
+            "duplicatePrevention.mergeCandidateEvidence.2",
+          ],
+          expectedPromotionCommands: [
+            "CreateCatalogItem",
+            "AssignBlueprintToCatalogItem",
+            "SetCatalogItemFieldValue",
+            "AssignCatalogItemToCategory",
+            "LinkExternalCatalogItemReference",
+          ],
+        },
+        "sealed-product": {
+          expectedObservation: {
+            externalKey: "96601-sealed",
+            normalizedKind: "magic-sealed-product",
+            normalizedFields: {
+              name: "Time Spiral Booster Pack",
+              sealedProductForm: "booster-pack",
+              packCount: 1,
+            },
+            externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:96601" }],
+            externalProductReferences: [
+              {
+                providerKey: "tcgplayer",
+                externalKey: "sku:50096601",
+                selectedOptions: [{ dimensionKey: "product-form", optionKey: "unopened", providerValue: "Sealed" }],
+              },
+            ],
+          },
+        },
+        "unknown-option": {
+          expectedObservation: {
+            externalKey: "96601-unknown-option",
+            normalizedKind: "magic-sealed-product",
+            externalProductReferences: [
+              {
+                providerKey: "tcgplayer",
+                externalKey: "sku:50096604",
+                selectedOptions: [{ dimensionKey: "language", optionKey: null, providerValue: "Phyrexian" }],
+              },
+            ],
+          },
+        },
+      },
+    ),
+    ...providerCases(
+      "tcgplayer",
+      {
         profileKey: "pokemon-tcg-automation-client",
         ingestionUnitKey: "tcgplayer:pokemon:single-card:source-observation-import",
         profileVersion: "2026.06.03",
@@ -402,11 +480,13 @@ function providerCases(
           ? "pokemon-card"
           : identity.ingestionUnitKey === "mtgjson:mtg:set:reference-data"
             ? "magic-set-reference"
-            : providerKey === "mtgjson"
-              ? "magic-card-print"
-              : providerKey === "scryfall"
+            : identity.ingestionUnitKey === "tcgplayer:mtg:sealed-product:source-observation-import"
+              ? "magic-sealed-product"
+              : providerKey === "mtgjson"
                 ? "magic-card-print"
-                : "provider-product",
+                : providerKey === "scryfall"
+                  ? "magic-card-print"
+                  : "provider-product",
     },
     ...expectations[flow],
   }));

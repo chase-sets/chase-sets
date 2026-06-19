@@ -31,6 +31,7 @@ describe("Catalog provider profile review", () => {
       ["scryfall", "2026.06.19", "valid"],
       ["tcgdex", "2026.06.03", "valid"],
       ["tcgplayer", "2026.06.19", "valid"],
+      ["tcgplayer", "2026.06.19", "valid"],
       ["tcgplayer", "2026.06.03", "valid"],
     ]);
     expect(reviews.find((review) => review.profileKey === "mtg-card-print-reference-data")).toMatchObject({

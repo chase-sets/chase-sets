@@ -26,6 +26,8 @@ import {
 import {
   TCGPLAYER_MTG_SINGLE_CARD_PROFILE_VERSION,
   tcgplayerMtgSingleCardProviderProductSourceObservationMappingContract,
+  TCGPLAYER_MTG_SEALED_PRODUCT_PROFILE_VERSION,
+  tcgplayerMtgSealedProductSourceObservationMappingContract,
   tcgplayerProviderProductSourceObservationMappingContract,
 } from "./tcgplayer-executable-mapping-contract";
 import { tcgdexPokemonCardSourceObservationMappingContract } from "./tcgdex-executable-mapping-contract";
@@ -1390,6 +1392,84 @@ export const tcgplayerMtgSingleCardProviderProfile = {
   },
 } as const satisfies CatalogProviderIntegrationProfile;
 
+export const tcgplayerMtgSealedProductProviderProfile = {
+  ...tcgplayerAutomationClientProviderProfile,
+  displayName: "TCGplayer Magic Sealed Products",
+  status: "active",
+  capabilities: [
+    "provider-option-query",
+    "source-observation-import",
+    "catalog-item-promotion",
+    "external-reference-extraction",
+  ],
+  normalizedObservationMapping: {
+    kind: "magic-sealed-product",
+    variantRules: [],
+    unknownVariantLabelPrefix: "Unclassified TCGplayer Magic Sealed Variant",
+    duplicateReferenceRule: "drop-repeated-across-variants",
+  },
+  catalogFieldMapping: {
+    blueprintKey: "magic-sealed-product",
+    categoryKey: "magic-booster-packs",
+    fieldKeys: {
+      cardNumber: "card-number",
+      cardName: "card-name",
+      set: "set",
+      expansion: "set",
+      rarity: "rarity",
+      cardVariant: "card-variant",
+      cardIllustrator: "card-illustrator",
+      releaseYear: "release-year",
+      packCount: "pack-count",
+    },
+  },
+  referenceHierarchyMapping: tcgplayerMtgSingleCardProviderProfile.referenceHierarchyMapping,
+  selectedOptionMapping: {
+    ...tcgplayerAutomationClientProviderProfile.selectedOptionMapping,
+    dimensions: [
+      {
+        dimensionKey: "product-form",
+        providerValue: { source: "payload", path: "sealed" },
+        required: true,
+        unknownPolicy: "review-evidence",
+        valueMappings: [{ from: true, value: "unopened" }],
+        valueSynonyms: [{ optionKey: "unopened", providerValues: ["unopened", "sealed", "Sealed"] }],
+      },
+      {
+        dimensionKey: "language",
+        providerValue: { source: "record", path: "language" },
+        required: false,
+        unknownPolicy: "review-evidence",
+        valueSynonyms: [{ optionKey: "english", providerValues: ["English", "EN"] }],
+      },
+    ],
+  },
+  duplicatePreventionMapping: {
+    ...tcgplayerAutomationClientProviderProfile.duplicatePreventionMapping,
+    rules: tcgplayerAutomationClientProviderProfile.duplicatePreventionMapping.rules.map((rule) => {
+      if (rule.ruleKey === "sealed-product-deterministic-fields") {
+        return {
+          ...rule,
+          normalizedKind: "magic-sealed-product",
+          sealedValues: ["sealed"],
+          fieldMatches: [
+            { fieldKey: "cardName", valuePath: "name", valueTransform: "localized-text" },
+            { fieldKey: "set", valuePath: "setName", valueTransform: "localized-text" },
+            { fieldKey: "packCount", valuePath: "packCount" },
+          ],
+        };
+      }
+      if (rule.ruleKey === "future-provider-bridge-review") {
+        return {
+          ...rule,
+          bridgeReferenceProviderKeys: ["scryfall", "mtgjson", "tcgplayer"],
+        };
+      }
+      return rule;
+    }),
+  },
+} as const satisfies CatalogProviderIntegrationProfile;
+
 export const scrydexScryfallCardProviderProfile = {
   providerKey: "scrydex",
   displayName: "Scrydex",
@@ -2006,6 +2086,7 @@ export const catalogProviderIntegrationProfiles = [
   scryfallMtgImageEvidenceProviderProfile,
   tcgdexPokemonTcgProviderProfile,
   tcgplayerMtgSingleCardProviderProfile,
+  tcgplayerMtgSealedProductProviderProfile,
   tcgplayerAutomationClientProviderProfile,
 ] as const satisfies readonly CatalogProviderIntegrationProfile[];
 
@@ -2086,6 +2167,19 @@ export const catalogProviderIntegrationProfileVersions = [
     fixtures: tcgplayerMtgSingleCardProviderProductSourceObservationMappingContract.fixtures,
     retirementPlan: null,
     executableMappingContract: tcgplayerMtgSingleCardProviderProductSourceObservationMappingContract,
+  },
+  {
+    providerKey: "tcgplayer",
+    profileKey: "mtg-sealed-product-sku",
+    profileVersion: TCGPLAYER_MTG_SEALED_PRODUCT_PROFILE_VERSION,
+    ingestionUnitIdentity: tcgplayerMtgSealedProductSourceObservationMappingContract.ingestionUnitIdentity,
+    lifecycle: "active",
+    active: true,
+    profile: tcgplayerMtgSealedProductProviderProfile,
+    sourceContract: tcgplayerMtgSealedProductSourceObservationMappingContract.sourceContract,
+    fixtures: tcgplayerMtgSealedProductSourceObservationMappingContract.fixtures,
+    retirementPlan: null,
+    executableMappingContract: tcgplayerMtgSealedProductSourceObservationMappingContract,
   },
   {
     providerKey: "tcgplayer",

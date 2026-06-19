@@ -1,0 +1,71 @@
+{
+  "observationId": "tcgplayer_mtg_sealed_product_96603_ambiguous",
+  "externalKey": "96603",
+  "sourceUrl": "https://www.tcgplayer.com/product/96603",
+  "sourceUpdatedAt": "2026-06-01T00:00:00.000Z",
+  "productId": 96603,
+  "productName": "Time Spiral Booster Pack Alternate Barcode",
+  "setCode": "TSP",
+  "setId": 1001,
+  "setName": "Time Spiral",
+  "productLineId": 1,
+  "productLineName": "Magic",
+  "productTypeName": "Sealed Products",
+  "customAttributes": {
+    "number": "PACK-ALT",
+    "releaseDate": "2006-10-06"
+  },
+  "releaseYear": 2006,
+  "productForm": "sealed",
+  "sealedProductForm": "booster-pack",
+  "packCount": 1,
+  "barcode": "0653569123456",
+  "imageUrls": [],
+  "skuReferences": ["sku:50096603"],
+  "externalCatalogItemReferences": [
+    {
+      "providerKey": "tcgplayer",
+      "externalKey": "product:96603"
+    }
+  ],
+  "externalProductReferences": [
+    {
+      "providerKey": "tcgplayer",
+      "externalKey": "sku:50096603",
+      "selectedOptions": [
+        {
+          "dimensionKey": "product-form",
+          "optionKey": "unopened",
+          "providerValue": "Sealed"
+        }
+      ]
+    }
+  ],
+  "mergeIdentity": {
+    "tcg": "magic",
+    "productLineName": "Magic",
+    "setName": "Time Spiral",
+    "printedProductName": "Time Spiral Booster Pack Alternate Barcode",
+    "collectorNumber": "PACK-ALT",
+    "languageCode": "en",
+    "productForm": "sealed",
+    "barcode": "0653569123456"
+  },
+  "catalogHashMaterial": {
+    "productId": 96603,
+    "productName": "Time Spiral Booster Pack Alternate Barcode",
+    "setCode": "TSP",
+    "setName": "Time Spiral",
+    "productLineName": "Magic",
+    "productForm": "sealed",
+    "sealedProductForm": "booster-pack",
+    "packCount": 1,
+    "barcode": "0653569123456",
+    "skuIds": [50096603]
+  },
+  "sourcePayload": {
+    "provider": "tcgplayer",
+    "payloadKind": "product-detail-with-skus",
+    "fixtureFlow": "ambiguous"
+  }
+}

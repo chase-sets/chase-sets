@@ -1,0 +1,58 @@
+{
+  "observationId": "tcgplayer_mtg_sealed_product_96602_partial",
+  "externalKey": "96602",
+  "sourceUrl": "https://www.tcgplayer.com/product/96602",
+  "sourceUpdatedAt": null,
+  "productId": 96602,
+  "productName": "Time Spiral Booster Pack Retail Display",
+  "setCode": "TSP",
+  "setId": 1001,
+  "setName": "Time Spiral",
+  "productLineId": 1,
+  "productLineName": "Magic",
+  "productTypeName": "Sealed Products",
+  "customAttributes": {
+    "number": "DISPLAY",
+    "releaseDate": "2006-10-06"
+  },
+  "releaseYear": 2006,
+  "productForm": "sealed",
+  "sealedProductForm": "booster-pack",
+  "packCount": 1,
+  "barcode": null,
+  "imageUrls": [],
+  "skuReferences": [],
+  "externalCatalogItemReferences": [
+    {
+      "providerKey": "tcgplayer",
+      "externalKey": "product:96602"
+    }
+  ],
+  "externalProductReferences": [],
+  "mergeIdentity": {
+    "tcg": "magic",
+    "productLineName": "Magic",
+    "setName": "Time Spiral",
+    "printedProductName": "Time Spiral Booster Pack Retail Display",
+    "collectorNumber": "DISPLAY",
+    "languageCode": "en",
+    "productForm": "sealed",
+    "barcode": null
+  },
+  "catalogHashMaterial": {
+    "productId": 96602,
+    "productName": "Time Spiral Booster Pack Retail Display",
+    "setCode": "TSP",
+    "setName": "Time Spiral",
+    "productLineName": "Magic",
+    "productForm": "sealed",
+    "sealedProductForm": "booster-pack",
+    "packCount": 1,
+    "skuIds": []
+  },
+  "sourcePayload": {
+    "provider": "tcgplayer",
+    "payloadKind": "product-detail-with-skus",
+    "fixtureFlow": "partial"
+  }
+}
