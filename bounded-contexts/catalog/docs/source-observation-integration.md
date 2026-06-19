@@ -91,6 +91,25 @@ interpretation can express those decisions safely. Replacing one requires
 complete deletion of the old helper, tests, fixtures, seeds, documentation,
 runbooks, release notes, and operator instructions.
 
+Magic production sync uses the same Source Observation boundary. Scryfall,
+MTGJSON, and TCGplayer Magic providers may record normalized Source Observation
+facts, provenance, source hashes, and diagnostics, but they do not write Catalog
+Items, Products, Reference Records, External Catalog Item References, or External
+Product References directly. The production authority and retained-data rules
+are tracked in [Catalog Integration Magic Production Signoff](./catalog-integration-magic-production-signoff.md):
+
+- Scryfall is the primary Magic card-print and image-evidence source.
+- MTGJSON is the Magic set/reference-data and cross-check source.
+- TCGplayer Magic is limited to marketplace product, SKU, sealed-product, and
+  external-reference identity.
+
+TCGplayer Magic prices, market prices, latest sales, seller/account facts,
+inventory, listings, quantities, orders, messages, cookies, session material,
+and raw automation-app bodies are not Catalog truth, source-hash material,
+operator evidence, logs, metrics, or screenshots. Production activation for any
+Magic provider remains blocked until the Magic signoff is complete and the
+interface-only staging UAT passes.
+
 ## Promotion
 
 Promotion creates a draft Catalog Item for the observed Pokemon card print variant unless the active provider profile's ordered duplicate-prevention rules resolve a reusable Catalog Item. Existing source-linked Catalog Items are refreshed in place so repeated promotion cannot create duplicates. TCGdex duplicate prevention evaluates exact external Catalog Item references first, then source observation links, deterministic Pokemon card fields, and partial-draft retry evidence. Promotion then builds a reviewed Catalog Item command plan from the active provider profile's Catalog field, category, Reference Record, and external-reference mappings, and the runtime executes those commands against the Catalog Item aggregate. The TCGdex Pokemon plan assigns the Pokemon card blueprint, sets card identity fields, assigns the Singles category for newly created drafts, records TCGdex source mapping, generates and attaches the Catalog Item-owned Product Asset Set when provider imagery exists, and keeps Chase Sets-owned image URLs as a migration compatibility projection.

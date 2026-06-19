@@ -76,6 +76,7 @@ Metric labels must stay bounded and must not include provider product ids, SKU i
 - TCGdex: public JSON payloads may be used for deterministic fixture-backed contract tests, but retained real-provider samples still require the approval gate. The real-provider proof packet intentionally reports `sourceHash: null` until the governed hash material and retention policy define how real-provider payload content hashes are computed and retained. The packet must redact raw payload bodies, full provider URLs, provider-controlled labels, credentials, cookies, and asset URLs.
 - TCGplayer: cookie/session auth, seller/account data, price, inventory, listing, latest sales, and marketplace account identifiers are excluded from Catalog truth and hashes. The TCGplayer automation runbook remains the transport runbook for credential handling, throttling, and diagnostic redaction. Catalog stores only redacted credential-readiness state and source-kind metadata.
 - Scrydex/Scryfall-style and MTGJSON validation: fixture-backed validation may use redacted sample payloads only after the approval gate is satisfied for the provider and data class. Rulings, legalities, prices, seller/inventory facts, and other non-Catalog-owned fields stay outside Catalog truth unless a later owner contract changes the boundary.
+- Magic production sync: MTGJSON, Scryfall, and TCGplayer Magic production activation is governed by [Catalog Integration Magic Production Signoff](./catalog-integration-magic-production-signoff.md). Scryfall is the primary card-print and image-evidence source, MTGJSON is the set/reference-data and cross-check source, and TCGplayer Magic is limited to marketplace product, SKU, sealed-product, and external-reference identity. Production activation remains blocked until the Magic signoff is complete and the interface-only staging UAT passes.
 
 ## Release Checklist
 
@@ -87,6 +88,7 @@ Before enabling live provider sampling, retained fixtures, retained dry-run evid
 4. Confirm Admin UI surfaces show normalized facts, hashes, references, diagnostic codes, or redacted previews instead of raw provider bodies.
 5. Confirm logs, metrics, traces, screenshots, CI artifacts, and launch evidence exclude provider secrets, account/seller data, and raw provider bodies.
 6. Confirm provider-specific constraints for TCGdex, TCGplayer, Scrydex/Scryfall-style, MTGJSON, and future providers are documented before live sampling.
+7. For Magic production sync, confirm the [Magic production signoff](./catalog-integration-magic-production-signoff.md) is complete before MTGJSON, Scryfall, or TCGplayer Magic activation.
 
 ## Related Policies
 
@@ -95,4 +97,5 @@ Before enabling live provider sampling, retained fixtures, retained dry-run evid
 - Provider credential storage, validation, rotation, and readiness are documented in [Catalog Integration Credential Readiness](./catalog-integration-credential-readiness.md).
 - Canonical audit/evidence event persistence is documented in [Catalog Integration Audit Evidence](./catalog-integration-audit-evidence.md).
 - Admin RBAC enforcement is documented in [Catalog Integration Admin Control Plane RBAC](./catalog-integration-admin-control-plane-rbac.md).
+- Magic production provider authority, retained-data exceptions, and UAT signoff are documented in [Catalog Integration Magic Production Signoff](./catalog-integration-magic-production-signoff.md).
 - Rollout modes, feature flags, and kill switches are governed outside this policy.

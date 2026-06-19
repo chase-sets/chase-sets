@@ -119,6 +119,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Catalog Integration Fixture Lifecycle](../bounded-contexts/catalog/docs/catalog-integration-fixture-lifecycle.md)
 - [Catalog Integration Job Consistency](../bounded-contexts/catalog/docs/catalog-integration-job-consistency.md)
 - [Catalog Integration Rollout Controls](../bounded-contexts/catalog/docs/catalog-integration-rollout-controls.md)
+- [Catalog Integration Magic Production Signoff](../bounded-contexts/catalog/docs/catalog-integration-magic-production-signoff.md)
 - [Catalog Integration Provider Option Query Controls](../bounded-contexts/catalog/docs/catalog-integration-provider-option-query-controls.md)
 - [Catalog Integration Provider Transport Budgets](../bounded-contexts/catalog/docs/catalog-integration-provider-transport-budgets.md)
 - [Catalog Integration Real-Provider Proof](../bounded-contexts/catalog/docs/catalog-integration-real-provider-proof.md)
