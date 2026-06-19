@@ -636,6 +636,25 @@ describe("Catalog primary workbench admin contracts", () => {
           forceRefreshSupported: true,
         },
       },
+      magicSetSync: {
+        status: "not-configured",
+        generatedAt: "2026-06-09T00:00:00.000Z",
+        selectedSet: {
+          setId: null,
+          setName: null,
+          label: "Select one Magic set",
+        },
+        setOptions: [],
+        summary: {
+          providerCount: 0,
+          readyProviderCount: 0,
+          blockedProviderCount: 0,
+          activeImportCount: 0,
+          changedObservationCount: 0,
+          promotedObservationCount: 0,
+        },
+        providers: [],
+      },
       readiness: {
         freshness: "partial",
         blockers: ["provider-transport-rate-limited"],

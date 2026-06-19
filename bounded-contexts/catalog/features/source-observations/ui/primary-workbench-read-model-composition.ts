@@ -49,6 +49,7 @@ import { conflictResolutionFor } from "./primary-workbench-conflict-resolution";
 import { governanceControlsFor } from "./primary-workbench-governance-controls";
 import { auditEvidenceFor } from "./primary-workbench-audit-evidence";
 import { buildCatalogPrimaryWorkbenchSourceOptions } from "./primary-workbench-source-options";
+import { magicSetSyncFor } from "./primary-workbench-magic-set-sync";
 
 // The slices the metric strip and grouped navigation render on EVERY surface
 // route, plus the route context and base scalars. Every per-route read model
@@ -58,6 +59,7 @@ type CatalogPrimaryWorkbenchCore = Readonly<{
   routeContext: CatalogPrimaryWorkbenchRouteContext;
   providerScope: CatalogPrimaryWorkbenchReadModel["providerScope"];
   sourceOptions: CatalogPrimaryWorkbenchReadModel["sourceOptions"];
+  magicSetSync: CatalogPrimaryWorkbenchReadModel["magicSetSync"];
   readiness: CatalogPrimaryWorkbenchReadModel["readiness"];
   importJobs: CatalogPrimaryWorkbenchReadModel["importJobs"];
   sourceObservationReview: CatalogPrimaryWorkbenchReadModel["sourceObservationReview"];
@@ -191,6 +193,23 @@ function buildCatalogPrimaryWorkbenchCore(
     scopes: input.scopes.items,
     sourceOptionPages: input.sourceOptionPages ?? null,
   });
+  const magicSetSync = magicSetSyncFor({
+    canManage,
+    controlPlaneOverview: input.controlPlaneOverview,
+    generatedAt,
+    importJobs: {
+      freshness: input.controlPlaneOverview ? "fresh" : "partial",
+      activeJobCount,
+      failedJobCount,
+      selectedScope: null,
+      jobs: importJobRows,
+    },
+    profiles: input.profileReviews.items,
+    readinessBlockers,
+    routeContext,
+    scopes: input.scopes.items,
+    sourceOptions,
+  });
 
   return {
     core: {
@@ -199,6 +218,7 @@ function buildCatalogPrimaryWorkbenchCore(
         providers: providerScopeProviders(input, providerKey, activeProfile, routeContext),
       },
       sourceOptions,
+      magicSetSync,
       readiness: {
         freshness: input.controlPlaneOverview ? "fresh" : "partial",
         blockers: readinessBlockers,
@@ -580,6 +600,7 @@ function assembleReadModel(
     routeContext: core.routeContext,
     providerScope: core.providerScope,
     readiness: core.readiness,
+    magicSetSync: core.magicSetSync,
     healthTriage: parts.healthTriage,
     profileAuthoring: parts.profileAuthoring,
     validationReadiness: parts.validationReadiness,

@@ -314,6 +314,7 @@ export type CatalogPrimaryWorkbenchReadModel = Readonly<{
   routeContext: CatalogPrimaryWorkbenchRouteContext;
   providerScope: CatalogPrimaryWorkbenchProviderScopeReadModel;
   sourceOptions: CatalogPrimaryWorkbenchSourceOptionsReadModel;
+  magicSetSync: CatalogPrimaryWorkbenchMagicSetSyncReadModel;
   readiness: CatalogPrimaryWorkbenchReadinessReadModel;
   healthTriage: CatalogPrimaryWorkbenchHealthTriageReadModel;
   profileAuthoring: CatalogPrimaryWorkbenchProfileAuthoringReadModel;
@@ -489,6 +490,84 @@ export type CatalogPrimaryWorkbenchSourceOptionsReadModel = Readonly<{
     refreshAllHref: string | null;
     cacheOnly: boolean;
     forceRefreshSupported: boolean;
+  }>;
+}>;
+
+export type CatalogPrimaryWorkbenchMagicSetSyncStatus =
+  | "not-configured"
+  | "set-required"
+  | "ready"
+  | "blocked"
+  | "degraded";
+
+export type CatalogPrimaryWorkbenchMagicSetSyncProviderState =
+  | "not-imported"
+  | "imported"
+  | "changed"
+  | "promoted"
+  | "blocked";
+
+export type CatalogPrimaryWorkbenchMagicSetSyncReadModel = Readonly<{
+  status: CatalogPrimaryWorkbenchMagicSetSyncStatus;
+  generatedAt: string;
+  selectedSet: Readonly<{
+    setId: string | null;
+    setName: string | null;
+    label: string;
+  }>;
+  setOptions: readonly Readonly<{
+    setId: string;
+    setName: string | null;
+    label: string;
+    providerKey: string;
+  }>[];
+  summary: Readonly<{
+    providerCount: number;
+    readyProviderCount: number;
+    blockedProviderCount: number;
+    activeImportCount: number;
+    changedObservationCount: number;
+    promotedObservationCount: number;
+  }>;
+  providers: readonly CatalogPrimaryWorkbenchMagicSetSyncProviderReadModel[];
+}>;
+
+export type CatalogPrimaryWorkbenchMagicSetSyncProviderReadModel = Readonly<{
+  providerKey: "mtgjson" | "scryfall" | "tcgplayer";
+  displayName: string;
+  unitKey: CatalogIntegrationUnitKey | null;
+  profileVersion: string | null;
+  importScope: string | null;
+  profileReady: boolean;
+  optionQueryState: CatalogPrimaryWorkbenchSourceOptionsStatus;
+  state: CatalogPrimaryWorkbenchMagicSetSyncProviderState;
+  counts: Readonly<{
+    observed: number;
+    changed: number;
+    promoted: number;
+    rejected: number;
+    eligible: number;
+  }>;
+  activeJobCount: number;
+  lastJobState: CatalogPrimaryWorkbenchImportJobsReadModel["jobs"][number]["state"] | null;
+  currentWorkbenchHref: string;
+  commandContext: Readonly<{
+    providerKey: string;
+    unitKey: CatalogIntegrationUnitKey | null;
+    importScope: string | null;
+    profileVersion: string | null;
+    languageCode: string | null;
+    productLineId: string | null;
+    productLineName: string | null;
+    seriesId: string | null;
+    seriesName: string | null;
+    expansionId: string | null;
+    expansionName: string | null;
+  }>;
+  actions: Readonly<{
+    import: CatalogPrimaryWorkbenchActionReadModel;
+    previewPromotion: CatalogPrimaryWorkbenchActionReadModel;
+    reapply: CatalogPrimaryWorkbenchActionReadModel;
   }>;
 }>;
 
@@ -2474,6 +2553,13 @@ export function validateCatalogPrimaryWorkbenchReadModelContract(
   assertPrimaryWorkbenchBlockers(value.readiness?.blockers);
   assertPrimaryWorkbenchBlockers(value.sourceOptions?.refresh.blockers);
   assertPrimaryWorkbenchBlockers(value.sourceOptions?.pages.flatMap((page) => page.blockers));
+  assertPrimaryWorkbenchBlockers(
+    value.magicSetSync?.providers.flatMap((provider) => [
+      ...provider.actions.import.blockers,
+      ...provider.actions.previewPromotion.blockers,
+      ...provider.actions.reapply.blockers,
+    ]),
+  );
   assertPrimaryWorkbenchBlockers(value.importJobs?.selectedScope?.readiness.blockers);
   assertPrimaryWorkbenchBlockers(value.importJobs?.jobs.flatMap((job) => job.blockers));
   assertPrimaryWorkbenchBlockers(
@@ -2491,6 +2577,7 @@ export function validateCatalogPrimaryWorkbenchReadModelContract(
   assertPrimaryWorkbenchBlockers(value.promotionPreview?.blockers);
   assertPrimaryWorkbenchConflictResolution(value.conflictResolution);
   assertPrimaryWorkbenchSourceOptions(value.sourceOptions);
+  assertPrimaryWorkbenchMagicSetSync(value.magicSetSync);
   assertPrimaryWorkbenchGovernanceControls(value.governanceControls);
   assertPrimaryWorkbenchAuditEvidence(value.auditEvidence);
   assertPrimaryWorkbenchPromotionPreview(value.promotionPreview);
@@ -2747,6 +2834,63 @@ function assertPrimaryWorkbenchConflictResolution(
       throw new Error("Primary workbench conflict resolution rows must expose evidence paths and diagnostics.");
     }
     assertCatalogPrimaryWorkbenchActionState(row.overrideAction.state);
+  }
+}
+
+function assertPrimaryWorkbenchMagicSetSync(value: CatalogPrimaryWorkbenchReadModel["magicSetSync"] | undefined): void {
+  if (!value) {
+    throw new Error("Primary workbench Magic set sync contract is required.");
+  }
+  if (!["not-configured", "set-required", "ready", "blocked", "degraded"].includes(value.status)) {
+    throw new Error("Primary workbench Magic set sync status must be explicit.");
+  }
+  if (!value.selectedSet.label) {
+    throw new Error("Primary workbench Magic set sync must label the selected set state.");
+  }
+  if (value.summary.providerCount !== value.providers.length) {
+    throw new Error("Primary workbench Magic set sync provider summary must match provider rows.");
+  }
+  const providerKeys = new Set<string>();
+  for (const provider of value.providers) {
+    if (!["mtgjson", "scryfall", "tcgplayer"].includes(provider.providerKey)) {
+      throw new Error("Primary workbench Magic set sync provider rows must stay on supported providers.");
+    }
+    if (providerKeys.has(provider.providerKey)) {
+      throw new Error("Primary workbench Magic set sync provider rows must be unique.");
+    }
+    providerKeys.add(provider.providerKey);
+    if (
+      !provider.displayName ||
+      !provider.currentWorkbenchHref ||
+      /api\/|raw-json|legacy|compat/i.test(provider.currentWorkbenchHref)
+    ) {
+      throw new Error("Primary workbench Magic set sync provider rows must link back to the typed workbench.");
+    }
+    if (!["not-imported", "imported", "changed", "promoted", "blocked"].includes(provider.state)) {
+      throw new Error("Primary workbench Magic set sync provider state must be explicit.");
+    }
+    if (!provider.commandContext.providerKey || provider.commandContext.providerKey !== provider.providerKey) {
+      throw new Error("Primary workbench Magic set sync command context must preserve provider identity.");
+    }
+    if (!provider.commandContext.expansionId && !provider.commandContext.expansionName) {
+      for (const action of [
+        provider.actions.import,
+        provider.actions.previewPromotion,
+        provider.actions.reapply,
+      ] as const) {
+        if (action.state !== "disabled" || !action.blockers.includes("import-scope-required")) {
+          throw new Error("Primary workbench Magic set sync must fail closed until one Magic set is selected.");
+        }
+      }
+    }
+    for (const action of [
+      provider.actions.import,
+      provider.actions.previewPromotion,
+      provider.actions.reapply,
+    ] as const) {
+      assertCatalogPrimaryWorkbenchActionState(action.state);
+      assertPrimaryWorkbenchBlockers(action.blockers);
+    }
   }
 }
 

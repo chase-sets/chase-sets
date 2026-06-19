@@ -11,6 +11,7 @@ export type {
   CatalogPrimaryWorkbenchSourceOptionPageSnapshot,
   CatalogPrimaryWorkbenchSourceOptionRequest,
 } from "./primary-workbench-source-options";
+export type { CatalogPrimaryWorkbenchMagicSetSyncReadModel } from "../api/primary-workbench-admin-contracts";
 export type { ProfileSectionWorkspace } from "./primary-workbench-profile-section-workspaces";
 export type { ProfileSectionField } from "./primary-workbench-profile-section-fields";
 export type { ProfileOptionQueryDetail } from "./primary-workbench-profile-option-queries";
