@@ -815,13 +815,18 @@ describe("source observation runtime: promotion and reapply", () => {
     });
     const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
 
-    const result = await services.reapplyObservations({
+    const firstResult = await services.reapplyObservations({
+      observationIds: ["obs_changed"],
+      context,
+      reapplyProfileMode: "current-active-profile",
+    });
+    const secondResult = await services.reapplyObservations({
       observationIds: ["obs_changed"],
       context,
       reapplyProfileMode: "current-active-profile",
     });
 
-    expect(result).toMatchObject({
+    expect(firstResult).toMatchObject({
       requested: 1,
       reapplied: 1,
       skipped: 0,
@@ -836,8 +841,13 @@ describe("source observation runtime: promotion and reapply", () => {
         },
       ],
     });
+    expect(secondResult).toEqual(firstResult);
     expect(harness.itemCommands).toEqual([]);
-    expect(harness.appendedSourceEvents).toContainEqual(
+    const planEvents = harness.appendedSourceEvents.filter(
+      (event) => event.eventType === "catalog.source-observation.reference-promotion-plan-recorded",
+    );
+    expect(planEvents).toHaveLength(2);
+    expect(planEvents).toEqual([
       expect.objectContaining({
         eventType: "catalog.source-observation.reference-promotion-plan-recorded",
         payload: expect.objectContaining({
@@ -847,7 +857,16 @@ describe("source observation runtime: promotion and reapply", () => {
           promotionPlanFingerprint: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
         }),
       }),
-    );
+      expect.objectContaining({
+        eventType: "catalog.source-observation.reference-promotion-plan-recorded",
+        payload: expect.objectContaining({
+          referenceRecordId: "ref_tsp",
+          promotionProfileKey: "mtg-set-reference-data",
+          promotionProfileVersion: "2026.06.19",
+          promotionPlanFingerprint: planEvents[0]?.payload.promotionPlanFingerprint,
+        }),
+      }),
+    ]);
   });
 
   it("promotes Magic sealed products with set fields and TCGplayer SKU selected options", async () => {
@@ -993,37 +1012,61 @@ describe("source observation runtime: promotion and reapply", () => {
     });
     const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
 
-    const result = await services.reapplyObservations({
+    const firstResult = await services.reapplyObservations({
+      observationIds: ["obs_changed"],
+      context,
+      reapplyProfileMode: "original-source-profile",
+    });
+    const secondResult = await services.reapplyObservations({
       observationIds: ["obs_changed"],
       context,
       reapplyProfileMode: "original-source-profile",
     });
 
-    expect(result).toMatchObject({
+    expect(firstResult).toMatchObject({
       requested: 1,
       reapplied: 1,
       skipped: 0,
       failed: 0,
     });
+    expect(secondResult).toEqual(firstResult);
     expect(harness.itemCommands.map((entry) => entry.command.type)).not.toContain("CreateCatalogItem");
-    expect(harness.itemCommands).toContainEqual(
+    const skuLinkCommands = harness.itemCommands.filter(
+      (entry) => entry.command.type === "LinkExternalProductReference" && entry.command.externalKey === "sku:50096601",
+    );
+    expect(skuLinkCommands).toEqual([
       expect.objectContaining({
         streamId: "catalog.item-cat_existing_magic_sealed",
         command: expect.objectContaining({
-          type: "LinkExternalProductReference",
-          providerKey: "tcgplayer",
-          externalKey: "sku:50096601",
           selectedOptions: [{ dimensionId: "dim_product_form", optionId: "opt_unopened" }],
         }),
       }),
-    );
-    expect(harness.appendedSourceEvents).toEqual([
       expect.objectContaining({
-        eventType: "catalog.source-observation.promotion-plan-recorded",
+        streamId: "catalog.item-cat_existing_magic_sealed",
+        command: expect.objectContaining({
+          selectedOptions: [{ dimensionId: "dim_product_form", optionId: "opt_unopened" }],
+        }),
+      }),
+    ]);
+    const planEvents = harness.appendedSourceEvents.filter(
+      (event) => event.eventType === "catalog.source-observation.promotion-plan-recorded",
+    );
+    expect(planEvents).toHaveLength(2);
+    expect(planEvents).toEqual([
+      expect.objectContaining({
         payload: expect.objectContaining({
           catalogItemId: "cat_existing_magic_sealed",
           promotionProfileKey: "mtg-sealed-product-sku",
           promotionProfileVersion: "2026.06.19",
+          promotionPlanFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
+        }),
+      }),
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          catalogItemId: "cat_existing_magic_sealed",
+          promotionProfileKey: "mtg-sealed-product-sku",
+          promotionProfileVersion: "2026.06.19",
+          promotionPlanFingerprint: planEvents[0]?.payload.promotionPlanFingerprint,
         }),
       }),
     ]);

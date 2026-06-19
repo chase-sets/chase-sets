@@ -37,6 +37,14 @@ export type CatalogProviderProfileFixtureCase = Readonly<{
   expectedHashEvidencePaths?: readonly string[];
   expectedMergeEvidencePaths?: readonly string[];
   expectedPromotionCommands?: readonly string[];
+  forbiddenPromotionCommands?: readonly string[];
+  expectedPromotionInputPaths?: readonly string[];
+  expectedDuplicatePrevention?: Readonly<{
+    ambiguousCandidatePolicy?: string;
+    replayPolicy?: string;
+    exactExternalCatalogItemReferencesFirst?: boolean;
+    rulePolicies?: readonly Readonly<{ ruleKey: string; candidatePolicy: string }>[];
+  }>;
 }>;
 
 export type CatalogProviderProfileFixtureHarnessFailure = Readonly<{
@@ -165,6 +173,7 @@ async function validateFixtureCase(input: {
   failures.push(
     ...evidencePathFailures(input.version, input.fixtureCase, "mergeCandidateEvidence", result.mergeCandidateEvidence),
   );
+  failures.push(...duplicatePreventionFailures(input.version, input.fixtureCase, result));
   failures.push(...promotionCommandFailures(input.version, input.fixtureCase, result));
 
   return failures;
@@ -324,15 +333,100 @@ function promotionCommandFailures(
   fixtureCase: CatalogProviderProfileFixtureCase,
   result: CatalogProviderProfileDryRunResult,
 ): readonly CatalogProviderProfileFixtureHarnessFailure[] {
-  if (!fixtureCase.expectedPromotionCommands) {
+  const failures: CatalogProviderProfileFixtureHarnessFailure[] = [];
+  const actualCommands = result.promotionCommandPlan.commands.map((command) => command.commandName);
+
+  for (const commandName of fixtureCase.expectedPromotionCommands ?? []) {
+    if (!actualCommands.includes(commandName)) {
+      failures.push(caseFailure(version, fixtureCase, "promotionCommandPlan.commands", `Missing ${commandName}.`));
+    }
+  }
+
+  for (const commandName of fixtureCase.forbiddenPromotionCommands ?? []) {
+    if (actualCommands.includes(commandName)) {
+      failures.push(
+        caseFailure(version, fixtureCase, "promotionCommandPlan.commands", `Forbidden ${commandName} was planned.`),
+      );
+    }
+  }
+
+  const actualInputPaths = new Set(
+    result.promotionCommandPlan.commands.flatMap((command) => command.inputs.map((input) => input.path)),
+  );
+  for (const inputPath of fixtureCase.expectedPromotionInputPaths ?? []) {
+    if (!actualInputPaths.has(inputPath)) {
+      failures.push(caseFailure(version, fixtureCase, inputPath, "Missing promotion command input evidence."));
+    }
+  }
+
+  return failures;
+}
+
+function duplicatePreventionFailures(
+  version: CatalogProviderIntegrationProfileVersionRecord,
+  fixtureCase: CatalogProviderProfileFixtureCase,
+  result: CatalogProviderProfileDryRunResult,
+): readonly CatalogProviderProfileFixtureHarnessFailure[] {
+  const expected = fixtureCase.expectedDuplicatePrevention;
+  if (!expected) {
     return [];
   }
-  const actualCommands = result.promotionCommandPlan.commands.map((command) => command.commandName);
-  return fixtureCase.expectedPromotionCommands
-    .filter((commandName) => !actualCommands.includes(commandName))
-    .map((commandName) =>
-      caseFailure(version, fixtureCase, "promotionCommandPlan.commands", `Missing ${commandName}.`),
+
+  const failures: CatalogProviderProfileFixtureHarnessFailure[] = [];
+  if (
+    expected.ambiguousCandidatePolicy &&
+    result.duplicatePreventionPolicy.ambiguousCandidatePolicy !== expected.ambiguousCandidatePolicy
+  ) {
+    failures.push(
+      caseFailure(
+        version,
+        fixtureCase,
+        "duplicatePrevention.ambiguousCandidatePolicy",
+        `Expected ${expected.ambiguousCandidatePolicy}.`,
+      ),
     );
+  }
+  if (expected.replayPolicy && result.duplicatePreventionPolicy.replayPolicy !== expected.replayPolicy) {
+    failures.push(
+      caseFailure(version, fixtureCase, "duplicatePrevention.replayPolicy", `Expected ${expected.replayPolicy}.`),
+    );
+  }
+  if (
+    expected.exactExternalCatalogItemReferencesFirst !== undefined &&
+    result.duplicatePreventionPolicy.exactExternalCatalogItemReferencesFirst !==
+      expected.exactExternalCatalogItemReferencesFirst
+  ) {
+    failures.push(
+      caseFailure(
+        version,
+        fixtureCase,
+        "duplicatePrevention.exactExternalCatalogItemReferencesFirst",
+        `Expected ${expected.exactExternalCatalogItemReferencesFirst}.`,
+      ),
+    );
+  }
+
+  for (const rulePolicy of expected.rulePolicies ?? []) {
+    const actual = result.duplicatePreventionRules.find((rule) => rule.ruleKey === rulePolicy.ruleKey);
+    if (!actual) {
+      failures.push(
+        caseFailure(version, fixtureCase, "duplicatePrevention.identityRules", `Missing ${rulePolicy.ruleKey}.`),
+      );
+      continue;
+    }
+    if (actual.candidatePolicy !== rulePolicy.candidatePolicy) {
+      failures.push(
+        caseFailure(
+          version,
+          fixtureCase,
+          `duplicatePrevention.identityRules.${rulePolicy.ruleKey}.candidatePolicy`,
+          `Expected ${rulePolicy.candidatePolicy}.`,
+        ),
+      );
+    }
+  }
+
+  return failures;
 }
 
 function secretFailures(
