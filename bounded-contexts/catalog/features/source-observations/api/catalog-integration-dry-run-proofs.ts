@@ -8,6 +8,12 @@ import {
   runTcgdexSourceObservationImportProofDryRun,
   TCGDEX_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
 } from "./provider-adapters/tcgdex";
+import {
+  runScryfallImageEvidenceValidationDryRun,
+  runScryfallSourceObservationValidationDryRun,
+  SCRYFALL_MTG_IMAGE_EVIDENCE_UNIT_KEY,
+  SCRYFALL_MTG_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
+} from "./provider-adapters/scryfall";
 
 export type CatalogIntegrationDryRunProofRunner = () => Promise<CatalogIntegrationDryRunResult>;
 
@@ -23,6 +29,8 @@ export function createCatalogIntegrationDryRunProofRegistry(
       runReferenceCardsSourceObservationProofDryRun,
     ],
     [TCGDEX_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY, runTcgdexSourceObservationImportProofDryRun],
+    [SCRYFALL_MTG_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY, runScryfallSourceObservationValidationDryRun],
+    [SCRYFALL_MTG_IMAGE_EVIDENCE_UNIT_KEY, runScryfallImageEvidenceValidationDryRun],
   ],
 ): CatalogIntegrationDryRunProofRegistry {
   return new Map(proofs);

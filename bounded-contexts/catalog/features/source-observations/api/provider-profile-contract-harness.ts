@@ -16,6 +16,8 @@ import type { CatalogProviderIntegrationProfileVersionStore } from "./provider-i
 
 export type CatalogProviderProfileFixtureCase = Readonly<{
   providerKey: string;
+  profileKey?: string | null;
+  ingestionUnitKey?: string | null;
   profileVersion: string;
   flow: CatalogProviderProfileFixtureFlow;
   payloadFile: string;
@@ -76,11 +78,7 @@ export async function validateCatalogProviderProfileFixtures(input: {
       );
     }
 
-    const cases = input.fixtureCases.filter(
-      (fixtureCase) =>
-        normalizeProviderKey(fixtureCase.providerKey) === normalizeProviderKey(version.providerKey) &&
-        fixtureCase.profileVersion === version.profileVersion,
-    );
+    const cases = input.fixtureCases.filter((fixtureCase) => fixtureCaseMatchesVersion(fixtureCase, version));
     const caseFlows = new Set(cases.map((fixtureCase) => fixtureCase.flow));
 
     for (const flow of catalogProviderRequiredFixtureFlows) {
@@ -144,6 +142,8 @@ async function validateFixtureCase(input: {
     store: input.store,
     providerKey: input.fixtureCase.providerKey,
     profileVersion: input.fixtureCase.profileVersion,
+    profileKey: input.fixtureCase.profileKey,
+    ingestionUnitKey: input.fixtureCase.ingestionUnitKey,
     payload,
     observedAt: input.observedAt,
   });
@@ -412,15 +412,19 @@ function profileStore(
       versions.filter(
         (version) => !providerKey || normalizeProviderKey(version.providerKey) === normalizeProviderKey(providerKey),
       ),
-    getProfileVersion: async (providerKey, profileVersion) =>
+    getProfileVersion: async (providerKey, profileVersion, selector) =>
       versions.find(
         (version) =>
           normalizeProviderKey(version.providerKey) === normalizeProviderKey(providerKey) &&
-          version.profileVersion === profileVersion,
+          version.profileVersion === profileVersion &&
+          selectorMatchesVersion(selector, version),
       ) ?? null,
-    getActiveProfileVersion: async (providerKey) =>
+    getActiveProfileVersion: async (providerKey, selector) =>
       versions.find(
-        (version) => normalizeProviderKey(version.providerKey) === normalizeProviderKey(providerKey) && version.active,
+        (version) =>
+          normalizeProviderKey(version.providerKey) === normalizeProviderKey(providerKey) &&
+          version.active &&
+          selectorMatchesVersion(selector, version),
       ) ?? null,
     activateProfileVersion: async (providerKey, profileVersion) => {
       const version = versions.find(
@@ -457,6 +461,36 @@ function profileStore(
     },
     countProfileVersionReferences: async () => 0,
   };
+}
+
+function fixtureCaseMatchesVersion(
+  fixtureCase: CatalogProviderProfileFixtureCase,
+  version: CatalogProviderIntegrationProfileVersionRecord,
+): boolean {
+  return (
+    normalizeProviderKey(fixtureCase.providerKey) === normalizeProviderKey(version.providerKey) &&
+    fixtureCase.profileVersion === version.profileVersion &&
+    selectorMatchesVersion(fixtureCase, version)
+  );
+}
+
+function selectorMatchesVersion(
+  selector: Readonly<{ profileKey?: string | null; ingestionUnitKey?: string | null }> | null | undefined,
+  version: CatalogProviderIntegrationProfileVersionRecord,
+): boolean {
+  const profileKey = selector?.profileKey?.trim().toLowerCase();
+  const ingestionUnitKey = selector?.ingestionUnitKey?.trim().toLowerCase();
+  return (
+    (!profileKey || version.profileKey.trim().toLowerCase() === profileKey) &&
+    (!ingestionUnitKey ||
+      (
+        version.ingestionUnitIdentity?.unitKey ??
+        version.executableMappingContract?.ingestionUnitIdentity?.unitKey ??
+        ""
+      )
+        .trim()
+        .toLowerCase() === ingestionUnitKey)
+  );
 }
 
 function readPath(value: JsonObject, fieldPath: string): JsonValue | undefined {

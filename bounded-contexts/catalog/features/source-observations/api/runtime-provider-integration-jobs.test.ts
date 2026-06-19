@@ -206,6 +206,15 @@ describe("source observation runtime: provider integration jobs", () => {
 
     expect(providers).toEqual([
       expect.objectContaining({
+        providerKey: "scryfall",
+        value: "scryfall",
+        label: "Scryfall",
+        metadata: expect.objectContaining({
+          status: "active",
+          connectorKind: "scryfall-json",
+        }),
+      }),
+      expect.objectContaining({
         providerKey: "tcgdex",
         value: "tcgdex",
         label: "TCGdex",
@@ -711,6 +720,20 @@ describe("source observation runtime: provider integration jobs", () => {
       semanticReadiness: "ready",
       credentialReadiness: "not-required",
       credentialReadinessState: "not-required",
+    });
+    expect(unitsByKey["scryfall:mtg:single-card:reference-data"]).toMatchObject({
+      semanticReadiness: "ready",
+      credentialReadiness: "not-required",
+      credentialReadinessState: "not-required",
+      transportReadiness: "ready",
+      dryRunStatus: "completed",
+    });
+    expect(unitsByKey["scryfall:mtg:single-card:image-evidence"]).toMatchObject({
+      semanticReadiness: "ready",
+      credentialReadiness: "not-required",
+      credentialReadinessState: "not-required",
+      transportReadiness: "ready",
+      dryRunStatus: "completed",
     });
     expect(unitsByKey["tcgplayer:pokemon:single-card:source-observation-import"]).toMatchObject({
       credentialReadiness: "blocked",

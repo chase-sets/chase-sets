@@ -141,6 +141,11 @@ import {
   TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
   type TcgplayerProviderPayload,
 } from "./provider-adapters/tcgplayer";
+import {
+  createScryfallProviderAdapter,
+  SCRYFALL_MTG_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
+  type ScryfallProviderPayload,
+} from "./provider-adapters/scryfall";
 import type {
   ProviderAdapter,
   ProviderImportPlan,
@@ -347,6 +352,20 @@ type TcgplayerIntegrationImportTarget = Readonly<{
 }>;
 
 type TcgplayerProductImportProgress = Readonly<{
+  currentName: string | null;
+  completed: number;
+  total: number;
+}>;
+
+type ProviderAdapterIntegrationImportTarget = Readonly<{
+  targetId: string;
+  name: string;
+  scopeKey: string;
+  values: Readonly<Record<string, string>>;
+  languageCode: string;
+}>;
+
+type ProviderAdapterImportProgress = Readonly<{
   currentName: string | null;
   completed: number;
   total: number;
@@ -935,6 +954,7 @@ export function createSourceObservationRuntime(
       loadProfileVersions: () => profileVersions.listProfileVersions("tcgplayer"),
       client: deps.tcgplayerAutomationCatalogClient,
     }),
+    createScryfallProviderAdapter(),
   ]);
   const dryRunProofRegistry = createCatalogIntegrationDryRunProofRegistry();
 
@@ -2685,6 +2705,17 @@ export function createSourceObservationRuntime(
       });
     }
 
+    if (providerProfile.providerKey !== "tcgdex") {
+      return processProviderAdapterIntegrationImportJobTurn({
+        job: input.job,
+        scope,
+        providerProfile,
+        providerProfileVersion,
+        claimTtlMs: input.claimTtlMs,
+        context: input.context,
+      });
+    }
+
     const languageCode = scope.language || "en";
     const expansions = scope.setId
       ? [
@@ -2892,6 +2923,16 @@ export function createSourceObservationRuntime(
       });
     }
 
+    if (providerProfile.providerKey !== "tcgdex") {
+      return processProviderAdapterIntegrationImportJob({
+        scope,
+        providerProfile,
+        providerProfileVersion,
+        context: input.context,
+        onProgress: input.onProgress,
+      });
+    }
+
     const languageCode = scope.language || "en";
     const expansions = scope.setId
       ? [
@@ -3002,6 +3043,251 @@ export function createSourceObservationRuntime(
         observed: 0,
         reapplied: 0,
         reason: error instanceof Error ? error.message : "Import failed.",
+      };
+    }
+  }
+
+  async function processProviderAdapterIntegrationImportJobTurn(input: {
+    job: ClaimedSourceObservationIntegrationJob;
+    scope: SourceObservationIntegrationJobScope;
+    providerProfile: CatalogProviderIntegrationProfile;
+    providerProfileVersion: CatalogProviderIntegrationProfileVersionRecord;
+    claimTtlMs: number;
+    context: SourceObservationJobRunContext;
+  }): Promise<
+    Readonly<{
+      complete: boolean;
+      progress: BulkSourceObservationProgress;
+      result: SourceObservationIntegrationJobResult;
+    }>
+  > {
+    throwIfJobRunCancelled(input.context);
+    const targets = await resolveProviderAdapterImportTargets(input.scope, input.providerProfileVersion);
+    throwIfJobRunCancelled(input.context);
+    const previousResult = input.job.result ?? summarizeIntegrationJobOutcomes(targets.length, []);
+    const completedTargetIds = new Set(
+      previousResult.outcomes
+        .filter((outcome) => outcome.status !== "failed")
+        .map((outcome) => outcome.expansionId)
+        .filter(Boolean),
+    );
+    const nextTarget = targets.find((target) => !completedTargetIds.has(target.targetId));
+
+    if (!nextTarget) {
+      const result = summarizeIntegrationJobOutcomes(targets.length, previousResult.outcomes);
+      return {
+        complete: true,
+        progress: bulkProgress(result.requested, result.requested, null, null, "completed"),
+        result,
+      };
+    }
+
+    const jobContext = createDurableJobExecutionContext(integrationJobStore, {
+      jobId: input.job.jobId,
+      claimOwnerId: input.job.claimOwnerId,
+      claimTtlMs: input.claimTtlMs,
+      signal: input.context.signal,
+      throwIfLeaseLost: input.context.throwIfLeaseLost,
+      cancelledMessage: "Source Observation job run was cancelled.",
+      claimLostMessage: "Source Observation job claim was lost before the status update completed.",
+    });
+    const progressCheckpoint = createDurableJobProgressCheckpoint(jobContext, {
+      minRenewIntervalMs: Math.max(1_000, Math.floor(input.claimTtlMs / 3)),
+      completed: (progress) => progress.completed,
+      isTerminal: (progress) => progress.phase === "completed" || progress.phase === "failed",
+    });
+    const recordRenewIntervalMs = Math.max(1_000, Math.floor(input.claimTtlMs / 3));
+    let lastRecordRenewedAt = 0;
+
+    await progressCheckpoint.flush(bulkProgress(previousResult.outcomes.length, targets.length, nextTarget.name));
+
+    const outcome = await importProviderAdapterIntegrationTarget({
+      target: nextTarget,
+      providerProfile: input.providerProfile,
+      providerProfileVersion: input.providerProfileVersion,
+      context: input.job.eventContext,
+      beforeRecordObservation: async () => {
+        throwIfJobRunCancelled(input.context);
+        const now = Date.now();
+        if (lastRecordRenewedAt === 0 || now - lastRecordRenewedAt >= recordRenewIntervalMs) {
+          await jobContext.renew();
+          lastRecordRenewedAt = Date.now();
+        }
+      },
+      runRecordObservation: createSourceObservationSideEffectRunner(jobContext),
+      onProgress: async (targetProgress) => {
+        throwIfJobRunCancelled(input.context);
+        await progressCheckpoint.checkpoint(
+          bulkProgress(
+            previousResult.outcomes.length,
+            targets.length,
+            targetProgress.currentName ?? nextTarget.name,
+            null,
+            "processing",
+          ),
+        );
+      },
+    });
+    const result = summarizeIntegrationJobOutcomes(targets.length, [...previousResult.outcomes, outcome]);
+
+    return {
+      complete: result.outcomes.length >= result.requested,
+      progress: bulkProgress(result.outcomes.length, result.requested, nextTarget.name, outcome.status),
+      result,
+    };
+  }
+
+  async function processProviderAdapterIntegrationImportJob(input: {
+    scope: SourceObservationIntegrationJobScope;
+    providerProfile: CatalogProviderIntegrationProfile;
+    providerProfileVersion: CatalogProviderIntegrationProfileVersionRecord;
+    context: EventStoreContext;
+    onProgress?: SourceObservationProgressHandler;
+  }): Promise<SourceObservationIntegrationJobResult> {
+    const targets = await resolveProviderAdapterImportTargets(input.scope, input.providerProfileVersion);
+    const outcomes: SourceObservationIntegrationJobOutcome[] = [];
+    await input.onProgress?.(bulkProgress(0, targets.length));
+
+    for (const target of targets) {
+      const outcome = await importProviderAdapterIntegrationTarget({
+        target,
+        providerProfile: input.providerProfile,
+        providerProfileVersion: input.providerProfileVersion,
+        context: input.context,
+        onProgress: (targetProgress) =>
+          input.onProgress?.(
+            bulkProgress(
+              outcomes.length,
+              targets.length,
+              targetProgress.currentName ?? target.name,
+              null,
+              "processing",
+            ),
+          ),
+      });
+      outcomes.push(outcome);
+      await input.onProgress?.(bulkProgress(outcomes.length, targets.length, target.name, outcome.status));
+    }
+
+    await input.onProgress?.(bulkProgress(targets.length, targets.length, null, null, "completed"));
+
+    return summarizeIntegrationJobOutcomes(targets.length, outcomes);
+  }
+
+  async function resolveProviderAdapterImportTargets(
+    scope: SourceObservationIntegrationJobScope,
+    providerProfileVersion: CatalogProviderIntegrationProfileVersionRecord,
+  ): Promise<readonly ProviderAdapterIntegrationImportTarget[]> {
+    const languageCode = scope.language || "en";
+    const setCode = scope.setId || scope.setName || null;
+    if (setCode) {
+      return [
+        {
+          targetId: `set:${setCode}`,
+          name: scope.setName || setCode,
+          scopeKey: "set",
+          values: {
+            setCode,
+            setId: setCode,
+            ...(scope.setName ? { setName: scope.setName } : {}),
+            languageCode,
+          },
+          languageCode,
+        },
+      ];
+    }
+
+    const cardId = scope.productId || null;
+    if (cardId) {
+      return [
+        {
+          targetId: `card:${cardId}`,
+          name: `Card ${cardId}`,
+          scopeKey: "single-card",
+          values: { cardId, languageCode },
+          languageCode,
+        },
+      ];
+    }
+
+    const unitKey = catalogProviderProfileVersionIngestionUnitKey(providerProfileVersion);
+    throw new Error(
+      `Provider '${providerProfileVersion.providerKey}' integration unit '${unitKey}' import requires a set code or card id.`,
+    );
+  }
+
+  async function importProviderAdapterIntegrationTarget(input: {
+    target: ProviderAdapterIntegrationImportTarget;
+    providerProfile: CatalogProviderIntegrationProfile;
+    providerProfileVersion: CatalogProviderIntegrationProfileVersionRecord;
+    context: EventStoreContext;
+    onProgress?: (progress: ProviderAdapterImportProgress) => void | Promise<void>;
+    beforeRecordObservation?: () => Promise<void>;
+    runRecordObservation?: DurableSideEffectRunner;
+  }): Promise<SourceObservationIntegrationJobOutcome> {
+    try {
+      const adapter = providerAdapterRegistry.require(input.providerProfile.providerKey);
+      const unitKey = catalogProviderProfileVersionIngestionUnitKey(input.providerProfileVersion);
+      const plan = await adapter.planImport({
+        unitKey,
+        scopeKey: input.target.scopeKey,
+        values: input.target.values,
+      });
+      const contract = requireSourceObservationMappingContract(input.providerProfileVersion);
+      const observedAt = new Date().toISOString();
+      const estimatedPayloads = plan.estimatedPayloads ?? 1;
+      let observed = 0;
+
+      for await (const envelope of adapter.fetchPayloads(plan, {
+        onProgress: (progress) =>
+          input.onProgress?.({
+            currentName: progress.currentLabel ?? input.target.name,
+            completed: progress.completed,
+            total: progress.total,
+          }),
+      })) {
+        await input.beforeRecordObservation?.();
+        const observation = requireCatalogProviderSourceObservation({
+          contract,
+          payload: toJsonValue(envelope.payload),
+          observedAt,
+        });
+        const writeObservation = () => recordObservation(observation, input.context);
+        if (input.runRecordObservation) {
+          await input.runRecordObservation(writeObservation);
+        } else {
+          await writeObservation();
+        }
+        observed += 1;
+        await input.onProgress?.({
+          currentName: input.target.name,
+          completed: observed,
+          total: Math.max(estimatedPayloads, observed),
+        });
+      }
+
+      return {
+        providerKey: input.providerProfile.providerKey,
+        languageCode: input.target.languageCode,
+        expansionId: input.target.targetId,
+        status: observed > 0 ? "imported" : "skipped",
+        observed,
+        reapplied: 0,
+        reason: observed > 0 ? null : `No provider payloads found for ${input.target.name}.`,
+      };
+    } catch (error) {
+      if (error instanceof SourceObservationJobCancelledError || isDurableJobHandoffError(error)) {
+        throw error;
+      }
+
+      return {
+        providerKey: input.providerProfile.providerKey,
+        languageCode: input.target.languageCode,
+        expansionId: input.target.targetId,
+        status: "failed",
+        observed: 0,
+        reapplied: 0,
+        reason: error instanceof Error ? error.message : "Provider adapter import failed.",
       };
     }
   }
@@ -3674,6 +3960,7 @@ async function listProviderIntegrationOptions(
       loadProfileVersions: () => profileVersions.listProfileVersions("tcgplayer"),
       client: tcgplayerAutomationCatalogClient,
     }),
+    createScryfallProviderAdapter(),
   ]),
 ): Promise<readonly SourceObservationIntegrationOption[]> {
   const versions = await profileVersions.listProfileVersions();
@@ -3704,6 +3991,9 @@ async function listProviderIntegrationOptions(
         listTcgplayerProductOptionRecordsThroughAdapter(providerAdapterRegistry, { setName }),
       listTcgplayerSkus: ({ productId }) =>
         listTcgplayerSkuOptionRecordsThroughAdapter(providerAdapterRegistry, { productId }),
+      listScryfallSets: () => listScryfallSetOptionRecordsThroughAdapter(providerAdapterRegistry),
+      listScryfallCards: ({ setCode }) =>
+        listScryfallCardOptionRecordsThroughAdapter(providerAdapterRegistry, { setCode }),
     },
   });
 }
@@ -3734,6 +4024,7 @@ async function queryProviderIntegrationOptions(
       loadProfileVersions: () => profileVersions.listProfileVersions("tcgplayer"),
       client: tcgplayerAutomationCatalogClient,
     }),
+    createScryfallProviderAdapter(),
   ]),
   telemetry?: SourceObservationTelemetry,
 ): Promise<CatalogProviderOptionQueryPage> {
@@ -3816,6 +4107,9 @@ async function queryProviderIntegrationOptions(
               listTcgplayerProductOptionRecordsThroughAdapter(providerAdapterRegistry, { setName }),
             listTcgplayerSkus: ({ productId }) =>
               listTcgplayerSkuOptionRecordsThroughAdapter(providerAdapterRegistry, { productId }),
+            listScryfallSets: () => listScryfallSetOptionRecordsThroughAdapter(providerAdapterRegistry),
+            listScryfallCards: ({ setCode }) =>
+              listScryfallCardOptionRecordsThroughAdapter(providerAdapterRegistry, { setCode }),
           },
         }),
     });
@@ -4010,6 +4304,56 @@ function requireTcgdexAdapter(
   providerAdapterRegistry: ProviderAdapterRegistry,
 ): ProviderAdapter<TcgdexObservationPayload> {
   return providerAdapterRegistry.require("tcgdex") as ProviderAdapter<TcgdexObservationPayload>;
+}
+
+async function listScryfallSetOptionRecordsThroughAdapter(
+  providerAdapterRegistry: ProviderAdapterRegistry,
+): Promise<readonly JsonValue[]> {
+  const result = await requireScryfallAdapter(providerAdapterRegistry).listOptions({
+    unitKey: SCRYFALL_MTG_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
+    optionKind: "sets",
+  });
+  return result.items.map((item) => ({
+    setCode: item.value,
+    name: item.label,
+    setId: item.metadata?.setId ?? null,
+    setType: item.metadata?.setType ?? null,
+    releasedAt: item.metadata?.releasedAt ?? null,
+    cardCount: numberFromString(item.metadata?.cardCount),
+    digital: booleanFromString(item.metadata?.digital),
+  }));
+}
+
+async function listScryfallCardOptionRecordsThroughAdapter(
+  providerAdapterRegistry: ProviderAdapterRegistry,
+  input: { setCode: string | null },
+): Promise<readonly JsonValue[]> {
+  if (!input.setCode) {
+    throw new Error("Scryfall card option queries require a set code parent value.");
+  }
+
+  const result = await requireScryfallAdapter(providerAdapterRegistry).listOptions({
+    unitKey: SCRYFALL_MTG_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
+    optionKind: "cards",
+    parentValues: { setCode: input.setCode },
+  });
+  return result.items.map((item) => ({
+    cardId: item.value,
+    name: item.label,
+    setCode: item.metadata?.setCode ?? input.setCode,
+    oracleId: item.metadata?.oracleId ?? null,
+    setName: item.metadata?.setName ?? null,
+    collectorNumber: item.metadata?.collectorNumber ?? null,
+    rarity: item.metadata?.rarity ?? null,
+    imageStatus: item.metadata?.imageStatus ?? null,
+    imageUrl: null,
+  }));
+}
+
+function requireScryfallAdapter(
+  providerAdapterRegistry: ProviderAdapterRegistry,
+): ProviderAdapter<ScryfallProviderPayload> {
+  return providerAdapterRegistry.require("scryfall") as ProviderAdapter<ScryfallProviderPayload>;
 }
 
 async function listTcgplayerProductLineOptionRecordsThroughAdapter(
@@ -5481,12 +5825,14 @@ function requireSourceObservationMappingContract(
 async function defaultSourceObservationImportProviderKey(
   profileVersions: CatalogProviderIntegrationProfileVersionReader,
 ): Promise<string> {
-  const profile = (await profileVersions.listProfileVersions()).find(isActiveSourceObservationImportProfileVersion);
-  if (!profile) {
+  const activeImportProfiles = (await profileVersions.listProfileVersions()).filter(
+    isActiveSourceObservationImportProfileVersion,
+  );
+  if (activeImportProfiles.length === 0) {
     throw new Error("No active Catalog source observation import provider is configured.");
   }
 
-  return profile.providerKey;
+  return defaultSourceObservationImportProviderKeyFromVersions(activeImportProfiles);
 }
 
 function localizedText(value: string): LocalizedTextMap {

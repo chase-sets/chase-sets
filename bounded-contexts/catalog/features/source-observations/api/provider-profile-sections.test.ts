@@ -34,8 +34,11 @@ describe("Catalog provider profile section domain", () => {
     expect(sectionsByProfile["pokemon-tcg-automation-client"].ingestionUnitIdentity.value.unitKey).toBe(
       "tcgplayer:pokemon:single-card:source-observation-import",
     );
-    expect(sectionsByProfile["scryfall-card-fixture"].ingestionUnitIdentity.value.unitKey).toBe(
-      "scrydex:mtg:single-card:source-observation-import",
+    expect(sectionsByProfile["mtg-card-print-reference-data"].ingestionUnitIdentity.value.unitKey).toBe(
+      "scryfall:mtg:single-card:reference-data",
+    );
+    expect(sectionsByProfile["mtg-card-image-evidence"].ingestionUnitIdentity.value.unitKey).toBe(
+      "scryfall:mtg:single-card:image-evidence",
     );
 
     for (const sections of Object.values(sectionsByProfile)) {
@@ -76,7 +79,7 @@ describe("Catalog provider profile section domain", () => {
       ["mtgjson", "set", "reference-data"],
       ["mtgjson", "single-card", "reference-data"],
       ["scryfall", "single-card", "image-evidence"],
-      ["scryfall", "single-card", "source-observation-import"],
+      ["scryfall", "single-card", "reference-data"],
       ["tcgplayer", "single-card", "source-observation-import"],
       ["tcgplayer", "sealed-product", "source-observation-import"],
     ] as const satisfies readonly (readonly [
@@ -100,7 +103,7 @@ describe("Catalog provider profile section domain", () => {
       "mtgjson:mtg:set:reference-data",
       "mtgjson:mtg:single-card:reference-data",
       "scryfall:mtg:single-card:image-evidence",
-      "scryfall:mtg:single-card:source-observation-import",
+      "scryfall:mtg:single-card:reference-data",
       "tcgplayer:mtg:single-card:source-observation-import",
       "tcgplayer:mtg:sealed-product:source-observation-import",
     ]);

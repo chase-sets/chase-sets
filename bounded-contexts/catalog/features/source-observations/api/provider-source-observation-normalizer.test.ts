@@ -12,6 +12,10 @@ import {
   type CatalogProviderSourceObservationMappingContract,
 } from "./provider-source-observation-normalizer";
 import { scrydexScryfallCardSourceObservationMappingContract } from "./scrydex-executable-mapping-contract";
+import {
+  scryfallMtgCardPrintSourceObservationMappingContract,
+  scryfallMtgImageEvidenceSourceObservationMappingContract,
+} from "./scryfall-executable-mapping-contract";
 
 describe("provider Source Observation normalizer", () => {
   it("builds a provider-product Source Observation from mapping config", () => {
@@ -139,6 +143,61 @@ describe("provider Source Observation normalizer", () => {
     expect(result.observation?.sourceRecordHash).toHaveLength(64);
   });
 
+  it("builds production Scryfall observations from wrapped adapter payloads", () => {
+    const cardPayload = scryfallWrappedCardPayload();
+    const card = cardPayload.card as JsonObject;
+    const cardResult = normalizeCatalogProviderSourceObservation({
+      contract: scryfallMtgCardPrintSourceObservationMappingContract,
+      payload: cardPayload,
+      observedAt: "2026-06-19T00:00:00.000Z",
+    });
+    const imageResult = normalizeCatalogProviderSourceObservation({
+      contract: scryfallMtgImageEvidenceSourceObservationMappingContract,
+      payload: {
+        kind: "image-evidence",
+        card,
+        imageUris: card.image_uris,
+      },
+      observedAt: "2026-06-19T00:00:00.000Z",
+    });
+
+    expect(cardResult.diagnostics).toEqual([]);
+    expect(cardResult.observation).toMatchObject({
+      observationId: "scryfall_card_en_0000579f-7b35-4ed3-b44c-db2a538066fe",
+      providerKey: "scryfall",
+      externalKey: "card:0000579f-7b35-4ed3-b44c-db2a538066fe",
+      sourceUrl: "https://api.scryfall.com/cards/0000579f-7b35-4ed3-b44c-db2a538066fe",
+      sourceProfileKey: "mtg-card-print-reference-data",
+      sourceProfileVersion: "2026.06.19",
+      normalized: {
+        kind: "magic-card-print",
+        tcg: "magic",
+        name: "Fury Sliver",
+        setCode: "tsp",
+        setName: "Time Spiral",
+        cardNumber: "157",
+        oracleId: "44623693-51d6-49ad-8cd7-140505caf02f",
+        illustrator: "Pete Venters",
+        externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:14240" }],
+      },
+      sourcePayload: expect.objectContaining({ kind: "single-card" }),
+    });
+    expect(imageResult.diagnostics).toEqual([]);
+    expect(imageResult.observation).toMatchObject({
+      observationId: "scryfall_image_en_0000579f-7b35-4ed3-b44c-db2a538066fe",
+      providerKey: "scryfall",
+      externalKey: "image:0000579f-7b35-4ed3-b44c-db2a538066fe",
+      sourceProfileKey: "mtg-card-image-evidence",
+      normalized: {
+        kind: "magic-card-print",
+        imageUrls: [
+          "https://cards.scryfall.io/normal/front/0/0/0000579f-7b35-4ed3-b44c-db2a538066fe.jpg",
+          "https://cards.scryfall.io/png/front/0/0/0000579f-7b35-4ed3-b44c-db2a538066fe.png",
+        ],
+      },
+    });
+  });
+
   it("blocks incomplete magic-card-print observations with actionable normalized field diagnostics", () => {
     const contract: CatalogProviderSourceObservationMappingContract = {
       ...scrydexScryfallCardSourceObservationMappingContract,
@@ -187,6 +246,18 @@ function scrydexScryfallCardPayload(): JsonObject {
       png: "https://cards.scryfall.io/png/front/0/0/0000579f-7b35-4ed3-b44c-db2a538066fe.png",
     },
     tcgplayer_id: 14240,
+  };
+}
+
+function scryfallWrappedCardPayload(): JsonObject {
+  return {
+    kind: "single-card",
+    card: {
+      ...scrydexScryfallCardPayload(),
+      uri: "https://api.scryfall.com/cards/0000579f-7b35-4ed3-b44c-db2a538066fe",
+      set_id: "c1d109bc-ffd8-428f-8d7d-3f8d7e648046",
+      artist: "Pete Venters",
+    },
   };
 }
 

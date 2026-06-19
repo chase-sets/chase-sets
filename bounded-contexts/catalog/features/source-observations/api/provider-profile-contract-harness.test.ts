@@ -26,21 +26,28 @@ describe("Catalog provider profile contract harness", () => {
 
     expect(formatCatalogProviderProfileFixtureFailures(results)).toBe("");
     expect(results.map((result) => `${result.providerKey}@${result.profileVersion}`)).toEqual([
-      "scrydex@2026.06.03",
+      "scryfall@2026.06.19",
+      "scryfall@2026.06.19",
       "tcgdex@2026.06.03",
       "tcgplayer@2026.06.03",
     ]);
   });
 
   it("keeps replay deterministic while changed fixtures move the source hash", async () => {
+    const identities = [
+      { providerKey: "scryfall", profileKey: "mtg-card-print-reference-data", profileVersion: "2026.06.19" },
+      { providerKey: "scryfall", profileKey: "mtg-card-image-evidence", profileVersion: "2026.06.19" },
+      { providerKey: "tcgdex", profileVersion: "2026.06.03" },
+      { providerKey: "tcgplayer", profileVersion: "2026.06.03" },
+    ];
     const results = await Promise.all(
-      ["scrydex", "tcgdex", "tcgplayer"].map(async (providerKey) => {
+      identities.map(async (identity) => {
         const [normal, replay, changed] = await Promise.all([
-          dryRunFixture(providerKey, "normal"),
-          dryRunFixture(providerKey, "replay"),
-          dryRunFixture(providerKey, "changed"),
+          dryRunFixture(identity, "normal"),
+          dryRunFixture(identity, "replay"),
+          dryRunFixture(identity, "changed"),
         ]);
-        return { providerKey, normal, replay, changed };
+        return { providerKey: identity.profileKey ?? identity.providerKey, normal, replay, changed };
       }),
     );
 
@@ -75,16 +82,28 @@ describe("Catalog provider profile contract harness", () => {
   });
 });
 
-async function dryRunFixture(providerKey: string, flow: "normal" | "changed" | "replay") {
+async function dryRunFixture(
+  identity: Readonly<{ providerKey: string; profileKey?: string; profileVersion: string }>,
+  flow: "normal" | "changed" | "replay",
+) {
   const fixtureCase = catalogProviderProfileFixtureCases().find(
-    (candidate) => candidate.providerKey === providerKey && candidate.flow === flow,
+    (candidate) =>
+      candidate.providerKey === identity.providerKey &&
+      candidate.profileVersion === identity.profileVersion &&
+      (!identity.profileKey || candidate.profileKey === identity.profileKey) &&
+      candidate.flow === flow,
   );
   if (!fixtureCase) {
-    throw new Error(`Missing fixture case for ${providerKey}:${flow}.`);
+    throw new Error(`Missing fixture case for ${identity.providerKey}:${identity.profileKey ?? "*"}:${flow}.`);
   }
-  const version = catalogProviderIntegrationProfileVersions.find((candidate) => candidate.providerKey === providerKey);
+  const version = catalogProviderIntegrationProfileVersions.find(
+    (candidate) =>
+      candidate.providerKey === identity.providerKey &&
+      candidate.profileVersion === identity.profileVersion &&
+      (!identity.profileKey || candidate.profileKey === identity.profileKey),
+  );
   if (!version) {
-    throw new Error(`Missing profile version for ${providerKey}.`);
+    throw new Error(`Missing profile version for ${identity.providerKey}:${identity.profileKey ?? "*"}.`);
   }
   const payload = JSON.parse(
     await readFile(path.join(repositoryRoot(), version.fixtures.fixtureRoot, fixtureCase.payloadFile), "utf8"),
@@ -92,8 +111,10 @@ async function dryRunFixture(providerKey: string, flow: "normal" | "changed" | "
 
   return dryRunCatalogProviderProfileVersion({
     store: profileStore(catalogProviderIntegrationProfileVersions),
-    providerKey,
+    providerKey: identity.providerKey,
     profileVersion: fixtureCase.profileVersion,
+    profileKey: fixtureCase.profileKey,
+    ingestionUnitKey: fixtureCase.ingestionUnitKey,
     payload,
     observedAt: "2026-06-03T00:00:00.000Z",
   });
@@ -107,11 +128,17 @@ function profileStore(
     upsertProfileVersion: async (version) => version,
     listProfileVersions: async (providerKey) =>
       versions.filter((version) => !providerKey || version.providerKey === providerKey),
-    getProfileVersion: async (providerKey, profileVersion) =>
-      versions.find((version) => version.providerKey === providerKey && version.profileVersion === profileVersion) ??
-      null,
-    getActiveProfileVersion: async (providerKey) =>
-      versions.find((version) => version.providerKey === providerKey && version.active) ?? null,
+    getProfileVersion: async (providerKey, profileVersion, selector) =>
+      versions.find(
+        (version) =>
+          version.providerKey === providerKey &&
+          version.profileVersion === profileVersion &&
+          selectorMatchesVersion(selector, version),
+      ) ?? null,
+    getActiveProfileVersion: async (providerKey, selector) =>
+      versions.find(
+        (version) => version.providerKey === providerKey && version.active && selectorMatchesVersion(selector, version),
+      ) ?? null,
     activateProfileVersion: async (providerKey, profileVersion) => {
       const version = versions.find(
         (candidate) => candidate.providerKey === providerKey && candidate.profileVersion === profileVersion,
@@ -141,6 +168,25 @@ function profileStore(
     },
     countProfileVersionReferences: async () => 0,
   };
+}
+
+function selectorMatchesVersion(
+  selector: Readonly<{ profileKey?: string | null; ingestionUnitKey?: string | null }> | null | undefined,
+  version: CatalogProviderIntegrationProfileVersionRecord,
+): boolean {
+  const profileKey = selector?.profileKey?.trim().toLowerCase();
+  const ingestionUnitKey = selector?.ingestionUnitKey?.trim().toLowerCase();
+  return (
+    (!profileKey || version.profileKey.trim().toLowerCase() === profileKey) &&
+    (!ingestionUnitKey ||
+      (
+        version.ingestionUnitIdentity?.unitKey ??
+        version.executableMappingContract?.ingestionUnitIdentity?.unitKey ??
+        ""
+      )
+        .trim()
+        .toLowerCase() === ingestionUnitKey)
+  );
 }
 
 function repositoryRoot(): string {
