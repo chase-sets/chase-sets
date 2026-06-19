@@ -5,9 +5,11 @@ import {
 } from "./provider-integration-profile-store";
 import {
   catalogProviderIntegrationProfileVersions,
+  catalogProviderProfileVersionIngestionUnitKey,
   tcgdexPokemonTcgProviderProfile,
   type CatalogProviderIntegrationProfileVersionRecord,
 } from "./provider-integration-profiles";
+import { defineCatalogProviderIngestionUnitIdentityContract } from "./provider-integration-mapping-contract";
 
 type QueryResult<T> = Promise<{ rows: T[] }>;
 
@@ -75,6 +77,94 @@ describe("catalog provider integration profile version store", () => {
       profileVersion: "2026.06.04",
       active: true,
     });
+  });
+
+  it("allows two active versions for the same provider when ingestion units differ", async () => {
+    const db = new InMemoryProfileVersionDb();
+    const store = createCatalogProviderIntegrationProfileVersionStore(db);
+    const pokemon = tcgdexVersion("2026.06.03", "active", true);
+    const mtg = tcgdexVersionWithUnit("2026.06.04", "active", true, "magic-card-profile", {
+      productDomain: "mtg",
+      productForm: "single-card",
+      ingestionPurpose: "source-observation-import",
+    });
+    await store.seedProfileVersions([pokemon, mtg]);
+
+    await expect(
+      store.getActiveProfileVersion("tcgdex", {
+        ingestionUnitKey: catalogProviderProfileVersionIngestionUnitKey(pokemon),
+      }),
+    ).resolves.toMatchObject({ profileKey: "pokemon-tcg" });
+    await expect(
+      store.getActiveProfileVersion("tcgdex", {
+        ingestionUnitKey: catalogProviderProfileVersionIngestionUnitKey(mtg),
+      }),
+    ).resolves.toMatchObject({ profileKey: "magic-card-profile" });
+    await expect(store.getActiveProfileVersion("tcgdex")).rejects.toThrow(/multiple active profile units/);
+  });
+
+  it("activating one unit only deprecates the prior active version for that unit", async () => {
+    const db = new InMemoryProfileVersionDb();
+    const store = createCatalogProviderIntegrationProfileVersionStore(db);
+    await store.seedProfileVersions([
+      tcgdexVersion("2026.06.03", "active", true),
+      tcgdexVersionWithUnit("2026.06.04", "active", true, "magic-card-profile", {
+        productDomain: "mtg",
+        productForm: "single-card",
+        ingestionPurpose: "source-observation-import",
+      }),
+      tcgdexVersionWithUnit("2026.06.05", "test", false, "magic-card-profile", {
+        productDomain: "mtg",
+        productForm: "single-card",
+        ingestionPurpose: "source-observation-import",
+      }),
+    ]);
+
+    await store.activateProfileVersion("tcgdex", "2026.06.05");
+
+    expect(
+      (await store.listProfileVersions("tcgdex")).map((version) => [
+        version.profileKey,
+        version.profileVersion,
+        version.lifecycle,
+        version.active,
+      ]),
+    ).toEqual([
+      ["magic-card-profile", "2026.06.05", "active", true],
+      ["magic-card-profile", "2026.06.04", "deprecated", false],
+      ["pokemon-tcg", "2026.06.03", "active", true],
+    ]);
+  });
+
+  it("requires profile or unit selection when provider and version identify multiple profile rows", async () => {
+    const db = new InMemoryProfileVersionDb();
+    const store = createCatalogProviderIntegrationProfileVersionStore(db);
+    const pokemon = tcgdexVersion("2026.06.03", "active", true);
+    const mtg = tcgdexVersionWithUnit("2026.06.03", "test", false, "magic-card-profile", {
+      productDomain: "mtg",
+      productForm: "single-card",
+      ingestionPurpose: "source-observation-import",
+    });
+    await store.seedProfileVersions([pokemon, mtg]);
+
+    await expect(store.getProfileVersion("tcgdex", "2026.06.03")).rejects.toThrow(/multiple profile units/);
+    await expect(
+      store.getProfileVersion("tcgdex", "2026.06.03", { profileKey: "magic-card-profile" }),
+    ).resolves.toMatchObject({ profileKey: "magic-card-profile" });
+
+    await store.activateProfileVersion("tcgdex", "2026.06.03", { profileKey: "magic-card-profile" });
+
+    expect(
+      (await store.listProfileVersions("tcgdex")).map((version) => [
+        version.profileKey,
+        version.profileVersion,
+        version.lifecycle,
+        version.active,
+      ]),
+    ).toEqual([
+      ["pokemon-tcg", "2026.06.03", "active", true],
+      ["magic-card-profile", "2026.06.03", "active", true],
+    ]);
   });
 
   it("rolls persisted lookup back to a prior profile version", async () => {
@@ -254,6 +344,36 @@ function tcgdexVersion(
   };
 }
 
+function tcgdexVersionWithUnit(
+  profileVersion: string,
+  lifecycle: CatalogProviderIntegrationProfileVersionRecord["lifecycle"],
+  active: boolean,
+  profileKey: string,
+  unit: Readonly<{
+    productDomain: "pokemon" | "mtg";
+    productForm: "single-card" | "sealed-product" | "set";
+    ingestionPurpose: "source-observation-import" | "reference-data" | "image-evidence";
+  }>,
+): CatalogProviderIntegrationProfileVersionRecord {
+  const base = tcgdexVersion(profileVersion, lifecycle, active);
+  const ingestionUnitIdentity = defineCatalogProviderIngestionUnitIdentityContract({
+    providerKey: base.providerKey,
+    ...unit,
+  });
+  return {
+    ...base,
+    profileKey,
+    ingestionUnitIdentity,
+    executableMappingContract: base.executableMappingContract
+      ? {
+          ...base.executableMappingContract,
+          profileKey,
+          ingestionUnitIdentity,
+        }
+      : undefined,
+  };
+}
+
 function legacyActiveTcgdexVersion(): CatalogProviderIntegrationProfileVersionRecord {
   const base = currentTcgdexVersion();
   return {
@@ -290,17 +410,20 @@ class InMemoryProfileVersionDb {
 
     if (
       sql.includes("UPDATE catalog_provider_integration_profile_versions") &&
-      sql.includes("profile_version <> $2") &&
+      sql.includes("profile_key = $2") &&
+      sql.includes("profile_version = $3") &&
       sql.includes("active = true") &&
       sql.includes("lifecycle = 'active'")
     ) {
       const providerKey = String(params[0]);
-      const profileVersion = String(params[1]);
+      const profileKey = String(params[1]);
+      const profileVersion = String(params[2]);
       const updatedRows: PersistedProfileVersionRow[] = [];
       for (const [key, row] of this.rows) {
         if (
           row.provider_key === providerKey &&
-          row.profile_version !== profileVersion &&
+          row.profile_key === profileKey &&
+          row.profile_version === profileVersion &&
           row.active &&
           row.lifecycle === "active"
         ) {
@@ -314,6 +437,27 @@ class InMemoryProfileVersionDb {
         }
       }
       return { rows: updatedRows as T[] };
+    }
+
+    if (
+      sql.includes("FROM catalog_provider_integration_profile_versions") &&
+      sql.includes("profile_version <> $2") &&
+      sql.includes("active = true") &&
+      sql.includes("lifecycle = 'active'")
+    ) {
+      const providerKey = String(params[0]);
+      const profileVersion = String(params[1]);
+      return {
+        rows: [...this.rows.values()]
+          .filter(
+            (row) =>
+              row.provider_key === providerKey &&
+              row.profile_version !== profileVersion &&
+              row.active &&
+              row.lifecycle === "active",
+          )
+          .sort(compareRows) as T[],
+      };
     }
 
     if (sql.includes("FROM catalog_source_observations") && sql.includes("COUNT(*) AS reference_count")) {
@@ -349,8 +493,7 @@ class InMemoryProfileVersionDb {
       return {
         rows: [...this.rows.values()]
           .filter((row) => row.provider_key === providerKey && row.active && row.lifecycle === "active")
-          .sort((left, right) => right.profile_version.localeCompare(left.profile_version))
-          .slice(0, 1) as T[],
+          .sort((left, right) => right.profile_version.localeCompare(left.profile_version)) as T[],
       };
     }
 
@@ -371,6 +514,7 @@ type PersistedProfileVersionRow = Readonly<{
   provider_key: string;
   profile_key: string;
   profile_version: string;
+  ingestion_unit_key: string;
   lifecycle: CatalogProviderIntegrationProfileVersionRecord["lifecycle"];
   active: boolean;
   profile_json: string;
@@ -387,15 +531,16 @@ function rowFromInsertParams(params: readonly unknown[]): PersistedProfileVersio
     provider_key: String(params[0]),
     profile_key: String(params[1]),
     profile_version: String(params[2]),
-    lifecycle: params[3] as CatalogProviderIntegrationProfileVersionRecord["lifecycle"],
-    active: Boolean(params[4]),
-    profile_json: String(params[5]),
-    source_contract_json: String(params[6]),
-    fixture_contract_json: String(params[7]),
-    retirement_plan_json: typeof params[8] === "string" ? params[8] : null,
-    executable_mapping_contract_json: typeof params[9] === "string" ? params[9] : null,
-    migration_evidence_json: typeof params[10] === "string" ? params[10] : null,
-    authoring_audit_json: typeof params[11] === "string" ? params[11] : null,
+    ingestion_unit_key: String(params[3]),
+    lifecycle: params[4] as CatalogProviderIntegrationProfileVersionRecord["lifecycle"],
+    active: Boolean(params[5]),
+    profile_json: String(params[6]),
+    source_contract_json: String(params[7]),
+    fixture_contract_json: String(params[8]),
+    retirement_plan_json: typeof params[9] === "string" ? params[9] : null,
+    executable_mapping_contract_json: typeof params[10] === "string" ? params[10] : null,
+    migration_evidence_json: typeof params[11] === "string" ? params[11] : null,
+    authoring_audit_json: typeof params[12] === "string" ? params[12] : null,
   };
 }
 

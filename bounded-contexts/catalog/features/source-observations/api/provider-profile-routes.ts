@@ -22,7 +22,10 @@ import {
   CatalogProviderProfileVersionNotFoundError,
   type CatalogProviderProfileLifecycleBlockingJob,
 } from "./provider-profile-review";
-import type { CatalogProviderIntegrationProfileVersionRecord } from "./provider-integration-profiles";
+import type {
+  CatalogProviderIntegrationProfileVersionRecord,
+  CatalogProviderProfileVersionSelector,
+} from "./provider-integration-profiles";
 import type {
   BulkReviewJobServices,
   CatalogIntegrationEngineServices,
@@ -100,6 +103,7 @@ export function providerProfileRoutes(
         store: profileVersions,
         providerKey: c.req.param("providerKey"),
         profileVersion: c.req.param("profileVersion"),
+        ...profileVersionSelectorFromRequest(c),
         selectedOptionSchema: await services.getSelectedOptionAuthoringSchema(),
         promotionTargetSchema: await services.getPromotionTargetAuthoringSchema(),
       });
@@ -135,6 +139,7 @@ export function providerProfileRoutes(
         store: profileVersions,
         providerKey: c.req.param("providerKey"),
         profileVersion: c.req.param("profileVersion"),
+        ...profileVersionSelectorFromRequest(c),
         command,
         audit: authoringAuditFromContext(c.get("context")),
         activeJobs: await listProfileLifecycleBlockingJobs(services, c.get("context")),
@@ -179,6 +184,7 @@ export function providerProfileRoutes(
       store: profileVersions,
       providerKey: c.req.param("providerKey"),
       profileVersion: c.req.param("profileVersion"),
+      ...profileVersionSelectorFromRequest(c),
       payload: toJsonValue(body.payload),
       observedAt: new Date(0).toISOString(),
     });
@@ -186,6 +192,7 @@ export function providerProfileRoutes(
     const duplicatePreventionCandidatePreview = await services.previewDuplicatePreventionCandidates?.({
       providerKey: c.req.param("providerKey"),
       profileVersion: c.req.param("profileVersion"),
+      ...profileVersionSelectorFromRequest(c),
       payload: toJsonValue(body.payload),
       observedAt: new Date(0).toISOString(),
     });
@@ -219,6 +226,7 @@ export function providerProfileRoutes(
     const result = await services.previewProviderProfileLifecycleImpact({
       providerKey: c.req.param("providerKey"),
       profileVersion: c.req.param("profileVersion"),
+      ...profileVersionSelectorFromRequest(c),
       operation,
       context: c.get("context"),
     });
@@ -241,11 +249,13 @@ export function providerProfileRoutes(
       await assertActivationRolloutAllowed(services, profileVersions, {
         providerKey: c.req.param("providerKey"),
         profileVersion: c.req.param("profileVersion"),
+        ...profileVersionSelectorFromRequest(c),
       });
       result = await activateCatalogProviderProfileVersionForReview({
         store: profileVersions,
         providerKey: c.req.param("providerKey"),
         profileVersion: c.req.param("profileVersion"),
+        ...profileVersionSelectorFromRequest(c),
         activeJobs: await listProfileLifecycleBlockingJobs(services, c.get("context")),
       });
     } catch (error) {
@@ -292,6 +302,7 @@ export function providerProfileRoutes(
       store: profileVersions,
       providerKey: c.req.param("providerKey"),
       profileVersion: c.req.param("profileVersion"),
+      ...profileVersionSelectorFromRequest(c),
       targetProfileVersion: String(body.targetProfileVersion ?? ""),
       lifecycle: body.lifecycle === "test" ? "test" : "draft",
       audit: authoringAuditFromContext(c.get("context")),
@@ -316,6 +327,7 @@ export function providerProfileRoutes(
         store: profileVersions,
         providerKey: c.req.param("providerKey"),
         profileVersion: c.req.param("profileVersion"),
+        ...profileVersionSelectorFromRequest(c),
         activeJobs: await listProfileLifecycleBlockingJobs(services, c.get("context")),
       });
     } catch (error) {
@@ -341,6 +353,7 @@ export function providerProfileRoutes(
         store: profileVersions,
         providerKey: c.req.param("providerKey"),
         profileVersion: c.req.param("profileVersion"),
+        ...profileVersionSelectorFromRequest(c),
         audit: authoringAuditFromContext(c.get("context")),
         activeJobs: await listProfileLifecycleBlockingJobs(services, c.get("context")),
       });
@@ -367,6 +380,7 @@ export function providerProfileRoutes(
         store: profileVersions,
         providerKey: c.req.param("providerKey"),
         profileVersion: c.req.param("profileVersion"),
+        ...profileVersionSelectorFromRequest(c),
         activeJobs: await listProfileLifecycleBlockingJobs(services, c.get("context")),
       });
     } catch (error) {
@@ -388,13 +402,13 @@ async function assertActivationRolloutAllowed(
     assertCatalogIntegrationRolloutAllowed?: CatalogIntegrationRolloutControlPolicy["assertAllowed"];
   }>,
   profileVersions: CatalogProviderIntegrationProfileVersionStore,
-  input: Readonly<{ providerKey: string; profileVersion: string }>,
+  input: Readonly<{ providerKey: string; profileVersion: string } & CatalogProviderProfileVersionSelector>,
 ): Promise<void> {
   if (!services.assertCatalogIntegrationRolloutAllowed) {
     return;
   }
 
-  const version = await profileVersions.getProfileVersion(input.providerKey, input.profileVersion);
+  const version = await profileVersions.getProfileVersion(input.providerKey, input.profileVersion, input);
   services.assertCatalogIntegrationRolloutAllowed({
     capability: "activation",
     providerKey: input.providerKey,
@@ -402,6 +416,15 @@ async function assertActivationRolloutAllowed(
     profileVersion: input.profileVersion,
     profileLifecycle: version?.lifecycle ?? null,
   });
+}
+
+function profileVersionSelectorFromRequest(c: Context<CatalogAuthoringEnv>): CatalogProviderProfileVersionSelector {
+  const profileKey = c.req.query("profileKey")?.trim();
+  const ingestionUnitKey = (c.req.query("ingestionUnitKey") ?? c.req.query("unitKey"))?.trim();
+  return {
+    ...(profileKey ? { profileKey } : {}),
+    ...(ingestionUnitKey ? { ingestionUnitKey } : {}),
+  };
 }
 
 async function listProfileLifecycleBlockingJobs(

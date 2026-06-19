@@ -17,7 +17,7 @@ Idempotency, lifecycle concurrency, retry/resume, partial-failure, and deploy-sk
 ## Versioned Data Path
 
 Catalog persists provider integration profiles in `catalog_provider_integration_profile_versions`.
-Each row carries the provider key, profile key, profile version, lifecycle, active flag, profile JSON, source contract metadata, fixture contract metadata, optional executable mapping contract, and optional retirement plan.
+Each row carries the provider key, profile key, profile version, ingestion-unit key, lifecycle, active flag, profile JSON, source contract metadata, fixture contract metadata, optional executable mapping contract, and optional retirement plan.
 Admin-authored rows also carry migration evidence and authoring audit metadata so operators can see who cloned or changed a version and what replay or fixture evidence justified activation.
 
 The current TCGdex, TCGplayer, and Scrydex profiles are seeded through this versioned data path during Catalog bootstrap. TCGdex is active as an executable mapping profile version. TCGplayer and Scrydex are fixture-backed executable `test` profile versions while their import workflows remain planned.
@@ -30,7 +30,9 @@ Profile lifecycle values are:
 - `deprecated`: still readable for replay and rollback, but not selected for new imports.
 - `retired`: retained only for historical observations that still reference it.
 
-Activating a profile version validates fixture coverage, profile identity, and the executable mapping contract. Profile versions should express normalization, external reference extraction, selected Option resolution, Reference Record hierarchy, duplicate-prevention policy, and promotion command plan through the executable mapping contract.
+Activating a profile version validates fixture coverage, profile identity, ingestion-unit identity, and the executable mapping contract. Profile versions should express normalization, external reference extraction, selected Option resolution, Reference Record hierarchy, duplicate-prevention policy, and promotion command plan through the executable mapping contract.
+
+Active profile selection is unit-aware. A provider may have more than one active profile version when those versions represent different ingestion units, such as separate card, set/reference-data, or image-evidence units. Activating a new version deactivates only competing active versions for the same provider profile key or ingestion-unit key; unrelated active units for the same provider remain active. Provider-only active lookup is compatibility sugar: it returns the single active unit, returns `null` when none exists, and fails closed with a selector-required diagnostic when multiple active units exist.
 
 Admin activation is guarded by the fixture harness and migration evidence. The activation request returns structured diagnostics when fixture coverage, mapping identity, redaction, or migration evidence is incomplete. Activation must not make live provider calls; fixtures and committed profile data are the only allowed evidence for this gate.
 
@@ -42,7 +44,7 @@ Bootstrap seeds static profile rows only as initial or reconciliation data. It p
 
 Pre-launch reset deletes non-admin-authored provider profile rows and then rebuilds the seeded profile versions through this same persisted data path. Admin-authored rows with migration evidence or authoring audit metadata are preserved by default and must have an explicit retained-data reason, removal date, removal criteria, and launch gate before launch if they outlive the reset window.
 
-Durable import jobs snapshot provider key, profile key, profile version, lifecycle, connector kind, connector source version, and source mapping fingerprint at enqueue time. Retries and worker handoff reload that snapshotted profile version, so activating a newer version while a job is queued does not change what the queued job writes. Integration reapply jobs snapshot `current-active-profile` mode and the active profile version; direct replay-style reapply uses the Source Observation's original source profile version and fails closed when that metadata is missing or still carries retired `legacy` markers. Legacy Source Observation profile markers are reset/drop evidence for the pre-launch cleanup gate, not a fallback to the active promotion profile.
+Durable import jobs snapshot provider key, profile key, profile version, ingestion-unit key, lifecycle, connector kind, connector source version, and source mapping fingerprint at enqueue time. Retries and worker handoff reload that snapshotted profile version, so activating a newer version while a job is queued does not change what the queued job writes. Integration reapply jobs snapshot `current-active-profile` mode and the active profile version for the selected profile/unit; direct replay-style reapply uses the Source Observation's original source profile version and fails closed when that metadata is missing or still carries retired `legacy` markers. Legacy Source Observation profile markers are reset/drop evidence for the pre-launch cleanup gate, not a fallback to the active promotion profile.
 
 Profile version rows use the `catalog-provider-profile-version-v1` launch contract. Referenced active, deprecated, retired, rollback, audit, job, or Source Observation profile versions remain readable through that contract. Unreferenced pre-launch profile rows should be reset or rebuilt by the prelaunch data reset/drop plan instead of gaining permanent compatibility adapters.
 

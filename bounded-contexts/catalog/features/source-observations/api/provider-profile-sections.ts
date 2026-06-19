@@ -5,7 +5,10 @@ import type {
   CatalogProviderIntegrationProfileVersionDiagnostic,
   CatalogProviderIntegrationProfileVersionRecord,
 } from "./provider-integration-profiles";
-import { validateCatalogProviderIntegrationProfileVersion } from "./provider-integration-profiles";
+import {
+  catalogProviderProfileVersionIngestionUnitKey,
+  validateCatalogProviderIntegrationProfileVersion,
+} from "./provider-integration-profiles";
 import type {
   CatalogProviderIngestionPurpose,
   CatalogProviderIngestionUnitIdentityContract,
@@ -542,13 +545,19 @@ function inferCatalogProviderIngestionUnitProfileIdentity(
   if (version.ingestionUnitIdentity) {
     return toProfileIdentity(version.ingestionUnitIdentity, version.profile.displayName);
   }
+  if (version.executableMappingContract?.ingestionUnitIdentity) {
+    return toProfileIdentity(version.executableMappingContract.ingestionUnitIdentity, version.profile.displayName);
+  }
 
-  return defineCatalogProviderIngestionUnitProfileIdentity({
-    providerKey: version.providerKey,
-    productDomain: inferProductDomain(version),
-    productForm: inferProductForm(version),
-    displayName: `${version.profile.displayName} ${inferProductDomain(version)} ${inferProductForm(version)}`,
-  });
+  const parsed = parseCatalogIntegrationUnitKey(catalogProviderProfileVersionIngestionUnitKey(version));
+  return {
+    unitKey: catalogProviderProfileVersionIngestionUnitKey(version),
+    providerKey: parsed.providerKey,
+    productDomain: parsed.productDomain as CatalogProviderIngestionUnitProductDomain,
+    productForm: parsed.productForm as CatalogProviderIngestionUnitProductForm,
+    ingestionPurpose: (parsed.ingestionPurpose ?? "source-observation-import") as CatalogProviderIngestionPurpose,
+    displayName: `${version.profile.displayName} ${parsed.productDomain} ${parsed.productForm}`,
+  };
 }
 
 function toProfileIdentity(
@@ -559,49 +568,6 @@ function toProfileIdentity(
     ...identity,
     displayName,
   };
-}
-
-function inferProductDomain(
-  version: CatalogProviderIntegrationProfileVersionRecord,
-): CatalogProviderIngestionUnitProductDomain {
-  const signals = [
-    version.profileKey,
-    version.profile.catalogFieldMapping.blueprintKey,
-    version.profile.catalogFieldMapping.categoryKey,
-    version.executableMappingContract?.normalizedObservation.fields.tcg?.selector.kind === "constant"
-      ? String(version.executableMappingContract.normalizedObservation.fields.tcg.selector.value)
-      : "",
-    version.executableMappingContract?.normalizedObservation.fields.productLineName?.selector.kind === "constant"
-      ? String(version.executableMappingContract.normalizedObservation.fields.productLineName.selector.value)
-      : "",
-  ]
-    .join(" ")
-    .toLowerCase();
-
-  if (signals.includes("magic") || signals.includes("scryfall") || signals.includes("mtg")) {
-    return "mtg";
-  }
-
-  return "pokemon";
-}
-
-function inferProductForm(
-  version: CatalogProviderIntegrationProfileVersionRecord,
-): CatalogProviderIngestionUnitProductForm {
-  const signals = [
-    version.profileKey,
-    version.profile.catalogFieldMapping.blueprintKey,
-    version.profile.supportedScopes.join(" "),
-    version.executableMappingContract?.displayName ?? "",
-  ]
-    .join(" ")
-    .toLowerCase();
-
-  if (signals.includes("sealed-product")) {
-    return "sealed-product";
-  }
-
-  return "single-card";
 }
 
 function section<TKey extends CatalogProviderProfileSectionKey, TValue>(

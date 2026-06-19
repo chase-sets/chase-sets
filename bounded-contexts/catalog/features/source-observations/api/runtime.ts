@@ -85,10 +85,13 @@ import {
   type TcgplayerAutomationProductDetail,
 } from "./tcgplayer-automation-catalog-client";
 import {
+  catalogProviderProfileVersionIngestionUnitKey,
   getActiveCatalogProviderIntegrationProfileVersion,
+  getCatalogProviderIntegrationProfileVersion,
   listCatalogProviderIntegrationProfileVersions,
   type CatalogProviderIntegrationProfile,
   type CatalogProviderIntegrationProfileVersionRecord,
+  type CatalogProviderProfileVersionSelector,
 } from "./provider-integration-profiles";
 import type { CatalogProviderIntegrationProfileVersionStore } from "./provider-integration-profile-store";
 import {
@@ -184,8 +187,8 @@ const staticCatalogProviderIntegrationProfileVersions: CatalogProviderIntegratio
       ? versions.filter((version) => version.providerKey.trim().toLowerCase() === normalizedProviderKey)
       : versions;
   },
-  getActiveProfileVersion: async (providerKey: string) =>
-    getActiveCatalogProviderIntegrationProfileVersion(providerKey),
+  getActiveProfileVersion: async (providerKey: string, selector?: CatalogProviderProfileVersionSelector | null) =>
+    getActiveCatalogProviderIntegrationProfileVersion(providerKey, selector),
 };
 
 export type BulkSourceObservationPromotionOutcome = Readonly<{
@@ -300,6 +303,8 @@ export type SourceObservationReapplyProfileMode = "original-source-profile" | "c
 
 export type SourceObservationIntegrationJobScope = Readonly<{
   provider?: string;
+  profileKey?: string;
+  ingestionUnitKey?: string;
   language?: string;
   seriesId?: string;
   setId?: string;
@@ -319,6 +324,7 @@ export type SourceObservationIntegrationProfileSnapshot = Readonly<{
   providerKey: string;
   profileKey: string;
   profileVersion: string;
+  ingestionUnitKey?: string | null;
   lifecycle: CatalogProviderIntegrationProfileVersionRecord["lifecycle"];
   connectorKind: string;
   connectorSourceVersion: string | null;
@@ -563,6 +569,8 @@ export type ProviderOptionQueryServices = Readonly<{
   }) => Promise<readonly TcgdexExpansionOption[]>;
   queryIntegrationOptions: (input: {
     providerKey: string;
+    profileKey?: string | null;
+    ingestionUnitKey?: string | null;
     queryKind: string;
     languageCode?: string | null;
     parentValue?: string | null;
@@ -573,6 +581,8 @@ export type ProviderOptionQueryServices = Readonly<{
   }) => Promise<CatalogProviderOptionQueryPage>;
   listIntegrationOptions: (input: {
     providerKey: string;
+    profileKey?: string | null;
+    ingestionUnitKey?: string | null;
     queryKind: string;
     languageCode?: string | null;
     parentValue?: string | null;
@@ -588,6 +598,8 @@ export type CatalogIntegrationEngineServices = Readonly<{
   previewDuplicatePreventionCandidates: (input: {
     providerKey: string;
     profileVersion: string;
+    profileKey?: string | null;
+    ingestionUnitKey?: string | null;
     payload: JsonValue;
     observedAt?: string;
   }) => Promise<SourceObservationDuplicatePreventionCandidatePreview>;
@@ -600,6 +612,8 @@ export type CatalogIntegrationEngineServices = Readonly<{
   previewProviderProfileLifecycleImpact: (input: {
     providerKey: string;
     profileVersion: string;
+    profileKey?: string | null;
+    ingestionUnitKey?: string | null;
     operation: CatalogAdminRollbackRetirementImpactSummaryReadModel["operation"];
     context?: EventStoreContext | null;
   }) => Promise<CatalogAdminRollbackRetirementImpactSummaryReadModel>;
@@ -966,13 +980,17 @@ export function createSourceObservationRuntime(
   async function previewDuplicatePreventionCandidates(input: {
     providerKey: string;
     profileVersion: string;
+    profileKey?: string | null;
+    ingestionUnitKey?: string | null;
     payload: JsonValue;
     observedAt?: string;
   }): Promise<SourceObservationDuplicatePreventionCandidatePreview> {
-    const version =
-      (await profileVersions.listProfileVersions(input.providerKey)).find(
-        (candidate) => candidate.profileVersion === input.profileVersion,
-      ) ?? null;
+    const version = getCatalogProviderIntegrationProfileVersion(
+      input.providerKey,
+      input.profileVersion,
+      profileSelectorFromScope(input),
+      await profileVersions.listProfileVersions(input.providerKey),
+    );
     if (!version) {
       return notEvaluatedDuplicatePreventionPreview(
         `Catalog provider profile version ${input.providerKey}@${input.profileVersion} was not found.`,
@@ -1044,10 +1062,16 @@ export function createSourceObservationRuntime(
   async function previewProviderProfileLifecycleImpact(input: {
     providerKey: string;
     profileVersion: string;
+    profileKey?: string | null;
+    ingestionUnitKey?: string | null;
     operation: CatalogAdminRollbackRetirementImpactSummaryReadModel["operation"];
     context?: EventStoreContext | null;
   }): Promise<CatalogAdminRollbackRetirementImpactSummaryReadModel> {
-    const version = await requireCatalogImpactProfileVersion(input.providerKey, input.profileVersion);
+    const version = await requireCatalogImpactProfileVersion(
+      input.providerKey,
+      input.profileVersion,
+      profileSelectorFromScope(input),
+    );
     const [impact, activeJobs] = await Promise.all([
       summarizeSourceObservationLifecycleImpact(deps.db, {
         providerKey: input.providerKey,
@@ -1073,11 +1097,14 @@ export function createSourceObservationRuntime(
   async function requireCatalogImpactProfileVersion(
     providerKey: string,
     profileVersion: string,
+    selector?: CatalogProviderProfileVersionSelector | null,
   ): Promise<CatalogProviderIntegrationProfileVersionRecord> {
-    const version =
-      (await profileVersions.listProfileVersions(providerKey)).find(
-        (candidate) => candidate.profileVersion === profileVersion,
-      ) ?? null;
+    const version = getCatalogProviderIntegrationProfileVersion(
+      providerKey,
+      profileVersion,
+      selector,
+      await profileVersions.listProfileVersions(providerKey),
+    );
     if (!version) {
       throw new Error(`Catalog provider profile version ${providerKey}@${profileVersion} was not found.`);
     }
@@ -1769,7 +1796,7 @@ export function createSourceObservationRuntime(
         ? selectionMode === "ids"
           ? commonProfileSnapshot([...unitProfileSnapshots.values()])
           : snapshotCatalogReapplyProfileVersion(
-              await requireCatalogReapplyActiveProfileVersion(profileVersions, scope.provider),
+              await requireCatalogReapplyActiveProfileVersion(profileVersions, scope.provider, null),
             )
         : null;
     const progress = bulkProgress(0, unitObservationIds.length, null, null, "queued");
@@ -1818,12 +1845,13 @@ export function createSourceObservationRuntime(
       }
 
       const providerKey = observation.provider_key.trim().toLowerCase();
-      let snapshot = profilesByProvider.get(providerKey);
+      const cacheKey = `${providerKey}:${observation.normalized.kind}`;
+      let snapshot = profilesByProvider.get(cacheKey);
       if (!snapshot) {
         snapshot = snapshotCatalogReapplyProfileVersion(
-          await requireCatalogReapplyActiveProfileVersion(profileVersions, providerKey),
+          await requireCatalogPromotionProfileVersion(profileVersions, providerKey, observation.normalized),
         );
-        profilesByProvider.set(providerKey, snapshot);
+        profilesByProvider.set(cacheKey, snapshot);
       }
       snapshots.set(observationId, snapshot);
     }
@@ -2172,7 +2200,9 @@ export function createSourceObservationRuntime(
       providerKey: scope.provider,
     });
     const importProfileVersion =
-      input.action === "import" ? await requireCatalogImportProfileVersion(profileVersions, scope.provider) : null;
+      input.action === "import"
+        ? await requireCatalogImportProfileVersion(profileVersions, scope.provider, profileSelectorFromScope(scope))
+        : null;
     const reapplyProfileMode: SourceObservationReapplyProfileMode | null =
       input.action === "reapply"
         ? (normalizeReapplyProfileMode(input.reapplyProfileMode) ?? "current-active-profile")
@@ -2183,7 +2213,11 @@ export function createSourceObservationRuntime(
           ? null
           : reapplyProfileMode === "current-active-profile"
             ? snapshotCatalogReapplyProfileVersion(
-                await requireCatalogReapplyActiveProfileVersion(profileVersions, scope.provider),
+                await requireCatalogReapplyActiveProfileVersion(
+                  profileVersions,
+                  scope.provider,
+                  profileSelectorFromScope(scope),
+                ),
               )
             : null
         : snapshotCatalogProfileVersion(importProfileVersion);
@@ -2842,7 +2876,11 @@ export function createSourceObservationRuntime(
     onProgress?: SourceObservationProgressHandler;
   }): Promise<SourceObservationIntegrationJobResult> {
     const scope = normalizeIntegrationJobScope(input.scope);
-    const providerProfileVersion = await requireCatalogImportProfileVersion(profileVersions, scope.provider);
+    const providerProfileVersion = await requireCatalogImportProfileVersion(
+      profileVersions,
+      scope.provider,
+      profileSelectorFromScope(scope),
+    );
     const providerProfile = providerProfileVersion.profile;
 
     if (providerProfile.providerKey === "tcgplayer") {
@@ -3071,7 +3109,8 @@ export function createSourceObservationRuntime(
       providerKey: scope.provider ?? "tcgplayer",
     });
     const providerProfileVersion =
-      input.providerProfileVersion ?? (await requireCatalogImportProfileVersion(profileVersions, scope.provider));
+      input.providerProfileVersion ??
+      (await requireCatalogImportProfileVersion(profileVersions, scope.provider, profileSelectorFromScope(scope)));
     const providerProfile = providerProfileVersion.profile;
     if (providerProfile.providerKey !== "tcgplayer") {
       throw new Error(`Provider '${providerProfile.providerKey}' is not supported by the TCGplayer import worker.`);
@@ -3281,7 +3320,11 @@ export function createSourceObservationRuntime(
   }): Promise<SourceObservationIntegrationJobResult> {
     const scope = integrationScopeToObservationScope(input.scope);
     const profileSnapshot = snapshotCatalogReapplyProfileVersion(
-      await requireCatalogReapplyActiveProfileVersion(profileVersions, input.scope.provider),
+      await requireCatalogReapplyActiveProfileVersion(
+        profileVersions,
+        input.scope.provider,
+        profileSelectorFromScope(input.scope),
+      ),
     );
     const result = await reapplyObservationIds({
       observationIds: await listSourceObservationIdsForReapply(deps.db, scope),
@@ -3614,6 +3657,8 @@ function integrationProfileTelemetryRef(profile: SourceObservationIntegrationPro
 async function listProviderIntegrationOptions(
   input: {
     providerKey: string;
+    profileKey?: string | null;
+    ingestionUnitKey?: string | null;
     queryKind: string;
     languageCode?: string | null;
     parentValue?: string | null;
@@ -3632,8 +3677,15 @@ async function listProviderIntegrationOptions(
   ]),
 ): Promise<readonly SourceObservationIntegrationOption[]> {
   const versions = await profileVersions.listProfileVersions();
+  const activeOptionQueryVersions = versions.filter(isActiveProviderOptionQueryProfileVersion);
+  const selectedVersion = profileVersionForProviderOptionQuery(activeOptionQueryVersions, {
+    providerKey: input.providerKey,
+    queryKind: input.queryKind,
+    profileKey: input.profileKey,
+    ingestionUnitKey: input.ingestionUnitKey,
+  });
   return listCatalogProviderIntegrationOptionsFromProfiles({
-    profiles: versions.filter(isActiveProviderOptionQueryProfileVersion).map((version) => version.profile),
+    profiles: (selectedVersion ? [selectedVersion] : activeOptionQueryVersions).map((version) => version.profile),
     providerKey: input.providerKey,
     queryKind: input.queryKind,
     languageCode: input.languageCode,
@@ -3659,6 +3711,8 @@ async function listProviderIntegrationOptions(
 async function queryProviderIntegrationOptions(
   input: {
     providerKey: string;
+    profileKey?: string | null;
+    ingestionUnitKey?: string | null;
     queryKind: string;
     languageCode?: string | null;
     parentValue?: string | null;
@@ -3700,13 +3754,37 @@ async function queryProviderIntegrationOptions(
   const activeOptionQueryVersions = versions.filter(isActiveProviderOptionQueryProfileVersion);
   const providerKey = input.providerKey.trim().toLowerCase();
   const queryKind = input.queryKind.trim().toLowerCase();
-  const profileVersion = profileVersionForProviderOptionQuery(activeOptionQueryVersions, providerKey, queryKind);
+  const profileVersion = profileVersionForProviderOptionQuery(activeOptionQueryVersions, {
+    providerKey,
+    queryKind,
+    profileKey: input.profileKey,
+    ingestionUnitKey: input.ingestionUnitKey,
+  });
+  const liveVersions = profileVersion
+    ? activeOptionQueryVersions.filter(
+        (version) =>
+          version.providerKey === profileVersion.providerKey &&
+          version.profileKey === profileVersion.profileKey &&
+          version.profileVersion === profileVersion.profileVersion,
+      )
+    : activeOptionQueryVersions;
 
   try {
     const page = await queryCatalogProviderIntegrationOptionsWithCache({
       request: {
         providerKey,
-        profileVersion,
+        profileKey: profileVersion?.profileKey ?? "catalog-providers",
+        profileVersion:
+          profileVersion?.profileVersion ??
+          `catalog-providers:${activeOptionQueryVersions
+            .map(
+              (version) =>
+                `${version.providerKey}/${version.profileKey}@${version.profileVersion}:${catalogProviderProfileVersionIngestionUnitKey(
+                  version,
+                )}`,
+            )
+            .join("|")}`,
+        ingestionUnitKey: profileVersion ? catalogProviderProfileVersionIngestionUnitKey(profileVersion) : "catalog",
         queryKind,
         languageCode: input.languageCode,
         parentValue: input.parentValue,
@@ -3718,7 +3796,7 @@ async function queryProviderIntegrationOptions(
       cacheStore: createPgCatalogProviderOptionQueryCacheStore(db),
       loadLive: () =>
         listCatalogProviderIntegrationOptionsFromProfiles({
-          profiles: activeOptionQueryVersions.map((version) => version.profile),
+          profiles: liveVersions.map((version) => version.profile),
           providerKey: input.providerKey,
           queryKind: input.queryKind,
           languageCode: input.languageCode,
@@ -3769,15 +3847,42 @@ async function queryProviderIntegrationOptions(
 
 function profileVersionForProviderOptionQuery(
   versions: readonly CatalogProviderIntegrationProfileVersionRecord[],
-  providerKey: string,
-  queryKind: string,
-): string {
+  input: Readonly<{
+    providerKey: string;
+    queryKind: string;
+    profileKey?: string | null;
+    ingestionUnitKey?: string | null;
+  }>,
+): CatalogProviderIntegrationProfileVersionRecord | null {
+  const providerKey = input.providerKey.trim().toLowerCase();
+  const queryKind = input.queryKind.trim().toLowerCase();
   if (queryKind === "providers" || queryKind === "provider") {
-    return `catalog-providers:${versions.map((version) => `${version.providerKey}@${version.profileVersion}`).join("|")}`;
+    return null;
   }
-  return (
-    versions.find((version) => version.providerKey.trim().toLowerCase() === providerKey)?.profileVersion ??
-    "unregistered"
+  const selector = {
+    profileKey: input.profileKey,
+    ingestionUnitKey: input.ingestionUnitKey,
+  };
+  const matchingVersions = versions.filter(
+    (version) =>
+      version.providerKey.trim().toLowerCase() === providerKey &&
+      (!selector.profileKey || version.profileKey.trim().toLowerCase() === selector.profileKey.trim().toLowerCase()) &&
+      (!selector.ingestionUnitKey ||
+        catalogProviderProfileVersionIngestionUnitKey(version).trim().toLowerCase() ===
+          selector.ingestionUnitKey.trim().toLowerCase()) &&
+      version.profile.optionQueries.some(
+        (query) => query.queryKind === queryKind || (query.queryKeySynonyms ?? []).includes(queryKind),
+      ),
+  );
+  if (matchingVersions.length === 0) {
+    return null;
+  }
+  if (matchingVersions.length === 1) {
+    return matchingVersions[0] ?? null;
+  }
+
+  throw new Error(
+    `Catalog provider '${providerKey}' has multiple active profile units for option query '${queryKind}'. Select a profileKey or ingestionUnitKey.`,
   );
 }
 
@@ -4305,11 +4410,12 @@ function normalizeIntegrationKey(value: string): string {
 async function requireCatalogImportProfileVersion(
   profileVersions: CatalogProviderIntegrationProfileVersionReader,
   providerKey: string | null | undefined,
+  selector?: CatalogProviderProfileVersionSelector | null,
 ): Promise<CatalogProviderIntegrationProfileVersionRecord> {
   const normalizedProvider = normalizeIntegrationKey(
     providerKey || (await defaultSourceObservationImportProviderKey(profileVersions)),
   );
-  const version = await profileVersions.getActiveProfileVersion(normalizedProvider);
+  const version = await profileVersions.getActiveProfileVersion(normalizedProvider, selector);
   if (!version || !isActiveSourceObservationImportProfileVersion(version)) {
     throw new Error(`Provider '${normalizedProvider}' does not support background import.`);
   }
@@ -4331,7 +4437,9 @@ async function requireCatalogImportProfileVersionForJob(
     (candidate) =>
       candidate.providerKey === snapshot.providerKey &&
       candidate.profileKey === snapshot.profileKey &&
-      candidate.profileVersion === snapshot.profileVersion,
+      candidate.profileVersion === snapshot.profileVersion &&
+      (!snapshot.ingestionUnitKey ||
+        catalogProviderProfileVersionIngestionUnitKey(candidate) === snapshot.ingestionUnitKey),
   );
   if (!version) {
     throw new Error(
@@ -4348,11 +4456,12 @@ async function requireCatalogImportProfileVersionForJob(
 async function requireCatalogReapplyActiveProfileVersion(
   profileVersions: CatalogProviderIntegrationProfileVersionReader,
   providerKey: string | null | undefined,
+  selector?: CatalogProviderProfileVersionSelector | null,
 ): Promise<CatalogProviderIntegrationProfileVersionRecord> {
   const normalizedProvider = normalizeIntegrationKey(
     providerKey || (await defaultSourceObservationImportProviderKey(profileVersions)),
   );
-  const providerProfile = await profileVersions.getActiveProfileVersion(normalizedProvider);
+  const providerProfile = await profileVersions.getActiveProfileVersion(normalizedProvider, selector);
   if (providerProfile && isActivePromotionProfileVersion(providerProfile)) {
     return providerProfile;
   }
@@ -4432,7 +4541,9 @@ async function findCatalogProfileVersionFromSnapshot(
       (candidate) =>
         candidate.providerKey === snapshot.providerKey &&
         candidate.profileKey === snapshot.profileKey &&
-        candidate.profileVersion === snapshot.profileVersion,
+        candidate.profileVersion === snapshot.profileVersion &&
+        (!snapshot.ingestionUnitKey ||
+          catalogProviderProfileVersionIngestionUnitKey(candidate) === snapshot.ingestionUnitKey),
     ) ?? null
   );
 }
@@ -4458,6 +4569,7 @@ function snapshotCatalogProfileVersion(
     providerKey: version.providerKey,
     profileKey: version.profileKey,
     profileVersion: version.profileVersion,
+    ingestionUnitKey: catalogProviderProfileVersionIngestionUnitKey(version),
     lifecycle: version.lifecycle,
     connectorKind: version.profile.connector.kind,
     connectorSourceVersion: profileConnectorSourceVersion(version.profile.connector),
@@ -4478,7 +4590,7 @@ function integrationProfileSnapshotKey(
   if (!snapshot) {
     throw new Error(`Source Observation integration job ${owner} is missing profile snapshot.`);
   }
-  return `${snapshot.providerKey}:${snapshot.profileKey}:${snapshot.profileVersion}`;
+  return `${snapshot.providerKey}:${snapshot.profileKey}:${snapshot.profileVersion}:${snapshot.ingestionUnitKey ?? "legacy-unit"}`;
 }
 
 function commonProfileSnapshot(
@@ -4497,7 +4609,8 @@ function commonProfileSnapshot(
     if (
       snapshot.providerKey !== common.providerKey ||
       snapshot.profileKey !== common.profileKey ||
-      snapshot.profileVersion !== common.profileVersion
+      snapshot.profileVersion !== common.profileVersion ||
+      (snapshot.ingestionUnitKey ?? null) !== (common.ingestionUnitKey ?? null)
     ) {
       return null;
     }
@@ -5262,8 +5375,14 @@ async function requireCatalogPromotionProfileVersion(
   profileVersions: CatalogProviderIntegrationProfileVersionReader,
   providerKey: string,
   normalized: SourceObservationNormalized,
+  selector?: CatalogProviderProfileVersionSelector | null,
 ): Promise<CatalogProviderIntegrationProfileVersionRecord> {
-  const profile = await profileVersions.getActiveProfileVersion(providerKey);
+  const profile = selector
+    ? await profileVersions.getActiveProfileVersion(providerKey, selector)
+    : selectPromotionProfileVersionForNormalizedKind(await profileVersions.listProfileVersions(providerKey), {
+        providerKey,
+        normalizedKind: normalized.kind,
+      });
   if (
     profile &&
     isActivePromotionProfileVersion(profile) &&
@@ -5279,6 +5398,28 @@ async function requireCatalogPromotionProfileVersion(
   }
 
   throw new Error(`Provider '${providerKey}' does not support Catalog Item promotion.`);
+}
+
+function selectPromotionProfileVersionForNormalizedKind(
+  versions: readonly CatalogProviderIntegrationProfileVersionRecord[],
+  input: Readonly<{ providerKey: string; normalizedKind: SourceObservationNormalized["kind"] }>,
+): CatalogProviderIntegrationProfileVersionRecord | null {
+  const matching = versions.filter(
+    (version) =>
+      version.providerKey.trim().toLowerCase() === input.providerKey.trim().toLowerCase() &&
+      isActivePromotionProfileVersion(version) &&
+      version.profile.normalizedObservationMapping.kind === input.normalizedKind,
+  );
+  if (matching.length === 0) {
+    return null;
+  }
+  if (matching.length === 1) {
+    return matching[0] ?? null;
+  }
+
+  throw new Error(
+    `Catalog provider '${input.providerKey}' has multiple active promotion profile units for '${input.normalizedKind}' observations. Select a profileKey or ingestionUnitKey.`,
+  );
 }
 
 function requireOriginalSourceProfileMarker(
@@ -5633,6 +5774,8 @@ function normalizeIntegrationJobScope(
 ): SourceObservationIntegrationJobScope {
   return {
     provider: scope.provider?.trim() || undefined,
+    profileKey: scope.profileKey?.trim() || undefined,
+    ingestionUnitKey: scope.ingestionUnitKey?.trim() || undefined,
     language: scope.language?.trim() || undefined,
     seriesId: scope.seriesId?.trim() || undefined,
     setId: scope.setId?.trim() || undefined,
@@ -5640,6 +5783,19 @@ function normalizeIntegrationJobScope(
     setName: scope.setName?.trim() || undefined,
     productId: scope.productId?.trim() || undefined,
   };
+}
+
+function profileSelectorFromScope(
+  scope: Readonly<{ profileKey?: string | null; ingestionUnitKey?: string | null }>,
+): CatalogProviderProfileVersionSelector | null {
+  const profileKey = scope.profileKey?.trim();
+  const ingestionUnitKey = scope.ingestionUnitKey?.trim();
+  return profileKey || ingestionUnitKey
+    ? {
+        ...(profileKey ? { profileKey } : {}),
+        ...(ingestionUnitKey ? { ingestionUnitKey } : {}),
+      }
+    : null;
 }
 
 function parsePositiveInteger(value: string | null | undefined): number | null {

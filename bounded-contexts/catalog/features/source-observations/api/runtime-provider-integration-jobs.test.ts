@@ -95,6 +95,7 @@ describe("source observation runtime: provider integration jobs", () => {
       providerKey: "tcgdex",
       profileKey: "pokemon-tcg",
       profileVersion: "2026.06.03",
+      ingestionUnitKey: "tcgdex:pokemon:single-card:source-observation-import",
       lifecycle: "active",
       connectorKind: "tcgdex-json",
       connectorSourceVersion: null,
@@ -153,6 +154,7 @@ describe("source observation runtime: provider integration jobs", () => {
       profileSnapshot: {
         providerKey: "tcgdex",
         profileVersion: "2026.06.03",
+        ingestionUnitKey: "tcgdex:pokemon:single-card:source-observation-import",
         connectorKind: "tcgdex-json",
         connectorSourceVersion: null,
       },
@@ -175,6 +177,7 @@ describe("source observation runtime: provider integration jobs", () => {
         profileSnapshot: expect.objectContaining({
           providerKey: "tcgdex",
           profileVersion: "2026.06.03",
+          ingestionUnitKey: "tcgdex:pokemon:single-card:source-observation-import",
         }),
       }),
       expect.objectContaining({
@@ -183,6 +186,7 @@ describe("source observation runtime: provider integration jobs", () => {
         profileSnapshot: expect.objectContaining({
           providerKey: "tcgdex",
           profileVersion: "2026.06.03",
+          ingestionUnitKey: "tcgdex:pokemon:single-card:source-observation-import",
         }),
       }),
     ]);

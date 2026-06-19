@@ -5,8 +5,9 @@ Catalog owns consistency for provider profile lifecycle work, integration jobs, 
 ## Submission And Lifecycle Rules
 
 - Duplicate import or reapply submissions reuse an active job only when action, normalized scope, actor/account context, and profile snapshot match.
-- Import jobs snapshot provider key, profile key, profile version, lifecycle, connector kind, connector source version, and Source Observation mapping fingerprint at enqueue time.
-- Reapply integration jobs snapshot `current-active-profile` mode plus the active profile version and enqueue one work unit per eligible promoted Source Observation.
+- Import jobs snapshot provider key, profile key, profile version, ingestion-unit key, lifecycle, connector kind, connector source version, and Source Observation mapping fingerprint at enqueue time.
+- Reapply integration jobs snapshot `current-active-profile` mode plus the selected active profile/unit version and enqueue one work unit per eligible promoted Source Observation.
+- Provider-only active profile lookup is compatibility sugar. When a provider has multiple active units, import, option-query, reapply, rollback, and Admin profile paths must select by profile key, ingestion-unit key, or an observation-compatible profile snapshot instead of silently choosing one active provider row.
 - Profile edits, activation, rollback, deprecation, and retirement are blocked while same-provider import, reapply, or promote work is queued or running. Provider-unknown promote/reapply jobs are treated as blocking until their scope is known.
 - Dry runs are request-time evaluations and do not enqueue durable jobs, write Source Observations, or change profile lifecycle state.
 

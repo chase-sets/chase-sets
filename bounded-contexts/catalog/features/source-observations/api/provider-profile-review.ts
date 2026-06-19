@@ -8,8 +8,13 @@ import type {
   CatalogProviderIntegrationProfileMigrationEvidence,
   CatalogProviderIntegrationProfileVersionDiagnostic,
   CatalogProviderIntegrationProfileVersionRecord,
+  CatalogProviderProfileVersionSelector,
 } from "./provider-integration-profiles";
-import { validateCatalogProviderIntegrationProfileVersion } from "./provider-integration-profiles";
+import {
+  catalogProviderProfileVersionIngestionUnitKey,
+  catalogProviderProfileVersionsCompete,
+  validateCatalogProviderIntegrationProfileVersion,
+} from "./provider-integration-profiles";
 import type { CatalogProviderIntegrationProfileVersionStore } from "./provider-integration-profile-store";
 import type {
   CatalogProviderExecutableMappingContract,
@@ -50,6 +55,11 @@ import { getCatalogIntegrationDiagnosticDefinition } from "./catalog-integration
 
 type SourceObservationProfileVersionRecord = CatalogProviderIntegrationProfileVersionRecord &
   Readonly<{ executableMappingContract: CatalogProviderSourceObservationMappingContract }>;
+
+type CatalogProviderProfileVersionSelectionInput = Readonly<{
+  profileKey?: string | null;
+  ingestionUnitKey?: string | null;
+}>;
 
 export type CatalogProviderProfileReviewDiagnostic = Readonly<{
   code: string;
@@ -365,18 +375,29 @@ export async function getCatalogProviderProfileAuthoringModel(input: {
   store: CatalogProviderIntegrationProfileVersionStore;
   providerKey: string;
   profileVersion: string;
+  profileKey?: string | null;
+  ingestionUnitKey?: string | null;
   repositoryRoot?: string;
   observedAt?: string;
   fixtureCases?: readonly CatalogProviderProfileFixtureCase[];
   selectedOptionSchema?: CatalogProviderSelectedOptionAuthoringSchema | null;
   promotionTargetSchema?: CatalogProviderPromotionTargetAuthoringSchema | null;
 }): Promise<CatalogProviderProfileAuthoringModel> {
-  const version = await requireProfileVersion(input.store, input.providerKey, input.profileVersion);
+  const selector = profileVersionSelectorFromInput(input);
+  const version = await requireProfileVersion(input.store, input.providerKey, input.profileVersion, selector);
   const referenceCount = await input.store.countProfileVersionReferences(version.providerKey, version.profileVersion);
   const versions = await input.store.listProfileVersions(version.providerKey);
   const activeVersion =
-    versions.find((candidate) => candidate.active && candidate.lifecycle === "active") ??
-    (await input.store.getActiveProfileVersion(version.providerKey));
+    versions.find(
+      (candidate) =>
+        candidate.active &&
+        candidate.lifecycle === "active" &&
+        catalogProviderProfileVersionsCompete(candidate, version),
+    ) ??
+    (await input.store.getActiveProfileVersion(version.providerKey, {
+      profileKey: version.profileKey,
+      ingestionUnitKey: catalogProviderProfileVersionIngestionUnitKey(version),
+    }));
   const fixtureCases = authoringFixtureCasesForVersion(
     version,
     input.fixtureCases ?? catalogProviderProfileFixtureCases(),
@@ -419,11 +440,17 @@ export async function dryRunCatalogProviderProfileVersion(input: {
   store: CatalogProviderIntegrationProfileVersionStore;
   providerKey: string;
   profileVersion: string;
+  profileKey?: string | null;
+  ingestionUnitKey?: string | null;
   payload: JsonValue;
   observedAt?: string;
   fixtureFlow?: CatalogProviderProfileFixtureCase["flow"] | null;
 }): Promise<CatalogProviderProfileDryRunResult> {
-  const version = await input.store.getProfileVersion(input.providerKey, input.profileVersion);
+  const version = await input.store.getProfileVersion(
+    input.providerKey,
+    input.profileVersion,
+    profileVersionSelectorFromInput(input),
+  );
   if (!version) {
     throw new Error(`Catalog provider profile version ${input.providerKey}@${input.profileVersion} was not found.`);
   }
@@ -523,6 +550,8 @@ export async function activateCatalogProviderProfileVersionForReview(input: {
   store: CatalogProviderIntegrationProfileVersionStore;
   providerKey: string;
   profileVersion: string;
+  profileKey?: string | null;
+  ingestionUnitKey?: string | null;
   activeJobs?: readonly CatalogProviderProfileLifecycleBlockingJob[];
   fixtureCases?: readonly CatalogProviderProfileFixtureCase[];
   repositoryRoot?: string;
@@ -532,7 +561,11 @@ export async function activateCatalogProviderProfileVersionForReview(input: {
   await assertImportEligibilityForActivation(input);
   await assertFixtureHarnessForActivation(input);
   await assertMigrationEvidenceForActivation(input);
-  const activated = await input.store.activateProfileVersion(input.providerKey, input.profileVersion);
+  const activated = await input.store.activateProfileVersion(
+    input.providerKey,
+    input.profileVersion,
+    profileVersionSelectorFromInput(input),
+  );
   return toProfileVersionReview(activated);
 }
 
@@ -540,10 +573,16 @@ export async function deprecateCatalogProviderProfileVersionForReview(input: {
   store: CatalogProviderIntegrationProfileVersionStore;
   providerKey: string;
   profileVersion: string;
+  profileKey?: string | null;
+  ingestionUnitKey?: string | null;
   activeJobs?: readonly CatalogProviderProfileLifecycleBlockingJob[];
 }): Promise<CatalogProviderProfileVersionReview> {
   assertNoActiveProfileLifecycleBlockingJobs(input);
-  const deprecated = await input.store.deprecateProfileVersion(input.providerKey, input.profileVersion);
+  const deprecated = await input.store.deprecateProfileVersion(
+    input.providerKey,
+    input.profileVersion,
+    profileVersionSelectorFromInput(input),
+  );
   return toProfileVersionReview(deprecated);
 }
 
@@ -565,11 +604,18 @@ export async function cloneCatalogProviderProfileVersionForReview(input: {
   store: CatalogProviderIntegrationProfileVersionStore;
   providerKey: string;
   profileVersion: string;
+  profileKey?: string | null;
+  ingestionUnitKey?: string | null;
   targetProfileVersion: string;
   lifecycle?: "draft" | "test";
   audit?: CatalogProviderIntegrationProfileAuthoringAudit | null;
 }): Promise<CatalogProviderProfileVersionReview> {
-  const source = await requireProfileVersion(input.store, input.providerKey, input.profileVersion);
+  const source = await requireProfileVersion(
+    input.store,
+    input.providerKey,
+    input.profileVersion,
+    profileVersionSelectorFromInput(input),
+  );
   const cloned = assertProfileVersionIdentity({
     ...source,
     profileVersion: input.targetProfileVersion,
@@ -594,12 +640,19 @@ export async function updateCatalogProviderProfileVersionForReview(input: {
   store: CatalogProviderIntegrationProfileVersionStore;
   providerKey: string;
   profileVersion: string;
+  profileKey?: string | null;
+  ingestionUnitKey?: string | null;
   patch: CatalogProviderProfileVersionUpdatePatch;
   audit?: CatalogProviderIntegrationProfileAuthoringAudit | null;
   activeJobs?: readonly CatalogProviderProfileLifecycleBlockingJob[];
 }): Promise<CatalogProviderProfileVersionReview> {
   assertNoActiveProfileLifecycleBlockingJobs(input);
-  const existing = await requireProfileVersion(input.store, input.providerKey, input.profileVersion);
+  const existing = await requireProfileVersion(
+    input.store,
+    input.providerKey,
+    input.profileVersion,
+    profileVersionSelectorFromInput(input),
+  );
   assertMutableLifecycle(existing.lifecycle);
   const nextLifecycle = input.patch.lifecycle ?? existing.lifecycle;
   assertMutableLifecycle(nextLifecycle);
@@ -634,16 +687,25 @@ export async function updateCatalogProviderProfileSectionForReview(input: {
   store: CatalogProviderIntegrationProfileVersionStore;
   providerKey: string;
   profileVersion: string;
+  profileKey?: string | null;
+  ingestionUnitKey?: string | null;
   command: CatalogProviderProfileSectionUpdateCommand;
   audit?: CatalogProviderIntegrationProfileAuthoringAudit | null;
   activeJobs?: readonly CatalogProviderProfileLifecycleBlockingJob[];
 }): Promise<CatalogProviderProfileVersionReview> {
-  const existing = await requireProfileVersion(input.store, input.providerKey, input.profileVersion);
+  const existing = await requireProfileVersion(
+    input.store,
+    input.providerKey,
+    input.profileVersion,
+    profileVersionSelectorFromInput(input),
+  );
   const patch = toCatalogProviderProfileSectionPatch(existing, input.command);
   return updateCatalogProviderProfileVersionForReview({
     store: input.store,
     providerKey: input.providerKey,
     profileVersion: input.profileVersion,
+    profileKey: input.profileKey,
+    ingestionUnitKey: input.ingestionUnitKey,
     patch,
     audit: input.audit,
     activeJobs: input.activeJobs,
@@ -654,10 +716,16 @@ export async function rollbackCatalogProviderProfileVersionForReview(input: {
   store: CatalogProviderIntegrationProfileVersionStore;
   providerKey: string;
   profileVersion: string;
+  profileKey?: string | null;
+  ingestionUnitKey?: string | null;
   activeJobs?: readonly CatalogProviderProfileLifecycleBlockingJob[];
 }): Promise<CatalogProviderProfileVersionReview> {
   assertNoActiveProfileLifecycleBlockingJobs(input);
-  const rolledBack = await input.store.rollbackProfileVersion(input.providerKey, input.profileVersion);
+  const rolledBack = await input.store.rollbackProfileVersion(
+    input.providerKey,
+    input.profileVersion,
+    profileVersionSelectorFromInput(input),
+  );
   return toProfileVersionReview(rolledBack);
 }
 
@@ -665,11 +733,18 @@ export async function retireCatalogProviderProfileVersionForReview(input: {
   store: CatalogProviderIntegrationProfileVersionStore;
   providerKey: string;
   profileVersion: string;
+  profileKey?: string | null;
+  ingestionUnitKey?: string | null;
   audit?: CatalogProviderIntegrationProfileAuthoringAudit | null;
   activeJobs?: readonly CatalogProviderProfileLifecycleBlockingJob[];
 }): Promise<CatalogProviderProfileVersionReview> {
   assertNoActiveProfileLifecycleBlockingJobs(input);
-  const existing = await requireProfileVersion(input.store, input.providerKey, input.profileVersion);
+  const existing = await requireProfileVersion(
+    input.store,
+    input.providerKey,
+    input.profileVersion,
+    profileVersionSelectorFromInput(input),
+  );
   if (existing.active) {
     throw new Error(
       `Catalog provider profile version ${input.providerKey}@${input.profileVersion} must be deactivated before retirement.`,
@@ -1492,13 +1567,27 @@ async function requireProfileVersion(
   store: CatalogProviderIntegrationProfileVersionStore,
   providerKey: string,
   profileVersion: string,
+  selector?: CatalogProviderProfileVersionSelector | null,
 ): Promise<CatalogProviderIntegrationProfileVersionRecord> {
-  const version = await store.getProfileVersion(providerKey, profileVersion);
+  const version = await store.getProfileVersion(providerKey, profileVersion, selector);
   if (!version) {
     throw new CatalogProviderProfileVersionNotFoundError(providerKey, profileVersion);
   }
 
   return version;
+}
+
+function profileVersionSelectorFromInput(
+  input: CatalogProviderProfileVersionSelectionInput,
+): CatalogProviderProfileVersionSelector | null {
+  const profileKey = input.profileKey?.trim();
+  const ingestionUnitKey = input.ingestionUnitKey?.trim();
+  return profileKey || ingestionUnitKey
+    ? {
+        ...(profileKey ? { profileKey } : {}),
+        ...(ingestionUnitKey ? { ingestionUnitKey } : {}),
+      }
+    : null;
 }
 
 function assertMutableLifecycle(lifecycle: CatalogProviderIntegrationProfileVersionRecord["lifecycle"]): void {
@@ -1675,16 +1764,30 @@ async function assertMigrationEvidenceForActivation(input: {
   store: CatalogProviderIntegrationProfileVersionStore;
   providerKey: string;
   profileVersion: string;
+  profileKey?: string | null;
+  ingestionUnitKey?: string | null;
 }) {
   const versions = await input.store.listProfileVersions();
-  const target = versions
-    .filter(isSourceObservationProfileVersion)
-    .find((version) => version.providerKey === input.providerKey && version.profileVersion === input.profileVersion);
+  const target = await requireProfileVersion(
+    input.store,
+    input.providerKey,
+    input.profileVersion,
+    profileVersionSelectorFromInput(input),
+  );
+  if (!isSourceObservationProfileVersion(target)) {
+    return;
+  }
   const active = versions
     .filter(isSourceObservationProfileVersion)
-    .find((version) => version.providerKey === input.providerKey && version.active && version.lifecycle === "active");
+    .find(
+      (version) =>
+        version.providerKey === input.providerKey &&
+        version.active &&
+        version.lifecycle === "active" &&
+        catalogProviderProfileVersionsCompete(version, target),
+    );
 
-  if (!target || !active || target.profileVersion === active.profileVersion) {
+  if (!active || (target.profileKey === active.profileKey && target.profileVersion === active.profileVersion)) {
     return;
   }
 
@@ -1712,8 +1815,15 @@ async function assertImportEligibilityForActivation(input: {
   store: CatalogProviderIntegrationProfileVersionStore;
   providerKey: string;
   profileVersion: string;
+  profileKey?: string | null;
+  ingestionUnitKey?: string | null;
 }) {
-  const target = await requireProfileVersion(input.store, input.providerKey, input.profileVersion);
+  const target = await requireProfileVersion(
+    input.store,
+    input.providerKey,
+    input.profileVersion,
+    profileVersionSelectorFromInput(input),
+  );
   if (target.profile.capabilities.includes("source-observation-import")) {
     return;
   }
@@ -1736,11 +1846,18 @@ async function assertFixtureHarnessForActivation(input: {
   store: CatalogProviderIntegrationProfileVersionStore;
   providerKey: string;
   profileVersion: string;
+  profileKey?: string | null;
+  ingestionUnitKey?: string | null;
   fixtureCases?: readonly CatalogProviderProfileFixtureCase[];
   repositoryRoot?: string;
   observedAt?: string;
 }) {
-  const target = await requireProfileVersion(input.store, input.providerKey, input.profileVersion);
+  const target = await requireProfileVersion(
+    input.store,
+    input.providerKey,
+    input.profileVersion,
+    profileVersionSelectorFromInput(input),
+  );
   if (!target.executableMappingContract) {
     throw new Error(
       `Activating ${target.providerKey}@${target.profileVersion} requires an executable Source Observation mapping contract.`,

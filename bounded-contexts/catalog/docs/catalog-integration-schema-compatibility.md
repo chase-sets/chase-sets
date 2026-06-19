@@ -46,7 +46,7 @@ Compatibility is required for:
 | --- | --- | --- | --- | --- |
 | ProviderAdapter contract and capabilities | `catalog-provider-adapter-v1` | adapter key, capabilities, supported scopes | launched contract | request-time current code |
 | Provider payload/provenance envelope | `catalog-provider-payload-provenance-v1` | provider key, connector kind, connector source version, source URL | resettable pre-launch | request-time current code |
-| Provider Integration Profile version | `catalog-provider-profile-version-v1` | provider key, profile key, profile version, compatibility mode | retain when referenced | read old, write current |
+| Provider Integration Profile version | `catalog-provider-profile-version-v1` | provider key, profile key, profile version, ingestion-unit key | retain when referenced | read old, write current |
 | Profile section command/projection | `catalog-profile-section-command-v1` | section key, section fingerprint, profile version | resettable pre-launch | read old, write current |
 | Executable mapping contract | `catalog-executable-mapping-contract-v1` | provider key, profile key, profile version, source mapping fingerprint | retain when referenced | read old, write current |
 | Catalog Integration Engine I/O | `catalog-integration-engine-io-v1` | unit key, provider key, profile version, source mapping fingerprint | resettable pre-launch | request-time current code |
@@ -54,8 +54,8 @@ Compatibility is required for:
 | Fixture contract | `catalog-fixture-contract-v1` | fixture set version, required flows, profile version | resettable pre-launch | read old, write current |
 | Admin Control Plane read model | `catalog-admin-control-plane-read-model-v1` | query key, unit key, generated timestamp | launched contract | projection can lag |
 | Source Observation record | `catalog-source-observation-record-v1` | provider key, source profile version, source mapping fingerprint, promotion profile version | reset/drop when markers are missing or `legacy` | require explicit profile metadata |
-| Integration durable job | `catalog-integration-durable-job-v1` | job kind, action, profile snapshot, reapply profile mode | reset/drop when reapply profile mode or snapshot metadata is missing | snapshot at enqueue |
-| Integration work unit | `catalog-integration-work-unit-v1` | job ID, unit ID, profile snapshot, reapply profile mode | reset/drop when reapply profile mode or snapshot metadata is missing | snapshot at enqueue |
+| Integration durable job | `catalog-integration-durable-job-v1` | job kind, action, profile snapshot including ingestion-unit key, reapply profile mode | reset/drop when reapply profile mode or snapshot metadata is missing | snapshot at enqueue |
+| Integration work unit | `catalog-integration-work-unit-v1` | job ID, unit ID, profile snapshot including ingestion-unit key, reapply profile mode | reset/drop when reapply profile mode or snapshot metadata is missing | snapshot at enqueue |
 | Audit/evidence record | `catalog-audit-evidence-record-v1` | event name, provider key, profile version, related job, related observation | launched contract | projection can lag |
 
 ## Rules By Surface
@@ -66,9 +66,13 @@ Provider payload bodies, sampled payloads, and fixture payloads are not Catalog 
 
 Provider Integration Profile versions remain readable while referenced by Source Observations, jobs, rollback/deprecation history, or audit evidence. Bootstrap may preserve admin-authored profile rows only when retained-data evidence proves a clean launch capability or launch blocker; unreferenced pre-launch rows can be reset by the prelaunch reset/drop plan.
 
+Profile version rows carry `ingestion_unit_key` as typed read-model identity. The active uniqueness rule is `(provider_key, ingestion_unit_key)` for rows where `active = true` and `lifecycle = 'active'`, so unrelated active units for the same provider can coexist. Runtime activation still compares preserved rows through the typed profile/unit helper so older retained rows without the column populated are not silently skipped.
+
 Executable mapping contract changes are semantic compatibility changes when they alter Source Observation external keys, source hash material, selected Options, external references, Reference Record targets, duplicate-prevention order, or promotion command plans. Activation requires migration evidence when the mapping fingerprint changes in a breaking way.
 
 Durable integration jobs and work units snapshot profile identity at enqueue time. Worker/API deploy skew must not switch a queued job to a newer active profile. Reapply jobs without `reapplyProfileMode` or profile snapshot metadata are pre-launch cleanup data and must be reset/dropped instead of defaulting to `original-source-profile`.
+
+Provider option-query cache identity includes provider key, profile key, profile version, ingestion-unit key, query kind, language code, and parent value. Same-provider option queries for different active units must not share cache entries even when the provider and profile version string are the same.
 
 Admin read models evolve additively. They must expose stale, degraded, empty, or blocked states instead of forcing UI modules to parse profile JSON, job payload JSON, or provider-specific snapshots.
 

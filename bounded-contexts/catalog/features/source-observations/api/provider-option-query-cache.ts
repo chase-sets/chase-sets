@@ -13,7 +13,9 @@ export type CatalogProviderOptionQueryDiagnostic = Readonly<{
 
 export type CatalogProviderOptionQueryRequest = Readonly<{
   providerKey: string;
+  profileKey?: string | null;
   profileVersion: string;
+  ingestionUnitKey?: string | null;
   queryKind: string;
   languageCode?: string | null;
   parentValue?: string | null;
@@ -52,7 +54,9 @@ export type CatalogProviderOptionQueryPage = Readonly<{
 export type CatalogProviderOptionQueryCacheRecord = Readonly<{
   cacheKey: string;
   providerKey: string;
+  profileKey: string;
   profileVersion: string;
+  ingestionUnitKey: string;
   queryKind: string;
   languageCode: string;
   parentValue: string;
@@ -96,7 +100,9 @@ export function createPgCatalogProviderOptionQueryCacheStore(
       const result = await db.query<{
         cache_key: string;
         provider_key: string;
+        profile_key: string;
         profile_version: string;
+        ingestion_unit_key: string;
         query_kind: string;
         language_code: string;
         parent_value: string;
@@ -110,7 +116,9 @@ export function createPgCatalogProviderOptionQueryCacheStore(
         `SELECT
            cache_key,
            provider_key,
+           profile_key,
            profile_version,
+           ingestion_unit_key,
            query_kind,
            language_code,
            parent_value,
@@ -132,7 +140,9 @@ export function createPgCatalogProviderOptionQueryCacheStore(
       return {
         cacheKey: row.cache_key,
         providerKey: row.provider_key,
+        profileKey: row.profile_key,
         profileVersion: row.profile_version,
+        ingestionUnitKey: row.ingestion_unit_key,
         queryKind: row.query_kind,
         languageCode: row.language_code,
         parentValue: row.parent_value,
@@ -147,10 +157,12 @@ export function createPgCatalogProviderOptionQueryCacheStore(
     async write(record) {
       await db.query(
         `INSERT INTO catalog_provider_option_query_cache (
-           cache_key,
-           provider_key,
-           profile_version,
-           query_kind,
+         cache_key,
+         provider_key,
+         profile_key,
+         profile_version,
+         ingestion_unit_key,
+         query_kind,
            language_code,
            parent_value,
            items_json,
@@ -162,7 +174,7 @@ export function createPgCatalogProviderOptionQueryCacheStore(
            diagnostic_text,
            updated_at
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9::timestamptz, $10::timestamptz, $11::timestamptz, $12, $13, now())
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11::timestamptz, $12::timestamptz, $13::timestamptz, $14, $15, now())
          ON CONFLICT (cache_key) DO UPDATE SET
            items_json = EXCLUDED.items_json,
            item_count = EXCLUDED.item_count,
@@ -175,7 +187,9 @@ export function createPgCatalogProviderOptionQueryCacheStore(
         [
           record.cacheKey,
           record.providerKey,
+          record.profileKey,
           record.profileVersion,
+          record.ingestionUnitKey,
           record.queryKind,
           record.languageCode,
           record.parentValue,
@@ -237,7 +251,9 @@ export async function queryCatalogProviderIntegrationOptionsWithCache(input: {
     await input.cacheStore?.write({
       cacheKey,
       providerKey: request.providerKey,
+      profileKey: request.profileKey ?? "",
       profileVersion: request.profileVersion,
+      ingestionUnitKey: request.ingestionUnitKey ?? "",
       queryKind: request.queryKind,
       languageCode: normalizedLanguageCode(request.languageCode),
       parentValue: normalizedParentValue(request.parentValue),
@@ -272,7 +288,9 @@ export async function queryCatalogProviderIntegrationOptionsWithCache(input: {
 export function cacheKeyForProviderOptionQuery(request: CatalogProviderOptionQueryRequest): string {
   const normalized = {
     providerKey: normalizeKey(request.providerKey),
+    profileKey: normalizeKey(request.profileKey ?? ""),
     profileVersion: request.profileVersion.trim(),
+    ingestionUnitKey: normalizeKey(request.ingestionUnitKey ?? ""),
     queryKind: normalizeKey(request.queryKind),
     languageCode: normalizedLanguageCode(request.languageCode),
     parentValue: normalizedParentValue(request.parentValue),
@@ -284,8 +302,10 @@ function normalizeRequest(request: CatalogProviderOptionQueryRequest): CatalogPr
   return {
     ...request,
     providerKey: normalizeKey(request.providerKey),
+    profileKey: normalizeKey(request.profileKey ?? ""),
     queryKind: normalizeKey(request.queryKind),
     profileVersion: request.profileVersion.trim(),
+    ingestionUnitKey: normalizeKey(request.ingestionUnitKey ?? ""),
     languageCode: normalizedLanguageCode(request.languageCode),
     parentValue: normalizedParentValue(request.parentValue),
     cursor: normalizeCursor(request.cursor),
