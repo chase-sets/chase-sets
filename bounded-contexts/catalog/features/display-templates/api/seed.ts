@@ -39,6 +39,26 @@ export async function seedDisplayTemplates(services: CatalogServices): Promise<v
       subtitleTemplate: "{reference.expansion.name} sealed product",
       requiredFieldKeys: [],
     },
+    {
+      displayTemplateId: catalogSeedIds.displayTemplates.magicCardPrintDefault,
+      key: "magic-card-print-default",
+      name: "Magic card print",
+      target: { kind: "blueprint" as const, id: catalogSeedIds.blueprints.magicCardPrint },
+      priority: 10,
+      titleTemplate: "{field.card-name} {field.card-number}",
+      subtitleTemplate: "{reference.set.name} [{field.card-variant} ]{field.rarity}",
+      requiredFieldKeys: ["card-name", "card-number", "set"],
+    },
+    {
+      displayTemplateId: catalogSeedIds.displayTemplates.magicSealedProduct,
+      key: "magic-sealed-product",
+      name: "Magic sealed product",
+      target: { kind: "blueprint" as const, id: catalogSeedIds.blueprints.magicSealedProduct },
+      priority: 10,
+      titleTemplate: "{item.title}",
+      subtitleTemplate: "{reference.set.name} sealed product",
+      requiredFieldKeys: [],
+    },
   ];
 
   const existing = await loadExistingSeedDisplayTemplates(

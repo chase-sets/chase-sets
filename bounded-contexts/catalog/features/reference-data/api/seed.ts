@@ -28,6 +28,15 @@ export type PokemonReferenceIds = Readonly<{
   expansions: Readonly<Record<string, ReferenceRecordId>>;
 }>;
 
+export type MagicReferenceIds = Readonly<{
+  sets: Readonly<Record<string, ReferenceRecordId>>;
+}>;
+
+export type CatalogReferenceIds = PokemonReferenceIds &
+  Readonly<{
+    magic: MagicReferenceIds;
+  }>;
+
 const referenceTypes: readonly ReferenceTypeDef[] = [
   {
     referenceTypeId: catalogSeedIds.referenceTypes.manufacturer,
@@ -64,12 +73,29 @@ const referenceTypes: readonly ReferenceTypeDef[] = [
       "tcgdex-set-id",
     ],
   },
+  {
+    referenceTypeId: catalogSeedIds.referenceTypes.set,
+    key: "set",
+    name: "Set",
+    description: "An official Magic: The Gathering card set.",
+    attributeKeys: [
+      "set-code",
+      "printed-card-count",
+      "release-date",
+      "mtgjson-set-code",
+      "scryfall-set-code",
+      "tcgplayer-set-name",
+    ],
+  },
 ];
 
 const manufacturerId = catalogSeedIds.referenceRecords.manufacturers.thePokemonCompanyInternational;
+const magicManufacturerId = catalogSeedIds.referenceRecords.manufacturers.wizardsOfTheCoast;
 const productLineId = catalogSeedIds.referenceRecords.productLines.pokemonTradingCardGame;
+const magicProductLineId = catalogSeedIds.referenceRecords.productLines.magicTheGathering;
 const seriesIds = catalogSeedIds.referenceRecords.series;
 const expansionIds = catalogSeedIds.referenceRecords.expansions;
+const setIds = catalogSeedIds.referenceRecords.sets;
 
 const referenceRecords: readonly ReferenceRecordDef[] = [
   {
@@ -93,6 +119,28 @@ const referenceRecords: readonly ReferenceRecordDef[] = [
       "short-name": "Pokemon TCG",
     },
     relationships: [{ relationshipType: "published-by", referenceId: manufacturerId }],
+  },
+  {
+    referenceRecordId: magicManufacturerId,
+    typeKey: "manufacturer",
+    key: "wizards-of-the-coast",
+    name: "Wizards of the Coast",
+    description: "Publisher of Magic: The Gathering.",
+    attributes: {
+      "homepage-url": "https://magic.wizards.com",
+    },
+  },
+  {
+    referenceRecordId: magicProductLineId,
+    typeKey: "product-line",
+    key: "magic-the-gathering",
+    name: "Magic: The Gathering",
+    description: "The Magic: The Gathering trading card game product line.",
+    attributes: {
+      "official-name": "Magic: The Gathering",
+      "short-name": "MTG",
+    },
+    relationships: [{ relationshipType: "published-by", referenceId: magicManufacturerId }],
   },
   {
     referenceRecordId: seriesIds.base,
@@ -172,51 +220,96 @@ const referenceRecords: readonly ReferenceRecordDef[] = [
     "release-date": "2024-05-24",
     "tcgdex-set-id": "sv6",
   }),
+  magicSet("time-spiral", "Time Spiral", setIds.timeSpiral, {
+    "set-code": "TSP",
+    "printed-card-count": 301,
+    "release-date": "2006-10-06",
+    "mtgjson-set-code": "TSP",
+    "scryfall-set-code": "tsp",
+    "tcgplayer-set-name": "Time Spiral",
+  }),
 ];
 
-export async function seedReferenceData(services: CatalogServices): Promise<PokemonReferenceIds> {
+const magicReferenceTypeKeys = new Set(["manufacturer", "product-line", "set"]);
+const magicReferenceRecordIds = new Set<ReferenceRecordId>([
+  magicManufacturerId,
+  magicProductLineId,
+  setIds.timeSpiral,
+]);
+
+export async function seedReferenceData(services: CatalogServices): Promise<CatalogReferenceIds> {
   console.log("Seeding reference data...");
 
   for (const def of referenceTypes) {
-    const streamId = `catalog.reference-type-${def.referenceTypeId}`;
-
-    await sendSeedCommand(services.referenceData.referenceTypeCommandHandler, streamId, {
-      type: "CreateReferenceType",
-      referenceTypeId: def.referenceTypeId,
-      key: def.key,
-      name: localizedTextMapFromEnglish(def.name),
-      description: localizedTextMapFromEnglish(def.description),
-      attributeKeys: def.attributeKeys,
-    });
-
-    await sendSeedCommand(services.referenceData.referenceTypeCommandHandler, streamId, {
-      type: "PublishReferenceType",
-    });
-
-    console.log(`  Reference Type "${def.name}" created`);
+    await createReferenceType(services, def);
   }
 
   for (const def of referenceRecords) {
-    const streamId = `catalog.reference-record-${def.referenceRecordId}`;
-
-    await sendSeedCommand(services.referenceData.referenceRecordCommandHandler, streamId, {
-      type: "CreateReferenceRecord",
-      referenceRecordId: def.referenceRecordId,
-      typeKey: def.typeKey,
-      key: def.key,
-      name: localizedTextMapFromEnglish(def.name),
-      description: localizedTextMapFromEnglish(def.description),
-      attributes: def.attributes ?? {},
-      relationships: def.relationships ?? [],
-    });
-
-    await sendSeedCommand(services.referenceData.referenceRecordCommandHandler, streamId, {
-      type: "PublishReferenceRecord",
-    });
-
-    console.log(`  Reference Record "${def.name}" created`);
+    await createReferenceRecord(services, def);
   }
 
+  return staticReferenceIds();
+}
+
+export async function seedMagicReferenceData(services: CatalogServices): Promise<MagicReferenceIds> {
+  console.log("Reconciling Magic reference data...");
+
+  for (const def of referenceTypes.filter((candidate) => magicReferenceTypeKeys.has(candidate.key))) {
+    if (!(await referenceTypeExists(services, def))) {
+      await createReferenceType(services, def);
+    }
+  }
+
+  for (const def of referenceRecords.filter((candidate) => magicReferenceRecordIds.has(candidate.referenceRecordId))) {
+    if (!(await referenceRecordExists(services, def))) {
+      await createReferenceRecord(services, def);
+    }
+  }
+
+  return staticReferenceIds().magic;
+}
+
+async function createReferenceType(services: CatalogServices, def: ReferenceTypeDef): Promise<void> {
+  const streamId = `catalog.reference-type-${def.referenceTypeId}`;
+
+  await sendSeedCommand(services.referenceData.referenceTypeCommandHandler, streamId, {
+    type: "CreateReferenceType",
+    referenceTypeId: def.referenceTypeId,
+    key: def.key,
+    name: localizedTextMapFromEnglish(def.name),
+    description: localizedTextMapFromEnglish(def.description),
+    attributeKeys: def.attributeKeys,
+  });
+
+  await sendSeedCommand(services.referenceData.referenceTypeCommandHandler, streamId, {
+    type: "PublishReferenceType",
+  });
+
+  console.log(`  Reference Type "${def.name}" created`);
+}
+
+async function createReferenceRecord(services: CatalogServices, def: ReferenceRecordDef): Promise<void> {
+  const streamId = `catalog.reference-record-${def.referenceRecordId}`;
+
+  await sendSeedCommand(services.referenceData.referenceRecordCommandHandler, streamId, {
+    type: "CreateReferenceRecord",
+    referenceRecordId: def.referenceRecordId,
+    typeKey: def.typeKey,
+    key: def.key,
+    name: localizedTextMapFromEnglish(def.name),
+    description: localizedTextMapFromEnglish(def.description),
+    attributes: def.attributes ?? {},
+    relationships: def.relationships ?? [],
+  });
+
+  await sendSeedCommand(services.referenceData.referenceRecordCommandHandler, streamId, {
+    type: "PublishReferenceRecord",
+  });
+
+  console.log(`  Reference Record "${def.name}" created`);
+}
+
+function staticReferenceIds(): CatalogReferenceIds {
   return {
     expansions: {
       "base-set": expansionIds.baseSet,
@@ -227,7 +320,57 @@ export async function seedReferenceData(services: CatalogServices): Promise<Poke
       "surging-sparks": expansionIds.surgingSparks,
       "twilight-masquerade": expansionIds.twilightMasquerade,
     },
+    magic: {
+      sets: {
+        "time-spiral": setIds.timeSpiral,
+      },
+    },
   };
+}
+
+async function referenceTypeExists(services: CatalogServices, def: ReferenceTypeDef): Promise<boolean> {
+  const existing = await services.db.query<{ reference_type_id: string; key: string; status: string }>(
+    `SELECT reference_type_id, key, status
+     FROM catalog_reference_types
+     WHERE reference_type_id = $1 OR key = $2`,
+    [def.referenceTypeId, def.key],
+  );
+  const row = existing.rows.find((candidate) => candidate.reference_type_id === def.referenceTypeId);
+  if (existing.rows.length === 0) {
+    return false;
+  }
+  if (!row || row.key !== def.key || existing.rows.length > 1) {
+    throw new Error(`Catalog integration bootstrap reference type '${def.key}' conflicts with existing metadata.`);
+  }
+  if (row.status !== "active") {
+    throw new Error(`Catalog integration bootstrap requires active reference type '${def.key}'.`);
+  }
+  return true;
+}
+
+async function referenceRecordExists(services: CatalogServices, def: ReferenceRecordDef): Promise<boolean> {
+  const existing = await services.db.query<{
+    reference_record_id: string;
+    type_key: string;
+    key: string;
+    status: string;
+  }>(
+    `SELECT reference_record_id, type_key, key, status
+     FROM catalog_reference_records
+     WHERE reference_record_id = $1 OR (type_key = $2 AND key = $3)`,
+    [def.referenceRecordId, def.typeKey, def.key],
+  );
+  const row = existing.rows.find((candidate) => candidate.reference_record_id === def.referenceRecordId);
+  if (existing.rows.length === 0) {
+    return false;
+  }
+  if (!row || row.type_key !== def.typeKey || row.key !== def.key || existing.rows.length > 1) {
+    throw new Error(`Catalog integration bootstrap reference record '${def.key}' conflicts with existing metadata.`);
+  }
+  if (row.status !== "active") {
+    throw new Error(`Catalog integration bootstrap requires active reference record '${def.key}'.`);
+  }
+  return true;
 }
 
 function expansion(
@@ -245,5 +388,22 @@ function expansion(
     description: `${name} Pokemon TCG expansion.`,
     attributes,
     relationships: [{ relationshipType: "part-of", referenceId: seriesId }],
+  };
+}
+
+function magicSet(
+  key: string,
+  name: string,
+  referenceRecordId: ReferenceRecordId,
+  attributes: Readonly<Record<string, CatalogValue>>,
+): ReferenceRecordDef {
+  return {
+    referenceRecordId,
+    typeKey: "set",
+    key,
+    name,
+    description: `${name} Magic: The Gathering set.`,
+    attributes,
+    relationships: [{ relationshipType: "part-of", referenceId: magicProductLineId }],
   };
 }
