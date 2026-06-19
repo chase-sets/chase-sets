@@ -334,6 +334,7 @@ export interface CatalogProviderProfileVersionReview {
   providerKey: string;
   profileKey: string;
   profileVersion: string;
+  ingestionUnitKey: string;
   displayName: string;
   lifecycle: string;
   active: boolean;

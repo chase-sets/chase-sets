@@ -46,6 +46,7 @@ describe("Catalog provider profile review", () => {
     });
     expect(reviews.find((review) => review.profileKey === "mtg-card-reference-data")).toMatchObject({
       connectorKind: "mtgjson-json",
+      ingestionUnitKey: "mtgjson:mtg:single-card:reference-data",
       sourceContract: {
         fixtureSetVersion: "mtgjson-mtg-card-reference-production-v1",
       },
@@ -53,6 +54,9 @@ describe("Catalog provider profile review", () => {
         liveProviderCallsAllowed: false,
       },
       hasExecutableMappingContract: true,
+    });
+    expect(reviews.find((review) => review.profileKey === "mtg-sealed-product-sku")).toMatchObject({
+      ingestionUnitKey: "tcgplayer:mtg:sealed-product:source-observation-import",
     });
     expect(reviews.find((review) => review.providerKey === "tcgdex")?.sourceOptionKinds).toEqual([
       expect.objectContaining({

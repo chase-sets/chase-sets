@@ -43,10 +43,13 @@ export function sourceObservationScope(
 export function profileReview(
   overrides: Partial<CatalogProviderProfileVersionReview> = {},
 ): CatalogProviderProfileVersionReview {
+  const providerKey = overrides.providerKey ?? "tcgdex";
+
   return {
-    providerKey: "tcgdex",
+    providerKey,
     profileKey: "tcgdex-pokemon-card",
     profileVersion: "2026.06.04",
+    ingestionUnitKey: ingestionUnitKeyForProvider(providerKey),
     displayName: "TCGdex Pokemon cards",
     lifecycle: "test",
     active: false,
@@ -74,7 +77,7 @@ export function profileReview(
     capabilities: ["provider-option-query", "source-observation-import", "promotion-command-plan"],
     supportedScopes: ["pokemon/card"],
     languageOptions: ["en"],
-    sourceOptionKinds: sourceOptionKindsForProvider(overrides.providerKey ?? "tcgdex"),
+    sourceOptionKinds: sourceOptionKindsForProvider(providerKey),
     mappingOutputKind: "provider-product",
     hasExecutableMappingContract: true,
     migrationEvidence: null,
@@ -85,6 +88,17 @@ export function profileReview(
     },
     ...overrides,
   };
+}
+
+function ingestionUnitKeyForProvider(providerKey: string): string {
+  if (providerKey === "tcgplayer") {
+    return "tcgplayer:pokemon:single-card:source-observation-import";
+  }
+  if (providerKey === "scrydex") {
+    return "scrydex:product:card:import";
+  }
+
+  return "tcgdex:pokemon:card:import";
 }
 
 function sourceOptionKindsForProvider(providerKey: string): CatalogProviderSourceOptionKind[] {

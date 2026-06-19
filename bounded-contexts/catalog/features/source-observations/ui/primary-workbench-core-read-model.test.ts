@@ -104,4 +104,64 @@ describe("Catalog primary workbench read model - core composition", () => {
       copyKey: "catalog.primary.providerScope.required",
     });
   });
+
+  it("exposes each active Magic TCGplayer profile unit in the provider scope", () => {
+    const singleCardUnit = "tcgplayer:mtg:single-card:source-observation-import";
+    const sealedProductUnit = "tcgplayer:mtg:sealed-product:source-observation-import";
+    const singleCardProfile = profileReview({
+      providerKey: "tcgplayer",
+      profileKey: "mtg-single-card-product-sku",
+      profileVersion: "2026.06.19",
+      ingestionUnitKey: singleCardUnit,
+      displayName: "TCGplayer Magic single-card SKUs",
+      active: true,
+      lifecycle: "active",
+      supportedScopes: ["mtg/single-card"],
+    });
+    const sealedProductProfile = profileReview({
+      providerKey: "tcgplayer",
+      profileKey: "mtg-sealed-product-sku",
+      profileVersion: "2026.06.19",
+      ingestionUnitKey: sealedProductUnit,
+      displayName: "TCGplayer Magic sealed-product SKUs",
+      active: true,
+      lifecycle: "active",
+      supportedScopes: ["mtg/sealed-product"],
+    });
+
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgplayer&unitKey=tcgplayer:mtg:sealed-product:source-observation-import&profileVersion=2026.06.19",
+      scopes: { items: [], total: 0, count: 0 },
+      profileReviews: { items: [singleCardProfile, sealedProductProfile], total: 2, count: 2 },
+      controlPlaneOverview: null,
+      canManageCatalog: true,
+    });
+    const tcgplayerProvider = readModel.providerScope.providers.find(
+      (provider) => provider.providerKey === "tcgplayer",
+    );
+
+    expect(() => validateCatalogPrimaryWorkbenchReadModelContract(readModel)).not.toThrow();
+    expect(readModel.routeContext).toMatchObject({
+      providerKey: "tcgplayer",
+      unitKey: sealedProductUnit,
+      profileVersion: "2026.06.19",
+    });
+    expect(readModel.sourceOptions.selectedProfile).toMatchObject({
+      profileKey: "mtg-sealed-product-sku",
+    });
+    expect(readModel.sourceOptions.selectedUnitKey).toBe(sealedProductUnit);
+    expect(tcgplayerProvider).toMatchObject({
+      displayName: "TCGplayer",
+    });
+    expect(tcgplayerProvider?.units.map((unit) => unit.unitKey).sort()).toEqual(
+      [sealedProductUnit, singleCardUnit].sort(),
+    );
+    expect(
+      Object.fromEntries(tcgplayerProvider?.units.map((unit) => [unit.unitKey, unit.activeProfile?.profileKey]) ?? []),
+    ).toEqual({
+      [sealedProductUnit]: "mtg-sealed-product-sku",
+      [singleCardUnit]: "mtg-single-card-product-sku",
+    });
+  });
 });

@@ -128,6 +128,7 @@ export type CatalogProviderProfileVersionReview = Readonly<{
   providerKey: string;
   profileKey: string;
   profileVersion: string;
+  ingestionUnitKey: string;
   displayName: string;
   lifecycle: string;
   active: boolean;
@@ -1513,6 +1514,7 @@ function toProfileVersionReview(
     providerKey: version.providerKey,
     profileKey: version.profileKey,
     profileVersion: version.profileVersion,
+    ingestionUnitKey: catalogProviderProfileVersionIngestionUnitKey(version),
     displayName: version.profile.displayName,
     lifecycle: version.lifecycle,
     active: version.active,

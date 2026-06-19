@@ -22,7 +22,9 @@ import { sourceOptionDisplayLabel } from "./primary-workbench-source-option-labe
 
 export type CatalogPrimaryWorkbenchSourceOptionRequest = Readonly<{
   providerKey: string;
+  profileKey: string | null;
   profileVersion: string;
+  ingestionUnitKey: string | null;
   queryKind: string;
   displayName: string;
   scope: string;
@@ -75,6 +77,7 @@ export function buildCatalogPrimaryWorkbenchSourceOptions(input: {
     context.activeProfile,
     context.providerKey,
     context.requestedProfileVersion,
+    context.requestedUnitKey,
   );
   const requests = buildCatalogPrimaryWorkbenchSourceOptionRequests({
     requestUrl: "https://admin.example/catalog/integrations",
@@ -134,6 +137,7 @@ export function buildCatalogPrimaryWorkbenchSourceOptionRequests(input: {
     context.activeProfile,
     providerKey,
     context.requestedProfileVersion,
+    context.requestedUnitKey,
   );
   if (!profile?.sourceOptionKinds.length || !providerKey) {
     return [];
@@ -153,7 +157,9 @@ export function buildCatalogPrimaryWorkbenchSourceOptionRequests(input: {
     const parentValue = kind.parentScope === "language" ? null : (parent?.value ?? null);
     const request = {
       providerKey,
+      profileKey: profile.profileKey,
       profileVersion: profile.profileVersion,
+      ingestionUnitKey: profile.ingestionUnitKey,
       queryKind: kind.queryKind,
       displayName: kind.displayName,
       scope: kind.scope,
@@ -188,6 +194,7 @@ function sourceOptionContext(input: {
   scope: NonNullable<CatalogPrimaryWorkbenchRouteContext["scope"]>;
   activeProfile: CatalogProviderProfileVersionReview | null;
   requestedProfileVersion: string | null;
+  requestedUnitKey: string | null;
 }> {
   const parsed = input.routeContext ?? parseCatalogPrimaryWorkbenchRouteContext(input.requestUrl);
   const providerKey =
@@ -200,10 +207,20 @@ function sourceOptionContext(input: {
     ? input.profiles.filter((profile) => profile.providerKey === providerKey)
     : input.profiles;
   const requestedProfileVersion = parsed.profileVersion;
+  const requestedUnitKey = parsed.unitKey;
   const requestedProfile = requestedProfileVersion
-    ? (providerProfiles.find((profile) => profile.profileVersion === requestedProfileVersion) ?? null)
+    ? (providerProfiles.find(
+        (profile) =>
+          profile.profileVersion === requestedProfileVersion &&
+          profileMatchesUnitWithin(profile, requestedUnitKey, providerProfiles),
+      ) ?? null)
     : null;
-  const activeProfile = requestedProfile ?? providerProfiles.find((profile) => profile.active) ?? null;
+  const activeProfile =
+    requestedProfile ??
+    providerProfiles.find(
+      (profile) => profile.active && profileMatchesUnitWithin(profile, requestedUnitKey, providerProfiles),
+    ) ??
+    null;
   const representativeScope = input.scopes.find((scope) => !providerKey || scope.provider_key === providerKey) ?? null;
   const importScope = parsed.importScope ?? (representativeScope ? scopeKey(representativeScope) : null);
   const scope = scopeContextFromRouteContext({
@@ -212,7 +229,7 @@ function sourceOptionContext(input: {
     importScope: scopeHasExplicitSelection(parsed.scope) ? null : importScope,
   });
 
-  return { providerKey, importScope, scope, activeProfile, requestedProfileVersion };
+  return { providerKey, importScope, scope, activeProfile, requestedProfileVersion, requestedUnitKey };
 }
 
 function selectedSourceOptionProfile(
@@ -220,18 +237,53 @@ function selectedSourceOptionProfile(
   contextProfile: CatalogProviderProfileVersionReview | null,
   providerKey: string | null,
   requestedProfileVersion: string | null,
+  requestedUnitKey: string | null,
 ): CatalogProviderProfileVersionReview | null {
   if (requestedProfileVersion) {
     return contextProfile;
   }
-  if (explicitProfile && (!providerKey || explicitProfile.providerKey === providerKey)) {
+  if (requestedUnitKey && contextProfile && (!providerKey || contextProfile.providerKey === providerKey)) {
+    return contextProfile;
+  }
+  if (
+    explicitProfile &&
+    (!providerKey || explicitProfile.providerKey === providerKey) &&
+    profileMatchesUnit(explicitProfile, requestedUnitKey)
+  ) {
     return explicitProfile;
   }
-  if (contextProfile && (!providerKey || contextProfile.providerKey === providerKey)) {
+  if (
+    contextProfile &&
+    (!providerKey || contextProfile.providerKey === providerKey) &&
+    profileMatchesUnit(contextProfile, requestedUnitKey)
+  ) {
     return contextProfile;
   }
 
   return null;
+}
+
+function profileMatchesUnit(profile: CatalogProviderProfileVersionReview, unitKey: string | null): boolean {
+  return !unitKey || profile.ingestionUnitKey === unitKey;
+}
+
+function profileMatchesUnitWithin(
+  profile: CatalogProviderProfileVersionReview,
+  unitKey: string | null,
+  providerProfiles: readonly CatalogProviderProfileVersionReview[],
+): boolean {
+  if (!unitKey || profile.ingestionUnitKey === unitKey) {
+    return true;
+  }
+
+  const normalizedProviderKey = profile.providerKey.trim().toLowerCase();
+  const unitIdentities = new Set(
+    providerProfiles
+      .filter((candidate) => candidate.providerKey.trim().toLowerCase() === normalizedProviderKey)
+      .map((candidate) => candidate.ingestionUnitKey.trim().toLowerCase()),
+  );
+
+  return unitIdentities.size <= 1 && unitKey.trim().toLowerCase().startsWith(`${normalizedProviderKey}:`);
 }
 
 function sourceOptionSelections(input: {
@@ -840,7 +892,9 @@ function sourceOptionRefreshAllHref(requests: readonly CatalogPrimaryWorkbenchSo
 function sourceOptionRequestKey(request: CatalogPrimaryWorkbenchSourceOptionRequest): string {
   return [
     request.providerKey,
+    request.profileKey,
     request.profileVersion,
+    request.ingestionUnitKey,
     request.queryKind,
     normalizeKey(request.languageCode),
     normalizeKey(request.parentValue),
@@ -857,6 +911,12 @@ function sourceOptionHref(
     queryKind: request.queryKind,
     limit: String(request.limit),
   });
+  if (request.profileKey) {
+    params.set("profileKey", request.profileKey);
+  }
+  if (request.ingestionUnitKey) {
+    params.set("ingestionUnitKey", request.ingestionUnitKey);
+  }
   if (request.languageCode) {
     params.set("languageCode", request.languageCode);
   }
