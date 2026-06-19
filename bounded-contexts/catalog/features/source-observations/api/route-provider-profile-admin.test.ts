@@ -220,6 +220,54 @@ describe("source observation routes: integration discovery and profile administr
     });
   });
 
+  it("forwards profile and ingestion unit selectors for provider option queries", async () => {
+    const queryIntegrationOptions = vi.fn(async () => ({
+      items: [],
+      total: 0,
+      count: 0,
+      page: {
+        cursor: null,
+        nextCursor: null,
+        limit: 25,
+        hasMore: false,
+      },
+      cache: {
+        status: "fresh",
+        source: "cache",
+        cacheKey: "sha256:empty",
+        fetchedAt: "2026-06-19T00:00:00.000Z",
+        expiresAt: "2026-06-19T00:15:00.000Z",
+        staleUntil: "2026-06-20T00:00:00.000Z",
+        cacheOnly: true,
+        forceRefresh: false,
+        degraded: false,
+        diagnostics: [],
+      },
+    }));
+    const services = {
+      queryIntegrationOptions,
+    } as unknown as SourceObservationRouteServices;
+    const app = buildApp(services);
+
+    const response = await app.request(
+      "/source-observations/integration-options?provider=tcgplayer&kind=set-names&profileKey=mtg-sealed-product-sku&ingestionUnitKey=tcgplayer:mtg:sealed-product:source-observation-import&parentValue=1&cacheOnly=true",
+    );
+
+    expect(response.status).toBe(200);
+    expect(queryIntegrationOptions).toHaveBeenCalledWith({
+      providerKey: "tcgplayer",
+      profileKey: "mtg-sealed-product-sku",
+      ingestionUnitKey: "tcgplayer:mtg:sealed-product:source-observation-import",
+      queryKind: "set-names",
+      languageCode: undefined,
+      parentValue: "1",
+      cursor: undefined,
+      limit: null,
+      forceRefresh: false,
+      cacheOnly: true,
+    });
+  });
+
   it("returns unavailable when cache-only provider option queries have no cached page", async () => {
     const services = {
       queryIntegrationOptions: vi.fn(async () => {

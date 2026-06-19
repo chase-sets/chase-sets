@@ -99,14 +99,15 @@ function buildCatalogPrimaryWorkbenchCore(
 ): Readonly<{ core: CatalogPrimaryWorkbenchCore; derived: CatalogPrimaryWorkbenchDerived }> {
   const parsedContext = parseCatalogPrimaryWorkbenchRouteContext(input.requestUrl);
   const providerKey = parsedContext.providerKey ?? inferProviderKey(input);
-  const activeProfile = findActiveProfile(input.profileReviews.items, providerKey);
+  const normalizedRouteUnitKey = normalizeSelectedUnitKey(parsedContext.unitKey, providerKey);
+  const activeProfile = findActiveProfile(input.profileReviews.items, providerKey, normalizedRouteUnitKey);
   const selectedProfile = findSelectedProfile(
     input.profileReviews.items,
     providerKey,
     parsedContext.profileVersion,
+    normalizedRouteUnitKey,
     activeProfile,
   );
-  const normalizedRouteUnitKey = normalizeSelectedUnitKey(parsedContext.unitKey, providerKey);
   const unitContextMismatch = Boolean(parsedContext.unitKey && providerKey && !normalizedRouteUnitKey);
   const unitKey = normalizedRouteUnitKey ?? inferUnitKey(input, providerKey, activeProfile);
   const routeScope = unitContextMismatch ? providerOnlyScopeContext(providerKey) : parsedContext.scope;
@@ -645,6 +646,10 @@ function inferUnitKey(
   providerKey: string | null,
   activeProfile: CatalogProviderProfileVersionReview | null,
 ): CatalogIntegrationUnitKey | null {
+  if (activeProfile?.ingestionUnitKey) {
+    return activeProfile.ingestionUnitKey as CatalogIntegrationUnitKey;
+  }
+
   const overviewUnit = input.controlPlaneOverview?.readiness.units.find((unit) => unit.providerKey === providerKey);
   if (overviewUnit) {
     return overviewUnit.unitKey;
@@ -710,30 +715,59 @@ function inferImportScope(
 function findActiveProfile(
   profiles: readonly CatalogProviderProfileVersionReview[],
   providerKey: string | null,
+  unitKey: CatalogIntegrationUnitKey | null = null,
 ): CatalogProviderProfileVersionReview | null {
-  if (providerKey) {
-    return profiles.find((profile) => profile.providerKey === providerKey && profile.active) ?? null;
-  }
+  const providerProfiles = providerKey ? profiles.filter((profile) => profile.providerKey === providerKey) : profiles;
 
-  return profiles.find((profile) => profile.active) ?? null;
+  return (
+    providerProfiles.find((profile) => profile.active && profileMatchesUnit(profile, unitKey, providerProfiles)) ?? null
+  );
 }
 
 function findSelectedProfile(
   profiles: readonly CatalogProviderProfileVersionReview[],
   providerKey: string | null,
   requestedProfileVersion: string | null,
+  unitKey: CatalogIntegrationUnitKey | null,
   activeProfile: CatalogProviderProfileVersionReview | null,
 ): CatalogProviderProfileVersionReview | null {
   const providerProfiles = providerKey ? profiles.filter((profile) => profile.providerKey === providerKey) : profiles;
   if (requestedProfileVersion) {
     return (
-      providerProfiles.find((profile) => profile.profileVersion === requestedProfileVersion) ??
-      profiles.find((profile) => profile.profileVersion === requestedProfileVersion && !providerKey) ??
+      providerProfiles.find(
+        (profile) =>
+          profile.profileVersion === requestedProfileVersion && profileMatchesUnit(profile, unitKey, providerProfiles),
+      ) ??
+      profiles.find(
+        (profile) =>
+          profile.profileVersion === requestedProfileVersion &&
+          !providerKey &&
+          profileMatchesUnit(profile, unitKey, profiles),
+      ) ??
       null
     );
   }
 
   return activeProfile ?? providerProfiles[0] ?? (providerKey ? null : (profiles[0] ?? null));
+}
+
+function profileMatchesUnit(
+  profile: CatalogProviderProfileVersionReview,
+  unitKey: CatalogIntegrationUnitKey | null,
+  providerProfiles: readonly CatalogProviderProfileVersionReview[],
+): boolean {
+  if (!unitKey || profile.ingestionUnitKey === unitKey) {
+    return true;
+  }
+
+  const normalizedProviderKey = profile.providerKey.trim().toLowerCase();
+  const unitIdentities = new Set(
+    providerProfiles
+      .filter((candidate) => candidate.providerKey.trim().toLowerCase() === normalizedProviderKey)
+      .map((candidate) => candidate.ingestionUnitKey.trim().toLowerCase()),
+  );
+
+  return unitIdentities.size <= 1 && unitKey.trim().toLowerCase().startsWith(`${normalizedProviderKey}:`);
 }
 
 function readinessBlockersFor(
@@ -1012,46 +1046,143 @@ function providerScopeProviders(
   }
 
   return [...providerKeys].sort().map((providerKey) => {
+    const providerProfiles = input.profileReviews.items.filter((profile) => profile.providerKey === providerKey);
     const profile =
-      providerKey === selectedProviderKey
-        ? selectedProfile
-        : findActiveProfile(input.profileReviews.items, providerKey);
+      providerKey === selectedProviderKey ? selectedProfile : findActiveProfile(providerProfiles, providerKey);
     const providerScopes = input.scopes.items.filter((scope) => scope.provider_key === providerKey);
     const providerReadiness = input.controlPlaneOverview?.providerReadiness.providers.find(
       (provider) => provider.providerKey === providerKey,
     );
-    const readinessUnit =
-      input.controlPlaneOverview?.readiness.units.find(
+    const readinessUnits = (
+      input.controlPlaneOverview?.readiness.units.filter(
         (unit) =>
           unit.providerKey === providerKey &&
           (!providerReadiness ||
             providerReadiness.unitKeys.length === 0 ||
             providerReadiness.unitKeys.includes(unit.unitKey)),
-      ) ?? input.controlPlaneOverview?.readiness.units.find((unit) => unit.providerKey === providerKey);
-    const unitKey = inferUnitKey(input, providerKey, profile) ?? readinessUnit?.unitKey ?? null;
-    const [profileProductDomain, profileProductForm] = profile?.supportedScopes[0]?.split("/") ?? [];
+      ) ?? []
+    ).filter((unit) => unit.ingestionPurpose !== "source-observation-proof");
+    const visibleProfiles = uniqueProfilesByUnit([
+      ...providerProfiles.filter((candidate) => candidate.active),
+      ...(profile ? [profile] : []),
+    ]);
+    const unitsByKey = new Map<
+      string,
+      CatalogPrimaryWorkbenchReadModel["providerScope"]["providers"][number]["units"][number]
+    >();
+
+    for (const unitProfile of visibleProfiles) {
+      const unitKey = unitProfile.ingestionUnitKey as CatalogIntegrationUnitKey;
+      const readinessUnit = readinessUnits.find((unit) => unit.unitKey === unitKey) ?? null;
+      const unitShape = integrationUnitShape(unitKey, unitProfile, readinessUnit);
+      unitsByKey.set(unitKey, {
+        unitKey,
+        productDomain: unitShape.productDomain,
+        productForm: unitShape.productForm,
+        importScopes: providerImportScopes(providerScopes, routeContext.importScope, providerKey),
+        activeProfile: profilePointerForProfile(unitProfile),
+      });
+    }
+
+    for (const readinessUnit of readinessUnits) {
+      if (!unitsByKey.has(readinessUnit.unitKey)) {
+        unitsByKey.set(readinessUnit.unitKey, {
+          unitKey: readinessUnit.unitKey,
+          productDomain: readinessUnit.productDomain,
+          productForm: readinessUnit.productForm,
+          importScopes: providerImportScopes(providerScopes, routeContext.importScope, providerKey),
+          activeProfile: profilePointerForProfile(
+            visibleProfiles.find((candidate) => candidate.ingestionUnitKey === readinessUnit.unitKey) ?? null,
+          ),
+        });
+      }
+    }
+
+    if (unitsByKey.size === 0) {
+      const unitKey =
+        inferUnitKey(input, providerKey, profile) ??
+        defineCatalogIntegrationUnitKey({
+          providerKey,
+          productDomain: "catalog",
+          productForm: "source-observation",
+          ingestionPurpose: "import",
+        });
+      const unitShape = integrationUnitShape(unitKey, profile, null);
+      unitsByKey.set(unitKey, {
+        unitKey,
+        productDomain: unitShape.productDomain,
+        productForm: unitShape.productForm,
+        importScopes: providerImportScopes(providerScopes, routeContext.importScope, providerKey),
+        activeProfile: profilePointerForProfile(profile),
+      });
+    }
 
     return {
       providerKey,
-      displayName: profile?.displayName ?? readinessUnit?.displayName ?? providerKey,
-      units: [
-        {
-          unitKey:
-            unitKey ??
-            defineCatalogIntegrationUnitKey({
-              providerKey,
-              productDomain: "catalog",
-              productForm: "source-observation",
-              ingestionPurpose: "import",
-            }),
-          productDomain: profileProductDomain ?? readinessUnit?.productDomain ?? "catalog",
-          productForm: profileProductForm ?? readinessUnit?.productForm ?? "source-observation",
-          importScopes: providerImportScopes(providerScopes, routeContext.importScope, providerKey),
-          activeProfile: profilePointerForProfile(profile),
-        },
-      ],
+      displayName: providerDisplayName(providerKey, providerProfiles, profile, readinessUnits),
+      units: [...unitsByKey.values()].sort((left, right) => left.unitKey.localeCompare(right.unitKey)),
     };
   });
+}
+
+function uniqueProfilesByUnit(
+  profiles: readonly CatalogProviderProfileVersionReview[],
+): readonly CatalogProviderProfileVersionReview[] {
+  const byUnit = new Map<string, CatalogProviderProfileVersionReview>();
+  for (const profile of profiles) {
+    byUnit.set(profile.ingestionUnitKey, profile);
+  }
+
+  return [...byUnit.values()];
+}
+
+function integrationUnitShape(
+  unitKey: CatalogIntegrationUnitKey,
+  profile: CatalogProviderProfileVersionReview | null,
+  readinessUnit: CatalogIntegrationControlPlaneUnitReadiness | null,
+): Readonly<{ productDomain: string; productForm: string }> {
+  try {
+    const parsed = parseCatalogIntegrationUnitKey(unitKey);
+    return { productDomain: parsed.productDomain, productForm: parsed.productForm };
+  } catch {
+    const [profileProductDomain, profileProductForm] = profile?.supportedScopes[0]?.split("/") ?? [];
+    return {
+      productDomain: readinessUnit?.productDomain ?? profileProductDomain ?? "catalog",
+      productForm: readinessUnit?.productForm ?? profileProductForm ?? "source-observation",
+    };
+  }
+}
+
+function providerDisplayName(
+  providerKey: string,
+  providerProfiles: readonly CatalogProviderProfileVersionReview[],
+  selectedProfile: CatalogProviderProfileVersionReview | null,
+  readinessUnits: readonly CatalogIntegrationControlPlaneUnitReadiness[],
+): string {
+  const activeProfiles = providerProfiles.filter((profile) => profile.active);
+  if (activeProfiles.length <= 1) {
+    return (
+      selectedProfile?.displayName ??
+      activeProfiles[0]?.displayName ??
+      providerProfiles[0]?.displayName ??
+      readinessUnits[0]?.displayName ??
+      providerBaseDisplayName(providerKey)
+    );
+  }
+
+  return providerBaseDisplayName(providerKey);
+}
+
+function providerBaseDisplayName(providerKey: string): string {
+  const names = new Map([
+    ["mtgjson", "MTGJSON"],
+    ["scryfall", "Scryfall"],
+    ["scrydex", "Scrydex"],
+    ["tcgdex", "TCGdex"],
+    ["tcgplayer", "TCGplayer"],
+  ]);
+
+  return names.get(providerKey) ?? providerKey;
 }
 
 function providerReadinessHasImportUnit(

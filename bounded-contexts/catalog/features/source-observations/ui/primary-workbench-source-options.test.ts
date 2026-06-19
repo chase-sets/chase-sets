@@ -412,6 +412,56 @@ describe("Catalog primary workbench source options", () => {
     });
   });
 
+  it("keeps Magic TCGplayer option queries pinned to the selected active profile unit", () => {
+    const singleCardUnit = "tcgplayer:mtg:single-card:source-observation-import";
+    const sealedProductUnit = "tcgplayer:mtg:sealed-product:source-observation-import";
+    const singleCardProfile = profileReview({
+      providerKey: "tcgplayer",
+      profileKey: "mtg-single-card-product-sku",
+      profileVersion: "2026.06.19",
+      ingestionUnitKey: singleCardUnit,
+      displayName: "TCGplayer Magic single-card SKUs",
+      active: true,
+      lifecycle: "active",
+      supportedScopes: ["mtg/single-card"],
+    });
+    const sealedProductProfile = profileReview({
+      providerKey: "tcgplayer",
+      profileKey: "mtg-sealed-product-sku",
+      profileVersion: "2026.06.19",
+      ingestionUnitKey: sealedProductUnit,
+      displayName: "TCGplayer Magic sealed-product SKUs",
+      active: true,
+      lifecycle: "active",
+      supportedScopes: ["mtg/sealed-product"],
+    });
+
+    const requests = buildCatalogPrimaryWorkbenchSourceOptionRequests({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgplayer&unitKey=tcgplayer:mtg:sealed-product:source-observation-import&profileVersion=2026.06.19&importScope=en:1",
+      scopes: [],
+      profiles: [singleCardProfile, sealedProductProfile],
+      cacheOnly: true,
+    });
+    const setNames = requests.find((request) => request.queryKind === "set-names");
+    expect(setNames).toBeTruthy();
+    const setNameHref = new URL(setNames!.queryHref, "https://admin.example");
+
+    expect(requests.map((request) => request.queryKind)).toEqual(["product-lines", "set-names", "products", "skus"]);
+    expect(requests.every((request) => request.profileKey === "mtg-sealed-product-sku")).toBe(true);
+    expect(requests.every((request) => request.ingestionUnitKey === sealedProductUnit)).toBe(true);
+    expect(requests.every((request) => request.ingestionUnitKey !== singleCardUnit)).toBe(true);
+    expect(setNames).toMatchObject({
+      parentScope: "product-line/category",
+      languageCode: "en",
+      parentValue: "1",
+      selectedParentValue: "1",
+    });
+    expect(setNameHref.searchParams.get("profileKey")).toBe("mtg-sealed-product-sku");
+    expect(setNameHref.searchParams.get("ingestionUnitKey")).toBe(sealedProductUnit);
+    expect(setNameHref.searchParams.get("parentValue")).toBe("1");
+  });
+
   it("does not borrow another provider active profile for source option requests", () => {
     const tcgdexProfile = profileReview({ active: true, lifecycle: "active" });
     const scrydexProfile = profileReview({
