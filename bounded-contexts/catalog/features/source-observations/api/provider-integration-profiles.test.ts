@@ -12,7 +12,8 @@ import {
   listCatalogProviderIntegrationProfileVersions,
   rollbackCatalogProviderIntegrationProfileVersion,
   validateCatalogProviderIntegrationProfileVersion,
-  scrydexScryfallCardProviderProfile,
+  scryfallMtgCardPrintProviderProfile,
+  scryfallMtgImageEvidenceProviderProfile,
   tcgdexPokemonTcgProviderProfile,
   tcgplayerAutomationClientProviderProfile,
   type CatalogProviderIntegrationProfileVersionRecord,
@@ -128,15 +129,24 @@ describe("catalog provider integration profiles", () => {
     });
   });
 
-  it("registers Scrydex as a fixture-backed Scryfall-style extensibility profile", () => {
-    const profile = getCatalogProviderIntegrationProfile("SCRYDEX");
+  it("registers Scryfall as active Magic card-print and image-evidence profiles", () => {
+    const profile = getCatalogProviderIntegrationProfile("SCRYFALL");
 
-    expect(profile).toBe(scrydexScryfallCardProviderProfile);
+    expect(profile).toBe(scryfallMtgCardPrintProviderProfile);
     expect(profile).toMatchObject({
-      providerKey: "scrydex",
-      status: "planned",
-      capabilities: ["source-observation-import", "catalog-item-promotion", "external-reference-extraction"],
-      supportedScopes: ["product/card"],
+      providerKey: "scryfall",
+      status: "active",
+      capabilities: [
+        "provider-option-query",
+        "source-observation-import",
+        "catalog-item-promotion",
+        "external-reference-extraction",
+      ],
+      supportedScopes: ["set-name", "product/card"],
+      optionQueries: [
+        expect.objectContaining({ queryKind: "sets", operation: "scryfall-list-sets" }),
+        expect.objectContaining({ queryKind: "cards", operation: "scryfall-list-cards" }),
+      ],
       normalizedObservationMapping: { kind: "magic-card-print" },
       catalogFieldMapping: {
         blueprintKey: "magic-card-print",
@@ -150,9 +160,8 @@ describe("catalog provider integration profiles", () => {
         ]),
       },
       connector: {
-        kind: "scrydex-scryfall-json",
-        fixtureBackedOnly: true,
-        acceptedEvidence: expect.arrayContaining(["tcgplayer-id", "collector-number", "image-url"]),
+        kind: "scryfall-json",
+        acceptedEvidence: expect.arrayContaining(["tcgplayer-id", "collector-number", "image-url", "oracle-id"]),
         excludedEvidence: ["price", "seller", "inventory", "ruling", "legality"],
       },
       externalReferenceExtractionRules: {
@@ -166,6 +175,12 @@ describe("catalog provider integration profiles", () => {
           }),
         ],
       },
+    });
+    expect(scryfallMtgImageEvidenceProviderProfile).toMatchObject({
+      providerKey: "scryfall",
+      displayName: "Scryfall Image Evidence",
+      status: "active",
+      capabilities: ["source-observation-import", "external-reference-extraction"],
     });
   });
 
@@ -273,7 +288,8 @@ describe("catalog provider integration profiles", () => {
 
   it("lists active and planned providers through the same provider catalog", () => {
     expect(listCatalogProviderIntegrationProfiles().map((profile) => [profile.providerKey, profile.status])).toEqual([
-      ["scrydex", "planned"],
+      ["scryfall", "active"],
+      ["scryfall", "active"],
       ["tcgdex", "active"],
       ["tcgplayer", "planned"],
     ]);
@@ -283,34 +299,51 @@ describe("catalog provider integration profiles", () => {
     const versions = listCatalogProviderIntegrationProfileVersions();
 
     expect(versions.map((version) => [version.providerKey, version.profileVersion, version.lifecycle])).toEqual([
-      ["scrydex", "2026.06.03", "test"],
+      ["scryfall", "2026.06.19", "active"],
+      ["scryfall", "2026.06.19", "active"],
       ["tcgdex", "2026.06.03", "active"],
       ["tcgplayer", "2026.06.03", "test"],
     ]);
-    expect(getCatalogProviderIntegrationProfileVersion("scrydex")).toMatchObject({
-      providerKey: "scrydex",
-      profileKey: "scryfall-card-fixture",
-      profileVersion: "2026.06.03",
-      active: false,
+    expect(getCatalogProviderIntegrationProfileVersion("scryfall")).toMatchObject({
+      providerKey: "scryfall",
+      profileKey: "mtg-card-print-reference-data",
+      profileVersion: "2026.06.19",
+      active: true,
       sourceContract: {
         repository: "chase-sets/chase-sets",
-        fixtureSetVersion: "scrydex-scryfall-card-proof-v1",
+        fixtureSetVersion: "scryfall-mtg-card-print-production-v1",
       },
       retirementPlan: null,
       executableMappingContract: expect.objectContaining({
-        providerKey: "scrydex",
-        profileKey: "scryfall-card-fixture",
-        profileVersion: "2026.06.03",
-        lifecycle: "test",
+        providerKey: "scryfall",
+        profileKey: "mtg-card-print-reference-data",
+        profileVersion: "2026.06.19",
+        lifecycle: "active",
         sourceObservation: expect.any(Object),
       }),
     });
-    expect(getCatalogProviderSourceObservationMappingContract("SCRYDEX")).toMatchObject({
-      providerKey: "scrydex",
+    expect(
+      getCatalogProviderIntegrationProfileVersion("scryfall", "2026.06.19", {
+        ingestionUnitKey: "scryfall:mtg:single-card:reference-data",
+      })?.executableMappingContract,
+    ).toMatchObject({
+      providerKey: "scryfall",
       sourceObservation: {
         observationId: expect.any(Object),
       },
     });
+    expect(() => getActiveCatalogProviderIntegrationProfileVersion("SCRYFALL")).toThrow(
+      /multiple active profile units/,
+    );
+    expect(
+      getActiveCatalogProviderIntegrationProfileVersion("SCRYFALL", {
+        ingestionUnitKey: "scryfall:mtg:single-card:reference-data",
+      }),
+    ).toMatchObject({
+      providerKey: "scryfall",
+      profileKey: "mtg-card-print-reference-data",
+    });
+    expect(validateCatalogProviderIntegrationProfileVersion(catalogProviderIntegrationProfileVersions[1])).toEqual([]);
     expect(validateCatalogProviderIntegrationProfileVersion(catalogProviderIntegrationProfileVersions[0])).toEqual([]);
     expect(getActiveCatalogProviderIntegrationProfileVersion("TCGDEX")).toMatchObject({
       providerKey: "tcgdex",

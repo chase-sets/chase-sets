@@ -28,6 +28,7 @@ export const SCRYFALL_MTG_IMAGE_EVIDENCE_UNIT_KEY = defineCatalogIntegrationUnit
   ingestionPurpose: "image-evidence",
 });
 
+export const SCRYFALL_PRODUCTION_PROFILE_VERSION = "2026.06.19";
 export const SCRYFALL_VALIDATION_PROFILE_VERSION = "scryfall-validation-2026.06.08";
 
 export type ScryfallProviderPayload =
@@ -46,6 +47,7 @@ export type ScryfallProviderAdapterOptions = Readonly<{
   baseUrl?: string;
   now?: () => Date;
   userAgent?: string;
+  profileVersion?: string;
 }>;
 
 type ScryfallListResponse<T> = Readonly<{
@@ -64,6 +66,16 @@ type ScryfallBulkData = Readonly<{
   content_encoding?: string;
 }>;
 
+type ScryfallSet = Readonly<{
+  id?: string;
+  code?: string;
+  name?: string;
+  set_type?: string;
+  released_at?: string;
+  card_count?: number;
+  digital?: boolean;
+}>;
+
 type ScryfallCard = Readonly<{
   id?: string;
   oracle_id?: string;
@@ -79,10 +91,13 @@ type ScryfallCard = Readonly<{
   type_line?: string;
   oracle_text?: string;
   set?: string;
+  set_id?: string;
   set_name?: string;
   collector_number?: string;
   rarity?: string;
+  artist?: string;
   finishes?: readonly string[];
+  tcgplayer_id?: string | number;
   prices?: Readonly<Record<string, string | null>>;
 }>;
 
@@ -97,6 +112,7 @@ export function createScryfallProviderAdapter(
       supportsPayloadFetch: true,
     },
     async listIntegrationUnits() {
+      const profileVersion = options.profileVersion ?? SCRYFALL_PRODUCTION_PROFILE_VERSION;
       return [
         {
           unitKey: SCRYFALL_MTG_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
@@ -105,7 +121,7 @@ export function createScryfallProviderAdapter(
           productForm: "single-card",
           ingestionPurpose: "reference-data",
           displayName: "Scryfall MTG single-card reference data",
-          profileVersion: SCRYFALL_VALIDATION_PROFILE_VERSION,
+          profileVersion,
         },
         {
           unitKey: SCRYFALL_MTG_IMAGE_EVIDENCE_UNIT_KEY,
@@ -114,7 +130,7 @@ export function createScryfallProviderAdapter(
           productForm: "single-card",
           ingestionPurpose: "image-evidence",
           displayName: "Scryfall MTG image evidence",
-          profileVersion: SCRYFALL_VALIDATION_PROFILE_VERSION,
+          profileVersion,
         },
       ];
     },
@@ -123,11 +139,25 @@ export function createScryfallProviderAdapter(
     },
     async planImport(scope) {
       assertScryfallUnit(scope.unitKey);
+      const setCode = stringValue(scope.values.setCode ?? scope.values.setId ?? scope.values.code);
       const cardId = stringValue(scope.values.cardId ?? scope.values.id);
       const exactName = stringValue(scope.values.exactName ?? scope.values.cardName ?? scope.values.name);
 
+      if (setCode) {
+        return {
+          unitKey: scope.unitKey,
+          planKey: `scryfall:${scope.unitKey === SCRYFALL_MTG_IMAGE_EVIDENCE_UNIT_KEY ? "image" : "card"}:set:${setCode.toLowerCase()}`,
+          scope: {
+            unitKey: scope.unitKey,
+            scopeKey: "set",
+            values: { ...scope.values, setCode },
+          },
+          transportSteps: ["Search Scryfall prints by set", "Attach Scryfall card provenance"],
+        };
+      }
+
       if (!cardId && !exactName) {
-        throw new Error("Scryfall import planning requires cardId or exactName.");
+        throw new Error("Scryfall import planning requires setCode, cardId, or exactName.");
       }
 
       return {
@@ -144,20 +174,56 @@ export function createScryfallProviderAdapter(
         transportSteps: ["Query Scryfall card endpoint", "Attach Scryfall card provenance"],
       };
     },
-    async *fetchPayloads(plan) {
+    async *fetchPayloads(plan, fetchOptions) {
       assertScryfallUnit(plan.unitKey);
       const fetchedAt = (options.now ?? (() => new Date()))().toISOString();
+      if (plan.scope.scopeKey === "set") {
+        const setCode = requireString(plan.scope.values.setCode, "Scryfall set import requires setCode.");
+        const cards = await fetchAllScryfallSearch(`set:${setCode}`, options);
+
+        for (let index = 0; index < cards.length; index += 1) {
+          const card = cards[index] ?? {};
+          const sanitizedCard = sanitizeScryfallCard(card);
+          const cardId = requireString(sanitizedCard.id, "Scryfall card payload is missing id.");
+          yield scryfallEnvelope({
+            unitKey: plan.unitKey,
+            externalKey: plan.unitKey === SCRYFALL_MTG_IMAGE_EVIDENCE_UNIT_KEY ? `image:${cardId}` : `card:${cardId}`,
+            payload:
+              plan.unitKey === SCRYFALL_MTG_IMAGE_EVIDENCE_UNIT_KEY
+                ? { kind: "image-evidence", card: sanitizedCard, imageUris: sanitizedCard.image_uris ?? {} }
+                : { kind: "single-card", card: sanitizedCard },
+            sourceUrl: sanitizedCard.uri ?? scryfallCardUrl(cardId, options),
+            sourceUpdatedAt: sanitizedCard.released_at,
+            fetchedAt,
+          });
+          await fetchOptions?.onProgress?.({
+            phase: "fetching",
+            completed: index + 1,
+            total: cards.length,
+            currentLabel: sanitizedCard.name ?? cardId,
+          });
+        }
+        return;
+      }
+
       const card = await fetchScryfallCard(plan.scope.values, options);
-      const cardId = requireString(card.id, "Scryfall card payload is missing id.");
+      const sanitizedCard = sanitizeScryfallCard(card);
+      const cardId = requireString(sanitizedCard.id, "Scryfall card payload is missing id.");
 
       if (plan.unitKey === SCRYFALL_MTG_IMAGE_EVIDENCE_UNIT_KEY) {
         yield scryfallEnvelope({
           unitKey: plan.unitKey,
           externalKey: `image:${cardId}`,
-          payload: { kind: "image-evidence", card, imageUris: card.image_uris ?? {} },
-          sourceUrl: card.uri ?? scryfallCardUrl(cardId, options),
-          sourceUpdatedAt: card.released_at,
+          payload: { kind: "image-evidence", card: sanitizedCard, imageUris: sanitizedCard.image_uris ?? {} },
+          sourceUrl: sanitizedCard.uri ?? scryfallCardUrl(cardId, options),
+          sourceUpdatedAt: sanitizedCard.released_at,
           fetchedAt,
+        });
+        await fetchOptions?.onProgress?.({
+          phase: "fetching",
+          completed: 1,
+          total: 1,
+          currentLabel: sanitizedCard.name ?? cardId,
         });
         return;
       }
@@ -165,10 +231,16 @@ export function createScryfallProviderAdapter(
       yield scryfallEnvelope({
         unitKey: plan.unitKey,
         externalKey: `card:${cardId}`,
-        payload: { kind: "single-card", card },
-        sourceUrl: card.uri ?? scryfallCardUrl(cardId, options),
-        sourceUpdatedAt: card.released_at,
+        payload: { kind: "single-card", card: sanitizedCard },
+        sourceUrl: sanitizedCard.uri ?? scryfallCardUrl(cardId, options),
+        sourceUpdatedAt: sanitizedCard.released_at,
         fetchedAt,
+      });
+      await fetchOptions?.onProgress?.({
+        phase: "fetching",
+        completed: 1,
+        total: 1,
+        currentLabel: sanitizedCard.name ?? cardId,
       });
     },
     async getCredentialReadiness() {
@@ -176,6 +248,15 @@ export function createScryfallProviderAdapter(
         createCatalogProviderCredentialReadiness({
           providerKey: "scryfall",
           unitKey: SCRYFALL_MTG_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
+          requirement: "not-required",
+          sourceKind: "none",
+          state: "not-required",
+          message: t("catalog.features.sourceObservations.api.providerAdapters.scryfall.credential.not.required"),
+          evidence: { credentialRequirement: "not-required", publicApi: true },
+        }),
+        createCatalogProviderCredentialReadiness({
+          providerKey: "scryfall",
+          unitKey: SCRYFALL_MTG_IMAGE_EVIDENCE_UNIT_KEY,
           requirement: "not-required",
           sourceKind: "none",
           state: "not-required",
@@ -194,6 +275,14 @@ export function createScryfallProviderAdapter(
           ),
           unitKey: SCRYFALL_MTG_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
         },
+        {
+          code: "scryfall-public-api-transport-configured",
+          severity: "info",
+          message: t(
+            "catalog.features.sourceObservations.api.providerAdapters.scryfall.public.api.transport.configured",
+          ),
+          unitKey: SCRYFALL_MTG_IMAGE_EVIDENCE_UNIT_KEY,
+        },
       ];
     },
   };
@@ -203,6 +292,7 @@ export function createScryfallValidationProviderAdapter(): ProviderAdapter<Scryf
   return createScryfallProviderAdapter({
     fetch: scryfallValidationFetch,
     now: () => new Date("2026-06-08T00:00:00.000Z"),
+    profileVersion: SCRYFALL_VALIDATION_PROFILE_VERSION,
   });
 }
 
@@ -252,6 +342,49 @@ export async function runScryfallSourceObservationValidationDryRun(
   });
 }
 
+export async function runScryfallImageEvidenceValidationDryRun(
+  adapter: ProviderAdapter<ScryfallProviderPayload> = createScryfallValidationProviderAdapter(),
+): Promise<CatalogIntegrationDryRunResult> {
+  const plan = await adapter.planImport({
+    unitKey: SCRYFALL_MTG_IMAGE_EVIDENCE_UNIT_KEY,
+    scopeKey: "image-evidence",
+    values: { cardId: "0000579f-7b35-4ed3-b44c-db2a538066fe" },
+  });
+  const payloads: ProviderPayloadEnvelope<ScryfallProviderPayload>[] = [];
+
+  for await (const payload of adapter.fetchPayloads(plan)) {
+    payloads.push(payload);
+  }
+
+  return runCatalogIntegrationDryRun({
+    unitKey: SCRYFALL_MTG_IMAGE_EVIDENCE_UNIT_KEY,
+    profileVersion: SCRYFALL_VALIDATION_PROFILE_VERSION,
+    payloads,
+    normalize: (envelope) => {
+      if (envelope.payload.kind !== "image-evidence") {
+        throw new Error("Scryfall image-evidence dry run received a non-image payload.");
+      }
+
+      return {
+        unitKey: envelope.unitKey,
+        providerKey: envelope.providerKey,
+        externalKey: envelope.externalKey,
+        profileVersion: SCRYFALL_VALIDATION_PROFILE_VERSION,
+        normalizedFacts: {
+          name: stringValue(envelope.payload.card.name) ?? "",
+          cardNumber: stringValue(envelope.payload.card.collector_number) ?? "",
+          setCode: stringValue(envelope.payload.card.set) ?? "",
+          imageStatus: stringValue(envelope.payload.card.image_status) ?? "",
+          imageCount: String(Object.keys(envelope.payload.imageUris).length),
+        },
+        sourceUrl: envelope.provenance.sourceUrl,
+        sourceUpdatedAt: envelope.provenance.sourceUpdatedAt,
+        sourceHash: envelope.provenance.contentHash,
+      };
+    },
+  });
+}
+
 async function listScryfallOptions(
   input: ProviderOptionQueryInput,
   options: ScryfallProviderAdapterOptions,
@@ -260,14 +393,34 @@ async function listScryfallOptions(
   const optionKind = input.optionKind.trim().toLowerCase();
 
   if (optionKind === "cards" || optionKind === "card") {
-    const query = requireString(
-      input.parentValues?.query ?? input.parentValues?.q ?? input.parentValues?.parentValue,
-      "Scryfall card option queries require a query parent value.",
-    );
+    const setCode = stringValue(input.parentValues?.setCode ?? input.parentValues?.parentValue);
+    const query =
+      stringValue(input.parentValues?.query ?? input.parentValues?.q) ?? (setCode ? `set:${setCode}` : null);
+    if (!query) {
+      throw new Error("Scryfall card option queries require a query or setCode parent value.");
+    }
     const response = await fetchScryfallSearch(query, options);
     return {
       items: (response.data ?? []).map((card) => cardOptionItem(card)),
       nextCursor: response.next_page,
+    };
+  }
+
+  if (optionKind === "sets" || optionKind === "set") {
+    const response = await fetchScryfallSets(options);
+    return {
+      items: (response.data ?? []).map((set) => ({
+        value: requireString(set.code, "Scryfall set option is missing code."),
+        label: stringValue(set.name) ?? stringValue(set.code) ?? "",
+        metadata: optionalMetadata({
+          setId: set.id ?? null,
+          setCode: set.code ?? null,
+          setType: set.set_type ?? null,
+          releasedAt: set.released_at ?? null,
+          cardCount: set.card_count === undefined ? null : String(set.card_count),
+          digital: set.digital === undefined ? null : String(set.digital),
+        }),
+      })),
     };
   }
 
@@ -318,10 +471,30 @@ async function fetchScryfallSearch(
   return fetchJson(`${scryfallUrl("cards/search", options)}?q=${encodeURIComponent(query)}&unique=prints`, options);
 }
 
+async function fetchAllScryfallSearch(
+  query: string,
+  options: ScryfallProviderAdapterOptions,
+): Promise<readonly ScryfallCard[]> {
+  const cards: ScryfallCard[] = [];
+  let nextUrl: string | null = `${scryfallUrl("cards/search", options)}?q=${encodeURIComponent(query)}&unique=prints`;
+
+  while (nextUrl) {
+    const response: ScryfallListResponse<ScryfallCard> = await fetchJson(nextUrl, options);
+    cards.push(...(response.data ?? []));
+    nextUrl = response.has_more && response.next_page ? response.next_page : null;
+  }
+
+  return cards;
+}
+
 async function fetchScryfallBulkData(
   options: ScryfallProviderAdapterOptions,
 ): Promise<ScryfallListResponse<ScryfallBulkData>> {
   return fetchJson(scryfallUrl("bulk-data", options), options);
+}
+
+async function fetchScryfallSets(options: ScryfallProviderAdapterOptions): Promise<ScryfallListResponse<ScryfallSet>> {
+  return fetchJson(scryfallUrl("sets", options), options);
 }
 
 async function fetchJson<T>(url: string, options: ScryfallProviderAdapterOptions): Promise<T> {
@@ -384,6 +557,11 @@ function scryfallEnvelope(input: {
       contentHash: `sha256:${createHash("sha256").update(JSON.stringify(input.payload)).digest("hex")}`,
     },
   };
+}
+
+function sanitizeScryfallCard(card: ScryfallCard): ScryfallCard {
+  const { prices: _prices, ...catalogSafeCard } = card;
+  return catalogSafeCard;
 }
 
 function assertScryfallUnit(unitKey: string): void {
@@ -454,6 +632,8 @@ const scryfallValidationCard = {
   collector_number: "157",
   rarity: "uncommon",
   finishes: ["nonfoil", "foil"],
+  artist: "Pete Venters",
+  tcgplayer_id: 14240,
   prices: { usd: "0.53", usd_foil: "2.60" },
 };
 
@@ -463,6 +643,32 @@ const scryfallValidationResponses: Readonly<Record<string, unknown>> = {
     object: "list",
     has_more: false,
     data: [scryfallValidationCard],
+  },
+  "https://api.scryfall.com/cards/search?q=set%3ATSP&unique=prints": {
+    object: "list",
+    has_more: false,
+    data: [scryfallValidationCard],
+  },
+  "https://api.scryfall.com/cards/search?q=set%3Atsp&unique=prints": {
+    object: "list",
+    has_more: false,
+    data: [scryfallValidationCard],
+  },
+  "https://api.scryfall.com/sets": {
+    object: "list",
+    has_more: false,
+    data: [
+      {
+        object: "set",
+        id: "c1d109bc-ffd8-428f-8d7d-3f8d7e648046",
+        code: "tsp",
+        name: "Time Spiral",
+        set_type: "expansion",
+        released_at: "2006-10-06",
+        card_count: 301,
+        digital: false,
+      },
+    ],
   },
   "https://api.scryfall.com/bulk-data": {
     object: "list",

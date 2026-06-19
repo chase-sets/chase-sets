@@ -848,7 +848,6 @@ describe("ProviderAdapterRegistry", () => {
       new URL("../../ui/workbench-shell.tsx", import.meta.url),
       new URL("../../ui/integrations-surface-page.tsx", import.meta.url),
       new URL("../../ui/workbench-workspace-renderers.tsx", import.meta.url),
-      new URL("../provider-integration-profiles.ts", import.meta.url),
     ];
 
     for (const fileUrl of guardedFiles) {
@@ -856,7 +855,9 @@ describe("ProviderAdapterRegistry", () => {
       const source = readFileSync(file, "utf8");
 
       expect(source, file).not.toMatch(/mtgjson/i);
-      expect(source, file).not.toMatch(/SCRYFALL_MTG_|scryfall:mtg|createScryfallProviderAdapter/i);
+      expect(source, file).not.toMatch(
+        /SCRYFALL_VALIDATION|scryfall-validation|createScryfallValidationProviderAdapter/i,
+      );
     }
   });
 });

@@ -29,6 +29,8 @@ export type CatalogProviderOptionQueryTransports = Readonly<{
   listTcgplayerSetNames?: (input: { productLineId: number }) => Promise<readonly JsonValue[]>;
   listTcgplayerProducts?: (input: { setName: string }) => Promise<readonly JsonValue[]>;
   listTcgplayerSkus?: (input: { productId: number }) => Promise<readonly JsonValue[]>;
+  listScryfallSets?: () => Promise<readonly JsonValue[]>;
+  listScryfallCards?: (input: { setCode: string | null }) => Promise<readonly JsonValue[]>;
   listScrydexSets?: () => Promise<readonly JsonValue[]>;
 }>;
 
@@ -127,6 +129,12 @@ async function executeOptionQueryOperation(input: {
       throw new Error("TCGplayer SKU option queries require a Product parent value.");
     }
     return input.transports.listTcgplayerSkus({ productId });
+  }
+  if (input.operation === "scryfall-list-sets" && input.transports.listScryfallSets) {
+    return input.transports.listScryfallSets();
+  }
+  if (input.operation === "scryfall-list-cards" && input.transports.listScryfallCards) {
+    return input.transports.listScryfallCards({ setCode: input.parentValue });
   }
   if (input.operation === "scrydex-list-sets" && input.transports.listScrydexSets) {
     return input.transports.listScrydexSets();
