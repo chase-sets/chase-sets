@@ -10,6 +10,8 @@ import {
   getCatalogProviderIntegrationProfileVersion,
   listCatalogProviderIntegrationProfiles,
   listCatalogProviderIntegrationProfileVersions,
+  mtgjsonMtgCardReferenceProviderProfile,
+  mtgjsonMtgSetReferenceProviderProfile,
   rollbackCatalogProviderIntegrationProfileVersion,
   validateCatalogProviderIntegrationProfileVersion,
   scryfallMtgCardPrintProviderProfile,
@@ -184,6 +186,47 @@ describe("catalog provider integration profiles", () => {
     });
   });
 
+  it("registers MTGJSON as active Magic set and card reference profiles", () => {
+    const profile = getCatalogProviderIntegrationProfile("MTGJSON");
+
+    expect(profile).toBe(mtgjsonMtgCardReferenceProviderProfile);
+    expect(profile).toMatchObject({
+      providerKey: "mtgjson",
+      status: "active",
+      capabilities: ["provider-option-query", "source-observation-import", "external-reference-extraction"],
+      supportedScopes: ["set-name", "product/card"],
+      optionQueries: [
+        expect.objectContaining({ queryKind: "sets", operation: "mtgjson-list-sets" }),
+        expect.objectContaining({ queryKind: "cards", operation: "mtgjson-list-cards" }),
+      ],
+      normalizedObservationMapping: { kind: "magic-card-print" },
+      connector: {
+        kind: "mtgjson-json",
+        acceptedEvidence: expect.arrayContaining(["mtgjson-uuid", "set-code", "scryfall-id"]),
+        excludedEvidence: ["price", "legality", "ruling", "deck", "format"],
+      },
+      externalReferenceExtractionRules: {
+        referenceTarget: "catalog-item-reference",
+        rules: [
+          expect.objectContaining({
+            providerKey: "scryfall",
+            target: "catalog-item-reference",
+            externalKeyPrefix: "card:",
+            valueKeys: ["identifiers.scryfallId"],
+          }),
+        ],
+      },
+    });
+    expect(mtgjsonMtgSetReferenceProviderProfile).toMatchObject({
+      providerKey: "mtgjson",
+      displayName: "MTGJSON Set Reference",
+      status: "active",
+      capabilities: ["source-observation-import"],
+      normalizedObservationMapping: { kind: "magic-set-reference" },
+      optionQueries: [],
+    });
+  });
+
   it("declares ordered duplicate-prevention identity rules in provider profiles", () => {
     expect(tcgdexPokemonTcgProviderProfile.duplicatePreventionMapping).toMatchObject({
       ambiguousCandidatePolicy: "block-promotion",
@@ -288,6 +331,8 @@ describe("catalog provider integration profiles", () => {
 
   it("lists active and planned providers through the same provider catalog", () => {
     expect(listCatalogProviderIntegrationProfiles().map((profile) => [profile.providerKey, profile.status])).toEqual([
+      ["mtgjson", "active"],
+      ["mtgjson", "active"],
       ["scryfall", "active"],
       ["scryfall", "active"],
       ["tcgdex", "active"],
@@ -299,11 +344,40 @@ describe("catalog provider integration profiles", () => {
     const versions = listCatalogProviderIntegrationProfileVersions();
 
     expect(versions.map((version) => [version.providerKey, version.profileVersion, version.lifecycle])).toEqual([
+      ["mtgjson", "2026.06.19", "active"],
+      ["mtgjson", "2026.06.19", "active"],
       ["scryfall", "2026.06.19", "active"],
       ["scryfall", "2026.06.19", "active"],
       ["tcgdex", "2026.06.03", "active"],
       ["tcgplayer", "2026.06.03", "test"],
     ]);
+    expect(getCatalogProviderIntegrationProfileVersion("mtgjson")).toMatchObject({
+      providerKey: "mtgjson",
+      profileKey: "mtg-card-reference-data",
+      profileVersion: "2026.06.19",
+      active: true,
+      sourceContract: {
+        repository: "chase-sets/chase-sets",
+        fixtureSetVersion: "mtgjson-mtg-card-reference-production-v1",
+      },
+      retirementPlan: null,
+      executableMappingContract: expect.objectContaining({
+        providerKey: "mtgjson",
+        profileKey: "mtg-card-reference-data",
+        profileVersion: "2026.06.19",
+        lifecycle: "active",
+        sourceObservation: expect.any(Object),
+      }),
+    });
+    expect(() => getActiveCatalogProviderIntegrationProfileVersion("MTGJSON")).toThrow(/multiple active profile units/);
+    expect(
+      getActiveCatalogProviderIntegrationProfileVersion("MTGJSON", {
+        ingestionUnitKey: "mtgjson:mtg:set:reference-data",
+      }),
+    ).toMatchObject({
+      providerKey: "mtgjson",
+      profileKey: "mtg-set-reference-data",
+    });
     expect(getCatalogProviderIntegrationProfileVersion("scryfall")).toMatchObject({
       providerKey: "scryfall",
       profileKey: "mtg-card-print-reference-data",

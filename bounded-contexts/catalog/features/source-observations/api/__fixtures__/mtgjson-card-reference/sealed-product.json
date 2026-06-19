@@ -1,0 +1,25 @@
+{
+  "kind": "single-card",
+  "meta": {
+    "date": "2026-06-05",
+    "version": "5.3.0+20260605"
+  },
+  "set": {
+    "code": "TSP",
+    "name": "Time Spiral",
+    "releaseDate": "2006-10-06",
+    "totalSetSize": 301,
+    "type": "expansion"
+  },
+  "card": {
+    "uuid": "mtgjson-tsp-booster-pack-reference",
+    "name": "Time Spiral Booster Pack",
+    "number": "sealed-001",
+    "rarity": "common",
+    "layout": "sealed-reference",
+    "identifiers": {
+      "scryfallId": "sealed-fixture-0001"
+    }
+  },
+  "sourceUrl": "https://mtgjson.com/api/v5/TSP.json"
+}

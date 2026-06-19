@@ -1,0 +1,15 @@
+{
+  "kind": "set-reference",
+  "meta": {
+    "date": "2026-06-05",
+    "version": "5.3.0+20260605"
+  },
+  "set": {
+    "code": "TSPX",
+    "name": "Time Spiral Unknown Option",
+    "releaseDate": "2006-10-06",
+    "totalSetSize": 1,
+    "type": "provider-new-set-type"
+  },
+  "sourceUrl": "https://mtgjson.com/api/v5/TSPX.json"
+}

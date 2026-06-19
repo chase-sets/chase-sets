@@ -206,6 +206,15 @@ describe("source observation runtime: provider integration jobs", () => {
 
     expect(providers).toEqual([
       expect.objectContaining({
+        providerKey: "mtgjson",
+        value: "mtgjson",
+        label: "MTGJSON",
+        metadata: expect.objectContaining({
+          status: "active",
+          connectorKind: "mtgjson-json",
+        }),
+      }),
+      expect.objectContaining({
         providerKey: "scryfall",
         value: "scryfall",
         label: "Scryfall",
@@ -320,6 +329,53 @@ describe("source observation runtime: provider integration jobs", () => {
         }),
       }),
     ]);
+  });
+
+  it("lists MTGJSON set and card options through the public JSON adapter", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = mtgjsonFetch() as typeof globalThis.fetch;
+    const services = createSourceObservationRuntime(
+      { db: {} } as CatalogRuntimeDeps,
+      {} as CatalogItemServices,
+      {} as ReferenceDataServices,
+    );
+
+    try {
+      const sets = await services.listIntegrationOptions({
+        providerKey: "mtgjson",
+        queryKind: "sets",
+      });
+      const cards = await services.listIntegrationOptions({
+        providerKey: "mtgjson",
+        queryKind: "cards",
+        parentValue: "TSP",
+      });
+
+      expect(sets).toEqual([
+        expect.objectContaining({
+          providerKey: "mtgjson",
+          queryKind: "sets",
+          value: "TSP",
+          label: "Time Spiral",
+          metadata: expect.objectContaining({ totalSetSize: 301, mtgjsonVersion: "5.3.0+20260605" }),
+        }),
+      ]);
+      expect(cards).toEqual([
+        expect.objectContaining({
+          providerKey: "mtgjson",
+          queryKind: "cards",
+          value: "13fd9d47-9aa7-5f7c-8f47-fury-sliver",
+          label: "Fury Sliver #157",
+          parentValue: "TSP",
+          metadata: expect.objectContaining({
+            collectorNumber: "157",
+            scryfallId: "0000579f-7b35-4ed3-b44c-db2a538066fe",
+          }),
+        }),
+      ]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   it("imports TCGplayer set scopes as provider-product source observations", async () => {
@@ -574,6 +630,66 @@ describe("source observation runtime: provider integration jobs", () => {
     expect(harness.appendedSourceEvents).toHaveLength(2);
   });
 
+  it.each([
+    {
+      profileKey: "mtg-card-reference-data",
+      ingestionUnitKey: "mtgjson:mtg:single-card:reference-data",
+      observationId: "mtgjson_card_en_13fd9d47-9aa7-5f7c-8f47-fury-sliver",
+      externalKey: "card:13fd9d47-9aa7-5f7c-8f47-fury-sliver",
+      normalizedKind: "magic-card-print",
+    },
+    {
+      profileKey: "mtg-set-reference-data",
+      ingestionUnitKey: "mtgjson:mtg:set:reference-data",
+      observationId: "mtgjson_set_en_TSP",
+      externalKey: "set:TSP",
+      normalizedKind: "magic-set-reference",
+    },
+  ])(
+    "processes queued MTGJSON $profileKey imports through the durable integration worker",
+    async ({ profileKey, ingestionUnitKey, observationId, externalKey, normalizedKind }) => {
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = mtgjsonFetch() as typeof globalThis.fetch;
+      const harness = createIntegrationJobClaimHandoffHarness({
+        scope: { provider: "mtgjson", profileKey, ingestionUnitKey, setId: "TSP" },
+        renewSucceeds: true,
+      });
+      const services = createSourceObservationRuntime(harness.deps, {} as CatalogItemServices, harness.referenceData);
+
+      try {
+        await expect(
+          services.processNextIntegrationJob({
+            claimOwnerId: "worker-1",
+            claimTtlMs: 120_000,
+          }),
+        ).resolves.toBe(1);
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+
+      expect(harness.job.status).toBe("completed");
+      expect(harness.job.result).toMatchObject({
+        requested: 1,
+        imported: 1,
+        observed: 1,
+        failed: 0,
+      });
+      expect(harness.appendedSourceEvents).toHaveLength(1);
+      expect(harness.appendedSourceEvents[0]?.payload).toMatchObject({
+        observationId,
+        providerKey: "mtgjson",
+        externalKey,
+        sourceProfileKey: profileKey,
+        sourceProfileVersion: "2026.06.19",
+        normalized: expect.objectContaining({
+          kind: normalizedKind,
+          setCode: "TSP",
+          setName: "Time Spiral",
+        }),
+      });
+    },
+  );
+
   it("processes queued imports with the snapshotted profile version after a newer version is activated", async () => {
     const harness = createIntegrationJobClaimHandoffHarness({
       profileSnapshot: tcgdexProfileSnapshot("2026.06.03"),
@@ -721,6 +837,20 @@ describe("source observation runtime: provider integration jobs", () => {
       credentialReadiness: "not-required",
       credentialReadinessState: "not-required",
     });
+    expect(unitsByKey["mtgjson:mtg:single-card:reference-data"]).toMatchObject({
+      semanticReadiness: "ready",
+      credentialReadiness: "not-required",
+      credentialReadinessState: "not-required",
+      transportReadiness: "ready",
+      dryRunStatus: "completed",
+    });
+    expect(unitsByKey["mtgjson:mtg:set:reference-data"]).toMatchObject({
+      semanticReadiness: "ready",
+      credentialReadiness: "not-required",
+      credentialReadinessState: "not-required",
+      transportReadiness: "ready",
+      dryRunStatus: "completed",
+    });
     expect(unitsByKey["scryfall:mtg:single-card:reference-data"]).toMatchObject({
       semanticReadiness: "ready",
       credentialReadiness: "not-required",
@@ -743,3 +873,55 @@ describe("source observation runtime: provider integration jobs", () => {
     });
   });
 });
+
+function mtgjsonFetch(): typeof globalThis.fetch {
+  const responses: Record<string, unknown> = {
+    "https://mtgjson.com/api/v5/SetList.json": {
+      meta: { date: "2026-06-05", version: "5.3.0+20260605" },
+      data: [
+        {
+          code: "TSP",
+          name: "Time Spiral",
+          releaseDate: "2006-10-06",
+          totalSetSize: 301,
+          type: "expansion",
+        },
+      ],
+    },
+    "https://mtgjson.com/api/v5/TSP.json": {
+      meta: { date: "2026-06-05", version: "5.3.0+20260605" },
+      data: {
+        code: "TSP",
+        name: "Time Spiral",
+        releaseDate: "2006-10-06",
+        totalSetSize: 301,
+        type: "expansion",
+        cards: [
+          {
+            uuid: "13fd9d47-9aa7-5f7c-8f47-fury-sliver",
+            name: "Fury Sliver",
+            number: "157",
+            rarity: "uncommon",
+            layout: "normal",
+            identifiers: {
+              scryfallId: "0000579f-7b35-4ed3-b44c-db2a538066fe",
+              scryfallOracleId: "44623693-51d6-49ad-8cd7-140505caf02f",
+            },
+          },
+        ],
+      },
+    },
+  };
+
+  return (async (input: RequestInfo | URL) => {
+    const body = responses[String(input)];
+    if (!body) {
+      return new Response(null, { status: 404 });
+    }
+
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as typeof globalThis.fetch;
+}

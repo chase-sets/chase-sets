@@ -840,7 +840,7 @@ describe("ProviderAdapterRegistry", () => {
     expect(JSON.stringify(conflictEvidence)).not.toMatch(/adapter.*wins|provider.*decides/i);
   });
 
-  it("keeps MTGJSON and Scryfall validation out of core runtime, routes, Admin branches, and raw JSON paths", () => {
+  it("keeps MTGJSON and Scryfall validation adapters out of core runtime, routes, Admin branches, and raw JSON paths", () => {
     const guardedFiles = [
       new URL("../runtime.ts", import.meta.url),
       new URL("../route.ts", import.meta.url),
@@ -854,7 +854,7 @@ describe("ProviderAdapterRegistry", () => {
       const file = fileURLToPath(fileUrl);
       const source = readFileSync(file, "utf8");
 
-      expect(source, file).not.toMatch(/mtgjson/i);
+      expect(source, file).not.toMatch(/MTGJSON_VALIDATION|mtgjson-validation|createMtgjsonValidationProviderAdapter/i);
       expect(source, file).not.toMatch(
         /SCRYFALL_VALIDATION|scryfall-validation|createScryfallValidationProviderAdapter/i,
       );

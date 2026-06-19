@@ -1,0 +1,14 @@
+{
+  "kind": "set-reference",
+  "meta": {
+    "date": "2026-06-05",
+    "version": "5.3.0+20260605"
+  },
+  "set": {
+    "code": "TSP",
+    "name": "Time Spiral",
+    "releaseDate": "2006-10-06",
+    "type": "expansion"
+  },
+  "sourceUrl": "https://mtgjson.com/api/v5/TSP.json"
+}

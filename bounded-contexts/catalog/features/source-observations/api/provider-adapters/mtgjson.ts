@@ -29,6 +29,7 @@ export const MTGJSON_MTG_SET_REFERENCE_DATA_UNIT_KEY = defineCatalogIntegrationU
   ingestionPurpose: "reference-data",
 });
 
+export const MTGJSON_PRODUCTION_PROFILE_VERSION = "2026.06.19";
 export const MTGJSON_VALIDATION_PROFILE_VERSION = "mtgjson-validation-2026.06.08";
 
 export type MtgjsonProviderPayload =
@@ -37,17 +38,20 @@ export type MtgjsonProviderPayload =
       meta: MtgjsonMeta;
       set: MtgjsonSetData;
       card: MtgjsonCardData;
+      sourceUrl: string;
     }>
   | Readonly<{
       kind: "set-reference";
       meta: MtgjsonMeta;
       set: MtgjsonSetData;
+      sourceUrl: string;
     }>;
 
 export type MtgjsonProviderAdapterOptions = Readonly<{
   fetch?: typeof globalThis.fetch;
   baseUrl?: string;
   now?: () => Date;
+  profileVersion?: string;
 }>;
 
 type MtgjsonMeta = Readonly<{
@@ -101,6 +105,7 @@ export function createMtgjsonProviderAdapter(
       supportsPayloadFetch: true,
     },
     async listIntegrationUnits() {
+      const profileVersion = options.profileVersion ?? MTGJSON_PRODUCTION_PROFILE_VERSION;
       return [
         {
           unitKey: MTGJSON_MTG_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
@@ -109,7 +114,7 @@ export function createMtgjsonProviderAdapter(
           productForm: "single-card",
           ingestionPurpose: "reference-data",
           displayName: "MTGJSON MTG single-card reference data",
-          profileVersion: MTGJSON_VALIDATION_PROFILE_VERSION,
+          profileVersion,
         },
         {
           unitKey: MTGJSON_MTG_SET_REFERENCE_DATA_UNIT_KEY,
@@ -118,7 +123,7 @@ export function createMtgjsonProviderAdapter(
           productForm: "set",
           ingestionPurpose: "reference-data",
           displayName: "MTGJSON MTG set reference data",
-          profileVersion: MTGJSON_VALIDATION_PROFILE_VERSION,
+          profileVersion,
         },
       ];
     },
@@ -147,7 +152,16 @@ export function createMtgjsonProviderAdapter(
       const uuid = stringValue(scope.values.uuid);
 
       if (!cardName && !uuid) {
-        throw new Error("MTGJSON single-card import planning requires cardName or uuid.");
+        return {
+          unitKey: scope.unitKey,
+          planKey: `mtgjson:cards:set:${setCode.toUpperCase()}`,
+          scope: {
+            unitKey: scope.unitKey,
+            scopeKey: "set",
+            values: { ...scope.values, setCode },
+          },
+          transportSteps: ["Fetch MTGJSON set file", "Select all card payloads", "Attach card reference provenance"],
+        };
       }
 
       return {
@@ -162,10 +176,11 @@ export function createMtgjsonProviderAdapter(
         transportSteps: ["Fetch MTGJSON set file", "Select card payload", "Attach card reference provenance"],
       };
     },
-    async *fetchPayloads(plan) {
+    async *fetchPayloads(plan, fetchOptions) {
       assertMtgjsonUnit(plan.unitKey);
       const fetchedAt = (options.now ?? (() => new Date()))().toISOString();
       const setCode = requireString(plan.scope.values.setCode, "MTGJSON payload fetch requires setCode.");
+      const sourceUrl = mtgjsonSetUrl(setCode, options);
       const response = await fetchMtgjsonSet(setCode, options);
       const set = response.data;
 
@@ -177,11 +192,39 @@ export function createMtgjsonProviderAdapter(
         yield mtgjsonEnvelope({
           unitKey: plan.unitKey,
           externalKey: `set:${normalizeSetCode(set.code ?? setCode)}`,
-          payload: { kind: "set-reference", meta: response.meta ?? {}, set },
-          sourceUrl: mtgjsonSetUrl(setCode, options),
+          payload: { kind: "set-reference", meta: response.meta ?? {}, set, sourceUrl },
+          sourceUrl,
           sourceUpdatedAt: response.meta?.date ?? set.releaseDate,
           fetchedAt,
         });
+        await fetchOptions?.onProgress?.({
+          phase: "fetching",
+          completed: 1,
+          total: 1,
+          currentLabel: set.name ?? normalizeSetCode(set.code ?? setCode),
+        });
+        return;
+      }
+
+      if (plan.scope.scopeKey === "set") {
+        const cards = set.cards ?? [];
+        for (let index = 0; index < cards.length; index += 1) {
+          const card = cards[index] ?? {};
+          yield mtgjsonEnvelope({
+            unitKey: plan.unitKey,
+            externalKey: `card:${card.uuid ?? `${normalizeSetCode(set.code ?? setCode)}:${card.number ?? card.name ?? "unknown"}`}`,
+            payload: { kind: "single-card", meta: response.meta ?? {}, set, card, sourceUrl },
+            sourceUrl,
+            sourceUpdatedAt: response.meta?.date ?? set.releaseDate,
+            fetchedAt,
+          });
+          await fetchOptions?.onProgress?.({
+            phase: "fetching",
+            completed: index + 1,
+            total: cards.length,
+            currentLabel: card.name ?? card.uuid ?? null,
+          });
+        }
         return;
       }
 
@@ -193,36 +236,38 @@ export function createMtgjsonProviderAdapter(
       yield mtgjsonEnvelope({
         unitKey: plan.unitKey,
         externalKey: `card:${card.uuid ?? `${normalizeSetCode(set.code ?? setCode)}:${card.number ?? card.name ?? "unknown"}`}`,
-        payload: { kind: "single-card", meta: response.meta ?? {}, set, card },
-        sourceUrl: mtgjsonSetUrl(setCode, options),
+        payload: { kind: "single-card", meta: response.meta ?? {}, set, card, sourceUrl },
+        sourceUrl,
         sourceUpdatedAt: response.meta?.date ?? set.releaseDate,
         fetchedAt,
       });
+      await fetchOptions?.onProgress?.({
+        phase: "fetching",
+        completed: 1,
+        total: 1,
+        currentLabel: card.name ?? card.uuid ?? null,
+      });
     },
     async getCredentialReadiness() {
-      return [
+      return mtgjsonUnitKeys().map((unitKey) =>
         createCatalogProviderCredentialReadiness({
           providerKey: "mtgjson",
-          unitKey: MTGJSON_MTG_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
+          unitKey,
           requirement: "not-required",
           sourceKind: "none",
           state: "not-required",
           message: t("catalog.features.sourceObservations.api.providerAdapters.mtgjson.credential.not.required"),
           evidence: { credentialRequirement: "not-required", publicJson: true },
         }),
-      ];
+      );
     },
     async getTransportDiagnostics() {
-      return [
-        {
-          code: "mtgjson-public-json-transport-configured",
-          severity: "info",
-          message: t(
-            "catalog.features.sourceObservations.api.providerAdapters.mtgjson.public.json.transport.configured",
-          ),
-          unitKey: MTGJSON_MTG_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
-        },
-      ];
+      return mtgjsonUnitKeys().map((unitKey) => ({
+        code: "mtgjson-public-json-transport-configured",
+        severity: "info",
+        message: t("catalog.features.sourceObservations.api.providerAdapters.mtgjson.public.json.transport.configured"),
+        unitKey,
+      }));
     },
   };
 }
@@ -231,6 +276,7 @@ export function createMtgjsonValidationProviderAdapter(): ProviderAdapter<Mtgjso
   return createMtgjsonProviderAdapter({
     fetch: mtgjsonValidationFetch,
     now: () => new Date("2026-06-08T00:00:00.000Z"),
+    profileVersion: MTGJSON_VALIDATION_PROFILE_VERSION,
   });
 }
 
@@ -279,6 +325,50 @@ export async function runMtgjsonSourceObservationValidationDryRun(
   });
 }
 
+export async function runMtgjsonSetReferenceValidationDryRun(
+  adapter: ProviderAdapter<MtgjsonProviderPayload> = createMtgjsonValidationProviderAdapter(),
+): Promise<CatalogIntegrationDryRunResult> {
+  const plan = await adapter.planImport({
+    unitKey: MTGJSON_MTG_SET_REFERENCE_DATA_UNIT_KEY,
+    scopeKey: "set",
+    values: { setCode: "TSP" },
+  });
+  const payloads: ProviderPayloadEnvelope<MtgjsonProviderPayload>[] = [];
+
+  for await (const payload of adapter.fetchPayloads(plan)) {
+    payloads.push(payload);
+  }
+
+  return runCatalogIntegrationDryRun({
+    unitKey: MTGJSON_MTG_SET_REFERENCE_DATA_UNIT_KEY,
+    profileVersion: MTGJSON_VALIDATION_PROFILE_VERSION,
+    payloads,
+    normalize: (envelope) => {
+      if (envelope.payload.kind !== "set-reference") {
+        throw new Error("MTGJSON set-reference dry run received a non-set payload.");
+      }
+
+      return {
+        unitKey: envelope.unitKey,
+        providerKey: envelope.providerKey,
+        externalKey: envelope.externalKey,
+        profileVersion: MTGJSON_VALIDATION_PROFILE_VERSION,
+        normalizedFacts: {
+          name: stringValue(envelope.payload.set.name) ?? "",
+          setCode: stringValue(envelope.payload.set.code) ?? "",
+          setName: stringValue(envelope.payload.set.name) ?? "",
+          releaseDate: stringValue(envelope.payload.set.releaseDate) ?? "",
+          totalSetSize: stringValue(envelope.payload.set.totalSetSize) ?? "",
+          mtgjsonVersion: stringValue(envelope.payload.meta.version) ?? "",
+        },
+        sourceUrl: envelope.provenance.sourceUrl,
+        sourceUpdatedAt: envelope.provenance.sourceUpdatedAt,
+        sourceHash: envelope.provenance.contentHash,
+      };
+    },
+  });
+}
+
 async function listMtgjsonOptions(
   input: ProviderOptionQueryInput,
   options: MtgjsonProviderAdapterOptions,
@@ -295,6 +385,7 @@ async function listMtgjsonOptions(
         metadata: optionalMetadata({
           releaseDate: item.releaseDate ?? null,
           totalSetSize: item.totalSetSize === undefined ? null : String(item.totalSetSize),
+          setCode: item.code ?? null,
           type: item.type ?? null,
           mtgjsonVersion: response.meta?.version ?? null,
         }),
@@ -314,8 +405,11 @@ async function listMtgjsonOptions(
         label: [card.name, card.number].filter((value) => stringValue(value)).join(" #"),
         parentValue: normalizeSetCode(setCode),
         metadata: optionalMetadata({
+          collectorNumber: card.number ?? null,
           rarity: card.rarity ?? null,
           layout: card.layout ?? null,
+          setCode,
+          setName: response.data?.name ?? null,
           scryfallId: card.identifiers?.scryfallId ?? null,
         }),
       })),
@@ -398,6 +492,13 @@ function assertMtgjsonUnit(unitKey: string): void {
   ) {
     throw new Error(`MTGJSON adapter does not support Catalog integration unit '${unitKey}'.`);
   }
+}
+
+function mtgjsonUnitKeys(): readonly [
+  typeof MTGJSON_MTG_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
+  typeof MTGJSON_MTG_SET_REFERENCE_DATA_UNIT_KEY,
+] {
+  return [MTGJSON_MTG_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY, MTGJSON_MTG_SET_REFERENCE_DATA_UNIT_KEY];
 }
 
 function optionalMetadata(values: Readonly<Record<string, string | null>>): ProviderOptionItem["metadata"] {

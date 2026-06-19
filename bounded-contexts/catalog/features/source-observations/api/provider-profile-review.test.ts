@@ -25,6 +25,8 @@ describe("Catalog provider profile review", () => {
     const reviews = await listCatalogProviderProfileVersionReviews(profileStore());
 
     expect(reviews.map((review) => [review.providerKey, review.profileVersion, review.validation.status])).toEqual([
+      ["mtgjson", "2026.06.19", "valid"],
+      ["mtgjson", "2026.06.19", "valid"],
       ["scryfall", "2026.06.19", "valid"],
       ["scryfall", "2026.06.19", "valid"],
       ["tcgdex", "2026.06.03", "valid"],
@@ -34,6 +36,16 @@ describe("Catalog provider profile review", () => {
       connectorKind: "scryfall-json",
       sourceContract: {
         fixtureSetVersion: "scryfall-mtg-card-print-production-v1",
+      },
+      fixtures: {
+        liveProviderCallsAllowed: false,
+      },
+      hasExecutableMappingContract: true,
+    });
+    expect(reviews.find((review) => review.profileKey === "mtg-card-reference-data")).toMatchObject({
+      connectorKind: "mtgjson-json",
+      sourceContract: {
+        fixtureSetVersion: "mtgjson-mtg-card-reference-production-v1",
       },
       fixtures: {
         liveProviderCallsAllowed: false,

@@ -16,6 +16,10 @@ import {
   scryfallMtgCardPrintSourceObservationMappingContract,
   scryfallMtgImageEvidenceSourceObservationMappingContract,
 } from "./scryfall-executable-mapping-contract";
+import {
+  mtgjsonMtgCardReferenceSourceObservationMappingContract,
+  mtgjsonMtgSetReferenceSourceObservationMappingContract,
+} from "./mtgjson-executable-mapping-contract";
 
 describe("provider Source Observation normalizer", () => {
   it("builds a provider-product Source Observation from mapping config", () => {
@@ -198,6 +202,64 @@ describe("provider Source Observation normalizer", () => {
     });
   });
 
+  it("builds production MTGJSON card and set reference observations from wrapped adapter payloads", () => {
+    const cardPayload = mtgjsonWrappedCardPayload();
+    const setResult = normalizeCatalogProviderSourceObservation({
+      contract: mtgjsonMtgSetReferenceSourceObservationMappingContract,
+      payload: {
+        kind: "set-reference",
+        meta: cardPayload.meta,
+        set: cardPayload.set,
+        sourceUrl: cardPayload.sourceUrl,
+      },
+      observedAt: "2026-06-19T00:00:00.000Z",
+    });
+    const cardResult = normalizeCatalogProviderSourceObservation({
+      contract: mtgjsonMtgCardReferenceSourceObservationMappingContract,
+      payload: cardPayload,
+      observedAt: "2026-06-19T00:00:00.000Z",
+    });
+
+    expect(setResult.diagnostics).toEqual([]);
+    expect(setResult.observation).toMatchObject({
+      observationId: "mtgjson_set_en_TSP",
+      providerKey: "mtgjson",
+      externalKey: "set:TSP",
+      sourceUrl: "https://mtgjson.com/api/v5/TSP.json",
+      sourceProfileKey: "mtg-set-reference-data",
+      sourceProfileVersion: "2026.06.19",
+      normalized: {
+        kind: "magic-set-reference",
+        tcg: "magic",
+        name: "Time Spiral",
+        setCode: "TSP",
+        setName: "Time Spiral",
+        cardCount: 301,
+        productLineName: "Magic: The Gathering",
+      },
+    });
+    expect(cardResult.diagnostics).toEqual([]);
+    expect(cardResult.observation).toMatchObject({
+      observationId: "mtgjson_card_en_13fd9d47-9aa7-5f7c-8f47-fury-sliver",
+      providerKey: "mtgjson",
+      externalKey: "card:13fd9d47-9aa7-5f7c-8f47-fury-sliver",
+      sourceProfileKey: "mtg-card-reference-data",
+      sourceProfileVersion: "2026.06.19",
+      normalized: {
+        kind: "magic-card-print",
+        tcg: "magic",
+        name: "Fury Sliver",
+        setCode: "TSP",
+        setName: "Time Spiral",
+        cardNumber: "157",
+        oracleId: "44623693-51d6-49ad-8cd7-140505caf02f",
+        externalCatalogItemReferences: [
+          { providerKey: "scryfall", externalKey: "card:0000579f-7b35-4ed3-b44c-db2a538066fe" },
+        ],
+      },
+    });
+  });
+
   it("blocks incomplete magic-card-print observations with actionable normalized field diagnostics", () => {
     const contract: CatalogProviderSourceObservationMappingContract = {
       ...scrydexScryfallCardSourceObservationMappingContract,
@@ -258,6 +320,35 @@ function scryfallWrappedCardPayload(): JsonObject {
       set_id: "c1d109bc-ffd8-428f-8d7d-3f8d7e648046",
       artist: "Pete Venters",
     },
+  };
+}
+
+function mtgjsonWrappedCardPayload(): JsonObject {
+  return {
+    kind: "single-card",
+    meta: {
+      date: "2026-06-05",
+      version: "5.3.0+20260605",
+    },
+    set: {
+      code: "TSP",
+      name: "Time Spiral",
+      releaseDate: "2006-10-06",
+      totalSetSize: 301,
+      type: "expansion",
+    },
+    card: {
+      uuid: "13fd9d47-9aa7-5f7c-8f47-fury-sliver",
+      name: "Fury Sliver",
+      number: "157",
+      rarity: "uncommon",
+      layout: "normal",
+      identifiers: {
+        scryfallId: "0000579f-7b35-4ed3-b44c-db2a538066fe",
+        scryfallOracleId: "44623693-51d6-49ad-8cd7-140505caf02f",
+      },
+    },
+    sourceUrl: "https://mtgjson.com/api/v5/TSP.json",
   };
 }
 
