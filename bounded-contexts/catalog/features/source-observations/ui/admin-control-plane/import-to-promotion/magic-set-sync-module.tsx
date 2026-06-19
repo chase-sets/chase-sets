@@ -14,6 +14,7 @@ import {
   WorkbenchText,
   type DataColumn,
 } from "@chase-sets/design-system";
+import { t } from "@chase-sets/localization";
 import type {
   CatalogPrimaryWorkbenchActionReadModel,
   CatalogPrimaryWorkbenchMagicSetSyncProviderReadModel,
@@ -39,10 +40,10 @@ export function CatalogMagicSetSyncModule({
         <WorkbenchActionRow align="between" stackOnMobile>
           <WorkbenchStack gap="sm">
             <WorkbenchText tone="foreground" weight="semibold">
-              Magic set sync
+              {t("catalog.features.sourceObservations.ui.primaryWorkbench.magicSetSync.title")}
             </WorkbenchText>
             <WorkbenchText size="sm" tone="secondary">
-              Select one Magic set, then sync MTGJSON, Scryfall, and TCGplayer through this workbench.
+              {t("catalog.features.sourceObservations.ui.primaryWorkbench.magicSetSync.description")}
             </WorkbenchText>
           </WorkbenchStack>
           <Badge tone={syncStatusTone(sync.status)}>{sync.status}</Badge>
@@ -51,12 +52,18 @@ export function CatalogMagicSetSyncModule({
         <MagicSetSelectionForm readModel={readModel} />
 
         <WorkbenchActionRow align="start" stackOnMobile>
-          <WorkbenchDataCell title={String(sync.summary.changedObservationCount)} description="Changed observations" />
+          <WorkbenchDataCell
+            title={String(sync.summary.changedObservationCount)}
+            description={t("catalog.features.sourceObservations.ui.primaryWorkbench.magicSetSync.changed")}
+          />
           <WorkbenchDataCell
             title={String(sync.summary.promotedObservationCount)}
-            description="Promoted observations"
+            description={t("catalog.features.sourceObservations.ui.primaryWorkbench.magicSetSync.promoted")}
           />
-          <WorkbenchDataCell title={String(sync.summary.activeImportCount)} description="Active imports" />
+          <WorkbenchDataCell
+            title={String(sync.summary.activeImportCount)}
+            description={t("catalog.features.sourceObservations.ui.primaryWorkbench.magicSetSync.activeImports")}
+          />
         </WorkbenchActionRow>
 
         <DataTable rows={[...sync.providers]} columns={[...magicSetProviderColumns(readModel)]} density="compact" />
@@ -81,8 +88,8 @@ function MagicSetSelectionForm({ readModel }: { readModel: CatalogPrimaryWorkben
       <WorkbenchFormGrid columns="three">
         <NativeSelect
           name="expansionId"
-          label="Magic set"
-          placeholder="Select a Magic set"
+          label={t("catalog.features.sourceObservations.ui.primaryWorkbench.magicSetSync.set.label")}
+          placeholder={t("catalog.features.sourceObservations.ui.primaryWorkbench.magicSetSync.set.placeholder")}
           items={sync.setOptions.map((option) => ({
             value: option.setId,
             label: option.label,
@@ -94,10 +101,12 @@ function MagicSetSelectionForm({ readModel }: { readModel: CatalogPrimaryWorkben
       </WorkbenchFormGrid>
       <WorkbenchActionRow align="between" stackOnMobile>
         <WorkbenchText size="xs" tone="secondary">
-          Current set: {sync.selectedSet.label}
+          {t("catalog.features.sourceObservations.ui.primaryWorkbench.magicSetSync.currentSet", {
+            setLabel: sync.selectedSet.label,
+          })}
         </WorkbenchText>
         <Button type="submit" leadingIcon="check" disabled={sync.setOptions.length === 0}>
-          Select Magic set
+          {t("catalog.features.sourceObservations.ui.primaryWorkbench.magicSetSync.set.submit")}
         </Button>
       </WorkbenchActionRow>
     </WorkbenchForm>
@@ -110,43 +119,61 @@ function magicSetProviderColumns(
   return [
     {
       key: "provider",
-      header: "Provider",
+      header: t("catalog.features.sourceObservations.ui.primaryWorkbench.magicSetSync.provider"),
       cell: (row) => (
         <WorkbenchDataCell
           title={row.displayName}
-          description={row.unitKey ?? "No active unit"}
-          detail={row.profileVersion ? `profile ${row.profileVersion}` : "No active profile"}
+          description={
+            row.unitKey ?? t("catalog.features.sourceObservations.ui.primaryWorkbench.magicSetSync.noActiveUnit")
+          }
+          detail={
+            row.profileVersion
+              ? t("catalog.features.sourceObservations.ui.primaryWorkbench.magicSetSync.profileVersion", {
+                  profileVersion: row.profileVersion,
+                })
+              : t("catalog.features.sourceObservations.ui.primaryWorkbench.magicSetSync.noActiveProfile")
+          }
         />
       ),
     },
     {
       key: "state",
-      header: "State",
+      header: t("catalog.features.sourceObservations.ui.primaryWorkbench.magicSetSync.state"),
       cell: (row) => (
         <WorkbenchStack gap="sm">
           <Badge tone={providerStateTone(row.state)}>{row.state}</Badge>
           <WorkbenchText size="xs" tone="secondary">
-            {row.counts.observed} observed · {row.counts.changed} changed · {row.counts.promoted} promoted
+            {t("catalog.features.sourceObservations.ui.primaryWorkbench.magicSetSync.counts", {
+              observed: row.counts.observed,
+              changed: row.counts.changed,
+              promoted: row.counts.promoted,
+            })}
           </WorkbenchText>
         </WorkbenchStack>
       ),
     },
     {
       key: "actions",
-      header: "Actions",
+      header: t("catalog.features.sourceObservations.ui.primaryWorkbench.magicSetSync.actions"),
       cell: (row) => (
         <WorkbenchActionRow align="start" stackOnMobile>
           <LinkButton size="sm" tone="secondary" leadingIcon="externalLink" href={row.currentWorkbenchHref}>
-            Open provider set
+            {t("catalog.features.sourceObservations.ui.primaryWorkbench.magicSetSync.openProviderSet")}
           </LinkButton>
           <MagicSetCommandButton readModel={readModel} row={row} action={row.actions.import}>
-            Sync {row.displayName}
+            {t("catalog.features.sourceObservations.ui.primaryWorkbench.magicSetSync.syncProvider", {
+              provider: row.displayName,
+            })}
           </MagicSetCommandButton>
           <MagicSetCommandButton readModel={readModel} row={row} action={row.actions.previewPromotion}>
-            Preview {row.displayName}
+            {t("catalog.features.sourceObservations.ui.primaryWorkbench.magicSetSync.previewProvider", {
+              provider: row.displayName,
+            })}
           </MagicSetCommandButton>
           <MagicSetCommandButton readModel={readModel} row={row} action={row.actions.reapply}>
-            Reapply {row.displayName}
+            {t("catalog.features.sourceObservations.ui.primaryWorkbench.magicSetSync.reapplyProvider", {
+              provider: row.displayName,
+            })}
           </MagicSetCommandButton>
         </WorkbenchActionRow>
       ),
