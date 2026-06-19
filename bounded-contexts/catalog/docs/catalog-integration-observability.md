@@ -108,6 +108,23 @@ Admin Control Plane statuses and production observability use the same concepts:
 
 The canonical diagnostic vocabulary remains [Catalog Integration Diagnostic Taxonomy](./catalog-integration-diagnostic-taxonomy.md). Read-model freshness budgets remain [Admin Control Plane Read-Model SLOs](./admin-control-plane-read-model-slos.md). First-slice provider transport reliability categories, blocker mapping, proof criteria, and performance budgets are documented in [Catalog Integration Provider Transport Budgets](./catalog-integration-provider-transport-budgets.md).
 
+## Magic Launch Monitor
+
+Staging UAT and production launch for MTGJSON, Scryfall, and TCGplayer must monitor the same bounded signals in Admin and Grafana:
+
+| Launch signal | Admin evidence | Telemetry or metric evidence |
+| --- | --- | --- |
+| Provider availability | Integration health provider readiness, credential readiness, transport readiness, and latest provider diagnostic by provider/unit. | Provider option query result labels, adapter diagnostics, request/worker metrics, and `catalog_control_plane.blocker_hit` with `blocker_category="provider-transport"` when transport blocks a workflow. |
+| Option-query freshness and cache-only/stale state | Import scope option selectors show cache status, stale window, cache-only state, degraded state, and unavailable empty-cache state. | `chase_sets_catalog_integration_option_queries_total` labels `cache_status`, `cache_source`, `result`, `degraded`, `cache_only`, and `force_refresh`. |
+| Job lag | Import jobs and bulk review job cards show queued/running age, progress, active-job conflicts, stale job state, and terminal status. | `chase_sets_catalog_integration_jobs_total`, worker processed counts, worker duration, and projection freshness metrics. |
+| Failure rate | Failed import, reapply, promote, reject, and defer outcomes are visible in job cards and health triage. | `chase_sets_catalog_integration_jobs_total` by `job_kind` and `result`, plus control-plane events `import_failed`, `promotion_failed`, and `blocker_hit`. |
+| Blocked promotions | Promotion preview shows blocked counts and blocker categories before writes. | Control-plane events with `promotion_result="blocked"` and blocker categories `promotion-conflict`, `readiness`, `rollout`, or `stale-context`. |
+| Conflict counts | Conflict resolution workspace and Source Observation review show conflicting counts and evidence summaries. | Control-plane events with `promotion_result="conflicting"` and bounded promotion count buckets. |
+| Duplicate-prevention blocks | Source Observation review and dry-run duplicate-prevention preview show duplicate candidate counts and blocking rule. | Bounded control-plane promotion count buckets and reviewed dry-run evidence; do not export raw duplicate evidence lists as metric labels. |
+| Emergency-stop state | Integration health rollout controls summary shows `provider-api-emergency-stop` active for the intended provider scope only. | Rollout denial evidence with `metricKey="catalog.integration.rollout.provider_api_emergency_stop"` and `blocker_category="rollout"`; provider keys remain bounded labels. |
+
+Launch monitoring is passing only when the three providers are distinguishable by bounded provider key, no signal requires raw provider payloads or credentials to diagnose, and a single-provider stop is visible without hiding the readiness of the other two providers.
+
 ## Alert Starters
 
 Start with low-noise alerts and tune thresholds after production baselines:
