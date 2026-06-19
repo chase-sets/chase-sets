@@ -673,6 +673,7 @@ function magicSealedProductFieldCommands(
   setReferenceId: ReferenceRecordId,
 ): readonly CatalogItemCommand[] {
   const commands: CatalogItemCommand[] = [
+    { type: "SetCatalogItemFieldValue", fieldId: fieldIds.cardName, value: localizedJsonText(normalized.name) },
     { type: "SetCatalogItemFieldValue", fieldId: fieldIds.set as FieldId, value: { referenceId: setReferenceId } },
     { type: "SetCatalogItemFieldValue", fieldId: fieldIds.packCount as FieldId, value: normalized.packCount },
   ];

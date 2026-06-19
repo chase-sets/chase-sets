@@ -2,13 +2,16 @@ import { describe, expect, it } from "vitest";
 import type { BlueprintId, CatalogItemId, CategoryId, FieldId } from "../../../ids";
 import type {
   SourceObservationMagicCardPrintNormalized,
+  SourceObservationMagicSealedProductNormalized,
   SourceObservationPokemonCardNormalized,
   SourceObservationProviderProductNormalized,
 } from "../domain/domain";
 import {
   scrydexScryfallCardProviderProfile,
+  scryfallMtgCardPrintProviderProfile,
   tcgdexPokemonTcgProviderProfile,
   tcgplayerAutomationClientProviderProfile,
+  tcgplayerMtgSealedProductProviderProfile,
   type CatalogProviderIntegrationProfile,
 } from "./provider-integration-profiles";
 import {
@@ -205,11 +208,119 @@ describe("resolveCatalogProviderDuplicatePrevention", () => {
     });
     expect(db.queries.some((query) => query.includes("FROM catalog_items AS item"))).toBe(false);
   });
+
+  it("reuses Magic card prints through deterministic set, collector number, language, and name evidence", async () => {
+    const result = await resolveCatalogProviderDuplicatePrevention({
+      db: duplicatePreventionDb({ deterministicCatalogItemIds: ["cat_magic_print"] }),
+      profile: scryfallMtgCardPrintProviderProfile,
+      providerKey: "scryfall",
+      externalKey: "card:0000579f-7b35-4ed3-b44c-db2a538066fe",
+      normalized: magicCardPrintObservation({ externalCatalogItemReferences: [] }),
+      catalog: catalogMapping(),
+    });
+
+    expect(result).toMatchObject({
+      status: "matched",
+      catalogItemId: "cat_magic_print",
+      ruleKey: "magic-card-print-deterministic-fields",
+      evidenceSummary: {
+        matchKind: "deterministic-magic-catalog-item-field-match",
+        evidenceText: "deterministic Magic catalog item identity",
+      },
+    });
+  });
+
+  it("blocks ambiguous Magic deterministic card-print candidates", async () => {
+    const result = await resolveCatalogProviderDuplicatePrevention({
+      db: duplicatePreventionDb({ deterministicCatalogItemIds: ["cat_magic_a", "cat_magic_b"] }),
+      profile: scryfallMtgCardPrintProviderProfile,
+      providerKey: "scryfall",
+      externalKey: "card:0000579f-7b35-4ed3-b44c-db2a538066fe",
+      normalized: magicCardPrintObservation({ externalCatalogItemReferences: [] }),
+      catalog: catalogMapping(),
+    });
+
+    expect(result).toEqual({
+      status: "blocked",
+      ruleKey: "magic-card-print-deterministic-fields",
+      diagnosticText: "Multiple Catalog Items match this Source Observation's deterministic Magic identity evidence.",
+      candidateCatalogItemIds: ["cat_magic_a", "cat_magic_b"],
+      evidenceSummary: {
+        ruleKey: "magic-card-print-deterministic-fields",
+        matchKind: "deterministic-magic-catalog-item-field-match",
+        evidenceText: "deterministic Magic catalog item identity",
+        candidateCatalogItemIds: ["cat_magic_a", "cat_magic_b"],
+      },
+    });
+  });
+
+  it("skips Magic deterministic matching when a required mapped field is unavailable", async () => {
+    const db = duplicatePreventionDb({ deterministicCatalogItemIds: ["cat_magic_print"] });
+    const mapping = catalogMapping();
+
+    const result = await resolveCatalogProviderDuplicatePrevention({
+      db,
+      profile: scryfallMtgCardPrintProviderProfile,
+      providerKey: "scryfall",
+      externalKey: "card:0000579f-7b35-4ed3-b44c-db2a538066fe",
+      normalized: magicCardPrintObservation({ externalCatalogItemReferences: [] }),
+      catalog: { ...mapping, fieldIds: { ...mapping.fieldIds, cardNumber: undefined as unknown as FieldId } },
+    });
+
+    expect(result.status).toBe("none");
+    expect(db.queries.some((query) => query.includes("FROM catalog_items AS item"))).toBe(false);
+  });
+
+  it("uses TCGplayer SKU references before Magic sealed provider set identity", async () => {
+    const result = await resolveCatalogProviderDuplicatePrevention({
+      db: duplicatePreventionDb({
+        externalProductCatalogItemIds: ["cat_magic_sku"],
+        deterministicCatalogItemIds: ["cat_magic_set_identity"],
+      }),
+      profile: tcgplayerMtgSealedProductProviderProfile,
+      providerKey: "tcgplayer",
+      externalKey: "96601",
+      normalized: magicSealedProductObservation({
+        externalProductReferences: [{ providerKey: "tcgplayer", externalKey: "sku:50096601" }],
+      }),
+      catalog: catalogMapping(),
+    });
+
+    expect(result).toMatchObject({
+      status: "matched",
+      catalogItemId: "cat_magic_sku",
+      ruleKey: "exact-external-product-reference",
+      evidenceSummary: {
+        evidenceText: "1 external Product reference(s)",
+      },
+    });
+  });
+
+  it("reuses Magic sealed products through provider set identity when SKU evidence is absent", async () => {
+    const result = await resolveCatalogProviderDuplicatePrevention({
+      db: duplicatePreventionDb({ deterministicCatalogItemIds: ["cat_magic_booster_pack"] }),
+      profile: tcgplayerMtgSealedProductProviderProfile,
+      providerKey: "tcgplayer",
+      externalKey: "96601",
+      normalized: magicSealedProductObservation({ externalProductReferences: [] }),
+      catalog: catalogMapping(),
+    });
+
+    expect(result).toMatchObject({
+      status: "matched",
+      catalogItemId: "cat_magic_booster_pack",
+      ruleKey: "sealed-product-deterministic-fields",
+      evidenceSummary: {
+        evidenceText: "Magic sealed product provider set identity",
+      },
+    });
+  });
 });
 
 function duplicatePreventionDb(input: {
   externalCatalogItemIds?: readonly string[];
   sourceProductCatalogItemId?: string | null;
+  externalProductCatalogItemIds?: readonly string[];
   deterministicCatalogItemIds?: readonly string[];
   partialCatalogItemId?: string | null;
 }): CatalogProviderDuplicatePreventionDb & { queries: string[] } {
@@ -224,7 +335,9 @@ function duplicatePreventionDb(input: {
       }
 
       if (sql.includes("FROM catalog_external_product_references")) {
-        return rows(input.sourceProductCatalogItemId ? [input.sourceProductCatalogItemId] : []);
+        return sql.includes("WHERE reference.provider_key = $1")
+          ? rows(input.sourceProductCatalogItemId ? [input.sourceProductCatalogItemId] : [])
+          : rows(input.externalProductCatalogItemIds ?? []);
       }
 
       if (sql.includes("FROM catalog_reference_records")) {
@@ -247,6 +360,42 @@ function duplicatePreventionDb(input: {
         rows: [] as T[],
       };
     },
+  };
+}
+
+function magicSealedProductObservation(
+  overrides: Partial<SourceObservationMagicSealedProductNormalized> = {},
+): SourceObservationMagicSealedProductNormalized {
+  return {
+    kind: "magic-sealed-product",
+    tcg: "magic",
+    languageCode: "en",
+    name: "Time Spiral Booster Pack",
+    cardNumber: null,
+    setCode: "tsp",
+    setName: "Time Spiral",
+    expansionName: "Time Spiral",
+    setId: "1001",
+    sealedProductForm: "booster-pack",
+    packCount: 1,
+    releaseDate: "2006-10-06",
+    releaseYear: 2006,
+    productLineName: "Magic: The Gathering",
+    barcode: "0653569123456",
+    imageUrls: [],
+    mergeIdentity: {
+      tcg: "magic",
+      productLineName: "Magic: The Gathering",
+      setName: "Time Spiral",
+      printedProductName: "Time Spiral Booster Pack",
+      collectorNumber: "PACK",
+      languageCode: "en",
+      productForm: "sealed",
+      barcode: "0653569123456",
+    },
+    externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:96601" }],
+    externalProductReferences: [],
+    ...overrides,
   };
 }
 
@@ -299,11 +448,13 @@ function catalogMapping(): CatalogProviderPromotionResolvedCatalogMapping {
     fieldIds: {
       cardNumber: "field_card_number" as FieldId,
       cardName: "field_card_name" as FieldId,
+      set: "field_set" as FieldId,
       expansion: "field_expansion" as FieldId,
       rarity: "field_rarity" as FieldId,
       cardVariant: "field_card_variant" as FieldId,
       cardIllustrator: "field_illustrator" as FieldId,
       releaseYear: "field_release_year" as FieldId,
+      packCount: "field_pack_count" as FieldId,
     },
   };
 }

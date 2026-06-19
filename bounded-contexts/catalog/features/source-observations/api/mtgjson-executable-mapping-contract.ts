@@ -133,7 +133,7 @@ export const mtgjsonMtgSetReferenceSourceObservationMappingContract = {
         candidatePolicy: "review-only",
       },
     ],
-    ambiguousCandidatePolicy: "review-only",
+    ambiguousCandidatePolicy: "block-promotion",
     replayPolicy: "same-profile-version",
   },
   promotionCommandPlan: mtgjsonReferenceDataPromotionPlan(),
@@ -336,7 +336,7 @@ function mtgjsonDuplicatePrevention(): CatalogProviderExecutableMappingContract[
         evidence: [
           mtgjsonOptionalPathExpression("card.identifiers.scryfallId", "external-reference", ["external-reference"]),
         ],
-        candidatePolicy: "review-only",
+        candidatePolicy: "reuse",
       },
       {
         ruleKey: "future-provider-bridge-review",
@@ -347,7 +347,7 @@ function mtgjsonDuplicatePrevention(): CatalogProviderExecutableMappingContract[
         candidatePolicy: "review-only",
       },
     ],
-    ambiguousCandidatePolicy: "review-only",
+    ambiguousCandidatePolicy: "block-promotion",
     replayPolicy: "same-profile-version",
   };
 }

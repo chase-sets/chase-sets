@@ -206,6 +206,12 @@ const duplicatePrevention = {
       candidatePolicy: "reuse",
     },
     {
+      ruleKey: "exact-external-product-reference",
+      ruleKind: "exact-external-product-reference",
+      evidence: [pathExpression("externalProductReferences", "external-reference", ["external-reference"])],
+      candidatePolicy: "reuse",
+    },
+    {
       ruleKey: "sealed-product-deterministic-fields",
       ruleKind: "sealed-product-match",
       evidence: [pathExpression("mergeIdentity.productForm", "catalog-merge-evidence", ["merge-identity"])],
