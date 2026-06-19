@@ -13,6 +13,37 @@ Staging can run the interface UAT after approved profile versions and provider c
 
 MTGJSON and Scryfall public transports do not require credentials. TCGplayer requires `TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE` in the executing API and worker environment before live option queries or imports can run.
 
+## Provider Rollout Controls
+
+The three Magic provider keys are `mtgjson`, `scryfall`, and `tcgplayer`. Provider-scoped controls accept one provider key, a comma-separated provider list, or `all`. Use the narrowest provider scope first so MTGJSON can stop without stopping Scryfall or TCGplayer, Scryfall can stop without stopping MTGJSON or TCGplayer, and TCGplayer can stop without stopping MTGJSON or Scryfall.
+
+| Control | MTGJSON behavior | Scryfall behavior | TCGplayer behavior | Code-supported reference |
+| --- | --- | --- | --- | --- |
+| Disabled provider adapter | Stops provider transport, provider option queries, and imports for `mtgjson`; other providers continue unless also scoped. | Stops provider transport, provider option queries, and imports for `scryfall`; other providers continue unless also scoped. | Stops provider transport, provider option queries, and imports for `tcgplayer`; other providers continue unless also scoped. | `provider-adapter-disabled` in `catalog-integration-rollout-controls.ts`. |
+| Dry-run-only control plane | Blocks import, promotion, reapply, and activation while leaving reads and dry-run evidence available. | Same. | Same. | `dry-run-only` in `catalog-integration-rollout-controls.ts`; production default when unset. |
+| Imports disabled | Blocks import enqueue and import worker turns for `mtgjson`; existing observations remain inspectable. | Blocks import enqueue and import worker turns for `scryfall`; existing observations remain inspectable. | Blocks import enqueue and import worker turns for `tcgplayer`; existing observations remain inspectable. | `imports-disabled` in `catalog-integration-rollout-controls.ts`; production default includes all three Magic providers when unset. |
+| Promotion disabled | Blocks single and bulk Source Observation promotion for `mtgjson`; import and reapply stay governed by their own controls. | Blocks single and bulk Source Observation promotion for `scryfall`; import and reapply stay governed by their own controls. | Blocks single and bulk Source Observation promotion for `tcgplayer`; import and reapply stay governed by their own controls. | `promotion-disabled` in `catalog-integration-rollout-controls.ts`; production default includes all three Magic providers when unset. |
+| Reapply disabled | Blocks explicit and scoped reapply for `mtgjson`; import and promotion stay governed by their own controls. | Blocks explicit and scoped reapply for `scryfall`; import and promotion stay governed by their own controls. | Blocks explicit and scoped reapply for `tcgplayer`; import and promotion stay governed by their own controls. | `reapply-disabled` in `catalog-integration-rollout-controls.ts`; production default includes all three Magic providers when unset. |
+| Provider API emergency stop | Blocks provider transport, provider option queries, and imports for `mtgjson` during provider incidents; Catalog review of already-recorded observations can continue. | Blocks provider transport, provider option queries, and imports for `scryfall` during provider incidents; Catalog review of already-recorded observations can continue. | Blocks provider transport, provider option queries, and imports for `tcgplayer` during provider incidents; Catalog review of already-recorded observations can continue. | `provider-api-emergency-stop` in `catalog-integration-rollout-controls.ts`. |
+| Provider option cache-only | Stops live option queries and serves only fresh or stale cached option pages. If no safe cached page exists, the provider option selector is unavailable. | Same. | Same. | `provider-option-queries-cache-only` in `catalog-integration-rollout-controls.ts` and cache metadata from provider option query responses. |
+
+Operator-visible denial evidence uses `catalog_integration_rollout_control_denied`, `catalog-integration-rollout-control-denied`, the `controlId`, the affected provider, and the capability that was stopped. Do not treat disabled Admin buttons as the enforcement boundary; the server and worker controls enforce the stop.
+
+## Monitoring Signals
+
+During staging UAT and production launch, the Admin Integration health surface and the Catalog Integration Control Plane dashboard must show these signals without exposing provider cookies, account facts, raw payloads, or raw provider URLs:
+
+| Signal | Operator source | Healthy launch expectation |
+| --- | --- | --- |
+| Provider availability | Integration health provider readiness and provider transport diagnostics. | MTGJSON and Scryfall are ready or not-required; TCGplayer is configured before live TCGplayer work. Provider-specific outages name only the provider and diagnostic code. |
+| Option-query freshness, cache-only, and stale state | Import scope option selectors and Integration health option-query status. | Required selectors show fresh or accepted stale/cache-only state before import. Empty cache-only pages block selection. |
+| Job lag | Import jobs activity and Integration health job progress. | Queued and running import/reapply/bulk review jobs advance, or show a clear blocked/stale state with the affected provider. |
+| Failure rate | Integration job and bulk review terminal outcomes. | Failed import, reapply, promote, reject, and defer work stays at zero for the launch slice or is explained by reviewed diagnostics. |
+| Blocked promotions | Promotion preview and review controls. | Blocked counts are reviewed before promotion; production promotion is not enabled while unexplained blocked counts remain. |
+| Conflict counts | Conflict resolution workspace and promotion preview summary. | MTGJSON/Scryfall/TCGplayer disagreements have an owner decision or remain blocked from promotion. |
+| Duplicate-prevention blocks | Source Observation review, dry-run evidence, and duplicate-prevention preview. | Duplicate blocks are expected, counted, and reviewed; repeated imports do not create duplicate Catalog Items or Products. |
+| Emergency-stop state | Integration health rollout controls summary and provider readiness diagnostics. | Emergency stop is clear for normal launch, or active only for the intentionally stopped provider during a drill or incident. |
+
 ## TCGplayer Rotation
 
 Rotate the TCGplayer automation cookie when the provider session expires, an operator leaves the provider account, a leak is suspected, or repeated authorization failures continue after cooldown.
@@ -36,6 +67,19 @@ Use the narrowest switch that stops the unsafe behavior:
 
 Operator-visible diagnostics may include provider key, unit key, readiness state, domain key, HTTP status class, retry outcome, and redacted diagnostic code. They must not include cookies, authorization headers, seller or account facts, prices, listings, raw request bodies, or raw response bodies.
 
+## Interface-Only Operator Actions
+
+Normal UAT and launch operations happen through the Chase Sets Admin interface: the Integrations Import workbench, Provider setup, Governance, Integration health, validation readiness, conflict resolution, lifecycle recovery, and audit evidence views. Operators must not use handcrafted URLs, direct API calls, CLI commands, SQL, Postman, browser console commands, provider endpoints, or hidden routes for these normal actions.
+
+1. Dry run: open Provider setup or validation readiness, select the Magic provider and approved profile version, run the guided dry run, and review normalized facts, diagnostics, duplicate-prevention preview, conflict preview, source hash status, and redaction summary.
+2. Import: open the Integrations Import workbench, select the provider and Magic set scope from the guided option controls, confirm readiness and cache/freshness state, start the import, and watch the job card until it reaches a terminal state.
+3. Promotion: open the Source Observation review or promotion preview in the Import workbench, review eligible, blocked, skipped, conflict, and duplicate counts, then promote only the approved scope.
+4. Reapply: open lifecycle recovery or the scoped reapply/replay action from the Import workbench, review the impact preview, choose current-active-profile reapply or original-source-profile replay as appropriate, and follow the job card to completion.
+5. Pause or resume: use the visible import/reapply job controls to cancel, retry, or resume the affected provider job. Confirm Integration health shows only the intended provider or job state changed.
+6. Emergency stop: use the approved release/Ops control workflow to stop the affected provider, then verify in Integration health that the rollout control is active for that provider and not the others. Continue only with read-only review of already-recorded observations until the incident is cleared.
+7. Rollback: use Provider setup lifecycle recovery to roll back the provider profile or return to the last approved profile version, then verify readiness, dry-run evidence, and rollback audit evidence in Admin before re-enabling imports or promotions.
+8. Post-UAT launch: use the launch checklist and Magic production signoff evidence to confirm provider policy approval, profile versions, dry-run outcomes, import outcomes, promotion outcomes, conflicts, duplicate-prevention blocks, emergency-stop proof, and redaction review before production imports or promotions are enabled.
+
 ## Staging UAT Posture
 
 Before running milestone UAT:
@@ -44,7 +88,8 @@ Before running milestone UAT:
 2. Confirm TCGplayer readiness is `configured` and the scope shows only a redacted runtime secret reference.
 3. Keep provider option queries open only for the selected Magic set scope.
 4. Keep production dry-run and disable defaults unchanged unless the production signoff checklist is complete.
-5. Record evidence through Chase Sets screens and redacted job artifacts only.
+5. Exercise disabled, dry-run-only, imports-disabled, promotion-disabled, reapply-disabled, provider emergency-stop, and cache-only option-query states for MTGJSON, Scryfall, and TCGplayer through Admin surfaces only.
+6. Record evidence through Chase Sets screens and redacted job artifacts only.
 
 Related docs:
 

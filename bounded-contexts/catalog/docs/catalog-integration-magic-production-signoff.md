@@ -125,6 +125,18 @@ items below are complete:
   versions, source hashes or approved hash omissions, job ids, dry-run results,
   promotion outcomes, conflicts/duplicates, rollback controls, and emergency
   stop readiness.
+- [ ] Production import enablement evidence names the exact provider or provider
+  list to enable, proves the other Magic providers can remain stopped or open
+  independently, and records current rollout-control state from Integration
+  health.
+- [ ] Production promotion enablement evidence includes reviewed promotion
+  preview counts for eligible, blocked, skipped, conflicting, duplicate
+  prevention, and failed outcomes, plus the owner decision for every nonzero
+  blocked/conflicting/duplicate count.
+- [ ] Production monitoring evidence links the launch slice to provider
+  availability, option-query freshness/cache-only/stale states, job lag,
+  failure rate, blocked promotions, conflict counts, duplicate-prevention
+  blocks, and emergency-stop state.
 
 ## Work Allowed Before Signoff
 
@@ -170,6 +182,11 @@ Evidence must include:
 - conflict and duplicate-prevention outcomes;
 - screenshots or operator-visible artifacts for emergency stop, imports
   disabled, promotion disabled, reapply disabled, and dry-run-only controls.
+- operator-visible artifacts for cache-only option-query behavior for MTGJSON,
+  Scryfall, and TCGplayer, including at least one fresh or stale cached selector
+  state and the empty-cache unavailable state where practical.
+- proof that stopping one Magic provider leaves the other two providers'
+  readiness and allowed actions visible in Integration health.
 
 ## Related Issues
 

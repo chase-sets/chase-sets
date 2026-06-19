@@ -39,6 +39,21 @@ All operational controls default to open. This keeps the shipped Admin workflows
 
 Provider-scoped env values accept comma-separated provider keys, `all`, `true`, or `*`. Empty, `none`, `false`, and `open` mean no provider scope is disabled.
 
+## Magic Provider Rollout Behavior
+
+Magic production sync uses `mtgjson`, `scryfall`, and `tcgplayer` provider scopes. Every provider-scoped stop must be tested as a single-provider stop before broad rollout, because the intended behavior is independent provider isolation:
+
+| Provider scope | Disabled provider adapter or emergency stop | Imports disabled | Promotion disabled | Reapply disabled | Cache-only option queries |
+| --- | --- | --- | --- | --- | --- |
+| `mtgjson` | MTGJSON provider transport, option queries, and imports are blocked; Scryfall and TCGplayer are unaffected unless separately scoped. | MTGJSON imports are blocked; existing observations remain reviewable. | MTGJSON Source Observation promotion is blocked. | MTGJSON reapply/replay is blocked. | Live option queries are blocked for the request path and only cached option pages may answer. |
+| `scryfall` | Scryfall provider transport, option queries, and imports are blocked; MTGJSON and TCGplayer are unaffected unless separately scoped. | Scryfall imports are blocked; existing observations remain reviewable. | Scryfall Source Observation promotion is blocked. | Scryfall reapply/replay is blocked. | Live option queries are blocked for the request path and only cached option pages may answer. |
+| `tcgplayer` | TCGplayer provider transport, option queries, and imports are blocked; MTGJSON and Scryfall are unaffected unless separately scoped. | TCGplayer imports are blocked; existing observations remain reviewable. | TCGplayer Source Observation promotion is blocked. | TCGplayer reapply/replay is blocked. | Live option queries are blocked for the request path and only cached option pages may answer. |
+| `all`, `true`, or `*` | All provider transport, option queries, and imports are blocked. | All provider imports are blocked. | All provider promotions are blocked. | All provider reapply/replay work is blocked. | Live option queries are blocked globally and only cached option pages may answer. |
+
+`dry-run-only` is not provider-scoped. It blocks import, promotion, reapply, and activation for the whole control plane while leaving reads, provider setup, validation, and dry-run evidence available. Production defaults to `dry-run-only` plus imports/promotion/reapply disabled for MTGJSON, Scryfall, and TCGplayer when the corresponding environment values are unset.
+
+`provider-option-queries-cache-only` is a degraded option-query posture, not a write gate. The provider option query path returns cache metadata (`fresh`, `stale`, `miss`, `bypass`, or `unavailable`) with `cacheOnly` and `degraded` flags so Admin can label fresh cached pages, stale cached pages, and unavailable selectors explicitly.
+
 ## Enforcement Seams
 
 The policy evaluates capabilities instead of routes:
