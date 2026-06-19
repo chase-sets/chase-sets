@@ -32,6 +32,7 @@ describe("Catalog provider profile contract harness", () => {
       "scryfall@2026.06.19",
       "tcgdex@2026.06.03",
       "tcgplayer@2026.06.19",
+      "tcgplayer@2026.06.19",
       "tcgplayer@2026.06.03",
     ]);
   });
@@ -44,6 +45,7 @@ describe("Catalog provider profile contract harness", () => {
       { providerKey: "scryfall", profileKey: "mtg-card-image-evidence", profileVersion: "2026.06.19" },
       { providerKey: "tcgdex", profileVersion: "2026.06.03" },
       { providerKey: "tcgplayer", profileKey: "mtg-single-card-product-sku", profileVersion: "2026.06.19" },
+      { providerKey: "tcgplayer", profileKey: "mtg-sealed-product-sku", profileVersion: "2026.06.19" },
       { providerKey: "tcgplayer", profileKey: "pokemon-tcg-automation-client", profileVersion: "2026.06.03" },
     ];
     const results = await Promise.all(

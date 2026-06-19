@@ -105,6 +105,7 @@ export type TcgplayerAutomationProductDetail = Readonly<{
     barcode?: string;
     gtin?: string;
     upc?: string;
+    packCount?: number | string;
   }>;
   barcode?: string;
   gtin?: string;
@@ -187,6 +188,10 @@ export function buildTcgplayerAutomationSourceObservationPayload(input: {
     sourcePayload: input.detail as JsonValue,
     catalogHashMaterial: tcgplayerCatalogHashMaterial(input.detail),
     productForm: tcgplayerProductForm(input.detail),
+    sealedProductForm: tcgplayerSealedProductForm(input.detail),
+    packCount: tcgplayerPackCount(input.detail),
+    releaseYear: tcgplayerReleaseYear(input.detail),
+    imageUrls: [],
     barcode: tcgplayerProductBarcode(input.detail),
     mergeIdentity: {
       tcg: normalizeTcgName(input.detail.productLineName),
@@ -258,10 +263,13 @@ export function tcgplayerCatalogHashMaterial(detail: TcgplayerAutomationProductD
     rarityName: detail.rarityName,
     sealed: detail.sealed,
     productForm: tcgplayerProductForm(detail),
+    sealedProductForm: tcgplayerSealedProductForm(detail),
+    packCount: tcgplayerPackCount(detail),
     barcode: tcgplayerProductBarcode(detail),
     productStatusId: detail.productStatusId,
     number: detail.customAttributes.number,
     releaseDate: detail.customAttributes.releaseDate,
+    releaseYear: tcgplayerReleaseYear(detail),
     cardType: detail.customAttributes.cardType ? [...detail.customAttributes.cardType] : undefined,
     artist: detail.formattedAttributes?.Artist,
     skus: detail.skus.map((sku) => ({
@@ -275,6 +283,54 @@ export function tcgplayerCatalogHashMaterial(detail: TcgplayerAutomationProductD
 
 function tcgplayerProductForm(detail: Pick<TcgplayerAutomationProductDetail, "sealed">): "sealed" | "single" {
   return detail.sealed ? "sealed" : "single";
+}
+
+function tcgplayerSealedProductForm(
+  detail: Pick<TcgplayerAutomationProductDetail, "sealed" | "productName" | "productTypeName">,
+): "booster-pack" | "booster-box" | "bundle" | "deck" | "sealed-product" | null {
+  if (!detail.sealed) {
+    return null;
+  }
+  const normalized = `${detail.productTypeName} ${detail.productName}`.trim().toLowerCase();
+  if (normalized.includes("booster box")) {
+    return "booster-box";
+  }
+  if (normalized.includes("booster pack") || normalized.includes(" pack")) {
+    return "booster-pack";
+  }
+  if (normalized.includes("bundle")) {
+    return "bundle";
+  }
+  if (normalized.includes("deck")) {
+    return "deck";
+  }
+  return "sealed-product";
+}
+
+function tcgplayerPackCount(detail: TcgplayerAutomationProductDetail): number | null {
+  if (!detail.sealed) {
+    return null;
+  }
+  const explicitPackCount = parsePositiveInteger(detail.customAttributes.packCount);
+  if (explicitPackCount !== null) {
+    return explicitPackCount;
+  }
+
+  const normalized = `${detail.productTypeName} ${detail.productName}`.trim().toLowerCase();
+  const packCountMatch = normalized.match(/\b(\d+)\s*(?:count|ct|pack|packs)\b/);
+  if (packCountMatch?.[1]) {
+    return Number(packCountMatch[1]);
+  }
+  if (normalized.includes("booster box")) {
+    return 36;
+  }
+  return 1;
+}
+
+function tcgplayerReleaseYear(detail: TcgplayerAutomationProductDetail): number | null {
+  const releaseDate = detail.customAttributes.releaseDate?.trim();
+  const year = releaseDate?.match(/^(\d{4})/)?.[1];
+  return year ? Number(year) : null;
 }
 
 function tcgplayerProductBarcode(detail: TcgplayerAutomationProductDetail): string | null {
@@ -297,6 +353,14 @@ function firstNonEmptyString(...values: readonly (string | null | undefined)[]):
   }
 
   return null;
+}
+
+function parsePositiveInteger(value: string | number | null | undefined): number | null {
+  if (typeof value !== "string" && typeof value !== "number") {
+    return null;
+  }
+  const parsed = Number(String(value).trim());
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
 async function listAllTcgplayerAutomationProducts(

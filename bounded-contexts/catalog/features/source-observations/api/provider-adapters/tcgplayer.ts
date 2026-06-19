@@ -38,6 +38,13 @@ export const TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY = defi
   ingestionPurpose: "source-observation-import",
 });
 
+export const TCGPLAYER_MTG_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY = defineCatalogIntegrationUnitKey({
+  providerKey: "tcgplayer",
+  productDomain: "mtg",
+  productForm: "sealed-product",
+  ingestionPurpose: "source-observation-import",
+});
+
 export type TcgplayerProviderPayload =
   | Readonly<{
       kind: "product-detail";
@@ -508,7 +515,7 @@ type TcgplayerUnitConstraints = Readonly<{
   productLineNames: readonly string[];
   productLineUrlNames: readonly string[];
   defaultProductLineName: string;
-  requireSingleCard: boolean;
+  productForm: "single-card" | "sealed-product";
 }>;
 
 function constraintsForTcgplayerUnit(unitKey: string): TcgplayerUnitConstraints {
@@ -518,7 +525,16 @@ function constraintsForTcgplayerUnit(unitKey: string): TcgplayerUnitConstraints 
       productLineNames: ["magic", "magic: the gathering", "magic the gathering", "mtg"],
       productLineUrlNames: ["magic", "magic-the-gathering", "mtg"],
       defaultProductLineName: "Magic",
-      requireSingleCard: true,
+      productForm: "single-card",
+    };
+  }
+  if (unitKey === TCGPLAYER_MTG_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY) {
+    return {
+      unitKey,
+      productLineNames: ["magic", "magic: the gathering", "magic the gathering", "mtg"],
+      productLineUrlNames: ["magic", "magic-the-gathering", "mtg"],
+      defaultProductLineName: "Magic",
+      productForm: "sealed-product",
     };
   }
   if (unitKey === TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY) {
@@ -527,7 +543,7 @@ function constraintsForTcgplayerUnit(unitKey: string): TcgplayerUnitConstraints 
       productLineNames: ["pokemon", "pokemon trading card game", "pokemon tcg"],
       productLineUrlNames: ["pokemon", "pokemon-tcg"],
       defaultProductLineName: "Pokemon",
-      requireSingleCard: true,
+      productForm: "single-card",
     };
   }
   throw new Error(`TCGplayer adapter does not support Catalog integration unit '${unitKey}'.`);
@@ -551,21 +567,31 @@ function productSummaryMatchesUnit(
   product: TcgplayerAutomationProductSearchProduct,
   constraints: TcgplayerUnitConstraints,
 ): boolean {
-  return (
-    productLineMatchesUnit(product, constraints) &&
-    (!constraints.requireSingleCard ||
-      (!product.sealed && normalizeProviderValue(product.productTypeName).includes("card")))
-  );
+  return productLineMatchesUnit(product, constraints) && productFormMatchesUnit(product, constraints);
 }
 
 function productDetailMatchesUnit(
   detail: TcgplayerAutomationProductDetail,
   constraints: TcgplayerUnitConstraints,
 ): boolean {
+  return productLineMatchesUnit(detail, constraints) && productFormMatchesUnit(detail, constraints);
+}
+
+function productFormMatchesUnit(
+  product: Pick<TcgplayerAutomationProductSearchProduct, "sealed" | "productTypeName">,
+  constraints: TcgplayerUnitConstraints,
+): boolean {
+  const normalizedProductType = normalizeProviderValue(product.productTypeName);
+  if (constraints.productForm === "single-card") {
+    return !product.sealed && normalizedProductType.includes("card");
+  }
+
   return (
-    productLineMatchesUnit(detail, constraints) &&
-    (!constraints.requireSingleCard ||
-      (!detail.sealed && normalizeProviderValue(detail.productTypeName).includes("card")))
+    product.sealed ||
+    normalizedProductType.includes("sealed") ||
+    normalizedProductType.includes("booster") ||
+    normalizedProductType.includes("bundle") ||
+    normalizedProductType.includes("deck")
   );
 }
 
@@ -601,7 +627,8 @@ function productMismatchReason(
   detail: TcgplayerAutomationProductDetail,
 ): string {
   const constraints = constraintsForTcgplayerUnit(unitKeyForTcgplayerProfileVersion(profileVersion));
-  return `Product ${detail.productId} is ${detail.productLineName}/${detail.productTypeName}; ${profileVersion.profile.displayName} only imports ${constraints.defaultProductLineName} single-card products.`;
+  const formLabel = constraints.productForm === "single-card" ? "single-card" : "sealed";
+  return `Product ${detail.productId} is ${detail.productLineName}/${detail.productTypeName}; ${profileVersion.profile.displayName} only imports ${constraints.defaultProductLineName} ${formLabel} products.`;
 }
 
 function rejectedProductEnvelope(

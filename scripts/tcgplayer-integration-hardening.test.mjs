@@ -32,19 +32,29 @@ const scenarioFiles = [
     evidence: [
       "imports TCGplayer set scopes as provider-product source observations",
       "imports TCGplayer Magic single-card set scopes through the selected production profile unit",
+      "imports TCGplayer Magic sealed-product set scopes through the selected production profile unit",
     ],
   },
   {
     name: "Catalog TCGplayer Magic profile contract",
     file: "bounded-contexts/catalog/features/source-observations/api/provider-profile-fixture-cases.ts",
-    evidence: ["mtg-single-card-product-sku", "tcgplayer:mtg:single-card:source-observation-import", "Fury Sliver"],
+    evidence: [
+      "mtg-single-card-product-sku",
+      "tcgplayer:mtg:single-card:source-observation-import",
+      "Fury Sliver",
+      "mtg-sealed-product-sku",
+      "tcgplayer:mtg:sealed-product:source-observation-import",
+      "Time Spiral Booster Pack",
+    ],
   },
   {
     name: "Catalog TCGplayer Magic adapter scoping",
     file: "bounded-contexts/catalog/features/source-observations/api/provider-adapters/provider-adapter.test.ts",
     evidence: [
       "serves TCGplayer Magic single-card transport through the active profile unit",
+      "serves TCGplayer Magic sealed-product transport through the active profile unit",
       "TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY",
+      "TCGPLAYER_MTG_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY",
     ],
   },
   {

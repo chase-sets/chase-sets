@@ -8,6 +8,7 @@ import {
 } from "./provider-integration-mapping-contract";
 
 export const TCGPLAYER_MTG_SINGLE_CARD_PROFILE_VERSION = "2026.06.19";
+export const TCGPLAYER_MTG_SEALED_PRODUCT_PROFILE_VERSION = "2026.06.19";
 
 export const tcgplayerPokemonSingleCardIngestionUnitIdentity = defineCatalogProviderIngestionUnitIdentityContract({
   providerKey: "tcgplayer",
@@ -20,6 +21,13 @@ export const tcgplayerMtgSingleCardIngestionUnitIdentity = defineCatalogProvider
   providerKey: "tcgplayer",
   productDomain: "mtg",
   productForm: "single-card",
+  ingestionPurpose: "source-observation-import",
+});
+
+export const tcgplayerMtgSealedProductIngestionUnitIdentity = defineCatalogProviderIngestionUnitIdentityContract({
+  providerKey: "tcgplayer",
+  productDomain: "mtg",
+  productForm: "sealed-product",
   ingestionPurpose: "source-observation-import",
 });
 
@@ -95,6 +103,51 @@ const providerProductNormalizedObservation = {
   outputKind: "provider-product",
   languageCode: constantExpression("en", "catalog-truth", ["normalized-observation", "hash-material"]),
   fields: providerProductFields,
+  hashMaterial: [pathExpression("catalogHashMaterial", "catalog-truth", ["hash-material"])],
+  mergeIdentity: [pathExpression("mergeIdentity", "catalog-merge-evidence", ["merge-identity"])],
+} as const;
+
+const magicSealedProductFields = {
+  tcg: constantExpression("magic", "catalog-truth", ["normalized-observation", "hash-material"]),
+  name: pathExpression("productName", "catalog-truth", ["normalized-observation", "hash-material"]),
+  setCode: pathExpression("setCode", "catalog-truth", ["normalized-observation", "hash-material"]),
+  setName: pathExpression("setName", "catalog-truth", ["normalized-observation", "hash-material"]),
+  setId: pathExpression("setId", "catalog-merge-evidence", ["normalized-observation", "merge-identity"], {
+    transforms: [{ kind: "coerce", to: "string" }],
+  }),
+  sealedProductForm: pathExpression("sealedProductForm", "catalog-truth", ["normalized-observation", "hash-material"]),
+  packCount: pathExpression("packCount", "catalog-truth", ["normalized-observation", "hash-material"], {
+    transforms: [{ kind: "coerce", to: "number" }],
+  }),
+  releaseDate: optionalPathExpression("customAttributes.releaseDate", "catalog-truth", [
+    "normalized-observation",
+    "hash-material",
+  ]),
+  releaseYear: optionalPathExpression("releaseYear", "catalog-truth", ["normalized-observation", "hash-material"]),
+  productLineName: constantExpression("Magic: The Gathering", "catalog-truth", [
+    "normalized-observation",
+    "hash-material",
+  ]),
+  barcode: optionalPathExpression("barcode", "catalog-merge-evidence", ["normalized-observation", "merge-identity"]),
+  imageUrls: pathExpression("imageUrls", "catalog-truth", ["normalized-observation"]),
+  mergeIdentity: pathExpression("mergeIdentity", "catalog-merge-evidence", [
+    "normalized-observation",
+    "merge-identity",
+  ]),
+  externalCatalogItemReferences: pathExpression("externalCatalogItemReferences", "external-reference", [
+    "normalized-observation",
+    "external-reference",
+  ]),
+  externalProductReferences: pathExpression("externalProductReferences", "external-reference", [
+    "normalized-observation",
+    "external-reference",
+  ]),
+} as const;
+
+const magicSealedProductNormalizedObservation = {
+  outputKind: "magic-sealed-product",
+  languageCode: constantExpression("en", "catalog-truth", ["normalized-observation", "hash-material"]),
+  fields: magicSealedProductFields,
   hashMaterial: [pathExpression("catalogHashMaterial", "catalog-truth", ["hash-material"])],
   mergeIdentity: [pathExpression("mergeIdentity", "catalog-merge-evidence", ["merge-identity"])],
 } as const;
@@ -181,6 +234,42 @@ const promotionCommandPlan = {
   commands: [],
 } as const;
 
+const magicSealedPromotionCommandPlan = {
+  planKind: "catalog-item-promotion",
+  requiresReview: true,
+  commands: [
+    {
+      commandName: "CreateCatalogItem",
+      inputs: { title: pathExpression("productName", "catalog-truth", ["promotion-command"]) },
+    },
+    {
+      commandName: "AssignBlueprintToCatalogItem",
+      inputs: {
+        blueprintKey: constantExpression("magic-sealed-product", "catalog-truth", ["promotion-command"]),
+      },
+    },
+    {
+      commandName: "SetCatalogItemFieldValue",
+      inputs: {
+        fieldKey: constantExpression("pack-count", "catalog-truth", ["promotion-command"]),
+        value: pathExpression("packCount", "catalog-truth", ["promotion-command"], {
+          transforms: [{ kind: "coerce", to: "number" }],
+        }),
+      },
+    },
+    {
+      commandName: "AssignCatalogItemToCategory",
+      inputs: { categoryKey: constantExpression("magic-booster-packs", "catalog-truth", ["promotion-command"]) },
+    },
+    {
+      commandName: "LinkExternalCatalogItemReference",
+      inputs: {
+        references: pathExpression("externalCatalogItemReferences", "external-reference", ["promotion-command"]),
+      },
+    },
+  ],
+} as const;
+
 const nonGoals = [
   "no-live-provider-calls-in-mapping-tests",
   "no-pricing-facts-as-catalog-truth",
@@ -243,6 +332,43 @@ export const tcgplayerMtgSingleCardProviderProductSourceObservationMappingContra
       tcg: constantExpression("magic", "catalog-truth", ["normalized-observation", "hash-material"]),
       ...providerProductFields,
     },
+  },
+} as const satisfies CatalogProviderExecutableMappingContract;
+
+export const tcgplayerMtgSealedProductSourceObservationMappingContract = {
+  ...tcgplayerProviderProductSourceObservationMappingContract,
+  profileKey: "mtg-sealed-product-sku",
+  displayName: "TCGplayer Magic Sealed Product and SKU",
+  profileVersion: TCGPLAYER_MTG_SEALED_PRODUCT_PROFILE_VERSION,
+  lifecycle: "active",
+  ingestionUnitIdentity: tcgplayerMtgSealedProductIngestionUnitIdentity,
+  sourceContract: {
+    ...tcgplayerProviderProductSourceObservationMappingContract.sourceContract,
+    owner: "chase-sets/catalog",
+    repository: "chase-sets/chase-sets",
+    commit: null,
+    fixtureSetVersion: "tcgplayer-mtg-sealed-product-production-v1",
+  },
+  fixtures: {
+    fixtureRoot: "bounded-contexts/catalog/features/source-observations/api/__fixtures__/tcgplayer-mtg-sealed-product",
+    coveredFlows: tcgplayerFixtureFlows,
+    liveProviderCallsAllowed: false,
+  },
+  normalizedObservation: magicSealedProductNormalizedObservation,
+  promotionCommandPlan: magicSealedPromotionCommandPlan,
+  duplicatePrevention: {
+    ...duplicatePrevention,
+    identityRules: duplicatePrevention.identityRules.map((rule) =>
+      rule.ruleKey === "sealed-product-deterministic-fields"
+        ? {
+            ...rule,
+            evidence: [
+              pathExpression("sealedProductForm", "catalog-merge-evidence", ["merge-identity"]),
+              pathExpression("mergeIdentity", "catalog-merge-evidence", ["merge-identity"]),
+            ],
+          }
+        : rule,
+    ),
   },
 } as const satisfies CatalogProviderExecutableMappingContract;
 

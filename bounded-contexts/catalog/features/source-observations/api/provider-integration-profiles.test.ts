@@ -19,6 +19,7 @@ import {
   tcgdexPokemonTcgProviderProfile,
   tcgplayerAutomationClientProviderProfile,
   tcgplayerMtgSingleCardProviderProfile,
+  tcgplayerMtgSealedProductProviderProfile,
   type CatalogProviderIntegrationProfileVersionRecord,
 } from "./provider-integration-profiles";
 import {
@@ -96,6 +97,31 @@ describe("catalog provider integration profiles", () => {
       status: "planned",
       normalizedObservationMapping: { kind: "pokemon-card" },
       catalogFieldMapping: tcgdexPokemonTcgProviderProfile.catalogFieldMapping,
+    });
+  });
+
+  it("registers TCGplayer Magic sealed products as an active promotable profile unit", () => {
+    const profile = getCatalogProviderIntegrationProfileVersion("tcgplayer", "2026.06.19", {
+      profileKey: "mtg-sealed-product-sku",
+    })?.profile;
+
+    expect(profile).toBe(tcgplayerMtgSealedProductProviderProfile);
+    expect(profile).toMatchObject({
+      providerKey: "tcgplayer",
+      displayName: "TCGplayer Magic Sealed Products",
+      status: "active",
+      capabilities: [
+        "provider-option-query",
+        "source-observation-import",
+        "catalog-item-promotion",
+        "external-reference-extraction",
+      ],
+      normalizedObservationMapping: { kind: "magic-sealed-product" },
+      catalogFieldMapping: {
+        blueprintKey: "magic-sealed-product",
+        categoryKey: "magic-booster-packs",
+        fieldKeys: expect.objectContaining({ packCount: "pack-count", set: "set" }),
+      },
     });
   });
 
@@ -351,9 +377,12 @@ describe("catalog provider integration profiles", () => {
     });
   });
 
-  it("keeps TCGplayer Magic and Pokemon profile units distinct", () => {
+  it("keeps TCGplayer Magic single-card, Magic sealed, and Pokemon profile units distinct", () => {
     const magic = getActiveCatalogProviderIntegrationProfileVersion("tcgplayer", {
       profileKey: "mtg-single-card-product-sku",
+    });
+    const sealed = getActiveCatalogProviderIntegrationProfileVersion("tcgplayer", {
+      profileKey: "mtg-sealed-product-sku",
     });
     const pokemon = getCatalogProviderIntegrationProfileVersion("tcgplayer", "2026.06.03", {
       profileKey: "pokemon-tcg-automation-client",
@@ -371,6 +400,21 @@ describe("catalog provider integration profiles", () => {
       profile: {
         normalizedObservationMapping: { kind: "provider-product" },
         catalogFieldMapping: { blueprintKey: "magic-card-print" },
+      },
+    });
+    expect(sealed).toMatchObject({
+      providerKey: "tcgplayer",
+      profileKey: "mtg-sealed-product-sku",
+      lifecycle: "active",
+      active: true,
+      ingestionUnitIdentity: {
+        unitKey: "tcgplayer:mtg:sealed-product:source-observation-import",
+        productDomain: "mtg",
+        productForm: "sealed-product",
+      },
+      profile: {
+        normalizedObservationMapping: { kind: "magic-sealed-product" },
+        catalogFieldMapping: { blueprintKey: "magic-sealed-product", categoryKey: "magic-booster-packs" },
       },
     });
     expect(pokemon).toMatchObject({
@@ -420,6 +464,7 @@ describe("catalog provider integration profiles", () => {
       ["scryfall", "active"],
       ["tcgdex", "active"],
       ["tcgplayer", "active"],
+      ["tcgplayer", "active"],
       ["tcgplayer", "planned"],
     ]);
   });
@@ -433,6 +478,7 @@ describe("catalog provider integration profiles", () => {
       ["scryfall", "2026.06.19", "active"],
       ["scryfall", "2026.06.19", "active"],
       ["tcgdex", "2026.06.03", "active"],
+      ["tcgplayer", "2026.06.19", "active"],
       ["tcgplayer", "2026.06.19", "active"],
       ["tcgplayer", "2026.06.03", "test"],
     ]);
@@ -551,6 +597,17 @@ describe("catalog provider integration profiles", () => {
       sourceObservation: {
         observationId: expect.any(Object),
       },
+    });
+    expect(() => getActiveCatalogProviderIntegrationProfileVersion("TCGPLAYER")).toThrow(
+      /multiple active profile units/,
+    );
+    expect(
+      getActiveCatalogProviderIntegrationProfileVersion("TCGPLAYER", {
+        ingestionUnitKey: "tcgplayer:mtg:sealed-product:source-observation-import",
+      }),
+    ).toMatchObject({
+      providerKey: "tcgplayer",
+      profileKey: "mtg-sealed-product-sku",
     });
     expect(
       getCatalogProviderIntegrationProfileVersion("tcgplayer", "2026.06.03", {

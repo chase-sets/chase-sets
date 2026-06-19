@@ -247,6 +247,15 @@ describe("source observation runtime: provider integration jobs", () => {
           connectorKind: "tcgplayer-automation-client",
         }),
       }),
+      expect.objectContaining({
+        providerKey: "tcgplayer",
+        value: "tcgplayer",
+        label: "TCGplayer Magic Sealed Products",
+        metadata: expect.objectContaining({
+          status: "active",
+          connectorKind: "tcgplayer-automation-client",
+        }),
+      }),
     ]);
   });
 
@@ -524,6 +533,65 @@ describe("source observation runtime: provider integration jobs", () => {
               }),
             }),
           ],
+        }),
+      }),
+    });
+  });
+
+  it("imports TCGplayer Magic sealed-product set scopes through the selected production profile unit", async () => {
+    const harness = createTcgplayerImportHarness({ productDomain: "mtg" });
+    const services = createSourceObservationRuntime(
+      harness.deps,
+      {} as CatalogItemServices,
+      {} as ReferenceDataServices,
+      createActiveTcgplayerProfileVersions({ profileKey: "mtg-sealed-product-sku" }),
+    );
+
+    const result = await services.importTcgplayerScope({
+      scope: {
+        provider: "tcgplayer",
+        profileKey: "mtg-sealed-product-sku",
+        ingestionUnitKey: "tcgplayer:mtg:sealed-product:source-observation-import",
+        productLineId: "1",
+        setName: "Time Spiral",
+      },
+      context,
+    });
+
+    expect(result).toMatchObject({
+      requested: 1,
+      imported: 1,
+      observed: 1,
+      failed: 0,
+      outcomes: [
+        expect.objectContaining({
+          providerKey: "tcgplayer",
+          expansionId: "set:1:Time Spiral",
+          status: "imported",
+          observed: 1,
+        }),
+      ],
+    });
+    expect(harness.appendedSourceEvents).toHaveLength(1);
+    expect(harness.appendedSourceEvents[0]).toMatchObject({
+      eventType: "catalog.source-observation.recorded",
+      payload: expect.objectContaining({
+        observationId: "tcgplayer_en_product_96601",
+        providerKey: "tcgplayer",
+        externalKey: "product:96601",
+        sourceProfileKey: "mtg-sealed-product-sku",
+        sourceProfileVersion: "2026.06.19",
+        normalized: expect.objectContaining({
+          kind: "magic-sealed-product",
+          tcg: "magic",
+          name: "Time Spiral Booster Pack",
+          setCode: "TSP",
+          setName: "Time Spiral",
+          sealedProductForm: "booster-pack",
+          packCount: 1,
+          productLineName: "Magic: The Gathering",
+          barcode: "0653569123456",
+          externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:96601" }],
         }),
       }),
     });
@@ -956,6 +1024,12 @@ describe("source observation runtime: provider integration jobs", () => {
       dryRunStatus: "completed",
     });
     expect(unitsByKey["tcgplayer:mtg:single-card:source-observation-import"]).toMatchObject({
+      credentialReadiness: "blocked",
+      credentialReadinessState: "missing",
+      credentialDiagnosticCode: "credential-missing",
+      transportReadiness: "blocked",
+    });
+    expect(unitsByKey["tcgplayer:mtg:sealed-product:source-observation-import"]).toMatchObject({
       credentialReadiness: "blocked",
       credentialReadinessState: "missing",
       credentialDiagnosticCode: "credential-missing",

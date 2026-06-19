@@ -13,7 +13,12 @@ import {
   requireCatalogProviderSourceObservationMappingContract,
   tcgplayerAutomationClientProviderProfile,
   tcgplayerMtgSingleCardProviderProfile,
+  tcgplayerMtgSealedProductProviderProfile,
 } from "./provider-integration-profiles";
+import {
+  tcgplayerMtgSealedProductSourceObservationMappingContract,
+  tcgplayerMtgSingleCardProviderProductSourceObservationMappingContract,
+} from "./tcgplayer-executable-mapping-contract";
 import { requireCatalogProviderSourceObservation } from "./provider-source-observation-normalizer";
 import { tcgplayerAutomationResponseFixtures } from "./tcgplayer-automation-response-fixtures.test-data";
 
@@ -290,7 +295,7 @@ describe("TCGplayer automation Catalog client", () => {
     };
 
     const observation = requireCatalogProviderSourceObservation({
-      contract: requireCatalogProviderSourceObservationMappingContract("tcgplayer", "2026.06.19"),
+      contract: tcgplayerMtgSingleCardProviderProductSourceObservationMappingContract,
       payload: buildTcgplayerAutomationSourceObservationPayload({
         detail: magicDetail,
         selectedOptionMapping: tcgplayerMtgSingleCardProviderProfile.selectedOptionMapping,
@@ -327,6 +332,74 @@ describe("TCGplayer automation Catalog client", () => {
       { optionKey: "normal", providerValues: ["Normal", "Standard", "Nonfoil", "Non-Foil"] },
       { optionKey: "foil", providerValues: ["Foil", "Holofoil"] },
     ]);
+  });
+
+  it("normalizes Magic sealed products through the sealed profile with pack metadata", () => {
+    const sealedDetail: TcgplayerAutomationProductDetail = {
+      ...tcgplayerAutomationResponseFixtures.productDetail,
+      productId: 96601,
+      productName: "Time Spiral Booster Pack",
+      productLineId: 1,
+      productLineName: "Magic",
+      productTypeName: "Sealed Products",
+      rarityName: "Sealed",
+      sealed: true,
+      setId: 1001,
+      setCode: "TSP",
+      setName: "Time Spiral",
+      customAttributes: {
+        number: "PACK",
+        releaseDate: "2006-10-06",
+        barcode: "0653569123456",
+      },
+      formattedAttributes: {},
+      skus: [
+        {
+          sku: 50096601,
+          condition: "Sealed",
+          variant: "Sealed",
+          language: "English",
+        },
+      ],
+    };
+
+    const payload = buildTcgplayerAutomationSourceObservationPayload({
+      detail: sealedDetail,
+      selectedOptionMapping: tcgplayerMtgSealedProductProviderProfile.selectedOptionMapping,
+      externalReferenceRules: tcgplayerMtgSealedProductProviderProfile.externalReferenceExtractionRules.rules,
+    });
+    const observation = requireCatalogProviderSourceObservation({
+      contract: tcgplayerMtgSealedProductSourceObservationMappingContract,
+      payload,
+      observedAt: "2026-06-02T00:00:00.000Z",
+    });
+
+    expect(observation.normalized).toMatchObject({
+      kind: "magic-sealed-product",
+      tcg: "magic",
+      name: "Time Spiral Booster Pack",
+      setCode: "TSP",
+      setName: "Time Spiral",
+      setId: "1001",
+      sealedProductForm: "booster-pack",
+      packCount: 1,
+      releaseDate: "2006-10-06",
+      releaseYear: 2006,
+      productLineName: "Magic: The Gathering",
+      barcode: "0653569123456",
+      imageUrls: [],
+      externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:96601" }],
+    });
+    expect(payload).toMatchObject({
+      sealedProductForm: "booster-pack",
+      packCount: 1,
+      releaseYear: 2006,
+      catalogHashMaterial: expect.objectContaining({
+        sealedProductForm: "booster-pack",
+        packCount: 1,
+      }),
+    });
+    expect(JSON.stringify(payload.catalogHashMaterial)).not.toMatch(/marketPrice|lowestPrice|listing|seller/i);
   });
 
   it("excludes price and listing fields from the Catalog observation hash material", () => {

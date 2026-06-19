@@ -46,6 +46,7 @@ export function Layout({ children }: { children: ReactNode }) {
   });
 
   useEffect(() => {
+    document.documentElement.dataset.adminWebHydrated = "true";
     registerAdminServiceWorker();
   }, []);
 

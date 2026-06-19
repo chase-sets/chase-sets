@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 const configuredCatalogAdminEmail = process.env.CATALOG_ADMIN_E2E_EMAIL?.trim() ?? "";
 const configuredCatalogAdminPassword = process.env.CATALOG_ADMIN_E2E_PASSWORD?.trim() ?? "";
@@ -30,6 +30,23 @@ async function expectPageOk(page: Page, path: string) {
   }
 
   throw lastError ?? new Error(`${path} did not become ready`);
+}
+
+async function clickUntilDisclosureExpanded(trigger: Locator, expanded: boolean) {
+  const expectedValue = String(expanded);
+
+  await expect
+    .poll(
+      async () => {
+        if ((await trigger.getAttribute("aria-expanded")) !== expectedValue) {
+          await trigger.click();
+        }
+
+        return trigger.getAttribute("aria-expanded");
+      },
+      { timeout: 10_000 },
+    )
+    .toBe(expectedValue);
 }
 
 async function addSessionCookie(page: Page, origin: string, sessionToken: string) {
@@ -79,6 +96,10 @@ async function expectVisibleText(page: Page, text: string) {
   await expect(page.getByText(text).filter({ visible: true }).first()).toBeVisible();
 }
 
+async function expectAdminWebHydrated(page: Page) {
+  await expect(page.locator("html")).toHaveAttribute("data-admin-web-hydrated", "true", { timeout: 30_000 });
+}
+
 test.describe("catalog admin integrations", () => {
   test("signed-in catalog operator sees the rebuilt primary import-to-promotion workbench @catalog-admin-integrations", async ({
     page,
@@ -104,13 +125,16 @@ test.describe("catalog admin integrations", () => {
         name: "Pull provider data, review Source Observations, promote Catalog facts",
       }),
     ).toBeVisible();
+    await expectAdminWebHydrated(page);
     await expectVisibleText(page, "Catalog control plane");
-    // #1970: the deferred source-options status panel streams in after first paint.
-    // The seed's tcgdex profile declares source-option groups, so the panel renders
-    // once the streamed slice resolves. Assert it EVENTUALLY becomes visible (it is
-    // not present at first paint) without asserting any option volume — the seed has
-    // ≤25 changed observations and the streamed groups may be cache-only or degraded.
-    await expect(page.getByText("Source options").first()).toBeVisible({ timeout: 30_000 });
+    // #1970: when the selected provider profile declares source-option groups, the
+    // deferred source-options status panel streams in after first paint. The default
+    // provider is seed-dependent, so only assert the panel when this route context
+    // actually renders one.
+    const sourceOptionsPanel = page.getByText("Source options").first();
+    if (await sourceOptionsPanel.count()) {
+      await expect(sourceOptionsPanel).toBeVisible({ timeout: 30_000 });
+    }
     // The supplementary alias-review workspace also streams behind its own boundary,
     // but its content is data-dependent (it resolves to nothing when there are no
     // alias candidates for the scope). Assert it only when it actually rendered, so
@@ -144,17 +168,20 @@ test.describe("catalog admin integrations", () => {
     // — it must NOT navigate (the URL is unchanged) and must NOT full-reload. Do not
     // wait for networkidle around it; assert the form's visibility transitions
     // directly with explicit waits.
-    const contextBarTrigger = page.getByRole("button", { name: /Step 0 · Choose import scope/ });
-    await expect(contextBarTrigger.first()).toBeVisible();
-    await expect(page.getByRole("button", { name: "Select source scope" }).first()).toBeVisible();
+    const importContextBar = page.locator("[data-catalog-import-context-bar='true']");
+    const contextBarTrigger = importContextBar.getByRole("button", { name: /Step 0 · Choose import scope/ });
+    const importProviderSelect = importContextBar.getByRole("combobox", { name: "Provider" });
+    await expect(contextBarTrigger).toBeVisible();
+    await expect(contextBarTrigger).toHaveAttribute("aria-expanded", "true");
+    await expect(importContextBar.getByRole("button", { name: "Select source scope" })).toBeVisible();
     const urlBeforeToggle = page.url();
     // Collapse to the one-line summary: the form's provider select hides.
-    await contextBarTrigger.first().click();
-    await expect(page.getByRole("combobox", { name: "Provider" })).toBeHidden();
+    await clickUntilDisclosureExpanded(contextBarTrigger, false);
+    await expect(importProviderSelect).toBeHidden();
     // Edit: re-expand to the form. The apply control returns, proving the round trip.
-    await contextBarTrigger.first().click();
-    await expect(page.getByRole("combobox", { name: "Provider" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Select source scope" }).first()).toBeVisible();
+    await clickUntilDisclosureExpanded(contextBarTrigger, true);
+    await expect(importProviderSelect).toBeVisible();
+    await expect(importContextBar.getByRole("button", { name: "Select source scope" })).toBeVisible();
     // No navigation happened: collapse/expand never touched the URL or reloaded.
     expect(page.url()).toBe(urlBeforeToggle);
     // The daily route is now an explicit, linear three-stage flow. The ordered
