@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   catalogProviderRequiredFixtureFlows,
+  defineCatalogProviderIngestionUnitIdentityContract,
   validateCatalogProviderExecutableMappingContract,
   type CatalogProviderAliasCandidateContract,
   type CatalogProviderExecutableMappingContract,
+  type CatalogProviderIngestionPurpose,
+  type CatalogProviderIngestionUnitIdentityContract,
+  type CatalogProviderIngestionUnitProductForm,
   type CatalogProviderMappingEvidenceOwner,
   type CatalogProviderMappingEvidenceUse,
   type CatalogProviderMappingRuntimeFunctionKey,
@@ -73,6 +77,30 @@ describe("provider integration executable mapping contract", () => {
     expect(contract.promotionCommandPlan.requiresReview).toBe(true);
   });
 
+  it("represents Magic ingestion-unit identities as contract data without provider runtime branches", () => {
+    const identities = [
+      ingestionUnit("mtgjson", "set", "reference-data"),
+      ingestionUnit("mtgjson", "single-card", "reference-data"),
+      ingestionUnit("scryfall", "single-card", "image-evidence"),
+      ingestionUnit("scryfall", "single-card", "source-observation-import"),
+      ingestionUnit("tcgplayer", "single-card", "source-observation-import"),
+      ingestionUnit("tcgplayer", "sealed-product", "source-observation-import"),
+    ];
+
+    expect(identities.map((identity) => identity.unitKey)).toEqual([
+      "mtgjson:mtg:set:reference-data",
+      "mtgjson:mtg:single-card:reference-data",
+      "scryfall:mtg:single-card:image-evidence",
+      "scryfall:mtg:single-card:source-observation-import",
+      "tcgplayer:mtg:single-card:source-observation-import",
+      "tcgplayer:mtg:sealed-product:source-observation-import",
+    ]);
+
+    for (const identity of identities) {
+      expect(validateCatalogProviderExecutableMappingContract(identityOnlyContract(identity))).toEqual([]);
+    }
+  });
+
   it("flags missing fixture coverage and unsafe cross-context leakage", () => {
     const invalidContract: CatalogProviderExecutableMappingContract = {
       ...tcgplayerContract(),
@@ -101,6 +129,24 @@ describe("provider integration executable mapping contract", () => {
         expect.objectContaining({ code: "missing-fixture-flow", diagnosticText: expect.stringContaining("partial") }),
         expect.objectContaining({ code: "unsafe-owner-for-catalog-use" }),
         expect.objectContaining({ code: "secret-used-as-catalog-fact" }),
+      ]),
+    );
+  });
+
+  it("flags ingestion-unit contract identities that do not match their key or provider", () => {
+    const contract: CatalogProviderExecutableMappingContract = {
+      ...identityOnlyContract(ingestionUnit("mtgjson", "single-card", "reference-data")),
+      providerKey: "scryfall",
+      ingestionUnitIdentity: {
+        ...ingestionUnit("mtgjson", "single-card", "reference-data"),
+        unitKey: "mtgjson:mtg:set:reference-data",
+      },
+    };
+
+    expect(validateCatalogProviderExecutableMappingContract(contract)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "ingestion-unit-provider-mismatch" }),
+        expect.objectContaining({ code: "ingestion-unit-key-mismatch" }),
       ]),
     );
   });
@@ -480,6 +526,69 @@ function fixtureContract(providerKey: string): CatalogProviderExecutableMappingC
     fixtureRoot: `bounded-contexts/catalog/features/source-observations/api/fixtures/${providerKey}`,
     coveredFlows: catalogProviderRequiredFixtureFlows,
     liveProviderCallsAllowed: false,
+  };
+}
+
+function ingestionUnit(
+  providerKey: string,
+  productForm: CatalogProviderIngestionUnitProductForm,
+  ingestionPurpose: CatalogProviderIngestionPurpose,
+): CatalogProviderIngestionUnitIdentityContract {
+  return defineCatalogProviderIngestionUnitIdentityContract({
+    providerKey,
+    productDomain: "mtg",
+    productForm,
+    ingestionPurpose,
+  });
+}
+
+function identityOnlyContract(
+  identity: CatalogProviderIngestionUnitIdentityContract,
+): CatalogProviderExecutableMappingContract {
+  return {
+    providerKey: identity.providerKey,
+    profileKey: identity.unitKey,
+    displayName: identity.unitKey,
+    profileVersion: "2026.06.19",
+    ingestionUnitIdentity: identity,
+    lifecycle: "draft",
+    sourceContract: {
+      owner: "Catalog",
+      repository: null,
+      commit: null,
+      documentPath: "bounded-contexts/catalog/docs/provider-integration-mapping-contract.md",
+      fixtureSetVersion: "identity-proof-v1",
+    },
+    connector: {
+      kind: "identity-proof",
+      transportOwns: ["raw-provider-parse"],
+      mappingOwns: ["normalized-observation", "hash-material", "merge-identity"],
+    },
+    fixtures: fixtureContract(identity.providerKey),
+    normalizedObservation: {
+      outputKind: "provider-product",
+      languageCode: constantExpr("en", "catalog-truth", ["normalized-observation", "hash-material"]),
+      fields: {
+        name: expr("name", "catalog-truth", ["normalized-observation", "hash-material"]),
+      },
+      hashMaterial: [expr("id", "external-reference", ["hash-material"])],
+      mergeIdentity: [expr("id", "external-reference", ["merge-identity"])],
+    },
+    externalReferences: [],
+    referenceHierarchy: [],
+    duplicatePrevention: {
+      exactExternalCatalogItemReferencesFirst: true,
+      mergeCandidateEvidence: [expr("id", "external-reference", ["merge-identity"])],
+      identityRules: [],
+      ambiguousCandidatePolicy: "review-only",
+      replayPolicy: "same-profile-version",
+    },
+    promotionCommandPlan: {
+      planKind: "catalog-item-promotion",
+      requiresReview: true,
+      commands: [],
+    },
+    nonGoals: nonGoals(),
   };
 }
 

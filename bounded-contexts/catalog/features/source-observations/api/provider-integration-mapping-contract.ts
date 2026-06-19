@@ -1,4 +1,6 @@
 import type { JsonValue } from "@chase-sets/primitives/json";
+import type { CatalogIntegrationUnitKey } from "./integration-unit";
+import { defineCatalogIntegrationUnitKey, parseCatalogIntegrationUnitKey } from "./integration-unit";
 import {
   decideCatalogAliasAcceptance,
   getCatalogAliasSourceGovernancePolicy,
@@ -8,6 +10,18 @@ import {
 } from "./catalog-integration-data-governance";
 
 export type CatalogProviderProfileLifecycle = "draft" | "test" | "active" | "deprecated" | "retired";
+
+export type CatalogProviderIngestionUnitProductDomain = "pokemon" | "mtg";
+export type CatalogProviderIngestionUnitProductForm = "single-card" | "sealed-product" | "set";
+export type CatalogProviderIngestionPurpose = "source-observation-import" | "reference-data" | "image-evidence";
+
+export type CatalogProviderIngestionUnitIdentityContract = Readonly<{
+  unitKey: CatalogIntegrationUnitKey;
+  providerKey: string;
+  productDomain: CatalogProviderIngestionUnitProductDomain;
+  productForm: CatalogProviderIngestionUnitProductForm;
+  ingestionPurpose: CatalogProviderIngestionPurpose;
+}>;
 
 export type CatalogProviderMappingEvidenceOwner =
   | "catalog-truth"
@@ -334,6 +348,7 @@ export type CatalogProviderExecutableMappingContract = Readonly<{
   profileKey: string;
   displayName: string;
   profileVersion: string;
+  ingestionUnitIdentity?: CatalogProviderIngestionUnitIdentityContract;
   lifecycle: CatalogProviderProfileLifecycle;
   sourceContract: CatalogProviderMappingSourceContract;
   connector: CatalogProviderMappingConnectorContract;
@@ -357,6 +372,9 @@ export type CatalogProviderProfileNonGoal =
 
 export type CatalogProviderMappingContractDiagnostic = Readonly<{
   code:
+    | "ingestion-unit-provider-mismatch"
+    | "ingestion-unit-key-mismatch"
+    | "ingestion-unit-invalid-key"
     | "missing-profile-version"
     | "missing-fixture-flow"
     | "live-provider-calls-in-fixtures"
@@ -371,6 +389,26 @@ export type CatalogProviderMappingContractDiagnostic = Readonly<{
   diagnosticText: string;
 }>;
 
+export function defineCatalogProviderIngestionUnitIdentityContract(
+  input: Readonly<{
+    providerKey: string;
+    productDomain: CatalogProviderIngestionUnitProductDomain;
+    productForm: CatalogProviderIngestionUnitProductForm;
+    ingestionPurpose: CatalogProviderIngestionPurpose;
+  }>,
+): CatalogProviderIngestionUnitIdentityContract {
+  const unitKey = defineCatalogIntegrationUnitKey(input);
+  const parsed = parseCatalogIntegrationUnitKey(unitKey);
+
+  return {
+    unitKey,
+    providerKey: parsed.providerKey,
+    productDomain: parsed.productDomain as CatalogProviderIngestionUnitProductDomain,
+    productForm: parsed.productForm as CatalogProviderIngestionUnitProductForm,
+    ingestionPurpose: parsed.ingestionPurpose as CatalogProviderIngestionPurpose,
+  };
+}
+
 export function validateCatalogProviderExecutableMappingContract(
   contract: CatalogProviderExecutableMappingContract,
 ): readonly CatalogProviderMappingContractDiagnostic[] {
@@ -382,6 +420,10 @@ export function validateCatalogProviderExecutableMappingContract(
       path: "profileVersion",
       diagnosticText: "Provider mapping profiles must carry a version for replay and rollback.",
     });
+  }
+
+  if (contract.ingestionUnitIdentity) {
+    validateIngestionUnitIdentity("ingestionUnitIdentity", contract, diagnostics);
   }
 
   if (contract.fixtures.liveProviderCallsAllowed) {
@@ -454,6 +496,51 @@ export function validateCatalogProviderExecutableMappingContract(
   });
 
   return diagnostics;
+}
+
+function validateIngestionUnitIdentity(
+  path: string,
+  contract: CatalogProviderExecutableMappingContract,
+  diagnostics: CatalogProviderMappingContractDiagnostic[],
+): void {
+  const identity = contract.ingestionUnitIdentity;
+  if (!identity) {
+    return;
+  }
+
+  if (identity.providerKey !== contract.providerKey) {
+    diagnostics.push({
+      code: "ingestion-unit-provider-mismatch",
+      path: `${path}.providerKey`,
+      diagnosticText: "The ingestion unit provider key must match the executable mapping contract provider key.",
+    });
+  }
+
+  let parsed: ReturnType<typeof parseCatalogIntegrationUnitKey>;
+  try {
+    parsed = parseCatalogIntegrationUnitKey(identity.unitKey);
+  } catch {
+    diagnostics.push({
+      code: "ingestion-unit-invalid-key",
+      path: `${path}.unitKey`,
+      diagnosticText: "The ingestion unit key must be a valid provider:domain:form:purpose key.",
+    });
+    return;
+  }
+
+  if (
+    parsed.providerKey !== identity.providerKey ||
+    parsed.productDomain !== identity.productDomain ||
+    parsed.productForm !== identity.productForm ||
+    parsed.ingestionPurpose !== identity.ingestionPurpose
+  ) {
+    diagnostics.push({
+      code: "ingestion-unit-key-mismatch",
+      path: `${path}.unitKey`,
+      diagnosticText:
+        "The ingestion unit key must match the declared provider, product domain, product form, and ingestion purpose.",
+    });
+  }
 }
 
 function validateReferenceHierarchy(
