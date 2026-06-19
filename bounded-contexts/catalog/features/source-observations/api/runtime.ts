@@ -142,6 +142,11 @@ import {
   type TcgplayerProviderPayload,
 } from "./provider-adapters/tcgplayer";
 import {
+  createMtgjsonProviderAdapter,
+  MTGJSON_MTG_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
+  type MtgjsonProviderPayload,
+} from "./provider-adapters/mtgjson";
+import {
   createScryfallProviderAdapter,
   SCRYFALL_MTG_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
   type ScryfallProviderPayload,
@@ -954,6 +959,7 @@ export function createSourceObservationRuntime(
       loadProfileVersions: () => profileVersions.listProfileVersions("tcgplayer"),
       client: deps.tcgplayerAutomationCatalogClient,
     }),
+    createMtgjsonProviderAdapter(),
     createScryfallProviderAdapter(),
   ]);
   const dryRunProofRegistry = createCatalogIntegrationDryRunProofRegistry();
@@ -2691,6 +2697,7 @@ export function createSourceObservationRuntime(
       profileVersions,
       scope.provider,
       input.job.profileSnapshot,
+      profileSelectorFromScope(scope),
     );
     const providerProfile = providerProfileVersion.profile;
 
@@ -3960,6 +3967,7 @@ async function listProviderIntegrationOptions(
       loadProfileVersions: () => profileVersions.listProfileVersions("tcgplayer"),
       client: tcgplayerAutomationCatalogClient,
     }),
+    createMtgjsonProviderAdapter(),
     createScryfallProviderAdapter(),
   ]),
 ): Promise<readonly SourceObservationIntegrationOption[]> {
@@ -3991,6 +3999,9 @@ async function listProviderIntegrationOptions(
         listTcgplayerProductOptionRecordsThroughAdapter(providerAdapterRegistry, { setName }),
       listTcgplayerSkus: ({ productId }) =>
         listTcgplayerSkuOptionRecordsThroughAdapter(providerAdapterRegistry, { productId }),
+      listMtgjsonSets: () => listMtgjsonSetOptionRecordsThroughAdapter(providerAdapterRegistry),
+      listMtgjsonCards: ({ setCode }) =>
+        listMtgjsonCardOptionRecordsThroughAdapter(providerAdapterRegistry, { setCode }),
       listScryfallSets: () => listScryfallSetOptionRecordsThroughAdapter(providerAdapterRegistry),
       listScryfallCards: ({ setCode }) =>
         listScryfallCardOptionRecordsThroughAdapter(providerAdapterRegistry, { setCode }),
@@ -4024,6 +4035,7 @@ async function queryProviderIntegrationOptions(
       loadProfileVersions: () => profileVersions.listProfileVersions("tcgplayer"),
       client: tcgplayerAutomationCatalogClient,
     }),
+    createMtgjsonProviderAdapter(),
     createScryfallProviderAdapter(),
   ]),
   telemetry?: SourceObservationTelemetry,
@@ -4107,6 +4119,9 @@ async function queryProviderIntegrationOptions(
               listTcgplayerProductOptionRecordsThroughAdapter(providerAdapterRegistry, { setName }),
             listTcgplayerSkus: ({ productId }) =>
               listTcgplayerSkuOptionRecordsThroughAdapter(providerAdapterRegistry, { productId }),
+            listMtgjsonSets: () => listMtgjsonSetOptionRecordsThroughAdapter(providerAdapterRegistry),
+            listMtgjsonCards: ({ setCode }) =>
+              listMtgjsonCardOptionRecordsThroughAdapter(providerAdapterRegistry, { setCode }),
             listScryfallSets: () => listScryfallSetOptionRecordsThroughAdapter(providerAdapterRegistry),
             listScryfallCards: ({ setCode }) =>
               listScryfallCardOptionRecordsThroughAdapter(providerAdapterRegistry, { setCode }),
@@ -4304,6 +4319,54 @@ function requireTcgdexAdapter(
   providerAdapterRegistry: ProviderAdapterRegistry,
 ): ProviderAdapter<TcgdexObservationPayload> {
   return providerAdapterRegistry.require("tcgdex") as ProviderAdapter<TcgdexObservationPayload>;
+}
+
+async function listMtgjsonSetOptionRecordsThroughAdapter(
+  providerAdapterRegistry: ProviderAdapterRegistry,
+): Promise<readonly JsonValue[]> {
+  const result = await requireMtgjsonAdapter(providerAdapterRegistry).listOptions({
+    unitKey: MTGJSON_MTG_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
+    optionKind: "sets",
+  });
+  return result.items.map((item) => ({
+    setCode: item.value,
+    name: item.label,
+    releaseDate: item.metadata?.releaseDate ?? null,
+    totalSetSize: numberFromString(item.metadata?.totalSetSize),
+    type: item.metadata?.type ?? null,
+    mtgjsonVersion: item.metadata?.mtgjsonVersion ?? null,
+  }));
+}
+
+async function listMtgjsonCardOptionRecordsThroughAdapter(
+  providerAdapterRegistry: ProviderAdapterRegistry,
+  input: { setCode: string | null },
+): Promise<readonly JsonValue[]> {
+  if (!input.setCode) {
+    throw new Error("MTGJSON card option queries require a set code parent value.");
+  }
+
+  const result = await requireMtgjsonAdapter(providerAdapterRegistry).listOptions({
+    unitKey: MTGJSON_MTG_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
+    optionKind: "cards",
+    parentValues: { setCode: input.setCode },
+  });
+  return result.items.map((item) => ({
+    cardId: item.value,
+    name: item.label,
+    setCode: item.metadata?.setCode ?? input.setCode,
+    setName: item.metadata?.setName ?? null,
+    collectorNumber: item.metadata?.collectorNumber ?? null,
+    rarity: item.metadata?.rarity ?? null,
+    layout: item.metadata?.layout ?? null,
+    scryfallId: item.metadata?.scryfallId ?? null,
+  }));
+}
+
+function requireMtgjsonAdapter(
+  providerAdapterRegistry: ProviderAdapterRegistry,
+): ProviderAdapter<MtgjsonProviderPayload> {
+  return providerAdapterRegistry.require("mtgjson") as ProviderAdapter<MtgjsonProviderPayload>;
 }
 
 async function listScryfallSetOptionRecordsThroughAdapter(
@@ -4771,9 +4834,10 @@ async function requireCatalogImportProfileVersionForJob(
   profileVersions: CatalogProviderIntegrationProfileVersionReader,
   providerKey: string | null | undefined,
   snapshot: SourceObservationIntegrationProfileSnapshot | null,
+  selector?: CatalogProviderProfileVersionSelector | null,
 ): Promise<CatalogProviderIntegrationProfileVersionRecord> {
   if (!snapshot) {
-    return requireCatalogImportProfileVersion(profileVersions, providerKey);
+    return requireCatalogImportProfileVersion(profileVersions, providerKey, selector);
   }
 
   const versions = await profileVersions.listProfileVersions(snapshot.providerKey);

@@ -16,6 +16,10 @@ import type { CatalogIntegrationUnitKey } from "./integration-unit";
 import { evaluateCatalogIntegrationFixtureCoverageFromProfileVersion } from "./catalog-integration-fixture-lifecycle";
 import type { CatalogProviderSourceObservationMappingContract } from "./provider-source-observation-normalizer";
 import {
+  mtgjsonMtgCardReferenceSourceObservationMappingContract,
+  mtgjsonMtgSetReferenceSourceObservationMappingContract,
+} from "./mtgjson-executable-mapping-contract";
+import {
   scryfallMtgCardPrintSourceObservationMappingContract,
   scryfallMtgImageEvidenceSourceObservationMappingContract,
 } from "./scryfall-executable-mapping-contract";
@@ -63,6 +67,8 @@ export type CatalogProviderOptionQueryOperation =
   | "tcgplayer-list-set-names"
   | "tcgplayer-list-products"
   | "tcgplayer-list-skus"
+  | "mtgjson-list-sets"
+  | "mtgjson-list-cards"
   | "scryfall-list-sets"
   | "scryfall-list-cards"
   | "scrydex-list-sets";
@@ -179,9 +185,33 @@ export type ScryfallJsonConnectorProfile = Readonly<{
   excludedEvidence: readonly ("price" | "seller" | "inventory" | "ruling" | "legality")[];
 }>;
 
+export type MtgjsonJsonConnectorProfile = Readonly<{
+  kind: "mtgjson-json";
+  baseUrl: "https://mtgjson.com/api/v5";
+  sourceContractDocument: string;
+  authentication: Readonly<{
+    scheme: "public-json";
+    credentialsRequired: false;
+  }>;
+  acceptedEvidence: readonly (
+    | "mtgjson-uuid"
+    | "set-code"
+    | "set-name"
+    | "collector-number"
+    | "rarity"
+    | "layout"
+    | "finish"
+    | "scryfall-id"
+    | "release-date"
+    | "card-count"
+  )[];
+  excludedEvidence: readonly ("price" | "legality" | "ruling" | "deck" | "format")[];
+}>;
+
 export type CatalogProviderConnectorProfile =
   | TcgdexJsonConnectorProfile
   | TcgplayerAutomationClientConnectorProfile
+  | MtgjsonJsonConnectorProfile
   | ScryfallJsonConnectorProfile
   | ScrydexScryfallJsonConnectorProfile;
 
@@ -1391,6 +1421,252 @@ export const scrydexScryfallCardProviderProfile = {
   },
 } as const satisfies CatalogProviderIntegrationProfile;
 
+const mtgjsonMtgOptionQueries = [
+  {
+    queryKind: "sets",
+    queryKeySynonyms: ["set"],
+    displayName: "Set",
+    scope: "set-name",
+    parentScope: null,
+    operation: "mtgjson-list-sets",
+    output: {
+      valuePath: "setCode",
+      labelPath: "name",
+      description: { kind: "path", path: "releaseDate" },
+      metadataPaths: {
+        setCode: "setCode",
+        releaseDate: "releaseDate",
+        totalSetSize: "totalSetSize",
+        type: "type",
+        mtgjsonVersion: "mtgjsonVersion",
+      },
+    },
+  },
+  {
+    queryKind: "cards",
+    queryKeySynonyms: ["card"],
+    displayName: "Card",
+    scope: "product/card",
+    parentScope: "set-name",
+    operation: "mtgjson-list-cards",
+    parentValue: {
+      required: true,
+      valueKind: "set-code",
+      diagnosticText: "MTGJSON card option queries require a selected set code.",
+    },
+    output: {
+      valuePath: "cardId",
+      labelPath: "name",
+      parentValuePath: "setCode",
+      metadataPaths: {
+        cardId: "cardId",
+        setCode: "setCode",
+        setName: "setName",
+        collectorNumber: "collectorNumber",
+        rarity: "rarity",
+        layout: "layout",
+        scryfallId: "scryfallId",
+      },
+    },
+  },
+] as const satisfies readonly CatalogProviderOptionQuery[];
+
+export const mtgjsonMtgCardReferenceProviderProfile = {
+  providerKey: "mtgjson",
+  displayName: "MTGJSON",
+  status: "active",
+  capabilities: ["provider-option-query", "source-observation-import", "external-reference-extraction"],
+  supportedScopes: ["set-name", "product/card"],
+  languageOptions: ["en"],
+  optionQueries: mtgjsonMtgOptionQueries,
+  connector: {
+    kind: "mtgjson-json",
+    baseUrl: "https://mtgjson.com/api/v5",
+    sourceContractDocument: "bounded-contexts/catalog/docs/provider-integration-magic-production-signoff.md",
+    authentication: {
+      scheme: "public-json",
+      credentialsRequired: false,
+    },
+    acceptedEvidence: [
+      "mtgjson-uuid",
+      "set-code",
+      "set-name",
+      "collector-number",
+      "rarity",
+      "layout",
+      "finish",
+      "scryfall-id",
+      "release-date",
+      "card-count",
+    ],
+    excludedEvidence: ["price", "legality", "ruling", "deck", "format"],
+  },
+  normalizedObservationMapping: {
+    kind: "magic-card-print",
+    variantRules: [],
+    unknownVariantLabelPrefix: "Unclassified MTGJSON Variant",
+    duplicateReferenceRule: "drop-repeated-across-variants",
+  },
+  catalogFieldMapping: {
+    blueprintKey: "magic-card-print",
+    categoryKey: "magic-card-prints",
+    fieldKeys: {
+      cardNumber: "card-number",
+      cardName: "card-name",
+      set: "set",
+      expansion: "set",
+      rarity: "rarity",
+      cardVariant: "card-variant",
+      cardIllustrator: "card-illustrator",
+      releaseYear: "release-year",
+    },
+  },
+  referenceHierarchyMapping: {
+    providerReferenceIdPrefix: "ref_mtgjson",
+    providerAttributes: [
+      { typeKey: "set", providerAttributeKey: "mtgjson-set-code" },
+      { typeKey: "set", providerAttributeKey: "mtgjson-set-name" },
+    ],
+    targetRecordRuleKey: "set",
+    referenceTypes: [
+      {
+        referenceTypeId: catalogSeedIds.referenceTypes.productLine,
+        typeKey: "product-line",
+        name: "Product Line",
+        descriptionText: "A branded collectible product line.",
+        attributeKeys: ["official-name", "short-name"],
+      },
+      {
+        referenceTypeId: catalogSeedIds.referenceTypes.set,
+        typeKey: "set",
+        name: "Set",
+        descriptionText: "A Magic: The Gathering set or release group.",
+        attributeKeys: ["mtgjson-set-code", "mtgjson-set-name"],
+      },
+    ],
+    referenceRecords: [
+      {
+        ruleKey: "magic-product-line",
+        typeKey: "product-line",
+        recordId: {
+          kind: "static",
+          referenceRecordId: catalogSeedIds.referenceRecords.productLines.magicTheGathering,
+        },
+        key: { kind: "static", value: "magic-the-gathering" },
+        name: { kind: "static", value: "Magic: The Gathering" },
+        description: { kind: "static", value: "Magic: The Gathering trading card game." },
+        attributes: [
+          { attributeKey: "official-name", value: { kind: "static", value: "Magic: The Gathering" } },
+          { attributeKey: "short-name", value: { kind: "static", value: "Magic" } },
+        ],
+      },
+      {
+        ruleKey: "set",
+        typeKey: "set",
+        recordId: { kind: "provider", typeKey: "set", providerValuePaths: ["set.code", "set.name"] },
+        key: { kind: "path", path: "set.code" },
+        name: { kind: "path", path: "set.name" },
+        description: {
+          kind: "template",
+          template: "{setName} Magic: The Gathering set.",
+          values: { setName: { kind: "path", path: "set.name" } },
+        },
+        requiredPaths: ["set.code", "set.name"],
+        attributes: [
+          { attributeKey: "mtgjson-set-code", value: { kind: "path", path: "set.code" } },
+          { attributeKey: "mtgjson-set-name", value: { kind: "path", path: "set.name" } },
+        ],
+        relationships: [{ relationshipType: "part-of", ruleKey: "magic-product-line" }],
+      },
+    ],
+  },
+  externalReferenceExtractionRules: {
+    referenceTarget: "catalog-item-reference",
+    rules: [
+      {
+        providerKey: "scryfall",
+        target: "catalog-item-reference",
+        externalKeyPrefix: "card:",
+        containerKeys: [],
+        valueKeys: ["identifiers.scryfallId"],
+        recordIdKeys: ["identifiers.scryfallId"],
+        pricingRootKeys: [],
+        pricingScope: "card",
+      },
+    ],
+  },
+  duplicatePreventionMapping: {
+    ambiguousCandidatePolicy: "review-only",
+    replayPolicy: "same-profile-version",
+    rules: [
+      {
+        ruleKey: "exact-external-catalog-item-reference",
+        matchKind: "exact-external-catalog-item-reference",
+        sourcePath: "externalCatalogItemReferences",
+      },
+      {
+        ruleKey: "source-observation-link",
+        matchKind: "source-observation-link",
+        providerKeySource: "observation-provider",
+        externalKey: "language-prefixed-observation-external-key",
+      },
+      {
+        ruleKey: "scryfall-bridge-review",
+        matchKind: "future-provider-bridge-match",
+        bridgeReferenceProviderKeys: ["scryfall", "tcgplayer"],
+        candidatePolicy: "review-only",
+      },
+    ],
+  },
+  ambiguityRules: {
+    repeatedMarketplaceReference: "skip-reference",
+    missingVariantSpecificReference: "leave-unmapped",
+  },
+} as const satisfies CatalogProviderIntegrationProfile;
+
+export const mtgjsonMtgSetReferenceProviderProfile = {
+  ...mtgjsonMtgCardReferenceProviderProfile,
+  displayName: "MTGJSON Set Reference",
+  capabilities: ["source-observation-import"],
+  supportedScopes: ["set-name"],
+  optionQueries: [],
+  normalizedObservationMapping: {
+    ...mtgjsonMtgCardReferenceProviderProfile.normalizedObservationMapping,
+    kind: "magic-set-reference",
+    unknownVariantLabelPrefix: "Unclassified MTGJSON Set Variant",
+  },
+  catalogFieldMapping: {
+    blueprintKey: "magic-set-reference",
+    categoryKey: "magic-sets",
+    fieldKeys: {
+      cardNumber: "set-code",
+      cardName: "set-name",
+      set: "set",
+      expansion: "set",
+      rarity: "set-type",
+      cardVariant: "set-type",
+      cardIllustrator: "publisher",
+      releaseYear: "release-year",
+    },
+  },
+  externalReferenceExtractionRules: {
+    referenceTarget: "catalog-item-reference",
+    rules: [],
+  },
+  duplicatePreventionMapping: {
+    ambiguousCandidatePolicy: "review-only",
+    replayPolicy: "same-profile-version",
+    rules: [
+      {
+        ruleKey: "source-observation-link",
+        matchKind: "source-observation-link",
+        providerKeySource: "observation-provider",
+        externalKey: "language-prefixed-observation-external-key",
+      },
+    ],
+  },
+} as const satisfies CatalogProviderIntegrationProfile;
+
 const scryfallMtgOptionQueries = [
   {
     queryKind: "sets",
@@ -1609,6 +1885,8 @@ export const scryfallMtgImageEvidenceProviderProfile = {
 } as const satisfies CatalogProviderIntegrationProfile;
 
 export const catalogProviderIntegrationProfiles = [
+  mtgjsonMtgCardReferenceProviderProfile,
+  mtgjsonMtgSetReferenceProviderProfile,
   scryfallMtgCardPrintProviderProfile,
   scryfallMtgImageEvidenceProviderProfile,
   tcgdexPokemonTcgProviderProfile,
@@ -1616,6 +1894,32 @@ export const catalogProviderIntegrationProfiles = [
 ] as const satisfies readonly CatalogProviderIntegrationProfile[];
 
 export const catalogProviderIntegrationProfileVersions = [
+  {
+    providerKey: "mtgjson",
+    profileKey: "mtg-card-reference-data",
+    profileVersion: "2026.06.19",
+    ingestionUnitIdentity: mtgjsonMtgCardReferenceSourceObservationMappingContract.ingestionUnitIdentity,
+    lifecycle: "active",
+    active: true,
+    profile: mtgjsonMtgCardReferenceProviderProfile,
+    sourceContract: mtgjsonMtgCardReferenceSourceObservationMappingContract.sourceContract,
+    fixtures: mtgjsonMtgCardReferenceSourceObservationMappingContract.fixtures,
+    retirementPlan: null,
+    executableMappingContract: mtgjsonMtgCardReferenceSourceObservationMappingContract,
+  },
+  {
+    providerKey: "mtgjson",
+    profileKey: "mtg-set-reference-data",
+    profileVersion: "2026.06.19",
+    ingestionUnitIdentity: mtgjsonMtgSetReferenceSourceObservationMappingContract.ingestionUnitIdentity,
+    lifecycle: "active",
+    active: true,
+    profile: mtgjsonMtgSetReferenceProviderProfile,
+    sourceContract: mtgjsonMtgSetReferenceSourceObservationMappingContract.sourceContract,
+    fixtures: mtgjsonMtgSetReferenceSourceObservationMappingContract.fixtures,
+    retirementPlan: null,
+    executableMappingContract: mtgjsonMtgSetReferenceSourceObservationMappingContract,
+  },
   {
     providerKey: "scryfall",
     profileKey: "mtg-card-print-reference-data",

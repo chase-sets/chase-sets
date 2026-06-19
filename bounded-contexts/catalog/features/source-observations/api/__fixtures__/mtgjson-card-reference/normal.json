@@ -1,0 +1,28 @@
+{
+  "kind": "single-card",
+  "meta": {
+    "date": "2026-06-05",
+    "version": "5.3.0+20260605"
+  },
+  "set": {
+    "code": "TSP",
+    "name": "Time Spiral",
+    "releaseDate": "2006-10-06",
+    "totalSetSize": 301,
+    "type": "expansion"
+  },
+  "card": {
+    "uuid": "13fd9d47-9aa7-5f7c-8f47-fury-sliver",
+    "name": "Fury Sliver",
+    "number": "157",
+    "rarity": "uncommon",
+    "layout": "normal",
+    "type": "Creature - Sliver",
+    "identifiers": {
+      "scryfallId": "0000579f-7b35-4ed3-b44c-db2a538066fe",
+      "scryfallOracleId": "44623693-51d6-49ad-8cd7-140505caf02f"
+    },
+    "finishes": ["foil", "nonfoil"]
+  },
+  "sourceUrl": "https://mtgjson.com/api/v5/TSP.json"
+}

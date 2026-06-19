@@ -26,6 +26,8 @@ describe("Catalog provider profile contract harness", () => {
 
     expect(formatCatalogProviderProfileFixtureFailures(results)).toBe("");
     expect(results.map((result) => `${result.providerKey}@${result.profileVersion}`)).toEqual([
+      "mtgjson@2026.06.19",
+      "mtgjson@2026.06.19",
       "scryfall@2026.06.19",
       "scryfall@2026.06.19",
       "tcgdex@2026.06.03",
@@ -35,6 +37,8 @@ describe("Catalog provider profile contract harness", () => {
 
   it("keeps replay deterministic while changed fixtures move the source hash", async () => {
     const identities = [
+      { providerKey: "mtgjson", profileKey: "mtg-card-reference-data", profileVersion: "2026.06.19" },
+      { providerKey: "mtgjson", profileKey: "mtg-set-reference-data", profileVersion: "2026.06.19" },
       { providerKey: "scryfall", profileKey: "mtg-card-print-reference-data", profileVersion: "2026.06.19" },
       { providerKey: "scryfall", profileKey: "mtg-card-image-evidence", profileVersion: "2026.06.19" },
       { providerKey: "tcgdex", profileVersion: "2026.06.03" },

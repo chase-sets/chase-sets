@@ -9,6 +9,12 @@ import {
   TCGDEX_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
 } from "./provider-adapters/tcgdex";
 import {
+  MTGJSON_MTG_SET_REFERENCE_DATA_UNIT_KEY,
+  MTGJSON_MTG_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
+  runMtgjsonSetReferenceValidationDryRun,
+  runMtgjsonSourceObservationValidationDryRun,
+} from "./provider-adapters/mtgjson";
+import {
   runScryfallImageEvidenceValidationDryRun,
   runScryfallSourceObservationValidationDryRun,
   SCRYFALL_MTG_IMAGE_EVIDENCE_UNIT_KEY,
@@ -29,6 +35,8 @@ export function createCatalogIntegrationDryRunProofRegistry(
       runReferenceCardsSourceObservationProofDryRun,
     ],
     [TCGDEX_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY, runTcgdexSourceObservationImportProofDryRun],
+    [MTGJSON_MTG_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY, runMtgjsonSourceObservationValidationDryRun],
+    [MTGJSON_MTG_SET_REFERENCE_DATA_UNIT_KEY, runMtgjsonSetReferenceValidationDryRun],
     [SCRYFALL_MTG_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY, runScryfallSourceObservationValidationDryRun],
     [SCRYFALL_MTG_IMAGE_EVIDENCE_UNIT_KEY, runScryfallImageEvidenceValidationDryRun],
   ],

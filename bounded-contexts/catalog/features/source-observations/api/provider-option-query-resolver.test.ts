@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  mtgjsonMtgCardReferenceProviderProfile,
   tcgdexPokemonTcgProviderProfile,
   tcgplayerAutomationClientProviderProfile,
   type CatalogProviderIntegrationProfile,
@@ -249,6 +250,75 @@ describe("listCatalogProviderIntegrationOptionsFromProfiles", () => {
         value: "7001001",
         label: "7001001",
         metadata: expect.objectContaining({ sku: 7001001 }),
+      }),
+    ]);
+  });
+
+  it("maps MTGJSON set and card options through profile selectors", async () => {
+    const transports = {
+      listMtgjsonSets: async () => [
+        {
+          setCode: "TSP",
+          name: "Time Spiral",
+          releaseDate: "2006-10-06",
+          totalSetSize: 301,
+          type: "expansion",
+          mtgjsonVersion: "5.3.0+20260605",
+        },
+      ],
+      listMtgjsonCards: async ({ setCode }: { setCode: string | null }) => [
+        {
+          cardId: "13fd9d47-9aa7-5f7c-8f47-fury-sliver",
+          name: "Fury Sliver #157",
+          setCode,
+          setName: "Time Spiral",
+          collectorNumber: "157",
+          rarity: "uncommon",
+          layout: "normal",
+          scryfallId: "0000579f-7b35-4ed3-b44c-db2a538066fe",
+        },
+      ],
+    };
+
+    await expect(
+      listCatalogProviderIntegrationOptionsFromProfiles({
+        profiles: [mtgjsonMtgCardReferenceProviderProfile],
+        providerKey: "mtgjson",
+        queryKind: "sets",
+        defaultProviderKey: "tcgdex",
+        transports,
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        providerKey: "mtgjson",
+        queryKind: "sets",
+        value: "TSP",
+        label: "Time Spiral",
+        description: "2006-10-06",
+        metadata: expect.objectContaining({ totalSetSize: 301, mtgjsonVersion: "5.3.0+20260605" }),
+      }),
+    ]);
+
+    await expect(
+      listCatalogProviderIntegrationOptionsFromProfiles({
+        profiles: [mtgjsonMtgCardReferenceProviderProfile],
+        providerKey: "mtgjson",
+        queryKind: "cards",
+        parentValue: "TSP",
+        defaultProviderKey: "tcgdex",
+        transports,
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        providerKey: "mtgjson",
+        queryKind: "cards",
+        value: "13fd9d47-9aa7-5f7c-8f47-fury-sliver",
+        label: "Fury Sliver #157",
+        parentValue: "TSP",
+        metadata: expect.objectContaining({
+          collectorNumber: "157",
+          scryfallId: "0000579f-7b35-4ed3-b44c-db2a538066fe",
+        }),
       }),
     ]);
   });

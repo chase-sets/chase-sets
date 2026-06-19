@@ -34,6 +34,12 @@ describe("Catalog provider profile section domain", () => {
     expect(sectionsByProfile["pokemon-tcg-automation-client"].ingestionUnitIdentity.value.unitKey).toBe(
       "tcgplayer:pokemon:single-card:source-observation-import",
     );
+    expect(sectionsByProfile["mtg-card-reference-data"].ingestionUnitIdentity.value.unitKey).toBe(
+      "mtgjson:mtg:single-card:reference-data",
+    );
+    expect(sectionsByProfile["mtg-set-reference-data"].ingestionUnitIdentity.value.unitKey).toBe(
+      "mtgjson:mtg:set:reference-data",
+    );
     expect(sectionsByProfile["mtg-card-print-reference-data"].ingestionUnitIdentity.value.unitKey).toBe(
       "scryfall:mtg:single-card:reference-data",
     );

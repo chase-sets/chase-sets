@@ -4,6 +4,93 @@ import type { CatalogProviderProfileFixtureCase } from "./provider-profile-contr
 export function catalogProviderProfileFixtureCases(): readonly CatalogProviderProfileFixtureCase[] {
   return [
     ...providerCases(
+      "mtgjson",
+      {
+        profileKey: "mtg-card-reference-data",
+        ingestionUnitKey: "mtgjson:mtg:single-card:reference-data",
+        profileVersion: "2026.06.19",
+      },
+      {
+        normal: {
+          expectedObservation: {
+            externalKey: "card:13fd9d47-9aa7-5f7c-8f47-fury-sliver",
+            normalizedKind: "magic-card-print",
+            normalizedFields: {
+              name: "Fury Sliver",
+              setCode: "TSP",
+              setName: "Time Spiral",
+            },
+            externalCatalogItemReferences: [
+              { providerKey: "scryfall", externalKey: "card:0000579f-7b35-4ed3-b44c-db2a538066fe" },
+            ],
+          },
+          expectedHashEvidencePaths: ["normalizedObservation.hashMaterial.0"],
+          expectedMergeEvidencePaths: [
+            "duplicatePrevention.mergeCandidateEvidence.0",
+            "duplicatePrevention.mergeCandidateEvidence.1",
+            "duplicatePrevention.mergeCandidateEvidence.2",
+          ],
+        },
+        "sealed-product": {
+          expectedObservation: {
+            externalKey: "card:mtgjson-tsp-booster-pack-reference",
+            normalizedKind: "magic-card-print",
+            normalizedFields: {
+              name: "Time Spiral Booster Pack",
+              setCode: "TSP",
+            },
+          },
+        },
+        "unknown-option": {
+          expectedObservation: {
+            externalKey: "card:mtgjson-tsp-unknown-option-reference",
+            normalizedKind: "magic-card-print",
+            normalizedFields: {
+              cardNumber: "001-star",
+              rarity: "mythic-unclassified",
+            },
+          },
+        },
+      },
+    ),
+    ...providerCases(
+      "mtgjson",
+      {
+        profileKey: "mtg-set-reference-data",
+        ingestionUnitKey: "mtgjson:mtg:set:reference-data",
+        profileVersion: "2026.06.19",
+      },
+      {
+        normal: {
+          expectedObservation: {
+            externalKey: "set:TSP",
+            normalizedKind: "magic-set-reference",
+            normalizedFields: {
+              name: "Time Spiral",
+              setCode: "TSP",
+              setName: "Time Spiral",
+              productLineName: "Magic: The Gathering",
+            },
+          },
+          expectedHashEvidencePaths: ["normalizedObservation.hashMaterial.0"],
+          expectedMergeEvidencePaths: [
+            "duplicatePrevention.mergeCandidateEvidence.0",
+            "duplicatePrevention.mergeCandidateEvidence.1",
+          ],
+        },
+        "unknown-option": {
+          expectedObservation: {
+            externalKey: "set:TSPX",
+            normalizedKind: "magic-set-reference",
+            normalizedFields: {
+              name: "Time Spiral Unknown Option",
+              setCode: "TSPX",
+            },
+          },
+        },
+      },
+    ),
+    ...providerCases(
       "scryfall",
       {
         profileKey: "mtg-card-print-reference-data",
@@ -238,9 +325,13 @@ function providerCases(
       normalizedKind:
         providerKey === "tcgdex"
           ? "pokemon-card"
-          : providerKey === "scryfall"
-            ? "magic-card-print"
-            : "provider-product",
+          : identity.ingestionUnitKey === "mtgjson:mtg:set:reference-data"
+            ? "magic-set-reference"
+            : providerKey === "mtgjson"
+              ? "magic-card-print"
+              : providerKey === "scryfall"
+                ? "magic-card-print"
+                : "provider-product",
     },
     ...expectations[flow],
   }));
