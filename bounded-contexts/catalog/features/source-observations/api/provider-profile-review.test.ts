@@ -72,7 +72,7 @@ describe("Catalog provider profile review", () => {
       providerKey: "scrydex",
       externalKey: "scryfall:0000579f-7b35-4ed3-b44c-db2a538066fe",
       normalized: {
-        kind: "provider-product",
+        kind: "magic-card-print",
         externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:14240" }],
       },
     });
@@ -96,7 +96,11 @@ describe("Catalog provider profile review", () => {
       ]),
     );
     expect(result.duplicatePreventionCandidatePreview).toBeNull();
-    expect(result.promotionCommandPlan.commands).toEqual([]);
+    expect(result.promotionCommandPlan.commands.map((command) => command.commandName)).toEqual([
+      "CreateCatalogItem",
+      "SetCatalogItemFieldValue",
+      "LinkExternalCatalogItemReference",
+    ]);
   });
 
   it("clones an existing profile version into an editable draft", async () => {

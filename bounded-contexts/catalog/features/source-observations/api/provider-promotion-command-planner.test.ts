@@ -2,12 +2,17 @@ import { describe, expect, it } from "vitest";
 import type { CatalogItemId, BlueprintId, CategoryId, FieldId, ReferenceRecordId } from "../../../ids";
 import type { ProductAssetSet } from "../../../support/runtime-support/product-assets";
 import type {
+  SourceObservationMagicCardPrintNormalized,
+  SourceObservationMagicSealedProductNormalized,
+  SourceObservationMagicSetReferenceNormalized,
   SourceObservationPokemonCardNormalized,
   SourceObservationProviderProductNormalized,
 } from "../domain/domain";
 import {
+  scrydexScryfallCardProviderProfile,
   tcgdexPokemonTcgProviderProfile,
   tcgplayerAutomationClientProviderProfile,
+  type CatalogProviderIntegrationProfile,
 } from "./provider-integration-profiles";
 import {
   planCatalogProviderPromotionCommands,
@@ -178,6 +183,259 @@ describe("planCatalogProviderPromotionCommands", () => {
     });
   });
 
+  it("plans Magic card-print Catalog Item promotion with Set reference fields", () => {
+    const result = planCatalogProviderPromotionCommands({
+      profile: scrydexScryfallCardProviderProfile,
+      profileKey: "scryfall-card-fixture",
+      profileVersion: "2026.06.03",
+      providerKey: "scrydex",
+      externalKey: "scryfall:0000579f-7b35-4ed3-b44c-db2a538066fe",
+      mode: "create",
+      catalogItemId: "cat_magic_001" as CatalogItemId,
+      normalized: magicCardPrintObservation(),
+      catalog: magicCardPrintCatalogMapping(),
+      setReferenceId: "ref_seed_set_time_spiral" as ReferenceRecordId,
+      metadata: { title: "Fury Sliver 157", subtitle: "Time Spiral Rare" },
+      productAssetSet: null,
+    });
+
+    expect(result.status).toBe("planned");
+    expect(result.plan?.review).toEqual({
+      normalizedKind: "magic-card-print",
+      commandCount: 15,
+      catalogItemReferencesLinked: 1,
+      sourceProductReferencesLinked: 1,
+    });
+    expect(result.plan?.commands.map((command) => command.type)).toEqual([
+      "CreateCatalogItem",
+      "AssignBlueprintToCatalogItem",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "AssignCatalogItemToCategory",
+      "SetCatalogItemTags",
+      "SetCatalogItemImageUrls",
+      "SetCatalogItemProductAssetSets",
+      "LinkExternalProductReference",
+      "LinkExternalCatalogItemReference",
+    ]);
+    expect(result.plan?.commands[4]).toEqual({
+      type: "SetCatalogItemFieldValue",
+      fieldId: "field_set",
+      value: { referenceId: "ref_seed_set_time_spiral" },
+    });
+    expect(result.plan?.commands[9]).toEqual({
+      type: "AssignCatalogItemToCategory",
+      categoryId: "cat_magic_card_prints",
+    });
+    expect(result.plan?.commands[10]).toEqual({
+      type: "SetCatalogItemTags",
+      tags: ["magic", "scrydex", "set:tsp", "kind:magic-card-print", "variant:standard"],
+    });
+  });
+
+  it("plans Magic sealed-product Catalog Item promotion when required facts are sufficient", () => {
+    const result = planCatalogProviderPromotionCommands({
+      profile: magicSealedProductProfile(),
+      profileKey: "tcgplayer-magic-sealed-fixture",
+      profileVersion: "2026.06.03",
+      providerKey: "tcgplayer",
+      externalKey: "product:96601",
+      mode: "create",
+      catalogItemId: "cat_magic_sealed_001" as CatalogItemId,
+      normalized: magicSealedProductObservation(),
+      catalog: magicSealedCatalogMapping(),
+      setReferenceId: "ref_seed_set_time_spiral" as ReferenceRecordId,
+      metadata: { title: "Time Spiral Booster Pack", subtitle: "Time Spiral sealed product" },
+      productAssetSet: null,
+    });
+
+    expect(result.status).toBe("planned");
+    expect(result.plan?.commands).toEqual(
+      expect.arrayContaining([
+        {
+          type: "SetCatalogItemFieldValue",
+          fieldId: "field_set",
+          value: { referenceId: "ref_seed_set_time_spiral" },
+        },
+        { type: "SetCatalogItemFieldValue", fieldId: "field_pack_count", value: 1 },
+        {
+          type: "SetCatalogItemTags",
+          tags: ["magic", "tcgplayer", "set:tsp", "kind:magic-sealed-product", "form:booster-pack"],
+        },
+        {
+          type: "LinkExternalCatalogItemReference",
+          providerKey: "tcgplayer",
+          externalKey: "product:96601",
+        },
+      ]),
+    );
+  });
+
+  it("blocks incomplete Magic card-print facts before command planning", () => {
+    const result = planCatalogProviderPromotionCommands({
+      profile: scrydexScryfallCardProviderProfile,
+      profileKey: "scryfall-card-fixture",
+      profileVersion: "2026.06.03",
+      providerKey: "scrydex",
+      externalKey: "scryfall:0000579f-7b35-4ed3-b44c-db2a538066fe",
+      mode: "create",
+      catalogItemId: "cat_magic_001" as CatalogItemId,
+      normalized: magicCardPrintObservation({ cardNumber: "" }),
+      catalog: magicCardPrintCatalogMapping(),
+      setReferenceId: "ref_seed_set_time_spiral" as ReferenceRecordId,
+      metadata: { title: "Fury Sliver", subtitle: "Time Spiral" },
+      productAssetSet: null,
+    });
+
+    expect(result).toEqual({
+      status: "blocked",
+      plan: null,
+      diagnostics: [
+        {
+          code: "missing-normalized-field",
+          path: "normalized.cardNumber",
+          diagnosticText:
+            "Magic card print promotion requires a non-empty normalized field at 'normalized.cardNumber'.",
+        },
+      ],
+    });
+  });
+
+  it("blocks incomplete Magic sealed-product facts before command planning", () => {
+    const result = planCatalogProviderPromotionCommands({
+      profile: magicSealedProductProfile(),
+      profileKey: "tcgplayer-magic-sealed-fixture",
+      profileVersion: "2026.06.03",
+      providerKey: "tcgplayer",
+      externalKey: "product:96601",
+      mode: "create",
+      catalogItemId: "cat_magic_sealed_001" as CatalogItemId,
+      normalized: magicSealedProductObservation({ packCount: Number.NaN }),
+      catalog: magicSealedCatalogMapping(),
+      setReferenceId: "ref_seed_set_time_spiral" as ReferenceRecordId,
+      metadata: { title: "Time Spiral Booster Pack", subtitle: "Time Spiral sealed product" },
+      productAssetSet: null,
+    });
+
+    expect(result).toEqual({
+      status: "blocked",
+      plan: null,
+      diagnostics: [
+        {
+          code: "missing-normalized-field",
+          path: "normalized.packCount",
+          diagnosticText:
+            "Magic sealed product promotion requires a finite normalized number at 'normalized.packCount'.",
+        },
+      ],
+    });
+  });
+
+  it("blocks Magic Set reference observations because the current promotion path writes Catalog Items", () => {
+    const result = planCatalogProviderPromotionCommands({
+      profile: {
+        ...scrydexScryfallCardProviderProfile,
+        normalizedObservationMapping: {
+          ...scrydexScryfallCardProviderProfile.normalizedObservationMapping,
+          kind: "magic-set-reference",
+        },
+      },
+      profileKey: "mtgjson-set-reference-fixture",
+      profileVersion: "2026.06.03",
+      providerKey: "mtgjson",
+      externalKey: "set:tsp",
+      mode: "create",
+      catalogItemId: "cat_should_not_be_used" as CatalogItemId,
+      normalized: magicSetReferenceObservation(),
+      catalog: magicCardPrintCatalogMapping(),
+      setReferenceId: "ref_seed_set_time_spiral" as ReferenceRecordId,
+      metadata: { title: "Time Spiral", subtitle: "Magic Set" },
+      productAssetSet: null,
+    });
+
+    expect(result).toEqual({
+      status: "blocked",
+      plan: null,
+      diagnostics: [
+        {
+          code: "unsupported-observation-kind",
+          path: "normalized.kind",
+          diagnosticText:
+            "Magic Set reference observations are reference-data evidence and cannot be promoted through the Catalog Item promotion path.",
+        },
+      ],
+    });
+  });
+
+  it("keeps Magic promotion fingerprints stable for replay and changes when normalized facts change", () => {
+    const baseInput = {
+      profile: scrydexScryfallCardProviderProfile,
+      profileKey: "scryfall-card-fixture",
+      profileVersion: "2026.06.03",
+      providerKey: "scrydex",
+      externalKey: "scryfall:0000579f-7b35-4ed3-b44c-db2a538066fe",
+      mode: "refresh" as const,
+      catalogItemId: "cat_magic_001" as CatalogItemId,
+      catalog: magicCardPrintCatalogMapping(),
+      setReferenceId: "ref_seed_set_time_spiral" as ReferenceRecordId,
+      metadata: { title: "Fury Sliver 157", subtitle: "Time Spiral Rare" },
+      productAssetSet: null,
+    };
+
+    const first = planCatalogProviderPromotionCommands({ ...baseInput, normalized: magicCardPrintObservation() });
+    const replay = planCatalogProviderPromotionCommands({ ...baseInput, normalized: magicCardPrintObservation() });
+    const changed = planCatalogProviderPromotionCommands({
+      ...baseInput,
+      normalized: magicCardPrintObservation({ rarity: "Special" }),
+    });
+
+    expect(first.status).toBe("planned");
+    expect(replay.status).toBe("planned");
+    expect(changed.status).toBe("planned");
+    expect(first.plan?.planFingerprint).toBe(replay.plan?.planFingerprint);
+    expect(changed.plan?.planFingerprint).not.toBe(first.plan?.planFingerprint);
+  });
+
+  it("blocks ambiguous Magic identity preflight before returning executable commands", () => {
+    const result = planCatalogProviderPromotionCommands({
+      profile: scrydexScryfallCardProviderProfile,
+      profileKey: "scryfall-card-fixture",
+      profileVersion: "2026.06.03",
+      providerKey: "scrydex",
+      externalKey: "scryfall:0000579f-7b35-4ed3-b44c-db2a538066fe",
+      mode: "refresh",
+      catalogItemId: "cat_magic_001" as CatalogItemId,
+      normalized: magicCardPrintObservation(),
+      catalog: magicCardPrintCatalogMapping(),
+      setReferenceId: "ref_seed_set_time_spiral" as ReferenceRecordId,
+      metadata: { title: "Fury Sliver 157", subtitle: "Time Spiral Rare" },
+      productAssetSet: null,
+      preflight: {
+        status: "blocked",
+        code: "ambiguous-duplicate-candidates",
+        diagnosticText: "Multiple Catalog Items match this Magic Source Observation's deterministic identity.",
+        candidateCatalogItemIds: ["cat_magic_001" as CatalogItemId, "cat_magic_002" as CatalogItemId],
+      },
+    });
+
+    expect(result).toEqual({
+      status: "blocked",
+      plan: null,
+      diagnostics: [
+        {
+          code: "ambiguous-duplicate-candidates",
+          path: "preflight",
+          diagnosticText: "Multiple Catalog Items match this Magic Source Observation's deterministic identity.",
+        },
+      ],
+    });
+  });
+
   it("blocks ambiguous duplicate candidates before returning executable commands", () => {
     const result = planCatalogProviderPromotionCommands({
       profile: tcgdexPokemonTcgProviderProfile,
@@ -232,6 +490,41 @@ function catalogMapping(): CatalogProviderPromotionResolvedCatalogMapping {
       cardVariant: "field_card_variant" as FieldId,
       cardIllustrator: "field_illustrator" as FieldId,
       releaseYear: "field_release_year" as FieldId,
+    },
+  };
+}
+
+function magicCardPrintCatalogMapping(): CatalogProviderPromotionResolvedCatalogMapping {
+  return {
+    blueprintId: "bp_magic_card_print" as BlueprintId,
+    categoryId: "cat_magic_card_prints" as CategoryId,
+    fieldIds: {
+      cardNumber: "field_card_number" as FieldId,
+      cardName: "field_card_name" as FieldId,
+      set: "field_set" as FieldId,
+      expansion: "field_set" as FieldId,
+      rarity: "field_rarity" as FieldId,
+      cardVariant: "field_card_variant" as FieldId,
+      cardIllustrator: "field_illustrator" as FieldId,
+      releaseYear: "field_release_year" as FieldId,
+    },
+  };
+}
+
+function magicSealedCatalogMapping(): CatalogProviderPromotionResolvedCatalogMapping {
+  return {
+    blueprintId: "bp_magic_sealed_product" as BlueprintId,
+    categoryId: "cat_magic_booster_packs" as CategoryId,
+    fieldIds: {
+      cardNumber: "field_card_number" as FieldId,
+      cardName: "field_card_name" as FieldId,
+      set: "field_set" as FieldId,
+      expansion: "field_set" as FieldId,
+      rarity: "field_rarity" as FieldId,
+      cardVariant: "field_card_variant" as FieldId,
+      cardIllustrator: "field_illustrator" as FieldId,
+      releaseYear: "field_release_year" as FieldId,
+      packCount: "field_pack_count" as FieldId,
     },
   };
 }
@@ -291,6 +584,111 @@ function providerProductObservation(): SourceObservationProviderProductNormalize
     productLineName: "Pokemon",
     productCategoryName: "Cards",
     skuReferences: [],
+  };
+}
+
+function magicCardPrintObservation(
+  overrides: Partial<SourceObservationMagicCardPrintNormalized> = {},
+): SourceObservationMagicCardPrintNormalized {
+  return {
+    kind: "magic-card-print",
+    tcg: "magic",
+    languageCode: "en",
+    name: "Fury Sliver",
+    setName: "Time Spiral",
+    expansionName: "Time Spiral",
+    cardNumber: "157",
+    imageUrls: ["https://cards.scryfall.io/normal/front/fury-sliver.jpg"],
+    setCode: "tsp",
+    setId: null,
+    oracleId: "44623693-51d6-49ad-8cd7-140505caf02f",
+    rarity: "Rare",
+    illustrator: "Paolo Parente",
+    releaseDate: "2006-10-06",
+    releaseYear: 2006,
+    cardVariantKey: "standard",
+    cardVariantLabel: "Standard",
+    mergeIdentity: {
+      tcg: "magic",
+      productLineName: "Magic: The Gathering",
+      setName: "Time Spiral",
+      printedProductName: "Fury Sliver",
+      collectorNumber: "157",
+      languageCode: "en",
+      productForm: "magic-card-print",
+    },
+    externalCatalogItemReferences: [
+      { providerKey: "TCGPLAYER", externalKey: "PRODUCT:14240" },
+      { providerKey: "tcgplayer", externalKey: "product:14240" },
+    ],
+    ...overrides,
+  };
+}
+
+function magicSetReferenceObservation(): SourceObservationMagicSetReferenceNormalized {
+  return {
+    kind: "magic-set-reference",
+    tcg: "magic",
+    languageCode: "en",
+    name: "Time Spiral",
+    setName: "Time Spiral",
+    expansionName: null,
+    cardNumber: null,
+    imageUrls: [],
+    setCode: "tsp",
+    setId: null,
+    releaseDate: "2006-10-06",
+    releaseYear: 2006,
+    cardCount: 301,
+    productLineName: "Magic: The Gathering",
+  };
+}
+
+function magicSealedProductObservation(
+  overrides: Partial<SourceObservationMagicSealedProductNormalized> = {},
+): SourceObservationMagicSealedProductNormalized {
+  return {
+    kind: "magic-sealed-product",
+    tcg: "magic",
+    languageCode: "en",
+    name: "Time Spiral Booster Pack",
+    setName: "Time Spiral",
+    expansionName: "Time Spiral",
+    cardNumber: null,
+    imageUrls: ["https://images.example/time-spiral-booster-pack.jpg"],
+    setCode: "tsp",
+    setId: null,
+    sealedProductForm: "booster-pack",
+    packCount: 1,
+    releaseDate: "2006-10-06",
+    releaseYear: 2006,
+    productLineName: "Magic: The Gathering",
+    barcode: null,
+    mergeIdentity: {
+      tcg: "magic",
+      productLineName: "Magic: The Gathering",
+      setName: "Time Spiral",
+      printedProductName: "Time Spiral Booster Pack",
+      collectorNumber: null,
+      languageCode: "en",
+      productForm: "booster-pack",
+    },
+    externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:96601" }],
+    externalProductReferences: [],
+    ...overrides,
+  };
+}
+
+function magicSealedProductProfile(): CatalogProviderIntegrationProfile {
+  return {
+    ...scrydexScryfallCardProviderProfile,
+    providerKey: "tcgplayer",
+    displayName: "TCGplayer Magic sealed fixture",
+    capabilities: ["catalog-item-promotion"],
+    normalizedObservationMapping: {
+      ...scrydexScryfallCardProviderProfile.normalizedObservationMapping,
+      kind: "magic-sealed-product",
+    },
   };
 }
 

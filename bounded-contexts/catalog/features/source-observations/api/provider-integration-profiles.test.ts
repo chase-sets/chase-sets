@@ -134,8 +134,20 @@ describe("catalog provider integration profiles", () => {
     expect(profile).toMatchObject({
       providerKey: "scrydex",
       status: "planned",
-      capabilities: ["source-observation-import", "external-reference-extraction"],
+      capabilities: ["source-observation-import", "catalog-item-promotion", "external-reference-extraction"],
       supportedScopes: ["product/card"],
+      normalizedObservationMapping: { kind: "magic-card-print" },
+      catalogFieldMapping: {
+        blueprintKey: "magic-card-print",
+        categoryKey: "magic-card-prints",
+        fieldKeys: expect.objectContaining({ set: "set" }),
+      },
+      referenceHierarchyMapping: {
+        targetRecordRuleKey: "set",
+        referenceTypes: expect.arrayContaining([
+          expect.objectContaining({ typeKey: "set", attributeKeys: ["scryfall-set-code", "scryfall-set-name"] }),
+        ]),
+      },
       connector: {
         kind: "scrydex-scryfall-json",
         fixtureBackedOnly: true,

@@ -61,11 +61,12 @@ describe("provider integration executable mapping contract", () => {
     );
   });
 
-  it("represents Scrydex/Scryfall-style TCGplayer ID evidence as duplicate-prevention data", () => {
+  it("represents Scrydex/Scryfall-style Magic card-print evidence as duplicate-prevention data", () => {
     const contract = scrydexContract();
 
     expect(validateCatalogProviderExecutableMappingContract(contract)).toEqual([]);
     expect(contract.providerKey).toBe("scrydex");
+    expect(contract.normalizedObservation.outputKind).toBe("magic-card-print");
     expect(contract.externalReferences).toContainEqual(
       expect.objectContaining({
         target: "catalog-item-reference",
@@ -491,9 +492,17 @@ function scrydexContract(): CatalogProviderExecutableMappingContract {
     },
     normalizedObservation: {
       ...tcgplayerContract().normalizedObservation,
+      outputKind: "magic-card-print",
       fields: {
+        tcg: constantExpr("magic", "catalog-truth", ["normalized-observation"]),
         name: expr("name", "catalog-truth", ["normalized-observation", "hash-material"]),
+        setCode: expr("set.code", "catalog-truth", ["normalized-observation", "hash-material", "merge-identity"]),
         setName: expr("set.name", "catalog-truth", ["normalized-observation", "hash-material", "merge-identity"]),
+        cardNumber: expr("collector_number", "catalog-truth", [
+          "normalized-observation",
+          "hash-material",
+          "merge-identity",
+        ]),
         tcgplayerId: expr("tcgplayer_id", "external-reference", ["external-reference", "merge-identity"]),
       },
       hashMaterial: [

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { BlueprintId, CatalogItemId, CategoryId, FieldId } from "../../../ids";
 import type {
+  SourceObservationMagicCardPrintNormalized,
   SourceObservationPokemonCardNormalized,
   SourceObservationProviderProductNormalized,
 } from "../domain/domain";
@@ -175,15 +176,11 @@ describe("resolveCatalogProviderDuplicatePrevention", () => {
       profile: scrydexScryfallCardProviderProfile,
       providerKey: "scrydex",
       externalKey: "scryfall:0000579f-7b35-4ed3-b44c-db2a538066fe",
-      normalized: providerProductObservation({
+      normalized: magicCardPrintObservation({
         name: "Fury Sliver",
         setName: "Time Spiral",
         expansionName: "Time Spiral",
         cardNumber: "157",
-        providerProductId: "0000579f-7b35-4ed3-b44c-db2a538066fe",
-        providerProductName: "Fury Sliver",
-        productLineName: "Magic: The Gathering",
-        productCategoryName: "Cards",
         externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:14240" }],
         mergeIdentity: {
           tcg: "magic",
@@ -192,7 +189,7 @@ describe("resolveCatalogProviderDuplicatePrevention", () => {
           printedProductName: "Fury Sliver",
           collectorNumber: "157",
           languageCode: "en",
-          productForm: "single",
+          productForm: "magic-card-print",
         },
       }),
       catalog: catalogMapping(),
@@ -250,6 +247,41 @@ function duplicatePreventionDb(input: {
         rows: [] as T[],
       };
     },
+  };
+}
+
+function magicCardPrintObservation(
+  overrides: Partial<SourceObservationMagicCardPrintNormalized> = {},
+): SourceObservationMagicCardPrintNormalized {
+  return {
+    kind: "magic-card-print",
+    tcg: "magic",
+    languageCode: "en",
+    name: "Fury Sliver",
+    cardNumber: "157",
+    setCode: "tsp",
+    setName: "Time Spiral",
+    expansionName: "Time Spiral",
+    setId: null,
+    oracleId: "44623693-51d6-49ad-8cd7-140505caf02f",
+    rarity: "Rare",
+    illustrator: null,
+    releaseDate: "2006-10-06",
+    releaseYear: 2006,
+    cardVariantKey: "standard",
+    cardVariantLabel: "Standard",
+    imageUrls: [],
+    mergeIdentity: {
+      tcg: "magic",
+      productLineName: "Magic: The Gathering",
+      setName: "Time Spiral",
+      printedProductName: "Fury Sliver",
+      collectorNumber: "157",
+      languageCode: "en",
+      productForm: "magic-card-print",
+    },
+    externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:14240" }],
+    ...overrides,
   };
 }
 
