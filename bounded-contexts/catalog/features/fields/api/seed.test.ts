@@ -26,6 +26,28 @@ describe("field seed", () => {
     ]);
   });
 
+  it("reconciles the Magic set field when older Pokemon integration structure already exists", async () => {
+    const harness = createSeedFieldsHarness({
+      missingKeys: new Set(["set"]),
+    });
+
+    const ids = await seedFields(harness.services);
+
+    expect(ids.set).toBe(catalogSeedIds.fields.set);
+    expect(harness.commands).toEqual([
+      {
+        streamId: `catalog.field-${catalogSeedIds.fields.set}`,
+        type: "CreateField",
+        key: "set",
+      },
+      {
+        streamId: `catalog.field-${catalogSeedIds.fields.set}`,
+        type: "ActivateField",
+        key: undefined,
+      },
+    ]);
+  });
+
   it("does not recreate active integration fields", async () => {
     const harness = createSeedFieldsHarness();
 
@@ -39,6 +61,7 @@ function createSeedFieldsHarness(input: { missingKeys?: Set<string> } = {}) {
   const existingFields = new Map<string, { field_id: string; key: string; status: string }>([
     ["card-number", activeField(catalogSeedIds.fields.cardNumber, "card-number")],
     ["card-name", activeField(catalogSeedIds.fields.cardName, "card-name")],
+    ["set", activeField(catalogSeedIds.fields.set, "set")],
     ["expansion", activeField(catalogSeedIds.fields.expansion, "expansion")],
     ["rarity", activeField(catalogSeedIds.fields.rarity, "rarity")],
     ["card-variant", activeField(catalogSeedIds.fields.cardVariant, "card-variant")],

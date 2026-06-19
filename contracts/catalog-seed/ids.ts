@@ -65,6 +65,7 @@ export const catalogSeedIds = {
   fields: {
     cardNumber: "fld_seed_card_number" as SeedFieldId,
     cardName: "fld_seed_card_name" as SeedFieldId,
+    set: "fld_seed_set" as SeedFieldId,
     expansion: "fld_seed_expansion" as SeedFieldId,
     rarity: "fld_seed_rarity" as SeedFieldId,
     cardVariant: "fld_seed_card_variant" as SeedFieldId,
@@ -77,13 +78,16 @@ export const catalogSeedIds = {
     productLine: "rft_seed_product_line" as SeedReferenceTypeId,
     series: "rft_seed_series" as SeedReferenceTypeId,
     expansion: "rft_seed_expansion" as SeedReferenceTypeId,
+    set: "rft_seed_set" as SeedReferenceTypeId,
   },
   referenceRecords: {
     manufacturers: {
       thePokemonCompanyInternational: "ref_seed_the_pokemon_company_international" as SeedReferenceRecordId,
+      wizardsOfTheCoast: "ref_seed_wizards_of_the_coast" as SeedReferenceRecordId,
     },
     productLines: {
       pokemonTradingCardGame: "ref_seed_pokemon_trading_card_game" as SeedReferenceRecordId,
+      magicTheGathering: "ref_seed_magic_the_gathering" as SeedReferenceRecordId,
     },
     series: {
       base: "ref_seed_series_base" as SeedReferenceRecordId,
@@ -100,20 +104,30 @@ export const catalogSeedIds = {
       surgingSparks: "ref_seed_expansion_surging_sparks" as SeedReferenceRecordId,
       twilightMasquerade: "ref_seed_expansion_twilight_masquerade" as SeedReferenceRecordId,
     },
+    sets: {
+      timeSpiral: "ref_seed_set_time_spiral" as SeedReferenceRecordId,
+    },
   },
   displayTemplates: {
     pokemonSingleCardDefault: "dtp_seed_pokemon_single_card_default" as SeedDisplayTemplateId,
     pokemonPromoCard: "dtp_seed_pokemon_promo_card" as SeedDisplayTemplateId,
     pokemonSealedProduct: "dtp_seed_pokemon_sealed_product" as SeedDisplayTemplateId,
+    magicCardPrintDefault: "dtp_seed_magic_card_print_default" as SeedDisplayTemplateId,
+    magicSealedProduct: "dtp_seed_magic_sealed_product" as SeedDisplayTemplateId,
   },
   components: {
     singleCardIdentity: "cmp_seed_single_card_identity" as SeedComponentId,
     singleCardProductResolution: "cmp_seed_single_card_product_resolution" as SeedComponentId,
     sealedProductIdentity: "cmp_seed_sealed_product_identity" as SeedComponentId,
+    magicCardPrintIdentity: "cmp_seed_magic_card_print_identity" as SeedComponentId,
+    magicCardProductResolution: "cmp_seed_magic_card_product_resolution" as SeedComponentId,
+    magicSealedProductIdentity: "cmp_seed_magic_sealed_product_identity" as SeedComponentId,
   },
   blueprints: {
     pokemonCardSingle: "bpr_seed_pokemon_card_single" as SeedBlueprintId,
     pokemonSealedProduct: "bpr_seed_pokemon_sealed_product" as SeedBlueprintId,
+    magicCardPrint: "bpr_seed_magic_card_print" as SeedBlueprintId,
+    magicSealedProduct: "bpr_seed_magic_sealed_product" as SeedBlueprintId,
   },
   categories: {
     pokemonTcg: "ctg_seed_pokemon_tcg" as SeedCategoryId,
@@ -147,6 +161,11 @@ export const catalogSeedIds = {
     colorless: "ctg_seed_type_colorless" as SeedCategoryId,
     trainerCards: "ctg_seed_trainer_cards" as SeedCategoryId,
     energyCards: "ctg_seed_energy_cards" as SeedCategoryId,
+    magicTheGathering: "ctg_seed_magic_the_gathering" as SeedCategoryId,
+    magicCardPrints: "ctg_seed_magic_card_prints" as SeedCategoryId,
+    magicSealedProducts: "ctg_seed_magic_sealed_products" as SeedCategoryId,
+    magicBoosterPacks: "ctg_seed_magic_booster_packs" as SeedCategoryId,
+    magicBoosterBoxes: "ctg_seed_magic_booster_boxes" as SeedCategoryId,
   },
   items: {
     charizardBaseSet: "cat_seed_charizard_base_set" as SeedCatalogItemId,

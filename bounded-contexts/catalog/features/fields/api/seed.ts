@@ -31,6 +31,14 @@ const fieldDefs: FieldDef[] = [
     behavior: { filterable: true, searchable: true, sortable: true },
   },
   {
+    key: "set",
+    fieldId: catalogSeedIds.fields.set as FieldId,
+    name: l10n("Set"),
+    description: l10n("The Magic: The Gathering set the card print or sealed product belongs to"),
+    valueType: "reference",
+    behavior: { filterable: true, searchable: true, sortable: true },
+  },
+  {
     key: "expansion",
     fieldId: catalogSeedIds.fields.expansion as FieldId,
     name: l10n("Expansion"),

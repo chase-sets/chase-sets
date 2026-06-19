@@ -24,7 +24,7 @@ describe("product measure seed", () => {
       resolveExistingCatalogItems: false,
     });
 
-    expect(productMeasures.upsertProfile).toHaveBeenCalledTimes(5);
+    expect(productMeasures.upsertProfile).toHaveBeenCalledTimes(9);
     expect(productMeasures.resolveAllCatalogItemMeasures).not.toHaveBeenCalled();
   });
 
@@ -35,7 +35,7 @@ describe("product measure seed", () => {
       resolveExistingCatalogItems: true,
     });
 
-    expect(productMeasures.upsertProfile).toHaveBeenCalledTimes(5);
+    expect(productMeasures.upsertProfile).toHaveBeenCalledTimes(9);
     expect(productMeasures.resolveAllCatalogItemMeasures).toHaveBeenCalledTimes(1);
   });
 });

@@ -161,6 +161,28 @@ function matchingSeedRows(overrides: Record<string, Partial<SeedRow>> = {}): See
       required_field_keys: [],
       status: "active",
     },
+    {
+      display_template_id: catalogSeedIds.displayTemplates.magicCardPrintDefault,
+      key: "magic-card-print-default",
+      target_kind: "blueprint",
+      target_id: catalogSeedIds.blueprints.magicCardPrint,
+      priority: 10,
+      title_template: "{field.card-name} {field.card-number}",
+      subtitle_template: "{reference.set.name} [{field.card-variant} ]{field.rarity}",
+      required_field_keys: ["card-name", "card-number", "set"],
+      status: "active",
+    },
+    {
+      display_template_id: catalogSeedIds.displayTemplates.magicSealedProduct,
+      key: "magic-sealed-product",
+      target_kind: "blueprint",
+      target_id: catalogSeedIds.blueprints.magicSealedProduct,
+      priority: 10,
+      title_template: "{item.title}",
+      subtitle_template: "{reference.set.name} sealed product",
+      required_field_keys: [],
+      status: "active",
+    },
   ];
 
   return rows.map((row) => ({ ...row, ...(overrides[row.display_template_id] ?? {}) }));

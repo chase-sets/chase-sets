@@ -89,13 +89,13 @@ Owns consumer-facing grouping metadata. Categories never participate in product 
 
 ### Reference Type
 
-Owns the reusable kind of rich descriptive data, such as `Expansion`, `Series`, or `Product Line`.
+Owns the reusable kind of rich descriptive data, such as `Expansion`, `Set`, `Series`, or `Product Line`.
 
 Reference Types do not create Products and do not replace Dimensions. They define the natural-language bucket for Reference Records that Catalog Items may point at through Field values.
 
 ### Reference Record
 
-Owns one reusable rich value under a Reference Type, such as `Ascended Heroes` under `Expansion` or `Mega Evolution` under `Series`.
+Owns one reusable rich value under a Reference Type, such as `Ascended Heroes` under `Expansion`, `Time Spiral` under `Set`, or `Mega Evolution` under `Series`.
 
 Reference Records can carry attributes and relationships to other Reference Records. These relationships may form a bounded hierarchy such as `Expansion -> Series -> TCG/Product Line -> Manufacturer`. A Catalog Item that points at a Reference Record receives that rich information in item detail read models without duplicating those facts onto every item.
 

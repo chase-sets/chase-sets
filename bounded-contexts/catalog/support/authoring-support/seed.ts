@@ -1,12 +1,12 @@
 import type { BcSeedOptions, EnvironmentDataProfile } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createCatalogServices } from "./services";
-import { seedBlueprints } from "../../features/blueprints/api/seed";
+import { seedBlueprints, seedMagicBlueprints } from "../../features/blueprints/api/seed";
 import type { BlueprintIds } from "../../features/blueprints/api/seed";
 import { seedCatalogItems } from "../../features/catalog-items/api/seed";
-import { seedCategories } from "../../features/categories/api/seed";
+import { seedCategories, seedMagicCategories } from "../../features/categories/api/seed";
 import type { CategoryIds } from "../../features/categories/api/seed";
-import { seedComponents } from "../../features/components/api/seed";
+import { seedComponents, seedMagicComponents } from "../../features/components/api/seed";
 import type { ComponentIds } from "../../features/components/api/seed";
 import { seedDimensions } from "../../features/dimensions/api/seed";
 import type { DimensionIds } from "../../features/dimensions/api/seed";
@@ -14,8 +14,8 @@ import { seedDisplayTemplates } from "../../features/display-templates/api/seed"
 import { seedFields } from "../../features/fields/api/seed";
 import type { FieldIds } from "../../features/fields/api/seed";
 import { seedProductMeasures } from "../../features/product-measures/api/seed";
-import { seedReferenceData } from "../../features/reference-data/api/seed";
-import type { PokemonReferenceIds } from "../../features/reference-data/api/seed";
+import { seedMagicReferenceData, seedReferenceData } from "../../features/reference-data/api/seed";
+import type { CatalogReferenceIds } from "../../features/reference-data/api/seed";
 import { seedCatalogProviderIntegrationProfileVersions } from "../../features/source-observations/api/provider-integration-profile-store";
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import type { BlueprintId, CategoryId, ComponentId, DimensionId, FieldId, OptionId } from "../../ids";
@@ -30,11 +30,11 @@ export async function seedCatalogDatabase(pool: PgTransactionalPool, _services?:
     return;
   }
 
-  console.log("Starting Pokemon TCG catalog integration profile seed...\n");
+  console.log("Starting Catalog integration profile seed...\n");
 
   const authoring = shouldSeedIntegrationProfile
     ? await seedCatalogIntegrationProfile(pool)
-    : staticTcgdexCatalogIntegrationIds();
+    : staticCatalogIntegrationIds();
 
   if (shouldSeedScenarioData) {
     await seedCatalogScenarioData(pool, authoring);
@@ -49,22 +49,25 @@ export async function seedCatalogDatabase(pool: PgTransactionalPool, _services?:
   console.log("\nCatalog seed reconciliation complete!");
 }
 
-async function seedCatalogIntegrationProfile(pool: PgTransactionalPool): Promise<TcgdexCatalogIntegrationIds> {
+async function seedCatalogIntegrationProfile(pool: PgTransactionalPool): Promise<CatalogIntegrationIds> {
   await seedCatalogProviderIntegrationProfileVersions(pool);
   return seedTcgdexCatalogIntegrationProfile(pool);
 }
 
-export async function seedTcgdexCatalogIntegrationProfile(
-  pool: PgTransactionalPool,
-): Promise<TcgdexCatalogIntegrationIds> {
+export async function seedTcgdexCatalogIntegrationProfile(pool: PgTransactionalPool): Promise<CatalogIntegrationIds> {
   const services = createCatalogServices(pool);
 
   if (await tableHasRows(services.db, "catalog_dimensions")) {
-    console.log("Pokemon TCG catalog integration profile already exists. Reconciling fields.");
+    console.log("Catalog integration structure already exists. Reconciling additive seed definitions.");
+    const dimensions = staticCatalogIntegrationIds().dimensions;
     const fields = await seedFields(services);
+    await seedMagicReferenceData(services);
+    const components = await seedMagicComponents(services, dimensions, fields);
+    await seedMagicBlueprints(services, components, dimensions, fields);
+    await seedMagicCategories(services);
     await seedDisplayTemplates(services);
     return {
-      ...staticTcgdexCatalogIntegrationIds(),
+      ...staticCatalogIntegrationIds(),
       fields,
     };
   }
@@ -89,10 +92,7 @@ export async function seedTcgdexCatalogIntegrationProfile(
   };
 }
 
-async function seedCatalogScenarioData(
-  pool: PgTransactionalPool,
-  authoring: TcgdexCatalogIntegrationIds,
-): Promise<void> {
+async function seedCatalogScenarioData(pool: PgTransactionalPool, authoring: CatalogIntegrationIds): Promise<void> {
   const services = createCatalogServices(pool);
 
   if (await tableHasRows(services.db, "catalog_items")) {
@@ -104,10 +104,10 @@ async function seedCatalogScenarioData(
   await seedCatalogItems(services, authoring.blueprints, authoring.fields, authoring.categories, authoring.references);
 }
 
-type TcgdexCatalogIntegrationIds = Readonly<{
+type CatalogIntegrationIds = Readonly<{
   dimensions: DimensionIds;
   fields: FieldIds;
-  references: PokemonReferenceIds;
+  references: CatalogReferenceIds;
   components: ComponentIds;
   blueprints: BlueprintIds;
   categories: CategoryIds;
@@ -138,7 +138,7 @@ async function tableHasRows(
   }
 }
 
-function staticTcgdexCatalogIntegrationIds(): TcgdexCatalogIntegrationIds {
+function staticCatalogIntegrationIds(): CatalogIntegrationIds {
   const dimensions: DimensionIds = {
     form: {
       dimensionId: catalogSeedIds.dimensions.form.dimensionId as DimensionId,
@@ -199,6 +199,7 @@ function staticTcgdexCatalogIntegrationIds(): TcgdexCatalogIntegrationIds {
   const fields: FieldIds = {
     "card-number": catalogSeedIds.fields.cardNumber as FieldId,
     "card-name": catalogSeedIds.fields.cardName as FieldId,
+    set: catalogSeedIds.fields.set as FieldId,
     expansion: catalogSeedIds.fields.expansion as FieldId,
     rarity: catalogSeedIds.fields.rarity as FieldId,
     "card-variant": catalogSeedIds.fields.cardVariant as FieldId,
@@ -206,7 +207,7 @@ function staticTcgdexCatalogIntegrationIds(): TcgdexCatalogIntegrationIds {
     "release-year": catalogSeedIds.fields.releaseYear as FieldId,
     "pack-count": catalogSeedIds.fields.packCount as FieldId,
   };
-  const references: PokemonReferenceIds = {
+  const references: CatalogReferenceIds = {
     expansions: {
       "base-set": catalogSeedIds.referenceRecords.expansions.baseSet,
       jungle: catalogSeedIds.referenceRecords.expansions.jungle,
@@ -216,15 +217,25 @@ function staticTcgdexCatalogIntegrationIds(): TcgdexCatalogIntegrationIds {
       "surging-sparks": catalogSeedIds.referenceRecords.expansions.surgingSparks,
       "twilight-masquerade": catalogSeedIds.referenceRecords.expansions.twilightMasquerade,
     },
+    magic: {
+      sets: {
+        "time-spiral": catalogSeedIds.referenceRecords.sets.timeSpiral,
+      },
+    },
   };
   const components: ComponentIds = {
     "single-card-identity": catalogSeedIds.components.singleCardIdentity as ComponentId,
     "single-card-product-resolution": catalogSeedIds.components.singleCardProductResolution as ComponentId,
     "sealed-product-identity": catalogSeedIds.components.sealedProductIdentity as ComponentId,
+    "magic-card-print-identity": catalogSeedIds.components.magicCardPrintIdentity as ComponentId,
+    "magic-card-product-resolution": catalogSeedIds.components.magicCardProductResolution as ComponentId,
+    "magic-sealed-product-identity": catalogSeedIds.components.magicSealedProductIdentity as ComponentId,
   };
   const blueprints: BlueprintIds = {
     "pokemon-card-single": catalogSeedIds.blueprints.pokemonCardSingle as BlueprintId,
     "pokemon-sealed-product": catalogSeedIds.blueprints.pokemonSealedProduct as BlueprintId,
+    "magic-card-print": catalogSeedIds.blueprints.magicCardPrint as BlueprintId,
+    "magic-sealed-product": catalogSeedIds.blueprints.magicSealedProduct as BlueprintId,
   };
   const categories: CategoryIds = {
     "pokemon-tcg": catalogSeedIds.categories.pokemonTcg as CategoryId,
@@ -258,6 +269,11 @@ function staticTcgdexCatalogIntegrationIds(): TcgdexCatalogIntegrationIds {
     colorless: catalogSeedIds.categories.colorless as CategoryId,
     "trainer-cards": catalogSeedIds.categories.trainerCards as CategoryId,
     "energy-cards": catalogSeedIds.categories.energyCards as CategoryId,
+    "magic-the-gathering": catalogSeedIds.categories.magicTheGathering as CategoryId,
+    "magic-card-prints": catalogSeedIds.categories.magicCardPrints as CategoryId,
+    "magic-sealed-products": catalogSeedIds.categories.magicSealedProducts as CategoryId,
+    "magic-booster-packs": catalogSeedIds.categories.magicBoosterPacks as CategoryId,
+    "magic-booster-boxes": catalogSeedIds.categories.magicBoosterBoxes as CategoryId,
   };
 
   return {

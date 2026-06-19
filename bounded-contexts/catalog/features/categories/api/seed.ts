@@ -6,95 +6,90 @@ import { localizedTextMapFromEnglish } from "@chase-sets/localization";
 
 export type CategoryIds = Record<string, CategoryId>;
 
+type CategoryDef = Readonly<{
+  key: string;
+  categoryId: CategoryId;
+  name: string;
+  description: string;
+  parentKey?: string;
+  displayOrder?: number;
+}>;
+
 export async function seedCategories(services: CatalogServices): Promise<CategoryIds> {
   console.log("Seeding categories...");
-  const result: CategoryIds = {};
+  const result = await seedCategoryDefinitions(services, allCategoryDefs());
 
-  async function createCategory(
-    key: string,
-    categoryId: CategoryId,
-    name: string,
-    description: string,
-    parentKey?: string,
-    displayOrder?: number,
-  ): Promise<void> {
-    const streamId = `catalog.category-${categoryId}`;
+  console.log(`  ${Object.keys(result).length} categories created`);
+  return result;
+}
 
-    await sendSeedCommand(services.categories.commandHandler, streamId, {
-      type: "CreateCategory",
-      categoryId,
-      key,
-      name: localizedTextMapFromEnglish(name),
-      description: localizedTextMapFromEnglish(description),
-      parentCategoryId: parentKey ? result[parentKey] : undefined,
-      displayOrder: displayOrder ?? 0,
-    });
-
-    await sendSeedCommand(services.categories.commandHandler, streamId, {
-      type: "PublishCategory",
-    });
-
-    result[key] = categoryId;
-  }
-
-  await createCategory(
-    "pokemon-tcg",
-    catalogSeedIds.categories.pokemonTcg as CategoryId,
-    "Pokemon TCG",
-    "Pokemon Trading Card Game catalog",
+export async function seedMagicCategories(services: CatalogServices): Promise<CategoryIds> {
+  console.log("Reconciling Magic categories...");
+  return seedCategoryDefinitions(
+    services,
+    allCategoryDefs().filter((def) => def.key.startsWith("magic-")),
+    { reconcileExisting: true },
   );
+}
 
-  await createCategory(
-    "singles",
-    catalogSeedIds.categories.singles as CategoryId,
-    "Singles",
-    "Individual Pokemon cards",
-    "pokemon-tcg",
-    0,
-  );
+function allCategoryDefs(): CategoryDef[] {
+  const defs: CategoryDef[] = [
+    {
+      key: "pokemon-tcg",
+      categoryId: catalogSeedIds.categories.pokemonTcg as CategoryId,
+      name: "Pokemon TCG",
+      description: "Pokemon Trading Card Game catalog",
+    },
+    {
+      key: "singles",
+      categoryId: catalogSeedIds.categories.singles as CategoryId,
+      name: "Singles",
+      description: "Individual Pokemon cards",
+      parentKey: "pokemon-tcg",
+      displayOrder: 0,
+    },
+    {
+      key: "sealed-products",
+      categoryId: catalogSeedIds.categories.sealedProducts as CategoryId,
+      name: "Sealed Products",
+      description: "Pokemon booster packs, booster boxes, and boxed sealed products",
+      parentKey: "pokemon-tcg",
+      displayOrder: 1,
+    },
+    {
+      key: "booster-packs",
+      categoryId: catalogSeedIds.categories.boosterPacks as CategoryId,
+      name: "Booster Packs",
+      description: "Single sealed booster packs",
+      parentKey: "sealed-products",
+      displayOrder: 0,
+    },
+    {
+      key: "booster-boxes",
+      categoryId: catalogSeedIds.categories.boosterBoxes as CategoryId,
+      name: "Booster Boxes",
+      description: "Factory sealed booster boxes",
+      parentKey: "sealed-products",
+      displayOrder: 1,
+    },
+    {
+      key: "elite-trainer-boxes",
+      categoryId: catalogSeedIds.categories.eliteTrainerBoxes as CategoryId,
+      name: "Elite Trainer Boxes",
+      description: "Sealed Elite Trainer Box products",
+      parentKey: "sealed-products",
+      displayOrder: 2,
+    },
+    {
+      key: "by-generation",
+      categoryId: catalogSeedIds.categories.byGeneration as CategoryId,
+      name: "By Generation",
+      description: "Singles organized by Pokemon generation",
+      parentKey: "singles",
+      displayOrder: 0,
+    },
+  ];
 
-  await createCategory(
-    "sealed-products",
-    catalogSeedIds.categories.sealedProducts as CategoryId,
-    "Sealed Products",
-    "Pokemon booster packs, booster boxes, and boxed sealed products",
-    "pokemon-tcg",
-    1,
-  );
-
-  await createCategory(
-    "booster-packs",
-    catalogSeedIds.categories.boosterPacks as CategoryId,
-    "Booster Packs",
-    "Single sealed booster packs",
-    "sealed-products",
-    0,
-  );
-  await createCategory(
-    "booster-boxes",
-    catalogSeedIds.categories.boosterBoxes as CategoryId,
-    "Booster Boxes",
-    "Factory sealed booster boxes",
-    "sealed-products",
-    1,
-  );
-  await createCategory(
-    "elite-trainer-boxes",
-    catalogSeedIds.categories.eliteTrainerBoxes as CategoryId,
-    "Elite Trainer Boxes",
-    "Sealed Elite Trainer Box products",
-    "sealed-products",
-    2,
-  );
-
-  await createCategory(
-    "by-generation",
-    catalogSeedIds.categories.byGeneration as CategoryId,
-    "By Generation",
-    "Singles organized by Pokemon generation",
-    "singles",
-    0,
-  );
   const generations = [
     ["gen-1", "Generation I", catalogSeedIds.categories.gen1 as CategoryId],
     ["gen-2", "Generation II", catalogSeedIds.categories.gen2 as CategoryId],
@@ -107,24 +102,25 @@ export async function seedCategories(services: CatalogServices): Promise<Categor
     ["gen-9", "Generation IX", catalogSeedIds.categories.gen9 as CategoryId],
   ] as const;
   for (let index = 0; index < generations.length; index += 1) {
-    await createCategory(
-      generations[index][0],
-      generations[index][2],
-      generations[index][1],
-      `${generations[index][1]} Pokemon singles`,
-      "by-generation",
-      index,
-    );
+    defs.push({
+      key: generations[index][0],
+      categoryId: generations[index][2],
+      name: generations[index][1],
+      description: `${generations[index][1]} Pokemon singles`,
+      parentKey: "by-generation",
+      displayOrder: index,
+    });
   }
 
-  await createCategory(
-    "by-type",
-    catalogSeedIds.categories.byType as CategoryId,
-    "By Type",
-    "Singles organized by Pokemon type",
-    "singles",
-    1,
-  );
+  defs.push({
+    key: "by-type",
+    categoryId: catalogSeedIds.categories.byType as CategoryId,
+    name: "By Type",
+    description: "Singles organized by Pokemon type",
+    parentKey: "singles",
+    displayOrder: 1,
+  });
+
   const types = [
     ["Fire", catalogSeedIds.categories.fire as CategoryId],
     ["Water", catalogSeedIds.categories.water as CategoryId],
@@ -140,34 +136,124 @@ export async function seedCategories(services: CatalogServices): Promise<Categor
     ["Colorless", catalogSeedIds.categories.colorless as CategoryId],
   ] as const;
   for (let index = 0; index < types.length; index += 1) {
-    const key = types[index][0].toLowerCase();
-    await createCategory(
-      key,
-      types[index][1],
-      types[index][0],
-      `${types[index][0]} type Pokemon singles`,
-      "by-type",
-      index,
-    );
+    defs.push({
+      key: types[index][0].toLowerCase(),
+      categoryId: types[index][1],
+      name: types[index][0],
+      description: `${types[index][0]} type Pokemon singles`,
+      parentKey: "by-type",
+      displayOrder: index,
+    });
   }
 
-  await createCategory(
-    "trainer-cards",
-    catalogSeedIds.categories.trainerCards as CategoryId,
-    "Trainer Cards",
-    "Trainer, Supporter, and Stadium singles",
-    "singles",
-    2,
-  );
-  await createCategory(
-    "energy-cards",
-    catalogSeedIds.categories.energyCards as CategoryId,
-    "Energy Cards",
-    "Basic and Special Energy singles",
-    "singles",
-    3,
+  defs.push(
+    {
+      key: "trainer-cards",
+      categoryId: catalogSeedIds.categories.trainerCards as CategoryId,
+      name: "Trainer Cards",
+      description: "Trainer, Supporter, and Stadium singles",
+      parentKey: "singles",
+      displayOrder: 2,
+    },
+    {
+      key: "energy-cards",
+      categoryId: catalogSeedIds.categories.energyCards as CategoryId,
+      name: "Energy Cards",
+      description: "Basic and Special Energy singles",
+      parentKey: "singles",
+      displayOrder: 3,
+    },
+    {
+      key: "magic-the-gathering",
+      categoryId: catalogSeedIds.categories.magicTheGathering as CategoryId,
+      name: "Magic: The Gathering",
+      description: "Magic: The Gathering catalog",
+    },
+    {
+      key: "magic-card-prints",
+      categoryId: catalogSeedIds.categories.magicCardPrints as CategoryId,
+      name: "Card Prints",
+      description: "Individual Magic card prints",
+      parentKey: "magic-the-gathering",
+      displayOrder: 0,
+    },
+    {
+      key: "magic-sealed-products",
+      categoryId: catalogSeedIds.categories.magicSealedProducts as CategoryId,
+      name: "Sealed Products",
+      description: "Magic sealed products",
+      parentKey: "magic-the-gathering",
+      displayOrder: 1,
+    },
+    {
+      key: "magic-booster-packs",
+      categoryId: catalogSeedIds.categories.magicBoosterPacks as CategoryId,
+      name: "Booster Packs",
+      description: "Single sealed Magic booster packs",
+      parentKey: "magic-sealed-products",
+      displayOrder: 0,
+    },
+    {
+      key: "magic-booster-boxes",
+      categoryId: catalogSeedIds.categories.magicBoosterBoxes as CategoryId,
+      name: "Booster Boxes",
+      description: "Factory sealed Magic booster boxes",
+      parentKey: "magic-sealed-products",
+      displayOrder: 1,
+    },
   );
 
-  console.log(`  ${Object.keys(result).length} categories created`);
+  return defs;
+}
+
+async function seedCategoryDefinitions(
+  services: CatalogServices,
+  defs: readonly CategoryDef[],
+  options: Readonly<{ reconcileExisting?: boolean }> = {},
+): Promise<CategoryIds> {
+  const result: CategoryIds = Object.fromEntries(defs.map((def) => [def.key, def.categoryId]));
+
+  for (const def of defs) {
+    if (options.reconcileExisting && (await categoryExists(services, def))) {
+      continue;
+    }
+
+    const streamId = `catalog.category-${def.categoryId}`;
+
+    await sendSeedCommand(services.categories.commandHandler, streamId, {
+      type: "CreateCategory",
+      categoryId: def.categoryId,
+      key: def.key,
+      name: localizedTextMapFromEnglish(def.name),
+      description: localizedTextMapFromEnglish(def.description),
+      parentCategoryId: def.parentKey ? result[def.parentKey] : undefined,
+      displayOrder: def.displayOrder ?? 0,
+    });
+
+    await sendSeedCommand(services.categories.commandHandler, streamId, {
+      type: "PublishCategory",
+    });
+  }
+
   return result;
+}
+
+async function categoryExists(services: CatalogServices, def: CategoryDef): Promise<boolean> {
+  const existing = await services.db.query<{ category_id: string; key: string; status: string }>(
+    `SELECT category_id, key, status
+     FROM catalog_categories
+     WHERE category_id = $1 OR key = $2`,
+    [def.categoryId, def.key],
+  );
+  const row = existing.rows.find((candidate) => candidate.category_id === def.categoryId);
+  if (existing.rows.length === 0) {
+    return false;
+  }
+  if (!row || row.key !== def.key || existing.rows.length > 1) {
+    throw new Error(`Catalog integration bootstrap category '${def.key}' conflicts with existing metadata.`);
+  }
+  if (row.status !== "active") {
+    throw new Error(`Catalog integration bootstrap requires active category '${def.key}'.`);
+  }
+  return true;
 }
