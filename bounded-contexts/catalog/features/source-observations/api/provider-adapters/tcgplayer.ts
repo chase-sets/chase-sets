@@ -277,7 +277,7 @@ export function createTcgplayerProviderAdapter(
           providerKey: "tcgplayer",
           unitKey: unitKeyForTcgplayerProfileVersion(profileVersion),
           requirement: "required",
-          sourceKind: options.client ? "operator-session" : "environment-secret",
+          sourceKind: "environment-secret",
           state: options.client ? "configured" : "missing",
           message: options.client
             ? t("catalog.features.sourceObservations.api.providerAdapters.tcgplayer.credential.configured")

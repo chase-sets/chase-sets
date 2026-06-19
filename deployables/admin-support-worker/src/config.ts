@@ -1,4 +1,8 @@
 import { getWorkerHostContextNames, type WorkerHostContextName } from "@chase-sets/platform-runtime/worker";
+import {
+  loadTcgplayerAutomationConfig,
+  type PlatformTcgplayerAutomationConfig,
+} from "@chase-sets/platform-runtime/config-schema";
 import { workerContextRegistry } from "./generated/worker-context-registry";
 
 export type AdminSupportWorkerContextName = WorkerHostContextName<typeof workerContextRegistry>;
@@ -23,6 +27,7 @@ export type AdminSupportWorkerConfig = Readonly<{
   pollIntervalMs: number;
   leaseTtlMs: number;
   leaseRenewIntervalMs: number;
+  tcgplayerAutomation: AdminSupportWorkerTcgplayerAutomationConfig | null;
 }>;
 
 export type AdminSupportWorkerCatalogAssetStorageConfig =
@@ -41,6 +46,8 @@ export type AdminSupportWorkerCatalogAssetStorageConfig =
       secretAccessKey?: string;
       forcePathStyle?: boolean;
     }>;
+
+export type AdminSupportWorkerTcgplayerAutomationConfig = PlatformTcgplayerAutomationConfig;
 
 const adminSupportContexts = getWorkerHostContextNames(workerContextRegistry, "admin-support-worker");
 
@@ -120,6 +127,7 @@ export function loadConfig(): AdminSupportWorkerConfig {
     pollIntervalMs: getPositiveNumberEnv("WORKER_POLL_INTERVAL_MS", 1_000),
     leaseTtlMs: getPositiveNumberEnv("WORKER_LEASE_TTL_MS", 30_000),
     leaseRenewIntervalMs: getPositiveNumberEnv("WORKER_LEASE_RENEW_INTERVAL_MS", 10_000),
+    tcgplayerAutomation: loadTcgplayerAutomationConfig(),
   };
 }
 

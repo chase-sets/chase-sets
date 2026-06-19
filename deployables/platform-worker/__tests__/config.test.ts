@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { describeGoogleMerchantConfigForLogs, loadConfig } from "../src/config";
+import { describeTcgplayerAutomationConfigForLogs } from "@chase-sets/platform-runtime/config-schema";
 
 const envNames = [
   "DATABASE_URL",
@@ -28,6 +29,21 @@ const envNames = [
   "GOOGLE_SHOPPING_DIAGNOSTICS_INTERVAL_MS",
   "GOOGLE_SHOPPING_DIAGNOSTICS_BATCH_SIZE",
   "GOOGLE_SHOPPING_DIAGNOSTICS_PREVIOUS_ISSUE_CHUNK_SIZE",
+  "TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE",
+  "TCGPLAYER_AUTOMATION_USER_AGENT",
+  "TCGPLAYER_AUTOMATION_REQUEST_DELAY_MS",
+  "TCGPLAYER_AUTOMATION_RATE_LIMIT_COOLDOWN_MS",
+  "TCGPLAYER_AUTOMATION_MAX_CONCURRENT_REQUESTS",
+  "TCGPLAYER_AUTOMATION_ADAPTIVE_ENABLED",
+  "TCGPLAYER_AUTOMATION_MIN_REQUEST_DELAY_MS",
+  "TCGPLAYER_AUTOMATION_MAX_REQUEST_DELAY_MS",
+  "TCGPLAYER_AUTOMATION_LEARNED_MIN_DELAY_MS",
+  "TCGPLAYER_AUTOMATION_DOMAIN_CONFIG_JSON",
+  "TCGPLAYER_AUTOMATION_ADAPTIVE_INCREASE_MULTIPLIER",
+  "TCGPLAYER_AUTOMATION_ADAPTIVE_FLOOR_STEP_MS",
+  "TCGPLAYER_AUTOMATION_ADAPTIVE_DECREASE_AMOUNT_MS",
+  "TCGPLAYER_AUTOMATION_ADAPTIVE_SUCCESS_THRESHOLD",
+  "TCGPLAYER_AUTOMATION_MAX_RETRIES",
   "NOTIFICATION_EMAIL_PROVIDER",
   "SES_AWS_REGION",
   "SES_AWS_ACCESS_KEY_ID",
@@ -113,6 +129,7 @@ describe("platform worker config", () => {
     expect(config.moneyMovement).toEqual({ kind: "fake" });
     expect(config.mobileMessaging).toEqual({ kind: "noop" });
     expect(config.postage).toEqual({ kind: "sandbox" });
+    expect(config.tcgplayerAutomation).toBeNull();
     expect(config.googleMerchant).toEqual({ syncEnabled: false, dryRun: true });
     expect(config.catalogAssetStorage).toEqual({
       kind: "filesystem",
@@ -160,6 +177,64 @@ describe("platform worker config", () => {
       feedLabel: "US",
       credentialSecretName: "google-merchant-service-account",
     });
+  });
+
+  it("loads TCGplayer automation config from environment without requiring local-only secrets", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE = "fixture-cookie-value";
+    process.env.TCGPLAYER_AUTOMATION_USER_AGENT = "Chase Sets staging provider proof";
+    process.env.TCGPLAYER_AUTOMATION_DOMAIN_CONFIG_JSON = JSON.stringify({
+      mpSearchApi: { requestDelayMs: 500, maxConcurrentRequests: 1 },
+    });
+
+    const config = loadConfig().tcgplayerAutomation;
+
+    expect(config).toMatchObject({
+      auth: {
+        tcgAuthCookie: "fixture-cookie-value",
+        userAgent: "Chase Sets staging provider proof",
+      },
+      domainConfigs: {
+        mpSearchApi: expect.objectContaining({
+          requestDelayMs: 500,
+          rateLimitCooldownMs: 30_000,
+          maxConcurrentRequests: 1,
+        }),
+        mpApi: expect.objectContaining({
+          requestDelayMs: 250,
+          maxConcurrentRequests: 2,
+        }),
+      },
+      maxRetries: 3,
+    });
+  });
+
+  it("redacts TCGplayer automation credentials from log descriptions", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE = "fixture-cookie-value";
+
+    const description = describeTcgplayerAutomationConfigForLogs(loadConfig().tcgplayerAutomation);
+
+    expect(description).toMatchObject({
+      configured: true,
+      auth: {
+        tcgAuthCookie: "[configured]",
+        userAgent: "[configured]",
+      },
+    });
+    expect(JSON.stringify(description)).not.toMatch(/fixture-cookie-value|TCGAuthTicket|fixture-cookie-value/i);
+  });
+
+  it("rejects malformed TCGplayer domain config instead of silently weakening provider budgets", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE = "fixture-cookie-value";
+    process.env.TCGPLAYER_AUTOMATION_DOMAIN_CONFIG_JSON = JSON.stringify({
+      unknownDomain: { requestDelayMs: 0 },
+    });
+
+    expect(() => loadConfig()).toThrow(
+      "TCGPLAYER_AUTOMATION_DOMAIN_CONFIG_JSON contains unsupported domain 'unknownDomain'.",
+    );
   });
 
   it("redacts Google Merchant credential references from log descriptions", () => {

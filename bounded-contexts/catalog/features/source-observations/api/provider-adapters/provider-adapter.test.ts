@@ -874,7 +874,7 @@ describe("ProviderAdapterRegistry", () => {
       expect.objectContaining({
         providerKey: "tcgplayer",
         requirement: "required",
-        sourceKind: "operator-session",
+        sourceKind: "environment-secret",
         state: "configured",
         importBlocking: false,
         diagnosticCode: null,

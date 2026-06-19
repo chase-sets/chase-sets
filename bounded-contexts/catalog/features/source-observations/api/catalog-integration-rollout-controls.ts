@@ -129,15 +129,26 @@ export function createCatalogIntegrationRolloutControlPolicy(
 export function createCatalogIntegrationRolloutControlPolicyFromEnv(
   env: NodeJS.ProcessEnv = process.env,
 ): CatalogIntegrationRolloutControlPolicy {
+  const productionLike = isProductionLikeCatalogIntegrationEnvironment(env);
+  const productionMagicProviders = ["mtgjson", "scryfall", "tcgplayer"];
+
   return createCatalogIntegrationRolloutControlPolicy({
-    controlPlaneMode: parseControlPlaneMode(env.CATALOG_INTEGRATION_CONTROL_PLANE_MODE),
+    controlPlaneMode:
+      parseControlPlaneMode(env.CATALOG_INTEGRATION_CONTROL_PLANE_MODE) ?? (productionLike ? "dry-run-only" : null),
     disabledProviderAdapters: parseProviderScope(env.CATALOG_INTEGRATION_DISABLED_PROVIDER_ADAPTERS),
     providerApiEmergencyStop: parseProviderScope(env.CATALOG_INTEGRATION_PROVIDER_API_EMERGENCY_STOP),
     providerOptionQueries: parseOptionQueryMode(env.CATALOG_INTEGRATION_PROVIDER_OPTION_QUERIES),
-    disabledImports: parseProviderScope(env.CATALOG_INTEGRATION_IMPORTS_DISABLED),
-    disabledPromotion: parseProviderScope(env.CATALOG_INTEGRATION_PROMOTION_DISABLED),
-    disabledReapply: parseProviderScope(env.CATALOG_INTEGRATION_REAPPLY_DISABLED),
-    activationMode: parseActivationMode(env.CATALOG_INTEGRATION_ACTIVATION_MODE),
+    disabledImports:
+      parseProviderScope(env.CATALOG_INTEGRATION_IMPORTS_DISABLED) ??
+      (productionLike ? productionMagicProviders : null),
+    disabledPromotion:
+      parseProviderScope(env.CATALOG_INTEGRATION_PROMOTION_DISABLED) ??
+      (productionLike ? productionMagicProviders : null),
+    disabledReapply:
+      parseProviderScope(env.CATALOG_INTEGRATION_REAPPLY_DISABLED) ??
+      (productionLike ? productionMagicProviders : null),
+    activationMode:
+      parseActivationMode(env.CATALOG_INTEGRATION_ACTIVATION_MODE) ?? (productionLike ? "test-profiles-only" : null),
     workerMode: parseWorkerMode(env.CATALOG_INTEGRATION_WORKER_MODE),
   });
 }
@@ -484,4 +495,8 @@ function parseActivationMode(value: string | undefined): CatalogIntegrationRollo
 function parseWorkerMode(value: string | undefined): CatalogIntegrationRolloutControlConfig["workerMode"] {
   const normalized = value?.trim().toLowerCase();
   return normalized === "disabled" || normalized === "lane-limited" ? normalized : null;
+}
+
+function isProductionLikeCatalogIntegrationEnvironment(env: NodeJS.ProcessEnv): boolean {
+  return env.DEPLOYMENT_ENVIRONMENT?.trim().toLowerCase() === "production" || env.NODE_ENV === "production";
 }

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   CatalogIntegrationRolloutControlError,
   createCatalogIntegrationRolloutControlPolicy,
+  createCatalogIntegrationRolloutControlPolicyFromEnv,
 } from "./catalog-integration-rollout-controls";
 
 describe("Catalog integration rollout controls", () => {
@@ -10,6 +11,50 @@ describe("Catalog integration rollout controls", () => {
 
     expect(policy.decide({ capability: "import", providerKey: "tcgdex" })).toMatchObject({ allowed: true });
     expect(policy.decide({ capability: "promotion", providerKey: "tcgdex" })).toMatchObject({ allowed: true });
+  });
+
+  it("keeps non-production env defaults open for provider UAT", () => {
+    const policy = createCatalogIntegrationRolloutControlPolicyFromEnv({
+      DEPLOYMENT_ENVIRONMENT: "staging",
+    });
+
+    expect(policy.decide({ capability: "provider-option-query", providerKey: "tcgplayer" })).toMatchObject({
+      allowed: true,
+    });
+    expect(policy.decide({ capability: "import", providerKey: "mtgjson" })).toMatchObject({ allowed: true });
+  });
+
+  it("defaults production Magic provider writes to dry-run and disabled until activation gates pass", () => {
+    const policy = createCatalogIntegrationRolloutControlPolicyFromEnv({
+      DEPLOYMENT_ENVIRONMENT: "production",
+    });
+
+    expect(policy.decide({ capability: "provider-option-query", providerKey: "tcgplayer" })).toMatchObject({
+      allowed: true,
+    });
+    expect(policy.decide({ capability: "import", providerKey: "tcgplayer" })).toMatchObject({
+      allowed: false,
+      controls: [
+        expect.objectContaining({ controlId: "dry-run-only" }),
+        expect.objectContaining({ controlId: "imports-disabled", providerKeys: ["mtgjson", "scryfall", "tcgplayer"] }),
+      ],
+    });
+    expect(policy.decide({ capability: "promotion", providerKey: "scryfall" })).toMatchObject({
+      allowed: false,
+      controls: [
+        expect.objectContaining({ controlId: "dry-run-only" }),
+        expect.objectContaining({ controlId: "promotion-disabled" }),
+      ],
+    });
+    expect(
+      policy.decide({ capability: "activation", providerKey: "mtgjson", profileLifecycle: "draft" }),
+    ).toMatchObject({
+      allowed: false,
+      controls: [
+        expect.objectContaining({ controlId: "dry-run-only" }),
+        expect.objectContaining({ controlId: "activation-test-profiles-only" }),
+      ],
+    });
   });
 
   it("blocks provider transport and option queries when a provider adapter is disabled", () => {
