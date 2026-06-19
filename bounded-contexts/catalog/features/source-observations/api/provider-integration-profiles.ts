@@ -332,8 +332,10 @@ export type CatalogProviderDuplicatePreventionMapping = Readonly<{
 
 export type CatalogProviderDuplicatePreventionIdentityRule =
   | CatalogProviderExactExternalCatalogItemReferenceRule
+  | CatalogProviderExactExternalProductReferenceRule
   | CatalogProviderSourceObservationLinkRule
   | CatalogProviderDeterministicPokemonCardFieldMatchRule
+  | CatalogProviderDeterministicMagicCatalogItemFieldMatchRule
   | CatalogProviderPartialDraftPokemonCardMatchRule
   | CatalogProviderSealedProductMatchRule
   | CatalogProviderBarcodeGtinMatchRule
@@ -343,6 +345,12 @@ export type CatalogProviderExactExternalCatalogItemReferenceRule = Readonly<{
   ruleKey: string;
   matchKind: "exact-external-catalog-item-reference";
   sourcePath: "externalCatalogItemReferences";
+}>;
+
+export type CatalogProviderExactExternalProductReferenceRule = Readonly<{
+  ruleKey: string;
+  matchKind: "exact-external-product-reference";
+  sourcePath: "externalProductReferences";
 }>;
 
 export type CatalogProviderSourceObservationLinkRule = Readonly<{
@@ -360,6 +368,18 @@ export type CatalogProviderDeterministicPokemonCardFieldMatchRule = Readonly<{
     typeKey: "expansion";
     keyPath: "expansionName";
     targetFieldKey: "expansion";
+  }>;
+  fieldMatches: readonly CatalogProviderDuplicatePreventionFieldMatch[];
+}>;
+
+export type CatalogProviderDeterministicMagicCatalogItemFieldMatchRule = Readonly<{
+  ruleKey: string;
+  matchKind: "deterministic-magic-catalog-item-field-match";
+  normalizedKind: "magic-card-print" | "magic-sealed-product";
+  referenceRecord: Readonly<{
+    typeKey: "set";
+    keyPath: "setName";
+    targetFieldKey: "set";
   }>;
   fieldMatches: readonly CatalogProviderDuplicatePreventionFieldMatch[];
 }>;
@@ -1254,6 +1274,11 @@ export const tcgplayerAutomationClientProviderProfile = {
         externalKey: "language-prefixed-observation-external-key",
       },
       {
+        ruleKey: "exact-external-product-reference",
+        matchKind: "exact-external-product-reference",
+        sourcePath: "externalProductReferences",
+      },
+      {
         ruleKey: "sealed-product-deterministic-fields",
         matchKind: "sealed-product-match",
         normalizedKind: "provider-product",
@@ -1454,7 +1479,6 @@ export const tcgplayerMtgSealedProductProviderProfile = {
           sealedValues: ["sealed"],
           fieldMatches: [
             { fieldKey: "cardName", valuePath: "name", valueTransform: "localized-text" },
-            { fieldKey: "set", valuePath: "setName", valueTransform: "localized-text" },
             { fieldKey: "packCount", valuePath: "packCount" },
           ],
         };
@@ -1601,6 +1625,20 @@ export const scrydexScryfallCardProviderProfile = {
         matchKind: "source-observation-link",
         providerKeySource: "observation-provider",
         externalKey: "language-prefixed-observation-external-key",
+      },
+      {
+        ruleKey: "magic-card-print-deterministic-fields",
+        matchKind: "deterministic-magic-catalog-item-field-match",
+        normalizedKind: "magic-card-print",
+        referenceRecord: {
+          typeKey: "set",
+          keyPath: "setName",
+          targetFieldKey: "set",
+        },
+        fieldMatches: [
+          { fieldKey: "cardNumber", valuePath: "cardNumber" },
+          { fieldKey: "cardName", valuePath: "name", valueTransform: "localized-text" },
+        ],
       },
       {
         ruleKey: "future-provider-bridge-review",
@@ -1791,7 +1829,7 @@ export const mtgjsonMtgCardReferenceProviderProfile = {
     ],
   },
   duplicatePreventionMapping: {
-    ambiguousCandidatePolicy: "review-only",
+    ambiguousCandidatePolicy: "block-promotion",
     replayPolicy: "same-profile-version",
     rules: [
       {
@@ -1804,6 +1842,20 @@ export const mtgjsonMtgCardReferenceProviderProfile = {
         matchKind: "source-observation-link",
         providerKeySource: "observation-provider",
         externalKey: "language-prefixed-observation-external-key",
+      },
+      {
+        ruleKey: "magic-card-print-deterministic-fields",
+        matchKind: "deterministic-magic-catalog-item-field-match",
+        normalizedKind: "magic-card-print",
+        referenceRecord: {
+          typeKey: "set",
+          keyPath: "setName",
+          targetFieldKey: "set",
+        },
+        fieldMatches: [
+          { fieldKey: "cardNumber", valuePath: "cardNumber" },
+          { fieldKey: "cardName", valuePath: "name", valueTransform: "localized-text" },
+        ],
       },
       {
         ruleKey: "scryfall-bridge-review",
@@ -2058,6 +2110,20 @@ export const scryfallMtgCardPrintProviderProfile = {
         matchKind: "source-observation-link",
         providerKeySource: "observation-provider",
         externalKey: "language-prefixed-observation-external-key",
+      },
+      {
+        ruleKey: "magic-card-print-deterministic-fields",
+        matchKind: "deterministic-magic-catalog-item-field-match",
+        normalizedKind: "magic-card-print",
+        referenceRecord: {
+          typeKey: "set",
+          keyPath: "setName",
+          targetFieldKey: "set",
+        },
+        fieldMatches: [
+          { fieldKey: "cardNumber", valuePath: "cardNumber" },
+          { fieldKey: "cardName", valuePath: "name", valueTransform: "localized-text" },
+        ],
       },
       {
         ruleKey: "future-provider-bridge-review",

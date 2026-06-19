@@ -312,6 +312,7 @@ export type CatalogProviderDuplicatePreventionIdentityRuleContract = Readonly<{
   ruleKey: string;
   ruleKind:
     | "exact-external-catalog-item-reference"
+    | "exact-external-product-reference"
     | "source-observation-link"
     | "deterministic-field-match"
     | "sealed-product-match"

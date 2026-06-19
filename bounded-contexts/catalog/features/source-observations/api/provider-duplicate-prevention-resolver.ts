@@ -1,6 +1,11 @@
 import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
 import type { CatalogItemId, FieldId, ReferenceRecordId } from "../../../ids";
-import type { SourceObservationNormalized, SourceObservationPokemonCardNormalized } from "../domain/domain";
+import type {
+  SourceObservationMagicCardPrintNormalized,
+  SourceObservationMagicSealedProductNormalized,
+  SourceObservationNormalized,
+  SourceObservationPokemonCardNormalized,
+} from "../domain/domain";
 import type {
   CatalogProviderDuplicatePreventionIdentityRule,
   CatalogProviderDuplicatePreventionTagRule,
@@ -137,6 +142,16 @@ async function evaluateDuplicatePreventionRule(
     );
   }
 
+  if (rule.matchKind === "exact-external-product-reference") {
+    const references = uniqueExternalProductReferences(input.normalized.externalProductReferences ?? []);
+    if (references.length === 0) {
+      return null;
+    }
+
+    const candidateCatalogItemIds = await findCatalogItemIdsForExternalProductReferences(input.db, references);
+    return reusableRuleEvaluation(rule, candidateCatalogItemIds, `${references.length} external Product reference(s)`);
+  }
+
   if (rule.matchKind === "source-observation-link") {
     const candidateCatalogItemId = await findCatalogItemIdForExternalProductReference(input.db, {
       providerKey: input.providerKey,
@@ -175,6 +190,34 @@ async function evaluateDuplicatePreventionRule(
     return reusableRuleEvaluation(rule, candidateCatalogItemIds, "deterministic Pokemon card field identity");
   }
 
+  if (rule.matchKind === "deterministic-magic-catalog-item-field-match") {
+    if (input.normalized.kind !== rule.normalizedKind) {
+      return null;
+    }
+
+    const setName = stringAtPath(input.normalized, rule.referenceRecord.keyPath);
+    if (!setName) {
+      return null;
+    }
+
+    const setReferenceId = await findReferenceRecordByTypeAndKey(
+      input.db,
+      rule.referenceRecord.typeKey,
+      normalizeReferenceKey(setName),
+    );
+    if (!setReferenceId) {
+      return null;
+    }
+
+    const candidateCatalogItemIds = await findCatalogItemIdsForDeterministicMagicCatalogItemFields(input.db, {
+      normalized: input.normalized,
+      catalog: input.catalog,
+      rule,
+      setReferenceId,
+    });
+    return reusableRuleEvaluation(rule, candidateCatalogItemIds, "deterministic Magic catalog item identity");
+  }
+
   if (rule.matchKind === "partial-draft-pokemon-card-field-match") {
     if (input.normalized.kind !== rule.normalizedKind) {
       return null;
@@ -194,6 +237,29 @@ async function evaluateDuplicatePreventionRule(
   if (rule.matchKind === "sealed-product-match") {
     const productForm = stringAtPath(input.normalized, rule.productFormPath);
     if (input.normalized.kind === rule.normalizedKind && productForm && rule.sealedValues.includes(productForm)) {
+      if (input.normalized.kind === "magic-sealed-product" && rule.fieldMatches.length > 0) {
+        const setName = stringAtPath(input.normalized, "setName");
+        if (!setName) {
+          return null;
+        }
+        const setReferenceId = await findReferenceRecordByTypeAndKey(input.db, "set", normalizeReferenceKey(setName));
+        if (!setReferenceId) {
+          return null;
+        }
+        const candidateCatalogItemIds = await findCatalogItemIdsForDeterministicMagicCatalogItemFields(input.db, {
+          normalized: input.normalized,
+          catalog: input.catalog,
+          rule: {
+            ruleKey: rule.ruleKey,
+            matchKind: "deterministic-magic-catalog-item-field-match",
+            normalizedKind: "magic-sealed-product",
+            referenceRecord: { typeKey: "set", keyPath: "setName", targetFieldKey: "set" },
+            fieldMatches: rule.fieldMatches,
+          },
+          setReferenceId,
+        });
+        return reusableRuleEvaluation(rule, candidateCatalogItemIds, "Magic sealed product provider set identity");
+      }
       return reviewOnlyRuleEvaluation(rule, [], `sealed product form '${productForm}' requires sealed-product mapping`);
     }
     return null;
@@ -270,6 +336,26 @@ async function findCatalogItemIdsForExternalCatalogItemReferences(
   return uniqueCatalogItemIds(result.rows.map((row) => row.catalog_item_id));
 }
 
+async function findCatalogItemIdsForExternalProductReferences(
+  db: CatalogProviderDuplicatePreventionDb,
+  references: readonly { providerKey: string; externalKey: string }[],
+): Promise<readonly CatalogItemId[]> {
+  const values = references.flatMap((reference) => [reference.providerKey, reference.externalKey]);
+  const referencePredicates = references.map((_, index) => `($${index * 2 + 1}, $${index * 2 + 2})`).join(", ");
+  const result = await db.query<{ catalog_item_id: string }>(
+    `SELECT DISTINCT reference.catalog_item_id
+     FROM catalog_external_product_references AS reference
+     JOIN catalog_items AS item
+       ON item.catalog_item_id = reference.catalog_item_id
+     WHERE (reference.provider_key, reference.external_key) IN (${referencePredicates})
+       AND item.status NOT IN ('archived', 'removed')
+     ORDER BY reference.catalog_item_id ASC`,
+    values,
+  );
+
+  return uniqueCatalogItemIds(result.rows.map((row) => row.catalog_item_id));
+}
+
 async function findCatalogItemIdForExternalProductReference(
   db: CatalogProviderDuplicatePreventionDb,
   reference: { providerKey: string; externalKey: string },
@@ -309,6 +395,47 @@ async function findCatalogItemIdsForDeterministicPokemonCardFields(
     },
   ];
   const fieldPredicates = [...fieldValues, expansionField];
+  const result = await db.query<{ catalog_item_id: string }>(
+    `SELECT item.catalog_item_id
+     FROM catalog_items AS item
+     WHERE item.status NOT IN ('archived', 'removed')
+       AND item.language_code = $1
+       ${fieldPredicates.map((_, index) => `AND item.field_values @> $${index + 2}::jsonb`).join("\n       ")}
+     ORDER BY item.updated_at DESC, item.catalog_item_id ASC`,
+    [input.normalized.languageCode, ...fieldPredicates.map((fieldValue) => JSON.stringify(fieldValue))],
+  );
+
+  return uniqueCatalogItemIds(result.rows.map((row) => row.catalog_item_id));
+}
+
+async function findCatalogItemIdsForDeterministicMagicCatalogItemFields(
+  db: CatalogProviderDuplicatePreventionDb,
+  input: {
+    normalized: SourceObservationMagicCardPrintNormalized | SourceObservationMagicSealedProductNormalized;
+    catalog: CatalogProviderPromotionResolvedCatalogMapping;
+    rule: Extract<
+      CatalogProviderDuplicatePreventionIdentityRule,
+      { matchKind: "deterministic-magic-catalog-item-field-match" }
+    >;
+    setReferenceId: ReferenceRecordId;
+  },
+): Promise<readonly CatalogItemId[]> {
+  const fieldValues = fieldValuesForRule(input.normalized, input.catalog.fieldIds, input.rule.fieldMatches);
+  if (fieldValues.length !== input.rule.fieldMatches.length) {
+    return [];
+  }
+  const setFieldId = input.catalog.fieldIds[input.rule.referenceRecord.targetFieldKey];
+  if (!setFieldId) {
+    return [];
+  }
+
+  const setField = [
+    {
+      fieldId: setFieldId,
+      value: { referenceId: input.setReferenceId },
+    },
+  ];
+  const fieldPredicates = [...fieldValues, setField];
   const result = await db.query<{ catalog_item_id: string }>(
     `SELECT item.catalog_item_id
      FROM catalog_items AS item
@@ -378,7 +505,7 @@ async function findReferenceRecordByTypeAndKey(
 }
 
 function fieldValuesForRule(
-  normalized: SourceObservationPokemonCardNormalized,
+  normalized: SourceObservationNormalized,
   fieldIds: CatalogProviderPromotionResolvedCatalogMapping["fieldIds"],
   fieldMatches: readonly {
     fieldKey: keyof CatalogProviderPromotionResolvedCatalogMapping["fieldIds"];
@@ -391,9 +518,13 @@ function fieldValuesForRule(
     if (value === undefined || value === null) {
       return [];
     }
+    const fieldId = fieldIds[fieldMatch.fieldKey];
+    if (!fieldId) {
+      return [];
+    }
     return [
       {
-        fieldId: fieldIds[fieldMatch.fieldKey],
+        fieldId,
         value:
           fieldMatch.valueTransform === "localized-text" && typeof value === "string"
             ? localizedJsonText(value)
@@ -446,6 +577,26 @@ function uniqueExternalCatalogItemReferences(
     });
 }
 
+function uniqueExternalProductReferences(
+  references: readonly NonNullable<SourceObservationNormalized["externalProductReferences"]>[number][],
+) {
+  const seen = new Set<string>();
+  return references
+    .map((reference) => ({
+      providerKey: reference.providerKey.trim().toLowerCase(),
+      externalKey: reference.externalKey.trim().toLowerCase(),
+    }))
+    .filter((reference) => reference.providerKey.length > 0 && reference.externalKey.length > 0)
+    .filter((reference) => {
+      const key = `${reference.providerKey}:${reference.externalKey}`;
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+}
+
 function uniqueCatalogItemIds(values: readonly string[]): readonly CatalogItemId[] {
   return uniqueStrings(values).map((value) => value as CatalogItemId);
 }
@@ -468,6 +619,9 @@ function ambiguousDiagnosticText(rule: CatalogProviderDuplicatePreventionIdentit
   }
   if (rule.matchKind === "deterministic-pokemon-card-field-match") {
     return "Multiple Catalog Items match this Source Observation's deterministic card evidence.";
+  }
+  if (rule.matchKind === "deterministic-magic-catalog-item-field-match") {
+    return "Multiple Catalog Items match this Source Observation's deterministic Magic identity evidence.";
   }
   return `Multiple Catalog Items match this Source Observation's duplicate-prevention rule '${rule.ruleKey}'.`;
 }

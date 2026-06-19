@@ -5,7 +5,12 @@ import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runt
 import type { CatalogItemServices } from "../../catalog-items/api/runtime";
 import type { ReferenceDataServices } from "../../reference-data/api/runtime";
 import type { ReferenceRecordCommand, ReferenceTypeCommand } from "../../reference-data/domain/domain";
-import type { SourceObservationPokemonCardNormalized } from "../domain/domain";
+import type {
+  SourceObservationMagicCardPrintNormalized,
+  SourceObservationMagicSealedProductNormalized,
+  SourceObservationNormalized,
+  SourceObservationPokemonCardNormalized,
+} from "../domain/domain";
 import {
   catalogProviderProfileVersionIngestionUnitKey,
   catalogProviderIntegrationProfileVersions,
@@ -251,6 +256,78 @@ export function pokemonObservation(input: {
     imageDisclaimer:
       "TCGDex provides one image for this card number. This Catalog Item represents the Parallel Set - Reverse Foil variant, so the image may not show the exact foil or pattern.",
     variants: {},
+  };
+}
+
+export function magicCardPrintObservation(
+  input: Partial<SourceObservationMagicCardPrintNormalized> = {},
+): SourceObservationMagicCardPrintNormalized {
+  return {
+    kind: "magic-card-print",
+    tcg: "magic",
+    languageCode: "en",
+    name: "Fury Sliver",
+    cardNumber: "157",
+    setCode: "tsp",
+    setName: "Time Spiral",
+    expansionName: "Time Spiral",
+    setId: "00000000-0000-0000-0000-000000000tsp",
+    oracleId: "44623693-51d6-49ad-8cd7-140505caf02f",
+    rarity: "Rare",
+    illustrator: "Paolo Parente",
+    releaseDate: "2006-10-06",
+    releaseYear: 2006,
+    cardVariantKey: "standard",
+    cardVariantLabel: "Standard",
+    imageUrls: [],
+    mergeIdentity: {
+      tcg: "magic",
+      productLineName: "Magic: The Gathering",
+      setName: "Time Spiral",
+      printedProductName: "Fury Sliver",
+      collectorNumber: "157",
+      languageCode: "en",
+      productForm: "magic-card-print",
+    },
+    externalCatalogItemReferences: [],
+    externalProductReferences: [],
+    ...input,
+  };
+}
+
+export function magicSealedProductObservation(
+  input: Partial<SourceObservationMagicSealedProductNormalized> = {},
+): SourceObservationMagicSealedProductNormalized {
+  return {
+    kind: "magic-sealed-product",
+    tcg: "magic",
+    languageCode: "en",
+    name: "Time Spiral Booster Pack",
+    cardNumber: null,
+    setCode: "tsp",
+    setName: "Time Spiral",
+    expansionName: "Time Spiral",
+    setId: "1001",
+    sealedProductForm: "booster-pack",
+    packCount: 1,
+    releaseDate: "2006-10-06",
+    releaseYear: 2006,
+    productLineName: "Magic: The Gathering",
+    barcode: "0653569123456",
+    imageUrls: [],
+    mergeIdentity: {
+      tcg: "magic",
+      productLineName: "Magic: The Gathering",
+      setName: "Time Spiral",
+      printedProductName: "Time Spiral Booster Pack",
+      collectorNumber: "PACK",
+      languageCode: "en",
+      productForm: "sealed",
+      barcode: "0653569123456",
+    },
+    externalCatalogItemReferences: [],
+    externalProductReferences: [],
+    ...input,
   };
 }
 
@@ -1004,8 +1081,10 @@ export function createReferencePreloadHarness() {
 
 export function createChangedObservationRefreshHarness(
   input: {
-    normalized?: SourceObservationPokemonCardNormalized;
+    normalized?: SourceObservationNormalized;
     providerKey?: string;
+    externalKey?: string;
+    sourceUrl?: string;
     sourceProfileKey?: string;
     sourceProfileVersion?: string;
     sourceMappingFingerprint?: string;
@@ -1013,6 +1092,7 @@ export function createChangedObservationRefreshHarness(
     status?: string;
     promotedCatalogItemId?: string | null;
     reusableCatalogItemId?: string | null;
+    reusableExternalProductCatalogItemIds?: readonly string[];
     reusableExternalCatalogItemIds?: readonly string[];
     deterministicCatalogItemIds?: readonly string[];
     partialCatalogItemId?: string | null;
@@ -1032,8 +1112,8 @@ export function createChangedObservationRefreshHarness(
   const observationRow = {
     observation_id: "obs_changed",
     provider_key: input.providerKey ?? "tcgdex",
-    external_key: "me02.5-136:reverse-holo",
-    source_url: "https://api.tcgdex.net/v2/en/cards/me02.5-136",
+    external_key: input.externalKey ?? "me02.5-136:reverse-holo",
+    source_url: input.sourceUrl ?? "https://api.tcgdex.net/v2/en/cards/me02.5-136",
     language_code: "en",
     source_record_hash: "new-hash",
     source_updated_at: "2026-05-20T00:00:00.000Z",
@@ -1138,10 +1218,14 @@ export function createChangedObservationRefreshHarness(
         }
 
         if (sql.includes("FROM catalog_external_product_references")) {
-          const row = input.reusableCatalogItemId ? { catalog_item_id: input.reusableCatalogItemId } : null;
+          const catalogItemIds = sql.includes("WHERE reference.provider_key = $1")
+            ? input.reusableCatalogItemId
+              ? [input.reusableCatalogItemId]
+              : []
+            : (input.reusableExternalProductCatalogItemIds ?? []);
           return {
-            rowCount: row ? 1 : 0,
-            rows: (row ? [row] : []) as T[],
+            rowCount: catalogItemIds.length,
+            rows: catalogItemIds.map((catalogItemId) => ({ catalog_item_id: catalogItemId })) as T[],
           };
         }
 

@@ -38,9 +38,12 @@ import {
   decideSourceObservation,
   evolveSourceObservation,
   initialSourceObservationState,
+  isMagicCatalogItemSourceObservationNormalized,
   isPokemonCardSourceObservationNormalized,
   type SourceObservationCommand,
   type SourceObservationEvent,
+  type SourceObservationMagicCardPrintNormalized,
+  type SourceObservationMagicSealedProductNormalized,
   type SourceObservationNormalized,
   type SourceObservationPokemonCardNormalized,
   type SourceObservationPromotionProfileEvidence,
@@ -1034,11 +1037,11 @@ export function createSourceObservationRuntime(
         return notEvaluatedDuplicatePreventionPreview("Source Observation normalization did not complete.");
       }
 
-      const normalized = requirePokemonCardPromotionObservation(
+      const normalized = requireCatalogItemPromotionObservation(
         normalization.observation.normalized,
         input.providerKey,
       );
-      const catalogMapping = await loadPokemonTcgPromotionProfile(deps, version.profile);
+      const catalogMapping = await loadCatalogItemPromotionProfile(deps, version.profile);
       const result = await resolveCatalogProviderDuplicatePrevention({
         db: deps.db,
         profile: version.profile,
@@ -1186,7 +1189,7 @@ export function createSourceObservationRuntime(
     observation: SourceObservationDetailRow;
     context: EventStoreContext;
   }): Promise<{ observationId: string; catalogItemId: CatalogItemId }> {
-    const normalized = requirePokemonCardPromotionObservation(
+    const normalized = requireCatalogItemPromotionObservation(
       input.observation.normalized,
       input.observation.provider_key,
     );
@@ -1208,7 +1211,7 @@ export function createSourceObservationRuntime(
       );
     }
 
-    const catalogMapping = await loadPokemonTcgPromotionProfile(deps, providerProfile);
+    const catalogMapping = await loadCatalogItemPromotionProfile(deps, providerProfile);
     const duplicatePreventionResult = !existingCatalogItemId
       ? await resolveCatalogProviderDuplicatePrevention({
           db: deps.db,
@@ -1390,7 +1393,7 @@ export function createSourceObservationRuntime(
     reapplyProfileMode: SourceObservationReapplyProfileMode;
     profileSnapshot?: SourceObservationIntegrationProfileSnapshot | null;
   }): Promise<{ observationId: string; catalogItemId: CatalogItemId }> {
-    const normalized = requirePokemonCardPromotionObservation(
+    const normalized = requireCatalogItemPromotionObservation(
       input.observation.normalized,
       input.observation.provider_key,
     );
@@ -1423,7 +1426,7 @@ export function createSourceObservationRuntime(
       externalKey: input.observation.external_key,
       providerProfile,
       providerProfileVersion,
-      catalogMapping: await loadPokemonTcgPromotionProfile(deps, providerProfile),
+      catalogMapping: await loadCatalogItemPromotionProfile(deps, providerProfile),
       context: input.context,
     });
 
@@ -5255,12 +5258,17 @@ function notEvaluatedDuplicatePreventionPreview(
 type CatalogItemPromotionResult = SourceObservationPromotionProfileEvidence &
   Readonly<{ referenceRecordIdsByTypeKey: Readonly<Record<string, string>> }>;
 
+type CatalogItemPromotableSourceObservationNormalized =
+  | SourceObservationPokemonCardNormalized
+  | SourceObservationMagicCardPrintNormalized
+  | SourceObservationMagicSealedProductNormalized;
+
 async function createCatalogDraftFromObservation(input: {
   items: CatalogItemServices;
   referenceData: ReferenceDataServices;
   deps: CatalogRuntimeDeps;
   catalogItemId: CatalogItemId;
-  normalized: SourceObservationPokemonCardNormalized;
+  normalized: CatalogItemPromotableSourceObservationNormalized;
   providerKey: string;
   externalKey: string;
   providerProfile: CatalogProviderIntegrationProfile;
@@ -5269,29 +5277,33 @@ async function createCatalogDraftFromObservation(input: {
   context: EventStoreContext;
 }): Promise<CatalogItemPromotionResult> {
   const streamId = `catalog.item-${input.catalogItemId}`;
-  const { targetReferenceRecordId: expansionReferenceId, referenceRecordIdsByTypeKey } =
-    await resolvePokemonReferenceHierarchy({
-      deps: input.deps,
-      referenceData: input.referenceData,
-      profile: input.providerProfile,
-      normalized: input.normalized,
-      context: input.context,
-    });
-  const metadata = await formatPokemonCardPromotionMetadata({
+  const { targetReferenceRecordId, referenceRecordIdsByTypeKey } = await resolvePromotionReferenceHierarchy({
+    deps: input.deps,
+    referenceData: input.referenceData,
+    profile: input.providerProfile,
+    normalized: input.normalized,
+    context: input.context,
+  });
+  const metadata = await formatCatalogItemPromotionMetadata({
     deps: input.deps,
     normalized: input.normalized,
-    expansionReferenceId,
+    targetReferenceRecordId,
   });
-  const productAssetSet = input.normalized.imageBaseUrl
-    ? await normalizeTcgdexImageAsset({
-        profile: input.providerProfile,
-        imageBaseUrl: input.normalized.imageBaseUrl,
-        storageBaseKey: catalogItemAssetObjectBaseKey(input.catalogItemId),
-        observedAt: new Date().toISOString(),
-        fetcher: globalThis.fetch,
-        assetStorage: requireCatalogAssetStorage(input.deps.assetStorage),
-      })
-    : null;
+  const productAssetSet =
+    input.normalized.kind === "pokemon-card" && input.normalized.imageBaseUrl
+      ? await normalizeTcgdexImageAsset({
+          profile: input.providerProfile,
+          imageBaseUrl: input.normalized.imageBaseUrl,
+          storageBaseKey: catalogItemAssetObjectBaseKey(input.catalogItemId),
+          observedAt: new Date().toISOString(),
+          fetcher: globalThis.fetch,
+          assetStorage: requireCatalogAssetStorage(input.deps.assetStorage),
+        })
+      : null;
+  const magicSetReferenceId =
+    input.normalized.kind === "magic-card-print" || input.normalized.kind === "magic-sealed-product"
+      ? targetReferenceRecordId
+      : undefined;
   const plan = planCatalogProviderPromotionCommands({
     profile: input.providerProfile,
     profileKey: input.providerProfileVersion.profileKey,
@@ -5306,7 +5318,8 @@ async function createCatalogDraftFromObservation(input: {
       categoryId: input.catalogMapping.categoryId,
       fieldIds: input.catalogMapping.fieldIds,
     },
-    expansionReferenceId,
+    expansionReferenceId: input.normalized.kind === "pokemon-card" ? targetReferenceRecordId : undefined,
+    setReferenceId: magicSetReferenceId,
     metadata,
     productAssetSet,
     preflight: { status: "ready" },
@@ -5327,7 +5340,7 @@ async function refreshCatalogItemFromObservation(input: {
   referenceData: ReferenceDataServices;
   deps: CatalogRuntimeDeps;
   catalogItemId: CatalogItemId;
-  normalized: SourceObservationPokemonCardNormalized;
+  normalized: CatalogItemPromotableSourceObservationNormalized;
   providerKey: string;
   externalKey: string;
   providerProfile: CatalogProviderIntegrationProfile;
@@ -5336,29 +5349,33 @@ async function refreshCatalogItemFromObservation(input: {
   context: EventStoreContext;
 }): Promise<CatalogItemPromotionResult> {
   const streamId = `catalog.item-${input.catalogItemId}`;
-  const { targetReferenceRecordId: expansionReferenceId, referenceRecordIdsByTypeKey } =
-    await resolvePokemonReferenceHierarchy({
-      deps: input.deps,
-      referenceData: input.referenceData,
-      profile: input.providerProfile,
-      normalized: input.normalized,
-      context: input.context,
-    });
-  const metadata = await formatPokemonCardPromotionMetadata({
+  const { targetReferenceRecordId, referenceRecordIdsByTypeKey } = await resolvePromotionReferenceHierarchy({
+    deps: input.deps,
+    referenceData: input.referenceData,
+    profile: input.providerProfile,
+    normalized: input.normalized,
+    context: input.context,
+  });
+  const metadata = await formatCatalogItemPromotionMetadata({
     deps: input.deps,
     normalized: input.normalized,
-    expansionReferenceId,
+    targetReferenceRecordId,
   });
-  const productAssetSet = input.normalized.imageBaseUrl
-    ? await normalizeTcgdexImageAsset({
-        profile: input.providerProfile,
-        imageBaseUrl: input.normalized.imageBaseUrl,
-        storageBaseKey: catalogItemAssetObjectBaseKey(input.catalogItemId),
-        observedAt: new Date().toISOString(),
-        fetcher: globalThis.fetch,
-        assetStorage: requireCatalogAssetStorage(input.deps.assetStorage),
-      })
-    : null;
+  const productAssetSet =
+    input.normalized.kind === "pokemon-card" && input.normalized.imageBaseUrl
+      ? await normalizeTcgdexImageAsset({
+          profile: input.providerProfile,
+          imageBaseUrl: input.normalized.imageBaseUrl,
+          storageBaseKey: catalogItemAssetObjectBaseKey(input.catalogItemId),
+          observedAt: new Date().toISOString(),
+          fetcher: globalThis.fetch,
+          assetStorage: requireCatalogAssetStorage(input.deps.assetStorage),
+        })
+      : null;
+  const magicSetReferenceId =
+    input.normalized.kind === "magic-card-print" || input.normalized.kind === "magic-sealed-product"
+      ? targetReferenceRecordId
+      : undefined;
   const plan = planCatalogProviderPromotionCommands({
     profile: input.providerProfile,
     profileKey: input.providerProfileVersion.profileKey,
@@ -5373,7 +5390,8 @@ async function refreshCatalogItemFromObservation(input: {
       categoryId: input.catalogMapping.categoryId,
       fieldIds: input.catalogMapping.fieldIds,
     },
-    expansionReferenceId,
+    expansionReferenceId: input.normalized.kind === "pokemon-card" ? targetReferenceRecordId : undefined,
+    setReferenceId: magicSetReferenceId,
     metadata,
     productAssetSet,
     preflight: { status: "ready" },
@@ -5462,13 +5480,13 @@ async function executeCatalogItemPromotionCommand(input: {
   });
 }
 
-async function formatPokemonCardPromotionMetadata(input: {
+async function formatCatalogItemPromotionMetadata(input: {
   deps: CatalogRuntimeDeps;
-  normalized: SourceObservationPokemonCardNormalized;
-  expansionReferenceId: ReferenceRecordId;
+  normalized: CatalogItemPromotableSourceObservationNormalized;
+  targetReferenceRecordId: ReferenceRecordId;
 }): Promise<{ title: string; subtitle: string }> {
   void input.deps;
-  void input.expansionReferenceId;
+  void input.targetReferenceRecordId;
   return {
     title: input.normalized.name,
     subtitle: "",
@@ -5485,20 +5503,23 @@ function isReviewableObservationStatus(status: string): boolean {
 
 function requirePromotionAssetPorts(input: {
   deps: CatalogRuntimeDeps;
-  normalized: SourceObservationPokemonCardNormalized;
+  normalized: CatalogItemPromotableSourceObservationNormalized;
 }) {
-  if (input.normalized.imageBaseUrl) {
+  if (input.normalized.kind === "pokemon-card" && input.normalized.imageBaseUrl) {
     requireCatalogAssetStorage(input.deps.assetStorage);
   }
 }
 
-function requirePokemonCardPromotionObservation(
+function requireCatalogItemPromotionObservation(
   normalized: SourceObservationNormalized,
   providerKey: string,
-): SourceObservationPokemonCardNormalized {
-  if (!isPokemonCardSourceObservationNormalized(normalized)) {
+): CatalogItemPromotableSourceObservationNormalized {
+  if (
+    !isPokemonCardSourceObservationNormalized(normalized) &&
+    !isMagicCatalogItemSourceObservationNormalized(normalized)
+  ) {
     throw new Error(
-      `Catalog promotion for provider '${providerKey}' requires a Pokemon card source observation. Normalized kind '${normalized.kind}' is not yet promotable.`,
+      `Catalog promotion for provider '${providerKey}' requires a Catalog Item source observation. Normalized kind '${normalized.kind}' is not promotable.`,
     );
   }
 
@@ -5549,9 +5570,22 @@ export async function resolvePokemonReferenceHierarchy(input: {
   targetReferenceRecordId: ReferenceRecordId;
   referenceRecordIdsByTypeKey: Readonly<Record<string, string>>;
 }> {
+  return resolvePromotionReferenceHierarchy(input);
+}
+
+async function resolvePromotionReferenceHierarchy(input: {
+  deps: CatalogRuntimeDeps;
+  referenceData: ReferenceDataServices;
+  profile: CatalogProviderIntegrationProfile;
+  normalized: CatalogItemPromotableSourceObservationNormalized;
+  context: EventStoreContext;
+}): Promise<{
+  targetReferenceRecordId: ReferenceRecordId;
+  referenceRecordIdsByTypeKey: Readonly<Record<string, string>>;
+}> {
   const result = await provisionCatalogProviderReferenceHierarchy({
     profile: input.profile,
-    payload: toJsonValue(input.normalized),
+    payload: promotionReferenceHierarchyPayload(input.normalized),
     provisioner: {
       ensureReferenceType: (def) => ensureReferenceType(input, def),
       ensureReferenceRecord: (def) => ensureReferenceRecord(input, def),
@@ -5571,6 +5605,18 @@ export async function resolvePokemonReferenceHierarchy(input: {
     targetReferenceRecordId: result.targetReferenceRecordId,
     referenceRecordIdsByTypeKey,
   };
+}
+
+function promotionReferenceHierarchyPayload(normalized: CatalogItemPromotableSourceObservationNormalized): JsonValue {
+  if (normalized.kind === "magic-card-print" || normalized.kind === "magic-sealed-product") {
+    return toJsonValue({
+      ...normalized,
+      set: normalized.setCode,
+      set_name: normalized.setName,
+    });
+  }
+
+  return toJsonValue(normalized);
 }
 
 async function ensureReferenceType(
@@ -5760,10 +5806,15 @@ async function findReferenceRecordByProviderAttribute(
 }
 
 function isProviderReferenceAttributeKey(key: string): boolean {
-  return key.startsWith("tcgdex-") || key.startsWith("tcgplayer-") || key.startsWith("scryfall-");
+  return (
+    key.startsWith("tcgdex-") ||
+    key.startsWith("tcgplayer-") ||
+    key.startsWith("scryfall-") ||
+    key.startsWith("mtgjson-")
+  );
 }
 
-async function loadPokemonTcgPromotionProfile(
+async function loadCatalogItemPromotionProfile(
   deps: CatalogRuntimeDeps,
   profile: CatalogProviderIntegrationProfile,
 ): Promise<CatalogProviderPromotionResolvedCatalogMapping> {
@@ -5792,6 +5843,28 @@ async function loadPokemonTcgPromotionProfile(
       cardVariant,
       cardIllustrator,
       releaseYear,
+      ...(mapping.fieldKeys.set
+        ? {
+            set: await requireCatalogIdByKey<FieldId>(
+              deps,
+              profile,
+              "catalog_fields",
+              "field_id",
+              mapping.fieldKeys.set,
+            ),
+          }
+        : {}),
+      ...(mapping.fieldKeys.packCount
+        ? {
+            packCount: await requireCatalogIdByKey<FieldId>(
+              deps,
+              profile,
+              "catalog_fields",
+              "field_id",
+              mapping.fieldKeys.packCount,
+            ),
+          }
+        : {}),
     },
   };
 }

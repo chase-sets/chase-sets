@@ -5,6 +5,7 @@ import {
   context,
   createChangedObservationRefreshHarness,
   createReferencePreloadHarness,
+  magicCardPrintObservation,
   pokemonObservation,
 } from "./runtime-test-harness";
 
@@ -374,6 +375,90 @@ describe("source observation runtime: promotion and reapply", () => {
     expect(harness.appendedSourceEvents).toEqual([]);
   });
 
+  it("promotes Magic card-print observations by refreshing one deterministic Catalog Item match", async () => {
+    const harness = createChangedObservationRefreshHarness({
+      providerKey: "scryfall",
+      externalKey: "card:0000579f-7b35-4ed3-b44c-db2a538066fe",
+      sourceUrl: "https://api.scryfall.com/cards/0000579f-7b35-4ed3-b44c-db2a538066fe",
+      sourceProfileKey: "mtg-card-print-reference-data",
+      sourceProfileVersion: "2026.06.19",
+      sourceMappingFingerprint: "fingerprint:scryfall:2026.06.19",
+      status: "observed",
+      promotedCatalogItemId: null,
+      deterministicCatalogItemIds: ["cat_existing_magic_print"],
+      normalized: magicCardPrintObservation({ externalCatalogItemReferences: [] }),
+    });
+    const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
+
+    const result = await services.promoteObservation({
+      observationId: "obs_changed",
+      context,
+    });
+
+    expect(result).toEqual({
+      observationId: "obs_changed",
+      catalogItemId: "cat_existing_magic_print",
+    });
+    expect(harness.itemCommands.map((entry) => entry.command.type)).toEqual([
+      "ReviseCatalogItemMetadata",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemTags",
+      "SetCatalogItemImageUrls",
+      "SetCatalogItemProductAssetSets",
+      "LinkExternalProductReference",
+    ]);
+    expect(harness.itemCommands).toContainEqual(
+      expect.objectContaining({
+        streamId: "catalog.item-cat_existing_magic_print",
+        command: expect.objectContaining({
+          type: "LinkExternalProductReference",
+          providerKey: "scryfall",
+          externalKey: "en:card:0000579f-7b35-4ed3-b44c-db2a538066fe",
+        }),
+      }),
+    );
+    expect(harness.appendedSourceEvents).toContainEqual(
+      expect.objectContaining({
+        eventType: "catalog.source-observation.promoted",
+        payload: expect.objectContaining({
+          catalogItemId: "cat_existing_magic_print",
+          promotionProfileKey: "mtg-card-print-reference-data",
+          promotionProfileVersion: "2026.06.19",
+        }),
+      }),
+    );
+  });
+
+  it("blocks Magic promotion when deterministic identity evidence matches multiple Catalog Items", async () => {
+    const harness = createChangedObservationRefreshHarness({
+      providerKey: "scryfall",
+      externalKey: "card:0000579f-7b35-4ed3-b44c-db2a538066fe",
+      sourceProfileKey: "mtg-card-print-reference-data",
+      sourceProfileVersion: "2026.06.19",
+      sourceMappingFingerprint: "fingerprint:scryfall:2026.06.19",
+      status: "observed",
+      promotedCatalogItemId: null,
+      deterministicCatalogItemIds: ["cat_existing_magic_a", "cat_existing_magic_b"],
+      normalized: magicCardPrintObservation({ externalCatalogItemReferences: [] }),
+    });
+    const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
+
+    await expect(
+      services.promoteObservation({
+        observationId: "obs_changed",
+        context,
+      }),
+    ).rejects.toThrow("Multiple Catalog Items match this Source Observation's deterministic Magic identity evidence.");
+    expect(harness.itemCommands).toEqual([]);
+    expect(harness.appendedSourceEvents).toEqual([]);
+  });
+
   it("fails image-backed promotion before writing partial Catalog Item commands when asset storage is unavailable", async () => {
     const harness = createChangedObservationRefreshHarness({
       status: "observed",
@@ -618,6 +703,58 @@ describe("source observation runtime: promotion and reapply", () => {
           promotionProfileKey: "pokemon-tcg",
           promotionProfileVersion: "2026.06.03",
           promotionPlanFingerprint: expect.any(String),
+        }),
+      }),
+    ]);
+  });
+
+  it("reapplies promoted Magic observations with the original source profile version", async () => {
+    const harness = createChangedObservationRefreshHarness({
+      providerKey: "scryfall",
+      externalKey: "card:0000579f-7b35-4ed3-b44c-db2a538066fe",
+      sourceUrl: "https://api.scryfall.com/cards/0000579f-7b35-4ed3-b44c-db2a538066fe",
+      sourceProfileKey: "mtg-card-print-reference-data",
+      sourceProfileVersion: "2026.06.19",
+      sourceMappingFingerprint: "fingerprint:scryfall:2026.06.19",
+      status: "promoted",
+      promotedCatalogItemId: "cat_existing_magic_print",
+      normalized: magicCardPrintObservation({ externalCatalogItemReferences: [] }),
+    });
+    const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
+
+    const result = await services.reapplyObservations({
+      observationIds: ["obs_changed"],
+      context,
+      reapplyProfileMode: "original-source-profile",
+    });
+
+    expect(result).toMatchObject({
+      requested: 1,
+      reapplied: 1,
+      skipped: 0,
+      failed: 0,
+    });
+    expect(harness.itemCommands.map((entry) => entry.command.type)).toEqual([
+      "ReviseCatalogItemMetadata",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemTags",
+      "SetCatalogItemImageUrls",
+      "SetCatalogItemProductAssetSets",
+      "LinkExternalProductReference",
+    ]);
+    expect(harness.appendedSourceEvents).toEqual([
+      expect.objectContaining({
+        eventType: "catalog.source-observation.promotion-plan-recorded",
+        payload: expect.objectContaining({
+          catalogItemId: "cat_existing_magic_print",
+          promotionProfileKey: "mtg-card-print-reference-data",
+          promotionProfileVersion: "2026.06.19",
         }),
       }),
     ]);
