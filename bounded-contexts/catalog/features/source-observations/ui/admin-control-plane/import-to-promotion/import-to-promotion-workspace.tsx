@@ -5,6 +5,7 @@ import { CatalogIntegrationImportJobsModule } from "../import-jobs/import-jobs-m
 import { CatalogIntegrationSourceObservationReviewModule } from "../source-observation-review/source-observation-review-module";
 import { CommandFormButton } from "./command-controls";
 import { CatalogIntegrationCreateItemsStage } from "./create-items-stage";
+import { CatalogMagicSetSyncModule } from "./magic-set-sync-module";
 import { buildFlowStages, CatalogIntegrationFlowStepper } from "./primary-steps-module";
 import { useImportToPromotionWorkspace, type ImportToPromotionStageKey } from "./use-import-to-promotion-workspace";
 import {
@@ -84,6 +85,8 @@ export function CatalogIntegrationImportToPromotionWorkspace({
       <DailyGovernanceStatusIndicator readModel={readModel} />
 
       <DailyHealthStatusIndicator readModel={readModel} />
+
+      <CatalogMagicSetSyncModule readModel={readModel} />
 
       <CatalogIntegrationFlowStepper stages={stages} />
 
