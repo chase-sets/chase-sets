@@ -135,7 +135,14 @@ export function ProviderOptionQueryDetails({ workspace }: { workspace: ProfileSe
       )}
       status={<Badge tone="neutral">{workspace.optionQueries.length}</Badge>}
     >
-      <DataTable rows={[...workspace.optionQueries]} columns={columns} getRowId={(query) => query.queryKind} />
+      <DataTable
+        rows={[...workspace.optionQueries]}
+        columns={columns}
+        caption={t(
+          "catalog.features.sourceObservations.ui.primaryWorkbench.profile.sectionDetails.optionQueries.title",
+        )}
+        getRowId={(query) => query.queryKind}
+      />
     </EvidencePanel>
   );
 }

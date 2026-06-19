@@ -216,6 +216,7 @@ export function CatalogIntegrationSourceObservationReviewModule({
       <DataTable
         rows={[...readModel.sourceObservationReview.rows]}
         columns={reviewColumns}
+        caption={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.title")}
         getRowId={(row) => row.observationId}
         selectedKeys={selectedObservationKeys}
         onSelectionChange={onSelectedObservationKeysChange}

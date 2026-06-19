@@ -112,6 +112,7 @@ export function CatalogIntegrationGovernanceControlsWorkspace({
         <DataTable
           rows={[...governance.controls]}
           columns={controlColumns}
+          caption={t("catalog.features.sourceObservations.ui.governanceControls.controls.title")}
           getRowId={(row) => row.controlId}
           density="compact"
           emptyTitle={t("catalog.features.sourceObservations.ui.governanceControls.controls.emptyTitle")}
@@ -134,6 +135,7 @@ export function CatalogIntegrationGovernanceControlsWorkspace({
         <DataTable
           rows={[...governance.rbacMatrix]}
           columns={rbacColumns}
+          caption={t("catalog.features.sourceObservations.ui.governanceControls.rbac.title")}
           getRowId={(row) => row.actionKey}
           density="compact"
           emptyTitle={t("catalog.features.sourceObservations.ui.governanceControls.rbac.emptyTitle")}
@@ -154,6 +156,7 @@ export function CatalogIntegrationGovernanceControlsWorkspace({
         <DataTable
           rows={[...governance.observability.signals]}
           columns={observabilityColumns}
+          caption={t("catalog.features.sourceObservations.ui.governanceControls.observability.title")}
           getRowId={(row) => row.key}
           density="compact"
           emptyTitle={t("catalog.features.sourceObservations.ui.governanceControls.observability.emptyTitle")}
@@ -190,6 +193,7 @@ export function CatalogIntegrationGovernanceControlsWorkspace({
           <DataTable
             rows={[...governance.legacyRemovalEvidence.evidence]}
             columns={removalColumns}
+            caption={t("catalog.features.sourceObservations.ui.governanceControls.removal.title")}
             getRowId={(row) => row.key}
             density="compact"
           />

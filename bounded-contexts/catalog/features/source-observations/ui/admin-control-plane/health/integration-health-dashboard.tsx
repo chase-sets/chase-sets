@@ -84,6 +84,7 @@ export function CatalogIntegrationHealthTriageWorkspace({
       <DataTable
         rows={[...health.readModels]}
         columns={readModelColumns}
+        caption={t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.query")}
         getRowId={(row) => row.queryKey}
         density="compact"
         emptyTitle={t("catalog.features.sourceObservations.ui.primaryWorkbench.health.readModels.empty")}
@@ -93,6 +94,7 @@ export function CatalogIntegrationHealthTriageWorkspace({
       <DataTable
         rows={[...health.units]}
         columns={unitColumns}
+        caption={t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.unit")}
         getRowId={(row) => row.unitKey}
         density="compact"
         emptyTitle={t("catalog.features.sourceObservations.ui.primaryWorkbench.health.units.empty")}
@@ -102,6 +104,7 @@ export function CatalogIntegrationHealthTriageWorkspace({
       <DataTable
         rows={[...health.providers]}
         columns={providerColumns}
+        caption={t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.provider")}
         getRowId={(row) => row.providerKey}
         density="compact"
         emptyTitle={t("catalog.features.sourceObservations.ui.primaryWorkbench.health.providers.empty")}
@@ -370,6 +373,7 @@ function CatalogIntegrationJobTriage({
     <DataTable
       rows={[...jobs]}
       columns={columns}
+      caption={t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.job")}
       getRowId={(row) => row.jobId}
       density="compact"
       emptyTitle={t("catalog.features.sourceObservations.ui.primaryWorkbench.health.jobs.empty")}
@@ -422,6 +426,7 @@ function CatalogIntegrationAuditTriage({
       <DataTable
         rows={[...health.auditPreview.entries]}
         columns={columns}
+        caption={t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.audit.event")}
         getRowId={(row) => row.eventId}
         density="compact"
         emptyTitle={t("catalog.features.sourceObservations.ui.primaryWorkbench.health.audit.empty")}

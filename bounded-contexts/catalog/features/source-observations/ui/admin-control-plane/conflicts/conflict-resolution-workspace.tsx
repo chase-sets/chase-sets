@@ -91,6 +91,7 @@ export function CatalogIntegrationConflictResolutionWorkspace({
           <DataTable
             rows={[...conflicts.rows]}
             columns={conflictColumns}
+            caption={t("catalog.features.sourceObservations.ui.conflictResolution.conflicts.title")}
             getRowId={(row) => row.observationId}
             density="compact"
           />
@@ -113,6 +114,7 @@ export function CatalogIntegrationConflictResolutionWorkspace({
             <DataTable
               rows={[...conflicts.precedenceRules]}
               columns={ruleColumns}
+              caption={t("catalog.features.sourceObservations.ui.conflictResolution.rules.title")}
               getRowId={(rule) => rule.ruleId}
               density="compact"
             />
@@ -171,6 +173,7 @@ export function CatalogIntegrationConflictResolutionWorkspace({
           <DataTable
             rows={[...conflicts.recentAuditEvents]}
             columns={auditColumns}
+            caption={t("catalog.features.sourceObservations.ui.conflictResolution.audit.title")}
             getRowId={(event) => event.eventId}
             density="compact"
           />

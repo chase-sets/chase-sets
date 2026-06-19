@@ -344,6 +344,7 @@ export function CatalogIntegrationImportJobsModule({
       <DataTable
         rows={[...readModel.importJobs.jobs]}
         columns={jobColumns}
+        caption={t("catalog.features.sourceObservations.ui.primaryWorkbench.stage.supporting.jobs")}
         getRowId={(job) => job.jobId}
         density="compact"
         emptyTitle={t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.empty.title")}
