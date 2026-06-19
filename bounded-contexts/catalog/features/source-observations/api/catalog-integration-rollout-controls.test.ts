@@ -37,6 +37,10 @@ describe("Catalog integration rollout controls", () => {
       controls: [
         expect.objectContaining({ controlId: "dry-run-only" }),
         expect.objectContaining({ controlId: "imports-disabled", providerKeys: ["mtgjson", "scryfall", "tcgplayer"] }),
+        expect.objectContaining({
+          controlId: "magic-production-signoff-required",
+          providerKeys: ["mtgjson", "scryfall", "tcgplayer"],
+        }),
       ],
     });
     expect(policy.decide({ capability: "promotion", providerKey: "scryfall" })).toMatchObject({
@@ -44,6 +48,7 @@ describe("Catalog integration rollout controls", () => {
       controls: [
         expect.objectContaining({ controlId: "dry-run-only" }),
         expect.objectContaining({ controlId: "promotion-disabled" }),
+        expect.objectContaining({ controlId: "magic-production-signoff-required" }),
       ],
     });
     expect(
@@ -53,8 +58,55 @@ describe("Catalog integration rollout controls", () => {
       controls: [
         expect.objectContaining({ controlId: "dry-run-only" }),
         expect.objectContaining({ controlId: "activation-test-profiles-only" }),
+        expect.objectContaining({ controlId: "magic-production-signoff-required" }),
       ],
     });
+  });
+
+  it("requires Magic production signoff when production write controls are explicitly opened", () => {
+    const openProductionEnv = {
+      DEPLOYMENT_ENVIRONMENT: "production",
+      CATALOG_INTEGRATION_CONTROL_PLANE_MODE: "open",
+      CATALOG_INTEGRATION_IMPORTS_DISABLED: "open",
+      CATALOG_INTEGRATION_PROMOTION_DISABLED: "open",
+      CATALOG_INTEGRATION_REAPPLY_DISABLED: "open",
+      CATALOG_INTEGRATION_ACTIVATION_MODE: "open",
+    };
+    const unsignedPolicy = createCatalogIntegrationRolloutControlPolicyFromEnv(openProductionEnv);
+
+    expect(unsignedPolicy.decide({ capability: "import", providerKey: "mtgjson" })).toMatchObject({
+      allowed: false,
+      controls: [expect.objectContaining({ controlId: "magic-production-signoff-required" })],
+    });
+    expect(unsignedPolicy.decide({ capability: "promotion", providerKey: "scryfall" })).toMatchObject({
+      allowed: false,
+      controls: [expect.objectContaining({ controlId: "magic-production-signoff-required" })],
+    });
+    expect(unsignedPolicy.decide({ capability: "reapply", providerKey: "tcgplayer" })).toMatchObject({
+      allowed: false,
+      controls: [expect.objectContaining({ controlId: "magic-production-signoff-required" })],
+    });
+    expect(
+      unsignedPolicy.decide({ capability: "activation", providerKey: "tcgplayer", profileLifecycle: "active" }),
+    ).toMatchObject({
+      allowed: false,
+      controls: [expect.objectContaining({ controlId: "magic-production-signoff-required" })],
+    });
+    expect(unsignedPolicy.decide({ capability: "import", providerKey: "tcgdex" })).toMatchObject({ allowed: true });
+
+    const signedPolicy = createCatalogIntegrationRolloutControlPolicyFromEnv({
+      ...openProductionEnv,
+      CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE: "#2025 #2039 staging UAT evidence",
+    });
+
+    expect(signedPolicy.decide({ capability: "import", providerKey: "mtgjson" })).toMatchObject({ allowed: true });
+    expect(signedPolicy.decide({ capability: "promotion", providerKey: "scryfall" })).toMatchObject({
+      allowed: true,
+    });
+    expect(signedPolicy.decide({ capability: "reapply", providerKey: "tcgplayer" })).toMatchObject({ allowed: true });
+    expect(
+      signedPolicy.decide({ capability: "activation", providerKey: "tcgplayer", profileLifecycle: "active" }),
+    ).toMatchObject({ allowed: true });
   });
 
   it("blocks provider transport and option queries when a provider adapter is disabled", () => {
