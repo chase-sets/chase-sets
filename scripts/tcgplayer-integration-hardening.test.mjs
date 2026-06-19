@@ -29,7 +29,23 @@ const scenarioFiles = [
   {
     name: "Catalog import",
     file: "bounded-contexts/catalog/features/source-observations/api/runtime-provider-integration-jobs.test.ts",
-    evidence: ["imports TCGplayer set scopes as provider-product source observations"],
+    evidence: [
+      "imports TCGplayer set scopes as provider-product source observations",
+      "imports TCGplayer Magic single-card set scopes through the selected production profile unit",
+    ],
+  },
+  {
+    name: "Catalog TCGplayer Magic profile contract",
+    file: "bounded-contexts/catalog/features/source-observations/api/provider-profile-fixture-cases.ts",
+    evidence: ["mtg-single-card-product-sku", "tcgplayer:mtg:single-card:source-observation-import", "Fury Sliver"],
+  },
+  {
+    name: "Catalog TCGplayer Magic adapter scoping",
+    file: "bounded-contexts/catalog/features/source-observations/api/provider-adapters/provider-adapter.test.ts",
+    evidence: [
+      "serves TCGplayer Magic single-card transport through the active profile unit",
+      "TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY",
+    ],
   },
   {
     name: "Catalog duplicate prevention",

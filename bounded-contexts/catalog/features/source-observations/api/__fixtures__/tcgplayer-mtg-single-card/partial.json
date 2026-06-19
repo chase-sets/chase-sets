@@ -1,0 +1,48 @@
+{
+  "observationId": "tcgplayer_mtg_product_14241_partial",
+  "externalKey": "14241",
+  "sourceUrl": "https://www.tcgplayer.com/product/14241",
+  "sourceUpdatedAt": null,
+  "productId": 14241,
+  "productName": "Time Spiral Timeshifted Card",
+  "setName": "Time Spiral",
+  "productLineId": 1,
+  "productLineName": "Magic",
+  "productTypeName": "Cards",
+  "customAttributes": {
+    "number": "121"
+  },
+  "productForm": "single",
+  "barcode": null,
+  "skuReferences": [],
+  "externalCatalogItemReferences": [
+    {
+      "providerKey": "tcgplayer",
+      "externalKey": "product:14241"
+    }
+  ],
+  "externalProductReferences": [],
+  "mergeIdentity": {
+    "tcg": "magic",
+    "productLineName": "Magic",
+    "setName": "Time Spiral",
+    "printedProductName": "Time Spiral Timeshifted Card",
+    "collectorNumber": "121",
+    "languageCode": "en",
+    "productForm": "single",
+    "barcode": null
+  },
+  "catalogHashMaterial": {
+    "productId": 14241,
+    "productName": "Time Spiral Timeshifted Card",
+    "setName": "Time Spiral",
+    "productLineName": "Magic",
+    "productForm": "single",
+    "skuIds": []
+  },
+  "sourcePayload": {
+    "provider": "tcgplayer",
+    "payloadKind": "product-detail-with-skus",
+    "fixtureFlow": "partial"
+  }
+}

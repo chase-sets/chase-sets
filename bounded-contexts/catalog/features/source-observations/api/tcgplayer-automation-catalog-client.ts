@@ -348,5 +348,12 @@ function skuReviewEvidence(
 }
 
 function normalizeTcgName(value: string): string {
-  return value.trim().toLowerCase() === "pokemon" ? "pokemon" : value.trim().toLowerCase();
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "pokemon" || normalized === "pokemon tcg" || normalized === "pokemon trading card game") {
+    return "pokemon";
+  }
+  if (normalized === "magic" || normalized === "mtg" || normalized === "magic: the gathering") {
+    return "magic";
+  }
+  return normalized;
 }

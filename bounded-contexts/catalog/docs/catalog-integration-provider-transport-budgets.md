@@ -19,6 +19,7 @@ Catalog provider profiles own mapping semantics, duplicate prevention, Source Ob
 | Role | Provider unit | Decision | Why |
 | --- | --- | --- | --- |
 | Primary proof | `tcgdex:pokemon:single-card:source-observation-import` | Selected as primary proof | Active profile-backed path that exercises provider scope selection, language/Series/Expansion option queries, Expansion/card payload fetches, image and metadata mapping, Source Observation profile metadata, and promotion planning without provider-specific Admin branches. |
+| Magic production UAT | `tcgplayer:mtg:single-card:source-observation-import` | Selected for Magic provider UAT | Active profile-backed path that exercises TCGplayer product line, set name, product, SKU, Product Detail payload fetch, selected Option review evidence, and credential/session diagnostics for Magic single-card imports. |
 | Supplemental transport evidence | `tcgplayer:pokemon:single-card:source-observation-import` | Not selected as primary proof | Useful for credential/session/domain/rate-limit diagnostics, but its promotion path is not launch-active. It cannot be used to satisfy the first-slice import-to-promotion proof unless the provider choice is explicitly changed with evidence. |
 
 ## Proof Criteria

@@ -33,6 +33,7 @@ import {
 } from "./tcgdex";
 import {
   createTcgplayerProviderAdapter,
+  TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
   TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
 } from "./tcgplayer";
 import {
@@ -443,7 +444,7 @@ describe("ProviderAdapterRegistry", () => {
 
   it("serves TCGplayer option transport through the ProviderAdapter boundary", async () => {
     const adapter = createTcgplayerProviderAdapter({
-      loadProfileVersions: async () => [requireTcgplayerProfileVersion()],
+      loadProfileVersions: async () => [requireTcgplayerPokemonProfileVersion()],
       client: tcgplayerClient(),
     });
 
@@ -454,7 +455,7 @@ describe("ProviderAdapterRegistry", () => {
         productDomain: "pokemon",
         productForm: "single-card",
         ingestionPurpose: "source-observation-import",
-        displayName: "TCGplayer pokemon single-card",
+        displayName: "TCGplayer",
         profileVersion: "2026.06.03",
       },
     ]);
@@ -530,10 +531,138 @@ describe("ProviderAdapterRegistry", () => {
     });
   });
 
+  it("serves TCGplayer Magic single-card transport through the active profile unit", async () => {
+    const progress: unknown[] = [];
+    const adapter = createTcgplayerProviderAdapter({
+      loadProfileVersions: async () => [requireTcgplayerMtgProfileVersion(), requireTcgplayerPokemonProfileVersion()],
+      client: magicTcgplayerClient(),
+      now: () => new Date("2026-06-06T00:00:00.000Z"),
+    });
+
+    await expect(adapter.listIntegrationUnits()).resolves.toEqual([
+      {
+        unitKey: TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        providerKey: "tcgplayer",
+        productDomain: "mtg",
+        productForm: "single-card",
+        ingestionPurpose: "source-observation-import",
+        displayName: "TCGplayer Magic Single Cards",
+        profileVersion: "2026.06.19",
+      },
+    ]);
+    await expect(
+      adapter.listOptions({
+        unitKey: TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        optionKind: "product-lines",
+      }),
+    ).resolves.toEqual({
+      items: [
+        expect.objectContaining({
+          value: "1",
+          label: "Magic",
+          metadata: expect.objectContaining({
+            productLineId: "1",
+            productLineName: "Magic",
+            productLineUrlName: "magic",
+          }),
+        }),
+      ],
+    });
+    await expect(
+      adapter.listOptions({
+        unitKey: TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        optionKind: "set-names",
+        parentValues: { productLineId: "1" },
+      }),
+    ).resolves.toEqual({
+      items: [
+        expect.objectContaining({
+          value: "Time Spiral",
+          label: "Time Spiral",
+          parentValue: "1",
+          metadata: expect.objectContaining({ setNameId: "1001", active: "true" }),
+        }),
+      ],
+    });
+    await expect(
+      adapter.listOptions({
+        unitKey: TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        optionKind: "products",
+        parentValues: { setName: "Time Spiral" },
+      }),
+    ).resolves.toEqual({
+      items: [
+        expect.objectContaining({
+          value: "14240",
+          label: "Fury Sliver",
+          metadata: expect.objectContaining({ productLineName: "Magic", sealed: "false" }),
+        }),
+      ],
+    });
+    await expect(
+      adapter.listOptions({
+        unitKey: TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        optionKind: "skus",
+        parentValues: { productId: "14240" },
+      }),
+    ).resolves.toEqual({
+      items: [
+        {
+          value: "50014240",
+          label: "50014240",
+          metadata: { sku: "50014240", condition: "Near Mint", variant: "Normal", language: "English" },
+        },
+      ],
+    });
+
+    const plan = await adapter.planImport({
+      unitKey: TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      scopeKey: "set-name",
+      values: { productLineId: "1", setName: "Time Spiral" },
+    });
+    const payloads = await collectPayloads(
+      adapter.fetchPayloads(plan, {
+        onProgress: (event) => {
+          progress.push(event);
+        },
+      }),
+    );
+
+    expect(plan).toMatchObject({
+      unitKey: TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      planKey: "tcgplayer:set:1:Time Spiral",
+      transportSteps: [
+        "Search TCGplayer products for set scope",
+        "Fetch TCGplayer product details",
+        "Attach payload provenance",
+      ],
+    });
+    expect(payloads).toEqual([
+      expect.objectContaining({
+        unitKey: TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        providerKey: "tcgplayer",
+        externalKey: "product:14240",
+        payload: {
+          kind: "product-detail",
+          detail: expect.objectContaining({
+            productId: 14240,
+            productName: "Fury Sliver",
+            productLineName: "Magic",
+            productTypeName: "Cards",
+          }),
+        },
+      }),
+    ]);
+    expect(progress).toEqual([
+      { phase: "fetching", completed: 0, total: 1, currentLabel: "Time Spiral" },
+      { phase: "fetching", completed: 1, total: 1, currentLabel: "Fury Sliver" },
+    ]);
+  });
+
   it("plans and fetches TCGplayer product detail payloads with typed provenance", async () => {
     const progress: unknown[] = [];
     const adapter = createTcgplayerProviderAdapter({
-      loadProfileVersions: async () => [requireTcgplayerProfileVersion()],
+      loadProfileVersions: async () => [requireTcgplayerPokemonProfileVersion()],
       client: tcgplayerClient(),
       now: () => new Date("2026-06-06T00:00:00.000Z"),
     });
@@ -579,11 +708,11 @@ describe("ProviderAdapterRegistry", () => {
 
   it("keeps TCGplayer adapter diagnostics transport-only and secret-free", async () => {
     const configured = await createTcgplayerProviderAdapter({
-      loadProfileVersions: async () => [requireTcgplayerProfileVersion()],
+      loadProfileVersions: async () => [requireTcgplayerPokemonProfileVersion()],
       client: tcgplayerClient(),
     }).getTransportDiagnostics();
     const unconfigured = await createTcgplayerProviderAdapter({
-      loadProfileVersions: async () => [requireTcgplayerProfileVersion()],
+      loadProfileVersions: async () => [requireTcgplayerPokemonProfileVersion()],
     }).getTransportDiagnostics();
 
     expect(configured).toEqual([
@@ -615,12 +744,12 @@ describe("ProviderAdapterRegistry", () => {
 
   it("reports TCGplayer credential readiness without exposing credential material", async () => {
     const configured = await createTcgplayerProviderAdapter({
-      loadProfileVersions: async () => [requireTcgplayerProfileVersion()],
+      loadProfileVersions: async () => [requireTcgplayerPokemonProfileVersion()],
       client: tcgplayerClient(),
       now: () => new Date("2026-06-06T00:00:00.000Z"),
     }).getCredentialReadiness();
     const unconfigured = await createTcgplayerProviderAdapter({
-      loadProfileVersions: async () => [requireTcgplayerProfileVersion()],
+      loadProfileVersions: async () => [requireTcgplayerPokemonProfileVersion()],
       now: () => new Date("2026-06-06T00:00:00.000Z"),
     }).getCredentialReadiness();
 
@@ -956,10 +1085,22 @@ function requireTcgdexProfileVersion() {
   return version;
 }
 
-function requireTcgplayerProfileVersion() {
-  const version = getCatalogProviderIntegrationProfileVersion("tcgplayer");
+function requireTcgplayerPokemonProfileVersion() {
+  const version = getCatalogProviderIntegrationProfileVersion("tcgplayer", "2026.06.03", {
+    profileKey: "pokemon-tcg-automation-client",
+  });
   if (!version) {
-    throw new Error("Expected TCGplayer profile version.");
+    throw new Error("Expected TCGplayer Pokemon profile version.");
+  }
+  return version;
+}
+
+function requireTcgplayerMtgProfileVersion() {
+  const version = getCatalogProviderIntegrationProfileVersion("tcgplayer", "2026.06.19", {
+    profileKey: "mtg-single-card-product-sku",
+  });
+  if (!version) {
+    throw new Error("Expected TCGplayer Magic profile version.");
   }
   return version;
 }
@@ -971,6 +1112,147 @@ function tcgplayerClient(): TcgplayerAutomationCatalogClient {
     searchProducts: async () => tcgplayerAutomationResponseFixtures.productSearch,
     listAllProducts: async () => tcgplayerAutomationResponseFixtures.productSearch.results[0].results,
     getProductDetail: async () => tcgplayerAutomationResponseFixtures.productDetail,
+  };
+}
+
+function magicTcgplayerClient(): TcgplayerAutomationCatalogClient {
+  const details = new Map([
+    [
+      14240,
+      {
+        productTypeName: "Cards",
+        rarityName: "Uncommon",
+        sealed: false,
+        productName: "Fury Sliver",
+        setId: 1001,
+        setCode: "TSP",
+        productId: 14240,
+        setName: "Time Spiral",
+        productLineId: 1,
+        productStatusId: 1,
+        productLineName: "Magic",
+        customAttributes: { number: "157", releaseDate: "2006-10-06", cardType: ["Creature"] },
+        formattedAttributes: { Artist: "Paolo Parente" },
+        skus: [{ sku: 50014240, condition: "Near Mint", variant: "Normal", language: "English" }],
+        marketPrice: 1.23,
+        lowestPrice: 1.01,
+        lowestPriceWithShipping: 1.23,
+        medianPrice: 1.5,
+        listings: 25,
+      },
+    ],
+    [
+      96601,
+      {
+        productTypeName: "Sealed Products",
+        rarityName: "Sealed",
+        sealed: true,
+        productName: "Time Spiral Booster Pack",
+        setId: 1001,
+        setCode: "TSP",
+        productId: 96601,
+        setName: "Time Spiral",
+        productLineId: 1,
+        productStatusId: 1,
+        productLineName: "Magic",
+        customAttributes: { number: "PACK", releaseDate: "2006-10-06", cardType: ["Sealed"] },
+        formattedAttributes: {},
+        skus: [{ sku: 50096601, condition: "Sealed", variant: "Sealed", language: "English" }],
+        marketPrice: 12.34,
+        lowestPrice: 10.01,
+        lowestPriceWithShipping: 11.23,
+        medianPrice: 12.5,
+        listings: 25,
+      },
+    ],
+  ]);
+
+  return {
+    listProductLines: async () => [
+      {
+        productLineId: 3,
+        productLineName: "Pokemon",
+        productLineUrlName: "pokemon",
+        isDirect: true,
+      },
+      {
+        productLineId: 1,
+        productLineName: "Magic",
+        productLineUrlName: "magic",
+        isDirect: true,
+      },
+    ],
+    listCatalogSetNames: async () => ({
+      errors: [],
+      results: [
+        {
+          setNameId: 1001,
+          categoryId: 1,
+          name: "Time Spiral",
+          cleanSetName: "Time Spiral",
+          urlName: "time-spiral",
+          abbreviation: "TSP",
+          releaseDate: "2006-10-06",
+          isSupplemental: false,
+          active: true,
+        },
+      ],
+    }),
+    searchProducts: async () => ({
+      errors: [],
+      results: [],
+    }),
+    listAllProducts: async () => [
+      {
+        productId: 14240,
+        productName: "Fury Sliver",
+        productLineId: 1,
+        productLineName: "Magic",
+        productTypeName: "Cards",
+        setId: 1001,
+        setName: "Time Spiral",
+        setUrlName: "time-spiral",
+        rarityName: "Uncommon",
+        sealed: false,
+        productStatusId: 1,
+        customAttributes: { number: "157", releaseDate: "2006-10-06", cardType: ["Creature"] },
+      },
+      {
+        productId: 96601,
+        productName: "Time Spiral Booster Pack",
+        productLineId: 1,
+        productLineName: "Magic",
+        productTypeName: "Sealed Products",
+        setId: 1001,
+        setName: "Time Spiral",
+        setUrlName: "time-spiral",
+        rarityName: "Sealed",
+        sealed: true,
+        productStatusId: 1,
+        customAttributes: { number: "PACK", releaseDate: "2006-10-06", cardType: ["Sealed"] },
+      },
+      {
+        productId: 610001,
+        productName: "Eevee ex",
+        productLineId: 3,
+        productLineName: "Pokemon",
+        productTypeName: "Cards",
+        setId: 7001,
+        setName: "Prismatic Evolutions",
+        setUrlName: "prismatic-evolutions",
+        rarityName: "Special Illustration Rare",
+        sealed: false,
+        productStatusId: 1,
+        customAttributes: { number: "131", releaseDate: "2025-01-17", cardType: ["Pokemon"] },
+      },
+    ],
+    getProductDetail: async ({ productId }) => {
+      const detail = details.get(productId);
+      if (!detail) {
+        throw new Error(`Product ${productId} not found.`);
+      }
+      return detail;
+    },
   };
 }
 

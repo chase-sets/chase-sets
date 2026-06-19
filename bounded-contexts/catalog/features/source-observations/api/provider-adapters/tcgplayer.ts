@@ -31,6 +31,13 @@ export const TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY = 
   ingestionPurpose: "source-observation-import",
 });
 
+export const TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY = defineCatalogIntegrationUnitKey({
+  providerKey: "tcgplayer",
+  productDomain: "mtg",
+  productForm: "single-card",
+  ingestionPurpose: "source-observation-import",
+});
+
 export type TcgplayerProviderPayload =
   | Readonly<{
       kind: "product-detail";
@@ -60,24 +67,22 @@ export function createTcgplayerProviderAdapter(
       supportsPayloadFetch: true,
     },
     async listIntegrationUnits() {
-      const profileVersion = await loadTcgplayerProfileVersion(options);
-      if (!profileVersion) {
-        return [];
-      }
-
-      const identity = assembleCatalogProviderIngestionUnitProfileSections(profileVersion).ingestionUnitIdentity.value;
-      return [
-        {
+      const profileVersions = await loadTcgplayerImportProfileVersions(options);
+      return profileVersions.map((profileVersion) => {
+        const identity =
+          assembleCatalogProviderIngestionUnitProfileSections(profileVersion).ingestionUnitIdentity.value;
+        return {
           ...identity,
           profileVersion: profileVersion.profileVersion,
-        },
-      ];
+        };
+      });
     },
     async listOptions(input) {
       return listTcgplayerAdapterOptions(input, options);
     },
     async planImport(scope) {
-      assertTcgplayerUnit(scope.unitKey);
+      const profileVersion = await requireTcgplayerProfileVersionForUnit(options, scope.unitKey);
+      const constraints = constraintsForTcgplayerUnit(scope.unitKey);
       const productId = positiveIntegerValue(scope.values.productId);
       if (productId !== null) {
         return {
@@ -93,11 +98,12 @@ export function createTcgplayerProviderAdapter(
         };
       }
 
-      const productLineName = stringValue(scope.values.productLineName);
+      const productLineName = stringValue(scope.values.productLineName) ?? constraints.defaultProductLineName;
       const setName = stringValue(scope.values.setName) || stringValue(scope.values.cleanSetName);
       if (!productLineName || !setName) {
         throw new Error("TCGplayer set import planning requires productLineName and setName scope values.");
       }
+      assertProductLineMatchesUnit(profileVersion, productLineName);
 
       const productLineId = positiveIntegerValue(scope.values.productLineId ?? scope.values.categoryId);
       return {
@@ -121,7 +127,8 @@ export function createTcgplayerProviderAdapter(
       };
     },
     async *fetchPayloads(plan, fetchOptions) {
-      assertTcgplayerUnit(plan.unitKey);
+      const profileVersion = await requireTcgplayerProfileVersionForUnit(options, plan.unitKey);
+      const constraints = constraintsForTcgplayerUnit(plan.unitKey);
       const client = requireClient(options);
       const productId = positiveIntegerValue(plan.scope.values.productId);
       const fetchedAt = (options.now ?? (() => new Date()))().toISOString();
@@ -134,6 +141,16 @@ export function createTcgplayerProviderAdapter(
           currentLabel: stringValue(plan.scope.values.productName) ?? `Product ${productId}`,
         });
         const detail = await client.getProductDetail({ productId });
+        if (!productDetailMatchesUnit(detail, constraints)) {
+          yield rejectedProductEnvelope(
+            plan,
+            detail.productId,
+            detail.productName,
+            fetchedAt,
+            productMismatchReason(profileVersion, detail),
+          );
+          return;
+        }
         await fetchOptions?.onProgress?.({
           phase: "fetching",
           completed: 1,
@@ -144,11 +161,12 @@ export function createTcgplayerProviderAdapter(
         return;
       }
 
-      const productLineName = stringValue(plan.scope.values.productLineName);
+      const productLineName = stringValue(plan.scope.values.productLineName) ?? constraints.defaultProductLineName;
       const setName = stringValue(plan.scope.values.setName);
       if (!productLineName || !setName) {
         throw new Error("TCGplayer set payload fetch requires productLineName and setName scope values.");
       }
+      assertProductLineMatchesUnit(profileVersion, productLineName);
 
       const products = await client.listAllProducts({
         size: 24,
@@ -163,22 +181,40 @@ export function createTcgplayerProviderAdapter(
           order: "asc",
         },
       });
+      const scopedProducts = products.filter((product) => productSummaryMatchesUnit(product, constraints));
       let completed = 0;
       await fetchOptions?.onProgress?.({
         phase: "fetching",
         completed,
-        total: products.length,
+        total: scopedProducts.length,
         currentLabel: setName,
       });
 
-      for (const product of products) {
+      for (const product of scopedProducts) {
         try {
           const detail = await client.getProductDetail({ productId: product.productId });
+          if (!productDetailMatchesUnit(detail, constraints)) {
+            completed += 1;
+            await fetchOptions?.onProgress?.({
+              phase: "fetching",
+              completed,
+              total: scopedProducts.length,
+              currentLabel: detail.productName,
+            });
+            yield rejectedProductEnvelope(
+              plan,
+              detail.productId,
+              detail.productName,
+              fetchedAt,
+              productMismatchReason(profileVersion, detail),
+            );
+            continue;
+          }
           completed += 1;
           await fetchOptions?.onProgress?.({
             phase: "fetching",
             completed,
-            total: products.length,
+            total: scopedProducts.length,
             currentLabel: detail.productName,
           });
           yield detailEnvelope(plan, detail, fetchedAt);
@@ -189,7 +225,7 @@ export function createTcgplayerProviderAdapter(
           await fetchOptions?.onProgress?.({
             phase: "fetching",
             completed,
-            total: products.length,
+            total: scopedProducts.length,
             currentLabel: product.productName,
           });
           yield failureEnvelope(plan, product, fetchedAt, error);
@@ -197,72 +233,42 @@ export function createTcgplayerProviderAdapter(
       }
     },
     async getTransportDiagnostics() {
-      const profileVersion = await loadTcgplayerProfileVersion(options);
-      const unitKey =
-        profileVersion === null
-          ? TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY
-          : assembleCatalogProviderIngestionUnitProfileSections(profileVersion).ingestionUnitIdentity.value.unitKey;
+      const profileVersions = await loadTcgplayerImportProfileVersions(options);
+      const profileUnits = profileVersions.length > 0 ? profileVersions : [null];
       const retryableCodes = TCGPLAYER_AUTOMATION_RETRYABLE_STATUS_CODES.join(", ");
       const domains = Object.values(TCGPLAYER_AUTOMATION_DOMAINS).join(", ");
 
       if (!options.client) {
-        return [
-          {
-            code: "tcgplayer-automation-client-unconfigured",
-            severity: "error",
-            message: t(
-              "catalog.features.sourceObservations.api.providerAdapters.tcgplayer.automation.client.unconfigured",
-            ),
-            unitKey,
-          },
-          {
-            code: "tcgplayer-domain-rate-limit-policy-configured",
-            severity: "info",
-            message: t(
-              "catalog.features.sourceObservations.api.providerAdapters.tcgplayer.domain.rate.limit.policy.configured",
-              { domains, retryableCodes },
-            ),
-            unitKey,
-          },
-        ];
+        return profileUnits.flatMap((profileVersion) =>
+          tcgplayerTransportDiagnosticsForUnit({
+            profileVersion,
+            unitKey: unitKeyForTcgplayerProfileVersion(profileVersion),
+            clientConfigured: false,
+            domains,
+            retryableCodes,
+          }),
+        );
       }
 
-      return [
-        {
-          code: "tcgplayer-automation-client-configured",
-          severity: "info",
-          message: t(
-            "catalog.features.sourceObservations.api.providerAdapters.tcgplayer.automation.client.configured",
-            {
-              connectorKind: profileVersion?.profile.connector.kind ?? "tcgplayer-automation-client",
-              lifecycle: profileVersion?.lifecycle ?? "unregistered",
-            },
-          ),
-          unitKey,
-        },
-        {
-          code: "tcgplayer-domain-rate-limit-policy-configured",
-          severity: "info",
-          message: t(
-            "catalog.features.sourceObservations.api.providerAdapters.tcgplayer.domain.rate.limit.policy.configured",
-            { domains, retryableCodes },
-          ),
-          unitKey,
-        },
-      ];
+      return profileUnits.flatMap((profileVersion) =>
+        tcgplayerTransportDiagnosticsForUnit({
+          profileVersion,
+          unitKey: unitKeyForTcgplayerProfileVersion(profileVersion),
+          clientConfigured: true,
+          domains,
+          retryableCodes,
+        }),
+      );
     },
     async getCredentialReadiness() {
-      const profileVersion = await loadTcgplayerProfileVersion(options);
-      const unitKey =
-        profileVersion === null
-          ? TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY
-          : assembleCatalogProviderIngestionUnitProfileSections(profileVersion).ingestionUnitIdentity.value.unitKey;
+      const profileVersions = await loadTcgplayerImportProfileVersions(options);
+      const profileUnits = profileVersions.length > 0 ? profileVersions : [null];
       const checkedAt = (options.now ?? (() => new Date()))().toISOString();
 
-      return [
+      return profileUnits.map((profileVersion) =>
         createCatalogProviderCredentialReadiness({
           providerKey: "tcgplayer",
-          unitKey,
+          unitKey: unitKeyForTcgplayerProfileVersion(profileVersion),
           requirement: "required",
           sourceKind: options.client ? "operator-session" : "environment-secret",
           state: options.client ? "configured" : "missing",
@@ -281,7 +287,7 @@ export function createTcgplayerProviderAdapter(
             credentialState: options.client ? "configured" : "missing",
           },
         }),
-      ];
+      );
     },
   };
 }
@@ -290,7 +296,8 @@ async function listTcgplayerAdapterOptions(
   input: ProviderOptionQueryInput,
   options: TcgplayerProviderAdapterOptions,
 ): Promise<ProviderOptionQueryResult> {
-  assertTcgplayerUnit(input.unitKey);
+  const profileVersion = await requireTcgplayerProfileVersionForUnit(options, input.unitKey);
+  const constraints = constraintsForTcgplayerUnit(input.unitKey);
   const client = requireClient(options);
   const optionKind = input.optionKind.trim().toLowerCase();
   const parentValues = input.parentValues ?? {};
@@ -298,16 +305,18 @@ async function listTcgplayerAdapterOptions(
   if (optionKind === "product-lines" || optionKind === "product-line" || optionKind === "categories") {
     const productLines = await client.listProductLines();
     return {
-      items: productLines.map((item) => ({
-        value: String(item.productLineId),
-        label: item.productLineName,
-        metadata: optionalMetadata({
-          productLineId: String(item.productLineId),
-          productLineName: item.productLineName,
-          productLineUrlName: item.productLineUrlName,
-          isDirect: String(item.isDirect),
-        }),
-      })),
+      items: productLines
+        .filter((item) => productLineMatchesUnit(item, constraints))
+        .map((item) => ({
+          value: String(item.productLineId),
+          label: item.productLineName,
+          metadata: optionalMetadata({
+            productLineId: String(item.productLineId),
+            productLineName: item.productLineName,
+            productLineUrlName: item.productLineUrlName,
+            isDirect: String(item.isDirect),
+          }),
+        })),
     };
   }
 
@@ -318,6 +327,7 @@ async function listTcgplayerAdapterOptions(
     if (productLineId === null) {
       throw new Error("TCGplayer set-name option queries require a productLineId/categoryId parent value.");
     }
+    await assertProductLineIdMatchesUnit(client, profileVersion, productLineId, constraints);
     const response = await client.listCatalogSetNames({ categoryId: productLineId });
     return {
       items: response.results
@@ -346,7 +356,7 @@ async function listTcgplayerAdapterOptions(
     if (!setName) {
       throw new Error("TCGplayer product option queries require a set-name parent value.");
     }
-    const productLineName = stringValue(parentValues.productLineName);
+    const productLineName = stringValue(parentValues.productLineName) ?? constraints.defaultProductLineName;
     const products = await client.listAllProducts({
       size: 24,
       filters: {
@@ -361,7 +371,9 @@ async function listTcgplayerAdapterOptions(
       },
     });
     return {
-      items: products.map((item) => productOptionItem(item)),
+      items: products
+        .filter((item) => productSummaryMatchesUnit(item, constraints))
+        .map((item) => productOptionItem(item)),
     };
   }
 
@@ -371,6 +383,9 @@ async function listTcgplayerAdapterOptions(
       throw new Error("TCGplayer SKU option queries require a Product parent value.");
     }
     const detail = await client.getProductDetail({ productId });
+    if (!productDetailMatchesUnit(detail, constraints)) {
+      return { items: [] };
+    }
     return {
       items: detail.skus.map((item) => skuOptionItem(item)),
     };
@@ -379,17 +394,30 @@ async function listTcgplayerAdapterOptions(
   return { items: [] };
 }
 
-async function loadTcgplayerProfileVersion(
+async function loadTcgplayerImportProfileVersions(
   options: TcgplayerProviderAdapterOptions,
-): Promise<CatalogProviderIntegrationProfileVersionRecord | null> {
+): Promise<readonly CatalogProviderIntegrationProfileVersionRecord[]> {
   const versions = (await options.loadProfileVersions()).filter(
-    (version) => version.providerKey.trim().toLowerCase() === "tcgplayer",
+    (version) =>
+      version.providerKey.trim().toLowerCase() === "tcgplayer" &&
+      version.profile.capabilities.includes("source-observation-import"),
   );
-  return (
-    versions.find((version) => version.active && version.profile.capabilities.includes("source-observation-import")) ??
-    [...versions].sort((left, right) => right.profileVersion.localeCompare(left.profileVersion))[0] ??
-    null
-  );
+  const activeVersions = versions.filter((version) => version.active && version.lifecycle === "active");
+  return activeVersions.length > 0
+    ? activeVersions
+    : [...versions].sort((left, right) => right.profileVersion.localeCompare(left.profileVersion)).slice(0, 1);
+}
+
+async function requireTcgplayerProfileVersionForUnit(
+  options: TcgplayerProviderAdapterOptions,
+  unitKey: string,
+): Promise<CatalogProviderIntegrationProfileVersionRecord> {
+  const profileVersions = await loadTcgplayerImportProfileVersions(options);
+  const profileVersion = profileVersions.find((version) => unitKeyForTcgplayerProfileVersion(version) === unitKey);
+  if (!profileVersion) {
+    throw new Error(`TCGplayer adapter does not support Catalog integration unit '${unitKey}'.`);
+  }
+  return profileVersion;
 }
 
 function detailEnvelope(
@@ -467,10 +495,187 @@ function skuOptionItem(item: TcgplayerAutomationProductSku): ProviderOptionItem 
   };
 }
 
-function assertTcgplayerUnit(unitKey: string): void {
-  if (unitKey !== TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY) {
-    throw new Error(`TCGplayer adapter does not support Catalog integration unit '${unitKey}'.`);
+function unitKeyForTcgplayerProfileVersion(
+  profileVersion: CatalogProviderIntegrationProfileVersionRecord | null,
+): string {
+  return profileVersion === null
+    ? TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY
+    : assembleCatalogProviderIngestionUnitProfileSections(profileVersion).ingestionUnitIdentity.value.unitKey;
+}
+
+type TcgplayerUnitConstraints = Readonly<{
+  unitKey: string;
+  productLineNames: readonly string[];
+  productLineUrlNames: readonly string[];
+  defaultProductLineName: string;
+  requireSingleCard: boolean;
+}>;
+
+function constraintsForTcgplayerUnit(unitKey: string): TcgplayerUnitConstraints {
+  if (unitKey === TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY) {
+    return {
+      unitKey,
+      productLineNames: ["magic", "magic: the gathering", "magic the gathering", "mtg"],
+      productLineUrlNames: ["magic", "magic-the-gathering", "mtg"],
+      defaultProductLineName: "Magic",
+      requireSingleCard: true,
+    };
   }
+  if (unitKey === TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY) {
+    return {
+      unitKey,
+      productLineNames: ["pokemon", "pokemon trading card game", "pokemon tcg"],
+      productLineUrlNames: ["pokemon", "pokemon-tcg"],
+      defaultProductLineName: "Pokemon",
+      requireSingleCard: true,
+    };
+  }
+  throw new Error(`TCGplayer adapter does not support Catalog integration unit '${unitKey}'.`);
+}
+
+function productLineMatchesUnit(
+  item:
+    | Pick<TcgplayerAutomationProductSearchProduct, "productLineName">
+    | { productLineName: string; productLineUrlName?: string },
+  constraints: TcgplayerUnitConstraints,
+): boolean {
+  return (
+    constraints.productLineNames.includes(normalizeProviderValue(item.productLineName)) ||
+    ("productLineUrlName" in item &&
+      Boolean(item.productLineUrlName) &&
+      constraints.productLineUrlNames.includes(normalizeProviderValue(item.productLineUrlName)))
+  );
+}
+
+function productSummaryMatchesUnit(
+  product: TcgplayerAutomationProductSearchProduct,
+  constraints: TcgplayerUnitConstraints,
+): boolean {
+  return (
+    productLineMatchesUnit(product, constraints) &&
+    (!constraints.requireSingleCard ||
+      (!product.sealed && normalizeProviderValue(product.productTypeName).includes("card")))
+  );
+}
+
+function productDetailMatchesUnit(
+  detail: TcgplayerAutomationProductDetail,
+  constraints: TcgplayerUnitConstraints,
+): boolean {
+  return (
+    productLineMatchesUnit(detail, constraints) &&
+    (!constraints.requireSingleCard ||
+      (!detail.sealed && normalizeProviderValue(detail.productTypeName).includes("card")))
+  );
+}
+
+async function assertProductLineIdMatchesUnit(
+  client: TcgplayerAutomationCatalogClient,
+  profileVersion: CatalogProviderIntegrationProfileVersionRecord,
+  productLineId: number,
+  constraints: TcgplayerUnitConstraints,
+): Promise<void> {
+  const productLines = await client.listProductLines();
+  const productLine = productLines.find((item) => item.productLineId === productLineId);
+  if (!productLine || !productLineMatchesUnit(productLine, constraints)) {
+    throw new Error(
+      `TCGplayer ${profileVersion.profile.displayName} option queries require the ${constraints.defaultProductLineName} product line.`,
+    );
+  }
+}
+
+function assertProductLineMatchesUnit(
+  profileVersion: CatalogProviderIntegrationProfileVersionRecord,
+  productLineName: string,
+): void {
+  const constraints = constraintsForTcgplayerUnit(unitKeyForTcgplayerProfileVersion(profileVersion));
+  if (!productLineMatchesUnit({ productLineName }, constraints)) {
+    throw new Error(
+      `TCGplayer ${profileVersion.profile.displayName} imports require the ${constraints.defaultProductLineName} product line.`,
+    );
+  }
+}
+
+function productMismatchReason(
+  profileVersion: CatalogProviderIntegrationProfileVersionRecord,
+  detail: TcgplayerAutomationProductDetail,
+): string {
+  const constraints = constraintsForTcgplayerUnit(unitKeyForTcgplayerProfileVersion(profileVersion));
+  return `Product ${detail.productId} is ${detail.productLineName}/${detail.productTypeName}; ${profileVersion.profile.displayName} only imports ${constraints.defaultProductLineName} single-card products.`;
+}
+
+function rejectedProductEnvelope(
+  plan: ProviderImportPlan,
+  productId: number,
+  productName: string,
+  fetchedAt: string,
+  reason: string,
+): ProviderPayloadEnvelope<TcgplayerProviderPayload> {
+  return {
+    unitKey: plan.unitKey,
+    providerKey: "tcgplayer",
+    externalKey: `product:${productId}`,
+    payload: {
+      kind: "product-detail-failure",
+      productId,
+      productName,
+      reason,
+    },
+    provenance: {
+      sourceUrl: `https://mp-search-api.tcgplayer.com/v2/product/${productId}/details`,
+      fetchedAt,
+    },
+  };
+}
+
+function tcgplayerTransportDiagnosticsForUnit(input: {
+  profileVersion: CatalogProviderIntegrationProfileVersionRecord | null;
+  unitKey: string;
+  clientConfigured: boolean;
+  domains: string;
+  retryableCodes: string;
+}) {
+  return [
+    input.clientConfigured
+      ? {
+          code: "tcgplayer-automation-client-configured",
+          severity: "info" as const,
+          message: t(
+            "catalog.features.sourceObservations.api.providerAdapters.tcgplayer.automation.client.configured",
+            {
+              connectorKind: input.profileVersion?.profile.connector.kind ?? "tcgplayer-automation-client",
+              lifecycle: input.profileVersion?.lifecycle ?? "unregistered",
+            },
+          ),
+          unitKey: input.unitKey,
+        }
+      : {
+          code: "tcgplayer-automation-client-unconfigured",
+          severity: "error" as const,
+          message: t(
+            "catalog.features.sourceObservations.api.providerAdapters.tcgplayer.automation.client.unconfigured",
+          ),
+          unitKey: input.unitKey,
+        },
+    {
+      code: "tcgplayer-domain-rate-limit-policy-configured",
+      severity: "info" as const,
+      message: t(
+        "catalog.features.sourceObservations.api.providerAdapters.tcgplayer.domain.rate.limit.policy.configured",
+        {
+          domains: input.domains,
+          retryableCodes: input.retryableCodes,
+        },
+      ),
+      unitKey: input.unitKey,
+    },
+  ];
+}
+
+function normalizeProviderValue(value: unknown): string {
+  return typeof value === "string" || typeof value === "number" || typeof value === "boolean"
+    ? String(value).trim().toLowerCase()
+    : "";
 }
 
 function requireClient(options: TcgplayerProviderAdapterOptions): TcgplayerAutomationCatalogClient {

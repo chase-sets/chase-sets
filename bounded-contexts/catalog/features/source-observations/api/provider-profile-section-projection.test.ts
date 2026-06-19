@@ -16,7 +16,7 @@ import {
 
 describe("Catalog provider profile section projection", () => {
   it("projects seeded profile versions into deterministic section rows with fingerprints", () => {
-    const version = requireSeededVersion("tcgplayer");
+    const version = requireSeededVersion("tcgplayer", "pokemon-tcg-automation-client");
     const firstProjection = projectCatalogProviderProfileVersionSections(version);
     const secondProjection = projectCatalogProviderProfileVersionSections(version);
 
@@ -50,7 +50,7 @@ describe("Catalog provider profile section projection", () => {
   });
 
   it("refreshes section and diagnostic rows from a canonical snapshot", async () => {
-    const version = withoutUnknownOptionFixture(requireSeededVersion("tcgplayer"));
+    const version = withoutUnknownOptionFixture(requireSeededVersion("tcgplayer", "pokemon-tcg-automation-client"));
     const db = recordingDb();
 
     const projections = await refreshCatalogProviderProfileVersionSectionProjections(db, version);
@@ -69,7 +69,7 @@ describe("Catalog provider profile section projection", () => {
   });
 
   it("loads section metadata and diagnostics without parsing the full profile snapshot", async () => {
-    const version = withoutUnknownOptionFixture(requireSeededVersion("tcgplayer"));
+    const version = withoutUnknownOptionFixture(requireSeededVersion("tcgplayer", "pokemon-tcg-automation-client"));
     const db = recordingDb();
     await refreshCatalogProviderProfileVersionSectionProjections(db, version);
 
@@ -108,8 +108,13 @@ describe("Catalog provider profile section projection", () => {
   });
 });
 
-function requireSeededVersion(providerKey: string): CatalogProviderIntegrationProfileVersionRecord {
-  const version = catalogProviderIntegrationProfileVersions.find((candidate) => candidate.providerKey === providerKey);
+function requireSeededVersion(
+  providerKey: string,
+  profileKey?: string,
+): CatalogProviderIntegrationProfileVersionRecord {
+  const version = catalogProviderIntegrationProfileVersions.find(
+    (candidate) => candidate.providerKey === providerKey && (!profileKey || candidate.profileKey === profileKey),
+  );
   if (!version) {
     throw new Error(`Expected seeded ${providerKey} provider profile version.`);
   }

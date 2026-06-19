@@ -83,15 +83,17 @@ hash material. TCGplayer SKU evidence remains review evidence until a SKU's
 selected options validate against the active Catalog Product schema; only then
 may `sku:<id>` become an External Product Reference.
 
-The implemented TCGplayer ingestion unit is
-`tcgplayer:pokemon:single-card:source-observation-import`. Future TCGplayer MTG,
-sealed product, or One Piece units must add separate profile versions before
-runtime import enables them. Existing TCGplayer normalization helpers for product
-form, barcode, source hash, selected Options, duplicate-prevention evidence, and
-promotion readiness are reviewed Catalog semantic extension points until profile
-interpretation can express those decisions safely. Replacing one requires
-complete deletion of the old helper, tests, fixtures, seeds, documentation,
-runbooks, release notes, and operator instructions.
+The implemented production TCGplayer ingestion unit is
+`tcgplayer:mtg:single-card:source-observation-import`. The older
+`tcgplayer:pokemon:single-card:source-observation-import` automation profile is
+retained as test lifecycle contract evidence. Future TCGplayer sealed product or
+One Piece units must add separate profile versions before runtime import enables
+them. Existing TCGplayer normalization helpers for product form, barcode, source
+hash, selected Options, duplicate-prevention evidence, and promotion readiness
+are reviewed Catalog semantic extension points until profile interpretation can
+express those decisions safely. Replacing one requires complete deletion of the
+old helper, tests, fixtures, seeds, documentation, runbooks, release notes, and
+operator instructions.
 
 Magic production sync uses the same Source Observation boundary. Scryfall,
 MTGJSON, and TCGplayer Magic providers may record normalized Source Observation

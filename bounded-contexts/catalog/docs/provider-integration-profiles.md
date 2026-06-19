@@ -71,7 +71,7 @@ Catalog-facing profile authoring is organized around ingestion-unit profile sect
 
 Every section carries the ingestion-unit key and editability status so Admin Control Plane workflows can reason about a profile without falling back to raw JSON snapshots. The section model is assembled from the existing versioned profile row, then persisted as a deterministic read-model projection for queryability and stale-edit detection.
 
-Ingestion-unit identity uses `providerKey:productDomain:productForm:ingestionPurpose` for provider profile versions. Current seeded Source Observation profiles assemble as `tcgdex:pokemon:single-card:source-observation-import`, `tcgplayer:pokemon:single-card:source-observation-import`, and `scrydex:mtg:single-card:source-observation-import`. Production Magic profiles can use the same identity shape for non-observation purposes such as `mtgjson:mtg:set:reference-data`, `mtgjson:mtg:single-card:reference-data`, and `scryfall:mtg:single-card:image-evidence` without activating those runtime providers. Raw and graded card differences stay inside the `single-card` unit as condition/certification or selected Option semantics; they are not separate ingestion units unless a future profile proves a distinct aggregate target, lifecycle, promotion plan, or duplicate-prevention policy.
+Ingestion-unit identity uses `providerKey:productDomain:productForm:ingestionPurpose` for provider profile versions. Current seeded Source Observation profiles include `tcgdex:pokemon:single-card:source-observation-import`, `tcgplayer:mtg:single-card:source-observation-import`, `mtgjson:mtg:set:reference-data`, `mtgjson:mtg:single-card:reference-data`, `scryfall:mtg:single-card:reference-data`, and `scryfall:mtg:single-card:image-evidence`. The older `tcgplayer:pokemon:single-card:source-observation-import` automation profile remains test lifecycle evidence, not the active TCGplayer import unit. Raw and graded card differences stay inside the `single-card` unit as condition/certification or selected Option semantics; they are not separate ingestion units unless a future profile proves a distinct aggregate target, lifecycle, promotion plan, or duplicate-prevention policy.
 
 Lifecycle policy is a Catalog domain decision. Draft and test profile versions are editable and can be evaluated for activation readiness. Active versions can be deprecated. Retirement is stricter: the profile must be inactive, not already retired, and unreferenced by Source Observations. Activation readiness evaluates executable mapping presence, Source Observation import capability, fixture isolation, required fixture coverage, profile validation diagnostics, and migration evidence when a mapping fingerprint change requires it.
 
@@ -172,26 +172,27 @@ Unknown, inactive, or missing selected-option evidence remains review evidence.
 
 The TCGplayer profile can represent product-line and set-name Reference Record
 evidence through the same hierarchy rules, including `tcgplayer-product-line-id`
-and `tcgplayer-set-name` attributes. The TCGplayer ProviderAdapter is the live
-transport boundary: it lists the
-`tcgplayer:pokemon:single-card:source-observation-import` ingestion unit, serves
-product-line, set-name, product, and SKU option-query transport, plans Product
-and Set Name import scopes, fetches automation-app Product Detail payloads,
-attaches source provenance, and emits credential/session, domain, retry, and
-rate-limit diagnostics. Credential storage, validation, rotation, revocation,
-and readiness reporting remain adapter-owned according to
+and `tcgplayer-set-name` attributes. The TCGplayer Magic single-card profile is
+the active production import profile. The ProviderAdapter is the live transport
+boundary: it lists the `tcgplayer:mtg:single-card:source-observation-import`
+ingestion unit, constrains product-line, set-name, product, and SKU option-query
+transport to Magic single-card products, plans Product and Set Name import
+scopes, fetches automation-app Product Detail payloads, attaches source
+provenance, and emits credential/session, domain, retry, and rate-limit
+diagnostics. Credential storage, validation, rotation, revocation, and readiness
+reporting remain adapter-owned according to
 [Catalog Integration Credential Readiness](./catalog-integration-credential-readiness.md).
 It must not decide which TCGplayer facts are Catalog
 Fields, which Product IDs are Catalog Item references, which SKUs are Product
 references, or whether a provider-product observation is promotable.
 
 The adapter identifies TCGplayer integration work as narrow ingestion units
-rather than one broad provider semantic profile. The implemented profile-backed
-unit is `tcgplayer:pokemon:single-card:source-observation-import`. Planned split
-units such as `tcgplayer:mtg:single-card:source-observation-import`,
-`tcgplayer:mtg:sealed-product:source-observation-import`, and
-`tcgplayer:one-piece:single-card:source-observation-import` require their own
-profile versions before runtime import can enable them. Raw and graded card
+rather than one broad provider semantic profile. The implemented production
+Magic unit is `tcgplayer:mtg:single-card:source-observation-import`. The
+Pokemon automation unit is retained as a test profile for contract coverage.
+Planned split units such as `tcgplayer:mtg:sealed-product:source-observation-import`
+and `tcgplayer:one-piece:single-card:source-observation-import` require their
+own profile versions before runtime import can enable them. Raw and graded card
 differences stay inside the single-card unit as condition/certification and
 selected Option evidence unless a future provider payload proves a distinct
 aggregate target, lifecycle, duplicate-prevention policy, or promotion plan.

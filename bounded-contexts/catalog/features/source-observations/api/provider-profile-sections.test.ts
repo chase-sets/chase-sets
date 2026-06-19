@@ -34,6 +34,9 @@ describe("Catalog provider profile section domain", () => {
     expect(sectionsByProfile["pokemon-tcg-automation-client"].ingestionUnitIdentity.value.unitKey).toBe(
       "tcgplayer:pokemon:single-card:source-observation-import",
     );
+    expect(sectionsByProfile["mtg-single-card-product-sku"].ingestionUnitIdentity.value.unitKey).toBe(
+      "tcgplayer:mtg:single-card:source-observation-import",
+    );
     expect(sectionsByProfile["mtg-card-reference-data"].ingestionUnitIdentity.value.unitKey).toBe(
       "mtgjson:mtg:single-card:reference-data",
     );
@@ -153,7 +156,7 @@ describe("Catalog provider profile section domain", () => {
 
   it("exposes activation readiness inputs and lifecycle policy decisions", () => {
     const testVersion = catalogProviderIntegrationProfileVersions.find(
-      (version) => version.providerKey === "tcgplayer",
+      (version) => version.providerKey === "tcgplayer" && version.profileKey === "pokemon-tcg-automation-client",
     )!;
     const readiness = evaluateCatalogProviderProfileActivationReadiness(
       catalogProviderProfileActivationReadinessInput(testVersion),
@@ -198,7 +201,7 @@ describe("Catalog provider profile section domain", () => {
 
   it("reports fixture coverage as activation readiness input instead of transport behavior", () => {
     const tcgplayerVersion = catalogProviderIntegrationProfileVersions.find(
-      (version) => version.providerKey === "tcgplayer",
+      (version) => version.providerKey === "tcgplayer" && version.profileKey === "pokemon-tcg-automation-client",
     )!;
     const version = {
       ...tcgplayerVersion,
