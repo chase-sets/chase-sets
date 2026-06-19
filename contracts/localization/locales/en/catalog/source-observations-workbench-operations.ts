@@ -437,6 +437,28 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.stage.flow.description":
     "Run sync, review what changed, then create or update Catalog Items. Only the active stage is expanded.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.stage.flow.title": "Import to promotion flow",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.magicSetSync.actions": "Actions",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.magicSetSync.activeImports": "Active imports",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.magicSetSync.changed": "Changed observations",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.magicSetSync.counts":
+    "{observed} observed · {changed} changed · {promoted} promoted",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.magicSetSync.currentSet": "Current set: {setLabel}",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.magicSetSync.description":
+    "Select one Magic set, then sync MTGJSON, Scryfall, and TCGplayer through this workbench.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.magicSetSync.noActiveProfile": "No active profile",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.magicSetSync.noActiveUnit": "No active unit",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.magicSetSync.openProviderSet": "Open provider set",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.magicSetSync.previewProvider": "Preview {provider}",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.magicSetSync.profileVersion": "profile {profileVersion}",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.magicSetSync.promoted": "Promoted observations",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.magicSetSync.provider": "Provider",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.magicSetSync.reapplyProvider": "Reapply {provider}",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.magicSetSync.set.label": "Magic set",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.magicSetSync.set.placeholder": "Select a Magic set",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.magicSetSync.set.submit": "Select Magic set",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.magicSetSync.state": "State",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.magicSetSync.syncProvider": "Sync {provider}",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.magicSetSync.title": "Magic set sync",
   "catalog.features.sourceObservations.ui.primaryWorkbench.stage.review.description":
     "Review changed Source Observations with provenance, redacted facts, and command readiness.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.stage.review.label": "Review changes",
