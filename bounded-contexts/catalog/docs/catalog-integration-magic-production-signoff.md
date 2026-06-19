@@ -121,6 +121,10 @@ items below are complete:
 - [ ] #2039 staging UAT passes from the Chase Sets interface without direct
   URLs, APIs, CLI, SQL, Postman, browser console commands, provider endpoints,
   or hidden Admin/API routes.
+- [ ] `CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE` names the
+  accepted provider-data approval and #2039 UAT evidence before production-like
+  MTGJSON, Scryfall, or TCGplayer Magic imports, promotions, reapply, or
+  activation are opened.
 - [ ] Launch evidence records the selected Magic set, provider runs, profile
   versions, source hashes or approved hash omissions, job ids, dry-run results,
   promotion outcomes, conflicts/duplicates, rollback controls, and emergency

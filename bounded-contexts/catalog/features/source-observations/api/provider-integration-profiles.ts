@@ -1716,7 +1716,7 @@ export const mtgjsonMtgCardReferenceProviderProfile = {
   connector: {
     kind: "mtgjson-json",
     baseUrl: "https://mtgjson.com/api/v5",
-    sourceContractDocument: "bounded-contexts/catalog/docs/provider-integration-magic-production-signoff.md",
+    sourceContractDocument: "bounded-contexts/catalog/docs/catalog-integration-magic-production-signoff.md",
     authentication: {
       scheme: "public-json",
       credentialsRequired: false,

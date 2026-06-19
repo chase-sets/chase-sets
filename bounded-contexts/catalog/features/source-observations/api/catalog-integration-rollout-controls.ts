@@ -11,6 +11,7 @@ export type CatalogIntegrationRolloutControlId =
   | "reapply-disabled"
   | "activation-disabled"
   | "activation-test-profiles-only"
+  | "magic-production-signoff-required"
   | "rollback-ready-release-mode"
   | "worker-processing-disabled"
   | "worker-lane-limited"
@@ -72,6 +73,7 @@ export type CatalogIntegrationRolloutControlConfig = Readonly<{
   disabledPromotion?: readonly string[] | "all" | null;
   disabledReapply?: readonly string[] | "all" | null;
   activationMode?: "open" | "disabled" | "test-profiles-only" | null;
+  magicProductionSignoffReference?: string | null;
   workerMode?: "open" | "disabled" | "lane-limited" | null;
 }>;
 
@@ -102,9 +104,12 @@ const PROVIDER_OPTION_QUERIES_OPEN_MESSAGE = "Provider option queries are open."
 const ACTIVATION_DISABLED_MESSAGE = "Catalog provider profile activation is disabled.";
 const ACTIVATION_TEST_PROFILES_ONLY_MESSAGE = "Catalog provider profile activation is restricted to test profiles.";
 const ACTIVATION_OPEN_MESSAGE = "Catalog provider profile activation is open.";
+const MAGIC_PRODUCTION_SIGNOFF_REQUIRED_MESSAGE =
+  "Magic production sync requires recorded provider-data signoff and interface-only staging UAT evidence.";
 const WORKER_PROCESSING_DISABLED_MESSAGE = "Catalog integration worker job processing is disabled.";
 const WORKER_LANE_LIMITED_MESSAGE = "Catalog integration worker job processing is lane-limited.";
 const WORKER_PROCESSING_OPEN_MESSAGE = "Catalog integration worker job processing is open.";
+const MAGIC_PRODUCTION_PROVIDER_KEYS = ["mtgjson", "scryfall", "tcgplayer"] as const;
 
 export function createCatalogIntegrationRolloutControlPolicy(
   config: CatalogIntegrationRolloutControlConfig = {},
@@ -130,27 +135,34 @@ export function createCatalogIntegrationRolloutControlPolicyFromEnv(
   env: NodeJS.ProcessEnv = process.env,
 ): CatalogIntegrationRolloutControlPolicy {
   const productionLike = isProductionLikeCatalogIntegrationEnvironment(env);
-  const productionMagicProviders = ["mtgjson", "scryfall", "tcgplayer"];
+  const controlPlaneMode = parseControlPlaneMode(env.CATALOG_INTEGRATION_CONTROL_PLANE_MODE);
+  const disabledImports = parseProviderScope(env.CATALOG_INTEGRATION_IMPORTS_DISABLED);
+  const disabledPromotion = parseProviderScope(env.CATALOG_INTEGRATION_PROMOTION_DISABLED);
+  const disabledReapply = parseProviderScope(env.CATALOG_INTEGRATION_REAPPLY_DISABLED);
+  const activationMode = parseActivationMode(env.CATALOG_INTEGRATION_ACTIVATION_MODE);
 
   return createCatalogIntegrationRolloutControlPolicy({
-    controlPlaneMode:
-      parseControlPlaneMode(env.CATALOG_INTEGRATION_CONTROL_PLANE_MODE) ?? (productionLike ? "dry-run-only" : null),
+    controlPlaneMode: defaultWhenEnvUnset(controlPlaneMode, productionLike ? "dry-run-only" : null),
     disabledProviderAdapters: parseProviderScope(env.CATALOG_INTEGRATION_DISABLED_PROVIDER_ADAPTERS),
     providerApiEmergencyStop: parseProviderScope(env.CATALOG_INTEGRATION_PROVIDER_API_EMERGENCY_STOP),
     providerOptionQueries: parseOptionQueryMode(env.CATALOG_INTEGRATION_PROVIDER_OPTION_QUERIES),
-    disabledImports:
-      parseProviderScope(env.CATALOG_INTEGRATION_IMPORTS_DISABLED) ??
-      (productionLike ? productionMagicProviders : null),
-    disabledPromotion:
-      parseProviderScope(env.CATALOG_INTEGRATION_PROMOTION_DISABLED) ??
-      (productionLike ? productionMagicProviders : null),
-    disabledReapply:
-      parseProviderScope(env.CATALOG_INTEGRATION_REAPPLY_DISABLED) ??
-      (productionLike ? productionMagicProviders : null),
-    activationMode:
-      parseActivationMode(env.CATALOG_INTEGRATION_ACTIVATION_MODE) ?? (productionLike ? "test-profiles-only" : null),
+    disabledImports: defaultWhenEnvUnset(disabledImports, productionLike ? MAGIC_PRODUCTION_PROVIDER_KEYS : null),
+    disabledPromotion: defaultWhenEnvUnset(disabledPromotion, productionLike ? MAGIC_PRODUCTION_PROVIDER_KEYS : null),
+    disabledReapply: defaultWhenEnvUnset(disabledReapply, productionLike ? MAGIC_PRODUCTION_PROVIDER_KEYS : null),
+    activationMode: defaultWhenEnvUnset(activationMode, productionLike ? "test-profiles-only" : null),
+    ...(productionLike
+      ? {
+          magicProductionSignoffReference: normalizeMagicProductionSignoffReference(
+            env.CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE,
+          ),
+        }
+      : {}),
     workerMode: parseWorkerMode(env.CATALOG_INTEGRATION_WORKER_MODE),
   });
+}
+
+function defaultWhenEnvUnset<T>(value: T | undefined, fallback: T): T {
+  return value === undefined ? fallback : value;
 }
 
 export function rolloutControlErrorResponse(error: CatalogIntegrationRolloutControlError) {
@@ -208,8 +220,9 @@ function buildCatalogIntegrationRolloutControlSnapshot(
       "Catalog integration reapply is disabled for the configured provider scope.",
     ),
     activationControl(config.activationMode ?? "open"),
+    magicProductionSignoffControl(config),
     workerControl(config.workerMode ?? "open"),
-  ];
+  ].filter((item): item is CatalogIntegrationRolloutControl => Boolean(item));
 
   return {
     generatedAt,
@@ -383,6 +396,24 @@ function activationControl(mode: NonNullable<CatalogIntegrationRolloutControlCon
   });
 }
 
+function magicProductionSignoffControl(config: CatalogIntegrationRolloutControlConfig) {
+  if (!Object.prototype.hasOwnProperty.call(config, "magicProductionSignoffReference")) {
+    return null;
+  }
+
+  const reference = normalizeMagicProductionSignoffReference(config.magicProductionSignoffReference);
+  return control({
+    controlId: "magic-production-signoff-required",
+    status: reference ? "open" : "blocked",
+    severity: reference ? "info" : "error",
+    capabilities: ["import", "promotion", "reapply", "activation"],
+    providerKeys: MAGIC_PRODUCTION_PROVIDER_KEYS,
+    message: reference
+      ? `Magic production signoff reference recorded: ${reference}.`
+      : MAGIC_PRODUCTION_SIGNOFF_REQUIRED_MESSAGE,
+  });
+}
+
 function workerControl(mode: NonNullable<CatalogIntegrationRolloutControlConfig["workerMode"]>) {
   if (mode === "disabled") {
     return control({
@@ -459,9 +490,12 @@ function normalizeScope(value: readonly string[] | "all" | null | undefined): re
   return Array.from(new Set(value.map((item) => item.trim().toLowerCase()).filter(Boolean)));
 }
 
-function parseProviderScope(value: string | undefined): readonly string[] | "all" | null {
+function parseProviderScope(value: string | undefined): readonly string[] | "all" | null | undefined {
   const normalized = value?.trim().toLowerCase();
-  if (!normalized || normalized === "false" || normalized === "open" || normalized === "none") {
+  if (!normalized) {
+    return undefined;
+  }
+  if (normalized === "false" || normalized === "open" || normalized === "none") {
     return null;
   }
   if (normalized === "true" || normalized === "all" || normalized === "*") {
@@ -473,30 +507,68 @@ function parseProviderScope(value: string | undefined): readonly string[] | "all
     .filter(Boolean);
 }
 
-function parseControlPlaneMode(value: string | undefined): CatalogIntegrationRolloutControlConfig["controlPlaneMode"] {
+function parseControlPlaneMode(
+  value: string | undefined,
+): CatalogIntegrationRolloutControlConfig["controlPlaneMode"] | undefined {
   const normalized = value?.trim().toLowerCase();
+  if (!normalized) {
+    return undefined;
+  }
+  if (normalized === "open" || normalized === "false" || normalized === "none") {
+    return "open";
+  }
   return normalized === "read-only" || normalized === "dry-run-only" || normalized === "rollback-ready"
     ? normalized
-    : null;
+    : undefined;
 }
 
 function parseOptionQueryMode(
   value: string | undefined,
-): CatalogIntegrationRolloutControlConfig["providerOptionQueries"] {
+): CatalogIntegrationRolloutControlConfig["providerOptionQueries"] | undefined {
   const normalized = value?.trim().toLowerCase();
+  if (!normalized) {
+    return undefined;
+  }
+  if (normalized === "open" || normalized === "false" || normalized === "none") {
+    return "open";
+  }
   return normalized === "disabled" || normalized === "cache-only" ? normalized : null;
 }
 
-function parseActivationMode(value: string | undefined): CatalogIntegrationRolloutControlConfig["activationMode"] {
+function parseActivationMode(
+  value: string | undefined,
+): CatalogIntegrationRolloutControlConfig["activationMode"] | undefined {
   const normalized = value?.trim().toLowerCase();
-  return normalized === "disabled" || normalized === "test-profiles-only" ? normalized : null;
+  if (!normalized) {
+    return undefined;
+  }
+  if (normalized === "open" || normalized === "false" || normalized === "none") {
+    return "open";
+  }
+  return normalized === "disabled" || normalized === "test-profiles-only" ? normalized : undefined;
 }
 
-function parseWorkerMode(value: string | undefined): CatalogIntegrationRolloutControlConfig["workerMode"] {
+function parseWorkerMode(value: string | undefined): CatalogIntegrationRolloutControlConfig["workerMode"] | undefined {
   const normalized = value?.trim().toLowerCase();
+  if (!normalized) {
+    return undefined;
+  }
+  if (normalized === "open" || normalized === "false" || normalized === "none") {
+    return "open";
+  }
   return normalized === "disabled" || normalized === "lane-limited" ? normalized : null;
 }
 
 function isProductionLikeCatalogIntegrationEnvironment(env: NodeJS.ProcessEnv): boolean {
   return env.DEPLOYMENT_ENVIRONMENT?.trim().toLowerCase() === "production" || env.NODE_ENV === "production";
+}
+
+function normalizeMagicProductionSignoffReference(value: string | null | undefined): string | null {
+  const reference = value?.trim();
+  if (!reference) {
+    return null;
+  }
+
+  const normalized = reference.toLowerCase();
+  return normalized === "false" || normalized === "none" || normalized === "open" ? null : reference;
 }

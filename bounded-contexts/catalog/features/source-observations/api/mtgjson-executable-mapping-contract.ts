@@ -13,7 +13,7 @@ const mtgjsonSourceContract = {
   owner: "chase-sets/catalog",
   repository: "chase-sets/chase-sets",
   commit: null,
-  documentPath: "bounded-contexts/catalog/docs/provider-integration-magic-production-signoff.md",
+  documentPath: "bounded-contexts/catalog/docs/catalog-integration-magic-production-signoff.md",
   fixtureSetVersion: "mtgjson-mtg-card-reference-production-v1",
 } as const;
 

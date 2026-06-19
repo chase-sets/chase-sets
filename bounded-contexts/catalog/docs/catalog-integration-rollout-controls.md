@@ -16,7 +16,7 @@ bounded-contexts/catalog/features/source-observations/api/catalog-integration-ro
 
 ## Default State
 
-All operational controls default to open. This keeps the shipped Admin workflows available until Ops explicitly enables a staged mode or kill switch.
+Operational controls default to open outside production-like environments. Production-like Magic sync defaults to dry-run-only with MTGJSON, Scryfall, and TCGplayer imports, promotion, reapply, and non-test activation stopped until Ops explicitly opens the controls and records the Magic production signoff reference.
 
 ## Control Inventory
 
@@ -34,10 +34,11 @@ All operational controls default to open. This keeps the shipped Admin workflows
 | `reapply-disabled` | `CATALOG_INTEGRATION_REAPPLY_DISABLED=<provider list or all>` | open | Catalog Source Observations | Blocks explicit and scoped reapply for the scoped provider |
 | `activation-disabled` | `CATALOG_INTEGRATION_ACTIVATION_MODE=disabled` | open | Catalog Source Observations | Blocks provider profile activation |
 | `activation-test-profiles-only` | `CATALOG_INTEGRATION_ACTIVATION_MODE=test-profiles-only` | open | Catalog Source Observations | Blocks activation unless the candidate profile lifecycle is `test` |
+| `magic-production-signoff-required` | `CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE=<approval and #2039 UAT evidence>` | open outside production-like envs; blocked for production-like Magic writes when missing | Catalog Source Observations | Blocks MTGJSON, Scryfall, and TCGplayer import, promotion, reapply, and activation until provider-data signoff and interface-only staging UAT evidence are recorded |
 | `worker-processing-disabled` | `CATALOG_INTEGRATION_WORKER_MODE=disabled` | open | Catalog Source Observations | Blocks integration worker job processing |
 | `worker-lane-limited` | `CATALOG_INTEGRATION_WORKER_MODE=lane-limited` | open | Ops/Release | Degrades worker throughput; lane counts remain platform-worker config |
 
-Provider-scoped env values accept comma-separated provider keys, `all`, `true`, or `*`. Empty, `none`, `false`, and `open` mean no provider scope is disabled.
+Provider-scoped env values accept comma-separated provider keys, `all`, `true`, or `*`. Empty means unset. `none`, `false`, and `open` mean no provider scope is disabled, and in production-like environments they explicitly open that control only after the Magic production signoff gate is also satisfied.
 
 ## Magic Provider Rollout Behavior
 
@@ -50,7 +51,7 @@ Magic production sync uses `mtgjson`, `scryfall`, and `tcgplayer` provider scope
 | `tcgplayer` | TCGplayer provider transport, option queries, and imports are blocked; MTGJSON and Scryfall are unaffected unless separately scoped. | TCGplayer imports are blocked; existing observations remain reviewable. | TCGplayer Source Observation promotion is blocked. | TCGplayer reapply/replay is blocked. | Live option queries are blocked for the request path and only cached option pages may answer. |
 | `all`, `true`, or `*` | All provider transport, option queries, and imports are blocked. | All provider imports are blocked. | All provider promotions are blocked. | All provider reapply/replay work is blocked. | Live option queries are blocked globally and only cached option pages may answer. |
 
-`dry-run-only` is not provider-scoped. It blocks import, promotion, reapply, and activation for the whole control plane while leaving reads, provider setup, validation, and dry-run evidence available. Production defaults to `dry-run-only` plus imports/promotion/reapply disabled for MTGJSON, Scryfall, and TCGplayer when the corresponding environment values are unset.
+`dry-run-only` is not provider-scoped. It blocks import, promotion, reapply, and activation for the whole control plane while leaving reads, provider setup, validation, and dry-run evidence available. Production defaults to `dry-run-only` plus imports/promotion/reapply disabled for MTGJSON, Scryfall, and TCGplayer when the corresponding environment values are unset. Setting the corresponding env values to `open`, `none`, or `false` opens those controls only if `CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE` names the accepted provider-data signoff and #2039 interface-only staging UAT evidence.
 
 `provider-option-queries-cache-only` is a degraded option-query posture, not a write gate. The provider option query path returns cache metadata (`fresh`, `stale`, `miss`, `bypass`, or `unavailable`) with `cacheOnly` and `degraded` flags so Admin can label fresh cached pages, stale cached pages, and unavailable selectors explicitly.
 
