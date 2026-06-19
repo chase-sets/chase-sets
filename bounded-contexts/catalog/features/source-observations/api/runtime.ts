@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
@@ -39,10 +40,12 @@ import {
   evolveSourceObservation,
   initialSourceObservationState,
   isMagicCatalogItemSourceObservationNormalized,
+  isMagicSetReferenceSourceObservationNormalized,
   isPokemonCardSourceObservationNormalized,
   type SourceObservationCommand,
   type SourceObservationEvent,
   type SourceObservationMagicCardPrintNormalized,
+  type SourceObservationMagicSetReferenceNormalized,
   type SourceObservationMagicSealedProductNormalized,
   type SourceObservationNormalized,
   type SourceObservationPokemonCardNormalized,
@@ -208,6 +211,7 @@ export type BulkSourceObservationPromotionOutcome = Readonly<{
   observationId: string;
   status: "promoted" | "rejected" | "deferred" | "skipped" | "failed";
   catalogItemId: CatalogItemId | null;
+  referenceRecordId?: ReferenceRecordId | null;
   reason: string | null;
 }>;
 
@@ -225,6 +229,7 @@ export type BulkSourceObservationReapplyOutcome = Readonly<{
   observationId: string;
   status: "reapplied" | "skipped" | "failed";
   catalogItemId: CatalogItemId | null;
+  referenceRecordId?: ReferenceRecordId | null;
   reason: string | null;
 }>;
 
@@ -653,12 +658,18 @@ export type SourceObservationReviewServices = Readonly<{
   promoteObservation: (input: {
     observationId: string;
     context: EventStoreContext;
-  }) => Promise<{ observationId: string; catalogItemId: CatalogItemId }>;
+  }) => Promise<SourceObservationPromotionTargetResult>;
   rejectObservation: (input: {
     observationId: string;
     reason: string;
     context: EventStoreContext;
   }) => Promise<{ observationId: string; status: "rejected" }>;
+}>;
+
+type SourceObservationPromotionTargetResult = Readonly<{
+  observationId: string;
+  catalogItemId: CatalogItemId | null;
+  referenceRecordId?: ReferenceRecordId | null;
 }>;
 
 export type PromotionReapplyServices = Readonly<{
@@ -1188,7 +1199,21 @@ export function createSourceObservationRuntime(
   async function promoteObservationFromRow(input: {
     observation: SourceObservationDetailRow;
     context: EventStoreContext;
-  }): Promise<{ observationId: string; catalogItemId: CatalogItemId }> {
+  }): Promise<SourceObservationPromotionTargetResult> {
+    if (isMagicSetReferenceSourceObservationNormalized(input.observation.normalized)) {
+      return promoteReferenceObservationFromRow({
+        ...input,
+        normalized: input.observation.normalized,
+      });
+    }
+
+    return promoteCatalogItemObservationFromRow(input);
+  }
+
+  async function promoteCatalogItemObservationFromRow(input: {
+    observation: SourceObservationDetailRow;
+    context: EventStoreContext;
+  }): Promise<SourceObservationPromotionTargetResult> {
     const normalized = requireCatalogItemPromotionObservation(
       input.observation.normalized,
       input.observation.provider_key,
@@ -1289,6 +1314,49 @@ export function createSourceObservationRuntime(
     };
   }
 
+  async function promoteReferenceObservationFromRow(input: {
+    observation: SourceObservationDetailRow;
+    normalized: SourceObservationMagicSetReferenceNormalized;
+    context: EventStoreContext;
+  }): Promise<SourceObservationPromotionTargetResult> {
+    const providerProfileVersion = await requireReferenceDataPromotionProfileVersion(
+      profileVersions,
+      input.observation.provider_key,
+      input.normalized,
+    );
+    const { targetReferenceRecordId } = await resolveReferenceDataPromotionHierarchy({
+      deps,
+      referenceData,
+      profile: providerProfileVersion.profile,
+      normalized: input.normalized,
+      context: input.context,
+    });
+    const promotionEvidence = referenceDataPromotionEvidence({
+      providerProfileVersion,
+      normalized: input.normalized,
+      referenceRecordId: targetReferenceRecordId,
+    });
+
+    if (input.observation.status !== "promoted") {
+      await commandHandler({
+        streamId: sourceObservationStreamId(input.observation.observation_id),
+        command: {
+          type: "PromoteSourceObservationReference",
+          referenceRecordId: targetReferenceRecordId,
+          promotedAt: new Date().toISOString(),
+          ...promotionEvidence,
+        },
+        context: input.context,
+      });
+    }
+
+    return {
+      observationId: input.observation.observation_id,
+      catalogItemId: null,
+      referenceRecordId: targetReferenceRecordId,
+    };
+  }
+
   async function promoteObservationIds(input: {
     observationIds: readonly string[];
     context: EventStoreContext;
@@ -1325,6 +1393,7 @@ export function createSourceObservationRuntime(
               observationId,
               status: "skipped",
               catalogItemId: observation.promoted_catalog_item_id as CatalogItemId | null,
+              referenceRecordId: observation.promoted_reference_record_id as ReferenceRecordId | null,
               reason: `Source observation is ${observation.status}.`,
             },
           );
@@ -1341,6 +1410,7 @@ export function createSourceObservationRuntime(
           observationId,
           status: "promoted",
           catalogItemId: promoted.catalogItemId,
+          referenceRecordId: promoted.referenceRecordId,
           reason: null,
         });
       } catch (error) {
@@ -1375,14 +1445,20 @@ export function createSourceObservationRuntime(
     observationId: string,
   ): Promise<BulkSourceObservationPromotionOutcome | null> {
     const latestObservation = await getSourceObservationDetail(deps.db, observationId);
-    if (latestObservation?.status !== "promoted" || !latestObservation.promoted_catalog_item_id) {
+    if (latestObservation?.status !== "promoted") {
+      return null;
+    }
+    const catalogItemId = latestObservation.promoted_catalog_item_id as CatalogItemId | null;
+    const referenceRecordId = latestObservation.promoted_reference_record_id as ReferenceRecordId | null;
+    if (!catalogItemId && !referenceRecordId) {
       return null;
     }
 
     return {
       observationId,
       status: "promoted",
-      catalogItemId: latestObservation.promoted_catalog_item_id as CatalogItemId,
+      catalogItemId,
+      referenceRecordId,
       reason: null,
     };
   }
@@ -1392,7 +1468,23 @@ export function createSourceObservationRuntime(
     context: EventStoreContext;
     reapplyProfileMode: SourceObservationReapplyProfileMode;
     profileSnapshot?: SourceObservationIntegrationProfileSnapshot | null;
-  }): Promise<{ observationId: string; catalogItemId: CatalogItemId }> {
+  }): Promise<SourceObservationPromotionTargetResult> {
+    if (isMagicSetReferenceSourceObservationNormalized(input.observation.normalized)) {
+      return reapplyReferenceObservationFromRow({
+        ...input,
+        normalized: input.observation.normalized,
+      });
+    }
+
+    return reapplyCatalogItemObservationFromRow(input);
+  }
+
+  async function reapplyCatalogItemObservationFromRow(input: {
+    observation: SourceObservationDetailRow;
+    context: EventStoreContext;
+    reapplyProfileMode: SourceObservationReapplyProfileMode;
+    profileSnapshot?: SourceObservationIntegrationProfileSnapshot | null;
+  }): Promise<SourceObservationPromotionTargetResult> {
     const normalized = requireCatalogItemPromotionObservation(
       input.observation.normalized,
       input.observation.provider_key,
@@ -1453,6 +1545,55 @@ export function createSourceObservationRuntime(
     };
   }
 
+  async function reapplyReferenceObservationFromRow(input: {
+    observation: SourceObservationDetailRow;
+    normalized: SourceObservationMagicSetReferenceNormalized;
+    context: EventStoreContext;
+    reapplyProfileMode: SourceObservationReapplyProfileMode;
+    profileSnapshot?: SourceObservationIntegrationProfileSnapshot | null;
+  }): Promise<SourceObservationPromotionTargetResult> {
+    const providerProfileVersion = await requireReferenceDataPromotionProfileVersionForReapply(
+      profileVersions,
+      input.observation,
+      input.normalized,
+      input.reapplyProfileMode,
+      input.profileSnapshot ?? null,
+    );
+
+    if (input.observation.status !== "promoted") {
+      throw new Error("Only promoted source observations can be reapplied.");
+    }
+
+    const { targetReferenceRecordId } = await resolveReferenceDataPromotionHierarchy({
+      deps,
+      referenceData,
+      profile: providerProfileVersion.profile,
+      normalized: input.normalized,
+      context: input.context,
+    });
+    const promotionEvidence = referenceDataPromotionEvidence({
+      providerProfileVersion,
+      normalized: input.normalized,
+      referenceRecordId: targetReferenceRecordId,
+    });
+
+    await commandHandler({
+      streamId: sourceObservationStreamId(input.observation.observation_id),
+      command: {
+        type: "RecordSourceObservationReferencePromotionPlan",
+        referenceRecordId: targetReferenceRecordId,
+        ...promotionEvidence,
+      },
+      context: input.context,
+    });
+
+    return {
+      observationId: input.observation.observation_id,
+      catalogItemId: null,
+      referenceRecordId: targetReferenceRecordId,
+    };
+  }
+
   async function reapplyObservationIds(input: {
     observationIds: readonly string[];
     context: EventStoreContext;
@@ -1489,6 +1630,7 @@ export function createSourceObservationRuntime(
             observationId,
             status: "skipped",
             catalogItemId: observation.promoted_catalog_item_id as CatalogItemId | null,
+            referenceRecordId: observation.promoted_reference_record_id as ReferenceRecordId | null,
             reason: `Source observation is ${observation.status}.`,
           });
           continue;
@@ -1506,6 +1648,7 @@ export function createSourceObservationRuntime(
           observationId,
           status: "reapplied",
           catalogItemId: reapplied.catalogItemId,
+          referenceRecordId: reapplied.referenceRecordId,
           reason: null,
         });
       } catch (error) {
@@ -4964,6 +5107,52 @@ async function requireCatalogPromotionProfileVersionForReapply(
   return version;
 }
 
+async function requireReferenceDataPromotionProfileVersionForReapply(
+  profileVersions: CatalogProviderIntegrationProfileVersionReader,
+  observation: SourceObservationDetailRow,
+  normalized: SourceObservationMagicSetReferenceNormalized,
+  mode: SourceObservationReapplyProfileMode,
+  snapshot: SourceObservationIntegrationProfileSnapshot | null,
+): Promise<CatalogProviderIntegrationProfileVersionRecord> {
+  if (mode === "current-active-profile") {
+    if (snapshot) {
+      return requireReferenceDataPromotionProfileVersionFromSnapshot(profileVersions, snapshot, normalized);
+    }
+    return requireReferenceDataPromotionProfileVersion(profileVersions, observation.provider_key, normalized);
+  }
+
+  const sourceProfileKey = requireOriginalSourceProfileMarker(
+    observation.source_profile_key,
+    "source profile key",
+    observation.observation_id,
+  ).toLowerCase();
+  const sourceProfileVersion = requireOriginalSourceProfileMarker(
+    observation.source_profile_version,
+    "source profile version",
+    observation.observation_id,
+  );
+  requireOriginalSourceProfileMarker(
+    observation.source_mapping_fingerprint,
+    "source mapping fingerprint",
+    observation.observation_id,
+  );
+
+  const version = (await profileVersions.listProfileVersions(observation.provider_key)).find(
+    (candidate) =>
+      candidate.providerKey === observation.provider_key &&
+      candidate.profileKey === sourceProfileKey &&
+      candidate.profileVersion === sourceProfileVersion,
+  );
+  if (!version) {
+    throw new Error(
+      `Catalog provider profile version ${observation.provider_key}@${sourceProfileVersion} from Source Observation ${observation.observation_id} was not found.`,
+    );
+  }
+
+  assertReferenceDataPromotionProfileCompatible(version, normalized);
+  return version;
+}
+
 async function requireCatalogPromotionProfileVersionFromSnapshot(
   profileVersions: CatalogProviderIntegrationProfileVersionReader,
   snapshot: SourceObservationIntegrationProfileSnapshot,
@@ -4977,6 +5166,22 @@ async function requireCatalogPromotionProfileVersionFromSnapshot(
   }
 
   assertPromotionProfileCompatible(version, normalized);
+  return version;
+}
+
+async function requireReferenceDataPromotionProfileVersionFromSnapshot(
+  profileVersions: CatalogProviderIntegrationProfileVersionReader,
+  snapshot: SourceObservationIntegrationProfileSnapshot,
+  normalized: SourceObservationMagicSetReferenceNormalized,
+): Promise<CatalogProviderIntegrationProfileVersionRecord> {
+  const version = await findCatalogProfileVersionFromSnapshot(profileVersions, snapshot);
+  if (!version) {
+    throw new Error(
+      `Catalog provider profile version ${snapshot.providerKey}@${snapshot.profileVersion} from the integration job snapshot was not found.`,
+    );
+  }
+
+  assertReferenceDataPromotionProfileCompatible(version, normalized);
   return version;
 }
 
@@ -5007,6 +5212,20 @@ function assertPromotionProfileCompatible(
   if (version.profile.normalizedObservationMapping.kind !== normalized.kind) {
     throw new Error(
       `Provider '${version.providerKey}' promotion mapping '${version.profile.normalizedObservationMapping.kind}' is not compatible with '${normalized.kind}' observations.`,
+    );
+  }
+}
+
+function assertReferenceDataPromotionProfileCompatible(
+  version: CatalogProviderIntegrationProfileVersionRecord,
+  normalized: SourceObservationMagicSetReferenceNormalized,
+): void {
+  if (!version.profile.capabilities.includes("reference-data-promotion")) {
+    throw new Error(`Provider '${version.providerKey}' does not support Reference Data promotion.`);
+  }
+  if (version.profile.normalizedObservationMapping.kind !== normalized.kind) {
+    throw new Error(
+      `Provider '${version.providerKey}' reference promotion mapping '${version.profile.normalizedObservationMapping.kind}' is not compatible with '${normalized.kind}' observations.`,
     );
   }
 }
@@ -5263,6 +5482,10 @@ type CatalogItemPromotableSourceObservationNormalized =
   | SourceObservationMagicCardPrintNormalized
   | SourceObservationMagicSealedProductNormalized;
 
+type ReferenceHierarchySourceObservationNormalized =
+  | CatalogItemPromotableSourceObservationNormalized
+  | SourceObservationMagicSetReferenceNormalized;
+
 async function createCatalogDraftFromObservation(input: {
   items: CatalogItemServices;
   referenceData: ReferenceDataServices;
@@ -5447,6 +5670,37 @@ function promotionEvidenceFromPlan(
   };
 }
 
+function referenceDataPromotionEvidence(input: {
+  providerProfileVersion: CatalogProviderIntegrationProfileVersionRecord;
+  normalized: SourceObservationMagicSetReferenceNormalized;
+  referenceRecordId: ReferenceRecordId;
+}): SourceObservationPromotionProfileEvidence {
+  return {
+    promotionProfileKey: input.providerProfileVersion.profileKey,
+    promotionProfileVersion: input.providerProfileVersion.profileVersion,
+    promotionPlanFingerprint: referenceDataPromotionPlanFingerprint(input),
+  };
+}
+
+function referenceDataPromotionPlanFingerprint(input: {
+  providerProfileVersion: CatalogProviderIntegrationProfileVersionRecord;
+  normalized: SourceObservationMagicSetReferenceNormalized;
+  referenceRecordId: ReferenceRecordId;
+}): string {
+  const payload = {
+    providerKey: input.providerProfileVersion.providerKey,
+    profileKey: input.providerProfileVersion.profileKey,
+    profileVersion: input.providerProfileVersion.profileVersion,
+    normalizedKind: input.normalized.kind,
+    referenceRecordId: input.referenceRecordId,
+    setCode: input.normalized.setCode,
+    setName: input.normalized.setName,
+    releaseDate: input.normalized.releaseDate,
+    cardCount: input.normalized.cardCount,
+  };
+  return `sha256:${createHash("sha256").update(JSON.stringify(payload)).digest("hex")}`;
+}
+
 async function executeCatalogItemPromotionCommandPlan(input: {
   items: CatalogItemServices;
   streamId: string;
@@ -5577,7 +5831,7 @@ async function resolvePromotionReferenceHierarchy(input: {
   deps: CatalogRuntimeDeps;
   referenceData: ReferenceDataServices;
   profile: CatalogProviderIntegrationProfile;
-  normalized: CatalogItemPromotableSourceObservationNormalized;
+  normalized: ReferenceHierarchySourceObservationNormalized;
   context: EventStoreContext;
 }): Promise<{
   targetReferenceRecordId: ReferenceRecordId;
@@ -5607,7 +5861,31 @@ async function resolvePromotionReferenceHierarchy(input: {
   };
 }
 
-function promotionReferenceHierarchyPayload(normalized: CatalogItemPromotableSourceObservationNormalized): JsonValue {
+async function resolveReferenceDataPromotionHierarchy(input: {
+  deps: CatalogRuntimeDeps;
+  referenceData: ReferenceDataServices;
+  profile: CatalogProviderIntegrationProfile;
+  normalized: SourceObservationMagicSetReferenceNormalized;
+  context: EventStoreContext;
+}): Promise<{
+  targetReferenceRecordId: ReferenceRecordId;
+  referenceRecordIdsByTypeKey: Readonly<Record<string, string>>;
+}> {
+  return resolvePromotionReferenceHierarchy(input);
+}
+
+function promotionReferenceHierarchyPayload(normalized: ReferenceHierarchySourceObservationNormalized): JsonValue {
+  if (normalized.kind === "magic-set-reference") {
+    return toJsonValue({
+      ...normalized,
+      set: {
+        code: normalized.setCode,
+        name: normalized.setName,
+      },
+      set_name: normalized.setName,
+    });
+  }
+
   if (normalized.kind === "magic-card-print" || normalized.kind === "magic-sealed-product") {
     return toJsonValue({
       ...normalized,
@@ -5919,6 +6197,38 @@ async function requireCatalogPromotionProfileVersion(
   throw new Error(`Provider '${providerKey}' does not support Catalog Item promotion.`);
 }
 
+async function requireReferenceDataPromotionProfileVersion(
+  profileVersions: CatalogProviderIntegrationProfileVersionReader,
+  providerKey: string,
+  normalized: SourceObservationMagicSetReferenceNormalized,
+  selector?: CatalogProviderProfileVersionSelector | null,
+): Promise<CatalogProviderIntegrationProfileVersionRecord> {
+  const profile = selector
+    ? await profileVersions.getActiveProfileVersion(providerKey, selector)
+    : selectReferenceDataPromotionProfileVersionForNormalizedKind(
+        await profileVersions.listProfileVersions(providerKey),
+        {
+          providerKey,
+          normalizedKind: normalized.kind,
+        },
+      );
+  if (
+    profile &&
+    isActiveReferenceDataPromotionProfileVersion(profile) &&
+    profile.profile.normalizedObservationMapping.kind === normalized.kind
+  ) {
+    return profile;
+  }
+
+  if (profile && profile.profile.normalizedObservationMapping.kind !== normalized.kind) {
+    throw new Error(
+      `Provider '${providerKey}' reference promotion mapping '${profile.profile.normalizedObservationMapping.kind}' is not compatible with '${normalized.kind}' observations.`,
+    );
+  }
+
+  throw new Error(`Provider '${providerKey}' does not support Reference Data promotion.`);
+}
+
 function selectPromotionProfileVersionForNormalizedKind(
   versions: readonly CatalogProviderIntegrationProfileVersionRecord[],
   input: Readonly<{ providerKey: string; normalizedKind: SourceObservationNormalized["kind"] }>,
@@ -5938,6 +6248,28 @@ function selectPromotionProfileVersionForNormalizedKind(
 
   throw new Error(
     `Catalog provider '${input.providerKey}' has multiple active promotion profile units for '${input.normalizedKind}' observations. Select a profileKey or ingestionUnitKey.`,
+  );
+}
+
+function selectReferenceDataPromotionProfileVersionForNormalizedKind(
+  versions: readonly CatalogProviderIntegrationProfileVersionRecord[],
+  input: Readonly<{ providerKey: string; normalizedKind: SourceObservationNormalized["kind"] }>,
+): CatalogProviderIntegrationProfileVersionRecord | null {
+  const matching = versions.filter(
+    (version) =>
+      version.providerKey.trim().toLowerCase() === input.providerKey.trim().toLowerCase() &&
+      isActiveReferenceDataPromotionProfileVersion(version) &&
+      version.profile.normalizedObservationMapping.kind === input.normalizedKind,
+  );
+  if (matching.length === 0) {
+    return null;
+  }
+  if (matching.length === 1) {
+    return matching[0] ?? null;
+  }
+
+  throw new Error(
+    `Catalog provider '${input.providerKey}' has multiple active reference promotion profile units for '${input.normalizedKind}' observations. Select a profileKey or ingestionUnitKey.`,
   );
 }
 
@@ -5981,6 +6313,17 @@ function isActivePromotionProfileVersion(version: CatalogProviderIntegrationProf
     version.lifecycle === "active" &&
     version.profile.status === "active" &&
     version.profile.capabilities.includes("catalog-item-promotion")
+  );
+}
+
+function isActiveReferenceDataPromotionProfileVersion(
+  version: CatalogProviderIntegrationProfileVersionRecord,
+): boolean {
+  return (
+    version.active &&
+    version.lifecycle === "active" &&
+    version.profile.status === "active" &&
+    version.profile.capabilities.includes("reference-data-promotion")
   );
 }
 

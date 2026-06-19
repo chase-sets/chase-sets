@@ -39,6 +39,7 @@ export interface SourceObservationListItem {
   status: string;
   status_reason: string | null;
   promoted_catalog_item_id: string | null;
+  promoted_reference_record_id: string | null;
   promoted_at: string | null;
   promotion_profile_key: string | null;
   promotion_profile_version: string | null;
@@ -661,6 +662,7 @@ export interface BulkSourceObservationPromotionOutcome {
   observationId: string;
   status: BulkSourceObservationPromotionStatus;
   catalogItemId: string | null;
+  referenceRecordId?: string | null;
   reason: string | null;
 }
 
@@ -680,6 +682,7 @@ export interface BulkSourceObservationReapplyOutcome {
   observationId: string;
   status: BulkSourceObservationReapplyStatus;
   catalogItemId: string | null;
+  referenceRecordId?: string | null;
   reason: string | null;
 }
 

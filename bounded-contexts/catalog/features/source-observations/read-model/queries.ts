@@ -24,6 +24,7 @@ export type SourceObservationListRow = Readonly<{
   status: string;
   status_reason: string | null;
   promoted_catalog_item_id: string | null;
+  promoted_reference_record_id: string | null;
   promoted_at: string | null;
   promotion_profile_key: string | null;
   promotion_profile_version: string | null;

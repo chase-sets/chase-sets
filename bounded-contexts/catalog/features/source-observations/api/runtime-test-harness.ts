@@ -7,6 +7,7 @@ import type { ReferenceDataServices } from "../../reference-data/api/runtime";
 import type { ReferenceRecordCommand, ReferenceTypeCommand } from "../../reference-data/domain/domain";
 import type {
   SourceObservationMagicCardPrintNormalized,
+  SourceObservationMagicSetReferenceNormalized,
   SourceObservationMagicSealedProductNormalized,
   SourceObservationNormalized,
   SourceObservationPokemonCardNormalized,
@@ -331,6 +332,29 @@ export function magicSealedProductObservation(
   };
 }
 
+export function magicSetReferenceObservation(
+  input: Partial<SourceObservationMagicSetReferenceNormalized> = {},
+): SourceObservationMagicSetReferenceNormalized {
+  return {
+    kind: "magic-set-reference",
+    tcg: "magic",
+    languageCode: "en",
+    name: "Time Spiral",
+    cardNumber: null,
+    setCode: "TSP",
+    setName: "Time Spiral",
+    expansionName: "Time Spiral",
+    setId: "00000000-0000-0000-0000-000000000tsp",
+    releaseDate: "2006-10-06",
+    releaseYear: 2006,
+    cardCount: 301,
+    productLineName: "Magic: The Gathering",
+    imageUrls: [],
+    externalCatalogItemReferences: [],
+    ...input,
+  };
+}
+
 export function sourceObservationDetailRow(overrides: Record<string, unknown> = {}) {
   const normalized = pokemonObservation({
     expansionName: "Base Set",
@@ -355,6 +379,7 @@ export function sourceObservationDetailRow(overrides: Record<string, unknown> = 
     status: "promoted",
     status_reason: null,
     promoted_catalog_item_id: "cat_selected",
+    promoted_reference_record_id: null,
     promoted_at: "2026-05-20T00:01:00.000Z",
     promotion_profile_key: "pokemon-tcg",
     promotion_profile_version: "2026.06.03",
@@ -1091,6 +1116,7 @@ export function createChangedObservationRefreshHarness(
     expansionAttributes?: Readonly<Record<string, JsonValue>>;
     status?: string;
     promotedCatalogItemId?: string | null;
+    promotedReferenceRecordId?: string | null;
     reusableCatalogItemId?: string | null;
     reusableExternalProductCatalogItemIds?: readonly string[];
     reusableExternalCatalogItemIds?: readonly string[];
@@ -1126,6 +1152,8 @@ export function createChangedObservationRefreshHarness(
     status: input.status ?? "changed",
     status_reason: null,
     promoted_catalog_item_id: input.promotedCatalogItemId === undefined ? "cat_existing" : input.promotedCatalogItemId,
+    promoted_reference_record_id:
+      input.promotedReferenceRecordId === undefined ? null : input.promotedReferenceRecordId,
     promoted_at: "2026-05-19T00:00:00.000Z",
     updated_at: "2026-05-20T00:00:00.000Z",
   };
@@ -1152,13 +1180,21 @@ export function createChangedObservationRefreshHarness(
     ...(observationStatus === "observed"
       ? []
       : [
-          storedEvent(2, streamId, "catalog.source-observation.promoted", {
-            catalogItemId: observationRow.promoted_catalog_item_id ?? "cat_existing",
-            promotedAt: "2026-05-19T00:00:00.000Z",
-            promotionProfileKey: observationRow.source_profile_key,
-            promotionProfileVersion: observationRow.source_profile_version,
-            promotionPlanFingerprint: "plan-fingerprint:2026.06.03",
-          }),
+          observationRow.promoted_reference_record_id
+            ? storedEvent(2, streamId, "catalog.source-observation.reference-promoted", {
+                referenceRecordId: observationRow.promoted_reference_record_id,
+                promotedAt: "2026-05-19T00:00:00.000Z",
+                promotionProfileKey: observationRow.source_profile_key,
+                promotionProfileVersion: observationRow.source_profile_version,
+                promotionPlanFingerprint: "plan-fingerprint:2026.06.03",
+              })
+            : storedEvent(2, streamId, "catalog.source-observation.promoted", {
+                catalogItemId: observationRow.promoted_catalog_item_id ?? "cat_existing",
+                promotedAt: "2026-05-19T00:00:00.000Z",
+                promotionProfileKey: observationRow.source_profile_key,
+                promotionProfileVersion: observationRow.source_profile_version,
+                promotionPlanFingerprint: "plan-fingerprint:2026.06.03",
+              }),
         ]),
     ...(observationStatus === "changed"
       ? [
@@ -1251,11 +1287,11 @@ export function createChangedObservationRefreshHarness(
         }
 
         if (sql.includes("FROM catalog_blueprints")) {
-          return { rowCount: 1, rows: [{ id: "bpr_pokemon" }] as T[] };
+          return { rowCount: 1, rows: [{ id: `bpr_${String(values[0])}` }] as T[] };
         }
 
         if (sql.includes("FROM catalog_categories")) {
-          return { rowCount: 1, rows: [{ id: "cat_singles" }] as T[] };
+          return { rowCount: 1, rows: [{ id: `cat_${String(values[0])}` }] as T[] };
         }
 
         if (sql.includes("FROM catalog_fields")) {
@@ -1361,6 +1397,7 @@ export function createBulkReviewJobHarness(
         status: "observed",
         status_reason: null,
         promoted_catalog_item_id: null,
+        promoted_reference_record_id: null,
         promoted_at: null,
         updated_at: "2026-05-20T00:00:00.000Z",
       },

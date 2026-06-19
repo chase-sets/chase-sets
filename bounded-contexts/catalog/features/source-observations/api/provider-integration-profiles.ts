@@ -36,6 +36,7 @@ export type CatalogProviderCapability =
   | "provider-option-query"
   | "source-observation-import"
   | "catalog-item-promotion"
+  | "reference-data-promotion"
   | "external-reference-extraction"
   | "alias-candidate-extraction";
 
@@ -1874,7 +1875,7 @@ export const mtgjsonMtgCardReferenceProviderProfile = {
 export const mtgjsonMtgSetReferenceProviderProfile = {
   ...mtgjsonMtgCardReferenceProviderProfile,
   displayName: "MTGJSON Set Reference",
-  capabilities: ["source-observation-import"],
+  capabilities: ["source-observation-import", "reference-data-promotion"],
   supportedScopes: ["set-name"],
   optionQueries: [],
   normalizedObservationMapping: {

@@ -6,6 +6,8 @@ import {
   createChangedObservationRefreshHarness,
   createReferencePreloadHarness,
   magicCardPrintObservation,
+  magicSetReferenceObservation,
+  magicSealedProductObservation,
   pokemonObservation,
 } from "./runtime-test-harness";
 
@@ -459,6 +461,44 @@ describe("source observation runtime: promotion and reapply", () => {
     expect(harness.appendedSourceEvents).toEqual([]);
   });
 
+  it("promotes MTGJSON Magic set-reference observations into Reference Records", async () => {
+    const harness = createChangedObservationRefreshHarness({
+      providerKey: "mtgjson",
+      externalKey: "set:TSP",
+      sourceUrl: "https://mtgjson.com/api/v5/TSP.json",
+      sourceProfileKey: "mtg-set-reference-data",
+      sourceProfileVersion: "2026.06.19",
+      sourceMappingFingerprint: "fingerprint:mtgjson:set:2026.06.19",
+      status: "observed",
+      promotedCatalogItemId: null,
+      normalized: magicSetReferenceObservation(),
+    });
+    const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
+
+    const result = await services.promoteObservation({
+      observationId: "obs_changed",
+      context,
+    });
+
+    expect(result).toEqual({
+      observationId: "obs_changed",
+      catalogItemId: null,
+      referenceRecordId: "ref_tsp",
+    });
+    expect(harness.itemCommands).toEqual([]);
+    expect(harness.appendedSourceEvents).toContainEqual(
+      expect.objectContaining({
+        eventType: "catalog.source-observation.reference-promoted",
+        payload: expect.objectContaining({
+          referenceRecordId: "ref_tsp",
+          promotionProfileKey: "mtg-set-reference-data",
+          promotionProfileVersion: "2026.06.19",
+          promotionPlanFingerprint: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+        }),
+      }),
+    );
+  });
+
   it("fails image-backed promotion before writing partial Catalog Item commands when asset storage is unavailable", async () => {
     const harness = createChangedObservationRefreshHarness({
       status: "observed",
@@ -754,6 +794,235 @@ describe("source observation runtime: promotion and reapply", () => {
         payload: expect.objectContaining({
           catalogItemId: "cat_existing_magic_print",
           promotionProfileKey: "mtg-card-print-reference-data",
+          promotionProfileVersion: "2026.06.19",
+        }),
+      }),
+    ]);
+  });
+
+  it("reapplies promoted MTGJSON Magic set-reference observations without Catalog Item commands", async () => {
+    const harness = createChangedObservationRefreshHarness({
+      providerKey: "mtgjson",
+      externalKey: "set:TSP",
+      sourceUrl: "https://mtgjson.com/api/v5/TSP.json",
+      sourceProfileKey: "mtg-set-reference-data",
+      sourceProfileVersion: "2026.06.19",
+      sourceMappingFingerprint: "fingerprint:mtgjson:set:2026.06.19",
+      status: "promoted",
+      promotedCatalogItemId: null,
+      promotedReferenceRecordId: "ref_tsp",
+      normalized: magicSetReferenceObservation(),
+    });
+    const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
+
+    const result = await services.reapplyObservations({
+      observationIds: ["obs_changed"],
+      context,
+      reapplyProfileMode: "current-active-profile",
+    });
+
+    expect(result).toMatchObject({
+      requested: 1,
+      reapplied: 1,
+      skipped: 0,
+      failed: 0,
+      outcomes: [
+        {
+          observationId: "obs_changed",
+          status: "reapplied",
+          catalogItemId: null,
+          referenceRecordId: "ref_tsp",
+          reason: null,
+        },
+      ],
+    });
+    expect(harness.itemCommands).toEqual([]);
+    expect(harness.appendedSourceEvents).toContainEqual(
+      expect.objectContaining({
+        eventType: "catalog.source-observation.reference-promotion-plan-recorded",
+        payload: expect.objectContaining({
+          referenceRecordId: "ref_tsp",
+          promotionProfileKey: "mtg-set-reference-data",
+          promotionProfileVersion: "2026.06.19",
+          promotionPlanFingerprint: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+        }),
+      }),
+    );
+  });
+
+  it("promotes Magic sealed products with set fields and TCGplayer SKU selected options", async () => {
+    const harness = createChangedObservationRefreshHarness({
+      providerKey: "tcgplayer",
+      externalKey: "product:96601",
+      sourceUrl: "https://mpapi.tcgplayer.invalid/catalog/product/96601",
+      sourceProfileKey: "mtg-sealed-product-sku",
+      sourceProfileVersion: "2026.06.19",
+      sourceMappingFingerprint: "fingerprint:tcgplayer:mtg-sealed-product:2026.06.19",
+      status: "observed",
+      promotedCatalogItemId: null,
+      normalized: magicSealedProductObservation({
+        externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:96601" }],
+        externalProductReferences: [
+          {
+            providerKey: "tcgplayer",
+            externalKey: "sku:50096601",
+            selectedOptions: [
+              { dimensionId: "dim_product_form", optionId: "opt_unopened" },
+              { dimensionId: "dim_language", optionId: "opt_english" },
+            ],
+          },
+        ],
+      }),
+    });
+    const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
+
+    const result = await services.promoteObservation({
+      observationId: "obs_changed",
+      context,
+    });
+
+    expect(result.catalogItemId).toMatch(/^cat_/);
+    expect(harness.itemCommands).toContainEqual(
+      expect.objectContaining({
+        command: expect.objectContaining({
+          type: "AssignBlueprintToCatalogItem",
+          blueprintId: "bpr_magic-sealed-product",
+        }),
+      }),
+    );
+    expect(harness.itemCommands).toContainEqual(
+      expect.objectContaining({
+        command: expect.objectContaining({
+          type: "AssignCatalogItemToCategory",
+          categoryId: "cat_magic-booster-packs",
+        }),
+      }),
+    );
+    expect(harness.itemCommands.map((entry) => entry.command.type)).toEqual([
+      "CreateCatalogItem",
+      "AssignBlueprintToCatalogItem",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "AssignCatalogItemToCategory",
+      "SetCatalogItemTags",
+      "SetCatalogItemImageUrls",
+      "SetCatalogItemProductAssetSets",
+      "LinkExternalProductReference",
+      "LinkExternalCatalogItemReference",
+      "LinkExternalProductReference",
+    ]);
+    expect(harness.itemCommands).toContainEqual(
+      expect.objectContaining({
+        command: expect.objectContaining({
+          type: "SetCatalogItemFieldValue",
+          fieldId: "fld_set",
+          value: { referenceId: "ref_time-spiral" },
+        }),
+      }),
+    );
+    expect(harness.itemCommands).toContainEqual(
+      expect.objectContaining({
+        command: expect.objectContaining({
+          type: "SetCatalogItemFieldValue",
+          fieldId: "fld_pack-count",
+          value: 1,
+        }),
+      }),
+    );
+    expect(harness.itemCommands).toContainEqual(
+      expect.objectContaining({
+        command: expect.objectContaining({
+          type: "LinkExternalCatalogItemReference",
+          providerKey: "tcgplayer",
+          externalKey: "product:96601",
+        }),
+      }),
+    );
+    expect(harness.itemCommands).toContainEqual(
+      expect.objectContaining({
+        command: expect.objectContaining({
+          type: "LinkExternalProductReference",
+          providerKey: "tcgplayer",
+          externalKey: "sku:50096601",
+          selectedOptions: [
+            { dimensionId: "dim_product_form", optionId: "opt_unopened" },
+            { dimensionId: "dim_language", optionId: "opt_english" },
+          ],
+        }),
+      }),
+    );
+    expect(harness.itemCommands).not.toContainEqual(
+      expect.objectContaining({
+        command: expect.objectContaining({
+          providerKey: "tcgplayer",
+          externalKey: expect.stringMatching(/price|listing|inventory|seller/i),
+        }),
+      }),
+    );
+    expect(harness.appendedSourceEvents).toContainEqual(
+      expect.objectContaining({
+        eventType: "catalog.source-observation.promoted",
+        payload: expect.objectContaining({
+          promotionProfileKey: "mtg-sealed-product-sku",
+          promotionProfileVersion: "2026.06.19",
+        }),
+      }),
+    );
+  });
+
+  it("reapplies promoted Magic sealed products without replacing the Catalog Item or SKU options", async () => {
+    const harness = createChangedObservationRefreshHarness({
+      providerKey: "tcgplayer",
+      externalKey: "product:96601",
+      sourceProfileKey: "mtg-sealed-product-sku",
+      sourceProfileVersion: "2026.06.19",
+      sourceMappingFingerprint: "fingerprint:tcgplayer:mtg-sealed-product:2026.06.19",
+      status: "promoted",
+      promotedCatalogItemId: "cat_existing_magic_sealed",
+      normalized: magicSealedProductObservation({
+        externalProductReferences: [
+          {
+            providerKey: "tcgplayer",
+            externalKey: "sku:50096601",
+            selectedOptions: [{ dimensionId: "dim_product_form", optionId: "opt_unopened" }],
+          },
+        ],
+      }),
+    });
+    const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
+
+    const result = await services.reapplyObservations({
+      observationIds: ["obs_changed"],
+      context,
+      reapplyProfileMode: "original-source-profile",
+    });
+
+    expect(result).toMatchObject({
+      requested: 1,
+      reapplied: 1,
+      skipped: 0,
+      failed: 0,
+    });
+    expect(harness.itemCommands.map((entry) => entry.command.type)).not.toContain("CreateCatalogItem");
+    expect(harness.itemCommands).toContainEqual(
+      expect.objectContaining({
+        streamId: "catalog.item-cat_existing_magic_sealed",
+        command: expect.objectContaining({
+          type: "LinkExternalProductReference",
+          providerKey: "tcgplayer",
+          externalKey: "sku:50096601",
+          selectedOptions: [{ dimensionId: "dim_product_form", optionId: "opt_unopened" }],
+        }),
+      }),
+    );
+    expect(harness.appendedSourceEvents).toEqual([
+      expect.objectContaining({
+        eventType: "catalog.source-observation.promotion-plan-recorded",
+        payload: expect.objectContaining({
+          catalogItemId: "cat_existing_magic_sealed",
+          promotionProfileKey: "mtg-sealed-product-sku",
           promotionProfileVersion: "2026.06.19",
         }),
       }),

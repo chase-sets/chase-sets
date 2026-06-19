@@ -35,6 +35,7 @@ export function buildSourceObservationProjectionHandlers(db: PgQueryable): Proje
         status: "observed",
         statusReason: null,
         promotedCatalogItemId: null,
+        promotedReferenceRecordId: null,
         promotedAt: null,
         updatedAt: event.timing.recordedAt,
         writePromotionState: true,
@@ -48,6 +49,7 @@ export function buildSourceObservationProjectionHandlers(db: PgQueryable): Proje
         status: "changed",
         statusReason: null,
         promotedCatalogItemId: null,
+        promotedReferenceRecordId: null,
         promotedAt: null,
         updatedAt: event.timing.recordedAt,
         writePromotionState: false,
@@ -58,6 +60,7 @@ export function buildSourceObservationProjectionHandlers(db: PgQueryable): Proje
         status: SourceObservationStatus;
         statusReason: string | null;
         promotedCatalogItemId: string | null;
+        promotedReferenceRecordId: string | null;
         promotedAt: string | null;
       };
 
@@ -66,6 +69,7 @@ export function buildSourceObservationProjectionHandlers(db: PgQueryable): Proje
         status: data.status,
         statusReason: data.statusReason,
         promotedCatalogItemId: data.promotedCatalogItemId,
+        promotedReferenceRecordId: data.promotedReferenceRecordId ?? null,
         promotedAt: data.promotedAt,
         updatedAt: event.timing.recordedAt,
         writePromotionState: true,
@@ -85,6 +89,7 @@ export function buildSourceObservationProjectionHandlers(db: PgQueryable): Proje
         `UPDATE catalog_source_observations
          SET status = 'promoted',
              promoted_catalog_item_id = $2,
+             promoted_reference_record_id = NULL,
              promoted_at = $3,
              status_reason = NULL,
              promotion_profile_key = $4,
@@ -103,6 +108,39 @@ export function buildSourceObservationProjectionHandlers(db: PgQueryable): Proje
         ],
       );
     },
+    "catalog.source-observation.reference-promoted": async (event) => {
+      const observationId = extractIdFromStreamId(event.streamId, SOURCE_OBSERVATION_STREAM_PREFIX);
+      const data = event.data as {
+        referenceRecordId: string;
+        promotedAt: string;
+        promotionProfileKey?: string;
+        promotionProfileVersion?: string;
+        promotionPlanFingerprint?: string;
+      };
+
+      await db.query(
+        `UPDATE catalog_source_observations
+         SET status = 'promoted',
+             promoted_catalog_item_id = NULL,
+             promoted_reference_record_id = $2,
+             promoted_at = $3,
+             status_reason = NULL,
+             promotion_profile_key = $4,
+             promotion_profile_version = $5,
+             promotion_plan_fingerprint = $6,
+             updated_at = $7
+         WHERE observation_id = $1`,
+        [
+          observationId,
+          data.referenceRecordId,
+          data.promotedAt,
+          requireProjectionProfileMarker(data.promotionProfileKey, "Reference promotion profile key").toLowerCase(),
+          requireProjectionProfileMarker(data.promotionProfileVersion, "Reference promotion profile version"),
+          requireProjectionProfileMarker(data.promotionPlanFingerprint, "Reference promotion plan fingerprint"),
+          event.timing.recordedAt,
+        ],
+      );
+    },
     "catalog.source-observation.promotion-plan-recorded": async (event) => {
       const observationId = extractIdFromStreamId(event.streamId, SOURCE_OBSERVATION_STREAM_PREFIX);
       const data = event.data as {
@@ -115,6 +153,7 @@ export function buildSourceObservationProjectionHandlers(db: PgQueryable): Proje
       await db.query(
         `UPDATE catalog_source_observations
          SET promoted_catalog_item_id = $2,
+             promoted_reference_record_id = NULL,
              promotion_profile_key = $3,
              promotion_profile_version = $4,
              promotion_plan_fingerprint = $5,
@@ -123,6 +162,34 @@ export function buildSourceObservationProjectionHandlers(db: PgQueryable): Proje
         [
           observationId,
           data.catalogItemId,
+          data.promotionProfileKey,
+          data.promotionProfileVersion,
+          data.promotionPlanFingerprint,
+          event.timing.recordedAt,
+        ],
+      );
+    },
+    "catalog.source-observation.reference-promotion-plan-recorded": async (event) => {
+      const observationId = extractIdFromStreamId(event.streamId, SOURCE_OBSERVATION_STREAM_PREFIX);
+      const data = event.data as {
+        referenceRecordId: string;
+        promotionProfileKey: string;
+        promotionProfileVersion: string;
+        promotionPlanFingerprint: string;
+      };
+
+      await db.query(
+        `UPDATE catalog_source_observations
+         SET promoted_catalog_item_id = NULL,
+             promoted_reference_record_id = $2,
+             promotion_profile_key = $3,
+             promotion_profile_version = $4,
+             promotion_plan_fingerprint = $5,
+             updated_at = $6
+         WHERE observation_id = $1`,
+        [
+          observationId,
+          data.referenceRecordId,
           data.promotionProfileKey,
           data.promotionProfileVersion,
           data.promotionPlanFingerprint,
@@ -166,6 +233,7 @@ async function upsertObservation(
     status: SourceObservationStatus;
     statusReason: string | null;
     promotedCatalogItemId: string | null;
+    promotedReferenceRecordId: string | null;
     promotedAt: string | null;
     updatedAt: string;
     writePromotionState: boolean;
@@ -173,6 +241,7 @@ async function upsertObservation(
 ) {
   const promotionConflictUpdates = input.writePromotionState
     ? `promoted_catalog_item_id = EXCLUDED.promoted_catalog_item_id,
+           promoted_reference_record_id = EXCLUDED.promoted_reference_record_id,
            promoted_at = EXCLUDED.promoted_at,
            promotion_profile_key = EXCLUDED.promotion_profile_key,
            promotion_profile_version = EXCLUDED.promotion_profile_version,
@@ -197,12 +266,13 @@ async function upsertObservation(
        status,
        status_reason,
        promoted_catalog_item_id,
+       promoted_reference_record_id,
        promoted_at,
        promotion_profile_key,
        promotion_profile_version,
        promotion_plan_fingerprint,
        updated_at
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
      ON CONFLICT (observation_id) DO UPDATE SET
        provider_key = EXCLUDED.provider_key,
        external_key = EXCLUDED.external_key,
@@ -243,6 +313,7 @@ async function upsertObservation(
       input.status,
       input.statusReason,
       input.promotedCatalogItemId,
+      input.promotedReferenceRecordId,
       input.promotedAt,
       input.data.promotionProfileKey ?? null,
       input.data.promotionProfileVersion ?? null,
