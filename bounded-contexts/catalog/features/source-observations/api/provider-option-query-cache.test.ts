@@ -92,6 +92,28 @@ describe("queryCatalogProviderIntegrationOptionsWithCache", () => {
       }),
     ).rejects.toBeInstanceOf(CatalogProviderOptionQueryUnavailableError);
   });
+
+  it("separates same-provider option caches by profile key and ingestion unit", async () => {
+    const pokemonRequest = optionRequest({
+      profileKey: "pokemon-tcg",
+      ingestionUnitKey: "tcgdex:pokemon:single-card:source-observation-import",
+    });
+    const magicRequest = optionRequest({
+      profileKey: "magic-card-profile",
+      ingestionUnitKey: "tcgdex:mtg:single-card:source-observation-import",
+    });
+    const store = memoryStore([
+      cacheRecord(pokemonRequest, {
+        items: [option("pokemon")],
+        fetchedAt: "2026-06-08T09:59:00.000Z",
+        expiresAt: "2026-06-08T10:10:00.000Z",
+        staleUntil: "2026-06-09T10:00:00.000Z",
+      }),
+    ]);
+
+    expect(cacheKeyForProviderOptionQuery(pokemonRequest)).not.toBe(cacheKeyForProviderOptionQuery(magicRequest));
+    await expect(store.read(magicRequest)).resolves.toBeNull();
+  });
 });
 
 function optionRequest(patch: Partial<CatalogProviderOptionQueryRequest> = {}): CatalogProviderOptionQueryRequest {
@@ -126,7 +148,9 @@ function cacheRecord(
   return {
     cacheKey: cacheKeyForProviderOptionQuery(request),
     providerKey: request.providerKey,
+    profileKey: request.profileKey ?? "",
     profileVersion: request.profileVersion,
+    ingestionUnitKey: request.ingestionUnitKey ?? "",
     queryKind: request.queryKind,
     languageCode: request.languageCode ?? "en",
     parentValue: request.parentValue ?? "",

@@ -1,15 +1,24 @@
 import { type PgQueryable, type PgTransactionalPool, withPgTransaction } from "@chase-sets/event-core-postgres";
 import {
   activateCatalogProviderIntegrationProfileVersion,
+  catalogProviderProfileVersionIngestionUnitKey,
+  catalogProviderProfileVersionsCompete,
   catalogProviderIntegrationProfileVersions,
   type CatalogProviderIntegrationProfile,
   type CatalogProviderIntegrationProfileAuthoringAudit,
   type CatalogProviderIntegrationProfileMigrationEvidence,
   type CatalogProviderIntegrationProfileRetirementPlan,
   type CatalogProviderIntegrationProfileVersionRecord,
+  type CatalogProviderProfileVersionSelector,
+  selectActiveCatalogProviderProfileVersion,
 } from "./provider-integration-profiles";
+import { parseCatalogIntegrationUnitKey } from "./integration-unit";
 import type {
   CatalogProviderExecutableMappingContract,
+  CatalogProviderIngestionUnitIdentityContract,
+  CatalogProviderIngestionPurpose,
+  CatalogProviderIngestionUnitProductDomain,
+  CatalogProviderIngestionUnitProductForm,
   CatalogProviderMappingSourceContract,
   CatalogProviderProfileFixtureContract,
   CatalogProviderProfileLifecycle,
@@ -20,6 +29,7 @@ type CatalogProviderIntegrationProfileVersionRow = Readonly<{
   provider_key: string;
   profile_key: string;
   profile_version: string;
+  ingestion_unit_key: string | null;
   lifecycle: CatalogProviderProfileLifecycle;
   active: boolean;
   profile_json: CatalogProviderIntegrationProfile | string;
@@ -44,19 +54,26 @@ export type CatalogProviderIntegrationProfileVersionStore = Readonly<{
   getProfileVersion: (
     providerKey: string,
     profileVersion: string,
+    selector?: CatalogProviderProfileVersionSelector | null,
   ) => Promise<CatalogProviderIntegrationProfileVersionRecord | null>;
-  getActiveProfileVersion: (providerKey: string) => Promise<CatalogProviderIntegrationProfileVersionRecord | null>;
+  getActiveProfileVersion: (
+    providerKey: string,
+    selector?: CatalogProviderProfileVersionSelector | null,
+  ) => Promise<CatalogProviderIntegrationProfileVersionRecord | null>;
   activateProfileVersion: (
     providerKey: string,
     profileVersion: string,
+    selector?: CatalogProviderProfileVersionSelector | null,
   ) => Promise<CatalogProviderIntegrationProfileVersionRecord>;
   deprecateProfileVersion: (
     providerKey: string,
     profileVersion: string,
+    selector?: CatalogProviderProfileVersionSelector | null,
   ) => Promise<CatalogProviderIntegrationProfileVersionRecord>;
   rollbackProfileVersion: (
     providerKey: string,
     rollbackToProfileVersion: string,
+    selector?: CatalogProviderProfileVersionSelector | null,
   ) => Promise<CatalogProviderIntegrationProfileVersionRecord>;
   countProfileVersionReferences: (providerKey: string, profileVersion: string) => Promise<number>;
 }>;
@@ -68,7 +85,10 @@ export function createCatalogProviderIntegrationProfileVersionStore(
     seedProfileVersions: async (versions = catalogProviderIntegrationProfileVersions) => {
       const seeded: CatalogProviderIntegrationProfileVersionRecord[] = [];
       for (const version of versions) {
-        const existing = await getProfileVersion(db, version.providerKey, version.profileVersion);
+        const existing = await getProfileVersion(db, version.providerKey, version.profileVersion, {
+          profileKey: version.profileKey,
+          ingestionUnitKey: catalogProviderProfileVersionIngestionUnitKey(version),
+        });
         if (isAdminAuthoredProfileVersion(existing)) {
           seeded.push(existing);
           continue;
@@ -80,12 +100,15 @@ export function createCatalogProviderIntegrationProfileVersionStore(
     },
     upsertProfileVersion: (version) => upsertProfileVersion(db, version),
     listProfileVersions: (providerKey) => listProfileVersions(db, providerKey),
-    getProfileVersion: (providerKey, profileVersion) => getProfileVersion(db, providerKey, profileVersion),
-    getActiveProfileVersion: (providerKey) => getActiveProfileVersion(db, providerKey),
-    activateProfileVersion: (providerKey, profileVersion) => activateProfileVersion(db, providerKey, profileVersion),
-    deprecateProfileVersion: (providerKey, profileVersion) => deprecateProfileVersion(db, providerKey, profileVersion),
-    rollbackProfileVersion: (providerKey, rollbackToProfileVersion) =>
-      activateProfileVersion(db, providerKey, rollbackToProfileVersion),
+    getProfileVersion: (providerKey, profileVersion, selector) =>
+      getProfileVersion(db, providerKey, profileVersion, selector),
+    getActiveProfileVersion: (providerKey, selector) => getActiveProfileVersion(db, providerKey, selector),
+    activateProfileVersion: (providerKey, profileVersion, selector) =>
+      activateProfileVersion(db, providerKey, profileVersion, selector),
+    deprecateProfileVersion: (providerKey, profileVersion, selector) =>
+      deprecateProfileVersion(db, providerKey, profileVersion, selector),
+    rollbackProfileVersion: (providerKey, rollbackToProfileVersion, selector) =>
+      activateProfileVersion(db, providerKey, rollbackToProfileVersion, selector),
     countProfileVersionReferences: (providerKey, profileVersion) =>
       countProfileVersionReferences(db, providerKey, profileVersion),
   };
@@ -117,12 +140,14 @@ async function upsertProfileVersionSnapshot(
   if (version.active && version.lifecycle === "active") {
     await deactivateOtherActiveProfileVersions(db, version);
   }
+  const ingestionUnitKey = catalogProviderProfileVersionIngestionUnitKey(version);
 
   const result = await db.query<CatalogProviderIntegrationProfileVersionRow>(
     `INSERT INTO catalog_provider_integration_profile_versions (
        provider_key,
        profile_key,
        profile_version,
+       ingestion_unit_key,
        lifecycle,
        active,
        profile_json,
@@ -132,8 +157,9 @@ async function upsertProfileVersionSnapshot(
        executable_mapping_contract_json,
        migration_evidence_json,
        authoring_audit_json
-     ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9::jsonb, $10::jsonb, $11::jsonb, $12::jsonb)
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10::jsonb, $11::jsonb, $12::jsonb, $13::jsonb)
      ON CONFLICT (provider_key, profile_key, profile_version) DO UPDATE SET
+       ingestion_unit_key = EXCLUDED.ingestion_unit_key,
        lifecycle = EXCLUDED.lifecycle,
        active = EXCLUDED.active,
        profile_json = EXCLUDED.profile_json,
@@ -152,6 +178,7 @@ async function upsertProfileVersionSnapshot(
       version.providerKey,
       version.profileKey,
       version.profileVersion,
+      ingestionUnitKey,
       version.lifecycle,
       version.active,
       JSON.stringify(version.profile),
@@ -171,24 +198,40 @@ async function upsertProfileVersionSnapshot(
 
 async function deactivateOtherActiveProfileVersions(
   db: PgQueryable,
-  version: Pick<CatalogProviderIntegrationProfileVersionRecord, "providerKey" | "profileVersion">,
+  version: CatalogProviderIntegrationProfileVersionRecord,
 ): Promise<void> {
-  const result = await db.query<CatalogProviderIntegrationProfileVersionRow>(
-    `UPDATE catalog_provider_integration_profile_versions
+  const activeResult = await db.query<CatalogProviderIntegrationProfileVersionRow>(
+    `SELECT *
+     FROM catalog_provider_integration_profile_versions
+     WHERE provider_key = $1
+       AND profile_version <> $2
+       AND active = true
+       AND lifecycle = 'active'`,
+    [version.providerKey, version.profileVersion],
+  );
+  const competingVersions = activeResult.rows
+    .map(rowToProfileVersion)
+    .filter((candidate) => catalogProviderProfileVersionsCompete(candidate, version));
+
+  for (const competingVersion of competingVersions) {
+    const result = await db.query<CatalogProviderIntegrationProfileVersionRow>(
+      `UPDATE catalog_provider_integration_profile_versions
      SET active = false,
          lifecycle = 'deprecated',
          deprecated_at = COALESCE(deprecated_at, now()),
          updated_at = now()
      WHERE provider_key = $1
-       AND profile_version <> $2
+       AND profile_key = $2
+       AND profile_version = $3
        AND active = true
        AND lifecycle = 'active'
      RETURNING *`,
-    [version.providerKey, version.profileVersion],
-  );
+      [competingVersion.providerKey, competingVersion.profileKey, competingVersion.profileVersion],
+    );
 
-  for (const row of result.rows) {
-    await refreshCatalogProviderProfileVersionSectionProjections(db, rowToProfileVersion(row));
+    for (const row of result.rows) {
+      await refreshCatalogProviderProfileVersionSectionProjections(db, rowToProfileVersion(row));
+    }
   }
 }
 
@@ -197,18 +240,25 @@ async function assertSeededActiveProfileVersions(
   versions: readonly CatalogProviderIntegrationProfileVersionRecord[],
 ): Promise<void> {
   const providersRequiringActiveRows = Array.from(
-    new Set(
+    new Map(
       versions
         .filter((version) => version.active && version.lifecycle === "active")
-        .map((version) => version.providerKey),
-    ),
+        .map((version) => [
+          `${version.providerKey}:${catalogProviderProfileVersionIngestionUnitKey(version)}`,
+          {
+            providerKey: version.providerKey,
+            profileKey: version.profileKey,
+            ingestionUnitKey: catalogProviderProfileVersionIngestionUnitKey(version),
+          },
+        ]),
+    ).values(),
   );
 
-  for (const providerKey of providersRequiringActiveRows) {
-    const active = await getActiveProfileVersion(db, providerKey);
+  for (const { providerKey, profileKey, ingestionUnitKey } of providersRequiringActiveRows) {
+    const active = await getActiveProfileVersion(db, providerKey, { profileKey, ingestionUnitKey });
     if (!active) {
       throw new Error(
-        `Catalog provider integration bootstrap requires an active profile row for provider '${providerKey}'. Restore or activate a provider profile version before imports can run.`,
+        `Catalog provider integration bootstrap requires an active profile row for provider '${providerKey}' ingestion unit '${ingestionUnitKey}'. Restore or activate a provider profile version before imports can run.`,
       );
     }
   }
@@ -241,6 +291,7 @@ async function getProfileVersion(
   db: PgQueryable,
   providerKey: string,
   profileVersion: string,
+  selector?: CatalogProviderProfileVersionSelector | null,
 ): Promise<CatalogProviderIntegrationProfileVersionRecord | null> {
   const result = await db.query<CatalogProviderIntegrationProfileVersionRow>(
     `SELECT *
@@ -251,36 +302,39 @@ async function getProfileVersion(
     [providerKey.trim().toLowerCase(), profileVersion.trim()],
   );
 
-  return result.rows[0] ? rowToProfileVersion(result.rows[0]) : null;
+  return selectProfileVersion(providerKey, profileVersion, result.rows.map(rowToProfileVersion), selector);
 }
 
 async function getActiveProfileVersion(
   db: PgQueryable,
   providerKey: string,
+  selector?: CatalogProviderProfileVersionSelector | null,
 ): Promise<CatalogProviderIntegrationProfileVersionRecord | null> {
   const result = await db.query<CatalogProviderIntegrationProfileVersionRow>(
     `SELECT *
      FROM catalog_provider_integration_profile_versions
      WHERE provider_key = $1 AND active = true AND lifecycle = 'active'
-     ORDER BY activated_at DESC NULLS LAST, profile_version DESC
-     LIMIT 1`,
+     ORDER BY activated_at DESC NULLS LAST, profile_version DESC`,
     [providerKey.trim().toLowerCase()],
   );
 
-  return result.rows[0] ? rowToProfileVersion(result.rows[0]) : null;
+  return selectActiveCatalogProviderProfileVersion(providerKey, result.rows.map(rowToProfileVersion), selector);
 }
 
 async function activateProfileVersion(
   db: PgQueryable,
   providerKey: string,
   profileVersion: string,
+  selector?: CatalogProviderProfileVersionSelector | null,
 ): Promise<CatalogProviderIntegrationProfileVersionRecord> {
   const existingVersions = await listProfileVersions(db, providerKey);
   const activatedVersions = activateCatalogProviderIntegrationProfileVersion(
     providerKey,
     profileVersion,
     existingVersions,
+    selector,
   );
+  const activated = selectProfileVersion(providerKey, profileVersion, activatedVersions, selector);
   const changedVersions = activatedVersions.filter((version) => {
     const prior = existingVersions.find(
       (candidate) =>
@@ -295,7 +349,6 @@ async function activateProfileVersion(
     await upsertProfileVersion(db, changedVersion);
   }
 
-  const activated = activatedVersions.find((version) => version.profileVersion === profileVersion);
   if (!activated) {
     throw new Error(`Catalog provider profile version ${providerKey}@${profileVersion} was not activated.`);
   }
@@ -306,8 +359,9 @@ async function deprecateProfileVersion(
   db: PgQueryable,
   providerKey: string,
   profileVersion: string,
+  selector?: CatalogProviderProfileVersionSelector | null,
 ): Promise<CatalogProviderIntegrationProfileVersionRecord> {
-  const existing = await getProfileVersion(db, providerKey, profileVersion);
+  const existing = await getProfileVersion(db, providerKey, profileVersion, selector);
   if (!existing) {
     throw new Error(`Catalog provider profile version ${providerKey}@${profileVersion} was not found.`);
   }
@@ -325,6 +379,45 @@ async function deprecateProfileVersion(
   };
 
   return upsertProfileVersion(db, deprecated);
+}
+
+function selectProfileVersion(
+  providerKey: string,
+  profileVersion: string,
+  versions: readonly CatalogProviderIntegrationProfileVersionRecord[],
+  selector?: CatalogProviderProfileVersionSelector | null,
+): CatalogProviderIntegrationProfileVersionRecord | null {
+  const normalizedProfileKey = selector?.profileKey?.trim().toLowerCase() ?? "";
+  const normalizedUnitKey = selector?.ingestionUnitKey?.trim().toLowerCase() ?? "";
+  const normalizedProviderKey = providerKey.trim().toLowerCase();
+  const normalizedProfileVersion = profileVersion.trim();
+  const selected = versions.filter(
+    (version) =>
+      version.providerKey.trim().toLowerCase() === normalizedProviderKey &&
+      version.profileVersion === normalizedProfileVersion &&
+      (!normalizedProfileKey || version.profileKey.trim().toLowerCase() === normalizedProfileKey) &&
+      (!normalizedUnitKey ||
+        catalogProviderProfileVersionIngestionUnitKey(version).trim().toLowerCase() === normalizedUnitKey),
+  );
+
+  if (selected.length === 0) {
+    return null;
+  }
+  if (selected.length === 1) {
+    return selected[0] ?? null;
+  }
+
+  const options = selected
+    .map(
+      (version) =>
+        `${version.providerKey}/${version.profileKey}@${version.profileVersion} (${catalogProviderProfileVersionIngestionUnitKey(
+          version,
+        )})`,
+    )
+    .join(", ");
+  throw new Error(
+    `Catalog provider '${normalizedProviderKey}' has multiple profile units for version '${normalizedProfileVersion}'. Select a profileKey or ingestionUnitKey. Versions: ${options}.`,
+  );
 }
 
 async function countProfileVersionReferences(
@@ -353,6 +446,7 @@ function rowToProfileVersion(
     providerKey: row.provider_key,
     profileKey: row.profile_key,
     profileVersion: row.profile_version,
+    ...(row.ingestion_unit_key ? { ingestionUnitIdentity: ingestionUnitIdentityFromKey(row.ingestion_unit_key) } : {}),
     lifecycle: row.lifecycle,
     active: row.active,
     profile: parseJsonField<CatalogProviderIntegrationProfile>(row.profile_json),
@@ -373,6 +467,17 @@ function rowToProfileVersion(
   };
 }
 
+function ingestionUnitIdentityFromKey(unitKey: string): CatalogProviderIngestionUnitIdentityContract {
+  const parsed = parseCatalogIntegrationUnitKey(unitKey);
+  return {
+    unitKey,
+    providerKey: parsed.providerKey,
+    productDomain: parsed.productDomain as CatalogProviderIngestionUnitProductDomain,
+    productForm: parsed.productForm as CatalogProviderIngestionUnitProductForm,
+    ingestionPurpose: (parsed.ingestionPurpose ?? "source-observation-import") as CatalogProviderIngestionPurpose,
+  };
+}
+
 function rowFromVersion(
   version: CatalogProviderIntegrationProfileVersionRecord,
 ): CatalogProviderIntegrationProfileVersionRow {
@@ -380,6 +485,7 @@ function rowFromVersion(
     provider_key: version.providerKey,
     profile_key: version.profileKey,
     profile_version: version.profileVersion,
+    ingestion_unit_key: catalogProviderProfileVersionIngestionUnitKey(version),
     lifecycle: version.lifecycle,
     active: version.active,
     profile_json: version.profile,

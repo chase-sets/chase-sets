@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   activateCatalogProviderIntegrationProfileVersion,
+  catalogProviderProfileVersionIngestionUnitKey,
   catalogProviderIntegrationProfileVersions,
   getActiveCatalogProviderIntegrationProfileVersion,
   getActiveCatalogProviderSourceObservationMappingContract,
@@ -417,6 +418,88 @@ describe("catalog provider integration profiles", () => {
     ]);
   });
 
+  it("keeps same-provider different-unit active profile versions side by side", () => {
+    const pokemonActive = executableVersion("2026.06.03", "active");
+    const mtgActive = executableVersionWithUnit("2026.06.04", "active", "magic-card-profile", {
+      productDomain: "mtg",
+      productForm: "single-card",
+      ingestionPurpose: "source-observation-import",
+    });
+    const mtgNext = executableVersionWithUnit("2026.06.05", "test", "magic-card-profile", {
+      productDomain: "mtg",
+      productForm: "single-card",
+      ingestionPurpose: "source-observation-import",
+    });
+
+    const activated = activateCatalogProviderIntegrationProfileVersion("tcgdex", "2026.06.05", [
+      pokemonActive,
+      mtgActive,
+      mtgNext,
+    ]);
+
+    expect(
+      activated.map((version) => [version.profileKey, version.profileVersion, version.lifecycle, version.active]),
+    ).toEqual([
+      ["pokemon-tcg", "2026.06.03", "active", true],
+      ["magic-card-profile", "2026.06.04", "deprecated", false],
+      ["magic-card-profile", "2026.06.05", "active", true],
+    ]);
+  });
+
+  it("keeps provider-only active lookup compatible for one unit and fails closed for ambiguous units", () => {
+    const pokemonActive = executableVersion("2026.06.03", "active");
+    const mtgActive = executableVersionWithUnit("2026.06.04", "active", "magic-card-profile", {
+      productDomain: "mtg",
+      productForm: "single-card",
+      ingestionPurpose: "source-observation-import",
+    });
+
+    expect(getActiveCatalogProviderIntegrationProfileVersion("tcgdex", null, [pokemonActive])).toBe(pokemonActive);
+    expect(() => getActiveCatalogProviderIntegrationProfileVersion("tcgdex", null, [pokemonActive, mtgActive])).toThrow(
+      /multiple active profile units/,
+    );
+    expect(
+      getActiveCatalogProviderIntegrationProfileVersion(
+        "tcgdex",
+        { ingestionUnitKey: catalogProviderProfileVersionIngestionUnitKey(mtgActive) },
+        [pokemonActive, mtgActive],
+      ),
+    ).toBe(mtgActive);
+  });
+
+  it("requires a selector when the same provider reuses a profile version label across units", () => {
+    const pokemonActive = executableVersion("2026.06.03", "active");
+    const mtgNext = executableVersionWithUnit("2026.06.03", "test", "magic-card-profile", {
+      productDomain: "mtg",
+      productForm: "single-card",
+      ingestionPurpose: "source-observation-import",
+    });
+
+    expect(() => getCatalogProviderIntegrationProfileVersion("tcgdex", "2026.06.03", [pokemonActive, mtgNext])).toThrow(
+      /multiple profile units/,
+    );
+    expect(
+      getCatalogProviderIntegrationProfileVersion("tcgdex", "2026.06.03", { profileKey: "magic-card-profile" }, [
+        pokemonActive,
+        mtgNext,
+      ]),
+    ).toBe(mtgNext);
+
+    const activated = activateCatalogProviderIntegrationProfileVersion(
+      "tcgdex",
+      "2026.06.03",
+      [pokemonActive, mtgNext],
+      { profileKey: "magic-card-profile" },
+    );
+
+    expect(
+      activated.map((version) => [version.profileKey, version.profileVersion, version.lifecycle, version.active]),
+    ).toEqual([
+      ["pokemon-tcg", "2026.06.03", "active", true],
+      ["magic-card-profile", "2026.06.03", "active", true],
+    ]);
+  });
+
   it("rolls back to a prior validated profile version without mutating history", () => {
     const activeNewVersion = executableVersion("2026.06.04", "active");
     const priorVersion = {
@@ -473,6 +556,35 @@ function executableVersion(
     fixtures: contract.fixtures,
     retirementPlan: null,
     executableMappingContract: contract,
+  };
+}
+
+function executableVersionWithUnit(
+  profileVersion: string,
+  lifecycle: CatalogProviderIntegrationProfileVersionRecord["lifecycle"],
+  profileKey: string,
+  unit: Readonly<{
+    productDomain: "pokemon" | "mtg";
+    productForm: "single-card" | "sealed-product" | "set";
+    ingestionPurpose: "source-observation-import" | "reference-data" | "image-evidence";
+  }>,
+): CatalogProviderIntegrationProfileVersionRecord {
+  const base = executableVersion(profileVersion, lifecycle);
+  const ingestionUnitIdentity = defineCatalogProviderIngestionUnitIdentityContract({
+    providerKey: base.providerKey,
+    ...unit,
+  });
+  return {
+    ...base,
+    profileKey,
+    ingestionUnitIdentity,
+    executableMappingContract: base.executableMappingContract
+      ? {
+          ...base.executableMappingContract,
+          profileKey,
+          ingestionUnitIdentity,
+        }
+      : undefined,
   };
 }
 

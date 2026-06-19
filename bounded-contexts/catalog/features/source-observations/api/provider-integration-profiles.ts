@@ -8,7 +8,11 @@ import type {
   CatalogProviderProfileFixtureContract,
   CatalogProviderProfileLifecycle,
 } from "./provider-integration-mapping-contract";
-import { validateCatalogProviderExecutableMappingContract } from "./provider-integration-mapping-contract";
+import {
+  defineCatalogProviderIngestionUnitIdentityContract,
+  validateCatalogProviderExecutableMappingContract,
+} from "./provider-integration-mapping-contract";
+import type { CatalogIntegrationUnitKey } from "./integration-unit";
 import { evaluateCatalogIntegrationFixtureCoverageFromProfileVersion } from "./catalog-integration-fixture-lifecycle";
 import type { CatalogProviderSourceObservationMappingContract } from "./provider-source-observation-normalizer";
 import { scrydexScryfallCardSourceObservationMappingContract } from "./scrydex-executable-mapping-contract";
@@ -428,6 +432,11 @@ export type CatalogProviderIntegrationProfileVersionRecord = Readonly<{
   executableMappingContract?: CatalogProviderExecutableMappingContract;
   migrationEvidence?: CatalogProviderIntegrationProfileMigrationEvidence | null;
   authoringAudit?: CatalogProviderIntegrationProfileAuthoringAudit | null;
+}>;
+
+export type CatalogProviderProfileVersionSelector = Readonly<{
+  profileKey?: string | null;
+  ingestionUnitKey?: CatalogIntegrationUnitKey | null;
 }>;
 
 export type CatalogProviderIntegrationProfileVersionDiagnostic = Readonly<{
@@ -1418,14 +1427,29 @@ export function listCatalogProviderIntegrationProfileVersions(
 export function getCatalogProviderIntegrationProfileVersion(
   providerKey: string,
   profileVersion?: string | null,
-  versions: readonly CatalogProviderIntegrationProfileVersionRecord[] = catalogProviderIntegrationProfileVersions,
+  selectorOrVersions?:
+    | CatalogProviderProfileVersionSelector
+    | readonly CatalogProviderIntegrationProfileVersionRecord[]
+    | null,
+  versionsInput?: readonly CatalogProviderIntegrationProfileVersionRecord[],
 ): CatalogProviderIntegrationProfileVersionRecord | null {
+  const selector: CatalogProviderProfileVersionSelector | null | undefined = Array.isArray(selectorOrVersions)
+    ? null
+    : (selectorOrVersions as CatalogProviderProfileVersionSelector | null | undefined);
+  const versions = Array.isArray(selectorOrVersions)
+    ? selectorOrVersions
+    : (versionsInput ?? catalogProviderIntegrationProfileVersions);
   const normalizedProviderKey = normalizeProviderKey(providerKey);
   const normalizedVersion = profileVersion?.trim() ?? "";
   const candidates = versions.filter((version) => normalizeProviderKey(version.providerKey) === normalizedProviderKey);
 
   if (normalizedVersion.length > 0) {
-    return candidates.find((version) => version.profileVersion === normalizedVersion) ?? null;
+    return selectCatalogProviderProfileVersion(
+      normalizedProviderKey,
+      candidates.filter((version) => version.profileVersion === normalizedVersion),
+      selector,
+      normalizedVersion,
+    );
   }
 
   return (
@@ -1438,24 +1462,38 @@ export function getCatalogProviderIntegrationProfileVersion(
 
 export function getActiveCatalogProviderIntegrationProfileVersion(
   providerKey: string,
-  versions: readonly CatalogProviderIntegrationProfileVersionRecord[] = catalogProviderIntegrationProfileVersions,
+  selectorOrVersions?:
+    | CatalogProviderProfileVersionSelector
+    | readonly CatalogProviderIntegrationProfileVersionRecord[]
+    | null,
+  versionsInput?: readonly CatalogProviderIntegrationProfileVersionRecord[],
 ): CatalogProviderIntegrationProfileVersionRecord | null {
+  const selector: CatalogProviderProfileVersionSelector | null | undefined = Array.isArray(selectorOrVersions)
+    ? null
+    : (selectorOrVersions as CatalogProviderProfileVersionSelector | null | undefined);
+  const versions = Array.isArray(selectorOrVersions)
+    ? selectorOrVersions
+    : (versionsInput ?? catalogProviderIntegrationProfileVersions);
   const normalizedProviderKey = normalizeProviderKey(providerKey);
-  return (
-    versions.find(
-      (version) =>
-        normalizeProviderKey(version.providerKey) === normalizedProviderKey &&
-        version.active &&
-        version.lifecycle === "active",
-    ) ?? null
+  const candidates = versions.filter(
+    (version) =>
+      normalizeProviderKey(version.providerKey) === normalizedProviderKey &&
+      version.active &&
+      version.lifecycle === "active",
   );
+
+  return selectActiveCatalogProviderProfileVersion(normalizedProviderKey, candidates, selector);
 }
 
 export function getActiveCatalogProviderSourceObservationMappingContract(
   providerKey: string,
   versions: readonly CatalogProviderIntegrationProfileVersionRecord[] = catalogProviderIntegrationProfileVersions,
 ): CatalogProviderSourceObservationMappingContract | null {
-  const contract = getActiveCatalogProviderIntegrationProfileVersion(providerKey, versions)?.executableMappingContract;
+  const contract = getActiveCatalogProviderIntegrationProfileVersion(
+    providerKey,
+    null,
+    versions,
+  )?.executableMappingContract;
   if (!contract?.sourceObservation) {
     return null;
   }
@@ -1483,6 +1521,7 @@ export function getCatalogProviderSourceObservationMappingContract(
   const contract = getCatalogProviderIntegrationProfileVersion(
     providerKey,
     profileVersion,
+    null,
     versions,
   )?.executableMappingContract;
   if (!contract?.sourceObservation) {
@@ -1567,6 +1606,7 @@ export function validateCatalogProviderIntegrationProfileVersion(
 
   if (
     version.ingestionUnitIdentity &&
+    version.executableMappingContract.ingestionUnitIdentity &&
     !sameIngestionUnitIdentity(version.ingestionUnitIdentity, version.executableMappingContract.ingestionUnitIdentity)
   ) {
     diagnostics.push({
@@ -1609,9 +1649,10 @@ export function activateCatalogProviderIntegrationProfileVersion(
   providerKey: string,
   profileVersion: string,
   versions: readonly CatalogProviderIntegrationProfileVersionRecord[],
+  selector?: CatalogProviderProfileVersionSelector | null,
 ): readonly CatalogProviderIntegrationProfileVersionRecord[] {
   const normalizedProviderKey = normalizeProviderKey(providerKey);
-  const target = getCatalogProviderIntegrationProfileVersion(providerKey, profileVersion, versions);
+  const target = getCatalogProviderIntegrationProfileVersion(providerKey, profileVersion, selector, versions);
   if (!target) {
     throw new Error(`Catalog provider profile version ${normalizedProviderKey}@${profileVersion} was not found.`);
   }
@@ -1639,7 +1680,7 @@ export function activateCatalogProviderIntegrationProfileVersion(
     if (normalizeProviderKey(version.providerKey) !== normalizedProviderKey) {
       return version;
     }
-    if (version.profileVersion === profileVersion) {
+    if (sameCatalogProviderProfileVersionIdentity(version, target)) {
       return {
         ...version,
         lifecycle: "active",
@@ -1652,7 +1693,7 @@ export function activateCatalogProviderIntegrationProfileVersion(
           : undefined,
       };
     }
-    return version.active
+    return version.active && catalogProviderProfileVersionsCompete(version, target)
       ? {
           ...version,
           lifecycle: "deprecated",
@@ -1672,8 +1713,9 @@ export function rollbackCatalogProviderIntegrationProfileVersion(
   providerKey: string,
   rollbackToProfileVersion: string,
   versions: readonly CatalogProviderIntegrationProfileVersionRecord[],
+  selector?: CatalogProviderProfileVersionSelector | null,
 ): readonly CatalogProviderIntegrationProfileVersionRecord[] {
-  return activateCatalogProviderIntegrationProfileVersion(providerKey, rollbackToProfileVersion, versions);
+  return activateCatalogProviderIntegrationProfileVersion(providerKey, rollbackToProfileVersion, versions, selector);
 }
 
 export function metadataObject(entries: Readonly<Record<string, JsonValue>>): Readonly<Record<string, JsonValue>> {
@@ -1682,4 +1724,173 @@ export function metadataObject(entries: Readonly<Record<string, JsonValue>>): Re
 
 function normalizeProviderKey(providerKey: string): string {
   return providerKey.trim().toLowerCase();
+}
+
+export function catalogProviderProfileVersionIngestionUnitKey(
+  version: CatalogProviderIntegrationProfileVersionRecord,
+): CatalogIntegrationUnitKey {
+  return (
+    version.ingestionUnitIdentity?.unitKey ??
+    version.executableMappingContract?.ingestionUnitIdentity?.unitKey ??
+    inferCatalogProviderIngestionUnitKey(version)
+  );
+}
+
+export function catalogProviderProfileVersionsCompete(
+  candidate: CatalogProviderIntegrationProfileVersionRecord,
+  target: CatalogProviderIntegrationProfileVersionRecord,
+): boolean {
+  if (normalizeProviderKey(candidate.providerKey) !== normalizeProviderKey(target.providerKey)) {
+    return false;
+  }
+
+  return (
+    candidate.profileKey === target.profileKey ||
+    catalogProviderProfileVersionIngestionUnitKey(candidate) === catalogProviderProfileVersionIngestionUnitKey(target)
+  );
+}
+
+export function selectActiveCatalogProviderProfileVersion(
+  providerKey: string,
+  activeVersions: readonly CatalogProviderIntegrationProfileVersionRecord[],
+  selector?: CatalogProviderProfileVersionSelector | null,
+): CatalogProviderIntegrationProfileVersionRecord | null {
+  const normalizedProfileKey = selector?.profileKey?.trim().toLowerCase() ?? "";
+  const normalizedUnitKey = selector?.ingestionUnitKey?.trim().toLowerCase() ?? "";
+  const selected =
+    normalizedProfileKey || normalizedUnitKey
+      ? activeVersions.filter(
+          (version) =>
+            (!normalizedProfileKey || version.profileKey.trim().toLowerCase() === normalizedProfileKey) &&
+            (!normalizedUnitKey ||
+              catalogProviderProfileVersionIngestionUnitKey(version).trim().toLowerCase() === normalizedUnitKey),
+        )
+      : activeVersions;
+
+  if (selected.length === 0) {
+    return null;
+  }
+  if (selected.length === 1) {
+    return selected[0] ?? null;
+  }
+
+  const options = selected
+    .map(
+      (version) =>
+        `${version.providerKey}/${version.profileKey}@${version.profileVersion} (${catalogProviderProfileVersionIngestionUnitKey(
+          version,
+        )})`,
+    )
+    .join(", ");
+  const selectorText =
+    normalizedProfileKey || normalizedUnitKey
+      ? `profileKey='${normalizedProfileKey || "*"}' ingestionUnitKey='${normalizedUnitKey || "*"}'`
+      : "no profileKey or ingestionUnitKey";
+  throw new Error(
+    `Catalog provider '${normalizeProviderKey(
+      providerKey,
+    )}' has multiple active profile units for ${selectorText}. Select a profileKey or ingestionUnitKey. Active versions: ${options}.`,
+  );
+}
+
+function selectCatalogProviderProfileVersion(
+  providerKey: string,
+  versions: readonly CatalogProviderIntegrationProfileVersionRecord[],
+  selector: CatalogProviderProfileVersionSelector | null | undefined,
+  profileVersion: string,
+): CatalogProviderIntegrationProfileVersionRecord | null {
+  const normalizedProfileKey = selector?.profileKey?.trim().toLowerCase() ?? "";
+  const normalizedUnitKey = selector?.ingestionUnitKey?.trim().toLowerCase() ?? "";
+  const selected = versions.filter(
+    (version) =>
+      (!normalizedProfileKey || version.profileKey.trim().toLowerCase() === normalizedProfileKey) &&
+      (!normalizedUnitKey ||
+        catalogProviderProfileVersionIngestionUnitKey(version).trim().toLowerCase() === normalizedUnitKey),
+  );
+
+  if (selected.length === 0) {
+    return null;
+  }
+  if (selected.length === 1) {
+    return selected[0] ?? null;
+  }
+
+  const options = selected
+    .map(
+      (version) =>
+        `${version.providerKey}/${version.profileKey}@${version.profileVersion} (${catalogProviderProfileVersionIngestionUnitKey(
+          version,
+        )})`,
+    )
+    .join(", ");
+  throw new Error(
+    `Catalog provider '${normalizeProviderKey(
+      providerKey,
+    )}' has multiple profile units for version '${profileVersion}'. Select a profileKey or ingestionUnitKey. Versions: ${options}.`,
+  );
+}
+
+function sameCatalogProviderProfileVersionIdentity(
+  candidate: CatalogProviderIntegrationProfileVersionRecord,
+  target: CatalogProviderIntegrationProfileVersionRecord,
+): boolean {
+  return (
+    normalizeProviderKey(candidate.providerKey) === normalizeProviderKey(target.providerKey) &&
+    candidate.profileKey === target.profileKey &&
+    candidate.profileVersion === target.profileVersion &&
+    catalogProviderProfileVersionIngestionUnitKey(candidate) === catalogProviderProfileVersionIngestionUnitKey(target)
+  );
+}
+
+function inferCatalogProviderIngestionUnitKey(
+  version: CatalogProviderIntegrationProfileVersionRecord,
+): CatalogIntegrationUnitKey {
+  return defineCatalogProviderIngestionUnitIdentityContract({
+    providerKey: version.providerKey,
+    productDomain: inferProductDomain(version),
+    productForm: inferProductForm(version),
+    ingestionPurpose: "source-observation-import",
+  }).unitKey;
+}
+
+function inferProductDomain(version: CatalogProviderIntegrationProfileVersionRecord): "pokemon" | "mtg" {
+  const signals = [
+    version.profileKey,
+    version.profile.catalogFieldMapping.blueprintKey,
+    version.profile.catalogFieldMapping.categoryKey,
+    version.executableMappingContract?.normalizedObservation.fields.tcg?.selector.kind === "constant"
+      ? String(version.executableMappingContract.normalizedObservation.fields.tcg.selector.value)
+      : "",
+    version.executableMappingContract?.normalizedObservation.fields.productLineName?.selector.kind === "constant"
+      ? String(version.executableMappingContract.normalizedObservation.fields.productLineName.selector.value)
+      : "",
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  return signals.includes("magic") || signals.includes("scryfall") || signals.includes("mtg") ? "mtg" : "pokemon";
+}
+
+function inferProductForm(
+  version: CatalogProviderIntegrationProfileVersionRecord,
+): "single-card" | "sealed-product" | "set" {
+  const signals = [
+    version.profileKey,
+    version.profile.catalogFieldMapping.blueprintKey,
+    version.profile.supportedScopes.join(" "),
+    version.executableMappingContract?.displayName ?? "",
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  if (signals.includes("sealed-product")) {
+    return "sealed-product";
+  }
+  if (
+    signals.includes("set") &&
+    version.executableMappingContract?.normalizedObservation.outputKind === "magic-set-reference"
+  ) {
+    return "set";
+  }
+  return "single-card";
 }

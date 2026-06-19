@@ -7,8 +7,11 @@ import type { ReferenceDataServices } from "../../reference-data/api/runtime";
 import type { ReferenceRecordCommand, ReferenceTypeCommand } from "../../reference-data/domain/domain";
 import type { SourceObservationPokemonCardNormalized } from "../domain/domain";
 import {
+  catalogProviderProfileVersionIngestionUnitKey,
   catalogProviderIntegrationProfileVersions,
+  selectActiveCatalogProviderProfileVersion,
   type CatalogProviderIntegrationProfileVersionRecord,
+  type CatalogProviderProfileVersionSelector,
 } from "./provider-integration-profiles";
 import type {
   TcgplayerAutomationCatalogClient,
@@ -61,13 +64,15 @@ export function createActiveTcgplayerProfileVersions(): {
         ? versions.filter((version) => version.providerKey === normalizedProviderKey)
         : versions;
     },
-    getActiveProfileVersion: async (providerKey: string) => {
+    getActiveProfileVersion: async (providerKey: string, selector?: CatalogProviderProfileVersionSelector | null) => {
       const normalizedProviderKey = providerKey.trim().toLowerCase();
-      return (
-        versions.find(
+      return selectActiveCatalogProviderProfileVersion(
+        normalizedProviderKey,
+        versions.filter(
           (version) =>
             version.providerKey === normalizedProviderKey && version.active && version.lifecycle === "active",
-        ) ?? null
+        ),
+        selector,
       );
     },
   };
@@ -84,13 +89,15 @@ export function createMutableProfileVersionReader(
         ? versions.filter((version) => version.providerKey === normalizedProviderKey)
         : versions;
     },
-    getActiveProfileVersion: async (providerKey: string) => {
+    getActiveProfileVersion: async (providerKey: string, selector?: CatalogProviderProfileVersionSelector | null) => {
       const normalizedProviderKey = providerKey.trim().toLowerCase();
-      return (
-        versions.find(
+      return selectActiveCatalogProviderProfileVersion(
+        normalizedProviderKey,
+        versions.filter(
           (version) =>
             version.providerKey === normalizedProviderKey && version.active && version.lifecycle === "active",
-        ) ?? null
+        ),
+        selector,
       );
     },
     activate: (providerKey: string, profileVersion: string) => {
@@ -178,6 +185,7 @@ export function tcgdexProfileSnapshot(profileVersion: string): Record<string, un
     providerKey: "tcgdex",
     profileKey: "pokemon-tcg",
     profileVersion,
+    ingestionUnitKey: catalogProviderProfileVersionIngestionUnitKey(currentTcgdexProfileVersion()),
     lifecycle: "active",
     connectorKind: "tcgdex-json",
     connectorSourceVersion: null,

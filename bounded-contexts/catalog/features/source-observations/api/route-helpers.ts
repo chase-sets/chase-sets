@@ -41,12 +41,16 @@ export function parseIntegrationJobScope(input: unknown): SourceObservationInteg
 
   const record = input as Record<string, unknown>;
   const provider = stringField(record.provider) ?? stringField(record.source);
+  const profileKey = stringField(record.profileKey);
+  const ingestionUnitKey = stringField(record.ingestionUnitKey) ?? stringField(record.unitKey);
   const language = stringField(record.language) ?? stringField(record.languageCode);
   const productLineId = stringField(record.productLineId) ?? stringField(record.categoryId);
   const seriesId = stringField(record.seriesId);
   const setId = stringField(record.expansionId) ?? stringField(record.setId);
   const scope = {
     ...(provider ? { provider } : {}),
+    ...(profileKey ? { profileKey } : {}),
+    ...(ingestionUnitKey ? { ingestionUnitKey } : {}),
     ...(language ? { language } : {}),
     ...(productLineId ? { productLineId } : {}),
     ...(seriesId ? { seriesId } : {}),
@@ -85,7 +89,8 @@ export function isIntegrationJobValidationError(error: unknown): error is Error 
   return (
     error instanceof Error &&
     (error.message.includes("does not support background import") ||
-      error.message.includes("No active Catalog source observation import provider is configured"))
+      error.message.includes("No active Catalog source observation import provider is configured") ||
+      error.message.includes("multiple active profile units"))
   );
 }
 

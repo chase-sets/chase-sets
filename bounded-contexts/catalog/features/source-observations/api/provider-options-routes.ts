@@ -45,6 +45,8 @@ export function providerOptionRoutes(services: ProviderOptionRouteServices) {
     }
 
     const providerKey = String(c.req.query("providerKey") ?? c.req.query("provider") ?? "tcgdex");
+    const profileKey = c.req.query("profileKey");
+    const ingestionUnitKey = c.req.query("ingestionUnitKey") ?? c.req.query("unitKey");
     const queryKind = String(c.req.query("queryKind") ?? c.req.query("kind") ?? "");
     const languageCode = c.req.query("languageCode") ?? c.req.query("language");
     const parentValue = c.req.query("parentValue") ?? c.req.query("seriesId") ?? c.req.query("series");
@@ -57,6 +59,8 @@ export function providerOptionRoutes(services: ProviderOptionRouteServices) {
       if (typeof services.queryIntegrationOptions === "function") {
         const page = await services.queryIntegrationOptions({
           providerKey,
+          profileKey,
+          ingestionUnitKey,
           queryKind,
           languageCode,
           parentValue,
@@ -70,6 +74,8 @@ export function providerOptionRoutes(services: ProviderOptionRouteServices) {
 
       const items = await services.listIntegrationOptions({
         providerKey,
+        profileKey,
+        ingestionUnitKey,
         queryKind,
         languageCode,
         parentValue,

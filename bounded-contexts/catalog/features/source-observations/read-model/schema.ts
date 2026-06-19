@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS catalog_provider_integration_profile_versions (
   provider_key text NOT NULL,
   profile_key text NOT NULL,
   profile_version text NOT NULL,
+  ingestion_unit_key text NOT NULL,
   lifecycle text NOT NULL,
   active boolean NOT NULL DEFAULT false,
   profile_json jsonb NOT NULL,
@@ -84,15 +85,21 @@ CREATE TABLE IF NOT EXISTS catalog_provider_integration_profile_versions (
 
 ALTER TABLE catalog_provider_integration_profile_versions
   DROP COLUMN IF EXISTS compatibility_mode,
+  ADD COLUMN IF NOT EXISTS ingestion_unit_key text NULL,
   ADD COLUMN IF NOT EXISTS migration_evidence_json jsonb NULL,
   ADD COLUMN IF NOT EXISTS authoring_audit_json jsonb NULL;
 
+DROP INDEX IF EXISTS catalog_provider_integration_profile_versions_active_idx;
+
 CREATE UNIQUE INDEX IF NOT EXISTS catalog_provider_integration_profile_versions_active_idx
-  ON catalog_provider_integration_profile_versions (provider_key)
+  ON catalog_provider_integration_profile_versions (provider_key, ingestion_unit_key)
   WHERE active = true AND lifecycle = 'active';
 
 CREATE INDEX IF NOT EXISTS catalog_provider_integration_profile_versions_provider_idx
   ON catalog_provider_integration_profile_versions (provider_key, profile_version DESC);
+
+CREATE INDEX IF NOT EXISTS catalog_provider_integration_profile_versions_unit_idx
+  ON catalog_provider_integration_profile_versions (provider_key, ingestion_unit_key, profile_version DESC);
 
 CREATE TABLE IF NOT EXISTS catalog_provider_profile_version_sections (
   provider_key text NOT NULL,
@@ -161,7 +168,9 @@ CREATE TABLE IF NOT EXISTS catalog_tcgplayer_automation_domain_rate_limits (
 CREATE TABLE IF NOT EXISTS catalog_provider_option_query_cache (
   cache_key text PRIMARY KEY,
   provider_key text NOT NULL,
+  profile_key text NOT NULL DEFAULT '',
   profile_version text NOT NULL,
+  ingestion_unit_key text NOT NULL DEFAULT '',
   query_kind text NOT NULL,
   language_code text NOT NULL,
   parent_value text NOT NULL,
@@ -178,7 +187,9 @@ CREATE TABLE IF NOT EXISTS catalog_provider_option_query_cache (
 CREATE INDEX IF NOT EXISTS catalog_provider_option_query_cache_lookup_idx
   ON catalog_provider_option_query_cache (
     provider_key,
+    profile_key,
     profile_version,
+    ingestion_unit_key,
     query_kind,
     language_code,
     parent_value
