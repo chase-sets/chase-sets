@@ -7,8 +7,11 @@ import {
   assertNoDestructiveChanges,
   appNotFound,
   appPlatformChanges,
+  collectDeploymentDiagnostics,
   destructiveResourceChanges,
   deployApp,
+  deploymentComponentNames,
+  latestDeployment,
   pendingDomains,
   planAppChanged,
   resetStaleDomainAttachment,
@@ -205,6 +208,33 @@ The resources are retired by a reviewed context merge.
     ]);
   });
 
+  it("selects the latest deployment by update timestamp", () => {
+    expect(
+      latestDeployment([
+        { id: "old", phase: "ACTIVE", updated_at: "2026-06-19T21:00:00Z" },
+        { id: "failed", phase: "ERROR", updated_at: "2026-06-19T22:00:00Z" },
+      ]),
+    ).toEqual({
+      id: "failed",
+      phase: "ERROR",
+      createdAt: "",
+      updatedAt: "2026-06-19T22:00:00Z",
+    });
+  });
+
+  it("collects component names from an App Platform spec", () => {
+    expect(
+      deploymentComponentNames({
+        spec: {
+          jobs: [{ name: "platform-bootstrap" }],
+          services: [{ name: "platform-api" }],
+          workers: [{ name: "platform-worker" }, { name: "platform-worker" }],
+          static_sites: [{ name: "admin-shell" }],
+        },
+      }),
+    ).toEqual(["platform-bootstrap", "platform-api", "platform-worker", "admin-shell"]);
+  });
+
   it("reports App Platform domains that are not active yet", () => {
     expect(
       pendingDomains(
@@ -324,6 +354,84 @@ The resources are retired by a reviewed context merge.
         sleep: async () => {},
       }),
     ).rejects.toThrow("stuck: BUILDING");
+  });
+
+  it("collects deployment diagnostics and tails selected component logs", async () => {
+    const calls = [];
+    const logs = [];
+    const warnings = [];
+
+    const result = await collectDeploymentDiagnostics("app-id", {
+      componentNames: ["platform-bootstrap"],
+      logTypes: ["deploy"],
+      tailLines: 50,
+      commandJson: async (command, args) => {
+        calls.push([command, args]);
+        if (args[1] === "list-deployments") {
+          return [
+            { id: "old", phase: "ACTIVE", updated_at: "2026-06-19T21:00:00Z" },
+            { id: "failed", phase: "ERROR", updated_at: "2026-06-19T22:00:00Z" },
+          ];
+        }
+        if (args[1] === "get-deployment") {
+          return [
+            {
+              progress: {
+                steps: [
+                  {
+                    name: "platform-bootstrap",
+                    status: "ERROR",
+                    reason: { code: "DeployContainerExitNonZero" },
+                  },
+                ],
+              },
+            },
+          ];
+        }
+        throw new Error(`Unexpected JSON command: ${args.join(" ")}`);
+      },
+      commandOutput: async (command, args) => {
+        calls.push([command, args]);
+        return "Platform API bootstrap failed.\nCatalog integration seed conflict.\n";
+      },
+      log: (message) => logs.push(message),
+      warn: (message) => warnings.push(message),
+    });
+
+    expect(result).toEqual({
+      deploymentId: "failed",
+      logs: [
+        {
+          componentName: "platform-bootstrap",
+          logType: "deploy",
+          ok: true,
+          output: "Platform API bootstrap failed.\nCatalog integration seed conflict.\n",
+        },
+      ],
+    });
+    expect(warnings).toEqual([]);
+    expect(calls).toEqual([
+      ["doctl", ["apps", "list-deployments", "app-id", "--output", "json"]],
+      ["doctl", ["apps", "get-deployment", "app-id", "failed", "--output", "json"]],
+      [
+        "doctl",
+        [
+          "apps",
+          "logs",
+          "app-id",
+          "platform-bootstrap",
+          "--deployment",
+          "failed",
+          "--type",
+          "deploy",
+          "--tail",
+          "50",
+          "--no-prefix",
+        ],
+      ],
+    ]);
+    expect(logs.join("\n")).toContain("platform-bootstrap: ERROR - DeployContainerExitNonZero");
+    expect(logs.join("\n")).toContain("Catalog integration seed conflict.");
   });
 
   it("deploys the app and verifies the deployment phase", async () => {

@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 const TERMINAL_DEPLOYMENT_PHASES = new Set(["ACTIVE", "ERROR", "CANCELED", "CANCELLED", "SUPERSEDED"]);
 
 const ACTIVE_DOMAIN_PHASE = "ACTIVE";
+const DEFAULT_DEPLOYMENT_LOG_TYPES = ["deploy", "run", "run_restarted"];
 
 function commandOutput(command, args, options = {}) {
   if (options.input !== undefined) {
@@ -66,10 +67,29 @@ function readOption(argv, name, defaultValue) {
   return value === undefined ? defaultValue : parsePositiveIntegerArg(value, name);
 }
 
+function readStringOption(argv, name, defaultValue = undefined) {
+  const prefix = `${name}=`;
+  return argv.find((arg) => arg.startsWith(prefix))?.slice(prefix.length) ?? defaultValue;
+}
+
+function readStringOptions(argv, name) {
+  const prefix = `${name}=`;
+  return argv.filter((arg) => arg.startsWith(prefix)).map((arg) => arg.slice(prefix.length));
+}
+
 function normalizeDeployment(deployment) {
   return {
     id: deployment.id ?? deployment.ID ?? "",
     phase: deployment.phase ?? deployment.Phase ?? "",
+  };
+}
+
+function normalizeDeploymentSummary(deployment) {
+  return {
+    id: deployment.id ?? deployment.ID ?? "",
+    phase: deployment.phase ?? deployment.Phase ?? deployment.status ?? deployment.Status ?? "",
+    createdAt: deployment.created_at ?? deployment.createdAt ?? deployment.Created ?? "",
+    updatedAt: deployment.updated_at ?? deployment.updatedAt ?? deployment.Updated ?? "",
   };
 }
 
@@ -82,6 +102,24 @@ function normalizeDomain(domain) {
 
 function normalizeAppResponse(appResponse) {
   return Array.isArray(appResponse) ? appResponse[0] : appResponse;
+}
+
+function normalizeDeploymentResponse(deploymentResponse) {
+  return Array.isArray(deploymentResponse) ? deploymentResponse[0] : deploymentResponse;
+}
+
+function timestampValue(value) {
+  const parsed = Date.parse(value ?? "");
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function componentNamesFromSpecCollection(collection) {
+  return (collection ?? []).map((component) => component?.name).filter((name) => typeof name === "string" && name);
+}
+
+function deploymentProgressSteps(deployment) {
+  const progress = deployment?.progress ?? deployment?.Progress ?? {};
+  return progress.steps ?? progress.Steps ?? [];
 }
 
 function domainReasonCodes(domain) {
@@ -226,6 +264,33 @@ export function activeDeployments(deployments) {
   return deployments.map(normalizeDeployment).filter((deployment) => !TERMINAL_DEPLOYMENT_PHASES.has(deployment.phase));
 }
 
+export function latestDeployment(deployments) {
+  return [...deployments]
+    .map(normalizeDeploymentSummary)
+    .filter((deployment) => deployment.id)
+    .sort((left, right) => {
+      const updatedDelta = timestampValue(right.updatedAt) - timestampValue(left.updatedAt);
+      if (updatedDelta !== 0) {
+        return updatedDelta;
+      }
+
+      return timestampValue(right.createdAt) - timestampValue(left.createdAt);
+    })[0];
+}
+
+export function deploymentComponentNames(app) {
+  const spec = app?.spec ?? {};
+  return [
+    ...new Set([
+      ...componentNamesFromSpecCollection(spec.jobs),
+      ...componentNamesFromSpecCollection(spec.services),
+      ...componentNamesFromSpecCollection(spec.workers),
+      ...componentNamesFromSpecCollection(spec.static_sites),
+      ...componentNamesFromSpecCollection(spec.functions),
+    ]),
+  ];
+}
+
 export function pendingDomains(app, hostnames) {
   const expected = new Set(hostnames);
   const domains = (app.domains ?? []).map(normalizeDomain);
@@ -290,6 +355,95 @@ export async function waitForDeployments(appId, options = {}) {
 
     await delay(pollSeconds * 1000);
   }
+}
+
+export async function collectDeploymentDiagnostics(appId, options = {}) {
+  const runJson = options.commandJson ?? commandJson;
+  const command = options.commandOutput ?? commandOutput;
+  const log = options.log ?? console.log;
+  const warn = options.warn ?? console.warn;
+  const tailLines = options.tailLines ?? 200;
+  const logTypes = options.logTypes?.length > 0 ? options.logTypes : DEFAULT_DEPLOYMENT_LOG_TYPES;
+
+  const deployments = await runJson("doctl", ["apps", "list-deployments", appId, "--output", "json"], options);
+  const deployment = options.deploymentId
+    ? { id: options.deploymentId, phase: "selected", createdAt: "", updatedAt: "" }
+    : latestDeployment(deployments);
+
+  if (!deployment?.id) {
+    throw new Error(`No App Platform deployments were found for app '${appId}'.`);
+  }
+
+  log(`App Platform deployment diagnostics for '${appId}':`);
+  log(`- deployment: ${deployment.id}${deployment.phase ? ` (${deployment.phase})` : ""}`);
+
+  try {
+    const deploymentDetails = normalizeDeploymentResponse(
+      await runJson("doctl", ["apps", "get-deployment", appId, deployment.id, "--output", "json"], options),
+    );
+    const steps = deploymentProgressSteps(deploymentDetails);
+
+    if (steps.length > 0) {
+      log("Deployment progress:");
+      for (const step of steps) {
+        const name = step.name ?? step.Name ?? step.component_name ?? step.componentName ?? "unnamed-step";
+        const status = step.status ?? step.Status ?? step.phase ?? step.Phase ?? "unknown";
+        const reason = step.reason?.message ?? step.reason?.code ?? step.Reason?.Message ?? step.Reason?.Code ?? "";
+        log(`- ${name}: ${status}${reason ? ` - ${reason}` : ""}`);
+      }
+    }
+  } catch (error) {
+    warn(
+      `Unable to load deployment progress for '${deployment.id}': ${error instanceof Error ? error.message : error}`,
+    );
+  }
+
+  let componentNames = options.componentNames ?? [];
+  if (componentNames.length === 0) {
+    try {
+      const app = normalizeAppResponse(await runJson("doctl", ["apps", "get", appId, "--output", "json"], options));
+      componentNames = deploymentComponentNames(app);
+    } catch (error) {
+      warn(`Unable to load App Platform component names: ${error instanceof Error ? error.message : error}`);
+    }
+  }
+
+  if (componentNames.length === 0) {
+    throw new Error("At least one App Platform component is required for deployment log diagnostics.");
+  }
+
+  const collectedLogs = [];
+  for (const componentName of componentNames) {
+    for (const logType of logTypes) {
+      const args = [
+        "apps",
+        "logs",
+        appId,
+        componentName,
+        "--deployment",
+        deployment.id,
+        "--type",
+        logType,
+        "--tail",
+        String(tailLines),
+        "--no-prefix",
+      ];
+
+      log(`\n--- ${componentName} ${logType} logs (${deployment.id}) ---`);
+      try {
+        const output = await command("doctl", args);
+        const trimmed = output.trim();
+        log(trimmed || "(no log lines returned)");
+        collectedLogs.push({ componentName, logType, ok: true, output });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        warn(`Unable to load ${componentName} ${logType} logs: ${message}`);
+        collectedLogs.push({ componentName, logType, ok: false, error: message });
+      }
+    }
+  }
+
+  return { deploymentId: deployment.id, logs: collectedLogs };
 }
 
 export async function waitForDomains(appId, hostnames, options = {}) {
@@ -437,6 +591,23 @@ async function main(argv) {
     return;
   }
 
+  if (command === "diagnostics") {
+    const [appId, ...options] = args;
+    if (!appId) {
+      throw new Error(
+        "Usage: node ./scripts/digitalocean-app-deployment.mjs diagnostics <app-id> [--deployment=<deployment-id>] [--component=<name>] [--log-type=<type>] [--tail-lines=<lines>]",
+      );
+    }
+
+    await collectDeploymentDiagnostics(appId, {
+      deploymentId: readStringOption(options, "--deployment"),
+      componentNames: readStringOptions(options, "--component"),
+      logTypes: readStringOptions(options, "--log-type"),
+      tailLines: readOption(options, "--tail-lines", 200),
+    });
+    return;
+  }
+
   if (command === "deploy") {
     const [appId, ...options] = args;
     if (!appId) {
@@ -472,7 +643,7 @@ async function main(argv) {
   }
 
   throw new Error(
-    "Usage: node ./scripts/digitalocean-app-deployment.mjs <plan-app-changed|assert-no-destructive-changes|wait|deploy|wait-domains|reset-domain>",
+    "Usage: node ./scripts/digitalocean-app-deployment.mjs <plan-app-changed|assert-no-destructive-changes|wait|diagnostics|deploy|wait-domains|reset-domain>",
   );
 }
 

@@ -560,7 +560,12 @@ function parseWorkerMode(value: string | undefined): CatalogIntegrationRolloutCo
 }
 
 function isProductionLikeCatalogIntegrationEnvironment(env: NodeJS.ProcessEnv): boolean {
-  return env.DEPLOYMENT_ENVIRONMENT?.trim().toLowerCase() === "production" || env.NODE_ENV === "production";
+  const deploymentEnvironment = env.DEPLOYMENT_ENVIRONMENT?.trim().toLowerCase();
+  if (deploymentEnvironment) {
+    return deploymentEnvironment === "production";
+  }
+
+  return env.NODE_ENV?.trim().toLowerCase() === "production";
 }
 
 function normalizeMagicProductionSignoffReference(value: string | null | undefined): string | null {

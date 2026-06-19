@@ -1869,6 +1869,16 @@ resource "digitalocean_app" "platform" {
           type  = "SECRET"
           scope = "RUN_TIME"
         }
+
+        dynamic "env" {
+          for_each = local.catalog_magic_provider_runtime_env
+          content {
+            key   = env.key
+            value = env.value.value
+            type  = env.value.secret ? "SECRET" : "GENERAL"
+            scope = "RUN_TIME"
+          }
+        }
       }
     }
 
