@@ -2,6 +2,11 @@ import "./observability-prelude";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import {
+  createPostgresTcgplayerAutomationHttpConfigStore,
+  createTcgplayerAutomationCatalogClient,
+  createTcgplayerAutomationHttpClients,
+} from "@chase-sets/catalog/server";
+import {
   collectWorkerRunners,
   createWorkerHost,
   createWorkerRunnerLoop,
@@ -33,11 +38,19 @@ const pools = createAdminSupportWorkerPools(config);
 await bootstrapPlatformControlPlane(pools.control);
 const controlPlane = createPostgresPlatformControlPlane(pools.control);
 const catalogAssetStorage = createCatalogAssetStorage(config.catalogAssetStorage);
+const tcgplayerAutomationCatalogClient = config.tcgplayerAutomation
+  ? createTcgplayerAutomationCatalogClient(
+      createTcgplayerAutomationHttpClients(
+        createPostgresTcgplayerAutomationHttpConfigStore(pools.catalog, config.tcgplayerAutomation),
+      ),
+    )
+  : undefined;
 const sourceObservationTelemetry = createSourceObservationTelemetry();
 const runtime = createWorkerHost(workerContextRegistry, "admin-support-worker", {
   pools,
   hostPorts: {
     catalogAssetStorage,
+    ...(tcgplayerAutomationCatalogClient ? { tcgplayerAutomationCatalogClient } : {}),
     sourceObservationTelemetry,
   },
 });

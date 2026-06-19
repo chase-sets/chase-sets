@@ -544,6 +544,13 @@ variable "easypost_mode" {
   }
 }
 
+variable "tcgplayer_automation_tcg_auth_cookie" {
+  type        = string
+  sensitive   = true
+  default     = ""
+  description = "Approved TCGplayer automation session cookie for Catalog provider option queries and imports. Keep empty until staging or production provider access is approved."
+}
+
 variable "google_social_login_client_id" {
   type      = string
   sensitive = true

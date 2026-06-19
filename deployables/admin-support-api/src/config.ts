@@ -5,7 +5,12 @@ import {
   type ApiHostContextName,
   type EnvironmentDataProfile,
 } from "@chase-sets/platform-runtime/api";
-import { getOptionalJsonEnv, getRequiredPositiveNumberEnv } from "@chase-sets/platform-runtime/config-schema";
+import {
+  getOptionalJsonEnv,
+  getRequiredPositiveNumberEnv,
+  loadTcgplayerAutomationConfig,
+  type PlatformTcgplayerAutomationConfig,
+} from "@chase-sets/platform-runtime/config-schema";
 import {
   PLATFORM_INTERNAL_AUTH_SECRET_ENV,
   resolvePlatformInternalAuthSecret,
@@ -35,6 +40,7 @@ export type AdminSupportApiConfig = Readonly<{
   socialLogin: AdminSupportApiSocialLoginConfig;
   adminGoogleWorkspaceSso: AdminSupportApiAdminGoogleWorkspaceSsoConfig | null;
   catalogAssetStorage: AdminSupportCatalogAssetStorageConfig;
+  tcgplayerAutomation: AdminSupportTcgplayerAutomationConfig | null;
   platformAdmin: AdminSupportPlatformAdminConfig | null;
   readConsistency: AdminSupportApiReadConsistencyConfig;
   deploymentEnvironment: string;
@@ -70,6 +76,8 @@ export type AdminSupportCatalogAssetStorageConfig =
       secretAccessKey?: string;
       forcePathStyle?: boolean;
     }>;
+
+export type AdminSupportTcgplayerAutomationConfig = PlatformTcgplayerAutomationConfig;
 
 export type AdminSupportPlatformAdminConfig = Readonly<{
   email: string;
@@ -400,6 +408,7 @@ export function loadConfig(): AdminSupportApiConfig {
           }
         : null,
     catalogAssetStorage: loadCatalogAssetStorageConfig(port, isProductionDeployment(deploymentEnvironment)),
+    tcgplayerAutomation: loadTcgplayerAutomationConfig(),
     platformAdmin: loadPlatformAdminConfig(),
     readConsistency: {
       timeoutMs: getRequiredPositiveNumberEnv("READ_CONSISTENCY_TIMEOUT_MS", 2_500),

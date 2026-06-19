@@ -145,6 +145,20 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformBootstrapJob).toContain("value = var.environment");
   });
 
+  it("wires Magic provider runtime config through Catalog API and worker components without checked-in secrets", () => {
+    expect(platformVariables).toContain('variable "tcgplayer_automation_tcg_auth_cookie"');
+    expect(platformVariables).toContain("sensitive   = true");
+    expect(platformVariables).toContain('default     = ""');
+    expect(platformLocals).toContain("catalog_magic_provider_runtime_env");
+    expect(platformLocals).toContain("TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE");
+    expect(platformLocals).toContain("value  = var.tcgplayer_automation_tcg_auth_cookie");
+    expect(platformLocals).toContain("CATALOG_INTEGRATION_PROVIDER_OPTION_QUERIES");
+    expect(platformLocals).toContain('value  = local.is_production ? "dry-run-only" : "open"');
+    expect(platformLocals).toContain('value  = local.is_production ? "mtgjson,scryfall,tcgplayer" : ""');
+    expect(occurrenceCount(platformMain, "for_each = local.catalog_magic_provider_runtime_env")).toBe(4);
+    expect(platformMain).not.toMatch(/TCGAuthTicket|TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE\s*=\s*"[^"]+"/);
+  });
+
   it("keeps deterministic platform admin bootstrap owned by one pre-deploy job", () => {
     const platformBootstrapJob = terraformJobBlock(platformMain, "platform-bootstrap");
     const adminSupportBootstrapJob = terraformJobBlock(platformMain, "admin-support-bootstrap");

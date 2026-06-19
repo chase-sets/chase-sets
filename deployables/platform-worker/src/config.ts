@@ -10,12 +10,14 @@ import {
   loadPoolConfig,
   loadPostageConfig,
   loadStripeProviderConfig,
+  loadTcgplayerAutomationConfig,
   resolveMobileMessagingProvider,
   type PlatformCatalogAssetStorageConfig,
   type PlatformMoneyMovementConfig,
   type PlatformPaymentProcessorConfig,
   type PlatformPoolConfig,
   type PlatformPostageConfig,
+  type PlatformTcgplayerAutomationConfig,
 } from "@chase-sets/platform-runtime/config-schema";
 import { workerContextRegistry } from "./generated/worker-context-registry";
 
@@ -73,6 +75,7 @@ export type PlatformWorkerConfig = Readonly<{
   moneyMovement: PlatformWorkerMoneyMovementConfig;
   mobileMessaging: PlatformWorkerMobileMessagingConfig;
   postage: PlatformWorkerPostageConfig;
+  tcgplayerAutomation: PlatformWorkerTcgplayerAutomationConfig | null;
   googleMerchant: PlatformWorkerGoogleMerchantConfig;
   notificationEmail: PlatformWorkerNotificationEmailConfig;
 }>;
@@ -109,6 +112,8 @@ export type PlatformWorkerPaymentProcessorConfig = PlatformPaymentProcessorConfi
 export type PlatformWorkerMoneyMovementConfig = PlatformMoneyMovementConfig;
 
 export type PlatformWorkerPostageConfig = PlatformPostageConfig<false>;
+
+export type PlatformWorkerTcgplayerAutomationConfig = PlatformTcgplayerAutomationConfig;
 
 export type PlatformWorkerGoogleMerchantConfig =
   | Readonly<{
@@ -376,6 +381,7 @@ export function loadConfig(): PlatformWorkerConfig {
         "EASYPOST_API_KEY is required for platform worker postage label work in production.",
       includeWebhookSecret: false,
     }),
+    tcgplayerAutomation: loadTcgplayerAutomationConfig(),
     googleMerchant: loadGoogleMerchantConfig({
       syncEnabled: googleMerchantSyncEnabled,
       dryRun: googleMerchantDryRun,

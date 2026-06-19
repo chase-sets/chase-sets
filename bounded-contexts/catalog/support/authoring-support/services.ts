@@ -17,10 +17,12 @@ import { createCatalogProviderIntegrationProfileVersionStore } from "../../featu
 import { createSourceObservationRuntime } from "../../features/source-observations/api/runtime";
 import type { CatalogAssetStorage } from "../../features/source-observations/api/asset-storage";
 import type { SourceObservationTelemetry } from "../../features/source-observations/api/catalog-integration-observability";
+import type { TcgplayerAutomationCatalogClient } from "../../features/source-observations/api/tcgplayer-automation-catalog-client";
 import { createCatalogAuthoringBulkJobServices } from "./bulk-authoring-jobs";
 
 export type CatalogHostPorts = Readonly<{
   catalogAssetStorage?: CatalogAssetStorage;
+  tcgplayerAutomationCatalogClient?: TcgplayerAutomationCatalogClient;
   sourceObservationTelemetry?: SourceObservationTelemetry;
 }>;
 
@@ -55,6 +57,7 @@ export function createCatalogServices(pool: PgTransactionalPool, ports: CatalogH
     checkpointStore,
     db,
     assetStorage: ports.catalogAssetStorage,
+    tcgplayerAutomationCatalogClient: ports.tcgplayerAutomationCatalogClient,
     sourceObservationTelemetry: ports.sourceObservationTelemetry,
   } as const;
 

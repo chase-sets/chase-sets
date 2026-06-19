@@ -319,6 +319,56 @@ locals {
   }
   catalog_asset_s3_bucket       = local.catalog_asset_s3_buckets[var.environment]
   catalog_asset_public_base_url = local.catalog_asset_public_base_urls[var.environment]
+  catalog_magic_provider_runtime_env = {
+    TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE = {
+      value  = var.tcgplayer_automation_tcg_auth_cookie
+      secret = true
+    }
+    TCGPLAYER_AUTOMATION_REQUEST_DELAY_MS = {
+      value  = "250"
+      secret = false
+    }
+    TCGPLAYER_AUTOMATION_RATE_LIMIT_COOLDOWN_MS = {
+      value  = "30000"
+      secret = false
+    }
+    TCGPLAYER_AUTOMATION_MAX_CONCURRENT_REQUESTS = {
+      value  = "2"
+      secret = false
+    }
+    TCGPLAYER_AUTOMATION_MAX_RETRIES = {
+      value  = "3"
+      secret = false
+    }
+    CATALOG_INTEGRATION_CONTROL_PLANE_MODE = {
+      value  = local.is_production ? "dry-run-only" : "open"
+      secret = false
+    }
+    CATALOG_INTEGRATION_ACTIVATION_MODE = {
+      value  = local.is_production ? "test-profiles-only" : "open"
+      secret = false
+    }
+    CATALOG_INTEGRATION_IMPORTS_DISABLED = {
+      value  = local.is_production ? "mtgjson,scryfall,tcgplayer" : ""
+      secret = false
+    }
+    CATALOG_INTEGRATION_PROMOTION_DISABLED = {
+      value  = local.is_production ? "mtgjson,scryfall,tcgplayer" : ""
+      secret = false
+    }
+    CATALOG_INTEGRATION_REAPPLY_DISABLED = {
+      value  = local.is_production ? "mtgjson,scryfall,tcgplayer" : ""
+      secret = false
+    }
+    CATALOG_INTEGRATION_PROVIDER_API_EMERGENCY_STOP = {
+      value  = ""
+      secret = false
+    }
+    CATALOG_INTEGRATION_PROVIDER_OPTION_QUERIES = {
+      value  = "open"
+      secret = false
+    }
+  }
 
   landing_context_names = [
     "auth",

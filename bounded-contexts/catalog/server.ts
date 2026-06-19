@@ -7,3 +7,9 @@ export {
   catalogRealtimeTopicPolicyManifest,
   catalogRealtimeTopics,
 } from "./support/realtime-support/topics";
+export {
+  createPostgresTcgplayerAutomationHttpConfigStore,
+  createTcgplayerAutomationHttpClients,
+  type TcgplayerAutomationHttpConfig,
+} from "./features/source-observations/api/tcgplayer-automation-client";
+export { createTcgplayerAutomationCatalogClient } from "./features/source-observations/api/tcgplayer-automation-catalog-client";

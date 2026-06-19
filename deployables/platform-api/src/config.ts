@@ -20,12 +20,14 @@ import {
   loadPostageConfig,
   loadStorageConfig,
   loadStripeProviderConfig,
+  loadTcgplayerAutomationConfig,
   resolveMobileMessagingProvider,
   type PlatformCatalogAssetStorageConfig,
   type PlatformMoneyMovementConfig,
   type PlatformPaymentProcessorConfig,
   type PlatformPoolConfig,
   type PlatformPostageConfig,
+  type PlatformTcgplayerAutomationConfig,
 } from "@chase-sets/platform-runtime/config-schema";
 import {
   PLATFORM_INTERNAL_AUTH_SECRET_ENV,
@@ -43,6 +45,8 @@ export type PlatformApiPaymentProcessorConfig = PlatformPaymentProcessorConfig;
 export type PlatformApiMoneyMovementConfig = PlatformMoneyMovementConfig;
 
 export type PlatformApiPostageConfig = PlatformPostageConfig<true>;
+
+export type PlatformApiTcgplayerAutomationConfig = PlatformTcgplayerAutomationConfig;
 
 export type PlatformApiSocialLoginProviderConfig = Readonly<{
   clientId: string;
@@ -166,6 +170,7 @@ export type PlatformApiConfig = Omit<PlatformApiBaseConfig, "realtime"> &
     socialLogin: PlatformApiSocialLoginConfig;
     adminGoogleWorkspaceSso: PlatformApiAdminGoogleWorkspaceSsoConfig | null;
     catalogAssetStorage: PlatformApiCatalogAssetStorageConfig;
+    tcgplayerAutomation: PlatformApiTcgplayerAutomationConfig | null;
     listingPhotoStorage: PlatformApiListingPhotoStorageConfig;
     stripeGoLive: StripeGoLiveCheckReport;
     ucpBusinessSigningKeys?: UcpBusinessSigningKeySet;
@@ -620,6 +625,7 @@ export function loadConfig(): PlatformApiConfig {
       liveSecretKeyLikely: Boolean(stripeProvider.secretKey?.startsWith("sk_live")),
     },
     catalogAssetStorage,
+    tcgplayerAutomation: loadTcgplayerAutomationConfig(),
     listingPhotoStorage,
     socialLogin,
     adminGoogleWorkspaceSso,

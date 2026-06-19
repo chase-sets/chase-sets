@@ -2,6 +2,11 @@ import "./observability-prelude";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { createNoopNotificationAdapter, type NotificationChannelAdapter } from "@chase-sets/notifications";
+import {
+  createPostgresTcgplayerAutomationHttpConfigStore,
+  createTcgplayerAutomationCatalogClient,
+  createTcgplayerAutomationHttpClients,
+} from "@chase-sets/catalog/server";
 import { createSesEmailNotificationAdapter, createSesSendRequest } from "@chase-sets/ses-email";
 import { createLocalEmailCaptureNotificationAdapter } from "@chase-sets/local-email-capture";
 import { createStripePaymentProcessorGateway } from "@chase-sets/stripe-payments";
@@ -129,6 +134,13 @@ const postageLabelProvider =
       })
     : createSandboxPostageLabelProvider();
 const catalogAssetStorage = createCatalogAssetStorage(config.catalogAssetStorage);
+const tcgplayerAutomationCatalogClient = config.tcgplayerAutomation
+  ? createTcgplayerAutomationCatalogClient(
+      createTcgplayerAutomationHttpClients(
+        createPostgresTcgplayerAutomationHttpConfigStore(pools.catalog, config.tcgplayerAutomation),
+      ),
+    )
+  : undefined;
 const sourceObservationTelemetry = createSourceObservationTelemetry();
 const commercialTermsResolver = pools["commercial-terms"]
   ? createCommercialTermsResolver({ db: pools["commercial-terms"] })
@@ -144,6 +156,7 @@ const runtime = createWorkerHost(workerContextRegistry, "platform-worker", {
     operationsRecorder: settlementOperationsRecorder,
     postageLabelProvider,
     catalogAssetStorage,
+    ...(tcgplayerAutomationCatalogClient ? { tcgplayerAutomationCatalogClient } : {}),
     sourceObservationTelemetry,
     ...(commercialTermsResolver ? { commercialTermsResolver } : {}),
     ...(balanceCreditResolver ? { balanceCreditResolver } : {}),

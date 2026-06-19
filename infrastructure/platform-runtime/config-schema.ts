@@ -62,6 +62,35 @@ export type PlatformPostageConfig<TIncludeWebhookSecret extends boolean = boolea
 
 export type PlatformMobileMessagingProvider = "noop" | "twilio";
 
+export const TCGPLAYER_AUTOMATION_DOMAIN_KEYS = ["mpSearchApi", "mpApi", "infiniteApi", "mpGateway"] as const;
+
+export type PlatformTcgplayerAutomationDomainKey = (typeof TCGPLAYER_AUTOMATION_DOMAIN_KEYS)[number];
+
+export type PlatformTcgplayerAutomationDomainConfig = Readonly<{
+  requestDelayMs: number;
+  rateLimitCooldownMs: number;
+  maxConcurrentRequests: number;
+  adaptiveEnabled: boolean;
+  minRequestDelayMs: number;
+  maxRequestDelayMs: number;
+  learnedMinDelayMs: number;
+}>;
+
+export type PlatformTcgplayerAutomationConfig = Readonly<{
+  auth: Readonly<{
+    tcgAuthCookie: string | null;
+    userAgent: string;
+  }>;
+  domainConfigs: Readonly<Record<PlatformTcgplayerAutomationDomainKey, PlatformTcgplayerAutomationDomainConfig>>;
+  adaptiveConfig: Readonly<{
+    increaseMultiplier: number;
+    floorStepMs: number;
+    decreaseAmountMs: number;
+    successThreshold: number;
+  }>;
+  maxRetries: number;
+}>;
+
 export type PlatformDatabaseConfig<TContextName extends string> = Readonly<{
   sharedDatabaseUrl: string | null;
   controlDatabaseUrl: string;
@@ -78,6 +107,19 @@ export type PlatformStripeProviderConfig = Readonly<{
   resolvedConnectWebhookSecret: string | undefined;
   apiBaseUrl: string | undefined;
 }>;
+
+const DEFAULT_TCGPLAYER_AUTOMATION_USER_AGENT =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36";
+
+const DEFAULT_TCGPLAYER_AUTOMATION_DOMAIN_CONFIG: PlatformTcgplayerAutomationDomainConfig = {
+  requestDelayMs: 250,
+  rateLimitCooldownMs: 30_000,
+  maxConcurrentRequests: 2,
+  adaptiveEnabled: true,
+  minRequestDelayMs: 250,
+  maxRequestDelayMs: 30_000,
+  learnedMinDelayMs: 250,
+};
 
 export function getOptionalEnv(name: string) {
   const value = process.env[name];
@@ -134,6 +176,20 @@ export function getRequiredPositiveNumberEnv(name: string, defaultValue: number)
   }
 
   throw new Error(`${name} must be a positive number.`);
+}
+
+export function getRequiredNonNegativeNumberEnv(name: string, defaultValue: number) {
+  const value = getOptionalEnv(name);
+  if (!value) {
+    return defaultValue;
+  }
+
+  const parsed = Number(value);
+  if (Number.isFinite(parsed) && parsed >= 0) {
+    return parsed;
+  }
+
+  throw new Error(`${name} must be a non-negative number.`);
 }
 
 export function getContextDatabaseEnvName(contextName: string) {
@@ -355,6 +411,190 @@ export function loadPostageConfig<TIncludeWebhookSecret extends boolean>(input: 
   } as PlatformPostageConfig<TIncludeWebhookSecret>;
 }
 
+export function loadTcgplayerAutomationConfig(): PlatformTcgplayerAutomationConfig | null {
+  const tcgAuthCookie = getOptionalEnv("TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE");
+  if (!tcgAuthCookie) {
+    return null;
+  }
+
+  const baseDomainConfig: PlatformTcgplayerAutomationDomainConfig = {
+    requestDelayMs: getRequiredNonNegativeNumberEnv(
+      "TCGPLAYER_AUTOMATION_REQUEST_DELAY_MS",
+      DEFAULT_TCGPLAYER_AUTOMATION_DOMAIN_CONFIG.requestDelayMs,
+    ),
+    rateLimitCooldownMs: getRequiredPositiveNumberEnv(
+      "TCGPLAYER_AUTOMATION_RATE_LIMIT_COOLDOWN_MS",
+      DEFAULT_TCGPLAYER_AUTOMATION_DOMAIN_CONFIG.rateLimitCooldownMs,
+    ),
+    maxConcurrentRequests: getRequiredPositiveNumberEnv(
+      "TCGPLAYER_AUTOMATION_MAX_CONCURRENT_REQUESTS",
+      DEFAULT_TCGPLAYER_AUTOMATION_DOMAIN_CONFIG.maxConcurrentRequests,
+    ),
+    adaptiveEnabled: getBooleanEnv(
+      "TCGPLAYER_AUTOMATION_ADAPTIVE_ENABLED",
+      DEFAULT_TCGPLAYER_AUTOMATION_DOMAIN_CONFIG.adaptiveEnabled,
+    ),
+    minRequestDelayMs: getRequiredNonNegativeNumberEnv(
+      "TCGPLAYER_AUTOMATION_MIN_REQUEST_DELAY_MS",
+      DEFAULT_TCGPLAYER_AUTOMATION_DOMAIN_CONFIG.minRequestDelayMs,
+    ),
+    maxRequestDelayMs: getRequiredPositiveNumberEnv(
+      "TCGPLAYER_AUTOMATION_MAX_REQUEST_DELAY_MS",
+      DEFAULT_TCGPLAYER_AUTOMATION_DOMAIN_CONFIG.maxRequestDelayMs,
+    ),
+    learnedMinDelayMs: getRequiredNonNegativeNumberEnv(
+      "TCGPLAYER_AUTOMATION_LEARNED_MIN_DELAY_MS",
+      DEFAULT_TCGPLAYER_AUTOMATION_DOMAIN_CONFIG.learnedMinDelayMs,
+    ),
+  };
+
+  return {
+    auth: {
+      tcgAuthCookie,
+      userAgent: getOptionalEnv("TCGPLAYER_AUTOMATION_USER_AGENT") ?? DEFAULT_TCGPLAYER_AUTOMATION_USER_AGENT,
+    },
+    domainConfigs: mergeTcgplayerAutomationDomainConfigs(
+      Object.fromEntries(TCGPLAYER_AUTOMATION_DOMAIN_KEYS.map((domainKey) => [domainKey, baseDomainConfig])) as Record<
+        PlatformTcgplayerAutomationDomainKey,
+        PlatformTcgplayerAutomationDomainConfig
+      >,
+      getOptionalJsonEnv<unknown>("TCGPLAYER_AUTOMATION_DOMAIN_CONFIG_JSON"),
+    ),
+    adaptiveConfig: {
+      increaseMultiplier: getRequiredPositiveNumberEnv("TCGPLAYER_AUTOMATION_ADAPTIVE_INCREASE_MULTIPLIER", 2),
+      floorStepMs: getRequiredPositiveNumberEnv("TCGPLAYER_AUTOMATION_ADAPTIVE_FLOOR_STEP_MS", 100),
+      decreaseAmountMs: getRequiredPositiveNumberEnv("TCGPLAYER_AUTOMATION_ADAPTIVE_DECREASE_AMOUNT_MS", 100),
+      successThreshold: getRequiredPositiveNumberEnv("TCGPLAYER_AUTOMATION_ADAPTIVE_SUCCESS_THRESHOLD", 10),
+    },
+    maxRetries: getRequiredNonNegativeNumberEnv("TCGPLAYER_AUTOMATION_MAX_RETRIES", 3),
+  };
+}
+
+export function describeTcgplayerAutomationConfigForLogs(config: PlatformTcgplayerAutomationConfig | null) {
+  if (!config) {
+    return {
+      configured: false,
+    };
+  }
+
+  return {
+    configured: true,
+    auth: {
+      tcgAuthCookie: "[configured]",
+      userAgent: config.auth.userAgent ? "[configured]" : "[missing]",
+    },
+    domainConfigs: Object.fromEntries(
+      Object.entries(config.domainConfigs).map(([domainKey, domainConfig]) => [
+        domainKey,
+        {
+          requestDelayMs: domainConfig.requestDelayMs,
+          rateLimitCooldownMs: domainConfig.rateLimitCooldownMs,
+          maxConcurrentRequests: domainConfig.maxConcurrentRequests,
+          adaptiveEnabled: domainConfig.adaptiveEnabled,
+          minRequestDelayMs: domainConfig.minRequestDelayMs,
+          maxRequestDelayMs: domainConfig.maxRequestDelayMs,
+          learnedMinDelayMs: domainConfig.learnedMinDelayMs,
+        },
+      ]),
+    ),
+    maxRetries: config.maxRetries,
+  };
+}
+
 export function resolveMobileMessagingProvider(value: string | null): PlatformMobileMessagingProvider {
   return value === "twilio" ? "twilio" : "noop";
+}
+
+function mergeTcgplayerAutomationDomainConfigs(
+  defaults: Record<PlatformTcgplayerAutomationDomainKey, PlatformTcgplayerAutomationDomainConfig>,
+  overrides: unknown,
+): Record<PlatformTcgplayerAutomationDomainKey, PlatformTcgplayerAutomationDomainConfig> {
+  if (overrides === null) {
+    return defaults;
+  }
+  if (!isRecord(overrides)) {
+    throw new Error("TCGPLAYER_AUTOMATION_DOMAIN_CONFIG_JSON must be a JSON object.");
+  }
+
+  const domainKeys = new Set(TCGPLAYER_AUTOMATION_DOMAIN_KEYS);
+  const merged = { ...defaults };
+  for (const [domainKey, value] of Object.entries(overrides)) {
+    if (!domainKeys.has(domainKey as PlatformTcgplayerAutomationDomainKey)) {
+      throw new Error(`TCGPLAYER_AUTOMATION_DOMAIN_CONFIG_JSON contains unsupported domain '${domainKey}'.`);
+    }
+    if (!isRecord(value)) {
+      throw new Error(`TCGPLAYER_AUTOMATION_DOMAIN_CONFIG_JSON.${domainKey} must be an object.`);
+    }
+
+    merged[domainKey as PlatformTcgplayerAutomationDomainKey] = {
+      ...merged[domainKey as PlatformTcgplayerAutomationDomainKey],
+      ...readTcgplayerAutomationDomainConfigOverride(domainKey, value),
+    };
+  }
+
+  return merged;
+}
+
+function readTcgplayerAutomationDomainConfigOverride(
+  domainKey: string,
+  value: Readonly<Record<string, unknown>>,
+): Partial<PlatformTcgplayerAutomationDomainConfig> {
+  const requestDelayMs = readOptionalNumberOverride(value, domainKey, "requestDelayMs", false);
+  const rateLimitCooldownMs = readOptionalNumberOverride(value, domainKey, "rateLimitCooldownMs", true);
+  const maxConcurrentRequests = readOptionalNumberOverride(value, domainKey, "maxConcurrentRequests", true);
+  const adaptiveEnabled = readOptionalBooleanOverride(value, domainKey, "adaptiveEnabled");
+  const minRequestDelayMs = readOptionalNumberOverride(value, domainKey, "minRequestDelayMs", false);
+  const maxRequestDelayMs = readOptionalNumberOverride(value, domainKey, "maxRequestDelayMs", true);
+  const learnedMinDelayMs = readOptionalNumberOverride(value, domainKey, "learnedMinDelayMs", false);
+
+  return {
+    ...(requestDelayMs === undefined ? {} : { requestDelayMs }),
+    ...(rateLimitCooldownMs === undefined ? {} : { rateLimitCooldownMs }),
+    ...(maxConcurrentRequests === undefined ? {} : { maxConcurrentRequests }),
+    ...(adaptiveEnabled === undefined ? {} : { adaptiveEnabled }),
+    ...(minRequestDelayMs === undefined ? {} : { minRequestDelayMs }),
+    ...(maxRequestDelayMs === undefined ? {} : { maxRequestDelayMs }),
+    ...(learnedMinDelayMs === undefined ? {} : { learnedMinDelayMs }),
+  };
+}
+
+function readOptionalNumberOverride(
+  source: Readonly<Record<string, unknown>>,
+  domainKey: string,
+  key: keyof PlatformTcgplayerAutomationDomainConfig,
+  positive: boolean,
+): number | undefined {
+  const value = source[key];
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== "number" || !Number.isFinite(value) || (positive ? value <= 0 : value < 0)) {
+    throw new Error(
+      `TCGPLAYER_AUTOMATION_DOMAIN_CONFIG_JSON.${domainKey}.${key} must be a ${
+        positive ? "positive" : "non-negative"
+      } number.`,
+    );
+  }
+
+  return value;
+}
+
+function readOptionalBooleanOverride(
+  source: Readonly<Record<string, unknown>>,
+  domainKey: string,
+  key: keyof PlatformTcgplayerAutomationDomainConfig,
+): boolean | undefined {
+  const value = source[key];
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== "boolean") {
+    throw new Error(`TCGPLAYER_AUTOMATION_DOMAIN_CONFIG_JSON.${domainKey}.${key} must be a boolean.`);
+  }
+
+  return value;
+}
+
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

@@ -914,6 +914,16 @@ resource "digitalocean_app" "platform" {
           scope = "RUN_TIME"
         }
 
+        dynamic "env" {
+          for_each = local.catalog_magic_provider_runtime_env
+          content {
+            key   = env.key
+            value = env.value.value
+            type  = env.value.secret ? "SECRET" : "GENERAL"
+            scope = "RUN_TIME"
+          }
+        }
+
         env {
           key   = "DEPLOYMENT_ENVIRONMENT"
           value = var.environment
@@ -1089,6 +1099,16 @@ resource "digitalocean_app" "platform" {
           value = var.spaces_secret_key
           type  = "SECRET"
           scope = "RUN_TIME"
+        }
+
+        dynamic "env" {
+          for_each = local.catalog_magic_provider_runtime_env
+          content {
+            key   = env.key
+            value = env.value.value
+            type  = env.value.secret ? "SECRET" : "GENERAL"
+            scope = "RUN_TIME"
+          }
         }
 
         env {
@@ -1402,6 +1422,16 @@ resource "digitalocean_app" "platform" {
           scope = "RUN_TIME"
         }
 
+        dynamic "env" {
+          for_each = local.catalog_magic_provider_runtime_env
+          content {
+            key   = env.key
+            value = env.value.value
+            type  = env.value.secret ? "SECRET" : "GENERAL"
+            scope = "RUN_TIME"
+          }
+        }
+
         env {
           key   = "STRIPE_SECRET_KEY"
           value = var.stripe_secret_key
@@ -1678,6 +1708,16 @@ resource "digitalocean_app" "platform" {
           value = var.spaces_secret_key
           type  = "SECRET"
           scope = "RUN_TIME"
+        }
+
+        dynamic "env" {
+          for_each = local.catalog_magic_provider_runtime_env
+          content {
+            key   = env.key
+            value = env.value.value
+            type  = env.value.secret ? "SECRET" : "GENERAL"
+            scope = "RUN_TIME"
+          }
         }
       }
     }

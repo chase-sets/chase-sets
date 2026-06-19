@@ -3,6 +3,11 @@ import { serve } from "@hono/node-server";
 import { refreshProjectionReplaySummary } from "@chase-sets/bounded-context-runtime";
 import { createGoogleSocialLoginProvider } from "@chase-sets/auth/server";
 import {
+  createPostgresTcgplayerAutomationHttpConfigStore,
+  createTcgplayerAutomationCatalogClient,
+  createTcgplayerAutomationHttpClients,
+} from "@chase-sets/catalog/server";
+import {
   bootstrapPlatformControlPlane,
   createPostgresPlatformControlPlane,
 } from "@chase-sets/platform-runtime/control-plane";
@@ -40,6 +45,13 @@ configureDefaultDurableJobStreamLimiter(
   createDurableJobStreamLimiterFromRealtime(createPostgresRealtimeStreamLimiter({ pool: pools.control })),
 );
 const catalogAssetStorage = createCatalogAssetStorage(config.catalogAssetStorage);
+const tcgplayerAutomationCatalogClient = config.tcgplayerAutomation
+  ? createTcgplayerAutomationCatalogClient(
+      createTcgplayerAutomationHttpClients(
+        createPostgresTcgplayerAutomationHttpConfigStore(pools.catalog, config.tcgplayerAutomation),
+      ),
+    )
+  : undefined;
 const sourceObservationTelemetry = createSourceObservationTelemetry();
 const socialLoginProviders = [
   ...(config.socialLogin.google
@@ -56,6 +68,7 @@ const runtime = createAdminSupportApiHost({
   pools,
   hostPorts: {
     catalogAssetStorage,
+    ...(tcgplayerAutomationCatalogClient ? { tcgplayerAutomationCatalogClient } : {}),
     sourceObservationTelemetry,
     socialLoginProviders,
     adminGoogleWorkspaceSso: config.adminGoogleWorkspaceSso,

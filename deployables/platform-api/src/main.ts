@@ -2,6 +2,11 @@ import "./observability-prelude";
 import { serve } from "@hono/node-server";
 import { createClient } from "redis";
 import { refreshProjectionReplaySummary } from "@chase-sets/bounded-context-runtime";
+import {
+  createPostgresTcgplayerAutomationHttpConfigStore,
+  createTcgplayerAutomationCatalogClient,
+  createTcgplayerAutomationHttpClients,
+} from "@chase-sets/catalog/server";
 import { createFacebookSocialLoginProvider, createGoogleSocialLoginProvider } from "@chase-sets/auth/server";
 import { createStripePaymentProcessorGateway } from "@chase-sets/stripe-payments";
 import { createStripeConnectMoneyMovementGateway } from "@chase-sets/stripe-connect";
@@ -158,6 +163,13 @@ const mobileMessageWebhookGateway =
     : undefined;
 const emailWebhookGateway = createSesEmailWebhookGateway();
 const catalogAssetStorage = createCatalogAssetStorage(config.catalogAssetStorage);
+const tcgplayerAutomationCatalogClient = config.tcgplayerAutomation
+  ? createTcgplayerAutomationCatalogClient(
+      createTcgplayerAutomationHttpClients(
+        createPostgresTcgplayerAutomationHttpConfigStore(pools.catalog, config.tcgplayerAutomation),
+      ),
+    )
+  : undefined;
 const sourceObservationTelemetry = createSourceObservationTelemetry();
 const checkoutObservabilityTelemetry = createCheckoutObservabilityTelemetry();
 const listingPhotoStorage = createListingPhotoStorage(config.listingPhotoStorage);
@@ -200,6 +212,7 @@ const runtime = createPlatformApiHost({
     postageLabelProvider,
     ...(postageWebhookGateway ? { postageWebhookGateway } : {}),
     catalogAssetStorage,
+    ...(tcgplayerAutomationCatalogClient ? { tcgplayerAutomationCatalogClient } : {}),
     sourceObservationTelemetry,
     checkoutObservabilityTelemetry,
     listingPhotoStorage,
