@@ -83,6 +83,14 @@ Future audit persistence should append `rollout-control-denied` records to the C
 7. Enable broad activation only after candidate profiles pass activation readiness and rollback evidence is present.
 8. Remove `rollback-ready` after production health, job queues, audit evidence, and provider transport metrics stay green.
 
+Magic production sync has an additional start gate. MTGJSON, Scryfall, and
+TCGplayer Magic may be implemented behind disabled or dry-run-only controls, but
+production activation must wait for [Catalog Integration Magic Production Signoff](./catalog-integration-magic-production-signoff.md)
+and the interface-only staging UAT. During the UAT, operators must be able to
+verify dry-run-only, provider emergency stop, imports disabled, promotion
+disabled, and reapply disabled controls for each provider without using direct
+APIs, CLI commands, SQL, provider endpoints, or hidden routes.
+
 ## Rollback And Emergency Stops
 
 - Provider API/rate-limit incident: set `CATALOG_INTEGRATION_PROVIDER_API_EMERGENCY_STOP=<provider>`; option queries, provider transport, and imports stop while Catalog review of existing observations can continue.
@@ -102,3 +110,4 @@ Rollback verification should record the active env values, Admin readiness rollo
 - [Catalog Integration Job Consistency](./catalog-integration-job-consistency.md)
 - [Catalog Integration Provider Option Query Controls](./catalog-integration-provider-option-query-controls.md)
 - [Catalog Integration Operator Acceptance Journeys](./catalog-integration-operator-acceptance-journeys.md)
+- [Catalog Integration Magic Production Signoff](./catalog-integration-magic-production-signoff.md)

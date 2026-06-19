@@ -8,7 +8,7 @@ Status: pass for architecture validation.
 
 MTGJSON and Scryfall can be represented through Catalog Integration Control Plane extension points without adding provider-specific branches to Catalog runtime, API routes, Admin page logic, promotion/reapply code, or raw JSON authoring paths.
 
-This is validation evidence, not production enablement. Live sampling, retained provider payloads, exported raw evidence, and production activation still require the provider-data governance and policy/legal review and approval described in [Catalog Integration Data Governance](./catalog-integration-data-governance.md).
+This is validation evidence, not production enablement. Live sampling, retained provider payloads, exported raw evidence, and production activation still require the provider-data governance and policy/legal review and approval described in [Catalog Integration Data Governance](./catalog-integration-data-governance.md). Magic production activation across MTGJSON, Scryfall, and TCGplayer is gated by [Catalog Integration Magic Production Signoff](./catalog-integration-magic-production-signoff.md) and the interface-only staging UAT tracked by #2039.
 
 ## Current Provider Shape Checked
 
@@ -95,4 +95,6 @@ The validation intentionally does not register MTGJSON or Scryfall in the produc
 - provider attribution and terms/policy review and approval;
 - profile section activation readiness for the selected production units;
 - provider option query caching/backpressure configuration for live operator use;
-- release plan go/no-go evidence.
+- release plan go/no-go evidence;
+- Magic production signoff for MTGJSON, Scryfall, and TCGplayer authority and retained-data boundaries;
+- staging UAT evidence proving an operator can sync one Magic set from all three providers through the Chase Sets interface without handcrafted URLs, direct APIs, CLI, SQL, Postman, browser console commands, provider endpoints, or hidden Admin/API routes.
