@@ -16,12 +16,28 @@ describe("Catalog integration rollout controls", () => {
   it("keeps non-production env defaults open for provider UAT", () => {
     const policy = createCatalogIntegrationRolloutControlPolicyFromEnv({
       DEPLOYMENT_ENVIRONMENT: "staging",
+      NODE_ENV: "production",
     });
 
     expect(policy.decide({ capability: "provider-option-query", providerKey: "tcgplayer" })).toMatchObject({
       allowed: true,
     });
     expect(policy.decide({ capability: "import", providerKey: "mtgjson" })).toMatchObject({ allowed: true });
+  });
+
+  it("falls back to NODE_ENV production when deployment environment is absent", () => {
+    const policy = createCatalogIntegrationRolloutControlPolicyFromEnv({
+      NODE_ENV: "production",
+    });
+
+    expect(policy.decide({ capability: "import", providerKey: "tcgplayer" })).toMatchObject({
+      allowed: false,
+      controls: [
+        expect.objectContaining({ controlId: "dry-run-only" }),
+        expect.objectContaining({ controlId: "imports-disabled", providerKeys: ["mtgjson", "scryfall", "tcgplayer"] }),
+        expect.objectContaining({ controlId: "magic-production-signoff-required" }),
+      ],
+    });
   });
 
   it("defaults production Magic provider writes to dry-run and disabled until activation gates pass", () => {

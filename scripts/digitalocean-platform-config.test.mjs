@@ -145,7 +145,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformBootstrapJob).toContain("value = var.environment");
   });
 
-  it("wires Magic provider runtime config through Catalog API and worker components without checked-in secrets", () => {
+  it("wires Magic provider runtime config through Catalog API, worker, and bootstrap components without checked-in secrets", () => {
     expect(platformVariables).toContain('variable "tcgplayer_automation_tcg_auth_cookie"');
     expect(platformVariables).toContain("sensitive   = true");
     expect(platformVariables).toContain('default     = ""');
@@ -155,7 +155,10 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformLocals).toContain("CATALOG_INTEGRATION_PROVIDER_OPTION_QUERIES");
     expect(platformLocals).toContain('value  = local.is_production ? "dry-run-only" : "open"');
     expect(platformLocals).toContain('value  = local.is_production ? "mtgjson,scryfall,tcgplayer" : ""');
-    expect(occurrenceCount(platformMain, "for_each = local.catalog_magic_provider_runtime_env")).toBe(4);
+    expect(occurrenceCount(platformMain, "for_each = local.catalog_magic_provider_runtime_env")).toBe(5);
+    expect(terraformJobBlock(platformMain, "platform-bootstrap")).toContain(
+      "for_each = local.catalog_magic_provider_runtime_env",
+    );
     expect(platformMain).not.toMatch(/TCGAuthTicket|TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE\s*=\s*"[^"]+"/);
   });
 
@@ -1102,6 +1105,26 @@ describe("DigitalOcean platform configuration", () => {
       "Production marketplace promotion requires NOTIFICATION_EMAIL_PROVIDER=amazon-ses.",
     );
     expect(platformProductionWorkflow).toContain('export SMOKE_REQUIRE_MARKETPLACE="true"');
+  });
+
+  it("captures App Platform diagnostics when staging Terraform apply fails", () => {
+    const diagnosticsStep = workflowStep(platformProductionWorkflow, "Capture App Platform deploy diagnostics");
+    const diagnosticsIndex = platformProductionWorkflow.indexOf("- name: Capture App Platform deploy diagnostics");
+    const applyIndex = platformProductionWorkflow.lastIndexOf("- name: Terraform apply", diagnosticsIndex);
+    const waitIndex = platformProductionWorkflow.indexOf(
+      "- name: Wait for Terraform App Platform deployment",
+      diagnosticsIndex,
+    );
+
+    expect(applyIndex).toBeGreaterThan(-1);
+    expect(waitIndex).toBeGreaterThan(diagnosticsIndex);
+    expect(diagnosticsIndex).toBeGreaterThan(applyIndex);
+    expect(diagnosticsIndex).toBeLessThan(waitIndex);
+    expect(diagnosticsStep).toContain("if: failure() && env.SHOULD_DEPLOY != 'false'");
+    expect(diagnosticsStep).toContain('app_id="$(terraform output -raw app_id 2>/dev/null || true)"');
+    expect(diagnosticsStep).toContain(
+      'node ../../../scripts/digitalocean-app-deployment.mjs diagnostics "$app_id" --component=platform-bootstrap --tail-lines=300',
+    );
   });
 
   it("keeps admin-web API dependency inventory aligned with local proxy and proof ingress", () => {
