@@ -1,0 +1,20 @@
+{
+  "kind": "single-card",
+  "card": {
+    "object": "card",
+    "id": "0000579f-7b35-4ed3-b44c-db2a538066fe",
+    "name": "Fury Sliver",
+    "printed_name": "Fury Sliver Updated",
+    "lang": "en",
+    "released_at": "2006-10-06",
+    "scryfall_uri": "https://scryfall.com/card/tsp/157/fury-sliver",
+    "set": "tsp",
+    "set_name": "Time Spiral Remastered",
+    "collector_number": "157",
+    "image_uris": {
+      "normal": "https://cards.scryfall.io/normal/front/0/0/0000579f-7b35-4ed3-b44c-db2a538066fe.jpg"
+    },
+    "tcgplayer_id": 14240,
+    "uri": "https://api.scryfall.com/cards/0000579f-7b35-4ed3-b44c-db2a538066fe"
+  }
+}

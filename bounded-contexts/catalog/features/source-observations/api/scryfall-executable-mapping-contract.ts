@@ -36,7 +36,7 @@ const scryfallConnectorContract = {
 } as const;
 
 const fixtures = {
-  fixtureRoot: "bounded-contexts/catalog/features/source-observations/api/__fixtures__/scrydex",
+  fixtureRoot: "bounded-contexts/catalog/features/source-observations/api/__fixtures__/scryfall-card-print",
   coveredFlows: ["normal", "partial", "stale", "changed", "ambiguous", "replay", "sealed-product", "unknown-option"],
   liveProviderCallsAllowed: false,
 } as const;
@@ -165,7 +165,10 @@ export const scryfallMtgImageEvidenceSourceObservationMappingContract = {
     fixtureSetVersion: "scryfall-mtg-image-evidence-production-v1",
   },
   connector: scryfallConnectorContract,
-  fixtures,
+  fixtures: {
+    ...fixtures,
+    fixtureRoot: "bounded-contexts/catalog/features/source-observations/api/__fixtures__/scryfall-image-evidence",
+  },
   sourceObservation: scryfallSourceObservationContract("scryfall_image_{languageCode}_{scryfallId}", "image"),
   normalizedObservation: scryfallNormalizedObservation(),
   externalReferences: scryfallExternalReferences(),

@@ -1,0 +1,19 @@
+{
+  "kind": "single-card",
+  "card": {
+    "object": "card",
+    "id": "sealed-fixture-0001",
+    "name": "Time Spiral Booster Pack",
+    "lang": "en",
+    "released_at": "2006-10-06",
+    "scryfall_uri": "https://scryfall.com/sets/tsp",
+    "set": "tsp",
+    "set_name": "Time Spiral",
+    "collector_number": "sealed-pack",
+    "image_uris": {
+      "normal": "https://cards.scryfall.io/normal/front/sealed/time-spiral-booster.jpg"
+    },
+    "tcgplayer_id": 96601,
+    "uri": "https://api.scryfall.com/cards/sealed-fixture-0001"
+  }
+}

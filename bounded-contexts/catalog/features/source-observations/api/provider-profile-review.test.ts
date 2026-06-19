@@ -25,14 +25,15 @@ describe("Catalog provider profile review", () => {
     const reviews = await listCatalogProviderProfileVersionReviews(profileStore());
 
     expect(reviews.map((review) => [review.providerKey, review.profileVersion, review.validation.status])).toEqual([
-      ["scrydex", "2026.06.03", "valid"],
+      ["scryfall", "2026.06.19", "valid"],
+      ["scryfall", "2026.06.19", "valid"],
       ["tcgdex", "2026.06.03", "valid"],
       ["tcgplayer", "2026.06.03", "valid"],
     ]);
-    expect(reviews.find((review) => review.providerKey === "scrydex")).toMatchObject({
-      connectorKind: "scrydex-scryfall-json",
+    expect(reviews.find((review) => review.profileKey === "mtg-card-print-reference-data")).toMatchObject({
+      connectorKind: "scryfall-json",
       sourceContract: {
-        fixtureSetVersion: "scrydex-scryfall-card-proof-v1",
+        fixtureSetVersion: "scryfall-mtg-card-print-production-v1",
       },
       fixtures: {
         liveProviderCallsAllowed: false,
@@ -61,24 +62,27 @@ describe("Catalog provider profile review", () => {
   it("dry-runs executable profiles with redacted payload and mapping evidence", async () => {
     const result = await dryRunCatalogProviderProfileVersion({
       store: profileStore(),
-      providerKey: "scrydex",
-      profileVersion: "2026.06.03",
-      payload: scrydexPayload(),
+      providerKey: "scryfall",
+      profileKey: "mtg-card-print-reference-data",
+      profileVersion: "2026.06.19",
+      payload: scryfallPayload(),
       observedAt: "2026-06-03T00:00:00.000Z",
     });
 
     expect(result.status).toBe("completed");
     expect(result.observation).toMatchObject({
-      providerKey: "scrydex",
-      externalKey: "scryfall:0000579f-7b35-4ed3-b44c-db2a538066fe",
+      providerKey: "scryfall",
+      externalKey: "card:0000579f-7b35-4ed3-b44c-db2a538066fe",
       normalized: {
         kind: "magic-card-print",
         externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:14240" }],
       },
     });
     expect(result.redactedPayload).toMatchObject({
-      prices: "[redacted]",
-      auth: "[redacted]",
+      card: {
+        prices: "[redacted]",
+        auth: "[redacted]",
+      },
     });
     expect(result.hashMaterial).toHaveLength(1);
     expect(result.mergeCandidateEvidence.map((evidence) => evidence.value)).toEqual([14240, "157", "Time Spiral"]);
@@ -377,8 +381,9 @@ describe("Catalog provider profile review", () => {
   it("links dry-run diagnostics back to semantic profile sections and fixture flows", async () => {
     const result = await dryRunCatalogProviderProfileVersion({
       store: profileStore(),
-      providerKey: "scrydex",
-      profileVersion: "2026.06.03",
+      providerKey: "scryfall",
+      profileKey: "mtg-card-print-reference-data",
+      profileVersion: "2026.06.19",
       payload: {},
       observedAt: "2026-06-03T00:00:00.000Z",
       fixtureFlow: "normal",
@@ -651,11 +656,17 @@ function profileStore(
     upsertProfileVersion: async (version) => version,
     listProfileVersions: async (providerKey) =>
       versions.filter((version) => !providerKey || version.providerKey === providerKey),
-    getProfileVersion: async (providerKey, profileVersion) =>
-      versions.find((version) => version.providerKey === providerKey && version.profileVersion === profileVersion) ??
-      null,
-    getActiveProfileVersion: async (providerKey) =>
-      versions.find((version) => version.providerKey === providerKey && version.active) ?? null,
+    getProfileVersion: async (providerKey, profileVersion, selector) =>
+      versions.find(
+        (version) =>
+          version.providerKey === providerKey &&
+          version.profileVersion === profileVersion &&
+          selectorMatchesVersion(selector, version),
+      ) ?? null,
+    getActiveProfileVersion: async (providerKey, selector) =>
+      versions.find(
+        (version) => version.providerKey === providerKey && version.active && selectorMatchesVersion(selector, version),
+      ) ?? null,
     activateProfileVersion: async (providerKey, profileVersion) => {
       const version = versions.find(
         (candidate) => candidate.providerKey === providerKey && candidate.profileVersion === profileVersion,
@@ -722,11 +733,17 @@ function mutableProfileStore(
     },
     listProfileVersions: async (providerKey) =>
       records.filter((version) => !providerKey || version.providerKey === providerKey),
-    getProfileVersion: async (providerKey, profileVersion) =>
-      records.find((version) => version.providerKey === providerKey && version.profileVersion === profileVersion) ??
-      null,
-    getActiveProfileVersion: async (providerKey) =>
-      records.find((version) => version.providerKey === providerKey && version.active) ?? null,
+    getProfileVersion: async (providerKey, profileVersion, selector) =>
+      records.find(
+        (version) =>
+          version.providerKey === providerKey &&
+          version.profileVersion === profileVersion &&
+          selectorMatchesVersion(selector, version),
+      ) ?? null,
+    getActiveProfileVersion: async (providerKey, selector) =>
+      records.find(
+        (version) => version.providerKey === providerKey && version.active && selectorMatchesVersion(selector, version),
+      ) ?? null,
     activateProfileVersion: async (providerKey, profileVersion) => {
       const version = records.find(
         (candidate) => candidate.providerKey === providerKey && candidate.profileVersion === profileVersion,
@@ -826,30 +843,53 @@ function fixtureCasesForProfileVersion(
     }));
 }
 
+function selectorMatchesVersion(
+  selector: Readonly<{ profileKey?: string | null; ingestionUnitKey?: string | null }> | null | undefined,
+  version: CatalogProviderIntegrationProfileVersionRecord,
+): boolean {
+  const profileKey = selector?.profileKey?.trim().toLowerCase();
+  const ingestionUnitKey = selector?.ingestionUnitKey?.trim().toLowerCase();
+  return (
+    (!profileKey || version.profileKey.trim().toLowerCase() === profileKey) &&
+    (!ingestionUnitKey ||
+      (
+        version.ingestionUnitIdentity?.unitKey ??
+        version.executableMappingContract?.ingestionUnitIdentity?.unitKey ??
+        ""
+      )
+        .trim()
+        .toLowerCase() === ingestionUnitKey)
+  );
+}
+
 function repositoryRoot(): string {
   return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../..");
 }
 
-function scrydexPayload(): JsonValue {
+function scryfallPayload(): JsonValue {
   return {
-    object: "card",
-    id: "0000579f-7b35-4ed3-b44c-db2a538066fe",
-    name: "Fury Sliver",
-    lang: "en",
-    released_at: "2006-10-06",
-    scryfall_uri: "https://scryfall.com/card/tsp/157/fury-sliver",
-    set: "tsp",
-    set_name: "Time Spiral",
-    collector_number: "157",
-    image_uris: {
-      normal: "https://cards.scryfall.io/normal/front/0/0/0000579f-7b35-4ed3-b44c-db2a538066fe.jpg",
-    },
-    tcgplayer_id: 14240,
-    prices: {
-      usd: "0.42",
-    },
-    auth: {
-      cookie: "TCGAuthTicket_Production=secret",
+    kind: "single-card",
+    card: {
+      object: "card",
+      id: "0000579f-7b35-4ed3-b44c-db2a538066fe",
+      name: "Fury Sliver",
+      lang: "en",
+      released_at: "2006-10-06",
+      uri: "https://api.scryfall.com/cards/0000579f-7b35-4ed3-b44c-db2a538066fe",
+      scryfall_uri: "https://scryfall.com/card/tsp/157/fury-sliver",
+      set: "tsp",
+      set_name: "Time Spiral",
+      collector_number: "157",
+      image_uris: {
+        normal: "https://cards.scryfall.io/normal/front/0/0/0000579f-7b35-4ed3-b44c-db2a538066fe.jpg",
+      },
+      tcgplayer_id: 14240,
+      prices: {
+        usd: "0.42",
+      },
+      auth: {
+        cookie: "TCGAuthTicket_Production=secret",
+      },
     },
   };
 }
