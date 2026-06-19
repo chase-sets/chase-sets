@@ -45,8 +45,15 @@ export type SourceObservationMergeIdentity = Readonly<{
   barcode?: string | null;
 }>;
 
+export type SourceObservationNormalizedKind =
+  | "pokemon-card"
+  | "provider-product"
+  | "magic-card-print"
+  | "magic-set-reference"
+  | "magic-sealed-product";
+
 export type SourceObservationNormalizedBase = Readonly<{
-  kind: string;
+  kind: SourceObservationNormalizedKind;
   languageCode: string;
   name: string;
   setName: string | null;
@@ -104,14 +111,85 @@ export type SourceObservationProviderProductNormalized = JsonObject &
     skuReferences: readonly SourceObservationExternalProductReference[];
   }>;
 
+export type SourceObservationMagicCardPrintNormalized = JsonObject &
+  SourceObservationNormalizedBase &
+  Readonly<{
+    kind: "magic-card-print";
+    tcg: "magic";
+    languageCode: string;
+    name: string;
+    cardNumber: string;
+    setCode: string;
+    setName: string;
+    setId: string | null;
+    oracleId: string | null;
+    rarity: string | null;
+    illustrator: string | null;
+    releaseDate: string | null;
+    releaseYear: number | null;
+    cardVariantKey: string | null;
+    cardVariantLabel: string | null;
+    imageUrls: readonly string[];
+    mergeIdentity?: SourceObservationMergeIdentity;
+    externalCatalogItemReferences?: readonly SourceObservationExternalCatalogItemReference[];
+  }>;
+
+export type SourceObservationMagicSetReferenceNormalized = JsonObject &
+  SourceObservationNormalizedBase &
+  Readonly<{
+    kind: "magic-set-reference";
+    tcg: "magic";
+    languageCode: string;
+    name: string;
+    setCode: string;
+    setName: string;
+    setId: string | null;
+    releaseDate: string | null;
+    releaseYear: number | null;
+    cardCount: number | null;
+    productLineName: "Magic: The Gathering";
+    externalCatalogItemReferences?: readonly SourceObservationExternalCatalogItemReference[];
+  }>;
+
+export type SourceObservationMagicSealedProductNormalized = JsonObject &
+  SourceObservationNormalizedBase &
+  Readonly<{
+    kind: "magic-sealed-product";
+    tcg: "magic";
+    languageCode: string;
+    name: string;
+    setCode: string;
+    setName: string;
+    setId: string | null;
+    sealedProductForm: "booster-pack" | "booster-box" | "bundle" | "deck" | "sealed-product";
+    packCount: number;
+    releaseDate: string | null;
+    releaseYear: number | null;
+    productLineName: "Magic: The Gathering";
+    barcode: string | null;
+    imageUrls: readonly string[];
+    mergeIdentity?: SourceObservationMergeIdentity;
+    externalCatalogItemReferences?: readonly SourceObservationExternalCatalogItemReference[];
+    externalProductReferences?: readonly SourceObservationExternalProductReference[];
+  }>;
+
 export type SourceObservationNormalized =
   | SourceObservationPokemonCardNormalized
-  | SourceObservationProviderProductNormalized;
+  | SourceObservationProviderProductNormalized
+  | SourceObservationMagicCardPrintNormalized
+  | SourceObservationMagicSetReferenceNormalized
+  | SourceObservationMagicSealedProductNormalized;
 
 export function isPokemonCardSourceObservationNormalized(
   normalized: SourceObservationNormalized,
 ): normalized is SourceObservationPokemonCardNormalized {
   return normalized.kind === "pokemon-card";
+}
+
+export function isMagicCatalogItemSourceObservationNormalized(
+  normalized: SourceObservationNormalized,
+): normalized is SourceObservationMagicCardPrintNormalized | SourceObservationMagicSealedProductNormalized {
+  return normalized.kind === "magic-card-print" || normalized.kind === "magic-sealed-product";
 }
 
 export type SourceObservationState = Readonly<{

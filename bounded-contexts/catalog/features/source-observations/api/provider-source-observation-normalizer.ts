@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { JsonValue } from "@chase-sets/primitives/json";
+import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
 import type { SourceObservationNormalized } from "../domain/domain";
 import type {
   CatalogProviderExecutableMappingContract,
@@ -104,6 +104,12 @@ export function normalizeCatalogProviderSourceObservation(input: {
     languageCode,
     ...normalizedFields,
   } as SourceObservationNormalized;
+  const validationDiagnostics: CatalogProviderMappingInterpreterDiagnostic[] = [];
+  validateNormalizedObservationContract(normalized, validationDiagnostics);
+  diagnostics.push(...validationDiagnostics);
+  if (validationDiagnostics.length > 0) {
+    return { observation: null, diagnostics };
+  }
 
   return {
     observation: {
@@ -122,6 +128,97 @@ export function normalizeCatalogProviderSourceObservation(input: {
       sourcePayload,
     },
     diagnostics,
+  };
+}
+
+function validateNormalizedObservationContract(
+  normalized: SourceObservationNormalized,
+  diagnostics: CatalogProviderMappingInterpreterDiagnostic[],
+): void {
+  switch (normalized.kind) {
+    case "pokemon-card":
+    case "provider-product":
+      return;
+    case "magic-card-print":
+      requireNormalizedString(normalized, "name", diagnostics);
+      requireNormalizedString(normalized, "cardNumber", diagnostics);
+      requireNormalizedString(normalized, "setCode", diagnostics);
+      requireNormalizedString(normalized, "setName", diagnostics);
+      requireNormalizedLiteral(normalized, "tcg", "magic", diagnostics);
+      requireNormalizedArray(normalized, "imageUrls", diagnostics, { allowEmpty: true });
+      return;
+    case "magic-set-reference":
+      requireNormalizedString(normalized, "name", diagnostics);
+      requireNormalizedString(normalized, "setCode", diagnostics);
+      requireNormalizedString(normalized, "setName", diagnostics);
+      requireNormalizedLiteral(normalized, "tcg", "magic", diagnostics);
+      return;
+    case "magic-sealed-product":
+      requireNormalizedString(normalized, "name", diagnostics);
+      requireNormalizedString(normalized, "setCode", diagnostics);
+      requireNormalizedString(normalized, "setName", diagnostics);
+      requireNormalizedString(normalized, "sealedProductForm", diagnostics);
+      requireNormalizedNumber(normalized, "packCount", diagnostics);
+      requireNormalizedLiteral(normalized, "tcg", "magic", diagnostics);
+      requireNormalizedArray(normalized, "imageUrls", diagnostics, { allowEmpty: true });
+      return;
+  }
+}
+
+function requireNormalizedString(
+  normalized: JsonObject,
+  fieldKey: string,
+  diagnostics: CatalogProviderMappingInterpreterDiagnostic[],
+): void {
+  const value = normalized[fieldKey];
+  if (typeof value === "string" && value.trim().length > 0) {
+    return;
+  }
+  diagnostics.push(requiredFieldDiagnostic(fieldKey, "must resolve to a non-empty string"));
+}
+
+function requireNormalizedNumber(
+  normalized: JsonObject,
+  fieldKey: string,
+  diagnostics: CatalogProviderMappingInterpreterDiagnostic[],
+): void {
+  if (typeof normalized[fieldKey] === "number" && Number.isFinite(normalized[fieldKey])) {
+    return;
+  }
+  diagnostics.push(requiredFieldDiagnostic(fieldKey, "must resolve to a finite number"));
+}
+
+function requireNormalizedLiteral(
+  normalized: JsonObject,
+  fieldKey: string,
+  expected: string,
+  diagnostics: CatalogProviderMappingInterpreterDiagnostic[],
+): void {
+  if (normalized[fieldKey] === expected) {
+    return;
+  }
+  diagnostics.push(requiredFieldDiagnostic(fieldKey, `must resolve to '${expected}'`));
+}
+
+function requireNormalizedArray(
+  normalized: JsonObject,
+  fieldKey: string,
+  diagnostics: CatalogProviderMappingInterpreterDiagnostic[],
+  options: Readonly<{ allowEmpty: boolean }>,
+): void {
+  const value = normalized[fieldKey];
+  if (Array.isArray(value) && (options.allowEmpty || value.length > 0)) {
+    return;
+  }
+  diagnostics.push(requiredFieldDiagnostic(fieldKey, "must resolve to an array"));
+}
+
+function requiredFieldDiagnostic(fieldKey: string, expectation: string): CatalogProviderMappingInterpreterDiagnostic {
+  return {
+    code: "transform-type-mismatch",
+    path: `normalizedObservation.fields.${fieldKey}`,
+    redaction: "none",
+    diagnosticText: `Normalized observation field '${fieldKey}' ${expectation}.`,
   };
 }
 

@@ -85,6 +85,55 @@ describe("source observation domain", () => {
     });
   });
 
+  it("records Magic normalized observation kinds as first-class source evidence", () => {
+    const magicNormalized: SourceObservationNormalized = {
+      kind: "magic-card-print",
+      tcg: "magic",
+      languageCode: "en",
+      name: "Fury Sliver",
+      cardNumber: "157",
+      setCode: "tsp",
+      setName: "Time Spiral",
+      expansionName: "Time Spiral",
+      setId: null,
+      oracleId: "44623693-51d6-49ad-8cd7-140505caf02f",
+      rarity: "Rare",
+      illustrator: "Paolo Parente",
+      releaseDate: "2006-10-06",
+      releaseYear: 2006,
+      cardVariantKey: "standard",
+      cardVariantLabel: "Standard",
+      imageUrls: ["https://cards.scryfall.io/normal/front/fury-sliver.jpg"],
+      mergeIdentity: {
+        tcg: "magic",
+        productLineName: "Magic: The Gathering",
+        setName: "Time Spiral",
+        printedProductName: "Fury Sliver",
+        collectorNumber: "157",
+        languageCode: "en",
+        productForm: "magic-card-print",
+      },
+    };
+
+    const recorded = decideSourceObservation(initialSourceObservationState, {
+      ...recordCommand,
+      observationId: "scrydex_en_0000579f",
+      providerKey: "scrydex",
+      externalKey: "scryfall:0000579f",
+      sourceUrl: "https://scryfall.com/card/tsp/157/fury-sliver",
+      sourceRecordHash: "magic-hash",
+      sourceProfileKey: "scryfall-card-fixture",
+      normalized: magicNormalized,
+      sourcePayload: { id: "0000579f" },
+    });
+
+    expect(evolveSourceObservation(initialSourceObservationState, recorded[0]).normalized).toMatchObject({
+      kind: "magic-card-print",
+      setName: "Time Spiral",
+      cardNumber: "157",
+    });
+  });
+
   it("rejects retired legacy profile markers instead of recording fallback metadata", () => {
     expect(() =>
       decideSourceObservation(initialSourceObservationState, {

@@ -197,7 +197,7 @@ export type CatalogProviderMappingValueExpression = Readonly<{
 }>;
 
 export type CatalogProviderNormalizedObservationContract = Readonly<{
-  outputKind: "pokemon-card" | "provider-product";
+  outputKind: "pokemon-card" | "provider-product" | "magic-card-print" | "magic-set-reference" | "magic-sealed-product";
   languageCode: CatalogProviderMappingValueExpression;
   fields: Readonly<Record<string, CatalogProviderMappingValueExpression>>;
   hashMaterial: readonly CatalogProviderMappingValueExpression[];

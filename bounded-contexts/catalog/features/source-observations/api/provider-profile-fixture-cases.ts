@@ -7,10 +7,11 @@ export function catalogProviderProfileFixtureCases(): readonly CatalogProviderPr
       normal: {
         expectedObservation: {
           externalKey: "scryfall:0000579f-7b35-4ed3-b44c-db2a538066fe",
-          normalizedKind: "provider-product",
+          normalizedKind: "magic-card-print",
           normalizedFields: {
             name: "Fury Sliver",
-            productLineName: "Magic: The Gathering",
+            setCode: "tsp",
+            setName: "Time Spiral",
           },
           externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:14240" }],
         },
@@ -24,9 +25,10 @@ export function catalogProviderProfileFixtureCases(): readonly CatalogProviderPr
       "sealed-product": {
         expectedObservation: {
           externalKey: "scryfall:sealed-fixture-0001",
-          normalizedKind: "provider-product",
+          normalizedKind: "magic-card-print",
           normalizedFields: {
             name: "Time Spiral Booster Pack",
+            setCode: "tsp",
           },
           externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:96601" }],
         },
@@ -34,7 +36,7 @@ export function catalogProviderProfileFixtureCases(): readonly CatalogProviderPr
       "unknown-option": {
         expectedObservation: {
           externalKey: "scryfall:unknown-option-fixture-0001",
-          normalizedKind: "provider-product",
+          normalizedKind: "magic-card-print",
           normalizedFields: {
             cardNumber: "001-star",
           },
@@ -161,7 +163,10 @@ function providerCases(
     flow,
     payloadFile: `${flow}.json`,
     expectedStatus: "completed",
-    expectedObservation: { normalizedKind: providerKey === "tcgdex" ? "pokemon-card" : "provider-product" },
+    expectedObservation: {
+      normalizedKind:
+        providerKey === "tcgdex" ? "pokemon-card" : providerKey === "scrydex" ? "magic-card-print" : "provider-product",
+    },
     ...expectations[flow],
   }));
 }

@@ -29,6 +29,7 @@ export const scrydexScryfallCardSourceObservationMappingContract = {
       "merge-identity",
       "external-reference",
       "reference-hierarchy",
+      "promotion-command",
     ],
   },
   fixtures: {
@@ -49,14 +50,21 @@ export const scrydexScryfallCardSourceObservationMappingContract = {
     sourcePayload: scrydexPathExpression(".", "catalog-merge-evidence", ["source-payload"]),
   },
   normalizedObservation: {
-    outputKind: "provider-product",
+    outputKind: "magic-card-print",
     languageCode: scrydexPathExpression("lang", "catalog-truth", ["normalized-observation", "hash-material"]),
     fields: {
+      tcg: scrydexConstantExpression("magic", "catalog-truth", ["normalized-observation", "hash-material"]),
       name: scrydexCoalesceExpression(
         [scrydexPathSelector("printed_name", false), scrydexPathSelector("name", true)],
         "catalog-truth",
         ["normalized-observation", "hash-material"],
       ),
+      setCode: scrydexPathExpression("set", "catalog-truth", [
+        "normalized-observation",
+        "hash-material",
+        "merge-identity",
+      ]),
+      setId: scrydexOptionalPathExpression("set_id", "external-reference", ["normalized-observation"]),
       setName: scrydexPathExpression("set_name", "catalog-truth", ["normalized-observation", "hash-material"]),
       expansionName: scrydexPathExpression("set_name", "catalog-truth", ["normalized-observation", "hash-material"]),
       cardNumber: scrydexPathExpression("collector_number", "catalog-truth", [
@@ -64,6 +72,19 @@ export const scrydexScryfallCardSourceObservationMappingContract = {
         "hash-material",
         "merge-identity",
       ]),
+      oracleId: scrydexOptionalPathExpression("oracle_id", "external-reference", [
+        "normalized-observation",
+        "hash-material",
+      ]),
+      rarity: scrydexOptionalPathExpression("rarity", "catalog-truth", ["normalized-observation", "hash-material"]),
+      illustrator: scrydexOptionalPathExpression("artist", "catalog-truth", ["normalized-observation"]),
+      releaseDate: scrydexOptionalPathExpression("released_at", "catalog-truth", [
+        "normalized-observation",
+        "hash-material",
+      ]),
+      releaseYear: scrydexConstantExpression(null, "catalog-truth", ["normalized-observation"]),
+      cardVariantKey: scrydexConstantExpression("standard", "catalog-truth", ["normalized-observation"]),
+      cardVariantLabel: scrydexConstantExpression("Standard", "catalog-truth", ["normalized-observation"]),
       imageUrls: scrydexArrayExpression(
         [
           scrydexOptionalPathExpression("image_uris.normal", "catalog-truth", [
@@ -85,7 +106,7 @@ export const scrydexScryfallCardSourceObservationMappingContract = {
           printedProductName: scrydexPathExpression("name", "catalog-merge-evidence", ["merge-identity"]),
           collectorNumber: scrydexPathExpression("collector_number", "catalog-merge-evidence", ["merge-identity"]),
           languageCode: scrydexPathExpression("lang", "catalog-merge-evidence", ["merge-identity"]),
-          productForm: scrydexConstantExpression("single", "catalog-merge-evidence", ["merge-identity"]),
+          productForm: scrydexConstantExpression("magic-card-print", "catalog-merge-evidence", ["merge-identity"]),
         },
         "catalog-merge-evidence",
         ["normalized-observation", "merge-identity"],
@@ -110,14 +131,6 @@ export const scrydexScryfallCardSourceObservationMappingContract = {
         "normalized-observation",
         "external-reference",
       ]),
-      providerProductId: scrydexPathExpression("id", "external-reference", ["normalized-observation", "hash-material"]),
-      providerProductName: scrydexPathExpression("name", "catalog-truth", ["normalized-observation", "hash-material"]),
-      productLineName: scrydexConstantExpression("Magic: The Gathering", "catalog-merge-evidence", [
-        "normalized-observation",
-        "merge-identity",
-      ]),
-      productCategoryName: scrydexConstantExpression("Cards", "catalog-merge-evidence", ["normalized-observation"]),
-      skuReferences: scrydexConstantExpression([], "external-reference", ["normalized-observation"]),
     },
     hashMaterial: [
       scrydexObjectExpression(
@@ -152,8 +165,8 @@ export const scrydexScryfallCardSourceObservationMappingContract = {
   ],
   referenceHierarchy: [
     {
-      targetTypeKey: "expansion",
-      providerAttributeKey: "scrydex-set-code",
+      targetTypeKey: "set",
+      providerAttributeKey: "scryfall-set-code",
       referenceRecordKey: scrydexPathExpression("set", "external-reference", ["reference-hierarchy"]),
     },
   ],
@@ -184,7 +197,27 @@ export const scrydexScryfallCardSourceObservationMappingContract = {
   promotionCommandPlan: {
     planKind: "catalog-item-promotion",
     requiresReview: true,
-    commands: [],
+    commands: [
+      {
+        commandName: "CreateCatalogItem",
+        inputs: {
+          title: scrydexPathExpression("name", "catalog-truth", ["promotion-command"]),
+        },
+      },
+      {
+        commandName: "SetCatalogItemFieldValue",
+        inputs: {
+          fieldKey: scrydexConstantExpression("set", "catalog-truth", ["promotion-command"]),
+          value: scrydexPathExpression("set_name", "catalog-truth", ["promotion-command"]),
+        },
+      },
+      {
+        commandName: "LinkExternalCatalogItemReference",
+        inputs: {
+          externalKey: scrydexPathExpression("tcgplayer_id", "external-reference", ["promotion-command"]),
+        },
+      },
+    ],
   },
   nonGoals: [
     "no-live-provider-calls-in-mapping-tests",

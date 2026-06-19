@@ -7,7 +7,12 @@ import {
   productAssetSetCompatibilityImageUrls,
   type ProductAssetSet,
 } from "../../../support/runtime-support/product-assets";
-import type { SourceObservationNormalized, SourceObservationPokemonCardNormalized } from "../domain/domain";
+import type {
+  SourceObservationMagicCardPrintNormalized,
+  SourceObservationMagicSealedProductNormalized,
+  SourceObservationNormalized,
+  SourceObservationPokemonCardNormalized,
+} from "../domain/domain";
 import type { CatalogProviderIntegrationProfile } from "./provider-integration-profiles";
 
 export type CatalogProviderPromotionMode = "create" | "refresh";
@@ -18,11 +23,13 @@ export type CatalogProviderPromotionResolvedCatalogMapping = Readonly<{
   fieldIds: Readonly<{
     cardNumber: FieldId;
     cardName: FieldId;
+    set?: FieldId;
     expansion: FieldId;
     rarity: FieldId;
     cardVariant: FieldId;
     cardIllustrator: FieldId;
     releaseYear: FieldId;
+    packCount?: FieldId;
   }>;
 }>;
 
@@ -38,6 +45,8 @@ export type CatalogProviderPromotionPreflight =
 export type CatalogProviderPromotionCommandPlanDiagnostic = Readonly<{
   code:
     | "missing-promotion-capability"
+    | "missing-normalized-field"
+    | "missing-reference-target"
     | "unsupported-observation-kind"
     | "unsupported-profile-mapping-kind"
     | CatalogProviderPromotionPreflightBlocked["code"];
@@ -88,7 +97,8 @@ export function planCatalogProviderPromotionCommands(input: {
   catalogItemId: CatalogItemId;
   normalized: SourceObservationNormalized;
   catalog: CatalogProviderPromotionResolvedCatalogMapping;
-  expansionReferenceId: ReferenceRecordId;
+  expansionReferenceId?: ReferenceRecordId;
+  setReferenceId?: ReferenceRecordId;
   metadata: Readonly<{ title: string; subtitle: string }>;
   productAssetSet: ProductAssetSet | null;
   preflight?: CatalogProviderPromotionPreflight;
@@ -102,11 +112,10 @@ export function planCatalogProviderPromotionCommands(input: {
     };
   }
 
-  const normalized = input.normalized as SourceObservationPokemonCardNormalized;
-  const commands = pokemonCardCommands({
-    ...input,
-    normalized,
-  });
+  const commands = commandsForNormalizedKind(input);
+  const sourceProductReferencesLinked = commands.filter(
+    (command) => command.type === "LinkExternalProductReference",
+  ).length;
   const planFingerprint = catalogProviderPromotionPlanFingerprint({
     providerKey: input.providerKey,
     profileKey: input.profileKey,
@@ -130,11 +139,12 @@ export function planCatalogProviderPromotionCommands(input: {
       requiresReview: true,
       commands,
       review: {
-        normalizedKind: normalized.kind,
+        normalizedKind: input.normalized.kind,
         commandCount: commands.length,
-        catalogItemReferencesLinked: uniqueExternalCatalogItemReferences(normalized.externalCatalogItemReferences ?? [])
-          .length,
-        sourceProductReferencesLinked: 1,
+        catalogItemReferencesLinked: uniqueExternalCatalogItemReferences(
+          input.normalized.externalCatalogItemReferences ?? [],
+        ).length,
+        sourceProductReferencesLinked,
       },
     },
     diagnostics: [],
@@ -144,6 +154,9 @@ export function planCatalogProviderPromotionCommands(input: {
 function promotionDiagnostics(input: {
   profile: CatalogProviderIntegrationProfile;
   normalized: SourceObservationNormalized;
+  catalog: CatalogProviderPromotionResolvedCatalogMapping;
+  expansionReferenceId?: ReferenceRecordId;
+  setReferenceId?: ReferenceRecordId;
   preflight?: CatalogProviderPromotionPreflight;
 }): CatalogProviderPromotionCommandPlanDiagnostic[] {
   const diagnostics: CatalogProviderPromotionCommandPlanDiagnostic[] = [];
@@ -156,20 +169,104 @@ function promotionDiagnostics(input: {
     });
   }
 
-  if (input.profile.normalizedObservationMapping.kind !== "pokemon-card") {
+  if (input.profile.normalizedObservationMapping.kind !== input.normalized.kind) {
     diagnostics.push({
       code: "unsupported-profile-mapping-kind",
       path: "profile.normalizedObservationMapping.kind",
-      diagnosticText: `Catalog promotion planning does not support profile kind '${input.profile.normalizedObservationMapping.kind}'.`,
+      diagnosticText: `Catalog promotion planning cannot use profile kind '${input.profile.normalizedObservationMapping.kind}' for normalized kind '${input.normalized.kind}'.`,
     });
   }
 
-  if (input.normalized.kind !== "pokemon-card") {
+  if (
+    input.normalized.kind !== "pokemon-card" &&
+    input.normalized.kind !== "magic-card-print" &&
+    input.normalized.kind !== "magic-sealed-product"
+  ) {
     diagnostics.push({
       code: "unsupported-observation-kind",
       path: "normalized.kind",
-      diagnosticText: `Catalog promotion planning does not support normalized kind '${input.normalized.kind}'.`,
+      diagnosticText:
+        input.normalized.kind === "magic-set-reference"
+          ? "Magic Set reference observations are reference-data evidence and cannot be promoted through the Catalog Item promotion path."
+          : `Catalog promotion planning does not support normalized kind '${input.normalized.kind}'.`,
     });
+  }
+
+  if (input.normalized.kind === "pokemon-card" && !input.expansionReferenceId) {
+    diagnostics.push({
+      code: "missing-reference-target",
+      path: "expansionReferenceId",
+      diagnosticText: "Pokemon card promotion requires a resolved Expansion Reference Record.",
+    });
+  }
+
+  if (
+    (input.normalized.kind === "magic-card-print" || input.normalized.kind === "magic-sealed-product") &&
+    !input.setReferenceId
+  ) {
+    diagnostics.push({
+      code: "missing-reference-target",
+      path: "setReferenceId",
+      diagnosticText: "Magic promotion requires a resolved Set Reference Record.",
+    });
+  }
+
+  if (input.normalized.kind === "magic-card-print") {
+    requireNormalizedString(input.normalized.name, "normalized.name", "Magic card print promotion", diagnostics);
+    requireNormalizedString(
+      input.normalized.cardNumber,
+      "normalized.cardNumber",
+      "Magic card print promotion",
+      diagnostics,
+    );
+    requireNormalizedString(input.normalized.setCode, "normalized.setCode", "Magic card print promotion", diagnostics);
+    requireNormalizedString(input.normalized.setName, "normalized.setName", "Magic card print promotion", diagnostics);
+    requirePromotionField(
+      input.catalog.fieldIds.set,
+      "catalog.fieldIds.set",
+      "Magic card print promotion",
+      diagnostics,
+    );
+  }
+
+  if (input.normalized.kind === "magic-sealed-product") {
+    requireNormalizedString(input.normalized.name, "normalized.name", "Magic sealed product promotion", diagnostics);
+    requireNormalizedString(
+      input.normalized.setCode,
+      "normalized.setCode",
+      "Magic sealed product promotion",
+      diagnostics,
+    );
+    requireNormalizedString(
+      input.normalized.setName,
+      "normalized.setName",
+      "Magic sealed product promotion",
+      diagnostics,
+    );
+    requireNormalizedString(
+      input.normalized.sealedProductForm,
+      "normalized.sealedProductForm",
+      "Magic sealed product promotion",
+      diagnostics,
+    );
+    requireNormalizedNumber(
+      input.normalized.packCount,
+      "normalized.packCount",
+      "Magic sealed product promotion",
+      diagnostics,
+    );
+    requirePromotionField(
+      input.catalog.fieldIds.set,
+      "catalog.fieldIds.set",
+      "Magic sealed product promotion",
+      diagnostics,
+    );
+    requirePromotionField(
+      input.catalog.fieldIds.packCount,
+      "catalog.fieldIds.packCount",
+      "Magic sealed product promotion",
+      diagnostics,
+    );
   }
 
   if (input.preflight?.status === "blocked") {
@@ -181,6 +278,92 @@ function promotionDiagnostics(input: {
   }
 
   return diagnostics;
+}
+
+function requireNormalizedString(
+  value: string | null | undefined,
+  path: string,
+  owner: string,
+  diagnostics: CatalogProviderPromotionCommandPlanDiagnostic[],
+): void {
+  if (typeof value === "string" && value.trim().length > 0) {
+    return;
+  }
+  diagnostics.push({
+    code: "missing-normalized-field",
+    path,
+    diagnosticText: `${owner} requires a non-empty normalized field at '${path}'.`,
+  });
+}
+
+function requireNormalizedNumber(
+  value: number | null | undefined,
+  path: string,
+  owner: string,
+  diagnostics: CatalogProviderPromotionCommandPlanDiagnostic[],
+): void {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return;
+  }
+  diagnostics.push({
+    code: "missing-normalized-field",
+    path,
+    diagnosticText: `${owner} requires a finite normalized number at '${path}'.`,
+  });
+}
+
+function requirePromotionField(
+  fieldId: FieldId | undefined,
+  path: string,
+  owner: string,
+  diagnostics: CatalogProviderPromotionCommandPlanDiagnostic[],
+): void {
+  if (fieldId) {
+    return;
+  }
+  diagnostics.push({
+    code: "missing-normalized-field",
+    path,
+    diagnosticText: `${owner} requires this Catalog field mapping.`,
+  });
+}
+
+function commandsForNormalizedKind(input: {
+  profile: CatalogProviderIntegrationProfile;
+  providerKey: string;
+  externalKey: string;
+  mode: CatalogProviderPromotionMode;
+  catalogItemId: CatalogItemId;
+  normalized: SourceObservationNormalized;
+  catalog: CatalogProviderPromotionResolvedCatalogMapping;
+  expansionReferenceId?: ReferenceRecordId;
+  setReferenceId?: ReferenceRecordId;
+  metadata: Readonly<{ title: string; subtitle: string }>;
+  productAssetSet: ProductAssetSet | null;
+}): readonly CatalogItemCommand[] {
+  switch (input.normalized.kind) {
+    case "pokemon-card":
+      return pokemonCardCommands({
+        ...input,
+        normalized: input.normalized,
+        expansionReferenceId: input.expansionReferenceId as ReferenceRecordId,
+      });
+    case "magic-card-print":
+      return magicCardPrintCommands({
+        ...input,
+        normalized: input.normalized,
+        setReferenceId: input.setReferenceId as ReferenceRecordId,
+      });
+    case "magic-sealed-product":
+      return magicSealedProductCommands({
+        ...input,
+        normalized: input.normalized,
+        setReferenceId: input.setReferenceId as ReferenceRecordId,
+      });
+    case "magic-set-reference":
+    case "provider-product":
+      return [];
+  }
 }
 
 function pokemonCardCommands(input: {
@@ -272,6 +455,128 @@ function pokemonCardCommands(input: {
   return commands;
 }
 
+function magicCardPrintCommands(input: {
+  profile: CatalogProviderIntegrationProfile;
+  providerKey: string;
+  externalKey: string;
+  mode: CatalogProviderPromotionMode;
+  catalogItemId: CatalogItemId;
+  normalized: SourceObservationMagicCardPrintNormalized;
+  catalog: CatalogProviderPromotionResolvedCatalogMapping;
+  setReferenceId: ReferenceRecordId;
+  metadata: Readonly<{ title: string; subtitle: string }>;
+  productAssetSet: ProductAssetSet | null;
+}): readonly CatalogItemCommand[] {
+  const commands = commonMagicCatalogItemCommands(input, magicCatalogItemTags(input.profile, input.normalized));
+  commands.splice(
+    input.mode === "create" ? 2 : 1,
+    0,
+    ...magicCardPrintFieldCommands(input.normalized, input.catalog.fieldIds, input.setReferenceId),
+  );
+  return commands;
+}
+
+function magicSealedProductCommands(input: {
+  profile: CatalogProviderIntegrationProfile;
+  providerKey: string;
+  externalKey: string;
+  mode: CatalogProviderPromotionMode;
+  catalogItemId: CatalogItemId;
+  normalized: SourceObservationMagicSealedProductNormalized;
+  catalog: CatalogProviderPromotionResolvedCatalogMapping;
+  setReferenceId: ReferenceRecordId;
+  metadata: Readonly<{ title: string; subtitle: string }>;
+  productAssetSet: ProductAssetSet | null;
+}): readonly CatalogItemCommand[] {
+  const commands = commonMagicCatalogItemCommands(input, magicCatalogItemTags(input.profile, input.normalized));
+  commands.splice(
+    input.mode === "create" ? 2 : 1,
+    0,
+    ...magicSealedProductFieldCommands(input.normalized, input.catalog.fieldIds, input.setReferenceId),
+  );
+  return commands;
+}
+
+function commonMagicCatalogItemCommands(
+  input: {
+    providerKey: string;
+    externalKey: string;
+    mode: CatalogProviderPromotionMode;
+    catalogItemId: CatalogItemId;
+    normalized: SourceObservationMagicCardPrintNormalized | SourceObservationMagicSealedProductNormalized;
+    catalog: CatalogProviderPromotionResolvedCatalogMapping;
+    metadata: Readonly<{ title: string; subtitle: string }>;
+    productAssetSet: ProductAssetSet | null;
+  },
+  tags: readonly string[],
+): CatalogItemCommand[] {
+  const commands: CatalogItemCommand[] = [];
+  const imageUrls = input.productAssetSet
+    ? productAssetSetCompatibilityImageUrls(input.productAssetSet)
+    : [...input.normalized.imageUrls];
+
+  if (input.mode === "create") {
+    commands.push({
+      type: "CreateCatalogItem",
+      itemId: input.catalogItemId,
+      languageCode: input.normalized.languageCode,
+      title: localizedText(input.metadata.title),
+      subtitle: localizedText(input.metadata.subtitle),
+      description: localizedText(""),
+    });
+    commands.push({
+      type: "AssignBlueprintToCatalogItem",
+      blueprintId: input.catalog.blueprintId,
+    });
+  } else {
+    commands.push({
+      type: "ReviseCatalogItemMetadata",
+      languageCode: input.normalized.languageCode,
+      title: localizedText(input.metadata.title),
+      subtitle: localizedText(input.metadata.subtitle),
+      description: localizedText(""),
+    });
+  }
+
+  if (input.mode === "create") {
+    commands.push({
+      type: "AssignCatalogItemToCategory",
+      categoryId: input.catalog.categoryId,
+    });
+  }
+
+  commands.push({ type: "SetCatalogItemTags", tags: [...tags] });
+  commands.push({ type: "SetCatalogItemImageUrls", imageUrls });
+  commands.push({
+    type: "SetCatalogItemProductAssetSets",
+    productAssetSets: input.productAssetSet ? [input.productAssetSet] : [],
+  });
+  commands.push({
+    type: "LinkExternalProductReference",
+    providerKey: input.providerKey,
+    externalKey: `${input.normalized.languageCode}:${input.externalKey}`,
+  });
+
+  for (const reference of uniqueExternalCatalogItemReferences(input.normalized.externalCatalogItemReferences ?? [])) {
+    commands.push({
+      type: "LinkExternalCatalogItemReference",
+      providerKey: reference.providerKey,
+      externalKey: reference.externalKey,
+    });
+  }
+
+  for (const reference of uniqueExternalProductReferences(input.normalized.externalProductReferences ?? [])) {
+    commands.push({
+      type: "LinkExternalProductReference",
+      providerKey: reference.providerKey,
+      externalKey: reference.externalKey,
+      selectedOptions: reference.selectedOptions,
+    });
+  }
+
+  return commands;
+}
+
 function pokemonCardFieldCommands(
   normalized: SourceObservationPokemonCardNormalized,
   fieldIds: CatalogProviderPromotionResolvedCatalogMapping["fieldIds"],
@@ -327,6 +632,58 @@ function pokemonCardFieldCommands(
   return commands;
 }
 
+function magicCardPrintFieldCommands(
+  normalized: SourceObservationMagicCardPrintNormalized,
+  fieldIds: CatalogProviderPromotionResolvedCatalogMapping["fieldIds"],
+  setReferenceId: ReferenceRecordId,
+): readonly CatalogItemCommand[] {
+  const commands: CatalogItemCommand[] = [
+    { type: "SetCatalogItemFieldValue", fieldId: fieldIds.cardNumber, value: normalized.cardNumber },
+    { type: "SetCatalogItemFieldValue", fieldId: fieldIds.cardName, value: localizedJsonText(normalized.name) },
+    { type: "SetCatalogItemFieldValue", fieldId: fieldIds.set as FieldId, value: { referenceId: setReferenceId } },
+  ];
+
+  if (normalized.rarity) {
+    commands.push({ type: "SetCatalogItemFieldValue", fieldId: fieldIds.rarity, value: normalized.rarity });
+  }
+  if (normalized.cardVariantLabel) {
+    commands.push({
+      type: "SetCatalogItemFieldValue",
+      fieldId: fieldIds.cardVariant,
+      value: normalized.cardVariantLabel,
+    });
+  }
+  if (normalized.illustrator) {
+    commands.push({
+      type: "SetCatalogItemFieldValue",
+      fieldId: fieldIds.cardIllustrator,
+      value: normalized.illustrator,
+    });
+  }
+  if (normalized.releaseYear !== null) {
+    commands.push({ type: "SetCatalogItemFieldValue", fieldId: fieldIds.releaseYear, value: normalized.releaseYear });
+  }
+
+  return commands;
+}
+
+function magicSealedProductFieldCommands(
+  normalized: SourceObservationMagicSealedProductNormalized,
+  fieldIds: CatalogProviderPromotionResolvedCatalogMapping["fieldIds"],
+  setReferenceId: ReferenceRecordId,
+): readonly CatalogItemCommand[] {
+  const commands: CatalogItemCommand[] = [
+    { type: "SetCatalogItemFieldValue", fieldId: fieldIds.set as FieldId, value: { referenceId: setReferenceId } },
+    { type: "SetCatalogItemFieldValue", fieldId: fieldIds.packCount as FieldId, value: normalized.packCount },
+  ];
+
+  if (normalized.releaseYear !== null) {
+    commands.push({ type: "SetCatalogItemFieldValue", fieldId: fieldIds.releaseYear, value: normalized.releaseYear });
+  }
+
+  return commands;
+}
+
 function pokemonCatalogItemTags(
   profile: CatalogProviderIntegrationProfile,
   normalized: SourceObservationPokemonCardNormalized,
@@ -341,12 +698,49 @@ function pokemonCatalogItemTags(
   ];
 }
 
+function magicCatalogItemTags(
+  profile: CatalogProviderIntegrationProfile,
+  normalized: SourceObservationMagicCardPrintNormalized | SourceObservationMagicSealedProductNormalized,
+): string[] {
+  return [
+    "magic",
+    profile.providerKey,
+    `set:${normalized.setCode.toLowerCase()}`,
+    `kind:${normalized.kind}`,
+    ...(normalized.kind === "magic-card-print" && normalized.cardVariantKey
+      ? [`variant:${normalized.cardVariantKey}`]
+      : []),
+    ...(normalized.kind === "magic-sealed-product" ? [`form:${normalized.sealedProductForm}`] : []),
+  ];
+}
+
 function uniqueExternalCatalogItemReferences(
-  references: readonly NonNullable<SourceObservationPokemonCardNormalized["externalCatalogItemReferences"]>[number][],
+  references: readonly NonNullable<SourceObservationNormalized["externalCatalogItemReferences"]>[number][],
 ) {
   const seen = new Set<string>();
   return references
     .map((reference) => ({
+      providerKey: reference.providerKey.trim().toLowerCase(),
+      externalKey: reference.externalKey.trim().toLowerCase(),
+    }))
+    .filter((reference) => reference.providerKey.length > 0 && reference.externalKey.length > 0)
+    .filter((reference) => {
+      const key = `${reference.providerKey}:${reference.externalKey}`;
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+}
+
+function uniqueExternalProductReferences(
+  references: readonly NonNullable<SourceObservationNormalized["externalProductReferences"]>[number][],
+) {
+  const seen = new Set<string>();
+  return references
+    .map((reference) => ({
+      ...reference,
       providerKey: reference.providerKey.trim().toLowerCase(),
       externalKey: reference.externalKey.trim().toLowerCase(),
     }))

@@ -94,7 +94,7 @@ describe("provider Source Observation normalizer", () => {
     );
   });
 
-  it("builds a Scrydex provider-product observation with TCGplayer Product ID bridge evidence", () => {
+  it("builds a Scrydex magic-card-print observation with Scryfall card print identity", () => {
     const result = normalizeCatalogProviderSourceObservation({
       contract: scrydexScryfallCardSourceObservationMappingContract,
       payload: scrydexScryfallCardPayload(),
@@ -110,18 +110,21 @@ describe("provider Source Observation normalizer", () => {
       languageCode: "en",
       sourceUpdatedAt: "2006-10-06",
       normalized: {
-        kind: "provider-product",
-        providerProductId: "0000579f-7b35-4ed3-b44c-db2a538066fe",
-        providerProductName: "Fury Sliver",
+        kind: "magic-card-print",
+        tcg: "magic",
         name: "Fury Sliver",
+        setCode: "tsp",
         setName: "Time Spiral",
         cardNumber: "157",
+        oracleId: "44623693-51d6-49ad-8cd7-140505caf02f",
+        releaseDate: "2006-10-06",
+        cardVariantKey: "standard",
+        cardVariantLabel: "Standard",
         imageUrls: [
           "https://cards.scryfall.io/normal/front/0/0/0000579f-7b35-4ed3-b44c-db2a538066fe.jpg",
           "https://cards.scryfall.io/png/front/0/0/0000579f-7b35-4ed3-b44c-db2a538066fe.png",
         ],
         externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:14240" }],
-        skuReferences: [],
         mergeIdentity: {
           tcg: "magic",
           productLineName: "Magic: The Gathering",
@@ -129,11 +132,41 @@ describe("provider Source Observation normalizer", () => {
           printedProductName: "Fury Sliver",
           collectorNumber: "157",
           languageCode: "en",
-          productForm: "single",
+          productForm: "magic-card-print",
         },
       },
     });
     expect(result.observation?.sourceRecordHash).toHaveLength(64);
+  });
+
+  it("blocks incomplete magic-card-print observations with actionable normalized field diagnostics", () => {
+    const contract: CatalogProviderSourceObservationMappingContract = {
+      ...scrydexScryfallCardSourceObservationMappingContract,
+      normalizedObservation: {
+        ...scrydexScryfallCardSourceObservationMappingContract.normalizedObservation,
+        fields: {
+          ...scrydexScryfallCardSourceObservationMappingContract.normalizedObservation.fields,
+          setCode: optionalExpr("missing_set_code", "catalog-truth", ["normalized-observation"]),
+        },
+      },
+    };
+
+    const result = normalizeCatalogProviderSourceObservation({
+      contract,
+      payload: scrydexScryfallCardPayload(),
+      observedAt: "2026-06-03T00:00:00.000Z",
+    });
+
+    expect(result.observation).toBeNull();
+    expect(result.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "transform-type-mismatch",
+          path: "normalizedObservation.fields.setCode",
+          diagnosticText: expect.stringContaining("setCode"),
+        }),
+      ]),
+    );
   });
 });
 

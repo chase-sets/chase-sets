@@ -172,7 +172,7 @@ export type CatalogProviderExternalReferenceRule = Readonly<{
 }>;
 
 export type CatalogProviderReferenceRecordRule = Readonly<{
-  typeKey: "series" | "expansion";
+  typeKey: "series" | "expansion" | "set" | "product-line" | "manufacturer";
   providerAttributeKey: string;
 }>;
 
@@ -307,7 +307,7 @@ export type CatalogProviderPartialDraftPokemonCardMatchRule = Readonly<{
 export type CatalogProviderSealedProductMatchRule = Readonly<{
   ruleKey: string;
   matchKind: "sealed-product-match";
-  normalizedKind: "provider-product";
+  normalizedKind: "provider-product" | "magic-sealed-product";
   productFormPath: "mergeIdentity.productForm";
   sealedValues: readonly string[];
   fieldMatches: readonly CatalogProviderDuplicatePreventionFieldMatch[];
@@ -350,7 +350,7 @@ export type CatalogProviderIntegrationProfile = Readonly<{
   optionQueries: readonly CatalogProviderOptionQuery[];
   connector: CatalogProviderConnectorProfile;
   normalizedObservationMapping: Readonly<{
-    kind: "pokemon-card" | "provider-product";
+    kind: "pokemon-card" | "provider-product" | "magic-card-print" | "magic-set-reference" | "magic-sealed-product";
     variantRules: readonly CatalogProviderVariantRule[];
     unknownVariantLabelPrefix: string;
     duplicateReferenceRule: "drop-repeated-across-variants";
@@ -361,11 +361,13 @@ export type CatalogProviderIntegrationProfile = Readonly<{
     fieldKeys: Readonly<{
       cardNumber: string;
       cardName: string;
+      set?: string;
       expansion: string;
       rarity: string;
       cardVariant: string;
       cardIllustrator: string;
       releaseYear: string;
+      packCount?: string;
     }>;
   }>;
   referenceHierarchyMapping: Readonly<{
@@ -1208,7 +1210,7 @@ export const scrydexScryfallCardProviderProfile = {
   providerKey: "scrydex",
   displayName: "Scrydex",
   status: "planned",
-  capabilities: ["source-observation-import", "external-reference-extraction"],
+  capabilities: ["source-observation-import", "catalog-item-promotion", "external-reference-extraction"],
   supportedScopes: ["product/card"],
   languageOptions: ["en"],
   optionQueries: [],
@@ -1228,33 +1230,68 @@ export const scrydexScryfallCardProviderProfile = {
     excludedEvidence: ["price", "seller", "inventory", "ruling", "legality"],
   },
   normalizedObservationMapping: {
-    kind: "provider-product",
+    kind: "magic-card-print",
     variantRules: [],
     unknownVariantLabelPrefix: "Unclassified Scrydex Variant",
     duplicateReferenceRule: "drop-repeated-across-variants",
   },
-  catalogFieldMapping: tcgdexPokemonTcgProviderProfile.catalogFieldMapping,
+  catalogFieldMapping: {
+    blueprintKey: "magic-card-print",
+    categoryKey: "magic-card-prints",
+    fieldKeys: {
+      cardNumber: "card-number",
+      cardName: "card-name",
+      set: "set",
+      expansion: "set",
+      rarity: "rarity",
+      cardVariant: "card-variant",
+      cardIllustrator: "card-illustrator",
+      releaseYear: "release-year",
+    },
+  },
   referenceHierarchyMapping: {
     providerReferenceIdPrefix: "ref_scrydex",
     providerAttributes: [
-      { typeKey: "expansion", providerAttributeKey: "scrydex-set-code" },
-      { typeKey: "expansion", providerAttributeKey: "scrydex-set-name" },
+      { typeKey: "set", providerAttributeKey: "scryfall-set-code" },
+      { typeKey: "set", providerAttributeKey: "scryfall-set-name" },
     ],
     targetRecordRuleKey: "set",
     referenceTypes: [
       {
-        referenceTypeId: catalogSeedIds.referenceTypes.expansion,
-        typeKey: "expansion",
-        name: "Expansion",
-        descriptionText: "A provider catalog set, expansion, or release group.",
-        attributeKeys: ["scrydex-set-code", "scrydex-set-name"],
+        referenceTypeId: catalogSeedIds.referenceTypes.productLine,
+        typeKey: "product-line",
+        name: "Product Line",
+        descriptionText: "A branded collectible product line.",
+        attributeKeys: ["official-name", "short-name"],
+      },
+      {
+        referenceTypeId: catalogSeedIds.referenceTypes.set,
+        typeKey: "set",
+        name: "Set",
+        descriptionText: "A Magic: The Gathering set or release group.",
+        attributeKeys: ["scryfall-set-code", "scryfall-set-name"],
       },
     ],
     referenceRecords: [
       {
+        ruleKey: "magic-product-line",
+        typeKey: "product-line",
+        recordId: {
+          kind: "static",
+          referenceRecordId: catalogSeedIds.referenceRecords.productLines.magicTheGathering,
+        },
+        key: { kind: "static", value: "magic-the-gathering" },
+        name: { kind: "static", value: "Magic: The Gathering" },
+        description: { kind: "static", value: "Magic: The Gathering trading card game." },
+        attributes: [
+          { attributeKey: "official-name", value: { kind: "static", value: "Magic: The Gathering" } },
+          { attributeKey: "short-name", value: { kind: "static", value: "Magic" } },
+        ],
+      },
+      {
         ruleKey: "set",
-        typeKey: "expansion",
-        recordId: { kind: "provider", typeKey: "expansion", providerValuePaths: ["set", "set_name"] },
+        typeKey: "set",
+        recordId: { kind: "provider", typeKey: "set", providerValuePaths: ["set", "set_name"] },
         key: { kind: "path", path: "set_name" },
         name: { kind: "path", path: "set_name" },
         description: {
@@ -1264,9 +1301,10 @@ export const scrydexScryfallCardProviderProfile = {
         },
         requiredPaths: ["set", "set_name"],
         attributes: [
-          { attributeKey: "scrydex-set-code", value: { kind: "path", path: "set" } },
-          { attributeKey: "scrydex-set-name", value: { kind: "path", path: "set_name" } },
+          { attributeKey: "scryfall-set-code", value: { kind: "path", path: "set" } },
+          { attributeKey: "scryfall-set-name", value: { kind: "path", path: "set_name" } },
         ],
+        relationships: [{ relationshipType: "part-of", ruleKey: "magic-product-line" }],
       },
     ],
   },
