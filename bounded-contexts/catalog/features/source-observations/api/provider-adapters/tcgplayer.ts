@@ -1,8 +1,17 @@
 import { t } from "@chase-sets/localization";
+import {
+  runCatalogIntegrationDryRun,
+  type CatalogIntegrationDryRunResult,
+  type CatalogIntegrationObservationFact,
+} from "../catalog-integration-engine";
 import { createCatalogProviderCredentialReadiness } from "../catalog-integration-credential-readiness";
 import { defineCatalogIntegrationUnitKey } from "../integration-unit";
 import type { CatalogProviderIntegrationProfileVersionRecord } from "../provider-integration-profiles";
 import { assembleCatalogProviderIngestionUnitProfileSections } from "../provider-profile-sections";
+import {
+  TCGPLAYER_MTG_SEALED_PRODUCT_PROFILE_VERSION,
+  TCGPLAYER_MTG_SINGLE_CARD_PROFILE_VERSION,
+} from "../tcgplayer-executable-mapping-contract";
 import type {
   TcgplayerAutomationCatalogClient,
   TcgplayerAutomationProductDetail,
@@ -299,6 +308,22 @@ export function createTcgplayerProviderAdapter(
   };
 }
 
+export async function runTcgplayerMtgSingleCardSourceObservationImportProofDryRun(): Promise<CatalogIntegrationDryRunResult> {
+  return runTcgplayerMtgSourceObservationImportProofDryRun({
+    unitKey: TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+    profileVersion: TCGPLAYER_MTG_SINGLE_CARD_PROFILE_VERSION,
+    detail: tcgplayerMtgSingleCardProofDetail,
+  });
+}
+
+export async function runTcgplayerMtgSealedProductSourceObservationImportProofDryRun(): Promise<CatalogIntegrationDryRunResult> {
+  return runTcgplayerMtgSourceObservationImportProofDryRun({
+    unitKey: TCGPLAYER_MTG_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+    profileVersion: TCGPLAYER_MTG_SEALED_PRODUCT_PROFILE_VERSION,
+    detail: tcgplayerMtgSealedProductProofDetail,
+  });
+}
+
 async function listTcgplayerAdapterOptions(
   input: ProviderOptionQueryInput,
   options: TcgplayerProviderAdapterOptions,
@@ -502,6 +527,75 @@ function skuOptionItem(item: TcgplayerAutomationProductSku): ProviderOptionItem 
   };
 }
 
+function runTcgplayerMtgSourceObservationImportProofDryRun(input: {
+  unitKey:
+    | typeof TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY
+    | typeof TCGPLAYER_MTG_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY;
+  profileVersion: string;
+  detail: TcgplayerAutomationProductDetail;
+}): CatalogIntegrationDryRunResult {
+  const payload = detailEnvelope(
+    {
+      unitKey: input.unitKey,
+      planKey: `tcgplayer:proof:${input.detail.productId}`,
+      scope: {
+        unitKey: input.unitKey,
+        scopeKey: "set-name",
+        values: {
+          productLineName: input.detail.productLineName,
+          setName: input.detail.setName,
+        },
+      },
+      estimatedPayloads: 1,
+      transportSteps: ["Use fixture-backed TCGplayer product detail proof"],
+    },
+    input.detail,
+    "2026-06-19T00:00:00.000Z",
+  );
+
+  return runCatalogIntegrationDryRun({
+    unitKey: input.unitKey,
+    profileVersion: input.profileVersion,
+    payloads: [payload],
+    normalize: (envelope) => normalizeTcgplayerMtgProofPayload(envelope, input.profileVersion),
+  });
+}
+
+function normalizeTcgplayerMtgProofPayload(
+  envelope: ProviderPayloadEnvelope<TcgplayerProviderPayload>,
+  profileVersion: string,
+): CatalogIntegrationObservationFact {
+  if (envelope.payload.kind !== "product-detail") {
+    throw new Error("TCGplayer Magic proof dry run received a non-detail payload.");
+  }
+
+  const detail = envelope.payload.detail;
+  return {
+    unitKey: envelope.unitKey,
+    providerKey: envelope.providerKey,
+    externalKey: envelope.externalKey,
+    profileVersion,
+    normalizedFacts: compactStringRecord({
+      productId: String(detail.productId),
+      name: detail.productName,
+      setCode: detail.setCode,
+      setName: detail.setName,
+      productLineName: detail.productLineName,
+      productTypeName: detail.productTypeName,
+      productForm: detail.sealed ? "sealed" : "single",
+      cardNumber: detail.customAttributes.number,
+      releaseDate: detail.customAttributes.releaseDate,
+      skuCount: String(detail.skus.length),
+    }),
+    sourceUrl: envelope.provenance.sourceUrl,
+    sourceUpdatedAt: envelope.provenance.sourceUpdatedAt,
+  };
+}
+
+function compactStringRecord(values: Readonly<Record<string, string | undefined>>): Readonly<Record<string, string>> {
+  return Object.fromEntries(Object.entries(values).filter((entry): entry is [string, string] => Boolean(entry[1])));
+}
+
 function unitKeyForTcgplayerProfileVersion(
   profileVersion: CatalogProviderIntegrationProfileVersionRecord | null,
 ): string {
@@ -517,6 +611,51 @@ type TcgplayerUnitConstraints = Readonly<{
   defaultProductLineName: string;
   productForm: "single-card" | "sealed-product";
 }>;
+
+const tcgplayerMtgSingleCardProofDetail: TcgplayerAutomationProductDetail = {
+  productTypeName: "Cards",
+  rarityName: "Uncommon",
+  sealed: false,
+  productName: "Fury Sliver",
+  setId: 1001,
+  setCode: "TSP",
+  productId: 14240,
+  setName: "Time Spiral",
+  productLineId: 1,
+  productStatusId: 1,
+  productLineName: "Magic",
+  customAttributes: { number: "157", releaseDate: "2006-10-06", cardType: ["Creature"] },
+  formattedAttributes: { Artist: "Paolo Parente" },
+  skus: [{ sku: 50014240, condition: "Near Mint", variant: "Normal", language: "English" }],
+  marketPrice: 1.23,
+  lowestPrice: 1.01,
+  lowestPriceWithShipping: 1.23,
+  medianPrice: 1.5,
+  listings: 25,
+};
+
+const tcgplayerMtgSealedProductProofDetail: TcgplayerAutomationProductDetail = {
+  productTypeName: "Sealed Products",
+  rarityName: "Sealed",
+  sealed: true,
+  productName: "Time Spiral Booster Pack",
+  setId: 1001,
+  setCode: "TSP",
+  productId: 96601,
+  setName: "Time Spiral",
+  productLineId: 1,
+  productStatusId: 1,
+  productLineName: "Magic",
+  customAttributes: { number: "PACK", releaseDate: "2006-10-06", cardType: ["Sealed"] },
+  barcode: "0653569123456",
+  formattedAttributes: {},
+  skus: [{ sku: 50096601, condition: "Sealed", variant: "Sealed", language: "English" }],
+  marketPrice: 12.34,
+  lowestPrice: 10.01,
+  lowestPriceWithShipping: 11.23,
+  medianPrice: 12.5,
+  listings: 25,
+};
 
 function constraintsForTcgplayerUnit(unitKey: string): TcgplayerUnitConstraints {
   if (unitKey === TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY) {

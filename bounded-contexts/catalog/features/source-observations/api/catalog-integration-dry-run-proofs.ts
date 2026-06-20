@@ -20,6 +20,12 @@ import {
   SCRYFALL_MTG_IMAGE_EVIDENCE_UNIT_KEY,
   SCRYFALL_MTG_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
 } from "./provider-adapters/scryfall";
+import {
+  runTcgplayerMtgSealedProductSourceObservationImportProofDryRun,
+  runTcgplayerMtgSingleCardSourceObservationImportProofDryRun,
+  TCGPLAYER_MTG_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+  TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+} from "./provider-adapters/tcgplayer";
 
 export type CatalogIntegrationDryRunProofRunner = () => Promise<CatalogIntegrationDryRunResult>;
 
@@ -39,6 +45,14 @@ export function createCatalogIntegrationDryRunProofRegistry(
     [MTGJSON_MTG_SET_REFERENCE_DATA_UNIT_KEY, runMtgjsonSetReferenceValidationDryRun],
     [SCRYFALL_MTG_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY, runScryfallSourceObservationValidationDryRun],
     [SCRYFALL_MTG_IMAGE_EVIDENCE_UNIT_KEY, runScryfallImageEvidenceValidationDryRun],
+    [
+      TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      runTcgplayerMtgSingleCardSourceObservationImportProofDryRun,
+    ],
+    [
+      TCGPLAYER_MTG_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      runTcgplayerMtgSealedProductSourceObservationImportProofDryRun,
+    ],
   ],
 ): CatalogIntegrationDryRunProofRegistry {
   return new Map(proofs);

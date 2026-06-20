@@ -33,6 +33,8 @@ import {
 } from "./tcgdex";
 import {
   createTcgplayerProviderAdapter,
+  runTcgplayerMtgSealedProductSourceObservationImportProofDryRun,
+  runTcgplayerMtgSingleCardSourceObservationImportProofDryRun,
   TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
   TCGPLAYER_MTG_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
   TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
@@ -1035,6 +1037,58 @@ describe("ProviderAdapterRegistry", () => {
             layout: "normal",
             oracleId: "44623693-51d6-49ad-8cd7-140505caf02f",
             imageStatus: "highres_scan",
+          },
+        },
+      ],
+      diagnostics: [],
+    });
+  });
+
+  it("validates TCGplayer Magic source-observation imports through fixture-backed proof dry runs", async () => {
+    const singleCard = await runTcgplayerMtgSingleCardSourceObservationImportProofDryRun();
+    const sealedProduct = await runTcgplayerMtgSealedProductSourceObservationImportProofDryRun();
+
+    expect(singleCard).toMatchObject({
+      unitKey: TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      profileVersion: "2026.06.19",
+      observations: [
+        {
+          providerKey: "tcgplayer",
+          externalKey: "product:14240",
+          normalizedFacts: {
+            productId: "14240",
+            name: "Fury Sliver",
+            setCode: "TSP",
+            setName: "Time Spiral",
+            productLineName: "Magic",
+            productTypeName: "Cards",
+            productForm: "single",
+            cardNumber: "157",
+            releaseDate: "2006-10-06",
+            skuCount: "1",
+          },
+        },
+      ],
+      diagnostics: [],
+    });
+    expect(sealedProduct).toMatchObject({
+      unitKey: TCGPLAYER_MTG_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      profileVersion: "2026.06.19",
+      observations: [
+        {
+          providerKey: "tcgplayer",
+          externalKey: "product:96601",
+          normalizedFacts: {
+            productId: "96601",
+            name: "Time Spiral Booster Pack",
+            setCode: "TSP",
+            setName: "Time Spiral",
+            productLineName: "Magic",
+            productTypeName: "Sealed Products",
+            productForm: "sealed",
+            cardNumber: "PACK",
+            releaseDate: "2006-10-06",
+            skuCount: "1",
           },
         },
       ],
