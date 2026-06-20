@@ -697,17 +697,18 @@ describe("CatalogWorkbenchShell source-options status panel", () => {
       submitSpy.mockClear();
       fireEvent.click(control);
       expect(submitSpy).toHaveBeenCalledTimes(1);
-      expect(submitSpy.mock.calls[0]![0]).toBeNull();
       const submitOptions = submitSpy.mock.calls[0]![1] as { action: string; method: string };
       expect(submitOptions.method).toBe("get");
       const target = new URL(submitOptions.action, "https://admin.example");
       expect(target.pathname).toBe("/catalog/integrations");
+      expect(target.search).toBe("");
       expect(target.pathname).not.toContain("/api/catalog");
-      expect(target.searchParams.get("sourceOptionAction")).toBe("reload");
-      expect(target.searchParams.get("sourceOptionQueryKind")).toBeTruthy();
+      const submittedParams = new URLSearchParams(submitSpy.mock.calls[0]![0] as URLSearchParams);
+      expect(submittedParams.get("sourceOptionAction")).toBe("reload");
+      expect(submittedParams.get("sourceOptionQueryKind")).toBeTruthy();
       // Route context is preserved so the reload reopens the same scope.
-      expect(target.searchParams.get("providerKey")).toBe("tcgdex");
-      expect(target.searchParams.has("forceRefresh")).toBe(false);
+      expect(submittedParams.get("providerKey")).toBe("tcgdex");
+      expect(submittedParams.has("forceRefresh")).toBe(false);
     }
 
     const forceRefresh = panelScope.getAllByRole("button", { name: "Force refresh" });
@@ -718,10 +719,12 @@ describe("CatalogWorkbenchShell source-options status panel", () => {
       (submitSpy.mock.calls[0]![1] as { action: string }).action,
       "https://admin.example",
     );
+    const forceRefreshParams = new URLSearchParams(submitSpy.mock.calls[0]![0] as URLSearchParams);
     expect(forceRefreshTarget.pathname).toBe("/catalog/integrations");
-    expect(forceRefreshTarget.searchParams.get("sourceOptionAction")).toBe("force-refresh");
-    expect(forceRefreshTarget.searchParams.get("sourceOptionQueryKind")).toBeTruthy();
-    expect(forceRefreshTarget.searchParams.has("forceRefresh")).toBe(false);
+    expect(forceRefreshTarget.search).toBe("");
+    expect(forceRefreshParams.get("sourceOptionAction")).toBe("force-refresh");
+    expect(forceRefreshParams.get("sourceOptionQueryKind")).toBeTruthy();
+    expect(forceRefreshParams.has("forceRefresh")).toBe(false);
 
     const refreshAll = panelScope.getByRole("button", { name: "Refresh all" });
     submitSpy.mockClear();
@@ -730,11 +733,13 @@ describe("CatalogWorkbenchShell source-options status panel", () => {
       (submitSpy.mock.calls[0]![1] as { action: string }).action,
       "https://admin.example",
     );
+    const refreshAllParams = new URLSearchParams(submitSpy.mock.calls[0]![0] as URLSearchParams);
     expect(refreshAllTarget.pathname).toBe("/catalog/integrations");
-    expect(refreshAllTarget.searchParams.get("sourceOptionAction")).toBe("force-refresh-all");
+    expect(refreshAllTarget.search).toBe("");
+    expect(refreshAllParams.get("sourceOptionAction")).toBe("force-refresh-all");
     // Refresh-all fans across every group, so it carries no single queryKind.
-    expect(refreshAllTarget.searchParams.has("sourceOptionQueryKind")).toBe(false);
-    expect(refreshAllTarget.searchParams.has("forceRefresh")).toBe(false);
+    expect(refreshAllParams.has("sourceOptionQueryKind")).toBe(false);
+    expect(refreshAllParams.has("forceRefresh")).toBe(false);
   });
 
   it("flags a group whose required parent scope is not selected yet", () => {

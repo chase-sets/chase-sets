@@ -547,11 +547,16 @@ function SourceOptionRefreshButton({
       size={size}
       tone={tone}
       leadingIcon={leadingIcon}
-      onClick={() => submit(null, { ...importContextSubmitOptions, action: href })}
+      onClick={() => submitSourceOptionRefresh(href, submit)}
     >
       {children}
     </Button>
   );
+}
+
+function submitSourceOptionRefresh(href: string, submit: SubmitFunction): void {
+  const target = new URL(href, window.location.origin);
+  submit(target.searchParams, { ...importContextSubmitOptions, action: target.pathname });
 }
 
 // A compact sync/status panel for the synced provider option groups, rendered next
