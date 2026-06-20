@@ -307,26 +307,44 @@ export function attachWriteConsistencyMiddleware(
         return;
       }
 
-      const header = (context as { header?: (name: string, value: string) => void }).header;
-      if (!header) {
-        return;
-      }
-
-      header("Chase-Sets-Consistency", "eventual");
+      const headers: [string, string][] = [["Chase-Sets-Consistency", "eventual"]];
       if (metadata.maxGlobalPosition) {
-        header("Chase-Sets-Commit-Position", metadata.maxGlobalPosition);
+        headers.push(["Chase-Sets-Commit-Position", metadata.maxGlobalPosition]);
       }
 
       if (metadata.sources.length > 0) {
-        header(CHASE_SETS_COMMIT_RECEIPT_HEADER, encodeCommitReceipt(metadata.sources));
+        headers.push([CHASE_SETS_COMMIT_RECEIPT_HEADER, encodeCommitReceipt(metadata.sources)]);
       }
 
       const compactEventIds = metadata.eventIds.join(",");
       if (compactEventIds.length <= 4_000) {
-        header("Chase-Sets-Commit-Event-Ids", compactEventIds);
+        headers.push(["Chase-Sets-Commit-Event-Ids", compactEventIds]);
       }
+
+      setResponseHeaders(context, headers);
     });
   }
+}
+
+function setResponseHeaders(context: unknown, headers: readonly [string, string][]) {
+  const honoContext = context as {
+    header?: (name: string, value: string) => void;
+    res?: Response;
+  };
+
+  for (const [name, value] of headers) {
+    honoContext.header?.(name, value);
+  }
+
+  if (!honoContext.res) {
+    return;
+  }
+
+  const response = new Response(honoContext.res.body, honoContext.res);
+  for (const [name, value] of headers) {
+    response.headers.set(name, value);
+  }
+  honoContext.res = response;
 }
 
 export async function waitForProjectionFreshness(
