@@ -1,3 +1,5 @@
+import { Suspense, useMemo, useState, type ReactNode } from "react";
+import { Await } from "react-router";
 import {
   Badge,
   Button,
@@ -20,19 +22,42 @@ import type {
   CatalogPrimaryWorkbenchMagicSetSyncProviderReadModel,
   CatalogPrimaryWorkbenchReadModel,
 } from "../../../api/primary-workbench-admin-contracts";
+import { magicSetOptionsFromSourceOptions, mergeMagicSetOptions } from "../../primary-workbench-magic-set-sync";
 import { catalogPrimaryWorkbenchHref } from "../../primary-workbench-route-context";
 
 type MagicSetProviderRow = CatalogPrimaryWorkbenchMagicSetSyncProviderReadModel;
 
 export function CatalogMagicSetSyncModule({
   readModel,
+  deferredSourceOptions = null,
 }: Readonly<{
   readModel: CatalogPrimaryWorkbenchReadModel;
+  deferredSourceOptions?: Promise<CatalogPrimaryWorkbenchReadModel["sourceOptions"]> | null;
 }>) {
   const sync = readModel.magicSetSync;
   if (sync.providers.length === 0) {
     return null;
   }
+
+  if (deferredSourceOptions) {
+    return (
+      <Suspense fallback={<CatalogMagicSetSyncModuleContents readModel={readModel} />}>
+        <Await resolve={deferredSourceOptions}>
+          {(sourceOptions) => (
+            <CatalogMagicSetSyncModuleContents
+              readModel={readModelWithDeferredMagicSetOptions(readModel, sourceOptions)}
+            />
+          )}
+        </Await>
+      </Suspense>
+    );
+  }
+
+  return <CatalogMagicSetSyncModuleContents readModel={readModel} />;
+}
+
+function CatalogMagicSetSyncModuleContents({ readModel }: Readonly<{ readModel: CatalogPrimaryWorkbenchReadModel }>) {
+  const sync = readModel.magicSetSync;
 
   return (
     <WorkbenchDetailPanel data-catalog-magic-set-sync={sync.status}>
@@ -72,9 +97,32 @@ export function CatalogMagicSetSyncModule({
   );
 }
 
+function readModelWithDeferredMagicSetOptions(
+  readModel: CatalogPrimaryWorkbenchReadModel,
+  sourceOptions: CatalogPrimaryWorkbenchReadModel["sourceOptions"],
+): CatalogPrimaryWorkbenchReadModel {
+  const setOptions = mergeMagicSetOptions(
+    readModel.magicSetSync.setOptions,
+    magicSetOptionsFromSourceOptions(sourceOptions),
+  );
+
+  return {
+    ...readModel,
+    sourceOptions,
+    magicSetSync: {
+      ...readModel.magicSetSync,
+      setOptions,
+    },
+  };
+}
+
 function MagicSetSelectionForm({ readModel }: { readModel: CatalogPrimaryWorkbenchReadModel }) {
   const sync = readModel.magicSetSync;
-  const selectedValue = sync.selectedSet.setId ?? "";
+  const [selectedValue, setSelectedValue] = useState(sync.selectedSet.setId ?? "");
+  const selectedOption = useMemo(
+    () => sync.setOptions.find((option) => option.setId === selectedValue) ?? null,
+    [selectedValue, sync.setOptions],
+  );
   const providerKey = readModel.routeContext.providerKey ?? sync.providers[0]?.providerKey ?? "";
   const selectedProvider = sync.providers.find((provider) => provider.providerKey === providerKey) ?? sync.providers[0];
 
@@ -85,6 +133,7 @@ function MagicSetSelectionForm({ readModel }: { readModel: CatalogPrimaryWorkben
       <HiddenInput name="profileVersion" value={selectedProvider?.profileVersion ?? ""} />
       <HiddenInput name="languageCode" value={readModel.routeContext.scope?.languageCode ?? "en"} />
       <HiddenInput name="productLineName" value="Magic: The Gathering" />
+      <HiddenInput name="expansionName" value={selectedOption?.setName ?? selectedOption?.label ?? ""} />
       <WorkbenchFormGrid columns="three">
         <NativeSelect
           name="expansionId"
@@ -95,7 +144,8 @@ function MagicSetSelectionForm({ readModel }: { readModel: CatalogPrimaryWorkben
             label: option.label,
             description: option.providerKey,
           }))}
-          defaultValue={selectedValue || undefined}
+          value={selectedValue}
+          onChange={(event) => setSelectedValue(event.currentTarget.value)}
           required
         />
       </WorkbenchFormGrid>
@@ -190,7 +240,7 @@ function MagicSetCommandButton({
   readModel: CatalogPrimaryWorkbenchReadModel;
   row: MagicSetProviderRow;
   action: CatalogPrimaryWorkbenchActionReadModel;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   const available = action.state === "available" || action.state === "degraded";
 

@@ -1,9 +1,17 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { buildCatalogPrimaryWorkbenchReadModel } from "./primary-workbench-read-model";
+import {
+  buildCatalogPrimaryWorkbenchReadModel,
+  buildCatalogPrimaryWorkbenchSourceOptionRequests,
+  type CatalogPrimaryWorkbenchSourceOptionRequest,
+} from "./primary-workbench-read-model";
 import { CatalogMagicSetSyncModule } from "./admin-control-plane/import-to-promotion/magic-set-sync-module";
-import type { CatalogProviderProfileVersionReview, SourceObservationIntegrationScope } from "./contracts";
+import type {
+  CatalogProviderProfileVersionReview,
+  SourceObservationIntegrationOptionResponse,
+  SourceObservationIntegrationScope,
+} from "./contracts";
 import { controlPlaneOverview, profileReview, sourceObservationScope } from "./primary-workbench-test-fixtures";
 
 describe("Catalog Magic set sync workbench", () => {
@@ -94,6 +102,63 @@ describe("Catalog Magic set sync workbench", () => {
     expect(hiddenValue(scryfallPreviewForm, "importScope")).toBe("");
     expect(hiddenValue(scryfallPreviewForm, "expansionId")).toBe("");
     expect(within(scryfallPreviewForm!).queryByDisplayValue(/api\//i)).toBeNull();
+  });
+
+  it("hydrates selectable Magic sets from deferred provider options and submits the set name", async () => {
+    const requestUrl =
+      "https://admin.example/catalog/integrations?providerKey=mtgjson&unitKey=mtgjson:magic:set:import&languageCode=en&productLineName=Magic%3A%20The%20Gathering&profileVersion=2026.06.19";
+    const profiles = magicProfiles();
+    const baseReadModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl,
+      scopes: { items: [], total: 0, count: 0 },
+      profileReviews: { items: profiles, total: profiles.length, count: profiles.length },
+      controlPlaneOverview: magicOverview(),
+      canManageCatalog: true,
+    });
+    const requests = buildCatalogPrimaryWorkbenchSourceOptionRequests({
+      requestUrl,
+      scopes: [],
+      profiles,
+      cacheOnly: true,
+    });
+    const setRequest = requests.find((request) => request.queryKind === "sets");
+    expect(baseReadModel.magicSetSync.setOptions).toEqual([]);
+    expect(setRequest).toBeTruthy();
+
+    const hydratedReadModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl,
+      scopes: { items: [], total: 0, count: 0 },
+      profileReviews: { items: profiles, total: profiles.length, count: profiles.length },
+      sourceOptionPages: [
+        {
+          request: setRequest!,
+          response: optionResponse(setRequest!, "fresh", "cache", [
+            { value: "5DN", label: "Fifth Dawn", parentValue: null },
+          ]),
+        },
+      ],
+      controlPlaneOverview: magicOverview(),
+      canManageCatalog: true,
+    });
+
+    render(
+      <CatalogMagicSetSyncModule
+        readModel={baseReadModel}
+        deferredSourceOptions={Promise.resolve(hydratedReadModel.sourceOptions)}
+      />,
+    );
+
+    const option = await screen.findByRole("option", { name: "Fifth Dawn" });
+    expect(option).toBeTruthy();
+    const select = screen.getByLabelText("Magic set") as HTMLSelectElement;
+    fireEvent.change(select, { target: { value: "5DN" } });
+
+    const selectorForm = select.closest("form") as HTMLFormElement | null;
+    expect(selectorForm?.getAttribute("action")).toBe("/catalog/integrations");
+    expect(hiddenValue(selectorForm, "providerKey")).toBe("mtgjson");
+    expect(hiddenValue(selectorForm, "unitKey")).toBe("mtgjson:magic:set:import");
+    expect(hiddenValue(selectorForm, "expansionName")).toBe("Fifth Dawn");
+    expect(screen.getByRole("button", { name: "Select Magic set" }).hasAttribute("disabled")).toBe(false);
   });
 });
 
@@ -236,4 +301,40 @@ function hiddenValue(form: HTMLFormElement | null, name: string): string | undef
 function formPathname(form: HTMLFormElement | null): string | undefined {
   const action = form?.getAttribute("action");
   return action ? new URL(action, "https://admin.example").pathname : undefined;
+}
+
+function optionResponse(
+  request: CatalogPrimaryWorkbenchSourceOptionRequest,
+  status: NonNullable<SourceObservationIntegrationOptionResponse["cache"]>["status"],
+  source: NonNullable<SourceObservationIntegrationOptionResponse["cache"]>["source"],
+  items: readonly { value: string; label: string; parentValue: string | null }[],
+): SourceObservationIntegrationOptionResponse {
+  return {
+    items: items.map((item) => ({
+      providerKey: request.providerKey,
+      queryKind: request.queryKind,
+      value: item.value,
+      label: item.label,
+      description: null,
+      parentValue: item.parentValue,
+      imageUrl: null,
+      aliases: [],
+      metadata: {},
+    })),
+    total: items.length,
+    count: items.length,
+    page: { cursor: request.cursor, nextCursor: null, limit: request.limit, hasMore: false },
+    cache: {
+      status,
+      source,
+      cacheKey: `sha256:${request.queryKind}`,
+      fetchedAt: "2026-06-19T00:00:00.000Z",
+      expiresAt: "2026-06-19T00:15:00.000Z",
+      staleUntil: "2026-06-20T00:00:00.000Z",
+      cacheOnly: request.cacheOnly,
+      forceRefresh: false,
+      degraded: false,
+      diagnostics: [],
+    },
+  };
 }
