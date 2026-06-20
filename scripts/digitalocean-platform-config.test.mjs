@@ -159,6 +159,13 @@ describe("DigitalOcean platform configuration", () => {
     expect(terraformJobBlock(platformMain, "platform-bootstrap")).toContain(
       "for_each = local.catalog_magic_provider_runtime_env",
     );
+    expect(platformPrWorkflow).toContain("TF_VAR_tcgplayer_automation_tcg_auth_cookie: pr-validation-tcgplayer-cookie");
+    expect(platformProductionWorkflow).toContain(
+      "TF_VAR_tcgplayer_automation_tcg_auth_cookie: ${{ secrets.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE || '' }}",
+    );
+    expect(platformStagingResetWorkflow).toContain(
+      "TF_VAR_tcgplayer_automation_tcg_auth_cookie: ${{ secrets.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE || '' }}",
+    );
     expect(platformMain).not.toMatch(/TCGAuthTicket|TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE\s*=\s*"[^"]+"/);
   });
 

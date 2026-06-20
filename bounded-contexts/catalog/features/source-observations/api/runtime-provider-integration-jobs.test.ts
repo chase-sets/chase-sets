@@ -1024,12 +1024,20 @@ describe("source observation runtime: provider integration jobs", () => {
       dryRunStatus: "completed",
     });
     expect(unitsByKey["tcgplayer:mtg:single-card:source-observation-import"]).toMatchObject({
+      semanticReadiness: "ready",
+      fixtureValidationStatus: "ready",
+      dryRunStatus: "completed",
+      observationFacts: 1,
       credentialReadiness: "blocked",
       credentialReadinessState: "missing",
       credentialDiagnosticCode: "credential-missing",
       transportReadiness: "blocked",
     });
     expect(unitsByKey["tcgplayer:mtg:sealed-product:source-observation-import"]).toMatchObject({
+      semanticReadiness: "ready",
+      fixtureValidationStatus: "ready",
+      dryRunStatus: "completed",
+      observationFacts: 1,
       credentialReadiness: "blocked",
       credentialReadinessState: "missing",
       credentialDiagnosticCode: "credential-missing",

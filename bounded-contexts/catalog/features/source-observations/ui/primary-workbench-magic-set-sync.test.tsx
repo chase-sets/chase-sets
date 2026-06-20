@@ -65,6 +65,10 @@ describe("Catalog Magic set sync workbench", () => {
     const providerSetLinks = screen.getAllByRole("link", { name: "Open provider set" });
     expect(new Set(providerSetLinks.map((link) => link.getAttribute("href"))).size).toBe(3);
     expect(providerSetLinks.every((link) => !link.getAttribute("href")?.includes("/api/"))).toBe(true);
+    const tcgplayerSetHref = providerSetLinks
+      .map((link) => new URL(link.getAttribute("href") ?? "", "https://admin.example"))
+      .find((href) => href.searchParams.get("providerKey") === "tcgplayer");
+    expect(tcgplayerSetHref?.searchParams.get("expansionName")).toBe("Tarkir: Dragonstorm");
   });
 
   it("fails closed until one Magic set is selected", () => {

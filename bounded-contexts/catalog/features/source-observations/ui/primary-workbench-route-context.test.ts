@@ -187,6 +187,49 @@ describe("Catalog primary workbench route context", () => {
     expect(profileHref.searchParams.has("section")).toBe(false);
   });
 
+  it("preserves scope names that cannot be reconstructed from importScope", () => {
+    const href = new URL(
+      catalogPrimaryWorkbenchHref(
+        {
+          section: "import-to-promotion",
+          providerKey: "tcgplayer",
+          unitKey: "tcgplayer:mtg:sealed-product:source-observation-import",
+          scope: {
+            providerKey: "tcgplayer",
+            languageCode: "en",
+            productLineId: "1",
+            productLineName: "Magic: The Gathering",
+            seriesId: null,
+            seriesName: null,
+            expansionId: "5DN",
+            expansionName: "Fifth Dawn",
+            status: null,
+          },
+          importScope: "en:5DN",
+          profileVersion: "2026.06.19",
+          sourceObservationFilters: {},
+          selectedObservationIds: [],
+          reviewOffset: null,
+          reviewLimit: null,
+          jobId: null,
+          promotionPreviewId: null,
+          returnPath: null,
+        },
+        "import-to-promotion",
+      ),
+      "https://admin.example",
+    );
+
+    expect(href.searchParams.get("importScope")).toBe("en:5DN");
+    expect(href.searchParams.get("productLineName")).toBe("Magic: The Gathering");
+    expect(href.searchParams.get("expansionName")).toBe("Fifth Dawn");
+    expect(parseCatalogPrimaryWorkbenchRouteContext(href).scope).toMatchObject({
+      providerKey: "tcgplayer",
+      productLineName: "Magic: The Gathering",
+      expansionName: "Fifth Dawn",
+    });
+  });
+
   it("derives the active workspace from the surface route path when no section param is present", () => {
     expect(
       parseCatalogPrimaryWorkbenchRouteContext("https://admin.example/catalog/integrations/providers").section,
