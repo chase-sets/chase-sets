@@ -135,10 +135,14 @@ describe("Catalog source-scope workset", () => {
 
     expect(unit.commandContext).toMatchObject({
       providerKey: "tcgplayer",
+      importScope: "en:1:Classic Sixth Edition",
       productLineId: "1",
       expansionId: null,
       expansionName: "Classic Sixth Edition",
     });
+    expect(readModel.routeContext.importScope).toBeNull();
+    expect(readModel.routeContext.sourceObservationFilters).not.toHaveProperty("importScope");
+    expect(unit.actions.import.state).toBe("available");
     expect(unit.currentWorkbenchHref).toContain("productLineId=1");
     expect(unit.currentWorkbenchHref).toContain("expansionName=Classic+Sixth+Edition");
     expect(unit.currentWorkbenchHref).not.toContain("expansionId=Classic");
@@ -151,8 +155,44 @@ describe("Catalog source-scope workset", () => {
     render(<CatalogSourceScopeWorksetModule readModel={readModel} />);
 
     const form = sourceScopeCommandForm("start-provider-import", "tcgplayer:mtg:single-card:source-observation-import");
+    expect(form?.getAttribute("action")).not.toContain("importScope=");
     expect(hiddenValue(form, "expansionId")).toBe("");
     expect(hiddenValue(form, "expansionName")).toBe("Classic Sixth Edition");
+    expect(hiddenValue(form, "importScope")).toBe("en:1:Classic Sixth Edition");
+  });
+
+  it("replaces stale legacy importScope when a structured set-name selection changes", () => {
+    const profile = magicProfile(
+      "tcgplayer",
+      "TCGplayer Magic Single Cards",
+      "tcgplayer:mtg:single-card:source-observation-import",
+      "provider-product",
+    );
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgplayer&unitKey=tcgplayer:mtg:single-card:source-observation-import&importScope=en%3AFifth%20Dawn&productLineId=1&expansionName=Classic%20Sixth%20Edition&profileVersion=2026.06.19&filter.importScope=en%3AFifth%20Dawn",
+      scopes: { items: [magicScope("tcgplayer", { expansion_name: "Fifth Dawn" })], total: 1, count: 1 },
+      profileReviews: { items: [profile], total: 1, count: 1 },
+      controlPlaneOverview: null,
+      canManageCatalog: true,
+    });
+    const unit = readModel.sourceScopeWorkset.units[0]!;
+
+    expect(readModel.routeContext.importScope).toBe("en:1:Classic Sixth Edition");
+    expect(readModel.routeContext.sourceObservationFilters.importScope).toBe("en:1:Classic Sixth Edition");
+    expect(unit.commandContext.importScope).toBe("en:1:Classic Sixth Edition");
+    expect(unit.commandContext.expansionName).toBe("Classic Sixth Edition");
+    expect(unit.currentWorkbenchHref).not.toContain("Fifth+Dawn");
+    expect(unit.currentWorkbenchHref).not.toContain("Fifth%20Dawn");
+
+    render(<CatalogSourceScopeWorksetModule readModel={readModel} />);
+
+    const form = sourceScopeCommandForm("start-provider-import", "tcgplayer:mtg:single-card:source-observation-import");
+    const action = new URL(form?.getAttribute("action") ?? "", "https://admin.example");
+    expect(action.searchParams.get("importScope")).toBe("en:1:Classic Sixth Edition");
+    expect(action.searchParams.get("filter.importScope")).toBe("en:1:Classic Sixth Edition");
+    expect(action.searchParams.toString()).not.toContain("Fifth+Dawn");
+    expect(hiddenValue(form, "importScope")).toBe("en:1:Classic Sixth Edition");
   });
 
   it("fails closed until a concrete source scope is selected", () => {
