@@ -1055,7 +1055,7 @@ describe("Catalog integrations route", () => {
     });
   });
 
-  it("queues Magic set sync row imports with the selected ingestion unit and set scope", async () => {
+  it("queues shared source-scope workset row imports with the selected ingestion unit and set scope", async () => {
     const enqueueSourceObservationIntegrationJob = vi.fn().mockResolvedValue({ jobId: "job_magic_5dn" });
     const recordCatalogControlPlaneEvent = vi.fn().mockResolvedValue({ status: "recorded" });
     mockCreateCatalogRequestApiClient.mockReturnValue({

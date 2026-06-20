@@ -1,0 +1,719 @@
+import type {
+  CatalogPrimaryWorkbenchActionReadModel,
+  CatalogPrimaryWorkbenchBlockerCategory,
+  CatalogPrimaryWorkbenchReadModel,
+  CatalogPrimaryWorkbenchRouteContext,
+  CatalogPrimaryWorkbenchScopeContext,
+} from "../api/primary-workbench-admin-contracts";
+import type {
+  CatalogIntegrationControlPlaneOverview,
+  CatalogIntegrationControlPlaneUnitReadiness,
+  CatalogProviderProfileVersionReview,
+  SourceObservationIntegrationScope,
+} from "./contracts";
+import type { CatalogIntegrationUnitKey } from "../api/integration-unit";
+import { catalogPrimaryWorkbenchHref } from "./primary-workbench-route-context";
+import {
+  emptyCatalogPrimaryWorkbenchScopeContext,
+  importScopeFromScopeContext,
+  scopeContextFromProviderScope,
+  scopeContextFromRouteContext,
+  scopeDisplayLabel,
+} from "./primary-workbench-scope-context";
+import {
+  actionStateForBlockers,
+  credentialBlockerFor,
+  providerTransportBlockerFor,
+  providerTransportFor,
+} from "./primary-workbench-read-model-support";
+
+type SourceScopeWorksetInput = Readonly<{
+  canManage: boolean;
+  controlPlaneOverview: CatalogIntegrationControlPlaneOverview | null;
+  generatedAt: string;
+  importJobs: CatalogPrimaryWorkbenchReadModel["importJobs"];
+  profiles: readonly CatalogProviderProfileVersionReview[];
+  readinessBlockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
+  routeContext: CatalogPrimaryWorkbenchRouteContext;
+  scopes: readonly SourceObservationIntegrationScope[];
+  sourceOptions: CatalogPrimaryWorkbenchReadModel["sourceOptions"];
+}>;
+
+type SourceScopeCandidate = Readonly<{
+  providerKey: string;
+  displayName: string;
+  unitKey: CatalogIntegrationUnitKey | null;
+  productDomain: string | null;
+  productForm: string | null;
+  profile: CatalogProviderProfileVersionReview | null;
+  readinessUnit: CatalogIntegrationControlPlaneUnitReadiness | null;
+}>;
+
+type SourceScopeSelection = Readonly<{
+  hasConcreteScope: boolean;
+  importScope: string | null;
+  label: string;
+  scope: CatalogPrimaryWorkbenchScopeContext;
+}>;
+
+export function sourceScopeWorksetFor(
+  input: SourceScopeWorksetInput,
+): CatalogPrimaryWorkbenchReadModel["sourceScopeWorkset"] {
+  const selectedScope = selectedSourceScope(input.routeContext);
+  const units = sourceScopeCandidates(input)
+    .filter((candidate) => candidateIsRelevantToSelection(candidate, selectedScope, input.scopes, input.routeContext))
+    .map((candidate) => sourceScopeUnitRow(candidate, selectedScope, input));
+  const summary = {
+    unitCount: units.length,
+    readyUnitCount: units.filter((unit) => unit.state !== "blocked").length,
+    blockedUnitCount: units.filter((unit) => unit.state === "blocked").length,
+    activeImportCount: units.reduce((count, unit) => count + unit.activeJobCount, 0),
+    changedObservationCount: units.reduce((count, unit) => count + unit.counts.changed, 0),
+    promotedObservationCount: units.reduce((count, unit) => count + unit.counts.promoted, 0),
+  };
+
+  return {
+    status: sourceScopeWorksetStatus(units, selectedScope),
+    generatedAt: input.generatedAt,
+    selectedScope,
+    summary,
+    units,
+  };
+}
+
+function sourceScopeWorksetStatus(
+  units: readonly CatalogPrimaryWorkbenchReadModel["sourceScopeWorkset"]["units"][number][],
+  selectedScope: SourceScopeSelection,
+): CatalogPrimaryWorkbenchReadModel["sourceScopeWorkset"]["status"] {
+  if (units.length === 0) {
+    return "not-configured";
+  }
+  if (!selectedScope.hasConcreteScope) {
+    return "scope-required";
+  }
+  if (units.every((unit) => unit.state === "blocked")) {
+    return "blocked";
+  }
+  if (units.some((unit) => unit.state === "blocked" || unit.optionQueryState === "degraded")) {
+    return "degraded";
+  }
+
+  return "ready";
+}
+
+function selectedSourceScope(routeContext: CatalogPrimaryWorkbenchRouteContext): SourceScopeSelection {
+  const explicitScope = explicitScopeFromRouteContext(routeContext);
+  const scope = scopeHasConcreteSelection(explicitScope) ? explicitScope : scopeContextFromRouteContext(routeContext);
+  const hasConcreteScope = scopeHasConcreteSelection(scope);
+  const importScope = hasConcreteScope ? importScopeFromScopeContext(scope) : null;
+
+  return {
+    hasConcreteScope,
+    importScope,
+    label: hasConcreteScope ? scopeDisplayLabel(scope) : "Select a source scope",
+    scope,
+  };
+}
+
+function explicitScopeFromRouteContext(
+  routeContext: CatalogPrimaryWorkbenchRouteContext,
+): CatalogPrimaryWorkbenchScopeContext {
+  return {
+    providerKey: routeContext.providerKey ?? routeContext.scope?.providerKey ?? null,
+    languageCode: routeContext.scope?.languageCode ?? null,
+    productLineId: routeContext.scope?.productLineId ?? null,
+    productLineName: routeContext.scope?.productLineName ?? null,
+    seriesId: routeContext.scope?.seriesId ?? null,
+    seriesName: routeContext.scope?.seriesName ?? null,
+    expansionId: routeContext.scope?.expansionId ?? null,
+    expansionName: routeContext.scope?.expansionName ?? null,
+    status: routeContext.scope?.status ?? routeContext.sourceObservationFilters.status ?? null,
+  };
+}
+
+function sourceScopeCandidates(input: SourceScopeWorksetInput): readonly SourceScopeCandidate[] {
+  const candidates = new Map<string, SourceScopeCandidate>();
+
+  for (const profile of input.profiles) {
+    if (!profile.active) {
+      continue;
+    }
+    upsertCandidate(candidates, {
+      providerKey: profile.providerKey,
+      displayName: profile.displayName || providerBaseDisplayName(profile.providerKey),
+      unitKey: profile.ingestionUnitKey as CatalogIntegrationUnitKey,
+      productDomain: productDomainFromProfile(profile),
+      productForm: productFormFromProfile(profile),
+      profile,
+      readinessUnit: null,
+    });
+  }
+
+  for (const unit of input.controlPlaneOverview?.readiness.units ?? []) {
+    if (unit.ingestionPurpose === "source-observation-proof") {
+      continue;
+    }
+    const profile = activeProfileForUnit(input.profiles, unit.providerKey, unit.unitKey);
+    upsertCandidate(candidates, {
+      providerKey: unit.providerKey,
+      displayName: unit.displayName || profile?.displayName || providerBaseDisplayName(unit.providerKey),
+      unitKey: unit.unitKey,
+      productDomain: unit.productDomain,
+      productForm: unit.productForm,
+      profile,
+      readinessUnit: unit,
+    });
+  }
+
+  for (const scope of input.scopes) {
+    const profile = activeProfileForProvider(input.profiles, scope.provider_key);
+    const unitKey = (profile?.ingestionUnitKey ?? null) as CatalogIntegrationUnitKey | null;
+    upsertCandidate(candidates, {
+      providerKey: scope.provider_key,
+      displayName: profile?.displayName || providerBaseDisplayName(scope.provider_key),
+      unitKey,
+      productDomain: productDomainFromProfile(profile),
+      productForm: productFormFromProfile(profile),
+      profile,
+      readinessUnit:
+        input.controlPlaneOverview?.readiness.units.find(
+          (unit) => unit.providerKey === scope.provider_key && (!unitKey || unit.unitKey === unitKey),
+        ) ?? null,
+    });
+  }
+
+  const selectedProviderKey = input.routeContext.providerKey;
+  if (
+    selectedProviderKey &&
+    ![...candidates.values()].some((candidate) => candidate.providerKey === selectedProviderKey)
+  ) {
+    const profile = activeProfileForProvider(input.profiles, selectedProviderKey);
+    const unitKey = (profile?.ingestionUnitKey ??
+      input.routeContext.unitKey ??
+      null) as CatalogIntegrationUnitKey | null;
+    upsertCandidate(candidates, {
+      providerKey: selectedProviderKey,
+      displayName: profile?.displayName || providerBaseDisplayName(selectedProviderKey),
+      unitKey,
+      productDomain: productDomainFromProfile(profile),
+      productForm: productFormFromProfile(profile),
+      profile,
+      readinessUnit: null,
+    });
+  }
+
+  return [...candidates.values()].sort((left, right) =>
+    `${left.displayName}:${left.unitKey ?? ""}`.localeCompare(`${right.displayName}:${right.unitKey ?? ""}`),
+  );
+}
+
+function upsertCandidate(candidates: Map<string, SourceScopeCandidate>, candidate: SourceScopeCandidate): void {
+  const key = `${candidate.providerKey}:${candidate.unitKey ?? "none"}`;
+  const current = candidates.get(key);
+  if (!current) {
+    candidates.set(key, candidate);
+    return;
+  }
+  candidates.set(key, {
+    providerKey: current.providerKey,
+    displayName: candidate.displayName || current.displayName,
+    unitKey: current.unitKey ?? candidate.unitKey,
+    productDomain: candidate.productDomain ?? current.productDomain,
+    productForm: candidate.productForm ?? current.productForm,
+    profile: candidate.profile ?? current.profile,
+    readinessUnit: candidate.readinessUnit ?? current.readinessUnit,
+  });
+}
+
+function candidateIsRelevantToSelection(
+  candidate: SourceScopeCandidate,
+  selectedScope: SourceScopeSelection,
+  scopes: readonly SourceObservationIntegrationScope[],
+  routeContext: CatalogPrimaryWorkbenchRouteContext,
+): boolean {
+  if (!selectedScope.hasConcreteScope) {
+    return routeContext.providerKey ? candidate.providerKey === routeContext.providerKey : true;
+  }
+  if (routeContext.providerKey === candidate.providerKey || routeContext.unitKey === candidate.unitKey) {
+    return true;
+  }
+  const providerScopes = scopes.filter((scope) => scope.provider_key === candidate.providerKey);
+  if (providerScopes.some((scope) => providerScopeMatchesSelectedScope(selectedScope.scope, scope))) {
+    return true;
+  }
+
+  return candidateProfileMatchesSelectedScope(candidate, selectedScope.scope);
+}
+
+function sourceScopeUnitRow(
+  candidate: SourceScopeCandidate,
+  selectedScope: SourceScopeSelection,
+  input: SourceScopeWorksetInput,
+): CatalogPrimaryWorkbenchReadModel["sourceScopeWorkset"]["units"][number] {
+  const matchingScopes = input.scopes.filter(
+    (scope) =>
+      scope.provider_key === candidate.providerKey && providerScopeMatchesSelectedScope(selectedScope.scope, scope),
+  );
+  const routeScope = providerCommandScope(candidate, selectedScope.scope, matchingScopes[0] ?? null);
+  const importScope = selectedScope.hasConcreteScope ? importScopeFromScopeContext(routeScope) : null;
+  const jobs = input.importJobs.jobs.filter(
+    (job) =>
+      job.providerKey === candidate.providerKey &&
+      (!candidate.unitKey || job.unitKey === candidate.unitKey) &&
+      (!importScope || job.importScope === importScope),
+  );
+  const activeJobCount = jobs.filter((job) => job.state === "queued" || job.state === "running").length;
+  const counts = providerCounts(matchingScopes);
+  const blockers = unitReadinessBlockers(candidate, input);
+  const commandContext = {
+    providerKey: candidate.providerKey,
+    unitKey: candidate.unitKey,
+    importScope,
+    profileVersion: candidate.profile?.profileVersion ?? null,
+    languageCode: routeScope.languageCode,
+    productLineId: routeScope.productLineId,
+    productLineName: routeScope.productLineName,
+    seriesId: routeScope.seriesId,
+    seriesName: routeScope.seriesName,
+    expansionId: routeScope.expansionId,
+    expansionName: routeScope.expansionName,
+  };
+
+  return {
+    providerKey: candidate.providerKey,
+    displayName: candidate.displayName,
+    unitKey: candidate.unitKey,
+    productDomain: candidate.productDomain,
+    productForm: candidate.productForm,
+    profileVersion: candidate.profile?.profileVersion ?? null,
+    importScope,
+    profileReady: Boolean(candidate.profile?.active),
+    optionQueryState:
+      input.sourceOptions.selectedProviderKey === candidate.providerKey ? input.sourceOptions.status : "unavailable",
+    state: unitState({
+      activeJobCount,
+      counts,
+      hasScope: selectedScope.hasConcreteScope && Boolean(importScope),
+      blockers,
+    }),
+    counts,
+    activeJobCount,
+    lastJobState: jobs[0]?.state ?? null,
+    currentWorkbenchHref: catalogPrimaryWorkbenchHref(
+      {
+        ...input.routeContext,
+        providerKey: candidate.providerKey,
+        unitKey: candidate.unitKey,
+        scope: routeScope,
+        importScope,
+        profileVersion: candidate.profile?.profileVersion ?? null,
+        promotionPreviewId: null,
+        selectedObservationIds: [],
+      },
+      "import-to-promotion",
+    ),
+    commandContext,
+    actions: {
+      import: action(
+        "start-provider-import",
+        importBlockers(
+          input.canManage,
+          selectedScope,
+          candidate.profile,
+          candidate.unitKey,
+          importScope,
+          activeJobCount,
+          blockers,
+        ),
+      ),
+      previewPromotion: action(
+        "preview-promotion",
+        promotionPreviewBlockers(
+          input.canManage,
+          selectedScope,
+          candidate.profile,
+          candidate.unitKey,
+          importScope,
+          counts.eligible,
+          blockers,
+        ),
+      ),
+      reapply: action(
+        "start-reapply",
+        reapplyBlockers(
+          input.canManage,
+          selectedScope,
+          candidate.profile,
+          candidate.unitKey,
+          importScope,
+          counts.promoted,
+          blockers,
+        ),
+      ),
+    },
+  };
+}
+
+function providerCommandScope(
+  candidate: SourceScopeCandidate,
+  selectedScope: CatalogPrimaryWorkbenchScopeContext,
+  matchingScope: SourceObservationIntegrationScope | null,
+): CatalogPrimaryWorkbenchScopeContext {
+  const providerScope = matchingScope
+    ? scopeContextFromProviderScope(matchingScope)
+    : emptyCatalogPrimaryWorkbenchScopeContext(candidate.providerKey);
+  const preferProviderScope = Boolean(matchingScope) && selectedScope.providerKey !== candidate.providerKey;
+
+  return {
+    providerKey: candidate.providerKey,
+    languageCode:
+      selectedScope.languageCode ?? providerScope.languageCode ?? candidate.profile?.languageOptions[0] ?? null,
+    productLineId: scopedValue(selectedScope.productLineId, providerScope.productLineId, preferProviderScope),
+    productLineName: scopedValue(selectedScope.productLineName, providerScope.productLineName, preferProviderScope),
+    seriesId: scopedValue(selectedScope.seriesId, providerScope.seriesId, preferProviderScope),
+    seriesName: scopedValue(selectedScope.seriesName, providerScope.seriesName, preferProviderScope),
+    expansionId: scopedValue(selectedScope.expansionId, providerScope.expansionId, preferProviderScope),
+    expansionName: scopedValue(selectedScope.expansionName, providerScope.expansionName, preferProviderScope),
+    status: selectedScope.status ?? null,
+  };
+}
+
+function scopedValue(selected: string | null, provider: string | null, preferProviderScope: boolean): string | null {
+  return preferProviderScope ? (provider ?? selected) : (selected ?? provider);
+}
+
+function providerCounts(scopes: readonly SourceObservationIntegrationScope[]) {
+  const observed = sumScopes(scopes, "observed_observations");
+  const changed = sumScopes(scopes, "changed_observations");
+  return {
+    observed,
+    changed,
+    promoted: sumScopes(scopes, "promoted_observations"),
+    rejected: sumScopes(scopes, "rejected_observations"),
+    eligible: observed + changed,
+  };
+}
+
+function sumScopes(
+  scopes: readonly SourceObservationIntegrationScope[],
+  key: keyof Pick<
+    SourceObservationIntegrationScope,
+    "observed_observations" | "changed_observations" | "promoted_observations" | "rejected_observations"
+  >,
+): number {
+  return scopes.reduce((count, scope) => count + scope[key], 0);
+}
+
+function unitState(input: {
+  activeJobCount: number;
+  counts: ReturnType<typeof providerCounts>;
+  hasScope: boolean;
+  blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
+}): CatalogPrimaryWorkbenchReadModel["sourceScopeWorkset"]["units"][number]["state"] {
+  if (!input.hasScope || input.blockers.length > 0) {
+    return "blocked";
+  }
+  if (input.counts.changed > 0) {
+    return "changed";
+  }
+  if (input.counts.promoted > 0) {
+    return "promoted";
+  }
+  if (input.counts.observed > 0 || input.activeJobCount > 0) {
+    return "imported";
+  }
+
+  return "not-imported";
+}
+
+function importBlockers(
+  canManage: boolean,
+  selectedScope: SourceScopeSelection,
+  profile: CatalogProviderProfileVersionReview | null,
+  unitKey: CatalogIntegrationUnitKey | null,
+  importScope: string | null,
+  activeJobCount: number,
+  blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[],
+): readonly CatalogPrimaryWorkbenchBlockerCategory[] {
+  const shared = sharedCommandBlockers(canManage, selectedScope, profile, unitKey, importScope, blockers);
+  return activeJobCount > 0 ? [...shared, "active-job-conflict"] : shared;
+}
+
+function promotionPreviewBlockers(
+  canManage: boolean,
+  selectedScope: SourceScopeSelection,
+  profile: CatalogProviderProfileVersionReview | null,
+  unitKey: CatalogIntegrationUnitKey | null,
+  importScope: string | null,
+  eligibleCount: number,
+  blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[],
+): readonly CatalogPrimaryWorkbenchBlockerCategory[] {
+  const shared = sharedCommandBlockers(canManage, selectedScope, profile, unitKey, importScope, blockers);
+  return shared.length > 0 ? shared : eligibleCount > 0 ? [] : ["no-promotion-eligible-observations"];
+}
+
+function reapplyBlockers(
+  canManage: boolean,
+  selectedScope: SourceScopeSelection,
+  profile: CatalogProviderProfileVersionReview | null,
+  unitKey: CatalogIntegrationUnitKey | null,
+  importScope: string | null,
+  promotedCount: number,
+  blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[],
+): readonly CatalogPrimaryWorkbenchBlockerCategory[] {
+  const shared = sharedCommandBlockers(canManage, selectedScope, profile, unitKey, importScope, blockers);
+  return shared.length > 0 ? shared : promotedCount > 0 ? [] : ["selection-empty"];
+}
+
+function sharedCommandBlockers(
+  canManage: boolean,
+  selectedScope: SourceScopeSelection,
+  profile: CatalogProviderProfileVersionReview | null,
+  unitKey: CatalogIntegrationUnitKey | null,
+  importScope: string | null,
+  blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[],
+): readonly CatalogPrimaryWorkbenchBlockerCategory[] {
+  if (!canManage) {
+    return ["permission-denied"];
+  }
+  if (!selectedScope.hasConcreteScope || !importScope) {
+    return ["import-scope-required"];
+  }
+  if (!unitKey) {
+    return ["unit-selection-required"];
+  }
+  if (!profile?.active) {
+    return ["missing-active-profile"];
+  }
+  return blockers;
+}
+
+function action(
+  key: CatalogPrimaryWorkbenchActionReadModel["key"],
+  blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[],
+): CatalogPrimaryWorkbenchActionReadModel {
+  const missingScopeOnly = blockers.length === 1 && blockers[0] === "import-scope-required";
+  return {
+    key,
+    state: missingScopeOnly ? "disabled" : actionStateForBlockers(blockers, "available"),
+    blockers,
+    copyKey: blockers.length > 0 ? "catalog.primary.import.blocked" : null,
+  };
+}
+
+function unitReadinessBlockers(
+  candidate: SourceScopeCandidate,
+  input: SourceScopeWorksetInput,
+): readonly CatalogPrimaryWorkbenchBlockerCategory[] {
+  const blockers = new Set<CatalogPrimaryWorkbenchBlockerCategory>();
+  for (const blocker of input.readinessBlockers) {
+    if (blocker === "kill-switch-active" || blocker === "rollout-disabled") {
+      blockers.add(blocker);
+    }
+  }
+  for (const control of input.controlPlaneOverview?.readiness.rolloutControls.controls ?? []) {
+    const applies =
+      (control.providerKeys.length === 0 || control.providerKeys.includes(candidate.providerKey)) &&
+      (!candidate.unitKey || control.unitKeys.length === 0 || control.unitKeys.includes(candidate.unitKey));
+    if (applies && control.status === "blocked") {
+      blockers.add(control.defaultState === "quarantined" ? "kill-switch-active" : "rollout-disabled");
+    }
+  }
+  for (const unit of input.controlPlaneOverview?.readiness.units ?? []) {
+    if (unit.providerKey !== candidate.providerKey || (candidate.unitKey && unit.unitKey !== candidate.unitKey)) {
+      continue;
+    }
+    if (unit.credentialReadiness === "blocked") {
+      blockers.add(credentialBlockerFor(unit.credentialReadinessState));
+    }
+    if (unit.transportReadiness === "blocked") {
+      blockers.add("provider-transport-degraded");
+    }
+    if (unit.fixtureValidationStatus === "blocked") {
+      blockers.add("missing-fixture-coverage");
+    }
+  }
+  for (const category of providerTransportFor(input.controlPlaneOverview, candidate.providerKey)) {
+    blockers.add(providerTransportBlockerFor(category));
+  }
+
+  return [...blockers];
+}
+
+function activeProfileForUnit(
+  profiles: readonly CatalogProviderProfileVersionReview[],
+  providerKey: string,
+  unitKey: string | null,
+): CatalogProviderProfileVersionReview | null {
+  return (
+    profiles.find(
+      (profile) => profile.active && profile.providerKey === providerKey && profile.ingestionUnitKey === unitKey,
+    ) ?? activeProfileForProvider(profiles, providerKey)
+  );
+}
+
+function activeProfileForProvider(
+  profiles: readonly CatalogProviderProfileVersionReview[],
+  providerKey: string,
+): CatalogProviderProfileVersionReview | null {
+  return profiles.find((profile) => profile.active && profile.providerKey === providerKey) ?? null;
+}
+
+function productDomainFromProfile(profile: CatalogProviderProfileVersionReview | null): string | null {
+  const unitSegment = profile?.ingestionUnitKey.split(":")[1] ?? null;
+  return unitSegment ?? profile?.supportedScopes[0]?.split("/")[0] ?? null;
+}
+
+function productFormFromProfile(profile: CatalogProviderProfileVersionReview | null): string | null {
+  const unitSegment = profile?.ingestionUnitKey.split(":")[2] ?? null;
+  return unitSegment ?? profile?.supportedScopes[0]?.split("/")[1] ?? null;
+}
+
+function providerScopeMatchesSelectedScope(
+  selectedScope: CatalogPrimaryWorkbenchScopeContext,
+  scope: SourceObservationIntegrationScope,
+): boolean {
+  const scopeContext = scopeContextFromProviderScope(scope);
+  return (
+    selectedScopeFieldMatches(selectedScope.languageCode, [scopeContext.languageCode]) &&
+    selectedScopePairMatches(
+      [selectedScope.productLineId, selectedScope.productLineName],
+      [scopeContext.productLineId, scopeContext.productLineName],
+    ) &&
+    selectedScopePairMatches(
+      [selectedScope.seriesId, selectedScope.seriesName],
+      [scopeContext.seriesId, scopeContext.seriesName],
+    ) &&
+    selectedScopePairMatches(
+      [selectedScope.expansionId, selectedScope.expansionName],
+      [scopeContext.expansionId, scopeContext.expansionName],
+    )
+  );
+}
+
+function selectedScopePairMatches(
+  expectedValues: readonly (string | null)[],
+  actualValues: readonly (string | null)[],
+): boolean {
+  const expected = expectedValues.filter((value): value is string => Boolean(value));
+  return expected.length === 0 || expected.some((value) => selectedScopeFieldMatches(value, actualValues));
+}
+
+function selectedScopeFieldMatches(expected: string | null, actuals: readonly (string | null)[]): boolean {
+  if (!expected) {
+    return true;
+  }
+  return actuals.some((actual) => comparableText(actual) === comparableText(expected));
+}
+
+function candidateProfileMatchesSelectedScope(
+  candidate: SourceScopeCandidate,
+  selectedScope: CatalogPrimaryWorkbenchScopeContext,
+): boolean {
+  const selectionTokens = scopeTokens(selectedScope);
+  if (selectionTokens.size === 0) {
+    return true;
+  }
+  const candidateText = comparableText(
+    [
+      candidate.providerKey,
+      candidate.displayName,
+      candidate.unitKey,
+      candidate.productDomain,
+      candidate.productForm,
+      candidate.profile?.displayName,
+      candidate.profile?.mappingOutputKind,
+      ...(candidate.profile?.supportedScopes ?? []),
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
+
+  for (const token of selectionTokens) {
+    if (candidateText.includes(token)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function scopeTokens(scope: CatalogPrimaryWorkbenchScopeContext): ReadonlySet<string> {
+  const tokens = new Set<string>();
+  for (const value of [
+    scope.productLineId,
+    scope.productLineName,
+    scope.seriesId,
+    scope.seriesName,
+    scope.expansionId,
+    scope.expansionName,
+  ]) {
+    addComparableTokens(tokens, value);
+  }
+
+  return tokens;
+}
+
+function addComparableTokens(tokens: Set<string>, value: string | null): void {
+  const comparable = comparableText(value);
+  if (!comparable || isGenericScopeToken(comparable)) {
+    return;
+  }
+  if (comparable.length >= 3) {
+    tokens.add(comparable);
+  }
+  const words = (value ?? "")
+    .split(/[^A-Za-z0-9]+/)
+    .map((word) => word.trim())
+    .filter((word) => word.length > 0 && !isGenericScopeToken(comparableText(word)));
+  if (words.length > 1) {
+    tokens.add(words.map((word) => word[0]?.toLowerCase() ?? "").join(""));
+  }
+}
+
+function scopeHasConcreteSelection(scope: CatalogPrimaryWorkbenchScopeContext): boolean {
+  return Boolean(
+    scope.languageCode ||
+    scope.productLineId ||
+    scope.productLineName ||
+    scope.seriesId ||
+    scope.seriesName ||
+    scope.expansionId ||
+    scope.expansionName,
+  );
+}
+
+function comparableText(value: string | null | undefined): string {
+  return value?.toLowerCase().replace(/[^a-z0-9]/g, "") ?? "";
+}
+
+function isGenericScopeToken(token: string): boolean {
+  return new Set([
+    "card",
+    "cards",
+    "data",
+    "import",
+    "line",
+    "product",
+    "products",
+    "reference",
+    "scope",
+    "set",
+    "sets",
+    "single",
+    "source",
+    "the",
+  ]).has(token);
+}
+
+function providerBaseDisplayName(providerKey: string): string {
+  const names = new Map([
+    ["mtgjson", "MTGJSON"],
+    ["scryfall", "Scryfall"],
+    ["scrydex", "Scrydex"],
+    ["tcgdex", "TCGdex"],
+    ["tcgplayer", "TCGplayer"],
+  ]);
+
+  return names.get(providerKey) ?? providerKey;
+}

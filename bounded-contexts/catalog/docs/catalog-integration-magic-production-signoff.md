@@ -120,7 +120,8 @@ items below are complete:
   blockers.
 - [ ] #2039 staging UAT passes from the Chase Sets interface without direct
   URLs, APIs, CLI, SQL, Postman, browser console commands, provider endpoints,
-  or hidden Admin/API routes.
+  or hidden Admin/API routes, and proves both one Magic set and one Pokemon set
+  can sync through the same source-scope importer.
 - [ ] `CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE` names the
   accepted provider-data approval and #2039 UAT evidence before production-like
   MTGJSON, Scryfall, or TCGplayer Magic imports, promotions, reapply, or
@@ -168,19 +169,23 @@ These actions remain blocked until signoff:
 
 ## Required UAT Evidence
 
-The staging UAT must demonstrate one Magic set synced from all three providers
-through normal operator navigation in the Chase Sets interface.
+The staging UAT must demonstrate one Magic set synced from MTGJSON, Scryfall,
+and TCGplayer through normal operator navigation in the Chase Sets interface.
+It must also demonstrate one Pokemon set synced through the same source-scope
+importer so the Magic rollout cannot regress the existing Pokemon operator
+workflow.
 
 Evidence must include:
 
-- selected Magic set and operator-visible source scope;
+- selected Magic set, selected Pokemon set, and operator-visible source scope;
 - MTGJSON, Scryfall, and TCGplayer Magic provider readiness state;
+- Pokemon provider readiness state for the same source-scope importer;
 - option-query cache/freshness state;
 - dry-run diagnostics and semantic summary;
 - import job ids, profile versions, ingestion units, and source hashes or
   approved hash omissions;
-- promoted Magic set and representative card-print records in Catalog read
-  models;
+- promoted Magic set, promoted Pokemon set, and representative card-print
+  records in Catalog read models;
 - TCGplayer external reference and SKU attachment results without forbidden
   commerce facts;
 - conflict and duplicate-prevention outcomes;
@@ -191,6 +196,8 @@ Evidence must include:
   state and the empty-cache unavailable state where practical.
 - proof that stopping one Magic provider leaves the other two providers'
   readiness and allowed actions visible in Integration health.
+- proof that Magic and Pokemon are selected from the shared source-scope
+  interface, without a product-line-specific sync area.
 
 ## Related Issues
 
@@ -199,5 +206,5 @@ Evidence must include:
 - #2030 Promote MTGJSON to production set and card reference sync
 - #2031 Add TCGplayer Magic single-card product and SKU sync profile
 - #2032 Add TCGplayer Magic sealed-product sync profile
-- #2039 Staging UAT: sync one Magic set from all three providers through the
-  interface
+- #2039 Staging UAT: sync one Magic set from all three providers and one Pokemon
+  set through the shared interface
