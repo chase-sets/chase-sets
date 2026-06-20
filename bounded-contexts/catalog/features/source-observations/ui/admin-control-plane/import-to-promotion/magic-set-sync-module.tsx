@@ -22,7 +22,11 @@ import type {
   CatalogPrimaryWorkbenchMagicSetSyncProviderReadModel,
   CatalogPrimaryWorkbenchReadModel,
 } from "../../../api/primary-workbench-admin-contracts";
-import { magicSetOptionsFromSourceOptions, mergeMagicSetOptions } from "../../primary-workbench-magic-set-sync";
+import {
+  MAGIC_SET_SYNC_LANGUAGE_CODE,
+  magicSetOptionsFromSourceOptions,
+  mergeMagicSetOptions,
+} from "../../primary-workbench-magic-set-sync";
 import { catalogPrimaryWorkbenchHref } from "../../primary-workbench-route-context";
 
 type MagicSetProviderRow = CatalogPrimaryWorkbenchMagicSetSyncProviderReadModel;
@@ -131,7 +135,7 @@ function MagicSetSelectionForm({ readModel }: { readModel: CatalogPrimaryWorkben
       <HiddenInput name="providerKey" value={selectedProvider?.providerKey ?? providerKey} />
       <HiddenInput name="unitKey" value={selectedProvider?.unitKey ?? ""} />
       <HiddenInput name="profileVersion" value={selectedProvider?.profileVersion ?? ""} />
-      <HiddenInput name="languageCode" value={readModel.routeContext.scope?.languageCode ?? "en"} />
+      <HiddenInput name="languageCode" value={MAGIC_SET_SYNC_LANGUAGE_CODE} />
       <HiddenInput name="productLineName" value="Magic: The Gathering" />
       <HiddenInput name="expansionName" value={selectedOption?.setName ?? selectedOption?.label ?? ""} />
       <WorkbenchFormGrid columns="three">

@@ -26,6 +26,7 @@ import {
 } from "./primary-workbench-read-model-support";
 
 const MAGIC_PROVIDER_KEYS = ["mtgjson", "scryfall", "tcgplayer"] as const;
+export const MAGIC_SET_SYNC_LANGUAGE_CODE = "en";
 
 type MagicProviderKey = (typeof MAGIC_PROVIDER_KEYS)[number];
 
@@ -194,7 +195,7 @@ function providerMagicScope(
 ): CatalogPrimaryWorkbenchScopeContext {
   return {
     ...emptyCatalogPrimaryWorkbenchScopeContext(providerKey),
-    languageCode: routeScope?.languageCode ?? matchingScope?.language_code ?? "en",
+    languageCode: MAGIC_SET_SYNC_LANGUAGE_CODE,
     productLineId: matchingScope?.product_line_id ?? routeScope?.productLineId ?? null,
     productLineName: matchingScope?.product_line_name ?? routeScope?.productLineName ?? "Magic: The Gathering",
     seriesId: matchingScope?.series_id ?? routeScope?.seriesId ?? null,
