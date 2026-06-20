@@ -332,6 +332,12 @@ export function latestDeployment(deployments) {
     })[0];
 }
 
+export function deploymentForDiagnostics(deployments) {
+  const summaries = deployments.map(normalizeDeploymentSummary).filter((deployment) => deployment.id);
+  const failed = summaries.filter((deployment) => deployment.phase === "ERROR");
+  return latestDeployment(failed.length > 0 ? failed : summaries);
+}
+
 export function deploymentComponentNames(app) {
   const spec = app?.spec ?? {};
   return [
@@ -431,7 +437,7 @@ export async function collectDeploymentDiagnostics(appId, options = {}) {
 
   const deployment = options.deploymentId
     ? { id: options.deploymentId, phase: "selected", createdAt: "", updatedAt: "" }
-    : latestDeployment(deployments);
+    : deploymentForDiagnostics(deployments);
 
   if (!deployment?.id) {
     warn(`No App Platform deployments were found for app '${appId}'; skipping deployment log diagnostics.`);
