@@ -12,6 +12,7 @@ import {
   deployApp,
   deploymentComponentNames,
   latestDeployment,
+  parseDeploymentSummaryRows,
   pendingDomains,
   planAppChanged,
   resetStaleDomainAttachment,
@@ -222,6 +223,21 @@ The resources are retired by a reviewed context merge.
     });
   });
 
+  it("parses compact DigitalOcean deployment summary rows", () => {
+    expect(
+      parseDeploymentSummaryRows(`
+ID Phase Updated
+old ACTIVE 2026-06-19T21:00:00Z
+failed ERROR 2026-06-19T22:00:00Z
+running BUILDING 2026-06-19T22:05:00Z
+`),
+    ).toEqual([
+      { id: "old", phase: "ACTIVE", createdAt: "", updatedAt: "2026-06-19T21:00:00Z" },
+      { id: "failed", phase: "ERROR", createdAt: "", updatedAt: "2026-06-19T22:00:00Z" },
+      { id: "running", phase: "BUILDING", createdAt: "", updatedAt: "2026-06-19T22:05:00Z" },
+    ]);
+  });
+
   it("collects component names from an App Platform spec", () => {
     expect(
       deploymentComponentNames({
@@ -253,13 +269,13 @@ The resources are retired by a reviewed context merge.
   });
 
   it("waits until active DigitalOcean deployments finish", async () => {
-    const responses = [[{ id: "first", phase: "BUILDING" }], [{ id: "first", phase: "ACTIVE" }]];
+    const responses = ["first BUILDING 2026-06-19T22:00:00Z\n", "first ACTIVE 2026-06-19T22:01:00Z\n"];
     let sleeps = 0;
 
     await waitForDeployments("app-id", {
-      commandJson: async (command, args) => {
+      commandOutput: async (command, args) => {
         expect(command).toBe("doctl");
-        expect(args).toEqual(["apps", "list-deployments", "app-id", "--output", "json"]);
+        expect(args).toEqual(["apps", "list-deployments", "app-id", "--format", "ID,Phase,Updated", "--no-header"]);
         return responses.shift();
       },
       now: () => 0,
@@ -328,7 +344,7 @@ The resources are retired by a reviewed context merge.
 
   it("treats a deleted App Platform app as no active deployment to wait for", async () => {
     await waitForDeployments("deleted-app-id", {
-      commandJson: async () => {
+      commandOutput: async () => {
         throw new Error("doctl apps list-deployments deleted-app-id failed: app not found");
       },
       sleep: async () => {
@@ -348,7 +364,7 @@ The resources are retired by a reviewed context merge.
 
     await expect(
       waitForDeployments("app-id", {
-        commandJson: async () => [{ id: "stuck", phase: "BUILDING" }],
+        commandOutput: async () => "stuck BUILDING 2026-06-19T22:00:00Z\n",
         now: () => timestamps.shift() ?? 2_000,
         timeoutSeconds: 1,
         sleep: async () => {},
@@ -367,12 +383,6 @@ The resources are retired by a reviewed context merge.
       tailLines: 50,
       commandJson: async (command, args) => {
         calls.push([command, args]);
-        if (args[1] === "list-deployments") {
-          return [
-            { id: "old", phase: "ACTIVE", updated_at: "2026-06-19T21:00:00Z" },
-            { id: "failed", phase: "ERROR", updated_at: "2026-06-19T22:00:00Z" },
-          ];
-        }
         if (args[1] === "get-deployment") {
           return [
             {
@@ -392,6 +402,9 @@ The resources are retired by a reviewed context merge.
       },
       commandOutput: async (command, args) => {
         calls.push([command, args]);
+        if (args[1] === "list-deployments") {
+          return "old ACTIVE 2026-06-19T21:00:00Z\nfailed ERROR 2026-06-19T22:00:00Z\n";
+        }
         return "Platform API bootstrap failed.\nCatalog integration seed conflict.\n";
       },
       log: (message) => logs.push(message),
@@ -411,7 +424,7 @@ The resources are retired by a reviewed context merge.
     });
     expect(warnings).toEqual([]);
     expect(calls).toEqual([
-      ["doctl", ["apps", "list-deployments", "app-id", "--output", "json"]],
+      ["doctl", ["apps", "list-deployments", "app-id", "--format", "ID,Phase,Updated", "--no-header"]],
       ["doctl", ["apps", "get-deployment", "app-id", "failed", "--output", "json"]],
       [
         "doctl",
@@ -434,7 +447,7 @@ The resources are retired by a reviewed context merge.
     expect(logs.join("\n")).toContain("Catalog integration seed conflict.");
   });
 
-  it("parses deployment diagnostics JSON from a failed doctl command stdout", async () => {
+  it("parses deployment diagnostics details JSON from a failed doctl command stdout", async () => {
     const calls = [];
     const warnings = [];
 
@@ -445,13 +458,12 @@ The resources are retired by a reviewed context merge.
         calls.push([command, args]);
 
         if (args[1] === "list-deployments") {
-          const error = new Error("doctl reported a nonzero exit despite JSON output");
-          error.stdout = JSON.stringify([{ id: "failed", phase: "ERROR", updated_at: "2026-06-19T22:00:00Z" }]);
-          throw error;
+          return "failed ERROR 2026-06-19T22:00:00Z\n";
         }
 
         if (args[1] === "get-deployment") {
-          return JSON.stringify([
+          const error = new Error("doctl reported a nonzero exit despite JSON output");
+          error.stdout = JSON.stringify([
             {
               progress: {
                 steps: [
@@ -460,6 +472,7 @@ The resources are retired by a reviewed context merge.
               },
             },
           ]);
+          throw error;
         }
 
         if (args[1] === "logs") {

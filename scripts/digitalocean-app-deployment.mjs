@@ -8,6 +8,7 @@ const TERMINAL_DEPLOYMENT_PHASES = new Set(["ACTIVE", "ERROR", "CANCELED", "CANC
 
 const ACTIVE_DOMAIN_PHASE = "ACTIVE";
 const DEFAULT_DEPLOYMENT_LOG_TYPES = ["deploy", "run", "run_restarted"];
+const DEPLOYMENT_SUMMARY_FIELDS = "ID,Phase,Updated";
 const MAX_DIAGNOSTIC_ERROR_MESSAGE_LENGTH = 2_000;
 
 function truncateDiagnosticMessage(message, maxLength = MAX_DIAGNOSTIC_ERROR_MESSAGE_LENGTH) {
@@ -148,6 +149,22 @@ function normalizeDeploymentResponse(deploymentResponse) {
 function timestampValue(value) {
   const parsed = Date.parse(value ?? "");
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function listDeploymentsSummaryArgs(appId) {
+  return ["apps", "list-deployments", appId, "--format", DEPLOYMENT_SUMMARY_FIELDS, "--no-header"];
+}
+
+export function parseDeploymentSummaryRows(output) {
+  return output
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [id = "", phase = "", ...updatedParts] = line.split(/\s+/);
+      return { id, phase, createdAt: "", updatedAt: updatedParts.join(" ") };
+    })
+    .filter((deployment) => deployment.id && deployment.id !== "ID");
 }
 
 function componentNamesFromSpecCollection(collection) {
@@ -358,13 +375,13 @@ export async function waitForDeployments(appId, options = {}) {
   const pollSeconds = options.pollSeconds ?? 30;
   const now = options.now ?? (() => Date.now());
   const delay = options.sleep ?? sleep;
-  const runJson = options.commandJson ?? commandJson;
+  const command = options.commandOutput ?? commandOutput;
   const deadline = now() + timeoutSeconds * 1000;
 
   while (true) {
-    let deploymentResponse;
+    let deployments;
     try {
-      deploymentResponse = await runJson("doctl", ["apps", "list-deployments", appId, "--output", "json"], options);
+      deployments = parseDeploymentSummaryRows(await command("doctl", listDeploymentsSummaryArgs(appId)));
     } catch (error) {
       if (appNotFound(error)) {
         console.log(`App Platform app '${appId}' no longer exists; skipping deployment wait.`);
@@ -373,20 +390,20 @@ export async function waitForDeployments(appId, options = {}) {
       throw error;
     }
 
-    const deployments = activeDeployments(deploymentResponse);
+    const active = activeDeployments(deployments);
 
-    if (deployments.length === 0) {
+    if (active.length === 0) {
       console.log("No in-progress App Platform deployments remain.");
       return;
     }
 
     if (now() >= deadline) {
-      const summary = deployments.map((deployment) => `- ${deployment.id}: ${deployment.phase}`).join("\n");
+      const summary = active.map((deployment) => `- ${deployment.id}: ${deployment.phase}`).join("\n");
       throw new Error(`Timed out waiting for App Platform deployments to finish:\n${summary}`);
     }
 
     console.log("Waiting for App Platform deployment capacity:");
-    for (const deployment of deployments) {
+    for (const deployment of active) {
       console.log(`- ${deployment.id}: ${deployment.phase}`);
     }
 
@@ -406,7 +423,7 @@ export async function collectDeploymentDiagnostics(appId, options = {}) {
   let deployments = [];
   if (!options.deploymentId) {
     try {
-      deployments = await runJson("doctl", ["apps", "list-deployments", appId, "--output", "json"], jsonOptions);
+      deployments = parseDeploymentSummaryRows(await command("doctl", listDeploymentsSummaryArgs(appId)));
     } catch (error) {
       warn(`Unable to list App Platform deployments for '${appId}': ${diagnosticErrorMessage(error)}`);
     }
