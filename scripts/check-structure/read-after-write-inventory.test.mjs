@@ -189,6 +189,47 @@ describe("read-after-write route inventory guard", () => {
     );
   });
 
+  it("maps route-support helper usage to the matching deployable route id", async () => {
+    const root = createTempRepo();
+    writeRoute(root, "bounded-contexts/checkout/support/route-support/buy-checkout-readiness/action.ts", [
+      "appendFreshWriteToken",
+    ]);
+    writeRoute(root, "bounded-contexts/checkout/routes/checkout-session.tsx", ["loadFreshlyWrittenResource"]);
+
+    const result = await validate(
+      root,
+      createContextManifest(root, {
+        mutationConsistencyInventory: [
+          {
+            id: "checkout.session-start-action",
+            owner: "checkout",
+            risk: "critical",
+            strategy: "fresh-read",
+            surfaces: ["route-action:bounded-contexts/checkout/support/route-support/buy-checkout-readiness/action.ts"],
+            visibleDestination: {
+              routeId: "buy-checkout-session",
+              apiContextName: "checkout",
+              apiRoutePath: "/account/checkout-sessions/:sessionId",
+              readModelTables: ["checkout_session_pages"],
+              transientRecovery: "temporary checkout recovery",
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(result.violations).toEqual([]);
+    expect(result.helperUsages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          file: "bounded-contexts/checkout/support/route-support/buy-checkout-readiness/action.ts",
+          helpers: ["appendFreshWriteToken"],
+          routeIds: ["buy-checkout-readiness"],
+        }),
+      ]),
+    );
+  });
+
   it("accepts semantic post-write handoff helpers represented by the same freshness inventory", async () => {
     const root = createTempRepo();
     writeRoute(root, "bounded-contexts/checkout/routes/checkout-start.tsx", ["appendPostWriteHandoff"]);

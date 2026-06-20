@@ -130,6 +130,22 @@ function manifestRouteFileCandidates(contextRoot, fileExport) {
   return [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"].map((extension) => `${base}${extension}`);
 }
 
+function routeSupportRouteIds(relativeFile, contextManifests, routesById) {
+  const match = relativeFile.match(/^(bounded-contexts\/[^/]+)\/support\/route-support\/([^/]+)\//);
+  if (!match) {
+    return new Set();
+  }
+
+  const [, contextRoot, routeId] = match;
+  const context = contextManifests.get(contextRoot);
+  const route = routesById.get(routeId);
+  if (!context || !route || route.contextName !== context.manifest.contextName) {
+    return new Set();
+  }
+
+  return new Set([routeId]);
+}
+
 function hostRoutePath(routePath) {
   const normalized = routePath.startsWith("/") ? routePath : `/${routePath}`;
   return normalized.replace(/\/+/g, "/");
@@ -294,7 +310,7 @@ export function collectReadAfterWriteRouteIndexes(contextManifests) {
 
 export async function collectFreshWriteHelperUsage(options) {
   const { repoRoot, contextManifests } = options;
-  const { routeIdsByFile } = collectReadAfterWriteRouteIndexes(contextManifests);
+  const { routeIdsByFile, routesById } = collectReadAfterWriteRouteIndexes(contextManifests);
   const boundedContextRoot = path.join(repoRoot, "bounded-contexts");
   const files = await walkSourceFiles(boundedContextRoot);
   const usages = [];
@@ -323,7 +339,10 @@ export async function collectFreshWriteHelperUsage(options) {
       continue;
     }
 
-    const routeIds = routeIdsByFile.get(relativeFile) ?? routeIdsByFile.get(stripRouteFileExtension(relativeFile));
+    const routeIds =
+      routeIdsByFile.get(relativeFile) ??
+      routeIdsByFile.get(stripRouteFileExtension(relativeFile)) ??
+      routeSupportRouteIds(relativeFile, contextManifests, routesById);
     usages.push({
       file: relativeFile,
       helpers: helperUses.sort(),
@@ -363,7 +382,7 @@ async function collectRawPostWriteHandoffMetadataUsage(options) {
 
 export async function collectMutationConsistencySurfaces(options) {
   const { repoRoot, contextManifests } = options;
-  const { routeIdsByFile } = collectReadAfterWriteRouteIndexes(contextManifests);
+  const { routeIdsByFile, routesById } = collectReadAfterWriteRouteIndexes(contextManifests);
   const scanRoots = ["bounded-contexts", "deployables"]
     .map((root) => path.join(repoRoot, root))
     .filter((root) => existsSync(root));
@@ -389,7 +408,9 @@ export async function collectMutationConsistencySurfaces(options) {
     const contextName = contextNameForFile(relativeFile, contextManifests);
     const content = readFileSync(file, "utf8");
     const routeIds = [
-      ...(routeIdsByFile.get(relativeFile) ?? routeIdsByFile.get(stripRouteFileExtension(relativeFile)) ?? []),
+      ...(routeIdsByFile.get(relativeFile) ??
+        routeIdsByFile.get(stripRouteFileExtension(relativeFile)) ??
+        routeSupportRouteIds(relativeFile, contextManifests, routesById)),
     ].sort();
     const occurrenceCounts = new Map();
 
@@ -1206,7 +1227,10 @@ export async function validateReadAfterWriteRouteInventory(options) {
 
     for (const routeId of usage.routeIds) {
       const coveredHelpers = helperCoverageByRoute.get(routeId) ?? new Set();
-      const missingHelpers = usage.helpers.filter((helper) => !coveredHelpers.has(helper));
+      const fileCoveredHelpers = helperCoverageByFile.get(usage.file) ?? new Set();
+      const missingHelpers = usage.helpers.filter(
+        (helper) => !coveredHelpers.has(helper) && !fileCoveredHelpers.has(helper),
+      );
       if (missingHelpers.length > 0) {
         violations.push(
           `${usage.file}: fresh-write helper(s) ${missingHelpers.join(", ")} on route '${routeId}' must be declared in readAfterWriteRouteInventory or an exception`,
