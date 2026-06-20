@@ -186,6 +186,23 @@ CREATE TABLE IF NOT EXISTS catalog_provider_option_query_cache (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+ALTER TABLE catalog_provider_option_query_cache
+  ADD COLUMN IF NOT EXISTS profile_key text DEFAULT '',
+  ADD COLUMN IF NOT EXISTS ingestion_unit_key text DEFAULT '';
+
+UPDATE catalog_provider_option_query_cache
+  SET profile_key = COALESCE(profile_key, ''),
+      ingestion_unit_key = COALESCE(ingestion_unit_key, '')
+  WHERE profile_key IS NULL OR ingestion_unit_key IS NULL;
+
+ALTER TABLE catalog_provider_option_query_cache
+  ALTER COLUMN profile_key SET DEFAULT '',
+  ALTER COLUMN profile_key SET NOT NULL,
+  ALTER COLUMN ingestion_unit_key SET DEFAULT '',
+  ALTER COLUMN ingestion_unit_key SET NOT NULL;
+
+DROP INDEX IF EXISTS catalog_provider_option_query_cache_lookup_idx;
+
 CREATE INDEX IF NOT EXISTS catalog_provider_option_query_cache_lookup_idx
   ON catalog_provider_option_query_cache (
     provider_key,
