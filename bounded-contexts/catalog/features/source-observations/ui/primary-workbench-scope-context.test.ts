@@ -3,6 +3,7 @@ import {
   scopeContextFromImportScope,
   scopeContextFromProviderScope,
   scopeContextFromSearchParams,
+  scopeContextToObservationFilterScope,
   scopeContextToQueryParams,
   scopeDisplayLabel,
 } from "./primary-workbench-scope-context";
@@ -60,6 +61,33 @@ describe("Catalog primary workbench scope context", () => {
       providerKey: "tcgdex",
       languageCode: "ja",
       seriesId: "SV",
+    });
+  });
+
+  it("keeps name-based set selections out of the language and series scope", () => {
+    const scope = scopeContextFromSearchParams({
+      searchParams: new URLSearchParams(
+        "providerKey=tcgplayer&importScope=en%3A1%3AClassic%20Sixth%20Edition&languageCode=en&productLineId=1&expansionName=Classic%20Sixth%20Edition",
+      ),
+      providerKey: "tcgplayer",
+      importScope: "en:1:Classic Sixth Edition",
+      sourceObservationFilters: {},
+    });
+
+    expect(scope).toMatchObject({
+      providerKey: "tcgplayer",
+      languageCode: "en",
+      productLineId: "1",
+      seriesId: null,
+      expansionId: null,
+      expansionName: "Classic Sixth Edition",
+    });
+    expect(scopeContextToObservationFilterScope(scope)).toMatchObject({
+      provider: "tcgplayer",
+      language: "en",
+      productLineId: "1",
+      expansionId: "Classic Sixth Edition",
+      setId: "Classic Sixth Edition",
     });
   });
 

@@ -190,8 +190,11 @@ export function serializeCatalogPrimaryWorkbenchRouteContext(
   setNullable(searchParams, "providerKey", context.providerKey);
   setNullable(searchParams, "unitKey", context.unitKey);
   setNullable(searchParams, "importScope", context.importScope ?? importScopeFromScopeContext(context.scope));
+  setNullable(searchParams, "productLineId", context.scope?.productLineId ?? null);
   setNullable(searchParams, "productLineName", context.scope?.productLineName ?? null);
+  setNullable(searchParams, "seriesId", context.scope?.seriesId ?? null);
   setNullable(searchParams, "seriesName", context.scope?.seriesName ?? null);
+  setNullable(searchParams, "expansionId", context.scope?.expansionId ?? null);
   setNullable(searchParams, "expansionName", context.scope?.expansionName ?? null);
   setNullable(searchParams, "profileVersion", context.profileVersion);
   if (context.selectedObservationIds.length > 0) {

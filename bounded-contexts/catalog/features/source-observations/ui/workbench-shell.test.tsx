@@ -519,7 +519,7 @@ describe("CatalogWorkbenchShell guided source-scope selector", () => {
     const scopeGroup = screen.getByRole("group", { name: "Source scope" });
     // TCGplayer's profile declares Product Line / Set Name, not language/series.
     expect(within(scopeGroup).getByLabelText<HTMLSelectElement>("Product Line").name).toBe("productLineId");
-    expect(within(scopeGroup).getByLabelText<HTMLSelectElement>("Set Name").name).toBe("expansionId");
+    expect(within(scopeGroup).getByLabelText<HTMLSelectElement>("Set Name").name).toBe("expansionName");
     expect(within(scopeGroup).queryByLabelText("Series")).toBeNull();
   });
 
