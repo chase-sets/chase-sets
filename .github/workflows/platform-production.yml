@@ -793,7 +793,7 @@ jobs:
             exit 0
           fi
 
-          node ../../../scripts/digitalocean-app-deployment.mjs diagnostics "$app_id" --component=platform-bootstrap --tail-lines=300
+          node ../../../scripts/digitalocean-app-deployment.mjs diagnostics "$app_id" --component=platform-bootstrap --tail-lines=300 || true
 
       - name: Wait for Terraform App Platform deployment
         if: env.SHOULD_DEPLOY != 'false'

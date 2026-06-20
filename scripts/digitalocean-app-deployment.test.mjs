@@ -434,6 +434,88 @@ The resources are retired by a reviewed context merge.
     expect(logs.join("\n")).toContain("Catalog integration seed conflict.");
   });
 
+  it("parses deployment diagnostics JSON from a failed doctl command stdout", async () => {
+    const calls = [];
+    const warnings = [];
+
+    const result = await collectDeploymentDiagnostics("app-id", {
+      componentNames: ["platform-bootstrap"],
+      logTypes: ["deploy"],
+      commandOutput: async (command, args) => {
+        calls.push([command, args]);
+
+        if (args[1] === "list-deployments") {
+          const error = new Error("doctl reported a nonzero exit despite JSON output");
+          error.stdout = JSON.stringify([{ id: "failed", phase: "ERROR", updated_at: "2026-06-19T22:00:00Z" }]);
+          throw error;
+        }
+
+        if (args[1] === "get-deployment") {
+          return JSON.stringify([
+            {
+              progress: {
+                steps: [
+                  { name: "platform-bootstrap", status: "ERROR", reason: { code: "DeployContainerExitNonZero" } },
+                ],
+              },
+            },
+          ]);
+        }
+
+        if (args[1] === "logs") {
+          return "bootstrap failure details\n";
+        }
+
+        throw new Error(`Unexpected command: ${args.join(" ")}`);
+      },
+      log: () => {},
+      warn: (message) => warnings.push(message),
+    });
+
+    expect(result).toEqual({
+      deploymentId: "failed",
+      logs: [
+        { componentName: "platform-bootstrap", logType: "deploy", ok: true, output: "bootstrap failure details\n" },
+      ],
+    });
+    expect(warnings).toEqual([]);
+    expect(calls.map(([, args]) => args[1])).toEqual(["list-deployments", "get-deployment", "logs"]);
+  });
+
+  it("keeps diagnostics warnings bounded when provider output is noisy", async () => {
+    const warnings = [];
+    const noisyMessage = "x".repeat(8_000);
+
+    const result = await collectDeploymentDiagnostics("app-id", {
+      componentNames: ["platform-bootstrap"],
+      logTypes: ["deploy"],
+      deploymentId: "selected-deployment",
+      commandJson: async () => {
+        throw new Error(noisyMessage);
+      },
+      commandOutput: async () => {
+        throw new Error(noisyMessage);
+      },
+      log: () => {},
+      warn: (message) => warnings.push(message),
+    });
+
+    expect(result).toEqual({
+      deploymentId: "selected-deployment",
+      logs: [
+        {
+          componentName: "platform-bootstrap",
+          logType: "deploy",
+          ok: false,
+          error: expect.stringContaining("truncated 6000 characters"),
+        },
+      ],
+    });
+    expect(warnings).toHaveLength(2);
+    expect(warnings.every((warning) => warning.length < 2_200)).toBe(true);
+    expect(warnings.join("\n")).toContain("truncated 6000 characters");
+  });
+
   it("deploys the app and verifies the deployment phase", async () => {
     const calls = [];
 
