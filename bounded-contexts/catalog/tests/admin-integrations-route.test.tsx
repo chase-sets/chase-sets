@@ -470,8 +470,25 @@ describe("Catalog integrations route", () => {
 
     expect(routeData.readModel.routeContext.scope).toMatchObject({
       providerKey: "tcgplayer",
+      languageCode: "en",
       productLineId: "1",
       expansionName: "Classic Sixth Edition",
+    });
+    expect(routeData.readModel.routeContext.importScope).toBe("en:1:Classic Sixth Edition");
+    expect(routeData.readModel.sourceScopeWorkset.selectedScope).toMatchObject({
+      label: "tcgplayer / en / 1 / Classic Sixth Edition",
+      importScope: "en:1:Classic Sixth Edition",
+    });
+    const tcgplayerUnit = routeData.readModel.sourceScopeWorkset.units.find(
+      (unit) => unit.unitKey === "tcgplayer:mtg:single-card:source-observation-import",
+    );
+    expect(tcgplayerUnit?.currentWorkbenchHref).toContain("expansionName=Classic+Sixth+Edition");
+    expect(tcgplayerUnit?.currentWorkbenchHref).toContain("importScope=en%3A1%3AClassic+Sixth+Edition");
+    expect(tcgplayerUnit?.commandContext).toMatchObject({
+      languageCode: "en",
+      productLineId: "1",
+      expansionName: "Classic Sixth Edition",
+      importScope: "en:1:Classic Sixth Edition",
     });
     await expect(routeData.deferredSourceOptions).resolves.toMatchObject({
       pages: expect.arrayContaining([expect.objectContaining({ state: "unavailable" })]),

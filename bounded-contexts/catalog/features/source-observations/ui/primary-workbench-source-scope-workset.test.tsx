@@ -145,8 +145,8 @@ describe("Catalog source-scope workset", () => {
       expansionId: null,
       expansionName: "Classic Sixth Edition",
     });
-    expect(readModel.routeContext.importScope).toBeNull();
-    expect(readModel.routeContext.sourceObservationFilters).not.toHaveProperty("importScope");
+    expect(readModel.routeContext.importScope).toBe("en:1:Classic Sixth Edition");
+    expect(readModel.routeContext.sourceObservationFilters.importScope).toBe("en:1:Classic Sixth Edition");
     expect(unit.actions.import.state).toBe("available");
     expect(unit.currentWorkbenchHref).toContain("productLineId=1");
     expect(unit.currentWorkbenchHref).toContain("expansionName=Classic+Sixth+Edition");
