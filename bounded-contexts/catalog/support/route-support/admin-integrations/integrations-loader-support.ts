@@ -189,22 +189,27 @@ async function deferredSourceOptionsSlice(
   baseline: CatalogIntegrationsBaseline,
   routeContext: CatalogPrimaryWorkbenchRouteContext,
 ): Promise<CatalogPrimaryWorkbenchReadModel["sourceOptions"]> {
-  // Fail-soft to the not-loaded skeleton on any unexpected error so the streamed
-  // boundary always RESOLVES (never rejects into an error page). Per-page fetch
-  // failures already resolve to empty/error page snapshots inside
-  // selectedProviderSourceOptionPages; this guards the surrounding build too.
-  const sourceOptionPages = await selectedProviderSourceOptionPages(api, request, baseline, routeContext).catch(
-    () => null,
-  );
+  try {
+    const sourceOptionPages = await selectedProviderSourceOptionPages(api, request, baseline, routeContext);
 
-  return buildCatalogPrimaryWorkbenchDeferredSourceOptions({
-    requestUrl: request.url,
-    scopes: baseline.routeData.data,
-    profileReviews: baseline.profileReviews,
-    controlPlaneOverview: baseline.controlPlaneOverview,
-    sourceOptionPages,
-    canManageCatalog: baseline.canManageCatalog,
-  });
+    return buildCatalogPrimaryWorkbenchDeferredSourceOptions({
+      requestUrl: request.url,
+      scopes: baseline.routeData.data,
+      profileReviews: baseline.profileReviews,
+      controlPlaneOverview: baseline.controlPlaneOverview,
+      sourceOptionPages,
+      canManageCatalog: baseline.canManageCatalog,
+    });
+  } catch {
+    return buildCatalogPrimaryWorkbenchDeferredSourceOptions({
+      requestUrl: request.url,
+      scopes: baseline.routeData.data,
+      profileReviews: baseline.profileReviews,
+      controlPlaneOverview: baseline.controlPlaneOverview,
+      sourceOptionPages: null,
+      canManageCatalog: baseline.canManageCatalog,
+    });
+  }
 }
 
 // Resolve the Source Observation review page window from the durable, URL-backed

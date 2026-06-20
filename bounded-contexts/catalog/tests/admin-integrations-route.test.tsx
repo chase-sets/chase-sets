@@ -402,6 +402,82 @@ describe("Catalog integrations route", () => {
     });
   });
 
+  it("keeps structured TCGplayer set routes alive when deferred option rendering fails", async () => {
+    const scopes = {
+      items: [
+        sourceObservationScope({
+          provider_key: "tcgplayer",
+          language_code: "en",
+          product_line_id: "1",
+          product_line_name: "Magic: The Gathering",
+          series_id: "",
+          series_name: "",
+          expansion_id: "",
+          expansion_name: "Classic Sixth Edition",
+          total_observations: 0,
+          observed_observations: 0,
+          changed_observations: 0,
+          promoted_observations: 0,
+          rejected_observations: 0,
+        }),
+      ],
+      total: 1,
+      count: 1,
+    };
+    const profileReviews = {
+      items: [
+        profileReview({
+          providerKey: "tcgplayer",
+          profileKey: "mtg-single-card-product-sku",
+          profileVersion: "2026.06.19",
+          ingestionUnitKey: "tcgplayer:mtg:single-card:source-observation-import",
+          displayName: "TCGplayer Magic Single Cards",
+          lifecycle: "active",
+          active: true,
+          status: "active",
+        }),
+      ],
+      total: 1,
+      count: 1,
+    };
+    const listSourceObservationIntegrationOptions = vi.fn(async (query: string) => {
+      const queryKind = new URLSearchParams(query).get("queryKind") ?? "product-lines";
+      const response = sourceOptionResponse(queryKind, {
+        status: "fresh",
+        source: "live",
+        parentValue: null,
+        degraded: false,
+      });
+      response.items[0]!.value = null as unknown as string;
+      return response;
+    });
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listSourceObservationIntegrationScopes: vi.fn().mockResolvedValue(scopes),
+      listSourceObservationProviderProfiles: vi.fn().mockResolvedValue(profileReviews),
+      getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(null),
+      listSourceObservations: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      listSourceObservationIntegrationOptions,
+      recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+    });
+
+    const routeData = await loader({
+      request: new Request(
+        "https://admin.example/catalog/integrations?providerKey=tcgplayer&productLineId=1&expansionName=Classic+Sixth+Edition&sourceOptionAction=force-refresh-all",
+      ),
+      params: {},
+      context: {},
+    } as Parameters<typeof loader>[0]);
+
+    expect(routeData.readModel.routeContext.scope).toMatchObject({
+      providerKey: "tcgplayer",
+      productLineId: "1",
+      expansionName: "Classic Sixth Edition",
+    });
+    await expect(routeData.deferredSourceOptions).resolves.toMatchObject({
+      pages: expect.arrayContaining([expect.objectContaining({ state: "unavailable" })]),
+    });
+  });
+
   it("fetches the audit-trimmed daily overview from the daily loader and the full overview from the providers loader", async () => {
     const scopes = { items: [sourceObservationScope()], total: 1, count: 1 };
     const profileReviews = { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 };
