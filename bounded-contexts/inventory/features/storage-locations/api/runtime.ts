@@ -4,6 +4,7 @@ import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec"
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { toTransportEvent } from "@chase-sets/event-core/transport";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import type { InventoryRuntimeDeps } from "../../../support/runtime-support";
@@ -56,6 +57,13 @@ export function createStorageLocationRuntime(deps: InventoryRuntimeDeps): Storag
     evolve: evolveStorageLocation,
     decide: decideStorageLocation,
   });
+  const projectionHandlers = buildStorageLocationProjectionHandlers(deps.db);
+
+  async function projectStoredEvents(storedEvents: Awaited<ReturnType<typeof commandHandler>>["storedEvents"]) {
+    for (const storedEvent of storedEvents) {
+      await projectionHandlers[storedEvent.eventType]?.(toTransportEvent(storedEvent));
+    }
+  }
 
   return {
     commandHandler,
@@ -74,6 +82,7 @@ export function createStorageLocationRuntime(deps: InventoryRuntimeDeps): Storag
         },
         context,
       });
+      await projectStoredEvents(result.storedEvents);
 
       return { storageLocationId, version: result.version };
     },
@@ -95,6 +104,7 @@ export function createStorageLocationRuntime(deps: InventoryRuntimeDeps): Storag
         },
         context,
       });
+      await projectStoredEvents(updated.storedEvents);
 
       if (params.isArchived && !existing.is_archived) {
         const archived = await commandHandler({
@@ -105,6 +115,7 @@ export function createStorageLocationRuntime(deps: InventoryRuntimeDeps): Storag
           context,
           expectedVersion: updated.version,
         });
+        await projectStoredEvents(archived.storedEvents);
 
         return {
           storageLocationId: params.storageLocationId,
@@ -122,7 +133,7 @@ export function createStorageLocationRuntime(deps: InventoryRuntimeDeps): Storag
     projectors: [
       createProjectionHandlerSet({
         projectionName: "inventory-storage-location-projection",
-        handlers: buildStorageLocationProjectionHandlers(deps.db),
+        handlers: projectionHandlers,
       }),
     ],
   };
