@@ -11,8 +11,9 @@ type CatalogContextManifest = Readonly<{
 
 describe("catalog host ports", () => {
   it("declares the deployable-provided ports required by Catalog services", () => {
-    const context = JSON.parse(readFileSync(resolve(repoRoot, "bounded-contexts/catalog/context.json"), "utf8")) as
-      CatalogContextManifest;
+    const context = JSON.parse(
+      readFileSync(resolve(repoRoot, "bounded-contexts/catalog/context.json"), "utf8"),
+    ) as CatalogContextManifest;
     const hostPorts = new Set((context.hostPorts ?? []).map((entry) => entry.portName));
 
     expect(hostPorts).toEqual(
