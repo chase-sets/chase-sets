@@ -10,6 +10,7 @@ import {
   collectDeploymentDiagnostics,
   destructiveResourceChanges,
   deployApp,
+  deploymentForDiagnostics,
   deploymentComponentNames,
   latestDeployment,
   parseDeploymentSummaryRows,
@@ -214,6 +215,20 @@ The resources are retired by a reviewed context merge.
       latestDeployment([
         { id: "old", phase: "ACTIVE", updated_at: "2026-06-19T21:00:00Z" },
         { id: "failed", phase: "ERROR", updated_at: "2026-06-19T22:00:00Z" },
+      ]),
+    ).toEqual({
+      id: "failed",
+      phase: "ERROR",
+      createdAt: "",
+      updatedAt: "2026-06-19T22:00:00Z",
+    });
+  });
+
+  it("selects the latest failed deployment for failure diagnostics", () => {
+    expect(
+      deploymentForDiagnostics([
+        { id: "failed", phase: "ERROR", updated_at: "2026-06-19T22:00:00Z" },
+        { id: "deploying", phase: "DEPLOYING", updated_at: "2026-06-19T22:01:00Z" },
       ]),
     ).toEqual({
       id: "failed",
