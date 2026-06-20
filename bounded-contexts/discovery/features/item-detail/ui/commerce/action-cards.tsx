@@ -237,6 +237,7 @@ export function SellActionCard({
   canSelectListingAction = true,
   canSelectProductSellListAction = canSelectListingAction,
   selectedOfferSource = "implicit",
+  preferredAction,
   renderSelectedOffer,
   renderAddProductToSellList,
   renderListing,
@@ -251,6 +252,7 @@ export function SellActionCard({
   canSelectListingAction?: boolean;
   canSelectProductSellListAction?: boolean;
   selectedOfferSource?: MarketSelectionSource;
+  preferredAction?: SellAction | null;
   renderSelectedOffer: (formId: string) => ReactNode;
   renderAddProductToSellList: (formId: string) => ReactNode;
   renderListing: (formId: string) => ReactNode;
@@ -262,11 +264,12 @@ export function SellActionCard({
       : canSelectListingAction
         ? "list-for-sale"
         : "";
-  const [selectedAction, setSelectedAction] = useState<SellAction | "">(defaultAction);
+  const effectiveDefaultAction = preferredAction ?? defaultAction;
+  const [selectedAction, setSelectedAction] = useState<SellAction | "">(effectiveDefaultAction);
 
   useEffect(() => {
-    setSelectedAction(defaultAction);
-  }, [defaultAction]);
+    setSelectedAction(effectiveDefaultAction);
+  }, [effectiveDefaultAction]);
 
   const selectedOfferWorkflowLabel =
     selectedOfferSource === "explicit"

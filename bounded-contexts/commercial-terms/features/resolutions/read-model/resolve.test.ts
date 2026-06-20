@@ -6,6 +6,7 @@ function createDb(
   options: Readonly<{
     accountType?: "personal" | "business" | "enterprise";
     accountStatus?: string;
+    accountMissing?: boolean;
     schedule?: {
       schedule_id: string;
       marketplace_sales_fee_percentage_bps: number;
@@ -24,13 +25,15 @@ function createDb(
     query: async <TRow>(sql: string) => {
       if (sql.includes("FROM commercial_terms_account_pages")) {
         return {
-          rows: [
-            {
-              account_id: "acc_test",
-              account_type: options.accountType ?? "business",
-              status: options.accountStatus ?? "active",
-            },
-          ] as TRow[],
+          rows: options.accountMissing
+            ? []
+            : ([
+                {
+                  account_id: "acc_test",
+                  account_type: options.accountType ?? "business",
+                  status: options.accountStatus ?? "active",
+                },
+              ] as TRow[]),
         };
       }
 
@@ -213,6 +216,37 @@ describe("commercial terms resolver", () => {
     });
 
     expect(result.shippingAllowancePercentageBps).toBe(625);
+  });
+
+  it("uses the host account source when the commercial terms account projection has not caught up", async () => {
+    const resolver = createCommercialTermsResolver({
+      db: createDb({
+        accountMissing: true,
+        schedule: {
+          schedule_id: "cts_personal",
+          marketplace_sales_fee_percentage_bps: 900,
+          marketplace_sales_fee_fixed_amount: "0.15",
+        },
+      }),
+      accountSource: {
+        getAccount: async (accountId) => ({
+          account_id: accountId,
+          account_type: "personal",
+          status: "active",
+        }),
+      },
+    });
+
+    const result = await resolver.resolveListingTerms({
+      accountId: "acc_fresh",
+      amount: "10.00",
+      effectiveAt: "2026-04-16T10:00:00.000Z",
+    });
+
+    expect(result.accountId).toBe("acc_fresh");
+    expect(result.accountType).toBe("personal");
+    expect(result.marketplaceSalesFeeUnitAmount).toBe("1.05");
+    expect(result.scheduleId).toBe("cts_personal");
   });
 
   it("falls back to the schedule when the account agreement is inactive or out of range", async () => {

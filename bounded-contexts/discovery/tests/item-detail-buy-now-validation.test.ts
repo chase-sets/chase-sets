@@ -133,9 +133,12 @@ describe("item detail buy now validation and watch intents", () => {
       }),
       params: { id: "cat_charizard" },
       context: undefined,
-    } as never)) as { error: string };
+    } as never)) as { error: string; intent: string };
 
-    expect(result).toEqual({ error: "Enter a price greater than $0.00 using dollars and cents." });
+    expect(result).toEqual({
+      error: "Enter a price greater than $0.00 using dollars and cents.",
+      intent: "submit-offer",
+    });
   });
 
   it("rejects invalid cart quantities before adding cart lines", async () => {
@@ -171,9 +174,12 @@ describe("item detail buy now validation and watch intents", () => {
       }),
       params: { id: "cat_charizard" },
       context: undefined,
-    } as never)) as { error: string };
+    } as never)) as { error: string; intent: string };
 
-    expect(result).toEqual({ error: "Enter a quantity of 1 or more." });
+    expect(result).toEqual({
+      error: "Enter a quantity of 1 or more.",
+      intent: "add-to-cart",
+    });
     expect(mockAddCartLine).not.toHaveBeenCalled();
     expect(mockAddGuestCartLine).not.toHaveBeenCalled();
   });
@@ -219,10 +225,11 @@ describe("item detail buy now validation and watch intents", () => {
       }),
       params: { id: "cat_charizard" },
       context: undefined,
-    } as never)) as { error: string };
+    } as never)) as { error: string; intent: string };
 
     expect(result).toEqual({
       error: "Only 1 available from this listing. Lower the quantity or choose another listing.",
+      intent: "buy-this-listing",
     });
     expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
   });
@@ -261,9 +268,12 @@ describe("item detail buy now validation and watch intents", () => {
       }),
       params: { id: "cat_charizard" },
       context: undefined,
-    } as never)) as { error: string };
+    } as never)) as { error: string; intent: string };
 
-    expect(result).toEqual({ error: "This listing is no longer available. Choose another listing." });
+    expect(result).toEqual({
+      error: "This listing is no longer available. Choose another listing.",
+      intent: "buy-this-listing",
+    });
     expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
   });
 
@@ -298,9 +308,12 @@ describe("item detail buy now validation and watch intents", () => {
       }),
       params: { id: "cat_charizard" },
       context: undefined,
-    } as never)) as { error: string };
+    } as never)) as { error: string; intent: string };
 
-    expect(result).toEqual({ error: "This offer is no longer available. Choose another offer." });
+    expect(result).toEqual({
+      error: "This offer is no longer available. Choose another offer.",
+      intent: "sell-now",
+    });
     expect(mockAcceptOfferMatch).not.toHaveBeenCalled();
   });
 
@@ -354,10 +367,11 @@ describe("item detail buy now validation and watch intents", () => {
       }),
       params: { id: "cat_charizard" },
       context: undefined,
-    } as never)) as { error: string };
+    } as never)) as { error: string; intent: string };
 
     expect(result).toEqual({
       error: "2 requested, but only 1 available. Choose another offer or add product to Sell List.",
+      intent: "add-to-sell-list",
     });
     expect(mockAddSellListLine).not.toHaveBeenCalled();
   });
@@ -393,9 +407,12 @@ describe("item detail buy now validation and watch intents", () => {
       }),
       params: { id: "cat_charizard" },
       context: undefined,
-    } as never)) as { error: string };
+    } as never)) as { error: string; intent: string };
 
-    expect(result).toEqual({ error: "Enter a target price of $0.00 or more using dollars and cents." });
+    expect(result).toEqual({
+      error: "Enter a target price of $0.00 or more using dollars and cents.",
+      intent: "create-product-alert",
+    });
     expect(mockCreateProductAlert).not.toHaveBeenCalled();
   });
 
@@ -852,9 +869,12 @@ describe("item detail buy now validation and watch intents", () => {
       }),
       params: { id: "cat_charizard" },
       context: undefined,
-    } as never)) as { error: string };
+    } as never)) as { error: string; intent: string };
 
-    expect(result).toEqual({ error: "Enter a price greater than $0.00 using dollars and cents." });
+    expect(result).toEqual({
+      error: "Enter a price greater than $0.00 using dollars and cents.",
+      intent: "list-at-price",
+    });
     expect(previewListingTerms).not.toHaveBeenCalled();
   });
 
@@ -890,9 +910,12 @@ describe("item detail buy now validation and watch intents", () => {
       }),
       params: { id: "cat_charizard" },
       context: undefined,
-    } as never)) as { error: string };
+    } as never)) as { error: string; intent: string };
 
-    expect(result).toEqual({ error: "Enter a quantity of 1 or more." });
+    expect(result).toEqual({
+      error: "Enter a quantity of 1 or more.",
+      intent: "list-at-price",
+    });
     expect(previewListingTerms).not.toHaveBeenCalled();
   });
 });

@@ -61,6 +61,10 @@ type ProjectedAccount = Readonly<{
   status: string;
 }>;
 
+export type CommercialTermsAccountSource = Readonly<{
+  getAccount: (accountId: string) => Promise<ProjectedAccount | null>;
+}>;
+
 type ActiveSchedule = Readonly<{
   schedule_id: string;
   label: string;
@@ -132,6 +136,7 @@ async function getActiveAgreement(db: PgQueryable, accountId: string, effectiveA
 
 async function resolveTerms(
   db: PgQueryable,
+  accountSource: CommercialTermsAccountSource | undefined,
   params: Readonly<{
     accountId: string;
     amount: string;
@@ -143,7 +148,8 @@ async function resolveTerms(
     fieldName: "Commercial terms amount",
     allowZero: true,
   });
-  const account = await getProjectedAccount(db, params.accountId);
+  const account =
+    (await getProjectedAccount(db, params.accountId)) ?? (await accountSource?.getAccount(params.accountId));
   assert(account, `Account ${params.accountId} is not available for commercial terms.`);
   assert(account.status === "active", `Account ${params.accountId} is not active.`);
 
@@ -210,10 +216,12 @@ async function resolvePublicStandardTerms(
   };
 }
 
-export function createCommercialTermsResolver(deps: Readonly<{ db: PgQueryable }>): CommercialTermsResolver {
+export function createCommercialTermsResolver(
+  deps: Readonly<{ db: PgQueryable; accountSource?: CommercialTermsAccountSource }>,
+): CommercialTermsResolver {
   return {
-    resolveListingTerms: (params) => resolveTerms(deps.db, params),
-    resolveOrderTerms: (params) => resolveTerms(deps.db, params),
+    resolveListingTerms: (params) => resolveTerms(deps.db, deps.accountSource, params),
+    resolveOrderTerms: (params) => resolveTerms(deps.db, deps.accountSource, params),
     resolvePublicStandardListingTerms: (params) => resolvePublicStandardTerms(deps.db, params),
   };
 }

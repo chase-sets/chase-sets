@@ -2,7 +2,7 @@ import { Hono, type Context, type Next } from "hono";
 import { module as authModule } from "@chase-sets/auth";
 import { createUcpOAuthMetadataRoutes, createUcpOAuthRoutes } from "@chase-sets/auth/server";
 import { createCheckoutUcpHandlers } from "@chase-sets/checkout/server";
-import { createCommercialTermsResolver } from "@chase-sets/commercial-terms/server";
+import { createCommercialTermsResolver, type CommercialTermsAccountSource } from "@chase-sets/commercial-terms/server";
 import {
   createDiscoveryUcpHandlers,
   discoveryRealtimeManifest,
@@ -100,7 +100,12 @@ export function createPlatformApiHost(options: Parameters<typeof createApiHost>[
   const commercialTermsPool = options.pools["commercial-terms"];
   const settlementPool = options.pools.settlement;
   const commercialTermsResolver = commercialTermsPool
-    ? createCommercialTermsResolver({ db: commercialTermsPool })
+    ? createCommercialTermsResolver({
+        db: commercialTermsPool,
+        accountSource: createIdentityCommercialTermsAccountSource(
+          () => runtime?.services.identity as ReturnType<typeof identityModule.createServices> | undefined,
+        ),
+      })
     : undefined;
   const balanceCreditResolver = settlementPool ? createSettlementBalanceCreditResolver(settlementPool) : undefined;
   const draftListingCreator: InventoryDraftListingCreator = async (params, context) => {
@@ -129,6 +134,25 @@ export function createPlatformApiHost(options: Parameters<typeof createApiHost>[
     },
   });
   return runtime;
+}
+
+function createIdentityCommercialTermsAccountSource(
+  getIdentityServices: () => ReturnType<typeof identityModule.createServices> | undefined,
+): CommercialTermsAccountSource {
+  return {
+    getAccount: async (accountId) => {
+      const account = await getIdentityServices()?.accounts.getAccountState(accountId);
+      if (!account?.id || !account.accountType) {
+        return null;
+      }
+
+      return {
+        account_id: String(account.id),
+        account_type: account.accountType,
+        status: account.status,
+      };
+    },
+  };
 }
 
 export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatformApiOptions = {}) {

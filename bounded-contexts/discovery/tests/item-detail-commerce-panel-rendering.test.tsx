@@ -763,6 +763,27 @@ describe("item detail commerce panel rendering and mobile sections", () => {
     expect(screen.getByText("Selected offer form")).toBeTruthy();
   });
 
+  it("can reopen the listing workflow after a listing submit error", () => {
+    render(
+      <SellActionCard
+        formIdPrefix="sell-card"
+        productId="cat_charizard::"
+        productSummary="Raw / Near Mint"
+        productSelectionDetails={[]}
+        hasMatchingOffer
+        preferredAction="list-for-sale"
+        selectedOfferSource="explicit"
+        renderSelectedOffer={() => <div>Selected offer form</div>}
+        renderAddProductToSellList={() => <div>Add product to Sell List form</div>}
+        renderListing={() => <div>Create listing form</div>}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: /List this product/ }).getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByText("Create listing form")).toBeTruthy();
+    expect(screen.queryByText("Selected offer form")).toBeNull();
+  });
+
   it("keeps product Sell List guidance in Reference Info", () => {
     renderWithDataRouter(
       <ProductSellListIntentSection

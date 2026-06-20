@@ -16,7 +16,7 @@ import { createFilesystemObjectStorage, createS3ObjectStorage, type ObjectStorag
 import type { GoogleShoppingSyncMode } from "@chase-sets/discovery/server";
 import type { PaymentsServices } from "@chase-sets/payments/server";
 import { settlementOperationLogFields, type SettlementServices } from "@chase-sets/settlement/server";
-import { createCommercialTermsResolver } from "@chase-sets/commercial-terms/server";
+import { createCommercialTermsResolver, type CommercialTermsAccountSource } from "@chase-sets/commercial-terms/server";
 import { createSettlementBalanceCreditResolver } from "@chase-sets/settlement/server";
 import {
   collectWorkerRunners,
@@ -142,13 +142,19 @@ const tcgplayerAutomationCatalogClient = config.tcgplayerAutomation
     )
   : undefined;
 const sourceObservationTelemetry = createSourceObservationTelemetry();
+let runtime: WorkerHostRuntime | null = null;
 const commercialTermsResolver = pools["commercial-terms"]
-  ? createCommercialTermsResolver({ db: pools["commercial-terms"] })
+  ? createCommercialTermsResolver({
+      db: pools["commercial-terms"],
+      accountSource: createIdentityCommercialTermsAccountSource(
+        () => runtime?.services.identity as WorkerIdentityServices | undefined,
+      ),
+    })
   : undefined;
 const balanceCreditResolver = pools.settlement ? createSettlementBalanceCreditResolver(pools.settlement) : undefined;
 const emailNotificationAdapter = createPlatformEmailNotificationAdapter(config.notificationEmail);
 
-const runtime = createWorkerHost(workerContextRegistry, "platform-worker", {
+runtime = createWorkerHost(workerContextRegistry, "platform-worker", {
   pools,
   hostPorts: {
     processorGateway: paymentProcessorGateway,
@@ -162,6 +168,35 @@ const runtime = createWorkerHost(workerContextRegistry, "platform-worker", {
     ...(balanceCreditResolver ? { balanceCreditResolver } : {}),
   },
 });
+
+type WorkerIdentityServices = Readonly<{
+  accounts?: Readonly<{
+    getAccountState?: (accountId: string) => Promise<Readonly<{
+      id: string | null;
+      accountType: "personal" | "business" | "enterprise" | null;
+      status: string;
+    }> | null>;
+  }>;
+}>;
+
+function createIdentityCommercialTermsAccountSource(
+  getIdentityServices: () => WorkerIdentityServices | undefined,
+): CommercialTermsAccountSource {
+  return {
+    getAccount: async (accountId) => {
+      const account = await getIdentityServices()?.accounts?.getAccountState?.(accountId);
+      if (!account?.id || !account.accountType) {
+        return null;
+      }
+
+      return {
+        account_id: account.id,
+        account_type: account.accountType,
+        status: account.status,
+      };
+    },
+  };
+}
 
 const projectionRunners = collectWorkerRunners(runtime, {
   controlPlane,
