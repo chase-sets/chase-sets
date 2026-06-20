@@ -837,6 +837,121 @@ describe("item detail buy now validation and watch intents", () => {
     expect(publishListing).not.toHaveBeenCalled();
   });
 
+  it("publishes an authenticated item-detail listing and redirects to the fresh sell listing", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_seller",
+      permissions: ["listings.view", "listings.manage"],
+    });
+    mockRequireActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_seller",
+      permissions: ["listings.manage"],
+    });
+    mockCreateDiscoveryRequestApiClient.mockReturnValue({
+      getItemDetail: vi.fn().mockResolvedValue({
+        catalog_item_id: "cat_charizard",
+        slug: "charizard-base-set",
+        title: "Charizard",
+      }),
+    });
+    const createListing = vi.fn().mockResolvedValue(
+      commandResult(
+        {
+          id: "lst_item_detail",
+          version: 1,
+          status: "draft",
+          feeQuoteFingerprint: "quote_1",
+        },
+        "marketplace",
+      ),
+    );
+    const publishListing = vi.fn().mockResolvedValue(
+      commandResult(
+        {
+          id: "lst_item_detail",
+          version: 2,
+          status: "published",
+        },
+        "marketplace",
+      ),
+    );
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      createListing,
+      publishListing,
+    });
+    mockEnsureListingStock.mockResolvedValue({
+      snapshot: {
+        inventoryItemId: "inv_listing_stock",
+        catalogItemId: "cat_charizard",
+        productId: "cat_charizard::form:raw",
+        selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+        totalQuantity: 1,
+        storageLocationId: "stl_listing_stock",
+        storageLocationName: "Listing stock",
+        shipFromCode: "LISTING-STOCK",
+        shipFromAddress: {
+          name: "Seller Name",
+          line1: "123 Market St",
+          city: "Chicago",
+          state: "IL",
+          postalCode: "60601",
+          country: "US",
+        },
+      },
+    });
+    mockCreateInventoryRequestApiClient.mockReturnValue({
+      ensureListingStock: mockEnsureListingStock,
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({});
+
+    const form = new URLSearchParams();
+    form.set("intent", "list-at-price");
+    form.set("productId", "cat_charizard::form:raw");
+    form.set("selectedOptions", JSON.stringify([{ dimensionId: "form", optionId: "raw" }]));
+    form.set("productSummary", "Form: Raw");
+    form.set("priceAmount", "24.35");
+    form.set("quantityCap", "1");
+
+    const result = (await action({
+      request: new Request("http://localhost/items/cat_charizard?market=sell", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { id: "cat_charizard" },
+      context: undefined,
+    } as never)) as Response;
+
+    const location = result.headers.get("Location") ?? "";
+    const redirectUrl = new URL(location, "http://localhost");
+    const receipt = decodeFreshWriteReceipt(redirectUrl.searchParams.get("afterWrite"));
+
+    expect(result.status).toBe(302);
+    expect(redirectUrl.pathname).toBe("/items/charizard-base-set");
+    expect(redirectUrl.searchParams.get("market")).toBe("sell");
+    expect(redirectUrl.searchParams.get("listing")).toBe("lst_item_detail");
+    expect(receipt?.sources).toEqual([
+      {
+        sourceContextName: "marketplace",
+        maxGlobalPosition: "42",
+        eventIds: ["evt_lst_item_detail"],
+      },
+    ]);
+    expect(mockEnsureListingStock).toHaveBeenCalledWith({
+      catalogItemId: "cat_charizard",
+      selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+      quantity: 1,
+    });
+    expect(createListing).toHaveBeenCalledWith({
+      inventoryItemId: "",
+      priceAmount: "24.35",
+      quantityCap: 1,
+      inventorySnapshot: expect.anything(),
+    });
+    expect(publishListing).toHaveBeenCalledWith("lst_item_detail", {
+      feeQuoteFingerprint: "quote_1",
+    });
+  });
+
   it("rejects invalid listing prices before previewing listing terms", async () => {
     mockRequireActorFromAuthApi.mockResolvedValue({
       accountId: "acc_seller",

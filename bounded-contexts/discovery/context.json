@@ -338,10 +338,53 @@
     {
       "mountPath": "/api/marketplace",
       "kind": "primary",
-      "requiresAuth": true
+      "requiresAuth": true,
+      "readFreshnessRoutes": [
+        {
+          "routePath": "/items/:id",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "discovery_item_detail_pages"
+            },
+            {
+              "readModelTable": "discovery_market_accounts"
+            },
+            {
+              "readModelTable": "discovery_market_listings"
+            },
+            {
+              "readModelTable": "discovery_offer_demand_matches"
+            }
+          ]
+        }
+      ]
     }
   ],
   "readAfterWriteRouteInventory": [
+    {
+      "id": "discovery.item-detail-listing-publication-self-refresh",
+      "owner": "discovery",
+      "risk": "critical",
+      "source": {
+        "routeId": "item-detail",
+        "actions": ["Create listing", "Update listing"],
+        "command": "Marketplace listing create, publish, and update commands",
+        "helperUses": ["appendFreshWriteTokenFromSources"]
+      },
+      "destination": {
+        "routeId": "item-detail",
+        "apiContextName": "discovery",
+        "apiRoutePath": "/items/:id",
+        "readModelTables": [
+          "discovery_item_detail_pages",
+          "discovery_market_accounts",
+          "discovery_market_listings",
+          "discovery_offer_demand_matches"
+        ],
+        "transientRecovery": "Item detail forwards Marketplace listing command receipts into the Discovery item read so the Discovery market projection catches up before rendering the newly published or updated listing."
+      }
+    },
     {
       "id": "discovery.item-detail-checkout-handoff",
       "owner": "discovery",

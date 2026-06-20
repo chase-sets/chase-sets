@@ -2,7 +2,11 @@ import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs } from "react-router";
 import { redirect } from "react-router";
 import { requireActorFromAuthApi, resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import { appendFreshWriteToken, appendPostWriteHandoff } from "@chase-sets/http/responses";
+import {
+  appendFreshWriteToken,
+  appendFreshWriteTokenFromSources,
+  appendPostWriteHandoff,
+} from "@chase-sets/http/responses";
 import { createDiscoveryRequestApiClient } from "../../request-support/api-client";
 import {
   appendAnonymousProductAlertCookie,
@@ -48,6 +52,33 @@ import {
   shipFromAddressFromForm,
 } from "./action-helpers";
 import type { DiscoveryItemDetail } from "../../client-support/contracts";
+
+type ListingCommandResult = {
+  id?: string;
+  listingId?: string;
+  listing_id?: string;
+  feeQuoteFingerprint?: string;
+  fee_quote_fingerprint?: string;
+};
+
+function listingCommandId(result: ListingCommandResult) {
+  return result.id ?? result.listingId ?? result.listing_id ?? null;
+}
+
+function listingFeeQuoteFingerprint(result: ListingCommandResult) {
+  return result.feeQuoteFingerprint ?? result.fee_quote_fingerprint ?? null;
+}
+
+function itemDetailSellListingPath(item: DiscoveryItemDetail, fallbackId: string, listingId: string | null) {
+  const url = new URL(`/items/${item.slug || item.catalog_item_id || fallbackId}`, "https://chase-sets.local");
+  url.searchParams.set("market", "sell");
+
+  if (listingId) {
+    url.searchParams.set("listing", listingId);
+  }
+
+  return `${url.pathname}${url.search}`;
+}
 
 function selectedListingSnapshotFromListing(listing: DiscoveryItemDetail["market_listings"][number] | null) {
   if (!listing) {
@@ -398,7 +429,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
           permission: "listings.manage",
         });
         const quote = await marketplaceApi.previewListingTerms({ priceAmount });
-        await marketplaceApi.updateListingPrice(listingId, {
+        const priceResult = await marketplaceApi.updateListingPrice(listingId, {
           priceAmount,
           feeQuoteFingerprint: quote.fee_quote_fingerprint,
         });
@@ -406,7 +437,12 @@ export async function action({ request, params }: ActionFunctionArgs) {
           quantityCap,
           feeQuoteFingerprint: quote.fee_quote_fingerprint,
         });
-        return redirect(appendFreshWriteToken(`/items/${item.slug || params.id}`, result));
+        return redirect(
+          appendFreshWriteTokenFromSources(itemDetailSellListingPath(item, params.id!, listingId), [
+            priceResult,
+            result,
+          ]),
+        );
       }
 
       const inventoryItemId = String(formData.get("inventoryItemId") ?? "").trim();
@@ -453,16 +489,23 @@ export async function action({ request, params }: ActionFunctionArgs) {
               })
             ).snapshot,
           };
-      const result = (await marketplaceApi.createListing(listingBody)) as { id?: string; feeQuoteFingerprint?: string };
-      let latestResult: unknown = result;
+      const result = (await marketplaceApi.createListing(listingBody)) as ListingCommandResult;
+      const createdListingId = listingCommandId(result);
+      const writeResults: unknown[] = [result];
 
-      if (result.id) {
-        latestResult = await marketplaceApi.publishListing(result.id, {
-          feeQuoteFingerprint: result.feeQuoteFingerprint,
-        });
+      if (createdListingId) {
+        writeResults.push(
+          await marketplaceApi.publishListing(createdListingId, {
+            feeQuoteFingerprint: listingFeeQuoteFingerprint(result),
+          }),
+        );
+      } else {
+        throw new Error(t("discovery.routes.itemDetail.validation.selected.listing.unavailable"));
       }
 
-      return redirect(appendFreshWriteToken(`/items/${item.slug || params.id}`, latestResult));
+      return redirect(
+        appendFreshWriteTokenFromSources(itemDetailSellListingPath(item, params.id!, createdListingId), writeResults),
+      );
     }
 
     return null;

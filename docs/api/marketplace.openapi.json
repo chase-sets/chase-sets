@@ -34,7 +34,7 @@
   ],
   "paths": {
     "/api/marketplace/items": { "get": { "tags": ["Discovery"], "summary": "Search marketplace items.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
-    "/api/marketplace/items/{id}": { "get": { "tags": ["Discovery"], "summary": "Get a marketplace item detail page.", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/NotFound" } } } },
+    "/api/marketplace/items/{id}": {"get":{"tags":["Discovery"],"summary":"Get a marketplace item detail page.","responses":{"200":{"$ref":"#/components/responses/Ok"},"404":{"$ref":"#/components/responses/NotFound"},"503":{"$ref":"#/components/responses/ProjectionFreshnessTimeout"}},"parameters":[{"$ref":"#/components/parameters/ReadAfterWrite"},{"$ref":"#/components/parameters/ReadTargetContext"}]}},
     "/api/marketplace/categories": { "get": { "tags": ["Discovery"], "summary": "List browse categories.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
     "/api/marketplace/products/{productId}/market-summary": { "get": { "tags": ["Discovery"], "summary": "Get market summary for a product.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
     "/api/marketplace/products/{productId}/listings": { "get": { "tags": ["Discovery"], "summary": "List public listings for a product.", "responses": { "200": { "$ref": "#/components/responses/List" } } } },
