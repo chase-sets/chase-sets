@@ -118,6 +118,65 @@ describe("Catalog source-scope workset", () => {
     expect(within(form!).queryByDisplayValue(/api\//i)).toBeNull();
   });
 
+  it("round-trips Pokemon workset links whose provider labels contain ampersands", () => {
+    const profiles = [
+      profileReview({
+        active: true,
+        status: "active",
+        lifecycle: "active",
+        profileVersion: "2026.06.03",
+        ingestionUnitKey: "tcgdex:pokemon:single-card:source-observation-import",
+      }),
+    ];
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl: "https://admin.example/catalog/integrations?providerKey=tcgdex",
+      scopes: {
+        items: [
+          pokemonScope({
+            language_code: "ja",
+            product_line_id: "",
+            series_id: "SV",
+            series_name: "Pokemon Card Game Scarlet & Violet",
+            expansion_id: "SV8",
+            expansion_name: "Super Electric Breaker",
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+      profileReviews: { items: profiles, total: profiles.length, count: profiles.length },
+      controlPlaneOverview: overviewForProfiles(profiles, "pokemon"),
+      canManageCatalog: true,
+    });
+    const unit = readModel.sourceScopeWorkset.units[0]!;
+    const href = new URL(unit.currentWorkbenchHref, "https://admin.example");
+
+    expect(href.searchParams.get("seriesName")).toBe("Pokemon Card Game Scarlet & Violet");
+    expect(unit.commandContext.importScope).toBe("ja:SV:SV8");
+    expect(() =>
+      buildCatalogPrimaryWorkbenchReadModel({
+        requestUrl: href.toString(),
+        scopes: {
+          items: [
+            pokemonScope({
+              language_code: "ja",
+              product_line_id: "",
+              series_id: "SV",
+              series_name: "Pokemon Card Game Scarlet & Violet",
+              expansion_id: "SV8",
+              expansion_name: "Super Electric Breaker",
+            }),
+          ],
+          total: 1,
+          count: 1,
+        },
+        profileReviews: { items: profiles, total: profiles.length, count: profiles.length },
+        controlPlaneOverview: overviewForProfiles(profiles, "pokemon"),
+        canManageCatalog: true,
+      }),
+    ).not.toThrow();
+  });
+
   it("keeps provider set-name selections name-based across workset links and commands", () => {
     const profile = magicProfile(
       "tcgplayer",
@@ -318,7 +377,7 @@ function magicScope(
   });
 }
 
-function pokemonScope(): SourceObservationIntegrationScope {
+function pokemonScope(overrides: Partial<SourceObservationIntegrationScope> = {}): SourceObservationIntegrationScope {
   return sourceObservationScope({
     provider_key: "tcgdex",
     language_code: "en",
@@ -333,6 +392,7 @@ function pokemonScope(): SourceObservationIntegrationScope {
     changed_observations: 24,
     promoted_observations: 16,
     rejected_observations: 2,
+    ...overrides,
   });
 }
 
