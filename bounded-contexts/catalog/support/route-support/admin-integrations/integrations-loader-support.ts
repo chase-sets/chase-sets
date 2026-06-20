@@ -172,7 +172,7 @@ export async function loadDailySurface({ request }: LoaderFunctionArgs) {
     // boundary (null/empty on absence/error) lives INSIDE each promise, so a
     // missing endpoint or transient failure resolves to an empty/absent panel
     // rather than rejecting the boundary into an error page.
-    deferredSourceOptions: deferredSourceOptionsSlice(api, request, baseline, routeContext),
+    deferredSourceOptions: deferredSourceOptionsSlice(api, request, baseline, routeContext, readModel.sourceOptions),
     deferredAliasReview: selectedScopeAliasReview(api, routeContext),
   };
 }
@@ -188,6 +188,7 @@ async function deferredSourceOptionsSlice(
   request: Request,
   baseline: CatalogIntegrationsBaseline,
   routeContext: CatalogPrimaryWorkbenchRouteContext,
+  fallbackSourceOptions: CatalogPrimaryWorkbenchReadModel["sourceOptions"],
 ): Promise<CatalogPrimaryWorkbenchReadModel["sourceOptions"]> {
   try {
     const sourceOptionPages = await selectedProviderSourceOptionPages(api, request, baseline, routeContext);
@@ -201,14 +202,7 @@ async function deferredSourceOptionsSlice(
       canManageCatalog: baseline.canManageCatalog,
     });
   } catch {
-    return buildCatalogPrimaryWorkbenchDeferredSourceOptions({
-      requestUrl: request.url,
-      scopes: baseline.routeData.data,
-      profileReviews: baseline.profileReviews,
-      controlPlaneOverview: baseline.controlPlaneOverview,
-      sourceOptionPages: null,
-      canManageCatalog: baseline.canManageCatalog,
-    });
+    return fallbackSourceOptions;
   }
 }
 
