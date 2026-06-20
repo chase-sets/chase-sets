@@ -447,7 +447,7 @@ describe("Catalog primary workbench source options", () => {
     expect(setNames).toBeTruthy();
     const setNameHref = new URL(setNames!.queryHref, "https://admin.example");
 
-    expect(requests.map((request) => request.queryKind)).toEqual(["product-lines", "set-names", "products", "skus"]);
+    expect(requests.map((request) => request.queryKind)).toEqual(["product-lines", "set-names"]);
     expect(requests.every((request) => request.profileKey === "mtg-sealed-product-sku")).toBe(true);
     expect(requests.every((request) => request.ingestionUnitKey === sealedProductUnit)).toBe(true);
     expect(requests.every((request) => request.ingestionUnitKey !== singleCardUnit)).toBe(true);
@@ -507,7 +507,7 @@ describe("Catalog primary workbench source options", () => {
       cacheOnly: true,
     });
 
-    expect(requests.map((request) => request.queryKind)).toEqual(["product-lines", "set-names", "products", "skus"]);
+    expect(requests.map((request) => request.queryKind)).toEqual(["product-lines", "set-names"]);
     expect(requests.every((request) => request.providerKey === "tcgplayer")).toBe(true);
     expect(requests.every((request) => request.profileVersion === "2026.06.05")).toBe(true);
     expect(requests.map((request) => request.queryKind)).not.toEqual(

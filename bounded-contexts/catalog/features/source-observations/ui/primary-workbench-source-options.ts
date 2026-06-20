@@ -55,6 +55,7 @@ export type CatalogPrimaryWorkbenchSourceOptionPageSnapshot = Readonly<{
 
 const SOURCE_OPTION_PAGE_LIMIT = 25;
 const SOURCE_OPTION_ROUTE = "/api/catalog/source-observations/integration-options";
+const sourceScopeOptionScopes = new Set(["language", "product-line/category", "series", "expansion", "set-name"]);
 
 export function buildCatalogPrimaryWorkbenchSourceOptions(input: {
   generatedAt: string;
@@ -150,37 +151,39 @@ export function buildCatalogPrimaryWorkbenchSourceOptionRequests(input: {
     scopes: input.scopes,
   });
   const limit = input.limit ?? SOURCE_OPTION_PAGE_LIMIT;
-  return profile.sourceOptionKinds.map((kind) => {
-    const parent = kind.parentScope ? (selections.get(kind.parentScope) ?? null) : null;
-    const languageSelection = selections.get("language") ?? null;
-    const languageCode = languageSelection?.value ?? profile.languageOptions[0] ?? "en";
-    const parentValue = kind.parentScope === "language" ? null : (parent?.value ?? null);
-    const request = {
-      providerKey,
-      profileKey: profile.profileKey,
-      profileVersion: profile.profileVersion,
-      ingestionUnitKey: profile.ingestionUnitKey,
-      queryKind: kind.queryKind,
-      displayName: kind.displayName,
-      scope: kind.scope,
-      parentScope: kind.parentScope,
-      parentRequired: kind.parentRequired,
-      parentDiagnosticText: kind.parentDiagnosticText,
-      selectedParentValue: parent?.value ?? null,
-      selectedParentLabel: parent?.label ?? null,
-      languageCode,
-      parentValue,
-      cursor: null,
-      limit,
-      cacheOnly: input.cacheOnly ?? true,
-    } satisfies Omit<CatalogPrimaryWorkbenchSourceOptionRequest, "queryHref" | "refreshHref">;
+  return profile.sourceOptionKinds
+    .filter((kind) => sourceScopeOptionScopes.has(kind.scope))
+    .map((kind) => {
+      const parent = kind.parentScope ? (selections.get(kind.parentScope) ?? null) : null;
+      const languageSelection = selections.get("language") ?? null;
+      const languageCode = languageSelection?.value ?? profile.languageOptions[0] ?? "en";
+      const parentValue = kind.parentScope === "language" ? null : (parent?.value ?? null);
+      const request = {
+        providerKey,
+        profileKey: profile.profileKey,
+        profileVersion: profile.profileVersion,
+        ingestionUnitKey: profile.ingestionUnitKey,
+        queryKind: kind.queryKind,
+        displayName: kind.displayName,
+        scope: kind.scope,
+        parentScope: kind.parentScope,
+        parentRequired: kind.parentRequired,
+        parentDiagnosticText: kind.parentDiagnosticText,
+        selectedParentValue: parent?.value ?? null,
+        selectedParentLabel: parent?.label ?? null,
+        languageCode,
+        parentValue,
+        cursor: null,
+        limit,
+        cacheOnly: input.cacheOnly ?? true,
+      } satisfies Omit<CatalogPrimaryWorkbenchSourceOptionRequest, "queryHref" | "refreshHref">;
 
-    return {
-      ...request,
-      queryHref: sourceOptionHref(request),
-      refreshHref: sourceOptionHref({ ...request, cacheOnly: false, forceRefresh: true }),
-    };
-  });
+      return {
+        ...request,
+        queryHref: sourceOptionHref(request),
+        refreshHref: sourceOptionHref({ ...request, cacheOnly: false, forceRefresh: true }),
+      };
+    });
 }
 
 function sourceOptionContext(input: {
