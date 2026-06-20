@@ -35,6 +35,7 @@ import {
   providerTransportFor,
   sum,
 } from "./primary-workbench-read-model-support";
+import { importScopeFromScopeContext } from "./primary-workbench-scope-context";
 import { profileAuthoringFor } from "./primary-workbench-profile-authoring";
 import { healthTriageFor } from "./primary-workbench-health-triage";
 import { validationReadinessFor } from "./primary-workbench-validation-readiness";
@@ -113,9 +114,13 @@ function buildCatalogPrimaryWorkbenchCore(
   const unitContextMismatch = Boolean(parsedContext.unitKey && providerKey && !normalizedRouteUnitKey);
   const unitKey = normalizedRouteUnitKey ?? inferUnitKey(input, providerKey, activeProfile);
   const routeScope = unitContextMismatch ? providerOnlyScopeContext(providerKey) : parsedContext.scope;
+  const explicitStructuredScope = requestHasStructuredImportScopeSelection(input.requestUrl);
+  const parsedImportScope = unitContextMismatch
+    ? null
+    : structuredSelectionImportScope(parsedContext.importScope, routeScope, explicitStructuredScope);
   const importScope = unitContextMismatch
     ? null
-    : (parsedContext.importScope ?? inferImportScope(input.scopes.items, providerKey));
+    : (parsedImportScope ?? (explicitStructuredScope ? null : inferImportScope(input.scopes.items, providerKey)));
   const profileVersion = unitContextMismatch
     ? (activeProfile?.profileVersion ?? null)
     : (parsedContext.profileVersion ?? activeProfile?.profileVersion ?? null);
@@ -126,11 +131,12 @@ function buildCatalogPrimaryWorkbenchCore(
     scope: routeScope,
     importScope,
     profileVersion,
-    sourceObservationFilters: {
-      ...parsedContext.sourceObservationFilters,
-      ...(providerKey ? { providerKey } : {}),
-      ...(importScope ? { importScope } : {}),
-    },
+    sourceObservationFilters: sourceObservationFiltersForRouteContext({
+      parsedFilters: parsedContext.sourceObservationFilters,
+      providerKey,
+      importScope,
+      explicitStructuredScope,
+    }),
   };
   const providerScopeRows = providerKey
     ? input.scopes.items.filter((scope) => scope.provider_key === providerKey)
@@ -719,6 +725,88 @@ function providerOnlyScopeContext(providerKey: string | null): CatalogPrimaryWor
     expansionName: null,
     status: null,
   };
+}
+
+function requestHasStructuredImportScopeSelection(requestUrl: string | URL): boolean {
+  const searchParams = new URL(requestUrl, "https://admin.example").searchParams;
+  const structuredScopeKeys = [
+    "language",
+    "languageCode",
+    "productLineId",
+    "productLineName",
+    "seriesId",
+    "seriesName",
+    "expansionId",
+    "expansionName",
+    "setId",
+    "setName",
+  ];
+
+  return structuredScopeKeys.some((key) => Boolean(searchParams.get(key)?.trim()));
+}
+
+function structuredSelectionImportScope(
+  importScope: string | null,
+  scope: CatalogPrimaryWorkbenchRouteContext["scope"],
+  explicitStructuredScope: boolean,
+): string | null {
+  if (!explicitStructuredScope || !importScope || importScopeMatchesStructuredSelection(importScope, scope)) {
+    return importScope;
+  }
+
+  return importScopeFromScopeContext(scope);
+}
+
+function importScopeMatchesStructuredSelection(
+  importScope: string,
+  scope: CatalogPrimaryWorkbenchRouteContext["scope"],
+): boolean {
+  const segments = new Set(importScope.split(":").map(normalizedScopeSegment).filter(Boolean));
+  const optionalSegmentMatches = (value: string | null | undefined) =>
+    !value || segments.has(normalizedScopeSegment(value));
+  const requiredSegmentMatches = (value: string | null | undefined) =>
+    Boolean(value && segments.has(normalizedScopeSegment(value)));
+  const pairMatches = (left: string | null | undefined, right: string | null | undefined) =>
+    !left && !right ? true : requiredSegmentMatches(left) || requiredSegmentMatches(right);
+
+  if (!optionalSegmentMatches(scope?.languageCode)) {
+    return false;
+  }
+  if (scope?.expansionId || scope?.expansionName) {
+    return pairMatches(scope.expansionId, scope.expansionName);
+  }
+  if (scope?.seriesId || scope?.seriesName) {
+    return pairMatches(scope.seriesId, scope.seriesName);
+  }
+  if (scope?.productLineId || scope?.productLineName) {
+    return pairMatches(scope.productLineId, scope.productLineName);
+  }
+
+  return true;
+}
+
+function normalizedScopeSegment(value: string | null | undefined): string {
+  return value?.trim().toLowerCase() ?? "";
+}
+
+function sourceObservationFiltersForRouteContext(input: {
+  parsedFilters: Readonly<Record<string, string>>;
+  providerKey: string | null;
+  importScope: string | null;
+  explicitStructuredScope: boolean;
+}): Readonly<Record<string, string>> {
+  const filters = { ...input.parsedFilters };
+  if (input.importScope || input.explicitStructuredScope) {
+    delete filters.importScope;
+  }
+  if (input.providerKey) {
+    filters.providerKey = input.providerKey;
+  }
+  if (input.importScope) {
+    filters.importScope = input.importScope;
+  }
+
+  return filters;
 }
 
 function inferImportScope(
